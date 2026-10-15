@@ -15,6 +15,9 @@ export type ShortcutAction =
   | { kind: "selectAll" }
   | { kind: "deselect" }
   | { kind: "editText" }
+  | { kind: "copy" }
+  | { kind: "cut" }
+  | { kind: "paste" }
   | { kind: "open" }
   | { kind: "save" };
 
@@ -41,6 +44,9 @@ export function shortcutFor(e: KeyLike): ShortcutAction | null {
       case "z": return e.shiftKey ? { kind: "redo" } : { kind: "undo" };
       case "y": return { kind: "redo" };
       case "d": return { kind: "duplicate" };
+      case "c": return e.shiftKey ? null : { kind: "copy" };
+      case "x": return e.shiftKey ? null : { kind: "cut" };
+      case "v": return e.shiftKey ? null : { kind: "paste" };
       case "g": return e.shiftKey ? { kind: "ungroup" } : { kind: "group" };
       case "a": return { kind: "selectAll" };
       case "o": return { kind: "open" };

@@ -24,8 +24,9 @@ import type { Transform } from "../generated/Transform";
 import type { ZOp } from "../generated/ZOp";
 import { bodyText, effectiveParagraph, findShape, placeholderDef, textOf } from "../model";
 import {
-  alignCommand, alignmentCommand, bodyFromText, bulletCommand, compound, duplicateCommand, indentCommands,
-  newShape, nudgeCommand, runPropsRange, runPropsWhole, selectedParagraphs, type InsertKind,
+  alignCommand, alignmentCommand, bodyFromText, bulletCommand, compound, duplicateCommand, formatCommands, indentCommands,
+  lineSpacingCommand, newShape, nudgeCommand, pasteOffset, runPropsRange, runPropsWhole, selectedParagraphs, stepFontSize,
+  type FormatValues, type InsertKind,
 } from "./commands";
 import type { ShortcutAction } from "./shortcuts";
 
@@ -64,7 +65,19 @@ export interface ShowState {
   mediaVersion: number;
   /** The core answers the file requests (`openPptx`/`savePptx`). */
   fileIo: boolean;
+  /** What the internal clipboard holds (`null` = empty). */
+  clipboard: "shapes" | "slides" | null;
+  /** The speaker notes pane under the stage is shown. */
+  notesVisible: boolean;
+  /** An open dialog of the slide editor. */
+  dialog: ShowDialog | null;
 }
+
+/** Dialogs opened from menus: Format Shape, Alt Text, the Replace Picture file picker. */
+export type ShowDialog = { kind: "format" } | { kind: "alt"; shape: NodeId } | { kind: "replacePicture"; shape: NodeId };
+
+/** The internal clipboard: shapes (with the slide they came from) or slide ids. */
+type Clip = { kind: "shapes"; shapes: Shape[]; slide: NodeId | null; pastes: number } | { kind: "slides"; ids: NodeId[] };
 
 /** Applies a patch to a presentation (ShowPatch doc: delete, replace/add, reorder). Pure. */
 export function applyPatch(pres: Presentation, patch: ShowPatch): Presentation {
@@ -106,7 +119,11 @@ export class ShowStore {
     toasts: [],
     mediaVersion: 0,
     fileIo: false,
+    clipboard: null,
+    notesVisible: false,
+    dialog: null,
   };
+  private clip: Clip | null = null;
   private listeners = new Set<() => void>();
   private toastSeq = 0;
   private tempSeq = 0;
@@ -298,21 +315,55 @@ export class ShowStore {
     this.set({ current: id, selection: [], editing: null });
   }
 
-  /** Runs a slide command and makes the slide it created current. */
-  private async runSlideCommand(command: ShowCommand): Promise<void> {
+  /** Runs a slide command and makes the slide it created current; returns its id. */
+  private async runSlideCommand(command: ShowCommand): Promise<NodeId | undefined> {
     const before = new Set(this.state.pres?.slides.map((s) => s.id) ?? []);
     const res = await this.run(command);
     const added = res?.env.patch.slidesOrder?.find((id) => !before.has(id));
     if (added !== undefined) this.set({ current: added, selection: [] });
+    return added;
   }
 
-  addSlide(layout: LayoutKind): Promise<void> {
+  async addSlide(layout: LayoutKind): Promise<void> {
     const after = this.state.current;
-    return this.runSlideCommand(after === null ? { type: "addSlide", layout } : { type: "addSlide", after, layout });
+    await this.runSlideCommand(after === null ? { type: "addSlide", layout } : { type: "addSlide", after, layout });
   }
 
-  duplicateSlide(id: NodeId): Promise<void> {
-    return this.runSlideCommand({ type: "duplicateSlide", id });
+  async duplicateSlide(id: NodeId): Promise<void> {
+    await this.runSlideCommand({ type: "duplicateSlide", id });
+  }
+
+  /** Changes the layout of `slides` (default: the current one). */
+  async setSlideLayout(layout: LayoutKind, slides?: NodeId[]): Promise<void> {
+    if (this.state.editing) await this.commitEdit();
+    const ids = slides ?? (this.state.current === null ? [] : [this.state.current]);
+    await this.run(compound(ids.map((slide) => ({ type: "setSlideLayout", slide, layout }))));
+  }
+
+  /** Hides `slides` (default: the current one) in the slide show, or shows them again when all are hidden. */
+  async toggleHidden(slides?: NodeId[]): Promise<void> {
+    const ids = slides ?? (this.state.current === null ? [] : [this.state.current]);
+    const all = this.state.pres?.slides.filter((s) => ids.includes(s.id)) ?? [];
+    if (!all.length) return;
+    await this.run({ type: "setSlidesHidden", slides: ids, hidden: !all.every((s) => s.hidden) });
+  }
+
+  /** Sets the speaker notes of a slide (no command when unchanged). */
+  async setNotes(slide: NodeId, notes: string): Promise<void> {
+    const old = this.state.pres?.slides.find((s) => s.id === slide)?.notes ?? "";
+    if (old === notes) return;
+    await this.run({ type: "setNotes", slide, notes: notes || null });
+  }
+
+  /** Background colour of the current slide, or of every slide (`null` = the master's). */
+  async setBackground(color: Color | null, all = false): Promise<void> {
+    const ids = all ? (this.state.pres?.slides.map((s) => s.id) ?? []) : this.state.current === null ? [] : [this.state.current];
+    const fill = color ? ({ kind: "solid", value: color } as const) : null;
+    await this.run(compound(ids.map((slide) => ({ type: "setSlideBackground", slide, fill }))));
+  }
+
+  toggleNotes(): void {
+    this.set({ notesVisible: !this.state.notesVisible });
   }
 
   async deleteSlides(ids: NodeId[]): Promise<void> {
@@ -323,6 +374,93 @@ export class ShowStore {
     const from = this.state.pres?.slides.findIndex((s) => s.id === id) ?? -1;
     if (from < 0 || from === toIndex) return;
     await this.run({ type: "moveSlide", id, toIndex });
+  }
+
+  // --- clipboard (internal; text keeps the native clipboard while editing) ------
+
+  /** Copies the selected shapes. */
+  copy(): boolean {
+    const shapes = this.selectedShapes();
+    if (this.state.editing || !shapes.length) return false;
+    this.clip = { kind: "shapes", shapes: structuredClone(shapes), slide: this.state.current, pastes: 0 };
+    this.set({ clipboard: "shapes" });
+    return true;
+  }
+
+  /** Copies and deletes the selected shapes. */
+  async cut(): Promise<void> {
+    if (this.copy()) await this.deleteSelection();
+  }
+
+  /** Copies slides (the slide sorter's Ctrl+C). */
+  copySlides(ids: NodeId[]): void {
+    if (!ids.length) return;
+    this.clip = { kind: "slides", ids: [...ids] };
+    this.set({ clipboard: "slides" });
+  }
+
+  /**
+   * Pastes the clipboard: shapes onto the current slide (new ids, offset
+   * further with every paste onto the slide they came from) and selects
+   * them; slides as copies after the current slide.
+   */
+  async paste(): Promise<void> {
+    const c = this.clip;
+    const slide = this.state.current;
+    if (!c) return;
+    if (c.kind === "slides") return this.pasteSlides(c.ids);
+    if (slide === null || !c.shapes.length) return;
+    if (this.state.editing) await this.commitEdit();
+    const same = c.slide === slide;
+    if (same) c.pastes += 1;
+    const { command, ids } = duplicateCommand(slide, c.shapes, this.temp, pasteOffset(same, c.pastes));
+    if (!command) return;
+    this.set({ selection: ids });
+    await this.run(command);
+  }
+
+  /** Inserts copies of `ids` (in order) after the current slide. */
+  private async pasteSlides(ids: NodeId[]): Promise<void> {
+    for (const id of ids) {
+      const pres = this.state.pres;
+      if (!pres?.slides.some((s) => s.id === id)) continue;
+      const target = pres.slides.findIndex((s) => s.id === this.state.current) + 1;
+      const copy = await this.runSlideCommand({ type: "duplicateSlide", id });
+      if (copy === undefined) return;
+      const at = this.state.pres?.slides.findIndex((s) => s.id === copy) ?? -1;
+      if (at >= 0 && at !== target) await this.run({ type: "moveSlide", id: copy, toIndex: target });
+    }
+  }
+
+  // --- dialogs ----------------------------------------------------------------
+
+  openDialog(dialog: ShowDialog): void {
+    if (this.state.editing) void this.commitEdit();
+    this.set({ dialog });
+  }
+
+  closeDialog(): void {
+    this.set({ dialog: null });
+  }
+
+  /** Applies the Format Shape dialog to the selected shapes (one undo step). */
+  async applyFormat(before: FormatValues, values: FormatValues): Promise<void> {
+    await this.run(compound(formatCommands(this.selectedShapes(), before, values)));
+  }
+
+  async setAltText(shape: NodeId, alt: string): Promise<void> {
+    if ((this.shape(shape)?.alt ?? "") === alt) return;
+    await this.run({ type: "setAltText", shape, alt: alt || null });
+  }
+
+  async replacePicture(shape: NodeId, contentType: string, bytesBase64: string): Promise<void> {
+    await this.run({ type: "replacePicture", shape, contentType, bytesBase64 });
+  }
+
+  /** Natural size for the selected pictures. */
+  async resetPictureSize(): Promise<void> {
+    const shapes = this.selectedShapes().filter((s) => s.kind.kind === "picture").map((s) => s.id);
+    if (shapes.length) await this.run({ type: "resetPictureSize", shapes });
   }
 
   // --- selection --------------------------------------------------------------
@@ -534,6 +672,16 @@ export class ShowStore {
     await this.run(compound(cmds.filter((c): c is ShowCommand => !!c)));
   }
 
+  async setLineSpacing(multiple: number): Promise<void> {
+    const cmds = this.paragraphTargets().flatMap((t) => [t.pre, lineSpacingCommand(t.shape.id, t.paragraphs, multiple)]);
+    await this.run(compound(cmds.filter((c): c is ShowCommand => !!c)));
+  }
+
+  /** Grow (`1`) / shrink (`-1`) font: the next size step from `current` (hundredths of a point). */
+  async stepFont(dir: 1 | -1, current: number): Promise<void> {
+    await this.applyRunPatch({ size: stepFontSize(current, dir) });
+  }
+
   async indent(delta: 1 | -1): Promise<void> {
     const cmds = this.paragraphTargets().flatMap((t) => [
       t.pre,
@@ -555,6 +703,9 @@ export class ShowStore {
       case "zOrder": void this.zOrder(a.op); break;
       case "undo": void this.undo(); break;
       case "redo": void this.redo(); break;
+      case "copy": return this.copy();
+      case "cut": if (!this.copy()) return false; void this.deleteSelection(); break;
+      case "paste": if (!this.clip || this.state.editing) return false; void this.paste(); break;
       case "selectAll": this.select(this.currentSlide()?.shapes.map((s) => s.id) ?? []); break;
       case "deselect": this.select([]); break;
       case "editText": {
