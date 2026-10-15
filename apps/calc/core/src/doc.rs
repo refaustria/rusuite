@@ -6,16 +6,16 @@ use app_common::{Applied, DispatchError, Document, Patch, Revision};
 use engine_formula::ast::{MAX_COL, MAX_ROW};
 use engine_formula::{CellContent, CellRect, Cycle, MoveContext, StructuralOp, Value};
 use model_sheet::{
-    content_to_input, CellCoord, CellRange, ColInfo, EngineError, Recalc, RowInfo, SheetId,
-    StyleId, Workbook, MAX_PATCH_CELLS,
+    content_to_input, CellCoord, CellRange, ColInfo, EngineError, MergeRect, Recalc, RowInfo,
+    SheetId, StyleId, Workbook, MAX_PATCH_CELLS,
 };
 
-use crate::command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect};
+use crate::command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect, SheetViewPatch};
 use crate::display::display_value;
 use crate::fill::{move_input, plan, shift_input, FillItem};
 use crate::patch::{
     CalcPatch, CellKind, CellView, ColView, FoundCell, RegionSnapshot, RowView, SheetCells,
-    SheetCols, SheetInfo, SheetRows, StructuralChange, StructuralKind, WorkbookInfo,
+    SheetCols, SheetInfo, SheetMerges, SheetRows, StructuralChange, StructuralKind, WorkbookInfo,
 };
 
 /// Errors of [`CalcDocument`]; [`code`](Self::code) is the stable
@@ -63,6 +63,10 @@ impl CalcError {
             CalcError::Model(M::UnknownStyle(_)) => "unknown_style",
             CalcError::Model(M::InvalidDimension(_)) => "invalid_dimension",
             CalcError::Model(M::InvalidSnapshot(_)) => "invalid_snapshot",
+            CalcError::Model(M::LastVisibleSheet) => "last_visible_sheet",
+            CalcError::Model(M::InvalidMerge) => "invalid_merge",
+            CalcError::Model(M::MergeOverlap) => "merge_overlap",
+            CalcError::Model(M::InvalidSheetView(_)) => "invalid_view",
             CalcError::ReadXlsx(_) => "invalid_file",
             CalcError::WriteXlsx(_) => "internal",
         }
@@ -117,6 +121,15 @@ fn col_view(col: u32, info: ColInfo) -> ColView {
         width: info.width,
         hidden: info.hidden,
         style: info.style.map(|s| s.0),
+    }
+}
+
+fn rect_of(m: &MergeRect) -> Rect {
+    Rect {
+        r0: m.r0,
+        c0: m.c0,
+        r1: m.r1,
+        c1: m.c1,
     }
 }
 
@@ -217,6 +230,9 @@ impl CalcDocument {
                 id: id.0,
                 name,
                 tab_color: self.workbook.tab_color(id),
+                hidden: self.workbook.is_sheet_hidden(id),
+                very_hidden: self.workbook.is_sheet_very_hidden(id),
+                view: self.workbook.sheet_view(id),
             })
             .collect()
     }
@@ -272,7 +288,28 @@ impl CalcDocument {
                 .map(|(i, info)| row_view(i, info))
                 .collect(),
             format: wb.sheet_format(s),
+            merges: wb
+                .merges(s)
+                .iter()
+                .filter(|m| m.intersects(&MergeRect::new(r0, c0, r1, c1)))
+                .map(rect_of)
+                .collect(),
         })
+    }
+
+    /// The merges of `s` as wire rectangles.
+    fn merge_rects(&self, s: SheetId) -> Vec<Rect> {
+        self.workbook.merges(s).iter().map(rect_of).collect()
+    }
+
+    fn merges_patch(&self, s: SheetId) -> CalcPatch {
+        CalcPatch {
+            merges: vec![SheetMerges {
+                sheet: s.0,
+                merges: self.merge_rects(s),
+            }],
+            ..Default::default()
+        }
     }
 
     /// The rendered state of one cell.
@@ -475,6 +512,26 @@ impl CalcDocument {
             tab_color: wb.tab_color(s),
             format: wb.sheet_format(s),
         }];
+        let view = wb.sheet_view(s);
+        if !view.is_default() {
+            inverse.push(C::SetSheetView {
+                sheet,
+                patch: SheetViewPatch::full(view),
+            });
+        }
+        if !wb.merges(s).is_empty() {
+            inverse.push(C::RestoreMerges {
+                sheet,
+                merges: self.merge_rects(s),
+            });
+        }
+        if wb.is_sheet_hidden(s) {
+            inverse.push(C::SetSheetHidden {
+                sheet,
+                hidden: true,
+                very_hidden: wb.is_sheet_very_hidden(s).then_some(true),
+            });
+        }
         let formulas: Vec<_> = self
             .formulas()
             .into_iter()
@@ -519,6 +576,44 @@ impl CalcDocument {
             ..Default::default()
         });
         Ok(Applied { patch, inverse })
+    }
+
+    /// [`CalcCommand::SetSheetHidden`].
+    fn set_sheet_hidden(
+        &mut self,
+        sheet: u32,
+        hidden: bool,
+        very_hidden: bool,
+    ) -> Result<CalcApplied> {
+        let s = self.sheet(sheet)?;
+        let wb = &self.workbook;
+        let (old_hidden, old_very) = (wb.is_sheet_hidden(s), wb.is_sheet_very_hidden(s));
+        self.workbook.set_sheet_visibility(s, hidden, very_hidden)?;
+        let wb = &self.workbook;
+        let activate = if hidden {
+            // The nearest visible sheet, preferring the following ones.
+            let order: Vec<SheetId> = wb.sheets().into_iter().map(|(id, _)| id).collect();
+            let pos = order.iter().position(|&id| id == s).unwrap_or_default();
+            let visible = |id: &&SheetId| !wb.is_sheet_hidden(**id);
+            order[pos..]
+                .iter()
+                .find(visible)
+                .or_else(|| order[..pos].iter().rev().find(visible))
+                .map(|id| id.0)
+        } else {
+            Some(sheet)
+        };
+        Ok(Applied {
+            patch: CalcPatch {
+                activate_sheet: activate,
+                ..self.sheets_only_patch()
+            },
+            inverse: Some(CalcCommand::SetSheetHidden {
+                sheet,
+                hidden: old_hidden,
+                very_hidden: old_very.then_some(true),
+            }),
+        })
     }
 
     /// The last cell with content or an own style on `sheet`, `None` for
@@ -772,6 +867,110 @@ impl CalcDocument {
                     inverse: Some(C::RenameSheet {
                         sheet: *sheet,
                         name: old,
+                    }),
+                })
+            }
+            &C::SetFreeze { sheet, rows, cols } => {
+                let s = self.sheet(sheet)?;
+                let old = self.workbook.sheet_view(s);
+                self.workbook.set_frozen(s, rows, cols)?;
+                Ok(Applied {
+                    patch: self.sheets_only_patch(),
+                    inverse: Some(C::SetFreeze {
+                        sheet,
+                        rows: old.frozen_rows,
+                        cols: old.frozen_cols,
+                    }),
+                })
+            }
+            &C::SetSheetView { sheet, patch } => {
+                let s = self.sheet(sheet)?;
+                let old = self.workbook.sheet_view(s);
+                self.workbook.set_sheet_view(s, patch.apply(old))?;
+                Ok(Applied {
+                    patch: self.sheets_only_patch(),
+                    inverse: Some(C::SetSheetView {
+                        sheet,
+                        patch: SheetViewPatch::full(old),
+                    }),
+                })
+            }
+            &C::SetSheetHidden {
+                sheet,
+                hidden,
+                very_hidden,
+            } => self.set_sheet_hidden(sheet, hidden, very_hidden.unwrap_or(false)),
+            &C::MergeCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+            } => {
+                let range = self.range(sheet, r0, c0, r1, c1)?;
+                let s = range.sheet;
+                let old = self.merge_rects(s);
+                let cleared: Vec<(u32, u32, String, u32)> = self
+                    .workbook
+                    .cells_in(range)
+                    .filter(|(c, content, _)| {
+                        !matches!(content, CellContent::Empty) && (c.row, c.col) != (r0, c0)
+                    })
+                    .map(|(c, content, style)| (c.row, c.col, content_to_input(content), style.0))
+                    .collect();
+                let recalc = self.workbook.merge_cells(range)?;
+                let mut patch = self.content_patch(
+                    cleared.iter().map(|&(r, c, _, _)| CellCoord::new(s, r, c)),
+                    &recalc,
+                );
+                patch.merge(self.merges_patch(s));
+                let restore = C::RestoreMerges { sheet, merges: old };
+                let inverse = if cleared.is_empty() {
+                    restore
+                } else {
+                    C::Compound {
+                        commands: vec![
+                            restore,
+                            C::RestoreCells {
+                                sheet,
+                                cells: cleared,
+                            },
+                        ],
+                    }
+                };
+                Ok(Applied {
+                    patch,
+                    inverse: Some(inverse),
+                })
+            }
+            &C::UnmergeCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+            } => {
+                let range = self.range(sheet, r0, c0, r1, c1)?;
+                let old = self.merge_rects(range.sheet);
+                self.workbook.unmerge_cells(range)?;
+                Ok(Applied {
+                    patch: self.merges_patch(range.sheet),
+                    inverse: Some(C::RestoreMerges { sheet, merges: old }),
+                })
+            }
+            C::RestoreMerges { sheet, merges } => {
+                let s = self.sheet(*sheet)?;
+                let old = self.merge_rects(s);
+                let rects = merges
+                    .iter()
+                    .map(|r| MergeRect::new(r.r0, r.c0, r.r1, r.c1))
+                    .collect();
+                self.workbook.set_merges(s, rects)?;
+                Ok(Applied {
+                    patch: self.merges_patch(s),
+                    inverse: Some(C::RestoreMerges {
+                        sheet: *sheet,
+                        merges: old,
                     }),
                 })
             }
@@ -1321,6 +1520,8 @@ impl CalcDocument {
         let (at, count) = op.span();
         let formulas = self.formulas();
         let wb = &self.workbook;
+        let merges_before = wb.merges(s).to_vec();
+        let view_before = wb.sheet_view(s);
 
         // What a delete destroys.
         let mut span_cells = Vec::new();
@@ -1423,6 +1624,23 @@ impl CalcDocument {
         for (sheet, cells) in rewritten {
             inverse.push(C::RestoreCells { sheet, cells });
         }
+        // Merges and frozen panes clipped by a delete (or grown by an
+        // insert) do not come back with the opposite operation.
+        let mut extra = CalcPatch::default();
+        if self.workbook.merges(s) != merges_before.as_slice() {
+            inverse.push(C::RestoreMerges {
+                sheet,
+                merges: merges_before.iter().map(rect_of).collect(),
+            });
+            extra.merge(self.merges_patch(s));
+        }
+        if self.workbook.sheet_view(s) != view_before {
+            inverse.push(C::SetSheetView {
+                sheet,
+                patch: SheetViewPatch::full(view_before),
+            });
+            extra.sheets = Some(self.sheet_infos());
+        }
         let inverse = if inverse.len() == 1 {
             inverse.pop()
         } else {
@@ -1439,15 +1657,14 @@ impl CalcDocument {
         } else {
             Vec::new()
         };
-        Ok(Applied {
-            patch: CalcPatch {
-                cells: self.cells_patch(recalc.changed.iter().copied(), Some(s)),
-                cycle: self.cycle_text(recalc.cycle.as_ref()),
-                structural,
-                ..Default::default()
-            },
-            inverse,
-        })
+        let mut patch = CalcPatch {
+            cells: self.cells_patch(recalc.changed.iter().copied(), Some(s)),
+            cycle: self.cycle_text(recalc.cycle.as_ref()),
+            structural,
+            ..Default::default()
+        };
+        patch.merge(extra);
+        Ok(Applied { patch, inverse })
     }
 }
 

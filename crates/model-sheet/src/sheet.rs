@@ -1,4 +1,5 @@
-//! Per-sheet column/row dimensions and defaults.
+//! Per-sheet column/row dimensions, defaults, view settings and merged
+//! cell ranges.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -70,6 +71,79 @@ impl Default for SheetFormat {
     }
 }
 
+/// Smallest and largest [`SheetView::zoom`] (Excel's limits).
+pub const MIN_ZOOM: u16 = 10;
+pub const MAX_ZOOM: u16 = 400;
+
+/// How a sheet is shown. `Default` = nothing frozen, 100 %, gridlines and
+/// row/column headings on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SheetView {
+    /// Rows `0..frozen_rows` stay visible when scrolling (0 = none).
+    pub frozen_rows: u32,
+    /// Columns `0..frozen_cols` stay visible when scrolling (0 = none).
+    pub frozen_cols: u32,
+    /// Percent, [`MIN_ZOOM`]..=[`MAX_ZOOM`].
+    pub zoom: u16,
+    pub show_gridlines: bool,
+    /// Row numbers and column letters.
+    pub show_headings: bool,
+}
+
+impl Default for SheetView {
+    fn default() -> Self {
+        SheetView {
+            frozen_rows: 0,
+            frozen_cols: 0,
+            zoom: 100,
+            show_gridlines: true,
+            show_headings: true,
+        }
+    }
+}
+
+impl SheetView {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// A merged cell range (0-based, inclusive bounds) of at least two cells.
+/// Only the top-left cell `(r0, c0)` shows content; it spans the range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct MergeRect {
+    pub r0: u32,
+    pub c0: u32,
+    pub r1: u32,
+    pub c1: u32,
+}
+
+impl MergeRect {
+    pub fn new(r0: u32, c0: u32, r1: u32, c1: u32) -> Self {
+        MergeRect { r0, c0, r1, c1 }
+    }
+
+    pub fn contains(&self, row: u32, col: u32) -> bool {
+        (self.r0..=self.r1).contains(&row) && (self.c0..=self.c1).contains(&col)
+    }
+
+    pub fn intersects(&self, other: &MergeRect) -> bool {
+        self.r0 <= other.r1 && other.r0 <= self.r1 && self.c0 <= other.c1 && other.c0 <= self.c1
+    }
+
+    /// Whether `other` lies completely inside `self`.
+    pub fn covers(&self, other: &MergeRect) -> bool {
+        self.r0 <= other.r0 && other.r1 <= self.r1 && self.c0 <= other.c0 && other.c1 <= self.c1
+    }
+
+    /// Number of cells.
+    pub fn cells(&self) -> u64 {
+        (u64::from(self.r1) - u64::from(self.r0) + 1)
+            * (u64::from(self.c1) - u64::from(self.c0) + 1)
+    }
+}
+
 /// What `model-sheet` stores per sheet beyond the engine's cell contents.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SheetData {
@@ -89,6 +163,13 @@ pub(crate) struct SheetData {
     pub format: SheetFormat,
     /// Colour of the sheet tab; `None` = default.
     pub tab_color: Option<core_model::Color>,
+    pub view: SheetView,
+    /// Hidden sheet (not shown as a tab; can be unhidden).
+    pub hidden: bool,
+    /// Excel's `veryHidden` (implies `hidden`; only unhidden by code).
+    pub very_hidden: bool,
+    /// Merged ranges, pairwise disjoint, sorted by `(r0, c0)`.
+    pub merges: Vec<MergeRect>,
 }
 
 impl SheetData {

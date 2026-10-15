@@ -2,9 +2,11 @@
 //! command, [`RegionSnapshot`] for a viewport, [`WorkbookInfo`] on open.
 
 use app_common::Revision;
-use model_sheet::{CellStyle, SheetFormat};
+use model_sheet::{CellStyle, SheetFormat, SheetView};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+use crate::command::Rect;
 
 /// The value type of a cell, for default alignment (numbers right, text
 /// left, booleans and errors centered).
@@ -59,6 +61,29 @@ pub struct SheetInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<app_common::wire::Color>")]
     pub tab_color: Option<core_model::Color>,
+    /// Hidden sheets get no tab (they stay in the list, in order);
+    /// absent = visible.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub hidden: bool,
+    /// Excel's "very hidden" (with `hidden`): not offered for unhiding.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub very_hidden: bool,
+    /// Frozen panes, zoom, gridlines and headings; absent = defaults
+    /// (nothing frozen, 100 %, gridlines and headings shown).
+    #[serde(default, skip_serializing_if = "SheetView::is_default")]
+    #[ts(optional, as = "Option<crate::wire::SheetView>")]
+    pub view: SheetView,
+}
+
+/// The complete list of merged ranges of `sheet`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct SheetMerges {
+    pub sheet: u32,
+    pub merges: Vec<Rect>,
 }
 
 /// Properties of one column; all defaults when not listed.
@@ -145,7 +170,8 @@ pub struct StructuralChange {
 #[ts(export, export_to = "apps/calc/src/generated/")]
 pub struct CalcPatch {
     /// The full sheet list in display order, when it changed (added,
-    /// deleted, renamed, moved or recoloured sheets).
+    /// deleted, renamed, moved, recoloured, hidden/shown sheets, or a
+    /// changed sheet view).
     pub sheets: Option<Vec<SheetInfo>>,
     pub cells: Vec<SheetCells>,
     pub cols: Vec<SheetCols>,
@@ -157,6 +183,17 @@ pub struct CalcPatch {
     /// recalculation found one.
     pub cycle: Option<String>,
     pub structural: Vec<StructuralChange>,
+    /// The complete merge list of every sheet whose merges changed;
+    /// absent = none changed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<SheetMerges>>")]
+    pub merges: Vec<SheetMerges>,
+    /// After `setSheetHidden`: the sheet to show – the unhidden sheet, or
+    /// after hiding, its nearest visible neighbour (to switch to when the
+    /// hidden sheet was the active one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub activate_sheet: Option<u32>,
 }
 
 /// Merges `other` into `list`, replacing entries with the same key.
@@ -180,6 +217,10 @@ impl app_common::Patch for CalcPatch {
         if other.cycle.is_some() {
             self.cycle = other.cycle;
         }
+        if other.activate_sheet.is_some() {
+            self.activate_sheet = other.activate_sheet;
+        }
+        merge_keyed(&mut self.merges, other.merges, |m| m.sheet);
         // A structural change invalidates earlier cell/row/col entries of
         // that sheet: drop them.
         for s in &other.structural {
@@ -227,6 +268,11 @@ pub struct RegionSnapshot {
     pub rows: Vec<RowView>,
     #[ts(as = "crate::wire::SheetFormat")]
     pub format: SheetFormat,
+    /// The merged ranges that intersect the region (whole ranges, which
+    /// may extend beyond it); absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<Rect>>")]
+    pub merges: Vec<Rect>,
 }
 
 /// Workbook metadata sent on open/new.
