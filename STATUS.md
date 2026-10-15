@@ -119,7 +119,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 | P8-13 | Calc UI: conditional formatting + data validation | Opus | in progress | `p8/calc-cf-dv-ui` | brief docs/tasks/P8-13-calc-cf-dv-ui.md |
 | P8-14 | Show backend: shape library (presets + geometry paths), connectors with sites/arrowheads, tables in slides (model, pptx, core) | Opus | in progress | `p8/show-shapes-tables` | brief docs/tasks/P8-14-show-shapes-tables-backend.md |
 | P8-11b | model-sheet rustdoc links (CI doc check) | Sonnet | done (merged) | – | |
-| P8-12b | Date-dependent ui-shared test (Autosaved HH:MM) fixed to use fake timers | Sonnet | in progress | `p8/autosave-test` | |
+| P8-12b | Date-dependent ui-shared test (Autosaved HH:MM) fixed to use fake timers | Sonnet | done (merged) | – | fake Date in the test |
 | P7-3 | De-duplicate XML writer/theme code into fmt-ooxml; docs/architecture.md real overview; README status/what-works | Opus | done (merged) | – | verified: 830 tests, harnesses 2/2, 52/52, 26/26 byte-identical output; −330 LOC; docs/architecture.md rewritten; README status Alpha; ADR 0003 amended (fmt-ooxml → core-model) |
 | P7-4 | Calc sheets: delete/duplicate/move/tab colour (engine + core + UI + xlsx) | Opus | done (merged) | – | verified: 838 Rust tests, e2e 39/39, suite 862/0; engine remove/restore/move/duplicate sheet with `#REF!`; undoable AddSheet; tab colours in xlsx; tab context menu + drag reorder |
 | P6-1 | Ribbon in ui-shared + all apps | Opus | done (merged) | – | verified: 437 frontend tests; Ribbon/Backstage/galleries in ui-shared, all apps adopted (File/Home/Insert/View, Layout in Write), keyboard (Alt, Ctrl+F1), zoom; docs/ui.md |
