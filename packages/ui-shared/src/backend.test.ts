@@ -24,6 +24,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 }));
 
 import {
+  DOCX_MIME,
   TauriBackend,
   WasmBackend,
   base64ToBytes,
@@ -132,6 +133,27 @@ describe("WasmBackend", () => {
     );
     await new Promise((r) => setTimeout(r, 0));
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:test");
+  });
+
+  it("uses the file options (Write: .docx)", async () => {
+    let picked: HTMLInputElement | undefined;
+    vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(function (
+      this: HTMLInputElement,
+    ) {
+      picked = this;
+    });
+    const b = new WasmBackend(fake, { accept: `.docx,${DOCX_MIME}`, mime: DOCX_MIME });
+    const pending = b.openFile();
+    expect(picked?.accept).toBe(`.docx,${DOCX_MIME}`);
+    picked!.dispatchEvent(new Event("cancel"));
+    await pending;
+    const createObjectURL = vi.fn((_: Blob) => "blob:docx");
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    expect(await b.saveFile("report.docx", "UEsDBA==")).toBe(true);
+    expect(createObjectURL.mock.calls[0][0].type).toBe(DOCX_MIME);
+    await b.saveFile("other.bin", "UEsDBA==");
+    expect(createObjectURL.mock.calls[1][0].type).toBe("application/octet-stream");
   });
 });
 

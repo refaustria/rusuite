@@ -6,4 +6,6 @@ export * from "./toolbar/types";
 export * from "./toolbar/color";
 export * from "./toolbar/ColorPicker";
 export * from "./toolbar/Toolbar";
+export * from "./toolbar/ParagraphStyleSelect";
+export * from "./toolbar/ListButtons";
 export * from "./toolbar/demo";

@@ -67,6 +67,18 @@ export function base64ToBytes(base64: string): Uint8Array {
 export const XLSX_MIME =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+/** MIME type of `.docx` files. */
+export const DOCX_MIME =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+/** File types of the web shell (default: `.xlsx`, as Calc). */
+export interface WasmFileOptions {
+  /** `accept` of the file input. */
+  accept?: string;
+  /** MIME type of downloads whose name ends with the extension of `accept`'s first entry. */
+  mime?: string;
+}
+
 /** Desktop shell: the Tauri commands of `apps/<app>/src-tauri`. */
 export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req, Body> {
   readonly kind = "tauri" as const;
@@ -108,11 +120,20 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
 export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, Body> {
   readonly kind = "wasm" as const;
 
+  private readonly accept: string;
+  private readonly mime: string;
+  private readonly ext: string;
+
   constructor(
     private readonly module: WasmModule,
-    /** `accept` of the file input (default: `.xlsx`). */
-    private readonly accept = `.xlsx,${XLSX_MIME}`,
-  ) {}
+    /** File types (default: `.xlsx`); a plain string is the input's `accept`. */
+    options: WasmFileOptions | string = {},
+  ) {
+    const o = typeof options === "string" ? { accept: options } : options;
+    this.accept = o.accept ?? `.xlsx,${XLSX_MIME}`;
+    this.mime = o.mime ?? XLSX_MIME;
+    this.ext = (this.accept.split(",")[0] ?? "").trim().toLowerCase();
+  }
 
   async ping(): Promise<string> {
     return this.module.ping();
@@ -156,8 +177,8 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
 
   /** Downloads the file via `<a download>`; always `true` (the browser owns the rest). */
   async saveFile(suggestedName: string, bytesBase64: string): Promise<boolean> {
-    const type = suggestedName.toLowerCase().endsWith(".xlsx")
-      ? XLSX_MIME
+    const type = this.ext.startsWith(".") && suggestedName.toLowerCase().endsWith(this.ext)
+      ? this.mime
       : "application/octet-stream";
     const blob = new Blob([base64ToBytes(bytesBase64) as BlobPart], { type });
     const url = URL.createObjectURL(blob);
@@ -185,7 +206,8 @@ export function isTauri(): boolean {
 /** Picks the Tauri backend inside the desktop shell, else loads WASM. */
 export async function createBackend<Req = unknown, Body = unknown>(
   loadWasm: () => Promise<WasmModule>,
+  options: WasmFileOptions = {},
 ): Promise<Backend<Req, Body>> {
   if (isTauri()) return new TauriBackend<Req, Body>();
-  return new WasmBackend<Req, Body>(await loadWasm());
+  return new WasmBackend<Req, Body>(await loadWasm(), options);
 }

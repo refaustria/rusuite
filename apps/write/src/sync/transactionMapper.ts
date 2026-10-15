@@ -1,0 +1,364 @@
+// ProseMirror transaction → one `WriteCommand` (ADR 0007 §3).
+//
+// The mapper compares the document before and after the transaction at the
+// model level: unchanged top-level nodes are skipped by identity (ProseMirror
+// shares them structurally), the changed range is converted with `fromPM`
+// and trimmed to the blocks that really differ. The difference is then
+// classified into a fine-grained command (typing, deletion, mark changes,
+// split/join, paragraph properties, lists); anything else becomes
+// `ReplaceBlocks` of the affected top-level blocks, which is always correct.
+
+import type { Node as PMNode } from "@tiptap/pm/model";
+import type { Transaction } from "@tiptap/pm/state";
+import type { Block } from "../generated/Block";
+import type { Inline } from "../generated/Inline";
+import type { ListKind } from "../generated/ListKind";
+import type { Paragraph } from "../generated/Paragraph";
+import type { ParagraphProperties } from "../generated/ParagraphProperties";
+import type { WriteCommand } from "../generated/WriteCommand";
+import { nodeToBlocks } from "./fromPM";
+import {
+  applyParagraphPatch, applyRunPatch, blockKey, canonValue, propsKey, RUN_KEYS, stableStringify,
+  SYNTHETIC_BULLET, SYNTHETIC_DECIMAL, type RunProperties,
+} from "./model";
+
+export interface MapperOptions {
+  /** The document's default paragraph style (`SetStyle` target for "no style"). */
+  defaultStyle?: string;
+  /** Kind of an existing numbering definition (for `ApplyList`). */
+  listKindOf?: (numId: number) => "bullet" | "decimal" | null;
+  /** An existing numbering id to use for a new list of `kind` in a `ReplaceBlocks`, or null. */
+  listIdFor?: (kind: "bullet" | "decimal") => number | null;
+}
+
+export interface MapResult {
+  command: WriteCommand;
+  /**
+   * New lists that a `ReplaceBlocks` could not express (no definition of
+   * that kind yet): after the reply, send `ApplyList` for these (temporary
+   * or real) ids.
+   */
+  followUp?: { ids: number[]; kind: ListKind };
+}
+
+type P = { kind: "paragraph"; value: Paragraph };
+const isPara = (b: Block): b is P => b.kind === "paragraph";
+
+/** Model blocks of one top-level node, memoized per node identity. */
+const blockCache = new WeakMap<PMNode, Block[]>();
+export function topBlocks(node: PMNode): Block[] {
+  let b = blockCache.get(node);
+  if (!b) blockCache.set(node, (b = nodeToBlocks(node)));
+  return b;
+}
+
+// ----- inline diff -----------------------------------------------------------
+
+interface Pos {
+  key: string;
+  ch?: string;
+  props?: RunProperties;
+}
+
+/** One entry per char position (scalar, image or break). */
+function positions(inlines: Inline[]): Pos[] {
+  const out: Pos[] = [];
+  for (const inline of inlines) {
+    if (inline.kind === "run") {
+      const pk = propsKey(inline.value.props);
+      const props = (canonValue(inline.value.props ?? {}) ?? {}) as RunProperties;
+      for (const ch of inline.value.text) out.push({ key: `${ch}\u0000${pk}`, ch, props });
+    } else {
+      out.push({ key: stableStringify(inline) });
+    }
+  }
+  return out;
+}
+
+/** Splits text positions into segments of equal properties. */
+function segments(ps: Pos[]): { text: string; props: RunProperties }[] {
+  const out: { text: string; props: RunProperties; key: string }[] = [];
+  for (const p of ps) {
+    const key = propsKey(p.props);
+    const last = out[out.length - 1];
+    if (last && last.key === key) last.text += p.ch;
+    else out.push({ text: p.ch!, props: p.props!, key });
+  }
+  return out.map(({ text, props }) => ({ text, props }));
+}
+
+/** A `SetRunProps` patch turning every `old[i]` into `next[i]`, or null. */
+function runPatch(old: Pos[], next: Pos[]): RunProperties | null {
+  const patch: Record<string, unknown> = {};
+  for (const k of RUN_KEYS) {
+    const changed = old.some((o, i) => stableStringify(o.props![k]) !== stableStringify(next[i]!.props![k]));
+    if (!changed) continue;
+    const values = new Set(next.map((n) => stableStringify(n.props![k])));
+    if (values.size !== 1) return null;
+    const v = next[0]!.props![k];
+    if (v === undefined) {
+      if (k === "bold" || k === "italic" || k === "strike") patch[k] = false;
+      else return null;
+    } else patch[k] = v;
+  }
+  const p = patch as RunProperties;
+  const ok = old.every((o, i) => propsKey(applyRunPatch(o.props, p)) === propsKey(next[i]!.props));
+  return ok ? p : null;
+}
+
+/** Inline-level change of one paragraph, or null when not expressible. */
+function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): WriteCommand | null {
+  const a = positions(oldInlines);
+  const b = positions(newInlines);
+  let pre = 0;
+  while (pre < a.length && pre < b.length && a[pre]!.key === b[pre]!.key) pre++;
+  let suf = 0;
+  while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf]!.key === b[b.length - 1 - suf]!.key) suf++;
+  const oldMid = a.slice(pre, a.length - suf);
+  const newMid = b.slice(pre, b.length - suf);
+  if (!oldMid.length && !newMid.length) return null;
+  const allText = (ps: Pos[]) => ps.every((p) => p.ch !== undefined);
+  if (!newMid.length) return { type: "deleteText", block: id, from: pre, to: pre + oldMid.length };
+  if (!allText(newMid)) return null;
+  const inserts = (at: number): WriteCommand[] => {
+    const cmds: WriteCommand[] = [];
+    let offset = at;
+    for (const s of segments(newMid)) {
+      cmds.push({ type: "insertText", block: id, offset, text: s.text, props: s.props });
+      offset += [...s.text].length;
+    }
+    return cmds;
+  };
+  if (!oldMid.length) {
+    const cmds = inserts(pre);
+    return cmds.length === 1 ? cmds[0]! : { type: "compound", commands: cmds };
+  }
+  // Same characters, different formatting: a mark change.
+  if (oldMid.length === newMid.length && allText(oldMid) && oldMid.every((o, i) => o.ch === newMid[i]!.ch)) {
+    const patch = runPatch(oldMid, newMid);
+    if (patch) return { type: "setRunProps", block: id, from: pre, to: pre + oldMid.length, patch };
+  }
+  const segs = segments(newMid);
+  if (segs.length === 1 && oldMid[0]!.ch !== undefined && propsKey(oldMid[0]!.props) === propsKey(segs[0]!.props)) {
+    return { type: "replaceText", block: id, from: pre, to: pre + oldMid.length, text: segs[0]!.text };
+  }
+  return { type: "compound", commands: [{ type: "deleteText", block: id, from: pre, to: pre + oldMid.length }, ...inserts(pre)] };
+}
+
+// ----- paragraph properties --------------------------------------------------
+
+const PARA_KEYS = ["style", "alignment", "indent", "spacing", "numbering", "keepNext", "pageBreakBefore", "runDefaults"] as const;
+type ParaKey = (typeof PARA_KEYS)[number];
+
+const kindOfSynthetic = (numId: number): "bullet" | "decimal" | null =>
+  numId === SYNTHETIC_BULLET ? "bullet" : numId === SYNTHETIC_DECIMAL ? "decimal" : null;
+
+/** Commands turning the props of `olds[i]` into `news[i]` (same ids), or null. */
+function propsCommands(olds: Paragraph[], news: Paragraph[], opts: MapperOptions): WriteCommand[] | null {
+  const get = (p: Paragraph, k: ParaKey) => (canonValue(p.props ?? {}) as ParagraphProperties)[k];
+  const changed = (k: ParaKey) =>
+    olds.map((_o, i) => i).filter((i) => stableStringify(get(olds[i]!, k)) !== stableStringify(get(news[i]!, k)));
+  const cmds: WriteCommand[] = [];
+
+  // Lists.
+  const nIdx = changed("numbering");
+  if (nIdx.length) {
+    const ids = nIdx.map((i) => news[i]!.id);
+    const oldN = nIdx.map((i) => olds[i]!.props?.numbering);
+    const newN = nIdx.map((i) => news[i]!.props?.numbering);
+    const off = (n: typeof oldN[number]) => !n || n.numId === 0;
+    if (newN.every(off)) {
+      cmds.push({ type: "applyList", blocks: ids, kind: "none" });
+    } else if (
+      newN.every((n) => !off(n)) &&
+      oldN.every((o, k) => !off(o) && o!.numId === newN[k]!.numId) &&
+      new Set(newN.map((n, k) => n!.level - oldN[k]!.level)).size === 1
+    ) {
+      cmds.push({ type: "indentList", blocks: ids, delta: newN[0]!.level - oldN[0]!.level });
+    } else if (newN.every((n) => !off(n))) {
+      const kinds = new Set(newN.map((n) => kindOfSynthetic(n!.numId) ?? opts.listKindOf?.(n!.numId) ?? null));
+      if (kinds.size !== 1 || kinds.has(null)) return null;
+      const kind = [...kinds][0]!;
+      cmds.push({ type: "applyList", blocks: ids, kind });
+      // ApplyList keeps the old level (0 when not numbered before).
+      const levels = newN.map((n, k) => n!.level - (off(oldN[k]) ? 0 : oldN[k]!.level));
+      if (new Set(levels).size !== 1) return null;
+      if (levels[0] !== 0) cmds.push({ type: "indentList", blocks: ids, delta: levels[0]! });
+    } else return null;
+  }
+
+  // Style.
+  const sIdx = changed("style");
+  if (sIdx.length) {
+    const styles = new Set(sIdx.map((i) => news[i]!.props?.style ?? opts.defaultStyle ?? "Normal"));
+    if (styles.size !== 1) return null;
+    cmds.push({ type: "setStyle", blocks: sIdx.map((i) => news[i]!.id), style: [...styles][0]! });
+  }
+
+  // Everything else: SetParagraphProps with a verified patch.
+  const rest = PARA_KEYS.filter((k) => k !== "style" && k !== "numbering");
+  const patch: Record<string, unknown> = {};
+  const touched = new Set<number>();
+  for (const k of rest) {
+    const idx = changed(k);
+    if (!idx.length) continue;
+    const values = new Set(idx.map((i) => stableStringify(get(news[i]!, k))));
+    if (values.size !== 1) return null;
+    const v = get(news[idx[0]!]!, k);
+    if (v === undefined) return null;
+    patch[k] = v;
+    idx.forEach((i) => touched.add(i));
+  }
+  if (touched.size) {
+    const idx = [...touched].sort((x, y) => x - y);
+    const strip = (p: ParagraphProperties) => {
+      const { style: _s, numbering: _n, ...r } = p;
+      return stableStringify(canonValue(r));
+    };
+    const ok = idx.every((i) => strip(applyParagraphPatch(olds[i]!.props, patch as ParagraphProperties)) === strip(news[i]!.props ?? {}));
+    if (!ok) return null;
+    cmds.push({ type: "setParagraphProps", blocks: idx.map((i) => news[i]!.id), patch: patch as ParagraphProperties });
+  }
+  return cmds;
+}
+
+// ----- block-level classification -------------------------------------------
+
+const one = (cmds: WriteCommand[]): WriteCommand => (cmds.length === 1 ? cmds[0]! : { type: "compound", commands: cmds });
+
+function concatInlines(a: Inline[], b: Inline[]): string {
+  return stableStringify(positions([...a, ...b]).map((p) => p.key));
+}
+
+/** Replaces synthetic list ids for `ReplaceBlocks`; returns the blocks needing a follow-up `ApplyList`. */
+function resolveSynthetic(blocks: Block[], opts: MapperOptions): { blocks: Block[]; followUp?: MapResult["followUp"] } {
+  const pending: number[] = [];
+  let pendingKind: ListKind | null = null;
+  const out = blocks.map((b) => {
+    if (!isPara(b)) return b;
+    const n = b.value.props?.numbering;
+    const kind = n ? kindOfSynthetic(n.numId) : null;
+    if (!n || !kind) return b;
+    const real = opts.listIdFor?.(kind) ?? null;
+    const props = { ...b.value.props };
+    if (real != null) props.numbering = { numId: real, level: n.level };
+    else {
+      delete props.numbering;
+      if (pendingKind === null || pendingKind === kind) {
+        pendingKind = kind;
+        pending.push(b.value.id);
+      }
+    }
+    return { kind: "paragraph", value: { ...b.value, props } } as Block;
+  });
+  return pending.length ? { blocks: out, followUp: { ids: pending, kind: pendingKind! } } : { blocks: out };
+}
+
+function replaceBlocks(ids: number[], blocks: Block[], opts: MapperOptions): MapResult {
+  const r = resolveSynthetic(blocks, opts);
+  const command: WriteCommand = blocks.length ? { type: "replaceBlocks", ids, blocks: r.blocks } : { type: "deleteBlocks", ids };
+  return r.followUp ? { command, followUp: r.followUp } : { command };
+}
+
+/**
+ * Classifies the difference between the (trimmed) old blocks `ob` and new
+ * blocks `nb`; `after` is the id of the block before them (null = start).
+ */
+export function classify(ob: Block[], nb: Block[], prev: Block | null, opts: MapperOptions = {}): MapResult | null {
+  if (!ob.length && !nb.length) return null;
+  const after = prev ? prev.value.id : null;
+  // Enter at the end of a paragraph: one new empty paragraph after it.
+  if (!ob.length && nb.length === 1 && prev && isPara(prev) && isPara(nb[0]!)) {
+    const q = (nb[0] as P).value;
+    const strip = (p: Paragraph) => {
+      const { style: _s, ...r } = p.props ?? {};
+      return stableStringify(canonValue(r));
+    };
+    if (q.inlines.length === 0 && q.id < 0 && strip(q) === strip(prev.value)) {
+      return { command: { type: "splitParagraph", block: prev.value.id, offset: positions(prev.value.inlines).length, newId: q.id } };
+    }
+  }
+  if (!ob.length) {
+    const r = resolveSynthetic(nb, opts);
+    const command: WriteCommand = { type: "insertBlocks", after, blocks: r.blocks };
+    return r.followUp ? { command, followUp: r.followUp } : { command };
+  }
+  if (!nb.length) return { command: { type: "deleteBlocks", ids: ob.map((b) => b.value.id) } };
+
+  const allParas = ob.every(isPara) && nb.every(isPara);
+  if (allParas) {
+    const o = ob as P[];
+    const n = nb as P[];
+    // Same paragraphs: inline and/or property changes.
+    if (o.length === n.length && o.every((b, i) => b.value.id === n[i]!.value.id)) {
+      const cmds: WriteCommand[] = [];
+      const inlineChanged = o.filter((b, i) => concatInlines(b.value.inlines, []) !== concatInlines(n[i]!.value.inlines, []));
+      if (inlineChanged.length > 1) return replaceBlocks(o.map((b) => b.value.id), nb, opts);
+      const propsCmds = propsCommands(o.map((b) => b.value), n.map((b) => b.value), opts);
+      if (!propsCmds) return replaceBlocks(o.map((b) => b.value.id), nb, opts);
+      cmds.push(...propsCmds);
+      if (inlineChanged.length === 1) {
+        const i = o.indexOf(inlineChanged[0]!);
+        const c = inlineCommand(o[i]!.value.id, o[i]!.value.inlines, n[i]!.value.inlines);
+        if (!c) return replaceBlocks(o.map((b) => b.value.id), nb, opts);
+        cmds.push(c);
+      }
+      return cmds.length ? { command: one(cmds) } : null;
+    }
+    // Split: [P] → [P', Q] with P' keeping the id and props.
+    if (o.length === 1 && n.length === 2 && n[0]!.value.id === o[0]!.value.id && n[1]!.value.id !== o[0]!.value.id) {
+      const [p, q] = [n[0]!.value, n[1]!.value];
+      if (
+        stableStringify(canonValue(p.props ?? {})) === stableStringify(canonValue(o[0]!.value.props ?? {})) &&
+        concatInlines(p.inlines, q.inlines) === concatInlines(o[0]!.value.inlines, [])
+      ) {
+        const offset = positions(p.inlines).length;
+        return { command: { type: "splitParagraph", block: p.id, offset, newId: q.id } };
+      }
+    }
+    // Join: [P, Q] → [P'] (Backspace at the start of Q).
+    if (o.length === 2 && n.length === 1 && n[0]!.value.id === o[0]!.value.id) {
+      const [p, q] = [o[0]!.value, o[1]!.value];
+      if (
+        stableStringify(canonValue(n[0]!.value.props ?? {})) === stableStringify(canonValue(p.props ?? {})) &&
+        concatInlines(p.inlines, q.inlines) === concatInlines(n[0]!.value.inlines, [])
+      ) {
+        return { command: { type: "joinWithPrevious", block: q.id } };
+      }
+    }
+  }
+  return replaceBlocks(ob.map((b) => b.value.id), nb, opts);
+}
+
+/** The command for the change `before → after`, or null when the model is unchanged. */
+export function mapDocChange(before: PMNode, after: PMNode, opts: MapperOptions = {}): MapResult | null {
+  if (before === after) return null;
+  const oc = before.childCount;
+  const nc = after.childCount;
+  const same = (x: PMNode, y: PMNode) => x === y || x.eq(y);
+  let pre = 0;
+  while (pre < oc && pre < nc && same(before.child(pre), after.child(pre))) pre++;
+  let suf = 0;
+  while (suf < oc - pre && suf < nc - pre && same(before.child(oc - 1 - suf), after.child(nc - 1 - suf))) suf++;
+  const ob: Block[] = [];
+  for (let i = pre; i < oc - suf; i++) ob.push(...topBlocks(before.child(i)));
+  const nb: Block[] = [];
+  for (let i = pre; i < nc - suf; i++) nb.push(...topBlocks(after.child(i)));
+  // Trim identical blocks at both ends (model level).
+  let a = 0;
+  while (a < ob.length && a < nb.length && blockKey(ob[a]!) === blockKey(nb[a]!)) a++;
+  let z = 0;
+  while (z < ob.length - a && z < nb.length - a && blockKey(ob[ob.length - 1 - z]!) === blockKey(nb[nb.length - 1 - z]!)) z++;
+  let prev: Block | null = null;
+  if (a > 0) prev = ob[a - 1]!;
+  else if (pre > 0) {
+    const blocks = topBlocks(before.child(pre - 1));
+    prev = blocks.length ? blocks[blocks.length - 1]! : null;
+  }
+  return classify(ob.slice(a, ob.length - z), nb.slice(a, nb.length - z), prev, opts);
+}
+
+export function mapTransaction(tr: Transaction, opts: MapperOptions = {}): MapResult | null {
+  if (!tr.docChanged) return null;
+  return mapDocChange(tr.before, tr.doc, opts);
+}
