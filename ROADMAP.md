@@ -97,6 +97,12 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## Calc parity follow-ups
 - Store the pane top-left cell (freeze while scrolled like Excel); grid mouse handlers → pointer events; Ctrl+PageUp/Down skipping hidden sheets; unhide several sheets; sort by colour/custom lists, colour/date-group filters, AutoFilter range growth, left-to-right sort, AGGREGATE, "sort warning" for adjacent data; hidden-by-hand rows inside a filtered range read back as filtered (xlsx cannot distinguish).
 
+## Show parity follow-ups
+- Effect Options for sorter-selected slides; transitions when going back/jumping; badges for grouped shapes; emphasis auto-reverse; Animation Painter; Konva-rendered transitions in PDF export; Float In / Split effects; per-paragraph builds; p14 transitions.
+
+## Write parity follow-ups
+- Heading numbers in TOC entries; outlineLvl; section-level note formats; core field-update pass; split/join inside notes and headers; ADR 0006 numbering bullet to update (shared abstractNum now).
+
 ## Office parity – tracked in docs/parity-backlog.md (Phase 8)
 
 ## AI assistant – docs/ai-plan.md

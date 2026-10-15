@@ -14,3 +14,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01YGiiEDN1zSPaDE4h1jA1hU
 - Do not push. Do not touch README.md, STATUS.md, ROADMAP.md, docs/adr/, or any crate not in scope.
 - Final report (max 50 lines): what you built, public API summary, acceptance outputs (tail), anything you could not do, ideas for ROADMAP.
+
+## Deployment (added 2026-10-15)
+- Agents never run `scripts/deploy-web.sh` or touch the live server (parallel branch deploys overwrite each other). The PM deploys from `main` after merging.
+- For live checks use the e2e suite against a local server on a private port (`BASE_URL`), never against `resuite.inceptum.at`.
