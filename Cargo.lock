@@ -58,6 +58,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "app-calc-wasm"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "app-common"
 version = "0.1.0"
 dependencies = [

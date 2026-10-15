@@ -7,3 +7,5 @@ dist/
 .insta-pending*
 *.snap.new
 apps/calc/src-tauri/gen/
+apps/*/src-wasm/pkg/
+apps/*/dist-web/
