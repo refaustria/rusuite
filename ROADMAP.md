@@ -110,6 +110,9 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## Desktop shells
 - Atomic writes on save (temp + rename); warn when the remembered file changed on disk; run `scripts/desktop-smoke.sh` in CI under xvfb; Show Save As should skip the in-app name prompt on desktop (one line in apps/show/src/ShortcutLayer.tsx).
 
+## Printing (follow-ups)
+- Remember print settings per document / save Excel print areas and `pageSetup` to the file; split Write blocks longer than a page; Show slide ranges by slide number; WebKitGTK does not signal print completion (pages stay mounted 60 s).
+
 ## Phase 5 leftovers
 - Write: windowed/paged editor so the contenteditable holds only visible pages (remaining ~2 ms typing p95 gap).
 - Performance: paged/virtual Write editor for very long documents; range-level `ApplyStyle` patches in Calc (1M-cell style patch is 2.7 s because the patch carries every cell); cache parsed number formats; move the Playwright perf scripts into an e2e package so `scripts/perf.sh` needs no scratchpad files.
