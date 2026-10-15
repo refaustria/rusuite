@@ -18,3 +18,6 @@ Claude-Session: https://claude.ai/code/session_01YGiiEDN1zSPaDE4h1jA1hU
 ## Deployment (added 2026-10-15)
 - Agents never run `scripts/deploy-web.sh` or touch the live server (parallel branch deploys overwrite each other). The PM deploys from `main` after merging.
 - For live checks use the e2e suite against a local server on a private port (`BASE_URL`), never against `resuite.inceptum.at`.
+
+## Disk (added 2026-10-15)
+- The server disk is shared; a worktree's `target/` is ~7–14 GB. Do not create extra target dirs; do not run `cargo build --release` for the whole workspace unless the brief asks; delete large temporary artifacts you create. If `df -h /` shows < 10 GB free, stop and report instead of filling the disk.
