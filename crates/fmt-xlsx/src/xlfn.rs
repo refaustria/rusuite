@@ -5,11 +5,42 @@
 //! write for the functions in [`XLFN_FUNCTIONS`]; Excel shows `#NAME?` for
 //! those functions when the prefix is missing.
 
-/// Functions written with the `_xlfn.` prefix (uppercase). Of the engine's
-/// MVP functions only `CONCAT` and `DAYS` need it; the rest are listed so
-/// that adding them to the engine needs no change here.
+/// Functions written with the `_xlfn.` prefix (uppercase): the ones
+/// Excel added after 2007 that the engine implements. Every name must be
+/// a registered engine function (checked by a test).
 pub const XLFN_FUNCTIONS: &[&str] = &[
-    "CONCAT", "DAYS", "IFNA", "IFS", "MAXIFS", "MINIFS", "SWITCH", "TEXTJOIN", "XLOOKUP", "XMATCH",
+    "CEILING.MATH",
+    "CONCAT",
+    "COVARIANCE.P",
+    "COVARIANCE.S",
+    "DAYS",
+    "FLOOR.MATH",
+    "FORECAST.LINEAR",
+    "IFNA",
+    "IFS",
+    "ISOWEEKNUM",
+    "MAXIFS",
+    "MINIFS",
+    "MODE.SNGL",
+    "NUMBERVALUE",
+    "PERCENTILE.EXC",
+    "PERCENTILE.INC",
+    "PERCENTRANK.INC",
+    "QUARTILE.EXC",
+    "QUARTILE.INC",
+    "RANK.AVG",
+    "RANK.EQ",
+    "STDEV.P",
+    "STDEV.S",
+    "SWITCH",
+    "TEXTJOIN",
+    "UNICHAR",
+    "UNICODE",
+    "VAR.P",
+    "VAR.S",
+    "XLOOKUP",
+    "XMATCH",
+    "XOR",
 ];
 
 const PREFIXES: [&str; 2] = ["_xlfn.", "_xlws."];
@@ -139,5 +170,36 @@ mod tests {
             assert_eq!(strip_xlfn_prefixes(&add_xlfn_prefixes(f)), f);
         }
         assert!(XLFN_FUNCTIONS.contains(&"CONCAT") && XLFN_FUNCTIONS.contains(&"DAYS"));
+    }
+
+    #[test]
+    fn every_listed_name_is_a_registered_function() {
+        let reg = engine_formula::FunctionRegistry::with_builtins();
+        for f in XLFN_FUNCTIONS {
+            assert!(reg.get(f).is_some(), "{f} is not an engine function");
+        }
+        // NETWORKDAYS.INTL / WORKDAY.INTL are stored without a prefix.
+        assert!(!XLFN_FUNCTIONS.contains(&"NETWORKDAYS.INTL"));
+    }
+
+    #[test]
+    fn new_functions_get_and_lose_the_prefix() {
+        assert_eq!(
+            add_xlfn_prefixes("XLOOKUP(1,A:A,B:B)"),
+            "_xlfn.XLOOKUP(1,A:A,B:B)"
+        );
+        assert_eq!(add_xlfn_prefixes("STDEV.S(A1:A3)"), "_xlfn.STDEV.S(A1:A3)");
+        assert_eq!(
+            add_xlfn_prefixes("STDEV(A1:A3)+NETWORKDAYS.INTL(1,2)"),
+            "STDEV(A1:A3)+NETWORKDAYS.INTL(1,2)"
+        );
+        assert_eq!(
+            strip_xlfn_prefixes("_xlfn.XLOOKUP(1,A:A,B:B)"),
+            "XLOOKUP(1,A:A,B:B)"
+        );
+        for f in XLFN_FUNCTIONS {
+            let call = format!("{f}(A1)");
+            assert_eq!(strip_xlfn_prefixes(&add_xlfn_prefixes(&call)), call);
+        }
     }
 }
