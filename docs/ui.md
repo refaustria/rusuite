@@ -42,7 +42,7 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
 - **Show**: Home (Undo; Clipboard: shapes/slides clipboard + Duplicate; Slides: New slide ▾ layouts, Layout ▾, Duplicate,
   Delete, Hide slide; Font + grow/shrink; Paragraph + line spacing ▾; Drawing: shapes gallery, Arrange ▾
   order/align/distribute/group, fill and outline), Insert (New slide, Picture, Shapes ▾, Text box), Design (Background
-  colour, Apply to all, Reset), View (Notes pane, present from beginning/current, zoom Fit/50–200 %, shortcuts help),
+  colour, Apply to all, Reset), View (Notes pane, present from beginning/current, Presenter view, zoom Fit/50–200 %, shortcuts help),
   contextual Shape Format while shapes are selected (Format shape…, Alt text…, Change picture…/Reset size, Arrange ▾);
   Present in the strip. Right-click menus on shapes, on the slide and on thumbnails (`apps/show/src/canvas/menus.ts`).
 
@@ -65,3 +65,21 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   (`core:window:allow-close`).
 - Recovery banner: entries older than 7 days are dropped (`RECOVERY_MAX_AGE_MS`); with several entries it offers
   **Discard all**.
+
+## Show: slide show and presenter view (P7-8)
+
+- **Slide show** (F5 / Shift+F5, Present): the slide full screen (`present/Presenter.tsx`), driven by the pure state machine
+  `present/showState.ts` (`reduceShow`, `keyAction`, `clickAction`): click/tap right half next, left half previous; B/W
+  blank the screen black/white; number + Enter jumps; after the last slide a black "End of slide show" slide, then exit;
+  the pointer hides after 3 s idle. The slides are fixed when the show starts (hidden ones skipped unless started on one).
+- **Presenter view** (Alt+F5, View › Presenter view): the main window shows the presenter console
+  (`present/PresenterConsole.tsx`): current slide, next slide, speaker notes with A−/A+ text size (remembered), elapsed
+  timer with reset, clock, slide counter, Previous / Next / Black screen / End show and a slide strip to jump. A second
+  window (`?audience=<id>`, rendered by `present/Audience.tsx` without a backend) shows the slide; on the web it is a
+  `window.open` popup (fullscreen on its first click or key), on the desktop a `WebviewWindow` labelled `audience`
+  (fullscreen on a second monitor when there is one; capabilities `presenter.json`, `audience.json`).
+- **Sync** (`present/sync.ts`): `BroadcastChannel` on the web, Tauri events on the desktop, behind `SyncChannel`. The
+  presenter owns the show and sends `deck` (slides, theme, media) and `state` `{slideIndex, blackout, ended}`; the audience
+  sends `hello`, its keys/clicks as `action`, and `bye` when closed (which ends the show); `end` closes it.
+- If the window cannot be opened (popup blocked), the show runs in the main window with a speaker notes overlay and a
+  Notes toggle in the corner.

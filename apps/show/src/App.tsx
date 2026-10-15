@@ -4,7 +4,8 @@ import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
 import { EditorStage } from "./canvas/Stage";
 import { PrintView } from "./print/PrintView";
-import { Presenter } from "./present/Presenter";
+import { SlideShow } from "./present/SlideShow";
+import { launchAudience, type AudienceLink } from "./present/sync";
 import { SlideList } from "./sidebar/SlideList";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { ShowStore, useShow } from "./state/store";
@@ -91,15 +92,13 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       }),
     [backend, store],
   );
-  const [presenting, setPresenting] = useState(false);
+  const [presenting, setPresenting] = useState<{ mode: "single" | "presenter"; link?: AudienceLink } | null>(null);
   const [printing, setPrinting] = useState(false);
   const [zoom, setZoom] = useState<ShowZoom>("fit");
   const [canvasRef, size] = useElementSize<HTMLDivElement>();
   const pres = useShow(store, (s) => s.pres);
-  const current = useShow(store, (s) => s.current);
   const dirty = useShow(store, (s) => s.dirty);
   const name = useShow(store, (s) => s.name);
-  const mediaVersion = useShow(store, (s) => s.mediaVersion);
 
   useEffect(() => {
     void store.init().then(() => store.probeFileIo());
@@ -123,10 +122,15 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     guard.syncDirty();
   }, [backend, guard, dirty, name]);
 
-  const startPresenting = useCallback(() => {
-    void store.commitEdit();
-    setPresenting(true);
-  }, [store]);
+  const startPresenting = useCallback(
+    (mode: "single" | "presenter" = "single") => {
+      if (!store.getState().pres?.slides.length) return;
+      void store.commitEdit();
+      // The audience window opens right here, inside the key / click handler (popup blockers).
+      setPresenting(mode === "presenter" ? { mode, link: launchAudience() } : { mode });
+    },
+    [store],
+  );
   const exportPdf = useCallback(() => {
     void store.commitEdit();
     setPrinting(true);
@@ -144,17 +148,11 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     },
     [store, startPresenting],
   );
-  const exit = useCallback(() => setPresenting(false), []);
-  // The show skips hidden slides (unless started from one, as in PowerPoint).
-  const slides = useMemo(() => (pres?.slides ?? []).filter((s) => !s.hidden || s.id === current), [pres, current]);
-  const index = Math.max(0, slides.findIndex((s) => s.id === current));
-  const onIndex = useCallback(
-    (i: number) => {
-      const id = slides[i]?.id;
-      if (id !== undefined) store.selectSlide(id);
-    },
-    [store, slides],
-  );
+  /** Alt+F5 / View › Presenter view: from the current slide, the slide in a second window. */
+  const presenterView = useCallback(() => {
+    if (store.getState().current !== null) startPresenting("presenter");
+  }, [store, startPresenting]);
+  const exit = useCallback(() => setPresenting(null), []);
 
   // Fit: the canvas area minus its padding; a fixed zoom: the slide at that scale.
   const stageSize =
@@ -167,7 +165,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
       <RecoveryBanner session={session} />
-      <ShowRibbon store={store} session={session} onPresent={presentFrom} onExportPdf={exportPdf} zoom={zoom} onZoom={setZoom} />
+      <ShowRibbon store={store} session={session} onPresent={presentFrom} onPresenterView={presenterView} onExportPdf={exportPdf} zoom={zoom} onZoom={setZoom} />
       <div className="flex min-h-0 flex-1">
         <SlideList store={store} />
         <div className="flex min-w-0 flex-1 flex-col">
@@ -186,19 +184,9 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       <StatusBar store={store} backend={backend} session={session} zoom={zoom} />
       <Toasts store={store} />
       <ShowDialogs store={store} />
-      <ShortcutLayer store={store} guard={guard} enabled={!presenting} onPresent={presentFrom} onExportPdf={exportPdf} />
+      <ShortcutLayer store={store} guard={guard} enabled={!presenting} onPresent={presentFrom} onPresenterView={presenterView} onExportPdf={exportPdf} />
       <ConfirmDiscard guard={guard} />
-      {presenting && pres && slides.length > 0 && (
-        <Presenter
-          deck={pres}
-          slides={slides}
-          media={store.media}
-          mediaVersion={mediaVersion}
-          index={index}
-          onIndex={onIndex}
-          onExit={exit}
-        />
-      )}
+      {presenting && pres && <SlideShow store={store} mode={presenting.mode} link={presenting.link} onEnd={exit} />}
     </main>
   );
 }

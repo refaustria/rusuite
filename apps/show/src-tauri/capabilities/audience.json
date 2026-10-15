@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "audience",
+  "description": "The presenter view's slide show window (P7-8): Tauri events to the main window, closing itself",
+  "windows": ["audience"],
+  "permissions": ["core:default", "core:window:allow-close"]
+}

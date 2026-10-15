@@ -121,6 +121,61 @@ test.describe("Show", () => {
     await expect(page.getByTestId("slide-count")).toHaveText("Slide 2 of 6");
   });
 
+  test("presenter view opens the audience window and advances both", async ({ page, context }) => {
+    const errors = trackErrors(page);
+    await openDeck(page);
+    await page.keyboard.press("Escape");
+    const popup = context.waitForEvent("page");
+    await page.getByRole("tab", { name: "View" }).click();
+    await page.getByRole("button", { name: "Presenter view" }).click();
+    const audience = await popup;
+    const console = page.getByTestId("presenter-console");
+    await expect(console).toBeVisible();
+    await expect(page.getByTestId("console-counter")).toHaveText("Slide 1 of 6");
+    await expect(audience.getByTestId("presenter-counter")).toHaveText("1 / 6");
+    await expect(audience.locator("canvas").first()).toBeVisible();
+    // Next in the presenter window moves the audience window.
+    await console.getByRole("button", { name: "Next", exact: true }).click();
+    await expect(page.getByTestId("console-counter")).toHaveText("Slide 2 of 6");
+    await expect(audience.getByTestId("presenter-counter")).toHaveText("2 / 6");
+    // A key in the audience window moves the presenter.
+    await audience.getByTestId("presenter").click({ position: { x: 5, y: 5 } }); // left half: previous
+    await expect(page.getByTestId("console-counter")).toHaveText("Slide 1 of 6");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight");
+    await expect(audience.getByTestId("presenter-counter")).toHaveText("3 / 6");
+    await page.keyboard.press("Escape");
+    await expect(console).toHaveCount(0);
+    await expect.poll(() => audience.isClosed()).toBe(true);
+    await expect(page.getByTestId("slide-count")).toHaveText("Slide 3 of 6");
+    errors.expectNone();
+  });
+
+  test("B blanks the screen and number + Enter jumps to a slide", async ({ page }) => {
+    await openDeck(page);
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("F5");
+    const presenter = page.getByTestId("presenter");
+    await expect(page.getByTestId("presenter-counter")).toHaveText("1 / 6");
+    await page.keyboard.press("b");
+    await expect(presenter).toHaveAttribute("data-blank", "black");
+    await expect(presenter.locator("canvas")).toHaveCount(0);
+    await page.keyboard.press("b");
+    await expect(presenter).toHaveAttribute("data-blank", "none");
+    await page.keyboard.press("w");
+    await expect(presenter).toHaveAttribute("data-blank", "white");
+    await page.keyboard.press("ArrowRight"); // unblanks, stays on the slide
+    await expect(page.getByTestId("presenter-counter")).toHaveText("1 / 6");
+    await page.keyboard.press("5");
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("presenter-counter")).toHaveText("5 / 6");
+    await page.keyboard.press("End");
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByTestId("presenter-end")).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await expect(presenter).toHaveCount(0);
+  });
+
   test("new slide from the ribbon adds a slide, undo removes it", async ({ page }) => {
     await openDeck(page);
     await page.getByRole("tab", { name: "Insert" }).click();
