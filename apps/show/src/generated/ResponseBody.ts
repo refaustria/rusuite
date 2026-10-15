@@ -2,9 +2,10 @@
 import type { Envelope } from "../../../../packages/ui-shared/src/generated/Envelope";
 import type { Revision } from "../../../../packages/ui-shared/src/generated/Revision";
 import type { Presentation } from "./Presentation";
+import type { ShapePaths } from "./ShapePaths";
 import type { ShowPatch } from "./ShowPatch";
 
 /**
  * The successful part of a [`Response`].
  */
-export type ResponseBody = { "type": "patch", envelope: Envelope<ShowPatch>, } | { "type": "presentation", presentation: Presentation, envelope: Envelope<ShowPatch>, } | { "type": "opened", presentation: Presentation, warnings: Array<string>, envelope: Envelope<ShowPatch>, } | { "type": "saved", bytesBase64: string, suggestedName: string, } | { "type": "media", contentType: string, bytesBase64: string, } | { "type": "recoverySnapshot", json: string, revision: Revision, dirty: boolean, name: string | null, } | { "type": "documentState", dirty: boolean, revision: Revision, name: string | null, };
+export type ResponseBody = { "type": "patch", envelope: Envelope<ShowPatch>, } | { "type": "presentation", presentation: Presentation, envelope: Envelope<ShowPatch>, } | { "type": "opened", presentation: Presentation, warnings: Array<string>, envelope: Envelope<ShowPatch>, } | { "type": "saved", bytesBase64: string, suggestedName: string, } | { "type": "media", contentType: string, bytesBase64: string, } | { "type": "recoverySnapshot", json: string, revision: Revision, dirty: boolean, name: string | null, } | { "type": "documentState", dirty: boolean, revision: Revision, name: string | null, } | { "type": "shapePaths", shapes: Array<ShapePaths>, };

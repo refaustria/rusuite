@@ -32,9 +32,9 @@ fn built_deck_roundtrips() {
         Preset::Ellipse,
         Preset::Line,
     ] {
-        assert!(all
-            .iter()
-            .any(|s| matches!(s.kind, ShapeKind::Auto { geometry, .. } if geometry == preset)));
+        assert!(all.iter().any(
+            |s| matches!(s.kind, ShapeKind::Auto { ref geometry, .. } if *geometry == preset)
+        ));
     }
     assert!(all
         .iter()
