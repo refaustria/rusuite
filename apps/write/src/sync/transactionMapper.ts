@@ -59,6 +59,8 @@ interface Pos {
   key: string;
   ch?: string;
   props?: RunProperties;
+  /** The inline, for images and breaks. */
+  inline?: Inline;
 }
 
 /** One entry per char position (scalar, image or break). */
@@ -70,7 +72,7 @@ function positions(inlines: Inline[]): Pos[] {
       const props = (canonValue(inline.value.props ?? {}) ?? {}) as RunProperties;
       for (const ch of inline.value.text) out.push({ key: `${ch}\u0000${pk}`, ch, props });
     } else {
-      out.push({ key: stableStringify(inline) });
+      out.push({ key: stableStringify(inline), inline });
     }
   }
   return out;
@@ -107,6 +109,20 @@ function runPatch(old: Pos[], next: Pos[]): RunProperties | null {
   return ok ? p : null;
 }
 
+/** The same image (same media) resized and/or with new alt text: `SetImageSize`/`SetImageAlt`, else null. */
+function imageCommand(block: number, offset: number, a: Inline | undefined, b: Inline | undefined): WriteCommand | null {
+  if (a?.kind !== "image" || b?.kind !== "image") return null;
+  const [x, y] = [a.value, b.value];
+  if (x.media !== y.media || (x.name ?? null) !== (y.name ?? null)) return null;
+  const cmds: WriteCommand[] = [];
+  if (x.width !== y.width || x.height !== y.height) {
+    if (y.width <= 0 || y.height <= 0) return null;
+    cmds.push({ type: "setImageSize", block, offset, width: y.width, height: y.height });
+  }
+  if ((x.alt ?? null) !== (y.alt ?? null)) cmds.push({ type: "setImageAlt", block, offset, alt: y.alt ?? null });
+  return cmds.length ? one(cmds) : null;
+}
+
 /** Inline-level change of one paragraph, or null when not expressible. */
 function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): WriteCommand | null {
   const a = positions(oldInlines);
@@ -120,6 +136,10 @@ function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): 
   if (!oldMid.length && !newMid.length) return null;
   const allText = (ps: Pos[]) => ps.every((p) => p.ch !== undefined);
   if (!newMid.length) return { type: "deleteText", block: id, from: pre, to: pre + oldMid.length };
+  if (oldMid.length === 1 && newMid.length === 1) {
+    const img = imageCommand(id, pre, oldMid[0]!.inline, newMid[0]!.inline);
+    if (img) return img;
+  }
   if (!allText(newMid)) return null;
   const inserts = (at: number): WriteCommand[] => {
     const cmds: WriteCommand[] = [];
@@ -262,7 +282,9 @@ function replaceBlocks(ids: number[], blocks: Block[], opts: MapperOptions): Map
 }
 
 /** Commands addressed to existing paragraphs only (valid inside a table cell as well). */
-const IN_PLACE = new Set<WriteCommand["type"]>(["insertText", "deleteText", "replaceText", "setRunProps", "setParagraphProps", "setStyle"]);
+const IN_PLACE = new Set<WriteCommand["type"]>([
+  "insertText", "deleteText", "replaceText", "setRunProps", "setParagraphProps", "setStyle", "setImageSize", "setImageAlt",
+]);
 const inPlace = (c: WriteCommand): boolean =>
   c.type === "compound" ? c.commands.every(inPlace) : IN_PLACE.has(c.type);
 

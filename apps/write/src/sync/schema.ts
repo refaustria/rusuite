@@ -10,8 +10,12 @@ import { getSchema } from "@tiptap/core";
 import type { Schema } from "@tiptap/pm/model";
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
 import type { FontFace } from "../../../../packages/ui-shared/src/generated/FontFace";
+import type { BorderSide } from "../generated/BorderSide";
 import type { Indent } from "../generated/Indent";
+import type { RowProperties } from "../generated/RowProperties";
 import type { Spacing } from "../generated/Spacing";
+import type { TableProperties } from "../generated/TableProperties";
+import { imageNodeView } from "../features/imageView";
 
 /** Twips per CSS pixel (96 dpi). */
 export const TWIPS_PER_PX = 15;
@@ -189,21 +193,7 @@ export const InlineImageNode = Node.create<ImageOptions>({
   },
   addNodeView() {
     const resolve = this.options.resolveMedia;
-    return ({ node }) => {
-      const img = document.createElement("img");
-      img.dataset.mediaId = String(node.attrs.mediaId);
-      img.alt = node.attrs.alt ?? "";
-      img.width = Math.round(node.attrs.width / EMU_PER_PX);
-      img.height = Math.round(node.attrs.height / EMU_PER_PX);
-      img.className = "inline-image";
-      if (resolve && node.attrs.mediaId != null) {
-        resolve(node.attrs.mediaId).then(
-          (url) => (img.src = url),
-          () => img.classList.add("missing"),
-        );
-      }
-      return { dom: img };
-    };
+    return ({ node, view, getPos }) => imageNodeView(node, view, getPos, { emuPerPx: EMU_PER_PX, resolve });
   },
 });
 
@@ -285,16 +275,63 @@ const ParagraphCss = Extension.create({
   },
 });
 
+/** CSS `border` value of a table border side (`none` shows as a light gridline on screen). */
+export function borderCss(side: BorderSide | null | undefined): string {
+  if (!side || side.style === "none") return "1px dashed var(--write-gridline, transparent)";
+  const px = Math.max(1, Math.round(side.width / TWIPS_PER_PX));
+  const color = colorCss(side.color) ?? "#000";
+  switch (side.style) {
+    case "double":
+      return `${Math.max(3, px)}px double ${color}`;
+    case "dashed":
+      return `${px}px dashed ${color}`;
+    case "dotted":
+      return `${px}px dotted ${color}`;
+    case "thick":
+      return `${Math.max(2, px)}px solid ${color}`;
+    default:
+      return `${px}px solid ${color}`;
+  }
+}
+
+/** CSS variables of a table's borders (consumed by `table[data-borders]` rules in styles.css). */
+export function tableBorderStyle(props: TableProperties | null | undefined): Record<string, string> {
+  const b = props?.borders;
+  if (!b) return {};
+  const vars: [string, BorderSide | undefined | null][] = [
+    ["--tb-top", b.top], ["--tb-left", b.left], ["--tb-bottom", b.bottom], ["--tb-right", b.right],
+    ["--tb-ih", b.insideH], ["--tb-iv", b.insideV],
+  ];
+  return { "data-borders": "", style: vars.map(([k, v]) => `${k}: ${borderCss(v)}`).join("; ") };
+}
+
 const WriteTable = Table.extend({
   addAttributes() {
-    return { id: idAttr, props: jsonAttr() };
+    return {
+      id: idAttr,
+      props: { ...jsonAttr(), renderHTML: (a: Record<string, unknown>) => tableBorderStyle(a.props as TableProperties | null) },
+    };
   },
 }).configure({ resizable: false, View: null });
 
 const WriteTableRow = TableRow.extend({
   content: "tableCell+",
   addAttributes() {
-    return { id: idAttr, props: jsonAttr() };
+    return {
+      id: idAttr,
+      props: {
+        ...jsonAttr(),
+        renderHTML: (a: Record<string, unknown>) => {
+          const p = a.props as RowProperties | null;
+          const out: Record<string, string> = {};
+          if (p?.header) out["data-header"] = "";
+          if (p?.height && p.height.value > 0) {
+            out.style = `height: ${(p.height.value / TWIPS_PER_PX).toFixed(1)}px`;
+          }
+          return out;
+        },
+      },
+    };
   },
 });
 

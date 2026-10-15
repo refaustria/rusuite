@@ -33,6 +33,53 @@ body,
 .tiptap-content img.inline-image.missing { outline: 1px dashed #c00; }
 .tiptap-content .ProseMirror-selectednode { outline: 2px solid #4472c4; }
 
+/* Pictures: Word's selection handles (corners proportional, sides one dimension). */
+.inline-image-wrap { position: relative; display: inline-block; line-height: 0; vertical-align: baseline; }
+.inline-image-wrap.ProseMirror-selectednode { outline: none; }
+.inline-image-wrap.selected img { outline: 1px solid #4472c4; }
+.image-handle { display: none; position: absolute; width: 8px; height: 8px; box-sizing: border-box; background: #fff; border: 1px solid #4472c4; border-radius: 1px; z-index: 1; }
+.inline-image-wrap.selected .image-handle { display: block; }
+.image-handle-nw { left: -4px; top: -4px; cursor: nwse-resize; }
+.image-handle-n { left: calc(50% - 4px); top: -4px; cursor: ns-resize; }
+.image-handle-ne { right: -4px; top: -4px; cursor: nesw-resize; }
+.image-handle-e { right: -4px; top: calc(50% - 4px); cursor: ew-resize; }
+.image-handle-se { right: -4px; bottom: -4px; cursor: nwse-resize; }
+.image-handle-s { left: calc(50% - 4px); bottom: -4px; cursor: ns-resize; }
+.image-handle-sw { left: -4px; bottom: -4px; cursor: nesw-resize; }
+.image-handle-w { left: -4px; top: calc(50% - 4px); cursor: ew-resize; }
+.inline-image-wrap.resizing img { opacity: 0.8; }
+
+/* Table borders from the model (CSS variables set by the table node); "none" shows as a light gridline on screen. */
+.tiptap-content { --write-gridline: #d0d0d0; }
+.tiptap-content table[data-borders] td { border-top: var(--tb-ih); border-bottom: var(--tb-ih); border-left: var(--tb-iv); border-right: var(--tb-iv); }
+.tiptap-content table[data-borders] tr:first-child > td { border-top: var(--tb-top); }
+.tiptap-content table[data-borders] tr:last-child > td { border-bottom: var(--tb-bottom); }
+.tiptap-content table[data-borders] td:first-child { border-left: var(--tb-left); }
+.tiptap-content table[data-borders] td:last-child { border-right: var(--tb-right); }
+.tiptap-content .column-resize-guide { position: fixed; width: 0; border-left: 1px dashed #4472c4; pointer-events: none; z-index: 40; }
+.tiptap-content.col-resize, .tiptap-content.col-resize * { cursor: col-resize !important; }
+@media screen {
+  .tiptap-content tr[data-header] > td { box-shadow: inset 0 -2px 0 rgba(68, 114, 196, 0.25); }
+}
+
+/* Find highlighting. */
+.tiptap-content .find-match { background: #ffe58a; border-radius: 1px; }
+.tiptap-content .find-current { background: #f59e0b; color: #000; }
+
+/* Format painter. */
+.tiptap-content.format-painter { cursor: copy; }
+
+/* Print layout: gaps between pages, headers and footers greyed in the margins. */
+.page-gap { position: relative; user-select: none; white-space: normal; }
+.page-gap-band { position: absolute; left: 0; right: 0; background: var(--ui-panel); box-shadow: inset 0 5px 5px -5px rgba(0, 0, 0, 0.3), inset 0 -5px 5px -5px rgba(0, 0, 0, 0.3); }
+.page-end { user-select: none; }
+.page-hf { position: absolute; min-height: 1.3em; overflow: hidden; color: #9ca3af; font: 9pt/1.3 Calibri, Carlito, "Segoe UI", sans-serif; white-space: pre-wrap; tab-size: 8; cursor: default; user-select: none; }
+.page-hf:hover { outline: 1px dashed #cbd5e1; }
+@media print {
+  .tiptap-content { --write-gridline: transparent; }
+  .page-gap, .page-end, .page-hf { display: none !important; }
+}
+
 /* Long documents (P5-4): off-screen top-level blocks skip style, layout,
    paint and the browser's per-keystroke text extraction; their last
    rendered height is remembered. Paint containment would clip hanging
@@ -45,5 +92,7 @@ body,
       contain-intrinsic-size: auto 3em;
       overflow-clip-margin: 4in;
     }
+    /* Print layout measures every block for the page breaks. */
+    .write-paged .tiptap-content > * { content-visibility: visible; }
   }
 }

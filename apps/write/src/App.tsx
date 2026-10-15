@@ -3,9 +3,13 @@ import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { DocumentSession, RecoveryBanner } from "@rusuite/ui-shared";
 import { writePrintCss } from "./print/printCss";
 import { WriteApi, type WriteBackend } from "./backend";
-import { writeExtensions, TWIPS_PER_PX } from "./sync/schema";
+import { writeExtensions } from "./sync/schema";
 import { SyncController, SyncExtension, type SyncState } from "./sync/SyncPlugin";
-import { FindReplaceDialog } from "./ui/FindReplaceDialog";
+import { WriteFeatures } from "./features/WriteFeatures";
+import { FindBar } from "./ui/FindBar";
+import { EditorContextMenu } from "./ui/EditorContextMenu";
+import { WriteDialogs } from "./ui/dialogs";
+import { PageFrame, useWriteChrome } from "./ui/PageFrame";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { Toasts } from "./ui/Toasts";
 import { countDocWords, countWords } from "./wordCount";
@@ -104,15 +108,16 @@ export default function App({ backend }: { backend: WriteBackend }) {
   // Recent files, autosave, crash recovery: the controller talks through the session's backend.
   const session = useMemo(() => new DocumentSession(backend), [backend]);
   const ctl = useMemo(() => new SyncController(new WriteApi(session.backend)), [session]);
-  const [findOpen, setFindOpen] = useState(false);
+  const features = useMemo(() => new WriteFeatures(ctl), [ctl]);
   const [zoom, setZoom] = useState(1);
   const editor = useEditor(
     {
-      extensions: [...writeExtensions({ resolveMedia: ctl.media.resolve }), SyncExtension(ctl)],
-      editorProps: { attributes: { "data-testid": "editor", class: "tiptap-content min-h-full outline-none" } },
+      extensions: [...writeExtensions({ resolveMedia: ctl.media.resolve }), SyncExtension(ctl), features.extension()],
+      editorProps: { attributes: () => features.editorAttributes() },
     },
     [ctl],
   );
+  const chrome = useWriteChrome(features, editor);
   // ctl.page is replaced before the state change that announces it.
   const page = useSync(ctl, () => ctl.page);
 
@@ -152,9 +157,6 @@ export default function App({ backend }: { backend: WriteBackend }) {
 
   const exportPdf = useCallback(() => void backend.print().catch((e) => ctl.pushError(e)), [backend, ctl]);
 
-  const m = page?.margins;
-  const px = (twips: number | undefined, fallback: number) => (twips === undefined ? fallback : twips / TWIPS_PER_PX);
-
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
       <TitleSync ctl={ctl} backend={backend} />
@@ -167,7 +169,9 @@ export default function App({ backend }: { backend: WriteBackend }) {
           page={page}
           onOpen={() => void open()}
           onSave={() => void save()}
-          onFind={() => setFindOpen(true)}
+          features={features}
+          onFind={chrome.onFind}
+          onReplace={chrome.onReplace}
           onExportPdf={exportPdf}
           zoom={zoom}
           onZoom={setZoom}
@@ -176,22 +180,17 @@ export default function App({ backend }: { backend: WriteBackend }) {
       <style>{`${writePrintCss(page)}\n@media print { .write-zoom { zoom: 1 !important; } }`}</style>
       <div className="write-scroll min-h-0 flex-1 overflow-auto bg-ui-panel p-6">
         <div className="write-zoom" data-testid="write-zoom" style={zoom !== 1 ? { zoom } : undefined}>
-          <div
-            className="write-page mx-auto bg-white text-black shadow"
-            style={{
-              width: px(page?.width, 794),
-              maxWidth: "100%",
-              padding: `${px(m?.top, 96)}px ${px(m?.right, 96)}px ${px(m?.bottom, 96)}px ${px(m?.left, 96)}px`,
-            }}
-          >
+          <PageFrame page={page} view={chrome.view} pages={chrome.pages} onEditHeaderFooter={chrome.onEditHeaderFooter}>
             <EditorContent editor={editor} />
-          </div>
+          </PageFrame>
         </div>
       </div>
       {editor && <StatusBar ctl={ctl} editor={editor} backend={backend} />}
-      <FindReplaceDialog ctl={ctl} open={findOpen} onClose={() => setFindOpen(false)} />
+      <FindBar ctl={ctl} editor={editor} ui={features.ui} />
+      <WriteDialogs ui={features.ui} ctl={ctl} editor={editor} />
+      <EditorContextMenu editor={editor} ctl={ctl} features={features} />
       <Toasts ctl={ctl} />
-      <ShortcutLayer editor={editor} ctl={ctl} onOpen={() => void open()} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={() => setFindOpen(true)} onExportPdf={exportPdf} />
+      <ShortcutLayer editor={editor} ctl={ctl} onOpen={() => void open()} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={chrome.onFind} onReplace={chrome.onReplace} features={features} onExportPdf={exportPdf} />
     </main>
   );
 }
