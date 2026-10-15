@@ -9,6 +9,11 @@ use crate::props::{Indent, LineSpacing, ParagraphProperties, Spacing};
 /// Kind of a style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub enum StyleKind {
     /// Paragraph style (may also carry run formatting).
     Paragraph,
@@ -21,6 +26,11 @@ pub enum StyleKind {
 /// A named style (docx `w:style`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct Style {
     /// Style id, referenced by [`ParagraphProperties::style`] (e.g. `"Heading1"`).
     pub id: String,
@@ -39,6 +49,7 @@ pub struct Style {
     pub paragraph: ParagraphProperties,
     /// Run formatting of the style.
     #[serde(default, skip_serializing_if = "RunProperties::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "app_common::wire::RunProperties"))]
     pub run: RunProperties,
     /// Whether this is the default style of its kind.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -64,9 +75,15 @@ impl Style {
 /// Document-wide default formatting (docx `w:docDefaults`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct Defaults {
     /// Default run formatting.
     #[serde(default, skip_serializing_if = "RunProperties::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "app_common::wire::RunProperties"))]
     pub run: RunProperties,
     /// Default paragraph formatting.
     #[serde(default, skip_serializing_if = "ParagraphProperties::is_empty")]
@@ -76,6 +93,11 @@ pub struct Defaults {
 /// The document's styles (docx `styles.xml`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct StyleSheet {
     /// Document defaults, applied below every style.
     #[serde(default)]

@@ -17,6 +17,11 @@ use crate::style::{StyleKind, StyleSheet};
 /// recomputed on load as the largest id + 1 (see [`crate::snapshot`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", from = "crate::snapshot::DocumentData")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct Document {
     /// Top-level blocks in order.
     pub body: Vec<Block>,
@@ -27,6 +32,7 @@ pub struct Document {
     /// Page size and margins.
     pub page: PageSetup,
     /// Images and other binary parts.
+    #[cfg_attr(feature = "ts", ts(as = "Vec<crate::media::MediaItem>"))]
     pub media: MediaStore,
     #[serde(skip)]
     pub(crate) next_id: u64,
@@ -65,6 +71,13 @@ impl Document {
         let id = NodeId(self.next_id);
         self.next_id += 1;
         id
+    }
+
+    /// Makes sure [`alloc_id`](Self::alloc_id) never returns `id` (for
+    /// callers that place nodes with ids chosen outside the document, e.g.
+    /// restored by undo).
+    pub fn reserve_id(&mut self, id: NodeId) {
+        self.next_id = self.next_id.max(id.0.saturating_add(1));
     }
 
     /// The paragraph or table with id `id`, searching inside tables.
@@ -256,7 +269,7 @@ fn normalize_blocks(blocks: &mut Vec<Block>, next_id: &mut u64) {
     }
 }
 
-fn merge_runs(inlines: &mut Vec<Inline>) {
+pub(crate) fn merge_runs(inlines: &mut Vec<Inline>) {
     let mut out: Vec<Inline> = Vec::with_capacity(inlines.len());
     for inline in inlines.drain(..) {
         match (out.last_mut(), inline) {

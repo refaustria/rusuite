@@ -1,0 +1,59 @@
+---
+source: apps/write/core/tests/write.rs
+expression: p
+---
+{
+  "replaced": [],
+  "inserted": [
+    {
+      "after": 1,
+      "parent": null,
+      "block": {
+        "kind": "paragraph",
+        "value": {
+          "id": 4,
+          "inlines": [
+            {
+              "kind": "run",
+              "value": {
+                "text": "x2"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "after": 4,
+      "parent": null,
+      "block": {
+        "kind": "paragraph",
+        "value": {
+          "id": 6,
+          "inlines": [
+            {
+              "kind": "run",
+              "value": {
+                "text": "z"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "deleted": [
+    4,
+    5
+  ],
+  "idMap": [
+    [
+      -5,
+      6
+    ]
+  ],
+  "styles": null,
+  "numbering": null,
+  "page": null,
+  "info": null
+}

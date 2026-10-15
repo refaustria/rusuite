@@ -6,11 +6,18 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# ts-rs derives on the model types (TypeScript definitions for Write,
+# exported to apps/write/src/generated/ by `cargo test`).
+ts = ["dep:ts-rs", "dep:app-common"]
+
 [dependencies]
+app-common = { path = "../app-common", optional = true }
 core-model = { path = "../core-model" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+ts-rs = { version = "12", features = ["serde-compat"], optional = true }
 
 [dev-dependencies]
 insta = { workspace = true, features = ["json"] }
