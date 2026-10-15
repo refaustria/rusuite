@@ -19,12 +19,16 @@ import type { ColView } from "../generated/ColView";
 import type { RegionSnapshot } from "../generated/RegionSnapshot";
 import type { RowView } from "../generated/RowView";
 import type { SheetFormat } from "../generated/SheetFormat";
+import type { SheetInfo } from "../generated/SheetInfo";
+import type { SheetView } from "../generated/SheetView";
+import type { SheetViewPatch } from "../generated/SheetViewPatch";
 import type { WorkbookInfo } from "../generated/WorkbookInfo";
 import { AxisGeometry, colGeometry, DEFAULT_FORMAT, rowGeometry, rowHeightPx } from "../grid/geometry";
 import { CELL_PADDING } from "../grid/render";
 import { approxMeasure, lineHeightPx, wrapLines, type Measure } from "../grid/textLayout";
 import { sheetPrefix } from "../grid/address";
-import { cellSelection, LAST_COL, LAST_ROW, normalize, type Cell, type NavContext, type Range, type Selection } from "../grid/Selection";
+import { cellSelection, LAST_COL, LAST_ROW, move, normalize, type Cell, type NavContext, type Range, type Selection } from "../grid/Selection";
+import { intersects, mergeAnchor, mergeLookup, mergeSnapshot, partialMerge, snapSelection } from "../grid/merges";
 import { fontCss, styleAt } from "../grid/style";
 import { captureClip, fillDownEnd, pasteTarget, tsvClip, type Clip } from "./clipboard";
 import { findStep, replaceInInput, type FindOptions } from "./find";
@@ -46,9 +50,32 @@ export interface SheetCache {
   cols: Map<number, ColView>;
   rows: Map<number, RowView>;
   format: SheetFormat;
+  /** Merged ranges known so far (those of the loaded blocks, or the full list after a patch). */
+  merges: Rect[];
   /** Keys `"blockRow:blockCol"` of blocks already snapshotted. */
   loaded: Set<string>;
 }
+
+/** Excel's defaults: nothing frozen, 100 %, gridlines and headings shown. */
+export const DEFAULT_SHEET_VIEW: SheetView = { frozenRows: 0, frozenCols: 0, zoom: 100, showGridlines: true, showHeadings: true };
+
+/** The view settings of `sheet` (defaults when absent or unknown). */
+export function sheetViewOf(info: WorkbookInfo | null, sheet: number): SheetView {
+  return info?.sheets.find((s) => s.id === sheet)?.view ?? DEFAULT_SHEET_VIEW;
+}
+
+/** The sheets that have a tab, in order. */
+export function visibleSheets(sheets: readonly SheetInfo[]): SheetInfo[] {
+  return sheets.filter((s) => !s.hidden);
+}
+
+/** The hidden sheets the user may unhide ("very hidden" ones are not offered, as in Excel). */
+export function unhideableSheets(sheets: readonly SheetInfo[]): SheetInfo[] {
+  return sheets.filter((s) => s.hidden && !s.veryHidden);
+}
+
+/** How the Merge menu merges the selection. */
+export type MergeKind = "center" | "across" | "cells";
 
 /** The reference being pointed at (mouse drag or keyboard) and its span in the edit text. */
 export interface PointRef {
@@ -112,7 +139,11 @@ export type CalcDialog =
   /** Confirms deleting a sheet that has content. */
   | { kind: "deleteSheet"; sheet: number; name: string }
   | { kind: "tabColor"; sheet: number }
-  | { kind: "renameSheet"; sheet: number };
+  | { kind: "renameSheet"; sheet: number }
+  /** Lists the hidden sheets to show one again. */
+  | { kind: "unhideSheet" }
+  /** Warns that merging keeps only the upper-left value. */
+  | { kind: "mergeConfirm"; merge: MergeKind };
 
 export interface CalcState {
   info: WorkbookInfo | null;
@@ -139,7 +170,7 @@ export interface CalcState {
 }
 
 export function emptyCache(): SheetCache {
-  return { cells: new Map(), cols: new Map(), rows: new Map(), format: DEFAULT_FORMAT, loaded: new Set() };
+  return { cells: new Map(), cols: new Map(), rows: new Map(), format: DEFAULT_FORMAT, merges: [], loaded: new Set() };
 }
 
 function isBlankCell(c: CellView): boolean {
@@ -288,14 +319,24 @@ export class CalcStore {
     return this.state.info?.styles ?? [{}];
   }
 
+  /** Merged ranges of `sheet` (default: the active one) known to the cache. */
+  merges(sheet = this.state.activeSheet): Rect[] {
+    return this.cache(sheet).merges;
+  }
+
+  /** The active cell; on a merged range its top-left cell, which holds the content. */
+  activeAnchor(): Cell {
+    return mergeAnchor(this.merges(), this.state.selection.anchor);
+  }
+
   activeCell(): CellView | undefined {
-    const { anchor } = this.state.selection;
+    const anchor = this.activeAnchor();
     return this.cache(this.state.activeSheet).cells.get(anchor.row)?.get(anchor.col);
   }
 
   /** Effective style of the active cell (cell → row → column → default). */
   activeStyle(): CellStyle {
-    const { anchor } = this.state.selection;
+    const anchor = this.activeAnchor();
     const cache = this.cache(this.state.activeSheet);
     const cell = cache.cells.get(anchor.row)?.get(anchor.col);
     const id = cell ? cell.style : (cache.rows.get(anchor.row)?.style ?? cache.cols.get(anchor.col)?.style ?? 0);
@@ -310,6 +351,7 @@ export class CalcStore {
       usedLastRow: lastRow,
       usedLastCol: lastCol,
       pageRows,
+      mergeAt: mergeLookup(cache.merges),
     };
   }
 
@@ -342,7 +384,8 @@ export class CalcStore {
     this.caches.clear();
     this.geo.clear();
     this.inflight.clear();
-    const active = info.sheets.some((s) => s.id === this.state.activeSheet) ? this.state.activeSheet : (info.sheets[0]?.id ?? 0);
+    const shown = visibleSheets(info.sheets);
+    const active = shown.some((s) => s.id === this.state.activeSheet) ? this.state.activeSheet : (shown[0]?.id ?? info.sheets[0]?.id ?? 0);
     this.bump({ info, activeSheet: active, revision: info.revision, edit: null });
   }
 
@@ -372,6 +415,7 @@ export class CalcStore {
       const cache = this.cache(g.sheet);
       for (const r of g.rows) putRow(cache, r);
     }
+    for (const g of patch.merges ?? []) this.cache(g.sheet).merges = g.merges.map((m) => ({ ...m }));
     let activeSheet = this.state.activeSheet;
     let edit = this.state.edit;
     let clipMark = this.state.clipMark;
@@ -397,7 +441,14 @@ export class CalcStore {
         this.clip = null;
       }
     }
-    if (nextInfo && !nextInfo.sheets.some((s) => s.id === activeSheet)) activeSheet = nextInfo.sheets[0]?.id ?? 0;
+    if (patch.activateSheet !== undefined && nextInfo) {
+      // After hiding: leave the sheet if it was the active one; after unhiding: show it.
+      const target = patch.activateSheet;
+      const current = nextInfo.sheets.find((s) => s.id === activeSheet);
+      const wasHidden = !!info?.sheets.find((s) => s.id === target)?.hidden;
+      if (nextInfo.sheets.some((s) => s.id === target && !s.hidden) && (!current || current.hidden || wasHidden)) activeSheet = target;
+    }
+    if (nextInfo && !nextInfo.sheets.some((s) => s.id === activeSheet)) activeSheet = (visibleSheets(nextInfo.sheets)[0] ?? nextInfo.sheets[0])?.id ?? 0;
     const switched = activeSheet !== this.state.activeSheet;
     this.bump({ info: nextInfo, cycle: patch.cycle, activeSheet, edit, clipMark, ...(switched ? { selection: cellSelection(0, 0) } : {}) });
     if (switched) {
@@ -431,6 +482,7 @@ export class CalcStore {
     for (const c of snap.cells) putCell(cache, c);
     for (const c of snap.cols) putCol(cache, c);
     for (const r of snap.rows) putRow(cache, r);
+    if (snap.merges?.length || cache.merges.length) cache.merges = mergeSnapshot(cache.merges, snap, snap.merges ?? []);
     this.bump();
   }
 
@@ -650,15 +702,17 @@ export class CalcStore {
     void this.ensureRegion(sheet, vp.r0, vp.c0, vp.r1, vp.c1);
   }
 
+  /** Selects `selection`, grown to whole merged cells (the active cell becomes a merge's top-left). */
   select(selection: Selection): void {
-    this.set({ selection });
+    this.set({ selection: snapSelection(selection, this.merges()) });
   }
 
   /** Starts editing the active cell; `text` replaces its input (typing) or is its input (F2). */
   beginEdit(text: string | null, origin: EditState["origin"] = "cell"): void {
     const mode = text === null || origin === "bar" ? "edit" : "enter";
     const value = text ?? this.activeCell()?.input ?? "";
-    const { anchor } = this.state.selection;
+    // A merged range is edited in its top-left cell.
+    const anchor = this.activeAnchor();
     // Editing ends copy mode (the marching ants), as in Excel.
     this.clip = null;
     this.set({
@@ -873,7 +927,8 @@ export class CalcStore {
     const { row, col } = edit.cell;
     const sheet = edit.sheet;
     const before = this.cache(sheet).cells.get(row)?.get(col)?.input ?? "";
-    const next = cellSelection(Math.max(0, Math.min(LAST_ROW, row + dRow)), Math.max(0, Math.min(LAST_COL, col + dCol)));
+    // Moving on skips the cells a merge covers.
+    const next = move(cellSelection(row, col), dRow, dCol, false, mergeLookup(this.merges(sheet)));
     if (sheet !== this.state.activeSheet) this.showSheet(sheet, next, null);
     else this.set({ edit: null, selection: next });
     if (edit.text === before) return Promise.resolve(true);
@@ -1060,10 +1115,6 @@ export class CalcStore {
         type: "pasteRange", sheet, r0: at.r0, c0: at.c0, src: { sheet: clip.sheet, ...clip.range },
         cells: clip.cells, mode: clip.cut ? "all" : mode, cut: clip.cut, repeatRows: at.repeatRows, repeatCols: at.repeatCols,
       };
-      if (clip.cut) {
-        this.clip = null;
-        this.set({ clipMark: null });
-      }
     } else {
       if (!text) return Promise.resolve();
       const block = tsvClip(text);
@@ -1081,8 +1132,21 @@ export class CalcStore {
     }
     const r1 = Math.min(LAST_ROW, at.r0 + rows * at.repeatRows - 1);
     const c1 = Math.min(LAST_COL, at.c0 + cols * at.repeatCols - 1);
-    this.set({ selection: { anchor: { row: at.r0, col: at.c0 }, focus: { row: r1, col: c1 } } });
+    // Excel refuses to paste over part of a merged cell.
+    if (this.refuseMergeSplit({ r0: at.r0, c0: at.c0, r1, c1 })) return Promise.resolve();
+    if (clip?.cut && command.type === "pasteRange" && command.cut) {
+      this.clip = null;
+      this.set({ clipMark: null });
+    }
+    this.select({ anchor: { row: at.r0, col: at.c0 }, focus: { row: r1, col: c1 } });
     return this.apply(command);
+  }
+
+  /** Toasts and returns `true` when `r` would cut through a merged cell of the active sheet. */
+  private refuseMergeSplit(r: Range): boolean {
+    if (!partialMerge(r, this.merges())) return false;
+    this.pushError(new Error(t("calc.mergeSplit")));
+    return true;
   }
 
   // --- fill handle ----------------------------------------------------------
@@ -1092,6 +1156,7 @@ export class CalcStore {
     const src = normalize(this.state.selection);
     const sheet = this.state.activeSheet;
     const r = { r0: Math.min(src.r0, dst.r0), c0: Math.min(src.c0, dst.c0), r1: Math.max(src.r1, dst.r1), c1: Math.max(src.c1, dst.c1) };
+    if (this.refuseMergeSplit(r)) return Promise.resolve();
     this.select(normalizeAround(this.state.selection.anchor, r));
     return this.apply({ type: "fillRange", sheet, src, dst, mode });
   }
@@ -1115,6 +1180,7 @@ export class CalcStore {
       src = r.c0 === r.c1 ? { ...r, c0: r.c0 - 1, c1: r.c0 - 1 } : { ...r, c1: r.c0 };
       dst = r.c0 === r.c1 ? r : { ...r, c0: r.c0 + 1 };
     }
+    if (this.refuseMergeSplit({ r0: Math.min(src.r0, dst.r0), c0: Math.min(src.c0, dst.c0), r1: dst.r1, c1: dst.c1 })) return Promise.resolve();
     return this.apply({ type: "fillRange", sheet, src, dst, mode: "copy" });
   }
 
@@ -1343,6 +1409,10 @@ export class CalcStore {
       this.pushError(new Error(t("calc.lastSheet")));
       return Promise.resolve();
     }
+    if (!info.hidden && visibleSheets(sheets).length <= 1) {
+      this.pushError(new Error(t("calc.lastVisibleSheet")));
+      return Promise.resolve();
+    }
     return this.guard(async () => {
       if (!confirmed && (await this.api.usedRange(sheet)) !== null) {
         this.openDialog({ kind: "deleteSheet", sheet, name: info.name });
@@ -1373,15 +1443,123 @@ export class CalcStore {
     return this.apply({ type: "moveSheet", sheet, index: target });
   }
 
-  /** Moves `sheet` one tab left (-1) or right (1). */
+  /** Moves `sheet` one tab left (-1) or right (1): past the neighbouring visible tab (hidden sheets keep their places). */
   moveSheetBy(sheet: number, delta: -1 | 1): Promise<void> {
+    const sheets = this.state.info?.sheets ?? [];
     const at = this.sheetPosition(sheet);
-    return at < 0 ? Promise.resolve() : this.moveSheet(sheet, at + delta);
+    if (at < 0) return Promise.resolve();
+    let to = at + delta;
+    while (to >= 0 && to < sheets.length && sheets[to]!.hidden) to += delta;
+    return to < 0 || to >= sheets.length ? Promise.resolve() : this.moveSheet(sheet, to);
   }
 
   /** Tab colour of `sheet`; `null` = default. */
   setTabColor(sheet: number, color: Color | null): Promise<void> {
     return this.apply({ type: "setSheetTabColor", sheet, color });
+  }
+
+  /** Hides `sheet` (its tab goes; the neighbour is shown); the last visible sheet cannot be hidden. */
+  hideSheet(sheet = this.state.activeSheet): Promise<void> {
+    const sheets = this.state.info?.sheets ?? [];
+    const info = sheets.find((s) => s.id === sheet);
+    if (!info || info.hidden) return Promise.resolve();
+    if (visibleSheets(sheets).length <= 1) {
+      this.pushError(new Error(t("calc.lastVisibleSheet")));
+      return Promise.resolve();
+    }
+    return this.guard(async () => {
+      if (this.state.edit) await this.commitEdit(0, 0);
+      if (this.state.edit) return;
+      this.applyEnvelope(await this.api.apply({ type: "setSheetHidden", sheet, hidden: true }));
+    });
+  }
+
+  /** Shows the hidden `sheet` again and switches to it. */
+  unhideSheet(sheet: number): Promise<void> {
+    return this.apply({ type: "setSheetHidden", sheet, hidden: false });
+  }
+
+  // --- sheet view: frozen panes, zoom, gridlines, headings -------------------
+
+  /** The view settings of `sheet` (default: the active one). */
+  sheetView(sheet = this.state.activeSheet): SheetView {
+    return sheetViewOf(this.state.info, sheet);
+  }
+
+  /** Changes view settings of the active sheet (saved with the file). */
+  setSheetView(patch: SheetViewPatch): Promise<void> {
+    const view = this.sheetView();
+    const changed = (Object.keys(patch) as (keyof SheetViewPatch)[]).some((k) => patch[k] !== undefined && patch[k] !== view[k]);
+    return changed ? this.apply({ type: "setSheetView", sheet: this.state.activeSheet, patch }) : Promise.resolve();
+  }
+
+  /**
+   * View › Freeze Panes: at the active cell (rows above, columns left of
+   * it), the top row, the first column, or none (unfreeze).
+   */
+  freezePanes(kind: "selection" | "topRow" | "firstCol" | "none"): Promise<void> {
+    const { row, col } = this.activeAnchor();
+    const [rows, cols] = kind === "selection" ? [row, col] : kind === "topRow" ? [1, 0] : kind === "firstCol" ? [0, 1] : [0, 0];
+    const view = this.sheetView();
+    if (view.frozenRows === rows && view.frozenCols === cols) return Promise.resolve();
+    return this.apply({ type: "setFreeze", sheet: this.state.activeSheet, rows, cols });
+  }
+
+  // --- merged cells ------------------------------------------------------------
+
+  /**
+   * Home › Merge: Merge & Center (merge, then centre), Merge Across (one
+   * merge per selected row) or Merge Cells. When more than one cell of a
+   * future merge has content, the `mergeConfirm` dialog asks first
+   * (only the upper-left value is kept) and calls back with `confirmed`.
+   */
+  mergeSelection(kind: MergeKind, confirmed = false): Promise<void> {
+    const sheet = this.state.activeSheet;
+    const r = this.selectionRange();
+    const groups: Range[] = [];
+    if (kind === "across") {
+      if (r.c0 === r.c1) return Promise.resolve();
+      for (let row = r.r0; row <= Math.min(r.r1, r.r0 + 9999); row++) groups.push({ r0: row, c0: r.c0, r1: row, c1: r.c1 });
+    } else {
+      if (r.r0 === r.r1 && r.c0 === r.c1) return Promise.resolve();
+      groups.push(r);
+    }
+    if (!confirmed && groups.some((g) => this.filledCount(g) > 1)) {
+      this.openDialog({ kind: "mergeConfirm", merge: kind });
+      return Promise.resolve();
+    }
+    const commands: CalcCommand[] = groups.map((g) => ({ type: "mergeCells", sheet, ...g }));
+    if (kind === "center") commands.push({ type: "applyStyle", sheet, ...r, patch: { alignment: { horizontal: "center" } } });
+    return this.applyAll(commands).then(() => this.select(this.state.selection));
+  }
+
+  /** Home › Unmerge Cells: removes every merge touching the selection. */
+  unmergeSelection(): Promise<void> {
+    const r = this.selectionRange();
+    if (!this.merges().some((m) => intersects(m, r))) return Promise.resolve();
+    return this.apply({ type: "unmergeCells", sheet: this.state.activeSheet, ...r });
+  }
+
+  /** The Merge & Center button: unmerges a selection with merged cells, else merges and centres it (Excel's toggle). */
+  toggleMergeCenter(): Promise<void> {
+    const r = this.selectionRange();
+    return this.merges().some((m) => intersects(m, r)) ? this.unmergeSelection() : this.mergeSelection("center");
+  }
+
+  /** Whether the selection touches a merged cell. */
+  selectionHasMerge(): boolean {
+    const r = normalize(this.state.selection);
+    return this.merges().some((m) => intersects(m, r));
+  }
+
+  /** Cells with content in `r` (cached cells only). */
+  private filledCount(r: Range): number {
+    let n = 0;
+    for (const [row, cells] of this.cache(this.state.activeSheet).cells) {
+      if (row < r.r0 || row > r.r1) continue;
+      for (const [col, cell] of cells) if (col >= r.c0 && col <= r.c1 && cell.input !== "") n++;
+    }
+    return n;
   }
 
   renameSheet(sheet: number, name: string): Promise<void> {

@@ -5,6 +5,7 @@ use engine_formula::{CellContent, CellCoord, ErrorKind, RangeRef, SheetId, Value
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView};
+use crate::sortfilter::{AutoFilter, SortState};
 use crate::style::{CellStyle, StyleId, StyleTable};
 use crate::workbook::Workbook;
 use crate::Error;
@@ -46,6 +47,11 @@ pub struct SheetSnapshot {
     /// Merged ranges, sorted by top-left cell.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub merges: Vec<MergeRect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_filter: Option<AutoFilter>,
+    /// The last sort.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_state: Option<SortState>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -161,6 +167,8 @@ impl Workbook {
             hidden: self.is_sheet_hidden(id),
             very_hidden: self.is_sheet_very_hidden(id),
             merges: self.merges(id).to_vec(),
+            auto_filter: self.auto_filter(id).cloned(),
+            sort_state: self.sort_state(id).cloned(),
         }
     }
 
@@ -202,6 +210,8 @@ impl Workbook {
                 wb.set_tab_color(id, sheet.tab_color)?;
                 wb.set_sheet_view(id, sheet.view)?;
                 wb.set_merges(id, sheet.merges.clone())?;
+                wb.set_auto_filter(id, sheet.auto_filter.clone())?;
+                wb.set_sort_state(id, sheet.sort_state.clone())?;
                 for col in &sheet.cols {
                     let info = ColInfo {
                         style: map_opt(col.info.style)?,

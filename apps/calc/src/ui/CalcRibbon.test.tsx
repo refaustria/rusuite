@@ -130,22 +130,34 @@ describe("Calc ribbon", () => {
     await waitFor(() => expect(applied(core.log).some((c) => c.type === "clearRange")).toBe(true));
   });
 
-  it("View: zoom, gridlines and formula bar", async () => {
-    await setup();
+  it("View: zoom, gridlines and headings write the sheet view; the formula bar is local", async () => {
+    const { core } = await setup();
     fireEvent.click(tab("View"));
     fireEvent.change(screen.getByRole("combobox", { name: "Zoom" }), { target: { value: "1.5" } });
-    expect(screen.getByTestId("grid-root").style.zoom).toBe("1.5");
+    await waitFor(() => expect(screen.getByTestId("grid-root").style.zoom).toBe("1.5"));
     expect(screen.getByTestId("zoom").textContent).toBe("150 %");
     fireEvent.click(screen.getByRole("button", { name: "100 %" }));
-    expect(screen.getByTestId("grid-root").style.zoom).toBe("");
+    await waitFor(() => expect(screen.getByTestId("grid-root").style.zoom).toBe(""));
     const gl = screen.getByRole("button", { name: "Gridlines" });
     expect(gl.getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(gl);
-    expect(gl.getAttribute("aria-pressed")).toBe("false");
+    await waitFor(() => expect(gl.getAttribute("aria-pressed")).toBe("false"));
+    const hd = screen.getByRole("button", { name: "Headings" });
+    fireEvent.click(hd);
+    await waitFor(() => expect(hd.getAttribute("aria-pressed")).toBe("false"));
+    expect(applied(core.log)).toEqual([
+      { type: "setSheetView", sheet: 0, patch: { zoom: 150 } },
+      { type: "setSheetView", sheet: 0, patch: { zoom: 100 } },
+      { type: "setSheetView", sheet: 0, patch: { showGridlines: false } },
+      { type: "setSheetView", sheet: 0, patch: { showHeadings: false } },
+    ]);
+    // The canvases follow: no header canvas, cells from the top-left corner.
+    expect(screen.getByTestId("grid-cells").style.left).toBe("0px");
     fireEvent.click(screen.getByRole("button", { name: "Formula bar" }));
     expect(screen.queryByRole("textbox", { name: "Formula bar" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Formula bar" }));
     expect(screen.getByRole("textbox", { name: "Formula bar" })).toBeTruthy();
+    expect(applied(core.log)).toHaveLength(4);
   });
 
   it("View › Keyboard shortcuts opens the help of the shortcut map", async () => {

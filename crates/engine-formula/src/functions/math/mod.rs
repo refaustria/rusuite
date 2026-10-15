@@ -48,6 +48,7 @@ pub mod roundup;
 pub mod sign;
 pub mod sqrt;
 pub mod sqrtpi;
+pub mod subtotal;
 pub mod sum;
 pub mod sumif;
 pub mod sumifs;
@@ -117,6 +118,7 @@ pub fn register(r: &mut FunctionRegistry) {
     r.register(Box::new(trig::Degrees));
     r.register(Box::new(trig::Radians));
     r.register(Box::new(sumx2my2::SumX2My2));
+    r.register(Box::new(subtotal::Subtotal));
     r.register(Box::new(sumx2my2::SumX2Py2));
     r.register(Box::new(sumx2my2::SumXMy2));
     r.register(Box::new(countblank::CountBlank));

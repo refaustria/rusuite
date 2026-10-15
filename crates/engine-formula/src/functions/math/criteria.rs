@@ -135,8 +135,9 @@ fn split_operator(s: &str) -> (Op, &str) {
     (Op::Eq, s)
 }
 
-/// Case-insensitive whole-string match with `*`, `?` and `~` escapes.
-fn wildcard_match(pattern: &str, text: &str) -> bool {
+/// Case-insensitive whole-string match with `*`, `?` and `~` escapes
+/// (also used by the AutoFilter of `model-sheet`).
+pub fn wildcard_match(pattern: &str, text: &str) -> bool {
     #[derive(Clone, Copy)]
     enum P {
         Star,

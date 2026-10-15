@@ -78,6 +78,14 @@ pub trait Function: Send + Sync {
     fn is_volatile(&self) -> bool {
         false
     }
+    /// True for functions that read row visibility
+    /// ([`CellProvider::row_hidden`], `SUBTOTAL`): the engine re-evaluates
+    /// cells calling them when a row is hidden or shown, and such cells are
+    /// reported by [`CellProvider::is_subtotal_cell`]. The default is
+    /// `false`.
+    fn reads_row_visibility(&self) -> bool {
+        false
+    }
     /// The result as a reference, for functions that can return one (such
     /// as `INDEX`), used where a reference is expected (see
     /// [`CallContext::eval_ref`]). Returns `Some(Operand::Range(..))` for a

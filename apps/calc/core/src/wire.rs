@@ -140,6 +140,154 @@ pub struct SheetView {
     pub show_headings: bool,
 }
 
+/// Mirror of `model_sheet::SortKind`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum SortKind {
+    /// By value type: numbers < text < logical < errors, blanks last.
+    Auto,
+    /// Text that looks like a number sorts as that number.
+    Numbers,
+    /// Numbers sort as text.
+    Text,
+}
+
+/// Mirror of `model_sheet::SortKey`: one level of a sort.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct SortKey {
+    /// Absolute column index.
+    pub col: u32,
+    pub ascending: bool,
+    /// Absent = `auto`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kind: Option<SortKind>,
+}
+
+/// Mirror of `model_sheet::SortState`: the last sort of a sheet (rows
+/// without the header).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct SortState {
+    pub r0: u32,
+    pub c0: u32,
+    pub r1: u32,
+    pub c1: u32,
+    pub keys: Vec<SortKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub case_sensitive: Option<bool>,
+}
+
+/// Mirror of `model_sheet::FilterOp`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum FilterOp {
+    Eq,
+    Ne,
+    Gt,
+    Ge,
+    Lt,
+    Le,
+    Contains,
+    NotContains,
+    BeginsWith,
+    EndsWith,
+}
+
+/// Mirror of `model_sheet::Criterion`: a number `value` compares
+/// numerically with number cells, other values with the displayed text
+/// (case-insensitive; `eq`/`ne` accept `*`, `?`, `~`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct Criterion {
+    pub op: FilterOp,
+    pub value: String,
+}
+
+/// Mirror of `model_sheet::DynamicFilter`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum DynamicFilter {
+    AboveAverage,
+    BelowAverage,
+    Today,
+    Yesterday,
+    Tomorrow,
+}
+
+/// Mirror of `model_sheet::Filter`: the filter of one column.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum Filter {
+    /// Displayed texts to show (case-insensitive); `""` = blanks.
+    Values {
+        values: Vec<String>,
+    },
+    /// All (`and`) or any of the criteria.
+    Custom {
+        criteria: Vec<Criterion>,
+        and: bool,
+    },
+    /// The `value` largest (`top`) or smallest numbers, or `value` %.
+    Top10 {
+        top: bool,
+        percent: bool,
+        value: f64,
+    },
+    Dynamic {
+        filter: DynamicFilter,
+    },
+}
+
+/// Mirror of `model_sheet::FilterColumn`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct FilterColumn {
+    /// Absolute column index.
+    pub col: u32,
+    pub filter: Filter,
+}
+
+/// Mirror of `model_sheet::AutoFilter`: the range (header row `r0`) and
+/// the filtered columns; the UI shows a dropdown on every header cell.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct AutoFilter {
+    pub r0: u32,
+    pub c0: u32,
+    pub r1: u32,
+    pub c1: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<FilterColumn>>")]
+    pub columns: Vec<FilterColumn>,
+}
+
+/// Mirror of `model_sheet::FilterValue`: one entry of the filter
+/// dropdown's value list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct FilterValue {
+    /// The displayed text; `""` = blank cells.
+    pub display: String,
+    pub count: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,6 +362,86 @@ mod tests {
         same_shape::<_, CellStyle>(&full);
         same_shape::<_, CellStyle>(&ms::CellStyle::default());
         same_shape::<_, SheetFormat>(&ms::SheetFormat::default());
+        let key = |col, ascending, kind| ms::SortKey {
+            col,
+            ascending,
+            kind,
+        };
+        for kind in [
+            ms::SortKind::Auto,
+            ms::SortKind::Numbers,
+            ms::SortKind::Text,
+        ] {
+            same_shape::<_, SortKey>(&key(1, false, kind));
+        }
+        for case_sensitive in [false, true] {
+            same_shape::<_, SortState>(&ms::SortState {
+                r0: 1,
+                c0: 0,
+                r1: 9,
+                c1: 3,
+                keys: vec![key(2, true, ms::SortKind::Auto)],
+                case_sensitive,
+            });
+        }
+        let ops = [
+            ms::FilterOp::Eq,
+            ms::FilterOp::Ne,
+            ms::FilterOp::Gt,
+            ms::FilterOp::Ge,
+            ms::FilterOp::Lt,
+            ms::FilterOp::Le,
+            ms::FilterOp::Contains,
+            ms::FilterOp::NotContains,
+            ms::FilterOp::BeginsWith,
+            ms::FilterOp::EndsWith,
+        ];
+        let criteria = ops
+            .iter()
+            .map(|&op| ms::Criterion {
+                op,
+                value: "x*".into(),
+            })
+            .collect();
+        let mut filters = vec![
+            ms::Filter::Values {
+                values: vec!["a".into(), String::new()],
+            },
+            ms::Filter::Custom {
+                criteria,
+                and: true,
+            },
+            ms::Filter::Top10 {
+                top: false,
+                percent: true,
+                value: 12.5,
+            },
+        ];
+        filters.extend(
+            [
+                ms::DynamicFilter::AboveAverage,
+                ms::DynamicFilter::BelowAverage,
+                ms::DynamicFilter::Today,
+                ms::DynamicFilter::Yesterday,
+                ms::DynamicFilter::Tomorrow,
+            ]
+            .map(|filter| ms::Filter::Dynamic { filter }),
+        );
+        let mut af = ms::AutoFilter::new(0, 1, 20, 9);
+        same_shape::<_, AutoFilter>(&af);
+        af.columns = filters
+            .into_iter()
+            .enumerate()
+            .map(|(i, filter)| ms::FilterColumn {
+                col: i as u32 + 1,
+                filter,
+            })
+            .collect();
+        same_shape::<_, AutoFilter>(&af);
+        same_shape::<_, FilterValue>(&ms::FilterValue {
+            display: "x".into(),
+            count: 3,
+        });
         same_shape::<_, SheetView>(&ms::SheetView {
             frozen_rows: 1,
             frozen_cols: 2,

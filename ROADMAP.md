@@ -94,6 +94,9 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## i18n follow-ups
 - Locale-aware formula input/display (German `;`/`,`, function names) – owner decision pending; translated core messages via error codes; unused-key catalog check; wider gallery tiles for long German labels ("Überschri…"); Write Clipboard group overflow.
 
+## Calc parity follow-ups
+- Store the pane top-left cell (freeze while scrolled like Excel); grid mouse handlers → pointer events; Ctrl+PageUp/Down skipping hidden sheets; unhide several sheets; sort by colour/custom lists, colour/date-group filters, AutoFilter range growth, left-to-right sort, AGGREGATE, "sort warning" for adjacent data; hidden-by-hand rows inside a filtered range read back as filtered (xlsx cannot distinguish).
+
 ## Office parity – tracked in docs/parity-backlog.md (Phase 8)
 
 ## AI assistant – docs/ai-plan.md

@@ -12,4 +12,9 @@ height: number | null, hidden: boolean,
  * Style of the row's cells without own style (wins over the column
  * style); `null` = none.
  */
-style: number | null, };
+style: number | null, 
+/**
+ * Hidden by the AutoFilter (with `hidden`), not by hand; absent =
+ * false.
+ */
+filtered?: boolean, };

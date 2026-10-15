@@ -1,17 +1,22 @@
 // Virtualized canvas grid: one canvas for cells, one for headers, a
 // transparent scroll container with a sized spacer on top for native
-// scrolling and input events.
+// scrolling and input events. Frozen panes split the cell canvas into up
+// to four quadrants (grid/panes.ts), each drawn with its own viewport;
+// pointer positions map back per quadrant. Zoom, gridlines, headings and
+// the frozen panes are the active sheet's `SheetView`.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { ContextMenu, type ContextMenuItem } from "@rusuite/ui-shared";
 import { calcActions, cellMenu, colHeaderMenu, rowHeaderMenu } from "../calcActions";
 import type { Rect } from "../generated/Rect";
 import { fillTarget } from "../state/clipboard";
-import { useCalc, type CalcStore } from "../state/store";
+import { sheetViewOf, useCalc, type CalcStore } from "../state/store";
 import { CellEditor } from "./CellEditor";
+import { mergeAt } from "./merges";
+import { axisScrollTo, axisToScreen, mainPane, panes, toSheet, type PaneLayout } from "./panes";
 import {
-  computeRenderOps, drawHeaders, drawOps, drawRefHighlights, drawSelection, HEADER_H, HEADER_W, prepareCanvas, rangeRect, visibleRange,
-  type RefHighlight, type SheetData, type Viewport,
+  computeRenderOps, drawFreezeLines, drawHeaders, drawOps, drawRefHighlights, drawSelection, HEADER_H, HEADER_W, prepareCanvas, rangeRect,
+  visibleRange, type RefHighlight, type SheetData,
 } from "./render";
 import {
   cellSelection, colSelection, contains, isWholeCols, isWholeRows, LAST_COL, LAST_ROW, navigate, normalize, pointerSelect, rowSelection,
@@ -68,17 +73,12 @@ type Hit =
   | { kind: "fillHandle" }
   | { kind: "none" };
 
-export interface GridViewOptions {
-  /** View zoom (1 = 100 %), applied with CSS `zoom` on the grid. */
-  zoom?: number;
-  /** Draw the cell gridlines (default true). */
-  gridlines?: boolean;
-}
-
-export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true }: { store: CalcStore; showPerf?: boolean } & GridViewOptions) {
+export function GridCanvas({ store, showPerf = false }: { store: CalcStore; showPerf?: boolean }) {
   const t = useT();
-  const view = useRef({ zoom, gridlines });
-  view.current = { zoom, gridlines };
+  // The active sheet's view: zoom (applied with CSS `zoom` on the grid), gridlines, headings, frozen panes.
+  const sheetView = useCalc(store, (s) => sheetViewOf(s.info, s.activeSheet));
+  const zoom = sheetView.zoom / 100;
+  const headings = sheetView.showHeadings;
   const scroller = useRef<HTMLDivElement>(null);
   const spacer = useRef<HTMLDivElement>(null);
   const cellsCanvas = useRef<HTMLCanvasElement>(null);
@@ -104,31 +104,50 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
     const sheet = store.getState().activeSheet;
     const cache = store.cache(sheet);
     const geo = store.geometry(sheet);
-    return { cells: cache.cells, cols: cache.cols, rows: cache.rows, colGeo: geo.col, rowGeo: geo.row };
+    return { cells: cache.cells, cols: cache.cols, rows: cache.rows, colGeo: geo.col, rowGeo: geo.row, merges: cache.merges };
   }, [store]);
 
-  const viewport = useCallback((): Viewport => {
+  /** Header sizes (0 when the sheet hides its headings). */
+  const headerSize = useCallback(() => {
+    const on = store.sheetView().showHeadings;
+    return { hw: on ? HEADER_W : 0, hh: on ? HEADER_H : 0 };
+  }, [store]);
+
+  /** The split of the cell area: frozen sizes, scroll offsets, size. */
+  const layout = useCallback((): PaneLayout => {
     const el = scroller.current;
+    const data = sheetData();
+    const v = store.sheetView();
+    const { hw, hh } = headerSize();
     return {
+      frozenW: v.frozenCols > 0 ? data.colGeo.offset(v.frozenCols) : 0,
+      frozenH: v.frozenRows > 0 ? data.rowGeo.offset(v.frozenRows) : 0,
       scrollX: el?.scrollLeft ?? 0,
       scrollY: el?.scrollTop ?? 0,
-      width: Math.max(0, (el?.clientWidth ?? 0) - HEADER_W),
-      height: Math.max(0, (el?.clientHeight ?? 0) - HEADER_H),
+      width: Math.max(0, (el?.clientWidth ?? 0) - hw),
+      height: Math.max(0, (el?.clientHeight ?? 0) - hh),
     };
-  }, []);
+  }, [store, sheetData, headerSize]);
+
+  /** Canvas position of a sheet offset (scrolled under the frozen part: where it would be). */
+  const screenX = (l: PaneLayout, x: number) => axisToScreen(l.frozenW, l.scrollX, x) ?? x - l.scrollX;
+  const screenY = (l: PaneLayout, y: number) => axisToScreen(l.frozenH, l.scrollY, y) ?? y - l.scrollY;
 
   /** The fill handle's square in cell-canvas coordinates (`null`: off screen or whole rows/columns). */
   const handleRect = useCallback(
     (sel: Range): { x: number; y: number } | null => {
       if (isWholeCols(sel) && isWholeRows(sel)) return null;
       const data = sheetData();
-      const vp = viewport();
-      const x = data.colGeo.offset(sel.c1 + 1) - vp.scrollX - HANDLE / 2 - 1;
-      const y = data.rowGeo.offset(sel.r1 + 1) - vp.scrollY - HANDLE / 2 - 1;
-      if (x < -HANDLE || y < -HANDLE || x > vp.width || y > vp.height) return null;
+      const l = layout();
+      const sx = axisToScreen(l.frozenW, l.scrollX, data.colGeo.offset(sel.c1 + 1));
+      const sy = axisToScreen(l.frozenH, l.scrollY, data.rowGeo.offset(sel.r1 + 1));
+      if (sx === null || sy === null) return null;
+      const x = sx - HANDLE / 2 - 1;
+      const y = sy - HANDLE / 2 - 1;
+      if (x < -HANDLE || y < -HANDLE || x > l.width || y > l.height) return null;
       return { x, y };
     },
-    [sheetData, viewport],
+    [sheetData, layout],
   );
 
   const draw = useCallback(() => {
@@ -136,61 +155,85 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
     const t0 = performance.now();
     const state = store.getState();
     const data = sheetData();
-    const vp = viewport();
+    const l = layout();
+    const { hw, hh } = headerSize();
+    const zoomNow = store.sheetView().zoom / 100;
     const sel = normalize(state.selection);
+    const quads = panes(l);
 
     // Virtual extent: used range + 50 rows (min 200), growing with scrolling/selection.
     const used = store.usedExtent(state.activeSheet);
     const rows = Math.min(LAST_ROW + 1, Math.max(200, used.lastRow + 51, grow.current.rows));
     const cols = Math.min(LAST_COL + 1, Math.max(30, used.lastCol + 11, grow.current.cols));
     if (spacer.current) {
-      spacer.current.style.width = `${HEADER_W + data.colGeo.offset(cols)}px`;
-      spacer.current.style.height = `${HEADER_H + data.rowGeo.offset(rows)}px`;
+      spacer.current.style.width = `${hw + data.colGeo.offset(cols)}px`;
+      spacer.current.style.height = `${hh + data.rowGeo.offset(rows)}px`;
     }
 
-    const vis = visibleRange(vp, data.colGeo, data.rowGeo);
-    void store.ensureRegion(
-      state.activeSheet,
-      Math.max(0, vis.r0 - PREFETCH), Math.max(0, vis.c0 - 2),
-      Math.min(LAST_ROW, vis.r1 + PREFETCH), Math.min(LAST_COL, vis.c1 + 2),
-    );
+    // The frozen quadrants first: the scrolling one is the viewport remembered for reloads.
+    for (const q of [...quads].reverse()) {
+      const vis = visibleRange(q.vp, data.colGeo, data.rowGeo);
+      void store.ensureRegion(
+        state.activeSheet,
+        Math.max(0, vis.r0 - PREFETCH), Math.max(0, vis.c0 - 2),
+        Math.min(LAST_ROW, vis.r1 + PREFETCH), Math.min(LAST_COL, vis.c1 + 2),
+      );
+    }
 
-    const cctx = cellsCanvas.current && prepareCanvas(cellsCanvas.current, vp.width, vp.height, view.current.zoom);
+    const cctx = cellsCanvas.current && prepareCanvas(cellsCanvas.current, l.width, l.height, zoomNow);
     if (cctx) {
-      const base = computeRenderOps(vp, data, store.styles(), store.measure);
-      const ops = view.current.gridlines ? base : base.filter((o) => o.op !== "gridlines");
-      drawOps(cctx, ops, "#ffffff");
-      drawSelection(cctx, vp, data, sel, state.selection.anchor);
-      const mark = state.clipMark;
-      if (mark && mark.sheet === state.activeSheet) {
-        // Marching ants around the copied / cut range.
-        const r = rangeRect(vp, data, mark.range);
-        if (r) {
-          cctx.save();
-          cctx.lineWidth = 2;
-          cctx.strokeStyle = "#ffffff";
-          cctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
-          cctx.strokeStyle = "#217346";
-          cctx.setLineDash([4, 4]);
-          cctx.lineDashOffset = -Math.floor(performance.now() / 80) % 8;
-          cctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
-          cctx.restore();
+      drawOps(cctx, [], "#ffffff");
+      const edit = state.edit;
+      const marks: RefHighlight[] = [];
+      if (edit) {
+        for (const ref of store.editRefs()) {
+          if (store.refSheet(ref) !== state.activeSheet) continue;
+          const pointed = edit.point !== null && ref.start === edit.point.start && ref.end === edit.point.end;
+          marks.push({ range: ref.range, color: ref.color, dashed: pointed });
         }
       }
+      const mark = state.clipMark && state.clipMark.sheet === state.activeSheet ? state.clipMark : null;
       const fp = fillPreview.current;
-      if (fp) {
-        const all = { r0: Math.min(sel.r0, fp.r0), c0: Math.min(sel.c0, fp.c0), r1: Math.max(sel.r1, fp.r1), c1: Math.max(sel.c1, fp.c1) };
-        const r = rangeRect(vp, data, all);
-        if (r) {
-          cctx.save();
-          cctx.strokeStyle = "#5f6368";
-          cctx.lineWidth = 1;
-          cctx.setLineDash([3, 2]);
-          cctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
-          cctx.restore();
+      for (const q of quads) {
+        const vp = q.vp;
+        cctx.save();
+        cctx.translate(q.x, q.y);
+        cctx.beginPath();
+        cctx.rect(0, 0, vp.width, vp.height);
+        cctx.clip();
+        const base = computeRenderOps(vp, data, store.styles(), store.measure);
+        drawOps(cctx, store.sheetView().showGridlines ? base : base.filter((o) => o.op !== "gridlines"), null);
+        drawSelection(cctx, vp, data, sel, state.selection.anchor);
+        if (mark) {
+          // Marching ants around the copied / cut range.
+          const r = rangeRect(vp, data, mark.range);
+          if (r) {
+            cctx.lineWidth = 2;
+            cctx.strokeStyle = "#ffffff";
+            cctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+            cctx.strokeStyle = "#217346";
+            cctx.setLineDash([4, 4]);
+            cctx.lineDashOffset = -Math.floor(performance.now() / 80) % 8;
+            cctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+            cctx.setLineDash([]);
+          }
         }
+        if (fp) {
+          const all = { r0: Math.min(sel.r0, fp.r0), c0: Math.min(sel.c0, fp.c0), r1: Math.max(sel.r1, fp.r1), c1: Math.max(sel.c1, fp.c1) };
+          const r = rangeRect(vp, data, all);
+          if (r) {
+            cctx.strokeStyle = "#5f6368";
+            cctx.lineWidth = 1;
+            cctx.setLineDash([3, 2]);
+            cctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+            cctx.setLineDash([]);
+          }
+        }
+        if (marks.length > 0) drawRefHighlights(cctx, vp, data, marks);
+        cctx.restore();
       }
-      if (!state.edit) {
+      drawFreezeLines(cctx, l);
+      if (!edit) {
         const h = handleRect(sel);
         if (h) {
           cctx.fillStyle = "#ffffff";
@@ -199,33 +242,23 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
           cctx.fillRect(h.x, h.y, HANDLE, HANDLE);
         }
       }
-      const edit = state.edit;
-      if (edit) {
-        const marks: RefHighlight[] = [];
-        for (const ref of store.editRefs()) {
-          if (store.refSheet(ref) !== state.activeSheet) continue;
-          const pointed = edit.point !== null && ref.start === edit.point.start && ref.end === edit.point.end;
-          marks.push({ range: ref.range, color: ref.color, dashed: pointed });
-        }
-        drawRefHighlights(cctx, vp, data, marks);
-      }
     }
-    const hctx = headerCanvas.current && prepareCanvas(headerCanvas.current, vp.width + HEADER_W, vp.height + HEADER_H, view.current.zoom);
+    const hctx = hw > 0 && headerCanvas.current && prepareCanvas(headerCanvas.current, l.width + HEADER_W, l.height + HEADER_H, zoomNow);
     if (hctx) {
-      drawHeaders(hctx, vp, data, sel, { bg: "#f3f3f3", fg: "#444", line: "#c8c8c8", active: "#d3e3d8" });
+      drawHeaders(hctx, l, data, sel, { bg: "#f3f3f3", fg: "#444", line: "#c8c8c8", active: "#d3e3d8" });
       const p = resizePreview.current;
       if (p) {
         hctx.strokeStyle = "#217346";
         hctx.lineWidth = 1;
         hctx.beginPath();
         if (p.axis === "col") {
-          const x = HEADER_W + data.colGeo.offset(p.index) - vp.scrollX + p.size;
+          const x = HEADER_W + screenX(l, data.colGeo.offset(p.index)) + p.size;
           hctx.moveTo(x + 0.5, 0);
-          hctx.lineTo(x + 0.5, HEADER_H + vp.height);
+          hctx.lineTo(x + 0.5, HEADER_H + l.height);
         } else {
-          const y = HEADER_H + data.rowGeo.offset(p.index) - vp.scrollY + p.size;
+          const y = HEADER_H + screenY(l, data.rowGeo.offset(p.index)) + p.size;
           hctx.moveTo(0, y + 0.5);
-          hctx.lineTo(HEADER_W + vp.width, y + 0.5);
+          hctx.lineTo(HEADER_W + l.width, y + 0.5);
         }
         hctx.stroke();
       }
@@ -233,11 +266,12 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
 
     const box = editorBox.current;
     if (box) {
-      const { row, col } = state.edit?.cell ?? state.selection.anchor;
-      box.style.left = `${HEADER_W + data.colGeo.offset(col) - vp.scrollX}px`;
-      box.style.top = `${HEADER_H + data.rowGeo.offset(row) - vp.scrollY}px`;
-      box.style.minWidth = `${data.colGeo.size(col) + 1}px`;
-      box.style.height = `${data.rowGeo.size(row) + 1}px`;
+      const at = state.edit?.cell ?? store.activeAnchor();
+      const m = mergeAt(data.merges ?? [], at.row, at.col) ?? { r0: at.row, c0: at.col, r1: at.row, c1: at.col };
+      box.style.left = `${hw + screenX(l, data.colGeo.offset(m.c0))}px`;
+      box.style.top = `${hh + screenY(l, data.rowGeo.offset(m.r0))}px`;
+      box.style.minWidth = `${data.colGeo.offset(m.c1 + 1) - data.colGeo.offset(m.c0) + 1}px`;
+      box.style.height = `${data.rowGeo.offset(m.r1 + 1) - data.rowGeo.offset(m.r0) + 1}px`;
     }
 
     const t1 = performance.now();
@@ -260,7 +294,7 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
         perf.current = { frames: 0, totalMs: 0, maxMs: 0, lastFrameAt: 0, intervals: 0, intervalSum: 0 };
       };
     }
-  }, [store, sheetData, viewport, handleRect]);
+  }, [store, sheetData, layout, headerSize, handleRect]);
 
   const schedule = useCallback(() => {
     if (raf.current !== null) return;
@@ -311,7 +345,15 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
     schedule();
   }, [activeSheet, schedule]);
 
-  useEffect(schedule, [zoom, gridlines, schedule]);
+  useEffect(schedule, [sheetView, schedule]);
+
+  useEffect(() => {
+    // Freezing starts from the top-left corner: the frozen rows/columns are the sheet's first ones.
+    if ((sheetView.frozenRows > 0 || sheetView.frozenCols > 0) && scroller.current) {
+      scroller.current.scrollTop = 0;
+      scroller.current.scrollLeft = 0;
+    }
+  }, [sheetView.frozenRows, sheetView.frozenCols]);
 
   /** Screen px per grid px (the CSS zoom, as the browser applies it). */
   const screenScale = (el: HTMLElement): number => {
@@ -324,7 +366,7 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
     const el = scroller.current;
     if (el) {
       const data = sheetData();
-      const vp = viewport();
+      const vp = mainPane(layout()).vp;
       const bottomRow = data.rowGeo.indexAt(vp.scrollY + vp.height);
       const rightCol = data.colGeo.indexAt(vp.scrollX + vp.width);
       // Grow the virtual area when the user nears its end.
@@ -345,17 +387,17 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
     const y = (clientY - rect.top) / scale;
     if (x > el.clientWidth || y > el.clientHeight) return { kind: "none" }; // scrollbars
     const data = sheetData();
-    const vp = viewport();
-    const cx = x - HEADER_W + vp.scrollX;
-    const cy = y - HEADER_H + vp.scrollY;
-    if (x < HEADER_W && y < HEADER_H) return { kind: "corner" };
-    if (x >= HEADER_W && y >= HEADER_H && !store.getState().edit) {
+    const { hw, hh } = headerSize();
+    // Per quadrant: frozen parts map 1:1, the rest is scrolled.
+    const { x: cx, y: cy } = toSheet(layout(), x - hw, y - hh);
+    if (x < hw && y < hh) return { kind: "corner" };
+    if (x >= hw && y >= hh && !store.getState().edit) {
       const h = handleRect(normalize(store.getState().selection));
-      const hx = x - HEADER_W - (h?.x ?? 0) - HANDLE / 2;
-      const hy = y - HEADER_H - (h?.y ?? 0) - HANDLE / 2;
+      const hx = x - hw - (h?.x ?? 0) - HANDLE / 2;
+      const hy = y - hh - (h?.y ?? 0) - HANDLE / 2;
       if (h && Math.abs(hx) <= HANDLE_SLOP && Math.abs(hy) <= HANDLE_SLOP) return { kind: "fillHandle" };
     }
-    if (y < HEADER_H) {
+    if (y < hh) {
       const col = data.colGeo.indexAt(cx);
       const start = data.colGeo.offset(col);
       const end = start + data.colGeo.size(col);
@@ -363,7 +405,7 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
       if (cx - start <= RESIZE_SLOP && col > 0) return { kind: "colEdge", col: col - 1 };
       return { kind: "colHeader", col };
     }
-    if (x < HEADER_W) {
+    if (x < hw) {
       const row = data.rowGeo.indexAt(cy);
       const start = data.rowGeo.offset(row);
       const end = start + data.rowGeo.size(row);
@@ -378,18 +420,20 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
     const el = scroller.current;
     if (!el) return;
     const data = sheetData();
-    const vp = viewport();
-    const x0 = data.colGeo.offset(cell.col);
-    const x1 = x0 + data.colGeo.size(cell.col);
-    const y0 = data.rowGeo.offset(cell.row);
-    const y1 = y0 + data.rowGeo.size(cell.row);
+    const l = layout();
+    // A merged cell scrolls in as a whole.
+    const m = mergeAt(data.merges ?? [], cell.row, cell.col) ?? { r0: cell.row, c0: cell.col, r1: cell.row, c1: cell.col };
+    const x0 = data.colGeo.offset(m.c0);
+    const x1 = data.colGeo.offset(m.c1 + 1);
+    const y0 = data.rowGeo.offset(m.r0);
+    const y1 = data.rowGeo.offset(m.r1 + 1);
     if (cell.row + 20 > grow.current.rows) grow.current.rows = cell.row + 50;
     if (cell.col + 5 > grow.current.cols) grow.current.cols = cell.col + 10;
     draw(); // resize the spacer before scrolling
-    if (y0 < vp.scrollY) el.scrollTop = y0;
-    else if (y1 > vp.scrollY + vp.height) el.scrollTop = y1 - vp.height;
-    if (x0 < vp.scrollX) el.scrollLeft = x0;
-    else if (x1 > vp.scrollX + vp.width) el.scrollLeft = x1 - vp.width;
+    const top = axisScrollTo(l.frozenH, l.scrollY, l.height, y0, y1);
+    const left = axisScrollTo(l.frozenW, l.scrollX, l.width, x0, x1);
+    if (top !== null) el.scrollTop = top;
+    if (left !== null) el.scrollLeft = left;
   };
 
   // Keyboard pointing may move the reference cursor off screen.
@@ -560,7 +604,7 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
 
   const pageRows = () => {
     const data = sheetData();
-    const vis = visibleRange(viewport(), data.colGeo, data.rowGeo);
+    const vis = visibleRange(mainPane(layout()).vp, data.colGeo, data.rowGeo);
     return Math.max(1, vis.r1 - vis.r0);
   };
 
@@ -626,7 +670,7 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
       [items, label] = [rowHeaderMenu(actions), t("calc.row")];
     } else {
       if (hit.kind === "cell" && !contains(sel, hit.cell.row, hit.cell.col)) store.select(cellSelection(hit.cell.row, hit.cell.col));
-      [items, label] = [cellMenu(actions), t("calc.cell")];
+      [items, label] = [cellMenu(actions, store.selectionHasMerge()), t("calc.cell")];
     }
     setMenu({ at: { x: e.clientX, y: e.clientY }, items, label });
   };
@@ -634,8 +678,15 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
   return (
     <>
       <div className="relative min-h-0 flex-1 overflow-hidden bg-white" data-testid="grid-root" style={zoom !== 1 ? { zoom } : undefined}>
-        <canvas ref={cellsCanvas} className="absolute" style={{ left: HEADER_W, top: HEADER_H }} aria-hidden="true" />
-        <canvas ref={headerCanvas} className="absolute left-0 top-0" aria-hidden="true" />
+        <canvas
+          ref={cellsCanvas}
+          className="absolute"
+          style={{ left: headings ? HEADER_W : 0, top: headings ? HEADER_H : 0 }}
+          aria-hidden="true"
+          data-testid="grid-cells"
+          data-frozen={`${sheetView.frozenRows},${sheetView.frozenCols}`}
+        />
+        <canvas ref={headerCanvas} className="absolute left-0 top-0" style={headings ? undefined : { display: "none" }} aria-hidden="true" />
         <div
           ref={scroller}
           data-testid="grid"

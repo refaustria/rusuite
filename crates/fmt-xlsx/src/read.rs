@@ -8,12 +8,14 @@ use engine_formula::{offset_relative, CellContent, CellCoord, ErrorKind, Expr, S
 use fmt_ooxml::theme::parse_color_scheme;
 use fmt_ooxml::{rel, Package, PartName, TargetMode};
 use model_sheet::{
-    ColInfo, MergeRect, RowInfo, SheetFormat, SheetView, StyleId, Workbook, MAX_ZOOM, MIN_ZOOM,
+    AutoFilter, ColInfo, Criterion, DynamicFilter, Filter, FilterColumn, FilterOp, MergeRect,
+    RowInfo, SheetFormat, SheetView, SortKey, SortKind, SortState, StyleId, Workbook, MAX_ZOOM,
+    MIN_ZOOM,
 };
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
-use crate::a1::{cell_name, parse_cell};
+use crate::a1::{cell_name, parse_cell, parse_range};
 use crate::styles::parse_styles;
 use crate::xlfn::strip_xlfn_prefixes;
 use crate::xml::{
@@ -219,7 +221,11 @@ fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
                         very_hidden: state.as_deref() == Some("veryHidden"),
                     });
                 }
-                b"definedName" => info.defined_names += 1,
+                // Excel's AutoFilter range name; the filter itself is read
+                // from the sheet.
+                b"definedName" if attr(&el, "name").as_deref() != Some("_xlnm._FilterDatabase") => {
+                    info.defined_names += 1
+                }
                 _ => {}
             },
             Event::Eof => break,
@@ -321,7 +327,6 @@ const DROPPED: &[(&[u8], &str)] = &[
     (b"drawing", "drawings/charts"),
     (b"legacyDrawing", "comments/legacy drawings"),
     (b"tableParts", "tables"),
-    (b"autoFilter", "auto filter"),
     (b"sheetProtection", "sheet protection"),
     (b"picture", "background picture"),
     (b"oleObjects", "OLE objects"),
@@ -365,6 +370,7 @@ impl SheetLoader<'_> {
         // 0 = before the first <sheetView>, 1 = inside it, 2 = after it
         // (only the first view is read).
         let mut view_state = 0u8;
+        let mut filter = FilterReader::default();
         loop {
             let ev = reader.read_event().map_err(xml_err(part))?;
             match ev {
@@ -462,6 +468,7 @@ impl SheetLoader<'_> {
                                 dropped.insert("split panes");
                             }
                         }
+                        name if filter.start(name, el, empty) => {}
                         name => {
                             if let Some((_, what)) = DROPPED.iter().find(|(n, _)| *n == name) {
                                 dropped.insert(what);
@@ -484,6 +491,7 @@ impl SheetLoader<'_> {
                         }
                         b"rPh" => in_rph = false,
                         b"sheetView" if view_state == 1 => view_state = 2,
+                        b"filterColumn" | b"sortState" => filter.end(name),
                         b"f" | b"v" | b"t" if capture != Capture::None => {
                             if let Some(c) = cell.as_mut() {
                                 let s = std::mem::take(&mut text);
@@ -532,6 +540,44 @@ impl SheetLoader<'_> {
         }
         for what in dropped {
             self.warn(format!("{what} dropped"));
+        }
+        self.finish_filter(filter)
+    }
+
+    /// Stores the AutoFilter and sort state read from the sheet. With
+    /// active column filters, the hidden rows of the filter range are the
+    /// rows the filter hid (the file does not tell them apart from rows
+    /// hidden by hand).
+    fn finish_filter(&mut self, f: FilterReader) -> Result<()> {
+        for w in f.warnings {
+            self.warn(w);
+        }
+        if let Some(mut af) = f.auto_filter {
+            let before = af.columns.len();
+            let (c0, c1) = (af.c0, af.c1);
+            af.columns.retain(|c| (c0..=c1).contains(&c.col));
+            if af.columns.len() != before {
+                self.warn("filter columns outside the AutoFilter range dropped".into());
+            }
+            let rows: Vec<(u32, RowInfo)> = if af.columns.is_empty() {
+                Vec::new()
+            } else {
+                self.wb
+                    .rows(self.sheet)
+                    .filter(|(r, info)| info.hidden && (af.r0 + 1..=af.r1).contains(r))
+                    .collect()
+            };
+            self.wb.set_auto_filter(self.sheet, Some(af))?;
+            for (r, info) in rows {
+                let info = RowInfo {
+                    filtered: true,
+                    ..info
+                };
+                self.wb.set_row_info(self.sheet, r, info)?;
+            }
+        }
+        if let Some(st) = f.sort_state.filter(|s| !s.keys.is_empty()) {
+            self.wb.set_sort_state(self.sheet, Some(st))?;
         }
         Ok(())
     }
@@ -582,6 +628,7 @@ impl SheetLoader<'_> {
             height,
             hidden: attr_bool(el, "hidden").unwrap_or(false),
             style,
+            filtered: false,
         };
         if !info.is_default() {
             self.wb.set_row_info(self.sheet, row, info)?;
@@ -697,6 +744,208 @@ impl SheetLoader<'_> {
             self.wb.set_content(c, content)?;
         }
         Ok(())
+    }
+}
+
+/// Collects `<autoFilter>` (with its `<filterColumn>`s) and `<sortState>`
+/// (top level or inside `<autoFilter>`) while a sheet is streamed.
+#[derive(Default)]
+struct FilterReader {
+    auto_filter: Option<AutoFilter>,
+    /// The `<filterColumn>` being read: absolute column, filter so far,
+    /// and whether it holds something unsupported.
+    column: Option<(u32, Option<Filter>, bool)>,
+    sort_state: Option<SortState>,
+    in_sort: bool,
+    warnings: Vec<String>,
+}
+
+/// The literal text of a wildcard pattern without unescaped wildcards
+/// (`~*` → `*`); `None` if it has a wildcard or is empty.
+fn literal(s: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut it = s.chars();
+    while let Some(c) = it.next() {
+        match c {
+            '*' | '?' => return None,
+            '~' => out.push(it.next()?),
+            c => out.push(c),
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// A `customFilter` as a criterion; `*x*`, `x*` and `*x` patterns become
+/// the contains family (the form Excel stores them in).
+fn filter_op(op: &str, val: &str) -> Option<(FilterOp, String)> {
+    let inner = |s: &str| {
+        s.strip_prefix('*')
+            .and_then(|s| s.strip_suffix('*'))
+            .and_then(literal)
+    };
+    let starts = |s: &str| s.strip_suffix('*').and_then(literal);
+    let ends = |s: &str| s.strip_prefix('*').and_then(literal);
+    Some(match op {
+        "equal" => {
+            if let Some(v) = inner(val) {
+                (FilterOp::Contains, v)
+            } else if let Some(v) = starts(val) {
+                (FilterOp::BeginsWith, v)
+            } else if let Some(v) = ends(val) {
+                (FilterOp::EndsWith, v)
+            } else {
+                (FilterOp::Eq, val.into())
+            }
+        }
+        "notEqual" => match inner(val) {
+            Some(v) => (FilterOp::NotContains, v),
+            None => (FilterOp::Ne, val.into()),
+        },
+        "greaterThan" => (FilterOp::Gt, val.into()),
+        "greaterThanOrEqual" => (FilterOp::Ge, val.into()),
+        "lessThan" => (FilterOp::Lt, val.into()),
+        "lessThanOrEqual" => (FilterOp::Le, val.into()),
+        _ => return None,
+    })
+}
+
+impl FilterReader {
+    /// Handles an opening tag; `false` if it is not a filter element.
+    fn start(&mut self, name: &[u8], el: &BytesStart<'_>, empty: bool) -> bool {
+        let range = |el: &BytesStart<'_>| attr(el, "ref").and_then(|r| parse_range(&r));
+        match name {
+            b"autoFilter" => match range(el) {
+                Some((r0, c0, r1, c1)) => self.auto_filter = Some(AutoFilter::new(r0, c0, r1, c1)),
+                None => self
+                    .warnings
+                    .push("auto filter without a valid range dropped".into()),
+            },
+            b"filterColumn" => {
+                let base = self.auto_filter.as_ref().map(|af| af.c0);
+                let id = attr_parse::<u32>(el, "colId");
+                if let (Some(base), Some(id), false) = (base, id, empty) {
+                    self.column = Some((base.saturating_add(id), None, false));
+                }
+            }
+            b"sortState" => {
+                self.in_sort = !empty;
+                self.sort_state = range(el).map(|(r0, c0, r1, c1)| SortState {
+                    r0,
+                    c0,
+                    r1,
+                    c1,
+                    keys: Vec::new(),
+                    case_sensitive: attr_bool(el, "caseSensitive").unwrap_or(false),
+                });
+            }
+            b"sortCondition" if self.in_sort => {
+                let by = attr(el, "sortBy");
+                let col = range(el).map(|(_, c0, _, _)| c0);
+                match (self.sort_state.as_mut(), col) {
+                    (Some(st), Some(col)) if by.as_deref().unwrap_or("value") == "value" => {
+                        st.keys.push(SortKey {
+                            col,
+                            ascending: !attr_bool(el, "descending").unwrap_or(false),
+                            kind: SortKind::Auto,
+                        });
+                    }
+                    _ => self
+                        .warnings
+                        .push("sort condition by colour or icon dropped".into()),
+                }
+            }
+            _ => {
+                let Some((_, filter, bad)) = self.column.as_mut() else {
+                    return false;
+                };
+                match name {
+                    b"filters" => {
+                        let blank = attr_bool(el, "blank").unwrap_or(false);
+                        *filter = Some(Filter::Values {
+                            values: if blank {
+                                vec![String::new()]
+                            } else {
+                                Vec::new()
+                            },
+                        });
+                    }
+                    b"filter" => {
+                        if let (Some(Filter::Values { values }), Some(v)) =
+                            (filter.as_mut(), attr(el, "val"))
+                        {
+                            values.push(decode_x_escapes(&v).into_owned());
+                        }
+                    }
+                    b"customFilters" => {
+                        *filter = Some(Filter::Custom {
+                            criteria: Vec::new(),
+                            and: attr_bool(el, "and").unwrap_or(false),
+                        });
+                    }
+                    b"customFilter" => {
+                        let op =
+                            attr(el, "operator").map_or_else(|| "equal".into(), |o| o.into_owned());
+                        let val = attr(el, "val")
+                            .map(|v| decode_x_escapes(&v).into_owned())
+                            .unwrap_or_default();
+                        match (filter.as_mut(), filter_op(&op, &val)) {
+                            (Some(Filter::Custom { criteria, .. }), Some((op, value))) => {
+                                criteria.push(Criterion { op, value });
+                            }
+                            _ => *bad = true,
+                        }
+                    }
+                    b"top10" => {
+                        *filter = Some(Filter::Top10 {
+                            top: attr_bool(el, "top").unwrap_or(true),
+                            percent: attr_bool(el, "percent").unwrap_or(false),
+                            value: attr_parse::<f64>(el, "val")
+                                .filter(|v| v.is_finite())
+                                .unwrap_or(10.0),
+                        });
+                    }
+                    b"dynamicFilter" => {
+                        let kind = match attr(el, "type").as_deref() {
+                            Some("aboveAverage") => Some(DynamicFilter::AboveAverage),
+                            Some("belowAverage") => Some(DynamicFilter::BelowAverage),
+                            Some("today") => Some(DynamicFilter::Today),
+                            Some("yesterday") => Some(DynamicFilter::Yesterday),
+                            Some("tomorrow") => Some(DynamicFilter::Tomorrow),
+                            _ => None,
+                        };
+                        match kind {
+                            Some(filter_kind) => {
+                                *filter = Some(Filter::Dynamic {
+                                    filter: filter_kind,
+                                })
+                            }
+                            None => *bad = true,
+                        }
+                    }
+                    b"dateGroupItem" | b"colorFilter" | b"iconFilter" => *bad = true,
+                    _ => return false,
+                }
+            }
+        }
+        true
+    }
+
+    /// Handles a closing `</filterColumn>` or `</sortState>`.
+    fn end(&mut self, name: &[u8]) {
+        if name == b"sortState" {
+            self.in_sort = false;
+            return;
+        }
+        let Some((col, filter, bad)) = self.column.take() else {
+            return;
+        };
+        match (filter, bad, self.auto_filter.as_mut()) {
+            (Some(filter), false, Some(af)) => af.columns.push(FilterColumn { col, filter }),
+            _ => self.warnings.push(format!(
+                "unsupported filter of column {} dropped (date groups, colours, icons or other dynamic filters)",
+                engine_formula::ast::col_to_letters(col)
+            )),
+        }
     }
 }
 

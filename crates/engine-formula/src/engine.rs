@@ -73,13 +73,15 @@
 //! reserved: [`Engine::add_sheet`] never hands it out again, and only
 //! [`Engine::restore_sheet`] (undo) brings it back.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::ast::{ErrorKind, Expr, MAX_COL, MAX_ROW};
-use crate::eval::{default_now, evaluate, CellCoord, CellProvider, EvalContext, SheetId};
+use crate::eval::{
+    default_now, evaluate, CellCoord, CellProvider, EvalContext, RowHidden, SheetId,
+};
 use crate::functions::FunctionRegistry;
 use crate::graph::{Cycle, DependencyGraph, Precedent, SheetResolver};
 use crate::parser::{parse, ParseError};
@@ -135,6 +137,8 @@ struct Sheet {
     used: Option<(u32, u32)>,
     /// Deleted: empty, invisible to name lookups, id reserved.
     removed: bool,
+    /// Hidden rows (absent = visible), for `SUBTOTAL`.
+    hidden_rows: BTreeMap<u32, RowHidden>,
 }
 
 impl Sheet {
@@ -181,6 +185,26 @@ struct Names<'a>(&'a [Sheet]);
 impl SheetResolver for Names<'_> {
     fn sheet_id(&self, name: &str) -> Option<SheetId> {
         find_sheet(self.0, name)
+    }
+}
+
+/// Whether `e` calls a function whose [`Function::reads_row_visibility`]
+/// flag is set.
+fn reads_row_visibility(e: &Expr, registry: &FunctionRegistry) -> bool {
+    match e {
+        Expr::Call { name, args } => {
+            registry.get(name).is_some_and(|f| f.reads_row_visibility())
+                || args.iter().any(|a| reads_row_visibility(a, registry))
+        }
+        Expr::Unary { expr, .. } => reads_row_visibility(expr, registry),
+        Expr::Binary { lhs, rhs, .. } => {
+            reads_row_visibility(lhs, registry) || reads_row_visibility(rhs, registry)
+        }
+        Expr::Array(rows) => rows
+            .iter()
+            .flatten()
+            .any(|a| reads_row_visibility(a, registry)),
+        _ => false,
     }
 }
 
@@ -302,6 +326,9 @@ pub struct Engine {
     now: fn() -> f64,
     /// `Some` while a batch is open: the edited cells awaiting recalculation.
     pending: Option<Vec<CellCoord>>,
+    /// A row's visibility changed inside the open batch: `end_batch`
+    /// re-evaluates the cells reading row visibility.
+    visibility_dirty: bool,
 }
 
 impl Default for Engine {
@@ -326,6 +353,7 @@ impl Engine {
             volatile: HashSet::new(),
             now: default_now,
             pending: None,
+            visibility_dirty: false,
         }
     }
 
@@ -397,6 +425,7 @@ impl Engine {
         s.cells.clear();
         s.values.clear();
         s.used = None;
+        s.hidden_rows.clear();
         s.removed = true;
         self.order.retain(|&o| o != id);
         if let Some(pending) = &mut self.pending {
@@ -477,7 +506,9 @@ impl Engine {
             .map(|(&pos, content)| (pos, content.clone()))
             .collect();
         cells.sort_unstable_by_key(|(pos, _)| *pos);
+        let hidden_rows = self.sheets[idx].hidden_rows.clone();
         let new = self.add_sheet(name)?;
+        self.sheets[new.0 as usize].hidden_rows = hidden_rows;
         self.order.pop();
         self.order.insert(at, new);
         for (_, content) in &mut cells {
@@ -676,8 +707,64 @@ impl Engine {
     /// made during it. Without an open batch this only recalculates the
     /// volatile cells.
     pub fn end_batch(&mut self) -> Recalc {
-        let pending = self.pending.take().unwrap_or_default();
+        let mut pending = self.pending.take().unwrap_or_default();
+        if std::mem::take(&mut self.visibility_dirty) {
+            pending.extend(self.row_visibility_cells());
+        }
         self.recalc(&pending)
+    }
+
+    /// Whether row `row` of `sheet` is hidden (see [`RowHidden`]).
+    pub fn row_hidden(&self, sheet: SheetId, row: u32) -> RowHidden {
+        self.sheets
+            .get(sheet.0 as usize)
+            .and_then(|s| s.hidden_rows.get(&row))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Records the visibility of a row (the engine stores no other row
+    /// properties; the document model keeps it in sync). When it changes,
+    /// every formula calling a function that reads row visibility
+    /// (`SUBTOTAL`) is re-evaluated (deferred inside a batch). Rows move
+    /// with row inserts and deletes.
+    pub fn set_row_hidden(
+        &mut self,
+        sheet: SheetId,
+        row: u32,
+        state: RowHidden,
+    ) -> Result<Recalc, EngineError> {
+        let idx = self.check(CellCoord::new(sheet, row, 0))?;
+        let rows = &mut self.sheets[idx].hidden_rows;
+        let old = if state == RowHidden::Visible {
+            rows.remove(&row)
+        } else {
+            rows.insert(row, state)
+        };
+        if old.unwrap_or_default() == state {
+            return Ok(Recalc::default());
+        }
+        if self.pending.is_some() {
+            self.visibility_dirty = true;
+            return Ok(Recalc::default());
+        }
+        let seeds = self.row_visibility_cells();
+        Ok(self.recalc(&seeds))
+    }
+
+    /// Every formula cell calling a function that reads row visibility.
+    fn row_visibility_cells(&self) -> Vec<CellCoord> {
+        let mut out = Vec::new();
+        for (i, s) in self.sheets.iter().enumerate() {
+            for (&(row, col), content) in &s.cells {
+                if let CellContent::Formula { ast, .. } = content {
+                    if reads_row_visibility(ast, &self.registry) {
+                        out.push(CellCoord::new(SheetId(i as u32), row, col));
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// All non-empty contents of `sheet`, in no particular order (empty for
@@ -813,6 +900,12 @@ impl Engine {
                 None => Some((r, c)),
                 Some((mr, mc)) => Some((mr.max(r), mc.max(c))),
             });
+            if op.is_rows() {
+                s.hidden_rows = std::mem::take(&mut s.hidden_rows)
+                    .into_iter()
+                    .filter_map(|(r, h)| op.map_index(r).map(|r| (r, h)))
+                    .collect();
+            }
         }
 
         // 2. Rewrite every formula of the workbook.
@@ -1007,6 +1100,14 @@ impl CellProvider for Engine {
     fn used_range(&self, sheet: SheetId) -> Option<(u32, u32)> {
         Engine::used_range(self, sheet)
     }
+
+    fn row_hidden(&self, sheet: SheetId, row: u32) -> RowHidden {
+        Engine::row_hidden(self, sheet, row)
+    }
+
+    fn is_subtotal_cell(&self, c: CellCoord) -> bool {
+        matches!(self.content(c), CellContent::Formula { ast, .. } if reads_row_visibility(ast, &self.registry))
+    }
 }
 
 #[cfg(test)]
@@ -1019,6 +1120,48 @@ mod tests {
 
     fn val(x: Value) -> CellContent {
         CellContent::Value(x)
+    }
+
+    #[test]
+    fn row_visibility_recalculates_subtotals() {
+        let mut e = Engine::new();
+        let s = SheetId(0);
+        let c = |r, col| CellCoord::new(s, r, col);
+        for r in 0..4 {
+            e.set_input(c(r, 0), &(r + 1).to_string()).unwrap();
+        }
+        e.set_input(c(5, 0), "=SUBTOTAL(9,A1:A4)").unwrap();
+        e.set_input(c(5, 1), "=SUBTOTAL(109,A1:A4)").unwrap();
+        e.set_input(c(5, 2), "=SUM(A1:A4)").unwrap();
+        let recalc = e.set_row_hidden(s, 1, RowHidden::Manual).unwrap();
+        assert_eq!(recalc.changed, vec![c(5, 1)]);
+        assert_eq!(e.value(c(5, 0)), Value::Number(10.0));
+        assert_eq!(e.value(c(5, 1)), Value::Number(8.0));
+        // Unchanged state: nothing to do.
+        assert!(e
+            .set_row_hidden(s, 1, RowHidden::Manual)
+            .unwrap()
+            .changed
+            .is_empty());
+        e.begin_batch();
+        e.set_row_hidden(s, 2, RowHidden::Filtered).unwrap();
+        let recalc = e.end_batch();
+        assert_eq!(recalc.changed, vec![c(5, 0), c(5, 1)]);
+        assert_eq!(e.value(c(5, 0)), Value::Number(7.0));
+        // Hidden rows move with inserts and deletes, and are copied.
+        e.insert_rows(s, 0, 1).unwrap();
+        assert_eq!(e.row_hidden(s, 2), RowHidden::Manual);
+        assert_eq!(e.row_hidden(s, 3), RowHidden::Filtered);
+        assert_eq!(e.row_hidden(s, 1), RowHidden::Visible);
+        assert_eq!(e.value(c(6, 1)), Value::Number(5.0));
+        let (copy, _) = e.duplicate_sheet(s, "Copy").unwrap();
+        assert_eq!(e.row_hidden(copy, 3), RowHidden::Filtered);
+        e.delete_rows(s, 2, 1).unwrap();
+        assert_eq!(e.row_hidden(s, 2), RowHidden::Filtered);
+        assert_eq!(e.value(c(5, 1)), Value::Number(5.0));
+        assert!(e.is_subtotal_cell(c(5, 1)));
+        assert!(!e.is_subtotal_cell(c(5, 2)));
+        assert!(e.set_row_hidden(s, MAX_ROW + 1, RowHidden::Manual).is_err());
     }
 
     #[test]
