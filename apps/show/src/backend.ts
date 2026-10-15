@@ -1,13 +1,8 @@
+// The Show backend type (ADR 0005 §4): the shared `Backend` with Show's
+// generated wire types.
+
 import type { Backend } from "@rusuite/ui-shared";
+import type { Request } from "./generated/Request";
+import type { ResponseBody } from "./generated/ResponseBody";
 
-// Placeholder wire types until the real ones are generated with a later task.
-export type ShowRequest = { type: "ping" };
-export type ShowResponseBody = { type: "pong" };
-
-export type ShowBackend = Backend<ShowRequest, ShowResponseBody>;
-
-/** Sends `{"type":"ping"}` to the core; true when it answers `pong`. */
-export async function pingCore(backend: ShowBackend): Promise<boolean> {
-  const reply = await backend.dispatch({ type: "ping" });
-  return "ok" in reply && reply.ok.type === "pong";
-}
+export type ShowBackend = Backend<Request, ResponseBody>;
