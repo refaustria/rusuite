@@ -33,8 +33,11 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).
-- **Show**: Home (Undo; Clipboard: shapes clipboard + Duplicate; Slides: New slide ▾ layouts, Duplicate, Delete; Font;
-  Paragraph; Drawing: shapes gallery, Arrange ▾ order/align/distribute/group, fill and outline), Insert (New slide, Picture,
-  Shapes ▾, Text box), View (present from beginning/current, zoom Fit/50–200 %, shortcuts help); Present in the strip.
+- **Show**: Home (Undo; Clipboard: shapes/slides clipboard + Duplicate; Slides: New slide ▾ layouts, Layout ▾, Duplicate,
+  Delete, Hide slide; Font + grow/shrink; Paragraph + line spacing ▾; Drawing: shapes gallery, Arrange ▾
+  order/align/distribute/group, fill and outline), Insert (New slide, Picture, Shapes ▾, Text box), Design (Background
+  colour, Apply to all, Reset), View (Notes pane, present from beginning/current, zoom Fit/50–200 %, shortcuts help),
+  contextual Shape Format while shapes are selected (Format shape…, Alt text…, Change picture…/Reset size, Arrange ▾);
+  Present in the strip. Right-click menus on shapes, on the slide and on thumbnails (`apps/show/src/canvas/menus.ts`).
 
 Each app keeps its status bar; Calc and Show also show the zoom there.
