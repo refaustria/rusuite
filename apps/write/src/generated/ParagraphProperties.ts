@@ -3,6 +3,7 @@ import type { RunProperties } from "../../../../packages/ui-shared/src/generated
 import type { Alignment } from "./Alignment";
 import type { Indent } from "./Indent";
 import type { NumberingRef } from "./NumberingRef";
+import type { SectionId } from "./SectionId";
 import type { Spacing } from "./Spacing";
 
 /**
@@ -40,4 +41,10 @@ pageBreakBefore?: boolean | null,
 /**
  * Formatting of the paragraph mark (docx `w:pPr/w:rPr`).
  */
-runDefaults?: RunProperties | null, };
+runDefaults?: RunProperties | null, 
+/**
+ * This (top-level body) paragraph ends the section with this id
+ * (docx: `w:sectPr` inside the paragraph's `w:pPr`). Never inherited
+ * from styles.
+ */
+sectionEnd?: SectionId, };

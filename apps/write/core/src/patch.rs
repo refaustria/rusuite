@@ -2,7 +2,7 @@
 //! redo (ADR 0007 §1).
 
 use app_common::Patch;
-use model_text::{Block, NodeId, Numbering, PageSetup, StyleSheet};
+use model_text::{Block, NodeId, Note, Numbering, PageSetup, Section, StyleSheet};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -28,7 +28,10 @@ pub struct InsertedBlock {
 /// separately. Structural changes inside a table cell (blocks inserted,
 /// deleted or replaced there, cell/row/column/table properties) report
 /// the whole innermost table in `replaced`; text and paragraph-property
-/// changes report just the paragraph, wherever it is.
+/// changes report just the paragraph, wherever it is. Paragraphs whose
+/// list label changed are reported in `replaced` too; every reported
+/// numbered paragraph carries its `listLabel`. Changes inside notes,
+/// headers and footers report all `notes` / `sections` instead.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "apps/write/src/generated/")]
@@ -50,6 +53,14 @@ pub struct WritePatch {
     pub numbering: Option<Numbering>,
     /// The page setup, when it changed.
     pub page: Option<PageSetup>,
+    /// All sections (with their headers and footers), when they changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sections: Option<Vec<Section>>,
+    /// All footnotes and endnotes, when they changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub notes: Option<Vec<Note>>,
     /// A message for the status bar (e.g. `"3 replacements"`).
     pub info: Option<String>,
 }
@@ -100,6 +111,12 @@ impl Patch for WritePatch {
         }
         if other.page.is_some() {
             self.page = other.page;
+        }
+        if other.sections.is_some() {
+            self.sections = other.sections;
+        }
+        if other.notes.is_some() {
+            self.notes = other.notes;
         }
         if other.info.is_some() {
             self.info = other.info;

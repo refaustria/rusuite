@@ -150,11 +150,13 @@ pub(crate) fn collect_ids(block: &Block, out: &mut Vec<NodeId>) {
     }
 }
 
-/// Every node id of the document.
+/// Every node id of the document (body, notes, headers and footers).
 pub(crate) fn all_ids(doc: &Document) -> HashSet<NodeId> {
     let mut v = Vec::new();
-    for b in &doc.body {
-        collect_ids(b, &mut v);
+    for c in doc.containers() {
+        for b in c {
+            collect_ids(b, &mut v);
+        }
     }
     v.into_iter().collect()
 }
@@ -173,5 +175,6 @@ pub(crate) fn for_each_paragraph_mut(
                 }
             }
         }
+        Block::Toc(_) => {}
     }
 }

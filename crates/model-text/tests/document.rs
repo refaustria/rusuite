@@ -384,3 +384,220 @@ fn paragraph_len_normalize_and_reserved_ids() {
     doc.reserve_id(NodeId(5));
     assert_eq!(doc.alloc_id(), NodeId(43));
 }
+
+// --- structure: lists, tables of contents, sections, notes ----------------------
+
+#[test]
+fn list_numbers_follow_word_counting() {
+    let mut doc = Document::new();
+    doc.body.clear();
+    doc.numbering.insert(NumberingDef::legal_default(1));
+    doc.numbering.insert(NumberingDef::bullet_default(2));
+    // A style that numbers its paragraphs (like Word's numbered headings).
+    let mut style = doc.styles.get("Heading1").unwrap().clone();
+    style.id = "Chapter".into();
+    style.paragraph.numbering = Some(NumberingRef {
+        num_id: 1,
+        level: 0,
+    });
+    doc.styles.insert(style);
+    let chapter = styled(&mut doc, "Chapter", "Chapter");
+    let a = list_item(&mut doc, 1, 1, "a");
+    let bullet = list_item(&mut doc, 2, 0, "bullet");
+    let b = list_item(&mut doc, 1, 1, "b");
+    let chapter2 = styled(&mut doc, "Chapter", "Chapter two");
+    let c = list_item(&mut doc, 1, 1, "c");
+    let mut off = list_item(&mut doc, 1, 0, "not numbered");
+    off.props.numbering = Some(NumberingRef {
+        num_id: 0,
+        level: 0,
+    });
+    let dangling = list_item(&mut doc, 9, 0, "dangling");
+    let ids: Vec<NodeId> = [&chapter, &a, &bullet, &b, &chapter2, &c]
+        .iter()
+        .map(|p| p.id)
+        .collect();
+    let cell_item = list_item(&mut doc, 1, 1, "in a cell");
+    let cell_id = cell_item.id;
+    let table = Table {
+        id: doc.alloc_id(),
+        props: TableProperties::default(),
+        rows: vec![TableRow {
+            id: doc.alloc_id(),
+            props: RowProperties::default(),
+            cells: vec![TableCell {
+                id: doc.alloc_id(),
+                props: CellProperties::default(),
+                blocks: vec![Block::Paragraph(cell_item)],
+            }],
+        }],
+    };
+    doc.body = [chapter, a, bullet, b, chapter2, c, off, dangling]
+        .into_iter()
+        .map(Block::Paragraph)
+        .chain([Block::Table(table)])
+        .collect();
+    let labels = doc.list_numbers();
+    let mut expected: Vec<(NodeId, String)> = ids
+        .into_iter()
+        .zip(["1.", "1.1.", "•", "1.2.", "2.", "2.1."])
+        .map(|(id, l)| (id, l.to_owned()))
+        .collect();
+    expected.push((cell_id, "2.2.".to_owned()));
+    assert_eq!(labels, expected);
+}
+
+#[test]
+fn toc_from_headings() {
+    let mut doc = Document::new();
+    doc.body.clear();
+    // A custom style based on Heading 2 is outline level 2 as well.
+    let mut custom = doc.styles.get("Heading2").unwrap().clone();
+    custom.id = "MyHeading".into();
+    custom.name = "My heading".into();
+    custom.based_on = Some("Heading2".into());
+    doc.styles.insert(custom);
+    let h1 = styled(&mut doc, "Heading1", "Intro");
+    let mut h2 = styled(&mut doc, "MyHeading", "Back\tground ");
+    h2.inlines.push(Inline::Field(model_text::Field {
+        cached: "7".into(),
+        ..model_text::Field::new(model_text::FieldKind::Page)
+    }));
+    let h3 = styled(&mut doc, "Heading3", "Deep");
+    let empty = styled(&mut doc, "Heading1", "");
+    let body = styled(&mut doc, "Normal", "Text");
+    let title = styled(&mut doc, "Title", "Title");
+    let (i1, i2, i3) = (h1.id, h2.id, h3.id);
+    doc.body = [title, h1, body, h2, h3, empty]
+        .into_iter()
+        .map(Block::Paragraph)
+        .collect();
+    assert_eq!(doc.outline_level(doc.find_paragraph(i2).unwrap()), Some(2));
+    let toc = doc.build_toc(1, 2);
+    let got: Vec<(&str, u8, NodeId)> = toc
+        .iter()
+        .map(|e| (e.text.as_str(), e.level, e.target))
+        .collect();
+    assert_eq!(got, [("Intro", 1, i1), ("Back ground 7", 2, i2)]);
+    assert!(toc.iter().all(|e| e.page.is_none()));
+    assert_eq!(doc.build_toc(3, 3)[0].target, i3);
+}
+
+#[test]
+fn sections_sync_with_their_end_paragraphs() {
+    use model_text::{HeaderSlot, Orientation, Section, SectionId};
+    let mut doc = Document::new();
+    assert_eq!(doc.sections.len(), 1);
+    let first = doc.body[0].id();
+    let second = doc.alloc_id();
+    let third = doc.alloc_id();
+    doc.body
+        .push(Block::Paragraph(Paragraph::with_text(second, "two")));
+    doc.body
+        .push(Block::Paragraph(Paragraph::with_text(third, "three")));
+    // Sections 7 and 8 end at `first` and `second`; listed out of order.
+    let landscape = doc.page.clone().with_orientation(Orientation::Landscape);
+    doc.sections
+        .insert(0, Section::new(SectionId(8), landscape));
+    doc.sections
+        .insert(0, Section::new(SectionId(7), doc.page.clone()));
+    let header = doc.text_blocks("First {PAGE}", false);
+    doc.sections[0].headers.default = Some(header);
+    for (id, sid) in [(first, 7), (second, 8)] {
+        if let Some(Block::Paragraph(p)) = doc.find_block_mut(id) {
+            p.props.section_end = Some(SectionId(sid));
+        }
+    }
+    doc.sections.swap(0, 1);
+    assert!(doc.sync_sections());
+    let order: Vec<u32> = doc.sections.iter().map(|s| s.id.0).collect();
+    assert_eq!(order, [7, 8, 1]);
+    // Headers are inherited by later sections; the derived text follows.
+    assert_eq!(
+        doc.sections[1].page.header_text.as_deref(),
+        Some("First {PAGE}")
+    );
+    assert_eq!(doc.page.header_text.as_deref(), Some("First {PAGE}"));
+    assert!(doc
+        .effective_header_footer(2, false, HeaderSlot::Default)
+        .is_some());
+    assert_eq!(doc.section_index_of(first), Some(0));
+    assert_eq!(doc.section_index_of(second), Some(1));
+    assert_eq!(doc.section_index_of(third), Some(2));
+    assert!(!doc.sync_sections(), "stable");
+
+    // The last section mirrors `Document::page`.
+    doc.page = doc.page.clone().with_orientation(Orientation::Landscape);
+    assert!(doc.sync_sections());
+    assert_eq!(doc.sections[2].page, doc.page);
+
+    // Removing the header of the last section stops the inheritance.
+    doc.set_header_text(false, None);
+    assert_eq!(doc.page.header_text, None);
+    assert_eq!(
+        doc.sections[2].headers.default.as_ref().map(Vec::len),
+        Some(1)
+    );
+    doc.set_header_text(false, Some("Last"));
+    assert_eq!(doc.page.header_text.as_deref(), Some("Last"));
+
+    // Deleting the end paragraph of section 8 merges it into the next.
+    doc.body.remove(1);
+    assert!(doc.sync_sections());
+    let order: Vec<u32> = doc.sections.iter().map(|s| s.id.0).collect();
+    assert_eq!(order, [7, 1]);
+
+    // Header paragraphs are found like body paragraphs and their ids
+    // count for the id counter.
+    let hid = doc.sections[0].headers.default.as_ref().unwrap()[0].id();
+    assert_eq!(doc.header_of_block(hid), Some(0));
+    assert!(doc.find_paragraph(hid).is_some());
+    let mut back = Document::from_json(&doc.to_json().unwrap()).unwrap();
+    assert_eq!(back, doc);
+    assert!(back.alloc_id() > hid);
+}
+
+#[test]
+fn legacy_header_text_becomes_a_section() {
+    let json = r#"{"body":[{"kind":"paragraph","value":{"id":1}}],
+        "page":{"width":11906,"height":16838,"orientation":"portrait",
+        "margins":{"top":1440,"right":1440,"bottom":1440,"left":1440,"header":708,"footer":708},
+        "headerText":"Report","footerText":"Page {PAGE} of x"}}"#;
+    let mut doc = Document::from_json(json).unwrap();
+    doc.normalize();
+    assert_eq!(doc.sections.len(), 1);
+    let footer = doc.sections[0].footers.default.as_ref().unwrap();
+    let p = footer[0].as_paragraph().unwrap();
+    assert!(matches!(&p.inlines[1], Inline::Field(f) if f.kind == model_text::FieldKind::Page));
+    assert_eq!(doc.page.footer_text.as_deref(), Some("Page {PAGE} of x"));
+    assert_eq!(doc.page.header_text.as_deref(), Some("Report"));
+}
+
+#[test]
+fn notes_are_containers() {
+    use model_text::{Note, NoteKind, NoteRef};
+    let mut doc = Document::new();
+    let pid = doc.alloc_id();
+    doc.notes.push(Note {
+        id: doc.next_note_id(),
+        kind: NoteKind::Foot,
+        blocks: vec![Block::Paragraph(Paragraph::with_text(pid, "note"))],
+    });
+    assert_eq!(doc.notes[0].id, 2);
+    assert_eq!(doc.next_note_id(), 3);
+    if let Some(Block::Paragraph(p)) = doc.find_block_mut(doc.body[0].id()) {
+        p.inlines.push(Inline::Run(Run::new("text")));
+        p.inlines.push(Inline::NoteRef(NoteRef {
+            id: 2,
+            kind: NoteKind::Foot,
+            props: RunProperties::default(),
+        }));
+    }
+    assert_eq!(doc.plain_text(), "text\u{2}");
+    assert_eq!(doc.word_count(), 1);
+    assert_eq!(doc.note_of_block(pid).map(|n| n.id), Some(2));
+    assert_eq!(doc.find_paragraph(pid).unwrap().text(), "note");
+    let mut back = Document::from_json(&doc.to_json().unwrap()).unwrap();
+    assert_eq!(back, doc);
+    assert!(back.alloc_id() > pid);
+}

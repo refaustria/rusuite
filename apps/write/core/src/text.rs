@@ -1,5 +1,6 @@
 //! Char-offset arithmetic on paragraph inlines (ADR 0007 §3): run text
-//! counts in Unicode scalar values, images and breaks count as one.
+//! counts in Unicode scalar values, images, breaks, fields and note
+//! references count as one.
 
 use model_text::{Inline, Paragraph, Run, RunProperties};
 
@@ -7,7 +8,7 @@ use model_text::{Inline, Paragraph, Run, RunProperties};
 pub(crate) fn inline_len(inline: &Inline) -> usize {
     match inline {
         Inline::Run(run) => run.text.chars().count(),
-        Inline::Image(_) | Inline::Break(_) => 1,
+        _ => 1,
     }
 }
 

@@ -140,7 +140,7 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
         envelope: Box::new(env.unwrap_or_else(|| host.envelope(WritePatch::default()))),
     };
     let document = |host: &WriteHost| ResponseBody::Document {
-        doc: Box::new(host.doc().document().clone()),
+        doc: Box::new(host.doc().snapshot()),
         envelope: Box::new(host.envelope(WritePatch::default())),
     };
     let state = |host: &WriteHost| ResponseBody::DocumentState {
@@ -185,7 +185,7 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
             let (doc, warnings) = WriteDocument::open_docx(&bytes, &name)?;
             host.replace(doc);
             ResponseBody::Opened {
-                doc: Box::new(host.doc().document().clone()),
+                doc: Box::new(host.doc().snapshot()),
                 warnings,
                 envelope: Box::new(host.envelope(WritePatch::default())),
             }
