@@ -62,8 +62,8 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 | P4-3 | Show app scaffold (Tauri + WASM + Konva), deployed at /show/ | Sonnet | done (merged) | – | verified: LIVE https://resuite.inceptum.at/show/ (konva 10.7, react-konva 18.2.16 placeholder stage + Present mode), tauri build runs under xvfb |
 | P4-6 | 25 provisional reference .pptx files + manifest | Sonnet | done (merged) | – | verified: 25 decks + manifest, 26/26 harness PASS; LibreOffice export quirks documented (title ph type, bare body ph, lines as p:sp, txBox rects) |
 | P4-2 | `fmt-pptx` read/write | Opus | in progress | `p4/fmt-pptx` | brief docs/tasks/P4-2-fmt-pptx.md |
-| P4-4 | `show-core` commands/patches/dispatch | Opus | in progress | `p4/show-core` | brief docs/tasks/P4-4-show-core.md |
-| P4-5 | Show UI: Konva object model, selection/transform, text editing, sidebar, presentation mode | Opus | todo | `p4/show-ui` | after P4-4 |
+| P4-4 | `show-core` commands/patches/dispatch | Opus | done (merged) | – | verified: 692 tests; whole-slide patches/inverses; `TextParagraphPatch` (null = inherit); 42 generated TS files; wiring must add show-core to CI generated-diff/wasm checks and delete ping dispatch |
+| P4-5 | Show UI: Konva object model, selection/transform, text editing, sidebar, presentation mode | Opus | in progress | `p4/show-ui` | brief docs/tasks/P4-5-show-ui.md |
 | P4-7 | Wiring: pptx open/save both shells; deploy | Opus | todo | `p4/show-wiring` | after P4-2 + P4-5 |
 | P4-8 | Milestone verification | PM | todo | – | |
 | P2-1 | `model-sheet`: Workbook wrapping `engine_formula::Engine` for contents/values + StyleTable (font/fill/border/alignment/number format), column/row dimensions, sheet metadata; serde; ADR 0004 | Opus | done (merged a112e4b) | – | verified: 15 tests, snapshot DTO, style interning; follow-up fixed a rustdoc link |
