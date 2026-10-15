@@ -37,7 +37,7 @@ pub struct EvalContext<'a> {
 }
 
 impl<'a> EvalContext<'a> {
-    /// Context with [`system_now`] as the clock.
+    /// Context with [`default_now`] as the clock.
     pub fn new(
         provider: &'a dyn CellProvider,
         registry: &'a FunctionRegistry,
@@ -47,18 +47,47 @@ impl<'a> EvalContext<'a> {
             provider,
             registry,
             current,
-            now: system_now,
+            now: default_now,
         }
     }
 }
 
+static DEFAULT_CLOCK: std::sync::LazyLock<std::sync::RwLock<fn() -> f64>> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(system_now));
+
+/// Installs the process-wide default clock used by [`default_now`] (and thus
+/// by every [`EvalContext::new`] and `Engine::new`). Shells without a usable
+/// `std::time` (wasm32) install a host clock once at start-up.
+pub fn set_default_clock(f: fn() -> f64) {
+    *DEFAULT_CLOCK
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = f;
+}
+
+/// The installed default clock's current value, or the [`system_now`]
+/// fallback when none was installed.
+pub fn default_now() -> f64 {
+    let f = *DEFAULT_CLOCK
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    f()
+}
+
 /// The system clock (UTC) as an Excel 1900-system serial number.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn system_now() -> f64 {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0.0, |d| d.as_secs_f64());
     // 1970-01-01 is serial 25569.
     25569.0 + secs / 86_400.0
+}
+
+/// wasm32 fallback: `std::time` traps there, so this is serial 0
+/// (1899-12-30) until a shell calls [`set_default_clock`].
+#[cfg(target_arch = "wasm32")]
+pub fn system_now() -> f64 {
+    0.0
 }
 
 /// Result of evaluating a sub-expression before it is forced to a scalar.

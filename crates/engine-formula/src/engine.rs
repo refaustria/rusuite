@@ -64,7 +64,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::ast::{ErrorKind, Expr, MAX_COL, MAX_ROW};
-use crate::eval::{evaluate, system_now, CellCoord, CellProvider, EvalContext, SheetId};
+use crate::eval::{default_now, evaluate, CellCoord, CellProvider, EvalContext, SheetId};
 use crate::functions::FunctionRegistry;
 use crate::graph::{Cycle, DependencyGraph, Precedent, SheetResolver};
 use crate::parser::{parse, ParseError};
@@ -278,7 +278,7 @@ impl Engine {
             graph: DependencyGraph::new(),
             registry,
             volatile: HashSet::new(),
-            now: system_now,
+            now: default_now,
             pending: None,
         }
     }
