@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "./App";
 import { FakeBackend, FakeCalcCore } from "./dev/fakeBackend";
@@ -143,15 +143,28 @@ describe("App", () => {
     expect(address()).toBe("A1:B1");
   });
 
-  it("shows backend errors as a toast and the revision in the status bar", async () => {
+  it("keeps an unparsable formula open with an inline error; backend errors become a toast", async () => {
     const { core, grid } = await setup();
     fireEvent.keyDown(grid, { key: "=" });
-    const editor = screen.getByTestId("cell-editor");
+    const editor = screen.getByTestId("cell-editor") as HTMLTextAreaElement;
     fireEvent.change(editor, { target: { value: "=SUM(1" } });
     await act(async () => {
       fireEvent.keyDown(editor, { key: "Enter" });
     });
-    expect((await screen.findByRole("alert")).textContent).toMatch(/invalid_formula/);
+    expect(screen.getByTestId("formula-error").textContent).toMatch(/in call to SUM.*press Esc to discard/);
+    expect((screen.getByTestId("cell-editor") as HTMLTextAreaElement).value).toBe("=SUM(1");
+    expect(applied(core.log)).toEqual([]);
+    fireEvent.keyDown(screen.getByTestId("cell-editor"), { key: "Escape" });
+    expect(screen.queryByTestId("cell-editor")).toBeNull();
+    const exec = vi.spyOn(core, "exec").mockImplementationOnce(() => {
+      throw new Error("boom");
+    });
+    fireEvent.keyDown(grid, { key: "4" });
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId("cell-editor"), { key: "Enter" });
+    });
+    expect((await screen.findByRole("alert")).textContent).toMatch(/internal/);
+    exec.mockRestore();
     fireEvent.keyDown(grid, { key: "5" });
     fireEvent.keyDown(screen.getByTestId("cell-editor"), { key: "Enter" });
     await waitFor(() => expect(screen.getByTestId("status-bar").textContent).toMatch(new RegExp(`Revision ${core.revision}.*Modified`)));

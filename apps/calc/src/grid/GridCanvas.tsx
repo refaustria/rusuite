@@ -7,8 +7,8 @@ import { useCalc, type CalcStore } from "../state/store";
 import { CellEditor } from "./CellEditor";
 import { rowHeightPx } from "./geometry";
 import {
-  CELL_PADDING, computeRenderOps, drawHeaders, drawOps, drawSelection, HEADER_H, HEADER_W, prepareCanvas, visibleRange,
-  type SheetData, type Viewport,
+  CELL_PADDING, computeRenderOps, drawHeaders, drawOps, drawRefHighlights, drawSelection, HEADER_H, HEADER_W, prepareCanvas, visibleRange,
+  type RefHighlight, type SheetData, type Viewport,
 } from "./render";
 import {
   cellSelection, colSelection, LAST_COL, LAST_ROW, navigate, normalize, pointerSelect, rowSelection, type Cell, type Selection,
@@ -49,7 +49,9 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const perf = useRef({ frames: 0, totalMs: 0, maxMs: 0, lastFrameAt: 0, intervals: 0, intervalSum: 0 });
 
   const activeSheet = useCalc(store, (s) => s.activeSheet);
-  const editing = useCalc(store, (s) => s.edit !== null);
+  // While pointing on another sheet the in-cell editor is hidden (the formula bar has the edit).
+  const editing = useCalc(store, (s) => s.edit !== null && s.edit.sheet === s.activeSheet);
+  const lastPoint = useRef<Cell | null>(null);
 
   const sheetData = useCallback((): SheetData => {
     const sheet = store.getState().activeSheet;
@@ -97,6 +99,16 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       const ops = computeRenderOps(vp, data, store.styles());
       drawOps(cctx, ops, "#ffffff");
       drawSelection(cctx, vp, data, sel, state.selection.anchor);
+      const edit = state.edit;
+      if (edit) {
+        const marks: RefHighlight[] = [];
+        for (const ref of store.editRefs()) {
+          if (store.refSheet(ref) !== state.activeSheet) continue;
+          const pointed = edit.point !== null && ref.start === edit.point.start && ref.end === edit.point.end;
+          marks.push({ range: ref.range, color: ref.color, dashed: pointed });
+        }
+        drawRefHighlights(cctx, vp, data, marks);
+      }
     }
     const hctx = headerCanvas.current && prepareCanvas(headerCanvas.current, vp.width + HEADER_W, vp.height + HEADER_H);
     if (hctx) {
@@ -121,7 +133,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
     const box = editorBox.current;
     if (box) {
-      const { row, col } = state.selection.anchor;
+      const { row, col } = state.edit?.cell ?? state.selection.anchor;
       box.style.left = `${HEADER_W + data.colGeo.offset(col) - vp.scrollX}px`;
       box.style.top = `${HEADER_H + data.rowGeo.offset(row) - vp.scrollY}px`;
       box.style.minWidth = `${data.colGeo.size(col) + 1}px`;
@@ -157,7 +169,11 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   }, [draw]);
 
   useEffect(() => {
-    store.focusGrid = () => scroller.current?.focus({ preventScroll: true });
+    // While an edit is open (e.g. after a toolbar click) the focus belongs to its editor.
+    store.focusGrid = () => {
+      if (store.getState().edit) store.focusEditor();
+      else scroller.current?.focus({ preventScroll: true });
+    };
     const unsub = store.subscribe(schedule);
     schedule();
     let ro: ResizeObserver | undefined;
@@ -248,6 +264,19 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     else if (x1 > vp.scrollX + vp.width) el.scrollLeft = x1 - vp.width;
   };
 
+  // Keyboard pointing may move the reference cursor off screen.
+  const scrollRef = useRef(scrollIntoView);
+  scrollRef.current = scrollIntoView;
+  useEffect(
+    () =>
+      store.subscribe(() => {
+        const focus = store.getState().edit?.point?.focus ?? null;
+        if (focus && focus !== lastPoint.current) scrollRef.current(focus);
+        lastPoint.current = focus;
+      }),
+    [store],
+  );
+
   // --- autofit ----------------------------------------------------------
 
   const measureCtx = () => {
@@ -298,8 +327,22 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const hit = hitTest(e.clientX, e.clientY);
     if (hit.kind === "none") return;
     e.preventDefault();
-    if (store.getState().edit) void store.commitEdit(0, 0);
-    scroller.current?.focus({ preventScroll: true });
+    const edit = store.getState().edit;
+    if (edit && (hit.kind === "cell" || hit.kind === "colHeader" || hit.kind === "rowHeader") && store.canPoint()) {
+      pointWithMouse(hit, e.shiftKey);
+      return;
+    }
+    if (edit && hit.kind !== "colEdge" && hit.kind !== "rowEdge") {
+      // Clicking elsewhere outside point mode commits; a rejected formula keeps the editor.
+      const sheet = store.getState().activeSheet;
+      void store.commitEdit(0, 0);
+      if (store.getState().edit || store.getState().activeSheet !== sheet) {
+        store.focusEditor();
+        return;
+      }
+    }
+    if (store.getState().edit) store.focusEditor();
+    else scroller.current?.focus({ preventScroll: true });
     const sel = store.getState().selection;
 
     if (hit.kind === "colEdge" || hit.kind === "rowEdge") {
@@ -358,6 +401,33 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     window.addEventListener("mouseup", up);
   };
 
+  /** Point mode: a click inserts the cell's reference, a drag a range, a header whole columns/rows. */
+  const pointWithMouse = (hit: Extract<Hit, { kind: "cell" | "colHeader" | "rowHeader" }>, extend: boolean) => {
+    const corners = (h: Hit): [Cell, Cell] | null => {
+      if (h.kind === "cell") return [h.cell, h.cell];
+      if (h.kind === "colHeader") return [{ row: 0, col: h.col }, { row: LAST_ROW, col: h.col }];
+      if (h.kind === "rowHeader") return [{ row: h.row, col: 0 }, { row: h.row, col: LAST_COL }];
+      return null;
+    };
+    const [a, f] = corners(hit)!;
+    const point = store.getState().edit?.point;
+    const anchor = extend && point && store.getState().edit?.selEnd === point.end ? point.anchor : a;
+    store.pointRange(anchor, f);
+    store.focusEditor();
+    const move = (ev: MouseEvent) => {
+      const h = hitTest(Math.max(ev.clientX, 0), Math.max(ev.clientY, 0));
+      if (h.kind !== hit.kind) return;
+      const c = corners(h);
+      if (c) store.pointRange(anchor, c[1]);
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
+
   const onMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
     const cursor = hit.kind === "colEdge" ? "col-resize" : hit.kind === "rowEdge" ? "row-resize" : "cell";
@@ -368,7 +438,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const hit = hitTest(e.clientX, e.clientY);
     if (hit.kind === "colEdge") autofitCol(hit.col);
     else if (hit.kind === "rowEdge") autofitRow(hit.row);
-    else if (hit.kind === "cell") {
+    else if (hit.kind === "cell" && !store.getState().edit) {
       store.select(cellSelection(hit.cell.row, hit.cell.col));
       store.beginEdit(null);
     }

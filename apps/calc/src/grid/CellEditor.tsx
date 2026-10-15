@@ -1,8 +1,11 @@
-// In-cell editor: a one-line <textarea> overlaid on the active cell. The grid
-// positions its wrapper (`boxRef`) on every frame.
+// In-cell editor: a one-line <textarea> overlaid on the edited cell. The
+// grid positions its wrapper (`boxRef`) on every frame. It shares the edit
+// session with the formula bar (see editorKit.tsx).
 
-import { useLayoutEffect, useRef, type FocusEvent, type KeyboardEvent, type RefObject } from "react";
+import { useLayoutEffect, useRef, type FocusEvent, type RefObject } from "react";
+import { isFormula } from "../formula/tokenize";
 import { useCalc, type CalcStore } from "../state/store";
+import { EditPopups, FormulaOverlay, handleEditorKey, syncCaret, useEditorBinding } from "./editorKit";
 import { fontCss } from "./style";
 
 export const FORMULA_BAR_ATTR = "data-formula-bar";
@@ -13,54 +16,42 @@ export function CellEditor({
   const edit = useCalc(store, (s) => s.edit);
   const input = useRef<HTMLTextAreaElement>(null);
   const origin = edit?.origin;
+  useEditorBinding(store, "cell", input);
 
   useLayoutEffect(onMount, [onMount]);
   useLayoutEffect(() => {
     const el = input.current;
-    if (origin === "cell" && el) {
+    const e = store.getState().edit;
+    if (origin === "cell" && el && e) {
       el.focus({ preventScroll: true });
-      el.setSelectionRange(el.value.length, el.value.length);
+      el.setSelectionRange(e.selStart, e.selEnd);
     }
-  }, [origin]);
+  }, [origin, store]);
 
   if (!edit) return null;
 
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    const moves: Record<string, [number, number]> = {
-      Enter: [e.shiftKey ? -1 : 1, 0],
-      Tab: [0, e.shiftKey ? -1 : 1],
-    };
-    if (store.getState().edit?.mode === "enter") {
-      Object.assign(moves, { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] });
-    }
-    const m = moves[e.key];
-    if (e.key === "Enter" && e.altKey) {
-      // Alt+Enter: line break (cells do not wrap yet, the text just carries "\n").
-      e.preventDefault();
-      const el = e.currentTarget;
-      const text = el.value.slice(0, el.selectionStart) + "\n" + el.value.slice(el.selectionEnd);
-      const caret = el.selectionStart + 1;
-      store.setEditText(text);
-      requestAnimationFrame(() => el.setSelectionRange(caret, caret));
-    } else if (m && !e.altKey) {
-      e.preventDefault();
-      void store.commitEdit(m[0], m[1]);
-      store.focusGrid();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      store.cancelEdit();
-      store.focusGrid();
-    }
-  };
-
   const onBlur = (e: FocusEvent<HTMLTextAreaElement>) => {
+    // Leaving the editor never commits or discards (Excel keeps the edit
+    // while e.g. the toolbar is used); only the formula bar takes it over.
     const to = e.relatedTarget as HTMLElement | null;
     if (to?.hasAttribute(FORMULA_BAR_ATTR)) store.setEditOrigin("bar");
-    else if (store.getState().edit?.origin === "cell") void store.commitEdit(0, 0);
   };
+
+  const refs = isFormula(edit.text) ? store.editRefs() : [];
+  const colored = refs.length > 0;
+  const font = fontCss(store.activeStyle());
+  const width = `max(100%, ${edit.text.length + 2}ch)`;
 
   return (
     <div ref={boxRef} className="absolute z-10" style={{ left: -9999, top: -9999 }}>
+      {colored && (
+        <FormulaOverlay
+          text={edit.text}
+          refs={refs}
+          className="pointer-events-none absolute left-0 top-0 h-full overflow-hidden whitespace-pre border-2 border-transparent bg-white px-[2px] text-black"
+          style={{ font, width }}
+        />
+      )}
       <textarea
         ref={input}
         rows={1}
@@ -69,13 +60,19 @@ export function CellEditor({
         data-testid="cell-editor"
         spellCheck={false}
         autoComplete="off"
-        className="block h-full resize-none overflow-hidden whitespace-pre border-2 border-[#217346] bg-white px-[2px] text-black outline-none"
-        style={{ font: fontCss(store.activeStyle()), width: `max(100%, ${edit.text.length + 2}ch)` }}
+        className={`relative block h-full resize-none overflow-hidden whitespace-pre border-2 border-[#217346] px-[2px] outline-none ${
+          colored ? "bg-transparent text-transparent" : "bg-white text-black"
+        }`}
+        style={{ font, width, caretColor: "#000" }}
         value={edit.text}
-        onChange={(e) => store.setEditText(e.target.value)}
-        onKeyDown={onKeyDown}
+        onChange={(e) => store.setEditText(e.target.value, e.target.selectionEnd)}
+        onKeyDown={(e) => handleEditorKey(store, e)}
+        onSelect={syncCaret(store)}
+        onKeyUp={syncCaret(store)}
+        onMouseUp={syncCaret(store)}
         onBlur={onBlur}
       />
+      {origin === "cell" && <EditPopups store={store} />}
     </div>
   );
 }

@@ -17,8 +17,14 @@ import type { RowView } from "../generated/RowView";
 import type { SheetFormat } from "../generated/SheetFormat";
 import type { WorkbookInfo } from "../generated/WorkbookInfo";
 import { AxisGeometry, colGeometry, DEFAULT_FORMAT, rowGeometry } from "../grid/geometry";
-import { cellSelection, normalize, type NavContext, type Range, type Selection } from "../grid/Selection";
+import { sheetPrefix } from "../grid/address";
+import { cellSelection, LAST_COL, LAST_ROW, normalize, type Cell, type NavContext, type Range, type Selection } from "../grid/Selection";
 import { styleAt } from "../grid/style";
+import { activeArg, applyFunction, FUNCTIONS, functionInfo, matchFunctions, signatureArgs, type FunctionInfo } from "../formula/functions";
+import { callAt, functionPrefix, pointSpan, replaceSpan } from "../formula/point";
+import { colorRefs, cycleAnchor, rangeText, type ColoredRef } from "../formula/refs";
+import { isFormula } from "../formula/tokenize";
+import { checkFormula, formulaErrorMessage } from "../formula/validate";
 
 /** Snapshot blocks: 64 rows × 32 columns. */
 export const BLOCK_ROWS = 64;
@@ -35,12 +41,52 @@ export interface SheetCache {
   loaded: Set<string>;
 }
 
+/** The reference being pointed at (mouse drag or keyboard) and its span in the edit text. */
+export interface PointRef {
+  anchor: Cell;
+  focus: Cell;
+  start: number;
+  end: number;
+}
+
 export interface EditState {
   text: string;
   /** The element that owns the focus while editing. */
   origin: "cell" | "bar";
-  /** `enter`: started by typing (arrow keys commit and move); `edit`: F2 / double-click / formula bar. */
+  /**
+   * `enter`: started by typing (arrow keys commit and move, or point in a
+   * formula); `edit`: F2 / double-click / formula bar (arrows move the caret).
+   */
   mode: "enter" | "edit";
+  /** Caret / text selection in `text` (mirrored from the focused editor). */
+  selStart: number;
+  selEnd: number;
+  /** The edited cell: its sheet stays the target while pointing on other sheets. */
+  sheet: number;
+  cell: Cell;
+  point: PointRef | null;
+  /** Inline message after a rejected commit (unparsable formula). */
+  error: string | null;
+  /** Autocomplete: highlighted entry; `menuForced` (fx button) lists all; `menuDismissed` (Esc) hides it until the text changes. */
+  menuIndex: number;
+  menuForced: boolean;
+  menuDismissed: boolean;
+}
+
+/** The function list shown under the editor. */
+export interface Completion {
+  items: FunctionInfo[];
+  index: number;
+  /** Text replaced by an accepted entry. */
+  span: { start: number; end: number };
+}
+
+/** The signature tip of the call around the caret. */
+export interface SignatureTip {
+  name: string;
+  args: string[];
+  /** Index into `args` to emphasise (`-1`: none). */
+  active: number;
 }
 
 export interface Toast {
@@ -503,10 +549,31 @@ export class CalcStore {
     });
   }
 
+  /**
+   * Switches sheets. While a formula is being edited the edit stays open
+   * (pointing at cells of the other sheet inserts `Sheet2!A1`) and moves
+   * to the formula bar; other edits are committed first, and a rejected
+   * commit keeps the sheet.
+   */
   setActiveSheet(sheet: number): void {
     if (sheet === this.state.activeSheet) return;
-    this.commitEdit(0, 0);
-    this.set({ activeSheet: sheet, selection: cellSelection(0, 0) });
+    const e = this.state.edit;
+    if (e && isFormula(e.text)) {
+      const back = sheet === e.sheet;
+      this.showSheet(sheet, back ? cellSelection(e.cell.row, e.cell.col) : cellSelection(0, 0), {
+        ...e, origin: back ? e.origin : "bar", mode: back ? e.mode : "edit", point: null,
+      });
+      return;
+    }
+    void this.commitEdit(0, 0);
+    if (this.state.edit) return;
+    this.showSheet(sheet, cellSelection(0, 0), null);
+  }
+
+  private showSheet(sheet: number, selection: Selection, edit: EditState | null): void {
+    const changed = sheet !== this.state.activeSheet;
+    this.set({ activeSheet: sheet, selection, edit });
+    if (!changed) return;
     const vp = this.lastViewport.get(sheet) ?? { r0: 0, c0: 0, r1: BLOCK_ROWS - 1, c1: BLOCK_COLS - 1 };
     void this.ensureRegion(sheet, vp.r0, vp.c0, vp.r1, vp.c1);
   }
@@ -518,35 +585,242 @@ export class CalcStore {
   /** Starts editing the active cell; `text` replaces its input (typing) or is its input (F2). */
   beginEdit(text: string | null, origin: EditState["origin"] = "cell"): void {
     const mode = text === null || origin === "bar" ? "edit" : "enter";
-    this.set({ edit: { text: text ?? this.activeCell()?.input ?? "", origin, mode } });
+    const value = text ?? this.activeCell()?.input ?? "";
+    const { anchor } = this.state.selection;
+    this.set({
+      edit: {
+        text: value, origin, mode, selStart: value.length, selEnd: value.length,
+        sheet: this.state.activeSheet, cell: { ...anchor },
+        point: null, error: null, menuIndex: 0, menuForced: false, menuDismissed: false,
+      },
+    });
+  }
+
+  private patchEdit(partial: Partial<EditState>): void {
+    if (this.state.edit) this.set({ edit: { ...this.state.edit, ...partial } });
   }
 
   setEditOrigin(origin: EditState["origin"]): void {
-    if (this.state.edit && this.state.edit.origin !== origin) this.set({ edit: { ...this.state.edit, origin, mode: "edit" } });
+    if (this.state.edit && this.state.edit.origin !== origin) this.patchEdit({ origin, mode: "edit" });
   }
 
-  setEditText(text: string): void {
-    if (this.state.edit) this.set({ edit: { ...this.state.edit, text } });
+  /** F2 inside the editor: toggles between enter (pointing) and edit (caret) mode. */
+  toggleEditMode(): void {
+    const e = this.state.edit;
+    if (e) this.patchEdit({ mode: e.mode === "enter" ? "edit" : "enter", point: null });
   }
 
+  /** Typing: new text and caret (default: end of the text). */
+  setEditText(text: string, caret: number = text.length): void {
+    const e = this.state.edit;
+    if (!e) return;
+    this.patchEdit({
+      text, selStart: caret, selEnd: caret, point: null, error: null, menuIndex: 0, menuForced: false, menuDismissed: false,
+    });
+  }
+
+  /** Caret / selection moved inside the focused editor. */
+  setEditCaret(start: number, end: number = start): void {
+    const e = this.state.edit;
+    if (e && (e.selStart !== start || e.selEnd !== end)) this.patchEdit({ selStart: start, selEnd: end });
+  }
+
+  /** Cancels the edit (Esc); returns to the edited cell's sheet. */
   cancelEdit(): void {
-    if (this.state.edit) this.set({ edit: null });
+    const e = this.state.edit;
+    if (!e) return;
+    if (e.sheet !== this.state.activeSheet) this.showSheet(e.sheet, cellSelection(e.cell.row, e.cell.col), null);
+    else this.set({ edit: null });
   }
 
-  /** Commits the edit (if any) and moves the active cell by `(dRow, dCol)`. */
-  commitEdit(dRow: number, dCol: number): Promise<void> {
+  /** Point mode is possible at the caret (formula, caret after an operator or on a reference). */
+  canPoint(): boolean {
+    const e = this.state.edit;
+    return !!e && (this.pointTarget(e) !== null);
+  }
+
+  private pointTarget(e: EditState): { start: number; end: number } | null {
+    if (e.point && e.point.end === e.selEnd && e.selStart === e.selEnd) return { start: e.point.start, end: e.point.end };
+    return e.selStart === e.selEnd ? pointSpan(e.text, e.selEnd) : null;
+  }
+
+  /**
+   * Inserts (or replaces the pointed) reference for `anchor..focus` on the
+   * active sheet. `false` when the caret is not at a point-mode position.
+   */
+  pointRange(anchor: Cell, focus: Cell): boolean {
+    const e = this.state.edit;
+    if (!e) return false;
+    const span = this.pointTarget(e);
+    if (!span) return false;
+    const r = normalize({ anchor, focus });
+    const name = this.state.info?.sheets.find((s) => s.id === this.state.activeSheet)?.name;
+    const prefix = this.state.activeSheet !== e.sheet && name ? sheetPrefix(name) : "";
+    const { text, caret } = replaceSpan(e.text, span, prefix + rangeText(r));
+    this.patchEdit({
+      text, selStart: caret, selEnd: caret, error: null, menuForced: false, menuDismissed: false,
+      point: { anchor: { ...anchor }, focus: { ...focus }, start: span.start, end: caret },
+    });
+    return true;
+  }
+
+  /**
+   * Keyboard pointing (arrows in enter mode): moves the reference cursor
+   * from the pointed reference, or from the edited cell, and inserts it;
+   * `extend` (Shift) grows a range. `false` when pointing is not possible.
+   */
+  pointMove(dRow: number, dCol: number, extend: boolean): boolean {
+    const e = this.state.edit;
+    if (!e || !this.pointTarget(e)) return false;
+    const from = e.point && e.point.end === e.selEnd
+      ? e.point
+      : (() => {
+          const c = this.state.activeSheet === e.sheet ? e.cell : this.state.selection.anchor;
+          return { anchor: c, focus: c };
+        })();
+    const clamp = (c: Cell): Cell => ({
+      row: Math.max(0, Math.min(LAST_ROW, c.row + dRow)), col: Math.max(0, Math.min(LAST_COL, c.col + dCol)),
+    });
+    const focus = clamp(from.focus);
+    return this.pointRange(extend ? from.anchor : focus, focus);
+  }
+
+  /** F4: cycles the `$` anchoring of the reference at the caret. */
+  cycleRefAnchor(): boolean {
+    const e = this.state.edit;
+    if (!e) return false;
+    const r = cycleAnchor(e.text, e.selEnd);
+    if (!r) return false;
+    this.patchEdit({ text: r.text, selStart: r.caret, selEnd: r.caret, point: null, error: null });
+    return true;
+  }
+
+  /** Coloured references of the edit text (formula only). */
+  editRefs(): ColoredRef[] {
+    const e = this.state.edit;
+    if (!e || !isFormula(e.text)) return [];
+    if (this.refsMemo?.text !== e.text) this.refsMemo = { text: e.text, refs: colorRefs(e.text) };
+    return this.refsMemo.refs;
+  }
+  private refsMemo: { text: string; refs: ColoredRef[] } | null = null;
+
+  /** Sheet id a reference of the edit text points to (`null`: unknown sheet). */
+  refSheet(ref: ColoredRef): number | null {
+    const e = this.state.edit;
+    if (ref.sheet === null) return e?.sheet ?? this.state.activeSheet;
+    const s = this.state.info?.sheets.find((x) => x.name.toLowerCase() === ref.sheet!.toLowerCase());
+    return s ? s.id : null;
+  }
+
+  /** The function autocomplete list for the caret, or `null` when closed. */
+  completion(): Completion | null {
+    const e = this.state.edit;
+    if (!e || e.menuDismissed || !isFormula(e.text) || e.selStart !== e.selEnd) return null;
+    const typed = functionPrefix(e.text, e.selEnd);
+    let items: FunctionInfo[];
+    let span: Completion["span"];
+    if (typed) {
+      items = matchFunctions(typed.prefix);
+      span = { start: typed.start, end: typed.end };
+    } else if (e.menuForced) {
+      items = FUNCTIONS;
+      span = { start: e.selEnd, end: e.selEnd };
+    } else return null;
+    if (items.length === 0) return null;
+    return { items, index: Math.min(e.menuIndex, items.length - 1), span };
+  }
+
+  /** Moves the highlighted autocomplete entry. */
+  moveCompletion(delta: number): void {
+    const c = this.completion();
+    if (c) this.patchEdit({ menuIndex: (c.index + delta + c.items.length) % c.items.length });
+  }
+
+  /** Accepts the highlighted (or given) entry: the name becomes `NAME(`. */
+  acceptCompletion(index?: number): boolean {
+    const c = this.completion();
+    const e = this.state.edit;
+    if (!c || !e) return false;
+    const f = c.items[index ?? c.index];
+    const r = applyFunction(e.text, c.span, f.name);
+    this.setEditText(r.text, r.caret);
+    return true;
+  }
+
+  dismissCompletion(): void {
+    this.patchEdit({ menuDismissed: true, menuForced: false });
+  }
+
+  /** The formula bar's fx button: starts a formula if needed and lists all functions. */
+  openFunctionList(): void {
+    if (!this.state.edit) {
+      const input = this.activeCell()?.input ?? "";
+      this.beginEdit(input === "" ? "=" : input, "bar");
+    }
+    const e = this.state.edit!;
+    if (e.text === "") this.setEditText("=");
+    this.patchEdit({ menuForced: true, menuDismissed: false, menuIndex: 0 });
+  }
+
+  /** The signature tip for the call around the caret. */
+  signature(): SignatureTip | null {
+    const e = this.state.edit;
+    if (!e || !isFormula(e.text)) return null;
+    const call = callAt(e.text, e.selEnd);
+    const info = call && functionInfo(call.name);
+    if (!call || !info) return null;
+    const args = signatureArgs(info.signature);
+    return { name: info.name, args, active: activeArg(args, call.arg) };
+  }
+
+  /** Focus callbacks of the editors (cell editor, formula bar). */
+  editorFocus: Partial<Record<EditState["origin"], () => void>> = {};
+
+  /** Focuses the editor that owns the edit session. */
+  focusEditor(): void {
+    const o = this.state.edit?.origin;
+    if (o) this.editorFocus[o]?.();
+  }
+
+  /**
+   * Commits the edit (if any) and moves the active cell by `(dRow, dCol)`.
+   * An unparsable formula is not sent: the editor stays open with an
+   * inline error (resolves `false`); so does a formula the core rejects.
+   */
+  commitEdit(dRow: number, dCol: number): Promise<boolean> {
     const edit = this.state.edit;
-    if (!edit) return Promise.resolve();
-    const { row, col } = this.state.selection.anchor;
-    const sheet = this.state.activeSheet;
-    const before = this.activeCell()?.input ?? "";
-    const next = cellSelection(Math.max(0, row + dRow), Math.max(0, col + dCol));
-    this.set({ edit: null, selection: next });
-    if (edit.text === before) return Promise.resolve();
-    return this.apply(
+    if (!edit) return Promise.resolve(true);
+    const bad = checkFormula(edit.text);
+    if (bad) {
+      this.patchEdit({ error: formulaErrorMessage(bad.message), point: null, menuForced: false });
+      return Promise.resolve(false);
+    }
+    const { row, col } = edit.cell;
+    const sheet = edit.sheet;
+    const before = this.cache(sheet).cells.get(row)?.get(col)?.input ?? "";
+    const next = cellSelection(Math.max(0, Math.min(LAST_ROW, row + dRow)), Math.max(0, Math.min(LAST_COL, col + dCol)));
+    if (sheet !== this.state.activeSheet) this.showSheet(sheet, next, null);
+    else this.set({ edit: null, selection: next });
+    if (edit.text === before) return Promise.resolve(true);
+    const command: CalcCommand =
       edit.text === ""
         ? { type: "clearRange", sheet, r0: row, c0: col, r1: row, c1: col }
-        : { type: "setInput", sheet, row, col, input: edit.text },
+        : { type: "setInput", sheet, row, col, input: edit.text };
+    return this.api.apply(command).then(
+      (env) => {
+        this.applyEnvelope(env);
+        return true;
+      },
+      (e: unknown) => {
+        if (e instanceof CalcApiError && e.code === "invalid_formula" && this.state.edit === null) {
+          // The core is the authority: reopen the editor with its message.
+          const restored = { ...edit, error: formulaErrorMessage(e.message), point: null };
+          if (this.state.activeSheet !== sheet) this.showSheet(sheet, cellSelection(row, col), restored);
+          else this.set({ selection: cellSelection(row, col), edit: restored });
+          this.focusEditor();
+        } else this.pushError(e);
+        return false;
+      },
     );
   }
 

@@ -262,6 +262,44 @@ export function drawSelection(
   ctx.strokeRect(cx, cy, cw - 1, ch - 1);
 }
 
+/** A range outlined while a formula is edited (Excel's coloured reference boxes). */
+export interface RefHighlight {
+  range: Range;
+  color: string;
+  /** The reference being pointed at is drawn dashed. */
+  dashed: boolean;
+}
+
+/** Clipped pixel rect of a range in the cell canvas, `null` when off screen. */
+export function rangeRect(vp: Viewport, sheet: SheetData, range: Range): { x: number; y: number; w: number; h: number } | null {
+  const { colGeo, rowGeo } = sheet;
+  const x0 = colGeo.offset(range.c0) - vp.scrollX;
+  const x1 = colGeo.offset(range.c1 + 1) - vp.scrollX;
+  const y0 = rowGeo.offset(range.r0) - vp.scrollY;
+  const y1 = rowGeo.offset(range.r1 + 1) - vp.scrollY;
+  const x = Math.max(-4, x0), y = Math.max(-4, y0);
+  const w = Math.min(vp.width + 4, x1) - x, h = Math.min(vp.height + 4, y1) - y;
+  return w <= 0 || h <= 0 ? null : { x, y, w, h };
+}
+
+export function drawRefHighlights(ctx: CanvasRenderingContext2D, vp: Viewport, sheet: SheetData, marks: RefHighlight[]): void {
+  for (const m of marks) {
+    const r = rangeRect(vp, sheet, m.range);
+    if (!r) continue;
+    ctx.fillStyle = `${m.color}1a`;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = m.color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash(m.dashed ? [5, 3] : []);
+    ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+    ctx.setLineDash([]);
+    if (!m.dashed) {
+      ctx.fillStyle = m.color;
+      for (const [cx, cy] of [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]]) ctx.fillRect(cx - 2.5, cy - 2.5, 5, 5);
+    }
+  }
+}
+
 /** Column and row headers plus the corner box. */
 export function drawHeaders(
   ctx: CanvasRenderingContext2D, vp: Viewport, sheet: SheetData, range: Range, colors: { bg: string; fg: string; line: string; active: string },
