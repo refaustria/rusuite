@@ -8,4 +8,4 @@ import type { WorkbookInfo } from "./WorkbookInfo";
 /**
  * The successful part of a [`Response`].
  */
-export type ResponseBody = { "type": "patch", envelope: Envelope<CalcPatch>, } | { "type": "snapshot", snapshot: RegionSnapshot, } | { "type": "info", info: WorkbookInfo, } | { "type": "snapshotJson", json: string, } | { "type": "opened", info: WorkbookInfo, warnings: Array<string>, envelope: Envelope<CalcPatch>, } | { "type": "saved", bytesBase64: string, suggestedName: string, } | { "type": "documentState", dirty: boolean, revision: Revision, name: string | null, };
+export type ResponseBody = { "type": "patch", envelope: Envelope<CalcPatch>, } | { "type": "snapshot", snapshot: RegionSnapshot, } | { "type": "info", info: WorkbookInfo, } | { "type": "snapshotJson", json: string, } | { "type": "opened", info: WorkbookInfo, warnings: Array<string>, envelope: Envelope<CalcPatch>, } | { "type": "saved", bytesBase64: string, suggestedName: string, } | { "type": "recoverySnapshot", json: string, revision: Revision, dirty: boolean, name: string | null, } | { "type": "documentState", dirty: boolean, revision: Revision, name: string | null, };

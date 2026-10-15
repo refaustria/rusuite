@@ -13,6 +13,16 @@ vi.mock("@tauri-apps/api/core", () => ({
         return { path: "/tmp/a.xlsx", name: "a.xlsx", bytesBase64: "UEs=" };
       case "save_file_dialog":
         return args?.suggestedName === "cancel.xlsx" ? null : "/tmp/out.xlsx";
+      case "recent_list":
+        return [{ name: "a.xlsx", path: "/tmp/a.xlsx", blobId: null, openedAt: 1 }];
+      case "recent_open":
+        return { path: args?.path, name: "a.xlsx", bytesBase64: "UEs=" };
+      case "recovery_list":
+      case "recovery_put":
+      case "recovery_remove":
+        return cmd === "recovery_list" ? [] : null;
+      case "recovery_get":
+        return null;
       default:
         throw new Error(`unknown command ${cmd}`);
     }
@@ -196,5 +206,34 @@ describe("createBackend", () => {
     const load = vi.fn(async () => fake);
     expect((await createBackend(load)).kind).toBe("tauri");
     expect(load).not.toHaveBeenCalled();
+  });
+});
+
+describe("Backend.storage", () => {
+  it("Tauri: session commands of the shell", async () => {
+    const storage = new TauriBackend().storage;
+    expect(storage.kind).toBe("fs");
+    const recent = await storage.listRecent();
+    expect(await storage.rememberRecent("ignored", null)).toEqual(recent);
+    expect(await storage.openRecent(recent[0]!)).toEqual({ file: { name: "a.xlsx", bytesBase64: "UEs=" } });
+    expect(invoke).toHaveBeenCalledWith("recent_open", { path: "/tmp/a.xlsx" });
+    const entry = { id: "d1", name: null, savedAt: 1, revision: 1, json: "{}" };
+    await storage.putRecovery(entry);
+    expect(invoke).toHaveBeenCalledWith("recovery_put", { entry });
+    await storage.removeRecovery("d1");
+    expect(invoke).toHaveBeenCalledWith("recovery_remove", { id: "d1" });
+    expect(await storage.getRecovery("d1")).toBeNull();
+    expect(await storage.listRecovery()).toEqual([]);
+  });
+
+  it("web: IndexedDB when available, else none; overridable", async () => {
+    expect(new WasmBackend(fake).storage).toBeUndefined(); // jsdom has no IndexedDB
+    const { IDBFactory } = await import("fake-indexeddb");
+    vi.stubGlobal("indexedDB", new IDBFactory());
+    const web = new WasmBackend(fake);
+    expect(web.storage?.kind).toBe("browser");
+    await web.storage!.putRecovery({ id: "x", name: null, savedAt: 1, revision: 1, json: "{}" });
+    expect((await web.storage!.listRecovery()).map((e) => e.id)).toEqual(["x"]);
+    expect(new WasmBackend(fake, { storage: null }).storage).toBeUndefined();
   });
 });

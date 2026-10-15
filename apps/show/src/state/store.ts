@@ -595,12 +595,39 @@ export class ShowStore {
   async open(): Promise<void> {
     try {
       const file = await this.api.backend.openFile();
-      if (!file) return;
-      const opened = await this.enqueue(() => this.api.openPptx(file.bytesBase64, file.name));
-      const body = await this.enqueue(() => this.api.getPresentation());
-      this.setPresentation(body.presentation, body.envelope, { name: file.name, warnings: opened.warnings });
+      if (file) await this.openBytesUnguarded(file);
     } catch (e) {
       this.pushError(e);
+    }
+  }
+
+  /** Opens a `.pptx` file's contents (recent files); `false` on failure. */
+  async openBytes(file: { name: string; bytesBase64: string }): Promise<boolean> {
+    try {
+      await this.openBytesUnguarded(file);
+      return true;
+    } catch (e) {
+      this.pushError(e);
+      return false;
+    }
+  }
+
+  private async openBytesUnguarded(file: { name: string; bytesBase64: string }): Promise<void> {
+    const opened = await this.enqueue(() => this.api.openPptx(file.bytesBase64, file.name));
+    const body = await this.enqueue(() => this.api.getPresentation());
+    this.setPresentation(body.presentation, body.envelope, { name: file.name, warnings: opened.warnings });
+  }
+
+  /** Replaces the presentation by an autosaved snapshot (crash recovery); it stays dirty. `false` on failure. */
+  async restoreRecovery(json: string, name: string | null): Promise<boolean> {
+    try {
+      if (this.state.editing) await this.commitEdit();
+      const body = await this.enqueue(() => this.api.restoreRecovery(json, name));
+      this.setPresentation(body.presentation, body.envelope, { name, warnings: [] });
+      return true;
+    } catch (e) {
+      this.pushError(e);
+      return false;
     }
   }
 

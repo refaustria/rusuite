@@ -50,6 +50,18 @@ pub enum Request {
     /// Writes the presentation as `.pptx` → `saved`. Does NOT mark it
     /// saved: the shell sends `markSaved` once the file was really written.
     SavePptx,
+    /// The whole presentation for crash recovery → `recoverySnapshot` (changes
+    /// nothing; the JSON is the input of `restoreRecovery`).
+    RecoverySnapshot,
+    /// Replaces the presentation by a `recoverySnapshot` JSON and marks it
+    /// dirty (it was never saved); `name` becomes the file name →
+    /// `presentation`.
+    RestoreRecovery {
+        json: String,
+        #[serde(default)]
+        #[ts(optional)]
+        name: Option<String>,
+    },
     /// → `documentState`.
     DocumentState,
     /// Marks the current state as saved (after the shell wrote the file);
@@ -95,6 +107,14 @@ pub enum ResponseBody {
     Media {
         content_type: String,
         bytes_base64: String,
+    },
+    /// The reply to `recoverySnapshot`: the whole presentation as ADR 0008 JSON
+    /// plus the host state it was taken at.
+    RecoverySnapshot {
+        json: String,
+        revision: Revision,
+        dirty: bool,
+        name: Option<String>,
     },
     /// Host state for the title bar: dirty flag, revision and the file
     /// name (`null` for a new presentation).
@@ -176,6 +196,22 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
                 bytes_base64: base64_encode(&bytes),
                 suggested_name: host.doc().suggested_name(),
             }
+        }
+        Request::RecoverySnapshot => ResponseBody::RecoverySnapshot {
+            json: serde_json::to_string(host.doc().presentation())
+                .map_err(|e| DispatchError::new("internal", e.to_string()))?,
+            revision: host.revision(),
+            dirty: host.is_dirty(),
+            name: host.doc().source_name.clone(),
+        },
+        Request::RestoreRecovery { json, name } => {
+            let p: Presentation = serde_json::from_str(&json)
+                .map_err(|e| DispatchError::new("invalid_snapshot", e.to_string()))?;
+            let mut doc = ShowDocument::from_presentation(p)?;
+            doc.source_name = name;
+            host.replace(doc);
+            host.mark_dirty();
+            presentation(host)
         }
         Request::DocumentState => state(host),
         Request::MarkSaved { name } => {

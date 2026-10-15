@@ -7,4 +7,4 @@ import type { ShowCommand } from "./ShowCommand";
  * A request from the UI. JSON: `{"type":"apply","command":{...}}`,
  * `{"type":"undo"}`, `{"type":"getMedia","id":3}`.
  */
-export type Request = { "type": "apply", command: ShowCommand, } | { "type": "undo" } | { "type": "redo" } | { "type": "load", presentation: Presentation, } | { "type": "getPresentation" } | { "type": "newPresentation" } | { "type": "getMedia", id: MediaId, } | { "type": "openPptx", bytesBase64: string, name: string, } | { "type": "savePptx" } | { "type": "documentState" } | { "type": "markSaved", name?: string | null, };
+export type Request = { "type": "apply", command: ShowCommand, } | { "type": "undo" } | { "type": "redo" } | { "type": "load", presentation: Presentation, } | { "type": "getPresentation" } | { "type": "newPresentation" } | { "type": "getMedia", id: MediaId, } | { "type": "openPptx", bytesBase64: string, name: string, } | { "type": "savePptx" } | { "type": "recoverySnapshot" } | { "type": "restoreRecovery", json: string, name?: string, } | { "type": "documentState" } | { "type": "markSaved", name?: string | null, };

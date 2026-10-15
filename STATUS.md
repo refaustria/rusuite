@@ -77,7 +77,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 | P4-7 | Wiring: pptx open/save both shells; deploy | Opus | done (merged 1fd33d8) | – | verified: 727 tests; 26 decks open/save via dispatch; live /show/ open→edit→save verified by PM; CI checks show-core generated types |
 | P4-8 | Milestone verification | PM | done on server; PowerPoint check pending owner | – | see milestone section |
 | P5-2 | PDF export via webview print (all apps) | Sonnet | done (merged) | – | verified: PDFs rendered (Write 5 pp A4, Calc 3 pp table w/ header, Show 3 slide pages); Ctrl+P via ShortcutLayer; `window.print()` (Tauri 2.12 has no webview print API) – desktop webviews unverified |
-| P5-3 | Recent files, autosave, crash recovery (app-common + shells + IndexedDB on web) | Opus | in progress | `p5/autosave` | brief docs/tasks/P5-3-recent-autosave-recovery.md |
+| P5-3 | Recent files, autosave, crash recovery (app-common + shells + IndexedDB on web) | Opus | done (merged) | – | verified: 749 tests; `app_common::session`, `recoverySnapshot`/`restoreRecovery` in all cores, Tauri app-data JSON / web IndexedDB, 30 s autosave, recovery banner; crash-recovery browser check by agent |
 | P5-5 | Shortcut parity + hygiene (generated-types CI for write, favicons, show api.ts cleanup, chunk splitting) | Sonnet | done (merged) | – | verified: 234 frontend tests, `useShortcuts` + help dialog (Ctrl+/), Save As prompt, docs/shortcuts.md; tiptap/konva chunks split; CI diffs write generated types |
 | P5-4 | Performance: 1M cells / 200-page doc / 100 slides benchmarks + fixes | Opus | todo | `p5/perf` | after P5-2/3/5 |
 | P5-1 | Installers for Windows/macOS/Linux | – | blocked: owner decision (GitHub push + Actions) | – | Linux bundles possible locally |
