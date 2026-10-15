@@ -1,7 +1,8 @@
 // Reference recognition on top of the tokenizer, following the reference
 // rules of `engine-formula/src/parser.rs` (`atom`, `second_atom`,
 // `reference`): `A1`, `$A$1`, `A1:B2`, `A:C`, `2:4`, each optionally
-// `Sheet!` / `'My Sheet'!` qualified.
+// `Sheet!` / `'My Sheet'!` qualified, and the spilled-range reference
+// `A1#` (the spill range of the array formula in A1).
 
 import { colName } from "../grid/address";
 import type { Range } from "../grid/Selection";
@@ -97,6 +98,8 @@ export interface RefSpan {
   middle: string;
   /** Index of the first token after the reference. */
   nextTok: number;
+  /** A spilled-range reference `A1#` (`range` is A1 itself until resolved, see `colorRefs`). */
+  spill?: boolean;
 }
 
 /**
@@ -196,6 +199,10 @@ export function findRefs(text: string): RefSpan[] {
       ref = null;
     }
     if (ref) {
+      const hash = tokens[ref.nextTok];
+      if (ref.kind === "cell" && hash?.kind === "hash" && hash.start === ref.end) {
+        ref = { ...ref, end: hash.end, nextTok: ref.nextTok + 1, spill: true };
+      }
       out.push(ref);
       i = ref.nextTok;
     } else i++;
@@ -230,10 +237,16 @@ export interface ColoredRef extends RefSpan {
   color: string;
 }
 
-/** References with colours: equal references (same sheet and range) share a colour. */
-export function colorRefs(text: string): ColoredRef[] {
+/**
+ * References with colours: equal references (same sheet and range) share a
+ * colour. `spillRange` resolves a spilled-range reference `A1#` to the
+ * spill range of A1's array formula (unresolved: A1 alone).
+ */
+export function colorRefs(text: string, spillRange?: (ref: RefSpan) => Range | null): ColoredRef[] {
   const keys: string[] = [];
-  return findRefs(text).map((r) => {
+  return findRefs(text).map((found) => {
+    const resolved = found.spill ? spillRange?.(found) : null;
+    const r = resolved ? { ...found, range: { ...resolved } } : found;
     const key = `${(r.sheet ?? "").toLowerCase()}|${r.range.r0},${r.range.c0},${r.range.r1},${r.range.c1}`;
     let k = keys.indexOf(key);
     if (k < 0) k = keys.push(key) - 1;
@@ -258,5 +271,6 @@ export function cycleAnchor(text: string, caret: number): { text: string; caret:
   const next = (cur + 1) % 4;
   let body = ref.prefix + atomText(step(a, next));
   if (ref.b) body += ref.middle + atomText(step(ref.b, next));
+  if (ref.spill) body += "#";
   return { text: text.slice(0, ref.start) + body + text.slice(ref.end), caret: ref.start + body.length };
 }

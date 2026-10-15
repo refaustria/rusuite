@@ -16,29 +16,49 @@ export interface Clip {
   cut: boolean;
   /** The TSV written to the system clipboard (recognises our own copy on paste). */
   tsv: string;
+  /** For Paste Values when the block holds spilled cells: `cells` with every spilled cell as its value. */
+  values?: ClipCell[];
 }
 
 /**
  * Captures `range` from a sheet's cached cells: non-empty or styled
  * cells become clip cells (input + effective style id), and the TSV of
- * the inputs is built alongside.
+ * the inputs is built alongside. Spilled cells copy as their values
+ * (Excel) unless their array formula is copied too (it spills again
+ * where it is pasted; a cut moves it); Paste Values gets all of them as
+ * values (`values`).
  */
 export function captureClip(
   cells: Map<number, Map<number, CellView>>, sheet: number, range: Range, cut: boolean,
 ): Clip {
   const clip: ClipCell[] = [];
+  const values: ClipCell[] = [];
+  let spilled = false;
   const lines: string[] = [];
   for (let row = range.r0; row <= range.r1; row++) {
     const rowCells = cells.get(row);
     const fields: string[] = [];
     for (let col = range.c0; col <= range.c1; col++) {
       const c = rowCells?.get(col);
+      const at = { dr: row - range.r0, dc: col - range.c0 };
+      if (c?.spilled) {
+        spilled = true;
+        const [ar, ac] = c.spilled;
+        const withFormula = cut || (ar >= range.r0 && ar <= range.r1 && ac >= range.c0 && ac <= range.c1);
+        fields.push(c.display);
+        if (!withFormula || c.style !== 0) clip.push({ ...at, input: withFormula ? "" : c.display, style: c.style });
+        values.push({ ...at, input: c.display, style: c.style });
+        continue;
+      }
       fields.push(c?.input ?? "");
-      if (c && (c.input !== "" || c.style !== 0)) clip.push({ dr: row - range.r0, dc: col - range.c0, input: c.input, style: c.style });
+      if (c && (c.input !== "" || c.style !== 0)) {
+        clip.push({ ...at, input: c.input, style: c.style });
+        values.push({ ...at, input: c.input, style: c.style });
+      }
     }
     lines.push(fields.join("\t"));
   }
-  return { sheet, range: { ...range }, cells: clip, cut, tsv: lines.join("\n") };
+  return { sheet, range: { ...range }, cells: clip, cut, tsv: lines.join("\n"), ...(spilled ? { values } : {}) };
 }
 
 /** Parses TSV (Excel's clipboard format) into rows of cells. */

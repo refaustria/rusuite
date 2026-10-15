@@ -66,6 +66,14 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   the upper-left value is kept). Hidden sheets have no tab (tab menu Hide / Unhide… with a list of the hidden sheets;
   "very hidden" ones are not offered); the sheet a hide/unhide patch names (`activateSheet`) becomes active; the last
   visible sheet can be neither hidden nor deleted; hidden sheets are not printed.
+  Dynamic arrays (P8-12, `grid/spill.ts`): selecting an array formula or a cell it spills into outlines the spill range in
+  thin blue (dashed red while the formula shows `#SPILL!`); a spilled cell shows the formula greyed and read-only in the
+  formula bar, typing into it is allowed and blocks the spill. A selected `#SPILL!` formula cell gets a warning indicator left
+  of it (tooltip "Spill range isn't blank", menu: Select obstructing cells). Paste, the fill handle, Ctrl+D/R and sorting
+  refuse to change spilled cells ("You can't change part of an array"); Delete on the formula cell removes the whole spill,
+  on spilled cells alone it does nothing. Copying spilled cells copies their values (with their formula they paste blank and
+  spill again); spilled cells count as data for Ctrl+arrows, regions and the used range. The formula editor knows `A1#`
+  (coloured over the whole spill range), `@`, `#SPILL!` and `#CALC!`.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).

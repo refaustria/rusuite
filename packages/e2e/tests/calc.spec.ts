@@ -18,6 +18,24 @@ async function openFilterPanel(page: import("@playwright/test").Page, grid: Grid
   return panel;
 }
 
+/** Pixels of the cell canvas along the edges of cells (cell-area px): which of them have the colour `rgb` (±40). */
+async function edgePixels(page: import("@playwright/test").Page, points: [number, number][], rgb: [number, number, number]) {
+  return page.getByTestId("grid-cells").evaluate((el, { points, rgb }) => {
+    const canvas = el as HTMLCanvasElement;
+    const ctx = canvas.getContext("2d")!;
+    const scale = canvas.width / canvas.clientWidth;
+    return points.filter(([x, y]) => {
+      const d = ctx.getImageData(Math.floor(x * scale), Math.floor(y * scale), 1, 1).data;
+      return Math.abs(d[0] - rgb[0]) < 40 && Math.abs(d[1] - rgb[1]) < 40 && Math.abs(d[2] - rgb[2]) < 40;
+    }).length;
+  }, { points, rgb });
+}
+
+/** Points on the left edge of A1:A3 (x 0, rows 1–3, 64×20 px cells). */
+const leftEdgeA1A3 = (): [number, number][] => Array.from({ length: 30 }, (_, i) => [0, 2 + i * 2] as [number, number]);
+const SPILL_BLUE: [number, number, number] = [0x2a, 0x62, 0xd6];
+const SPILL_RED: [number, number, number] = [0xd8, 0x35, 0x2a];
+
 async function previewPagesAfterReopen(page: import("@playwright/test").Page) {
   await openPrint(page);
   return previewPages(page);
@@ -472,6 +490,48 @@ test.describe("Calc", () => {
     await expect(page.getByTestId("zoom")).toHaveText("150 %");
     const xlsx = await saveViaBackstage(page);
     expect(zipText(xlsx, "xl/worksheets/sheet1.xml")).toMatch(/<sheetView [^>]*zoomScale="150"/);
+    errors.expectNone();
+  });
+
+  test("dynamic arrays: =SEQUENCE(3) spills 1, 2, 3 with a blue outline; the formula bar shows it greyed", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "=SEQUENCE(3)");
+    expect(await grid.display(0, 0)).toBe("1");
+    expect(await grid.display(1, 0)).toBe("2");
+    expect(await grid.display(2, 0)).toBe("3");
+    expect(await grid.input(2, 0)).toBe("=SEQUENCE(3)");
+    await expect(page.getByLabel("Formula bar")).toHaveAttribute("readonly", "");
+    await grid.click(1, 0);
+    await expect.poll(() => edgePixels(page, leftEdgeA1A3(), SPILL_BLUE)).toBeGreaterThan(20);
+    // Outside the spill range: no outline.
+    await grid.click(5, 3);
+    await expect.poll(() => edgePixels(page, leftEdgeA1A3(), SPILL_BLUE)).toBe(0);
+    errors.expectNone();
+  });
+
+  test("dynamic arrays: a value in the spill range gives #SPILL! (dashed red outline, indicator); clearing it restores the spill", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "=SEQUENCE(3)");
+    await grid.type(1, 0, "x");
+    expect(await grid.display(0, 0)).toBe("#SPILL!");
+    await grid.click(0, 0);
+    const tag = page.getByRole("button", { name: "Spill error" });
+    await expect(tag).toBeVisible();
+    await expect(tag).toHaveAttribute("title", "Spill range isn't blank");
+    await expect.poll(() => edgePixels(page, leftEdgeA1A3(), SPILL_RED)).toBeGreaterThan(5);
+    await tag.click();
+    await page.getByRole("menuitem", { name: "Select obstructing cells" }).click();
+    await expect(page.getByTestId("cell-address")).toHaveText("A2");
+    await page.keyboard.press("Delete");
+    expect(await grid.display(0, 0)).toBe("1");
+    expect(await grid.display(1, 0)).toBe("2");
+    expect(await grid.display(2, 0)).toBe("3");
+    await grid.click(0, 0);
+    await expect(page.getByRole("button", { name: "Spill error" })).toHaveCount(0);
     errors.expectNone();
   });
 });
