@@ -1,4 +1,4 @@
-//! Block-level content: paragraphs and tables.
+//! Block-level content: paragraphs, tables and tables of contents.
 
 use serde::{Deserialize, Serialize};
 
@@ -20,10 +20,10 @@ use crate::props::{CellProperties, ParagraphProperties, RowProperties, TableProp
 )]
 pub struct NodeId(#[cfg_attr(feature = "ts", ts(type = "number"))] pub u64);
 
-/// A block: paragraph or table.
+/// A block: paragraph, table or table of contents.
 ///
-/// Serializes as `{"kind":"paragraph","value":{…}}` or
-/// `{"kind":"table","value":{…}}`.
+/// Serializes as `{"kind":"paragraph","value":{…}}`,
+/// `{"kind":"table","value":{…}}` or `{"kind":"toc","value":{…}}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
 #[cfg_attr(
@@ -36,6 +36,12 @@ pub enum Block {
     Paragraph(Paragraph),
     /// A table.
     Table(Table),
+    /// A table of contents generated from the headings.
+    ///
+    /// Not part of the generated TypeScript `Block` union yet (the editor
+    /// mapping learns it in the UI task); the TS type is exported as `Toc`.
+    #[cfg_attr(feature = "ts", ts(skip))]
+    Toc(Toc),
 }
 
 impl Block {
@@ -44,6 +50,7 @@ impl Block {
         match self {
             Block::Paragraph(p) => p.id,
             Block::Table(t) => t.id,
+            Block::Toc(t) => t.id,
         }
     }
 
@@ -51,7 +58,7 @@ impl Block {
     pub fn as_paragraph(&self) -> Option<&Paragraph> {
         match self {
             Block::Paragraph(p) => Some(p),
-            Block::Table(_) => None,
+            _ => None,
         }
     }
 
@@ -59,7 +66,15 @@ impl Block {
     pub fn as_table(&self) -> Option<&Table> {
         match self {
             Block::Table(t) => Some(t),
-            Block::Paragraph(_) => None,
+            _ => None,
+        }
+    }
+
+    /// The table of contents, if this block is one.
+    pub fn as_toc(&self) -> Option<&Toc> {
+        match self {
+            Block::Toc(t) => Some(t),
+            _ => None,
         }
     }
 }
@@ -81,6 +96,13 @@ pub struct Paragraph {
     /// Content.
     #[serde(default)]
     pub inlines: Vec<Inline>,
+    /// The computed list label (`1.`, `1.1`, `a)`, `•`) of a numbered
+    /// paragraph. Derived data: filled by `write-core` in the documents
+    /// and patches it sends (see [`crate::Document::list_numbers`]),
+    /// ignored on input and never written to docx.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub list_label: Option<String>,
 }
 
 impl Paragraph {
@@ -90,6 +112,7 @@ impl Paragraph {
             id,
             props: ParagraphProperties::default(),
             inlines: Vec::new(),
+            list_label: None,
         }
     }
 
@@ -102,9 +125,10 @@ impl Paragraph {
         p
     }
 
-    /// The paragraph's text: runs verbatim (tabs kept), images as U+FFFC,
-    /// line breaks as U+000B and page breaks as U+000C (as Word's
-    /// `Range.Text`).
+    /// The paragraph's text: runs verbatim (tabs kept), images and fields
+    /// as U+FFFC, line breaks as U+000B, page breaks as U+000C and note
+    /// references as U+0002 (as Word's `Range.Text`). One char per
+    /// position (see [`Paragraph::len`]).
     pub fn text(&self) -> String {
         let mut out = String::new();
         self.push_text(&mut out);
@@ -112,15 +136,15 @@ impl Paragraph {
     }
 
     /// Number of positions in the paragraph: characters (Unicode scalar
-    /// values) of the runs plus one per image or break, i.e. the char
-    /// length of [`Paragraph::text`]. Offsets into a paragraph (ADR 0007)
+    /// values) of the runs plus one per image, break, field or note
+    /// reference, i.e. the char length of [`Paragraph::text`]. Offsets into a paragraph (ADR 0007)
     /// range over `0..=len()`.
     pub fn len(&self) -> usize {
         self.inlines
             .iter()
             .map(|i| match i {
                 Inline::Run(run) => run.text.chars().count(),
-                Inline::Image(_) | Inline::Break(_) => 1,
+                _ => 1,
             })
             .sum()
     }
@@ -143,8 +167,26 @@ impl Paragraph {
                 Inline::Image(_) => out.push('\u{FFFC}'),
                 Inline::Break(crate::BreakKind::Line) => out.push('\u{000B}'),
                 Inline::Break(crate::BreakKind::Page) => out.push('\u{000C}'),
+                Inline::Field(_) => out.push('\u{FFFC}'),
+                Inline::NoteRef(_) => out.push('\u{0002}'),
             }
         }
+    }
+
+    /// The text a reader sees: runs (tabs kept), field results, line
+    /// breaks as spaces; images and note references omitted. Used for
+    /// headings in a table of contents and the plain text of headers.
+    pub fn display_text(&self) -> String {
+        let mut out = String::new();
+        for inline in &self.inlines {
+            match inline {
+                Inline::Run(run) => out.push_str(&run.text),
+                Inline::Field(f) => out.push_str(&f.cached),
+                Inline::Break(_) => out.push(' '),
+                Inline::Image(_) | Inline::NoteRef(_) => {}
+            }
+        }
+        out
     }
 }
 
@@ -201,4 +243,65 @@ pub struct TableCell {
     pub props: CellProperties,
     /// Content.
     pub blocks: Vec<Block>,
+}
+
+/// One entry of a [`Toc`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct TocEntry {
+    /// The heading text.
+    pub text: String,
+    /// Outline level, 1-based (Heading 1 = 1).
+    pub level: u8,
+    /// Page number of the heading; `None` until the UI's pagination
+    /// fills it in (or as read from the file's cached TOC).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub page: Option<u32>,
+    /// The heading paragraph.
+    pub target: NodeId,
+}
+
+/// A table of contents: entries generated from the headings of the
+/// outline levels `from_level..=to_level` (docx: the `TOC \o "1-3"`
+/// field with its cached result, inside a "Table of Contents" `w:sdt`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct Toc {
+    /// Node id.
+    pub id: NodeId,
+    /// Shallowest outline level included (1 = Heading 1).
+    pub from_level: u8,
+    /// Deepest outline level included.
+    pub to_level: u8,
+    /// A title paragraph shown above the entries ("Contents").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub title: Option<String>,
+    /// The entries in document order.
+    #[serde(default)]
+    pub entries: Vec<TocEntry>,
+}
+
+impl Toc {
+    /// An empty table of contents over Heading 1–3 without title.
+    pub fn new(id: NodeId) -> Self {
+        Self {
+            id,
+            from_level: 1,
+            to_level: 3,
+            title: None,
+            entries: Vec::new(),
+        }
+    }
 }

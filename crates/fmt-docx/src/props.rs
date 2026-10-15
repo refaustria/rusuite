@@ -396,10 +396,23 @@ pub(crate) fn read_rpr(rpr: &El, ctx: &str, w: &mut Warnings) -> RunProperties {
 
 /// Writes `<w:rPr>` (nothing if `p` is empty) in Word's element order.
 pub(crate) fn write_rpr(x: &mut XmlOut, p: &RunProperties, scheme: &ColorScheme) {
-    if p.is_empty() {
+    write_rpr_styled(x, p, scheme, None);
+}
+
+/// [`write_rpr`] with a character style reference (`w:rStyle`) first.
+pub(crate) fn write_rpr_styled(
+    x: &mut XmlOut,
+    p: &RunProperties,
+    scheme: &ColorScheme,
+    style: Option<&str>,
+) {
+    if p.is_empty() && style.is_none() {
         return;
     }
     x.start("w:rPr", &[]);
+    if let Some(s) = style {
+        x.val("w:rStyle", s);
+    }
     if let Some(font) = &p.font {
         write_fonts(x, font, false);
     }
@@ -608,9 +621,8 @@ pub(crate) fn read_ppr(ppr: &El, ctx: &str, w: &mut Warnings) -> ParagraphProper
                 }
             }
             "tabs" => w.add(format!("{ctx}: custom tab stops dropped")),
-            "sectPr" => w.add(format!(
-                "{ctx}: section break dropped (the last section's page setup applies)"
-            )),
+            // Section breaks are read by the body reader.
+            "sectPr" => {}
             name if SILENT_PPR.contains(&name) => {}
             _ => w.add(format!("{ctx}: paragraph property {} dropped", el.qname())),
         }
@@ -627,7 +639,20 @@ pub(crate) fn read_ppr(ppr: &El, ctx: &str, w: &mut Warnings) -> ParagraphProper
 
 /// Writes `<w:pPr>` (nothing if empty) in Word's element order.
 pub(crate) fn write_ppr(x: &mut XmlOut, p: &ParagraphProperties, scheme: &ColorScheme) {
+    write_ppr_sect(x, p, scheme, None);
+}
+
+/// [`write_ppr`] with a section break: `sect` is a serialized `w:sectPr`
+/// written last. (`section_end` itself is not written: the caller decides
+/// whether it names a section.)
+pub(crate) fn write_ppr_sect(
+    x: &mut XmlOut,
+    p: &ParagraphProperties,
+    scheme: &ColorScheme,
+    sect: Option<&[u8]>,
+) {
     let mut probe = p.clone();
+    probe.section_end = None;
     if probe
         .run_defaults
         .as_ref()
@@ -635,7 +660,7 @@ pub(crate) fn write_ppr(x: &mut XmlOut, p: &ParagraphProperties, scheme: &ColorS
     {
         probe.run_defaults = None;
     }
-    if probe.is_empty() {
+    if probe.is_empty() && sect.is_none() {
         return;
     }
     x.start("w:pPr", &[]);
@@ -673,6 +698,9 @@ pub(crate) fn write_ppr(x: &mut XmlOut, p: &ParagraphProperties, scheme: &ColorS
     }
     if let Some(r) = &p.run_defaults {
         write_rpr(x, r, scheme);
+    }
+    if let Some(sect) = sect {
+        x.raw(sect);
     }
     x.end("w:pPr");
 }

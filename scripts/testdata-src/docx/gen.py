@@ -1,4 +1,4 @@
-"""Generator for the PROVISIONAL docx reference suite (50 documents).
+"""Generator for the PROVISIONAL docx reference suite (54 documents).
 
 Emits one flat ODT (.fodt) per topic plus manifest.json. Conversion to .docx is done by
 scripts/gen-docx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
@@ -68,6 +68,9 @@ class Doc:
         self.page_name = "a4"
         self.page_custom = False
         self.imgs = 0
+        self.extra_styles = ""  # appended to office:styles
+        self.extra_auto = ""  # appended to office:automatic-styles
+        self.master_xml = None  # replaces the Standard master page
 
     @property
     def file(self):
@@ -310,7 +313,8 @@ class Doc:
     # ---- output ----
     def finalize(self):
         body = "\n".join(self.body)
-        paragraphs = len(re.findall(r"<text:(?:p|h)[ >]", body))
+        # Note bodies end up in footnotes.xml / endnotes.xml, not in the body.
+        paragraphs = len(re.findall(r"<text:(?:p|h)[ >]", re.sub(r"<text:note-body>.*?</text:note-body>", "", body)))
         if self.imgs:
             self.feat(f"image:count={self.imgs}")
         if "<svg:title>" in body:
@@ -338,7 +342,7 @@ class Doc:
             '<style:style style:name="Standard" style:family="paragraph" style:class="text"><style:paragraph-properties fo:margin-bottom="6pt"/></style:style>'
             '<style:style style:name="Heading" style:family="paragraph" style:parent-style-name="Standard" style:next-style-name="Standard" style:class="text"><style:text-properties fo:font-weight="bold"/></style:style>'
             '<style:style style:name="Title" style:family="paragraph" style:parent-style-name="Heading" style:next-style-name="Standard" style:class="chapter"><style:paragraph-properties fo:text-align="center" fo:margin-bottom="12pt"/><style:text-properties fo:font-size="26pt" fo:font-weight="bold"/></style:style>'
-            f"{hs}</office:styles>"
+            f"{hs}{self.extra_styles}</office:styles>"
         )
         auto = (
             "<office:automatic-styles>"
@@ -346,9 +350,11 @@ class Doc:
             f'style:print-orientation="{self.orient}" fo:margin-top="{t}cm" fo:margin-right="{r}cm" fo:margin-bottom="{b}cm" fo:margin-left="{l}cm"/></style:page-layout>'
             '<style:style style:name="fr1" style:family="graphic"><style:graphic-properties style:wrap="none" text:anchor-type="as-char" style:vertical-pos="top" style:vertical-rel="baseline"/></style:style>'
             + "".join(self.styles.values())
+            + self.extra_auto
             + "</office:automatic-styles>"
         )
-        master = '<office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"/></office:master-styles>'
+        master = self.master_xml or '<style:master-page style:name="Standard" style:page-layout-name="pm1"/>'
+        master = f"<office:master-styles>{master}</office:master-styles>"
         xml = (
             f'<?xml version="1.0" encoding="UTF-8"?>\n<office:document {NS}>\n{styles}\n{auto}\n{master}\n'
             f"<office:body><office:text>\n{body}\n</office:text></office:body></office:document>\n"
@@ -760,13 +766,155 @@ def _(d):
     d.lst([(1, "Rust"), (1, "Python"), (1, "Documentation")])
 
 
+# ---------------- 51-54 document structure (P8-9) ----------------
+@topic(51, "multilevel-legal-numbering", "Multilevel legal numbering 1. / 1.1. / 1.1.1. with restart of deeper levels")
+def _(d):
+    lv = []
+    for i in range(1, 6):
+        pos = (f'<style:list-level-properties text:list-level-position-and-space-mode="label-alignment">'
+               f'<style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="{0.9 * i + 0.4:.1f}cm" '
+               f'fo:text-indent="-{0.4 + 0.3 * i:.1f}cm" fo:margin-left="{0.9 * i + 0.4:.1f}cm"/></style:list-level-properties>')
+        lv.append(f'<text:list-level-style-number text:level="{i}" style:num-suffix="." style:num-format="1" text:display-levels="{i}">{pos}</text:list-level-style-number>')
+    d.styles["LLegal"] = f'<text:list-style style:name="LLegal">{"".join(lv)}</text:list-style>'
+    items = [(1, "Scope"), (2, "Purpose"), (2, "Audience"), (3, "Internal readers"), (3, "External readers"),
+             (1, "Definitions"), (2, "Terms"), (3, "Document"), (1, "Obligations"), (2, "Parties")]
+
+    def build(idx, level):
+        out = []
+        while idx < len(items) and items[idx][0] == level:
+            content = items[idx][1]
+            idx += 1
+            inner = ""
+            if idx < len(items) and items[idx][0] > level:
+                inner, idx = build(idx, level + 1)
+            out.append(f'<text:list-item><text:p text:style-name="Standard">{escape(content)}</text:p>{inner}</text:list-item>')
+        return f'<text:list>{"".join(out)}</text:list>', idx
+
+    xml, _ = build(0, 1)
+    d.p("Legal numbering follows.")
+    d.body.append(X(xml.replace("<text:list>", '<text:list text:style-name="LLegal">', 1)))
+    d.p("End of the numbered clauses.")
+    d.feat("list:number:levels=3:format=decimal")
+    for label in ["1.", "1.2.", "1.2.2.", "2.1.1.", "3.1."]:
+        d.feat(f"list:label={label}")
+
+
+def _hf(tag, content):
+    return f'<style:{tag}><text:p text:style-name="Standard">{content}</text:p></style:{tag}>'
+
+
+PAGE_NO = X('<text:page-number text:select-page="current">1</text:page-number>')
+PAGE_COUNT = X("<text:page-count>3</text:page-count>")
+
+
+@topic(52, "sections-headers-fields", "Three sections: title page, portrait and landscape with own headers, footers and page fields")
+def _(d):
+    d.extra_auto = (
+        '<style:page-layout style:name="pm2"><style:page-layout-properties fo:page-width="29.7cm" fo:page-height="21cm" '
+        'style:print-orientation="landscape" fo:margin-top="2cm" fo:margin-right="2cm" fo:margin-bottom="2cm" fo:margin-left="2cm"/>'
+        '<style:header-style><style:header-footer-properties fo:min-height="0.6cm"/></style:header-style>'
+        '<style:footer-style><style:header-footer-properties fo:min-height="0.6cm"/></style:footer-style></style:page-layout>'
+        '<style:page-layout style:name="pm3"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" '
+        'style:print-orientation="portrait" fo:margin-top="2.54cm" fo:margin-right="2.54cm" fo:margin-bottom="2.54cm" fo:margin-left="2.54cm"/>'
+        '<style:header-style><style:header-footer-properties fo:min-height="0.6cm"/></style:header-style>'
+        '<style:footer-style><style:header-footer-properties fo:min-height="0.6cm"/></style:footer-style></style:page-layout>'
+        '<number:date-style style:name="D1" xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0">'
+        '<number:day/><number:text>.</number:text><number:month/><number:text>.</number:text><number:year number:style="long"/></number:date-style>'
+        '<style:style style:name="PLand" style:family="paragraph" style:parent-style-name="Heading_20_1" style:master-page-name="Landscape">'
+        '<style:paragraph-properties style:page-number="auto"/></style:style>'
+        '<style:style style:name="PBody" style:family="paragraph" style:parent-style-name="Heading_20_1" style:master-page-name="Body">'
+        '<style:paragraph-properties style:page-number="1"/></style:style>'
+    )
+    d.master_xml = (
+        '<style:master-page style:name="Standard" style:page-layout-name="pm3" style:next-style-name="Body">'
+        + _hf("header", "Title page header")
+        + "</style:master-page>"
+        '<style:master-page style:name="Body" style:page-layout-name="pm3">'
+        + _hf("header", "Report body header")
+        + _hf("footer", f"Page {PAGE_NO} of {PAGE_COUNT}")
+        + "</style:master-page>"
+        '<style:master-page style:name="Landscape" style:page-layout-name="pm2">'
+        + _hf("header", "Landscape appendix header")
+        + _hf("footer", f"Appendix page {PAGE_NO}")
+        + "</style:master-page>"
+    )
+    d.title("Structured Report")
+    d.p(["Created on ", X('<text:date style:data-style-name="D1" text:date-value="2026-01-01">01.01.2026</text:date>'), "."])
+    d.body.append(X('<text:h text:style-name="PBody" text:outline-level="1">Body section</text:h>'))
+    d.feat("heading:1")
+    d.p(txt(3))
+    d.p(["This is page ", PAGE_NO, " of ", PAGE_COUNT, "."])
+    d.body.append(X('<text:h text:style-name="PLand" text:outline-level="1">Landscape appendix</text:h>'))
+    d.p(txt(2, 1))
+    for f in ["section:count=3", "section:landscape", "header:default", "footer:default",
+              "field:page", "field:numpages", "field:date", "page-number:start=1"]:
+        d.feat(f)
+
+
+@topic(53, "footnotes-endnotes", "Footnotes and endnotes with references in body text")
+def _(d):
+    def note(cls, n, text):
+        return X(f'<text:note text:id="{cls[:3]}{n}" text:note-class="{cls}"><text:note-citation>{n}</text:note-citation>'
+                 f'<text:note-body><text:p text:style-name="Standard">{escape(text)}</text:p></text:note-body></text:note>')
+    d.h(1, "Notes")
+    d.p(["A sentence with a footnote", note("footnote", 1, "The first footnote."), " and more text."])
+    d.p(["Another claim", note("footnote", 2, "Second footnote, with a longer explanation."),
+         " followed by an endnote", note("endnote", 1, "The only endnote."), "."])
+    d.p(["A third footnote", note("footnote", 3, "Third footnote."), " closes the paragraph."])
+    d.feat("note:footnote=3")
+    d.feat("note:endnote=1")
+
+
+@topic(54, "table-of-contents", "Table of contents over Heading 1-3 with hyperlinks and page numbers")
+def _(d):
+    heads = [(1, "Introduction"), (2, "Background"), (2, "Goals"), (1, "Design"), (2, "Architecture"), (3, "Storage"), (1, "Summary")]
+    entries = "".join(
+        f'<text:p text:style-name="Contents_20_{lv}"><text:a xlink:type="simple" xlink:href="#{escape(t)}|outline" text:style-name="Index_20_Link">'
+        f'{escape(t)}<text:tab/>{1 + i // 3}</text:a></text:p>'
+        for i, (lv, t) in enumerate(heads)
+    )
+    tmpl = "".join(
+        f'<text:table-of-content-entry-template text:outline-level="{k}" text:style-name="Contents_20_{k}">'
+        '<text:index-entry-link-start text:style-name="Index_20_Link"/><text:index-entry-chapter/><text:index-entry-text/>'
+        '<text:index-entry-tab-stop style:type="right" style:leader-char="."/><text:index-entry-page-number/>'
+        '<text:index-entry-link-end/></text:table-of-content-entry-template>'
+        for k in range(1, 4)
+    )
+    d.extra_styles = (
+        '<style:style style:name="Index" style:family="paragraph" style:parent-style-name="Standard" style:class="index"/>'
+        '<style:style style:name="Contents_20_Heading" style:display-name="Contents Heading" style:family="paragraph" style:parent-style-name="Heading" style:class="index">'
+        '<style:text-properties fo:font-size="16pt" fo:font-weight="bold"/></style:style>'
+        + "".join(
+            f'<style:style style:name="Contents_20_{k}" style:display-name="Contents {k}" style:family="paragraph" style:parent-style-name="Index" style:class="index">'
+            f'<style:paragraph-properties fo:margin-left="{0.5 * (k - 1):.1f}cm"><style:tab-stops><style:tab-stop style:position="16cm" style:type="right" style:leader-style="dotted" style:leader-text="."/></style:tab-stops></style:paragraph-properties></style:style>'
+            for k in range(1, 4)
+        )
+        + '<style:style style:name="Index_20_Link" style:display-name="Index Link" style:family="text"/>'
+    )
+    d.body.append(X(
+        '<text:table-of-content text:style-name="Sect1" text:protected="true" text:name="Table of Contents1">'
+        '<text:table-of-content-source text:outline-level="3">'
+        '<text:index-title-template text:style-name="Contents_20_Heading">Contents</text:index-title-template>'
+        f"{tmpl}</text:table-of-content-source>"
+        '<text:index-body><text:index-title text:style-name="Sect1" text:name="Table of Contents1_Head">'
+        '<text:p text:style-name="Contents_20_Heading">Contents</text:p></text:index-title>'
+        f"{entries}</text:index-body></text:table-of-content>"
+    ))
+    d.extra_auto = '<style:style style:name="Sect1" style:family="section"><style:section-properties style:editable="false"/></style:style>'
+    for i, (lv, t) in enumerate(heads):
+        d.h(lv, t, brk=(lv == 1 and i > 0))
+        d.p(txt(2, i))
+    d.feat("toc:levels=1-3")
+    d.feat(f"toc:entries={len(heads)}")
+
+
 def emit(outdir, pngdir):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     for k in range(3):
         IMAGES[k] = (Path(pngdir) / f"img{k}.png").read_bytes()
     manifest = []
-    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 51)), "need exactly topics 1..50"
+    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 55)), "need exactly topics 1..54"
     for n, slug, desc, fn in sorted(TOPICS):
         d = Doc(n, slug, desc)
         fn(d)

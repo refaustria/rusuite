@@ -1,19 +1,22 @@
 //! `word/numbering.xml` ↔ [`model_text::Numbering`].
 //!
-//! Every `w:num` becomes one [`NumberingDef`] with the levels of its
-//! `w:abstractNum` and its `w:lvlOverride`s applied (ADR 0006). Bullet
-//! characters are stored readable (`•`, `▪`) in the model; Word stores
-//! bullets of the Symbol and Wingdings fonts as private-use characters
-//! (U+F0B7, U+F0A7), which are mapped on read and write.
+//! Every `w:abstractNum` becomes an [`AbstractNumbering`], every `w:num` a
+//! [`NumberingDef`] pointing to it with its `w:lvlOverride`s (start
+//! overrides and whole levels) and the resolved levels. Bullet characters
+//! are stored readable (`•`, `▪`) in the model; Word stores bullets of the
+//! Symbol and Wingdings fonts as private-use characters (U+F0B7, U+F0A7),
+//! which are mapped on read and write.
 
 use std::collections::BTreeMap;
 
-use core_model::FontFace;
-use model_text::{Level, LevelKind, Numbering, NumberingDef};
+use core_model::{ColorScheme, FontFace, RunProperties};
+use model_text::{
+    AbstractNumbering, Level, LevelKind, LevelOverride, LevelSuffix, Numbering, NumberingDef,
+};
 
-use crate::props::{read_fonts, read_indent_quiet, write_fonts, write_indent};
-use crate::xml::{parse, parse_u32, El, WriteVal, XmlOut};
-use crate::{DocxContext, NumInstance, Result, Warnings};
+use crate::props::{read_indent_quiet, read_rpr, write_fonts, write_indent, write_rpr};
+use crate::xml::{parse, parse_u32, toggle, El, WriteVal, XmlOut};
+use crate::{NumInstance, Result, Warnings};
 
 pub(crate) const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
@@ -97,61 +100,87 @@ pub(crate) struct ReadNumbering {
     pub instances: Vec<NumInstance>,
 }
 
-fn level_kind(fmt: &str, w: &mut Warnings) -> (LevelKind, bool) {
-    let kind = match fmt {
+fn level_kind(fmt: &str, w: &mut Warnings) -> LevelKind {
+    match fmt {
         "decimal" => LevelKind::Decimal,
         "lowerLetter" => LevelKind::LowerLetter,
         "upperLetter" => LevelKind::UpperLetter,
         "lowerRoman" => LevelKind::LowerRoman,
         "upperRoman" => LevelKind::UpperRoman,
         "bullet" => LevelKind::Bullet,
-        "none" => return (LevelKind::Bullet, true),
+        "ordinal" => LevelKind::Ordinal,
+        "decimalZero" => LevelKind::DecimalZero,
+        "none" => LevelKind::None,
         other => {
             w.add(format!(
                 "word/numbering.xml: number format {other:?} read as decimal"
             ));
             LevelKind::Decimal
         }
-    };
-    (kind, false)
+    }
+}
+
+fn level_kind_name(kind: LevelKind) -> &'static str {
+    match kind {
+        LevelKind::Bullet => "bullet",
+        LevelKind::Decimal => "decimal",
+        LevelKind::LowerLetter => "lowerLetter",
+        LevelKind::UpperLetter => "upperLetter",
+        LevelKind::LowerRoman => "lowerRoman",
+        LevelKind::UpperRoman => "upperRoman",
+        LevelKind::Ordinal => "ordinal",
+        LevelKind::DecimalZero => "decimalZero",
+        LevelKind::None => "none",
+    }
+}
+
+/// `w:numFmt` / `w:pgNumType/@w:fmt` value → kind (unknown → `None`).
+pub(crate) fn number_format(v: &str) -> Option<LevelKind> {
+    let mut w = Warnings::default();
+    let kind = level_kind(v, &mut w);
+    w.is_empty().then_some(kind)
+}
+
+/// Kind → `w:numFmt` value.
+pub(crate) fn number_format_name(kind: LevelKind) -> &'static str {
+    level_kind_name(kind)
 }
 
 fn read_level(lvl: &El, w: &mut Warnings) -> Level {
-    let mut level = Level {
-        kind: LevelKind::Decimal,
-        text: String::new(),
-        start: 0,
-        indent: None,
-        font: None,
-    };
-    let mut none = false;
+    let mut level = Level::new(LevelKind::Decimal, "");
+    level.start = 0;
     for el in lvl.elements() {
         match el.name.as_str() {
             "start" => level.start = el.val().and_then(parse_u32).unwrap_or(0),
-            "numFmt" => (level.kind, none) = level_kind(el.val().unwrap_or("decimal"), w),
+            "numFmt" => level.kind = level_kind(el.val().unwrap_or("decimal"), w),
             "lvlText" => level.text = el.val().unwrap_or("").to_owned(),
+            "lvlRestart" => {
+                level.restart = el
+                    .val()
+                    .and_then(parse_u32)
+                    .map(|v| u8::try_from(v.min(9)).unwrap_or(9))
+            }
+            "isLgl" => level.legal = toggle(el),
+            "suff" => {
+                level.suffix = match el.val() {
+                    Some("space") => LevelSuffix::Space,
+                    Some("nothing") => LevelSuffix::Nothing,
+                    _ => LevelSuffix::Tab,
+                }
+            }
             "pPr" => level.indent = el.child("ind").and_then(read_indent_quiet),
-            "rPr" => level.font = el.child("rFonts").and_then(read_fonts),
-            "lvlRestart" | "isLgl" | "lvlPicBulletId" | "legacy" => w.add(format!(
+            "rPr" => {
+                let mut run = read_rpr(el, "list level", w);
+                level.font = run.font.take();
+                level.run = (!run.is_empty()).then_some(run);
+            }
+            "lvlPicBulletId" | "legacy" => w.add(format!(
                 "word/numbering.xml: list level property {} dropped",
                 el.qname()
             )),
             "pStyle" => w.add("word/numbering.xml: list level linked to a style; link dropped"),
             _ => {}
         }
-    }
-    if none {
-        // A level without number: only its literal text remains.
-        let mut text = String::new();
-        let mut chars = level.text.chars().peekable();
-        while let Some(c) = chars.next() {
-            if c == '%' && chars.peek().is_some_and(char::is_ascii_digit) {
-                chars.next();
-            } else {
-                text.push(c);
-            }
-        }
-        level.text = text;
     }
     if level.kind == LevelKind::Bullet {
         level.text = bullet_from_word(&level.text, level.font.as_ref());
@@ -167,19 +196,12 @@ fn ilvl_of(el: &El) -> Option<usize> {
 }
 
 fn default_level(i: usize) -> Level {
-    Level {
-        kind: LevelKind::Decimal,
-        text: format!("%{}.", i + 1),
-        start: 1,
-        indent: None,
-        font: None,
-    }
+    Level::new(LevelKind::Decimal, format!("%{}.", i + 1))
 }
 
 /// Parses `numbering.xml`.
 pub(crate) fn read_numbering(xml: &[u8], part: &str, w: &mut Warnings) -> Result<ReadNumbering> {
     let root = parse(xml, part)?;
-    let mut abstracts: BTreeMap<u32, Vec<Level>> = BTreeMap::new();
     let mut out = ReadNumbering::default();
     for el in root.elements() {
         match el.name.as_str() {
@@ -187,6 +209,10 @@ pub(crate) fn read_numbering(xml: &[u8], part: &str, w: &mut Warnings) -> Result
                 let Some(id) = el.attr("abstractNumId").and_then(parse_u32) else {
                     continue;
                 };
+                if out.numbering.get_abstract(id).is_some() {
+                    w.add(format!("{part}: duplicate abstractNum {id} dropped"));
+                    continue;
+                }
                 if el.child("numStyleLink").is_some() || el.child("styleLink").is_some() {
                     w.add(format!("{part}: numbering style links dropped"));
                 }
@@ -200,7 +226,9 @@ pub(crate) fn read_numbering(xml: &[u8], part: &str, w: &mut Warnings) -> Result
                 let levels = (0..n)
                     .map(|i| levels.remove(&i).unwrap_or_else(|| default_level(i)))
                     .collect();
-                abstracts.insert(id, levels);
+                out.numbering
+                    .abstracts
+                    .push(AbstractNumbering { id, levels });
             }
             "num" => {
                 let Some(num_id) = el.attr("numId").and_then(parse_u32).filter(|&n| n != 0) else {
@@ -216,28 +244,32 @@ pub(crate) fn read_numbering(xml: &[u8], part: &str, w: &mut Warnings) -> Result
                     ));
                     continue;
                 };
-                let Some(base) = abstracts.get(&abstract_id) else {
-                    w.add(format!(
-                        "{part}: num {num_id} references missing abstractNum {abstract_id}; dropped"
-                    ));
-                    continue;
-                };
-                let mut levels = base.clone();
+                let mut overrides = Vec::new();
                 let mut start_overrides = Vec::new();
                 for ov in el.elements().filter(|e| e.name == "lvlOverride") {
                     let Some(i) = ilvl_of(ov) else { continue };
-                    while levels.len() <= i {
-                        levels.push(default_level(levels.len()));
-                    }
-                    if let Some(lvl) = ov.child("lvl") {
-                        levels[i] = read_level(lvl, w);
-                    }
-                    if let Some(s) = ov.child("startOverride").and_then(El::val) {
-                        levels[i].start = parse_u32(s).unwrap_or(0);
+                    let start = ov
+                        .child("startOverride")
+                        .and_then(El::val)
+                        .map(|s| parse_u32(s).unwrap_or(0));
+                    let definition = ov.child("lvl").map(|l| read_level(l, w));
+                    if start.is_some() {
                         start_overrides.push(i as u8);
                     }
+                    if start.is_some() || definition.is_some() {
+                        overrides.push(LevelOverride {
+                            level: i as u8,
+                            start,
+                            definition,
+                        });
+                    }
                 }
-                out.numbering.insert(NumberingDef { id: num_id, levels });
+                out.numbering.insert(NumberingDef {
+                    id: num_id,
+                    abstract_id: Some(abstract_id),
+                    overrides,
+                    levels: Vec::new(),
+                });
                 out.instances.push(NumInstance {
                     num_id,
                     abstract_id,
@@ -247,82 +279,83 @@ pub(crate) fn read_numbering(xml: &[u8], part: &str, w: &mut Warnings) -> Result
             _ => {}
         }
     }
+    // Nums whose abstractNum is missing.
+    let missing: Vec<u32> = out
+        .numbering
+        .defs
+        .iter()
+        .filter(|d| out.numbering.resolved_levels(d).is_none())
+        .map(|d| d.id)
+        .collect();
+    for id in missing {
+        let a = out
+            .numbering
+            .get(id)
+            .and_then(|d| d.abstract_id)
+            .unwrap_or(0);
+        w.add(format!(
+            "{part}: num {id} references missing abstractNum {a}; dropped"
+        ));
+        out.numbering.defs.retain(|d| d.id != id);
+        out.instances.retain(|i| i.num_id != id);
+    }
+    out.numbering.resolve();
     Ok(out)
 }
 
-/// A `w:num` to write: num id, abstract id, `(level, start)` overrides.
-type NumOut = (u32, u32, Vec<(u8, u32)>);
-
-/// Whether `def` can share the abstract definition `base`: equal levels,
-/// except the start value of levels listed in `overrides`.
-fn compatible(base: &[Level], def: &[Level], overrides: &[u8]) -> bool {
-    base.len() == def.len()
-        && base.iter().zip(def).enumerate().all(|(i, (a, b))| {
-            a == b
-                || (overrides.contains(&(i as u8)) && {
-                    let mut a = a.clone();
-                    a.start = b.start;
-                    a == *b
-                })
-        })
-}
-
-/// Writes `numbering.xml`; `None` if there are no definitions.
+/// Writes `numbering.xml`; `None` if there are no lists.
 ///
-/// Without context every def gets its own `abstractNum`. With the context of
-/// a read file, nums that shared an `abstractNum` (and still have
-/// compatible levels) share one again, with their `w:startOverride`s.
-pub(crate) fn write_numbering(n: &Numbering, ctx: &DocxContext) -> Option<Vec<u8>> {
+/// The abstract definitions are written with their ids, then one more per
+/// standalone list (and per list whose levels no longer match its abstract
+/// definition and overrides, e.g. edited without [`Numbering::resolve`]);
+/// every list as a `w:num` with its `w:lvlOverride`s.
+pub(crate) fn write_numbering(n: &Numbering, scheme: &ColorScheme) -> Option<Vec<u8>> {
     let defs: Vec<&NumberingDef> = n.defs.iter().filter(|d| d.id != 0).collect();
     if defs.is_empty() {
         return None;
     }
-    // (abstract id, levels, abstract id in the original file)
-    let mut abstracts: Vec<(u32, &[Level], Option<u32>)> = Vec::new();
-    // (num id, abstract id, overrides (level, start))
-    let mut nums: Vec<NumOut> = Vec::new();
+    let mut next_abstract = n.next_abstract_id();
+    // (abstract id, levels)
+    let mut abstracts: Vec<(u32, &[Level])> = n
+        .abstracts
+        .iter()
+        .map(|a| (a.id, a.levels.as_slice()))
+        .collect();
+    // (num id, abstract id, overrides)
+    let mut nums: Vec<(u32, u32, &[LevelOverride])> = Vec::new();
     for def in defs {
-        let inst = ctx.numbering.iter().find(|i| i.num_id == def.id);
-        let overrides: Vec<(u8, u32)> = inst
-            .map(|i| {
-                i.start_overrides
-                    .iter()
-                    .filter_map(|&l| Some((l, def.levels.get(usize::from(l))?.start)))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let shared = inst.and_then(|inst| {
-            abstracts.iter().find(|(_, levels, orig)| {
-                *orig == Some(inst.abstract_id)
-                    && compatible(levels, &def.levels, &inst.start_overrides)
-            })
-        });
-        let abs_id = match shared {
-            Some((id, _, _)) => *id,
-            None => {
-                let id = abstracts.len() as u32;
-                abstracts.push((id, &def.levels, inst.map(|i| i.abstract_id)));
-                id
+        match def.abstract_id {
+            Some(a) if n.resolved_levels(def).as_deref() == Some(def.levels.as_slice()) => {
+                nums.push((def.id, a, &def.overrides));
             }
-        };
-        nums.push((def.id, abs_id, overrides));
+            _ => {
+                abstracts.push((next_abstract, &def.levels));
+                nums.push((def.id, next_abstract, &[]));
+                next_abstract += 1;
+            }
+        }
     }
 
     let mut x = XmlOut::new();
     x.start("w:numbering", &[("xmlns:w", W_NS)]);
-    for (id, levels, _) in &abstracts {
+    for (id, levels) in &abstracts {
         x.start("w:abstractNum", &[("w:abstractNumId", &id.to_string())]);
         for (i, level) in levels.iter().enumerate().take(9) {
-            write_level(&mut x, i, level);
+            write_level(&mut x, i, level, scheme);
         }
         x.end("w:abstractNum");
     }
     for (num_id, abs_id, overrides) in &nums {
         x.start("w:num", &[("w:numId", &num_id.to_string())]);
         x.val("w:abstractNumId", &abs_id.to_string());
-        for (lvl, start) in overrides {
-            x.start("w:lvlOverride", &[("w:ilvl", &lvl.to_string())]);
-            x.val("w:startOverride", &start.to_string());
+        for o in overrides.iter() {
+            x.start("w:lvlOverride", &[("w:ilvl", &o.level.min(8).to_string())]);
+            if let Some(start) = o.start {
+                x.val("w:startOverride", &start.to_string());
+            }
+            if let Some(def) = &o.definition {
+                write_level(&mut x, usize::from(o.level.min(8)), def, scheme);
+            }
             x.end("w:lvlOverride");
         }
         x.end("w:num");
@@ -331,22 +364,20 @@ pub(crate) fn write_numbering(n: &Numbering, ctx: &DocxContext) -> Option<Vec<u8
     Some(x.finish())
 }
 
-fn write_level(x: &mut XmlOut, i: usize, level: &Level) {
-    let none = level.kind == LevelKind::Bullet && level.text.is_empty();
+fn write_level(x: &mut XmlOut, i: usize, level: &Level, scheme: &ColorScheme) {
     x.start("w:lvl", &[("w:ilvl", &i.to_string())]);
     x.val("w:start", &level.start.to_string());
-    let fmt = match level.kind {
-        _ if none => "none",
-        LevelKind::Bullet => "bullet",
-        LevelKind::Decimal => "decimal",
-        LevelKind::LowerLetter => "lowerLetter",
-        LevelKind::UpperLetter => "upperLetter",
-        LevelKind::LowerRoman => "lowerRoman",
-        LevelKind::UpperRoman => "upperRoman",
-    };
-    x.val("w:numFmt", fmt);
-    if none {
-        x.val("w:suff", "nothing");
+    x.val("w:numFmt", level_kind_name(level.kind));
+    if let Some(r) = level.restart {
+        x.val("w:lvlRestart", &r.to_string());
+    }
+    if level.legal {
+        x.empty("w:isLgl", &[]);
+    }
+    match level.suffix {
+        LevelSuffix::Tab => {}
+        LevelSuffix::Space => x.val("w:suff", "space"),
+        LevelSuffix::Nothing => x.val("w:suff", "nothing"),
     }
     let text = if level.kind == LevelKind::Bullet {
         bullet_to_word(&level.text, level.font.as_ref())
@@ -360,9 +391,23 @@ fn write_level(x: &mut XmlOut, i: usize, level: &Level) {
         write_indent(x, &ind);
         x.end("w:pPr");
     }
-    if let Some(font) = &level.font {
+    let run = level.run.clone().unwrap_or_default();
+    if level.font.is_some() || !run.is_empty() {
+        // `rFonts` with `hint="default"` (as Word writes list fonts), then
+        // the other properties.
+        let mut fragment = XmlOut::fragment();
+        write_rpr(&mut fragment, &RunProperties { font: None, ..run }, scheme);
+        let rest = fragment.finish();
         x.start("w:rPr", &[]);
-        write_fonts(x, font, true);
+        if let Some(font) = &level.font {
+            write_fonts(x, font, true);
+        }
+        // Strip the fragment's own `<w:rPr>` wrapper.
+        let inner = rest
+            .strip_prefix(b"<w:rPr>".as_slice())
+            .and_then(|r| r.strip_suffix(b"</w:rPr>".as_slice()))
+            .unwrap_or(&[]);
+        x.raw(inner);
         x.end("w:rPr");
     }
     x.end("w:lvl");
@@ -372,7 +417,8 @@ fn write_level(x: &mut XmlOut, i: usize, level: &Level) {
 mod tests {
     use super::*;
     use core_model::units::Twips;
-    use model_text::Indent;
+    use core_model::FontSize;
+    use model_text::{Indent, NumberingRef};
 
     #[test]
     fn bullets_map_both_ways() {
@@ -407,28 +453,39 @@ mod tests {
         }
     }
 
+    fn write(n: &Numbering) -> Vec<u8> {
+        write_numbering(n, &ColorScheme::default()).unwrap()
+    }
+
     #[test]
     fn default_lists_roundtrip() {
         let mut n = Numbering::default();
         n.insert(NumberingDef::bullet_default(1));
         n.insert(NumberingDef::decimal_default(2));
-        let xml = write_numbering(&n, &DocxContext::default()).unwrap();
+        let xml = write(&n);
         let s = String::from_utf8(xml.clone()).unwrap();
         assert!(s.contains("<w:lvlText w:val=\"\u{F0B7}\"/>"), "{s}");
         assert!(s.contains(r#"<w:rFonts w:ascii="Symbol" w:hAnsi="Symbol" w:hint="default"/>"#));
         let back = read_numbering(&xml, "n", &mut Warnings::default()).unwrap();
-        assert_eq!(back.numbering, n);
+        // Standalone lists come back as lists on their own abstracts.
+        assert_eq!(back.numbering.abstracts.len(), 2);
+        for (a, b) in back.numbering.defs.iter().zip(&n.defs) {
+            assert_eq!((a.id, &a.levels), (b.id, &b.levels));
+            assert!(a.abstract_id.is_some());
+        }
+        // and are written identically again
+        assert_eq!(write(&back.numbering), xml);
     }
 
     #[test]
-    fn overrides_flatten_and_regroup() {
+    fn abstracts_and_overrides_roundtrip() {
         // LibreOffice's list restart: num 4 = abstract 3 restarted at 1;
         // num 5 = abstract 3 starting at 7.
         let xml = br#"<w:numbering xmlns:w="x">
             <w:abstractNum w:abstractNumId="3">
               <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/>
-                <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>
-              <w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%2)"/></w:lvl>
+                <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr><w:rPr><w:b/><w:color w:val="FF0000"/><w:sz w:val="28"/></w:rPr></w:lvl>
+              <w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="lowerLetter"/><w:lvlRestart w:val="0"/><w:isLgl/><w:suff w:val="space"/><w:lvlText w:val="%1.%2)"/></w:lvl>
             </w:abstractNum>
             <w:abstractNum w:abstractNumId="1">
               <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="none"/><w:suff w:val="nothing"/><w:lvlText w:val=""/></w:lvl>
@@ -436,17 +493,23 @@ mod tests {
             <w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num>
             <w:num w:numId="3"><w:abstractNumId w:val="3"/></w:num>
             <w:num w:numId="4"><w:abstractNumId w:val="3"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride></w:num>
-            <w:num w:numId="5"><w:abstractNumId w:val="3"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="7"/></w:lvlOverride></w:num>
+            <w:num w:numId="5"><w:abstractNumId w:val="3"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="7"/></w:lvlOverride>
+              <w:lvlOverride w:ilvl="2"><w:lvl w:ilvl="2"><w:start w:val="1"/><w:numFmt w:val="ordinal"/><w:lvlText w:val="%3"/></w:lvl></w:lvlOverride></w:num>
             <w:num w:numId="6"><w:abstractNumId w:val="9"/></w:num>
         </w:numbering>"#;
         let mut w = Warnings::default();
         let r = read_numbering(xml, "n", &mut w).unwrap();
         assert_eq!(w.into_vec().len(), 1, "missing abstractNum 9");
-        let defs = &r.numbering.defs;
-        assert_eq!(defs.len(), 4);
-        let none = &r.numbering.get(1).unwrap().levels[0];
-        assert_eq!((none.kind, none.text.as_str()), (LevelKind::Bullet, ""));
-        let d3 = r.numbering.get(3).unwrap();
+        let n = &r.numbering;
+        assert_eq!(n.defs.len(), 4);
+        assert_eq!(n.abstracts.len(), 2);
+        let none = &n.get(1).unwrap().levels[0];
+        assert_eq!(
+            (none.kind, none.text.as_str(), none.suffix),
+            (LevelKind::None, "", LevelSuffix::Nothing)
+        );
+        let d3 = n.get(3).unwrap();
+        assert_eq!(d3.abstract_id, Some(3));
         assert_eq!(d3.levels[0].start, 1);
         assert_eq!(
             d3.levels[0].indent,
@@ -456,36 +519,50 @@ mod tests {
                 ..Default::default()
             })
         );
-        assert_eq!(d3.levels[1].text, "%2)");
-        assert_eq!(r.numbering.get(5).unwrap().levels[0].start, 7);
-        assert_eq!(r.numbering.get(5).unwrap().levels[1], d3.levels[1]);
+        let run = d3.levels[0].run.as_ref().unwrap();
+        assert_eq!(
+            (run.bold, run.size),
+            (Some(true), Some(FontSize::from_half_points(28)))
+        );
+        let l1 = &d3.levels[1];
+        assert_eq!(
+            (l1.restart, l1.legal, l1.suffix, l1.text.as_str()),
+            (Some(0), true, LevelSuffix::Space, "%1.%2)")
+        );
+        let d5 = n.get(5).unwrap();
+        assert_eq!(d5.levels[0].start, 7);
+        assert_eq!(d5.levels[1], d3.levels[1]);
+        assert_eq!(d5.levels[2].kind, LevelKind::Ordinal);
+        assert_eq!(d5.start_override(0), Some(7));
 
-        // Written back with context: nums 3, 4, 5 share one abstractNum.
-        let ctx = DocxContext {
-            numbering: r.instances.clone(),
-            ..Default::default()
-        };
-        let out = write_numbering(&r.numbering, &ctx).unwrap();
+        // Written back: same abstracts, same nums and overrides.
+        let out = write(n);
         let s = String::from_utf8(out.clone()).unwrap();
         assert_eq!(s.matches("<w:abstractNum ").count(), 2, "{s}");
-        assert!(s.contains(r#"<w:num w:numId="5"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="7"/></w:lvlOverride></w:num>"#), "{s}");
+        assert!(s.contains(r#"<w:num w:numId="4"><w:abstractNumId w:val="3"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride></w:num>"#), "{s}");
         assert!(
             s.contains(r#"<w:numFmt w:val="none"/><w:suff w:val="nothing"/><w:lvlText w:val=""/>"#)
         );
+        assert!(s.contains(r#"<w:lvlRestart w:val="0"/><w:isLgl/><w:suff w:val="space"/>"#));
         let back = read_numbering(&out, "n", &mut Warnings::default()).unwrap();
         assert_eq!(back.numbering, r.numbering);
 
-        // Without context: one abstractNum per num.
-        let s = String::from_utf8(write_numbering(&r.numbering, &DocxContext::default()).unwrap())
-            .unwrap();
-        assert_eq!(s.matches("<w:abstractNum ").count(), 4);
-
-        // An edited def no longer shares its abstract.
+        // Levels edited without resolve: the list gets its own abstract.
         let mut edited = r.numbering.clone();
         edited.defs.iter_mut().find(|d| d.id == 4).unwrap().levels[1].text = "(%2)".into();
-        let s = String::from_utf8(write_numbering(&edited, &ctx).unwrap()).unwrap();
+        let s = String::from_utf8(write(&edited)).unwrap();
         assert_eq!(s.matches("<w:abstractNum ").count(), 3);
         let back = read_numbering(s.as_bytes(), "n", &mut Warnings::default()).unwrap();
-        assert_eq!(back.numbering, edited);
+        assert_eq!(
+            back.numbering.get(4).unwrap().levels,
+            edited.get(4).unwrap().levels
+        );
+        assert!(back
+            .numbering
+            .level(NumberingRef {
+                num_id: 4,
+                level: 1
+            })
+            .is_some());
     }
 }

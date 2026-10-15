@@ -29,6 +29,27 @@ expression: "serde_json::to_value(&doc).unwrap()"
     "orientation": "portrait",
     "width": 11906
   },
+  "sections": [
+    {
+      "columns": 1,
+      "id": 1,
+      "kind": "nextPage",
+      "page": {
+        "height": 16838,
+        "margins": {
+          "bottom": 1440,
+          "footer": 708,
+          "header": 708,
+          "left": 1440,
+          "right": 1440,
+          "top": 1440
+        },
+        "orientation": "portrait",
+        "width": 11906
+      },
+      "titlePage": false
+    }
+  ],
   "styles": {
     "defaults": {
       "paragraph": {

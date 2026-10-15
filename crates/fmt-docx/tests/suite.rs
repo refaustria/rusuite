@@ -10,8 +10,8 @@ use core_model::units::Twips;
 use core_model::{Color, Rgb, Theme, VerticalAlign};
 use fmt_ooxml::{Package, PartName};
 use model_text::{
-    Alignment, Block, BorderStyle, BreakKind, Document, Inline, LevelKind, LineSpacing, NodeId,
-    Orientation, Paragraph, TableBorders,
+    Alignment, Block, BorderStyle, BreakKind, Document, FieldKind, HeaderSlot, Inline, LevelKind,
+    LineSpacing, NodeId, NoteKind, Orientation, Paragraph, TableBorders,
 };
 
 fn dir() -> PathBuf {
@@ -29,7 +29,7 @@ fn files() -> Vec<PathBuf> {
         .filter(|p| p.extension().is_some_and(|e| e == "docx"))
         .collect();
     v.sort();
-    assert!(v.len() >= 52, "{v:?}");
+    assert!(v.len() >= 56, "{v:?}");
     v
 }
 
@@ -97,6 +97,9 @@ fn level_format(kind: LevelKind) -> &'static str {
         LevelKind::UpperLetter => "upper-alpha",
         LevelKind::LowerRoman => "lower-roman",
         LevelKind::UpperRoman => "upper-roman",
+        LevelKind::Ordinal => "ordinal",
+        LevelKind::DecimalZero => "decimal-zero",
+        LevelKind::None => "none",
     }
 }
 
@@ -204,7 +207,9 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                 (doc.numbering.level(num), doc.numbering.get(num.num_id))
             {
                 // LibreOffice's heading outline: levels without a label.
-                if !(level.kind == LevelKind::Bullet && level.text.is_empty()) {
+                let unlabelled = level.kind == LevelKind::None
+                    || (level.kind == LevelKind::Bullet && level.text.is_empty());
+                if !unlabelled {
                     let kind0 = def.levels[0].kind;
                     match lists.iter_mut().find(|l| l.0 == num.num_id) {
                         Some(l) => l.1 = l.1.max(num.level),
@@ -284,6 +289,7 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                 Inline::Break(BreakKind::Line) => {
                     out.insert("break:line".into());
                 }
+                Inline::Field(_) | Inline::NoteRef(_) => {}
             }
         }
     }
@@ -307,6 +313,7 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
         out.insert("list:restart".into());
     }
     tables_features(&doc.body, false, &mut out);
+    structure_features(doc, &mut out);
 
     let page = &doc.page;
     let (w, h) = match page.orientation {
@@ -332,6 +339,67 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
         cm(m.left)
     ));
     out.into_iter().map(|f| canon(&f)).collect()
+}
+
+/// Lists labels, sections, headers/footers, fields, notes and tables of
+/// contents.
+fn structure_features(doc: &Document, out: &mut BTreeSet<String>) {
+    for (_, label) in doc.list_numbers() {
+        if !label.is_empty() {
+            out.insert(format!("list:label={label}"));
+        }
+    }
+    out.insert(format!("section:count={}", doc.sections.len()));
+    for s in &doc.sections {
+        if s.page.orientation == Orientation::Landscape {
+            out.insert("section:landscape".into());
+        }
+        for (footer, what) in [(false, "header"), (true, "footer")] {
+            for (slot, _) in s.header_footer(footer).slots() {
+                let slot = match slot {
+                    HeaderSlot::Default => "default",
+                    HeaderSlot::First => "first",
+                    HeaderSlot::Even => "even",
+                };
+                out.insert(format!("{what}:{slot}"));
+            }
+        }
+        if let Some(n) = s.page_number_start {
+            out.insert(format!("page-number:start={n}"));
+        }
+    }
+    for c in doc.containers() {
+        for p in model_text::document::paragraphs_in(c) {
+            for i in &p.inlines {
+                if let Inline::Field(f) = i {
+                    out.insert(
+                        match f.kind {
+                            FieldKind::Page => "field:page",
+                            FieldKind::NumPages => "field:numpages",
+                            FieldKind::Date { .. } => "field:date",
+                            FieldKind::Time { .. } => "field:time",
+                            FieldKind::FileName => "field:filename",
+                            FieldKind::Author => "field:author",
+                        }
+                        .to_owned(),
+                    );
+                }
+            }
+        }
+    }
+    for (kind, name) in [(NoteKind::Foot, "footnote"), (NoteKind::End, "endnote")] {
+        let n = doc.notes.iter().filter(|n| n.kind == kind).count();
+        if n > 0 {
+            out.insert(format!("note:{name}={n}"));
+        }
+    }
+    for t in doc.body.iter().filter_map(Block::as_toc) {
+        out.insert(format!("toc:levels={}-{}", t.from_level, t.to_level));
+        out.insert(format!("toc:entries={}", t.entries.len()));
+        if !t.entries.is_empty() {
+            out.insert("tab".into()); // entry text and page number
+        }
+    }
 }
 
 fn tables_features(blocks: &[Block], in_table: bool, out: &mut BTreeSet<String>) {
@@ -413,7 +481,15 @@ fn manifest_features_are_read() {
                 missing.push(format!("{}: {f} (have {have:?})", e.file));
             }
         }
-        let n = out.document.paragraphs().count();
+        // The generator counts the paragraphs of a table of contents too.
+        let toc_paragraphs: usize = out
+            .document
+            .body
+            .iter()
+            .filter_map(Block::as_toc)
+            .map(|t| t.entries.len() + usize::from(t.title.is_some()))
+            .sum();
+        let n = out.document.paragraphs().count() + toc_paragraphs;
         assert!(
             n >= e.paragraphs,
             "{}: {n} < {} paragraphs",
@@ -434,6 +510,12 @@ fn zero_ids(blocks: &mut [Block]) {
     for b in blocks {
         match b {
             Block::Paragraph(p) => p.id = NodeId(0),
+            Block::Toc(t) => {
+                t.id = NodeId(0);
+                for e in &mut t.entries {
+                    e.target = NodeId(0);
+                }
+            }
             Block::Table(t) => {
                 t.id = NodeId(0);
                 for row in &mut t.rows {
@@ -453,9 +535,14 @@ fn assert_same(name: &str, a: &Document, b: &Document) {
     let (mut a, mut b) = (a.clone(), b.clone());
     a.normalize();
     b.normalize();
-    zero_ids(&mut a.body);
-    zero_ids(&mut b.body);
+    for d in [&mut a, &mut b] {
+        for c in d.containers_mut() {
+            zero_ids(c);
+        }
+    }
     assert_eq!(a.styles, b.styles, "{name}: styles");
+    assert_eq!(a.sections, b.sections, "{name}: sections");
+    assert_eq!(a.notes, b.notes, "{name}: notes");
     assert_eq!(a.numbering, b.numbering, "{name}: numbering");
     assert_eq!(a.page, b.page, "{name}: page");
     assert_eq!(a.media, b.media, "{name}: media");
@@ -557,4 +644,200 @@ fn document_xml_snapshots() {
         let bytes = fmt_docx::write_with_context(&out.document, &out.context).unwrap();
         insta::assert_snapshot!(format!("document_xml_{n}"), pretty_document_xml(&bytes));
     }
+}
+
+// --- document structure (P8-9) ---------------------------------------------------
+
+fn read_out(name: &str) -> fmt_docx::ReadOutput {
+    fmt_docx::read_with_context(&load(name)).unwrap_or_else(|e| panic!("{name}: {e}"))
+}
+
+/// `doc` written and read back (no warnings), for assertions on our output.
+fn reread(doc: &Document) -> Document {
+    let out = fmt_docx::read_with_context(&fmt_docx::write(doc).unwrap()).unwrap();
+    assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+    out.document
+}
+
+#[test]
+fn multilevel_numbering_labels() {
+    let doc = read_out("provisional-51-multilevel-legal-numbering.docx").document;
+    let labels: Vec<String> = doc.list_numbers().into_iter().map(|(_, l)| l).collect();
+    assert_eq!(
+        labels,
+        ["1.", "1.1.", "1.2.", "1.2.1.", "1.2.2.", "2.", "2.1.", "2.1.1.", "3.", "3.1."]
+    );
+    assert_eq!(
+        reread(&doc).list_numbers().len(),
+        10,
+        "labels survive our writer"
+    );
+}
+
+#[test]
+fn sections_headers_and_fields() {
+    let doc = read_out("provisional-52-sections-headers-fields.docx").document;
+    assert_eq!(doc.sections.len(), 3);
+    let [s1, s2, s3] = [&doc.sections[0], &doc.sections[1], &doc.sections[2]];
+    assert!(s1.title_page && !s2.title_page);
+    assert_eq!(s2.page_number_start, Some(1));
+    assert_eq!(s3.page.orientation, Orientation::Landscape);
+    assert_eq!(doc.page, s3.page);
+    assert_eq!(
+        s1.headers
+            .first
+            .as_ref()
+            .map(|b| b[0].as_paragraph().unwrap().text()),
+        Some("Title page header".to_owned())
+    );
+    assert_eq!(s2.page.footer_text.as_deref(), Some("Page {PAGE} of 4"));
+    assert_eq!(
+        doc.page.header_text.as_deref(),
+        Some("Landscape appendix header")
+    );
+    // section ends: the paragraph before each new section
+    let ends: Vec<String> = doc
+        .paragraphs()
+        .filter(|p| p.props.section_end.is_some())
+        .map(|p| p.text())
+        .collect();
+    assert_eq!(
+        ends,
+        ["Created on \u{FFFC}.", "This is page \u{FFFC} of \u{FFFC}."]
+    );
+    let fields: Vec<FieldKind> = doc
+        .paragraphs()
+        .flat_map(|p| &p.inlines)
+        .filter_map(|i| match i {
+            Inline::Field(f) => Some(f.kind.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            FieldKind::Date {
+                format: Some(r"d\.M\.yyyy".into())
+            },
+            FieldKind::Page,
+            FieldKind::NumPages
+        ]
+    );
+    let back = reread(&doc);
+    assert_same("52 (no context)", &doc, &back);
+}
+
+#[test]
+fn footnotes_and_endnotes() {
+    let doc = read_out("provisional-53-footnotes-endnotes.docx").document;
+    let notes: Vec<(u32, NoteKind, String)> = doc
+        .notes
+        .iter()
+        .map(|n| (n.id, n.kind, n.blocks[0].as_paragraph().unwrap().text()))
+        .collect();
+    // The endnote's id 2 collides with a footnote: it gets a fresh one.
+    assert_eq!(
+        notes,
+        [
+            (2, NoteKind::Foot, "The first footnote.".to_owned()),
+            (
+                3,
+                NoteKind::Foot,
+                "Second footnote, with a longer explanation.".to_owned()
+            ),
+            (4, NoteKind::Foot, "Third footnote.".to_owned()),
+            (5, NoteKind::End, "The only endnote.".to_owned()),
+        ]
+    );
+    let refs: Vec<(u32, NoteKind)> = doc
+        .paragraphs()
+        .flat_map(|p| &p.inlines)
+        .filter_map(|i| match i {
+            Inline::NoteRef(r) => Some((r.id, r.kind)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        refs,
+        [
+            (2, NoteKind::Foot),
+            (3, NoteKind::Foot),
+            (5, NoteKind::End),
+            (4, NoteKind::Foot)
+        ]
+    );
+    // With the file's settings the separators keep LibreOffice's ids 0/1.
+    let out = read_out("provisional-53-footnotes-endnotes.docx");
+    assert_eq!(out.context.footnote_separators, Some((0, 1)));
+    let bytes = fmt_docx::write_with_context(&out.document, &out.context).unwrap();
+    let pkg = Package::open(Cursor::new(bytes.as_slice())).unwrap();
+    let foot = String::from_utf8(
+        pkg.part(&PartName::new("/word/footnotes.xml").unwrap())
+            .unwrap()
+            .data
+            .clone(),
+    )
+    .unwrap();
+    assert!(
+        foot.contains(r#"<w:footnote w:type="separator" w:id="0">"#),
+        "{foot}"
+    );
+    assert!(foot.contains(r#"<w:footnote w:id="2"><w:p><w:pPr><w:pStyle w:val="Normal"/>"#));
+    assert!(foot.contains(r#"<w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/>"#));
+    // Without context: default separators -1/0 and settings that list them.
+    let bytes = fmt_docx::write(&doc).unwrap();
+    let pkg = Package::open(Cursor::new(bytes.as_slice())).unwrap();
+    let settings = String::from_utf8(
+        pkg.part(&PartName::new("/word/settings.xml").unwrap())
+            .unwrap()
+            .data
+            .clone(),
+    )
+    .unwrap();
+    assert!(settings
+        .contains(r#"<w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr>"#));
+    assert_same("53 (no context)", &doc, &reread(&doc));
+}
+
+#[test]
+fn table_of_contents() {
+    let doc = read_out("provisional-54-table-of-contents.docx").document;
+    let toc = doc.body.iter().find_map(Block::as_toc).unwrap();
+    assert_eq!((toc.from_level, toc.to_level), (1, 3));
+    assert_eq!(toc.title.as_deref(), Some("Contents"));
+    let entries: Vec<(&str, u8, Option<u32>)> = toc
+        .entries
+        .iter()
+        .map(|e| (e.text.as_str(), e.level, e.page))
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            ("Introduction", 1, Some(1)),
+            ("Background", 2, Some(1)),
+            ("Goals", 2, Some(1)),
+            ("Design", 1, Some(2)),
+            ("Architecture", 2, Some(2)),
+            ("Storage", 3, Some(2)),
+            ("Summary", 1, Some(3)),
+        ]
+    );
+    for e in &toc.entries {
+        assert_eq!(doc.find_paragraph(e.target).unwrap().text(), e.text);
+    }
+    // Our output: Word's structure (sdt, TOC field, hyperlinks to _Toc
+    // bookmarks, PAGEREF fields).
+    let bytes = fmt_docx::write(&doc).unwrap();
+    let xml = pretty_document_xml(&bytes);
+    for needle in [
+        r#"<w:docPartGallery w:val="Table of Contents"/>"#,
+        r#"TOC \o "1-3" \h \z \u"#,
+        r#"<w:hyperlink w:anchor="_Toc000000001" w:history="1">"#,
+        r#"PAGEREF _Toc000000007 \h"#,
+        r#"<w:bookmarkStart w:id="0" w:name="_Toc000000001"/>"#,
+        r#"<w:pStyle w:val="TOC3"/>"#,
+    ] {
+        assert!(xml.contains(needle), "{needle} missing in\n{xml}");
+    }
+    assert_same("54 (no context)", &doc, &reread(&doc));
 }
