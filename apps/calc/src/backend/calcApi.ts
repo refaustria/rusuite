@@ -5,11 +5,14 @@ import type { Backend } from "@rusuite/ui-shared";
 import type { Envelope } from "../../../../packages/ui-shared/src/generated/Envelope";
 import type { CalcCommand } from "../generated/CalcCommand";
 import type { CalcPatch } from "../generated/CalcPatch";
+import type { CfRule } from "../generated/CfRule";
+import type { DataValidation } from "../generated/DataValidation";
 import type { FilterValue } from "../generated/FilterValue";
 import type { FoundCell } from "../generated/FoundCell";
 import type { RegionSnapshot } from "../generated/RegionSnapshot";
 import type { Request } from "../generated/Request";
 import type { ResponseBody } from "../generated/ResponseBody";
+import type { ValidationResult } from "../generated/ValidationResult";
 import type { WorkbookInfo } from "../generated/WorkbookInfo";
 
 export type PatchEnvelope = Envelope<CalcPatch>;
@@ -183,5 +186,21 @@ export class CalcApi {
   /** `value` displayed with the number format `code` (the core's `display_value`). */
   async formatPreview(value: number, code: string): Promise<string> {
     return (await this.call({ type: "formatPreview", value, code }, "formatted")).text;
+  }
+
+  /** Checks `input` (as typed) against the data validation of the cell, before `setInput`. */
+  async validateInput(sheet: number, row: number, col: number, input: string): Promise<ValidationResult> {
+    return (await this.call({ type: "validateInput", sheet, row, col, input }, "validation")).result;
+  }
+
+  /** The in-cell dropdown values of the cell's list validation (empty without one). */
+  async listValues(sheet: number, row: number, col: number): Promise<string[]> {
+    return (await this.call({ type: "listValues", sheet, row, col }, "listValues")).values;
+  }
+
+  /** The conditional formatting rules (by priority) and data validations of `sheet`. */
+  async sheetRules(sheet: number): Promise<{ rules: CfRule[]; validations: DataValidation[] }> {
+    const { rules, validations } = await this.call({ type: "sheetRules", sheet }, "sheetRules");
+    return { rules, validations };
   }
 }

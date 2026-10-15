@@ -4,6 +4,8 @@ import type { CSSProperties } from "react";
 import type { BorderSide } from "../generated/BorderSide";
 import type { BorderStyle } from "../generated/BorderStyle";
 import type { CellStyle } from "../generated/CellStyle";
+import type { IconSetKind } from "../generated/IconSetKind";
+import { barSpan, cfKey, cfStyle, dataBarAxes, NEGATIVE_BAR } from "../grid/cf";
 import { colWidthPx, rowHeightPx } from "../grid/geometry";
 import type { SheetCache } from "../state/store";
 import { colorCss, fontFamily, fontPx, horizontalAlign, styleAt, verticalAlign } from "../grid/style";
@@ -16,6 +18,8 @@ export interface PrintCell {
   span?: { rows: number; cols: number };
   /** Covered by a merged range (printed by its top-left cell). */
   covered?: boolean;
+  /** A conditional-formatting icon, printed before the text. */
+  icon?: { set: IconSetKind; index: number };
 }
 
 export interface PrintRow {
@@ -77,16 +81,35 @@ export function buildPrintTable(cache: SheetCache, styles: readonly CellStyle[],
     if (v?.hidden) continue;
     cols.push({ col: c, width: v?.width != null ? colWidthPx(v.width) : colWidthPx(cache.format.defaultColWidth) });
   }
+  const cfMap = cache.cf ?? new Map();
+  let axesMemo: Map<string, number> | null = null;
+  const axes = () => (axesMemo ??= dataBarAxes(cfMap, (r, c) => cache.cells.get(r)?.get(c)));
   const rows: PrintRow[] = [];
   for (let r = firstRow; r <= lastRow; r++) {
     const v = cache.rows.get(r);
     if (v?.hidden) continue;
     const height = v?.height != null ? rowHeightPx(v.height) : rowHeightPx(cache.format.defaultRowHeight);
     const rowCells = cache.cells.get(r);
-    const cells: PrintCell[] = cols.map(({ col }) => {
+    const cells: PrintCell[] = cols.map(({ col, width }) => {
       const cell = rowCells?.get(col);
       const id = cell ? cell.style : (v?.style ?? cache.cols.get(col)?.style ?? 0);
-      return { col, text: cell?.display ?? "", style: cellCss(styleAt(styles, id), cell?.kind ?? "empty") };
+      const cf = cfMap.get(cfKey(r, col));
+      if (!cf) return { col, text: cell?.display ?? "", style: cellCss(styleAt(styles, id), cell?.kind ?? "empty") };
+      // Conditional formatting: the highlight format / colour scale fill, a data bar as a background, an icon.
+      const style = cellCss(cfStyle(styleAt(styles, id), cf), cell?.kind ?? "empty");
+      if (cf.bar !== undefined && cf.barColor) {
+        const span = barSpan(cf.bar, axes().get(JSON.stringify(cf.barColor)));
+        const color = span.negative ? NEGATIVE_BAR : (colorCss(cf.barColor) ?? "#638EC6");
+        Object.assign(style, {
+          backgroundImage: `linear-gradient(to ${span.negative ? "left" : "right"}, ${color}, #ffffff)`,
+          backgroundRepeat: "no-repeat",
+          backgroundSize: `${Math.round((span.to - span.from) * (width - 4))}px 70%`,
+          backgroundPosition: `${Math.round(2 + span.from * (width - 4))}px center`,
+        });
+      }
+      const out: PrintCell = { col, text: cf.hideValue ? "" : (cell?.display ?? ""), style };
+      if (cf.icon !== undefined && cf.iconSet) out.icon = { set: cf.iconSet, index: cf.icon };
+      return out;
     });
     rows.push({ row: r, height, cells });
   }
@@ -106,7 +129,8 @@ export function buildPrintTable(cache: SheetCache, styles: readonly CellStyle[],
     const lead = rows[ris[0]!]!.cells[cis[0]!]!;
     const anchor = cache.cells.get(m.r0)?.get(m.c0);
     const styleOf = (r: number, c: number) => styleAt(styles, cache.cells.get(r)?.get(c)?.style ?? cache.rows.get(r)?.style ?? cache.cols.get(c)?.style ?? 0);
-    const css = cellCss(styleOf(m.r0, m.c0), anchor?.kind ?? "empty");
+    const anchorCf = cfMap.get(cfKey(m.r0, m.c0));
+    const css = cellCss(cfStyle(styleOf(m.r0, m.c0), anchorCf), anchor?.kind ?? "empty");
     css.borderRight = cellCss(styleOf(m.r0, m.c1), "empty").borderRight;
     css.borderBottom = cellCss(styleOf(m.r1, m.c0), "empty").borderBottom;
     Object.assign(lead, { text: anchor?.display ?? "", style: css, span: { rows: ris.length, cols: cis.length }, covered: false });
