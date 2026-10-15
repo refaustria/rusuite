@@ -3,6 +3,9 @@ import type { CellStyle } from "../generated/CellStyle";
 import type { CellView } from "../generated/CellView";
 import { colGeometry, DEFAULT_FORMAT, rowGeometry } from "./geometry";
 import { computeRenderOps, type RenderOp, type SheetData } from "./render";
+import type { Measure } from "./textLayout";
+
+const m7: Measure = (t) => t.length * 7;
 
 const styles: CellStyle[] = [
   {},
@@ -63,4 +66,38 @@ describe("computeRenderOps", () => {
     const ops = computeRenderOps({ ...vp, scrollX: 10, height: 15 }, data, styles);
     expect(ops.filter((o) => o.op === "fill")).toEqual([{ op: "fill", x: 64 + 145 - 10, y: 0, w: 64, h: 20, color: "#4472C4" }]);
   });
+
+  it("long text overflows into empty right neighbours, masking their gridlines, up to a filled cell", () => {
+    const long = "x".repeat(20); // 140 px: spans A..C
+    const ops = computeRenderOps(vp, sheet([v(0, 0, long, "text"), v(1, 0, long, "text"), v(1, 1, "b", "text")]), styles, m7);
+    const [a1, a2] = texts(ops);
+    expect([a1.clipX, a1.clipW]).toEqual([0, 192]);
+    expect([a2.clipX, a2.clipW]).toEqual([0, 64]); // B2 is not empty
+    const masks = ops.filter((o, i) => o.op === "fill" && i > ops.findIndex((x) => x.op === "gridlines"));
+    expect(masks.map((o) => o.op === "fill" && [o.x, o.y, o.w])).toEqual([[63, 0, 1], [127, 0, 1]]);
+  });
+
+  it("right-aligned text overflows to the left; text left of the view still shows", () => {
+    const right: CellStyle = { alignment: { horizontal: "right" } };
+    const ops = computeRenderOps(vp, sheet([v(0, 2, "y".repeat(20), "text", 4)]), [...styles, right], m7);
+    expect(texts(ops).map((t) => [t.clipX, t.clipW, t.align])).toEqual([[0, 192, "right"]]);
+    const scrolled = computeRenderOps({ ...vp, scrollX: 64 }, sheet([v(0, 0, "z".repeat(20), "text")]), styles, m7);
+    expect(texts(scrolled).map((t) => [t.col, t.x, t.clipW])).toEqual([[0, -64, 192]]);
+  });
+
+  it("numbers never overflow: they shrink or show ####", () => {
+    const ops = computeRenderOps(vp, sheet([v(0, 0, "1234567890", "number"), v(0, 1, "0.333333333", "number")]), styles, m7);
+    expect(texts(ops).map((t) => [t.text, t.clipW])).toEqual([["########", 64], ["0.333333", 64]]);
+  });
+
+  it("wrap text breaks into lines; without wrap a line break shows as a space", () => {
+    const wrap: CellStyle = { alignment: { wrapText: true } };
+    const ops = computeRenderOps(vp, sheet([v(0, 0, "alpha beta\ngamma", "text", 4), v(1, 0, "a\nb", "text")]), [...styles, wrap], m7);
+    const [w, plain] = texts(ops);
+    expect(w.lines).toEqual(["alpha", "beta", "gamma"]);
+    expect(w.lineHeight).toBe(20);
+    expect(plain.lines).toBeUndefined();
+    expect(plain.text).toBe("a b");
+  });
 });
+

@@ -2,6 +2,7 @@ export * from "./Icon";
 export * from "./Popover";
 export * from "./Dropdown";
 export * from "./Dialog";
+export * from "./ContextMenu";
 export * from "./toolbar/types";
 export * from "./toolbar/color";
 export * from "./toolbar/ColorPicker";

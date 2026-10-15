@@ -1,6 +1,6 @@
 // Calc keyboard shortcuts, driven through the real App (fake keyboard events).
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import App from "./App";
 import { FakeBackend, FakeCalcCore } from "./dev/fakeBackend";
 import type { Request } from "./generated/Request";
@@ -104,10 +104,21 @@ describe("Calc shortcuts", () => {
     expect(applied(core.log)).toEqual([]);
   });
 
-  it("Ctrl+1 moves the focus into the formatting toolbar", async () => {
-    const { grid } = await setup();
+  it("Ctrl+1 opens Format cells; Number with 2 decimals applies 0.00 with a live preview", async () => {
+    const { core, grid } = await setup();
+    await typeCell(grid, "1234.5");
+    await waitFor(() => expect(applied(core.log)).toHaveLength(1));
+    fireEvent.keyDown(grid, { key: "ArrowUp" });
     fireEvent.keyDown(grid, ctrl("1"));
-    expect(screen.getByRole("toolbar", { name: "Formatting" }).contains(document.activeElement)).toBe(true);
+    const dlg = screen.getByRole("dialog", { name: "Format cells" });
+    fireEvent.click(within(dlg).getByRole("option", { name: "Number" }));
+    await waitFor(() => expect(screen.getByTestId("format-preview").textContent).toBe("1234.50"));
+    expect(core.log.some((r) => r.type === "formatPreview" && r.value === 1234.5 && r.code === "0.00")).toBe(true);
+    fireEvent.submit(dlg.querySelector("form")!);
+    await waitFor(() => expect(applied(core.log).slice(-1)[0]).toEqual({
+      type: "applyStyle", sheet: 0, r0: 0, c0: 0, r1: 0, c1: 0, patch: { numberFormat: "0.00" },
+    }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("Ctrl+U underlines; Ctrl+I italicises", async () => {

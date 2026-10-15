@@ -5,6 +5,7 @@ import type { Backend } from "@rusuite/ui-shared";
 import type { Envelope } from "../../../../packages/ui-shared/src/generated/Envelope";
 import type { CalcCommand } from "../generated/CalcCommand";
 import type { CalcPatch } from "../generated/CalcPatch";
+import type { FoundCell } from "../generated/FoundCell";
 import type { RegionSnapshot } from "../generated/RegionSnapshot";
 import type { Request } from "../generated/Request";
 import type { ResponseBody } from "../generated/ResponseBody";
@@ -60,6 +61,8 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     saved: { bytesBase64: "string", suggestedName: "string" },
     documentState: { dirty: "boolean", revision: "number" },
     recoverySnapshot: { json: "string", revision: "number", dirty: "boolean" },
+    found: { cells: "array" },
+    formatted: { text: "string" },
   };
   for (const [field, kind] of Object.entries(shapes[expected])) {
     const value = body[field];
@@ -152,5 +155,15 @@ export class CalcApi {
 
   documentState(): Promise<BodyOf<"documentState">> {
     return this.call({ type: "documentState" }, "documentState");
+  }
+
+  /** Cells whose input or value matches `query` on `sheet` (`null`: all sheets), sheet then row-major order. */
+  async findCells(sheet: number | null, query: string, matchCase: boolean, wholeCell: boolean): Promise<FoundCell[]> {
+    return (await this.call({ type: "findCells", sheet, query, matchCase, wholeCell }, "found")).cells;
+  }
+
+  /** `value` displayed with the number format `code` (the core's `display_value`). */
+  async formatPreview(value: number, code: string): Promise<string> {
+    return (await this.call({ type: "formatPreview", value, code }, "formatted")).text;
   }
 }

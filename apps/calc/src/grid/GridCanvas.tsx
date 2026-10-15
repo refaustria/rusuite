@@ -2,23 +2,53 @@
 // transparent scroll container with a sized spacer on top for native
 // scrolling and input events.
 
-import { useCallback, useEffect, useRef, type ClipboardEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { ContextMenu, type ContextMenuItem } from "@rusuite/ui-shared";
+import { calcActions, cellMenu, colHeaderMenu, rowHeaderMenu } from "../calcActions";
+import type { Rect } from "../generated/Rect";
+import { fillTarget } from "../state/clipboard";
 import { useCalc, type CalcStore } from "../state/store";
 import { CellEditor } from "./CellEditor";
-import { rowHeightPx } from "./geometry";
 import {
-  CELL_PADDING, computeRenderOps, drawHeaders, drawOps, drawRefHighlights, drawSelection, HEADER_H, HEADER_W, prepareCanvas, visibleRange,
+  computeRenderOps, drawHeaders, drawOps, drawRefHighlights, drawSelection, HEADER_H, HEADER_W, prepareCanvas, rangeRect, visibleRange,
   type RefHighlight, type SheetData, type Viewport,
 } from "./render";
 import {
-  cellSelection, colSelection, LAST_COL, LAST_ROW, navigate, normalize, pointerSelect, rowSelection, type Cell, type Selection,
+  cellSelection, colSelection, contains, isWholeCols, isWholeRows, LAST_COL, LAST_ROW, navigate, normalize, pointerSelect, rowSelection,
+  type Cell, type Range, type Selection,
 } from "./Selection";
-import { fontCss, fontPx, styleAt } from "./style";
+import type { Measure } from "./textLayout";
 
 /** Hit zone around a header boundary for resizing, px. */
 const RESIZE_SLOP = 4;
 /** Rows/cols prefetched beyond the viewport. */
 const PREFETCH = 8;
+/** Fill handle: square size and hit slop, px. */
+const HANDLE = 6;
+const HANDLE_SLOP = 5;
+
+/** Canvas text measurement with a small cache (the grid's `store.measure`). */
+function canvasMeasure(): Measure | null {
+  let ctx: CanvasRenderingContext2D | null = null;
+  try {
+    ctx = document.createElement("canvas").getContext("2d");
+  } catch {
+    ctx = null;
+  }
+  if (!ctx) return null;
+  const cache = new Map<string, number>();
+  return (text, font) => {
+    const key = `${font}\u0000${text}`;
+    let w = cache.get(key);
+    if (w === undefined) {
+      if (ctx!.font !== font) ctx!.font = font;
+      w = ctx!.measureText(text).width;
+      if (cache.size > 20_000) cache.clear();
+      cache.set(key, w);
+    }
+    return w;
+  };
+}
 
 export interface PerfStats {
   frames: number;
@@ -34,6 +64,7 @@ type Hit =
   | { kind: "colEdge"; col: number }
   | { kind: "rowEdge"; row: number }
   | { kind: "cell"; cell: Cell }
+  | { kind: "fillHandle" }
   | { kind: "none" };
 
 export function GridCanvas({ store, showPerf = false }: { store: CalcStore; showPerf?: boolean }) {
@@ -47,6 +78,11 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const grow = useRef({ rows: 0, cols: 0 });
   const resizePreview = useRef<{ axis: "col" | "row"; index: number; size: number } | null>(null);
   const perf = useRef({ frames: 0, totalMs: 0, maxMs: 0, lastFrameAt: 0, intervals: 0, intervalSum: 0 });
+  /** Fill-handle drag: the range that would be filled. */
+  const fillPreview = useRef<Rect | null>(null);
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: ContextMenuItem[]; label: string } | null>(null);
+  const actions = useMemo(() => calcActions(store), [store]);
+  const clipMark = useCalc(store, (s) => s.clipMark);
 
   const activeSheet = useCalc(store, (s) => s.activeSheet);
   // While pointing on another sheet the in-cell editor is hidden (the formula bar has the edit).
@@ -69,6 +105,20 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       height: Math.max(0, (el?.clientHeight ?? 0) - HEADER_H),
     };
   }, []);
+
+  /** The fill handle's square in cell-canvas coordinates (`null`: off screen or whole rows/columns). */
+  const handleRect = useCallback(
+    (sel: Range): { x: number; y: number } | null => {
+      if (isWholeCols(sel) && isWholeRows(sel)) return null;
+      const data = sheetData();
+      const vp = viewport();
+      const x = data.colGeo.offset(sel.c1 + 1) - vp.scrollX - HANDLE / 2 - 1;
+      const y = data.rowGeo.offset(sel.r1 + 1) - vp.scrollY - HANDLE / 2 - 1;
+      if (x < -HANDLE || y < -HANDLE || x > vp.width || y > vp.height) return null;
+      return { x, y };
+    },
+    [sheetData, viewport],
+  );
 
   const draw = useCallback(() => {
     raf.current = null;
@@ -96,9 +146,47 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
     const cctx = cellsCanvas.current && prepareCanvas(cellsCanvas.current, vp.width, vp.height);
     if (cctx) {
-      const ops = computeRenderOps(vp, data, store.styles());
+      const ops = computeRenderOps(vp, data, store.styles(), store.measure);
       drawOps(cctx, ops, "#ffffff");
       drawSelection(cctx, vp, data, sel, state.selection.anchor);
+      const mark = state.clipMark;
+      if (mark && mark.sheet === state.activeSheet) {
+        // Marching ants around the copied / cut range.
+        const r = rangeRect(vp, data, mark.range);
+        if (r) {
+          cctx.save();
+          cctx.lineWidth = 2;
+          cctx.strokeStyle = "#ffffff";
+          cctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+          cctx.strokeStyle = "#217346";
+          cctx.setLineDash([4, 4]);
+          cctx.lineDashOffset = -Math.floor(performance.now() / 80) % 8;
+          cctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+          cctx.restore();
+        }
+      }
+      const fp = fillPreview.current;
+      if (fp) {
+        const all = { r0: Math.min(sel.r0, fp.r0), c0: Math.min(sel.c0, fp.c0), r1: Math.max(sel.r1, fp.r1), c1: Math.max(sel.c1, fp.c1) };
+        const r = rangeRect(vp, data, all);
+        if (r) {
+          cctx.save();
+          cctx.strokeStyle = "#5f6368";
+          cctx.lineWidth = 1;
+          cctx.setLineDash([3, 2]);
+          cctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+          cctx.restore();
+        }
+      }
+      if (!state.edit) {
+        const h = handleRect(sel);
+        if (h) {
+          cctx.fillStyle = "#ffffff";
+          cctx.fillRect(h.x - 1, h.y - 1, HANDLE + 2, HANDLE + 2);
+          cctx.fillStyle = "#217346";
+          cctx.fillRect(h.x, h.y, HANDLE, HANDLE);
+        }
+      }
       const edit = state.edit;
       if (edit) {
         const marks: RefHighlight[] = [];
@@ -160,7 +248,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         perf.current = { frames: 0, totalMs: 0, maxMs: 0, lastFrameAt: 0, intervals: 0, intervalSum: 0 };
       };
     }
-  }, [store, sheetData, viewport]);
+  }, [store, sheetData, viewport, handleRect]);
 
   const schedule = useCallback(() => {
     if (raf.current !== null) return;
@@ -188,6 +276,18 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       raf.current = null;
     };
   }, [store, schedule]);
+
+  useEffect(() => {
+    const m = canvasMeasure();
+    if (m) store.measure = m;
+  }, [store]);
+
+  useEffect(() => {
+    // Animate the marching ants while a copy/cut is pending.
+    if (!clipMark) return;
+    const id = setInterval(schedule, 120);
+    return () => clearInterval(id);
+  }, [clipMark, schedule]);
 
   useEffect(() => {
     // New sheet: back to the top-left corner.
@@ -227,6 +327,12 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const cx = x - HEADER_W + vp.scrollX;
     const cy = y - HEADER_H + vp.scrollY;
     if (x < HEADER_W && y < HEADER_H) return { kind: "corner" };
+    if (x >= HEADER_W && y >= HEADER_H && !store.getState().edit) {
+      const h = handleRect(normalize(store.getState().selection));
+      const hx = x - HEADER_W - (h?.x ?? 0) - HANDLE / 2;
+      const hy = y - HEADER_H - (h?.y ?? 0) - HANDLE / 2;
+      if (h && Math.abs(hx) <= HANDLE_SLOP && Math.abs(hy) <= HANDLE_SLOP) return { kind: "fillHandle" };
+    }
     if (y < HEADER_H) {
       const col = data.colGeo.indexAt(cx);
       const start = data.colGeo.offset(col);
@@ -277,49 +383,6 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     [store],
   );
 
-  // --- autofit ----------------------------------------------------------
-
-  const measureCtx = () => {
-    const c = document.createElement("canvas");
-    try {
-      return c.getContext("2d");
-    } catch {
-      return null;
-    }
-  };
-
-  const autofitCol = (col: number) => {
-    const data = sheetData();
-    const vis = visibleRange(viewport(), data.colGeo, data.rowGeo);
-    const ctx = measureCtx();
-    let widest = 0;
-    for (let r = vis.r0; r <= vis.r1; r++) {
-      const cell = data.cells.get(r)?.get(col);
-      if (!cell || !cell.display) continue;
-      const style = styleAt(store.styles(), cell.style);
-      if (ctx) {
-        ctx.font = fontCss(style);
-        widest = Math.max(widest, ctx.measureText(cell.display).width);
-      } else {
-        widest = Math.max(widest, cell.display.length * fontPx(style) * 0.55);
-      }
-    }
-    void store.setColWidth(col, widest === 0 ? null : Math.ceil(widest + 2 * CELL_PADDING + 3));
-  };
-
-  const autofitRow = (row: number) => {
-    const data = sheetData();
-    const vis = visibleRange(viewport(), data.colGeo, data.rowGeo);
-    let tallest = 0;
-    for (let c = vis.c0; c <= vis.c1; c++) {
-      const cell = data.cells.get(row)?.get(c);
-      if (cell && cell.display) tallest = Math.max(tallest, fontPx(styleAt(store.styles(), cell.style)));
-    }
-    const def = rowHeightPx(15);
-    const px = Math.ceil(tallest * (def / fontPx({})));
-    void store.setRowHeight(row, tallest === 0 || px <= def ? null : px);
-  };
-
   // --- mouse ------------------------------------------------------------
 
   const onMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
@@ -344,6 +407,30 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     if (store.getState().edit) store.focusEditor();
     else scroller.current?.focus({ preventScroll: true });
     const sel = store.getState().selection;
+
+    if (hit.kind === "fillHandle") {
+      const src = normalize(sel);
+      const move = (ev: MouseEvent) => {
+        const h = hitTest(Math.max(ev.clientX, 0), Math.max(ev.clientY, 0));
+        const to = h.kind === "cell" ? h.cell : null;
+        const next = to ? fillTarget(src, to) : fillPreview.current;
+        if (next !== fillPreview.current) {
+          fillPreview.current = next;
+          schedule();
+        }
+      };
+      const up = (ev: MouseEvent) => {
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+        const dst = fillPreview.current;
+        fillPreview.current = null;
+        schedule();
+        if (dst) void store.fill(dst, ev.ctrlKey || ev.metaKey ? "alternate" : "auto");
+      };
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+      return;
+    }
 
     if (hit.kind === "colEdge" || hit.kind === "rowEdge") {
       const data = sheetData();
@@ -430,14 +517,16 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
   const onMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
-    const cursor = hit.kind === "colEdge" ? "col-resize" : hit.kind === "rowEdge" ? "row-resize" : "cell";
+    const cursor =
+      hit.kind === "colEdge" ? "col-resize" : hit.kind === "rowEdge" ? "row-resize" : hit.kind === "fillHandle" ? "crosshair" : "cell";
     if (scroller.current && scroller.current.style.cursor !== cursor) scroller.current.style.cursor = cursor;
   };
 
   const onDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
-    if (hit.kind === "colEdge") autofitCol(hit.col);
-    else if (hit.kind === "rowEdge") autofitRow(hit.row);
+    if (hit.kind === "colEdge") void store.autofitCols([hit.col]);
+    else if (hit.kind === "rowEdge") void store.autofitRow(hit.row);
+    else if (hit.kind === "fillHandle") void store.fillToData(e.ctrlKey || e.metaKey ? "alternate" : "auto");
     else if (hit.kind === "cell" && !store.getState().edit) {
       store.select(cellSelection(hit.cell.row, hit.cell.col));
       store.beginEdit(null);
@@ -458,6 +547,11 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const ctrl = e.ctrlKey || e.metaKey;
     const key = e.key;
     if (key === "Delete" || key === "Backspace" || key === "F2") return;
+    if (key === "Escape" && store.getState().clipMark) {
+      e.preventDefault();
+      store.clearClip();
+      return;
+    }
     const next = navigate(store.getState().selection, { key, shift: e.shiftKey, ctrl }, store.navContext(pageRows()));
     if (next) {
       e.preventDefault();
@@ -474,9 +568,9 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     }
   };
 
-  const onCopy = (e: ClipboardEvent<HTMLDivElement>) => {
+  const onCopy = (e: ClipboardEvent<HTMLDivElement>, cut = false) => {
     if (store.getState().edit) return;
-    const tsv = store.copy();
+    const tsv = store.copy(cut);
     e.clipboardData?.setData("text/plain", tsv);
     e.preventDefault();
   };
@@ -484,8 +578,34 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
     if (store.getState().edit) return;
     e.preventDefault();
-    const text = e.clipboardData?.getData("text/plain") || store.clipboard;
-    void store.paste(text);
+    const text = e.clipboardData?.getData("text/plain") ?? "";
+    // Our own copy (same text, or nothing readable) pastes with formats and shifted formulas.
+    if (text === "" && store.hasClip()) void store.paste();
+    else void store.paste(text || store.clipboard);
+  };
+
+  // --- context menu -------------------------------------------------------
+
+  const onContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const hit = hitTest(e.clientX, e.clientY);
+    if (hit.kind === "none" || hit.kind === "corner" || store.getState().edit) return;
+    e.preventDefault();
+    const sel = normalize(store.getState().selection);
+    let items: ContextMenuItem[];
+    let label: string;
+    if (hit.kind === "colHeader" || hit.kind === "colEdge") {
+      const col = hit.col;
+      if (!(isWholeCols(sel) && col >= sel.c0 && col <= sel.c1)) store.select(colSelection(col));
+      [items, label] = [colHeaderMenu(actions), "Column"];
+    } else if (hit.kind === "rowHeader" || hit.kind === "rowEdge") {
+      const row = hit.row;
+      if (!(isWholeRows(sel) && row >= sel.r0 && row <= sel.r1)) store.select(rowSelection(row));
+      [items, label] = [rowHeaderMenu(actions), "Row"];
+    } else {
+      if (hit.kind === "cell" && !contains(sel, hit.cell.row, hit.cell.col)) store.select(cellSelection(hit.cell.row, hit.cell.col));
+      [items, label] = [cellMenu(actions), "Cell"];
+    }
+    setMenu({ at: { x: e.clientX, y: e.clientY }, items, label });
   };
 
   return (
@@ -508,12 +628,23 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         onMouseMove={onMouseMove}
         onDoubleClick={onDoubleClick}
         onKeyDown={onKeyDown}
-        onCopy={onCopy}
+        onCopy={(e) => onCopy(e)}
+        onCut={(e) => onCopy(e, true)}
         onPaste={onPaste}
+        onContextMenu={onContextMenu}
       >
         <div ref={spacer} style={{ width: 1, height: 1 }} />
       </div>
       {editing && <CellEditor store={store} boxRef={editorBox} onMount={draw} />}
+      <ContextMenu
+        at={menu?.at ?? null}
+        label={menu?.label ?? ""}
+        items={menu?.items ?? []}
+        onClose={() => {
+          setMenu(null);
+          if (!store.getState().dialog) store.focusGrid();
+        }}
+      />
       {showPerf && (
         <div
           ref={perfBox}

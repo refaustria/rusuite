@@ -86,7 +86,7 @@ export function handleEditorKey(store: CalcStore, e: KeyboardEvent<Field>): void
     return;
   }
   if (e.key === "Enter" && e.altKey) {
-    // Alt+Enter: line break (cells do not wrap yet, the text just carries "\n").
+    // Alt+Enter: line break ("\n"); committing turns wrap text on, as in Excel.
     e.preventDefault();
     const s = el.selectionStart ?? el.value.length;
     store.setEditText(el.value.slice(0, s) + "\n" + el.value.slice(el.selectionEnd ?? s), s + 1);

@@ -9,7 +9,8 @@ import type { ColView } from "../generated/ColView";
 import type { RowView } from "../generated/RowView";
 import type { AxisGeometry } from "./geometry";
 import { colName } from "./address";
-import { isWholeCols, isWholeRows, type Range } from "./Selection";
+import { isWholeCols, isWholeRows, LAST_COL, type Range } from "./Selection";
+import { approxMeasure, fitNumber, lineHeightPx, wrapLines, type Measure } from "./textLayout";
 import {
   colorCss, fontCss, horizontalAlign, styleAt, verticalAlign, type TextAlign, type VAlignKind,
 } from "./style";
@@ -46,11 +47,17 @@ export type RenderOp =
       row: number;
       col: number;
       text: string;
-      /** Cell rect (clip). */
+      /** Cell rect (alignment). */
       x: number;
       y: number;
       w: number;
       h: number;
+      /** Horizontal clip span: the cell, or the empty neighbours text overflows into. */
+      clipX: number;
+      clipW: number;
+      /** Wrapped lines (wrap text on); absent = one line. */
+      lines?: string[];
+      lineHeight?: number;
       align: TextAlign;
       valign: VAlignKind;
       font: string;
@@ -60,9 +67,13 @@ export type RenderOp =
     }
   | { op: "line"; x1: number; y1: number; x2: number; y2: number; color: string; width: number; dash: number[] };
 
+export type TextOp = Extract<RenderOp, { op: "text" }>;
+
 export const GRIDLINE_COLOR = "#e1e3e6";
 export const TEXT_COLOR = "#000000";
 export const CELL_PADDING = 3;
+/** How far (columns) text may overflow into empty neighbours. */
+const MAX_OVERFLOW_COLS = 32;
 
 export function visibleRange(vp: Viewport, colGeo: AxisGeometry, rowGeo: AxisGeometry): VisibleRange {
   const [c0, c1] = colGeo.visibleRange(vp.scrollX, vp.width);
@@ -83,21 +94,40 @@ function borderLine(side: BorderSide, x1: number, y1: number, x2: number, y2: nu
 
 /**
  * Draw ops for the visible part of a sheet, in paint order: fills,
- * gridlines, borders, texts. Coordinates are relative to the cell area.
+ * gridlines, gridline masks (under overflowing text), borders, texts.
+ * Coordinates are relative to the cell area. `measure` sizes text (the
+ * grid passes the canvas; the default is an estimate).
+ *
+ * Text that does not fit overflows into empty neighbours (left-aligned
+ * to the right, right-aligned to the left, centred both ways), numbers
+ * never overflow (`####`), and wrapped cells break into lines.
  */
-export function computeRenderOps(vp: Viewport, sheet: SheetData, styles: readonly CellStyle[]): RenderOp[] {
+export function computeRenderOps(
+  vp: Viewport, sheet: SheetData, styles: readonly CellStyle[], measure: Measure = approxMeasure, bg = "#ffffff",
+): RenderOp[] {
   const { colGeo, rowGeo } = sheet;
   const vis = visibleRange(vp, colGeo, rowGeo);
   const fills: RenderOp[] = [];
+  const masks: RenderOp[] = [];
   const lines: RenderOp[] = [];
-  const texts: RenderOp[] = [];
+  const texts: TextOp[] = [];
   const xs: number[] = [];
   const ys: number[] = [];
 
   // Text attributes per style id, resolved once per frame.
-  const textStyles = new Map<number, Pick<Extract<RenderOp, { op: "text" }>, "valign" | "font" | "color" | "underline" | "strike">>();
+  const textStyles = new Map<number, Pick<TextOp, "valign" | "font" | "color" | "underline" | "strike">>();
   const colX: number[] = [];
   for (let c = vis.c0; c <= vis.c1 + 1; c++) colX.push(colGeo.offset(c) - vp.scrollX);
+  const xOf = (c: number) => (c >= vis.c0 && c <= vis.c1 + 1 ? colX[c - vis.c0] : colGeo.offset(c) - vp.scrollX);
+  const styleIdAt = (rowCells: Map<number, CellView> | undefined, rowStyle: number | null, c: number) => {
+    const cell = rowCells?.get(c);
+    return cell ? cell.style : (rowStyle ?? sheet.cols.get(c)?.style ?? 0);
+  };
+  const hasFill = (id: number) => styleAt(styles, id).fill?.kind === "solid";
+  // Text may come from up to MAX_OVERFLOW_COLS columns outside the view.
+  const t0 = Math.max(0, vis.c0 - MAX_OVERFLOW_COLS);
+  const t1 = Math.min(LAST_COL, vis.c1 + MAX_OVERFLOW_COLS);
+
   for (let r = vis.r0; r <= vis.r1; r++) {
     const y = rowGeo.offset(r) - vp.scrollY;
     const h = rowGeo.size(r);
@@ -110,7 +140,7 @@ export function computeRenderOps(vp: Viewport, sheet: SheetData, styles: readonl
       const w = colX[c - vis.c0 + 1] - x;
       if (w === 0) continue;
       const cell = rowCells?.get(c);
-      const styleId = cell ? cell.style : (rowStyle ?? sheet.cols.get(c)?.style ?? 0);
+      const styleId = styleIdAt(rowCells, rowStyle, c);
       if (styleId === 0 && !cell) continue;
       const style = styleAt(styles, styleId);
       if (style.fill?.kind === "solid") {
@@ -124,27 +154,81 @@ export function computeRenderOps(vp: Viewport, sheet: SheetData, styles: readonl
         if (b.left) lines.push(borderLine(b.left, x, y, x, y + h));
         if (b.right) lines.push(borderLine(b.right, x + w, y, x + w, y + h));
       }
-      if (cell && cell.display !== "") {
-        let t = textStyles.get(styleId);
-        if (!t) {
-          const u = style.font?.underline;
-          t = {
-            valign: verticalAlign(style),
-            font: fontCss(style),
-            color: colorCss(style.font?.color) ?? TEXT_COLOR,
-            underline: !!u && u !== "none",
-            strike: !!style.font?.strike,
-          };
-          textStyles.set(styleId, t);
-        }
-        texts.push({ op: "text", row: r, col: c, text: cell.display, x, y, w, h, align: horizontalAlign(style, cell.kind), ...t });
+    }
+    if (!rowCells) continue;
+    const isEmpty = (c: number) => (rowCells.get(c)?.display ?? "") === "";
+    for (const [c, cell] of rowCells) {
+      if (c < t0 || c > t1 || cell.display === "") continue;
+      const x = xOf(c);
+      const w = colGeo.size(c);
+      if (w === 0) continue;
+      const styleId = cell.style;
+      const style = styleAt(styles, styleId);
+      let t = textStyles.get(styleId);
+      if (!t) {
+        const u = style.font?.underline;
+        t = {
+          valign: verticalAlign(style),
+          font: fontCss(style),
+          color: colorCss(style.font?.color) ?? TEXT_COLOR,
+          underline: !!u && u !== "none",
+          strike: !!style.font?.strike,
+        };
+        textStyles.set(styleId, t);
       }
+      const align = horizontalAlign(style, cell.kind);
+      const avail = w - 2 * CELL_PADDING;
+      const base = { op: "text" as const, row: r, col: c, x, y, w, h, align, ...t };
+      if (style.alignment?.wrapText) {
+        if (c < vis.c0 || c > vis.c1) continue;
+        const wrapped = wrapLines(cell.display, avail, t.font, measure);
+        texts.push({ ...base, text: cell.display, clipX: x, clipW: w, lines: wrapped, lineHeight: lineHeightPx(t.font) });
+        continue;
+      }
+      let text = cell.display.includes("\n") ? cell.display.replace(/\n/g, " ") : cell.display;
+      if (cell.kind === "number") {
+        if (c < vis.c0 || c > vis.c1) continue;
+        text = fitNumber(text, avail, t.font, measure);
+        texts.push({ ...base, text, clipX: x, clipW: w });
+        continue;
+      }
+      // Overflow into empty neighbours (text, booleans and errors alike).
+      let clipX = x;
+      let clipW = w;
+      const need = measure(text, t.font) - avail;
+      if (need > 0) {
+        const grow = (dir: 1 | -1, budget: number) => {
+          let got = 0;
+          for (let k = c + dir, n = 0; budget > got && n < MAX_OVERFLOW_COLS && k >= 0 && k <= LAST_COL && isEmpty(k); k += dir, n++) {
+            const kw = colGeo.size(k);
+            const edge = dir === 1 ? xOf(k) : xOf(k + 1);
+            if (kw > 0 && !hasFill(styleIdAt(rowCells, rowStyle, k)) && !hasFill(styleIdAt(rowCells, rowStyle, k - dir))) {
+              masks.push({ op: "fill", x: Math.round(edge) - 1, y, w: 1, h: h - 1, color: bg });
+            }
+            got += kw;
+            if (dir === 1) clipW += kw;
+            else {
+              clipX -= kw;
+              clipW += kw;
+            }
+          }
+        };
+        if (align === "left") grow(1, need);
+        else if (align === "right") grow(-1, need);
+        else {
+          grow(-1, need / 2);
+          grow(1, need / 2);
+        }
+      }
+      if (clipX + clipW < 0 || clipX > vp.width) continue;
+      texts.push({ ...base, text, clipX, clipW });
     }
   }
+  texts.sort((a, b) => a.row - b.row || a.col - b.col);
   for (let c = vis.c0; c <= vis.c1; c++) {
     if (colGeo.size(c) > 0) xs.push(colX[c - vis.c0 + 1]);
   }
-  return [...fills, { op: "gridlines", xs, ys, width: vp.width, height: vp.height }, ...lines, ...texts];
+  return [...fills, { op: "gridlines", xs, ys, width: vp.width, height: vp.height }, ...masks, ...lines, ...texts];
 }
 
 // --- canvas painters (not unit-tested; jsdom has no canvas) -------------
@@ -206,30 +290,54 @@ export function drawOps(ctx: CanvasRenderingContext2D, ops: RenderOp[], bg: stri
         if (ctx.font !== o.font) ctx.font = o.font;
         if (ctx.fillStyle !== o.color) ctx.fillStyle = o.color;
         ctx.textAlign = o.align;
-        ctx.textBaseline = o.valign === "top" ? "top" : o.valign === "middle" ? "middle" : "bottom";
         const tx = o.align === "left" ? o.x + CELL_PADDING : o.align === "right" ? o.x + o.w - CELL_PADDING - 1 : o.x + o.w / 2;
-        const ty = o.valign === "top" ? o.y + 2 : o.valign === "middle" ? o.y + o.h / 2 : o.y + o.h - 3;
-        const m = ctx.measureText(o.text);
-        // Clip (wrap off) only when the text does not fit: clipping is costly.
-        const clip = m.width > o.w - 2 * CELL_PADDING || o.h < 16;
-        if (clip) {
+        if (o.lines) {
+          // Wrapped: lines stacked from the vertical alignment, clipped to the cell.
+          const lh = o.lineHeight ?? 20;
+          const total = lh * o.lines.length;
+          const top = o.valign === "top" ? o.y + 1 : o.valign === "middle" ? o.y + (o.h - total) / 2 : o.y + o.h - total - 1;
           ctx.save();
           ctx.beginPath();
           ctx.rect(o.x, o.y, o.w - 1, o.h - 1);
           ctx.clip();
+          ctx.textBaseline = "middle";
+          o.lines.forEach((line, i) => {
+            const ly = top + lh * i + lh / 2;
+            ctx.fillText(line, tx, ly);
+            if (o.underline || o.strike) decorate(ctx, o, line, tx, ly, "middle");
+          });
+          ctx.restore();
+          break;
+        }
+        ctx.textBaseline = o.valign === "top" ? "top" : o.valign === "middle" ? "middle" : "bottom";
+        const ty = o.valign === "top" ? o.y + 2 : o.valign === "middle" ? o.y + o.h / 2 : o.y + o.h - 3;
+        const m = ctx.measureText(o.text);
+        // Clip only when the text does not fit its span: clipping is costly.
+        const clip = m.width > o.clipW - 2 * CELL_PADDING || o.h < 16;
+        if (clip) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(o.clipX, o.y, o.clipW - 1, o.h - 1);
+          ctx.clip();
         }
         ctx.fillText(o.text, tx, ty);
-        if (o.underline || o.strike) {
-          const x0 = o.align === "left" ? tx : o.align === "right" ? tx - m.width : tx - m.width / 2;
-          const asc = m.actualBoundingBoxAscent || 8;
-          const base = o.valign === "top" ? ty + asc : o.valign === "middle" ? ty + asc / 2 : ty;
-          ctx.fillRect(x0, o.underline ? base + 1 : base - asc / 2.5, Math.min(m.width, o.w), 1);
-        }
+        if (o.underline || o.strike) decorate(ctx, o, o.text, tx, ty, o.valign);
         if (clip) ctx.restore();
         break;
       }
     }
   }
+}
+
+/** Underline / strike-through of one line of text. */
+function decorate(
+  ctx: CanvasRenderingContext2D, o: TextOp, text: string, tx: number, ty: number, valign: VAlignKind,
+): void {
+  const m = ctx.measureText(text);
+  const x0 = o.align === "left" ? tx : o.align === "right" ? tx - m.width : tx - m.width / 2;
+  const asc = m.actualBoundingBoxAscent || 8;
+  const base = valign === "top" ? ty + asc : valign === "middle" ? ty + asc / 2 : ty;
+  ctx.fillRect(x0, o.underline ? base + 1 : base - asc / 2.5, Math.min(m.width, o.clipW), 1);
 }
 
 export const HEADER_W = 46;
