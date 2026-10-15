@@ -1,14 +1,20 @@
 #![forbid(unsafe_code)]
 //! Rusuite Write Tauri shell (ADR 0005 §2): a [`WriteHost`] behind the
-//! `dispatch` command plus the native file dialogs. No document logic
-//! lives here.
+//! `dispatch` command plus the native file dialogs and the recent-files /
+//! crash-recovery store (`SessionState`). No document logic lives here.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use app_common::session::{
+    DirStorage, RecentEntry, RecoveryEntry, RecoveryInfo, Session, SessionError,
+};
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use serde::{Serialize, Serializer};
+use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 use write_core::{WriteDocument, WriteHost};
 
@@ -41,6 +47,10 @@ pub enum FileError {
     InvalidPath,
     #[error("file dialog failed: {0}")]
     Dialog(String),
+    #[error("{0}")]
+    Session(#[from] SessionError),
+    #[error("not a recent file: {0}")]
+    NotRecent(String),
 }
 
 impl Serialize for FileError {
@@ -79,6 +89,99 @@ pub fn write_file(path: &Path, bytes_base64: &str) -> Result<(), FileError> {
     Ok(())
 }
 
+/// Whole milliseconds since the Unix epoch (as `Date.now()`).
+fn now_ms() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_millis() as f64)
+}
+
+/// Recent files and crash-recovery entries (P5-3), JSON files in the app
+/// data directory (`app_common::session`).
+pub struct SessionState(pub Mutex<Session<DirStorage>>);
+
+impl SessionState {
+    pub fn new(dir: impl Into<PathBuf>) -> Self {
+        SessionState(Mutex::new(Session::new(DirStorage::new(dir))))
+    }
+
+    fn session(&self) -> std::sync::MutexGuard<'_, Session<DirStorage>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Puts `path` (just opened or saved) at the top of the recent list.
+    pub fn record(&self, path: &str) -> Result<Vec<RecentEntry>, FileError> {
+        let name = Path::new(path)
+            .file_name()
+            .map_or_else(|| path.to_owned(), |n| n.to_string_lossy().into_owned());
+        Ok(self.session().add_recent(RecentEntry {
+            name,
+            path: Some(path.to_owned()),
+            blob_id: None,
+            opened_at: now_ms(),
+        })?)
+    }
+
+    /// Reads a file of the recent list (only listed paths can be read; a
+    /// file that no longer exists is dropped from the list).
+    pub fn open_recent(&self, path: &str) -> Result<OpenedFile, FileError> {
+        if self.session().recent_path(path)?.is_none() {
+            return Err(FileError::NotRecent(path.to_owned()));
+        }
+        match read_file(Path::new(path)) {
+            Ok(file) => {
+                self.record(path)?;
+                Ok(file)
+            }
+            Err(FileError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.session().remove_recent(path)?;
+                Err(FileError::Io(e))
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
+#[tauri::command]
+fn recent_list(state: tauri::State<'_, SessionState>) -> Result<Vec<RecentEntry>, FileError> {
+    Ok(state.session().recent()?)
+}
+
+/// Re-opens a file of the recent list → its contents (as `open_file_dialog`).
+#[tauri::command]
+fn recent_open(
+    path: String,
+    state: tauri::State<'_, SessionState>,
+) -> Result<OpenedFile, FileError> {
+    state.open_recent(&path)
+}
+
+#[tauri::command]
+fn recovery_list(state: tauri::State<'_, SessionState>) -> Result<Vec<RecoveryInfo>, FileError> {
+    Ok(state.session().recovery_list()?)
+}
+
+#[tauri::command]
+fn recovery_get(
+    id: String,
+    state: tauri::State<'_, SessionState>,
+) -> Result<Option<RecoveryEntry>, FileError> {
+    Ok(state.session().recovery_get(&id)?)
+}
+
+#[tauri::command]
+fn recovery_put(
+    entry: RecoveryEntry,
+    state: tauri::State<'_, SessionState>,
+) -> Result<(), FileError> {
+    Ok(state.session().recovery_put(&entry)?)
+}
+
+#[tauri::command]
+fn recovery_remove(id: String, state: tauri::State<'_, SessionState>) -> Result<(), FileError> {
+    Ok(state.session().recovery_remove(&id)?)
+}
+
 /// Health check: `"Rusuite Write <version>"`.
 #[tauri::command]
 fn ping() -> String {
@@ -115,15 +218,24 @@ fn into_path(p: tauri_plugin_dialog::FilePath) -> Result<PathBuf, FileError> {
 /// Shows the native open dialog and reads the picked file; `None` when
 /// cancelled.
 #[tauri::command]
-async fn open_file_dialog(window: tauri::Window) -> Result<Option<OpenedFile>, FileError> {
+async fn open_file_dialog(
+    window: tauri::Window,
+    session: tauri::State<'_, SessionState>,
+) -> Result<Option<OpenedFile>, FileError> {
     let dialog = docx_dialog(&window);
-    blocking(move || {
+    let picked = blocking(move || {
         dialog
             .blocking_pick_file()
             .map(|p| read_file(&into_path(p)?))
             .transpose()
     })
-    .await
+    .await?;
+    if let Some(file) = &picked {
+        // The recent list is a convenience: failing to update it never
+        // fails the open.
+        let _ = session.record(&file.path);
+    }
+    Ok(picked)
 }
 
 /// Shows the native save dialog and writes the file; the chosen path, or
@@ -131,11 +243,12 @@ async fn open_file_dialog(window: tauri::Window) -> Result<Option<OpenedFile>, F
 #[tauri::command]
 async fn save_file_dialog(
     window: tauri::Window,
+    session: tauri::State<'_, SessionState>,
     suggested_name: String,
     bytes_base64: String,
 ) -> Result<Option<String>, FileError> {
     let dialog = docx_dialog(&window).set_file_name(suggested_name);
-    blocking(move || {
+    let saved = blocking(move || {
         let Some(path) = dialog.blocking_save_file() else {
             return Ok(None);
         };
@@ -143,7 +256,11 @@ async fn save_file_dialog(
         write_file(&path, &bytes_base64)?;
         Ok(Some(path.to_string_lossy().into_owned()))
     })
-    .await
+    .await?;
+    if let Some(path) = &saved {
+        let _ = session.record(path);
+    }
+    Ok(saved)
 }
 
 /// Builds and runs the Tauri application.
@@ -154,11 +271,25 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(WriteState::default())
+        .setup(|app| {
+            let dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::env::temp_dir().join("rusuite-write"));
+            app.manage(SessionState::new(dir));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             ping,
             dispatch,
             open_file_dialog,
-            save_file_dialog
+            save_file_dialog,
+            recent_list,
+            recent_open,
+            recovery_list,
+            recovery_get,
+            recovery_put,
+            recovery_remove
         ])
         .run(tauri::generate_context!())
         .expect("error while running Rusuite Write");
@@ -226,6 +357,49 @@ mod tests {
         assert!(serde_json::to_string(&missing)
             .unwrap()
             .starts_with("\"i/o error"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn recent_files_and_recovery_in_the_data_dir() {
+        let dir =
+            std::env::temp_dir().join(format!("rusuite-write-session-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = SessionState::new(dir.join("data"));
+        let file = dir.join("doc.docx");
+        write_file(&file, "UEsDBA==").unwrap();
+        let path = file.to_string_lossy().into_owned();
+        // Only listed paths can be re-opened.
+        assert!(matches!(
+            state.open_recent(&path),
+            Err(FileError::NotRecent(_))
+        ));
+        let list = state.record(&path).unwrap();
+        assert_eq!(list[0].name, "doc.docx");
+        assert_eq!(state.open_recent(&path).unwrap().bytes_base64, "UEsDBA==");
+        // A vanished file drops out of the list.
+        std::fs::remove_file(&file).unwrap();
+        assert!(matches!(state.open_recent(&path), Err(FileError::Io(_))));
+        assert!(state.session().recent().unwrap().is_empty());
+        // Recovery entries persist across sessions (a new state = restart).
+        let entry = RecoveryEntry {
+            id: "doc-1".into(),
+            name: None,
+            saved_at: now_ms(),
+            revision: app_common::Revision(3),
+            json: "{}".into(),
+        };
+        state.session().recovery_put(&entry).unwrap();
+        let restarted = SessionState::new(dir.join("data"));
+        assert_eq!(restarted.session().recovery_list().unwrap()[0].id, "doc-1");
+        assert_eq!(
+            restarted.session().recovery_get("doc-1").unwrap(),
+            Some(entry)
+        );
+        let err = restarted.session().recovery_get("../x").unwrap_err();
+        assert!(serde_json::to_string(&FileError::from(err))
+            .unwrap()
+            .contains("invalid document id"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

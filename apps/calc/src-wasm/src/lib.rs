@@ -116,4 +116,19 @@ mod tests {
         assert_eq!(serial.floor(), 46_310.0);
         assert!((serial.fract() - 14.0 / 24.0).abs() < 1e-9);
     }
+    #[test]
+    fn recovery_snapshot_roundtrip() {
+        // The page keeps recovery entries in IndexedDB; the core only
+        // produces and restores the snapshot JSON.
+        let snap = call(r#"{"type":"recoverySnapshot"}"#);
+        assert_eq!(snap["ok"]["type"], "recoverySnapshot");
+        let request =
+            serde_json::json!({"type": "restoreRecovery", "json": snap["ok"]["json"], "name": "r"});
+        assert!(call(&request.to_string())["ok"].is_object());
+        let st = call(r#"{"type":"documentState"}"#);
+        assert_eq!(
+            (&st["ok"]["dirty"], &st["ok"]["name"]),
+            (&Value::Bool(true), &Value::from("r"))
+        );
+    }
 }

@@ -163,6 +163,26 @@ export class FakeWriteBackend implements WriteBackend {
         if (!m) throw new Fail("unknown_media", `unknown media ${request.id}`);
         return { type: "media", contentType: m.contentType, bytesBase64: m.data };
       }
+      case "recoverySnapshot":
+        return {
+          type: "recoverySnapshot",
+          json: JSON.stringify(this.doc),
+          revision: this.revision,
+          dirty: this.revision !== this.savedRevision,
+          name: this.name,
+        };
+      case "restoreRecovery": {
+        let doc: Document;
+        try {
+          doc = JSON.parse(request.json) as Document;
+        } catch {
+          throw new Fail("invalid_snapshot", "not JSON");
+        }
+        const r = this.reset(doc);
+        this.name = request.name ?? null;
+        this.savedRevision = -1;
+        return { ...r, envelope: this.envelope(this.emptyPatch()) };
+      }
       case "documentState":
         return { type: "documentState", dirty: this.revision !== this.savedRevision, revision: this.revision, name: this.name };
       case "markSaved":

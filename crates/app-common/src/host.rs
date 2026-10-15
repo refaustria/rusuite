@@ -211,6 +211,12 @@ impl<D: Document> Host<D> {
         self.saved = Some(self.undo.len());
     }
 
+    /// Makes the document dirty until the next save, whatever is undone
+    /// (e.g. after restoring an autosaved snapshot that was never saved).
+    pub fn mark_dirty(&mut self) {
+        self.saved = None;
+    }
+
     /// An envelope carrying `patch` and the current host state (also used
     /// for replies that change nothing, e.g. an undo with an empty stack).
     pub fn envelope(&self, patch: D::Patch) -> Envelope<D::Patch> {
@@ -420,6 +426,10 @@ mod tests {
         assert!(h.is_dirty());
         h.mark_saved();
         h.apply(Cmd::Mark).unwrap();
+        assert!(h.is_dirty());
+        h.mark_saved();
+        assert!(!h.is_dirty());
+        h.mark_dirty();
         assert!(h.is_dirty());
         h.mark_saved();
         assert!(!h.is_dirty());

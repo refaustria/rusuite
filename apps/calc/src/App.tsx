@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { Toolbar } from "@rusuite/ui-shared";
+import { DocumentSession, FileMenu, RecoveryBanner, Toolbar, type AnySession } from "@rusuite/ui-shared";
 import { CalcApi, type CalcBackend } from "./backend/calcApi";
 import { installDevTools, perfOverlayEnabled, pickBackend } from "./dev/devTools";
 import { FormulaBar } from "./FormulaBar";
@@ -32,10 +32,11 @@ function StatusBar({ store }: { store: CalcStore }) {
   );
 }
 
-function FileButtons({ store }: { store: CalcStore }) {
+function FileButtons({ store, session }: { store: CalcStore; session: AnySession }) {
   const btn = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg hover:bg-ui-hover";
   return (
     <div role="group" aria-label="File" className="flex items-center gap-1 border-b border-r border-ui-border bg-ui-panel px-1">
+      <FileMenu session={session} onOpen={() => void store.openFile()} onSave={() => void store.saveFile()} />
       <button type="button" className={btn} title="Open (Ctrl+O)" onClick={() => void store.openFile()}>
         Open
       </button>
@@ -64,11 +65,22 @@ function StyleToolbar({ store }: { store: CalcStore }) {
 }
 
 export default function App({ backend }: { backend: CalcBackend }) {
-  const store = useMemo(() => new CalcStore(new CalcApi(pickBackend(backend))), [backend]);
+  // Recent files, autosave, crash recovery: the store talks through the session's backend.
+  const session = useMemo(() => new DocumentSession(pickBackend(backend)), [backend]);
+  const store = useMemo(() => new CalcStore(new CalcApi(session.backend)), [session]);
   useEffect(() => {
     installDevTools(store);
     void store.init();
   }, [store]);
+  useEffect(() => {
+    session.attach({
+      restore: (json, name) => store.restoreRecovery(json, name),
+      openFile: (file) => store.openBytes(file),
+      onError: (e) => store.pushError(e),
+    });
+    void session.start();
+    return () => session.stop();
+  }, [session, store]);
 
   const name = useCalc(store, (s) => s.name);
   const dirty = useCalc(store, (s) => s.dirty);
@@ -94,8 +106,9 @@ export default function App({ backend }: { backend: CalcBackend }) {
 
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
+      <RecoveryBanner session={session} />
       <div className="flex items-stretch">
-        <FileButtons store={store} />
+        <FileButtons store={store} session={session} />
         <div className="min-w-0 flex-1">
           <StyleToolbar store={store} />
         </div>

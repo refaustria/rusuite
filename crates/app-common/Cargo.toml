@@ -10,10 +10,14 @@ repository.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 ts-rs = { version = "12", features = ["serde-compat"] }
+serde_json.workspace = true
+
+[features]
+# `session::DirStorage` (std::fs; desktop shells only, never in wasm).
+fs = []
 
 [dev-dependencies]
 core-model = { path = "../core-model" }
-serde_json.workspace = true
 
 [lints]
 workspace = true

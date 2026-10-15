@@ -384,6 +384,21 @@ export class SyncController {
     }
   }
 
+  /** Replaces the document by an autosaved snapshot (`RestoreRecovery`, crash recovery); it stays dirty. */
+  async restoreRecovery(json: string, name: string | null): Promise<boolean> {
+    await this.idle();
+    try {
+      const body = await this.api.restoreRecovery(json, name);
+      this.media.clear();
+      this.setDocument(body.doc, body.envelope, name);
+      this.set({ warnings: [], info: null });
+      return true;
+    } catch (e) {
+      this.pushError(e);
+      return false;
+    }
+  }
+
   /** Opens a `.docx` file (`OpenDocx`); reader warnings go to the state. */
   async openDocx(bytesBase64: string, name: string): Promise<boolean> {
     await this.idle();

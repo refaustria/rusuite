@@ -449,6 +449,36 @@ export class FakeCalcCore {
           return this.stateResponse();
         case "documentState":
           return this.stateResponse();
+        case "recoverySnapshot": {
+          const cells = this.sheets.flatMap((sh) =>
+            [...sh.cells].flatMap(([r, row]) => [...row].map(([c, cell]) => [sh.id, r, c, cell.input])),
+          );
+          return {
+            ok: {
+              type: "recoverySnapshot",
+              json: JSON.stringify({ cells }),
+              revision: this.revision,
+              dirty: this.revision !== this.savedRevision,
+              name: this.name,
+            },
+          };
+        }
+        case "restoreRecovery": {
+          let cells: unknown;
+          try {
+            cells = (JSON.parse(req.json) as { cells?: unknown }).cells;
+          } catch {
+            cells = undefined;
+          }
+          if (!Array.isArray(cells)) throw new Fail("invalid_snapshot", "not a fake recovery snapshot");
+          this.reset();
+          for (const [sheet, row, col, input] of cells as [number, number, number, string][]) {
+            this.exec({ type: "setInput", sheet, row, col, input });
+          }
+          this.name = req.name ?? null;
+          this.savedRevision = -1;
+          return this.infoResponse();
+        }
         case "loadSnapshotJson":
         case "saveSnapshotJson":
           throw new Fail("internal", "not supported by the fake backend");

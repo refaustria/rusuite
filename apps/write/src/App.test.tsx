@@ -92,3 +92,38 @@ describe("Write app", () => {
     expect(countWords("")).toBe(0);
   });
 });
+
+describe("Write app recovery (P5-3)", () => {
+  it("restores an autosaved document from the banner as modified", async () => {
+    const { MemoryDocStorage } = await import("@rusuite/ui-shared");
+    const storage = new MemoryDocStorage();
+    const doc = makeDoc([para(1, "Recovered text")]);
+    await storage.putRecovery({ id: "crashed", name: "letter.docx", savedAt: Date.now(), revision: 3, json: JSON.stringify(doc) });
+    const backend = Object.assign(new FakeWriteBackend(), { storage });
+    render(<App backend={backend} />);
+    const editor = await screen.findByTestId("editor");
+    const banner = await screen.findByRole("region", { name: "Recovered documents" });
+    expect(banner.textContent).toContain("letter.docx");
+    fireEvent.click(screen.getByRole("button", { name: "Restore letter.docx" }));
+    await waitFor(() => expect(editor.textContent).toBe("Recovered text"));
+    expect(screen.getByTestId("doc-name").textContent).toBe("letter.docx");
+    expect(screen.getByTestId("dirty").textContent).toBe("Modified");
+    expect(screen.queryByTestId("recovery-banner")).toBeNull();
+    await waitFor(() => expect(storage.recovery.has("crashed")).toBe(false));
+    expect(storage.recovery.size).toBe(1);
+  });
+
+  it("the File menu re-opens a recent document from browser storage", async () => {
+    const { MemoryDocStorage } = await import("@rusuite/ui-shared");
+    const storage = new MemoryDocStorage();
+    await storage.rememberRecent("notes.docx", JSON.stringify(makeDoc([para(1, "From the recent list")])));
+    const backend = Object.assign(new FakeWriteBackend(), { storage });
+    render(<App backend={backend} />);
+    const editor = await screen.findByTestId("editor");
+    await waitFor(() => expect(backend.log.some((r) => r.type === "newDocument")).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "File" }));
+    fireEvent.click(await screen.findByTestId("recent-entry"));
+    await waitFor(() => expect(editor.textContent).toBe("From the recent list"));
+    expect(screen.getByTestId("doc-name").textContent).toBe("notes.docx");
+  });
+});

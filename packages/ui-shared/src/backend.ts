@@ -4,8 +4,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { DispatchError } from "./generated/DispatchError";
+import { IdbDocStorage, dbNameFromPing } from "./recent/idb";
+import type { DocStorage } from "./recent/storage";
+import { TauriDocStorage } from "./recent/tauri";
 
 export type { DispatchError };
+// Recent files, autosave and crash recovery (P5-3).
+export * from "./recent";
 
 /**
  * The reply of every app core's `dispatch` (ADR 0002 amendment):
@@ -43,6 +48,11 @@ export interface Backend<Req = unknown, Body = unknown> {
   saveFile(suggestedName: string, bytesBase64: string): Promise<boolean>;
   /** Sets the window (Tauri) or document (web) title. */
   setTitle(title: string): Promise<void>;
+  /**
+   * Recent files and crash-recovery entries (Tauri: JSON files in the app
+   * data directory; web: IndexedDB). Absent where nothing can be stored.
+   */
+  readonly storage?: DocStorage;
 }
 
 /** Standard base64 of `bytes` (chunked: large files exceed the argument limit). */
@@ -81,11 +91,14 @@ export interface WasmFileOptions {
   accept?: string;
   /** MIME type of downloads whose name ends with the extension of `accept`'s first entry. */
   mime?: string;
+  /** Recent/recovery storage; default IndexedDB (`rusuite-<app>` from `ping()`), `null` = none. */
+  storage?: DocStorage | null;
 }
 
 /** Desktop shell: the Tauri commands of `apps/<app>/src-tauri`. */
 export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req, Body> {
   readonly kind = "tauri" as const;
+  readonly storage: DocStorage = new TauriDocStorage();
 
   ping(): Promise<string> {
     return invoke<string>("ping");
@@ -127,6 +140,7 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
   private readonly accept: string;
   private readonly mime: string;
   private readonly ext: string;
+  readonly storage?: DocStorage;
 
   constructor(
     private readonly module: WasmModule,
@@ -137,6 +151,13 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
     this.accept = o.accept ?? `.xlsx,${XLSX_MIME}`;
     this.mime = o.mime ?? XLSX_MIME;
     this.ext = (this.accept.split(",")[0] ?? "").trim().toLowerCase();
+    const storage =
+      o.storage !== undefined
+        ? o.storage
+        : IdbDocStorage.available()
+          ? new IdbDocStorage(() => dbNameFromPing(this.module.ping()))
+          : null;
+    if (storage) this.storage = storage;
   }
 
   async ping(): Promise<string> {

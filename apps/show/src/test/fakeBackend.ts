@@ -39,13 +39,17 @@ export class FakeBackend implements ShowBackend {
     return "Rusuite Show fake";
   }
 
+  /** Set by `restoreRecovery` (dirty until saved; the fake has no save). */
+  restored = false;
+  name: string | null = null;
+
   private envelope(patch: Partial<ShowPatch>): Envelope<ShowPatch> {
     return {
       revision: this.revision,
       patch: { slidesOrder: null, slides: [], deletedSlides: [], idMap: [], slideSize: null, info: null, ...patch },
       canUndo: this.history.length > 0,
       canRedo: false,
-      dirty: this.history.length > 0,
+      dirty: this.history.length > 0 || this.restored,
     };
   }
 
@@ -147,7 +151,27 @@ export class FakeBackend implements ShowBackend {
       case "getPresentation":
         return ok({ type: "presentation", presentation: clone(this.pres), envelope: this.envelope({}) });
       case "documentState":
-        return ok({ type: "documentState", dirty: this.history.length > 0, revision: this.revision, name: null });
+        return ok({ type: "documentState", dirty: this.history.length > 0 || this.restored, revision: this.revision, name: this.name });
+      case "recoverySnapshot":
+        return ok({
+          type: "recoverySnapshot",
+          json: JSON.stringify(this.pres),
+          revision: this.revision,
+          dirty: this.history.length > 0 || this.restored,
+          name: this.name,
+        });
+      case "restoreRecovery": {
+        try {
+          this.pres = JSON.parse(request.json) as Presentation;
+        } catch {
+          return { err: { code: "invalid_snapshot", message: "not JSON" } };
+        }
+        this.history = [];
+        this.restored = true;
+        this.name = request.name ?? null;
+        this.revision++;
+        return ok({ type: "presentation", presentation: clone(this.pres), envelope: this.envelope({}) });
+      }
       case "getMedia": {
         const m = this.pres.media.find((x) => x.id === request.id);
         return m ? ok({ type: "media", contentType: m.contentType, bytesBase64: m.data }) : { err: { code: "unknown_media", message: "?" } };

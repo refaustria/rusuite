@@ -395,23 +395,62 @@ export class CalcStore {
     return this.guard(async () => {
       this.cancelEdit();
       const file = await this.api.backend.openFile();
-      if (!file) return;
-      const opened = await this.api.openXlsx(file.bytesBase64, file.name);
+      if (file) await this.openBytesUnguarded(file);
+    });
+  }
+
+  /** Replaces the document by an `.xlsx` file's contents (recent files); `false` on failure. */
+  async openBytes(file: { name: string; bytesBase64: string }): Promise<boolean> {
+    let ok = false;
+    await this.guard(async () => {
+      this.cancelEdit();
+      await this.openBytesUnguarded(file);
+      ok = true;
+    });
+    return ok;
+  }
+
+  /** Replaces the document by an autosaved snapshot (crash recovery); it stays dirty. `false` on failure. */
+  async restoreRecovery(json: string, name: string | null): Promise<boolean> {
+    let ok = false;
+    await this.guard(async () => {
+      this.cancelEdit();
+      const info = await this.api.restoreRecovery(json, name);
+      const st = await this.api.documentState();
       this.lastViewport.clear();
-      this.setInfo(opened.info);
-      const env = opened.envelope;
+      this.setInfo(info);
       this.set({
         selection: cellSelection(0, 0),
-        name: file.name,
-        warnings: opened.warnings,
+        name,
+        warnings: [],
         cycle: null,
-        revision: env.revision,
-        canUndo: env.canUndo,
-        canRedo: env.canRedo,
-        dirty: env.dirty,
+        revision: st.revision,
+        canUndo: false,
+        canRedo: false,
+        dirty: st.dirty,
       });
       await this.ensureRegion(this.state.activeSheet, 0, 0, BLOCK_ROWS - 1, BLOCK_COLS - 1);
+      ok = true;
     });
+    return ok;
+  }
+
+  private async openBytesUnguarded(file: { name: string; bytesBase64: string }): Promise<void> {
+    const opened = await this.api.openXlsx(file.bytesBase64, file.name);
+    this.lastViewport.clear();
+    this.setInfo(opened.info);
+    const env = opened.envelope;
+    this.set({
+      selection: cellSelection(0, 0),
+      name: file.name,
+      warnings: opened.warnings,
+      cycle: null,
+      revision: env.revision,
+      canUndo: env.canUndo,
+      canRedo: env.canRedo,
+      dirty: env.dirty,
+    });
+    await this.ensureRegion(this.state.activeSheet, 0, 0, BLOCK_ROWS - 1, BLOCK_COLS - 1);
   }
 
   /**

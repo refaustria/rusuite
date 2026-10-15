@@ -43,6 +43,7 @@ const SHAPES: Record<AnyBody["type"], Record<string, string>> = {
   presentation: { presentation: "object", envelope: "object" },
   media: { contentType: "string", bytesBase64: "string" },
   documentState: { dirty: "boolean", revision: "number" },
+  recoverySnapshot: { json: "string", revision: "number", dirty: "boolean" },
   opened: {},
   saved: { bytesBase64: "string", suggestedName: "string" },
 };
@@ -130,6 +131,11 @@ export class ShowApi {
 
   documentState(): Promise<BodyOf<"documentState">> {
     return this.call({ type: "documentState" }, "documentState");
+  }
+
+  /** Replaces the presentation by a `recoverySnapshot` JSON (crash recovery, P5-3; dirty). */
+  restoreRecovery(json: string, name: string | null): Promise<BodyOf<"presentation">> {
+    return this.call({ type: "restoreRecovery", json, name: name ?? undefined }, "presentation");
   }
 
   markSaved(name?: string): Promise<BodyOf<"documentState">> {
