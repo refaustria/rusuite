@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
+import { usePrintShortcut } from "@rusuite/ui-shared";
+import { writePrintCss } from "./print/printCss";
 import { WriteApi, type WriteBackend } from "./backend";
 import { writeExtensions, TWIPS_PER_PX } from "./sync/schema";
 import { SyncController, SyncExtension, type SyncState } from "./sync/SyncPlugin";
@@ -101,15 +103,19 @@ export default function App({ backend }: { backend: WriteBackend }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, save]);
 
+  const exportPdf = useCallback(() => void backend.print().catch((e) => ctl.pushError(e)), [backend, ctl]);
+  usePrintShortcut(exportPdf);
+
   const m = page?.margins;
   const px = (twips: number | undefined, fallback: number) => (twips === undefined ? fallback : twips / TWIPS_PER_PX);
 
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
       {editor && (
-        <WriteToolbar editor={editor} ctl={ctl} onOpen={() => void open()} onSave={() => void save()} onFind={() => setFindOpen(true)} />
+        <WriteToolbar editor={editor} ctl={ctl} onOpen={() => void open()} onSave={() => void save()} onFind={() => setFindOpen(true)} onExportPdf={exportPdf} />
       )}
-      <div className="min-h-0 flex-1 overflow-auto bg-ui-panel p-6">
+      <style>{writePrintCss(page)}</style>
+      <div className="write-scroll min-h-0 flex-1 overflow-auto bg-ui-panel p-6">
         <div
           className="write-page mx-auto bg-white text-black shadow"
           style={{

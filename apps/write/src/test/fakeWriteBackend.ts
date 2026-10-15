@@ -97,6 +97,7 @@ export class FakeWriteBackend implements WriteBackend {
     return false;
   }
   async setTitle() {}
+  async print() {}
 
   async dispatch<T = ResponseBody>(request: Request) {
     this.log.push(structuredClone(request));

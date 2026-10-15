@@ -5,6 +5,7 @@ import { installDevTools, perfOverlayEnabled, pickBackend } from "./dev/devTools
 import { FormulaBar } from "./FormulaBar";
 import { GridCanvas } from "./grid/GridCanvas";
 import { toolbarValue } from "./grid/style";
+import { ExportPdf } from "./print/ExportPdf";
 import { SheetTabs } from "./SheetTabs";
 import { CalcStore, useCalc } from "./state/store";
 import { Toasts } from "./Toasts";
@@ -42,6 +43,7 @@ function FileButtons({ store }: { store: CalcStore }) {
       <button type="button" className={btn} title="Save (Ctrl+S)" onClick={() => void store.saveFile()}>
         Save
       </button>
+      <ExportPdf store={store} />
     </div>
   );
 }

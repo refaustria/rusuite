@@ -191,4 +191,5 @@ export class FakeBackend implements ShowBackend {
   }
 
   async setTitle() {}
+  async print() {}
 }
