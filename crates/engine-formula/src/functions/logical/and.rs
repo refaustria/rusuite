@@ -5,7 +5,7 @@ use crate::functions::logical::fold;
 use crate::functions::{Arity, CallContext, Function};
 use crate::value::Value;
 
-/// Folds all logical values; see [`fold`]. Not short-circuiting for errors.
+/// Folds all logical values; see `fold`. Not short-circuiting for errors.
 pub struct And;
 
 impl Function for And {
