@@ -1,0 +1,303 @@
+[
+ {
+  "file": "provisional-01-single-title-slide.pptx",
+  "topic": "One slide with a title only",
+  "features": [
+   "slides:1",
+   "layout:title",
+   "size:16x9"
+  ]
+ },
+ {
+  "file": "provisional-02-title-subtitle.pptx",
+  "topic": "Title slide with subtitle",
+  "features": [
+   "slides:1",
+   "layout:title",
+   "size:16x9"
+  ]
+ },
+ {
+  "file": "provisional-03-title-content-3-bullets.pptx",
+  "topic": "Title and content with three bullets",
+  "features": [
+   "slides:1",
+   "layout:titleContent",
+   "size:16x9",
+   "bullets:levels=1"
+  ]
+ },
+ {
+  "file": "provisional-04-bullets-3-levels.pptx",
+  "topic": "Bullets nested three levels deep",
+  "features": [
+   "slides:1",
+   "layout:titleContent",
+   "size:16x9",
+   "bullets:levels=3"
+  ]
+ },
+ {
+  "file": "provisional-05-numbered-list.pptx",
+  "topic": "Numbered list in the content placeholder",
+  "features": [
+   "slides:1",
+   "layout:titleContent",
+   "size:16x9",
+   "numbered"
+  ]
+ },
+ {
+  "file": "provisional-06-blank-rectangle.pptx",
+  "topic": "Blank slide with one rectangle",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "fill:solid",
+   "shape:rect:count=1"
+  ]
+ },
+ {
+  "file": "provisional-07-ellipse.pptx",
+  "topic": "Blank slide with an ellipse",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "fill:solid",
+   "shape:ellipse:count=1"
+  ]
+ },
+ {
+  "file": "provisional-08-line.pptx",
+  "topic": "Blank slide with a line",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "shape:line:count=1"
+  ]
+ },
+ {
+  "file": "provisional-09-rounded-rectangle.pptx",
+  "topic": "Blank slide with a rounded rectangle",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "fill:solid",
+   "shape:roundRect:count=1"
+  ]
+ },
+ {
+  "file": "provisional-10-text-box.pptx",
+  "topic": "Free text box on a blank slide",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "shape:textBox:count=2"
+  ]
+ },
+ {
+  "file": "provisional-11-fill-colour.pptx",
+  "topic": "Shapes with solid fill colours",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "fill:solid",
+   "shape:rect:count=4"
+  ]
+ },
+ {
+  "file": "provisional-12-outline-width-colour-dash.pptx",
+  "topic": "Shapes with outline width, colour and dash",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "fill:solid",
+   "shape:rect:count=3",
+   "line:dash",
+   "shape:ellipse:count=1"
+  ]
+ },
+ {
+  "file": "provisional-13-text-formatting.pptx",
+  "topic": "Bold, italic, underline, colour, size, font in shapes",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "text:bold",
+   "text:italic",
+   "text:underline",
+   "shape:textBox:count=4",
+   "text:color",
+   "text:size",
+   "text:font",
+   "fill:solid",
+   "shape:rect:count=1"
+  ]
+ },
+ {
+  "file": "provisional-14-alignment-anchor.pptx",
+  "topic": "Horizontal alignment and vertical anchor",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "fill:solid",
+   "shape:rect:count=6",
+   "text:align:left",
+   "text:align:center",
+   "text:align:right",
+   "text:anchor:top",
+   "text:anchor:middle",
+   "text:anchor:bottom"
+  ]
+ },
+ {
+  "file": "provisional-15-image.pptx",
+  "topic": "One small PNG picture",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "picture:count=1"
+  ]
+ },
+ {
+  "file": "provisional-16-two-images.pptx",
+  "topic": "Two pictures side by side",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "picture:count=2"
+  ]
+ },
+ {
+  "file": "provisional-17-group.pptx",
+  "topic": "Group of a rectangle and an ellipse",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "fill:solid",
+   "shape:rect:count=1",
+   "shape:ellipse:count=1",
+   "group:count=1"
+  ]
+ },
+ {
+  "file": "provisional-18-z-order.pptx",
+  "topic": "Overlapping shapes, later shapes on top",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "fill:solid",
+   "shape:rect:count=1",
+   "shape:ellipse:count=1",
+   "shape:roundRect:count=1"
+  ]
+ },
+ {
+  "file": "provisional-19-rotation.pptx",
+  "topic": "Rectangle rotated by 30 degrees",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "fill:solid",
+   "shape:rect:count=1",
+   "rotation"
+  ]
+ },
+ {
+  "file": "provisional-20-flip.pptx",
+  "topic": "Right arrow flipped horizontally",
+  "features": [
+   "slides:1",
+   "layout:blank",
+   "size:16x9",
+   "fill:solid",
+   "shape:rightArrow:count=2",
+   "flip"
+  ]
+ },
+ {
+  "file": "provisional-21-background-colour.pptx",
+  "topic": "Slide with a solid background colour",
+  "features": [
+   "slides:1",
+   "layout:titleContent",
+   "size:16x9",
+   "background:solid",
+   "bullets:levels=1"
+  ]
+ },
+ {
+  "file": "provisional-22-ten-slides-mixed.pptx",
+  "topic": "Ten slides mixing layouts",
+  "features": [
+   "slides:10",
+   "layout:title",
+   "layout:titleContent",
+   "layout:blank",
+   "size:16x9",
+   "bullets:levels=2",
+   "fill:solid",
+   "shape:rect:count=3",
+   "numbered"
+  ]
+ },
+ {
+  "file": "provisional-23-unicode.pptx",
+  "topic": "Umlauts, CJK and emoji text",
+  "features": [
+   "slides:2",
+   "layout:titleContent",
+   "layout:blank",
+   "size:16x9",
+   "bullets:levels=1",
+   "shape:textBox:count=1",
+   "text:unicode"
+  ]
+ },
+ {
+  "file": "provisional-24-size-4x3.pptx",
+  "topic": "Standard 4:3 slide size",
+  "features": [
+   "slides:2",
+   "layout:title",
+   "layout:titleContent",
+   "size:4x3",
+   "bullets:levels=1"
+  ]
+ },
+ {
+  "file": "provisional-25-pitch-deck.pptx",
+  "topic": "Pitch deck: title, agenda, three content slides, closing",
+  "features": [
+   "slides:6",
+   "layout:title",
+   "layout:titleContent",
+   "layout:blank",
+   "size:16x9",
+   "background:solid",
+   "bullets:levels=2",
+   "text:bold",
+   "text:size",
+   "shape:textBox:count=4",
+   "fill:solid",
+   "shape:roundRect:count=2",
+   "picture:count=1",
+   "shape:ellipse:count=2",
+   "shape:line:count=1"
+  ]
+ }
+]

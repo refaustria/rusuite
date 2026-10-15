@@ -83,6 +83,10 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Model paragraph direction (bidi), hyperlinks, merged cells (gridSpan/vMerge), tab stops, character styles – the most frequent reader warnings.
 - Move default theme XML, theme parsing and the small XML writer into fmt-ooxml (currently duplicated between fmt-xlsx and fmt-docx because format crates must not depend on each other).
 
+## Show / model-show
+- Effective placeholder text formatting helper (layout defaults layered like model-text `resolve_*`); ungroup helper; picture alt text; line arrowheads; per-level body font sizes (28/24/20); merge adjacent equal runs in `normalize`; white default text on filled auto shapes.
+- pptx suite: `layout:titleOnly` once PowerPoint files exist; notes/tables/transitions suites; byte-reproducible generation.
+
 ## Formats
 - Compare rewritten files against Open XML SDK validator (Windows/.NET) in addition to LibreOffice – gives real "would Office repair this" signal.
 
