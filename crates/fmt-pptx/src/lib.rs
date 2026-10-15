@@ -3,7 +3,8 @@
 //! [`model_show::Presentation`] (ADR 0008).
 //!
 //! The supported PresentationML/DrawingML subset (slides, placeholders,
-//! auto shapes, pictures, groups, lines, DrawingML text, solid fills,
+//! auto shapes with preset or custom geometry, pictures, groups, lines,
+//! connectors with arrowheads, tables, DrawingML text, solid fills,
 //! outlines, backgrounds, the theme, slide transitions and preset
 //! animations) and everything that is dropped are
 //! listed in `docs/ooxml-subset.md`. Masters and layouts are not imported:
@@ -29,8 +30,10 @@
 
 mod anim;
 mod drawing;
+mod geom;
 mod parts;
 mod read;
+mod table;
 mod write;
 mod xml;
 

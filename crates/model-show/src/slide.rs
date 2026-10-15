@@ -64,9 +64,11 @@ impl Slide {
         }
     }
 
-    /// Checks the slide's transition and animations: valid
-    /// effect/kind/direction combinations, unique animation ids, and every
-    /// animation targets a shape of this slide.
+    /// Checks the slide's transition and animations (valid
+    /// effect/kind/direction combinations, unique animation ids, every
+    /// animation targets a shape of this slide), its tables
+    /// ([`crate::Table::validate`]) and that connectors are attached only
+    /// to other non-group, non-connector shapes of the slide.
     pub fn validate(&self) -> Result<(), Error> {
         let bad = |reason: String| Error::InvalidSlide {
             slide: self.id,
@@ -74,6 +76,36 @@ impl Slide {
         };
         if let Some(t) = &self.transition {
             t.validate().map_err(bad)?;
+        }
+        fn tables(shapes: &[Shape], bad: &dyn Fn(String) -> Error) -> Result<(), Error> {
+            for s in shapes {
+                match &s.kind {
+                    ShapeKind::Table(t) => t
+                        .validate()
+                        .map_err(|e| bad(format!("table {}: {e}", s.id.0)))?,
+                    ShapeKind::Group { children } => tables(children, bad)?,
+                    _ => {}
+                }
+            }
+            Ok(())
+        }
+        tables(&self.shapes, &bad)?;
+        for id in self.connector_ids() {
+            let Some(c) = self.find_shape(id).and_then(Shape::connector) else {
+                continue;
+            };
+            for a in c.attachments() {
+                let ok = a.shape != id
+                    && self.find_shape(a.shape).is_some_and(|s| {
+                        !matches!(s.kind, ShapeKind::Group { .. } | ShapeKind::Connector(_))
+                    });
+                if !ok {
+                    return Err(bad(format!(
+                        "connector {} is attached to shape {}, which cannot take it",
+                        id.0, a.shape.0
+                    )));
+                }
+            }
         }
         let mut seen = std::collections::HashSet::new();
         for a in &self.animations {

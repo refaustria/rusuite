@@ -3,7 +3,7 @@
 
 use app_common::{DispatchError, Envelope, Host, Revision};
 use core_model::media::{base64_decode, base64_encode, MediaId};
-use model_show::Presentation;
+use model_show::{flatten, Adjust, ConnectorKind, Presentation, Preset, Site, SubPath};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -13,6 +13,83 @@ use crate::patch::ShowPatch;
 
 /// The document host the shells keep (one per open presentation).
 pub type ShowHost = Host<ShowDocument>;
+
+/// What [`PathQuery`] asks the outline of.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub enum PathKind {
+    /// An auto shape's geometry.
+    Preset(Preset),
+    /// A connector with its number of turns (1–4, see
+    /// `Connector.bends`; default 2).
+    #[serde(rename_all = "camelCase")]
+    Connector {
+        kind: ConnectorKind,
+        #[serde(default = "two_turns")]
+        #[ts(optional, as = "Option<u8>")]
+        bends: u8,
+    },
+}
+
+fn two_turns() -> u8 {
+    2
+}
+
+/// One shape outline to compute (see [`Request::ShapePaths`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub struct PathQuery {
+    pub kind: PathKind,
+    /// Box width (EMU).
+    pub w: f64,
+    /// Box height (EMU).
+    pub h: f64,
+    /// Adjust values (absent = defaults).
+    #[serde(default, skip_serializing_if = "Adjust::is_empty")]
+    #[ts(optional, as = "Option<std::collections::HashMap<String, f64>>")]
+    pub adjust: Adjust,
+}
+
+/// The outline and connection sites of one [`PathQuery`].
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub struct ShapePaths {
+    /// Paths in the box (EMU), arcs already turned into cubic curves:
+    /// only `moveTo`, `lineTo`, `quadTo`, `cubicTo` and `close`.
+    pub paths: Vec<SubPath>,
+    /// Connection sites (none for connectors).
+    pub sites: Vec<Site>,
+}
+
+impl PathQuery {
+    /// Computes the outline.
+    pub fn compute(&self) -> ShapePaths {
+        match &self.kind {
+            PathKind::Preset(p) => ShapePaths {
+                paths: p
+                    .paths(self.w, self.h, &self.adjust)
+                    .into_iter()
+                    .map(|sp| SubPath {
+                        commands: flatten(&sp.commands),
+                        ..sp
+                    })
+                    .collect(),
+                sites: p.connection_sites(self.w, self.h, &self.adjust),
+            },
+            PathKind::Connector { kind, bends } => ShapePaths {
+                paths: vec![SubPath {
+                    fill: false,
+                    stroke: true,
+                    commands: flatten(&kind.path(*bends, self.w, self.h, &self.adjust)),
+                }],
+                sites: Vec::new(),
+            },
+        }
+    }
+}
 
 /// A request from the UI. JSON: `{"type":"apply","command":{...}}`,
 /// `{"type":"undo"}`, `{"type":"getMedia","id":3}`.
@@ -70,6 +147,10 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
     },
+    /// Outlines (and connection sites) of preset shapes and connectors for
+    /// rendering → `shapePaths` (one entry per query, in order). Changes
+    /// nothing.
+    ShapePaths { queries: Vec<PathQuery> },
 }
 
 /// The successful part of a [`Response`].
@@ -123,6 +204,8 @@ pub enum ResponseBody {
         revision: Revision,
         name: Option<String>,
     },
+    /// The reply to `shapePaths`.
+    ShapePaths { shapes: Vec<ShapePaths> },
 }
 
 /// The reply: `{"ok":{"type":"patch",...}}` or
@@ -214,6 +297,9 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
             presentation(host)
         }
         Request::DocumentState => state(host),
+        Request::ShapePaths { queries } => ResponseBody::ShapePaths {
+            shapes: queries.iter().map(PathQuery::compute).collect(),
+        },
         Request::MarkSaved { name } => {
             if let Some(name) = name {
                 host.doc_mut().source_name = Some(name);

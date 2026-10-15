@@ -6,8 +6,9 @@ use core_model::{
     Underline, VerticalAlign,
 };
 use model_show::{
-    Alignment, Anchor, AutoNumScheme, Autofit, BodyProps, Bullet, Emu, Fill, Line, LineDash,
-    TextBody, TextParagraph, TextParagraphProps, TextRun, TextSpacing, Transform,
+    Alignment, Anchor, ArrowEnd, ArrowKind, ArrowSize, AutoNumScheme, Autofit, BodyProps, Bullet,
+    Emu, Fill, Line, LineDash, TextBody, TextParagraph, TextParagraphProps, TextRun, TextSpacing,
+    Transform,
 };
 
 use crate::xml::{parse_bool, parse_i64, parse_u32, El, XmlOut};
@@ -427,15 +428,6 @@ pub fn read_line(ln: Option<&El>, style: Option<Line>, w: &mut Warnings) -> Line
         w.add("custom line dash read as dashed");
         line.dash = LineDash::Dash;
     }
-    for end in ["headEnd", "tailEnd"] {
-        if ln
-            .child(end)
-            .and_then(|e| e.attr("type"))
-            .is_some_and(|t| t != "none")
-        {
-            w.add("arrowheads dropped");
-        }
-    }
     if ln.attr("cmpd").is_some_and(|c| c != "sng") {
         w.add("compound lines read as single lines");
     }
@@ -444,11 +436,87 @@ pub fn read_line(ln: Option<&El>, style: Option<Line>, w: &mut Warnings) -> Line
 
 /// Writes `a:ln` (always explicit: width, fill, dash).
 pub fn write_line(x: &mut XmlOut, line: &Line) {
+    write_line_with_ends(x, "a:ln", line, &ArrowEnd::default(), &ArrowEnd::default());
+}
+
+/// Writes an outline element `name` (`a:ln`, or `a:lnL` … in table cells)
+/// with arrowheads (`a:headEnd`/`a:tailEnd`, only when set).
+pub fn write_line_with_ends(
+    x: &mut XmlOut,
+    name: &str,
+    line: &Line,
+    head: &ArrowEnd,
+    tail: &ArrowEnd,
+) {
     let wv = line.width.0.max(0).to_string();
-    x.start("a:ln", &[("w", &wv)]);
+    x.start(name, &[("w", &wv)]);
     write_fill(x, &line.fill);
     x.empty("a:prstDash", &[("val", dash_name(line.dash))]);
-    x.end("a:ln");
+    for (el, end) in [("a:headEnd", head), ("a:tailEnd", tail)] {
+        if !end.is_none() {
+            let mut attrs = vec![("type", arrow_kind_name(end.kind))];
+            if end.width != ArrowSize::Medium {
+                attrs.push(("w", arrow_size_name(end.width)));
+            }
+            if end.length != ArrowSize::Medium {
+                attrs.push(("len", arrow_size_name(end.length)));
+            }
+            x.empty(el, &attrs);
+        }
+    }
+    x.end(name);
+}
+
+fn arrow_kind_name(k: ArrowKind) -> &'static str {
+    match k {
+        ArrowKind::None => "none",
+        ArrowKind::Triangle => "triangle",
+        ArrowKind::Stealth => "stealth",
+        ArrowKind::Diamond => "diamond",
+        ArrowKind::Oval => "oval",
+        ArrowKind::Arrow => "arrow",
+    }
+}
+
+fn arrow_size_name(s: ArrowSize) -> &'static str {
+    match s {
+        ArrowSize::Small => "sm",
+        ArrowSize::Medium => "med",
+        ArrowSize::Large => "lg",
+    }
+}
+
+/// The arrowheads of `a:ln` (`a:headEnd`, `a:tailEnd`; unknown types
+/// read as triangles with a warning).
+pub fn read_arrows(ln: Option<&El>, w: &mut Warnings) -> (ArrowEnd, ArrowEnd) {
+    let end = |name: &str, w: &mut Warnings| {
+        let Some(e) = ln.and_then(|l| l.child(name)) else {
+            return ArrowEnd::default();
+        };
+        let kind = match e.attr("type").unwrap_or("none") {
+            "none" => ArrowKind::None,
+            "triangle" => ArrowKind::Triangle,
+            "stealth" => ArrowKind::Stealth,
+            "diamond" => ArrowKind::Diamond,
+            "oval" => ArrowKind::Oval,
+            "arrow" => ArrowKind::Arrow,
+            other => {
+                w.add(format!("arrowhead {other} read as a triangle"));
+                ArrowKind::Triangle
+            }
+        };
+        let size = |a: &str| match e.attr(a) {
+            Some("sm") => ArrowSize::Small,
+            Some("lg") => ArrowSize::Large,
+            _ => ArrowSize::Medium,
+        };
+        ArrowEnd {
+            kind,
+            width: size("w"),
+            length: size("len"),
+        }
+    };
+    (end("headEnd", w), end("tailEnd", w))
 }
 
 // --- text: body and paragraphs --------------------------------------------------------
@@ -1249,17 +1317,37 @@ mod tests {
             );
         }
         let mut w = Warnings::default();
-        read_line(
-            Some(&el(
-                r#"<a:ln><a:prstDash val="dashDot"/><a:tailEnd type="triangle"/></a:ln>"#,
-            )),
-            None,
-            &mut w,
+        let ln = el(
+            r#"<a:ln><a:prstDash val="dashDot"/><a:tailEnd type="triangle"/><a:headEnd type="swirl" w="lg" len="sm"/></a:ln>"#,
         );
+        read_line(Some(&ln), None, &mut w);
+        let (head, tail) = read_arrows(Some(&ln), &mut w);
         assert_eq!(
             w.into_vec(),
-            ["line dash dashDot read as dashed", "arrowheads dropped"]
+            [
+                "line dash dashDot read as dashed",
+                "arrowhead swirl read as a triangle"
+            ]
         );
+        assert_eq!(tail, ArrowEnd::new(ArrowKind::Triangle));
+        assert_eq!(
+            head,
+            ArrowEnd {
+                kind: ArrowKind::Triangle,
+                width: ArrowSize::Large,
+                length: ArrowSize::Small
+            }
+        );
+        // arrowheads round-trip
+        let line = Line::solid(Color::theme(ThemeColorSlot::Accent1), Emu(9_525));
+        let s = written(|x| write_line_with_ends(x, "a:ln", &line, &head, &tail));
+        assert_eq!(
+            s,
+            r#"<a:ln w="9525"><a:solidFill><a:schemeClr val="accent1"/></a:solidFill><a:prstDash val="solid"/><a:headEnd type="triangle" w="lg" len="sm"/><a:tailEnd type="triangle"/></a:ln>"#
+        );
+        let mut w = Warnings::default();
+        assert_eq!(read_arrows(Some(&el(&s)), &mut w), (head, tail));
+        assert!(w.into_vec().is_empty());
     }
 
     #[test]

@@ -7,11 +7,13 @@ use app_common::{Applied, DispatchError, Document as AppDocument};
 use core_model::media::{base64_decode, base64_encode, Media};
 use core_model::units::Emu;
 use model_show::{
-    align_shapes, distribute, AlignMode, Fill, Layout, LayoutKind, Line, NodeId, Presentation,
-    Shape, ShapeKind, Slide, Transform,
+    align_shapes, distribute, AlignMode, Attach, Connector, Fill, Layout, LayoutKind, Line, NodeId,
+    Presentation, Shape, ShapeKind, Site, Slide, Table, Transform,
 };
 
-use crate::command::{AlignTarget, AnimationPatch, NewShape, NewShapeKind, ShowCommand, ZOp};
+use crate::command::{
+    AlignTarget, AnimationPatch, NewAttach, NewShape, NewShapeKind, ShowCommand, ZOp,
+};
 use crate::image::pixel_size;
 use crate::patch::ShowPatch;
 use crate::text::{para_len, set_run_props};
@@ -222,8 +224,10 @@ fn scale_shapes(shapes: &mut [Shape], sx: f64, sy: f64) {
         t.y = s(t.y, sy);
         t.w = s(t.w, sx);
         t.h = s(t.h, sy);
-        if let ShapeKind::Group { children } = &mut c.kind {
-            scale_shapes(children, sx, sy);
+        match &mut c.kind {
+            ShapeKind::Group { children } => scale_shapes(children, sx, sy),
+            ShapeKind::Table(table) => table.scale_to(t.w, t.h),
+            _ => {}
         }
     }
 }
@@ -308,8 +312,73 @@ fn normalize_shape(shape: &mut Shape) {
             text: Some(body), ..
         } => body.normalize(),
         ShapeKind::Group { children } => children.iter_mut().for_each(normalize_shape),
+        ShapeKind::Table(t) => t.normalize(),
         _ => {}
     }
+}
+
+/// Where shape `id` is on `slide` and where its connection sites are.
+fn site_state(slide: &Slide, id: NodeId) -> Option<(Transform, Vec<Site>)> {
+    Some((
+        slide.absolute_transform(id)?,
+        slide.find_shape(id)?.connection_sites(),
+    ))
+}
+
+/// Keeps connectors glued after an edit of `slide` (`old` = its content
+/// before): attachments to removed shapes are dropped; connectors whose
+/// attached shapes moved (or changed geometry), or whose attachments or
+/// kind changed, are rerouted; a connector moved by the edit itself lets go
+/// of shapes that stayed where they were (as dragging it in PowerPoint).
+fn follow_connectors(old: &Slide, slide: &mut Slide) {
+    slide.detach_missing();
+    let mut reroute = Vec::new();
+    let mut detach = Vec::new();
+    for cid in slide.connector_ids() {
+        let Some(c) = slide.find_shape(cid).and_then(Shape::connector) else {
+            continue;
+        };
+        let before = old.find_shape(cid).and_then(Shape::connector);
+        let unchanged = before == Some(c);
+        let self_moved = unchanged && old.absolute_transform(cid) != slide.absolute_transform(cid);
+        let moved = |a: &Attach| site_state(old, a.shape) != site_state(slide, a.shape);
+        let (start_moved, end_moved) = (
+            c.start.is_some_and(|a| moved(&a)),
+            c.end.is_some_and(|a| moved(&a)),
+        );
+        if self_moved {
+            let lets_go = (
+                c.start.is_some() && !start_moved,
+                c.end.is_some() && !end_moved,
+            );
+            if lets_go.0 || lets_go.1 {
+                detach.push((cid, lets_go));
+            }
+        }
+        if !unchanged || start_moved || end_moved {
+            reroute.push(cid);
+        }
+    }
+    for (cid, (start, end)) in detach {
+        if let Some(ShapeKind::Connector(c)) = slide.find_shape_mut(cid).map(|s| &mut s.kind) {
+            if start {
+                c.start = None;
+            }
+            if end {
+                c.end = None;
+            }
+        }
+    }
+    for cid in reroute {
+        slide.reroute_connector(cid);
+    }
+}
+
+/// The table of shape `s`, or an error.
+fn table_of(s: &mut Shape) -> R<&mut Table> {
+    let id = s.id.0;
+    s.table_mut()
+        .ok_or_else(|| invalid(format!("shape {id} is not a table")))
 }
 
 impl ShowDocument {
@@ -496,10 +565,12 @@ impl ShowDocument {
             }
             return Err(e);
         }
-        // Animations of shapes that were removed go with them.
-        for &id in slides {
-            if let Some(s) = self.pres.slide_mut(id) {
+        // Animations of shapes that were removed go with them; connectors
+        // follow the shapes they are glued to.
+        for (id, before) in slides.iter().zip(&old) {
+            if let Some(s) = self.pres.slide_mut(*id) {
                 s.prune_animations();
+                follow_connectors(before, s);
             }
         }
         ch.slides.extend_from_slice(slides);
@@ -527,6 +598,30 @@ impl ShowDocument {
             for &id in shapes {
                 f(d.shape_mut(id)?)?;
             }
+            Ok(())
+        })
+    }
+
+    /// Edits the table (and box) of table shape `shape` with `f`; the
+    /// table must stay valid.
+    fn edit_table(
+        &mut self,
+        shape: NodeId,
+        ch: &mut Changes,
+        f: impl FnOnce(&mut Table, &mut Transform) -> Result<(), String>,
+    ) -> R<C> {
+        if self.shape(shape)?.table_data().is_none() {
+            return Err(invalid(format!("shape {} is not a table", shape.0)));
+        }
+        let mut f = Some(f);
+        self.edit_shapes(&[shape], ch, |s| {
+            let mut tr = s.transform;
+            let t = table_of(s)?;
+            if let Some(f) = f.take() {
+                f(t, &mut tr).map_err(invalid)?;
+            }
+            t.validate().map_err(invalid)?;
+            s.transform = tr;
             Ok(())
         })
     }
@@ -612,6 +707,7 @@ impl ShowDocument {
                     a.id = self.pres.alloc_id();
                     a.shape = map.get(&a.shape).copied().unwrap_or(a.shape);
                 }
+                model_show::presentation::remap_attachments(&mut copy.shapes, &map);
                 let new_id = copy.id;
                 self.pres.slides.insert(index + 1, copy);
                 ch.slides.push(new_id);
@@ -650,7 +746,8 @@ impl ShowDocument {
                 let shape = self.build_shape(shape, &mut ids, ch)?;
                 self.edit_slide(*slide, ch, |s| {
                     s.shapes.insert(at, shape);
-                    Ok(())
+                    // connectors must be glued to shapes of this slide
+                    s.validate().map_err(|e| invalid(e.to_string()))
                 })
             }
             C::DeleteShapes { ids } => {
@@ -678,6 +775,11 @@ impl ShowDocument {
                     for (id, t) in shapes {
                         let s = d.shape_mut(*id)?;
                         let old = s.transform;
+                        if let ShapeKind::Table(table) = &mut s.kind {
+                            if (t.w, t.h) != (old.w, old.h) {
+                                table.scale_to(t.w, t.h);
+                            }
+                        }
                         if let ShapeKind::Group { children } = &mut s.kind {
                             let f = |new: Emu, old: Emu| {
                                 if old.0 == 0 {
@@ -990,6 +1092,222 @@ impl ShowDocument {
                     Ok(())
                 })
             }
+            C::SetGeometry {
+                shapes,
+                geometry,
+                adjust,
+            } => {
+                for &id in shapes {
+                    let s = self.shape(id)?;
+                    let ShapeKind::Auto { geometry: g, .. } = &s.kind else {
+                        return Err(invalid(format!("shape {} is not an auto shape", id.0)));
+                    };
+                    let preset = geometry.as_ref().unwrap_or(g);
+                    if let Some(adj) = adjust {
+                        let allowed = preset.adjust_defaults();
+                        if let Some(bad) = adj.keys().find(|k| !allowed.iter().any(|(n, _)| n == k))
+                        {
+                            return Err(invalid(format!(
+                                "{} has no adjust value {bad}",
+                                preset.prst()
+                            )));
+                        }
+                    }
+                }
+                self.edit_shapes(shapes, ch, |s| {
+                    if let ShapeKind::Auto {
+                        geometry: g,
+                        adjust: a,
+                        ..
+                    } = &mut s.kind
+                    {
+                        if let Some(new) = geometry {
+                            if new != g {
+                                *g = new.clone();
+                                a.clear();
+                            }
+                        }
+                        if let Some(new) = adjust {
+                            a.clone_from(new);
+                        }
+                    }
+                    Ok(())
+                })
+            }
+            C::SetConnector { shape, patch } => {
+                if self.shape(*shape)?.connector().is_none() {
+                    return Err(invalid(format!("shape {} is not a connector", shape.0)));
+                }
+                let slides = self.slides_of(&[*shape])?;
+                self.edit_slides(&slides, ch, |d| {
+                    if let ShapeKind::Connector(c) = &mut d.shape_mut(*shape)?.kind {
+                        patch.apply_to(c);
+                    }
+                    d.slide_mut(slides[0])?
+                        .validate()
+                        .map_err(|e| invalid(e.to_string()))
+                })
+            }
+            C::InsertTable {
+                slide,
+                rows,
+                cols,
+                transform,
+                new_id,
+            } => {
+                self.slide_index(*slide)?;
+                if *rows == 0 || *cols == 0 || *rows > 1_000 || *cols > 1_000 {
+                    return Err(invalid("a table needs 1–1000 rows and columns"));
+                }
+                let t = match transform {
+                    Some(t) => {
+                        check_transform(t)?;
+                        *t
+                    }
+                    None => {
+                        let size = self.pres.slide_size;
+                        let w = size.width.0 * 2 / 3;
+                        let h = 370_840 * i64::from(*rows);
+                        Transform::new(
+                            Emu((size.width.0 - w) / 2),
+                            Emu(((size.height.0 - h) / 2).max(0)),
+                            Emu(w),
+                            Emu(h),
+                        )
+                    }
+                };
+                let mut ids = Ids::new(&self.pres);
+                let id = ids.resolve(&mut self.pres, ch, Some(*new_id))?;
+                let mut shape = Shape::table(*rows as usize, *cols as usize, t);
+                shape.id = id;
+                shape.fill_default_name();
+                self.edit_slide(*slide, ch, |s| {
+                    s.shapes.push(shape);
+                    Ok(())
+                })
+            }
+            C::SetTableCellText {
+                shape,
+                row,
+                col,
+                body,
+            } => {
+                let mut body = body.clone();
+                body.normalize();
+                self.edit_table(*shape, ch, |t, _| {
+                    let cell = t
+                        .cell_mut(*row as usize, *col as usize)
+                        .ok_or_else(|| format!("cell {row},{col} out of the table"))?;
+                    if cell.covered {
+                        return Err(format!("cell {row},{col} is covered by a merged cell"));
+                    }
+                    // margins and alignment stay with the cell
+                    let props = cell.text.props;
+                    cell.text = body.clone();
+                    cell.text.props = props;
+                    Ok(())
+                })
+            }
+            C::InsertTableRow { shape, index } => self.edit_table(*shape, ch, |t, tr| {
+                t.insert_row(*index as usize)?;
+                tr.h = Emu(tr.h.0 + t.rows[*index as usize].height.0);
+                Ok(())
+            }),
+            C::InsertTableCol { shape, index } => self.edit_table(*shape, ch, |t, tr| {
+                t.insert_col(*index as usize)?;
+                tr.w = Emu(tr.w.0 + t.cols[*index as usize].width.0);
+                Ok(())
+            }),
+            C::DeleteTableRow { shape, index } => self.edit_table(*shape, ch, |t, tr| {
+                let h = t.rows.get(*index as usize).map_or(0, |r| r.height.0);
+                t.delete_row(*index as usize)?;
+                tr.h = Emu((tr.h.0 - h).max(0));
+                Ok(())
+            }),
+            C::DeleteTableCol { shape, index } => self.edit_table(*shape, ch, |t, tr| {
+                let w = t.cols.get(*index as usize).map_or(0, |c| c.width.0);
+                t.delete_col(*index as usize)?;
+                tr.w = Emu((tr.w.0 - w).max(0));
+                Ok(())
+            }),
+            C::MergeTableCells {
+                shape,
+                row,
+                col,
+                row_span,
+                col_span,
+            } => self.edit_table(*shape, ch, |t, _| {
+                t.merge(
+                    *row as usize,
+                    *col as usize,
+                    *row_span as usize,
+                    *col_span as usize,
+                )
+            }),
+            C::SplitTableCell { shape, row, col } => {
+                self.edit_table(*shape, ch, |t, _| t.split(*row as usize, *col as usize))
+            }
+            C::SetTableCellProps {
+                shape,
+                row,
+                col,
+                row_span,
+                col_span,
+                patch,
+            } => self.edit_table(*shape, ch, |t, _| {
+                let (r0, c0) = (*row as usize, *col as usize);
+                let (r1, c1) = (r0 + *row_span as usize, c0 + *col_span as usize);
+                if *row_span == 0 || *col_span == 0 || r1 > t.row_count() || c1 > t.col_count() {
+                    return Err(format!(
+                        "cell range {row},{col} {row_span}×{col_span} out of the table"
+                    ));
+                }
+                for r in r0..r1 {
+                    for c in c0..c1 {
+                        if let Some(cell) = t.cell_mut(r, c) {
+                            patch.apply_to(cell);
+                        }
+                    }
+                }
+                Ok(())
+            }),
+            C::SetTableStyle {
+                shape,
+                style_id,
+                look,
+            } => {
+                let style = style_id.clone().filter(|s| !s.is_empty());
+                self.edit_table(*shape, ch, |t, _| {
+                    t.style_id.clone_from(&style);
+                    t.look = *look;
+                    Ok(())
+                })
+            }
+            C::SetTableGrid {
+                shape,
+                col_widths,
+                row_heights,
+            } => self.edit_table(*shape, ch, |t, tr| {
+                if let Some(w) = col_widths {
+                    if w.len() != t.col_count() || w.iter().any(|v| v.0 < 0) {
+                        return Err(format!("expected {} column widths ≥ 0", t.col_count()));
+                    }
+                    for (c, v) in t.cols.iter_mut().zip(w) {
+                        c.width = *v;
+                    }
+                    tr.w = t.width();
+                }
+                if let Some(h) = row_heights {
+                    if h.len() != t.row_count() || h.iter().any(|v| v.0 < 0) {
+                        return Err(format!("expected {} row heights ≥ 0", t.row_count()));
+                    }
+                    for (r, v) in t.rows.iter_mut().zip(h) {
+                        r.height = *v;
+                    }
+                    tr.h = t.height();
+                }
+                Ok(())
+            }),
             C::Compound { commands } => {
                 let mut inverses = Vec::with_capacity(commands.len());
                 for cmd in commands {
@@ -1153,10 +1471,47 @@ impl ShowDocument {
         check_transform(&ns.transform)?;
         let id = ids.resolve(&mut self.pres, ch, Some(ns.id))?;
         let kind = match &ns.kind {
-            NewShapeKind::Auto { geometry, text } => ShapeKind::Auto {
-                geometry: *geometry,
+            NewShapeKind::Auto {
+                geometry,
+                adjust,
+                text,
+            } => ShapeKind::Auto {
+                geometry: geometry.clone(),
+                adjust: adjust.clone(),
                 text: text.clone(),
             },
+            NewShapeKind::Connector(c) => {
+                // temporary ids of shapes created earlier in this command
+                let attach = |a: &Option<NewAttach>| -> R<Option<Attach>> {
+                    let Some(a) = a else { return Ok(None) };
+                    let shape = if a.shape < 0 {
+                        ch.id_map
+                            .iter()
+                            .find(|(t, _)| *t == a.shape)
+                            .map(|(_, real)| *real)
+                            .ok_or_else(|| invalid(format!("unknown temporary id {}", a.shape)))?
+                    } else {
+                        NodeId(a.shape as u64)
+                    };
+                    Ok(Some(Attach {
+                        shape,
+                        site: a.site,
+                    }))
+                };
+                ShapeKind::Connector(Connector {
+                    kind: c.kind,
+                    bends: c.bends.clamp(1, 4),
+                    start: attach(&c.start)?,
+                    end: attach(&c.end)?,
+                    head: c.head,
+                    tail: c.tail,
+                    adjust: c.adjust.clone(),
+                })
+            }
+            NewShapeKind::Table(t) => {
+                t.validate().map_err(invalid)?;
+                ShapeKind::Table(t.clone())
+            }
             NewShapeKind::Picture { media } => {
                 if self.pres.media.get(*media).is_none() {
                     return Err(ShowError::UnknownMedia(media.0));

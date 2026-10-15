@@ -30,7 +30,7 @@ fn files() -> Vec<PathBuf> {
         .filter(|p| p.extension().is_some_and(|e| e == "pptx"))
         .collect();
     v.sort();
-    assert!(v.len() >= 28, "{v:?}");
+    assert!(v.len() >= 30, "{v:?}");
     v
 }
 
@@ -122,17 +122,28 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
     }
     for s in all_shapes(p) {
         match &s.kind {
-            ShapeKind::Auto { geometry, .. } => {
-                let g = match geometry {
-                    Preset::Rect => "rect",
-                    Preset::RoundRect => "roundRect",
-                    Preset::Ellipse => "ellipse",
-                    Preset::Line => "line",
-                };
-                add(format!("shape:{g}"));
-            }
+            ShapeKind::Auto { geometry, .. } => add(format!("shape:{}", geometry.prst())),
             ShapeKind::Picture { .. } => add("picture".into()),
             ShapeKind::Group { .. } => add("group".into()),
+            ShapeKind::Connector(c) => {
+                add(format!("connector:{}", camel(&format!("{:?}", c.kind))));
+                if c.start.is_some() || c.end.is_some() {
+                    add("connector:attached".into());
+                }
+                if !c.head.is_none() || !c.tail.is_none() {
+                    add("line:arrow".into());
+                }
+            }
+            ShapeKind::Table(t) => {
+                add("table".into());
+                if t.cells
+                    .iter()
+                    .flatten()
+                    .any(|c| c.row_span > 1 || c.col_span > 1)
+                {
+                    add("table:merged".into());
+                }
+            }
         }
         if s.is_text_box() {
             add("shape:textBox".into());
@@ -240,17 +251,12 @@ fn camel(debug: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Checks one manifest feature against the found features (and warnings,
-/// for presets we read as rectangles).
-fn has_feature(found: &BTreeMap<String, usize>, warnings: &[String], feature: &str) -> bool {
+/// Checks one manifest feature against the found features.
+fn has_feature(found: &BTreeMap<String, usize>, feature: &str) -> bool {
     if let Some((key, n)) = feature.rsplit_once(":count=") {
         let n: usize = n.parse().unwrap();
         let count = found.get(key).copied().unwrap_or(0);
         return match key {
-            // read as rectangles, reported as warnings
-            "shape:rightArrow" => warnings
-                .iter()
-                .any(|w| w.starts_with("preset geometry rightArrow read as rectangle")),
             // exact counts
             "shape:textBox" | "picture" | "group" => count == n,
             // at least (rect also matches text boxes and placeholders)
@@ -264,12 +270,12 @@ fn has_feature(found: &BTreeMap<String, usize>, warnings: &[String], feature: &s
 fn manifest_features_are_found() {
     let mut failures = Vec::new();
     let entries = manifest();
-    assert_eq!(entries.len(), 27);
+    assert_eq!(entries.len(), 29);
     for e in entries {
-        let (p, warnings) = fmt_pptx::read_with_warnings(&load(&e.file)).unwrap();
+        let p = fmt_pptx::read(&load(&e.file)).unwrap();
         let found = features_of(&p);
         for feat in &e.features {
-            if !has_feature(&found, &warnings, feat) {
+            if !has_feature(&found, feat) {
                 failures.push(format!("{}: {feat} not found in {found:?}", e.file));
             }
         }
@@ -337,7 +343,8 @@ fn reference_details() {
         line.kind,
         ShapeKind::Auto {
             geometry: Preset::Line,
-            text: None
+            text: None,
+            ..
         }
     ));
     assert_eq!(line.line.width.0, 54_000);
@@ -374,8 +381,13 @@ fn reference_details() {
     // 27: animations in play order, targets resolved
     let (p, warnings) =
         fmt_pptx::read_with_warnings(&load("provisional-27-animations.pptx")).unwrap();
-    assert_eq!(warnings, ["rounded rectangle corner size dropped"]);
+    assert!(warnings.is_empty(), "{warnings:?}");
     p.validate().unwrap();
+    // LibreOffice writes the rounded rectangle's corner size
+    assert!(all_shapes(&p).iter().any(|s| matches!(
+        &s.kind,
+        ShapeKind::Auto { geometry: Preset::RoundRect, adjust, .. } if adjust.contains_key("adj")
+    )));
     let s1 = &p.slides[0];
     assert_eq!(s1.animations[0].shape, s1.shapes[0].id);
     assert_eq!(
@@ -407,6 +419,45 @@ fn reference_details() {
         ]
     );
     assert_eq!(s2.animations[3].duration_ms, 2000);
+
+    // 28: LibreOffice connectors glued to flowchart shapes, with arrowheads
+    let (p, warnings) =
+        fmt_pptx::read_with_warnings(&load("provisional-28-flowchart.pptx")).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    p.validate().unwrap();
+    let s1 = &p.slides[0];
+    let conns: Vec<_> = s1.shapes.iter().filter_map(Shape::connector).collect();
+    assert_eq!(conns.len(), 6);
+    assert!(conns.iter().all(|c| c.start.is_some() && c.end.is_some()));
+    assert!(conns
+        .iter()
+        .all(|c| c.tail.kind == model_show::ArrowKind::Triangle));
+    // Start (bottom, site 2) → Read (top, site 0)
+    assert_eq!(conns[0].start.unwrap().shape, s1.shapes[0].id);
+    assert_eq!(
+        (conns[0].start.unwrap().site, conns[0].end.unwrap().site),
+        (2, 0)
+    );
+    // LibreOffice routes perpendicular sites with one turn
+    assert_eq!(
+        (conns[1].kind, conns[1].bends),
+        (model_show::ConnectorKind::Elbow, 1)
+    );
+
+    // 29: LibreOffice tables
+    let (p, warnings) = fmt_pptx::read_with_warnings(&load("provisional-29-table.pptx")).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let t = p.slides[0].shapes[0].table_data().unwrap();
+    assert_eq!((t.row_count(), t.col_count()), (4, 3));
+    assert_eq!(t.cells[0][0].text.plain_text(), "Region");
+    assert_eq!(t.cells[1][0].row_span, 2);
+    assert!(t.cells[2][0].covered);
+    assert_eq!(
+        t.cells[3][2].fill,
+        Some(Fill::Solid(Color::Rgb(Rgb::new(0xFF, 0xC0, 0x00))))
+    );
+    let t2 = p.slides[1].shapes[0].table_data().unwrap();
+    assert_eq!(t2.cells[0][0].col_span, 2);
 
     // 24: 4:3 slides
     let p = fmt_pptx::read(&load("provisional-24-size-4x3.pptx")).unwrap();
@@ -528,7 +579,9 @@ fn powerpoint_style_package() -> Vec<u8> {
     );
     let styled = r#"<p:sp><p:nvSpPr><p:cNvPr id="4" name="Oval 3"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="100" y="100"/><a:ext cx="1000" cy="500"/></a:xfrm><a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom></p:spPr><p:style><a:lnRef idx="2"><a:schemeClr val="accent1"><a:shade val="50000"/></a:schemeClr></a:lnRef><a:fillRef idx="1"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="lt1"/></a:fontRef></p:style><p:txBody><a:bodyPr rtlCol="0" anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US"/><a:t>Styled</a:t></a:r></a:p></p:txBody></p:sp>"#;
     let cxn = r#"<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="5" name="Straight Connector 4"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm flipV="1"><a:off x="0" y="0"/><a:ext cx="2000" cy="1000"/></a:xfrm><a:prstGeom prst="line"><a:avLst/></a:prstGeom><a:ln w="28575"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:prstDash val="dash"/></a:ln></p:spPr></p:cxnSp>"#;
-    let table = r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="6" name="Table 5"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="0" y="0"/><a:ext cx="1" cy="1"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl/></a:graphicData></a:graphic></p:graphicFrame>"#;
+    // PowerPoint's 2×2 default table (style from tableStyles.xml's def is
+    // not given here: the table names its style)
+    let table = r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="6" name="Table 5"/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr><p:extLst/></p:nvPr></p:nvGraphicFramePr><p:xfrm><a:off x="1000" y="2000"/><a:ext cx="8128000" cy="741680"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr firstRow="1" bandRow="1"><a:tableStyleId>{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}</a:tableStyleId></a:tblPr><a:tblGrid><a:gridCol w="4064000"><a:extLst/></a:gridCol><a:gridCol w="4064000"/></a:tblGrid><a:tr h="370840"><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US" dirty="0"/><a:t>Name</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></a:txBody><a:tcPr anchor="ctr"/></a:tc><a:extLst/></a:tr><a:tr h="370840"><a:tc gridSpan="2"><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US"/><a:t>Merged</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc><a:tc hMerge="1"><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></a:txBody><a:tcPr/></a:tc></a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame>"#;
     let slide = format!(
         r#"<p:sld {P}>{}<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>"#,
         tree(&format!(
@@ -600,14 +653,24 @@ fn powerpoint_style_package() -> Vec<u8> {
 fn powerpoint_style_inheritance() {
     use model_show::{Emu, PlaceholderKind};
     let (p, warnings) = fmt_pptx::read_with_warnings(&powerpoint_style_package()).unwrap();
-    assert_eq!(warnings, ["tables dropped"]);
+    assert!(warnings.is_empty(), "{warnings:?}");
     // The (empty) notes part is read: no notes text.
     assert_eq!(p.slides[0].notes, None);
     let slide = &p.slides[0];
     assert_eq!(slide.layout, LayoutKind::TitleContent);
-    let [title, body, oval, line] = &slide.shapes[..] else {
+    let [title, body, oval, line, table] = &slide.shapes[..] else {
         panic!("{:?}", slide.shapes)
     };
+    // the table: grid, text, anchor, merge, style
+    let t = table.table_data().unwrap();
+    assert_eq!((t.row_count(), t.col_count()), (2, 2));
+    assert_eq!(t.cells[0][0].text.plain_text(), "Name");
+    assert_eq!(t.cells[0][1].text.props.anchor, Anchor::Middle);
+    assert_eq!(t.cells[1][0].col_span, 2);
+    assert!(t.cells[1][1].covered);
+    assert!(t.look.first_row && t.look.band_rows);
+    assert_eq!(table.transform.w, Emu(8_128_000));
+    assert_eq!(table.name, "Table 5");
     // title: position from the layout; body: from the master (by idx/class)
     assert_eq!(title.placeholder, Some(PlaceholderKind::Title));
     assert_eq!(
@@ -643,7 +706,8 @@ fn powerpoint_style_inheritance() {
         line.kind,
         ShapeKind::Auto {
             geometry: Preset::Line,
-            text: None
+            text: None,
+            ..
         }
     ));
     assert!(line.transform.flip_v);

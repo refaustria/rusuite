@@ -36,8 +36,11 @@ mod patch;
 mod text;
 
 pub use command::{
-    AlignTarget, AnimationPatch, NewShape, NewShapeKind, ShowCommand, TextParagraphPatch, ZOp,
+    AlignTarget, AnimationPatch, ConnectorPatch, NewAttach, NewConnector, NewShape, NewShapeKind,
+    ShowCommand, TableCellPatch, TextParagraphPatch, ZOp,
 };
-pub use dispatch::{dispatch_with, Request, Response, ResponseBody, ShowHost};
+pub use dispatch::{
+    dispatch_with, PathKind, PathQuery, Request, Response, ResponseBody, ShapePaths, ShowHost,
+};
 pub use doc::{ShowDocument, ShowError};
 pub use patch::ShowPatch;
