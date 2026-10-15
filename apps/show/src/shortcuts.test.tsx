@@ -103,6 +103,35 @@ describe("Show shortcuts", () => {
     expect(screen.getByTestId("presenter-counter").textContent).toBe("2 / 3");
   });
 
+  it("Alt+F5 opens the presenter view with the slide in a second window; Esc ends both", async () => {
+    const { store } = await mount();
+    store.selectSlide(4);
+    const audience = { closed: false, close: vi.fn() };
+    const open = vi.spyOn(window, "open").mockReturnValue(audience as unknown as Window);
+    await key({ key: "F5", code: "F5", altKey: true });
+    await flush();
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(String(open.mock.calls[0]![0])).toMatch(/\?audience=[a-z0-9]+$/);
+    expect(screen.getByTestId("console-counter").textContent).toBe("Slide 2 of 3");
+    await key({ key: "ArrowRight" });
+    expect(screen.getByTestId("console-counter").textContent).toBe("Slide 3 of 3");
+    await key({ key: "Escape" });
+    await flush();
+    expect(screen.queryByTestId("presenter-console")).toBeNull();
+    expect(audience.close).toHaveBeenCalled();
+    expect(screen.getByTestId("slide-count").textContent).toBe("Slide 3 of 3");
+  });
+
+  it("Alt+F5 with the pop-up blocked presents in this window with the notes overlay", async () => {
+    await mount();
+    vi.spyOn(window, "open").mockReturnValue(null);
+    await key({ key: "F5", code: "F5", altKey: true });
+    await flush();
+    expect(screen.queryByTestId("presenter-console")).toBeNull();
+    expect(screen.getByTestId("presenter-counter").textContent).toBe("1 / 3");
+    expect(screen.getByTestId("notes-overlay")).toBeTruthy();
+  });
+
   it("editor shortcuts are off while presenting", async () => {
     const { backend, store } = await mount();
     store.selectSlide(7);

@@ -1,39 +1,52 @@
-// Presentation mode: a frontend-only render of the model (ADR 0008).
-// Fullscreen via the Fullscreen API, falling back to a full-window
-// overlay; the slide is scaled to the screen.
+// The slide show screen: a frontend-only render of the model (ADR 0008),
+// used full-window by F5 and in the audience window of the presenter view.
+// Fullscreen via the Fullscreen API, falling back to a full-window overlay;
+// the slide is scaled to the screen. Keys and clicks become `ShowAction`s
+// (showState.ts); a blanked screen and the "End of slide show" slide are
+// drawn here; the mouse pointer hides after 3 s without movement.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Layer, Stage } from "react-konva";
 import type { Slide } from "../generated/Slide";
 import { fitScale, slidePx } from "../geometry";
 import { SlideView, type DeckContext } from "../canvas/SlideView";
+import { clickAction, keyAction, type ShowAction, type ShowState } from "./showState";
 
-/** The slide index after `key` (`"exit"` for Esc, `null` = not a presenter key). */
-export function presenterKey(key: string, index: number, count: number): number | "exit" | null {
-  const last = Math.max(0, count - 1);
-  switch (key) {
-    case "Escape":
-      return "exit";
-    case "ArrowRight":
-    case "ArrowDown":
-    case "PageDown":
-    case " ":
-    case "Enter":
-    case "n":
-      return Math.min(index + 1, last);
-    case "ArrowLeft":
-    case "ArrowUp":
-    case "PageUp":
-    case "Backspace":
-    case "p":
-      return Math.max(index - 1, 0);
-    case "Home":
-      return 0;
-    case "End":
-      return last;
-    default:
-      return null;
-  }
+export const IDLE_CURSOR_MS = 3000;
+
+/** One slide scaled into `width` × `height` (letterboxed by the caller). */
+export function SlideImage({
+  deck, slide, media, mediaVersion, width, height,
+}: { deck: DeckContext; slide: Slide; media: ReadonlyMap<number, string>; mediaVersion: number; width: number; height: number }) {
+  const scale = fitScale(width, height, deck.slideSize);
+  const px = slidePx(deck.slideSize);
+  if (scale <= 0) return null;
+  return (
+    <Stage width={px.width * scale} height={px.height * scale} scaleX={scale} scaleY={scale} listening={false}>
+      <Layer listening={false}>
+        <SlideView deck={deck} slide={slide} media={media} mediaVersion={mediaVersion} />
+      </Layer>
+    </Stage>
+  );
+}
+
+/** Keys of the show on `window` (capture phase, before the editor's shortcuts). */
+export function useShowKeys(onAction: (a: ShowAction) => void, enabled = true) {
+  const ref = useRef(onAction);
+  ref.current = onAction;
+  useEffect(() => {
+    if (!enabled) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const a = keyAction(e.key);
+      if (!a) return;
+      e.preventDefault();
+      e.stopPropagation();
+      ref.current(a);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [enabled]);
 }
 
 export interface PresenterProps {
@@ -41,26 +54,36 @@ export interface PresenterProps {
   slides: Slide[];
   media: ReadonlyMap<number, string>;
   mediaVersion: number;
-  index: number;
-  onIndex: (i: number) => void;
-  onExit: () => void;
+  show: ShowState;
+  onAction: (a: ShowAction) => void;
+  /** Leaving fullscreen (Esc) ends the show (single-window show); else it only leaves fullscreen. */
+  fullscreenExits?: boolean;
+  /** Drawn over the slide (the notes overlay of the single-window fallback). */
+  overlay?: ReactNode;
 }
 
-export function Presenter({ deck, slides, media, mediaVersion, index, onIndex, onExit }: PresenterProps) {
+export function Presenter({ deck, slides, media, mediaVersion, show, onAction, fullscreenExits = true, overlay }: PresenterProps) {
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const [idle, setIdle] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const entered = useRef(false);
+  const actionRef = useRef(onAction);
+  actionRef.current = onAction;
 
-  useEffect(() => {
+  const enterFullscreen = () => {
+    if (document.fullscreenElement) return;
     try {
-      const p = root.current?.requestFullscreen?.();
-      void p?.catch(() => undefined);
+      void root.current?.requestFullscreen?.()?.catch(() => undefined);
     } catch {
       // Fullscreen unavailable: the overlay still covers the window.
     }
+  };
+
+  useEffect(() => {
+    enterFullscreen();
     const onFs = () => {
       if (document.fullscreenElement) entered.current = true;
-      else if (entered.current) onExit(); // the user left fullscreen (Esc)
+      else if (entered.current && fullscreenExits) actionRef.current({ type: "exit" }); // the user left fullscreen (Esc)
     };
     const onResize = () => setSize({ width: window.innerWidth, height: window.innerHeight });
     document.addEventListener("fullscreenchange", onFs);
@@ -70,43 +93,61 @@ export function Presenter({ deck, slides, media, mediaVersion, index, onIndex, o
       window.removeEventListener("resize", onResize);
       if (document.fullscreenElement) void document.exitFullscreen?.()?.catch(() => undefined);
     };
-  }, [onExit]);
+  }, [fullscreenExits]);
 
+  // The pointer hides after 3 s without movement.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const next = presenterKey(e.key, index, slides.length);
-      if (next === null) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (next === "exit") onExit();
-      else onIndex(next);
+    let timer = window.setTimeout(() => setIdle(true), IDLE_CURSOR_MS);
+    const onMove = () => {
+      setIdle(false);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setIdle(true), IDLE_CURSOR_MS);
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [index, slides.length, onIndex, onExit]);
+    window.addEventListener("mousemove", onMove);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("mousemove", onMove);
+    };
+  }, []);
 
-  const slide = slides[index];
-  const scale = fitScale(size.width, size.height, deck.slideSize);
-  const px = slidePx(deck.slideSize);
+  // The audience window cannot go fullscreen on its own (no user gesture yet): the first key or click does it.
+  const act = (a: ShowAction) => {
+    if (!fullscreenExits && !entered.current) enterFullscreen();
+    onAction(a);
+  };
+  useShowKeys(act);
+
+  const slide = slides[show.index];
+  const blank = show.ended ? "black" : show.blank;
   return (
     <div
       ref={root}
       role="dialog"
       aria-label="Presentation"
       data-testid="presenter"
-      className="fixed inset-0 z-50 flex cursor-pointer items-center justify-center bg-black"
-      onClick={() => onIndex(Math.min(index + 1, slides.length - 1))}
+      data-blank={show.blank}
+      data-ended={show.ended ? "true" : undefined}
+      data-idle={idle ? "true" : undefined}
+      className={`fixed inset-0 z-50 flex select-none items-center justify-center ${blank === "white" ? "bg-white" : "bg-black"} ${idle ? "cursor-none" : "cursor-pointer"}`}
+      onClick={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        act(clickAction(e.clientX - r.left, r.width || window.innerWidth));
+      }}
     >
-      {slide && scale > 0 && (
-        <Stage width={px.width * scale} height={px.height * scale} scaleX={scale} scaleY={scale} listening={false}>
-          <Layer listening={false}>
-            <SlideView deck={deck} slide={slide} media={media} mediaVersion={mediaVersion} />
-          </Layer>
-        </Stage>
+      {blank === "none" && slide && (
+        <SlideImage deck={deck} slide={slide} media={media} mediaVersion={mediaVersion} width={size.width} height={size.height} />
       )}
-      <span className="pointer-events-none absolute bottom-2 right-3 text-xs text-white/40" data-testid="presenter-counter">
-        {index + 1} / {slides.length}
-      </span>
+      {show.ended && (
+        <span className="absolute left-0 right-0 top-6 text-center text-sm text-white/70" data-testid="presenter-end">
+          End of slide show, click to exit.
+        </span>
+      )}
+      {blank === "none" && !show.ended && (
+        <span className="pointer-events-none absolute bottom-2 right-3 text-xs text-white/40" data-testid="presenter-counter">
+          {show.index + 1} / {slides.length}
+        </span>
+      )}
+      {overlay}
     </div>
   );
 }
