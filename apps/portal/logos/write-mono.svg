@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Rusuite Write (monochrome)">
+  <rect width="1024" height="1024" rx="225" fill="#1F4E9A"/>
+  <rect x="256" y="256" width="320" height="112" rx="40" fill="#FFFFFF"/>
+  <rect x="256" y="456" width="512" height="112" rx="40" fill="#FFFFFF" fill-opacity=".55"/>
+  <rect x="256" y="656" width="400" height="112" rx="40" fill="#FFFFFF" fill-opacity=".55"/>
+</svg>
