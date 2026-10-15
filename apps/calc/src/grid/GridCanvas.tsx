@@ -383,27 +383,11 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.target !== scroller.current || store.getState().edit) return;
+    // Undo/redo, B/I/U, F2 and Delete are shortcut-map entries (ShortcutLayer).
+    if (e.defaultPrevented || e.target !== scroller.current || store.getState().edit) return;
     const ctrl = e.ctrlKey || e.metaKey;
     const key = e.key;
-    const lower = key.toLowerCase();
-    if (ctrl && !e.altKey) {
-      if (lower === "z" && !e.shiftKey) return void (e.preventDefault(), store.undo());
-      if (lower === "y" || (lower === "z" && e.shiftKey)) return void (e.preventDefault(), store.redo());
-      if (lower === "b") return void (e.preventDefault(), store.toggleFont("bold"));
-      if (lower === "i") return void (e.preventDefault(), store.toggleFont("italic"));
-      if (lower === "u") return void (e.preventDefault(), store.toggleFont("underline"));
-    }
-    if (key === "F2") {
-      e.preventDefault();
-      store.beginEdit(null);
-      return;
-    }
-    if (key === "Delete" || key === "Backspace") {
-      e.preventDefault();
-      void store.clearSelection();
-      return;
-    }
+    if (key === "Delete" || key === "Backspace" || key === "F2") return;
     const next = navigate(store.getState().selection, { key, shift: e.shiftKey, ctrl }, store.navContext(pageRows()));
     if (next) {
       e.preventDefault();
@@ -413,7 +397,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       if (!(whole.r0 === 0 && whole.r1 === LAST_ROW && whole.c0 === 0)) scrollIntoView(moved);
       return;
     }
-    if (key.length === 1 && !ctrl && !e.altKey) {
+    if (key.length === 1 && !ctrl && !e.altKey && !(key === " " && e.shiftKey)) {
       // Typing replaces the cell content.
       e.preventDefault();
       store.beginEdit(key);
@@ -442,6 +426,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         ref={scroller}
         data-testid="grid"
         role="grid"
+        data-calc-grid=""
         aria-label="Cells"
         aria-rowcount={LAST_ROW + 1}
         aria-colcount={LAST_COL + 1}

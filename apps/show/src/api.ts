@@ -25,30 +25,21 @@ export class ShowApiError extends Error {
   }
 }
 
-/**
- * Reply bodies of the file requests that arrive with P4-7 (not yet in the
- * generated `ResponseBody`); shaped like Write's `opened`/`saved`.
- */
-export type FileBody =
-  | { type: "opened"; presentation?: Presentation; warnings?: string[]; envelope?: PatchEnvelope }
-  | { type: "saved"; bytesBase64: string; suggestedName: string };
-
-type AnyBody = ResponseBody | FileBody;
-export type BodyOf<T extends AnyBody["type"]> = Extract<AnyBody, { type: T }>;
+export type BodyOf<T extends ResponseBody["type"]> = Extract<ResponseBody, { type: T }>;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-const SHAPES: Record<AnyBody["type"], Record<string, string>> = {
+const SHAPES: Record<ResponseBody["type"], Record<string, string>> = {
   patch: { envelope: "object" },
   presentation: { presentation: "object", envelope: "object" },
   media: { contentType: "string", bytesBase64: "string" },
   documentState: { dirty: "boolean", revision: "number" },
-  opened: {},
+  opened: { presentation: "object", envelope: "object" },
   saved: { bytesBase64: "string", suggestedName: "string" },
 };
 
 /** Checks the shape of a reply and returns its body of the expected type. */
-export function parseResponse<T extends AnyBody["type"]>(raw: unknown, expected: T): BodyOf<T> {
+export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expected: T): BodyOf<T> {
   if (!isObject(raw)) throw new ShowApiError("bad_response", `reply is not an object: ${JSON.stringify(raw)}`);
   const keys = Object.keys(raw);
   if (keys.length === 1 && keys[0] === "err") {
@@ -79,9 +70,6 @@ export function parseResponse<T extends AnyBody["type"]>(raw: unknown, expected:
   return body as BodyOf<T>;
 }
 
-/** The P4-7 file requests (not yet in the generated `Request`). */
-type FileRequest = { type: "openPptx"; bytesBase64: string; name: string } | { type: "savePptx" };
-
 /** One method per `Request` kind. */
 export class ShowApi {
   /** Number of `apply` requests sent (for diagnostics). */
@@ -89,10 +77,10 @@ export class ShowApi {
 
   constructor(readonly backend: ShowBackend) {}
 
-  private async call<T extends AnyBody["type"]>(request: Request | FileRequest, expected: T): Promise<BodyOf<T>> {
+  private async call<T extends ResponseBody["type"]>(request: Request, expected: T): Promise<BodyOf<T>> {
     let raw: unknown;
     try {
-      raw = await this.backend.dispatch(request as Request);
+      raw = await this.backend.dispatch(request);
     } catch (e) {
       throw new ShowApiError("transport", e instanceof Error ? e.message : String(e));
     }
@@ -136,12 +124,12 @@ export class ShowApi {
     return this.call(name === undefined ? { type: "markSaved" } : { type: "markSaved", name }, "documentState");
   }
 
-  /** Replaces the presentation by a `.pptx` file (P4-7). */
+  /** Replaces the presentation by a `.pptx` file. */
   openPptx(bytesBase64: string, name: string): Promise<BodyOf<"opened">> {
     return this.call({ type: "openPptx", bytesBase64, name }, "opened");
   }
 
-  /** The presentation as `.pptx` (P4-7); does not mark it saved. */
+  /** The presentation as `.pptx`; does not mark it saved. */
   savePptx(): Promise<BodyOf<"saved">> {
     return this.call({ type: "savePptx" }, "saved");
   }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ShowApi } from "../api";
 import type { ShowPatch } from "../generated/ShowPatch";
 import { FakeBackend } from "../test/fakeBackend";
@@ -141,8 +141,17 @@ describe("ShowStore", () => {
     expect(store.getState().selection).toEqual([100]);
   });
 
-  it("disables file IO until the core answers savePptx", async () => {
-    const { store } = await ready();
+  it("enables file IO when the core answers documentState, without serialising the deck", async () => {
+    const { store, backend } = await ready();
+    backend.log.length = 0;
+    expect(await store.probeFileIo()).toBe(true);
+    expect(store.getState().fileIo).toBe(true);
+    expect(backend.log.map((r) => r.type)).toEqual(["documentState"]);
+  });
+
+  it("keeps file IO disabled when the core rejects the probe", async () => {
+    const { store, backend } = await ready();
+    vi.spyOn(backend, "dispatch").mockResolvedValue({ err: { code: "bad_request", message: "unknown" } } as never);
     expect(await store.probeFileIo()).toBe(false);
     expect(store.getState().fileIo).toBe(false);
   });

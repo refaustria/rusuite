@@ -1,4 +1,4 @@
-// In-cell editor: an <input> overlaid on the active cell. The grid
+// In-cell editor: a one-line <textarea> overlaid on the active cell. The grid
 // positions its wrapper (`boxRef`) on every frame.
 
 import { useLayoutEffect, useRef, type FocusEvent, type KeyboardEvent, type RefObject } from "react";
@@ -11,7 +11,7 @@ export function CellEditor({
   store, boxRef, onMount,
 }: { store: CalcStore; boxRef: RefObject<HTMLDivElement>; onMount: () => void }) {
   const edit = useCalc(store, (s) => s.edit);
-  const input = useRef<HTMLInputElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
   const origin = edit?.origin;
 
   useLayoutEffect(onMount, [onMount]);
@@ -25,7 +25,7 @@ export function CellEditor({
 
   if (!edit) return null;
 
-  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     const moves: Record<string, [number, number]> = {
       Enter: [e.shiftKey ? -1 : 1, 0],
       Tab: [0, e.shiftKey ? -1 : 1],
@@ -34,7 +34,15 @@ export function CellEditor({
       Object.assign(moves, { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] });
     }
     const m = moves[e.key];
-    if (m && !e.altKey) {
+    if (e.key === "Enter" && e.altKey) {
+      // Alt+Enter: line break (cells do not wrap yet, the text just carries "\n").
+      e.preventDefault();
+      const el = e.currentTarget;
+      const text = el.value.slice(0, el.selectionStart) + "\n" + el.value.slice(el.selectionEnd);
+      const caret = el.selectionStart + 1;
+      store.setEditText(text);
+      requestAnimationFrame(() => el.setSelectionRange(caret, caret));
+    } else if (m && !e.altKey) {
       e.preventDefault();
       void store.commitEdit(m[0], m[1]);
       store.focusGrid();
@@ -45,7 +53,7 @@ export function CellEditor({
     }
   };
 
-  const onBlur = (e: FocusEvent<HTMLInputElement>) => {
+  const onBlur = (e: FocusEvent<HTMLTextAreaElement>) => {
     const to = e.relatedTarget as HTMLElement | null;
     if (to?.hasAttribute(FORMULA_BAR_ATTR)) store.setEditOrigin("bar");
     else if (store.getState().edit?.origin === "cell") void store.commitEdit(0, 0);
@@ -53,13 +61,15 @@ export function CellEditor({
 
   return (
     <div ref={boxRef} className="absolute z-10" style={{ left: -9999, top: -9999 }}>
-      <input
+      <textarea
         ref={input}
+        rows={1}
+        wrap="off"
         aria-label="Cell editor"
         data-testid="cell-editor"
         spellCheck={false}
         autoComplete="off"
-        className="block h-full border-2 border-[#217346] bg-white px-[2px] text-black outline-none"
+        className="block h-full resize-none overflow-hidden whitespace-pre border-2 border-[#217346] bg-white px-[2px] text-black outline-none"
         style={{ font: fontCss(store.activeStyle()), width: `max(100%, ${edit.text.length + 2}ch)` }}
         value={edit.text}
         onChange={(e) => store.setEditText(e.target.value)}

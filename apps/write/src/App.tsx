@@ -4,6 +4,7 @@ import { WriteApi, type WriteBackend } from "./backend";
 import { writeExtensions, TWIPS_PER_PX } from "./sync/schema";
 import { SyncController, SyncExtension, type SyncState } from "./sync/SyncPlugin";
 import { FindReplaceDialog } from "./ui/FindReplaceDialog";
+import { ShortcutLayer } from "./ShortcutLayer";
 import { Toasts } from "./ui/Toasts";
 import { WriteToolbar } from "./ui/WriteToolbar";
 
@@ -82,24 +83,12 @@ export default function App({ backend }: { backend: WriteBackend }) {
     await ctl.saveDocx((n, bytes) => backend.saveFile(n, bytes));
   }, [backend, ctl]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-      const k = e.key.toLowerCase();
-      if (k === "o") {
-        e.preventDefault();
-        void open();
-      } else if (k === "s") {
-        e.preventDefault();
-        void save();
-      } else if (k === "h") {
-        e.preventDefault();
-        setFindOpen(true);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, save]);
+  const saveAs = useCallback(
+    async (name: string) => {
+      await ctl.saveDocx((_n, bytes) => backend.saveFile(name, bytes), name);
+    },
+    [backend, ctl],
+  );
 
   const m = page?.margins;
   const px = (twips: number | undefined, fallback: number) => (twips === undefined ? fallback : twips / TWIPS_PER_PX);
@@ -124,6 +113,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
       {editor && <StatusBar ctl={ctl} editor={editor} backend={backend} />}
       <FindReplaceDialog ctl={ctl} open={findOpen} onClose={() => setFindOpen(false)} />
       <Toasts ctl={ctl} />
+      <ShortcutLayer editor={editor} ctl={ctl} onOpen={() => void open()} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={() => setFindOpen(true)} />
     </main>
   );
 }
