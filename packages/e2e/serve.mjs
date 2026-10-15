@@ -20,12 +20,24 @@ const types = {
   ".ico": "image/x-icon",
 };
 
+// The same security headers as production: the policy is read from the nginx vhost (ADR 0009), so the
+// local suite fails on anything the live CSP would block.
+const vhost = fs.readFileSync(path.resolve(root, "../deploy/nginx/resuite.inceptum.at.conf"), "utf8");
+const nginxVar = (name) => vhost.match(new RegExp(`set \\$${name} "([^"]*)";`))?.[1] ?? "";
+const connect = nginxVar("csp_connect");
+const securityHeaders = {
+  "content-security-policy": nginxVar("csp").replaceAll("$csp_connect", connect),
+  "permissions-policy": nginxVar("permissions_policy"),
+  "referrer-policy": "no-referrer",
+  "x-content-type-options": "nosniff",
+};
+
 http
   .createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
     const [, app, ...rest] = decodeURIComponent(url.pathname).split("/");
     if (app === "version.json" && rest.length === 0) {
-      res.writeHead(200, { "content-type": types[".json"] });
+      res.writeHead(200, { ...securityHeaders, "content-type": types[".json"] });
       res.end(JSON.stringify({ commit: "local", builtAt: new Date().toISOString() }));
       return;
     }
@@ -35,7 +47,7 @@ http
     if (!file.startsWith(dist)) return void res.writeHead(403).end();
     if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, "index.html");
     if (!fs.existsSync(file)) return void res.writeHead(404).end("not found");
-    res.writeHead(200, { "content-type": types[path.extname(file)] ?? "application/octet-stream" });
+    res.writeHead(200, { ...securityHeaders, "content-type": types[path.extname(file)] ?? "application/octet-stream" });
     fs.createReadStream(file).pipe(res);
   })
   .listen(port, "127.0.0.1", () => console.log(`e2e server on http://127.0.0.1:${port}/ (portal, calc, write, show)`));

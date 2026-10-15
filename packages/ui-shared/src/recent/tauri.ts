@@ -38,4 +38,9 @@ export class TauriDocStorage implements DocStorage {
   removeRecovery(id: string): Promise<void> {
     return invoke<void>("recovery_remove", { id });
   }
+
+  /** The recent list holds file paths only (no content); the recovery copies are removed. */
+  async clearAll(): Promise<void> {
+    for (const r of await this.listRecovery()) await this.removeRecovery(r.id);
+  }
 }

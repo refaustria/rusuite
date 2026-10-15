@@ -47,6 +47,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Privacy check (ADR 0009)
+        run: scripts/privacy-check.sh
       - run: pnpm i18n:check
       - run: pnpm test
       - run: pnpm --filter calc build

@@ -19,6 +19,7 @@
 
 import type { Backend, OpenedFile } from "../backend";
 import { t } from "../i18n/locale";
+import { getKeepAutosave, storeKeepAutosave } from "./privacy";
 import { newDocId, type DocStorage, type RecentEntry, type RecoveryInfo } from "./storage";
 
 /** App hooks the session calls; each resolves `false` (or rejects) on failure. */
@@ -44,6 +45,8 @@ export interface SessionState {
   recoveries: RecoveryInfo[];
   /** When this session last stored a snapshot (ms since the epoch). */
   lastAutosave: number | null;
+  /** "Keep autosave copies in this browser" (ADR 0009); off = no recovery entries, no content with recent entries. */
+  keepAutosave: boolean;
 }
 
 export interface SessionOptions {
@@ -96,7 +99,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
   readonly backend: Backend<Req, Body>;
   readonly storage: DocStorage | null;
 
-  private state: SessionState = { recent: [], recoveries: [], lastAutosave: null };
+  private state: SessionState = { recent: [], recoveries: [], lastAutosave: null, keepAutosave: getKeepAutosave() };
   private listeners = new Set<() => void>();
   private adapter: SessionAdapter | null = null;
   private chain: Promise<unknown> = Promise.resolve();
@@ -290,7 +293,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
     const storage = this.storage;
     if (!storage) return;
     let json: string | null = null;
-    if (storage.kind === "browser") {
+    if (storage.kind === "browser" && this.state.keepAutosave) {
       try {
         json = (await this.snapshot()).json;
       } catch (e) {
@@ -324,7 +327,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
    * document is clean. Resolves `true` when a snapshot was stored.
    */
   async autosave(force = false): Promise<boolean> {
-    if (!this.storage) return false;
+    if (!this.storage || !this.state.keepAutosave) return false;
     if (!force && (!this.seenDirty || this.seenRevision === this.storedRevision)) return false;
     const stored = await this.queue(async (s) => {
       const snap = await this.snapshot();
@@ -343,6 +346,30 @@ export class DocumentSession<Req = unknown, Body = unknown> {
       return true;
     });
     return stored === true;
+  }
+
+  /** Turns "keep autosave copies" on or off; turning it off removes the stored recovery entries. */
+  async setKeepAutosave(keep: boolean): Promise<void> {
+    storeKeepAutosave(keep);
+    this.set({ keepAutosave: keep });
+    if (keep) return;
+    this.storedRevision = null;
+    await this.queue(async (s) => {
+      for (const r of await s.listRecovery()) await s.removeRecovery(r.id);
+    });
+    this.set({ recoveries: [], lastAutosave: null });
+  }
+
+  /** "Remove local copies": deletes the recent list, its snapshots and all recovery entries of this app. */
+  async clearLocalData(): Promise<void> {
+    const storage = this.storage;
+    if (!storage) return;
+    this.storedRevision = null;
+    await this.queue(async (s) => {
+      if (s.clearAll) await s.clearAll();
+      else for (const r of await s.listRecovery()) await s.removeRecovery(r.id);
+    });
+    this.set({ recent: [], recoveries: [], lastAutosave: null });
   }
 
   /** Restores a recovery entry of an earlier session; it is removed once this session stored its own copy. */

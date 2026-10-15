@@ -40,6 +40,12 @@ export interface DocStorage {
   putRecovery(entry: RecoveryEntry): Promise<void>;
   /** Removing a missing entry is not an error. */
   removeRecovery(id: string): Promise<void>;
+  /**
+   * Privacy (ADR 0009): deletes every locally kept copy of this app – the recent list with its
+   * snapshots and all recovery entries. Desktop (`fs`) can only remove the recovery entries from
+   * the UI side; the recent list there holds paths, not content.
+   */
+  clearAll?(): Promise<void>;
 }
 
 /** Identity in the recent list: the path when there is one, else the name. */
@@ -124,5 +130,11 @@ export class MemoryDocStorage implements DocStorage {
 
   async removeRecovery(id: string): Promise<void> {
     this.recovery.delete(id);
+  }
+
+  async clearAll(): Promise<void> {
+    this.recent = [];
+    this.recovery.clear();
+    this.blobs.clear();
   }
 }

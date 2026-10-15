@@ -22,6 +22,7 @@
       </div>
       <p class="lead" data-i18n="portal.lead">A small office suite with a Rust core – runs in your browser and on the desktop.</p>
       <p class="sub" data-i18n-html="portal.sub">Opens and saves real <code>.xlsx</code>, <code>.docx</code> and <code>.pptx</code> files. Nothing to install, no account, your files stay on your machine.</p>
+      <p class="sub privacy" data-i18n-html="portal.privacy.sentence">Your documents never leave your device: there is no server-side storage, no tracking and no analytics. <a href="privacy.html">Privacy details</a></p>
     </header>
 
     <main>
@@ -64,32 +65,13 @@
         <span aria-hidden="true">·</span>
         <a href="https://github.com/refaustria/rusuite/releases" data-i18n="portal.releases">All releases</a>
         <span aria-hidden="true">·</span>
+        <a href="privacy.html" data-i18n="portal.privacy">Privacy</a>
+        <span aria-hidden="true">·</span>
         <span id="version" data-testid="version">Version unknown</span>
       </p>
     </footer>
 
     <script src="i18n.js"></script>
-    <script>
-      let build = null;
-      const showVersion = () => {
-        const el = document.getElementById("version");
-        const t = window.rusuiteI18n.t;
-        if (!build) {
-          el.textContent = t("portal.versionUnknown");
-          return;
-        }
-        const date = String(build.builtAt || "").slice(0, 10);
-        el.textContent = t("portal.build", { commit: String(build.commit || "?").slice(0, 7) }) + (date ? " · " + date : "");
-        if (build.builtAt) el.title = t("portal.built", { date: build.builtAt });
-      };
-      window.addEventListener("rusuite:locale", showVersion);
-      fetch("/version.json", { cache: "no-cache" })
-        .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-        .then((v) => {
-          build = v;
-          showVersion();
-        })
-        .catch(() => {});
-    </script>
+    <script src="version.js"></script>
   </body>
 </html>

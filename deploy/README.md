@@ -14,6 +14,9 @@ sudo certbot --nginx -d resuite.inceptum.at --non-interactive --agree-tos -m boj
 ```
 Note: the live config is a copy in `/etc/nginx/sites-available/` (not a symlink into the repo), so moving or removing checkouts cannot break nginx. After editing the committed file, re-run the `cp` + `sudo nginx -t && sudo systemctl reload nginx`. Renewal is handled by certbot's scheduled task; certbot edits the live copy – if it changes, copy it back into the repo.
 
+## Security headers
+The vhost sends `Content-Security-Policy` (ADR 0009: `connect-src 'self'`, no third-party origins), `Referrer-Policy: no-referrer`, `Permissions-Policy` and `nosniff`. nginx drops server-level `add_header` lines in locations that define their own, so every location repeats them; the policy strings are the `set $csp...` lines at the top of the server block (`$csp_connect` is the marked line for future provider origins). After changing them, run the e2e suite against the live site: `BASE_URL=https://resuite.inceptum.at pnpm e2e`.
+
 ## Redeploy
 From a checkout of `main`: `scripts/deploy-web.sh` (builds, rsyncs `apps/{calc,write,show}/dist-web/` to `/var/www/resuite/{calc,write,show}/` and `apps/portal/` to the root, writes `/var/www/resuite/version.json`, smoke-checks `/` (200 `text/html`, no redirect), each app page and the `application/wasm` content type). `--no-build` reuses an existing `dist-web`. Env overrides: `DEPLOY_HOST`, `DEPLOY_ROOT`.
 

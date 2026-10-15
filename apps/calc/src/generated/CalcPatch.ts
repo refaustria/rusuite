@@ -3,6 +3,7 @@ import type { CellStyle } from "./CellStyle";
 import type { SheetCells } from "./SheetCells";
 import type { SheetCols } from "./SheetCols";
 import type { SheetInfo } from "./SheetInfo";
+import type { SheetMerges } from "./SheetMerges";
 import type { SheetRows } from "./SheetRows";
 import type { StructuralChange } from "./StructuralChange";
 
@@ -16,7 +17,8 @@ import type { StructuralChange } from "./StructuralChange";
 export type CalcPatch = { 
 /**
  * The full sheet list in display order, when it changed (added,
- * deleted, renamed, moved or recoloured sheets).
+ * deleted, renamed, moved, recoloured, hidden/shown sheets, or a
+ * changed sheet view).
  */
 sheets: Array<SheetInfo> | null, cells: Array<SheetCells>, cols: Array<SheetCols>, rows: Array<SheetRows>, 
 /**
@@ -27,4 +29,15 @@ styles: Array<CellStyle> | null,
  * Human-readable description of a circular reference, if the
  * recalculation found one.
  */
-cycle: string | null, structural: Array<StructuralChange>, };
+cycle: string | null, structural: Array<StructuralChange>, 
+/**
+ * The complete merge list of every sheet whose merges changed;
+ * absent = none changed.
+ */
+merges?: Array<SheetMerges>, 
+/**
+ * After `setSheetHidden`: the sheet to show – the unhidden sheet, or
+ * after hiding, its nearest visible neighbour (to switch to when the
+ * hidden sheet was the active one).
+ */
+activateSheet?: number, };

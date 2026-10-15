@@ -4,10 +4,11 @@
 use std::collections::{BTreeSet, HashMap};
 use std::io::Cursor;
 
+use engine_formula::ast::{MAX_COL, MAX_ROW};
 use engine_formula::{CellContent, CellCoord, RangeRef, SheetId, Value};
 use fmt_ooxml::theme::office_theme_xml;
 use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
-use model_sheet::{ColInfo, Workbook};
+use model_sheet::{ColInfo, SheetView, Workbook};
 
 use crate::a1::{cell_name, range_name};
 use crate::styles::{builtin_default_font, color_el, write_styles, MAIN_NS};
@@ -25,10 +26,15 @@ pub fn write(wb: &Workbook) -> Result<Vec<u8>> {
 pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     let mut sst = SharedStrings::default();
     let sheets = wb.sheets();
+    // The first visible sheet is the selected (active) one.
+    let active = sheets
+        .iter()
+        .position(|(id, _)| !wb.is_sheet_hidden(*id))
+        .unwrap_or(0);
     let sheet_xml: Vec<Vec<u8>> = sheets
         .iter()
         .enumerate()
-        .map(|(i, (id, _))| sheet_xml(wb, *id, i == 0, &mut sst))
+        .map(|(i, (id, _))| sheet_xml(wb, *id, i == active, &mut sst))
         .collect();
     let default_font = ctx
         .default_font
@@ -38,7 +44,11 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     let pn = |s: &str| PartName::new(s);
     let main = pn("/xl/workbook.xml")?;
     let mut pkg = Package::new();
-    pkg.insert_part(main.clone(), ct::WORKBOOK, workbook_xml(&sheets));
+    pkg.insert_part(
+        main.clone(),
+        ct::WORKBOOK,
+        workbook_xml(wb, &sheets, active),
+    );
     let mut rels = Relationships::new();
     for (i, xml) in sheet_xml.into_iter().enumerate() {
         let target = format!("worksheets/sheet{}.xml", i + 1);
@@ -122,24 +132,25 @@ impl SharedStrings {
     }
 }
 
-fn workbook_xml(sheets: &[(SheetId, String)]) -> Vec<u8> {
+fn workbook_xml(wb: &Workbook, sheets: &[(SheetId, String)], active: usize) -> Vec<u8> {
     let mut x = XmlOut::new();
     x.start("workbook", &[("xmlns", MAIN_NS), ("xmlns:r", rel::NS)]);
     x.empty("workbookPr", &[]);
     x.start("bookViews", &[]);
-    x.empty("workbookView", &[("activeTab", "0")]);
+    x.empty("workbookView", &[("activeTab", &active.to_string())]);
     x.end("bookViews");
     x.start("sheets", &[]);
-    for (i, (_, name)) in sheets.iter().enumerate() {
+    for (i, (id, name)) in sheets.iter().enumerate() {
         let n = (i + 1).to_string();
-        x.empty(
-            "sheet",
-            &[
-                ("name", name),
-                ("sheetId", &n),
-                ("r:id", &format!("rId{n}")),
-            ],
-        );
+        let rid = format!("rId{n}");
+        let mut a: Vec<(&str, &str)> = vec![("name", name), ("sheetId", &n)];
+        if wb.is_sheet_very_hidden(*id) {
+            a.push(("state", "veryHidden"));
+        } else if wb.is_sheet_hidden(*id) {
+            a.push(("state", "hidden"));
+        }
+        a.push(("r:id", &rid));
+        x.empty("sheet", &a);
     }
     x.end("sheets");
     x.empty("calcPr", &[("fullCalcOnLoad", "1")]);
@@ -193,7 +204,7 @@ pub(crate) fn col_runs(cols: impl IntoIterator<Item = (u32, ColInfo)>) -> Vec<(u
     runs
 }
 
-fn sheet_xml(wb: &Workbook, id: SheetId, first: bool, sst: &mut SharedStrings) -> Vec<u8> {
+fn sheet_xml(wb: &Workbook, id: SheetId, selected: bool, sst: &mut SharedStrings) -> Vec<u8> {
     let format = wb.sheet_format(id);
     let mut x = XmlOut::new();
     x.start("worksheet", &[("xmlns", MAIN_NS), ("xmlns:r", rel::NS)]);
@@ -206,14 +217,7 @@ fn sheet_xml(wb: &Workbook, id: SheetId, first: bool, sst: &mut SharedStrings) -
         .used_range(id)
         .map_or_else(|| "A1".to_owned(), |(r, c)| range_name(0, 0, r, c));
     x.empty("dimension", &[("ref", &dim)]);
-    x.start("sheetViews", &[]);
-    let view: &[(&str, &str)] = if first {
-        &[("tabSelected", "1"), ("workbookViewId", "0")]
-    } else {
-        &[("workbookViewId", "0")]
-    };
-    x.empty("sheetView", view);
-    x.end("sheetViews");
+    sheet_view_xml(&mut x, &wb.sheet_view(id), selected);
     let col_w = fmt_num(format.default_col_width);
     let row_h = fmt_num(format.default_row_height);
     let mut fmt_attrs = vec![
@@ -295,6 +299,14 @@ fn sheet_xml(wb: &Workbook, id: SheetId, first: bool, sst: &mut SharedStrings) -
         }
     }
     x.end("sheetData");
+    let merges = wb.merges(id);
+    if !merges.is_empty() {
+        x.start("mergeCells", &[("count", &merges.len().to_string())]);
+        for m in merges {
+            x.empty("mergeCell", &[("ref", &range_name(m.r0, m.c0, m.r1, m.c1))]);
+        }
+        x.end("mergeCells");
+    }
     x.empty(
         "pageMargins",
         &[
@@ -308,6 +320,56 @@ fn sheet_xml(wb: &Workbook, id: SheetId, first: bool, sst: &mut SharedStrings) -
     );
     x.end("worksheet");
     x.finish()
+}
+
+/// `<sheetViews>` with one `<sheetView>`: non-default gridlines, headings
+/// and zoom as attributes, frozen panes as a `<pane state="frozen">`.
+fn sheet_view_xml(x: &mut XmlOut, view: &SheetView, selected: bool) {
+    x.start("sheetViews", &[]);
+    let zoom = view.zoom.to_string();
+    let mut a: Vec<(&str, &str)> = Vec::new();
+    if !view.show_gridlines {
+        a.push(("showGridLines", "0"));
+    }
+    if !view.show_headings {
+        a.push(("showRowColHeaders", "0"));
+    }
+    if selected {
+        a.push(("tabSelected", "1"));
+    }
+    if view.zoom != 100 {
+        a.push(("zoomScale", &zoom));
+    }
+    a.push(("workbookViewId", "0"));
+    let (rows, cols) = (view.frozen_rows, view.frozen_cols);
+    if rows == 0 && cols == 0 {
+        x.empty("sheetView", &a);
+    } else {
+        x.start("sheetView", &a);
+        let (x_split, y_split) = (cols.to_string(), rows.to_string());
+        let top_left = cell_name(rows.min(MAX_ROW), cols.min(MAX_COL));
+        let pane = match (rows > 0, cols > 0) {
+            (true, true) => "bottomRight",
+            (true, false) => "bottomLeft",
+            _ => "topRight",
+        };
+        let mut p: Vec<(&str, &str)> = Vec::new();
+        if cols > 0 {
+            p.push(("xSplit", &x_split));
+        }
+        if rows > 0 {
+            p.push(("ySplit", &y_split));
+        }
+        p.extend([
+            ("topLeftCell", top_left.as_str()),
+            ("activePane", pane),
+            ("state", "frozen"),
+        ]);
+        x.empty("pane", &p);
+        x.empty("selection", &[("pane", pane)]);
+        x.end("sheetView");
+    }
+    x.end("sheetViews");
 }
 
 fn write_cell(
