@@ -2,9 +2,19 @@
 
 _Maintained by the PM agent. Read at the start of every session; update after every task._
 
-## Current phase: Phase 4 – Show (Phases 0–3 complete on the server; owner's Excel/Word checks pending)
+## Current phase: Phase 5 – Polish (Phases 0–4 complete on the server; owner's Excel/Word/PowerPoint checks pending)
+
+### Phase 4 milestone – verified by the PM 2026-10-15 on main 1fd33d8
+- fmt/clippy/rustdoc clean; `cargo test --workspace` 727 passed; `pnpm test` 34 + 41 + 56 + 45 passed; wasm checks for all Show crates.
+- `fmt-pptx` suite: all 26 reference decks read with manifest features found, write→read equal; harness with our writer 26/26 PASS, `lo_warnings=0`.
+- **10-slide deck** written by `cargo run -p fmt-pptx --example build_deck` (all layouts, shapes, group, picture, bullets, rotation/flip, background): LibreOffice converts it to a 10-page PDF with no warnings; harness PASS 40/40 identical parts. File sent to the owner for the PowerPoint check (the README milestone's "open in PowerPoint without errors" can only be confirmed by the owner).
+- **Live end-to-end at https://resuite.inceptum.at/show/ (headless Chromium):** opened the 6-slide pitch deck via the file picker, inserted a rectangle (status Modified), Save → download (status Saved) → our reader opens it, slide 1 has 3 shapes (was 2), harness PASS 31/31 identical, 0 LibreOffice warnings, no console errors. The UI agent's deck-building check against the real core: 18 commands, 0 id/patch issues.
+
+### Phase 5 plan – Polish (README: shortcut parity, PDF export via webview print, recent files/autosave/crash recovery, installers for all three platforms, performance 1M cells / 200-page doc / 100 slides)
+- P5-2 PDF export ∥ P5-3 recent/autosave/recovery ∥ P5-5 shortcuts + hygiene → P5-4 performance benchmarks + fixes → P5-1 installers (needs a decision: GitHub Actions `tauri-action` bundles for Windows/macOS/Linux require pushing the repo to GitHub – the owner has not asked for pushes; Linux `.deb`/AppImage can be built here).
 
 ### Phase 3 milestone – verified by the PM 2026-10-15 on main aeff1a3
+
 - fmt/clippy/rustdoc clean; `cargo test --workspace` 603 passed; `pnpm test` 34 + 56 + 45 passed; wasm check for all Write crates.
 - **Roundtrip of the 50 reference documents (+2 older):** `fmt-docx` suite test asserts every manifest feature after read and equality after write→read; harness with our writer 52/52 PASS, `lo_warnings=0` for every file; LibreOffice text export identical for all 50 (agent check).
 - **Live end-to-end at https://resuite.inceptum.at/write/ (headless Chromium):** opened `provisional-47-report.docx` through the file picker (title, headings, list, table, image rendered; 78 words; 3 reader warnings shown), typed an edit, Save → downloaded `.docx` → our reader opens it, harness PASS 11/11 identical parts, LibreOffice text export contains the edit. 0 sync mismatches in the agent's typing check (36 commands).
@@ -64,8 +74,13 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 | P4-2 | `fmt-pptx` read/write | Opus | done (merged) | – | verified: 720 tests, harness 26/26 PASS (lo_warnings=0), `examples/build_deck` → 10-slide deck PASS 40/40 parts; deck sent to owner for PowerPoint check |
 | P4-4 | `show-core` commands/patches/dispatch | Opus | done (merged) | – | verified: 692 tests; whole-slide patches/inverses; `TextParagraphPatch` (null = inherit); 42 generated TS files; wiring must add show-core to CI generated-diff/wasm checks and delete ping dispatch |
 | P4-5 | Show UI: Konva object model, selection/transform, text editing, sidebar, presentation mode | Opus | done (merged) | – | verified: 41 Show tests; 3-slide deck built via UI against the real core (18 commands, 0 id issues); rich-text layout engine on Konva; Open/Save enable once the core answers |
-| P4-7 | Wiring: pptx open/save both shells; deploy | Opus | in progress | `p4/show-wiring` | brief docs/tasks/P4-7-show-wiring.md (parallel to P4-5; UI buttons owned by P4-5) |
-| P4-8 | Milestone verification | PM | todo | – | |
+| P4-7 | Wiring: pptx open/save both shells; deploy | Opus | done (merged 1fd33d8) | – | verified: 727 tests; 26 decks open/save via dispatch; live /show/ open→edit→save verified by PM; CI checks show-core generated types |
+| P4-8 | Milestone verification | PM | done on server; PowerPoint check pending owner | – | see milestone section |
+| P5-2 | PDF export via webview print (all apps) | Sonnet | in progress | `p5/pdf-export` | brief docs/tasks/P5-2-pdf-export.md |
+| P5-3 | Recent files, autosave, crash recovery (app-common + shells + IndexedDB on web) | Opus | in progress | `p5/autosave` | brief docs/tasks/P5-3-recent-autosave-recovery.md |
+| P5-5 | Shortcut parity + hygiene (generated-types CI for write, favicons, show api.ts cleanup, chunk splitting) | Sonnet | in progress | `p5/shortcuts` | brief docs/tasks/P5-5-shortcuts-and-cleanup.md |
+| P5-4 | Performance: 1M cells / 200-page doc / 100 slides benchmarks + fixes | Opus | todo | `p5/perf` | after P5-2/3/5 |
+| P5-1 | Installers for Windows/macOS/Linux | – | blocked: owner decision (GitHub push + Actions) | – | Linux bundles possible locally |
 | P2-1 | `model-sheet`: Workbook wrapping `engine_formula::Engine` for contents/values + StyleTable (font/fill/border/alignment/number format), column/row dimensions, sheet metadata; serde; ADR 0004 | Opus | done (merged a112e4b) | – | verified: 15 tests, snapshot DTO, style interning; follow-up fixed a rustdoc link |
 | P2-3 | Tauri 2 Calc app scaffold: `apps/calc` (Vite+React+Tailwind+Tauri), crate `app-calc` in workspace, `pnpm --filter calc tauri dev` runs, CI builds it | Sonnet | done (merged 1e8d201) | – | verified: tests, vite build, release binary 10.6 MiB runs under xvfb; tauri 2.12 / vite 6 / react 18 / tailwind 4 / vitest 3 |
 | P2-1b | `engine-formula`: `transform.rs` (Excel reference adjustment for insert/delete rows/cols, copy/paste offset) + `Engine::insert_rows/delete_rows/insert_cols/delete_cols/cells` | Opus | done (merged) | – | verified: ~70 transform table cases, 4 engine tests; incremental graph update; `StructuralOp::map_cell` for model-sheet to move styles |
@@ -123,6 +138,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 4. 2026-10-15: Roundtrip harness verification = LibreOffice headless `--convert-to` of the rewritten file succeeds and the output is non-empty, plus a structural diff of the ZIP part list and XML against the original. (LibreOffice has no "repair dialog" counter in headless mode; a failed/empty conversion is the proxy.)
 
 ## Open questions for the owner
+- **Installers (Phase 5):** building Windows/macOS bundles needs GitHub Actions (`tauri-action`) on a pushed repo. Do you want me to push `main` to `origin` (github.com/refaustria/rusuite) and add the release workflow? Until then only Linux bundles can be built on this server.
 - **PowerPoint check (Phase 4 milestone):** `testdata/pptx/out/rusuite-10-slides.pptx` (sent via the session; regenerate with `cargo run -p fmt-pptx --example build_deck`) – please open it in PowerPoint and report any repair dialog or visual problem.
 - Testdata caveat: `provisional-basic.xlsx` has a stale LibreOffice cached value for `Data!C7` (27.028; the stored inputs give 27.128, which our engine computes). Harmless (we ignore cached values) but another reason to replace provisional files with Excel-authored ones.
 - FYI (not caused by us): `https://url.inceptum.at/` answers 502 (its upstream on 127.0.0.1:3002 seems down); gitai/ssh answer 401 (auth). We did not touch those vhosts.

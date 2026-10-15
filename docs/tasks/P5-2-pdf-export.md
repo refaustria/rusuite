@@ -1,0 +1,8 @@
+# Task P5-2 – PDF export via webview print (all three apps)
+
+Branch `p5/pdf-export`, worktree `/home/bojan/rusuite-wt/p5-pdf-export`. Scope: `apps/{calc,write,show}/src/**` (print stylesheets + a `print/` view per app), `packages/ui-shared/src/backend.ts` (`print()` method: Tauri → `getCurrentWebviewWindow().print()` if available in `@tauri-apps/api` 2.12, else `window.print()`; web → `window.print()`), `apps/*/src-tauri/capabilities/default.json` (permission for print if needed), tests. README: "PDF export (webview print)" – no PDF library.
+
+- Write: a `@media print` stylesheet renders the ProseMirror document at the page size/margins from `PageSetup` (`@page { size: A4|Letter [landscape]; margin: … }` generated into a `<style>` from the document), hides toolbar/status bar; page breaks honoured (`pageBreak` node → `break-before: page`).
+- Calc: a print view component rendering the used range of the active sheet as an HTML table (not the canvas) with column widths/row heights and cell styles, repeating the header row, landscape when wider than tall; `@page` size from a small dialog (A4/Letter, portrait/landscape, fit-to-width toggle via CSS zoom).
+- Show: a print view rendering every slide as a 16:9 (or 4:3) page: reuse `SlideView` (Konva) → `toDataURL` per slide into `<img>` pages, `@page { size: 13.333in 7.5in; margin: 0 }`.
+- Each app: "Export PDF…" button (Ctrl+P) → switches to the print view → `backend.print()` → returns to the editor. Tests: the generated `@page` CSS strings (unit), the Calc table render for a small snapshot, Show pages count. Manual: headless Chromium `page.pdf()` of the web print views for one document each → scratchpad PDFs, report page counts (use `python3 -I` to count `/Type /Page`).
