@@ -287,6 +287,26 @@ impl DependencyGraph {
         }
     }
 
+    /// Drops every formula hosted on `sheet` and every reverse edge into
+    /// it (the sheet was deleted). Formulas on other sheets keep their
+    /// precedent lists; re-register them (see [`set_formula`](Self::set_formula))
+    /// once their references to `sheet` are rewritten. Returns the removed
+    /// formula cells, sorted.
+    pub fn remove_sheet(&mut self, sheet: SheetId) -> Vec<CellCoord> {
+        let mut hosted: Vec<CellCoord> = self
+            .formulas
+            .keys()
+            .filter(|c| c.sheet == sheet)
+            .copied()
+            .collect();
+        hosted.sort_unstable();
+        for &c in &hosted {
+            self.remove_formula(c);
+        }
+        self.sheets.remove(&sheet);
+        hosted
+    }
+
     pub fn has_formula(&self, cell: CellCoord) -> bool {
         self.formulas.contains_key(&cell)
     }
@@ -677,6 +697,33 @@ mod tests {
         assert!(full.cyclic.contains(&c(0, 4)));
         let ok = g.recalc_schedule(&[c(0, 3)]);
         assert_eq!((ok.order, ok.cycle), (vec![c(0, 3)], None));
+    }
+
+    #[test]
+    fn remove_sheet_drops_hosted_formulas_and_edges() {
+        struct Two;
+        impl SheetResolver for Two {
+            fn sheet_id(&self, name: &str) -> Option<SheetId> {
+                name.eq_ignore_ascii_case("B").then_some(SheetId(1))
+            }
+        }
+        let b = SheetId(1);
+        let mut g = DependencyGraph::new();
+        let on_b = CellCoord::new(b, 0, 0);
+        g.set_formula(on_b, &parse("=A2+1").unwrap(), &Two, b);
+        let reader = CellCoord::new(S, 0, 0);
+        g.set_formula(reader, &parse("=SUM(B!A1:A9)").unwrap(), &Two, S);
+        assert_eq!(
+            g.direct_dependents(CellCoord::new(b, 1, 0)),
+            vec![reader, on_b]
+        );
+        assert_eq!(g.remove_sheet(b), vec![on_b]);
+        assert!(!g.has_formula(on_b));
+        assert!(g.has_formula(reader));
+        assert!(g.direct_dependents(CellCoord::new(b, 1, 0)).is_empty());
+        // Re-registering the (rewritten) reader works without stale edges.
+        g.set_formula(reader, &parse("=1").unwrap(), &Two, S);
+        assert_eq!(g.formula_count(), 1);
     }
 
     #[test]

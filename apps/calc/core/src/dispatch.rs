@@ -85,6 +85,8 @@ pub enum Request {
     /// `value` displayed with the number format `code` → `formatted`
     /// (the Format Cells dialog's preview).
     FormatPreview { value: f64, code: String },
+    /// The last used cell of `sheet` (content or own style) → `usedRange`.
+    UsedRange { sheet: u32 },
 }
 
 /// The successful part of a [`Response`].
@@ -144,6 +146,11 @@ pub enum ResponseBody {
     /// The reply to `formatPreview`.
     Formatted {
         text: String,
+    },
+    /// The reply to `usedRange`: `[row, col]` of the last used cell,
+    /// `null` for an empty sheet.
+    UsedRange {
+        last: Option<(u32, u32)>,
     },
 }
 
@@ -266,6 +273,9 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
             cells: host
                 .doc()
                 .find_cells(sheet, &query, match_case, whole_cell)?,
+        },
+        Request::UsedRange { sheet } => ResponseBody::UsedRange {
+            last: host.doc().used_range(sheet)?,
         },
         Request::FormatPreview { value, code } => ResponseBody::Formatted {
             text: crate::display::display_value(

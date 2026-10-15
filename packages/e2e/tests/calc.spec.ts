@@ -224,4 +224,47 @@ test.describe("Calc", () => {
     await expect(page.getByTestId("print-view")).toBeVisible();
     await expect.poll(() => printCount(page)).toBeGreaterThan(0);
   });
+
+  test("deleting a sheet with data asks first; references become #REF! and undo brings it back", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    const sheets = page.getByRole("tablist", { name: "Sheets" });
+    await grid.type(0, 0, "5");
+    await page.getByRole("button", { name: "Add sheet" }).click();
+    await expect(sheets.getByRole("tab", { name: "Sheet2" })).toHaveAttribute("aria-selected", "true");
+    await grid.type(0, 0, "=Sheet1!A1*2");
+    await sheets.getByRole("tab", { name: "Sheet1" }).click({ button: "right" });
+    await page.getByRole("menu", { name: "Sheet" }).getByRole("menuitem", { name: "Delete sheet" }).click();
+    const dialog = page.getByRole("dialog", { name: "Delete sheet" });
+    await expect(dialog).toContainText("Sheet1");
+    await dialog.getByRole("button", { name: "Delete" }).click();
+    await expect(sheets.getByRole("tab")).toHaveCount(1);
+    await expect(sheets.getByRole("tab", { name: "Sheet2" })).toHaveAttribute("aria-selected", "true");
+    expect(await grid.input(0, 0)).toBe("=#REF!*2");
+    await page.keyboard.press("Control+z");
+    await expect(sheets.getByRole("tab")).toHaveText(["Sheet1", "Sheet2"]);
+    expect(await grid.input(0, 0)).toBe("=Sheet1!A1*2");
+    expect(await grid.display(0, 0)).toBe("10");
+    errors.expectNone();
+  });
+
+  test("duplicating a sheet keeps its formulas", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    const sheets = page.getByRole("tablist", { name: "Sheets" });
+    await grid.type(0, 0, "3");
+    await grid.type(1, 0, "=A1*2");
+    await sheets.getByRole("tab", { name: "Sheet1" }).click({ button: "right" });
+    await page.getByRole("menu", { name: "Sheet" }).getByRole("menuitem", { name: "Duplicate" }).click();
+    await expect(sheets.getByRole("tab")).toHaveText(["Sheet1", "Sheet1 (2)"]);
+    await expect(sheets.getByRole("tab", { name: "Sheet1 (2)" })).toHaveAttribute("aria-selected", "true");
+    expect(await grid.input(1, 0)).toBe("=A1*2");
+    await grid.type(0, 0, "10");
+    expect(await grid.display(1, 0)).toBe("20");
+    await sheets.getByRole("tab", { name: "Sheet1", exact: true }).click();
+    expect(await grid.display(1, 0)).toBe("6");
+    errors.expectNone();
+  });
 });

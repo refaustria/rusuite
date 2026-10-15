@@ -5,7 +5,7 @@
 // directly and without a new runtime dependency.
 
 import { useSyncExternalStore } from "react";
-import type { CellStylePatch } from "@rusuite/ui-shared";
+import type { CellStylePatch, Color } from "@rusuite/ui-shared";
 import { CalcApiError, type CalcApi, type PatchEnvelope } from "../backend/calcApi";
 import type { CalcCommand } from "../generated/CalcCommand";
 import type { FillMode } from "../generated/FillMode";
@@ -107,7 +107,11 @@ export type CalcDialog =
   | { kind: "numberFormat" }
   | { kind: "find"; replace: boolean }
   | { kind: "rowHeight" }
-  | { kind: "colWidth" };
+  | { kind: "colWidth" }
+  /** Confirms deleting a sheet that has content. */
+  | { kind: "deleteSheet"; sheet: number; name: string }
+  | { kind: "tabColor"; sheet: number }
+  | { kind: "renameSheet"; sheet: number };
 
 export interface CalcState {
   info: WorkbookInfo | null;
@@ -368,8 +372,37 @@ export class CalcStore {
       for (const r of g.rows) putRow(cache, r);
     }
     let activeSheet = this.state.activeSheet;
+    let edit = this.state.edit;
+    let clipMark = this.state.clipMark;
+    if (patch.sheets && info) {
+      // Deleted sheets: drop their cache (an undo restores them from scratch).
+      const live = new Set(patch.sheets.map((s) => s.id));
+      for (const { id } of info.sheets) {
+        if (live.has(id)) continue;
+        this.caches.delete(id);
+        this.geo.delete(id);
+        this.extents.delete(id);
+        this.lastViewport.delete(id);
+        for (const key of [...this.inflight.keys()]) if (key.startsWith(`${id}:`)) this.inflight.delete(key);
+      }
+      if (!live.has(activeSheet)) {
+        // The neighbour that took the deleted sheet's place.
+        const at = info.sheets.findIndex((s) => s.id === activeSheet);
+        activeSheet = patch.sheets[Math.min(Math.max(at, 0), patch.sheets.length - 1)]?.id ?? 0;
+      }
+      if (edit && !live.has(edit.sheet)) edit = null;
+      if (clipMark && !live.has(clipMark.sheet)) {
+        clipMark = null;
+        this.clip = null;
+      }
+    }
     if (nextInfo && !nextInfo.sheets.some((s) => s.id === activeSheet)) activeSheet = nextInfo.sheets[0]?.id ?? 0;
-    this.bump({ info: nextInfo, cycle: patch.cycle, activeSheet });
+    const switched = activeSheet !== this.state.activeSheet;
+    this.bump({ info: nextInfo, cycle: patch.cycle, activeSheet, edit, clipMark, ...(switched ? { selection: cellSelection(0, 0) } : {}) });
+    if (switched) {
+      const vp = this.lastViewport.get(activeSheet) ?? { r0: 0, c0: 0, r1: BLOCK_ROWS - 1, c1: BLOCK_COLS - 1 };
+      void this.ensureRegion(activeSheet, vp.r0, vp.c0, vp.r1, vp.c1);
+    }
     for (const sheet of reload) {
       const vp = this.lastViewport.get(sheet);
       if (vp) void this.ensureRegion(sheet, vp.r0, vp.c0, vp.r1, vp.c1);
@@ -1262,15 +1295,86 @@ export class CalcStore {
     return this.apply({ type: "setRowHeight", sheet: this.state.activeSheet, row, height });
   }
 
-  addSheet(): Promise<void> {
+  /** Adds a new empty sheet `SheetN` at position `index` (default: last) and shows it. */
+  addSheet(index?: number): Promise<void> {
     const names = new Set((this.state.info?.sheets ?? []).map((s) => s.name.toLowerCase()));
     let n = (this.state.info?.sheets.length ?? 0) + 1;
     while (names.has(`sheet${n}`)) n++;
+    const command: CalcCommand = index === undefined ? { type: "addSheet", name: `Sheet${n}` } : { type: "addSheet", name: `Sheet${n}`, index };
+    return this.applyAndShowNew(command);
+  }
+
+  /** Excel's Insert sheet (Shift+F11): a new sheet before `sheet` (default: the active one). */
+  insertSheet(sheet = this.state.activeSheet): Promise<void> {
+    const at = this.sheetPosition(sheet);
+    return this.addSheet(at < 0 ? undefined : at);
+  }
+
+  /** Position of `sheet` in the tab order (-1: unknown). */
+  sheetPosition(sheet: number): number {
+    return (this.state.info?.sheets ?? []).findIndex((s) => s.id === sheet);
+  }
+
+  private applyAndShowNew(command: CalcCommand): Promise<void> {
     const before = new Set((this.state.info?.sheets ?? []).map((s) => s.id));
-    return this.apply({ type: "addSheet", name: `Sheet${n}` }).then(() => {
+    return this.apply(command).then(() => {
       const added = this.state.info?.sheets.find((s) => !before.has(s.id));
       if (added) this.setActiveSheet(added.id);
     });
+  }
+
+  /**
+   * Deletes `sheet`. A sheet with content (or own cell formats) asks first
+   * (the `deleteSheet` dialog calls back with `confirmed`); the last sheet
+   * cannot be deleted.
+   */
+  deleteSheet(sheet: number, confirmed = false): Promise<void> {
+    const sheets = this.state.info?.sheets ?? [];
+    const info = sheets.find((s) => s.id === sheet);
+    if (!info) return Promise.resolve();
+    if (sheets.length <= 1) {
+      this.pushError(new Error("A workbook must contain at least one sheet."));
+      return Promise.resolve();
+    }
+    return this.guard(async () => {
+      if (!confirmed && (await this.api.usedRange(sheet)) !== null) {
+        this.openDialog({ kind: "deleteSheet", sheet, name: info.name });
+        return;
+      }
+      if (this.state.edit) await this.commitEdit(0, 0);
+      this.applyEnvelope(await this.api.apply({ type: "deleteSheet", sheet }));
+    });
+  }
+
+  /** Copies `sheet` to `Name (2)` (the first free number) right after it and shows the copy. */
+  duplicateSheet(sheet: number): Promise<void> {
+    const sheets = this.state.info?.sheets ?? [];
+    const name = sheets.find((s) => s.id === sheet)?.name;
+    if (name === undefined) return Promise.resolve();
+    const names = new Set(sheets.map((s) => s.name.toLowerCase()));
+    const base = name.replace(/ \(\d+\)$/, "");
+    let n = 2;
+    while (names.has(`${base} (${n})`.toLowerCase())) n++;
+    return this.applyAndShowNew({ type: "duplicateSheet", sheet, name: `${base} (${n})` });
+  }
+
+  /** Moves `sheet` to tab position `index`. */
+  moveSheet(sheet: number, index: number): Promise<void> {
+    const count = this.state.info?.sheets.length ?? 0;
+    const target = Math.max(0, Math.min(index, count - 1));
+    if (target === this.sheetPosition(sheet) || count === 0) return Promise.resolve();
+    return this.apply({ type: "moveSheet", sheet, index: target });
+  }
+
+  /** Moves `sheet` one tab left (-1) or right (1). */
+  moveSheetBy(sheet: number, delta: -1 | 1): Promise<void> {
+    const at = this.sheetPosition(sheet);
+    return at < 0 ? Promise.resolve() : this.moveSheet(sheet, at + delta);
+  }
+
+  /** Tab colour of `sheet`; `null` = default. */
+  setTabColor(sheet: number, color: Color | null): Promise<void> {
+    return this.apply({ type: "setSheetTabColor", sheet, color });
   }
 
   renameSheet(sheet: number, name: string): Promise<void> {

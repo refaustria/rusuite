@@ -10,7 +10,7 @@ use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
 use model_sheet::{ColInfo, Workbook};
 
 use crate::a1::{cell_name, range_name};
-use crate::styles::{builtin_default_font, write_styles, MAIN_NS};
+use crate::styles::{builtin_default_font, color_el, write_styles, MAIN_NS};
 use crate::xlfn::add_xlfn_prefixes;
 use crate::xml::{encode_x_escapes, fmt_num, needs_preserve, XmlOut};
 use crate::{Result, XlsxContext};
@@ -197,6 +197,11 @@ fn sheet_xml(wb: &Workbook, id: SheetId, first: bool, sst: &mut SharedStrings) -
     let format = wb.sheet_format(id);
     let mut x = XmlOut::new();
     x.start("worksheet", &[("xmlns", MAIN_NS), ("xmlns:r", rel::NS)]);
+    if let Some(color) = wb.tab_color(id) {
+        x.start("sheetPr", &[]);
+        color_el(&mut x, "tabColor", color);
+        x.end("sheetPr");
+    }
     let dim = wb
         .used_range(id)
         .map_or_else(|| "A1".to_owned(), |(r, c)| range_name(0, 0, r, c));

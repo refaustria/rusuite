@@ -1,9 +1,10 @@
 // The dialogs Calc opens through the store (`store.openDialog`): Format
-// Cells (number format, Ctrl+1), Find & Replace (Ctrl+F / Ctrl+H) and the
-// row height / column width prompts.
+// Cells (number format, Ctrl+1), Find & Replace (Ctrl+F / Ctrl+H), the
+// row height / column width prompts and the sheet dialogs (confirm
+// delete, rename, tab colour).
 
 import { useEffect, useRef, useState } from "react";
-import { Dialog, PromptDialog } from "@rusuite/ui-shared";
+import { cssColor, Dialog, OFFICE_THEME, PromptDialog, STANDARD_COLORS, THEME_SLOTS, type Color } from "@rusuite/ui-shared";
 import {
   buildCode, CATEGORIES, DATE_CODES, parseCode, previewValue, SYMBOLS, TIME_CODES, type CurrencySymbol, type FormatChoice,
 } from "./numberFormat";
@@ -247,6 +248,53 @@ function FindPanel({ store, replace }: { store: CalcStore; replace: boolean }) {
   );
 }
 
+/** Theme colours (no tint) then the standard colours, as in Excel's tab colour menu. */
+const TAB_COLORS: { label: string; color: Color }[] = [
+  ...THEME_SLOTS.map((slot) => ({ label: `Theme ${slot}`, color: { kind: "theme", value: { slot, tint: 0 } } as Color })),
+  ...STANDARD_COLORS.map((hex) => ({ label: `#${hex}`, color: { kind: "rgb", value: hex } as Color })),
+];
+
+function TabColorDialog({ store, sheet }: { store: CalcStore; sheet: number }) {
+  const info = store.getState().info?.sheets.find((s) => s.id === sheet);
+  const close = () => {
+    store.closeDialog();
+    store.focusGrid();
+  };
+  const pick = (color: Color | null) => {
+    void store.setTabColor(sheet, color);
+    close();
+  };
+  const current = JSON.stringify(info?.tabColor ?? null);
+  return (
+    <Dialog open title="Tab colour" onClose={close}>
+      <div className="flex w-64 flex-col gap-2 text-sm">
+        <div className="text-xs text-ui-muted">{info?.name}</div>
+        <div role="group" aria-label="Colours" className="grid grid-cols-10 gap-0.5">
+          {TAB_COLORS.map(({ label, color }) => (
+            <button
+              key={label}
+              type="button"
+              aria-label={label}
+              aria-pressed={JSON.stringify(color) === current}
+              className="h-5 w-5 rounded-sm border border-ui-border aria-pressed:ring-2 aria-pressed:ring-ui-focus"
+              style={{ background: cssColor(color, OFFICE_THEME) }}
+              onClick={() => pick(color)}
+            />
+          ))}
+        </div>
+        <div className="flex justify-end gap-2">
+          <button type="button" className={BTN} onClick={() => pick(null)}>
+            No colour
+          </button>
+          <button type="button" className={BTN} onClick={close}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
 export function CalcDialogs({ store }: { store: CalcStore }) {
   const dialog = useCalc(store, (s) => s.dialog);
   const close = () => {
@@ -257,6 +305,50 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
   switch (dialog.kind) {
     case "numberFormat":
       return <NumberFormatDialog store={store} />;
+    case "tabColor":
+      return <TabColorDialog store={store} sheet={dialog.sheet} />;
+    case "renameSheet": {
+      const name = store.getState().info?.sheets.find((s) => s.id === dialog.sheet)?.name ?? "";
+      return (
+        <PromptDialog
+          open
+          title="Rename sheet"
+          label="Sheet name"
+          initial={name}
+          confirmLabel="Rename"
+          onClose={close}
+          onSubmit={(v) => {
+            void store.renameSheet(dialog.sheet, v);
+            close();
+          }}
+        />
+      );
+    }
+    case "deleteSheet":
+      return (
+        <Dialog open title="Delete sheet" onClose={close}>
+          <form
+            className="flex w-80 flex-col gap-3 text-sm"
+            onSubmit={(e) => {
+              e.preventDefault();
+              close();
+              void store.deleteSheet(dialog.sheet, true);
+            }}
+          >
+            <p>
+              “{dialog.name}” contains data. Delete the sheet? References to it in formulas become #REF! (Undo brings it back).
+            </p>
+            <div className="flex justify-end gap-2">
+              <button type="button" className={BTN} onClick={close}>
+                Cancel
+              </button>
+              <button type="submit" className={BTN}>
+                Delete
+              </button>
+            </div>
+          </form>
+        </Dialog>
+      );
     case "find":
       return <FindPanel store={store} replace={dialog.replace} />;
     case "rowHeight":

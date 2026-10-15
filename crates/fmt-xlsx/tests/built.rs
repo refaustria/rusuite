@@ -259,6 +259,40 @@ fn built_workbook_roundtrips() {
 }
 
 #[test]
+fn sheet_order_and_tab_colours_roundtrip() {
+    let mut wb = Workbook::new();
+    let first = wb.sheet_id("Sheet1").unwrap();
+    let b = wb.add_sheet("B").unwrap();
+    let c = wb.add_sheet("C").unwrap();
+    wb.set_input(CellCoord::new(first, 0, 0), "=C!A1+B!A1")
+        .unwrap();
+    wb.set_input(CellCoord::new(c, 0, 0), "2").unwrap();
+    wb.set_tab_color(c, Some(Color::Rgb(Rgb::new(0x12, 0x34, 0x56))))
+        .unwrap();
+    let accent = Color::Theme {
+        slot: ThemeColorSlot::Accent2,
+        tint: 0.5,
+    };
+    wb.set_tab_color(first, Some(accent)).unwrap();
+    wb.move_sheet(c, 0).unwrap();
+    wb.remove_sheet(b).unwrap();
+
+    let bytes = fmt_xlsx::write(&wb).unwrap();
+    let (back, warnings) = fmt_xlsx::read_with_warnings(&bytes).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(back.to_snapshot(), wb.to_snapshot());
+    let names: Vec<String> = back.sheets().into_iter().map(|(_, n)| n).collect();
+    assert_eq!(names, ["C", "Sheet1"]);
+    let sheet1 = part(&bytes, "/xl/worksheets/sheet1.xml");
+    assert!(
+        sheet1.contains(r#"<sheetPr><tabColor rgb="FF123456"/></sheetPr><dimension"#),
+        "{sheet1}"
+    );
+    let sheet2 = part(&bytes, "/xl/worksheets/sheet2.xml");
+    assert!(sheet2.contains(r#"<f>C!A1+#REF!</f>"#), "{sheet2}");
+}
+
+#[test]
 fn date1904_is_rejected() {
     let bytes = fmt_xlsx::write(&Workbook::new()).unwrap();
     let mut pkg = Package::open(Cursor::new(bytes.as_slice())).unwrap();

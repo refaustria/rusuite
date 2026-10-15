@@ -11,6 +11,7 @@ import {
   type FormatControlProps, type RibbonTab,
 } from "@rusuite/ui-shared";
 import { calcActions } from "../calcActions";
+import { sheetMenu } from "../SheetTabs";
 import { toolbarValue } from "../grid/style";
 import { useCalc, type CalcStore } from "../state/store";
 
@@ -53,7 +54,8 @@ export interface CalcRibbonProps {
 export function CalcRibbon({ store, session, onExportPdf, view, onViewChange }: CalcRibbonProps) {
   useCalc(store, (s) => s.version);
   useCalc(store, (s) => s.selection);
-  useCalc(store, (s) => s.activeSheet);
+  const activeSheet = useCalc(store, (s) => s.activeSheet);
+  useCalc(store, (s) => s.info?.sheets);
   const ready = useCalc(store, (s) => s.info !== null);
   const canUndo = useCalc(store, (s) => s.canUndo);
   const canRedo = useCalc(store, (s) => s.canRedo);
@@ -193,6 +195,8 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange }: 
               menu={[
                 { id: "rows", label: "Delete sheet rows", icon: "deleteRows", onSelect: run(actions.deleteRows) },
                 { id: "cols", label: "Delete sheet columns", icon: "deleteCols", onSelect: run(actions.deleteCols) },
+                { separator: true },
+                { id: "sheet", label: "Delete sheet", icon: "sheet", onSelect: () => void store.deleteSheet(activeSheet) },
               ]}
             />
             <RibbonMenuButton
@@ -247,7 +251,18 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange }: 
     groups: [
       {
         label: "Sheets",
-        items: <RibbonButton label="New sheet" icon="sheet" size="large" disabled={off} onClick={run(() => store.addSheet())} />,
+        items: (
+          <>
+            <RibbonButton label="New sheet" icon="sheet" size="large" disabled={off} onClick={run(() => store.addSheet())} />
+            <RibbonMenuButton
+              label="Sheet"
+              icon="sheet"
+              size="large"
+              disabled={off}
+              menu={sheetMenu(store, activeSheet, () => store.openDialog({ kind: "renameSheet", sheet: activeSheet }))}
+            />
+          </>
+        ),
       },
       {
         label: "Rows & columns",

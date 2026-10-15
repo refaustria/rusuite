@@ -49,12 +49,16 @@ pub struct FoundCell {
     pub display: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "apps/calc/src/generated/")]
 pub struct SheetInfo {
     pub id: u32,
     pub name: String,
+    /// Tab colour; absent = default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<app_common::wire::Color>")]
+    pub tab_color: Option<core_model::Color>,
 }
 
 /// Properties of one column; all defaults when not listed.
@@ -140,7 +144,8 @@ pub struct StructuralChange {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "apps/calc/src/generated/")]
 pub struct CalcPatch {
-    /// The full sheet list, when it changed.
+    /// The full sheet list in display order, when it changed (added,
+    /// deleted, renamed, moved or recoloured sheets).
     pub sheets: Option<Vec<SheetInfo>>,
     pub cells: Vec<SheetCells>,
     pub cols: Vec<SheetCols>,

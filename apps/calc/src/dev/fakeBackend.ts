@@ -5,7 +5,7 @@
 // functions, + - * / & and SUM/AVERAGE/MIN/MAX/COUNT. The real engine
 // lives in Rust (ADR 0001); nothing here is used in production builds.
 
-import type { Backend, OpenedFile } from "@rusuite/ui-shared";
+import type { Backend, Color, OpenedFile } from "@rusuite/ui-shared";
 import type { CalcCommand } from "../generated/CalcCommand";
 import type { CalcPatch } from "../generated/CalcPatch";
 import type { CellKind } from "../generated/CellKind";
@@ -30,6 +30,7 @@ interface FakeSheet {
   cols: Map<number, ColView>;
   rows: Map<number, RowView>;
   formulas: Set<string>;
+  tabColor?: Color;
 }
 
 type Value = number | string | boolean | { error: string };
@@ -74,6 +75,9 @@ export class FakeCalcCore {
   name: string | null = null;
   /** Every request seen, for tests. */
   log: Request[] = [];
+  /** Deleted sheets by id (ids are never reused; undo brings them back whole). */
+  private removed = new Map<number, FakeSheet>();
+  private nextId = 0;
 
   /** `sheetNames`: the sheets of a new document (default one, "Sheet1"). */
   constructor(private readonly sheetNames: string[] = ["Sheet1"]) {
@@ -83,6 +87,8 @@ export class FakeCalcCore {
   reset(): void {
     this.name = null;
     this.sheets = this.sheetNames.map((name, id) => this.newSheet(id, name));
+    this.removed.clear();
+    this.nextId = this.sheets.length;
     this.styles = [{}];
     this.undoStack = [];
     this.redoStack = [];
@@ -101,7 +107,7 @@ export class FakeCalcCore {
   }
 
   private sheetInfos(): SheetInfo[] {
-    return this.sheets.map(({ id, name }) => ({ id, name }));
+    return this.sheets.map(({ id, name, tabColor }) => (tabColor ? { id, name, tabColor } : { id, name }));
   }
 
   private cell(s: FakeSheet, r: number, c: number): FakeCell | undefined {
@@ -294,12 +300,64 @@ export class FakeCalcCore {
         patch.rows = [{ sheet: cmd.sheet, rows: cmd.rows }];
         return [patch, { type: "restoreRows", sheet: cmd.sheet, rows: prev }];
       }
-      case "addSheet": {
+      case "addSheet":
+      case "duplicateSheet": {
         if (this.sheets.some((s) => s.name.toLowerCase() === cmd.name.toLowerCase())) throw new Fail("duplicate_sheet", `sheet ${cmd.name} exists`);
-        this.sheets.push(this.newSheet(Math.max(...this.sheets.map((s) => s.id)) + 1, cmd.name));
+        let sheet = this.newSheet(this.nextId++, cmd.name);
+        const at = cmd.type === "addSheet" ? (cmd.index ?? this.sheets.length) : this.sheets.indexOf(this.sheet(cmd.sheet)) + 1;
+        if (cmd.type === "duplicateSheet") {
+          const src = this.sheet(cmd.sheet);
+          sheet = {
+            ...sheet,
+            cells: new Map([...src.cells].map(([r, row]) => [r, new Map([...row].map(([c, x]) => [c, { ...x }]))])),
+            cols: new Map(src.cols),
+            rows: new Map(src.rows),
+            formulas: new Set(src.formulas),
+            tabColor: src.tabColor,
+          };
+        }
+        if (at > this.sheets.length) throw new Fail("invalid_sheet_index", `bad index ${at}`);
+        this.sheets.splice(at, 0, sheet);
         const patch = this.emptyPatch();
         patch.sheets = this.sheetInfos();
-        return [patch, null];
+        return [patch, { type: "deleteSheet", sheet: sheet.id }];
+      }
+      case "deleteSheet": {
+        const s = this.sheet(cmd.sheet);
+        if (this.sheets.length === 1) throw new Fail("last_sheet", "a workbook needs at least one sheet");
+        const index = this.sheets.indexOf(s);
+        this.sheets.splice(index, 1);
+        this.removed.set(s.id, s);
+        const patch = this.emptyPatch();
+        patch.sheets = this.sheetInfos();
+        const format = { defaultColWidth: 8.43, defaultRowHeight: 15 };
+        return [patch, { type: "restoreSheet", sheet: s.id, name: s.name, index, tabColor: s.tabColor ?? null, format }];
+      }
+      case "restoreSheet": {
+        const s = this.removed.get(cmd.sheet) ?? this.newSheet(cmd.sheet, cmd.name);
+        this.removed.delete(cmd.sheet);
+        this.sheets.splice(cmd.index, 0, { ...s, name: cmd.name, tabColor: cmd.tabColor ?? undefined });
+        const patch = this.emptyPatch();
+        patch.sheets = this.sheetInfos();
+        return [patch, { type: "deleteSheet", sheet: cmd.sheet }];
+      }
+      case "moveSheet": {
+        const s = this.sheet(cmd.sheet);
+        const old = this.sheets.indexOf(s);
+        if (cmd.index >= this.sheets.length) throw new Fail("invalid_sheet_index", `bad index ${cmd.index}`);
+        this.sheets.splice(old, 1);
+        this.sheets.splice(cmd.index, 0, s);
+        const patch = this.emptyPatch();
+        patch.sheets = this.sheetInfos();
+        return [patch, { type: "moveSheet", sheet: cmd.sheet, index: old }];
+      }
+      case "setSheetTabColor": {
+        const s = this.sheet(cmd.sheet);
+        const old = s.tabColor ?? null;
+        s.tabColor = cmd.color ?? undefined;
+        const patch = this.emptyPatch();
+        patch.sheets = this.sheetInfos();
+        return [patch, { type: "setSheetTabColor", sheet: cmd.sheet, color: old }];
       }
       case "renameSheet": {
         const s = this.sheet(cmd.sheet);
@@ -558,6 +616,17 @@ export class FakeCalcCore {
             ),
           );
           return { ok: { type: "found", cells } };
+        }
+        case "usedRange": {
+          const s = this.sheet(req.sheet);
+          let last: [number, number] | null = null;
+          for (const [r, row] of s.cells) {
+            for (const [c, cell] of row) {
+              if (cell.input === "" && cell.style === 0) continue;
+              last = last ? [Math.max(last[0], r), Math.max(last[1], c)] : [r, c];
+            }
+          }
+          return { ok: { type: "usedRange", last } };
         }
         case "formatPreview": {
           const dec = /^[#,]*0(?:\.(0+))?%?$/.exec(req.code.replace(/[^#0.,%]/g, ""));

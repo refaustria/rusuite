@@ -57,6 +57,16 @@
 //! stored formula *text* is not rewritten yet. References to a sheet that
 //! does not exist evaluate to `#REF!` and start working once a sheet of
 //! that name is added (or another sheet is renamed to it).
+//!
+//! # Sheet order and removal
+//!
+//! [`Engine::sheets`] lists the sheets in display order, which
+//! [`Engine::move_sheet`] changes without touching ids.
+//! [`Engine::remove_sheet`] deletes a sheet as Excel does: every reference
+//! to it in the remaining formulas becomes `#REF!` (text and AST), so a
+//! later sheet of the same name does not revive them. The removed id stays
+//! reserved: [`Engine::add_sheet`] never hands it out again, and only
+//! [`Engine::restore_sheet`] (undo) brings it back.
 
 use std::collections::{HashMap, HashSet};
 
@@ -106,6 +116,10 @@ pub enum EngineError {
     UnknownSheet(SheetId),
     #[error("cell coordinate out of range")]
     InvalidCoord,
+    #[error("a workbook needs at least one sheet")]
+    LastSheet,
+    #[error("sheet position {0} out of range")]
+    InvalidSheetIndex(usize),
 }
 
 static EMPTY: CellContent = CellContent::Empty;
@@ -118,6 +132,8 @@ struct Sheet {
     values: HashMap<(u32, u32), Value>,
     /// `(max_row, max_col)` of non-empty content.
     used: Option<(u32, u32)>,
+    /// Deleted: empty, invisible to name lookups, id reserved.
+    removed: bool,
 }
 
 impl Sheet {
@@ -153,7 +169,7 @@ fn same_name(a: &str, b: &str) -> bool {
 fn find_sheet(sheets: &[Sheet], name: &str) -> Option<SheetId> {
     sheets
         .iter()
-        .position(|s| same_name(&s.name, name))
+        .position(|s| !s.removed && same_name(&s.name, name))
         .map(|i| SheetId(i as u32))
 }
 
@@ -206,6 +222,30 @@ fn rename_refs(e: &mut Expr, from: &str, to: &str) -> bool {
     }
 }
 
+/// Replaces every reference prefixed with sheet `name` (case-insensitive)
+/// by `#REF!`; returns whether anything changed.
+fn drop_sheet_refs(e: &mut Expr, name: &str) -> bool {
+    if let Expr::Reference(r) = e {
+        let hit = r.sheet.as_deref().is_some_and(|s| same_name(s, name));
+        if hit {
+            *e = Expr::Error(ErrorKind::Ref);
+        }
+        return hit;
+    }
+    match e {
+        Expr::Call { args, .. } => args
+            .iter_mut()
+            .fold(false, |acc, a| drop_sheet_refs(a, name) | acc),
+        Expr::Unary { expr, .. } => drop_sheet_refs(expr, name),
+        Expr::Binary { lhs, rhs, .. } => drop_sheet_refs(lhs, name) | drop_sheet_refs(rhs, name),
+        Expr::Array(rows) => rows
+            .iter_mut()
+            .flatten()
+            .fold(false, |acc, a| drop_sheet_refs(a, name) | acc),
+        _ => false,
+    }
+}
+
 /// Value equality with numbers compared by bit pattern (so `0` vs `-0`
 /// counts as a change).
 fn same_value(a: &Value, b: &Value) -> bool {
@@ -250,7 +290,10 @@ fn parse_input(input: &str) -> Result<CellContent, ParseError> {
 
 /// Workbook-level formula engine. See the module docs.
 pub struct Engine {
+    /// Indexed by `SheetId.0` (removed sheets stay as tombstones).
     sheets: Vec<Sheet>,
+    /// The live sheets in display order.
+    order: Vec<SheetId>,
     graph: DependencyGraph,
     registry: FunctionRegistry,
     volatile: HashSet<CellCoord>,
@@ -275,6 +318,7 @@ impl Engine {
     pub fn with_registry(registry: FunctionRegistry) -> Self {
         Engine {
             sheets: vec![Sheet::new("Sheet1")],
+            order: vec![SheetId(0)],
             graph: DependencyGraph::new(),
             registry,
             volatile: HashSet::new(),
@@ -291,8 +335,172 @@ impl Engine {
         }
         let id = SheetId(self.sheets.len() as u32);
         self.sheets.push(Sheet::new(name));
+        self.order.push(id);
         self.reresolve(name);
         Ok(id)
+    }
+
+    /// Deletes a sheet (Excel's "Delete sheet"): its contents are dropped,
+    /// every reference to it in the other sheets' formulas becomes `#REF!`
+    /// (the formula text is regenerated from the rewritten AST) and the
+    /// affected formulas are recalculated (deferred inside a batch). The id
+    /// is never handed out again (see [`restore_sheet`](Self::restore_sheet)).
+    ///
+    /// [`Recalc::changed`] lists every rewritten formula and every
+    /// re-evaluated formula whose value changed. Fails with
+    /// [`EngineError::LastSheet`] for the only remaining sheet.
+    pub fn remove_sheet(&mut self, id: SheetId) -> Result<Recalc, EngineError> {
+        let idx = self.sheet_index(id)?;
+        if self.order.len() == 1 {
+            return Err(EngineError::LastSheet);
+        }
+        // 1. Rewrite references to the sheet on the remaining sheets.
+        let name = self.sheets[idx].name.clone();
+        let mut rewritten = Vec::new();
+        for (i, s) in self.sheets.iter_mut().enumerate() {
+            if i == idx || s.removed {
+                continue;
+            }
+            for (&(row, col), content) in s.cells.iter_mut() {
+                let CellContent::Formula { text, ast } = content else {
+                    continue;
+                };
+                if drop_sheet_refs(ast, &name) {
+                    *text = format!("={ast}");
+                    rewritten.push(CellCoord::new(SheetId(i as u32), row, col));
+                }
+            }
+        }
+        // 2. Drop the sheet's own formulas and edges, then re-register the
+        //    rewritten ones (they no longer point at the sheet).
+        for c in self.graph.remove_sheet(id) {
+            self.volatile.remove(&c);
+        }
+        for &c in &rewritten {
+            let Some(CellContent::Formula { ast, .. }) =
+                self.sheets[c.sheet.0 as usize].cells.get(&(c.row, c.col))
+            else {
+                continue;
+            };
+            self.graph
+                .set_formula(c, ast, &Names(&self.sheets), c.sheet);
+            if is_volatile(ast) {
+                self.volatile.insert(c);
+            } else {
+                self.volatile.remove(&c);
+            }
+        }
+        // 3. Tombstone.
+        let s = &mut self.sheets[idx];
+        s.cells.clear();
+        s.values.clear();
+        s.used = None;
+        s.removed = true;
+        self.order.retain(|&o| o != id);
+        if let Some(pending) = &mut self.pending {
+            pending.extend(rewritten.iter().copied());
+            rewritten.sort_unstable();
+            return Ok(Recalc {
+                changed: rewritten,
+                cycle: None,
+            });
+        }
+        let mut recalc = self.recalc(&rewritten);
+        recalc.changed.extend(rewritten);
+        recalc.changed.sort_unstable();
+        recalc.changed.dedup();
+        Ok(recalc)
+    }
+
+    /// Brings back a sheet removed by [`remove_sheet`](Self::remove_sheet)
+    /// (undo): empty, named `name`, at position `index` of the sheet order.
+    /// Formulas referencing `name` while no such sheet existed are
+    /// re-resolved, as by [`add_sheet`](Self::add_sheet). Fails with
+    /// [`EngineError::UnknownSheet`] unless `id` is a removed sheet.
+    pub fn restore_sheet(
+        &mut self,
+        id: SheetId,
+        name: &str,
+        index: usize,
+    ) -> Result<(), EngineError> {
+        let idx = id.0 as usize;
+        if !self.sheets.get(idx).is_some_and(|s| s.removed) {
+            return Err(EngineError::UnknownSheet(id));
+        }
+        if index > self.order.len() {
+            return Err(EngineError::InvalidSheetIndex(index));
+        }
+        if find_sheet(&self.sheets, name).is_some() {
+            return Err(EngineError::DuplicateSheet(name.to_string()));
+        }
+        self.sheets[idx] = Sheet::new(name);
+        self.order.insert(index, id);
+        self.reresolve(name);
+        Ok(())
+    }
+
+    /// Moves a sheet to position `index` of the sheet order (0 = first).
+    pub fn move_sheet(&mut self, id: SheetId, index: usize) -> Result<(), EngineError> {
+        self.sheet_index(id)?;
+        if index >= self.order.len() {
+            return Err(EngineError::InvalidSheetIndex(index));
+        }
+        self.order.retain(|&o| o != id);
+        self.order.insert(index, id);
+        Ok(())
+    }
+
+    /// Position of a live sheet in the sheet order.
+    pub fn sheet_position(&self, id: SheetId) -> Option<usize> {
+        self.order.iter().position(|&o| o == id)
+    }
+
+    /// Copies sheet `id` to a new sheet `name`, placed right after it:
+    /// constants and formulas, with the formulas' references to the
+    /// source sheet itself (`Sheet1!A1` on `Sheet1`) pointing at the copy,
+    /// as in Excel; unprefixed references stay local anyway. The copy is
+    /// evaluated (deferred inside a batch). Returns the new id and the
+    /// recalculation.
+    pub fn duplicate_sheet(
+        &mut self,
+        id: SheetId,
+        name: &str,
+    ) -> Result<(SheetId, Recalc), EngineError> {
+        let idx = self.sheet_index(id)?;
+        let at = self.sheet_position(id).map_or(self.order.len(), |p| p + 1);
+        let source = self.sheets[idx].name.clone();
+        let mut cells: Vec<((u32, u32), CellContent)> = self.sheets[idx]
+            .cells
+            .iter()
+            .map(|(&pos, content)| (pos, content.clone()))
+            .collect();
+        cells.sort_unstable_by_key(|(pos, _)| *pos);
+        let new = self.add_sheet(name)?;
+        self.order.pop();
+        self.order.insert(at, new);
+        for (_, content) in &mut cells {
+            if let CellContent::Formula { text, ast } = content {
+                if rename_refs(ast, &source, name) {
+                    *text = format!("={ast}");
+                }
+            }
+        }
+        let own_batch = self.pending.is_none();
+        self.begin_batch();
+        let mut copied = Ok(Recalc::default());
+        for ((row, col), content) in cells {
+            copied = self.set_content(CellCoord::new(new, row, col), content);
+            if copied.is_err() {
+                break;
+            }
+        }
+        let recalc = if own_batch {
+            self.end_batch()
+        } else {
+            Recalc::default()
+        };
+        copied?;
+        Ok((new, recalc))
     }
 
     /// Renames a sheet. Formulas referencing it keep working (their ASTs are
@@ -323,16 +531,19 @@ impl Engine {
         find_sheet(&self.sheets, name)
     }
 
+    /// The name of a live sheet (`None` for unknown and removed sheets).
     pub fn sheet_name(&self, id: SheetId) -> Option<&str> {
-        self.sheets.get(id.0 as usize).map(|s| s.name.as_str())
+        self.sheets
+            .get(id.0 as usize)
+            .filter(|s| !s.removed)
+            .map(|s| s.name.as_str())
     }
 
-    /// All sheets in creation order.
+    /// All live sheets in display order.
     pub fn sheets(&self) -> impl Iterator<Item = (SheetId, &str)> {
-        self.sheets
+        self.order
             .iter()
-            .enumerate()
-            .map(|(i, s)| (SheetId(i as u32), s.name.as_str()))
+            .map(|&id| (id, self.sheets[id.0 as usize].name.as_str()))
     }
 
     /// Sets a cell from user input: `""` → empty; a leading `'` forces text
@@ -668,7 +879,7 @@ impl Engine {
 
     fn sheet_index(&self, id: SheetId) -> Result<usize, EngineError> {
         let idx = id.0 as usize;
-        if idx < self.sheets.len() {
+        if self.sheets.get(idx).is_some_and(|s| !s.removed) {
             Ok(idx)
         } else {
             Err(EngineError::UnknownSheet(id))
@@ -841,6 +1052,126 @@ mod tests {
         assert_eq!(
             e.rename_sheet(SheetId(9), "x"),
             Err(EngineError::UnknownSheet(SheetId(9)))
+        );
+    }
+
+    fn names(e: &Engine) -> Vec<&str> {
+        e.sheets().map(|(_, n)| n).collect()
+    }
+
+    #[test]
+    fn removing_a_sheet_turns_references_into_ref_errors() {
+        let mut e = Engine::new();
+        let s1 = SheetId(0);
+        let data = e.add_sheet("Data").unwrap();
+        let c = |s, r, col| CellCoord::new(s, r, col);
+        e.set_input(c(data, 0, 0), "10").unwrap();
+        e.set_input(c(s1, 2, 0), "5").unwrap();
+        e.set_input(c(data, 0, 1), "=A1+Sheet1!A3").unwrap();
+        e.set_input(c(s1, 0, 0), "=data!A1*2").unwrap();
+        e.set_input(c(s1, 1, 0), "=SUM('Data'!A1:A3)+A3").unwrap();
+        e.set_input(c(s1, 3, 0), "=IFERROR(Data!A1,0)+NOW()*0")
+            .unwrap();
+        assert_eq!(e.value(c(s1, 0, 0)), Value::Number(20.0));
+
+        let r = e.remove_sheet(data).unwrap();
+        assert_eq!(r.changed, vec![c(s1, 0, 0), c(s1, 1, 0), c(s1, 3, 0)]);
+        assert_eq!(e.formula_text(c(s1, 0, 0)), Some("=#REF!*2"));
+        assert_eq!(e.formula_text(c(s1, 1, 0)), Some("=SUM(#REF!)+A3"));
+        assert_eq!(e.value(c(s1, 0, 0)), Value::Error(ErrorKind::Ref));
+        assert_eq!(e.value(c(s1, 1, 0)), Value::Error(ErrorKind::Ref));
+        assert_eq!(e.value(c(s1, 3, 0)), Value::Number(0.0));
+        assert_eq!(names(&e), ["Sheet1"]);
+        assert_eq!(e.sheet_id("Data"), None);
+        assert_eq!(e.sheet_name(data), None);
+        assert_eq!(e.content(c(data, 0, 0)), &CellContent::Empty);
+        assert_eq!(e.used_range(data), None);
+        assert_eq!(
+            e.set_input(c(data, 0, 0), "1"),
+            Err(EngineError::UnknownSheet(data))
+        );
+        // Editing the cell the removed formula read: no stale edges.
+        e.set_input(c(s1, 2, 0), "6").unwrap();
+        // A new sheet of the same name gets a fresh id and revives nothing.
+        let again = e.add_sheet("Data").unwrap();
+        assert_eq!(again, SheetId(2));
+        e.set_input(c(again, 0, 0), "1").unwrap();
+        assert_eq!(e.value(c(s1, 0, 0)), Value::Error(ErrorKind::Ref));
+        e.remove_sheet(again).unwrap();
+        assert_eq!(e.remove_sheet(s1), Err(EngineError::LastSheet));
+        assert_eq!(e.remove_sheet(data), Err(EngineError::UnknownSheet(data)));
+    }
+
+    #[test]
+    fn remove_inside_a_batch_defers_recalc() {
+        let mut e = Engine::new();
+        let b = e.add_sheet("B").unwrap();
+        let a1 = CellCoord::new(SheetId(0), 0, 0);
+        e.set_input(CellCoord::new(b, 0, 0), "3").unwrap();
+        e.set_input(a1, "=B!A1").unwrap();
+        e.begin_batch();
+        assert_eq!(e.remove_sheet(b).unwrap().changed, vec![a1]);
+        assert_eq!(e.end_batch().changed, vec![a1]);
+        assert_eq!(e.value(a1), Value::Error(ErrorKind::Ref));
+    }
+
+    #[test]
+    fn restore_and_move_keep_ids() {
+        let mut e = Engine::new();
+        let b = e.add_sheet("B").unwrap();
+        let c = e.add_sheet("C").unwrap();
+        let a1 = CellCoord::new(SheetId(0), 0, 0);
+        e.set_input(a1, "=D!A1").unwrap(); // unknown sheet: #REF! for now
+        e.move_sheet(c, 0).unwrap();
+        assert_eq!(names(&e), ["C", "Sheet1", "B"]);
+        assert_eq!(e.sheet_position(b), Some(2));
+        assert_eq!(e.move_sheet(c, 3), Err(EngineError::InvalidSheetIndex(3)));
+        e.remove_sheet(b).unwrap();
+        assert_eq!(e.sheet_position(b), None);
+        assert_eq!(
+            e.restore_sheet(c, "X", 0),
+            Err(EngineError::UnknownSheet(c))
+        );
+        assert_eq!(
+            e.restore_sheet(b, "c", 0),
+            Err(EngineError::DuplicateSheet("c".into()))
+        );
+        assert_eq!(
+            e.restore_sheet(b, "B", 3),
+            Err(EngineError::InvalidSheetIndex(3))
+        );
+        e.restore_sheet(b, "D", 1).unwrap();
+        assert_eq!(names(&e), ["C", "D", "Sheet1"]);
+        assert_eq!(e.sheet_id("d"), Some(b));
+        e.set_input(CellCoord::new(b, 0, 0), "7").unwrap();
+        assert_eq!(e.value(a1), Value::Number(7.0));
+    }
+
+    #[test]
+    fn duplicate_copies_contents_and_keeps_self_references_local() {
+        let mut e = Engine::new();
+        let s1 = SheetId(0);
+        let other = e.add_sheet("Other").unwrap();
+        let c = |s, r, col| CellCoord::new(s, r, col);
+        e.set_input(c(other, 0, 0), "100").unwrap();
+        e.set_input(c(s1, 0, 0), "2").unwrap();
+        e.set_input(c(s1, 0, 1), "=A1*Sheet1!A1").unwrap();
+        e.set_input(c(s1, 0, 2), "=Other!A1+B1").unwrap();
+        e.set_input(c(s1, 0, 3), "text").unwrap();
+        let (copy, _) = e.duplicate_sheet(s1, "Sheet1 (2)").unwrap();
+        assert_eq!(names(&e), ["Sheet1", "Sheet1 (2)", "Other"]);
+        assert_eq!(e.formula_text(c(copy, 0, 1)), Some("=A1*'Sheet1 (2)'!A1"));
+        assert_eq!(e.formula_text(c(copy, 0, 2)), Some("=Other!A1+B1"));
+        assert_eq!(e.value(c(copy, 0, 2)), Value::Number(104.0));
+        assert_eq!(e.value(c(copy, 0, 3)), Value::Text("text".into()));
+        // The copy is independent of its source.
+        let r = e.set_input(c(copy, 0, 0), "3").unwrap();
+        assert_eq!(r.changed, vec![c(copy, 0, 1), c(copy, 0, 2)]);
+        assert_eq!(e.value(c(s1, 0, 2)), Value::Number(104.0));
+        assert_eq!(e.value(c(copy, 0, 2)), Value::Number(109.0));
+        assert_eq!(
+            e.duplicate_sheet(s1, "other"),
+            Err(EngineError::DuplicateSheet("other".into()))
         );
     }
 }
