@@ -9,3 +9,4 @@ export * from "./unsaved";
 export * from "./closeGuard";
 export * from "./ConfirmDiscard";
 export * from "./AutosaveStatus";
+export * from "./privacy";

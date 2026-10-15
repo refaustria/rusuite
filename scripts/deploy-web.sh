@@ -41,7 +41,7 @@ done
 # Portal: static files, no build step. No --delete at the root (it holds the app folders).
 [ -f apps/portal/index.html ] || { echo "missing apps/portal/index.html" >&2; exit 1; }
 mkdir -p "$TARGET/logos" "$TARGET/locales"
-rsync -a apps/portal/index.html apps/portal/styles.css apps/portal/i18n.js "$TARGET/"
+rsync -a apps/portal/index.html apps/portal/privacy.html apps/portal/styles.css apps/portal/i18n.js apps/portal/version.js "$TARGET/"
 rsync -a --delete apps/portal/logos/ "$TARGET/logos/"
 rsync -a --delete apps/portal/locales/ "$TARGET/locales/"
 printf '{"commit":"%s","builtAt":"%s"}\n' "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TARGET/version.json"

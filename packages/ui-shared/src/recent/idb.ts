@@ -140,6 +140,12 @@ export class IdbDocStorage implements DocStorage {
     });
   }
 
+  async clearAll(): Promise<void> {
+    await this.tx([...STORES], "readwrite", (s) => {
+      for (const n of STORES) s[n].clear();
+    });
+  }
+
   /** Closes the connection (tests). */
   async close(): Promise<void> {
     if (this.db) (await this.db).close();

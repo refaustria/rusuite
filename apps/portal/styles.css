@@ -109,3 +109,8 @@ footer .note strong { color: var(--text); }
 .lang button + button { border-left: 1px solid var(--line); }
 .lang button[aria-pressed="true"] { background: var(--text); color: var(--surface); }
 .lang button:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
+
+.prose { max-width: 70ch; }
+.prose h2 { margin: 28px 0 6px; font-size: 1.15rem; }
+.prose p { margin: 6px 0; text-wrap: pretty; }
+.sub.privacy a { color: inherit; }

@@ -2,7 +2,7 @@
 // commands on the left and a page on the right: Home (the recent files) or
 // Print (options and preview, P7-9). Esc (or Back) returns to the document.
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FOCUS_RING } from "../Popover";
 import type { AnySession } from "../recent/session";
 import { formatTime, useSession } from "../recent/useSession";
@@ -89,6 +89,49 @@ function RecentFiles({ session, disabled, pick }: { session: AnySession; disable
           {t("recent.webNote")}
         </p>
       )}
+    </section>
+  );
+}
+
+/** ADR 0009: where the data is kept, the "keep autosave copies" setting and the remove action. */
+function PrivacySection({ session }: { session: AnySession }) {
+  const t = useT();
+  const keep = useSession(session, (st) => st.keepAutosave);
+  const [removed, setRemoved] = useState(false);
+  const desktop = session.storage?.kind === "fs";
+  return (
+    <section aria-label={t("privacy.title")} className="mt-2 max-w-xl border-t border-ui-border pt-4" data-testid="privacy">
+      <h2 className="mb-2 text-lg font-semibold">{t("privacy.title")}</h2>
+      <p className="mb-3 text-sm" data-testid="privacy-text">
+        {t(desktop ? "privacy.desktop" : "privacy.web")}
+      </p>
+      <label className="mb-3 flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={keep}
+          data-testid="privacy-keep"
+          onChange={(e) => {
+            setRemoved(false);
+            void session.setKeepAutosave(e.target.checked);
+          }}
+        />
+        {t(desktop ? "privacy.keepDesktop" : "privacy.keep")}
+      </label>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          data-testid="privacy-remove"
+          className={`rounded border border-ui-border px-3 py-1.5 text-sm hover:bg-ui-hover ${FOCUS_RING}`}
+          onClick={() => void session.clearLocalData().then(() => setRemoved(true))}
+        >
+          {t(desktop ? "privacy.removeDesktop" : "privacy.remove")}
+        </button>
+        {removed && (
+          <span role="status" className="text-sm text-ui-muted" data-testid="privacy-removed">
+            {t("privacy.removed")}
+          </span>
+        )}
+      </div>
     </section>
   );
 }
@@ -234,6 +277,7 @@ export function Backstage({
           <>
             {session && <RecentFiles session={session} disabled={fileOff} pick={pick} />}
             {info}
+            {session?.storage && <PrivacySection session={session} />}
           </>
         )}
       </div>
