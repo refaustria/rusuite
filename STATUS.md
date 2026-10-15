@@ -20,11 +20,12 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 | P1-2 | Value type system + evaluator: Number/Text/Bool/Error/Array/Reference, coercion rules, error propagation, `CellProvider` trait, implicit intersection, range→array | Opus | done (merged 6b602bb) | – | verified: 52 unit tests; suite runner 232 passed / 0 failed / 630 skipped-unimplemented; deviations: numbers compared at 15 sig digits (Excel-like), `0^-1`→#NUM! (Excel #DIV/0!) |
 | P1-3 | Dependency graph + incremental recalc + circular detection (`#CIRC` → Excel reports 0 with warning; we return `Error::Circular`) | Opus | done (merged) | – | verified: 12 integration + 4 unit tests; 100k-cell chain ordered in <1 s debug |
 | P1-4 | (folded into P1-2: registry + lazy args; `docs/functions.md` delivered by P1-6) | – | done via P1-2/P1-6 | – | |
-| P1-5a | math/stat functions (19) | Sonnet | in progress | `p1/fn-math` | brief docs/tasks/P1-5a-math.md |
-| P1-5b | logical + info + date/time (16) | Sonnet | in progress | `p1/fn-logic-date` | brief docs/tasks/P1-5b-logical-info-datetime.md |
+| P1-5a | math/stat functions (19) | Sonnet | in progress (follow-up) | `p1/fn-math` | 19 functions done; 2 SUMPRODUCT rows need P1-9 array mode; follow-up: runner override parsing by value syntax, POWER(0,-1) DIFF note; merge AFTER P1-9 |
+| P1-5b | logical + info + date/time (16) | Sonnet | done (merged 98f87b0) | – | verified: 212 rows of its three files pass; follow-up added `parse_date_text` (YEAR/MONTH/DAY/WEEKDAY/DAYS accept text dates like Excel) and moved the runner clock to 46310.5 |
 | P1-5c | text (13, incl. TEXT number formats) | Sonnet | done (merged) | – | verified: 166/166 text suite rows; TEXT numfmt subset + extras (sections, mmm/ddd); not: `?`, `E+`, fractions, AM/PM |
 | P1-5d | lookup (7): VLOOKUP HLOOKUP INDEX MATCH CHOOSE ROW COLUMN | Sonnet | todo | `p1/fn-lookup` | after a slot frees (max 3 agents) |
 | P1-6 | Reference test suite format (`testdata/formulas/*.tsv`: formula, expected, note) + runner test; provisional values computed with LibreOffice headless, marked provisional | Sonnet | done (merged) | – | 862 cases, 62 functions, `docs/functions.md`; 66 rows marked DIFF with excel= values from agent memory; owner's Excel run of `testdata/formulas/formula-suite.xlsx` will settle them |
+| P1-9 | Array-mode evaluation for range arguments (`eval_array`, broadcasting, `0^neg`→#DIV/0!) | Opus | in progress | `p1/array-eval` | brief docs/tasks/P1-9-array-eval.md; unblocks SUMPRODUCT rows |
 | P1-8 | Engine façade: `Engine` holding cells + graph + evaluator; set value/formula, recalc, get; unify SheetId/CellCoord types | Opus | in progress | `p1/engine` | brief docs/tasks/P1-8-engine-facade.md |
 | P1-7 | `examples/repl.rs` as in README | Sonnet | todo | `p1/repl` | after P1-8 |
 | P0-1 | Workspace scaffold: Cargo workspace (all crates as stubs), pnpm workspace, fmt/clippy config, `pnpm test` placeholder, CI workflow, .gitignore, LICENSE | Sonnet | done (merged f07e101) | – | verified: fmt/clippy/test/pnpm test all green |
@@ -41,6 +42,7 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+9. 2026-10-15: Array-mode evaluation (Excel legacy array semantics with broadcasting) applies only to arguments requested via `CallContext::range`; scalar positions keep implicit intersection. Functions are not lifted over arrays in MVP. `0^negative` → #DIV/0! (Excel) replaces the earlier #NUM!.
 8. 2026-10-15: Cells in a circular reference evaluate to `#NUM!` with the cycle reported in `Recalc.cycle` (AST `ErrorKind` is frozen; Excel shows 0 + warning). Function batches register per family module to keep `with_builtins` merges to one line each.
 7. 2026-10-15: Reference-suite runner compares DIFF-marked rows against the `[excel=…]` value (Excel is the target), not against LibreOffice's value. Function registry folded into the evaluator task (one coherent API); `docs/functions.md` came with the suite.
 6. 2026-10-15: Phase 0 milestone verified and closed. Phase 1 begins; P1-1 (parser) starts first, P1-6 (test suite format) in parallel since it does not depend on the parser.
