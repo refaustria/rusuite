@@ -65,6 +65,17 @@ pub mod rel {
     pub const VIEW_PROPS: &str = office_rel!("viewProps");
     /// Presentation → `tableStyles.xml`.
     pub const TABLE_STYLES: &str = office_rel!("tableStyles");
+
+    /// Worksheet → drawing part (`xl/drawings/drawingN.xml`).
+    pub const DRAWING: &str = office_rel!("drawing");
+    /// Drawing / slide → chart part (`c:chartSpace`).
+    pub const CHART: &str = office_rel!("chart");
+    /// Chart → Office 2013 chart style part (`chartStyle`, cosmetic).
+    pub const CHART_STYLE: &str =
+        "http://schemas.microsoft.com/office/2011/relationships/chartStyle";
+    /// Chart → Office 2013 chart color style part (`chartColorStyle`).
+    pub const CHART_COLOR_STYLE: &str =
+        "http://schemas.microsoft.com/office/2011/relationships/chartColorStyle";
 }
 
 /// Content types (`[Content_Types].xml` overrides).
@@ -126,6 +137,11 @@ pub mod ct {
     pub const VIEW_PROPS: &str = office_ct!("presentationml.viewProps");
     /// `ppt/tableStyles.xml`.
     pub const TABLE_STYLES: &str = office_ct!("presentationml.tableStyles");
+
+    /// `xl/drawings/drawingN.xml` (SpreadsheetML drawing).
+    pub const DRAWING: &str = office_ct!("drawing");
+    /// `*/charts/chartN.xml`.
+    pub const CHART: &str = office_ct!("drawingml.chart");
 }
 
 #[cfg(test)]

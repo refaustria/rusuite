@@ -71,6 +71,10 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     validation: { result: "object" },
     listValues: { values: "array" },
     sheetRules: { rules: "array", validations: "array" },
+    charts: { charts: "array" },
+    chartData: { data: "object" },
+    // `chart` is null without numeric data.
+    recommendedChart: {},
     // `last` may be null (empty sheet): checked by the caller.
     usedRange: {},
   };

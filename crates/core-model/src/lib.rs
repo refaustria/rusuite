@@ -8,6 +8,7 @@
 //! and from OOXML specifics happens in the `fmt-*` crates. Every type derives
 //! `serde` traits and doubles as an IPC payload (see ADR 0002).
 
+pub mod chart;
 pub mod color;
 pub mod font;
 pub mod media;

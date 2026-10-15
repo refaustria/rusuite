@@ -7,10 +7,11 @@
 //! number formats ([`numfmt`]), column/row dimensions, sheet defaults,
 //! sheet views (frozen panes, zoom), hidden sheets, merged cells, sorting
 //! and AutoFilter ([`sortfilter`]), conditional formatting ([`condfmt`])
-//! and data validation ([`validation`]).
+//! data validation ([`validation`]) and charts ([`chart`]).
 //! [`WorkbookSnapshot`] is the serializable form (camelCase JSON) used by
 //! serde, the IPC layer and `fmt-xlsx`.
 
+pub mod chart;
 pub mod condfmt;
 pub mod numfmt;
 mod rules;
@@ -21,6 +22,7 @@ pub mod style;
 pub mod validation;
 pub mod workbook;
 
+pub use chart::{CellOffset, ChartAnchor, ChartObject, ResolvedRef};
 pub use condfmt::{
     CfKind, CfResult, CfRule, CfValue, ColorPoint, CompareOp, DxfStyle, IconSetKind,
 };
@@ -88,4 +90,10 @@ pub enum Error {
     /// No conditional formatting rule with this id on the sheet.
     #[error("unknown rule {0}")]
     UnknownRule(u32),
+    /// A malformed chart or anchor.
+    #[error("invalid chart: {0}")]
+    InvalidChart(String),
+    /// No chart with this id on the sheet.
+    #[error("unknown chart {0}")]
+    UnknownChart(u32),
 }

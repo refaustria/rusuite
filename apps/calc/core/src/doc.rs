@@ -72,6 +72,8 @@ impl CalcError {
             CalcError::Model(M::NoAutoFilter) => "no_auto_filter",
             CalcError::Model(M::InvalidRule(_)) => "invalid_rule",
             CalcError::Model(M::UnknownRule(_)) => "unknown_rule",
+            CalcError::Model(M::InvalidChart(_)) => "invalid_chart",
+            CalcError::Model(M::UnknownChart(_)) => "unknown_chart",
             CalcError::ReadXlsx(_) => "invalid_file",
             CalcError::WriteXlsx(_) => "internal",
         }
@@ -308,6 +310,7 @@ impl CalcDocument {
                 .into_iter()
                 .map(|(_, dv)| dv.clone())
                 .collect(),
+            charts: wb.charts(s).to_vec(),
         })
     }
 
@@ -542,6 +545,7 @@ impl CalcDocument {
             format: wb.sheet_format(s),
         }];
         inverse.extend(self.rules_inverse(s));
+        inverse.extend(self.charts_inverse(s));
         let view = wb.sheet_view(s);
         if !view.is_default() {
             inverse.push(C::SetSheetView {
@@ -1116,6 +1120,12 @@ impl CalcDocument {
             | C::RemoveValidation { .. }
             | C::RestoreCfRules { .. }
             | C::RestoreValidations { .. } => self.rules_cmd(cmd),
+            C::AddChart { .. }
+            | C::UpdateChart { .. }
+            | C::SetChartAnchor { .. }
+            | C::SetChartSeries { .. }
+            | C::RemoveChart { .. }
+            | C::RestoreCharts { .. } => self.charts_cmd(cmd),
             C::Compound { commands } => {
                 let mut patch = CalcPatch::default();
                 let mut inverses = Vec::with_capacity(commands.len());
@@ -1832,6 +1842,7 @@ impl CalcDocument {
         let view_before = wb.sheet_view(s);
         let filter_before = (wb.auto_filter(s).cloned(), wb.sort_state(s).cloned());
         let rules_before = self.rules_state();
+        let charts_before = self.charts_state();
 
         // What a delete destroys.
         let mut span_cells = Vec::new();
@@ -1965,6 +1976,9 @@ impl CalcDocument {
         let (restore, changed) = self.rules_changed(rules_before);
         inverse.extend(restore);
         extra.cf_sheets = changed;
+        let (restore, changed) = self.charts_changed(charts_before);
+        inverse.extend(restore);
+        extra.chart_sheets = changed;
         let inverse = if inverse.len() == 1 {
             inverse.pop()
         } else {
@@ -2000,6 +2014,7 @@ impl Document for CalcDocument {
     fn apply(&mut self, cmd: &CalcCommand) -> Result<CalcApplied> {
         let mut applied = self.apply_cmd(cmd)?;
         self.mark_cf_sheets(&mut applied.patch);
+        self.mark_chart_sheets(&mut applied.patch);
         Ok(applied)
     }
 }

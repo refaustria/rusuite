@@ -47,4 +47,12 @@ activateSheet?: number,
  * a workbook with rules): the UI refetches their region snapshot (and
  * `sheetRules` if a dialog shows them); absent = none.
  */
-cfSheets?: Array<number>, };
+cfSheets?: Array<number>, 
+/**
+ * Sheets whose charts may have changed: a chart command, a cell
+ * change a chart on that sheet references, or a structural, sheet
+ * list or row/column visibility change on a workbook with charts.
+ * The UI refetches `sheetCharts` (or the region snapshot) and the
+ * `chartData` of the charts it shows; absent = none.
+ */
+chartSheets?: Array<number>, };
