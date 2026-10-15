@@ -1,0 +1,426 @@
+---
+source: crates/fmt-pptx/tests/shapes.rs
+expression: "tree(&bytes, 2)"
+---
+<p:sp>
+ <p:nvSpPr>
+  <p:cNvPr id="2" name="TextBox 44"/>
+  <p:cNvSpPr txBox="1"/>
+  <p:nvPr/>
+ </p:nvSpPr>
+ <p:spPr>
+  <a:xfrm>
+   <a:off x="360000" y="108000"/>
+   <a:ext cx="10800000" cy="540000"/>
+  </a:xfrm>
+  <a:prstGeom prst="rect">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:noFill/>
+  <a:ln w="12700">
+   <a:noFill/>
+   <a:prstDash val="solid"/>
+  </a:ln>
+ </p:spPr>
+ <p:txBody>
+  <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="t">
+   <a:spAutoFit/>
+  </a:bodyPr>
+  <a:lstStyle/>
+  <a:p>
+   <a:r>
+    <a:t>Flowchart</a:t>
+   </a:r>
+  </a:p>
+ </p:txBody>
+</p:sp>
+<p:sp>
+ <p:nvSpPr>
+  <p:cNvPr id="3" name="Flowchart: Terminator 45"/>
+  <p:cNvSpPr/>
+  <p:nvPr/>
+ </p:nvSpPr>
+ <p:spPr>
+  <a:xfrm>
+   <a:off x="720000" y="1080000"/>
+   <a:ext cx="1800000" cy="720000"/>
+  </a:xfrm>
+  <a:prstGeom prst="flowChartTerminator">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:solidFill>
+   <a:schemeClr val="accent1"/>
+  </a:solidFill>
+  <a:ln w="12700">
+   <a:solidFill>
+    <a:schemeClr val="accent1">
+     <a:lumMod val="50000"/>
+    </a:schemeClr>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+  </a:ln>
+ </p:spPr>
+ <p:txBody>
+  <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
+   <a:noAutofit/>
+  </a:bodyPr>
+  <a:lstStyle/>
+  <a:p>
+   <a:pPr algn="ctr"/>
+   <a:r>
+    <a:t>Start</a:t>
+   </a:r>
+  </a:p>
+ </p:txBody>
+</p:sp>
+<p:sp>
+ <p:nvSpPr>
+  <p:cNvPr id="4" name="Flowchart: Data 46"/>
+  <p:cNvSpPr/>
+  <p:nvPr/>
+ </p:nvSpPr>
+ <p:spPr>
+  <a:xfrm>
+   <a:off x="720000" y="2520000"/>
+   <a:ext cx="1800000" cy="720000"/>
+  </a:xfrm>
+  <a:prstGeom prst="flowChartInputOutput">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:solidFill>
+   <a:schemeClr val="accent1"/>
+  </a:solidFill>
+  <a:ln w="12700">
+   <a:solidFill>
+    <a:schemeClr val="accent1">
+     <a:lumMod val="50000"/>
+    </a:schemeClr>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+  </a:ln>
+ </p:spPr>
+ <p:txBody>
+  <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
+   <a:noAutofit/>
+  </a:bodyPr>
+  <a:lstStyle/>
+  <a:p>
+   <a:pPr algn="ctr"/>
+   <a:r>
+    <a:t>Read</a:t>
+   </a:r>
+  </a:p>
+ </p:txBody>
+</p:sp>
+<p:sp>
+ <p:nvSpPr>
+  <p:cNvPr id="5" name="Flowchart: Decision 47"/>
+  <p:cNvSpPr/>
+  <p:nvPr/>
+ </p:nvSpPr>
+ <p:spPr>
+  <a:xfrm>
+   <a:off x="3960000" y="2340000"/>
+   <a:ext cx="2160000" cy="1080000"/>
+  </a:xfrm>
+  <a:prstGeom prst="flowChartDecision">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:solidFill>
+   <a:schemeClr val="accent1"/>
+  </a:solidFill>
+  <a:ln w="12700">
+   <a:solidFill>
+    <a:schemeClr val="accent1">
+     <a:lumMod val="50000"/>
+    </a:schemeClr>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+  </a:ln>
+ </p:spPr>
+ <p:txBody>
+  <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
+   <a:noAutofit/>
+  </a:bodyPr>
+  <a:lstStyle/>
+  <a:p>
+   <a:pPr algn="ctr"/>
+   <a:r>
+    <a:t>OK?</a:t>
+   </a:r>
+  </a:p>
+ </p:txBody>
+</p:sp>
+<p:sp>
+ <p:nvSpPr>
+  <p:cNvPr id="6" name="Flowchart: Process 48"/>
+  <p:cNvSpPr/>
+  <p:nvPr/>
+ </p:nvSpPr>
+ <p:spPr>
+  <a:xfrm>
+   <a:off x="7560000" y="2520000"/>
+   <a:ext cx="1800000" cy="720000"/>
+  </a:xfrm>
+  <a:prstGeom prst="flowChartProcess">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:solidFill>
+   <a:schemeClr val="accent1"/>
+  </a:solidFill>
+  <a:ln w="12700">
+   <a:solidFill>
+    <a:schemeClr val="accent1">
+     <a:lumMod val="50000"/>
+    </a:schemeClr>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+  </a:ln>
+ </p:spPr>
+ <p:txBody>
+  <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
+   <a:noAutofit/>
+  </a:bodyPr>
+  <a:lstStyle/>
+  <a:p>
+   <a:pPr algn="ctr"/>
+   <a:r>
+    <a:t>Work</a:t>
+   </a:r>
+  </a:p>
+ </p:txBody>
+</p:sp>
+<p:sp>
+ <p:nvSpPr>
+  <p:cNvPr id="7" name="Flowchart: Document 49"/>
+  <p:cNvSpPr/>
+  <p:nvPr/>
+ </p:nvSpPr>
+ <p:spPr>
+  <a:xfrm>
+   <a:off x="7560000" y="4320000"/>
+   <a:ext cx="1800000" cy="900000"/>
+  </a:xfrm>
+  <a:prstGeom prst="flowChartDocument">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:solidFill>
+   <a:schemeClr val="accent1"/>
+  </a:solidFill>
+  <a:ln w="12700">
+   <a:solidFill>
+    <a:schemeClr val="accent1">
+     <a:lumMod val="50000"/>
+    </a:schemeClr>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+  </a:ln>
+ </p:spPr>
+ <p:txBody>
+  <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
+   <a:noAutofit/>
+  </a:bodyPr>
+  <a:lstStyle/>
+  <a:p>
+   <a:pPr algn="ctr"/>
+   <a:r>
+    <a:t>Report</a:t>
+   </a:r>
+  </a:p>
+ </p:txBody>
+</p:sp>
+<p:sp>
+ <p:nvSpPr>
+  <p:cNvPr id="8" name="Flowchart: Terminator 50"/>
+  <p:cNvSpPr/>
+  <p:nvPr/>
+ </p:nvSpPr>
+ <p:spPr>
+  <a:xfrm>
+   <a:off x="3960000" y="5040000"/>
+   <a:ext cx="2160000" cy="720000"/>
+  </a:xfrm>
+  <a:prstGeom prst="flowChartTerminator">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:solidFill>
+   <a:schemeClr val="accent1"/>
+  </a:solidFill>
+  <a:ln w="12700">
+   <a:solidFill>
+    <a:schemeClr val="accent1">
+     <a:lumMod val="50000"/>
+    </a:schemeClr>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+  </a:ln>
+ </p:spPr>
+ <p:txBody>
+  <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
+   <a:noAutofit/>
+  </a:bodyPr>
+  <a:lstStyle/>
+  <a:p>
+   <a:pPr algn="ctr"/>
+   <a:r>
+    <a:t>End</a:t>
+   </a:r>
+  </a:p>
+ </p:txBody>
+</p:sp>
+<p:cxnSp>
+ <p:nvCxnSpPr>
+  <p:cNvPr id="9" name="Straight Arrow Connector 51"/>
+  <p:cNvCxnSpPr>
+   <a:stCxn id="3" idx="2"/>
+   <a:endCxn id="4" idx="0"/>
+  </p:cNvCxnSpPr>
+  <p:nvPr/>
+ </p:nvCxnSpPr>
+ <p:spPr>
+  <a:xfrm>
+   <a:off x="1620000" y="1800000"/>
+   <a:ext cx="180000" cy="720000"/>
+  </a:xfrm>
+  <a:prstGeom prst="straightConnector1">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:ln w="19050">
+   <a:solidFill>
+    <a:schemeClr val="accent1"/>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+   <a:tailEnd type="triangle"/>
+  </a:ln>
+ </p:spPr>
+</p:cxnSp>
+<p:cxnSp>
+ <p:nvCxnSpPr>
+  <p:cNvPr id="10" name="Elbow Connector 52"/>
+  <p:cNvCxnSpPr>
+   <a:stCxn id="4" idx="3"/>
+   <a:endCxn id="5" idx="1"/>
+  </p:cNvCxnSpPr>
+  <p:nvPr/>
+ </p:nvCxnSpPr>
+ <p:spPr>
+  <a:xfrm>
+   <a:off x="2340000" y="2880000"/>
+   <a:ext cx="1620000" cy="0"/>
+  </a:xfrm>
+  <a:prstGeom prst="bentConnector3">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:ln w="19050">
+   <a:solidFill>
+    <a:schemeClr val="accent1"/>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+   <a:tailEnd type="triangle"/>
+  </a:ln>
+ </p:spPr>
+</p:cxnSp>
+<p:cxnSp>
+ <p:nvCxnSpPr>
+  <p:cNvPr id="11" name="Straight Arrow Connector 53"/>
+  <p:cNvCxnSpPr>
+   <a:stCxn id="5" idx="3"/>
+   <a:endCxn id="6" idx="1"/>
+  </p:cNvCxnSpPr>
+  <p:nvPr/>
+ </p:nvCxnSpPr>
+ <p:spPr>
+  <a:xfrm>
+   <a:off x="6120000" y="2880000"/>
+   <a:ext cx="1440000" cy="0"/>
+  </a:xfrm>
+  <a:prstGeom prst="straightConnector1">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:ln w="19050">
+   <a:solidFill>
+    <a:schemeClr val="accent1"/>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+   <a:tailEnd type="triangle"/>
+  </a:ln>
+ </p:spPr>
+</p:cxnSp>
+<p:cxnSp>
+ <p:nvCxnSpPr>
+  <p:cNvPr id="12" name="Elbow Connector 54"/>
+  <p:cNvCxnSpPr>
+   <a:stCxn id="6" idx="2"/>
+   <a:endCxn id="7" idx="0"/>
+  </p:cNvCxnSpPr>
+  <p:nvPr/>
+ </p:nvCxnSpPr>
+ <p:spPr>
+  <a:xfrm rot="5400000">
+   <a:off x="7920000" y="3780000"/>
+   <a:ext cx="1080000" cy="0"/>
+  </a:xfrm>
+  <a:prstGeom prst="bentConnector3">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:ln w="19050">
+   <a:solidFill>
+    <a:schemeClr val="accent1"/>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+   <a:tailEnd type="triangle"/>
+  </a:ln>
+ </p:spPr>
+</p:cxnSp>
+<p:cxnSp>
+ <p:nvCxnSpPr>
+  <p:cNvPr id="13" name="Elbow Connector 55"/>
+  <p:cNvCxnSpPr>
+   <a:stCxn id="5" idx="2"/>
+   <a:endCxn id="8" idx="0"/>
+  </p:cNvCxnSpPr>
+  <p:nvPr/>
+ </p:nvCxnSpPr>
+ <p:spPr>
+  <a:xfrm rot="5400000">
+   <a:off x="4230000" y="4230000"/>
+   <a:ext cx="1620000" cy="0"/>
+  </a:xfrm>
+  <a:prstGeom prst="bentConnector3">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:ln w="19050">
+   <a:solidFill>
+    <a:schemeClr val="accent1"/>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+   <a:tailEnd type="triangle"/>
+  </a:ln>
+ </p:spPr>
+</p:cxnSp>
+<p:cxnSp>
+ <p:nvCxnSpPr>
+  <p:cNvPr id="14" name="Curved Connector 56"/>
+  <p:cNvCxnSpPr>
+   <a:stCxn id="7" idx="2"/>
+   <a:endCxn id="8" idx="3"/>
+  </p:cNvCxnSpPr>
+  <p:nvPr/>
+ </p:nvCxnSpPr>
+ <p:spPr>
+  <a:xfrm rot="5400000">
+   <a:off x="7170250" y="4110250"/>
+   <a:ext cx="239500" cy="2340000"/>
+  </a:xfrm>
+  <a:prstGeom prst="curvedConnector2">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:ln w="19050">
+   <a:solidFill>
+    <a:schemeClr val="accent1"/>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+   <a:tailEnd type="stealth"/>
+  </a:ln>
+ </p:spPr>
+</p:cxnSp>

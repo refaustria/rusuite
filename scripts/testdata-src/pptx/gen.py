@@ -1,4 +1,4 @@
-"""Generator for the PROVISIONAL pptx reference suite (27 decks).
+"""Generator for the PROVISIONAL pptx reference suite (29 decks).
 
 Emits one flat ODP (.fodp) per topic plus manifest.json. Conversion to .pptx is done by
 scripts/gen-pptx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
@@ -24,6 +24,7 @@ NS = (
     'xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0" '
     'xmlns:smil="urn:oasis:names:tc:opendocument:xmlns:smil-compatible:1.0" '
     'xmlns:anim="urn:oasis:names:tc:opendocument:xmlns:animation:1.0" '
+    'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
     'office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.presentation"'
 )
 SIZES = {"16x9": (28.0, 15.75), "4x3": (25.4, 19.05)}
@@ -306,6 +307,66 @@ class Deck:
         "rightArrow": ("right-arrow", "M 0 6350 L 14500 6350 14500 0 21600 10800 14500 21600 14500 15250 0 15250 Z N", ""),
     }
 
+    # LibreOffice's own geometry (no enhanced path): ODF type per DrawingML preset
+    PRESETS = {
+        "flowChartProcess": "flowchart-process", "flowChartDecision": "flowchart-decision",
+        "flowChartTerminator": "flowchart-terminator", "flowChartDocument": "flowchart-document",
+        "flowChartInputOutput": "flowchart-data", "flowChartConnector": "flowchart-connector",
+        "star5": "star5", "hexagon": "hexagon", "wedgeRectCallout": "rectangular-callout",
+    }
+
+    def preset(self, kind, x, y, w, h, text, fill="3465a4", ident=None):
+        st = self.gstyle(fill, "204a87", 0.05, False, "middle")
+        self.feat(f"shape:{kind}")
+        self.count(kind)
+        self.add(f'<draw:custom-shape{self.ident(ident)} draw:style-name="{st}" {self.xform(x, y, w, h)}>'
+                 f'{self.para(text, "center")}<draw:enhanced-geometry draw:type="{self.PRESETS[kind]}"/>'
+                 f"</draw:custom-shape>")
+
+    def connector(self, kind, start, sglue, end, eglue, arrow=True):
+        """kind: standard (elbow) | line | curve; glue points 0 top, 1 right, 2 bottom, 3 left."""
+        extra = 'draw:marker-end="Arrow" draw:marker-end-width="0.3cm"' if arrow else ""
+        st = self.style("graphic", f'<style:graphic-properties draw:stroke="solid" svg:stroke-color="#204a87" '
+                                   f'svg:stroke-width="0.05cm" draw:fill="none" {extra}/>', "G")
+        self.feat({"standard": "connector:elbow", "line": "connector:straight", "curve": "connector:curved"}[kind])
+        self.feat("connector:attached")
+        if arrow:
+            self.feat("line:arrow")
+        self.add(f'<draw:connector draw:style-name="{st}" draw:type="{kind}" draw:start-shape="{start}" '
+                 f'draw:start-glue-point="{sglue}" draw:end-shape="{end}" draw:end-glue-point="{eglue}" '
+                 f'svg:x1="0cm" svg:y1="0cm" svg:x2="1cm" svg:y2="1cm"/>')
+
+    def table(self, x, y, w, rows, merges=(), fills=None):
+        """rows: list of lists of text; merges: (row, col, rowspan, colspan); fills: {(row, col): rgb}."""
+        self.feat("table")
+        cols = len(rows[0])
+        co = self.style("table-column", f'<style:table-column-properties style:column-width="{w / cols:.3f}cm"/>', "co")
+        ro = self.style("table-row", '<style:table-row-properties style:row-height="1.2cm"/>', "ro")
+        covered = set()
+        for (r, c, rs, cs) in merges:
+            self.feat("table:merged")
+            covered |= {(rr, cc) for rr in range(r, r + rs) for cc in range(c, c + cs)} - {(r, c)}
+        out = "".join(f'<table:table-column table:style-name="{co}"/>' for _ in range(cols))
+        for r, row in enumerate(rows):
+            out += f'<table:table-row table:style-name="{ro}">'
+            for c, text in enumerate(row):
+                if (r, c) in covered:
+                    out += "<table:covered-table-cell/>"
+                    continue
+                a = ""
+                for (mr, mc, rs, cs) in merges:
+                    if (mr, mc) == (r, c):
+                        a = f' table:number-rows-spanned="{rs}" table:number-columns-spanned="{cs}"'
+                if fills and (r, c) in fills:
+                    ce = self.style("table-cell", f'<style:graphic-properties draw:fill="solid" '
+                                                  f'draw:fill-color="#{fills[(r, c)]}"/>', "ce")
+                    a += f' table:style-name="{ce}"'
+                out += f"<table:table-cell{a}>{self.para(text)}</table:table-cell>"
+            out += "</table:table-row>"
+        self.add(f'<draw:frame svg:x="{x}cm" svg:y="{y}cm" svg:width="{w}cm" svg:height="{1.2 * len(rows)}cm">'
+                 f'<table:table table:template-name="default" table:use-first-row-styles="true" '
+                 f'table:use-banding-rows-styles="true">{out}</table:table></draw:frame>')
+
     def shape(self, kind, x, y, w, h, text=None, fill=None, line=None, lw=None, dash=False, anchor=None,
               rot=None, flip=False, align=None, content=None, tag=True, ident=None):
         gtype, path, _ = self.GEOM[kind]
@@ -361,6 +422,7 @@ class Deck:
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <office:document {NS}>
 <office:styles>
+<draw:marker draw:name="Arrow" svg:viewBox="0 0 20 30" svg:d="M10 0l-10 30h20z"/>
 <style:style style:name="Default" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="none"/></style:style>
 <style:style style:name="pres-title" style:family="presentation"><style:graphic-properties draw:stroke="none" draw:fill="none"/><style:text-properties fo:font-size="40pt" fo:font-weight="bold"/></style:style>
 <style:style style:name="pres-sub" style:family="presentation"><style:graphic-properties draw:stroke="none" draw:fill="none"/><style:text-properties fo:font-size="24pt"/></style:style>
@@ -638,7 +700,40 @@ def d27():
     return d
 
 
-TOPICS = [globals()[f"d{n:02d}"] for n in range(1, 28)]
+def d28():
+    d = Deck(28, "flowchart", "Flowchart shapes joined by glued connectors with arrowheads; a few other presets")
+    d.slide("blank")
+    d.preset("flowChartTerminator", 1, 1, 5, 2, "Start", ident="f1")
+    d.preset("flowChartInputOutput", 1, 5, 5, 2, "Read", ident="f2")
+    d.preset("flowChartDecision", 9, 4.5, 6, 3, "OK?", ident="f3")
+    d.preset("flowChartProcess", 19, 5, 5, 2, "Work", ident="f4")
+    d.preset("flowChartDocument", 19, 10, 5, 2.5, "Report", ident="f5")
+    d.preset("flowChartTerminator", 9, 12, 6, 2, "End", ident="f6")
+    d.connector("line", "f1", 2, "f2", 0)
+    d.connector("standard", "f2", 1, "f3", 3)
+    d.connector("line", "f3", 1, "f4", 3)
+    d.connector("standard", "f4", 2, "f5", 0)
+    d.connector("standard", "f3", 2, "f6", 0)
+    d.connector("curve", "f5", 2, "f6", 1)
+    d.slide("blank")
+    d.preset("flowChartConnector", 2, 2, 3, 3, "A")
+    d.preset("star5", 7, 2, 4, 4, "")
+    d.preset("hexagon", 13, 2, 5, 3, "Hex")
+    d.preset("wedgeRectCallout", 20, 2, 6, 3, "Note")
+    return d
+
+
+def d29():
+    d = Deck(29, "table", "Table with a header row, banded rows, merged cells and a filled cell")
+    d.slide("blank")
+    d.table(2, 2, 24, [["Region", "Q1", "Q2"], ["North", "12", "15"], ["South", "9", "11"], ["Total", "21", "26"]],
+            merges=[(1, 0, 2, 1)], fills={(3, 2): "ffc000"})
+    d.slide("blank")
+    d.table(4, 3, 12, [["A", "B"], ["C", "D"]], merges=[(0, 0, 1, 2)])
+    return d
+
+
+TOPICS = [globals()[f"d{n:02d}"] for n in range(1, 30)]
 
 
 def emit(outdir, pngdir):
@@ -706,6 +801,18 @@ def check(manifest_path, pptxdir):
             elif ft.startswith("group:count="):
                 if xml.count("<p:grpSp>") != int(ft.split("=")[1]):
                     errs.append(f"{ft}: found {xml.count('<p:grpSp>')}")
+            elif ft == "table" and "<a:tbl>" not in xml:
+                errs.append("a:tbl not found")
+            elif ft == "table:merged" and not re.search(r'(gridSpan|rowSpan)="[2-9]', xml):
+                errs.append("merged cells not found")
+            elif ft.startswith("connector:") and ft != "connector:attached":
+                k = {"straight": "straightConnector1", "elbow": "bentConnector", "curved": "curvedConnector"}[ft.split(":")[1]]
+                if k not in xml:
+                    errs.append(f"{ft} not found")
+            elif ft == "connector:attached" and "<a:stCxn" not in xml:
+                errs.append("stCxn not found")
+            elif ft == "line:arrow" and not re.search(r'<a:(head|tail)End [^>]*type="(?!none)', xml):
+                errs.append("arrowhead not found")
             elif ft == "fill:solid" and "<a:solidFill>" not in xml:
                 errs.append("solidFill not found")
             elif ft == "line:dash" and "<a:prstDash" not in xml:

@@ -37,6 +37,7 @@ const SHAPES: Record<ResponseBody["type"], Record<string, string>> = {
   recoverySnapshot: { json: "string", revision: "number", dirty: "boolean" },
   opened: { presentation: "object", envelope: "object" },
   saved: { bytesBase64: "string", suggestedName: "string" },
+  shapePaths: {},
 };
 
 /** Checks the shape of a reply and returns its body of the expected type. */

@@ -4,9 +4,12 @@
 //!
 //! A [`Presentation`] holds [`Slide`]s in order; each slide holds
 //! [`Shape`]s whose vector order is the z-order (first = bottom). Shapes are
-//! auto shapes (rectangle, rounded rectangle, ellipse, line; text boxes are
-//! rectangles without fill and line), pictures, or groups whose children are
-//! positioned relative to the group. Text follows DrawingML: a [`TextBody`]
+//! auto shapes (a library of DrawingML presets – rectangles, ellipses,
+//! arrows, stars, callouts, flowchart symbols, lines – or custom geometry;
+//! text boxes are rectangles without fill and line; see [`geometry`]),
+//! pictures, groups whose children are positioned relative to the group,
+//! connectors glued to other shapes ([`connector`]) and tables
+//! ([`table`]). Text follows DrawingML: a [`TextBody`]
 //! of [`TextParagraph`]s (level, bullet, alignment) holding [`TextRun`]s
 //! formatted with [`core_model::RunProperties`].
 //!
@@ -24,19 +27,24 @@
 //! IPC payloads. Lengths are [`Emu`].
 
 pub mod anim;
+pub mod connector;
+pub mod geometry;
 pub mod layout;
 pub mod presentation;
 pub mod shape;
 pub mod slide;
 pub mod snapshot;
+pub mod table;
 pub mod text;
 #[cfg(feature = "ts")]
 pub mod ts;
 
 pub use anim::{Animation, AnimationKind, Direction, Effect, Transition, TransitionKind, Trigger};
+pub use connector::{ArrowEnd, ArrowKind, ArrowSize, Attach, Connector};
 pub use core_model::media::{Media, MediaId, MediaStore};
 pub use core_model::units::Emu;
 pub use core_model::{Color, RunProperties, Theme};
+pub use geometry::{flatten, Adjust, ConnectorKind, GeomPath, PathCmd, Site, SubPath};
 pub use layout::{Layout, LayoutKind, PlaceholderDef, PlaceholderKind};
 pub use presentation::{Presentation, SlideSize};
 pub use shape::{
@@ -45,6 +53,7 @@ pub use shape::{
 };
 pub use slide::Slide;
 pub use snapshot::PresentationSnapshot;
+pub use table::{CellBorders, ColSpec, RowSpec, StyleCell, Table, TableCell, TableLook};
 pub use text::{
     Alignment, Anchor, AutoNumScheme, Autofit, BodyProps, Bullet, Insets, TextBody, TextParagraph,
     TextParagraphProps, TextRun, TextSpacing,

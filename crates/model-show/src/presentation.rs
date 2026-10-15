@@ -159,6 +159,7 @@ impl Presentation {
                 a.shape = new;
             }
         }
+        remap_attachments(&mut copy.shapes, &map);
         let new_id = copy.id;
         self.slides.insert(index + 1, copy);
         Ok(new_id)
@@ -273,6 +274,7 @@ impl Presentation {
                         text: Some(body), ..
                     } => body.normalize(),
                     ShapeKind::Group { children } => walk(children),
+                    ShapeKind::Table(t) => t.normalize(),
                     _ => {}
                 }
             }
@@ -299,6 +301,35 @@ impl Presentation {
             }
         }
         max
+    }
+
+    /// Reroutes every attached connector of slide `slide` from the current
+    /// positions of the shapes they are glued to (see
+    /// [`Slide::reroute_connectors`]). Returns the connectors that changed.
+    pub fn reroute_connectors(&mut self, slide: NodeId) -> Result<Vec<NodeId>> {
+        Ok(self
+            .slide_mut(slide)
+            .ok_or(Error::UnknownSlide(slide))?
+            .reroute_connectors())
+    }
+}
+
+/// Points connector attachments of `shapes` (recursively) at the shapes'
+/// new ids after a copy (`map`: old id → new id); attachments to shapes
+/// outside the map are kept.
+pub fn remap_attachments(shapes: &mut [Shape], map: &std::collections::HashMap<NodeId, NodeId>) {
+    for s in shapes {
+        match &mut s.kind {
+            ShapeKind::Connector(c) => {
+                for a in [&mut c.start, &mut c.end].into_iter().flatten() {
+                    if let Some(&new) = map.get(&a.shape) {
+                        a.shape = new;
+                    }
+                }
+            }
+            ShapeKind::Group { children } => remap_attachments(children, map),
+            _ => {}
+        }
     }
 }
 
@@ -360,6 +391,45 @@ mod tests {
         let mut back = Presentation::from_json(&p.to_json().unwrap()).unwrap();
         assert_eq!(back, p);
         assert!(back.alloc_id() > max);
+    }
+
+    #[test]
+    fn connectors_and_tables_copy_and_validate() {
+        use crate::connector::{Attach, Connector};
+        use crate::geometry::ConnectorKind;
+        use core_model::units::Emu;
+        let mut p = Presentation::empty(SlideSize::widescreen());
+        let s = p.add_slide(LayoutKind::Blank);
+        let t = Transform::new(Emu(0), Emu(0), Emu(100), Emu(100));
+        let a = p.add_shape(s, Shape::auto(Preset::Rect, t)).unwrap();
+        let mut c = Connector::new(ConnectorKind::Elbow);
+        c.start = Some(Attach { shape: a, site: 2 });
+        let cx = p.add_shape(s, Shape::connector_shape(c, t)).unwrap();
+        let tb = p.add_shape(s, Shape::table(2, 2, t)).unwrap();
+        p.validate().unwrap();
+        // a copied slide's connectors follow the copied shapes
+        let copy = p.duplicate_slide(s).unwrap();
+        let cs = p.slide(copy).unwrap();
+        let conn = cs.shapes[1].connector().unwrap();
+        assert_eq!(conn.start.unwrap().shape, cs.shapes[0].id);
+        assert_eq!(cs.shapes[1].name, format!("Elbow Connector {}", cx.0));
+        let copied = cs.shapes[1].id;
+        assert_eq!(p.reroute_connectors(copy).unwrap(), [copied]);
+        // invalid attachments and tables are reported
+        let slide = p.slide_mut(s).unwrap();
+        if let ShapeKind::Connector(c) = &mut slide.find_shape_mut(cx).unwrap().kind {
+            c.end = Some(Attach { shape: cx, site: 0 });
+        }
+        assert!(slide
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("cannot take it"));
+        if let ShapeKind::Connector(c) = &mut slide.find_shape_mut(cx).unwrap().kind {
+            c.end = None;
+        }
+        slide.find_shape_mut(tb).unwrap().table_mut().unwrap().cells[0][1].covered = true;
+        assert!(slide.validate().unwrap_err().to_string().contains("table"));
     }
 
     #[test]

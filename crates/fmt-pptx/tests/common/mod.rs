@@ -22,14 +22,32 @@ fn zero_ids(p: &mut Presentation) {
         // animation targets become depth-first shape positions
         let mut ids = Vec::new();
         order(&slide.shapes, &mut ids);
+        let pos = |id: NodeId| {
+            NodeId(
+                ids.iter()
+                    .position(|i| *i == id)
+                    .map_or(u64::MAX, |i| i as u64),
+            )
+        };
         for a in &mut slide.animations {
             a.id = NodeId(0);
-            a.shape = NodeId(
-                ids.iter()
-                    .position(|id| *id == a.shape)
-                    .map_or(u64::MAX, |i| i as u64),
-            );
+            a.shape = pos(a.shape);
         }
+        // connector attachments too
+        fn attach(shapes: &mut [Shape], pos: &dyn Fn(NodeId) -> NodeId) {
+            for s in shapes {
+                match &mut s.kind {
+                    ShapeKind::Connector(c) => {
+                        for a in [&mut c.start, &mut c.end].into_iter().flatten() {
+                            a.shape = pos(a.shape);
+                        }
+                    }
+                    ShapeKind::Group { children } => attach(children, pos),
+                    _ => {}
+                }
+            }
+        }
+        attach(&mut slide.shapes, &pos);
         walk(&mut slide.shapes);
     }
 }

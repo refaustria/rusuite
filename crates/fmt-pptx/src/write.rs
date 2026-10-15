@@ -8,13 +8,15 @@ use std::io::Cursor;
 use fmt_ooxml::theme::{parse_theme, theme_xml};
 use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
 use model_show::{
-    Fill, LayoutKind, MediaId, NodeId, PlaceholderKind, Presentation, Preset, Shape, ShapeKind,
-    Slide,
+    Adjust, Connector, Fill, LayoutKind, MediaId, NodeId, PlaceholderKind, Presentation, Preset,
+    Shape, ShapeKind, Slide, Table,
 };
 
 use crate::anim::{write_timing, write_transition, Target};
-use crate::drawing::{write_fill, write_line, write_text_body, write_xfrm};
+use crate::drawing::{write_fill, write_line, write_line_with_ends, write_text_body, write_xfrm};
+use crate::geom::{write_av_lst, write_geometry};
 use crate::parts::{self, layout_meta, sp_tree_start, write_nv_pr_ph, ROOT_NS};
+use crate::table::{write_table, TABLE_URI};
 use crate::xml::XmlOut;
 use crate::{Error, PptxContext, Result};
 
@@ -212,6 +214,24 @@ struct SlideWriter<'a> {
     targets: HashMap<NodeId, Target>,
     /// Next `idx` for subtitle/body placeholders (unique per slide).
     next_ph_idx: u32,
+    /// Node id → the `p:cNvPr id` it is written with (connector targets).
+    spids: HashMap<NodeId, u32>,
+}
+
+/// The `p:cNvPr id` every shape of `shapes` gets: 2, 3, … in document
+/// order (a group before its children), as [`SlideWriter::ids`] assigns
+/// them.
+fn shape_ids(shapes: &[Shape]) -> HashMap<NodeId, u32> {
+    fn walk(shapes: &[Shape], next: &mut u32, out: &mut HashMap<NodeId, u32>) {
+        for s in shapes {
+            out.insert(s.id, *next);
+            *next += 1;
+            walk(s.children(), next, out);
+        }
+    }
+    let mut out = HashMap::new();
+    walk(shapes, &mut 2, &mut out);
+    out
 }
 
 /// One slide part and its relationships.
@@ -244,6 +264,7 @@ fn write_slide(
         next_shape_id: 2,
         targets: HashMap::new(),
         next_ph_idx: 1,
+        spids: shape_ids(&slide.shapes),
     };
     let mut root: Vec<(&str, &str)> = ROOT_NS.to_vec();
     if slide.hidden {
@@ -317,14 +338,20 @@ impl SlideWriter<'_> {
 
     fn shape(&mut self, s: &Shape) -> Result<()> {
         match &s.kind {
-            ShapeKind::Auto { geometry, text } => {
+            ShapeKind::Auto {
+                geometry,
+                adjust,
+                text,
+            } => {
                 let textless = !matches!(text, Some(t) if !t.is_empty());
                 if *geometry == Preset::Line && textless && s.placeholder.is_none() {
-                    self.connector(s);
+                    self.line_connector(s);
                 } else {
-                    self.auto_shape(s, *geometry);
+                    self.auto_shape(s, geometry, adjust);
                 }
             }
+            ShapeKind::Connector(c) => self.connector(s, c),
+            ShapeKind::Table(t) => self.table(s, t),
             ShapeKind::Picture { media } => self.picture(s, *media)?,
             ShapeKind::Group { children } => {
                 let x = &mut self.x;
@@ -353,7 +380,7 @@ impl SlideWriter<'_> {
         self.x.end("a:prstGeom");
     }
 
-    fn auto_shape(&mut self, s: &Shape, geometry: Preset) {
+    fn auto_shape(&mut self, s: &Shape, geometry: &Preset, adjust: &Adjust) {
         let ph_idx = match s.placeholder {
             Some(PlaceholderKind::Subtitle | PlaceholderKind::Body) => {
                 let i = self.next_ph_idx;
@@ -383,12 +410,7 @@ impl SlideWriter<'_> {
         x.end("p:nvSpPr");
         x.start("p:spPr", &[]);
         write_xfrm(x, &s.transform, false);
-        self.geometry(match geometry {
-            Preset::Rect => "rect",
-            Preset::RoundRect => "roundRect",
-            Preset::Ellipse => "ellipse",
-            Preset::Line => "line",
-        });
+        write_geometry(x, geometry, adjust);
         write_fill(&mut self.x, &s.fill);
         write_line(&mut self.x, &s.line);
         self.x.end("p:spPr");
@@ -402,7 +424,83 @@ impl SlideWriter<'_> {
         self.x.end("p:sp");
     }
 
-    fn connector(&mut self, s: &Shape) {
+    /// A connector: `p:cxnSp` with `a:stCxn`/`a:endCxn` (by the targets'
+    /// written ids) and arrowheads.
+    fn connector(&mut self, s: &Shape, c: &Connector) {
+        let x = &mut self.x;
+        x.start("p:cxnSp", &[]);
+        x.start("p:nvCxnSpPr", &[]);
+        self.c_nv_pr(s);
+        let ends: Vec<(&str, String, String)> = [("a:stCxn", c.start), ("a:endCxn", c.end)]
+            .into_iter()
+            .filter_map(|(name, a)| {
+                let a = a?;
+                let id = self.spids.get(&a.shape)?;
+                Some((name, id.to_string(), a.site.to_string()))
+            })
+            .collect();
+        let x = &mut self.x;
+        if ends.is_empty() {
+            x.empty("p:cNvCxnSpPr", &[]);
+        } else {
+            x.start("p:cNvCxnSpPr", &[]);
+            for (name, id, idx) in &ends {
+                x.empty(name, &[("id", id), ("idx", idx)]);
+            }
+            x.end("p:cNvCxnSpPr");
+        }
+        x.empty("p:nvPr", &[]);
+        x.end("p:nvCxnSpPr");
+        x.start("p:spPr", &[]);
+        write_xfrm(x, &s.transform, false);
+        x.start("a:prstGeom", &[("prst", &c.prst())]);
+        write_av_lst(x, &c.adjust);
+        x.end("a:prstGeom");
+        if s.fill != Fill::None {
+            write_fill(x, &s.fill);
+        }
+        write_line_with_ends(x, "a:ln", &s.line, &c.head, &c.tail);
+        x.end("p:spPr");
+        x.end("p:cxnSp");
+    }
+
+    /// A table: `p:graphicFrame` with `a:tbl`.
+    fn table(&mut self, s: &Shape, t: &Table) {
+        let x = &mut self.x;
+        x.start("p:graphicFrame", &[]);
+        x.start("p:nvGraphicFramePr", &[]);
+        self.c_nv_pr(s);
+        let x = &mut self.x;
+        x.start("p:cNvGraphicFramePr", &[]);
+        x.empty("a:graphicFrameLocks", &[("noGrp", "1")]);
+        x.end("p:cNvGraphicFramePr");
+        x.empty("p:nvPr", &[]);
+        x.end("p:nvGraphicFramePr");
+        let tr = &s.transform;
+        x.start("p:xfrm", &[]);
+        x.empty(
+            "a:off",
+            &[("x", &tr.x.0.to_string()), ("y", &tr.y.0.to_string())],
+        );
+        x.empty(
+            "a:ext",
+            &[
+                ("cx", &tr.w.0.max(0).to_string()),
+                ("cy", &tr.h.0.max(0).to_string()),
+            ],
+        );
+        x.end("p:xfrm");
+        x.start("a:graphic", &[]);
+        x.start("a:graphicData", &[("uri", TABLE_URI)]);
+        write_table(x, t);
+        x.end("a:graphicData");
+        x.end("a:graphic");
+        x.end("p:graphicFrame");
+    }
+
+    /// A plain line (`Auto` with `Preset::Line`): `p:cxnSp` with
+    /// `prst="line"`.
+    fn line_connector(&mut self, s: &Shape) {
         let x = &mut self.x;
         x.start("p:cxnSp", &[]);
         x.start("p:nvCxnSpPr", &[]);

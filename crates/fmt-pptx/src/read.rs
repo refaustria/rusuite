@@ -7,14 +7,18 @@ use core_model::Color;
 use fmt_ooxml::theme::parse_theme;
 use fmt_ooxml::{Package, PartName, TargetMode};
 use model_show::{
-    BodyProps, Emu, Fill, LayoutKind, Line, MediaId, NodeId, PlaceholderDef, PlaceholderKind,
-    Presentation, Preset, Shape, ShapeKind, Slide, SlideSize, TextBody, Transform,
+    Adjust, Attach, BodyProps, Connector, ConnectorKind, Emu, Fill, LayoutKind, Line, MediaId,
+    NodeId, PlaceholderDef, PlaceholderKind, Presentation, Preset, Shape, ShapeKind, Slide,
+    SlideSize, TextBody, Transform,
 };
 
 use crate::anim::{read_slide_transition, read_timing};
 use crate::drawing::{
-    read_color, read_fill, read_line, read_text_body, read_xfrm, Space, Xfrm, STYLE_LINE_WIDTHS,
+    read_arrows, read_color, read_fill, read_line, read_text_body, read_xfrm, Space, Xfrm,
+    STYLE_LINE_WIDTHS,
 };
+use crate::geom::{read_adjust, read_geometry};
+use crate::table::{read_table, TABLE_URI};
 use crate::xml::{parse, parse_bool, parse_i64, parse_u32, xml_error, El};
 use crate::{Error, PptxContext, Result, Warnings};
 
@@ -104,6 +108,11 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         }
     }
 
+    // the default table style (for tables that name none)
+    let default_table_style = related(&pkg, &main, "tableStyles")
+        .and_then(|name| pkg.part(&name))
+        .and_then(|part| parse(&part.data, "tableStyles").ok())
+        .and_then(|root| root.attr("def").map(str::to_owned));
     let mut reader = Reader {
         pkg: &pkg,
         p: &mut p,
@@ -111,6 +120,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         media: HashMap::new(),
         layouts: HashMap::new(),
         consumed: &mut consumed,
+        default_table_style,
     };
     if let Some(list) = root.child("sldIdLst") {
         for id in list.elements().filter(|e| e.name == "sldId") {
@@ -338,6 +348,8 @@ struct Reader<'a> {
     /// Parsed layout parts.
     layouts: HashMap<PartName, LayoutInfo>,
     consumed: &'a mut BTreeSet<PartName>,
+    /// `def` of `ppt/tableStyles.xml`.
+    default_table_style: Option<String>,
 }
 
 /// Per-slide state while reading shapes.
@@ -420,7 +432,15 @@ impl Reader<'_> {
             for s in &mut shapes {
                 assign_ids(self.p, s, &mut spids);
             }
+            if remap_attachments(&mut shapes, &spids) {
+                self.w
+                    .add("connector attachments to missing shapes dropped");
+            }
             slide.shapes = shapes;
+            if !slide.detach_missing().is_empty() {
+                self.w
+                    .add("connector attachments to groups or connectors dropped");
+            }
         }
         slide.transition = read_slide_transition(&root, self.w);
         let timing = root.child("timing").or_else(|| {
@@ -489,8 +509,8 @@ impl Reader<'_> {
                         .find("graphicData")
                         .and_then(|g| g.attr("uri"))
                         .unwrap_or("");
-                    if uri.ends_with("/table") {
-                        self.w.add("tables dropped");
+                    if uri == TABLE_URI || uri.ends_with("/table") {
+                        out.extend(self.read_table_frame(el, space));
                     } else if uri.ends_with("/chart") {
                         self.w.add("charts dropped");
                     } else {
@@ -593,15 +613,16 @@ impl Reader<'_> {
                 }
             },
         };
-        let geometry = match sp_pr {
-            Some(s) => self.geometry(s),
-            None => Preset::Rect,
-        };
+        let (geometry, adjust) =
+            read_geometry(sp_pr, transform.w.0 as f64, transform.h.0 as f64, self.w);
         let fill = sp_pr
             .and_then(|s| read_fill(s, self.w))
             .or(style.fill.map(Fill::Solid))
             .unwrap_or(Fill::None);
-        let line = read_line(sp_pr.and_then(|s| s.child("ln")), style.line, self.w);
+        let ln = sp_pr.and_then(|s| s.child("ln"));
+        let line = read_line(ln, style.line, self.w);
+        let (head, tail) = read_arrows(ln, self.w);
+        let arrows = !head.is_none() || !tail.is_none();
         let base = kind
             .and_then(|k| self.builtin_def(k, ctx.layout))
             .map_or_else(BodyProps::default, |d| d.body_defaults);
@@ -622,50 +643,39 @@ impl Reader<'_> {
         if geometry == Preset::Line && text.as_ref().is_some_and(TextBody::is_empty) {
             text = None;
         }
+        let kind_of_shape =
+            if geometry == Preset::Line && text.is_none() && kind.is_none() && arrows {
+                // a line with arrowheads (LibreOffice writes lines as p:sp)
+                ShapeKind::Connector(Connector {
+                    head,
+                    tail,
+                    ..Connector::new(ConnectorKind::Straight)
+                })
+            } else {
+                if arrows {
+                    self.w.add("arrowheads dropped");
+                }
+                ShapeKind::Auto {
+                    geometry,
+                    adjust,
+                    text,
+                }
+            };
         Some(Shape {
             id: file_id(el),
             alt: alt_of(el),
             name,
             transform,
-            kind: ShapeKind::Auto { geometry, text },
+            kind: kind_of_shape,
             fill,
             line,
             placeholder: kind,
         })
     }
 
-    /// Preset geometry of `p:spPr`.
-    fn geometry(&mut self, sp_pr: &El) -> Preset {
-        if let Some(g) = sp_pr.child("prstGeom") {
-            let prst = g.attr("prst").unwrap_or("rect");
-            return match prst {
-                "rect" => Preset::Rect,
-                "roundRect" => {
-                    if g.child("avLst")
-                        .is_some_and(|l| l.elements().next().is_some())
-                    {
-                        self.w.add("rounded rectangle corner size dropped");
-                    }
-                    Preset::RoundRect
-                }
-                "ellipse" => Preset::Ellipse,
-                "line" | "straightConnector1" => Preset::Line,
-                other => {
-                    self.w
-                        .add(format!("preset geometry {other} read as rectangle"));
-                    Preset::Rect
-                }
-            };
-        }
-        if sp_pr.child("custGeom").is_some() {
-            self.w.add("custom geometry read as rectangle");
-        }
-        Preset::Rect
-    }
-
     fn read_connector(&mut self, el: &El, space: Space) -> Option<Shape> {
-        let name = el
-            .child("nvCxnSpPr")
+        let nv = el.child("nvCxnSpPr");
+        let name = nv
             .and_then(|n| n.child("cNvPr"))
             .and_then(|c| c.attr("name"))
             .unwrap_or("")
@@ -675,30 +685,105 @@ impl Reader<'_> {
             self.w.add("shape without position dropped");
             return None;
         };
-        if let Some(prst) = sp_pr
-            .and_then(|s| s.child("prstGeom"))
-            .and_then(|g| g.attr("prst"))
-            .filter(|p| !matches!(*p, "line" | "straightConnector1"))
-        {
+        let geom = sp_pr.and_then(|s| s.child("prstGeom"));
+        let prst = geom.and_then(|g| g.attr("prst"));
+        if sp_pr.is_some_and(|s| s.child("custGeom").is_some()) {
             self.w
-                .add(format!("connector {prst} read as a straight line"));
+                .add("custom connector geometry read as a straight line");
         }
+        let (kind, bends) = match prst.map(|p| (p, ConnectorKind::from_prst(p))) {
+            None => (ConnectorKind::Straight, 2),
+            Some((_, Some(k))) => k,
+            Some((other, None)) => {
+                self.w
+                    .add(format!("connector {other} read as a straight line"));
+                (ConnectorKind::Straight, 2)
+            }
+        };
+        let adjust = match (geom, prst) {
+            (Some(g), Some(p)) => read_adjust(g, kind.adjust_defaults(bends), p, self.w),
+            _ => Adjust::new(),
+        };
         let style = read_style(el.child("style"), self.w);
         let fill = sp_pr
             .and_then(|s| read_fill(s, self.w))
             .unwrap_or(Fill::None);
-        let line = read_line(sp_pr.and_then(|s| s.child("ln")), style.line, self.w);
+        let ln = sp_pr.and_then(|s| s.child("ln"));
+        let line = read_line(ln, style.line, self.w);
+        let (head, tail) = read_arrows(ln, self.w);
+        let cxn = nv.and_then(|n| n.child("cNvCxnSpPr"));
+        let attach = |name: &str| {
+            let e = cxn?.child(name)?;
+            Some(Attach {
+                // the file's shape id; mapped to node ids after the slide
+                shape: NodeId(u64::from(e.attr("id").and_then(parse_u32)?)),
+                site: e.attr("idx").and_then(parse_u32).unwrap_or(0),
+            })
+        };
+        let (start, end) = (attach("stCxn"), attach("endCxn"));
+        let plain_line = matches!(prst, None | Some("line"))
+            && start.is_none()
+            && end.is_none()
+            && head.is_none()
+            && tail.is_none();
+        let kind = if plain_line {
+            ShapeKind::Auto {
+                geometry: Preset::Line,
+                adjust: Adjust::new(),
+                text: None,
+            }
+        } else {
+            ShapeKind::Connector(Connector {
+                kind,
+                bends,
+                start,
+                end,
+                head,
+                tail,
+                adjust,
+            })
+        };
         Some(Shape {
             id: file_id(el),
             alt: alt_of(el),
             name,
             transform: space.map(&read_xfrm(xfrm)),
-            kind: ShapeKind::Auto {
-                geometry: Preset::Line,
-                text: None,
-            },
+            kind,
             fill,
             line,
+            placeholder: None,
+        })
+    }
+
+    /// A `p:graphicFrame` holding a table.
+    fn read_table_frame(&mut self, el: &El, space: Space) -> Option<Shape> {
+        let name = el
+            .child("nvGraphicFramePr")
+            .and_then(|n| n.child("cNvPr"))
+            .and_then(|c| c.attr("name"))
+            .unwrap_or("")
+            .to_owned();
+        let Some(xfrm) = el.child("xfrm") else {
+            self.w.add("shape without position dropped");
+            return None;
+        };
+        let mut transform = space.map(&read_xfrm(xfrm));
+        if transform.rotation_deg != 0.0 || transform.flip_h || transform.flip_v {
+            self.w.add("table rotation and flips dropped");
+            transform.rotation_deg = 0.0;
+            transform.flip_h = false;
+            transform.flip_v = false;
+        }
+        let tbl = el.find("tbl")?;
+        let table = read_table(tbl, self.default_table_style.as_deref(), self.w)?;
+        Some(Shape {
+            id: file_id(el),
+            alt: alt_of(el),
+            name,
+            transform,
+            kind: ShapeKind::Table(table),
+            fill: Fill::None,
+            line: Line::default(),
             placeholder: None,
         })
     }
@@ -831,6 +916,33 @@ fn assign_ids(p: &mut Presentation, shape: &mut Shape, map: &mut HashMap<u32, No
             assign_ids(p, c, map);
         }
     }
+}
+
+/// Maps connector attachments from file shape ids to node ids (`spids`);
+/// attachments to ids not on the slide are dropped. Returns whether any
+/// was dropped.
+fn remap_attachments(shapes: &mut [Shape], spids: &HashMap<u32, NodeId>) -> bool {
+    let mut dropped = false;
+    for s in shapes {
+        match &mut s.kind {
+            ShapeKind::Connector(c) => {
+                for end in [&mut c.start, &mut c.end] {
+                    if let Some(a) = end {
+                        match u32::try_from(a.shape.0).ok().and_then(|f| spids.get(&f)) {
+                            Some(&id) => a.shape = id,
+                            None => {
+                                *end = None;
+                                dropped = true;
+                            }
+                        }
+                    }
+                }
+            }
+            ShapeKind::Group { children } => dropped |= remap_attachments(children, spids),
+            _ => {}
+        }
+    }
+    dropped
 }
 
 /// `p:cNvPr/@descr` of a shape element (`p:sp`, `p:pic`, …), if set.

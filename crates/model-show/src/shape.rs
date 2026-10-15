@@ -6,7 +6,11 @@ use core_model::units::Emu;
 use core_model::{Color, ThemeColorSlot};
 use serde::{Deserialize, Serialize};
 
+use crate::connector::Connector;
+pub use crate::geometry::Preset;
+use crate::geometry::{Adjust, ConnectorKind};
 use crate::layout::PlaceholderKind;
+use crate::table::Table;
 use crate::text::{Alignment, Anchor, Autofit, BodyProps, TextBody, TextParagraph};
 use crate::NodeId;
 
@@ -176,31 +180,12 @@ impl Line {
     }
 }
 
-/// Preset geometry of an auto shape (`a:prstGeom/@prst`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(
-    feature = "ts",
-    derive(ts_rs::TS),
-    ts(export, export_to = "apps/show/src/generated/")
-)]
-pub enum Preset {
-    /// Rectangle (`rect`); also text boxes and placeholders.
-    Rect,
-    /// Rounded rectangle (`roundRect`).
-    RoundRect,
-    /// Ellipse (`ellipse`).
-    Ellipse,
-    /// Straight line from the top-left to the bottom-right corner of the
-    /// box (`line`; flips select the other diagonals).
-    Line,
-}
-
 /// What a shape is.
 ///
 /// Serializes as `{"kind":"auto","value":{"geometry":…,"text":…}}`,
-/// `{"kind":"picture","value":{"media":1}}` or
-/// `{"kind":"group","value":{"children":[…]}}`.
+/// `{"kind":"picture","value":{"media":1}}`,
+/// `{"kind":"group","value":{"children":[…]}}`,
+/// `{"kind":"connector","value":{…}}` or `{"kind":"table","value":{…}}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
 #[cfg_attr(
@@ -214,6 +199,14 @@ pub enum ShapeKind {
     Auto {
         /// Geometry.
         geometry: Preset,
+        /// Adjust values of the preset (`a:avLst`); missing names take
+        /// the preset's defaults.
+        #[serde(default, skip_serializing_if = "Adjust::is_empty")]
+        #[cfg_attr(
+            feature = "ts",
+            ts(optional, as = "Option<std::collections::HashMap<String, f64>>")
+        )]
+        adjust: Adjust,
         /// Text, if the shape has a text body.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<TextBody>,
@@ -232,6 +225,11 @@ pub enum ShapeKind {
         /// Children, bottom to top.
         children: Vec<Shape>,
     },
+    /// A connector (`p:cxnSp`), drawn with the shape's outline.
+    Connector(Connector),
+    /// A table (`p:graphicFrame` with `a:tbl`); the shape's box is the
+    /// table's frame.
+    Table(Table),
 }
 
 /// A shape on a slide (or inside a group).
@@ -294,6 +292,7 @@ impl Shape {
         Self::new(
             ShapeKind::Auto {
                 geometry: Preset::Rect,
+                adjust: Adjust::new(),
                 text: Some(body),
             },
             transform,
@@ -309,6 +308,7 @@ impl Shape {
             let mut s = Self::new(
                 ShapeKind::Auto {
                     geometry: preset,
+                    adjust: Adjust::new(),
                     text: None,
                 },
                 transform,
@@ -328,6 +328,7 @@ impl Shape {
         let mut s = Self::new(
             ShapeKind::Auto {
                 geometry: preset,
+                adjust: Adjust::new(),
                 text: Some(body),
             },
             transform,
@@ -341,6 +342,22 @@ impl Shape {
             Emu(12_700),
         );
         s
+    }
+
+    /// A connector with PowerPoint's default style (0.5 pt accent 1
+    /// outline, no fill).
+    pub fn connector_shape(connector: Connector, transform: Transform) -> Self {
+        let mut s = Self::new(ShapeKind::Connector(connector), transform);
+        s.line = Line::solid(Color::theme(ThemeColorSlot::Accent1), Emu(6_350));
+        s
+    }
+
+    /// A `rows` × `cols` table filling `transform` (see [`Table::new`]).
+    pub fn table(rows: usize, cols: usize, transform: Transform) -> Self {
+        Self::new(
+            ShapeKind::Table(Table::new(rows, cols, transform.w, transform.h)),
+            transform,
+        )
     }
 
     /// A picture of media item `media`.
@@ -358,6 +375,22 @@ impl Shape {
             c.transform.y = Emu(c.transform.y.0 - bounds.y.0);
         }
         Self::new(ShapeKind::Group { children }, bounds)
+    }
+
+    /// The table of a table shape.
+    pub fn table_data(&self) -> Option<&Table> {
+        match &self.kind {
+            ShapeKind::Table(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// Mutable access to the table of a table shape.
+    pub fn table_mut(&mut self) -> Option<&mut Table> {
+        match &mut self.kind {
+            ShapeKind::Table(t) => Some(t),
+            _ => None,
+        }
     }
 
     /// The text body of an auto shape.
@@ -391,7 +424,8 @@ impl Shape {
             self.kind,
             ShapeKind::Auto {
                 geometry: Preset::Rect,
-                text: Some(_)
+                text: Some(_),
+                ..
             }
         ) && self.fill == Fill::None
             && self.line.is_none()
@@ -421,14 +455,18 @@ impl Shape {
             return "TextBox";
         }
         match &self.kind {
-            ShapeKind::Auto { geometry, .. } => match geometry {
-                Preset::Rect => "Rectangle",
-                Preset::RoundRect => "Rounded Rectangle",
-                Preset::Ellipse => "Oval",
-                Preset::Line => "Straight Connector",
-            },
+            ShapeKind::Auto { geometry, .. } => geometry.default_name(),
             ShapeKind::Picture { .. } => "Picture",
             ShapeKind::Group { .. } => "Group",
+            ShapeKind::Connector(c) => match c.kind {
+                ConnectorKind::Straight if !c.head.is_none() || !c.tail.is_none() => {
+                    "Straight Arrow Connector"
+                }
+                ConnectorKind::Straight => "Straight Connector",
+                ConnectorKind::Elbow => "Elbow Connector",
+                ConnectorKind::Curved => "Curved Connector",
+            },
+            ShapeKind::Table(_) => "Table",
         }
     }
 
@@ -753,6 +791,20 @@ mod tests {
         assert_eq!(Shape::auto(Preset::Ellipse, t).default_name(), "Oval");
         assert_eq!(Shape::picture(MediaId(1), t).default_name(), "Picture");
         assert_eq!(Shape::group(vec![]).default_name(), "Group");
+        assert_eq!(Shape::auto(Preset::Star5, t).default_name(), "5-Point Star");
+        let mut c = Connector::new(ConnectorKind::Straight);
+        assert_eq!(
+            Shape::connector_shape(c.clone(), t).default_name(),
+            "Straight Connector"
+        );
+        c.tail = crate::ArrowEnd::new(crate::ArrowKind::Triangle);
+        assert_eq!(
+            Shape::connector_shape(c, t).default_name(),
+            "Straight Arrow Connector"
+        );
+        let tb = Shape::table(2, 3, t);
+        assert_eq!(tb.default_name(), "Table");
+        assert_eq!(tb.table_data().unwrap().col_count(), 3);
     }
 
     #[test]
