@@ -64,20 +64,20 @@ General rules that apply to every function below:
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
-| `CONCAT` | `CONCAT(text1, ...)` | Join, ranges flattened | Stored as `_xlfn.CONCAT` in files; bools become `TRUE`/`FALSE` | planned |
-| `CONCATENATE` | `CONCATENATE(text1, ...)` | Join scalar arguments | Legacy; numbers use general format | planned |
-| `LEFT` | `LEFT(text, [count])` | Leading characters | Default 1; negative count `#VALUE!`; numbers converted to text first | planned |
-| `RIGHT` | `RIGHT(text, [count])` | Trailing characters | Default 1; negative count `#VALUE!` | planned |
-| `MID` | `MID(text, start, count)` | Substring | Start < 1 or count < 0 `#VALUE!`; start beyond end = `""` | planned |
-| `LEN` | `LEN(text)` | Character count | Numbers measured on their text form; `LEN(TRUE)` = 4 | planned |
-| `UPPER` | `UPPER(text)` | Upper case | Unicode aware | planned |
-| `LOWER` | `LOWER(text)` | Lower case | Unicode aware | planned |
-| `TRIM` | `TRIM(text)` | Strip leading/trailing spaces, collapse inner runs | Only the ASCII space | planned |
-| `FIND` | `FIND(find, within, [start])` | 1-based position, case-sensitive | No wildcards; empty needle returns start; not found `#VALUE!`; start < 1 `#VALUE!` | planned |
-| `SUBSTITUTE` | `SUBSTITUTE(text, old, new, [instance])` | Replace occurrences | Case-sensitive; empty `old` leaves text unchanged; instance 0 `#VALUE!` | planned |
-| `TEXT` | `TEXT(value, format)` | Format a value as text | MVP codes only: `0` `0.00` `#,##0` `#,##0.00` `0%` `0.0%` `yyyy-mm-dd` `dd.mm.yyyy` `mm/dd/yyyy` `@`; text input returned unchanged; numeric text converted first | planned |
-| `VALUE` | `VALUE(text)` | Parse number from text | Accepts spaces, `%`, exponent, dates (locale); `""` and bools `#VALUE!` | planned |
-| `EXACT` | `EXACT(text1, text2)` | Case-sensitive equality | Numbers compared as text | planned |
+| `CONCAT` | `CONCAT(text1, ...)` | Join, ranges flattened | Stored as `_xlfn.CONCAT` in files; bools become `TRUE`/`FALSE` | implemented |
+| `CONCATENATE` | `CONCATENATE(text1, ...)` | Join scalar arguments | Legacy; numbers use general format | implemented |
+| `LEFT` | `LEFT(text, [count])` | Leading characters | Default 1; negative count `#VALUE!`; numbers converted to text first | implemented |
+| `RIGHT` | `RIGHT(text, [count])` | Trailing characters | Default 1; negative count `#VALUE!` | implemented |
+| `MID` | `MID(text, start, count)` | Substring | Start < 1 or count < 0 `#VALUE!`; start beyond end = `""` | implemented |
+| `LEN` | `LEN(text)` | Character count | Numbers measured on their text form; `LEN(TRUE)` = 4 | implemented |
+| `UPPER` | `UPPER(text)` | Upper case | Unicode aware | implemented |
+| `LOWER` | `LOWER(text)` | Lower case | Unicode aware | implemented |
+| `TRIM` | `TRIM(text)` | Strip leading/trailing spaces, collapse inner runs | Only the ASCII space | implemented |
+| `FIND` | `FIND(find, within, [start])` | 1-based position, case-sensitive | No wildcards; empty needle returns start; not found `#VALUE!`; start < 1 `#VALUE!` | implemented |
+| `SUBSTITUTE` | `SUBSTITUTE(text, old, new, [instance])` | Replace occurrences | Case-sensitive; empty `old` leaves text unchanged; instance 0 `#VALUE!` | implemented |
+| `TEXT` | `TEXT(value, format)` | Format a value as text | MVP codes only: `0` `0.00` `#,##0` `#,##0.00` `0%` `0.0%` `yyyy-mm-dd` `dd.mm.yyyy` `mm/dd/yyyy` `@`; text input returned unchanged; numeric text converted first | implemented |
+| `VALUE` | `VALUE(text)` | Parse number from text | Accepts spaces, `%`, exponent, dates (locale); `""` and bools `#VALUE!` | implemented |
+| `EXACT` | `EXACT(text1, text2)` | Case-sensitive equality | Numbers compared as text | implemented |
 
 ## Lookup / reference (7)
 

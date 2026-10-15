@@ -82,7 +82,7 @@ impl FunctionRegistry {
         r.register(Box::new(logical::if_::If));
         r.register(Box::new(logical::true_::True));
         r.register(Box::new(logical::false_::False));
-        r.register(Box::new(text::len::Len));
+        text::register(&mut r);
         r.register(Box::new(info::na::Na));
         r.register(Box::new(info::iserror::IsError));
         r
@@ -415,7 +415,28 @@ mod tests {
         let r = FunctionRegistry::with_builtins();
         assert_eq!(
             r.names(),
-            vec!["FALSE", "IF", "ISERROR", "LEN", "NA", "SUM", "TRUE"]
+            vec![
+                "CONCAT",
+                "CONCATENATE",
+                "EXACT",
+                "FALSE",
+                "FIND",
+                "IF",
+                "ISERROR",
+                "LEFT",
+                "LEN",
+                "LOWER",
+                "MID",
+                "NA",
+                "RIGHT",
+                "SUBSTITUTE",
+                "SUM",
+                "TEXT",
+                "TRIM",
+                "TRUE",
+                "UPPER",
+                "VALUE"
+            ]
         );
         assert_eq!(r.get("sum").map(|f| f.name()), Some("SUM"));
         assert_eq!(r.get("Iserror").map(|f| f.name()), Some("ISERROR"));
