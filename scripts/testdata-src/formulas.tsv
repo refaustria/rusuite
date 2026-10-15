@@ -1026,6 +1026,20 @@ math	=SUMX2PY2({2,3,9,1,8,7,5},{6,5,11,7,5,4,4})
 math	=SUMX2PY2(A1:A3,A4:A6)	
 math	=SUMX2PY2(A1:A3,A1:A4)	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
 math	=SUMX2PY2(F1:F2,A1:A2)	
+math	=SUBTOTAL(9,A1:A6)	no hidden rows: SUM
+math	=SUBTOTAL(109,A1:A6,C1:C6)	
+math	=SUBTOTAL(1,C1:C6)	
+math	=SUBTOTAL(2,A1:B6)	COUNT ignores text
+math	=SUBTOTAL(103,A1:B6)	
+math	=SUBTOTAL(4,C1:C6)	
+math	=SUBTOTAL(105,C1:C6)	
+math	=SUBTOTAL(6,A1:A4)	
+math	=SUBTOTAL(7,A1:A6)	
+math	=SUBTOTAL(108,A1:A6)	
+math	=SUBTOTAL(10,F1:F4)	
+math	=SUBTOTAL(111,F1:F4)	
+math	=SUBTOTAL(9,A1:A3,H1)	error propagation
+math	=SUBTOTAL(9.9,A1:A3)	function number truncated
 math	=SUMXMY2({2,3,9,1,8,7,5},{6,5,11,7,5,4,4})	
 math	=SUMXMY2(A1:A3,A4:A6)	
 math	=SUMXMY2(A1:A3,A1:A4)	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]

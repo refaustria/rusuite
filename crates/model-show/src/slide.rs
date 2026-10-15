@@ -2,9 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::anim::{Animation, Transition};
 use crate::layout::{Layout, LayoutKind, PlaceholderKind};
 use crate::shape::{Fill, Shape, ShapeKind};
-use crate::NodeId;
+use crate::{Error, NodeId};
 
 /// A slide.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -33,6 +34,15 @@ pub struct Slide {
     /// slide's `notesSlide` part).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    /// How the slide appears in the slide show and when it advances
+    /// (`p:transition`); `None` = no transition, advance on click.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub transition: Option<Transition>,
+    /// Animations of the slide's shapes, in play order (`p:timing`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Animation>>"))]
+    pub animations: Vec<Animation>,
 }
 
 fn is_false(v: &bool) -> bool {
@@ -49,7 +59,52 @@ impl Slide {
             background: None,
             hidden: false,
             notes: None,
+            transition: None,
+            animations: Vec::new(),
         }
+    }
+
+    /// Checks the slide's transition and animations: valid
+    /// effect/kind/direction combinations, unique animation ids, and every
+    /// animation targets a shape of this slide.
+    pub fn validate(&self) -> Result<(), Error> {
+        let bad = |reason: String| Error::InvalidSlide {
+            slide: self.id,
+            reason,
+        };
+        if let Some(t) = &self.transition {
+            t.validate().map_err(bad)?;
+        }
+        let mut seen = std::collections::HashSet::new();
+        for a in &self.animations {
+            if !seen.insert(a.id) {
+                return Err(bad(format!("animation id {} is used twice", a.id.0)));
+            }
+            a.validate()
+                .map_err(|e| bad(format!("animation {}: {e}", a.id.0)))?;
+            if self.find_shape(a.shape).is_none() {
+                return Err(bad(format!(
+                    "animation {} targets shape {}, which is not on the slide",
+                    a.id.0, a.shape.0
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Removes animations whose shape is no longer on the slide (after
+    /// shapes were deleted or ungrouped). Returns how many were removed.
+    pub fn prune_animations(&mut self) -> usize {
+        let before = self.animations.len();
+        let shapes = &self.shapes;
+        self.animations
+            .retain(|a| find_in(shapes, a.shape).is_some());
+        before - self.animations.len()
+    }
+
+    /// Position of animation `id` in the play order.
+    pub fn animation_index(&self, id: NodeId) -> Option<usize> {
+        self.animations.iter().position(|a| a.id == id)
     }
 
     /// Changes the slide's layout to `layout` (PowerPoint's "Layout"):

@@ -170,6 +170,7 @@
   { "name": "STDEV.S", "signature": "STDEV.S(number1, ...)", "description": "Sample standard deviation" },
   { "name": "STDEVP", "signature": "STDEVP(number1, ...)", "description": "Population standard deviation" },
   { "name": "SUBSTITUTE", "signature": "SUBSTITUTE(text, old, new, [instance])", "description": "Replace occurrences" },
+  { "name": "SUBTOTAL", "signature": "SUBTOTAL(function_num, ref1, [ref2], ...)", "description": "AVERAGE/COUNT/COUNTA/MAX/MIN/PRODUCT/STDEV/STDEVP/SUM/VAR/VARP (1-11) of the references" },
   { "name": "SUM", "signature": "SUM(number1, [number2], ...)", "description": "Sum of numbers" },
   { "name": "SUMIF", "signature": "SUMIF(range, criteria, [sum_range])", "description": "Sum of cells matching criteria" },
   { "name": "SUMIFS", "signature": "SUMIFS(sum_range, criteria_range1, criteria1, ...)", "description": "Sum where all criteria hold" },

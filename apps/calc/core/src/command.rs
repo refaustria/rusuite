@@ -5,7 +5,7 @@
 //! (`r0..=r1`, `c0..=c1`, `r0 <= r1`, `c0 <= c1`).
 
 use core_model::Color;
-use model_sheet::{CellStyle, SheetFormat, SheetView};
+use model_sheet::{AutoFilter, CellStyle, Filter, SheetFormat, SheetView, SortKey, SortState};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -13,7 +13,7 @@ use crate::patch::{ColView, RowView};
 
 /// A document edit. JSON: `{"type":"setInput","sheet":0,"row":0,"col":0,"input":"=A2"}`.
 ///
-/// The variants after [`FillRange`](Self::FillRange) are **internal**:
+/// The variants marked *Internal* (from `RestoreFilterState` on) are internal:
 /// the document produces them as inverses for undo/redo. They are
 /// serializable (the undo stack holds commands) but the UI never needs to
 /// send them.
@@ -209,6 +209,74 @@ pub enum CalcCommand {
         src: Rect,
         dst: Rect,
         mode: FillMode,
+    },
+    /// Sorts the rows of the range by `keys` (absolute columns inside the
+    /// range, most significant first), stably, in Excel's order: numbers
+    /// < text < logical < errors, blanks last in both directions; text
+    /// case-insensitive unless `caseSensitive` (then lowercase first).
+    /// `hasHeader` keeps the first row in place. Contents and cell
+    /// formats move with their rows (row heights and hidden rows stay);
+    /// moved formulas are adjusted by their row offset like a copy.
+    /// Fails with `cannot_sort_merged` when the range intersects merged
+    /// cells. The sheet list in the patch carries the new `sortState`.
+    SortRange {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+        #[ts(as = "Vec<crate::wire::SortKey>")]
+        keys: Vec<SortKey>,
+        has_header: bool,
+        case_sensitive: bool,
+    },
+    /// "Sort A to Z / Z to A" from a single cell: sorts by column `col`
+    /// the AutoFilter range when `(row, col)` lies inside it (header
+    /// kept), else the current region around the cell (blank rows and
+    /// columns bound it), keeping a first row that looks like a header
+    /// (all text, above non-text or differently formatted cells).
+    SortSheetByColumn {
+        sheet: u32,
+        row: u32,
+        col: u32,
+        ascending: bool,
+    },
+    /// Turns the AutoFilter on for `range` (a single cell: its current
+    /// region) or off (`null`), showing the rows a previous filter hid.
+    /// The sheet list in the patch carries `autoFilter`.
+    SetAutoFilter {
+        sheet: u32,
+        range: Option<Rect>,
+    },
+    /// Sets (or with `null` removes) the filter of AutoFilter column `col`
+    /// (absolute index) and applies all filters: failing data rows are
+    /// hidden as `filtered`, filtered rows that pass are shown; rows hidden
+    /// by hand stay hidden. Fails with `no_auto_filter` without an
+    /// AutoFilter and `invalid_range` for a column outside it.
+    SetFilterColumn {
+        sheet: u32,
+        col: u32,
+        #[ts(as = "Option<crate::wire::Filter>")]
+        filter: Option<Filter>,
+    },
+    /// Removes every column filter (the dropdowns stay) and shows the
+    /// filtered rows.
+    ClearFilters {
+        sheet: u32,
+    },
+    /// Applies the filters again to the current data (Excel's "Reapply";
+    /// filters are not re-applied on edits).
+    ReapplyFilter {
+        sheet: u32,
+    },
+    /// *Internal.* Replaces the AutoFilter and the sort state (rows are
+    /// restored separately).
+    RestoreFilterState {
+        sheet: u32,
+        #[ts(as = "Option<crate::wire::AutoFilter>")]
+        auto_filter: Option<AutoFilter>,
+        #[ts(as = "Option<crate::wire::SortState>")]
+        sort_state: Option<SortState>,
     },
     /// *Internal.* Sets `(row, col, input, own style id)` per cell.
     RestoreCells {

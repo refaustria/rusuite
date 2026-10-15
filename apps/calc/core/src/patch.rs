@@ -2,7 +2,7 @@
 //! command, [`RegionSnapshot`] for a viewport, [`WorkbookInfo`] on open.
 
 use app_common::Revision;
-use model_sheet::{CellStyle, SheetFormat, SheetView};
+use model_sheet::{AutoFilter, CellStyle, SheetFormat, SheetView, SortState};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -75,6 +75,15 @@ pub struct SheetInfo {
     #[serde(default, skip_serializing_if = "SheetView::is_default")]
     #[ts(optional, as = "Option<crate::wire::SheetView>")]
     pub view: SheetView,
+    /// The AutoFilter (dropdowns on the header cells `r0`, `c0..=c1`);
+    /// absent = none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<crate::wire::AutoFilter>")]
+    pub auto_filter: Option<AutoFilter>,
+    /// The last sort (for sort indicators); absent = none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<crate::wire::SortState>")]
+    pub sort_state: Option<SortState>,
 }
 
 /// The complete list of merged ranges of `sheet`.
@@ -111,6 +120,11 @@ pub struct RowView {
     /// Style of the row's cells without own style (wins over the column
     /// style); `null` = none.
     pub style: Option<u32>,
+    /// Hidden by the AutoFilter (with `hidden`), not by hand; absent =
+    /// false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub filtered: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

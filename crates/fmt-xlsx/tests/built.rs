@@ -7,6 +7,7 @@ use core_model::{
 };
 use engine_formula::{CellCoord, ErrorKind, Value};
 use fmt_ooxml::{Package, PartName};
+use model_sheet::CellRange;
 use model_sheet::{
     Alignment, BorderSide, BorderStyle, Borders, CellContent, CellStyle, ColInfo, Fill, HAlign,
     MergeRect, RowInfo, SheetFormat, SheetView, VAlign, Workbook,
@@ -172,6 +173,7 @@ fn build() -> Workbook {
             height: Some(22.25),
             hidden: false,
             style: Some(ids[3]),
+            filtered: false,
         },
     )
     .unwrap();
@@ -425,5 +427,206 @@ fn frozen_panes_merges_and_hidden_sheets_roundtrip() {
             r#"<pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/>"#
         ),
         "{sheet4}"
+    );
+}
+
+#[test]
+fn auto_filter_sort_state_and_filtered_rows_roundtrip() {
+    use model_sheet::{
+        AutoFilter, Criterion, DynamicFilter, Filter, FilterColumn, FilterOp, SortKey, SortKind,
+        SortSpec,
+    };
+    let mut wb = Workbook::new();
+    let s = wb.sheet_id("Sheet1").unwrap();
+    wb.rename_sheet(s, "Bob's data").unwrap();
+    let other = wb.add_sheet("Plain").unwrap();
+    let c = |r, col| CellCoord::new(s, r, col);
+    let rows = [
+        ["Name", "Qty", "Note", "When", "Rank"],
+        ["pear", "3", "a*b", "45306", "1"],
+        ["apple", "10", "x", "45307", "2"],
+        ["fig", "7", "", "45308", "3"],
+        ["Apple", "1", "y", "45309", "4"],
+    ];
+    for (r, row) in rows.iter().enumerate() {
+        for (col, v) in row.iter().enumerate() {
+            wb.set_input(c(r as u32, col as u32), v).unwrap();
+        }
+    }
+    wb.set_input(c(6, 1), "=SUBTOTAL(9,B2:B5)").unwrap();
+    let crit = |op, v: &str| Criterion {
+        op,
+        value: v.into(),
+    };
+    let mut af = AutoFilter::new(0, 0, 4, 4);
+    af.columns = vec![
+        FilterColumn {
+            col: 0,
+            filter: Filter::Values {
+                values: vec!["apple".into(), "pear".into(), "fig".into(), String::new()],
+            },
+        },
+        FilterColumn {
+            col: 1,
+            filter: Filter::Custom {
+                criteria: vec![crit(FilterOp::Ge, "2"), crit(FilterOp::Lt, "50")],
+                and: true,
+            },
+        },
+        FilterColumn {
+            col: 2,
+            filter: Filter::Custom {
+                criteria: vec![
+                    crit(FilterOp::NotContains, "*"),
+                    crit(FilterOp::EndsWith, "b"),
+                ],
+                and: false,
+            },
+        },
+        FilterColumn {
+            col: 3,
+            filter: Filter::Dynamic {
+                filter: DynamicFilter::BelowAverage,
+            },
+        },
+        FilterColumn {
+            col: 4,
+            filter: Filter::Top10 {
+                top: false,
+                percent: true,
+                value: 75.0,
+            },
+        },
+    ];
+    wb.set_auto_filter(s, Some(af)).unwrap();
+    wb.apply_auto_filter(s).unwrap();
+    wb.set_row_hidden(other, 2, true).unwrap();
+    wb.sort_range(
+        CellRange::new(s, 0, 0, 4, 4),
+        &SortSpec {
+            keys: vec![
+                SortKey {
+                    col: 1,
+                    ascending: false,
+                    kind: SortKind::Auto,
+                },
+                SortKey {
+                    col: 0,
+                    ascending: true,
+                    kind: SortKind::Auto,
+                },
+            ],
+            has_header: true,
+            case_sensitive: true,
+        },
+    )
+    .unwrap();
+    // pear and apple pass every column; fig fails the average, Apple the
+    // quantity. The sort only swaps the two visible rows.
+    let hidden: Vec<u32> = wb
+        .rows(s)
+        .filter(|(_, i)| i.filtered)
+        .map(|(r, _)| r)
+        .collect();
+    assert_eq!(hidden, vec![3, 4]);
+    assert_eq!(wb.value(c(1, 0)), Value::Text("apple".into()));
+    assert_eq!(wb.value(c(6, 1)), Value::Number(13.0));
+
+    let bytes = fmt_xlsx::write(&wb).unwrap();
+    assert_eq!(bytes, fmt_xlsx::write(&wb).unwrap(), "deterministic");
+    let (back, warnings) = fmt_xlsx::read_with_warnings(&bytes).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(back.to_snapshot(), wb.to_snapshot());
+    assert_eq!(back.value(c(6, 1)), Value::Number(13.0));
+    // A hand-hidden row outside any filter stays hand-hidden.
+    assert!(!back.row_info(other, 2).filtered);
+
+    let sheet = part(&bytes, "/xl/worksheets/sheet1.xml");
+    assert!(sheet.contains(r#"<sheetPr filterMode="1"/>"#), "{sheet}");
+    assert!(sheet.contains(r#"<row r="4" hidden="1">"#), "{sheet}");
+    assert!(
+        sheet.contains(concat!(
+            r#"</sheetData><autoFilter ref="A1:E5">"#,
+            r#"<filterColumn colId="0"><filters blank="1"><filter val="apple"/><filter val="pear"/><filter val="fig"/></filters></filterColumn>"#,
+            r#"<filterColumn colId="1"><customFilters and="1"><customFilter operator="greaterThanOrEqual" val="2"/><customFilter operator="lessThan" val="50"/></customFilters></filterColumn>"#,
+            r#"<filterColumn colId="2"><customFilters><customFilter operator="notEqual" val="*~**"/><customFilter val="*b"/></customFilters></filterColumn>"#,
+            r#"<filterColumn colId="3"><dynamicFilter type="belowAverage"/></filterColumn>"#,
+            r#"<filterColumn colId="4"><top10 top="0" percent="1" val="75"/></filterColumn></autoFilter>"#,
+            r#"<sortState ref="A2:E5" caseSensitive="1"><sortCondition descending="1" ref="B2:B5"/><sortCondition ref="A2:A5"/></sortState>"#,
+            r#"<pageMargins"#
+        )),
+        "{sheet}"
+    );
+    let book = part(&bytes, "/xl/workbook.xml");
+    assert!(
+        book.contains(concat!(
+            r#"</sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">"#,
+            r#"'Bob''s data'!$A$1:$E$5</definedName></definedNames><calcPr"#
+        )),
+        "{book}"
+    );
+}
+
+#[test]
+fn excel_style_auto_filter_is_read() {
+    // As Excel writes it: sortState inside autoFilter, unsupported filter
+    // kinds, the _FilterDatabase name and hidden rows of the filter.
+    let sheet = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetPr filterMode="1"/><sheetData>
+<row r="1"><c r="B1" t="inlineStr"><is><t>H</t></is></c></row>
+<row r="2" hidden="1"><c r="B2"><v>1</v></c></row>
+<row r="3"><c r="B3"><v>2</v></c></row>
+<row r="9" hidden="1"><c r="B9"><v>3</v></c></row>
+</sheetData><autoFilter ref="B1:E4"><filterColumn colId="0"><customFilters><customFilter operator="greaterThan" val="1"/></customFilters></filterColumn>
+<filterColumn colId="1"><filters><dateGroupItem year="2024" dateTimeGrouping="year"/></filters></filterColumn>
+<filterColumn colId="2"><colorFilter dxfId="0"/></filterColumn>
+<filterColumn colId="3" hiddenButton="1"/>
+<filterColumn colId="7"><filters><filter val="x"/></filters></filterColumn>
+<sortState ref="B2:E4"><sortCondition descending="1" ref="B2:B4"/><sortCondition sortBy="cellColor" ref="C2:C4" dxfId="1"/></sortState></autoFilter></worksheet>"#;
+    let base = fmt_xlsx::write(&Workbook::new()).unwrap();
+    let mut pkg = Package::open(Cursor::new(base.as_slice())).unwrap();
+    pkg.part_mut(&PartName::new("/xl/worksheets/sheet1.xml").unwrap())
+        .unwrap()
+        .data = sheet.as_bytes().to_vec();
+    let book = PartName::new("/xl/workbook.xml").unwrap();
+    let p = pkg.part_mut(&book).unwrap();
+    p.data = String::from_utf8(p.data.clone())
+        .unwrap()
+        .replace(
+            "</sheets>",
+            r#"</sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">Sheet1!$B$1:$E$4</definedName></definedNames>"#,
+        )
+        .into_bytes();
+    let bytes = pkg.write(Cursor::new(Vec::new())).unwrap().into_inner();
+
+    let (wb, warnings) = fmt_xlsx::read_with_warnings(&bytes).unwrap();
+    let s = wb.sheet_id("Sheet1").unwrap();
+    let af = wb.auto_filter(s).unwrap();
+    assert_eq!((af.r0, af.c0, af.r1, af.c1), (0, 1, 3, 4));
+    assert_eq!(af.columns.len(), 1);
+    assert_eq!(af.columns[0].col, 1);
+    // Hidden rows inside the filter range are the filter's.
+    assert!(wb.row_info(s, 1).filtered);
+    assert!(wb.row_info(s, 8).hidden && !wb.row_info(s, 8).filtered);
+    let st = wb.sort_state(s).unwrap();
+    assert_eq!((st.r0, st.r1, st.keys.len()), (1, 3, 1));
+    assert!(!st.keys[0].ascending && st.keys[0].col == 1);
+    let all = warnings.join("\n");
+    assert!(!all.contains("defined name"), "{all}");
+    assert!(
+        all.contains("unsupported filter of column C dropped"),
+        "{all}"
+    );
+    assert!(
+        all.contains("unsupported filter of column D dropped"),
+        "{all}"
+    );
+    assert!(
+        all.contains("sort condition by colour or icon dropped"),
+        "{all}"
+    );
+    assert!(
+        all.contains("filter columns outside the AutoFilter range dropped"),
+        "{all}"
     );
 }

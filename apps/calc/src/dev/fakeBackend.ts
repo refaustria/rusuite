@@ -579,6 +579,14 @@ export class FakeCalcCore {
         const inverse: CalcCommand = { ...cmd, type: (ins ? "delete" : "insert") + (rowsAxis ? "Rows" : "Cols") } as CalcCommand;
         return [patch, inverse];
       }
+      case "sortRange":
+      case "sortSheetByColumn":
+      case "setAutoFilter":
+      case "setFilterColumn":
+      case "clearFilters":
+      case "reapplyFilter":
+      case "restoreFilterState":
+        throw new Fail("internal", "sort and filter are not supported by the fake backend");
       default: {
         const unknown: never = cmd;
         throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
