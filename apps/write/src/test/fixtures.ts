@@ -2,7 +2,11 @@
 
 import type { Block } from "../generated/Block";
 import type { Document } from "../generated/Document";
+import type { Field } from "../generated/Field";
 import type { Inline } from "../generated/Inline";
+import type { Note } from "../generated/Note";
+import type { NoteKind } from "../generated/NoteKind";
+import type { Toc } from "../generated/Toc";
 import type { LevelKind } from "../generated/LevelKind";
 import type { NumberingDef } from "../generated/NumberingDef";
 import type { ParagraphProperties } from "../generated/ParagraphProperties";
@@ -48,7 +52,42 @@ export const PNG_1PX =
 
 const bold: RunProperties = { bold: true };
 
+export const field = (kind: Field["kind"], cached = "", props?: RunProperties): Inline => ({
+  kind: "field",
+  value: props ? { kind, cached, props } : { kind, cached },
+});
+
+export const noteRef = (id: number, kind: NoteKind = "foot", props?: RunProperties): Inline => ({
+  kind: "noteRef",
+  value: props ? { id, kind, props } : { id, kind },
+});
+
+export const note = (id: number, kind: NoteKind, blocks: Block[]): Note => ({ id, kind, blocks });
+
+export const toc = (id: number, entries: Toc["entries"], title?: string): Block => ({
+  kind: "toc",
+  value: { id, fromLevel: 1, toLevel: 3, ...(title ? { title } : {}), entries },
+});
+
+/** Fields, foot- and endnotes (referenced out of id order), a TOC and a section end. */
+export function structureDoc(): Document {
+  const doc = makeDoc([
+    toc(1, [{ text: "Intro", level: 1, page: 2, target: 2 }, { text: "Details", level: 2, target: 4 }], "Contents"),
+    para(2, "Intro", { style: "Heading1" }),
+    para(3, [run("Page "), field({ kind: "page" }, "1", bold), run(" of "), field({ kind: "numPages" }, "3"), run(" see"), noteRef(2), run(".")]),
+    para(4, [run("Details"), noteRef(1, "foot", { italic: true }), run(" and "), noteRef(3, "end")], { style: "Heading2", sectionEnd: 1 }),
+    para(5, [field({ kind: "date", value: { format: "d.M.yyyy" } }, "15.10.2026"), run(" "), field({ kind: "fileName" }, "x.docx")]),
+  ]);
+  doc.notes = [
+    note(1, "foot", [para(10, " First footnote", { style: "FootnoteText" })]),
+    note(2, "foot", [para(11, " Second", { style: "FootnoteText" }), para(12, [run("more "), run("bold", bold)])]),
+    note(3, "end", [para(13, " An endnote", { style: "EndnoteText" })]),
+  ];
+  return doc;
+}
+
 export const FIXTURES: Record<string, Document> = {
+  structure: structureDoc(),
   headings: makeDoc([
     para(1, "Document title", { style: "Title" }),
     para(2, "Chapter", { style: "Heading1" }),

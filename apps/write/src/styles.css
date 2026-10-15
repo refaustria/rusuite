@@ -25,6 +25,34 @@ body,
 .tiptap-content ol ol { list-style: lower-alpha; }
 .tiptap-content ol ol ol { list-style: lower-roman; }
 .tiptap-content li > p { margin-bottom: 0; }
+/* List labels computed by Rust (`listLabel`: legal numbering, restarts, overrides) replace the CSS counters;
+   items without a label yet (a list just created in the editor) keep the browser's marker. */
+.tiptap-content li:has(> [data-label]) { list-style: none; }
+.tiptap-content [data-label]::before { content: attr(data-label) "\00a0\00a0"; }
+
+/* Fields: grey shading (Word's field shading); a live value (page number, date) replaces the cached result. */
+.tiptap-content .field { background: #e6e6e6; border-radius: 2px; }
+.tiptap-content .field[data-live] > .field-cached { display: none; }
+.tiptap-content .field[data-live]::before { content: attr(data-live); }
+/* Note references: superscript numbers from the reference order. */
+.tiptap-content sup.note-ref { cursor: pointer; font-size: 0.7em; line-height: 0; }
+.tiptap-content sup.note-ref::after { content: attr(data-n); }
+/* The notes area after the body: footnotes, then endnotes. */
+.tiptap-content .notes-area { margin-top: 18pt; font-size: 10pt; }
+.tiptap-content .notes-separator { margin: 10pt 0 4pt; padding-top: 2pt; width: 2in; border-top: 1px solid #888; color: #9ca3af; font-size: 8pt; user-select: none; }
+.tiptap-content .note { position: relative; padding-left: 1.8em; }
+.tiptap-content .note p { margin: 0 0 2pt; }
+.tiptap-content .note-label { position: absolute; left: 0; top: -0.3em; font-size: 0.75em; cursor: pointer; user-select: none; }
+/* Table of contents: entries with dotted leaders; click goes to the heading. */
+.tiptap-content .toc { margin: 0 0 8pt; user-select: none; }
+.tiptap-content .toc-title { font-size: 16pt; color: #2f5496; margin: 12pt 0 6pt; }
+.tiptap-content .toc-entry { display: flex; align-items: baseline; margin: 0 0 4pt; cursor: pointer; }
+.tiptap-content .toc-entry::after { content: ""; order: 1; flex: 1; margin: 0 4px; border-bottom: 1px dotted #888; }
+.tiptap-content .toc-entry .toc-page { order: 2; }
+.tiptap-content .toc-entry:hover .toc-text { text-decoration: underline; }
+.tiptap-content .toc-empty { color: #9ca3af; font-style: italic; }
+/* Section breaks: a dotted line with the kind of the next section. */
+.tiptap-content [data-section-label]::after { content: attr(data-section-label); display: block; margin-top: 2pt; border-top: 1px dotted #9ca3af; color: #9ca3af; font-size: 8pt; text-align: center; white-space: nowrap; user-select: none; }
 .tiptap-content table { border-collapse: collapse; margin: 4pt 0 8pt; table-layout: fixed; }
 .tiptap-content td { border: 1px solid #888; padding: 2px 6px; vertical-align: top; }
 .tiptap-content td p { margin: 0; }
@@ -75,8 +103,14 @@ body,
 .page-end { user-select: none; }
 .page-hf { position: absolute; min-height: 1.3em; overflow: hidden; color: #9ca3af; font: 9pt/1.3 Calibri, Carlito, "Segoe UI", sans-serif; white-space: pre-wrap; tab-size: 8; cursor: default; user-select: none; }
 .page-hf:hover { outline: 1px dashed #cbd5e1; }
+/* Footnotes at the bottom of their page (print layout; double-click edits them in the notes area). */
+.page-notes { position: absolute; font: 9pt/1.25 Calibri, Carlito, "Segoe UI", sans-serif; color: #000; white-space: normal; user-select: none; cursor: default; }
+.page-notes::before { content: ""; display: block; width: 2in; margin-bottom: 2px; border-top: 1px solid #555; }
+.page-note sup { font-size: 0.75em; }
 @media print {
   .tiptap-content { --write-gridline: transparent; }
+  .tiptap-content .field { background: none; }
+  .tiptap-content [data-section-label]::after, .tiptap-content .notes-separator { color: transparent; }
   .page-gap, .page-end, .page-hf { display: none !important; }
 }
 

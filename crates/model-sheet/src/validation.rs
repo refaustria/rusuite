@@ -8,7 +8,7 @@
 //! for the in-cell dropdown ([`Workbook::list_values`]).
 //!
 //! Formulas (`f1`, `f2`, custom formulas, list sources) are written for
-//! the anchor cell of the validation (see [`crate::rules`]) and evaluated
+//! the anchor cell of the validation (see `crate::rules`) and evaluated
 //! for the edited cell as if the input were already entered (cells that
 //! depend on the edited cell are not recomputed for the check).
 //!

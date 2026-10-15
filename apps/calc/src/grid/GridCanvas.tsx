@@ -13,6 +13,8 @@ import { fillTarget } from "../state/clipboard";
 import { sheetViewOf, useCalc, type CalcStore } from "../state/store";
 import { drawFilterButtons, filterButton, filterButtonAt, filterButtons, filteredRowSpan } from "../sortFilter/filter";
 import { CellEditor } from "./CellEditor";
+import { SpillIndicator, SPILL_TAG_W } from "./SpillIndicator";
+import { spillOutlineOps } from "./spill";
 import { mergeAt } from "./merges";
 import { axisScrollTo, axisToScreen, mainPane, panes, toSheet, type PaneLayout } from "./panes";
 import {
@@ -88,6 +90,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const headerCanvas = useRef<HTMLCanvasElement>(null);
   const perfBox = useRef<HTMLDivElement>(null);
   const editorBox = useRef<HTMLDivElement>(null);
+  const spillBox = useRef<HTMLDivElement>(null);
   const raf = useRef<number | null>(null);
   const grow = useRef({ rows: 0, cols: 0 });
   const resizePreview = useRef<{ axis: "col" | "row"; index: number; size: number } | null>(null);
@@ -199,6 +202,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       const fp = fillPreview.current;
       const af = store.autoFilter();
       const sortState = store.sortState();
+      // The spill range around the active cell: blue, dashed red when blocked (`#SPILL!`).
+      const spill = edit ? null : store.activeSpill();
       for (const q of quads) {
         const vp = q.vp;
         cctx.save();
@@ -209,6 +214,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         const base = computeRenderOps(vp, data, store.styles(), store.measure);
         drawOps(cctx, store.sheetView().showGridlines ? base : base.filter((o) => o.op !== "gridlines"), null);
         drawSelection(cctx, vp, data, sel, state.selection.anchor);
+        if (spill) drawOps(cctx, spillOutlineOps(vp, data, spill), null);
         if (af) {
           // AutoFilter dropdowns on the header row (over the selection, as in Excel).
           const vis = visibleRange(vp, data.colGeo, data.rowGeo);
@@ -284,6 +290,13 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       box.style.top = `${hh + screenY(l, data.rowGeo.offset(m.r0))}px`;
       box.style.minWidth = `${data.colGeo.offset(m.c1 + 1) - data.colGeo.offset(m.c0) + 1}px`;
       box.style.height = `${data.rowGeo.offset(m.r1 + 1) - data.rowGeo.offset(m.r0) + 1}px`;
+    }
+
+    const tag = spillBox.current;
+    if (tag) {
+      const a = store.activeAnchor();
+      tag.style.left = `${hw + screenX(l, data.colGeo.offset(a.col)) - SPILL_TAG_W - 2}px`;
+      tag.style.top = `${hh + screenY(l, data.rowGeo.offset(a.row)) + 1}px`;
     }
 
     const t1 = performance.now();
@@ -764,6 +777,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           <div ref={spacer} style={{ width: 1, height: 1 }} />
         </div>
         {editing && <CellEditor store={store} boxRef={editorBox} onMount={draw} />}
+        <SpillIndicator store={store} boxRef={spillBox} onMount={draw} />
         {showPerf && (
           <div
             ref={perfBox}

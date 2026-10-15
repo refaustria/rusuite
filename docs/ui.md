@@ -8,6 +8,31 @@ tab's groups. Expanded it is ≤ 96 px tall (28 px strip + 64 px groups); collap
 ### Write additions (P6-4)
 Contextual **Table** tab (insert/delete rows and columns, shading, borders, header row, row height), contextual **Picture Format** tab (alt text, align, size, reset, delete), **Print layout** view with page gaps, greyed headers/footers (double-click to edit) and Draft view, non-modal find bar with highlighted matches, Paragraph dialog, format painter, highlight/font colour menus, View › Spelling.
 
+### Write structure (P8-10)
+- **References** tab: Table of contents ▾ (automatic table with 3, 2 or 1 levels → `InsertToc`, before the caret's block when the
+  caret is at its start, else after it), Update table (`UpdateToc` with the page of every heading from the print-layout
+  pagination); Footnotes: Insert footnote / endnote, Next / Previous footnote.
+- **Insert**: Footnotes group (Insert footnote Ctrl+Alt+F, Insert endnote Ctrl+Alt+D → `InsertFootnote` at the caret; the caret
+  moves into the new note), Text › Field ▾ (Page, Number of pages, Date, Time, File name, Author → `InsertField` with the
+  current value as its cached result), Page number ▾ adds *Current position* (a page field) and *Format page numbers…*
+  (format 1/i/I/a/A, continue or start at N → `SetSection`).
+- **Layout**: Margins / Orientation / Size act on the caret's section (`SetSection { page }`; `SetPage` for documents without
+  sections); Breaks ▾ (Page break; section breaks Next page / Continuous / Even page / Odd page → `SplitParagraph` +
+  `InsertSectionBreak`).
+- **Home › Paragraph › Multilevel list** ▾: 1 / 1.1 / 1.1.1, 1 / a) / i, Legal (I. / 1.1 with legal numbering): a new list
+  definition (`RestoreNumbering`) applied to the selected paragraphs, keeping their levels. Right-click in a list: **Restart
+  at 1** (`RestartList`) / **Continue numbering** (`ContinueList`).
+- **Header and footer** dialog: Different first page (`titlePage`), Different odd & even pages, one text per slot; each
+  changed slot is stored as blocks of the caret's section (`SetHeaderFooter`, `{PAGE}` → a page field).
+- **Rendering**: fields are grey-shaded with their cached result, or the live value (page numbers from the pagination, date,
+  time, file name); note references are superscript numbers in reference order (footnotes 1, 2…, endnotes i, ii…); the notes
+  area after the body holds the editable notes (footnotes, then endnotes; double-click a reference to jump to its note and the
+  note's number to jump back); in print layout each page also shows its footnotes at the bottom. A table of contents is a
+  non-editable block (click an entry to go to the heading). List labels come from Rust (`listLabel`). A section end shows a
+  dotted "Section break (Next page)" line; in print layout a new section starts a new page with its own page size, margins,
+  headers/footers (first-page / even) and page numbering. Saving first sends `UpdateFields` for fields whose live value
+  differs from the cached one.
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |
@@ -66,9 +91,21 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   the upper-left value is kept). Hidden sheets have no tab (tab menu Hide / Unhide… with a list of the hidden sheets;
   "very hidden" ones are not offered); the sheet a hide/unhide patch names (`activateSheet`) becomes active; the last
   visible sheet can be neither hidden nor deleted; hidden sheets are not printed.
+  Dynamic arrays (P8-12, `grid/spill.ts`): selecting an array formula or a cell it spills into outlines the spill range in
+  thin blue (dashed red while the formula shows `#SPILL!`); a spilled cell shows the formula greyed and read-only in the
+  formula bar, typing into it is allowed and blocks the spill. A selected `#SPILL!` formula cell gets a warning indicator left
+  of it (tooltip "Spill range isn't blank", menu: Select obstructing cells). Paste, the fill handle, Ctrl+D/R and sorting
+  refuse to change spilled cells ("You can't change part of an array"); Delete on the formula cell removes the whole spill,
+  on spilled cells alone it does nothing. Copying spilled cells copies their values (with their formula they paste blank and
+  spill again); spilled cells count as data for Ctrl+arrows, regions and the used range. The formula editor knows `A1#`
+  (coloured over the whole spill range), `@`, `#SPILL!` and `#CALC!`.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).
+- **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, multilevel list, indent, line spacing, alignment; Styles gallery
+  Normal/Title/Heading 1–6; Editing: Find and replace), Insert (Table picker, Picture, Header/Footer/Page number, Field,
+  Footnotes, Page break, Line break), Layout (Margins, Orientation, Size → `SetSection`/`SetPage`, Breaks), References
+  (Table of contents, Footnotes), View (zoom, shortcuts help).
 - **Show**: Home (Undo; Clipboard: shapes/slides clipboard + Duplicate; Slides: New slide ▾ layouts, Layout ▾, Duplicate,
   Delete, Hide slide; Font + grow/shrink; Paragraph + line spacing ▾; Drawing: shapes gallery, Arrange ▾
   order/align/distribute/group, fill and outline), Insert (New slide, Picture, Shapes ▾, Text box), Design (Background

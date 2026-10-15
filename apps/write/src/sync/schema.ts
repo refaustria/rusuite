@@ -16,6 +16,7 @@ import type { RowProperties } from "../generated/RowProperties";
 import type { Spacing } from "../generated/Spacing";
 import type { TableProperties } from "../generated/TableProperties";
 import { imageNodeView } from "../features/imageView";
+import { t } from "../i18n";
 
 /** Twips per CSS pixel (96 dpi). */
 export const TWIPS_PER_PX = 15;
@@ -23,7 +24,7 @@ export const TWIPS_PER_PX = 15;
 export const EMU_PER_PX = 9525;
 
 /** Node types that carry a `NodeId`. */
-export const ID_NODE_TYPES = new Set(["paragraph", "heading", "title", "table", "tableRow", "tableCell"]);
+export const ID_NODE_TYPES = new Set(["paragraph", "heading", "title", "table", "tableRow", "tableCell", "toc"]);
 /** Paragraph-like node types. */
 export const TEXTBLOCK_TYPES = new Set(["paragraph", "heading", "title"]);
 export const LIST_TYPES = new Set(["bulletList", "orderedList"]);
@@ -77,6 +78,13 @@ function paragraphStyle(attrs: Record<string, unknown>): string {
 
 const paragraphAttrs = {
   id: idAttr,
+  // Derived list label from Rust (`Paragraph.listLabel`); rendered, never sent.
+  listLabel: {
+    default: null,
+    keepOnSplit: false,
+    parseHTML: () => null,
+    renderHTML: (a: Record<string, unknown>) => (a.listLabel ? { "data-label": String(a.listLabel) } : {}),
+  },
   align: { default: null, keepOnSplit: true, parseHTML: () => null, renderHTML: () => ({}) },
   indent: jsonAttr(),
   spacing: jsonAttr(),
@@ -150,6 +158,160 @@ export const PageBreak = Node.create({
   },
   renderHTML() {
     return ["span", { class: "page-break", contenteditable: "false" }];
+  },
+});
+
+/** The document: body blocks, then the notes area (footnotes and endnotes) if the document has notes. */
+export const WriteDoc = Node.create({
+  name: "doc",
+  topNode: true,
+  content: "block+ notes?",
+});
+
+const jsonAttrPlain = { default: null, parseHTML: () => null, renderHTML: () => ({}) };
+
+/**
+ * A field (`Inline::Field`): an inline atom showing its cached result in
+ * grey (the structure plugin may decorate it with a live value). Attrs
+ * `kind` (`FieldKind` JSON) and `cached`; the result's formatting is the
+ * node's marks.
+ */
+export const FieldNode = Node.create({
+  name: "field",
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: true,
+  addAttributes() {
+    return { kind: { ...jsonAttrPlain, default: { kind: "page" } }, cached: { ...jsonAttrPlain, default: "" } };
+  },
+  parseHTML() {
+    return [
+      {
+        tag: "span.field[data-field-kind]",
+        getAttrs: (el) => {
+          const e = el as HTMLElement;
+          try {
+            return { kind: JSON.parse(e.dataset.fieldKind ?? ""), cached: e.dataset.cached ?? e.textContent ?? "" };
+          } catch {
+            return false;
+          }
+        },
+      },
+    ];
+  },
+  renderHTML({ node }) {
+    const kind = node.attrs.kind as { kind: string } | null;
+    const cached = String(node.attrs.cached ?? "");
+    return [
+      "span",
+      { class: "field", "data-field": kind?.kind ?? "", "data-field-kind": JSON.stringify(kind), "data-cached": cached, contenteditable: "false" },
+      ["span", { class: "field-cached" }, cached],
+    ];
+  },
+});
+
+/**
+ * A footnote/endnote reference (`Inline::NoteRef`): a superscript inline
+ * atom; its number is computed from the order of the references (the
+ * structure plugin decorates it with `data-n`). Attrs `id` (note id), `kind`.
+ */
+export const NoteRefNode = Node.create({
+  name: "noteRef",
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: true,
+  addAttributes() {
+    return { id: { ...jsonAttrPlain }, kind: { ...jsonAttrPlain, default: "foot" } };
+  },
+  parseHTML() {
+    // Pasted references are not new notes: never parsed from HTML.
+    return [];
+  },
+  renderHTML({ node }) {
+    return ["sup", { class: "note-ref", "data-note-id": String(node.attrs.id), "data-note-kind": String(node.attrs.kind), contenteditable: "false" }];
+  },
+});
+
+export interface TocEntryAttr {
+  text: string;
+  level: number;
+  page?: number;
+  target: number;
+}
+
+/**
+ * A table of contents (`Block::Toc`): a non-editable block atom rendered
+ * from its entries (click an entry to go to the heading). Attrs `id`,
+ * `fromLevel`, `toLevel`, `title`, `entries`.
+ */
+export const TocNode = Node.create({
+  name: "toc",
+  group: "block",
+  atom: true,
+  selectable: true,
+  addAttributes() {
+    return {
+      id: idAttr,
+      fromLevel: { ...jsonAttrPlain, default: 1 },
+      toLevel: { ...jsonAttrPlain, default: 3 },
+      title: { ...jsonAttrPlain },
+      entries: { ...jsonAttrPlain, default: [] },
+    };
+  },
+  parseHTML() {
+    return [];
+  },
+  renderHTML({ node }) {
+    const entries = (node.attrs.entries as TocEntryAttr[] | null) ?? [];
+    const title = node.attrs.title as string | null;
+    return [
+      "div",
+      { class: "toc", "data-toc": String(node.attrs.id), contenteditable: "false" },
+      ...(title ? [["p", { class: "toc-title" }, title] as const] : []),
+      ...entries.map(
+        (e) =>
+          [
+            "p",
+            { class: `toc-entry toc-level-${e.level}`, "data-target": String(e.target), style: `padding-left: ${(Math.max(1, e.level) - 1) * 1.5}em` },
+            ["span", { class: "toc-text" }, e.text],
+            ["span", { class: "toc-page" }, e.page == null ? "" : String(e.page)],
+          ] as const,
+      ),
+      ...(entries.length ? [] : [["p", { class: "toc-empty" }, t("write.toc.empty")] as const]),
+    ] as never;
+  },
+});
+
+/** The notes area after the body: footnotes, then endnotes, each a `note`. */
+export const NotesNode = Node.create({
+  name: "notes",
+  content: "note+",
+  isolating: true,
+  defining: true,
+  parseHTML() {
+    return [];
+  },
+  renderHTML() {
+    return ["div", { class: "notes-area", "data-testid": "notes-area" }, 0];
+  },
+});
+
+/** One footnote or endnote (`Note`): attrs `id`, `kind`; content its blocks. */
+export const NoteNode = Node.create({
+  name: "note",
+  content: "block+",
+  isolating: true,
+  defining: true,
+  addAttributes() {
+    return { id: { ...jsonAttrPlain }, kind: { ...jsonAttrPlain, default: "foot" } };
+  },
+  parseHTML() {
+    return [];
+  },
+  renderHTML({ node }) {
+    return ["div", { class: "note", "data-note-id": String(node.attrs.id), "data-note-kind": String(node.attrs.kind) }, 0];
   },
 });
 
@@ -266,7 +428,8 @@ const ParagraphCss = Extension.create({
             parseHTML: () => null,
             renderHTML: (attrs: Record<string, unknown>) => {
               const style = paragraphStyle(attrs);
-              return style ? { style } : {};
+              const end = (attrs.extra as { sectionEnd?: number } | null)?.sectionEnd;
+              return { ...(style ? { style } : {}), ...(end != null ? { "data-section-end": String(end) } : {}) };
             },
           },
         },
@@ -363,6 +526,7 @@ export function writeExtensions(options: WriteExtensionsOptions = {}): Extension
   return [
     StarterKit.configure({
       undoRedo: false,
+      document: false,
       blockquote: false,
       codeBlock: false,
       code: false,
@@ -371,6 +535,7 @@ export function writeExtensions(options: WriteExtensionsOptions = {}): Extension
       trailingNode: false,
       listItem: { HTMLAttributes: {} },
     }),
+    WriteDoc,
     RusuiteAttributes,
     ParagraphCss,
     Title,
@@ -382,6 +547,11 @@ export function writeExtensions(options: WriteExtensionsOptions = {}): Extension
     WriteTable,
     WriteTableRow,
     WriteTableCell,
+    FieldNode,
+    NoteRefNode,
+    TocNode,
+    NotesNode,
+    NoteNode,
   ];
 }
 

@@ -20,4 +20,4 @@ Claude-Session: https://claude.ai/code/session_01YGiiEDN1zSPaDE4h1jA1hU
 - For live checks use the e2e suite against a local server on a private port (`BASE_URL`), never against `resuite.inceptum.at`.
 
 ## Disk (added 2026-10-15)
-- The server disk is shared; a worktree's `target/` is ~7–14 GB. Do not create extra target dirs; do not run `cargo build --release` for the whole workspace unless the brief asks; delete large temporary artifacts you create. If `df -h /` shows < 10 GB free, stop and report instead of filling the disk.
+- The server disk is shared; a worktree's `target/` is ~7–14 GB (dev profile now uses line-tables-only debug info). Use your worktree's own `target/` (never `CARGO_TARGET_DIR` pointing at another checkout: test binaries bake in the manifest path and insta snapshots then fail). Do not run `cargo build --release` for the whole workspace unless the brief asks; delete large temporary artifacts you create. If `df -h /` shows < 10 GB free, stop and report instead of filling the disk.

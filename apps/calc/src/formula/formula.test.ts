@@ -175,3 +175,57 @@ describe("syntax check", () => {
     expect(formulaErrorMessage("unexpected end of formula at position 4")).toBe("Unexpected end of formula – fix or press Esc to discard");
   });
 });
+
+describe("dynamic arrays: `#`, `@`, #SPILL!, #CALC!", () => {
+  it("lexes `#` after a reference as the spilled-range operator and `@` as implicit intersection", () => {
+    const { tokens, error } = tokenize("=A1#+@B1:B3");
+    expect(error).toBeNull();
+    expect(tokens.map((t) => t.kind)).toEqual(["ident", "hash", "plus", "at", "ident", "colon", "ident"]);
+    expect(tokenize("=#FOO").tokens.map((t) => t.kind)).toEqual(["hash", "ident"]);
+  });
+
+  it("lexes #SPILL! and #CALC! as error literals (any case)", () => {
+    expect(tokenize("=#SPILL!+#calc!").tokens.map((t) => [t.kind, t.text])).toEqual([
+      ["error", "#SPILL!"], ["plus", "+"], ["error", "#calc!"],
+    ]);
+  });
+
+  it("accepts the new syntax like the core's parser", () => {
+    for (const f of ["=A1#", "=SUM(A1#)", "=@A1:A3", "=-@A1", "=Sheet2!B2#*2", "=(A1)#", "=A1#%", "=IF(ISERROR(A1#),#SPILL!,#CALC!)", "=@SORT(A1:A9)"]) {
+      expect(checkFormula(f), f).toBeNull();
+    }
+  });
+
+  it("rejects a double `#`, a bare `#` and a dangling `@` with the core's messages", () => {
+    expect(checkFormula("=A1##")).toEqual({ pos: 4, message: "unexpected `#`" });
+    expect(checkFormula("=(A1#)#")?.message).toBe("unexpected `#`");
+    expect(checkFormula("=#")?.message).toBe("unexpected `#`");
+    expect(checkFormula("=@")?.message).toBe("unexpected end of formula");
+    expect(checkFormula("=1@")?.message).toBe("unexpected `@` after expression");
+  });
+
+  it("colours `A1#` as the whole spill range; equal spill references share a colour", () => {
+    expect(refTexts("=SUM(A1#)+$B$2#+A1")).toEqual(["A1#", "$B$2#", "A1"]);
+    const refs = colorRefs("=SUM(A1#)+A1#+A1", (r) => (r.a.kind === "cell" && r.a.row === 0 ? { r0: 0, c0: 0, r1: 2, c1: 0 } : null));
+    expect(refs.map((r) => [r.spill ?? false, r.range])).toEqual([
+      [true, { r0: 0, c0: 0, r1: 2, c1: 0 }], [true, { r0: 0, c0: 0, r1: 2, c1: 0 }], [false, { r0: 0, c0: 0, r1: 0, c1: 0 }],
+    ]);
+    expect(refs.map((r) => r.color)).toEqual([REF_COLORS[0], REF_COLORS[0], REF_COLORS[1]]);
+    // Unresolved (no array formula there): the cell alone.
+    expect(colorRefs("=C3#")[0].range).toEqual({ r0: 2, c0: 2, r1: 2, c1: 2 });
+  });
+
+  it("F4 keeps the `#`; pointing replaces the whole `A1#`", () => {
+    expect(cycleAnchor("=SUM(A1#)", 7)).toEqual({ text: "=SUM($A$1#)", caret: 10 });
+    expect(pointSpan("=SUM(A1#)", 8)).toEqual({ start: 5, end: 8 });
+    expect(pointSpan("=@", 2)).toEqual({ start: 2, end: 2 });
+  });
+
+  it("autocomplete lists the array functions, also after `@`", () => {
+    const names = FUNCTIONS.map((f) => f.name);
+    for (const n of ["SORT", "SORTBY", "FILTER", "UNIQUE", "SEQUENCE", "RANDARRAY"]) expect(names, n).toContain(n);
+    expect(matchFunctions("so").map((f) => f.name)).toEqual(expect.arrayContaining(["SORT", "SORTBY"]));
+    expect(matchFunctions("seq").map((f) => f.name)).toEqual(["SEQUENCE"]);
+    expect(functionPrefix("=@un", 4)).toEqual({ start: 2, end: 4, prefix: "un" });
+  });
+});

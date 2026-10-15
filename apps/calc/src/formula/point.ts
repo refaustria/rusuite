@@ -12,7 +12,7 @@ export interface Span {
 
 /** Tokens after which an operand (a reference, a function) may follow. */
 const OPERAND_BEFORE = new Set<TokKind>([
-  "plus", "minus", "star", "slash", "caret", "amp", "eq", "ne", "lt", "le", "gt", "ge", "lparen", "comma", "semicolon",
+  "plus", "minus", "star", "slash", "caret", "amp", "eq", "ne", "lt", "le", "gt", "ge", "lparen", "comma", "semicolon", "at",
 ]);
 
 /** Characters that may follow an inserted reference directly. */

@@ -11,7 +11,7 @@ import { isFormula, tokenize, type LexError, type Tok, type TokKind } from "./to
 const PUNCT: Partial<Record<TokKind, string>> = {
   bang: "!", colon: ":", comma: ",", semicolon: ";", lparen: "(", rparen: ")", lbrace: "{", rbrace: "}", dollar: "$",
   plus: "+", minus: "-", star: "*", slash: "/", caret: "^", amp: "&", eq: "=", ne: "<>", lt: "<", le: "<=", gt: ">", ge: ">=",
-  percent: "%",
+  percent: "%", at: "@", hash: "#",
 };
 
 function describe(t: Tok): string {
@@ -36,6 +36,8 @@ const INFIX: Partial<Record<TokKind, number>> = {
 };
 const BP_PREFIX = 11;
 const BP_PERCENT = 13;
+const BP_AT = 14;
+const BP_SPILL = 17;
 
 class Parser {
   pos = 0;
@@ -64,11 +66,14 @@ class Parser {
     this.pos++;
   }
 
-  expr(minBp: number): void {
-    this.prefix();
+  /** Parses an expression; `true` when it is a spilled range (`…#`, which cannot take another `#`). */
+  expr(minBp: number): boolean {
+    let spilled = this.prefix();
     for (let t = this.peek(); t; t = this.peek()) {
-      if (t.kind === "percent") {
-        if (BP_PERCENT < minBp) break;
+      if (t.kind === "percent" || t.kind === "hash") {
+        if ((t.kind === "percent" ? BP_PERCENT : BP_SPILL) < minBp) break;
+        if (t.kind === "hash" && spilled) throw this.unexpected();
+        spilled = t.kind === "hash";
         this.pos++;
         continue;
       }
@@ -76,54 +81,60 @@ class Parser {
       if (lbp === undefined || lbp < minBp) break;
       this.pos++;
       this.expr(lbp + 1);
+      spilled = false;
     }
+    return spilled;
   }
 
-  prefix(): void {
+  prefix(): boolean {
     const k = this.peek()?.kind;
-    if (k !== "minus" && k !== "plus") return this.primary();
+    if (k !== "minus" && k !== "plus" && k !== "at") return this.primary();
     this.pos++;
-    this.expr(BP_PREFIX);
+    this.expr(k === "at" ? BP_AT : BP_PREFIX);
+    return false;
   }
 
-  primary(): void {
+  primary(): boolean {
     const t = this.peek();
     if (!t) throw this.unexpected();
     switch (t.kind) {
       case "string":
       case "error":
         this.pos++;
-        return;
-      case "lparen":
+        return false;
+      case "lparen": {
         this.pos++;
-        this.expr(0);
+        const spilled = this.expr(0);
         this.expect("rparen", "`)`");
-        return;
+        return spilled;
+      }
       case "lbrace":
-        return this.array();
+        this.array();
+        return false;
       case "sheet": {
         this.pos++;
         this.expect("bang", "`!`");
         const ref = referenceAt(this.text, this.toks, this.pos, t.text, t.start);
         if (!ref) throw { pos: this.here(), message: "expected a cell, column or row reference after sheet name" };
         this.pos = ref.nextTok;
-        return;
+        return false;
       }
       case "ident":
       case "number":
       case "dollar": {
         if (t.kind === "ident" && this.toks[this.pos + 1]?.kind === "lparen") {
           this.pos += 2;
-          return this.call(t.text.toUpperCase());
+          this.call(t.text.toUpperCase());
+          return false;
         }
         const ref = referenceAt(this.text, this.toks, this.pos, null, t.start);
         if (ref) {
           this.pos = ref.nextTok;
-          return;
+          return false;
         }
         if (t.kind === "dollar") throw { pos: this.here(), message: "expected a reference after `$`" };
         this.pos++;
-        return;
+        return false;
       }
       default:
         throw this.unexpected();

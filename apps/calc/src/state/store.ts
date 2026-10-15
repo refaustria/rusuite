@@ -33,13 +33,14 @@ import { CELL_PADDING } from "../grid/render";
 import { approxMeasure, lineHeightPx, wrapLines, type Measure } from "../grid/textLayout";
 import { colName, sheetPrefix } from "../grid/address";
 import { cellSelection, LAST_COL, LAST_ROW, move, normalize, type Cell, type NavContext, type Range, type Selection } from "../grid/Selection";
+import { changesPartOfArray, hasSpilledCells, isFilledCell, obstructingCells, onlySpilledCells, spillAt, type SpillOutline } from "../grid/spill";
 import { intersects, mergeAnchor, mergeLookup, mergeSnapshot, partialMerge, snapSelection } from "../grid/merges";
 import { fontCss, styleAt } from "../grid/style";
 import { captureClip, fillDownEnd, pasteTarget, tsvClip, type Clip } from "./clipboard";
 import { findStep, replaceInInput, type FindOptions } from "./find";
 import { activeArg, applyFunction, FUNCTIONS, functionInfo, matchFunctions, signatureArgs, type FunctionInfo } from "../formula/functions";
 import { callAt, functionPrefix, pointSpan, replaceSpan } from "../formula/point";
-import { colorRefs, cycleAnchor, rangeText, type ColoredRef } from "../formula/refs";
+import { colorRefs, cycleAnchor, rangeText, type ColoredRef, type RefSpan } from "../formula/refs";
 import { isFormula } from "../formula/tokenize";
 import { checkFormula, formulaErrorMessage } from "../formula/validate";
 import { t } from "../i18n";
@@ -61,7 +62,11 @@ export interface SheetCache {
   merges: Rect[];
   /** Keys `"blockRow:blockCol"` of blocks already snapshotted. */
   loaded: Set<string>;
+  /** Array formula cells (those with a `spill`) by `spillKey`: the spill outlines' index. */
+  spills: Map<number, CellView>;
 }
+
+const spillKey = (row: number, col: number) => row * (LAST_COL + 1) + col;
 
 /** Excel's defaults: nothing frozen, 100 %, gridlines and headings shown. */
 export const DEFAULT_SHEET_VIEW: SheetView = { frozenRows: 0, frozenCols: 0, zoom: 100, showGridlines: true, showHeadings: true };
@@ -187,7 +192,7 @@ export interface CalcState {
 }
 
 export function emptyCache(): SheetCache {
-  return { cells: new Map(), cols: new Map(), rows: new Map(), format: DEFAULT_FORMAT, merges: [], loaded: new Set() };
+  return { cells: new Map(), cols: new Map(), rows: new Map(), format: DEFAULT_FORMAT, merges: [], loaded: new Set(), spills: new Map() };
 }
 
 function isBlankCell(c: CellView): boolean {
@@ -195,6 +200,8 @@ function isBlankCell(c: CellView): boolean {
 }
 
 function putCell(cache: SheetCache, c: CellView): void {
+  if (c.spill) cache.spills.set(spillKey(c.row, c.col), c);
+  else cache.spills.delete(spillKey(c.row, c.col));
   let row = cache.cells.get(c.row);
   if (isBlankCell(c)) {
     row?.delete(c.col);
@@ -215,13 +222,13 @@ function putRow(cache: SheetCache, r: RowView): void {
   else cache.rows.set(r.row, r);
 }
 
-/** Last row/col holding a cell with input (−1 when none). */
+/** Last row/col holding a cell with input or a spilled value (−1 when none). */
 export function usedExtent(cache: SheetCache): { lastRow: number; lastCol: number } {
   let lastRow = -1;
   let lastCol = -1;
   for (const [r, row] of cache.cells) {
     for (const [c, cell] of row) {
-      if (cell.input !== "") {
+      if (isFilledCell(cell)) {
         if (r > lastRow) lastRow = r;
         if (c > lastCol) lastCol = c;
       }
@@ -360,11 +367,49 @@ export class CalcStore {
     return styleAt(this.styles(), id);
   }
 
+  /** The spill range around the active cell (its array formula, a spilled cell, or a cell blocking a spill), for the outline. */
+  activeSpill(): SpillOutline | null {
+    const { row, col } = this.activeAnchor();
+    const cache = this.cache(this.state.activeSheet);
+    return spillAt(cache.cells, cache.spills.values(), row, col);
+  }
+
+  /** A spilled active cell: its array formula (the formula bar shows it greyed and read-only, as Excel does). */
+  ghostFormula(): { input: string; anchor: Cell } | null {
+    const c = this.activeCell();
+    if (!c?.spilled) return null;
+    const a = this.cache(this.state.activeSheet).cells.get(c.spilled[0])?.get(c.spilled[1]);
+    return a ? { input: a.input, anchor: { row: a.row, col: a.col } } : null;
+  }
+
+  /** The `#SPILL!` indicator's "Select obstructing cells": selects the cells blocking the active cell's spill. */
+  selectObstructing(): boolean {
+    const o = this.activeSpill();
+    const hit = o?.blocked ? obstructingCells(this.cache(this.state.activeSheet).cells, o) : null;
+    if (!hit) return false;
+    const r = hit.range;
+    const single = r.r0 === r.r1 && r.c0 === r.c1;
+    this.select(single ? cellSelection(hit.first.row, hit.first.col) : { anchor: { row: r.r0, col: r.c0 }, focus: { row: r.r1, col: r.c1 } });
+    return true;
+  }
+
+  /**
+   * Toasts Excel's "You can't change part of an array" and returns `true`
+   * when writing over `r` would change spilled cells (`sort`: when `r`
+   * holds any).
+   */
+  private refuseArrayChange(r: Range, sort = false, sheet = this.state.activeSheet): boolean {
+    const cells = this.cache(sheet).cells;
+    if (!(sort ? hasSpilledCells(cells, r) : changesPartOfArray(cells, r))) return false;
+    this.pushError(new Error(t("calc.arrayPart")));
+    return true;
+  }
+
   navContext(pageRows: number): NavContext {
     const cache = this.cache(this.state.activeSheet);
     const { lastRow, lastCol } = this.usedExtent(this.state.activeSheet);
     return {
-      isFilled: (r, c) => (cache.cells.get(r)?.get(c)?.input ?? "") !== "",
+      isFilled: (r, c) => isFilledCell(cache.cells.get(r)?.get(c)),
       usedLastRow: lastRow,
       usedLastCol: lastCol,
       pageRows,
@@ -493,7 +538,11 @@ export class CalcStore {
     for (let r = snap.r0; r <= snap.r1; r++) {
       const row = cache.cells.get(r);
       if (!row) continue;
-      for (const c of [...row.keys()]) if (c >= snap.c0 && c <= snap.c1) row.delete(c);
+      for (const c of [...row.keys()]) {
+        if (c < snap.c0 || c > snap.c1) continue;
+        row.delete(c);
+        cache.spills.delete(spillKey(r, c));
+      }
       if (row.size === 0) cache.cells.delete(r);
     }
     for (const c of snap.cells) putCell(cache, c);
@@ -845,13 +894,22 @@ export class CalcStore {
   editRefs(): ColoredRef[] {
     const e = this.state.edit;
     if (!e || !isFormula(e.text)) return [];
-    if (this.refsMemo?.text !== e.text) this.refsMemo = { text: e.text, refs: colorRefs(e.text) };
+    const version = this.state.version;
+    if (this.refsMemo?.text !== e.text || this.refsMemo.version !== version) {
+      // `A1#` outlines the spill range of A1's array formula.
+      const spill = (ref: RefSpan): Range | null => {
+        const sheet = this.refSheet(ref);
+        if (sheet === null || ref.a.kind !== "cell") return null;
+        return this.cache(sheet).cells.get(ref.a.row)?.get(ref.a.col)?.spill ?? null;
+      };
+      this.refsMemo = { text: e.text, version, refs: colorRefs(e.text, spill) };
+    }
     return this.refsMemo.refs;
   }
-  private refsMemo: { text: string; refs: ColoredRef[] } | null = null;
+  private refsMemo: { text: string; version: number; refs: ColoredRef[] } | null = null;
 
   /** Sheet id a reference of the edit text points to (`null`: unknown sheet). */
-  refSheet(ref: ColoredRef): number | null {
+  refSheet(ref: RefSpan): number | null {
     const e = this.state.edit;
     if (ref.sheet === null) return e?.sheet ?? this.state.activeSheet;
     const s = this.state.info?.sheets.find((x) => x.name.toLowerCase() === ref.sheet!.toLowerCase());
@@ -997,6 +1055,8 @@ export class CalcStore {
 
   clearSelection(): Promise<void> {
     const r = this.selectionRange();
+    // Spilled cells are cleared through their formula cell (Delete there removes the whole spill).
+    if (onlySpilledCells(this.cache(this.state.activeSheet).cells, r)) return Promise.resolve();
     return this.apply({ type: "clearRange", sheet: this.state.activeSheet, ...r });
   }
 
@@ -1130,7 +1190,7 @@ export class CalcStore {
       at = clip.cut ? { r0: sel.r0, c0: sel.c0, repeatRows: 1, repeatCols: 1 } : pasteTarget(sel, rows, cols);
       command = {
         type: "pasteRange", sheet, r0: at.r0, c0: at.c0, src: { sheet: clip.sheet, ...clip.range },
-        cells: clip.cells, mode: clip.cut ? "all" : mode, cut: clip.cut, repeatRows: at.repeatRows, repeatCols: at.repeatCols,
+        cells: mode === "valuesOnly" && !clip.cut && clip.values ? clip.values : clip.cells, mode: clip.cut ? "all" : mode, cut: clip.cut, repeatRows: at.repeatRows, repeatCols: at.repeatCols,
       };
     } else {
       if (!text) return Promise.resolve();
@@ -1151,6 +1211,9 @@ export class CalcStore {
     const c1 = Math.min(LAST_COL, at.c0 + cols * at.repeatCols - 1);
     // Excel refuses to paste over part of a merged cell.
     if (this.refuseMergeSplit({ r0: at.r0, c0: at.c0, r1, c1 })) return Promise.resolve();
+    // Spilled cells cannot be pasted over, nor cut away from their formula.
+    if (this.refuseArrayChange({ r0: at.r0, c0: at.c0, r1, c1 })) return Promise.resolve();
+    if (clip?.cut && command.type === "pasteRange" && command.cut && this.refuseArrayChange(clip.range, false, clip.sheet)) return Promise.resolve();
     if (clip?.cut && command.type === "pasteRange" && command.cut) {
       this.clip = null;
       this.set({ clipMark: null });
@@ -1173,7 +1236,7 @@ export class CalcStore {
     const src = normalize(this.state.selection);
     const sheet = this.state.activeSheet;
     const r = { r0: Math.min(src.r0, dst.r0), c0: Math.min(src.c0, dst.c0), r1: Math.max(src.r1, dst.r1), c1: Math.max(src.c1, dst.c1) };
-    if (this.refuseMergeSplit(r)) return Promise.resolve();
+    if (this.refuseMergeSplit(r) || this.refuseArrayChange(dst)) return Promise.resolve();
     this.select(normalizeAround(this.state.selection.anchor, r));
     return this.apply({ type: "fillRange", sheet, src, dst, mode });
   }
@@ -1198,6 +1261,7 @@ export class CalcStore {
       dst = r.c0 === r.c1 ? r : { ...r, c0: r.c0 + 1 };
     }
     if (this.refuseMergeSplit({ r0: Math.min(src.r0, dst.r0), c0: Math.min(src.c0, dst.c0), r1: dst.r1, c1: dst.c1 })) return Promise.resolve();
+    if (this.refuseArrayChange(dst)) return Promise.resolve();
     return this.apply({ type: "fillRange", sheet, src, dst, mode: "copy" });
   }
 
@@ -1205,7 +1269,7 @@ export class CalcStore {
   fillToData(mode: FillMode = "auto"): Promise<void> {
     const src = normalize(this.state.selection);
     const cache = this.cache(this.state.activeSheet);
-    const isFilled = (r: number, c: number) => (cache.cells.get(r)?.get(c)?.input ?? "") !== "";
+    const isFilled = (r: number, c: number) => isFilledCell(cache.cells.get(r)?.get(c));
     const end = fillDownEnd(src, isFilled, this.usedExtent(this.state.activeSheet).lastRow);
     if (end === null || end <= src.r1) return Promise.resolve();
     return this.fill({ r0: src.r1 + 1, c0: src.c0, r1: end, c1: src.c1 }, mode);
@@ -1595,7 +1659,7 @@ export class CalcStore {
   currentRegion(row: number, col: number): Range {
     const sheet = this.state.activeSheet;
     const cache = this.cache(sheet);
-    return currentRegion((r, c) => (cache.cells.get(r)?.get(c)?.input ?? "") !== "", row, col, this.usedExtent(sheet));
+    return currentRegion((r, c) => isFilledCell(cache.cells.get(r)?.get(c)), row, col, this.usedExtent(sheet));
   }
 
   /** The selection clipped to the used range (whole rows / columns sort and filter only the data). */
@@ -1607,9 +1671,15 @@ export class CalcStore {
 
   private cellAt = (row: number, col: number): CellView | undefined => this.cache(this.state.activeSheet).cells.get(row)?.get(col);
 
+  /** What a one-key sort from a single cell sorts in the core: the AutoFilter range around it, else its region. */
+  private sortTarget(row: number, col: number, region: Range): Range {
+    const af = this.autoFilter();
+    return af && row >= af.r0 && row <= af.r1 && col >= af.c0 && col <= af.c1 ? af : region;
+  }
+
   /** Excel's refusal when a sort or filter starts on an empty cell with no data around it. */
   private refuseEmpty(r: Range): boolean {
-    if (r.r0 !== r.r1 || r.c0 !== r.c1 || (this.cellAt(r.r0, r.c0)?.input ?? "") !== "") return false;
+    if (r.r0 !== r.r1 || r.c0 !== r.c1 || isFilledCell(this.cellAt(r.r0, r.c0))) return false;
     this.pushError(new Error(t("calc.sort.empty")));
     return true;
   }
@@ -1625,7 +1695,8 @@ export class CalcStore {
     const sel = this.usedSelection();
     const { row, col } = this.activeAnchor();
     if (sel.r0 === sel.r1 && sel.c0 === sel.c1) {
-      if (this.refuseEmpty(this.currentRegion(row, col))) return Promise.resolve();
+      const region = this.currentRegion(row, col);
+      if (this.refuseEmpty(region) || this.refuseArrayChange(this.sortTarget(row, col, region), true)) return Promise.resolve();
       return this.apply({ type: "sortSheetByColumn", sheet, row, col, ascending });
     }
     const scope = sortScope(sel, this.currentRegion(row, col));
@@ -1638,6 +1709,7 @@ export class CalcStore {
 
   /** One-key sort of `range` by the active column (clamped into it), header guessed. */
   private sortRangeBy(range: Range, ascending: boolean): Promise<void> {
+    if (this.refuseArrayChange(range, true)) return Promise.resolve();
     const col = Math.max(range.c0, Math.min(range.c1, this.activeAnchor().col));
     const level: SortLevel = { col, ascending, kind: "auto" };
     return this.apply(sortRangeCommand(this.state.activeSheet, range, [level], guessHeader(range, this.cellAt, col), false));
@@ -1662,6 +1734,7 @@ export class CalcStore {
     const { row, col } = this.activeAnchor();
     const af = this.autoFilter();
     if (af && sel.r0 === sel.r1 && sel.c0 === sel.c1 && row >= af.r0 && row <= af.r1 && col >= af.c0 && col <= af.c1) {
+      if (this.refuseArrayChange(af, true)) return;
       this.openDialog({ kind: "customSort", range: { r0: af.r0, c0: af.c0, r1: af.r1, c1: af.c1 }, hasHeader: true });
       return;
     }
@@ -1673,12 +1746,13 @@ export class CalcStore {
   }
 
   private openCustomSortOn(range: Range): void {
+    if (this.refuseArrayChange(range, true)) return;
     this.openDialog({ kind: "customSort", range, hasHeader: guessHeader(range, this.cellAt, this.activeAnchor().col) });
   }
 
   /** The Custom Sort dialog's OK: `sortRange`; a column used twice is refused (as Excel does). */
   customSort(range: Range, levels: readonly SortLevel[], hasHeader: boolean, caseSensitive: boolean): Promise<void> {
-    if (levels.length === 0) return Promise.resolve();
+    if (levels.length === 0 || this.refuseArrayChange(range, true)) return Promise.resolve();
     if (duplicateColumns(levels).length > 0) {
       this.pushError(new Error(t("calc.sort.duplicate")));
       return Promise.resolve();
@@ -1720,7 +1794,8 @@ export class CalcStore {
   /** Sort A→Z / Z→A from a filter dropdown: the AutoFilter range by column `col`. */
   sortFilterColumn(col: number, ascending: boolean): Promise<void> {
     const af = this.autoFilter();
-    return af ? this.apply({ type: "sortSheetByColumn", sheet: this.state.activeSheet, row: af.r0, col, ascending }) : Promise.resolve();
+    if (!af || this.refuseArrayChange(af, true)) return Promise.resolve();
+    return this.apply({ type: "sortSheetByColumn", sheet: this.state.activeSheet, row: af.r0, col, ascending });
   }
 
   /** The dropdown's value list of column `col` (empty on failure, with a toast). */

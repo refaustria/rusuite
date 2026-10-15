@@ -29,11 +29,19 @@ import {
   deleteCols, deleteRows, deleteTable, insertCol, insertRow, setBorders, shadeCells, tableContext, toggleHeaderRow, type TableContext,
 } from "../features/tables";
 import type { WriteFeatures } from "../features/WriteFeatures";
+import { currentLayout } from "../features/pagination";
+import { formatDateTime, goToNextRef } from "../features/structure";
+import {
+  applyMultilevel, currentSection, insertField, insertNote, insertSectionBreak, insertToc, sectionCommand, updateTocs, type MultilevelPreset,
+} from "../features/structureCommands";
+import type { FieldKind } from "../generated/FieldKind";
+import type { SectionKind } from "../generated/SectionKind";
 import { TEXTBLOCK_TYPES } from "../sync/schema";
 import type { SyncController, SyncState } from "../sync/SyncPlugin";
 import { cm, fromCm, fromPt, pt } from "./dialogs";
 import { useThrottledEditorState } from "./useThrottledEditorState";
 import { useT } from "../i18n";
+import { getLocale } from "@rusuite/ui-shared";
 
 // ----- page setup ---------------------------------------------------------------
 
@@ -193,6 +201,42 @@ const HIGHLIGHT_ICON = (
   </svg>
 );
 
+const svg = (children: ReactNode) => (
+  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    {children}
+  </svg>
+);
+const FOOTNOTE_ICON = svg(<><path d="M3 4h9M3 7.5h9M3 11h6" /><path d="M14 3.5v4" /><path d="M3 15.5h4M3 17.5h8" strokeWidth="1" /></>);
+const ENDNOTE_ICON = svg(<><path d="M3 4h9M3 7.5h9" /><path d="M14 3.5v4" /><path d="M3 13h14" strokeDasharray="1.5 1.5" /><path d="M3 16h8" strokeWidth="1" /></>);
+const TOC_ICON = svg(<><path d="M3 4h8M5 8h7M5 12h7M3 16h8" /><path d="M14 4h3M14 8h3M14 12h3M14 16h3" strokeDasharray="1 1.2" /></>);
+const UPDATE_ICON = svg(<><path d="M15.5 8A6 6 0 004.6 6M4.5 12a6 6 0 0010.9 2" /><path d="M4.5 3v3h3M15.5 17v-3h-3" /></>);
+const MULTILEVEL_ICON = svg(<><path d="M3 4.5h1M7 4.5h10M5 10h1M9 10h8M7 15.5h1M11 15.5h6" /></>);
+const FIELD_ICON = svg(<><rect x="3" y="6" width="14" height="8" rx="1.5" /><path d="M6.5 10h7" strokeDasharray="1.5 1.2" /></>);
+const NEXT_ICON = (down: boolean) => svg(<><path d="M4 5h7M4 9h7M4 13h4" /><path d={down ? "M15 6v8M12.5 11.5L15 14l2.5-2.5" : "M15 14V6M12.5 8.5L15 6l2.5 2.5"} /></>);
+
+/** Multilevel list presets (Word's gallery). */
+export const MULTILEVEL_PRESETS: { id: MultilevelPreset; readonly label: string; sample: string[] }[] = [
+  withLabel({ id: "decimal" as MultilevelPreset, sample: ["1.", "1.1", "1.1.1"] }, "write.multilevel.decimal"),
+  withLabel({ id: "outline" as MultilevelPreset, sample: ["1.", "a)", "i."] }, "write.multilevel.outline"),
+  withLabel({ id: "legal" as MultilevelPreset, sample: ["I.", "1.1", "1.1.1"] }, "write.multilevel.legal"),
+];
+
+/** Fields of Insert › Field. */
+export const FIELD_CHOICES: { id: FieldKind["kind"]; readonly label: string }[] = [
+  withLabel({ id: "page" as const }, "write.field.page"),
+  withLabel({ id: "numPages" as const }, "write.field.numPages"),
+  withLabel({ id: "date" as const }, "write.field.date"),
+  withLabel({ id: "time" as const }, "write.field.time"),
+  withLabel({ id: "fileName" as const }, "write.field.fileName"),
+  withLabel({ id: "author" as const }, "write.field.author"),
+];
+
+/** Date/time pictures by UI language (Word's defaults). */
+export function datePicture(locale: string, kind: "date" | "time"): string {
+  if (kind === "time") return "HH:mm";
+  return locale.startsWith("de") ? "dd.MM.yyyy" : "M/d/yyyy";
+}
+
 // ----- the ribbon ----------------------------------------------------------------------
 
 function useSync<T>(ctl: SyncController, select: (s: SyncState) => T): T {
@@ -244,6 +288,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         }
       }
       const { table, image } = selectionInfo(e);
+      const sec = currentSection(e.state, ctl.sections);
       const sp = spacingAt(e);
       const ind = indentAt(e);
       return {
@@ -260,6 +305,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         indentLeft: ind.left ?? null,
         indentRight: ind.right ?? null,
         table,
+        sectionPage: sec?.page ?? null,
         image: image ? { pos: image.pos, width: image.node.attrs.width as number, height: image.node.attrs.height as number, alt: (image.node.attrs.alt as string | null) ?? "" } : null,
       };
     },
@@ -331,9 +377,43 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
   const setPage = (patch: PageSetupPatch | null) => {
     if (patch) void ctl.run({ type: "setPage", patch });
   };
-  const paper = paperOf(page);
-  const margins = marginPresetOf(page);
-  const orientation = page?.orientation ?? "portrait";
+  // Layout › page setup acts on the caret's section (Word); documents without sections use SetPage.
+  const secPage = s.sectionPage ?? page;
+  const setSectionPage = (patch: PageSetupPatch | null) => {
+    if (!patch) return;
+    const cmd = sectionCommand(editor.state, ctl, { page: patch });
+    if (cmd) void ctl.run(cmd);
+  };
+  const paper = paperOf(secPage);
+  const margins = marginPresetOf(secPage);
+  const orientation = secPage?.orientation ?? "portrait";
+  const fieldCached = (kind: FieldKind["kind"]): FieldKind & { cached: string } => {
+    const now = new Date();
+    const locale = getLocale();
+    const layout = currentLayout(editor.state);
+    switch (kind) {
+      case "page": {
+        const i = editor.state.selection.$from.index(0);
+        return { kind, cached: layout?.pages[layout.nodePage[i] ?? 0]?.number ?? "1" };
+      }
+      case "numPages":
+        return { kind, cached: String(layout?.pages.length ?? 1) };
+      case "date":
+      case "time": {
+        const format = datePicture(locale, kind);
+        return { kind, value: { format }, cached: formatDateTime(now, format, locale) };
+      }
+      case "fileName":
+        return { kind, cached: name ?? "" };
+      default:
+        return { kind: "author", cached: "" };
+    }
+  };
+  const addField = (kind: FieldKind["kind"]) => {
+    const { cached, ...field } = fieldCached(kind);
+    void insertField(editor, ctl, field as FieldKind, cached);
+  };
+  const sectionBreak = (kind: SectionKind) => void insertSectionBreak(editor, ctl, kind);
 
   const pickStyle = (id: string) => {
     editor.commands.focus();
@@ -445,6 +525,15 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
                   indent(editor, d);
                 }}
               />
+              <RibbonMenuButton
+                label={t("write.multilevel")}
+                icon={MULTILEVEL_ICON}
+                menu={MULTILEVEL_PRESETS.map((p) => ({
+                  id: p.id,
+                  label: `${p.label}  (${p.sample.join(" / ")})`,
+                  onSelect: () => void applyMultilevel(editor, ctl, p.id),
+                }))}
+              />
               <RibbonMenuButton label={t("write.lineSpacing")} icon="lineSpacing" menu={lineMenu} />
               <RibbonButton label={t("write.paragraphSettings")} icon="format" tooltip={t("write.paragraphSettingsTip")} onClick={() => features.ui.openDialog("paragraph")} />
             </RibbonRow>
@@ -543,8 +632,31 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
               menu={[
                 { id: "top", label: t("write.topOfPage"), onSelect: () => setPage({ headerText: withPageNumber(page?.headerText) }) },
                 { id: "bottom", label: t("write.bottomOfPage"), onSelect: () => setPage({ footerText: withPageNumber(page?.footerText) }) },
+                { id: "current", label: t("write.currentPosition"), onSelect: () => addField("page") },
+                { separator: true as const },
+                { id: "format", label: t("write.formatPageNumbers"), onSelect: () => features.ui.openDialog("pageNumbers") },
               ]}
             />
+          </>
+        ),
+      },
+      {
+        label: t("write.text"),
+        items: (
+          <RibbonMenuButton
+            label={t("write.field")}
+            icon={FIELD_ICON}
+            size="large"
+            menu={FIELD_CHOICES.map((f) => ({ id: f.id, label: f.label, onSelect: () => addField(f.id) }))}
+          />
+        ),
+      },
+      {
+        label: t("write.footnotes"),
+        items: (
+          <>
+            <RibbonButton label={t("write.insertFootnote")} icon={FOOTNOTE_ICON} size="large" shortcut="Mod+Alt+F" onClick={() => void insertNote(editor, ctl, "foot")} />
+            <RibbonButton label={t("write.insertEndnote")} icon={ENDNOTE_ICON} size="large" shortcut="Mod+Alt+D" onClick={() => void insertNote(editor, ctl, "end")} />
           </>
         ),
       },
@@ -584,7 +696,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
                   id: m.id,
                   label: m.label,
                   checked: margins === m.id,
-                  onSelect: () => setPage({ margins: { top: m.top, right: m.right, bottom: m.bottom, left: m.left } }),
+                  onSelect: () => setSectionPage({ margins: { top: m.top, right: m.right, bottom: m.bottom, left: m.left } }),
                 })),
                 { separator: true as const },
                 { id: "custom", label: t("write.customMargins"), onSelect: () => features.ui.openDialog("pageSetup") },
@@ -598,14 +710,27 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
                 id: o,
                 label: o === "portrait" ? t("print.portrait") : t("print.landscape"),
                 checked: orientation === o,
-                onSelect: () => setPage({ orientation: o }),
+                onSelect: () => setSectionPage({ orientation: o }),
               }))}
             />
             <RibbonMenuButton
               label={t("write.size")}
               icon="pageSize"
               size="large"
-              menu={PAGE_SIZES.map((p) => ({ id: p.id, label: p.label, checked: paper === p.id, onSelect: () => setPage(paperPatch(page, p.id)) }))}
+              menu={PAGE_SIZES.map((p) => ({ id: p.id, label: p.label, checked: paper === p.id, onSelect: () => setSectionPage(paperPatch(secPage, p.id)) }))}
+            />
+            <RibbonMenuButton
+              label={t("write.breaks")}
+              icon="pageBreak"
+              size="large"
+              menu={[
+                { id: "page", label: t("write.pageBreak"), onSelect: () => editor.chain().focus().insertContent({ type: "pageBreak" }).run() },
+                { separator: true as const, label: t("write.sectionBreaks") },
+                { id: "nextPage", label: t("write.sectionKind.nextPage"), onSelect: () => sectionBreak("nextPage") },
+                { id: "continuous", label: t("write.sectionKind.continuous"), onSelect: () => sectionBreak("continuous") },
+                { id: "evenPage", label: t("write.sectionKind.evenPage"), onSelect: () => sectionBreak("evenPage") },
+                { id: "oddPage", label: t("write.sectionKind.oddPage"), onSelect: () => sectionBreak("oddPage") },
+              ]}
             />
           </>
         ),
@@ -621,6 +746,44 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
             <RibbonStack>
               <NumberField label={t("write.spacingBefore")} value={pt(s.before ?? 0)} onCommit={(text) => commitTwips(text, "pt", (v) => setSpacing(editor, { before: v }))} />
               <NumberField label={t("write.spacingAfter")} value={pt(s.after ?? 0)} onCommit={(text) => commitTwips(text, "pt", (v) => setSpacing(editor, { after: v }))} />
+            </RibbonStack>
+          </>
+        ),
+      },
+    ],
+  };
+
+  const references: RibbonTab = {
+    id: "references",
+    label: t("write.tab.references"),
+    groups: [
+      {
+        label: t("write.tableOfContents"),
+        items: (
+          <>
+            <RibbonMenuButton
+              label={t("write.tableOfContents")}
+              icon={TOC_ICON}
+              size="large"
+              menu={[3, 2, 1].map((levels) => ({
+                id: `toc${levels}`,
+                label: t("write.tocLevels", { n: levels }),
+                onSelect: () => void insertToc(editor, ctl, levels, t("write.tocTitle")),
+              }))}
+            />
+            <RibbonButton label={t("write.updateTable")} icon={UPDATE_ICON} size="large" tooltip={t("write.updateTableTip")} onClick={() => void updateTocs(editor, ctl)} />
+          </>
+        ),
+      },
+      {
+        label: t("write.footnotes"),
+        items: (
+          <>
+            <RibbonButton label={t("write.insertFootnote")} icon={FOOTNOTE_ICON} size="large" shortcut="Mod+Alt+F" onClick={() => void insertNote(editor, ctl, "foot")} />
+            <RibbonButton label={t("write.insertEndnote")} icon={ENDNOTE_ICON} size="large" shortcut="Mod+Alt+D" onClick={() => void insertNote(editor, ctl, "end")} />
+            <RibbonStack>
+              <RibbonButton label={t("write.nextFootnote")} icon={NEXT_ICON(true)} showLabel onClick={() => goToNextRef(editor.view, 1)} />
+              <RibbonButton label={t("write.prevFootnote")} icon={NEXT_ICON(false)} showLabel onClick={() => goToNextRef(editor.view, -1)} />
             </RibbonStack>
           </>
         ),
@@ -816,7 +979,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       appName="Rusuite Write"
       documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#2b579a"
-      tabs={[home, insert, layout, view, ...(tableTab ? [tableTab] : []), ...(pictureTab ? [pictureTab] : [])]}
+      tabs={[home, insert, layout, references, view, ...(tableTab ? [tableTab] : []), ...(pictureTab ? [pictureTab] : [])]}
       backstage={{
         session,
         onNew: () => triggerShortcut("Mod+N"),

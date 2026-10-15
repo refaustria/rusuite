@@ -92,6 +92,7 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Mod+M, Mod+Shift+M | Increase, decrease indent (list level inside lists) |
 | Tab, Shift+Tab | In a table: next / previous cell; Tab in the last cell appends a row (formatted like the last one) |
 | Esc | Stops the format painter |
+| Mod+Alt+F, Mod+Alt+D | Insert footnote, insert endnote (the caret moves into the note) |
 
 ### Mouse
 
@@ -100,6 +101,9 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 - **Right-click** in the document: Cut/Copy/Paste, picture commands (alt text, reset size, delete) on a picture, table commands (insert rows above/below, columns left/right, delete rows/columns/table, row height…) in a table, Paragraph…, Clear formatting.
 - **Format painter** (Home › Clipboard): click copies the formatting at the caret for one use, double-click keeps it on; the next mouse selection (or the word clicked) gets it.
 - **Headers and footers** are shown greyed in the page margins (print layout); double-click one to edit both in the Header and footer dialog (`{PAGE}` = page number).
+- **Notes**: double-click a footnote/endnote reference to jump to its note; double-click the note's number (or a footnote at the bottom of a page) to jump back / into the note.
+- **Table of contents**: click an entry to go to its heading.
+- **Right-click in a list**: Restart at 1, Continue numbering.
 
 ## Show
 

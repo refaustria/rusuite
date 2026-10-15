@@ -17,9 +17,9 @@ import type { ListKind } from "../generated/ListKind";
 import type { Paragraph } from "../generated/Paragraph";
 import type { ParagraphProperties } from "../generated/ParagraphProperties";
 import type { WriteCommand } from "../generated/WriteCommand";
-import { nodeToBlocks } from "./fromPM";
+import { nodesToBlocks, nodeToBlocks, notesNode } from "./fromPM";
 import {
-  applyParagraphPatch, applyRunPatch, blockKey, canonValue, propsKey, RUN_KEYS, stableStringify,
+  applyParagraphPatch, applyRunPatch, blockKey, canonValue, noteRefIds, propsKey, RUN_KEYS, stableStringify,
   SYNTHETIC_BULLET, SYNTHETIC_DECIMAL, type RunProperties,
 } from "./model";
 
@@ -396,11 +396,13 @@ export function classify(ob: Block[], nb: Block[], prev: Block | null, opts: Map
   return replaceBlocks(ob.map((b) => b.value.id), nb, opts);
 }
 
-/** The command for the change `before → after`, or null when the model is unchanged. */
-export function mapDocChange(before: PMNode, after: PMNode, opts: MapperOptions = {}): MapResult | null {
-  if (before === after) return null;
-  const oc = before.childCount;
-  const nc = after.childCount;
+/** Number of body (non-notes) top-level children. */
+const bodyCount = (doc: PMNode): number => doc.childCount - (doc.lastChild?.type.name === "notes" ? 1 : 0);
+
+/** The body change `before → after` (the notes area excluded). */
+function mapBodyChange(before: PMNode, after: PMNode, opts: MapperOptions): MapResult | null {
+  const oc = bodyCount(before);
+  const nc = bodyCount(after);
   const same = (x: PMNode, y: PMNode) => x === y || x.eq(y);
   let pre = 0;
   while (pre < oc && pre < nc && same(before.child(pre), after.child(pre))) pre++;
@@ -421,7 +423,74 @@ export function mapDocChange(before: PMNode, after: PMNode, opts: MapperOptions 
     const blocks = topBlocks(before.child(pre - 1));
     prev = blocks.length ? blocks[blocks.length - 1]! : null;
   }
-  return classify(ob.slice(a, ob.length - z), nb.slice(a, nb.length - z), prev, opts);
+  const os = ob.slice(a, ob.length - z);
+  const ns = nb.slice(a, nb.length - z);
+  const result = classify(os, ns, prev, opts);
+  // Deleting a note reference deletes its note (Word): `deleteFootnote` after
+  // the text change, unless the reference still exists elsewhere (moved).
+  const lost = noteRefIds(os);
+  if (lost.size) {
+    for (const id of noteRefIds(ns)) lost.delete(id);
+    if (lost.size) for (const id of bodyNoteRefs(after)) lost.delete(id);
+  }
+  if (!lost.size) return result;
+  const extra: WriteCommand[] = [...lost].sort((x, y) => x - y).map((id) => ({ type: "deleteFootnote", id }));
+  return { ...(result ?? {}), command: one([...(result ? [result.command] : []), ...extra]) };
+}
+
+/** Note ids referenced anywhere in the body of `doc`. */
+function bodyNoteRefs(doc: PMNode): Set<number> {
+  const out = new Set<number>();
+  const n = bodyCount(doc);
+  for (let i = 0; i < n; i++) {
+    doc.child(i).descendants((node) => {
+      if (node.type.name === "noteRef") out.add(node.attrs.id as number);
+      return true;
+    });
+  }
+  return out;
+}
+
+/** In-place commands (text, formatting) inside one note, else `ReplaceNote`. */
+function noteCommand(o: PMNode, n: PMNode, opts: MapperOptions): WriteCommand | null {
+  const ob = nodesToBlocks(o);
+  const nb = nodesToBlocks(n);
+  let a = 0;
+  while (a < ob.length && a < nb.length && blockKey(ob[a]!) === blockKey(nb[a]!)) a++;
+  let z = 0;
+  while (z < ob.length - a && z < nb.length - a && blockKey(ob[ob.length - 1 - z]!) === blockKey(nb[nb.length - 1 - z]!)) z++;
+  const [os, ns] = [ob.slice(a, ob.length - z), nb.slice(a, nb.length - z)];
+  if (!os.length && !ns.length) return null;
+  if (os.length && os.length === ns.length && os.every(isPara) && ns.every(isPara)) {
+    const r = classify(os, ns, a > 0 ? ob[a - 1]! : null, opts);
+    if (r && !r.followUp && inPlace(r.command)) return r.command;
+  }
+  const id = n.attrs.id as number;
+  return { type: "replaceNote", id, blocks: resolveSynthetic(nb, opts).blocks };
+}
+
+/** Commands for edits inside the notes area (notes matched by id; removed notes are handled by `deleteFootnote`). */
+function mapNotesChange(before: PMNode | null, after: PMNode | null, opts: MapperOptions): WriteCommand[] {
+  if (!after || before === after) return [];
+  const old = new Map<number, PMNode>();
+  before?.forEach((n) => old.set(n.attrs.id as number, n));
+  const out: WriteCommand[] = [];
+  after.forEach((n) => {
+    const o = old.get(n.attrs.id as number);
+    if (!o || o === n || o.eq(n)) return;
+    const c = noteCommand(o, n, opts);
+    if (c) out.push(c);
+  });
+  return out;
+}
+
+/** The command for the change `before → after`, or null when the model is unchanged. */
+export function mapDocChange(before: PMNode, after: PMNode, opts: MapperOptions = {}): MapResult | null {
+  if (before === after) return null;
+  const body = mapBodyChange(before, after, opts);
+  const notes = mapNotesChange(notesNode(before), notesNode(after), opts);
+  if (!notes.length) return body;
+  return { ...(body ?? {}), command: one([...(body ? [body.command] : []), ...notes]) };
 }
 
 export function mapTransaction(tr: Transaction, opts: MapperOptions = {}): MapResult | null {

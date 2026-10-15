@@ -79,6 +79,9 @@ export const WRITE_PRINT_CSS = `.rs-write-body { position: absolute; }
 .rs-write-content .page-break { border: 0 !important; margin: 0 !important; }
 .rs-write-content .find-match, .rs-write-content .find-current { background: none !important; outline: none !important; }
 .rs-write-content .ProseMirror-selectednode { outline: none !important; }
+.rs-write-content .field { background: none !important; }
+.rs-write-content [data-section-label]::after { display: none !important; }
+.rs-write-content .notes-separator { color: transparent !important; }
 .rs-write-content > * { content-visibility: visible !important; }
 .rs-write-hf { position: absolute; overflow: hidden; color: #000; font: 9pt/1.3 Calibri, Carlito, "Segoe UI", sans-serif; white-space: pre-wrap; tab-size: 8; }`;
 
@@ -139,7 +142,11 @@ export function buildWritePrintDoc(dom: HTMLElement, page: PageSetup | null, o: 
     const boxes: BlockBox[] = clones.map((c) => ({
       top: c.offsetTop,
       bottom: c.offsetTop + c.offsetHeight,
-      breakAfter: c.classList.contains("page-break") || c.querySelector(".page-break") !== null,
+      // Manual page breaks and section breaks other than "continuous".
+      breakAfter:
+        c.classList.contains("page-break") ||
+        c.querySelector(".page-break") !== null ||
+        [c, ...Array.from(c.querySelectorAll<HTMLElement>("[data-section-next]"))].some((e) => e.dataset.sectionNext != null && e.dataset.sectionNext !== "continuous"),
     }));
     groups = pageGroups(boxes, textH, scale);
   } finally {

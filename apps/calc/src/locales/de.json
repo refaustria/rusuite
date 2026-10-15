@@ -1,5 +1,6 @@
 {
   "calc.addSheet": "Blatt hinzufügen",
+  "calc.arrayPart": "Teile eines Arrays können nicht geändert werden.",
   "calc.autofitColWidth": "Spaltenbreite automatisch anpassen",
   "calc.autofitColWidth2": "Spaltenbreite automatisch anpassen",
   "calc.cat.currency": "Währung",
@@ -231,6 +232,10 @@
   "calc.sortAsc": "Von A bis Z sortieren",
   "calc.sortDesc": "Von Z bis A sortieren",
   "calc.sortFilter": "Sortieren und Filtern",
+  "calc.spill.error": "Überlauffehler",
+  "calc.spill.ghost": "Übergelaufen aus {cell}: die Formel dort bearbeiten",
+  "calc.spill.notBlank": "Überlaufbereich ist nicht leer",
+  "calc.spill.selectObstructing": "Blockierende Zellen auswählen",
   "calc.status.revision": "Revision {revision}",
   "calc.status.warnings": "{count} Warnungen: {list}",
   "calc.tab.data": "Daten",
