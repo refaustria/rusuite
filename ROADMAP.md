@@ -91,7 +91,11 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Write `p:style` for auto shapes (PowerPoint default white text on accent fill); footer/date/slide-number placeholders; tables (graphic frames) later; bullet size/colour + paragraph indents in the model; `Shape::alt`; gradients/transparency/cropping/arrowheads/other presets are approximated.
 - Move the XML DOM/writer and theme parser into fmt-ooxml (now triplicated).
 
+## Release / distribution
+- Code signing + notarization (Windows/macOS warn today); auto-update (tauri-plugin-updater); CI check that the tag matches `tauri.conf.json` versions; bump actions to Node 24 variants when available.
+
 ## Phase 5 leftovers
+- Write: windowed/paged editor so the contenteditable holds only visible pages (remaining ~2 ms typing p95 gap).
 - Performance: paged/virtual Write editor for very long documents; range-level `ApplyStyle` patches in Calc (1M-cell style patch is 2.7 s because the patch carries every cell); cache parsed number formats; move the Playwright perf scripts into an e2e package so `scripts/perf.sh` needs no scratchpad files.
 - Confirm-before-discard dialog shared by New/Open/Restore/window close; recovery entries age limit; Web Locks live-session check does not span desktop processes; web recent-list rules duplicated in TS.
 - PDF export: Calc `UsedRange` request in the core (print view scans blocks); print area/selection; multi-sheet export; Write headers/footers; Show handouts; verify `window.print()` on WebKitGTK/WebView2 (Tauri 2.12 has no webview print API).
