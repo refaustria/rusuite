@@ -146,6 +146,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+25. 2026-10-15: Owner clarified storage: local drive or the user's own cloud (Google Drive, iCloud, OneDrive …) – never Rusuite infrastructure. ADR 0009 amended; connector design in docs/cloud-connectors-plan.md; scheduled after privacy hardening, before mobile. Owner must provide OAuth app registrations when we start.
 24. 2026-10-15: Owner: documents must never be shared across browsers (no cloud/server-side state). Verified: the only network request is `/version.json`; no HTTP clients in the shells. ADR 0009 written; hardening task P7-12 (CSP, CI check, e2e audit, clear-local-data) scheduled after i18n.
 23. 2026-10-15: Owner wants Android/iOS (phones + tablets) considered now and built after the initial version is published. Assessment and guardrails in docs/mobile-plan.md; not scheduled. New UI work must follow the guardrails (pointer events, responsive ribbon, everything platform-specific behind `Backend`).
 22. 2026-10-15: Owner asked for multi-language support (English + German). UI i18n is a task (P7-11); formula/number locale is a separate decision (see open questions).
@@ -172,6 +173,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 4. 2026-10-15: Roundtrip harness verification = LibreOffice headless `--convert-to` of the rewritten file succeeds and the output is non-empty, plus a structural diff of the ZIP part list and XML against the original. (LibreOffice has no "repair dialog" counter in headless mode; a failed/empty conversion is the proxy.)
 
 ## Open questions for the owner
+- **Cloud connectors:** which providers first (Google Drive / OneDrive / Dropbox / WebDAV)? iCloud works only through the native file dialogs (no web API). When you want this started, I will send the exact steps to create the OAuth client IDs in your Google/Microsoft/Dropbox accounts.
 - **Formula language for German (decision needed):** P7-11 translates the UI only. German Excel also uses `;` as the argument separator, `,` as the decimal separator and German function names (`SUMME`, `WENN`). Options: (a) UI only (current plan); (b) also accept `;`/`,` input and display numbers as `1.234,56` when the UI is German, function names stay English; (c) full German function names too. My recommendation: (b) as the next step after P7-11; (c) later if wanted.
 - **Next priorities?** Everything planned is merged and live; ROADMAP.md lists candidates per app (Write pagination of long tables, Show presenter view, Calc hidden sheets/3-D refs, signing/auto-update, Playwright on the desktop shells). Unless told otherwise I will next take: desktop Save As with a remembered path (Tauri shells) + a real-window test of the close guard, then Show presenter view.
 - **Usability batches after P6-1/P6-2:** see the proposed Calc/Write/Show lists in the Phase 6 plan – tell me which to prioritise, otherwise I go Calc → Write → Show in the listed order.

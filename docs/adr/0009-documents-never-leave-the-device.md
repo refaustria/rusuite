@@ -13,3 +13,6 @@
 ## Verification
 - `packages/e2e`: a test asserts that loading and using each app issues requests only to the page origin and only for static assets and `/version.json`.
 - CI: `scripts/privacy-check.sh` greps app sources for `fetch(`/`XMLHttpRequest`/`WebSocket`/`sendBeacon` outside the allow-list and the shells' `Cargo.toml` for HTTP clients.
+
+## Amendment 2026-10-15 – user-owned cloud connectors are allowed
+The owner clarified: documents live on the user's local drive **or in the user's own cloud account** (Google Drive, iCloud, OneDrive, Dropbox, …), never on Rusuite infrastructure. Connectors therefore talk **directly from the client to the provider** with the user's own authorization (OAuth PKCE in the browser, native dialogs on desktop), tokens stay in the user's browser/app data, no Rusuite proxy or server component is involved, and the CSP `connect-src` is extended only with the explicit provider API origins the user enabled. Design and plan: `docs/cloud-connectors-plan.md`.
