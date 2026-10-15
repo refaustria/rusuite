@@ -7,11 +7,11 @@ use app_common::{Applied, DispatchError, Document as AppDocument};
 use core_model::Color;
 use model_text::media::{base64_decode, base64_encode};
 use model_text::{
-    Block, BorderSide, BorderStyle, CellProperties, Document, Field, Indent, Inline, InlineImage,
-    LevelKind, LevelOverride, LineSpacing, Media, NodeId, Note, NoteKind, NoteRef, NumberingDef,
-    NumberingRef, PageSetup, Paragraph, ParagraphProperties, Run, RunProperties, Section,
-    SectionId, Spacing, Style, StyleKind, Table, TableBorders, TableCell, TableProperties,
-    TableRow, Toc, Twips,
+    Anchor, Block, BorderSide, BorderStyle, CellProperties, Document, Field, Indent, Inline,
+    InlineImage, LevelKind, LevelOverride, LineSpacing, Media, NodeId, Note, NoteKind, NoteRef,
+    NumberingDef, NumberingRef, PageSetup, Paragraph, ParagraphProperties, Run, RunProperties,
+    Section, SectionId, Spacing, Style, StyleKind, Table, TableBorders, TableCell, TableProperties,
+    TableRow, Toc, Twips, VMerge,
 };
 
 use crate::command::{
@@ -249,6 +249,8 @@ impl Ids {
                         cells.push(TableCell {
                             id: cell_id,
                             props: c.props,
+                            grid_span: c.grid_span.max(1),
+                            v_merge: c.v_merge,
                             blocks,
                         });
                     }
@@ -574,7 +576,13 @@ impl WriteDocument {
             C::JoinWithPrevious { block } => self.join(*block, ch),
             C::SetParagraphProps { blocks, patch } => {
                 self.paras(blocks)?;
-                self.edit_paragraph_props(blocks, ch, |_, props| props.apply(patch))
+                self.edit_paragraph_props(blocks, ch, |_, props| {
+                    props.apply(patch);
+                    // `auto` = no fill (removes the direct shading).
+                    if patch.shading == Some(Color::Auto) {
+                        props.shading = None;
+                    }
+                })
             }
             C::RestoreParagraphProps { items } => {
                 let ids: Vec<NodeId> = items.iter().map(|(id, _)| *id).collect();
@@ -653,6 +661,7 @@ impl WriteDocument {
                     height: *height,
                     alt: alt.clone(),
                     name: None,
+                    anchor: None,
                 });
                 replace_range(self.para_mut(*block)?, at, at, vec![image]);
                 ch.block(*block);
@@ -714,6 +723,7 @@ impl WriteDocument {
                     return Err(invalid("cannot delete the only row of a table"));
                 }
                 t.rows.remove(at);
+                t.normalize_merges();
                 Ok(())
             }),
             C::InsertTableCol { table, at, new_ids } => self.insert_col(*table, *at, new_ids, ch),
@@ -731,6 +741,7 @@ impl WriteDocument {
                 if at < t.props.col_widths.len() {
                     t.props.col_widths.remove(at);
                 }
+                t.normalize_merges();
                 Ok(())
             }),
             C::SetCellProps { cells, patch } => {
@@ -749,6 +760,10 @@ impl WriteDocument {
                             },
                             borders: merge_borders(old.borders, patch.borders),
                             vertical_align: patch.vertical_align.or(old.vertical_align),
+                            margins: match (old.margins, patch.margins) {
+                                (Some(a), Some(b)) => Some(a.merged_with(&b)),
+                                (a, b) => b.or(a),
+                            },
                         };
                         Ok((id, new))
                     })
@@ -756,28 +771,78 @@ impl WriteDocument {
                 self.restore_cell_props(&items, ch)
             }
             C::RestoreCellProps { items } => self.restore_cell_props(items, ch),
-            C::SetTableProps { table, patch } => {
-                let t = self.table_mut(*table)?;
-                let old = t.props.clone();
-                let props = &mut t.props;
-                props.width = patch.width.or(props.width);
-                if !patch.col_widths.is_empty() {
-                    props.col_widths.clone_from(&patch.col_widths);
+            C::SetTableProps { table, patch } => self.set_table_props(*table, patch, ch),
+            C::MergeCells {
+                table,
+                top,
+                left,
+                bottom,
+                right,
+            } => {
+                let (r0, c0, r1, c1) = (
+                    *top as usize,
+                    *left as usize,
+                    *bottom as usize,
+                    *right as usize,
+                );
+                let mut next = self.doc.alloc_id().0;
+                let mut used = 0;
+                let inv = self.edit_table(*table, ch, |t| {
+                    t.merge_cells(r0, c0, r1, c1, || {
+                        used += 1;
+                        let id = NodeId(next);
+                        next += 1;
+                        id
+                    })
+                    .map_err(|e| invalid(e.to_string()))
+                })?;
+                if used > 0 {
+                    self.doc.reserve_id(NodeId(next - 1));
                 }
-                props.borders = merge_borders(props.borders, patch.borders);
-                props.cell_margins = match (props.cell_margins, patch.cell_margins) {
-                    (Some(a), Some(b)) => Some(model_text::CellMargins {
-                        top: b.top.or(a.top),
-                        left: b.left.or(a.left),
-                        bottom: b.bottom.or(a.bottom),
-                        right: b.right.or(a.right),
-                    }),
-                    (a, b) => b.or(a),
-                };
-                ch.block(*table);
-                Ok(C::RestoreTableProps {
-                    table: *table,
-                    props: old,
+                Ok(inv)
+            }
+            C::SplitCell {
+                table,
+                row,
+                col,
+                rows,
+                cols,
+            } => {
+                let mut next = self.doc.alloc_id().0;
+                let inv = self.edit_table(*table, ch, |t| {
+                    t.split_cell(
+                        *row as usize,
+                        *col as usize,
+                        *rows as usize,
+                        *cols as usize,
+                        || {
+                            let id = NodeId(next);
+                            next += 1;
+                            id
+                        },
+                    )
+                    .map_err(|e| invalid(e.to_string()))
+                })?;
+                self.doc.reserve_id(NodeId(next));
+                Ok(inv)
+            }
+            C::SetImageAnchor {
+                block,
+                offset,
+                anchor,
+            } => {
+                let anchor = *anchor;
+                self.edit_image(*block, *offset, ch, |img| img.anchor = anchor)
+            }
+            C::SetImageWrap {
+                block,
+                offset,
+                wrap,
+            } => {
+                let wrap = *wrap;
+                self.edit_image(*block, *offset, ch, |img| match &mut img.anchor {
+                    Some(a) => a.wrap = wrap,
+                    None => img.anchor = Some(Anchor::new(wrap)),
                 })
             }
             C::RestoreTableProps { table, props } => {
@@ -814,6 +879,7 @@ impl WriteDocument {
                 rows,
                 header,
                 height,
+                cant_split,
             } => self.edit_table(*table, ch, |t| {
                 for &r in rows {
                     let row = t
@@ -822,6 +888,9 @@ impl WriteDocument {
                         .ok_or_else(|| invalid(format!("row {r} out of range")))?;
                     if let Some(hd) = header {
                         row.props.header = *hd;
+                    }
+                    if let Some(cs) = cant_split {
+                        row.props.cant_split = *cs;
                     }
                     if let Some(h) = height {
                         row.props.height = (h.value.0 > 0).then_some(*h);
@@ -1143,6 +1212,7 @@ impl WriteDocument {
             paragraph,
             run,
             is_default: false,
+            table: None,
         });
         for level in 1..=to {
             self.ensure_style(Style {
@@ -1164,6 +1234,7 @@ impl WriteDocument {
                 },
                 run: RunProperties::default(),
                 is_default: false,
+                table: None,
             });
         }
     }
@@ -1205,6 +1276,7 @@ impl WriteDocument {
                 ..Default::default()
             },
             is_default: false,
+            table: None,
         });
         self.ensure_style(Style {
             id: reference.into(),
@@ -1218,6 +1290,7 @@ impl WriteDocument {
                 ..Default::default()
             },
             is_default: false,
+            table: None,
         });
         text.to_owned()
     }
@@ -1913,6 +1986,7 @@ impl WriteDocument {
             style: BorderStyle::Single,
             width: BorderSide::width_from_eighths(4),
             color: Color::Auto,
+            space: None,
         };
         let table_id = id(0, &mut self.doc);
         let mut new_rows = Vec::with_capacity(r);
@@ -1929,6 +2003,8 @@ impl WriteDocument {
                             props: ParagraphProperties::default(),
                             inlines: Vec::new(),
                         })],
+                        grid_span: 1,
+                        v_merge: None,
                     }
                 })
                 .collect();
@@ -1998,6 +2074,89 @@ impl WriteDocument {
         })
     }
 
+    fn set_table_props(
+        &mut self,
+        table: NodeId,
+        patch: &TableProperties,
+        ch: &mut Changes,
+    ) -> R<C> {
+        self.table_mut(table)?;
+        let old_styles = self.doc.styles.clone();
+        if let Some(id) = patch.style.as_deref().filter(|s| !s.is_empty()) {
+            match self.doc.styles.get(id) {
+                Some(s) if s.kind == StyleKind::Table => {}
+                Some(_) => return Err(WriteError::UnknownStyle(id.to_owned())),
+                None => self.ensure_table_style(id)?,
+            }
+        }
+        let t = self.table_mut(table)?;
+        let old = t.clone();
+        let props = &mut t.props;
+        props.width = patch.width.or(props.width);
+        if !patch.col_widths.is_empty() {
+            props.col_widths.clone_from(&patch.col_widths);
+            // The grid decides; fixed cell widths would contradict it.
+            for cell in t.rows.iter_mut().flat_map(|r| &mut r.cells) {
+                if matches!(cell.props.width, Some(model_text::TableWidth::Twips(_))) {
+                    cell.props.width = None;
+                }
+            }
+        }
+        let props = &mut t.props;
+        props.borders = merge_borders(props.borders, patch.borders);
+        props.cell_margins = match (props.cell_margins, patch.cell_margins) {
+            (Some(a), Some(b)) => Some(a.merged_with(&b)),
+            (a, b) => b.or(a),
+        };
+        if let Some(s) = &patch.style {
+            props.style = (!s.is_empty()).then(|| s.clone());
+        }
+        props.look = patch.look.or(props.look);
+        props.alignment = patch.alignment.or(props.alignment);
+        props.indent = patch.indent.or(props.indent);
+        props.layout = patch.layout.or(props.layout);
+        ch.block(table);
+        let inverse = if old.rows == t.rows {
+            C::RestoreTableProps {
+                table,
+                props: old.props,
+            }
+        } else {
+            C::ReplaceBlocks {
+                ids: vec![table],
+                blocks: vec![NewBlock::Table(NewTable::from(&old))],
+            }
+        };
+        Ok(self.with_styles(inverse, old_styles, ch))
+    }
+
+    /// Adds the built-in table style `id` (and its `based_on` parents)
+    /// from Word's defaults.
+    fn ensure_table_style(&mut self, id: &str) -> R<()> {
+        let defaults = model_text::StyleSheet::office_defaults();
+        let mut next = Some(id.to_owned());
+        let mut found = false;
+        while let Some(sid) = next.take() {
+            if self.doc.styles.get(&sid).is_some() {
+                break;
+            }
+            let Some(s) = defaults.get(&sid).filter(|s| s.kind == StyleKind::Table) else {
+                break;
+            };
+            found = true;
+            let mut s = s.clone();
+            // Only the first table style of the document is its default.
+            s.is_default &= self.doc.styles.default_style(StyleKind::Table).is_none();
+            next = s.based_on.clone();
+            self.ensure_style(s);
+        }
+        if found {
+            Ok(())
+        } else {
+            Err(WriteError::UnknownStyle(id.to_owned()))
+        }
+    }
+
     fn insert_row(&mut self, table: NodeId, at: u32, new_ids: &[i64], ch: &mut Changes) -> R<C> {
         let t = self.table_mut(table)?.clone();
         let at = at as usize;
@@ -2010,12 +2169,21 @@ impl WriteDocument {
         let mut ids = Ids::new(&self.doc, &[]);
         let row_id = ids.resolve(&mut self.doc, ch, layout[0])?;
         let mut cells = Vec::with_capacity(n);
+        let model_row = at.saturating_sub(1).min(t.rows.len() - 1);
         for (k, m) in model.cells.iter().enumerate() {
             let id = ids.resolve(&mut self.doc, ch, layout[1 + k])?;
             let pid = ids.resolve(&mut self.doc, ch, layout[1 + n + k])?;
+            // Inside a vertically merged region the new cell extends it.
+            let col = t.grid_start(model_row, k).unwrap_or(0);
+            let inside = at < t.rows.len()
+                && at > 0
+                && t.cell_at(at, col)
+                    .is_some_and(|i| t.rows[at].cells[i].v_merge == Some(VMerge::Continue));
             cells.push(TableCell {
                 id,
                 props: m.props,
+                grid_span: m.grid_span,
+                v_merge: inside.then_some(VMerge::Continue),
                 blocks: vec![Block::Paragraph(Paragraph::new(pid))],
             });
         }
@@ -2029,6 +2197,7 @@ impl WriteDocument {
         };
         self.edit_table(table, ch, |t| {
             t.rows.insert(at, row);
+            t.normalize_merges();
             Ok(())
         })
     }
@@ -2047,11 +2216,11 @@ impl WriteDocument {
             let id = ids.resolve(&mut self.doc, ch, layout[k])?;
             let pid = ids.resolve(&mut self.doc, ch, layout[r + k])?;
             let model = &row.cells[at.saturating_sub(1).min(row.cells.len() - 1)];
-            new_cells.push(TableCell {
+            new_cells.push(TableCell::new(
                 id,
-                props: model.props,
-                blocks: vec![Block::Paragraph(Paragraph::new(pid))],
-            });
+                model.props,
+                vec![Block::Paragraph(Paragraph::new(pid))],
+            ));
         }
         self.edit_table(table, ch, |t| {
             for (row, cell) in t.rows.iter_mut().zip(new_cells) {
@@ -2297,6 +2466,8 @@ fn affects_labels(cmd: &WriteCommand) -> bool {
         | C::InsertImage { .. }
         | C::SetImageSize { .. }
         | C::SetImageAlt { .. }
+        | C::SetImageAnchor { .. }
+        | C::SetImageWrap { .. }
         | C::RemoveMedia { .. }
         | C::RestoreMedia { .. }
         | C::FindReplace { .. }

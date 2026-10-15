@@ -100,6 +100,8 @@ fn table(doc: &mut Document, t: usize) -> Table {
                     id,
                     props: Default::default(),
                     blocks: vec![Block::Paragraph(p)],
+                    grid_span: 1,
+                    v_merge: None,
                 }
             })
             .collect();
@@ -147,6 +149,7 @@ pub fn document() -> Document {
                 height: Emu::from_cm(6.0),
                 alt: Some(format!("Figure {}", k + 1)),
                 name: None,
+                anchor: None,
             }));
         }
         doc.body.push(Block::Paragraph(p));

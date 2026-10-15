@@ -105,3 +105,25 @@ export const reapplyIcon = (size = 16) =>
       <path d="M17 13a2.5 2.5 0 1 1-1-2M16 9.5v1.5h1.5" />
     </>
   ));
+
+/** Conditional Formatting: a table with a highlighted cell and a data bar. */
+export const condFormatIcon = (size = 22) =>
+  svg(size, (
+    <>
+      <rect x="2.5" y="2.5" width="15" height="15" />
+      <path d="M2.5 7.5h15M2.5 12.5h15M10 2.5v15" />
+      <rect x="3.5" y="8.5" width="5.5" height="3" fill="#F8696B" stroke="none" />
+      <rect x="11" y="13.5" width="4" height="3" fill="#638EC6" stroke="none" />
+    </>
+  ));
+
+/** Data Validation: a cell with a check mark and a stop sign. */
+export const validationIcon = (size = 22) =>
+  svg(size, (
+    <>
+      <rect x="2.5" y="4.5" width="10" height="7" />
+      <path d="M4.5 8l2 2 4-4" stroke="#2E9E48" />
+      <circle cx="14.5" cy="14.5" r="3.5" stroke="#E0393E" />
+      <path d="M12.5 16.5l4-4" stroke="#E0393E" />
+    </>
+  ));

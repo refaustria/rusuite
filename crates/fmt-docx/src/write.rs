@@ -5,18 +5,21 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 
+use core_model::units::Twips;
 use core_model::{ColorScheme, RunProperties, VerticalAlign};
 use fmt_ooxml::theme::office_theme_xml;
 use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
 use model_text::{
-    Block, BreakKind, Document, Field, HeightRule, Inline, InlineImage, MediaId, NodeId, NoteKind,
-    NoteRef, Paragraph, Run, StyleKind, Table, TableWidth, Toc, VAlign,
+    Anchor, Block, BreakKind, CellProperties, Document, Field, HAlign, HRelative, HeightRule,
+    Inline, InlineImage, MediaId, NodeId, NoteKind, NoteRef, Paragraph, Placement, Run, StyleKind,
+    Table, TableLayout, TableProperties, TableWidth, Toc, VAlign, VAlignPos, VMerge, VRelative,
+    WrapKind, WrapSide,
 };
 
 use crate::numbering::{write_numbering, W_NS};
 use crate::props::{
-    write_borders, write_cell_margins, write_ppr_sect, write_rpr, write_rpr_styled, write_shading,
-    write_width,
+    table_jc_name, write_borders, write_cell_margins, write_margins_as, write_ppr_sect, write_rpr,
+    write_rpr_styled, write_shading, write_tbl_look, write_width,
 };
 use crate::sections::{write_sect_pr, HeaderRef};
 use crate::styles::write_styles;
@@ -699,7 +702,8 @@ impl<'a> PartWriter<'a> {
 
     fn image(&mut self, img: &InlineImage) -> Result<()> {
         let rid = self.media_rel(img.media)?;
-        let id = self.shared.next_docpr.to_string();
+        let n = self.shared.next_docpr;
+        let id = n.to_string();
         self.shared.next_docpr += 1;
         let (cx, cy) = (
             img.width.0.max(0).to_string(),
@@ -708,20 +712,33 @@ impl<'a> PartWriter<'a> {
         let x = &mut self.x;
         x.start("w:r", &[]);
         x.start("w:drawing", &[]);
-        x.start(
-            "wp:inline",
-            &[
-                ("distT", "0"),
-                ("distB", "0"),
-                ("distL", "0"),
-                ("distR", "0"),
-            ],
-        );
-        x.empty("wp:extent", &[("cx", &cx), ("cy", &cy)]);
-        x.empty(
-            "wp:effectExtent",
-            &[("l", "0"), ("t", "0"), ("r", "0"), ("b", "0")],
-        );
+        let frame = if img.anchor.is_some() {
+            "wp:anchor"
+        } else {
+            "wp:inline"
+        };
+        match &img.anchor {
+            None => {
+                x.start(
+                    "wp:inline",
+                    &[
+                        ("distT", "0"),
+                        ("distB", "0"),
+                        ("distL", "0"),
+                        ("distR", "0"),
+                    ],
+                );
+                x.empty("wp:extent", &[("cx", &cx), ("cy", &cy)]);
+                x.empty(
+                    "wp:effectExtent",
+                    &[("l", "0"), ("t", "0"), ("r", "0"), ("b", "0")],
+                );
+            }
+            Some(a) => {
+                let z = (251_658_240u64 + u64::from(n)).to_string();
+                write_anchor_start(x, a, &z, &cx, &cy);
+            }
+        }
         let mut doc_pr = vec![
             ("id", id.as_str()),
             ("name", img.name.as_deref().unwrap_or("")),
@@ -761,7 +778,7 @@ impl<'a> PartWriter<'a> {
         x.end("pic:pic");
         x.end("a:graphicData");
         x.end("a:graphic");
-        x.end("wp:inline");
+        x.end(frame);
         x.end("w:drawing");
         x.end("w:r");
         Ok(())
@@ -773,20 +790,11 @@ impl<'a> PartWriter<'a> {
             return Ok(());
         }
         let scheme = self.scheme;
+        let grid = grid(t, self.content_width);
         self.x.start("w:tbl", &[]);
-        self.x.start("w:tblPr", &[]);
-        if let Some(w) = t.props.width {
-            write_width(&mut self.x, "w:tblW", w);
-        }
-        if let Some(b) = &t.props.borders {
-            write_borders(&mut self.x, "w:tblBorders", b, scheme);
-        }
-        if let Some(m) = &t.props.cell_margins {
-            write_cell_margins(&mut self.x, m);
-        }
-        self.x.end("w:tblPr");
+        write_tbl_pr(&mut self.x, &t.props, scheme, (None, None));
         self.x.start("w:tblGrid", &[]);
-        for w in grid(t, self.content_width) {
+        for w in &grid {
             self.x.empty("w:gridCol", &[("w:w", &w.to_string())]);
         }
         self.x.end("w:tblGrid");
@@ -795,6 +803,9 @@ impl<'a> PartWriter<'a> {
             let rp = &row.props;
             if !rp.is_empty() {
                 self.x.start("w:trPr", &[]);
+                if rp.cant_split {
+                    self.x.empty("w:cantSplit", &[]);
+                }
                 if let Some(h) = rp.height {
                     let rule = match h.rule {
                         HeightRule::AtLeast => "atLeast",
@@ -810,30 +821,22 @@ impl<'a> PartWriter<'a> {
                 }
                 self.x.end("w:trPr");
             }
+            let mut col = 0;
             for cell in &row.cells {
                 self.x.start("w:tc", &[]);
-                let cp = &cell.props;
-                if !cp.is_empty() {
-                    self.x.start("w:tcPr", &[]);
-                    if let Some(w) = cp.width {
-                        write_width(&mut self.x, "w:tcW", w);
-                    }
-                    if let Some(b) = &cp.borders {
-                        write_borders(&mut self.x, "w:tcBorders", b, scheme);
-                    }
-                    if let Some(c) = &cp.shading {
-                        write_shading(&mut self.x, c, scheme);
-                    }
-                    if let Some(v) = cp.vertical_align {
-                        let v = match v {
-                            VAlign::Top => "top",
-                            VAlign::Center => "center",
-                            VAlign::Bottom => "bottom",
-                        };
-                        self.x.val("w:vAlign", v);
-                    }
-                    self.x.end("w:tcPr");
-                }
+                let span = cell.span();
+                // Without an own width a cell is as wide as its grid
+                // columns (Word sizes autofit tables by `w:tcW`).
+                let width = cell.props.width.or_else(|| {
+                    let ws = grid.get(col..col + span)?;
+                    Some(TableWidth::Twips(Twips(ws.iter().sum())))
+                });
+                col += span;
+                let cp = CellProperties {
+                    width,
+                    ..cell.props
+                };
+                write_tc_pr(&mut self.x, &cp, cell.grid_span, cell.v_merge, scheme);
                 self.blocks(&cell.blocks, false)?;
                 self.x.end("w:tc");
             }
@@ -844,19 +847,202 @@ impl<'a> PartWriter<'a> {
     }
 }
 
+/// Writes `w:tblPr` (of a table or a table style) in Word's order.
+pub(crate) fn write_tbl_pr(
+    x: &mut XmlOut,
+    p: &TableProperties,
+    scheme: &ColorScheme,
+    bands: (Option<u8>, Option<u8>),
+) {
+    x.start("w:tblPr", &[]);
+    if let Some(s) = &p.style {
+        x.val("w:tblStyle", s);
+    }
+    if let Some(n) = bands.0 {
+        x.val("w:tblStyleRowBandSize", &n.to_string());
+    }
+    if let Some(n) = bands.1 {
+        x.val("w:tblStyleColBandSize", &n.to_string());
+    }
+    if let Some(w) = p.width {
+        write_width(x, "w:tblW", w);
+    }
+    if let Some(a) = p.alignment {
+        x.val("w:jc", table_jc_name(a));
+    }
+    if let Some(i) = p.indent {
+        write_width(x, "w:tblInd", TableWidth::Twips(i));
+    }
+    if let Some(b) = &p.borders {
+        write_borders(x, "w:tblBorders", b, scheme);
+    }
+    if let Some(l) = p.layout {
+        let t = match l {
+            TableLayout::Fixed => "fixed",
+            TableLayout::Autofit => "autofit",
+        };
+        x.empty("w:tblLayout", &[("w:type", t)]);
+    }
+    if let Some(m) = &p.cell_margins {
+        write_cell_margins(x, m);
+    }
+    if let Some(l) = &p.look {
+        write_tbl_look(x, l);
+    }
+    x.end("w:tblPr");
+}
+
+/// Writes `w:tcPr` (nothing if empty) in Word's order.
+pub(crate) fn write_tc_pr(
+    x: &mut XmlOut,
+    cp: &CellProperties,
+    span: u16,
+    v_merge: Option<VMerge>,
+    scheme: &ColorScheme,
+) {
+    if cp.is_empty() && span <= 1 && v_merge.is_none() {
+        return;
+    }
+    x.start("w:tcPr", &[]);
+    if let Some(w) = cp.width {
+        write_width(x, "w:tcW", w);
+    }
+    if span > 1 {
+        x.val("w:gridSpan", &span.to_string());
+    }
+    match v_merge {
+        Some(VMerge::Restart) => x.val("w:vMerge", "restart"),
+        Some(VMerge::Continue) => x.empty("w:vMerge", &[]),
+        None => {}
+    }
+    if let Some(b) = &cp.borders {
+        write_borders(x, "w:tcBorders", b, scheme);
+    }
+    if let Some(c) = &cp.shading {
+        write_shading(x, c, scheme);
+    }
+    if let Some(m) = &cp.margins {
+        write_margins_as(x, "w:tcMar", m);
+    }
+    if let Some(v) = cp.vertical_align {
+        let v = match v {
+            VAlign::Top => "top",
+            VAlign::Center => "center",
+            VAlign::Bottom => "bottom",
+        };
+        x.val("w:vAlign", v);
+    }
+    x.end("w:tcPr");
+}
+
+/// Writes the start of `wp:anchor` up to the wrapping element (the
+/// caller continues with `wp:docPr`).
+fn write_anchor_start(x: &mut XmlOut, a: &Anchor, z: &str, cx: &str, cy: &str) {
+    let d = &a.distance;
+    let (t, b, l, r) = (
+        d.top.0.max(0).to_string(),
+        d.bottom.0.max(0).to_string(),
+        d.left.0.max(0).to_string(),
+        d.right.0.max(0).to_string(),
+    );
+    let flag = |v: bool| if v { "1" } else { "0" };
+    x.start(
+        "wp:anchor",
+        &[
+            ("distT", &t),
+            ("distB", &b),
+            ("distL", &l),
+            ("distR", &r),
+            ("simplePos", "0"),
+            ("relativeHeight", z),
+            ("behindDoc", flag(a.behind_text())),
+            ("locked", "0"),
+            ("layoutInCell", "1"),
+            ("allowOverlap", flag(a.allow_overlap)),
+        ],
+    );
+    x.empty("wp:simplePos", &[("x", "0"), ("y", "0")]);
+    let h_rel = match a.h.relative_to {
+        HRelative::Margin => "margin",
+        HRelative::Page => "page",
+        HRelative::Column => "column",
+        HRelative::Character => "character",
+    };
+    x.start("wp:positionH", &[("relativeFrom", h_rel)]);
+    match a.h.place {
+        Placement::Align(al) => x.text_el(
+            "wp:align",
+            &[],
+            match al {
+                HAlign::Left => "left",
+                HAlign::Center => "center",
+                HAlign::Right => "right",
+            },
+        ),
+        Placement::Offset(o) => x.text_el("wp:posOffset", &[], &o.0.to_string()),
+    }
+    x.end("wp:positionH");
+    let v_rel = match a.v.relative_to {
+        VRelative::Margin => "margin",
+        VRelative::Page => "page",
+        VRelative::Paragraph => "paragraph",
+        VRelative::Line => "line",
+    };
+    x.start("wp:positionV", &[("relativeFrom", v_rel)]);
+    match a.v.place {
+        Placement::Align(al) => x.text_el(
+            "wp:align",
+            &[],
+            match al {
+                VAlignPos::Top => "top",
+                VAlignPos::Center => "center",
+                VAlignPos::Bottom => "bottom",
+            },
+        ),
+        Placement::Offset(o) => x.text_el("wp:posOffset", &[], &o.0.to_string()),
+    }
+    x.end("wp:positionV");
+    x.empty("wp:extent", &[("cx", cx), ("cy", cy)]);
+    x.empty(
+        "wp:effectExtent",
+        &[("l", "0"), ("t", "0"), ("r", "0"), ("b", "0")],
+    );
+    let side = match a.wrap_side {
+        WrapSide::Both => "bothSides",
+        WrapSide::Left => "left",
+        WrapSide::Right => "right",
+        WrapSide::Largest => "largest",
+    };
+    match a.wrap {
+        WrapKind::Square => x.empty("wp:wrapSquare", &[("wrapText", side)]),
+        WrapKind::Tight => {
+            // Word requires a polygon; the image's bounding box.
+            x.start("wp:wrapTight", &[("wrapText", side)]);
+            x.start("wp:wrapPolygon", &[("edited", "0")]);
+            x.empty("wp:start", &[("x", "0"), ("y", "0")]);
+            for (px, py) in [
+                ("0", "21600"),
+                ("21600", "21600"),
+                ("21600", "0"),
+                ("0", "0"),
+            ] {
+                x.empty("wp:lineTo", &[("x", px), ("y", py)]);
+            }
+            x.end("wp:wrapPolygon");
+            x.end("wp:wrapTight");
+        }
+        WrapKind::TopAndBottom => x.empty("wp:wrapTopAndBottom", &[]),
+        WrapKind::Behind | WrapKind::InFront => x.empty("wp:wrapNone", &[]),
+    }
+}
+
 /// Grid column widths: the table's own, or derived from the first row's
 /// fixed cell widths, or the text width split evenly.
 fn grid(t: &Table, content_width: i32) -> Vec<i32> {
     if !t.props.col_widths.is_empty() {
         return t.props.col_widths.iter().map(|w| w.0.max(0)).collect();
     }
-    let cols = t
-        .rows
-        .iter()
-        .map(|r| r.cells.len())
-        .max()
-        .unwrap_or(0)
-        .max(1);
+    let cols = t.grid_cols().max(1);
     let first: Option<Vec<i32>> = t.rows.first().and_then(|r| {
         (r.cells.len() == cols)
             .then(|| {
@@ -982,6 +1168,7 @@ mod tests {
                     height: Emu(457_200),
                     alt: Some("A <logo>".into()),
                     name: None,
+                    anchor: None,
                 }),
                 Inline::Break(BreakKind::Page),
             ],
@@ -1010,6 +1197,8 @@ mod tests {
                     id: doc.alloc_id(),
                     props: Default::default(),
                     blocks: vec![cell_p],
+                    grid_span: 1,
+                    v_merge: None,
                 }],
             }],
         });
@@ -1094,6 +1283,7 @@ mod tests {
                 height: Emu(1),
                 alt: None,
                 name: None,
+                anchor: None,
             })],
         );
         doc.body = vec![p];
@@ -1110,6 +1300,8 @@ mod tests {
                 ..Default::default()
             },
             blocks: vec![],
+            grid_span: 1,
+            v_merge: None,
         };
         let c1 = cell(&mut doc, Some(TableWidth::Twips(Twips(1000))));
         let c2 = cell(&mut doc, Some(TableWidth::Twips(Twips(3000))));

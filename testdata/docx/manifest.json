@@ -660,5 +660,53 @@
    "page:a4"
   ],
   "paragraphs": 22
+ },
+ {
+  "file": "provisional-55-table-merged-cells.docx",
+  "topic": "Tables with horizontally, vertically and block merged cells",
+  "features": [
+   "heading:1",
+   "table:rows=4:cols=4",
+   "table:rows=3:cols=3",
+   "table:merged=horizontal",
+   "table:merged=vertical",
+   "page:a4"
+  ],
+  "paragraphs": 21
+ },
+ {
+  "file": "provisional-56-images-floating.docx",
+  "topic": "Floating images: square left, tight right, top-and-bottom centered, behind text",
+  "features": [
+   "heading:1",
+   "image:float=square",
+   "image:float-align=left",
+   "image:float=tight",
+   "image:float-align=right",
+   "image:float=top-bottom",
+   "image:float-align=center",
+   "image:float=behind",
+   "image:alt",
+   "image:count=4",
+   "page:a4"
+  ],
+  "paragraphs": 5
+ },
+ {
+  "file": "provisional-57-paragraph-borders-shading-tabs.docx",
+  "topic": "Paragraph borders, shading and custom tab stops",
+  "features": [
+   "heading:1",
+   "para:border",
+   "para:shading",
+   "para:tab=left",
+   "para:tab=center",
+   "para:tab=decimal",
+   "para:tab=right",
+   "para:tab-leader=dot",
+   "tab",
+   "page:a4"
+  ],
+  "paragraphs": 9
  }
 ]

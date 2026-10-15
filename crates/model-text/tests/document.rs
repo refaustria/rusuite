@@ -32,6 +32,8 @@ fn cell(doc: &mut Document, text: &str, props: CellProperties) -> TableCell {
         id,
         props,
         blocks: vec![Block::Paragraph(Paragraph::with_text(doc.alloc_id(), text))],
+        grid_span: 1,
+        v_merge: None,
     }
 }
 
@@ -79,8 +81,10 @@ fn sample() -> Document {
                 style: BorderStyle::Single,
                 width: BorderSide::width_from_eighths(4),
                 color: Color::Auto,
+                space: None,
             })),
             cell_margins: None,
+            ..Default::default()
         },
         rows: vec![header, body_row],
     };
@@ -95,6 +99,7 @@ fn sample() -> Document {
         height: Emu::from_cm(1.0),
         alt: Some("Company logo".into()),
         name: Some("Picture 1".into()),
+        anchor: None,
     }));
 
     doc.body = vec![
@@ -196,6 +201,7 @@ fn plain_text_with_image_break_and_tab() {
         height: Emu(1),
         alt: None,
         name: None,
+        anchor: None,
     }));
     p.inlines.push(Inline::Break(BreakKind::Page));
     doc.body.push(Block::Paragraph(p));
@@ -254,6 +260,8 @@ fn normalize_fills_empty_body_and_cells() {
         id: doc.alloc_id(),
         props: CellProperties::default(),
         blocks: vec![],
+        grid_span: 1,
+        v_merge: None,
     };
     let row = TableRow {
         id: doc.alloc_id(),
@@ -429,6 +437,8 @@ fn list_numbers_follow_word_counting() {
                 id: doc.alloc_id(),
                 props: CellProperties::default(),
                 blocks: vec![Block::Paragraph(cell_item)],
+                grid_span: 1,
+                v_merge: None,
             }],
         }],
     };

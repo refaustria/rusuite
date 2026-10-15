@@ -1,4 +1,4 @@
-"""Generator for the PROVISIONAL docx reference suite (54 documents).
+"""Generator for the PROVISIONAL docx reference suite (57 documents).
 
 Emits one flat ODT (.fodt) per topic plus manifest.json. Conversion to .docx is done by
 scripts/gen-docx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
@@ -908,13 +908,127 @@ def _(d):
     d.feat(f"toc:entries={len(heads)}")
 
 
+# ---------------- 55-57 merged cells, floating images, paragraph borders and tabs ----------------
+def _span_table(d, rows, widths):
+    """rows: list of rows; a cell is text, ("text", colspan, rowspan) or None (covered)."""
+    cols = "".join(f'<table:table-column table:style-name="{d.style_col(w)}"/>' for w in widths)
+    tname = d.style("table", f'<style:table-properties style:width="{sum(widths):.2f}cm" table:align="left"/>')
+    cn = d.style("table-cell", '<style:table-cell-properties fo:padding="0.1cm" fo:border="0.5pt solid #000000"/>')
+    out = [f'<table:table table:name="Table{len(d.names)}" table:style-name="{tname}">', cols]
+    for row in rows:
+        cells = []
+        for cell in row:
+            if cell is None:
+                cells.append("<table:covered-table-cell/>")
+                continue
+            text, cs, rs = cell if isinstance(cell, tuple) else (cell, 1, 1)
+            span = ""
+            if cs > 1:
+                span += f' table:number-columns-spanned="{cs}"'
+            if rs > 1:
+                span += f' table:number-rows-spanned="{rs}"'
+            cells.append(f'<table:table-cell table:style-name="{cn}"{span} office:value-type="string">'
+                         f'<text:p text:style-name="Standard">{escape(text)}</text:p></table:table-cell>')
+        out.append(f'<table:table-row>{"".join(cells)}</table:table-row>')
+    out.append("</table:table>")
+    d.body.append(X("".join(out)))
+    d.feat(f"table:rows={len(rows)}:cols={len(widths)}")
+
+
+@topic(55, "table-merged-cells", "Tables with horizontally, vertically and block merged cells")
+def _(d):
+    d.h(1, "Merged cells")
+    d.p("A header spanning all columns, a label spanning two rows and a merged pair:")
+    _span_table(d, [
+        [("Quarterly figures", 4, 1), None, None, None],
+        [("Region", 1, 2), "Q1", "Q2", "Total"],
+        [None, "10", "12", "22"],
+        ["North", "5", ("8 (merged)", 2, 1), None],
+    ], [4.0, 4.0, 4.0, 4.0])
+    d.p("A 2x2 block merged in the middle of a 3x3 table:")
+    _span_table(d, [
+        ["A1", ("Block B1:C2", 2, 2), None],
+        ["A2", None, None],
+        ["A3", "B3", "C3"],
+    ], [5.0, 5.0, 5.0])
+    d.feat("table:merged=horizontal")
+    d.feat("table:merged=vertical")
+    d.p("Text after the tables.")
+
+
+def _float_image(d, k, w, h, wrap, hpos, extra="", alt=None):
+    """An image anchored to its paragraph. wrap: square|tight|top-bottom|behind."""
+    d.imgs += 1
+    name = f"fl{d.imgs}"
+    wraps = {
+        "square": 'style:wrap="parallel" style:wrap-contour="false" style:run-through="foreground"',
+        "tight": 'style:wrap="parallel" style:wrap-contour="true" style:contour-mode="full" style:run-through="foreground"',
+        "top-bottom": 'style:wrap="none" style:run-through="foreground"',
+        "behind": 'style:wrap="run-through" style:run-through="background"',
+    }
+    d.styles[name] = (
+        f'<style:style style:name="{name}" style:family="graphic"><style:graphic-properties {wraps[wrap]} '
+        f'style:number-wrapped-paragraphs="no-limit" fo:margin-left="0.2cm" fo:margin-right="0.2cm" '
+        f'fo:margin-top="0cm" fo:margin-bottom="0cm" style:vertical-pos="top" style:vertical-rel="paragraph" '
+        f'style:horizontal-pos="{hpos}" style:horizontal-rel="paragraph" {extra}/></style:style>'
+    )
+    data = base64.b64encode(IMAGES[k]).decode()
+    alt_xml = f"<svg:title>{escape(alt)}</svg:title><svg:desc>{escape(alt)}</svg:desc>" if alt else ""
+    d.feat(f"image:float={wrap}")
+    d.feat(f"image:float-align={hpos}")
+    return X(
+        f'<draw:frame draw:style-name="{name}" draw:name="Image{d.imgs}" text:anchor-type="paragraph" '
+        f'svg:width="{w}cm" svg:height="{h}cm" svg:y="0cm"><draw:image><office:binary-data>{data}'
+        f"</office:binary-data></draw:image>{alt_xml}</draw:frame>"
+    )
+
+
+@topic(56, "images-floating", "Floating images: square left, tight right, top-and-bottom centered, behind text")
+def _(d):
+    d.h(1, "Floating images")
+    d.p([_float_image(d, 0, 3, 3, "square", "left", alt="Square wrap"), txt(5), " ", txt(5, 2)])
+    d.p([_float_image(d, 1, 3, 3, "tight", "right"), txt(5, 1), " ", txt(5, 3)])
+    d.p([_float_image(d, 2, 4, 2, "top-bottom", "center"), txt(3, 2)])
+    d.p([_float_image(d, 0, 5, 1, "behind", "center"), txt(4, 4)])
+    d.feat("image:alt")
+
+
+@topic(57, "paragraph-borders-shading-tabs", "Paragraph borders, shading and custom tab stops")
+def _(d):
+    def para(props, content, inner=""):
+        name = d.style("paragraph", f"<style:paragraph-properties {props}>{inner}</style:paragraph-properties>", "Standard")
+        d.body.append(X(f'<text:p text:style-name="{name}">{seq(content)}</text:p>'))
+
+    d.h(1, "Borders and shading")
+    para('fo:border="0.5pt solid #000000" fo:padding="0.1cm"', "A paragraph in a box.")
+    d.feat("para:border")
+    para('fo:border-bottom="1.5pt solid #4472c4" fo:padding-bottom="0.05cm"', "A paragraph with a blue bottom rule.")
+    para('fo:background-color="#fff2cc"', "A shaded paragraph (light yellow).")
+    d.feat("para:shading")
+    para('fo:background-color="#deebf7" fo:border-left="3pt solid #2e75b6" fo:padding-left="0.2cm"', "A call-out: shading and a thick left border.")
+    d.h(1, "Tab stops")
+    stops = (
+        '<style:tab-stops>'
+        '<style:tab-stop style:position="3cm"/>'
+        '<style:tab-stop style:position="8cm" style:type="center"/>'
+        '<style:tab-stop style:position="12cm" style:type="char" style:char="."/>'
+        '<style:tab-stop style:position="16cm" style:type="right" style:leader-style="dotted" style:leader-text="."/>'
+        '</style:tab-stops>'
+    )
+    for row in [("Item", "Centered", "12.5", "Page 1"), ("Second", "Middle", "1234.75", "Page 12"), ("Third", "Text", "3.1", "Page 123")]:
+        para("", [row[0], TAB, row[1], TAB, row[2], TAB, row[3]], stops)
+    for k in ["left", "center", "decimal", "right"]:
+        d.feat(f"para:tab={k}")
+    d.feat("para:tab-leader=dot")
+
+
 def emit(outdir, pngdir):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     for k in range(3):
         IMAGES[k] = (Path(pngdir) / f"img{k}.png").read_bytes()
     manifest = []
-    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 55)), "need exactly topics 1..54"
+    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 58)), "need exactly topics 1..57"
     for n, slug, desc, fn in sorted(TOPICS):
         d = Doc(n, slug, desc)
         fn(d)
@@ -970,6 +1084,16 @@ def check(manifest_path, docxdir):
                 errs.append("line break not found")
             elif ft == "tab" and "<w:tab/>" not in doc:
                 errs.append("tab not found")
+            elif ft == "table:merged=horizontal" and "<w:gridSpan" not in doc:
+                errs.append("gridSpan not found")
+            elif ft == "table:merged=vertical" and "<w:vMerge" not in doc:
+                errs.append("vMerge not found")
+            elif ft.startswith("image:float=") and "<wp:anchor" not in doc:
+                errs.append("wp:anchor not found")
+            elif ft == "para:border" and "<w:pBdr>" not in doc:
+                errs.append("pBdr not found")
+            elif ft.startswith("para:tab=") and "<w:tabs>" not in doc:
+                errs.append("tabs not found")
         n = len(re.findall(r"<w:p[ >]", doc))
         if n < e["paragraphs"]:
             errs.append(f"paragraphs: manifest {e['paragraphs']}, docx {n}")

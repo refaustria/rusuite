@@ -513,6 +513,7 @@ fn list_none_overrides_style_numbering() {
         },
         run: RunProperties::default(),
         is_default: false,
+        table: None,
     });
     if let Block::Paragraph(p) = &mut doc.body[0] {
         p.props.style = Some("ListBullet".into());
@@ -1331,6 +1332,7 @@ fn set_row_props_header_and_height() {
                 value: Twips(720),
                 rule: model_text::HeightRule::AtLeast,
             }),
+            cant_split: None,
         },
     );
     assert_eq!(p.replaced.len(), 1);
@@ -1349,6 +1351,7 @@ fn set_row_props_header_and_height() {
                 value: Twips(0),
                 rule: model_text::HeightRule::Exact,
             }),
+            cant_split: None,
         },
     );
     let tb = table_of(&h, t);
@@ -1361,7 +1364,8 @@ fn set_row_props_header_and_height() {
                 table: t,
                 rows: vec![5],
                 header: Some(false),
-                height: None
+                height: None,
+                cant_split: None,
             }
         ),
         "invalid_command"
@@ -1471,6 +1475,7 @@ fn table_borders_none_and_outline() {
         style: BorderStyle::None,
         width: Twips(0),
         color: core_model::Color::Auto,
+        space: None,
     };
     apply(
         &mut h,

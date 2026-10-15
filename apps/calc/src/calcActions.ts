@@ -93,6 +93,8 @@ export function calcActions(store: CalcStore) {
     clearFilters: () => store.clearFilters(),
     reapplyFilter: () => store.reapplyFilter(),
     hasFilters: () => hasFilters(store.autoFilter()),
+    /** Data › Data Validation…. */
+    dataValidation: () => store.openDialog({ kind: "dataValidation" }),
   };
 }
 

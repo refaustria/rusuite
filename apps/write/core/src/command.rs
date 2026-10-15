@@ -11,10 +11,10 @@
 
 use core_model::units::Emu;
 use model_text::{
-    Block, CellProperties, FieldKind, HeaderSlot, Inline, LevelKind, MediaId, NodeId, Note,
+    Anchor, Block, CellProperties, FieldKind, HeaderSlot, Inline, LevelKind, MediaId, NodeId, Note,
     NoteKind, Numbering, Orientation, PageSetup, Paragraph, ParagraphProperties, RowHeight,
     RowProperties, RunProperties, Section, SectionId, SectionKind, StyleSheet, Table, TableCell,
-    TableProperties, TableRow, Toc, TocEntry, Twips,
+    TableProperties, TableRow, Toc, TocEntry, Twips, VMerge, WrapKind,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -168,7 +168,9 @@ pub enum WriteCommand {
     /// is removed (Backspace at the start of a paragraph). Errors when
     /// `block` is the first block of its container or follows a table.
     JoinWithPrevious { block: NodeId },
-    /// Merges `patch` into the direct properties of each paragraph.
+    /// Merges `patch` into the direct properties of each paragraph
+    /// (borders side by side, tab stops by position — a `clear` stop
+    /// removes one; `shading: auto` removes the direct shading).
     SetParagraphProps {
         blocks: Vec<NodeId>,
         patch: ParagraphProperties,
@@ -262,7 +264,11 @@ pub enum WriteCommand {
         patch: CellProperties,
     },
     /// Merges `patch` into the table's properties (non-empty `colWidths`
-    /// replace the grid; borders and cell margins merge side by side).
+    /// replace the grid and drop the cells' fixed widths; borders and
+    /// cell margins merge side by side; `style: ""` removes the table
+    /// style, a built-in table style missing from the document — Table
+    /// Grid, Plain Table 1, List Table 3, Grid Table 4 Accent 1–3 — is
+    /// added to it with Word's definition).
     SetTableProps {
         table: NodeId,
         patch: TableProperties,
@@ -289,7 +295,8 @@ pub enum WriteCommand {
     },
     /// Changes rows `rows` (indices) of `table`: `header` sets "repeat as
     /// header row", `height` sets the row height (a value `<= 0` makes it
-    /// automatic). Absent fields keep their value.
+    /// automatic), `cantSplit` keeps the row on one page. Absent fields
+    /// keep their value.
     SetRowProps {
         table: NodeId,
         rows: Vec<u32>,
@@ -297,6 +304,48 @@ pub enum WriteCommand {
         header: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         height: Option<RowHeight>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        cant_split: Option<bool>,
+    },
+    /// Merges the cells of rows `top..=bottom` and grid columns
+    /// `left..=right` of `table` (Word's "Merge Cells": the top-left cell
+    /// receives the content of all non-empty cells; see
+    /// `model_text::Table::merge_cells`). The rectangle must not cut a
+    /// merged cell. The patch replaces the table.
+    MergeCells {
+        table: NodeId,
+        top: u32,
+        left: u32,
+        bottom: u32,
+        right: u32,
+    },
+    /// Splits the cell covering grid column `col` of row `row` (or its
+    /// merged region) into `rows × cols` cells (Word's "Split Cells"; see
+    /// `model_text::Table::split_cell`). New cells get fresh ids; the
+    /// patch replaces the table.
+    SplitCell {
+        table: NodeId,
+        row: u32,
+        col: u32,
+        rows: u32,
+        cols: u32,
+    },
+    /// Makes the image at position `offset` of `block` floating with
+    /// `anchor`, or (`null`) inline again.
+    SetImageAnchor {
+        block: NodeId,
+        offset: u32,
+        #[serde(default)]
+        anchor: Option<Anchor>,
+    },
+    /// Sets the text wrapping of the image at position `offset` of
+    /// `block`; an inline image becomes floating at Word's default
+    /// position (offset 0 from its column and paragraph).
+    SetImageWrap {
+        block: NodeId,
+        offset: u32,
+        wrap: WrapKind,
     },
     /// Removes the direct character formatting of `from..to` (Word's
     /// Ctrl+Space); with `paragraph`, also the paragraph's direct
@@ -543,8 +592,20 @@ pub struct NewCell {
     pub id: i64,
     #[serde(default, skip_serializing_if = "CellProperties::is_empty")]
     pub props: CellProperties,
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub grid_span: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v_merge: Option<VMerge>,
     #[serde(default)]
     pub blocks: Vec<NewBlock>,
+}
+
+fn one() -> u16 {
+    1
+}
+
+fn is_one(v: &u16) -> bool {
+    *v == 1
 }
 
 fn wire_id(id: NodeId) -> i64 {
@@ -597,6 +658,8 @@ impl From<&TableCell> for NewCell {
         NewCell {
             id: wire_id(c.id),
             props: c.props,
+            grid_span: c.grid_span,
+            v_merge: c.v_merge,
             blocks: c.blocks.iter().map(NewBlock::from).collect(),
         }
     }

@@ -15,8 +15,9 @@ import { calcActions } from "../calcActions";
 import { sheetMenu } from "../SheetTabs";
 import { toolbarValue } from "../grid/style";
 import { useCalc, type CalcStore } from "../state/store";
+import { CfMenu } from "../condFormat/CfMenu";
 import {
-  clearFilterIcon, filterIcon, freezeIcon, headingsIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon,
+  clearFilterIcon, condFormatIcon, filterIcon, freezeIcon, headingsIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon, validationIcon,
 } from "./icons";
 
 /** View options of the grid (View tab): zoom (1 = 100 %), gridlines and headings are the active sheet's. */
@@ -207,6 +208,18 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
         ),
       },
       {
+        label: t("calc.styles"),
+        items: (
+          <RibbonMenuButton
+            label={t("calc.cf.menu")}
+            icon={condFormatIcon()}
+            size="large"
+            disabled={off}
+            menu={(close) => <CfMenu store={store} close={close} />}
+          />
+        ),
+      },
+      {
         label: t("calc.cells"),
         items: (
           <>
@@ -342,6 +355,10 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
             </RibbonStack>
           </>
         ),
+      },
+      {
+        label: t("calc.dataTools"),
+        items: <RibbonButton label={t("calc.dv.button")} icon={validationIcon()} size="large" tooltip={t("calc.dv.title")} disabled={off} onClick={actions.dataValidation} />,
       },
     ],
   };

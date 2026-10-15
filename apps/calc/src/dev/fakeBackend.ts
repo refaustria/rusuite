@@ -12,6 +12,12 @@ import type { CalcPatch } from "../generated/CalcPatch";
 import type { CellKind } from "../generated/CellKind";
 import type { CellStyle } from "../generated/CellStyle";
 import type { CellView } from "../generated/CellView";
+import type { CellCf } from "../generated/CellCf";
+import type { CfResult } from "../generated/CfResult";
+import type { CfRule } from "../generated/CfRule";
+import type { CompareOp } from "../generated/CompareOp";
+import type { DataValidation } from "../generated/DataValidation";
+import type { ValidationResult } from "../generated/ValidationResult";
 import type { ColView } from "../generated/ColView";
 import type { Filter } from "../generated/Filter";
 import type { FilterValue } from "../generated/FilterValue";
@@ -44,6 +50,9 @@ interface FakeSheet {
   merges: Rect[];
   autoFilter?: AutoFilter;
   sortState?: SortState;
+  /** Conditional formatting rules by priority (a toy evaluation: see `cfOf`). */
+  cfRules: CfRule[];
+  validations: DataValidation[];
 }
 
 const DEFAULT_VIEW: SheetView = { frozenRows: 0, frozenCols: 0, zoom: 100, showGridlines: true, showHeadings: true };
@@ -116,7 +125,7 @@ export class FakeCalcCore {
   }
 
   private newSheet(id: number, name: string): FakeSheet {
-    return { id, name, cells: new Map(), cols: new Map(), rows: new Map(), formulas: new Set(), view: { ...DEFAULT_VIEW }, merges: [] };
+    return { id, name, cells: new Map(), cols: new Map(), rows: new Map(), formulas: new Set(), view: { ...DEFAULT_VIEW }, merges: [], cfRules: [], validations: [] };
   }
 
   private sheet(id: number): FakeSheet {
@@ -605,12 +614,152 @@ export class FakeCalcCore {
       case "removeValidation":
       case "restoreCfRules":
       case "restoreValidations":
-        throw new Fail("bad_request", `${cmd.type} is not supported by the fake backend`);
+        return this.rules(cmd);
       default: {
         const unknown: never = cmd;
         throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
       }
     }
+  }
+
+  // --- conditional formatting and data validation (a toy: rule lists kept, few kinds evaluated) ---
+
+  private rules(cmd: Extract<CalcCommand, { type: "addCfRule" | "updateCfRule" | "removeCfRule" | "reorderCfRule" | "clearCf" | "setValidation" | "removeValidation" | "restoreCfRules" | "restoreValidations" }>): [CalcPatch, CalcCommand] {
+    const s = this.sheet(cmd.sheet);
+    const copy = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
+    const inverse: CalcCommand =
+      cmd.type === "setValidation" || cmd.type === "removeValidation" || cmd.type === "restoreValidations"
+        ? { type: "restoreValidations", sheet: s.id, validations: copy(s.validations) }
+        : { type: "restoreCfRules", sheet: s.id, rules: copy(s.cfRules) };
+    const renumber = () => s.cfRules.forEach((r, i) => (r.priority = i + 1));
+    const at = (p: number) => Math.min(Math.max(p, 1) - 1, s.cfRules.length);
+    const index = (id: number) => {
+      const i = s.cfRules.findIndex((r) => r.id === id);
+      if (i < 0) throw new Fail("invalid_rule", `unknown rule ${id}`);
+      return i;
+    };
+    const cut = (ranges: Rect[], r: Rect) => ranges.filter((x) => !(x.r0 >= r.r0 && x.r1 <= r.r1 && x.c0 >= r.c0 && x.c1 <= r.c1));
+    switch (cmd.type) {
+      case "addCfRule": {
+        const rule = copy(cmd.rule);
+        if (rule.id === 0) rule.id = Math.max(0, ...s.cfRules.map((r) => r.id)) + 1;
+        s.cfRules.splice(at(rule.priority), 0, rule);
+        break;
+      }
+      case "updateCfRule": {
+        const i = index(cmd.rule.id);
+        s.cfRules.splice(i, 1);
+        s.cfRules.splice(cmd.rule.priority === 0 ? i : at(cmd.rule.priority), 0, copy(cmd.rule));
+        break;
+      }
+      case "removeCfRule":
+        s.cfRules.splice(index(cmd.id), 1);
+        break;
+      case "reorderCfRule": {
+        const [rule] = s.cfRules.splice(index(cmd.id), 1);
+        s.cfRules.splice(at(cmd.priority), 0, rule!);
+        break;
+      }
+      case "clearCf":
+        // Toy: only ranges inside the cleared range go (no splitting).
+        s.cfRules = cmd.range === null ? [] : s.cfRules.filter((r) => (r.ranges = cut(r.ranges, cmd.range!)).length > 0);
+        break;
+      case "restoreCfRules":
+        s.cfRules = copy(cmd.rules);
+        break;
+      case "setValidation":
+        s.validations = s.validations.filter((v) => (v.ranges = v.ranges.filter((x) => !cmd.validation.ranges.some((r) => intersects(r, x)))).length > 0);
+        s.validations.push(copy(cmd.validation));
+        break;
+      case "removeValidation":
+        s.validations = s.validations.filter((v) => (v.ranges = v.ranges.filter((x) => !intersects(x, cmd.range))).length > 0);
+        break;
+      case "restoreValidations":
+        s.validations = copy(cmd.validations);
+        break;
+    }
+    renumber();
+    const patch = this.emptyPatch();
+    patch.cfSheets = [s.id];
+    return [patch, inverse];
+  }
+
+  /** The toy evaluation: `cellIs` with numbers, `containsText`, data bars and 2/3-colour scales over min…max, icon sets by percent. */
+  private cfOf(s: FakeSheet, r: number, c: number): CfResult | null {
+    const out: CfResult = {};
+    const v = this.value(s, r, c);
+    const inRule = (rule: CfRule) => rule.ranges.some((x) => r >= x.r0 && r <= x.r1 && c >= x.c0 && c <= x.c1);
+    const numbers = (rule: CfRule) => {
+      const ns: number[] = [];
+      for (const x of rule.ranges) for (let rr = x.r0; rr <= Math.min(x.r1, x.r0 + 999); rr++) for (let cc = x.c0; cc <= Math.min(x.c1, x.c0 + 99); cc++) {
+        const n = this.value(s, rr, cc);
+        if (typeof n === "number") ns.push(n);
+      }
+      return ns;
+    };
+    const cmp = (op: CompareOp, a: number, b: number, b2: number) =>
+      ({ greaterThan: a > b, lessThan: a < b, greaterThanOrEqual: a >= b, lessThanOrEqual: a <= b, equal: a === b, notEqual: a !== b, between: a >= Math.min(b, b2) && a <= Math.max(b, b2), notBetween: a < Math.min(b, b2) || a > Math.max(b, b2) })[op];
+    for (const rule of s.cfRules) {
+      if (!inRule(rule)) continue;
+      const k = rule.kind;
+      let hit = false;
+      if (k.type === "cellIs" && typeof v === "number") hit = cmp(k.op, v, Number(k.formulas[0]), Number(k.formulas[1] ?? k.formulas[0]));
+      else if (k.type === "containsText") hit = typeof v === "string" && v.toLowerCase().includes(k.text.toLowerCase());
+      else if ((k.type === "dataBar" || k.type === "colorScale" || k.type === "iconSet") && typeof v === "number") {
+        const ns = numbers(rule);
+        const lo = Math.min(...ns), hi = Math.max(...ns);
+        const f = hi === lo ? 1 : (v - lo) / (hi - lo);
+        if (k.type === "dataBar" && out.bar === undefined) Object.assign(out, { bar: f, barColor: k.color, ...(k.showValue ? {} : { hideValue: true }) });
+        if (k.type === "colorScale" && !out.color) out.color = f < 0.5 ? k.points[0]!.color : k.points[k.points.length - 1]!.color;
+        if (k.type === "iconSet" && out.icon === undefined) {
+          const n = k.thresholds.length;
+          Object.assign(out, { icon: Math.min(n - 1, Math.floor(f * n)), iconSet: k.set, ...(k.showValue ? {} : { hideValue: true }) });
+        }
+      }
+      if (hit && rule.dxf) out.dxf = { ...rule.dxf, ...out.dxf };
+      if (hit && rule.stopIfTrue) break;
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  }
+
+  /** `validateInput` of the toy: lists of literals, whole / decimal numbers and text length are checked. */
+  validate(sheet: number, row: number, col: number, input: string): ValidationResult {
+    const s = this.sheet(sheet);
+    const i = s.validations.findIndex((v) => v.ranges.some((x) => row >= x.r0 && row <= x.r1 && col >= x.c0 && col <= x.c1));
+    if (i < 0) return { ok: true };
+    const dv = s.validations[i]!;
+    const pass = { ok: true, rule: i };
+    if (!dv.showError) return pass;
+    let ok = true;
+    const k = dv.kind;
+    if (input === "") ok = dv.allowBlank;
+    else if (k.type === "list") ok = k.source.type !== "literal" || k.source.values.some((x) => x.toLowerCase() === input.toLowerCase());
+    else if (k.type === "whole" || k.type === "decimal" || k.type === "textLength") {
+      const n = k.type === "textLength" ? input.length : Number(input);
+      const whole = k.type !== "whole" || Number.isInteger(n);
+      const ops: Record<CompareOp, (a: number, b: number, b2: number) => boolean> = {
+        greaterThan: (a, b) => a > b, lessThan: (a, b) => a < b, greaterThanOrEqual: (a, b) => a >= b, lessThanOrEqual: (a, b) => a <= b,
+        equal: (a, b) => a === b, notEqual: (a, b) => a !== b, between: (a, b, b2) => a >= b && a <= b2, notBetween: (a, b, b2) => a < b || a > b2,
+      };
+      ok = Number.isFinite(n) && whole && ops[k.op](n, Number(k.f1), Number(k.f2 ?? k.f1));
+    }
+    if (ok) return pass;
+    const res: ValidationResult = { ok: false, rule: i, errorStyle: dv.errorStyle, message: dv.errorMessage ?? "This value doesn't match the data validation restrictions defined for this cell." };
+    if (dv.errorTitle) res.title = dv.errorTitle;
+    return res;
+  }
+
+  /** `listValues` of the toy: literal lists, and same-sheet `$A$1:$A$3` ranges. */
+  listValues(sheet: number, row: number, col: number): string[] {
+    const s = this.sheet(sheet);
+    const dv = s.validations.find((v) => v.ranges.some((x) => row >= x.r0 && row <= x.r1 && col >= x.c0 && col <= x.c1));
+    if (!dv || dv.kind.type !== "list") return [];
+    if (dv.kind.source.type === "literal") return [...dv.kind.source.values];
+    const m = /^\$?([A-Z])\$?(\d+):\$?([A-Z])\$?(\d+)$/.exec(dv.kind.source.formula);
+    if (!m) return [];
+    const out: string[] = [];
+    for (let r = Number(m[2]) - 1; r <= Number(m[4]) - 1; r++) out.push(this.view(s, r, m[1]!.charCodeAt(0) - 65).display);
+    return out;
   }
 
   // --- sort and AutoFilter (a toy: values, custom, top 10 and average filters; auto-kind sorts) ---
@@ -846,6 +995,13 @@ export class FakeCalcCore {
     return this.styles.length - 1;
   }
 
+  /** Like the core: any change of a workbook with rules names those sheets in `cfSheets`. */
+  private markCf(patch: CalcPatch): void {
+    const ids = this.sheets.filter((x) => x.cfRules.length > 0 || x.validations.length > 0).map((x) => x.id);
+    const all = new Set([...(patch.cfSheets ?? []), ...ids]);
+    if (all.size > 0) patch.cfSheets = [...all];
+  }
+
   envelope(patch: CalcPatch) {
     return {
       revision: this.revision,
@@ -870,6 +1026,7 @@ export class FakeCalcCore {
       switch (req.type) {
         case "apply": {
           const [patch, inv] = this.exec(req.command);
+          this.markCf(patch);
           this.revision++;
           if (inv) this.undoStack.push(inv);
           this.redoStack = [];
@@ -882,6 +1039,7 @@ export class FakeCalcCore {
           const cmd = from.pop();
           if (!cmd) return { ok: { type: "patch", envelope: this.envelope(this.emptyPatch()) } };
           const [patch, inv] = this.exec(cmd);
+          this.markCf(patch);
           if (inv) to.push(inv);
           this.revision++;
           return { ok: { type: "patch", envelope: this.envelope(patch) } };
@@ -897,6 +1055,16 @@ export class FakeCalcCore {
           }
           cells.sort((a, b) => a.row - b.row || a.col - b.col);
           const merges = s.merges.filter((m) => intersects(m, req)).map((m) => ({ ...m }));
+          const cf: CellCf[] = [];
+          if (s.cfRules.length > 0) {
+            for (let r = req.r0; r <= Math.min(req.r1, req.r0 + 199); r++) {
+              for (let c = req.c0; c <= Math.min(req.c1, req.c0 + 49); c++) {
+                const res = this.cfOf(s, r, c);
+                if (res) cf.push({ row: r, col: c, cf: res });
+              }
+            }
+          }
+          const validations = s.validations.filter((v) => v.ranges.some((x) => intersects(x, req)));
           return {
             ok: {
               type: "snapshot",
@@ -907,6 +1075,8 @@ export class FakeCalcCore {
                 rows: [...s.rows.values()].filter((r) => r.row >= req.r0 && r.row <= req.r1),
                 format: { defaultColWidth: 8.43, defaultRowHeight: 15 },
                 ...(merges.length ? { merges } : {}),
+                ...(cf.length ? { cf } : {}),
+                ...(validations.length ? { validations: JSON.parse(JSON.stringify(validations)) as DataValidation[] } : {}),
               },
             },
           };
@@ -1006,16 +1176,14 @@ export class FakeCalcCore {
         }
         case "filterValues":
           return { ok: { type: "filterValues", values: this.filterValues(req.sheet, req.col) } };
-        // No conditional formatting or data validation in the fake backend.
         case "validateInput":
-          this.sheet(req.sheet);
-          return { ok: { type: "validation", result: { ok: true } } };
+          return { ok: { type: "validation", result: this.validate(req.sheet, req.row, req.col, req.input) } };
         case "listValues":
-          this.sheet(req.sheet);
-          return { ok: { type: "listValues", values: [] } };
-        case "sheetRules":
-          this.sheet(req.sheet);
-          return { ok: { type: "sheetRules", rules: [], validations: [] } };
+          return { ok: { type: "listValues", values: this.listValues(req.sheet, req.row, req.col) } };
+        case "sheetRules": {
+          const s = this.sheet(req.sheet);
+          return { ok: { type: "sheetRules", rules: JSON.parse(JSON.stringify(s.cfRules)), validations: JSON.parse(JSON.stringify(s.validations)) } };
+        }
         case "loadSnapshotJson":
         case "saveSnapshotJson":
           throw new Fail("internal", "not supported by the fake backend");
@@ -1057,6 +1225,7 @@ function mergePatch(into: CalcPatch, p: CalcPatch): void {
   if (p.styles) into.styles = p.styles;
   if (p.cycle) into.cycle = p.cycle;
   if (p.activateSheet !== undefined) into.activateSheet = p.activateSheet;
+  if (p.cfSheets) into.cfSheets = [...new Set([...(into.cfSheets ?? []), ...p.cfSheets])];
   for (const g of p.merges ?? []) {
     into.merges = (into.merges ?? []).filter((x) => x.sheet !== g.sheet);
     into.merges.push({ sheet: g.sheet, merges: g.merges.map((m) => ({ ...m })) });

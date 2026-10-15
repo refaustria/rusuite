@@ -120,6 +120,280 @@ pub struct InlineImage {
     /// Object name (docx `wp:docPr/@name`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Floating placement (docx `wp:anchor`); `None` = inline with the
+    /// text (`wp:inline`). The image stays at its position in the
+    /// paragraph, which is its anchor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub anchor: Option<Anchor>,
+}
+
+/// What a floating object's horizontal position is measured from
+/// (docx `wp:positionH/@relativeFrom`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum HRelative {
+    /// The page margins (left margin to right margin).
+    Margin,
+    /// The page edge.
+    Page,
+    /// The text column holding the anchor paragraph.
+    #[default]
+    Column,
+    /// The character at the anchor position.
+    Character,
+}
+
+/// What a floating object's vertical position is measured from
+/// (docx `wp:positionV/@relativeFrom`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum VRelative {
+    /// The page margins (top margin to bottom margin).
+    Margin,
+    /// The page edge.
+    Page,
+    /// The top of the anchor paragraph.
+    #[default]
+    Paragraph,
+    /// The line holding the anchor position.
+    Line,
+}
+
+/// Horizontal alignment of a floating object relative to its reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum HAlign {
+    /// Left edge.
+    Left,
+    /// Centered.
+    Center,
+    /// Right edge.
+    Right,
+}
+
+/// Vertical alignment of a floating object relative to its reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum VAlignPos {
+    /// Top edge.
+    Top,
+    /// Centered.
+    Center,
+    /// Bottom edge.
+    Bottom,
+}
+
+/// A position along one axis: aligned to the reference, or at an offset
+/// from its start (left/top edge).
+///
+/// Serializes as `{"kind":"align","value":"center"}` or
+/// `{"kind":"offset","value":914400}` (EMU).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum Placement<A> {
+    /// Aligned (docx `wp:align`).
+    Align(A),
+    /// Offset in EMU (docx `wp:posOffset`).
+    Offset(#[cfg_attr(feature = "ts", ts(type = "number"))] Emu),
+}
+
+/// Horizontal position of a floating object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct HPos {
+    /// Reference.
+    pub relative_to: HRelative,
+    /// Alignment or offset.
+    pub place: Placement<HAlign>,
+}
+
+/// Vertical position of a floating object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct VPos {
+    /// Reference.
+    pub relative_to: VRelative,
+    /// Alignment or offset.
+    pub place: Placement<VAlignPos>,
+}
+
+/// How text flows around a floating object (Word's "Wrap Text").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum WrapKind {
+    /// Around the bounding box (`wp:wrapSquare`).
+    #[default]
+    Square,
+    /// Along the outline (`wp:wrapTight`; `wp:wrapThrough` is read as
+    /// this).
+    Tight,
+    /// Above and below only (`wp:wrapTopAndBottom`).
+    TopAndBottom,
+    /// No wrapping, behind the text (`wp:wrapNone` + `behindDoc="1"`).
+    Behind,
+    /// No wrapping, in front of the text (`wp:wrapNone` + `behindDoc="0"`).
+    InFront,
+}
+
+/// Which sides of a [`WrapKind::Square`]/[`WrapKind::Tight`] object text
+/// flows on (docx `wrapText`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum WrapSide {
+    /// Both sides.
+    #[default]
+    Both,
+    /// Left side only.
+    Left,
+    /// Right side only.
+    Right,
+    /// The wider side.
+    Largest,
+}
+
+/// Distance between a floating object and the text, in EMU (docx
+/// `distT/distB/distL/distR`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct Insets {
+    /// Above.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub top: Emu,
+    /// Below.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub bottom: Emu,
+    /// Left.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub left: Emu,
+    /// Right.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub right: Emu,
+}
+
+impl Insets {
+    /// Word's default for square wrapping: 0.32 cm (114300 EMU) left and
+    /// right, nothing above and below.
+    pub fn word_default() -> Self {
+        Self {
+            top: Emu(0),
+            bottom: Emu(0),
+            left: Emu(114_300),
+            right: Emu(114_300),
+        }
+    }
+}
+
+/// Placement of a floating image (Word's "Layout Options").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct Anchor {
+    /// Horizontal position.
+    pub h: HPos,
+    /// Vertical position.
+    pub v: VPos,
+    /// Text wrapping. [`WrapKind::Behind`] / [`WrapKind::InFront`] are
+    /// docx `wrapNone` with `behindDoc` 1 / 0.
+    #[serde(default)]
+    pub wrap: WrapKind,
+    /// Sides text flows on (square and tight wrapping).
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub wrap_side: WrapSide,
+    /// Distance from the text.
+    #[serde(default)]
+    pub distance: Insets,
+    /// May overlap other floating objects (docx `allowOverlap`).
+    #[serde(default)]
+    pub allow_overlap: bool,
+}
+
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
+impl Anchor {
+    /// Word's default when an inline image is switched to a wrapping
+    /// mode: at offset 0 from the column and the paragraph, Word's
+    /// distances, overlap allowed.
+    pub fn new(wrap: WrapKind) -> Self {
+        Self {
+            h: HPos {
+                relative_to: HRelative::Column,
+                place: Placement::Offset(Emu(0)),
+            },
+            v: VPos {
+                relative_to: VRelative::Paragraph,
+                place: Placement::Offset(Emu(0)),
+            },
+            wrap,
+            wrap_side: WrapSide::Both,
+            distance: match wrap {
+                WrapKind::Square | WrapKind::Tight => Insets::word_default(),
+                _ => Insets::default(),
+            },
+            allow_overlap: true,
+        }
+    }
+
+    /// Whether the object sits behind the text (docx `behindDoc`).
+    pub fn behind_text(&self) -> bool {
+        self.wrap == WrapKind::Behind
+    }
 }
 
 /// What a [`Field`] computes.

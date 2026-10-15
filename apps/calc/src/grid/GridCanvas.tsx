@@ -14,12 +14,13 @@ import { sheetViewOf, useCalc, type CalcStore } from "../state/store";
 import { drawFilterButtons, filterButton, filterButtonAt, filterButtons, filteredRowSpan } from "../sortFilter/filter";
 import { CellEditor } from "./CellEditor";
 import { SpillIndicator, SPILL_TAG_W } from "./SpillIndicator";
+import { ValidationOverlay } from "../validation/ValidationOverlay";
 import { spillOutlineOps } from "./spill";
 import { mergeAt } from "./merges";
 import { axisScrollTo, axisToScreen, mainPane, panes, toSheet, type PaneLayout } from "./panes";
 import {
   computeRenderOps, drawFreezeLines, drawHeaders, drawOps, drawRefHighlights, drawSelection, HEADER_H, HEADER_W, prepareCanvas, rangeRect,
-  visibleRange, type RefHighlight, type SheetData,
+  visibleRange, type RefHighlight, type RenderOp, type SheetData,
 } from "./render";
 import {
   cellSelection, colSelection, contains, isWholeCols, isWholeRows, LAST_COL, LAST_ROW, navigate, normalize, pointerSelect, rowSelection,
@@ -91,6 +92,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const perfBox = useRef<HTMLDivElement>(null);
   const editorBox = useRef<HTMLDivElement>(null);
   const spillBox = useRef<HTMLDivElement>(null);
+  const validationBox = useRef<HTMLDivElement>(null);
   const raf = useRef<number | null>(null);
   const grow = useRef({ rows: 0, cols: 0 });
   const resizePreview = useRef<{ axis: "col" | "row"; index: number; size: number } | null>(null);
@@ -110,7 +112,10 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const sheet = store.getState().activeSheet;
     const cache = store.cache(sheet);
     const geo = store.geometry(sheet);
-    return { cells: cache.cells, cols: cache.cols, rows: cache.rows, colGeo: geo.col, rowGeo: geo.row, merges: cache.merges };
+    return {
+      cells: cache.cells, cols: cache.cols, rows: cache.rows, colGeo: geo.col, rowGeo: geo.row, merges: cache.merges,
+      cf: cache.cf, barAxes: cache.cf.size > 0 ? store.barAxes(sheet) : undefined,
+    };
   }, [store]);
 
   /** Header sizes (0 when the sheet hides its headings). */
@@ -204,6 +209,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       const sortState = store.sortState();
       // The spill range around the active cell: blue, dashed red when blocked (`#SPILL!`).
       const spill = edit ? null : store.activeSpill();
+      const cfOps: RenderOp[] = [];
       for (const q of quads) {
         const vp = q.vp;
         cctx.save();
@@ -212,6 +218,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         cctx.rect(0, 0, vp.width, vp.height);
         cctx.clip();
         const base = computeRenderOps(vp, data, store.styles(), store.measure);
+        if (data.cf && data.cf.size > 0) for (const o of base) if (o.op === "bar" || o.op === "icon") cfOps.push(o);
         drawOps(cctx, store.sheetView().showGridlines ? base : base.filter((o) => o.op !== "gridlines"), null);
         drawSelection(cctx, vp, data, sel, state.selection.anchor);
         if (spill) drawOps(cctx, spillOutlineOps(vp, data, spill), null);
@@ -250,6 +257,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         if (marks.length > 0) drawRefHighlights(cctx, vp, data, marks);
         cctx.restore();
       }
+      // Render-op hook for the end-to-end tests: the data bars and icons of the last frame.
+      (window as unknown as { __calcCfOps?: RenderOp[] }).__calcCfOps = cfOps;
       drawFreezeLines(cctx, l);
       if (!edit) {
         const h = handleRect(sel);
@@ -290,6 +299,16 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       box.style.top = `${hh + screenY(l, data.rowGeo.offset(m.r0))}px`;
       box.style.minWidth = `${data.colGeo.offset(m.c1 + 1) - data.colGeo.offset(m.c0) + 1}px`;
       box.style.height = `${data.rowGeo.offset(m.r1 + 1) - data.rowGeo.offset(m.r0) + 1}px`;
+    }
+
+    const vbox = validationBox.current;
+    if (vbox) {
+      const a = store.activeAnchor();
+      const m = mergeAt(data.merges ?? [], a.row, a.col) ?? { r0: a.row, c0: a.col, r1: a.row, c1: a.col };
+      vbox.style.left = `${hw + screenX(l, data.colGeo.offset(m.c0))}px`;
+      vbox.style.top = `${hh + screenY(l, data.rowGeo.offset(m.r0))}px`;
+      vbox.style.width = `${data.colGeo.offset(m.c1 + 1) - data.colGeo.offset(m.c0)}px`;
+      vbox.style.height = `${data.rowGeo.offset(m.r1 + 1) - data.rowGeo.offset(m.r0)}px`;
     }
 
     const tag = spillBox.current;
@@ -682,6 +701,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       const af = store.autoFilter();
       const { row, col } = store.activeAnchor();
       if (af && row === af.r0 && col >= af.c0 && col <= af.c1) openFilterMenu(col);
+      else store.openValidationList?.();
       return;
     }
     const next = navigate(store.getState().selection, { key, shift: e.shiftKey, ctrl }, store.navContext(pageRows()));
@@ -778,6 +798,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         </div>
         {editing && <CellEditor store={store} boxRef={editorBox} onMount={draw} />}
         <SpillIndicator store={store} boxRef={spillBox} onMount={draw} />
+        <ValidationOverlay store={store} boxRef={validationBox} onMount={draw} />
         {showPerf && (
           <div
             ref={perfBox}
