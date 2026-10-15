@@ -60,6 +60,13 @@ export function RecoveryBanner({ session }: { session: AnySession }) {
           </li>
         ))}
       </ul>
+      {recoveries.length > 1 && (
+        <div>
+          <button type="button" className={BTN} disabled={busy !== null} onClick={() => void run("*", () => s.discardAll())}>
+            Discard all
+          </button>
+        </div>
+      )}
     </section>
   );
 }

@@ -3,7 +3,7 @@
 // (state/shortcuts.ts) and `ShowStore.shortcut`.
 
 import { useMemo, useState } from "react";
-import { PromptDialog, ShortcutHelp, fromField, useShortcuts, withExtension, type ShortcutEntry, type ShortcutMap } from "@rusuite/ui-shared";
+import { PromptDialog, ShortcutHelp, fromField, useShortcuts, withExtension, type ShortcutEntry, type ShortcutMap, type UnsavedGuard } from "@rusuite/ui-shared";
 import type { RunProperties } from "../../../packages/ui-shared/src/generated/RunProperties";
 import { shortcutFor } from "./state/shortcuts";
 import type { ShowStore } from "./state/store";
@@ -11,6 +11,8 @@ import { formattingOf } from "./ui/ShowToolbar";
 
 export interface ShowShortcutProps {
   store: ShowStore;
+  /** Asks about unsaved changes before New / Open. */
+  guard: UnsavedGuard;
   /** Shortcuts are off while presenting (the presenter has its own keys). */
   enabled: boolean;
   /** Starts the show; `fromStart` = from the first slide, else from the current one. */
@@ -31,7 +33,7 @@ function action(store: ShowStore, label: string, group: string): ShortcutEntry {
   };
 }
 
-export function ShortcutLayer({ store, enabled, onPresent, onExportPdf }: ShowShortcutProps) {
+export function ShortcutLayer({ store, guard, enabled, onPresent, onExportPdf }: ShowShortcutProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
 
@@ -62,16 +64,8 @@ export function ShortcutLayer({ store, enabled, onPresent, onExportPdf }: ShowSh
     const edit = (label: string) => action(store, label, "Edit");
     const slide = (label: string) => action(store, label, "Slide");
     return {
-      "Mod+N": {
-        label: "New presentation",
-        group: File,
-        inField: true,
-        run: () => {
-          if (store.getState().dirty && typeof window.confirm === "function" && !window.confirm("Discard unsaved changes?")) return;
-          void store.newFile();
-        },
-      },
-      "Mod+O": { label: "Open", group: File, inField: true, run: fileIo(() => void store.open()) },
+      "Mod+N": { label: "New presentation", group: File, inField: true, run: () => void guard.run(() => store.newFile()) },
+      "Mod+O": { label: "Open", group: File, inField: true, run: fileIo(() => void guard.run(() => store.open())) },
       "Mod+S": { label: "Save", group: File, inField: true, run: fileIo(() => void store.save()) },
       "Mod+Shift+S": { label: "Save as", group: File, inField: true, run: fileIo(() => setSaveAsOpen(true)) },
       "Mod+P": { label: "Export PDF…", group: File, inField: true, run: () => onExportPdf() },
@@ -111,7 +105,7 @@ export function ShortcutLayer({ store, enabled, onPresent, onExportPdf }: ShowSh
       "Shift+ArrowUp": slide("Nudge up by 10"),
       "Shift+ArrowDown": slide("Nudge down by 10"),
     };
-  }, [store, onPresent, onExportPdf]);
+  }, [store, guard, onPresent, onExportPdf]);
 
   useShortcuts(map, { enabled });
 

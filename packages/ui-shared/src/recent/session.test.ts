@@ -171,6 +171,7 @@ describe("DocumentSession recovery", () => {
     const session = new DocumentSession(fakeBackend(new FakeCore(), storage), {
       docId: "me",
       target: null,
+      now: () => 10,
       locks: locks as unknown as LockManager,
     });
     await session.start();

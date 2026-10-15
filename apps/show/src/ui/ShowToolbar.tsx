@@ -571,7 +571,7 @@ export function ShowRibbon({ store, session, onPresent, onExportPdf, zoom, onZoo
         backstage={{
           session,
           onNew: () => triggerShortcut("Mod+N"),
-          onOpen: () => void store.open(),
+          onOpen: () => triggerShortcut("Mod+O"),
           onSave: () => void store.save(),
           onSaveAs: () => triggerShortcut("Mod+Shift+S"),
           onExportPdf,

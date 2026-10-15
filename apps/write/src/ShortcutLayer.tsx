@@ -30,6 +30,8 @@ const NATIVE_ROWS: HelpRow[] = [
 export interface WriteShortcutProps {
   editor: Editor | null;
   ctl: SyncController;
+  /** New document (asks about unsaved changes first). */
+  onNew: () => void;
   onOpen: () => void;
   onSave: () => void;
   onSaveAs: (name: string) => void;
@@ -55,7 +57,7 @@ function toggleHeading(editor: Editor, level: number): void {
   setParagraphStyle(editor, current === id ? "Normal" : id);
 }
 
-export function ShortcutLayer({ editor, ctl, onOpen, onSave, onSaveAs, onFind, onReplace, features, onExportPdf }: WriteShortcutProps) {
+export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, onFind, onReplace, features, onExportPdf }: WriteShortcutProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
 
@@ -81,15 +83,7 @@ export function ShortcutLayer({ editor, ctl, onOpen, onSave, onSaveAs, onFind, o
       };
     }
     return {
-      "Mod+N": {
-        label: "New document",
-        group: File,
-        inField: true,
-        run: () => {
-          if (ctl.getState().dirty && typeof window.confirm === "function" && !window.confirm("Discard unsaved changes?")) return;
-          void ctl.newDocument();
-        },
-      },
+      "Mod+N": { label: "New document", group: File, inField: true, run: () => onNew() },
       "Mod+O": { label: "Open", group: File, inField: true, run: () => void onOpen() },
       "Mod+S": { label: "Save", group: File, inField: true, run: () => void onSave() },
       "Mod+Shift+S": { label: "Save as", group: File, inField: true, run: () => setSaveAsOpen(true) },
@@ -132,7 +126,7 @@ export function ShortcutLayer({ editor, ctl, onOpen, onSave, onSaveAs, onFind, o
       },
       ...headings,
     };
-  }, [editor, ctl, onOpen, onSave, onFind, onReplace, features, onExportPdf]);
+  }, [editor, ctl, onNew, onOpen, onSave, onFind, onReplace, features, onExportPdf]);
 
   useShortcuts(map);
 

@@ -136,18 +136,34 @@ describe("Write shortcuts", () => {
     expect(backend.log.find((r) => r.type === "markSaved")).toEqual({ type: "markSaved", name: "report.docx" });
   });
 
-  it("Ctrl+N starts a new document; unsaved changes need a confirmation", async () => {
+  it("Ctrl+N starts a new document; unsaved changes ask Save / Don't save / Cancel", async () => {
     const { backend, editor } = await mount();
     fireEvent.keyDown(editor, ctrl("e"));
     await waitFor(() => expect(screen.getByTestId("dirty").textContent).toBe("Modified"));
     backend.log.length = 0;
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     fireEvent.keyDown(editor, ctrl("n"));
+    const ask = await screen.findByRole("dialog", { name: "Save changes to t.docx?" });
+    fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(backend.log.some((r) => r.type === "newDocument")).toBe(false);
     fireEvent.keyDown(editor, ctrl("n"));
+    fireEvent.click(await screen.findByRole("button", { name: "Don't save" }));
     await waitFor(() => expect(backend.log.some((r) => r.type === "newDocument")).toBe(true));
-    expect(confirm).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("Untitled"));
+  });
+
+  it("File › Open on a modified document: Save writes it under its name, then opens", async () => {
+    const { backend, editor } = await mount();
+    fireEvent.keyDown(editor, ctrl("e"));
+    await waitFor(() => expect(screen.getByTestId("dirty").textContent).toBe("Modified"));
+    const save = vi.spyOn(backend, "saveFile").mockResolvedValue(true);
+    const open = vi.mocked(backend.openFile);
+    open.mockClear();
+    fileCommand("Open…");
+    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(open).toHaveBeenCalled());
+    expect(save).toHaveBeenCalledWith("t.docx", expect.any(String));
+    expect(screen.queryByLabelText("File name")).toBeNull();
   });
 
   it("Ctrl+/ lists the shortcuts, including the editor-native ones", async () => {
