@@ -41,7 +41,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 |---|---|---|---|---|---|
 | P3-1 | `model-text` document model + `core_model::units`; ADR 0006 | Opus | in progress | `p3/model-text` | brief docs/tasks/P3-1-model-text.md |
 | P3-3 | Write app scaffold: `apps/write` core/src-tauri/src-wasm/Tiptap UI, deployed at /write/ | Sonnet | in progress | `p3/write-scaffold` | brief docs/tasks/P3-3-write-scaffold.md |
-| P3-6 | 50 provisional reference .docx files + manifest + docs/docx-suite.md | Sonnet | in progress | `p3/docx-testdata` | brief docs/tasks/P3-6-docx-reference-files.md |
+| P3-6 | 50 provisional reference .docx files + manifest + docs/docx-suite.md | Sonnet | done (merged) | – | verified: 50 files + manifest, 52/52 harness PASS, structural spot-checks OK; LibreOffice writes highlights as `w:shd` (reader must accept both) |
 | P3-2 | `fmt-docx` read/write ↔ model-text (document/styles/numbering/media/sectPr) + roundtrip tests over the manifest | Opus | todo | `p3/fmt-docx` | after P3-1 + P3-6 |
 | P3-4 | `write-core`: commands/patches, Tiptap↔Rust sync protocol (ADR 0007), find/replace, undo | Opus | todo | `p3/write-core` | after P3-1 |
 | P3-5 | Write UI: Tiptap schema mapping, transaction → command sync, toolbar from ui-shared | Opus | todo | `p3/write-ui` | after P3-4 |
