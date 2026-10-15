@@ -5,12 +5,13 @@
 // pointer positions map back per quadrant. Zoom, gridlines, headings and
 // the frozen panes are the active sheet's `SheetView`.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { ContextMenu, type ContextMenuItem } from "@rusuite/ui-shared";
 import { calcActions, cellMenu, colHeaderMenu, rowHeaderMenu } from "../calcActions";
 import type { Rect } from "../generated/Rect";
 import { fillTarget } from "../state/clipboard";
 import { sheetViewOf, useCalc, type CalcStore } from "../state/store";
+import { drawFilterButtons, filterButton, filterButtonAt, filterButtons, filteredRowSpan } from "../sortFilter/filter";
 import { CellEditor } from "./CellEditor";
 import { mergeAt } from "./merges";
 import { axisScrollTo, axisToScreen, mainPane, panes, toSheet, type PaneLayout } from "./panes";
@@ -71,6 +72,8 @@ type Hit =
   | { kind: "rowEdge"; row: number }
   | { kind: "cell"; cell: Cell }
   | { kind: "fillHandle" }
+  /** The AutoFilter dropdown button of a header cell. */
+  | { kind: "filterButton"; col: number }
   | { kind: "none" };
 
 export function GridCanvas({ store, showPerf = false }: { store: CalcStore; showPerf?: boolean }) {
@@ -194,6 +197,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       }
       const mark = state.clipMark && state.clipMark.sheet === state.activeSheet ? state.clipMark : null;
       const fp = fillPreview.current;
+      const af = store.autoFilter();
+      const sortState = store.sortState();
       for (const q of quads) {
         const vp = q.vp;
         cctx.save();
@@ -204,6 +209,13 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         const base = computeRenderOps(vp, data, store.styles(), store.measure);
         drawOps(cctx, store.sheetView().showGridlines ? base : base.filter((o) => o.op !== "gridlines"), null);
         drawSelection(cctx, vp, data, sel, state.selection.anchor);
+        if (af) {
+          // AutoFilter dropdowns on the header row (over the selection, as in Excel).
+          const vis = visibleRange(vp, data.colGeo, data.rowGeo);
+          if (af.r0 >= vis.r0 && af.r0 <= vis.r1) {
+            drawFilterButtons(cctx, filterButtons(data.colGeo, data.rowGeo, af, vis.c0, vis.c1, sortState), vp.scrollX, vp.scrollY);
+          }
+        }
         if (mark) {
           // Marching ants around the copied / cut range.
           const r = rangeRect(vp, data, mark.range);
@@ -245,7 +257,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     }
     const hctx = hw > 0 && headerCanvas.current && prepareCanvas(headerCanvas.current, l.width + HEADER_W, l.height + HEADER_H, zoomNow);
     if (hctx) {
-      drawHeaders(hctx, l, data, sel, { bg: "#f3f3f3", fg: "#444", line: "#c8c8c8", active: "#d3e3d8" });
+      drawHeaders(hctx, l, data, sel, { bg: "#f3f3f3", fg: "#444", line: "#c8c8c8", active: "#d3e3d8" }, filteredRowSpan(store.autoFilter()));
       const p = resizePreview.current;
       if (p) {
         hctx.strokeStyle = "#217346";
@@ -413,6 +425,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       if (cy - start <= RESIZE_SLOP / 2 && row > 0) return { kind: "rowEdge", row: row - 1 };
       return { kind: "rowHeader", row };
     }
+    const filterCol = filterButtonAt(data.colGeo, data.rowGeo, store.autoFilter(), cx, cy);
+    if (filterCol !== null) return { kind: "filterButton", col: filterCol };
     return { kind: "cell", cell: { row: data.rowGeo.indexAt(cy), col: data.colGeo.indexAt(cx) } };
   };
 
@@ -451,10 +465,40 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
   // --- mouse ------------------------------------------------------------
 
+  /** Opens the AutoFilter dropdown of column `col` under its header cell. */
+  const openFilterMenu = (col: number) => {
+    const el = scroller.current;
+    const af = store.autoFilter();
+    const b = af && filterButton(sheetData().colGeo, sheetData().rowGeo, af, col);
+    if (!el || !af || !b) return;
+    const data = sheetData();
+    const l = layout();
+    const { hw, hh } = headerSize();
+    const rect = el.getBoundingClientRect();
+    const scale = screenScale(el);
+    const x = rect.left + (hw + screenX(l, data.colGeo.offset(col))) * scale;
+    const y = rect.top + (hh + screenY(l, data.rowGeo.offset(af.r0 + 1))) * scale;
+    store.openDialog({ kind: "filterMenu", col, at: { x: Math.max(0, x), y: Math.max(0, y) } });
+  };
+
+  // Pointer events (mobile guardrail): a press on a filter button opens its dropdown; the rest is the mouse path below.
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const hit = hitTest(e.clientX, e.clientY);
+    if (hit.kind !== "filterButton") return;
+    e.preventDefault();
+    openFilterMenu(hit.col);
+  };
+
   const onMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const hit = hitTest(e.clientX, e.clientY);
     if (hit.kind === "none") return;
+    if (hit.kind === "filterButton") {
+      // Handled on pointerdown; keep the selection and the focus where they are.
+      e.preventDefault();
+      return;
+    }
     e.preventDefault();
     const edit = store.getState().edit;
     if (edit && (hit.kind === "cell" || hit.kind === "colHeader" || hit.kind === "rowHeader") && store.canPoint()) {
@@ -585,7 +629,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const onMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
     const cursor =
-      hit.kind === "colEdge" ? "col-resize" : hit.kind === "rowEdge" ? "row-resize" : hit.kind === "fillHandle" ? "crosshair" : "cell";
+      hit.kind === "colEdge" ? "col-resize" : hit.kind === "rowEdge" ? "row-resize" : hit.kind === "fillHandle" ? "crosshair" : hit.kind === "filterButton" ? "default" : "cell";
     if (scroller.current && scroller.current.style.cursor !== cursor) scroller.current.style.cursor = cursor;
   };
 
@@ -617,6 +661,14 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     if (key === "Escape" && store.getState().clipMark) {
       e.preventDefault();
       store.clearClip();
+      return;
+    }
+    if (key === "ArrowDown" && e.altKey && !ctrl) {
+      // Alt+↓ on an AutoFilter header cell opens its dropdown (Excel).
+      e.preventDefault();
+      const af = store.autoFilter();
+      const { row, col } = store.activeAnchor();
+      if (af && row === af.r0 && col >= af.c0 && col <= af.c1) openFilterMenu(col);
       return;
     }
     const next = navigate(store.getState().selection, { key, shift: e.shiftKey, ctrl }, store.navContext(pageRows()));
@@ -655,7 +707,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
   const onContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
-    if (hit.kind === "none" || hit.kind === "corner" || store.getState().edit) return;
+    if (hit.kind === "none" || hit.kind === "corner" || hit.kind === "filterButton" || store.getState().edit) return;
     e.preventDefault();
     const sel = normalize(store.getState().selection);
     let items: ContextMenuItem[];
@@ -699,6 +751,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           className="absolute inset-0 overflow-auto outline-none"
           style={{ cursor: "cell" }}
           onScroll={onScroll}
+          onPointerDown={onPointerDown}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onDoubleClick={onDoubleClick}

@@ -1,14 +1,17 @@
-//! The [`Document`]: body, styles, numbering, page setup and media.
+//! The [`Document`]: body, styles, numbering, sections, notes and media.
+
+use std::collections::HashMap;
 
 use core_model::RunProperties;
 use serde::{Deserialize, Serialize};
 
-use crate::block::{Block, NodeId, Paragraph};
-use crate::inline::{Inline, Run};
+use crate::block::{Block, NodeId, Paragraph, TocEntry};
+use crate::inline::{Field, FieldKind, Inline, Run};
 use crate::media::MediaStore;
-use crate::numbering::Numbering;
-use crate::page::PageSetup;
-use crate::props::ParagraphProperties;
+use crate::numbering::{ListCounter, Numbering};
+use crate::page::{PageSetup, PAGE_FIELD};
+use crate::props::{NumberingRef, ParagraphProperties};
+use crate::section::{HeaderSlot, Note, Section, SectionId};
 use crate::style::{StyleKind, StyleSheet};
 
 /// A Write document.
@@ -29,8 +32,20 @@ pub struct Document {
     pub styles: StyleSheet,
     /// List definitions.
     pub numbering: Numbering,
-    /// Page size and margins.
+    /// Page size and margins of the last section (mirrored into
+    /// `sections`' last entry by [`Document::sync_sections`]); its
+    /// `header_text`/`footer_text` are the derived plain text of the last
+    /// section's default header/footer.
     pub page: PageSetup,
+    /// Sections in order (at least one after [`Document::normalize`]); see
+    /// [`crate::section`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Section>>"))]
+    pub sections: Vec<Section>,
+    /// Footnotes and endnotes (ids unique across both kinds).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Note>>"))]
+    pub notes: Vec<Note>,
     /// Images and other binary parts.
     #[cfg_attr(feature = "ts", ts(as = "Vec<crate::media::MediaItem>"))]
     pub media: MediaStore,
@@ -46,24 +61,51 @@ impl Default for Document {
 
 impl Document {
     /// A new document: one empty Normal paragraph, Word's default styles,
-    /// A4 page, no lists, no media.
+    /// one A4 section without headers, no lists, notes or media.
     pub fn new() -> Self {
         let mut doc = Self::empty(StyleSheet::office_defaults(), PageSetup::a4());
         let id = doc.alloc_id();
         doc.body.push(Block::Paragraph(Paragraph::new(id)));
+        doc.sync_sections();
         doc
     }
 
-    /// A document with an empty body (not normalized), e.g. for importers.
+    /// A document with an empty body and no sections (not normalized),
+    /// e.g. for importers.
     pub fn empty(styles: StyleSheet, page: PageSetup) -> Self {
         Self {
             body: Vec::new(),
             styles,
             numbering: Numbering::default(),
             page,
+            sections: Vec::new(),
+            notes: Vec::new(),
             media: MediaStore::new(),
             next_id: 1,
         }
+    }
+
+    /// Every block container: the body, then each note's blocks, then the
+    /// headers and footers of each section.
+    pub fn containers(&self) -> impl Iterator<Item = &Vec<Block>> {
+        std::iter::once(&self.body)
+            .chain(self.notes.iter().map(|n| &n.blocks))
+            .chain(
+                self.sections
+                    .iter()
+                    .flat_map(|s| s.headers.slots().chain(s.footers.slots()).map(|(_, b)| b)),
+            )
+    }
+
+    /// Mutable [`Document::containers`].
+    pub fn containers_mut(&mut self) -> impl Iterator<Item = &mut Vec<Block>> {
+        std::iter::once(&mut self.body)
+            .chain(self.notes.iter_mut().map(|n| &mut n.blocks))
+            .chain(
+                self.sections
+                    .iter_mut()
+                    .flat_map(|s| s.headers.blocks_mut().chain(s.footers.blocks_mut())),
+            )
     }
 
     /// Allocates a fresh, document-unique node id.
@@ -80,22 +122,40 @@ impl Document {
         self.next_id = self.next_id.max(id.0.saturating_add(1));
     }
 
-    /// The paragraph or table with id `id`, searching inside tables.
+    /// The block with id `id`, searching inside tables, notes, headers
+    /// and footers.
     pub fn find_block(&self, id: NodeId) -> Option<&Block> {
-        find_in(&self.body, id)
+        self.containers().find_map(|c| find_in(c, id))
     }
 
-    /// Mutable access to the paragraph or table with id `id`.
+    /// Mutable access to the block with id `id` (see
+    /// [`find_block`](Self::find_block)).
     pub fn find_block_mut(&mut self, id: NodeId) -> Option<&mut Block> {
-        find_in_mut(&mut self.body, id)
+        self.containers_mut().find_map(|c| find_in_mut(c, id))
     }
 
-    /// The paragraph with id `id`, searching inside tables.
+    /// The note whose content holds the block `id` (at any depth).
+    pub fn note_of_block(&self, id: NodeId) -> Option<&Note> {
+        self.notes.iter().find(|n| find_in(&n.blocks, id).is_some())
+    }
+
+    /// The section (index) whose header or footer holds the block `id`.
+    pub fn header_of_block(&self, id: NodeId) -> Option<usize> {
+        self.sections.iter().position(|s| {
+            s.headers
+                .slots()
+                .chain(s.footers.slots())
+                .any(|(_, b)| find_in(b, id).is_some())
+        })
+    }
+
+    /// The paragraph with id `id` (see [`find_block`](Self::find_block)).
     pub fn find_paragraph(&self, id: NodeId) -> Option<&Paragraph> {
         self.find_block(id).and_then(Block::as_paragraph)
     }
 
-    /// All paragraphs in document order, including those in table cells.
+    /// All paragraphs of the body in document order, including those in
+    /// table cells (not those of notes, headers and footers).
     pub fn paragraphs(&self) -> impl Iterator<Item = &Paragraph> {
         paragraphs_in(&self.body)
     }
@@ -119,7 +179,7 @@ impl Document {
         self.paragraphs()
             .map(|p| {
                 p.text()
-                    .split(|c: char| c.is_whitespace() || c == '\u{FFFC}')
+                    .split(|c: char| c.is_whitespace() || matches!(c, '\u{FFFC}' | '\u{2}'))
                     .filter(|w| !w.is_empty())
                     .count()
             })
@@ -171,13 +231,19 @@ impl Document {
     }
 
     /// Canonicalizes the content: merges adjacent runs with equal
-    /// formatting, drops empty runs, and makes the body and every table
-    /// cell non-empty and end with a paragraph (adding an empty one if
-    /// needed, as Word requires). Text is preserved.
+    /// formatting, drops empty runs, and makes the body, every note,
+    /// header, footer and table cell non-empty and end with a paragraph
+    /// (adding an empty one if needed, as Word requires); resolves the
+    /// numbering levels ([`Numbering::resolve`]) and the sections
+    /// ([`Document::sync_sections`]). Text is preserved.
     pub fn normalize(&mut self) {
         let mut next_id = self.next_id;
-        normalize_blocks(&mut self.body, &mut next_id);
+        for c in self.containers_mut() {
+            normalize_blocks(c, &mut next_id);
+        }
         self.next_id = next_id;
+        self.numbering.resolve();
+        self.sync_sections();
     }
 
     /// Largest node id in use (0 if none).
@@ -197,12 +263,307 @@ impl Document {
             }
         }
         let mut max = 0;
-        walk(&self.body, &mut max);
+        for c in self.containers() {
+            walk(c, &mut max);
+        }
         max
+    }
+
+    // ----- lists ---------------------------------------------------------
+
+    /// The effective numbering of `p` (direct, else from its style chain);
+    /// `None` when not numbered (`num_id == 0` included).
+    pub fn numbering_of(&self, p: &Paragraph) -> Option<NumberingRef> {
+        let n = match p.props.numbering {
+            Some(n) => Some(n),
+            None => self
+                .effective_style(p)
+                .and_then(|s| self.styles.resolve_paragraph(s).numbering),
+        };
+        n.filter(|n| n.num_id != 0)
+    }
+
+    /// The list label of every numbered body paragraph (table cells
+    /// included) in document order, computed with Word's counting rules:
+    /// lists sharing an abstract definition share a counter; a level
+    /// restarts after a shallower level (or the level given by
+    /// `lvlRestart`) was used; a start override restarts a level the first
+    /// time its list uses it; `%n` placeholders show level n's current
+    /// number in that level's format (decimal throughout with `isLgl`), an
+    /// unused level showing its start value. Bullets give their character;
+    /// paragraphs with dangling references are left out.
+    pub fn list_numbers(&self) -> Vec<(NodeId, String)> {
+        let mut counter = ListCounter::default();
+        let mut style_nums: HashMap<&str, Option<NumberingRef>> = HashMap::new();
+        let mut out = Vec::new();
+        for p in self.paragraphs() {
+            let num = match p.props.numbering {
+                Some(n) => Some(n),
+                None => match self.effective_style(p) {
+                    Some(s) => *style_nums
+                        .entry(s)
+                        .or_insert_with(|| self.styles.resolve_paragraph(s).numbering),
+                    None => None,
+                },
+            };
+            let Some(num) = num.filter(|n| n.num_id != 0) else {
+                continue;
+            };
+            if let Some(label) = counter.next(&self.numbering, num) {
+                out.push((p.id, label));
+            }
+        }
+        out
+    }
+
+    // ----- table of contents ---------------------------------------------
+
+    /// The outline level (1-based) of `p`: N for a paragraph whose style,
+    /// or a style it is based on, is the built-in `Heading N` (id
+    /// `HeadingN` or name `heading N`, N = 1..9).
+    pub fn outline_level(&self, p: &Paragraph) -> Option<u8> {
+        let mut id = self.effective_style(p)?.to_owned();
+        for _ in 0..16 {
+            let style = self.styles.get(&id)?;
+            let level = heading_level(&style.id).or_else(|| {
+                let name = style.name.to_ascii_lowercase();
+                name.strip_prefix("heading ").and_then(heading_number)
+            });
+            if level.is_some() {
+                return level;
+            }
+            id = style.based_on.clone()?;
+        }
+        None
+    }
+
+    /// Entries for a table of contents over outline levels
+    /// `from..=to`: every non-empty heading of the body (table cells
+    /// included) in document order, `page: None`.
+    pub fn build_toc(&self, from: u8, to: u8) -> Vec<TocEntry> {
+        self.paragraphs()
+            .filter_map(|p| {
+                let level = self.outline_level(p)?;
+                if level < from || level > to {
+                    return None;
+                }
+                let text = p.display_text().replace('\t', " ").trim().to_owned();
+                (!text.is_empty()).then_some(TocEntry {
+                    text,
+                    level,
+                    page: None,
+                    target: p.id,
+                })
+            })
+            .collect()
+    }
+
+    // ----- sections ------------------------------------------------------
+
+    /// The index of the section holding the top-level body block that is
+    /// or contains `id`.
+    pub fn section_index_of(&self, id: NodeId) -> Option<usize> {
+        let mut idx = 0;
+        for b in &self.body {
+            if b.id() == id || find_in(std::slice::from_ref(b), id).is_some() {
+                return Some(idx.min(self.sections.len().saturating_sub(1)));
+            }
+            if let Block::Paragraph(p) = b {
+                if p.props.section_end.is_some()
+                    && p.props.section_end == self.sections.get(idx).map(|s| s.id)
+                    && idx + 1 < self.sections.len()
+                {
+                    idx += 1;
+                }
+            }
+        }
+        None
+    }
+
+    /// An unused section id.
+    pub fn next_section_id(&self) -> SectionId {
+        SectionId(self.sections.iter().map(|s| s.id.0).max().unwrap_or(0) + 1)
+    }
+
+    /// The effective header (`footer == false`) or footer of section
+    /// `index` in `slot`: its own, else the nearest previous section's
+    /// (Word's inheritance).
+    pub fn effective_header_footer(
+        &self,
+        index: usize,
+        footer: bool,
+        slot: HeaderSlot,
+    ) -> Option<&Vec<Block>> {
+        self.sections
+            .get(..=index)?
+            .iter()
+            .rev()
+            .find_map(|s| s.header_footer(footer).get(slot))
+    }
+
+    /// Replaces the default header (`footer == false`) or footer of the
+    /// last section by plain text (`{PAGE}` = page number field, one
+    /// paragraph per line, style `Header`/`Footer` when defined); `None`
+    /// or an empty string removes it. Updates
+    /// [`PageSetup::header_text`]/[`footer_text`](PageSetup::footer_text).
+    pub fn set_header_text(&mut self, footer: bool, text: Option<&str>) {
+        self.sync_sections();
+        let text = text.filter(|t| !t.is_empty());
+        let last = self.sections.len() - 1;
+        let blocks = match text {
+            Some(t) => Some(self.text_blocks(t, footer)),
+            None => {
+                let inherited = last > 0
+                    && self
+                        .effective_header_footer(last - 1, footer, HeaderSlot::Default)
+                        .is_some();
+                // An empty header stops the inheritance from the previous
+                // section.
+                inherited.then(|| vec![Block::Paragraph(Paragraph::new(self.alloc_id()))])
+            }
+        };
+        *self.sections[last]
+            .header_footer_mut(footer)
+            .get_mut(HeaderSlot::Default) = blocks;
+        self.sync_sections();
+    }
+
+    /// Header/footer blocks for plain `text` (see
+    /// [`set_header_text`](Self::set_header_text)).
+    pub fn text_blocks(&mut self, text: &str, footer: bool) -> Vec<Block> {
+        let style = if footer { "Footer" } else { "Header" };
+        let style = self.styles.get(style).map(|s| s.id.clone());
+        text.split('\n')
+            .map(|line| {
+                let mut p = Paragraph::new(self.alloc_id());
+                p.props.style.clone_from(&style);
+                for (i, piece) in line.split(PAGE_FIELD).enumerate() {
+                    if i > 0 {
+                        p.inlines.push(Inline::Field(Field {
+                            cached: "1".into(),
+                            ..Field::new(FieldKind::Page)
+                        }));
+                    }
+                    if !piece.is_empty() {
+                        p.inlines.push(Inline::Run(Run::new(piece)));
+                    }
+                }
+                Block::Paragraph(p)
+            })
+            .collect()
+    }
+
+    /// Restores the section invariants: at least one section (built from
+    /// [`Document::page`], its `header_text`/`footer_text` becoming the
+    /// default header/footer, when there is none); sections ordered as
+    /// their section-end paragraphs; sections other than the last whose
+    /// end paragraph is gone are dropped (their content joins the next
+    /// section, as when a section break is deleted in Word); the last
+    /// section's page setup is [`Document::page`]; every section's
+    /// `page.header_text`/`footer_text` and `Document::page`'s are the
+    /// plain text of the effective default header/footer. Section-end
+    /// marks that name no section (or a section already ended) are
+    /// ignored. Returns whether anything changed.
+    pub fn sync_sections(&mut self) -> bool {
+        let before = (self.sections.clone(), self.page.clone());
+        if self.sections.is_empty() {
+            let id = SectionId(1);
+            let page = self.page.clone();
+            let mut section = Section::new(id, page.clone());
+            for (text, footer) in [(&page.header_text, false), (&page.footer_text, true)] {
+                if let Some(t) = text.as_deref().filter(|t| !t.is_empty()) {
+                    *section
+                        .header_footer_mut(footer)
+                        .get_mut(HeaderSlot::Default) = Some(self.text_blocks(t, footer));
+                }
+            }
+            self.sections.push(section);
+        }
+        let Some(last) = self.sections.pop() else {
+            return true;
+        };
+        let mut rest = std::mem::take(&mut self.sections);
+        for b in &self.body {
+            let Some(id) = b.as_paragraph().and_then(|p| p.props.section_end) else {
+                continue;
+            };
+            if let Some(i) = rest.iter().position(|s| s.id == id) {
+                self.sections.push(rest.remove(i));
+            }
+        }
+        self.sections.push(last);
+        let n = self.sections.len();
+        let page = self.page.clone();
+        self.sections[n - 1].page = page;
+        for i in 0..n {
+            let header = self.header_text_of(i, false);
+            let footer = self.header_text_of(i, true);
+            let p = &mut self.sections[i].page;
+            p.header_text = header;
+            p.footer_text = footer;
+        }
+        self.page = self.sections[n - 1].page.clone();
+        before != (self.sections.clone(), self.page.clone())
+    }
+
+    /// Plain text of the effective default header/footer of section `i`:
+    /// paragraphs joined by `\n` (trailing empty ones dropped), the page
+    /// number field as [`PAGE_FIELD`], other fields as their result;
+    /// `None` if there is none or it is empty.
+    fn header_text_of(&self, i: usize, footer: bool) -> Option<String> {
+        let blocks = self.effective_header_footer(i, footer, HeaderSlot::Default)?;
+        let mut lines = Vec::new();
+        for p in paragraphs_in(blocks) {
+            let mut line = String::new();
+            for inline in &p.inlines {
+                match inline {
+                    Inline::Run(r) => line.push_str(&r.text),
+                    Inline::Field(f) if f.kind == FieldKind::Page => line.push_str(PAGE_FIELD),
+                    Inline::Field(f) => line.push_str(&f.cached),
+                    Inline::Break(_) => line.push(' '),
+                    Inline::Image(_) | Inline::NoteRef(_) => {}
+                }
+            }
+            lines.push(line);
+        }
+        while lines.last().is_some_and(String::is_empty) {
+            lines.pop();
+        }
+        (!lines.is_empty()).then(|| lines.join("\n"))
+    }
+
+    // ----- notes ---------------------------------------------------------
+
+    /// The note with id `id`.
+    pub fn note(&self, id: u32) -> Option<&Note> {
+        self.notes.iter().find(|n| n.id == id)
+    }
+
+    /// An unused note id (at least 2, so it never collides with the
+    /// separator ids `-1/0` (Word) or `0/1` (LibreOffice) in the file).
+    pub fn next_note_id(&self) -> u32 {
+        self.notes
+            .iter()
+            .map(|n| n.id + 1)
+            .max()
+            .unwrap_or(2)
+            .max(2)
     }
 }
 
-fn find_in(blocks: &[Block], id: NodeId) -> Option<&Block> {
+/// `N` of a `HeadingN` style id.
+fn heading_level(id: &str) -> Option<u8> {
+    id.strip_prefix("Heading").and_then(heading_number)
+}
+
+fn heading_number(n: &str) -> Option<u8> {
+    match n.parse::<u8>() {
+        Ok(v @ 1..=9) if n.len() == 1 => Some(v),
+        _ => None,
+    }
+}
+
+pub(crate) fn find_in(blocks: &[Block], id: NodeId) -> Option<&Block> {
     for b in blocks {
         if b.id() == id {
             return Some(b);
@@ -234,7 +595,8 @@ fn find_in_mut(blocks: &mut [Block], id: NodeId) -> Option<&mut Block> {
     None
 }
 
-fn paragraphs_in<'a>(blocks: &'a [Block]) -> Box<dyn Iterator<Item = &'a Paragraph> + 'a> {
+/// The paragraphs of `blocks` in order, including those in table cells.
+pub fn paragraphs_in<'a>(blocks: &'a [Block]) -> Box<dyn Iterator<Item = &'a Paragraph> + 'a> {
     Box::new(
         blocks
             .iter()
@@ -247,6 +609,7 @@ fn paragraphs_in<'a>(blocks: &'a [Block]) -> Box<dyn Iterator<Item = &'a Paragra
                             .flat_map(|r| &r.cells)
                             .flat_map(|c| paragraphs_in(&c.blocks)),
                     ),
+                    Block::Toc(_) => Box::new(std::iter::empty()),
                 }
             }),
     )
@@ -261,6 +624,7 @@ fn normalize_blocks(blocks: &mut Vec<Block>, next_id: &mut u64) {
                     normalize_blocks(&mut cell.blocks, next_id);
                 }
             }
+            Block::Toc(_) => {}
         }
     }
     if !matches!(blocks.last(), Some(Block::Paragraph(_))) {

@@ -2,8 +2,10 @@
 import type { Block } from "./Block";
 import type { InsertedBlock } from "./InsertedBlock";
 import type { NodeId } from "./NodeId";
+import type { Note } from "./Note";
 import type { Numbering } from "./Numbering";
 import type { PageSetup } from "./PageSetup";
+import type { Section } from "./Section";
 import type { StyleSheet } from "./StyleSheet";
 
 /**
@@ -16,7 +18,10 @@ import type { StyleSheet } from "./StyleSheet";
  * separately. Structural changes inside a table cell (blocks inserted,
  * deleted or replaced there, cell/row/column/table properties) report
  * the whole innermost table in `replaced`; text and paragraph-property
- * changes report just the paragraph, wherever it is.
+ * changes report just the paragraph, wherever it is. Paragraphs whose
+ * list label changed are reported in `replaced` too; every reported
+ * numbered paragraph carries its `listLabel`. Changes inside notes,
+ * headers and footers report all `notes` / `sections` instead.
  */
 export type WritePatch = { 
 /**
@@ -49,6 +54,14 @@ numbering: Numbering | null,
  * The page setup, when it changed.
  */
 page: PageSetup | null, 
+/**
+ * All sections (with their headers and footers), when they changed.
+ */
+sections?: Array<Section>, 
+/**
+ * All footnotes and endnotes, when they changed.
+ */
+notes?: Array<Note>, 
 /**
  * A message for the status bar (e.g. `"3 replacements"`).
  */

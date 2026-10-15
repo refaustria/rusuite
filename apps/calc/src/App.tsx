@@ -20,6 +20,12 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
   const cycle = useCalc(store, (s) => s.cycle);
   const warnings = useCalc(store, (s) => s.warnings);
   const t = useT();
+  // Excel's "n of m records found" while an AutoFilter filters the active sheet (a string: stable for the store hook).
+  const records = useCalc(store, (s) => {
+    void s.version;
+    const r = store.recordsFound();
+    return r ? t("calc.filter.records", { shown: formatNumber(r.shown), total: formatNumber(r.total) }) : "";
+  });
   return (
     <div className="flex items-center gap-4 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted" data-testid="status-bar">
       <span>{t("calc.status.revision", { revision })}</span>
@@ -30,6 +36,7 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
           {warnings.length === 1 ? warnings[0] : t("calc.status.warnings", { count: warnings.length, list: warnings.join("; ") })}
         </span>
       )}
+      {records && <span data-testid="filter-records">{records}</span>}
       {cycle && (
         <span role="status" className="font-medium text-red-700">
           {cycle}

@@ -36,8 +36,8 @@ mod text;
 mod tree;
 
 pub use command::{
-    ListKind, MarginsPatch, NewBlock, NewCell, NewParagraph, NewRow, NewTable, PageSetupPatch,
-    WriteCommand,
+    ListKind, MarginsPatch, NewBlock, NewCell, NewParagraph, NewRow, NewTable, NewToc,
+    PageSetupPatch, SectionPatch, WriteCommand,
 };
 pub use dispatch::{dispatch_with, Request, Response, ResponseBody, WriteHost};
 pub use doc::{WriteDocument, WriteError};

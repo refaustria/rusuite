@@ -7,12 +7,17 @@ use app_common::{Applied, DispatchError, Document as AppDocument};
 use core_model::Color;
 use model_text::media::{base64_decode, base64_encode};
 use model_text::{
-    Block, BorderSide, BorderStyle, CellProperties, Document, Inline, InlineImage, Media, NodeId,
-    NumberingDef, NumberingRef, Paragraph, ParagraphProperties, Run, RunProperties, StyleKind,
-    Table, TableBorders, TableCell, TableProperties, TableRow, Twips,
+    Block, BorderSide, BorderStyle, CellProperties, Document, Field, Indent, Inline, InlineImage,
+    LevelKind, LevelOverride, LineSpacing, Media, NodeId, Note, NoteKind, NoteRef, NumberingDef,
+    NumberingRef, PageSetup, Paragraph, ParagraphProperties, Run, RunProperties, Section,
+    SectionId, Spacing, Style, StyleKind, Table, TableBorders, TableCell, TableProperties,
+    TableRow, Toc, Twips,
 };
 
-use crate::command::{ListKind, NewBlock, NewCell, NewParagraph, NewRow, NewTable, WriteCommand};
+use crate::command::{
+    ListKind, NewBlock, NewCell, NewParagraph, NewRow, NewTable, PageSetupPatch, SectionPatch,
+    WriteCommand,
+};
 use crate::find::find_matches;
 use crate::patch::{InsertedBlock, WritePatch};
 use crate::text::{for_each_run_in, inherited_props, inlines_len, props_at, replace_range, slice};
@@ -98,6 +103,8 @@ pub struct WriteDocument {
     pub docx_context: Option<fmt_docx::DocxContext>,
     /// The file name the document was opened from (no directory).
     pub source_name: Option<String>,
+    /// List labels as last reported (see [`Document::list_numbers`]).
+    labels: HashMap<NodeId, String>,
 }
 
 impl Default for WriteDocument {
@@ -123,6 +130,8 @@ struct Changes {
     styles: bool,
     numbering: bool,
     page: bool,
+    sections: bool,
+    notes: bool,
     info: Option<String>,
 }
 
@@ -206,6 +215,14 @@ impl Ids {
                 id: self.resolve(doc, ch, Some(p.id))?,
                 props: p.props.clone(),
                 inlines: p.inlines.clone(),
+                list_label: None,
+            }),
+            NewBlock::Toc(t) => Block::Toc(Toc {
+                id: self.resolve(doc, ch, Some(t.id))?,
+                from_level: t.from_level.clamp(1, 9),
+                to_level: t.to_level.clamp(t.from_level.clamp(1, 9), 9),
+                title: t.title.clone(),
+                entries: t.entries.clone(),
             }),
             NewBlock::Table(t) => {
                 let id = self.resolve(doc, ch, Some(t.id))?;
@@ -286,6 +303,7 @@ impl WriteDocument {
             doc: Document::new(),
             docx_context: None,
             source_name: None,
+            labels: HashMap::new(),
         }
     }
 
@@ -293,19 +311,23 @@ impl WriteDocument {
     /// and normalizes it ([`Document::normalize`]).
     pub fn from_document(mut doc: Document) -> Result<Self, WriteError> {
         let mut seen = HashSet::new();
-        for id in subtree_ids(&doc.body) {
-            if !seen.insert(id) {
-                return Err(WriteError::InvalidDocument(format!(
-                    "node id {} is used twice",
-                    id.0
-                )));
+        for c in doc.containers() {
+            for id in subtree_ids(c) {
+                if !seen.insert(id) {
+                    return Err(WriteError::InvalidDocument(format!(
+                        "node id {} is used twice",
+                        id.0
+                    )));
+                }
             }
         }
         doc.normalize();
+        let labels = doc.list_numbers().into_iter().collect();
         Ok(WriteDocument {
             doc,
             docx_context: None,
             source_name: None,
+            labels,
         })
     }
 
@@ -349,6 +371,25 @@ impl WriteDocument {
         &self.doc
     }
 
+    /// A copy of the document for the UI: every numbered paragraph carries
+    /// its `listLabel`.
+    pub fn snapshot(&self) -> Document {
+        let mut doc = self.doc.clone();
+        for c in doc.containers_mut() {
+            for b in c.iter_mut() {
+                self.fill_labels(b);
+            }
+        }
+        doc
+    }
+
+    /// Sets `list_label` on the paragraphs inside `block`.
+    fn fill_labels(&self, block: &mut Block) {
+        for_each_paragraph_mut(block, &mut |p| {
+            p.list_label = self.labels.get(&p.id).cloned();
+        });
+    }
+
     /// The model document, consuming the wrapper.
     pub fn into_document(self) -> Document {
         self.doc
@@ -359,7 +400,7 @@ impl WriteDocument {
     fn para(&self, id: NodeId) -> R<&Paragraph> {
         match self.doc.find_block(id) {
             Some(Block::Paragraph(p)) => Ok(p),
-            Some(Block::Table(_)) => Err(invalid(format!("block {} is not a paragraph", id.0))),
+            Some(_) => Err(invalid(format!("block {} is not a paragraph", id.0))),
             None => Err(WriteError::UnknownBlock(id.0)),
         }
     }
@@ -367,7 +408,7 @@ impl WriteDocument {
     fn para_mut(&mut self, id: NodeId) -> R<&mut Paragraph> {
         match self.doc.find_block_mut(id) {
             Some(Block::Paragraph(p)) => Ok(p),
-            Some(Block::Table(_)) => Err(invalid(format!("block {} is not a paragraph", id.0))),
+            Some(_) => Err(invalid(format!("block {} is not a paragraph", id.0))),
             None => Err(WriteError::UnknownBlock(id.0)),
         }
     }
@@ -748,63 +789,7 @@ impl WriteDocument {
                     props: old,
                 })
             }
-            C::SetPage { patch } => {
-                let old = self.doc.page.clone();
-                let mut page = old.clone();
-                if let Some(o) = patch.orientation {
-                    page = page.with_orientation(o);
-                }
-                page.width = patch.width.unwrap_or(page.width);
-                page.height = patch.height.unwrap_or(page.height);
-                if let Some(m) = patch.margins {
-                    let pm = &mut page.margins;
-                    pm.top = m.top.unwrap_or(pm.top);
-                    pm.right = m.right.unwrap_or(pm.right);
-                    pm.bottom = m.bottom.unwrap_or(pm.bottom);
-                    pm.left = m.left.unwrap_or(pm.left);
-                    pm.header = m.header.unwrap_or(pm.header);
-                    pm.footer = m.footer.unwrap_or(pm.footer);
-                }
-                if let Some(t) = &patch.header_text {
-                    page.header_text = Some(t.clone()).filter(|t| !t.is_empty());
-                }
-                if let Some(t) = &patch.footer_text {
-                    page.footer_text = Some(t.clone()).filter(|t| !t.is_empty());
-                }
-                if [&page.header_text, &page.footer_text]
-                    .iter()
-                    .any(|t| t.as_deref().is_some_and(|t| t.contains('\r')))
-                {
-                    return Err(invalid("header/footer text must not contain \\r"));
-                }
-                let m = page.margins;
-                if page.width.0 <= 0
-                    || page.height.0 <= 0
-                    || page.content_width().0 <= 0
-                    || page.height.0 - m.top.0 - m.bottom.0 <= 0
-                {
-                    return Err(invalid("page setup leaves no room for text"));
-                }
-                self.doc.page = page;
-                ch.page = true;
-                Ok(C::SetPage {
-                    patch: crate::command::PageSetupPatch {
-                        orientation: Some(old.orientation),
-                        width: Some(old.width),
-                        height: Some(old.height),
-                        margins: Some(crate::command::MarginsPatch {
-                            top: Some(old.margins.top),
-                            right: Some(old.margins.right),
-                            bottom: Some(old.margins.bottom),
-                            left: Some(old.margins.left),
-                            header: Some(old.margins.header),
-                            footer: Some(old.margins.footer),
-                        }),
-                        header_text: Some(old.header_text.unwrap_or_default()),
-                        footer_text: Some(old.footer_text.unwrap_or_default()),
-                    },
-                })
-            }
+            C::SetPage { patch } => self.set_page(patch, ch),
             C::SetImageSize {
                 block,
                 offset,
@@ -886,6 +871,161 @@ impl WriteDocument {
                 whole_word,
                 all,
             } => self.find_replace(find, replace, *match_case, *whole_word, *all, ch),
+            C::InsertField {
+                block,
+                offset,
+                field,
+                cached,
+            } => {
+                let (at, _) = self.range(*block, *offset, *offset)?;
+                let props = inherited_props(self.para(*block)?, at);
+                let inline = Inline::Field(Field {
+                    kind: field.clone(),
+                    cached: cached.clone().unwrap_or_default(),
+                    props,
+                });
+                replace_range(self.para_mut(*block)?, at, at, vec![inline]);
+                ch.block(*block);
+                Ok(C::DeleteText {
+                    block: *block,
+                    from: *offset,
+                    to: *offset + 1,
+                })
+            }
+            C::InsertFootnote {
+                block,
+                offset,
+                text,
+                kind,
+            } => self.insert_footnote(*block, *offset, text, *kind, ch),
+            C::DeleteFootnote { id } => self.delete_footnote(*id, ch),
+            C::ReplaceNote { id, blocks } => {
+                let i = self
+                    .doc
+                    .notes
+                    .iter()
+                    .position(|n| n.id == *id)
+                    .ok_or_else(|| invalid(format!("unknown note {id}")))?;
+                let old = self.doc.notes.clone();
+                let freed = subtree_ids(&self.doc.notes[i].blocks);
+                let mut ids = Ids::new(&self.doc, &freed);
+                let mut new = blocks
+                    .iter()
+                    .map(|b| ids.block(&mut self.doc, ch, b))
+                    .collect::<R<Vec<_>>>()?;
+                if !matches!(new.last(), Some(Block::Paragraph(_))) {
+                    new.push(Block::Paragraph(Paragraph::new(self.doc.alloc_id())));
+                }
+                self.doc.notes[i].blocks = new;
+                ch.notes = true;
+                Ok(C::RestoreNotes { notes: old })
+            }
+            C::RestoreNotes { notes } => {
+                let old = std::mem::replace(&mut self.doc.notes, notes.clone());
+                self.reserve_all();
+                ch.notes = true;
+                Ok(C::RestoreNotes { notes: old })
+            }
+            C::RestoreStyles { styles } => {
+                let old = std::mem::replace(&mut self.doc.styles, styles.clone());
+                ch.styles = true;
+                Ok(C::RestoreStyles { styles: old })
+            }
+            C::RestoreSections { sections, page } => {
+                let old_sections = std::mem::replace(&mut self.doc.sections, sections.clone());
+                let old_page = std::mem::replace(&mut self.doc.page, page.clone());
+                self.reserve_all();
+                ch.sections = true;
+                ch.page = true;
+                Ok(C::RestoreSections {
+                    sections: old_sections,
+                    page: old_page,
+                })
+            }
+            C::InsertToc {
+                after,
+                from_level,
+                to_level,
+                title,
+                new_id,
+            } => {
+                let from = from_level.unwrap_or(1).clamp(1, 9);
+                let to = to_level.unwrap_or(3).clamp(from, 9);
+                let index = self.insert_index(*after, None)?;
+                let old_styles = self.doc.styles.clone();
+                self.ensure_toc_styles(to);
+                let mut ids = Ids::new(&self.doc, &[]);
+                let id = ids.resolve(&mut self.doc, ch, *new_id)?;
+                let toc = Toc {
+                    id,
+                    from_level: from,
+                    to_level: to,
+                    title: title.clone().filter(|t| !t.is_empty()),
+                    entries: self.doc.build_toc(from, to),
+                };
+                self.doc.body.insert(index, Block::Toc(toc));
+                ch.structural(&self.doc, None, &[id], &[]);
+                Ok(self.with_styles(C::DeleteBlocks { ids: vec![id] }, old_styles, ch))
+            }
+            C::UpdateToc { id, pages } => {
+                let Some(Block::Toc(old)) = self.doc.find_block(*id).cloned() else {
+                    return Err(match self.doc.find_block(*id) {
+                        Some(_) => invalid(format!("block {} is not a table of contents", id.0)),
+                        None => WriteError::UnknownBlock(id.0),
+                    });
+                };
+                let pages: HashMap<NodeId, u32> = pages.iter().copied().collect();
+                let mut entries = self.doc.build_toc(old.from_level, old.to_level);
+                for e in &mut entries {
+                    e.page = pages.get(&e.target).copied();
+                }
+                if let Some(Block::Toc(t)) = self.doc.find_block_mut(*id) {
+                    t.entries = entries;
+                }
+                ch.block(*id);
+                Ok(C::ReplaceBlocks {
+                    ids: vec![*id],
+                    blocks: vec![NewBlock::from(&Block::Toc(old))],
+                })
+            }
+            C::RestartList { block, start } => self.restart_list(*block, *start, ch),
+            C::ContinueList { block } => self.continue_list(*block, ch),
+            C::InsertSectionBreak { block, kind } => self.insert_section_break(*block, *kind, ch),
+            C::RemoveSectionBreak { section } => self.remove_section_break(*section, ch),
+            C::SetSection { section, patch } => self.set_section(*section, patch, ch),
+            C::SetHeaderFooter {
+                section,
+                footer,
+                slot,
+                blocks,
+            } => {
+                let i = self.section_index(*section)?;
+                let old = self.sections_state();
+                let freed = self.doc.sections[i]
+                    .header_footer(*footer)
+                    .get(*slot)
+                    .map(|b| subtree_ids(b))
+                    .unwrap_or_default();
+                let new = match blocks {
+                    None => None,
+                    Some(blocks) => {
+                        let mut ids = Ids::new(&self.doc, &freed);
+                        let mut new = blocks
+                            .iter()
+                            .map(|b| ids.block(&mut self.doc, ch, b))
+                            .collect::<R<Vec<_>>>()?;
+                        if !matches!(new.last(), Some(Block::Paragraph(_))) {
+                            new.push(Block::Paragraph(Paragraph::new(self.doc.alloc_id())));
+                        }
+                        Some(new)
+                    }
+                };
+                *self.doc.sections[i]
+                    .header_footer_mut(*footer)
+                    .get_mut(*slot) = new;
+                ch.sections = true;
+                Ok(old)
+            }
             C::Compound { commands } => {
                 let mut inverses = Vec::with_capacity(commands.len());
                 for cmd in commands {
@@ -905,6 +1045,522 @@ impl WriteDocument {
                 Ok(C::Compound { commands: inverses })
             }
         }
+    }
+
+    /// Makes sure `alloc_id` never returns an id used anywhere (after
+    /// whole notes or sections were put back).
+    fn reserve_all(&mut self) {
+        let ids: Vec<NodeId> = all_ids(&self.doc).into_iter().collect();
+        for id in ids {
+            self.doc.reserve_id(id);
+        }
+    }
+
+    /// `RestoreSections` with the current sections and page setup.
+    fn sections_state(&self) -> C {
+        C::RestoreSections {
+            sections: self.doc.sections.clone(),
+            page: self.doc.page.clone(),
+        }
+    }
+
+    /// The index of section `id`.
+    fn section_index(&self, id: SectionId) -> R<usize> {
+        self.doc
+            .sections
+            .iter()
+            .position(|s| s.id == id)
+            .ok_or_else(|| invalid(format!("unknown section {}", id.0)))
+    }
+
+    /// `inverse`, plus restoring `old` styles if the command changed them.
+    fn with_styles(&self, inverse: C, old: model_text::StyleSheet, ch: &mut Changes) -> C {
+        if self.doc.styles == old {
+            return inverse;
+        }
+        ch.styles = true;
+        C::Compound {
+            commands: vec![inverse, C::RestoreStyles { styles: old }],
+        }
+    }
+
+    /// Adds a style unless one with its id exists.
+    fn ensure_style(&mut self, style: Style) {
+        if self.doc.styles.get(&style.id).is_none() {
+            self.doc.styles.insert(style);
+        }
+    }
+
+    /// Word's `TOC Heading` and `TOC 1…to` styles, when missing.
+    fn ensure_toc_styles(&mut self, to: u8) {
+        let normal = self.default_style().unwrap_or_else(|| "Normal".to_owned());
+        let based = self.doc.styles.get(&normal).map(|_| normal.clone());
+        // TOC Heading looks like Heading 1 (Word bases it on Heading 1 with
+        // outline level "body text"; here it copies its formatting).
+        let (paragraph, run) = match self.doc.styles.get("Heading1") {
+            Some(_) => {
+                let mut p = self.doc.styles.resolve_paragraph("Heading1");
+                p.style = None;
+                p.numbering = None;
+                (p, self.doc.styles.resolve_run("Heading1"))
+            }
+            None => (ParagraphProperties::default(), RunProperties::default()),
+        };
+        self.ensure_style(Style {
+            id: "TOCHeading".into(),
+            name: "TOC Heading".into(),
+            kind: StyleKind::Paragraph,
+            based_on: based.clone(),
+            next: based.clone(),
+            paragraph,
+            run,
+            is_default: false,
+        });
+        for level in 1..=to {
+            self.ensure_style(Style {
+                id: format!("TOC{level}"),
+                name: format!("toc {level}"),
+                kind: StyleKind::Paragraph,
+                based_on: based.clone(),
+                next: based.clone(),
+                paragraph: ParagraphProperties {
+                    spacing: Some(Spacing {
+                        after: Some(Twips(100)),
+                        ..Default::default()
+                    }),
+                    indent: (level > 1).then(|| Indent {
+                        left: Some(Twips(220 * (i32::from(level) - 1))),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                run: RunProperties::default(),
+                is_default: false,
+            });
+        }
+    }
+
+    /// Word's footnote/endnote text and reference styles, when missing.
+    /// Returns the text style id.
+    fn ensure_note_styles(&mut self, kind: NoteKind) -> String {
+        let (text, text_name, reference, reference_name) = match kind {
+            NoteKind::Foot => (
+                "FootnoteText",
+                "footnote text",
+                "FootnoteReference",
+                "footnote reference",
+            ),
+            NoteKind::End => (
+                "EndnoteText",
+                "endnote text",
+                "EndnoteReference",
+                "endnote reference",
+            ),
+        };
+        let normal = self.default_style();
+        self.ensure_style(Style {
+            id: text.into(),
+            name: text_name.into(),
+            kind: StyleKind::Paragraph,
+            based_on: normal.clone(),
+            next: None,
+            paragraph: ParagraphProperties {
+                spacing: Some(Spacing {
+                    after: Some(Twips(0)),
+                    line: Some(LineSpacing::Multiple(1.0)),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            run: RunProperties {
+                size: Some(core_model::FontSize::from_half_points(20)),
+                ..Default::default()
+            },
+            is_default: false,
+        });
+        self.ensure_style(Style {
+            id: reference.into(),
+            name: reference_name.into(),
+            kind: StyleKind::Character,
+            based_on: None,
+            next: None,
+            paragraph: ParagraphProperties::default(),
+            run: RunProperties {
+                vertical_align: Some(core_model::VerticalAlign::Superscript),
+                ..Default::default()
+            },
+            is_default: false,
+        });
+        text.to_owned()
+    }
+
+    fn insert_footnote(
+        &mut self,
+        block: NodeId,
+        offset: u32,
+        text: &str,
+        kind: NoteKind,
+        ch: &mut Changes,
+    ) -> R<C> {
+        if text.contains(['\n', '\r']) {
+            return Err(invalid("note text must not contain line feeds"));
+        }
+        let (at, _) = self.range(block, offset, offset)?;
+        if position(&self.doc, block).is_none() {
+            return Err(invalid("notes can only be referenced from the body"));
+        }
+        let old_notes = self.doc.notes.clone();
+        let old_styles = self.doc.styles.clone();
+        let style = self.ensure_note_styles(kind);
+        let id = self.doc.next_note_id();
+        let mut p = Paragraph::with_text(self.doc.alloc_id(), &format!(" {text}"));
+        p.props.style = Some(style);
+        self.doc.notes.push(Note {
+            id,
+            kind,
+            blocks: vec![Block::Paragraph(p)],
+        });
+        let mark = Inline::NoteRef(NoteRef {
+            id,
+            kind,
+            props: RunProperties::default(),
+        });
+        replace_range(self.para_mut(block)?, at, at, vec![mark]);
+        ch.block(block);
+        ch.notes = true;
+        let inverse = C::Compound {
+            commands: vec![
+                C::DeleteText {
+                    block,
+                    from: offset,
+                    to: offset + 1,
+                },
+                C::RestoreNotes { notes: old_notes },
+            ],
+        };
+        Ok(self.with_styles(inverse, old_styles, ch))
+    }
+
+    fn delete_footnote(&mut self, id: u32, ch: &mut Changes) -> R<C> {
+        if self.doc.note(id).is_none() {
+            return Err(invalid(format!("unknown note {id}")));
+        }
+        let old_notes = self.doc.notes.clone();
+        let is_ref = |i: &Inline| matches!(i, Inline::NoteRef(r) if r.id == id);
+        let with_refs: Vec<NodeId> = self
+            .doc
+            .paragraphs()
+            .filter(|p| p.inlines.iter().any(is_ref))
+            .map(|p| p.id)
+            .collect();
+        let mut inverse = Vec::new();
+        for pid in with_refs {
+            let p = self.para_mut(pid)?;
+            let old = p.inlines.clone();
+            p.inlines.retain(|i| !is_ref(i));
+            let len = p.len();
+            ch.block(pid);
+            inverse.push(C::RestoreInlines {
+                block: pid,
+                from: 0,
+                to: to_u32(len),
+                inlines: old,
+            });
+        }
+        self.doc.notes.retain(|n| n.id != id);
+        ch.notes = true;
+        inverse.push(C::RestoreNotes { notes: old_notes });
+        Ok(C::Compound { commands: inverse })
+    }
+
+    /// Body paragraphs from `block` on (document order) whose list is
+    /// `num_id`.
+    fn list_tail(&self, block: NodeId, num_id: u32) -> Vec<(NodeId, u8)> {
+        self.doc
+            .paragraphs()
+            .skip_while(|p| p.id != block)
+            .filter_map(|p| {
+                let n = self.doc.numbering_of(p)?;
+                (n.num_id == num_id).then_some((p.id, n.level))
+            })
+            .collect()
+    }
+
+    /// Moves `items` (paragraph, level) to list `num_id`; the inverse
+    /// restores their properties and `old_numbering`.
+    fn relist(
+        &mut self,
+        items: &[(NodeId, u8)],
+        num_id: u32,
+        old_numbering: model_text::Numbering,
+        ch: &mut Changes,
+    ) -> R<C> {
+        let levels: HashMap<NodeId, u8> = items.iter().copied().collect();
+        let ids: Vec<NodeId> = items.iter().map(|(id, _)| *id).collect();
+        let restore = self.edit_paragraph_props(&ids, ch, |id, props| {
+            props.numbering = Some(NumberingRef {
+                num_id,
+                level: levels[&id],
+            });
+        })?;
+        if self.doc.numbering == old_numbering {
+            return Ok(restore);
+        }
+        ch.numbering = true;
+        Ok(C::Compound {
+            commands: vec![
+                restore,
+                C::RestoreNumbering {
+                    numbering: old_numbering,
+                },
+            ],
+        })
+    }
+
+    fn restart_list(&mut self, block: NodeId, start: Option<u32>, ch: &mut Changes) -> R<C> {
+        let p = self.para(block)?;
+        let n = self
+            .doc
+            .numbering_of(p)
+            .ok_or_else(|| invalid(format!("block {} is not numbered", block.0)))?;
+        let level = self
+            .doc
+            .numbering
+            .level(n)
+            .ok_or_else(|| invalid(format!("list {} has no level {}", n.num_id, n.level)))?;
+        let start = start.unwrap_or(level.start);
+        let old = self.doc.numbering.clone();
+        let items = self.list_tail(block, n.num_id);
+        let abstract_id = self
+            .doc
+            .numbering
+            .ensure_abstract(n.num_id)
+            .ok_or(WriteError::UnknownBlock(block.0))?;
+        let id = self.doc.numbering.next_id();
+        self.doc.numbering.insert(NumberingDef {
+            id,
+            abstract_id: Some(abstract_id),
+            overrides: vec![LevelOverride {
+                level: n.level,
+                start: Some(start),
+                definition: None,
+            }],
+            levels: Vec::new(),
+        });
+        self.doc.numbering.resolve();
+        self.relist(&items, id, old, ch)
+    }
+
+    fn continue_list(&mut self, block: NodeId, ch: &mut Changes) -> R<C> {
+        let p = self.para(block)?;
+        let n = self
+            .doc
+            .numbering_of(p)
+            .ok_or_else(|| invalid(format!("block {} is not numbered", block.0)))?;
+        let numbering = &self.doc.numbering;
+        let def = numbering.get(n.num_id);
+        let bullet = |id: u32| {
+            numbering
+                .get(id)
+                .and_then(|d| d.levels.first())
+                .is_some_and(|l| l.kind == LevelKind::Bullet)
+        };
+        let same_kind = |m: u32| {
+            let shared = def.and_then(|d| d.abstract_id).is_some()
+                && numbering.get(m).and_then(|d| d.abstract_id) == def.and_then(|d| d.abstract_id);
+            shared || bullet(m) == bullet(n.num_id)
+        };
+        let previous: Vec<u32> = self
+            .doc
+            .paragraphs()
+            .take_while(|q| q.id != block)
+            .filter_map(|q| self.doc.numbering_of(q).map(|r| r.num_id))
+            .collect();
+        let target = previous
+            .into_iter()
+            .rev()
+            .find(|&m| m != n.num_id && same_kind(m))
+            .ok_or_else(|| invalid("no previous list to continue"))?;
+        let old = self.doc.numbering.clone();
+        let items = self.list_tail(block, n.num_id);
+        self.relist(&items, target, old, ch)
+    }
+
+    fn insert_section_break(
+        &mut self,
+        block: NodeId,
+        kind: model_text::SectionKind,
+        ch: &mut Changes,
+    ) -> R<C> {
+        let pos = self.pos(block)?;
+        let p = self.para(block)?;
+        if pos.parent.is_some() {
+            return Err(invalid("a section break must be in a top-level paragraph"));
+        }
+        if p.props
+            .section_end
+            .is_some_and(|id| self.doc.sections.iter().any(|s| s.id == id))
+        {
+            return Err(invalid(format!("block {} already ends a section", block.0)));
+        }
+        let old_props = p.props.clone();
+        let restore_sections = self.sections_state();
+        let index = self
+            .doc
+            .section_index_of(block)
+            .ok_or(WriteError::UnknownBlock(block.0))?;
+        let id = self.doc.next_section_id();
+        let after = &mut self.doc.sections[index];
+        let mut before: Section = after.clone();
+        before.id = id;
+        // The part after the break starts `kind`, continues the page
+        // numbers and links to the headers (moved to the part before).
+        after.kind = kind;
+        after.page_number_start = None;
+        after.headers = Default::default();
+        after.footers = Default::default();
+        self.doc.sections.insert(index, before);
+        self.para_mut(block)?.props.section_end = Some(id);
+        ch.block(block);
+        ch.sections = true;
+        Ok(C::Compound {
+            commands: vec![
+                C::RestoreParagraphProps {
+                    items: vec![(block, old_props)],
+                },
+                restore_sections,
+            ],
+        })
+    }
+
+    fn remove_section_break(&mut self, section: SectionId, ch: &mut Changes) -> R<C> {
+        let i = self.section_index(section)?;
+        if i + 1 == self.doc.sections.len() {
+            return Err(invalid("the last section has no break"));
+        }
+        let marker = self
+            .doc
+            .body
+            .iter()
+            .filter_map(Block::as_paragraph)
+            .find(|p| p.props.section_end == Some(section))
+            .map(|p| (p.id, p.props.clone()));
+        let restore_sections = self.sections_state();
+        let removed = self.doc.sections.remove(i);
+        let next = &mut self.doc.sections[i];
+        for footer in [false, true] {
+            for (slot, blocks) in removed.header_footer(footer).slots() {
+                let target = next.header_footer_mut(footer).get_mut(slot);
+                if target.is_none() {
+                    *target = Some(blocks.clone());
+                }
+            }
+        }
+        let mut commands = vec![restore_sections];
+        if let Some((pid, props)) = marker {
+            self.para_mut(pid)?.props.section_end = None;
+            ch.block(pid);
+            commands.insert(
+                0,
+                C::RestoreParagraphProps {
+                    items: vec![(pid, props)],
+                },
+            );
+        }
+        ch.sections = true;
+        Ok(C::Compound { commands })
+    }
+
+    /// Applies a page setup patch to `page`; errors if no room for text
+    /// remains.
+    fn patch_page(page: &mut PageSetup, patch: &PageSetupPatch) -> R<()> {
+        if let Some(o) = patch.orientation {
+            *page = page.clone().with_orientation(o);
+        }
+        page.width = patch.width.unwrap_or(page.width);
+        page.height = patch.height.unwrap_or(page.height);
+        if let Some(m) = patch.margins {
+            let pm = &mut page.margins;
+            pm.top = m.top.unwrap_or(pm.top);
+            pm.right = m.right.unwrap_or(pm.right);
+            pm.bottom = m.bottom.unwrap_or(pm.bottom);
+            pm.left = m.left.unwrap_or(pm.left);
+            pm.header = m.header.unwrap_or(pm.header);
+            pm.footer = m.footer.unwrap_or(pm.footer);
+        }
+        let m = page.margins;
+        if page.width.0 <= 0
+            || page.height.0 <= 0
+            || page.content_width().0 <= 0
+            || page.height.0 - m.top.0 - m.bottom.0 <= 0
+        {
+            return Err(invalid("page setup leaves no room for text"));
+        }
+        Ok(())
+    }
+
+    fn set_page(&mut self, patch: &PageSetupPatch, ch: &mut Changes) -> R<C> {
+        if [&patch.header_text, &patch.footer_text]
+            .iter()
+            .any(|t| t.as_deref().is_some_and(|t| t.contains('\r')))
+        {
+            return Err(invalid("header/footer text must not contain \\r"));
+        }
+        let restore = self.sections_state();
+        let mut page = self.doc.page.clone();
+        Self::patch_page(&mut page, patch)?;
+        self.doc.page = page;
+        if let Some(t) = &patch.header_text {
+            self.doc.set_header_text(false, Some(t));
+        }
+        if let Some(t) = &patch.footer_text {
+            self.doc.set_header_text(true, Some(t));
+        }
+        self.doc.sync_sections();
+        ch.page = true;
+        ch.sections = true;
+        Ok(restore)
+    }
+
+    fn set_section(&mut self, section: SectionId, patch: &SectionPatch, ch: &mut Changes) -> R<C> {
+        let i = self.section_index(section)?;
+        let restore = self.sections_state();
+        let last = i + 1 == self.doc.sections.len();
+        let mut page = if last {
+            self.doc.page.clone()
+        } else {
+            self.doc.sections[i].page.clone()
+        };
+        if let Some(p) = &patch.page {
+            Self::patch_page(&mut page, p)?;
+        }
+        if patch.columns.is_some_and(|c| c == 0 || c > 45) {
+            return Err(invalid("columns must be 1..=45"));
+        }
+        let s = &mut self.doc.sections[i];
+        s.kind = patch.kind.unwrap_or(s.kind);
+        s.columns = patch.columns.unwrap_or(s.columns);
+        if patch.column_space.is_some() {
+            s.column_space = patch.column_space;
+        }
+        s.title_page = patch.title_page.unwrap_or(s.title_page);
+        match patch.page_number_start {
+            Some(0) => s.page_number_start = None,
+            Some(n) => s.page_number_start = Some(n),
+            None => {}
+        }
+        if patch.page_number_format.is_some() {
+            s.page_number_format = patch.page_number_format;
+        }
+        if last {
+            self.doc.page = page;
+            ch.page = true;
+        } else {
+            self.doc.sections[i].page = page;
+        }
+        self.doc.sync_sections();
+        ch.sections = true;
+        Ok(restore)
     }
 
     /// Replaces `from..to` of paragraph `block` by `inlines`; the inverse
@@ -978,7 +1634,10 @@ impl WriteDocument {
             id,
             props,
             inlines: tail,
+            list_label: None,
         };
+        // A section break stays at the end: with the second half.
+        self.para_mut(block)?.props.section_end = None;
         let blocks =
             container_mut(&mut self.doc, pos.parent).ok_or(WriteError::UnknownBlock(block.0))?;
         blocks.insert(pos.index + 1, Block::Paragraph(new));
@@ -1458,6 +2117,23 @@ impl WriteDocument {
 
     // ----- patch ---------------------------------------------------------
 
+    /// Recomputes the list labels; paragraphs whose label changed are
+    /// reported as replaced.
+    fn relabel(&mut self, ch: &mut Changes) {
+        let new: HashMap<NodeId, String> = self.doc.list_numbers().into_iter().collect();
+        for (id, label) in &new {
+            if self.labels.get(id) != Some(label) {
+                ch.block(*id);
+            }
+        }
+        for id in self.labels.keys() {
+            if !new.contains_key(id) && self.doc.find_paragraph(*id).is_some() {
+                ch.block(*id);
+            }
+        }
+        self.labels = new;
+    }
+
     /// Restores the container invariant (non-empty, ends with a paragraph)
     /// in every container the command touched; returns the paragraphs
     /// added.
@@ -1527,10 +2203,16 @@ impl WriteDocument {
             .copied()
             .filter(|id| seen.insert(*id) && !inserted_set.contains(id))
             .collect();
-        let mut with_paths: Vec<(NodeId, Vec<NodeId>)> = candidates
-            .into_iter()
-            .filter_map(|id| ancestors(&self.doc, id).map(|a| (id, a)))
-            .collect();
+        let (mut notes, mut sections) = (ch.notes, ch.sections);
+        let mut with_paths: Vec<(NodeId, Vec<NodeId>)> = Vec::new();
+        for id in candidates {
+            match ancestors(&self.doc, id) {
+                Some(a) => with_paths.push((id, a)),
+                None if self.doc.note_of_block(id).is_some() => notes = true,
+                None if self.doc.header_of_block(id).is_some() => sections = true,
+                None => {}
+            }
+        }
         let replaced_set: HashSet<NodeId> = with_paths.iter().map(|(id, _)| *id).collect();
         with_paths.retain(|(_, path)| {
             !path
@@ -1541,7 +2223,11 @@ impl WriteDocument {
         let mut take = |id: NodeId| -> Option<Block> {
             let b = self.doc.find_block_mut(id)?;
             for_each_paragraph_mut(b, &mut Paragraph::normalize);
-            Some(b.clone())
+            let mut b = b.clone();
+            for_each_paragraph_mut(&mut b, &mut |p| {
+                p.list_label = self.labels.get(&p.id).cloned();
+            });
+            Some(b)
         };
         let replaced: Vec<Block> = with_paths.iter().filter_map(|(id, _)| take(*id)).collect();
         let inserted: Vec<InsertedBlock> = inserted
@@ -1563,8 +2249,45 @@ impl WriteDocument {
             styles: ch.styles.then(|| self.doc.styles.clone()),
             numbering: ch.numbering.then(|| self.doc.numbering.clone()),
             page: ch.page.then(|| self.doc.page.clone()),
+            sections: sections.then(|| self.doc.sections.clone()),
+            notes: notes.then(|| self.doc.notes.clone()),
             info: ch.info,
         }
+    }
+}
+
+/// Whether `cmd` can change list labels (anything but text, run
+/// formatting, images, fields and notes).
+fn affects_labels(cmd: &WriteCommand) -> bool {
+    match cmd {
+        C::Compound { commands } => commands.iter().any(affects_labels),
+        C::InsertText { .. }
+        | C::DeleteText { .. }
+        | C::ReplaceText { .. }
+        | C::RestoreInlines { .. }
+        | C::SetRunProps { .. }
+        | C::InsertImage { .. }
+        | C::SetImageSize { .. }
+        | C::SetImageAlt { .. }
+        | C::RemoveMedia { .. }
+        | C::RestoreMedia { .. }
+        | C::FindReplace { .. }
+        | C::InsertField { .. }
+        | C::InsertFootnote { .. }
+        | C::DeleteFootnote { .. }
+        | C::ReplaceNote { .. }
+        | C::RestoreNotes { .. }
+        | C::SetPage { .. }
+        | C::SetSection { .. }
+        | C::SetHeaderFooter { .. }
+        | C::RestoreSections { .. }
+        | C::UpdateToc { .. }
+        | C::SetCellProps { .. }
+        | C::RestoreCellProps { .. }
+        | C::SetTableProps { .. }
+        | C::RestoreTableProps { .. }
+        | C::SetRowProps { .. } => false,
+        _ => true,
     }
 }
 
@@ -1586,12 +2309,24 @@ impl AppDocument for WriteDocument {
         cmd: &WriteCommand,
     ) -> Result<Applied<WriteCommand, WritePatch>, WriteError> {
         let mut ch = Changes::default();
+        let before = self.sections_state();
         let mut inverse = self.exec(cmd, &mut ch)?;
         let added = self.fix_containers(&mut ch);
         if !added.is_empty() {
             inverse = C::Compound {
                 commands: vec![inverse, C::DeleteBlocks { ids: added }],
             };
+        }
+        // Sections follow their end paragraphs (e.g. a deleted break).
+        if self.doc.sync_sections() {
+            inverse = C::Compound {
+                commands: vec![inverse, before],
+            };
+            ch.sections = true;
+            ch.page = true;
+        }
+        if affects_labels(cmd) {
+            self.relabel(&mut ch);
         }
         let patch = self.finish(ch);
         Ok(Applied {

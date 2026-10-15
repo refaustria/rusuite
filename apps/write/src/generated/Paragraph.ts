@@ -18,4 +18,11 @@ props?: ParagraphProperties,
 /**
  * Content.
  */
-inlines: Array<Inline>, };
+inlines: Array<Inline>, 
+/**
+ * The computed list label (`1.`, `1.1`, `a)`, `•`) of a numbered
+ * paragraph. Derived data: filled by `write-core` in the documents
+ * and patches it sends (see [`crate::Document::list_numbers`]),
+ * ignored on input and never written to docx.
+ */
+listLabel?: string, };

@@ -5,6 +5,7 @@ import type { Backend } from "@rusuite/ui-shared";
 import type { Envelope } from "../../../../packages/ui-shared/src/generated/Envelope";
 import type { CalcCommand } from "../generated/CalcCommand";
 import type { CalcPatch } from "../generated/CalcPatch";
+import type { FilterValue } from "../generated/FilterValue";
 import type { FoundCell } from "../generated/FoundCell";
 import type { RegionSnapshot } from "../generated/RegionSnapshot";
 import type { Request } from "../generated/Request";
@@ -169,6 +170,11 @@ export class CalcApi {
   async usedRange(sheet: number): Promise<[number, number] | null> {
     const { last } = await this.call({ type: "usedRange", sheet }, "usedRange");
     return Array.isArray(last) ? last : null;
+  }
+
+  /** The value list of AutoFilter column `col` (absolute) of `sheet`, for its dropdown. */
+  async filterValues(sheet: number, col: number): Promise<FilterValue[]> {
+    return (await this.call({ type: "filterValues", sheet, col }, "filterValues")).values;
   }
 
   /** `value` displayed with the number format `code` (the core's `display_value`). */

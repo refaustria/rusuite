@@ -57,3 +57,51 @@ export const headingsIcon = (size = 16) =>
       <path d="M2.5 6.5h15M6.5 2.5v15" />
     </>
   ));
+
+/** Sort A to Z: letters A over Z and a down arrow. */
+export const sortAscIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <path d="M3 8l2-5 2 5M3.7 6.5h2.6M3 12h4l-4 5h4" />
+      <path d="M14 3v14M11 14l3 3 3-3" />
+    </>
+  ));
+
+/** Sort Z to A: letters Z over A and a down arrow. */
+export const sortDescIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <path d="M3 3h4l-4 5h4M3 17l2-5 2 5M3.7 15.5h2.6" />
+      <path d="M14 3v14M11 14l3 3 3-3" />
+    </>
+  ));
+
+/** Custom Sort: stacked bars of different lengths and an arrow. */
+export const sortIcon = (size = 22) =>
+  svg(size, (
+    <>
+      <path d="M3 4h6M3 8h8M3 12h10M3 16h12" />
+      <path d="M16 3v10M14 11l2 2 2-2" />
+    </>
+  ));
+
+/** Filter: a funnel. */
+export const filterIcon = (size = 22) => svg(size, <path d="M3 4h14l-5.5 6.5V16l-3 1.5v-7z" />);
+
+/** Clear filter: a funnel with a cross. */
+export const clearFilterIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <path d="M2 4h11l-4 5v5l-3 1.5V9z" />
+      <path d="M13 12l4 4M17 12l-4 4" />
+    </>
+  ));
+
+/** Reapply: a funnel with a circular arrow. */
+export const reapplyIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <path d="M2 4h11l-4 5v5l-3 1.5V9z" />
+      <path d="M17 13a2.5 2.5 0 1 1-1-2M16 9.5v1.5h1.5" />
+    </>
+  ));

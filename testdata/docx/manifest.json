@@ -602,5 +602,63 @@
    "page:a4"
   ],
   "paragraphs": 23
+ },
+ {
+  "file": "provisional-51-multilevel-legal-numbering.docx",
+  "topic": "Multilevel legal numbering 1. / 1.1. / 1.1.1. with restart of deeper levels",
+  "features": [
+   "list:number:levels=3:format=decimal",
+   "list:label=1.",
+   "list:label=1.2.",
+   "list:label=1.2.2.",
+   "list:label=2.1.1.",
+   "list:label=3.1.",
+   "page:a4"
+  ],
+  "paragraphs": 12
+ },
+ {
+  "file": "provisional-52-sections-headers-fields.docx",
+  "topic": "Three sections: title page, portrait and landscape with own headers, footers and page fields",
+  "features": [
+   "title",
+   "heading:1",
+   "section:count=3",
+   "section:landscape",
+   "header:default",
+   "footer:default",
+   "field:page",
+   "field:numpages",
+   "field:date",
+   "page-number:start=1",
+   "page:a4"
+  ],
+  "paragraphs": 7
+ },
+ {
+  "file": "provisional-53-footnotes-endnotes.docx",
+  "topic": "Footnotes and endnotes with references in body text",
+  "features": [
+   "heading:1",
+   "note:footnote=3",
+   "note:endnote=1",
+   "page:a4"
+  ],
+  "paragraphs": 4
+ },
+ {
+  "file": "provisional-54-table-of-contents.docx",
+  "topic": "Table of contents over Heading 1-3 with hyperlinks and page numbers",
+  "features": [
+   "heading:1",
+   "heading:2",
+   "break:page",
+   "heading:3",
+   "toc:levels=1-3",
+   "toc:entries=7",
+   "tab",
+   "page:a4"
+  ],
+  "paragraphs": 22
  }
 ]

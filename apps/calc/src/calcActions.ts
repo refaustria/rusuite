@@ -4,6 +4,7 @@
 import type { ContextMenuItem } from "@rusuite/ui-shared";
 import { normalize } from "./grid/Selection";
 import { t } from "./i18n";
+import { hasFilters } from "./sortFilter/filter";
 import { unhideableSheets, visibleSheets, type CalcStore } from "./state/store";
 
 /** Writes text to the system clipboard (best effort: permissions may deny it). */
@@ -80,6 +81,18 @@ export function calcActions(store: CalcStore) {
     /** Unhide Sheet…: the dialog listing the hidden sheets. */
     unhideSheet: () => store.openDialog({ kind: "unhideSheet" }),
     canUnhideSheet: () => unhideableSheets(store.getState().info?.sheets ?? []).length > 0,
+    /** Sort A to Z / Z to A by the active cell's column. */
+    sortAsc: () => store.sortSelection(true),
+    sortDesc: () => store.sortSelection(false),
+    /** Custom Sort… (Data › Sort). */
+    customSort: () => store.openCustomSort(),
+    /** Filter on/off (Ctrl+Shift+L). */
+    toggleFilter: () => store.toggleAutoFilter(),
+    hasAutoFilter: () => store.autoFilter() !== null,
+    /** Clear every column filter / apply them again. */
+    clearFilters: () => store.clearFilters(),
+    reapplyFilter: () => store.reapplyFilter(),
+    hasFilters: () => hasFilters(store.autoFilter()),
   };
 }
 
@@ -109,6 +122,10 @@ export function cellMenu(a: CalcActions, hasMerge = false): ContextMenuItem[] {
     item("delete-cols", t("calc.deleteCols"), a.deleteCols),
     SEP,
     item("clear", t("calc.clearContents"), a.clearContents, "Del"),
+    SEP,
+    item("sort-asc", t("calc.sortAsc"), a.sortAsc),
+    item("sort-desc", t("calc.sortDesc"), a.sortDesc),
+    item("custom-sort", t("calc.customSort"), a.customSort),
     SEP,
     item("merge-center", t("calc.mergeCenter"), a.mergeCenter),
     item("merge-cells", t("calc.mergeCells"), a.mergeCells),

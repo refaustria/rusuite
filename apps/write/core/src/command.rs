@@ -11,9 +11,10 @@
 
 use core_model::units::Emu;
 use model_text::{
-    Block, CellProperties, Inline, MediaId, NodeId, Numbering, Orientation, Paragraph,
-    ParagraphProperties, RowHeight, RowProperties, RunProperties, Table, TableCell,
-    TableProperties, TableRow, Twips,
+    Block, CellProperties, FieldKind, HeaderSlot, Inline, LevelKind, MediaId, NodeId, Note,
+    NoteKind, Numbering, Orientation, PageSetup, Paragraph, ParagraphProperties, RowHeight,
+    RowProperties, RunProperties, Section, SectionId, SectionKind, StyleSheet, Table, TableCell,
+    TableProperties, TableRow, Toc, TocEntry, Twips,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -79,6 +80,31 @@ pub struct PageSetupPatch {
     pub header_text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub footer_text: Option<String>,
+}
+
+/// Section changes for [`WriteCommand::SetSection`]; absent fields keep
+/// their value. `pageNumberStart: 0` removes the restart. `page` changes
+/// size, orientation and margins like [`WriteCommand::SetPage`] (its
+/// header/footer text fields are ignored; use `setHeaderFooter`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub struct SectionPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<SectionKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub columns: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(as = "Option<i32>")]
+    pub column_space: Option<Twips>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_page: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_number_start: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_number_format: Option<LevelKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<PageSetupPatch>,
 }
 
 /// A document edit. JSON: `{"type":"insertText","block":7,"offset":3,"text":"é"}`.
@@ -294,6 +320,100 @@ pub enum WriteCommand {
         whole_word: bool,
         all: bool,
     },
+    /// Inserts a field (page number, date, …) at `offset`, formatted like
+    /// typed text there. `cached` is the result shown until the UI
+    /// recomputes it (default empty).
+    InsertField {
+        block: NodeId,
+        offset: u32,
+        field: FieldKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cached: Option<String>,
+    },
+    /// Inserts a footnote (or endnote) reference at `offset` of the body
+    /// paragraph `block` and a new note holding `text` (one paragraph of
+    /// style `FootnoteText`/`EndnoteText`; these styles and the reference
+    /// styles are added with Word's definitions when missing). The note
+    /// and its paragraph id are in the patch's `notes`.
+    InsertFootnote {
+        block: NodeId,
+        offset: u32,
+        text: String,
+        #[serde(default)]
+        kind: NoteKind,
+    },
+    /// Deletes note `id` and every reference to it.
+    DeleteFootnote { id: u32 },
+    /// Replaces the content of note `id` (the coarse fallback for edits the
+    /// text commands cannot express; new blocks may use temporary ids).
+    ReplaceNote {
+        id: u32,
+        #[ts(as = "Vec<model_text::Block>")]
+        blocks: Vec<NewBlock>,
+    },
+    /// Inserts a table of contents over outline levels
+    /// `fromLevel..=toLevel` (default 1–3) after the body block `after`
+    /// (absent = at the start), built from the headings with `page: null`.
+    /// Adds the `TOCHeading`/`TOC1…` styles when missing. `newId`: a
+    /// temporary id for the block.
+    InsertToc {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<NodeId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_level: Option<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to_level: Option<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(type = "number")]
+        new_id: Option<i64>,
+    },
+    /// Rebuilds the entries of table of contents `id` from the headings;
+    /// `pages` (`[heading, page]`, from the UI's pagination) fills in page
+    /// numbers.
+    UpdateToc {
+        id: NodeId,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(type = "Array<[NodeId, number]>")]
+        pages: Vec<(NodeId, u32)>,
+    },
+    /// Word's "Restart numbering": `block` and the following paragraphs of
+    /// its list get a new list sharing the definition, whose level of
+    /// `block` restarts at `start` (default: the level's start value).
+    RestartList {
+        block: NodeId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start: Option<u32>,
+    },
+    /// Word's "Continue numbering": `block` and the following paragraphs of
+    /// its list join the nearest previous list of the same kind (sharing
+    /// its definition or, failing that, bulleted vs numbered).
+    ContinueList { block: NodeId },
+    /// Makes the top-level body paragraph `block` the last paragraph of a
+    /// new section: the section containing it is split; the part before
+    /// keeps its properties and headers, the part after starts `kind`
+    /// (next page, continuous, …) and links to the previous headers.
+    InsertSectionBreak { block: NodeId, kind: SectionKind },
+    /// Removes the break ending section `section` (not the last): its text
+    /// joins the following section (which inherits its headers where it
+    /// had none).
+    RemoveSectionBreak { section: SectionId },
+    /// Changes section `section`.
+    SetSection {
+        section: SectionId,
+        patch: SectionPatch,
+    },
+    /// Sets (or with `null`, removes) a header (`footer: false`) or footer
+    /// of a section; blocks may use temporary ids.
+    SetHeaderFooter {
+        section: SectionId,
+        footer: bool,
+        slot: HeaderSlot,
+        #[serde(default)]
+        #[ts(as = "Option<Vec<model_text::Block>>")]
+        blocks: Option<Vec<NewBlock>>,
+    },
     /// Applies the commands in order as one undo step; all or nothing.
     Compound { commands: Vec<WriteCommand> },
     /// *Internal.* Replaces positions `from..to` of `block` by `inlines`.
@@ -323,6 +443,15 @@ pub enum WriteCommand {
         #[ts(as = "model_text::media::MediaIdTs")]
         id: MediaId,
     },
+    /// *Internal.* Replaces all notes.
+    RestoreNotes { notes: Vec<Note> },
+    /// *Internal.* Replaces the style sheet.
+    RestoreStyles { styles: StyleSheet },
+    /// *Internal.* Replaces the sections and the page setup.
+    RestoreSections {
+        sections: Vec<Section>,
+        page: PageSetup,
+    },
     /// *Internal.* Puts a media item back under its old id.
     RestoreMedia {
         #[ts(as = "model_text::media::MediaIdTs")]
@@ -339,6 +468,32 @@ pub enum WriteCommand {
 pub enum NewBlock {
     Paragraph(NewParagraph),
     Table(NewTable),
+    Toc(NewToc),
+}
+
+/// [`Toc`] with a possibly temporary id.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewToc {
+    pub id: i64,
+    pub from_level: u8,
+    pub to_level: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub entries: Vec<TocEntry>,
+}
+
+impl From<&Toc> for NewToc {
+    fn from(t: &Toc) -> Self {
+        NewToc {
+            id: wire_id(t.id),
+            from_level: t.from_level,
+            to_level: t.to_level,
+            title: t.title.clone(),
+            entries: t.entries.clone(),
+        }
+    }
 }
 
 /// [`Paragraph`] with a possibly temporary id.
@@ -393,6 +548,7 @@ impl From<&Block> for NewBlock {
         match block {
             Block::Paragraph(p) => NewBlock::Paragraph(NewParagraph::from(p)),
             Block::Table(t) => NewBlock::Table(NewTable::from(t)),
+            Block::Toc(t) => NewBlock::Toc(NewToc::from(t)),
         }
     }
 }
@@ -443,6 +599,7 @@ impl NewBlock {
         match self {
             NewBlock::Paragraph(p) => p.id,
             NewBlock::Table(t) => t.id,
+            NewBlock::Toc(t) => t.id,
         }
     }
 }
