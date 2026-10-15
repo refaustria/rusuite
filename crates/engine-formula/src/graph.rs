@@ -32,61 +32,13 @@ use thiserror::Error;
 
 use crate::ast::{Expr, RangeKind, Reference, MAX_COL, MAX_ROW};
 
+pub use crate::coord::*;
+
 /// Width (in columns) of one bucket of the range index.
 pub const BUCKET_WIDTH: u32 = 64;
 /// Ranges touching more than this many column buckets are kept in the
 /// per-sheet linear "wide" list instead of being bucketed.
 pub const WIDE_BUCKETS: u32 = 16;
-
-/// Identifier of a sheet inside a workbook.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct SheetId(pub u32);
-
-/// Absolute position of a cell (0-based row/column). Ordering is by sheet,
-/// then row, then column; it is used to break ties deterministically.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct CellCoord {
-    pub sheet: SheetId,
-    pub row: u32,
-    pub col: u32,
-}
-
-impl CellCoord {
-    pub fn new(sheet: SheetId, row: u32, col: u32) -> Self {
-        CellCoord { sheet, row, col }
-    }
-}
-
-/// Rectangular range on one sheet, inclusive and normalized
-/// (`r0 <= r1`, `c0 <= c1`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct RangeRef {
-    pub sheet: SheetId,
-    pub r0: u32,
-    pub c0: u32,
-    pub r1: u32,
-    pub c1: u32,
-}
-
-impl RangeRef {
-    /// Builds a normalized range from two corners in any order.
-    pub fn new(sheet: SheetId, r0: u32, c0: u32, r1: u32, c1: u32) -> Self {
-        RangeRef {
-            sheet,
-            r0: r0.min(r1),
-            c0: c0.min(c1),
-            r1: r0.max(r1),
-            c1: c0.max(c1),
-        }
-    }
-
-    /// True if `cell` lies inside the range.
-    pub fn contains(&self, cell: CellCoord) -> bool {
-        cell.sheet == self.sheet
-            && (self.r0..=self.r1).contains(&cell.row)
-            && (self.c0..=self.c1).contains(&cell.col)
-    }
-}
 
 /// Resolves sheet names used in references (`Sheet2!A1`) to ids.
 pub trait SheetResolver {
@@ -110,6 +62,21 @@ pub struct Cycle {
     /// The cells forming one cycle, starting from the smallest coordinate;
     /// each cell references the next one, and the last references the first.
     pub cells: Vec<CellCoord>,
+}
+
+/// Evaluation plan that tolerates circular references (see
+/// [`DependencyGraph::recalc_schedule`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Schedule {
+    /// The affected formula cells. Every cell that is not in `cyclic` comes
+    /// after all of its affected precedents; the cells of one cycle are
+    /// adjacent and sorted. Without a cycle this equals
+    /// [`DependencyGraph::recalc_order`].
+    pub order: Vec<CellCoord>,
+    /// Cells lying on a circular reference.
+    pub cyclic: HashSet<CellCoord>,
+    /// The cycle [`DependencyGraph::recalc_order`] would report, if any.
+    pub cycle: Option<Cycle>,
 }
 
 /// Reverse edges of one sheet: precedent location → dependent formulas.
@@ -283,6 +250,27 @@ impl DependencyGraph {
     /// [`CellCoord`] order). Changed cells are included only if they hold
     /// formulas. Cycles outside the affected cells are ignored.
     pub fn recalc_order(&self, changed: &[CellCoord]) -> Result<Vec<CellCoord>, Cycle> {
+        self.order(&self.affected(changed))
+    }
+
+    /// Evaluation order of all formula cells (e.g. after opening a file).
+    pub fn full_order(&self) -> Result<Vec<CellCoord>, Cycle> {
+        self.order(&self.formulas.keys().copied().collect())
+    }
+
+    /// Like [`recalc_order`](Self::recalc_order), but a circular reference
+    /// does not abort the ordering: see [`Schedule`].
+    pub fn recalc_schedule(&self, changed: &[CellCoord]) -> Schedule {
+        self.schedule(&self.affected(changed))
+    }
+
+    /// Like [`full_order`](Self::full_order), tolerating cycles.
+    pub fn full_schedule(&self) -> Schedule {
+        self.schedule(&self.formulas.keys().copied().collect())
+    }
+
+    /// Formula cells among `changed` plus all their transitive dependents.
+    fn affected(&self, changed: &[CellCoord]) -> HashSet<CellCoord> {
         let mut affected: HashSet<CellCoord> = HashSet::new();
         let mut stack: Vec<CellCoord> = Vec::new();
         for &c in changed {
@@ -302,12 +290,79 @@ impl DependencyGraph {
                 }
             }
         }
-        self.order(affected)
+        affected
     }
 
-    /// Evaluation order of all formula cells (e.g. after opening a file).
-    pub fn full_order(&self) -> Result<Vec<CellCoord>, Cycle> {
-        self.order(self.formulas.keys().copied().collect())
+    /// Kahn's order when acyclic (the common, cheap case); otherwise a
+    /// topological order of the strongly connected components.
+    fn schedule(&self, nodes: &HashSet<CellCoord>) -> Schedule {
+        match self.order(nodes) {
+            Ok(order) => Schedule {
+                order,
+                ..Schedule::default()
+            },
+            Err(cycle) => {
+                let (order, cyclic) = self.component_order(nodes);
+                Schedule {
+                    order,
+                    cyclic,
+                    cycle: Some(cycle),
+                }
+            }
+        }
+    }
+
+    /// Orders the strongly connected components of the subgraph induced by
+    /// `nodes` (closed under "dependent of") topologically, ties broken by
+    /// the smallest cell of a component; cells inside a component are
+    /// sorted. Returns the order and the set of cells on a cycle
+    /// (components with more than one cell, or a cell referencing itself).
+    fn component_order(&self, nodes: &HashSet<CellCoord>) -> (Vec<CellCoord>, HashSet<CellCoord>) {
+        let edges: HashMap<CellCoord, Vec<CellCoord>> = nodes
+            .iter()
+            .map(|&n| (n, self.direct_dependents(n)))
+            .collect();
+        let mut sorted: Vec<CellCoord> = nodes.iter().copied().collect();
+        sorted.sort_unstable();
+        let comp = strongly_connected(&sorted, &edges);
+        let count = comp.values().max().map_or(0, |&m| m + 1);
+        let mut members: Vec<Vec<CellCoord>> = vec![Vec::new(); count];
+        for &n in &sorted {
+            members[comp[&n]].push(n);
+        }
+        let mut succ: Vec<HashSet<usize>> = vec![HashSet::new(); count];
+        let mut indeg = vec![0usize; count];
+        let mut cyclic = HashSet::new();
+        for (&n, deps) in &edges {
+            for d in deps {
+                let (a, b) = (comp[&n], comp[d]);
+                if a != b {
+                    if succ[a].insert(b) {
+                        indeg[b] += 1;
+                    }
+                } else if n == *d {
+                    cyclic.insert(n);
+                }
+            }
+        }
+        for m in members.iter().filter(|m| m.len() > 1) {
+            cyclic.extend(m.iter().copied());
+        }
+        let mut heap: BinaryHeap<Reverse<(CellCoord, usize)>> = (0..count)
+            .filter(|&i| indeg[i] == 0)
+            .map(|i| Reverse((members[i][0], i)))
+            .collect();
+        let mut out = Vec::with_capacity(nodes.len());
+        while let Some(Reverse((_, i))) = heap.pop() {
+            out.extend_from_slice(&members[i]);
+            for &j in &succ[i] {
+                indeg[j] -= 1;
+                if indeg[j] == 0 {
+                    heap.push(Reverse((members[j][0], j)));
+                }
+            }
+        }
+        (out, cyclic)
     }
 
     pub fn formula_count(&self) -> usize {
@@ -316,7 +371,7 @@ impl DependencyGraph {
 
     /// Kahn's algorithm over the subgraph induced by `nodes` (which must be
     /// closed under "dependent of"), using a min-heap for determinism.
-    fn order(&self, nodes: HashSet<CellCoord>) -> Result<Vec<CellCoord>, Cycle> {
+    fn order(&self, nodes: &HashSet<CellCoord>) -> Result<Vec<CellCoord>, Cycle> {
         let edges: HashMap<CellCoord, Vec<CellCoord>> = nodes
             .iter()
             .map(|&n| (n, self.direct_dependents(n)))
@@ -348,6 +403,67 @@ impl DependencyGraph {
         }
         Err(find_cycle(&edges, &indeg))
     }
+}
+
+/// Iterative Tarjan: maps every node to the index of its strongly
+/// connected component. `edges` must contain every node of `nodes`.
+fn strongly_connected(
+    nodes: &[CellCoord],
+    edges: &HashMap<CellCoord, Vec<CellCoord>>,
+) -> HashMap<CellCoord, usize> {
+    let mut index: HashMap<CellCoord, usize> = HashMap::with_capacity(nodes.len());
+    let mut low: HashMap<CellCoord, usize> = HashMap::with_capacity(nodes.len());
+    let mut on_stack: HashSet<CellCoord> = HashSet::new();
+    let mut stack: Vec<CellCoord> = Vec::new();
+    let mut comp: HashMap<CellCoord, usize> = HashMap::with_capacity(nodes.len());
+    let mut next = 0;
+    let mut components = 0;
+    for &root in nodes {
+        if index.contains_key(&root) {
+            continue;
+        }
+        index.insert(root, next);
+        low.insert(root, next);
+        next += 1;
+        stack.push(root);
+        on_stack.insert(root);
+        let mut call: Vec<(CellCoord, usize)> = vec![(root, 0)];
+        while let Some(frame) = call.last_mut() {
+            let v = frame.0;
+            if let Some(&w) = edges[&v].get(frame.1) {
+                frame.1 += 1;
+                if let std::collections::hash_map::Entry::Vacant(slot) = index.entry(w) {
+                    slot.insert(next);
+                    low.insert(w, next);
+                    next += 1;
+                    stack.push(w);
+                    on_stack.insert(w);
+                    call.push((w, 0));
+                } else if on_stack.contains(&w) {
+                    let lw = index[&w].min(low[&v]);
+                    low.insert(v, lw);
+                }
+                continue;
+            }
+            call.pop();
+            if let Some(&(u, _)) = call.last() {
+                let lu = low[&u].min(low[&v]);
+                low.insert(u, lu);
+            }
+            if low[&v] == index[&v] {
+                loop {
+                    let w = stack.pop().expect("v is on the stack");
+                    on_stack.remove(&w);
+                    comp.insert(w, components);
+                    if w == v {
+                        break;
+                    }
+                }
+                components += 1;
+            }
+        }
+    }
+    comp
 }
 
 /// Every node left with a positive in-degree after Kahn's algorithm has a
@@ -470,6 +586,27 @@ mod tests {
         assert_eq!(g.sheets[&S].cells[&CellCoord::new(S, 0, 1)].len(), 1);
         g.remove_formula(CellCoord::new(S, 0, 0));
         assert!(g.sheets.is_empty());
+    }
+
+    #[test]
+    fn schedule_orders_around_cycles() {
+        let mut g = DependencyGraph::new();
+        let c = |row, col| CellCoord::new(S, row, col);
+        set(&mut g, 0, 0, "=B1"); // A1 -> B1 -> A1 (cycle)
+        set(&mut g, 0, 1, "=A1+Z1");
+        set(&mut g, 0, 2, "=A1"); // C1 depends on the cycle
+        set(&mut g, 0, 3, "=Z1"); // D1 outside
+        set(&mut g, 0, 4, "=E1"); // E1 references itself
+        assert!(g.recalc_order(&[c(0, 25)]).is_err());
+        let s = g.recalc_schedule(&[c(0, 25)]);
+        assert_eq!(s.order, vec![c(0, 0), c(0, 1), c(0, 2), c(0, 3)]);
+        assert_eq!(s.cyclic, HashSet::from([c(0, 0), c(0, 1)]));
+        assert_eq!(s.cycle.unwrap().cells, vec![c(0, 0), c(0, 1)]);
+        let full = g.full_schedule();
+        assert_eq!(full.order.len(), 5);
+        assert!(full.cyclic.contains(&c(0, 4)));
+        let ok = g.recalc_schedule(&[c(0, 3)]);
+        assert_eq!((ok.order, ok.cycle), (vec![c(0, 3)], None));
     }
 
     #[test]
