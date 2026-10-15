@@ -1,0 +1,21 @@
+[package]
+name = "show-core"
+description = "Rusuite Show presentation core shared by the Tauri and wasm shells"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+app-common = { path = "../../../crates/app-common" }
+core-model = { path = "../../../crates/core-model" }
+model-show = { path = "../../../crates/model-show", features = ["ts"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ts-rs = { version = "12", features = ["serde-compat"] }
+
+[lints]
+workspace = true

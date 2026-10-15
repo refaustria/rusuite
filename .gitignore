@@ -10,3 +10,4 @@ apps/calc/src-tauri/gen/
 apps/*/src-wasm/pkg/
 apps/*/dist-web/
 apps/write/src-tauri/gen/
+apps/show/src-tauri/gen/

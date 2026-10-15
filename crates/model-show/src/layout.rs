@@ -5,8 +5,10 @@ use core_model::{FontFace, FontSize, RunProperties, ThemeFontSlot};
 use serde::{Deserialize, Serialize};
 
 use crate::presentation::SlideSize;
-use crate::shape::Transform;
-use crate::text::{Alignment, Anchor, Autofit, BodyProps, Bullet, TextParagraphProps};
+use crate::shape::{Shape, Transform};
+use crate::text::{
+    Alignment, Anchor, Autofit, BodyProps, Bullet, TextBody, TextParagraph, TextParagraphProps,
+};
 
 /// A built-in slide layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -209,6 +211,27 @@ impl Layout {
             LayoutKind::Blank => Vec::new(),
         };
         Layout { kind, placeholders }
+    }
+
+    /// One empty shape per placeholder, bottom to top: a text box at the
+    /// placeholder's position with its body properties, one empty
+    /// paragraph and [`Shape::placeholder`] set. Ids are 0 and names empty
+    /// (see [`crate::Presentation::assign_ids`]).
+    pub fn placeholder_shapes(&self) -> Vec<Shape> {
+        self.placeholders
+            .iter()
+            .map(|def| {
+                let mut shape = Shape::text_box(def.transform, "");
+                if let Some(body) = shape.text_mut() {
+                    *body = TextBody {
+                        props: def.body_defaults,
+                        paragraphs: vec![TextParagraph::new()],
+                    };
+                }
+                shape.placeholder = Some(def.kind);
+                shape
+            })
+            .collect()
     }
 
     /// The placeholder of type `kind`, if the layout has one.
