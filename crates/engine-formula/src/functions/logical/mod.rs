@@ -4,9 +4,15 @@ pub mod and;
 pub mod false_;
 pub mod if_;
 pub mod iferror;
+pub mod ifna;
+pub mod ifs;
 pub mod not;
 pub mod or;
+pub mod switch;
+#[cfg(test)]
+mod tests;
 pub mod true_;
+pub mod xor;
 
 use super::FunctionRegistry;
 use crate::ast::{ErrorKind, Expr};
@@ -23,6 +29,10 @@ pub fn register(r: &mut FunctionRegistry) {
     r.register(Box::new(or::Or));
     r.register(Box::new(not::Not));
     r.register(Box::new(iferror::IfError));
+    r.register(Box::new(ifs::Ifs));
+    r.register(Box::new(switch::Switch));
+    r.register(Box::new(ifna::IfNa));
+    r.register(Box::new(xor::Xor));
 }
 
 /// Shared AND/OR driver: folds all logical values of `args`. Direct scalar
