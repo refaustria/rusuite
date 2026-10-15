@@ -33,10 +33,10 @@
 ### Non-Goals (deliberately excluded)
 - Legacy binary formats (`.doc`, `.xls`, `.ppt`)
 - Macros / VBA / scripting
-- Track changes, comments, co-authoring
+- Track changes, real-time co-authoring (comments and notes are planned, see docs/parity-backlog.md)
 - Pixel-perfect reproduction of Office layout
-- Pivot tables, Power Query, data connections
-- Animations and transitions in Show (for now)
+- Power Query, data connections (pivot tables are planned, see docs/parity-backlog.md)
+- (Transitions and animations in Show are planned, see docs/parity-backlog.md)
 - Pixel-exact print layout (printing goes through the webview's print pipeline with our own previews and options; see docs/ui.md)
 
 If a feature isn't on the list, it isn't in. Scope discipline is the only reason this project has a chance.

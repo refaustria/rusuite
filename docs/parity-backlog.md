@@ -1,6 +1,6 @@
 # Office parity backlog (Phase 8) – owner direction 2026-10-15
 
-"Continue improving the apps until we are very close to what an office suite offers, without overblowing, ensuring functionalities are implemented. No Power Query (yet), no VBA; JSON maybe later." Priority = how often ordinary users hit the feature. Tiers are worked top to bottom; each line becomes one task (P8-…). Non-goals stay: macros/VBA, Power Query, track changes, comments/co-authoring (ask before touching), pixel-exact layout.
+"Continue improving the apps until we are very close to what an office suite offers, without overblowing, ensuring functionalities are implemented. No Power Query (yet), no VBA; JSON maybe later." Priority = how often ordinary users hit the feature. Tiers are worked top to bottom; each line becomes one task (P8-…). Owner decisions 2026-10-15: **pivot tables yes** (tier 2 Calc), **comments & notes yes** (Calc notes/threaded comments, Write comments – tier 2), **transitions & animations yes** (Show tier 1). Non-goals stay: macros/VBA, Power Query (for now), track changes, real-time co-authoring, pixel-exact layout.
 
 ## Calc
 **Tier 1**
@@ -14,8 +14,8 @@
 8. Charts (bar/column/line/pie/scatter/area, basic styling, chart sheet objects; xlsx `drawing` + `chart` parts; rendered with the Show drawing stack) – shared with Show.
 9. Named ranges (define/manage, Name Box, formulas use them; xlsx `definedNames`).
 10. Number formats: full custom format grammar (conditions, colours, fractions, scientific, `?`), locale-aware display/input (German decimal/`;` – pending owner decision).
-**Tier 2**: tables (structured references, banded rows), comments/notes (owner decision – non-goal today), cell protection/sheet protection (no password strength promises), goal seek, text-to-columns, remove duplicates, sparklines, hyperlinks in cells, pictures in sheets, page break preview, print titles/areas saved to file, CSV import/export with options, paste special (transpose, operations), grouping/outline.
-**Later/no**: pivot tables (ask), Power Query, VBA, external links.
+**Tier 2**: pivot tables (model + `pivotTable`/`pivotCache` parts; basic rows/columns/values/filters, refresh), tables (structured references, banded rows), comments & notes (xlsx `comments` + `threadedComments`; margin indicators, hover, comment pane), cell protection/sheet protection (no password strength promises), goal seek, text-to-columns, remove duplicates, sparklines, hyperlinks in cells, pictures in sheets, page break preview, print titles/areas saved to file, CSV import/export with options, paste special (transpose, operations), grouping/outline.
+**Later/no**: Power Query, VBA, external links.
 
 ## Write
 **Tier 1**
@@ -28,14 +28,14 @@
 7. Find/replace with formatting and wildcards; go to page; navigation pane (headings outline).
 8. Tables: split/merge cells (model + docx `gridSpan`/`vMerge`), table styles presets, repeat header rows across pages, autofit, alignment within page, cell margins.
 9. Document properties, templates (.dotx read), symbols dialog, date/time fields, equations (later).
-**Tier 2**: comments (owner decision), track changes (non-goal), mail merge (no), citations (later), compare documents (later), master documents (no).
+**Tier 2**: comments (docx `comments.xml` + ranges; balloons in the margin, reply/resolve), track changes (non-goal), mail merge (no), citations (later), compare documents (later), master documents (no).
 
 ## Show
 **Tier 1**
 1. Shape library: arrows, callouts, stars, flowchart basics, connectors with arrowheads and elbow routing; shape text wrap/autofit modes; line endings.
 2. Tables in slides (model + pptx `graphicFrame`), charts (shared engine with Calc).
 3. Themes and templates: colour/font schemes switching, slide master editing (basic: background, title/body fonts, placeholder positions), layouts beyond the three built-ins (Two Content, Comparison, Title Only, Section Header, Picture with Caption).
-4. Transitions (fade/push/wipe – README said "not for now"; owner now wants parity: implement simple ones + pptx `transition` read/write) and basic entrance/exit animations (appear/fade/fly-in, order pane) – ask before the animation pane.
+4. Transitions (fade/push/wipe/cover/split, duration, on-click/after) with pptx `transition` read/write, and entrance/exit/emphasis animations (appear/fade/fly-in/wipe/zoom; order pane; on click/with previous/after previous) with pptx `timing` read/write – owner approved.
 5. Images: crop, brightness/contrast (CSS filters), transparency, replace, compress on save (optional); gradients and shadows on shapes.
 6. Slide numbers/date/footer placeholders, sections, slide sorter view, reuse slides from another file, hyperlinks and action buttons.
 7. Media: video/audio embedding (pptx `media` + HTML5 playback) – tier 2 if size matters.
