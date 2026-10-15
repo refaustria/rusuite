@@ -36,9 +36,12 @@ describe("Show app", () => {
     expect(thumbs[2]!.querySelector('[data-konva="Ellipse"]')).not.toBeNull();
     expect(thumbs[0]!.textContent).toContain("Rusuite"); // wrapped: one Text node per line
     await flush();
-    const open = screen.getByRole("button", { name: "Open" }) as HTMLButtonElement;
+    fireEvent.click(screen.getByRole("tab", { name: "File" }));
+    const open = within(screen.getByRole("dialog", { name: "File" })).getByRole("button", { name: "Open…" }) as HTMLButtonElement;
     expect(open.disabled).toBe(false);
-    expect(open.title).toBe("Open (Ctrl+O)");
+    expect(open.title).toBe("Open… (Ctrl+O)");
+    fireEvent.keyDown(open, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "File" })).toBeNull();
     fireEvent.click(thumbs[1]!);
     expect(store.getState().current).toBe(4);
     expect(screen.getByTestId("slide-count").textContent).toBe("Slide 2 of 3");
@@ -75,13 +78,13 @@ describe("Show app", () => {
     expect(screen.getByTestId("editor-stage").textContent).toContain("second line");
   });
 
-  it("toolbar: bold applies SetRunProps, insert adds shapes, undo goes through the core", async () => {
+  it("ribbon: bold applies SetRunProps, insert adds shapes, undo goes through the core", async () => {
     const { backend, store } = await mount();
     act(() => store.select([2]));
     fireEvent.click(screen.getByRole("button", { name: "Bold" }));
     await flush();
     expect(backend.commands[0]).toEqual({ type: "setRunProps", shape: 2, paragraph: 0, from: 0, to: 23, patch: { bold: true } });
-    fireEvent.click(screen.getByRole("button", { name: "Insert ellipse" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Shapes" })).getByRole("button", { name: "Oval" }));
     await flush();
     expect(backend.commands[1]).toMatchObject({ type: "addShape", slide: 1, shape: { kind: { value: { geometry: "ellipse" } } } });
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));

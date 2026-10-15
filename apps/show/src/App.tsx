@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DocumentSession, FileMenu, RecoveryBanner, printAndWait } from "@rusuite/ui-shared";
+import { DocumentSession, RecoveryBanner, printAndWait } from "@rusuite/ui-shared";
 import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
 import { EditorStage } from "./canvas/Stage";
@@ -8,7 +8,8 @@ import { Presenter } from "./present/Presenter";
 import { SlideList } from "./sidebar/SlideList";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { ShowStore, useShow } from "./state/store";
-import { ShowToolbar } from "./ui/ShowToolbar";
+import { slidePx } from "./geometry";
+import { ShowRibbon, type ShowZoom } from "./ui/ShowToolbar";
 import { Toasts } from "./ui/Toasts";
 
 function useElementSize<T extends HTMLElement>() {
@@ -27,7 +28,7 @@ function useElementSize<T extends HTMLElement>() {
   return [ref, size] as const;
 }
 
-function StatusBar({ store, backend }: { store: ShowStore; backend: ShowBackend }) {
+function StatusBar({ store, backend, zoom }: { store: ShowStore; backend: ShowBackend; zoom: ShowZoom }) {
   const pres = useShow(store, (s) => s.pres);
   const current = useShow(store, (s) => s.current);
   const revision = useShow(store, (s) => s.revision);
@@ -49,7 +50,10 @@ function StatusBar({ store, backend }: { store: ShowStore; backend: ShowBackend 
           {warnings.length} warning{warnings.length === 1 ? "" : "s"}: {warnings[0]}
         </span>
       )}
-      <span className="ml-auto" data-testid="backend-kind">
+      <span className="ml-auto" data-testid="zoom">
+        {zoom === "fit" ? "Fit" : `${Math.round(zoom * 100)} %`}
+      </span>
+      <span data-testid="backend-kind">
         {backend.kind}
       </span>
     </div>
@@ -62,6 +66,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   const store = useMemo(() => given ?? new ShowStore(new ShowApi(session.backend)), [session, given]);
   const [presenting, setPresenting] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [zoom, setZoom] = useState<ShowZoom>("fit");
   const [canvasRef, size] = useElementSize<HTMLDivElement>();
   const pres = useShow(store, (s) => s.pres);
   const current = useShow(store, (s) => s.current);
@@ -83,7 +88,6 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     void session.start();
     return () => session.stop();
   }, [session, store]);
-  const fileIo = useShow(store, (s) => s.fileIo);
 
   useEffect(() => {
     void backend.setTitle(`${dirty ? "• " : ""}${name ?? "Untitled"} – Rusuite Show`).catch(() => undefined);
@@ -121,28 +125,31 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     [store],
   );
 
+  // Fit: the canvas area minus its padding; a fixed zoom: the slide at that scale.
+  const stageSize =
+    zoom === "fit" || !pres
+      ? { width: Math.max(0, size.width - 32), height: Math.max(0, size.height - 32) }
+      : { width: slidePx(pres.slideSize).width * zoom, height: slidePx(pres.slideSize).height * zoom };
+
   if (printing && pres) return <PrintView deck={pres} slides={slides} media={store.media} onReady={printReady} />;
 
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
       <RecoveryBanner session={session} />
-      <div className="flex items-stretch">
-        <div className="flex items-center border-b border-r border-ui-border bg-ui-panel px-1">
-          <FileMenu session={session} disabled={!fileIo} onOpen={() => void store.open()} onSave={() => void store.save()} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <ShowToolbar store={store} onPresent={startPresenting} onExportPdf={exportPdf} />
-        </div>
-      </div>
+      <ShowRibbon store={store} session={session} onPresent={presentFrom} onExportPdf={exportPdf} zoom={zoom} onZoom={setZoom} />
       <div className="flex min-h-0 flex-1">
         <SlideList store={store} />
-        <div ref={canvasRef} className="flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-ui-hover p-4" data-testid="canvas-area">
-          <div className="shadow-lg" data-testid="stage-host">
-            <EditorStage store={store} width={Math.max(0, size.width - 32)} height={Math.max(0, size.height - 32)} />
+        <div
+          ref={canvasRef}
+          className={`flex min-w-0 flex-1 bg-ui-hover p-4 ${zoom === "fit" ? "items-center justify-center overflow-hidden" : "overflow-auto"}`}
+          data-testid="canvas-area"
+        >
+          <div className="m-auto shrink-0 shadow-lg" data-testid="stage-host">
+            <EditorStage store={store} width={stageSize.width} height={stageSize.height} />
           </div>
         </div>
       </div>
-      <StatusBar store={store} backend={backend} />
+      <StatusBar store={store} backend={backend} zoom={zoom} />
       <Toasts store={store} />
       <ShortcutLayer store={store} enabled={!presenting} onPresent={presentFrom} onExportPdf={exportPdf} />
       {presenting && pres && slides.length > 0 && (

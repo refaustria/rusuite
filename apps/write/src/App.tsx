@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
-import { DocumentSession, FileMenu, RecoveryBanner } from "@rusuite/ui-shared";
+import { DocumentSession, RecoveryBanner } from "@rusuite/ui-shared";
 import { writePrintCss } from "./print/printCss";
 import { WriteApi, type WriteBackend } from "./backend";
 import { writeExtensions, TWIPS_PER_PX } from "./sync/schema";
@@ -9,7 +9,7 @@ import { FindReplaceDialog } from "./ui/FindReplaceDialog";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { Toasts } from "./ui/Toasts";
 import { countDocWords, countWords } from "./wordCount";
-import { WriteToolbar } from "./ui/WriteToolbar";
+import { WriteRibbon } from "./ui/WriteToolbar";
 
 function useSync<T>(ctl: SyncController, select: (s: SyncState) => T): T {
   return useSyncExternalStore(ctl.subscribe, () => select(ctl.getState()));
@@ -105,6 +105,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
   const session = useMemo(() => new DocumentSession(backend), [backend]);
   const ctl = useMemo(() => new SyncController(new WriteApi(session.backend)), [session]);
   const [findOpen, setFindOpen] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const editor = useEditor(
     {
       extensions: [...writeExtensions({ resolveMedia: ctl.media.resolve }), SyncExtension(ctl)],
@@ -159,26 +160,32 @@ export default function App({ backend }: { backend: WriteBackend }) {
       <TitleSync ctl={ctl} backend={backend} />
       <RecoveryBanner session={session} />
       {editor && (
-        <div className="flex items-stretch">
-          <div className="flex items-center border-b border-r border-ui-border bg-ui-panel px-1">
-            <FileMenu session={session} onOpen={() => void open()} onSave={() => void save()} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <WriteToolbar editor={editor} ctl={ctl} onOpen={() => void open()} onSave={() => void save()} onFind={() => setFindOpen(true)} onExportPdf={exportPdf} />
-          </div>
-        </div>
+        <WriteRibbon
+          editor={editor}
+          ctl={ctl}
+          session={session}
+          page={page}
+          onOpen={() => void open()}
+          onSave={() => void save()}
+          onFind={() => setFindOpen(true)}
+          onExportPdf={exportPdf}
+          zoom={zoom}
+          onZoom={setZoom}
+        />
       )}
-      <style>{writePrintCss(page)}</style>
+      <style>{`${writePrintCss(page)}\n@media print { .write-zoom { zoom: 1 !important; } }`}</style>
       <div className="write-scroll min-h-0 flex-1 overflow-auto bg-ui-panel p-6">
-        <div
-          className="write-page mx-auto bg-white text-black shadow"
-          style={{
-            width: px(page?.width, 794),
-            maxWidth: "100%",
-            padding: `${px(m?.top, 96)}px ${px(m?.right, 96)}px ${px(m?.bottom, 96)}px ${px(m?.left, 96)}px`,
-          }}
-        >
-          <EditorContent editor={editor} />
+        <div className="write-zoom" data-testid="write-zoom" style={zoom !== 1 ? { zoom } : undefined}>
+          <div
+            className="write-page mx-auto bg-white text-black shadow"
+            style={{
+              width: px(page?.width, 794),
+              maxWidth: "100%",
+              padding: `${px(m?.top, 96)}px ${px(m?.right, 96)}px ${px(m?.bottom, 96)}px ${px(m?.left, 96)}px`,
+            }}
+          >
+            <EditorContent editor={editor} />
+          </div>
         </div>
       </div>
       {editor && <StatusBar ctl={ctl} editor={editor} backend={backend} />}

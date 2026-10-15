@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import App from "./App";
 import { FakeBackend, FakeCalcCore } from "./dev/fakeBackend";
 import type { Request } from "./generated/Request";
@@ -20,6 +20,12 @@ async function setup(sheets?: string[]) {
   const grid = screen.getByTestId("grid");
   grid.focus();
   return { core, grid, backend };
+}
+
+/** Runs a File (backstage) command. */
+function fileCommand(name: string) {
+  fireEvent.click(screen.getByRole("tab", { name: "File" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "File" })).getByRole("button", { name }));
 }
 
 const applied = (log: Request[]) => log.flatMap((r) => (r.type === "apply" ? [r.command] : []));
@@ -174,7 +180,7 @@ describe("App", () => {
     const { core, backend } = await setup();
     await waitFor(() => expect(backend.title).toBe("Untitled – Rusuite Calc"));
     backend.nextOpen = { name: "budget.xlsx", bytesBase64: "UEsDBA==" };
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fileCommand("Open…");
     await waitFor(() => expect(screen.getByTestId("open-warnings").textContent).toMatch(/file content ignored/));
     expect(core.log[0]).toEqual({ type: "openXlsx", bytesBase64: "UEsDBA==", name: "budget.xlsx" });
     expect(core.log.some((r) => r.type === "snapshot")).toBe(true);
@@ -195,7 +201,7 @@ describe("App", () => {
     expect(core.log.some((r) => r.type === "markSaved")).toBe(false);
     expect(screen.getByTestId("status-bar").textContent).toMatch(/Modified/);
     backend.saveResult = true;
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fileCommand("Save");
     await waitFor(() => expect(core.log.map((r) => r.type).slice(-2)).toEqual(["saveXlsx", "markSaved"]));
     expect(backend.saved).toEqual([{ name: "Untitled.xlsx", bytesBase64: "UEsDBA==" }]);
     await waitFor(() => expect(screen.getByTestId("status-bar").textContent).toMatch(/Saved/));
@@ -229,7 +235,7 @@ describe("App recovery (P5-3)", () => {
     expect(storage.recovery.has("crashed")).toBe(false);
   });
 
-  it("Discard drops the entry; the File menu lists recent files", async () => {
+  it("Discard drops the entry; the File view lists recent files", async () => {
     const { MemoryDocStorage } = await import("@rusuite/ui-shared");
     const storage = new MemoryDocStorage();
     await storage.putRecovery({ id: "old", name: null, savedAt: Date.now(), revision: 1, json: '{"cells":[]}' });
@@ -239,7 +245,7 @@ describe("App recovery (P5-3)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Discard Untitled" }));
     await waitFor(() => expect(screen.queryByTestId("recovery-banner")).toBeNull());
     expect(storage.recovery.size).toBe(0);
-    fireEvent.click(screen.getByRole("button", { name: "File" }));
+    fireEvent.click(screen.getByRole("tab", { name: "File" }));
     const entry = await screen.findByTestId("recent-entry");
     expect(entry.textContent).toContain("last.xlsx");
     expect(screen.getByTestId("recent-web-note")).toBeTruthy();

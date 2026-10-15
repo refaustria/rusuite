@@ -222,6 +222,7 @@ export class FakeWriteBackend implements WriteBackend {
         this.revision++;
         let patch = this.diff(before, this.doc, idMap);
         patch.info = info;
+        if (JSON.stringify(before.page) !== JSON.stringify(this.doc.page)) patch.page = this.doc.page;
         if (this.tamper) {
           patch = this.tamper(patch);
           this.tamper = null;
@@ -524,6 +525,18 @@ export class FakeWriteBackend implements WriteBackend {
       }
       case "compound": {
         for (const sub of c.commands) this.exec(sub, idMap);
+        return null;
+      }
+      case "setPage": {
+        const page = this.doc.page;
+        const { orientation, width, height, margins } = c.patch;
+        if (orientation && orientation !== page.orientation) {
+          [page.width, page.height] = [page.height, page.width];
+          page.orientation = orientation;
+        }
+        if (width != null) page.width = width;
+        if (height != null) page.height = height;
+        for (const [k, v] of Object.entries(margins ?? {})) if (v != null) (page.margins as Record<string, number>)[k] = v;
         return null;
       }
       default:

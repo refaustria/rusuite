@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DocumentSession, FileMenu, RecoveryBanner, Toolbar, type AnySession } from "@rusuite/ui-shared";
+import { DocumentSession, RecoveryBanner } from "@rusuite/ui-shared";
 import { CalcApi, type CalcBackend } from "./backend/calcApi";
 import { installDevTools, perfOverlayEnabled, pickBackend } from "./dev/devTools";
 import { FormulaBar } from "./FormulaBar";
 import { GridCanvas } from "./grid/GridCanvas";
-import { toolbarValue } from "./grid/style";
 import { ExportPdf, type ExportStage } from "./print/ExportPdf";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { SheetTabs } from "./SheetTabs";
 import { CalcStore, useCalc } from "./state/store";
 import { Toasts } from "./Toasts";
+import { CalcRibbon, DEFAULT_CALC_VIEW, type CalcRibbonExtras, type CalcView } from "./ui/CalcRibbon";
 
-function StatusBar({ store }: { store: CalcStore }) {
+function StatusBar({ store, zoom }: { store: CalcStore; zoom: number }) {
   const revision = useCalc(store, (s) => s.revision);
   const dirty = useCalc(store, (s) => s.dirty);
   const cycle = useCalc(store, (s) => s.cycle);
@@ -30,58 +30,19 @@ function StatusBar({ store }: { store: CalcStore }) {
           {cycle}
         </span>
       )}
+      <span className="ml-auto" data-testid="zoom">
+        {Math.round(zoom * 100)} %
+      </span>
     </div>
   );
 }
 
-function FileButtons({
-  store,
-  session,
-  stage,
-  onStage,
-}: {
-  store: CalcStore;
-  session: AnySession;
-  stage: ExportStage;
-  onStage: (s: ExportStage) => void;
-}) {
-  const btn = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg hover:bg-ui-hover";
-  return (
-    <div role="group" aria-label="File" className="flex items-center gap-1 border-b border-r border-ui-border bg-ui-panel px-1">
-      <FileMenu session={session} onOpen={() => void store.openFile()} onSave={() => void store.saveFile()} />
-      <button type="button" className={btn} title="Open (Ctrl+O)" onClick={() => void store.openFile()}>
-        Open
-      </button>
-      <button type="button" className={btn} title="Save (Ctrl+S)" onClick={() => void store.saveFile()}>
-        Save
-      </button>
-      <ExportPdf store={store} stage={stage} onStage={onStage} />
-    </div>
-  );
-}
-
-function StyleToolbar({ store }: { store: CalcStore }) {
-  useCalc(store, (s) => s.version);
-  useCalc(store, (s) => s.selection);
-  useCalc(store, (s) => s.activeSheet);
-  const ready = useCalc(store, (s) => s.info !== null);
-  return (
-    <Toolbar
-      value={toolbarValue(store.activeStyle())}
-      disabled={!ready}
-      onChange={(patch) => {
-        void store.applyStyle(patch);
-        store.focusGrid();
-      }}
-    />
-  );
-}
-
-export default function App({ backend }: { backend: CalcBackend }) {
+export default function App({ backend, ribbonExtras }: { backend: CalcBackend; ribbonExtras?: CalcRibbonExtras }) {
   // Recent files, autosave, crash recovery: the store talks through the session's backend.
   const session = useMemo(() => new DocumentSession(pickBackend(backend)), [backend]);
   const store = useMemo(() => new CalcStore(new CalcApi(session.backend)), [session]);
   const [exportStage, setExportStage] = useState<ExportStage>("idle");
+  const [view, setView] = useState<CalcView>(DEFAULT_CALC_VIEW);
   const openExport = useCallback(() => {
     store.cancelEdit();
     setExportStage("setup");
@@ -109,16 +70,15 @@ export default function App({ backend }: { backend: CalcBackend }) {
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
       <RecoveryBanner session={session} />
-      <div className="flex items-stretch">
-        <FileButtons store={store} session={session} stage={exportStage} onStage={setExportStage} />
-        <div className="min-w-0 flex-1">
-          <StyleToolbar store={store} />
-        </div>
+      <CalcRibbon store={store} session={session} onExportPdf={openExport} view={view} onViewChange={setView} extras={ribbonExtras} />
+      {/* The Export PDF flow (setup dialog, print view); its own button is replaced by File › Export PDF… */}
+      <div className="contents [&>button]:hidden">
+        <ExportPdf store={store} stage={exportStage} onStage={setExportStage} />
       </div>
-      <FormulaBar store={store} />
-      <GridCanvas store={store} showPerf={perfOverlayEnabled()} />
+      {view.formulaBar && <FormulaBar store={store} />}
+      <GridCanvas store={store} showPerf={perfOverlayEnabled()} zoom={view.zoom} gridlines={view.gridlines} />
       <SheetTabs store={store} />
-      <StatusBar store={store} />
+      <StatusBar store={store} zoom={view.zoom} />
       <Toasts store={store} />
       <ShortcutLayer store={store} onExportPdf={openExport} />
     </main>

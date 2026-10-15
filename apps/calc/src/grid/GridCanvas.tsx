@@ -36,7 +36,16 @@ type Hit =
   | { kind: "cell"; cell: Cell }
   | { kind: "none" };
 
-export function GridCanvas({ store, showPerf = false }: { store: CalcStore; showPerf?: boolean }) {
+export interface GridViewOptions {
+  /** View zoom (1 = 100 %), applied with CSS `zoom` on the grid. */
+  zoom?: number;
+  /** Draw the cell gridlines (default true). */
+  gridlines?: boolean;
+}
+
+export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true }: { store: CalcStore; showPerf?: boolean } & GridViewOptions) {
+  const view = useRef({ zoom, gridlines });
+  view.current = { zoom, gridlines };
   const scroller = useRef<HTMLDivElement>(null);
   const spacer = useRef<HTMLDivElement>(null);
   const cellsCanvas = useRef<HTMLCanvasElement>(null);
@@ -94,9 +103,10 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       Math.min(LAST_ROW, vis.r1 + PREFETCH), Math.min(LAST_COL, vis.c1 + 2),
     );
 
-    const cctx = cellsCanvas.current && prepareCanvas(cellsCanvas.current, vp.width, vp.height);
+    const cctx = cellsCanvas.current && prepareCanvas(cellsCanvas.current, vp.width, vp.height, view.current.zoom);
     if (cctx) {
-      const ops = computeRenderOps(vp, data, store.styles());
+      const all = computeRenderOps(vp, data, store.styles());
+      const ops = view.current.gridlines ? all : all.filter((o) => o.op !== "gridlines");
       drawOps(cctx, ops, "#ffffff");
       drawSelection(cctx, vp, data, sel, state.selection.anchor);
       const edit = state.edit;
@@ -110,7 +120,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         drawRefHighlights(cctx, vp, data, marks);
       }
     }
-    const hctx = headerCanvas.current && prepareCanvas(headerCanvas.current, vp.width + HEADER_W, vp.height + HEADER_H);
+    const hctx = headerCanvas.current && prepareCanvas(headerCanvas.current, vp.width + HEADER_W, vp.height + HEADER_H, view.current.zoom);
     if (hctx) {
       drawHeaders(hctx, vp, data, sel, { bg: "#f3f3f3", fg: "#444", line: "#c8c8c8", active: "#d3e3d8" });
       const p = resizePreview.current;
@@ -199,6 +209,15 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     schedule();
   }, [activeSheet, schedule]);
 
+  useEffect(schedule, [zoom, gridlines, schedule]);
+
+  /** Screen px per grid px (the CSS zoom, as the browser applies it). */
+  const screenScale = (el: HTMLElement): number => {
+    const w = el.offsetWidth;
+    const s = w > 0 ? el.getBoundingClientRect().width / w : 1;
+    return Number.isFinite(s) && s > 0 ? s : 1;
+  };
+
   const onScroll = () => {
     const el = scroller.current;
     if (el) {
@@ -219,8 +238,9 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const el = scroller.current;
     if (!el) return { kind: "none" };
     const rect = el.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
+    const scale = screenScale(el);
+    const x = (clientX - rect.left) / scale;
+    const y = (clientY - rect.top) / scale;
     if (x > el.clientWidth || y > el.clientHeight) return { kind: "none" }; // scrollbars
     const data = sheetData();
     const vp = viewport();
@@ -351,10 +371,11 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       const index = hit.kind === "colEdge" ? hit.col : hit.row;
       const startSize = axis === "col" ? data.colGeo.size(index) : data.rowGeo.size(index);
       const startPos = axis === "col" ? e.clientX : e.clientY;
+      const scale = scroller.current ? screenScale(scroller.current) : 1;
       resizePreview.current = { axis, index, size: startSize };
       const move = (ev: MouseEvent) => {
         const pos = axis === "col" ? ev.clientX : ev.clientY;
-        resizePreview.current = { axis, index, size: Math.max(0, startSize + pos - startPos) };
+        resizePreview.current = { axis, index, size: Math.max(0, startSize + (pos - startPos) / scale) };
         schedule();
       };
       const up = () => {
@@ -489,7 +510,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   };
 
   return (
-    <div className="relative min-h-0 flex-1 overflow-hidden bg-white" data-testid="grid-root">
+    <div className="relative min-h-0 flex-1 overflow-hidden bg-white" data-testid="grid-root" style={zoom !== 1 ? { zoom } : undefined}>
       <canvas ref={cellsCanvas} className="absolute" style={{ left: HEADER_W, top: HEADER_H }} aria-hidden="true" />
       <canvas ref={headerCanvas} className="absolute left-0 top-0" aria-hidden="true" />
       <div

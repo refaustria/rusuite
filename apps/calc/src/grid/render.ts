@@ -149,8 +149,9 @@ export function computeRenderOps(vp: Viewport, sheet: SheetData, styles: readonl
 
 // --- canvas painters (not unit-tested; jsdom has no canvas) -------------
 
-export function prepareCanvas(canvas: HTMLCanvasElement, width: number, height: number): CanvasRenderingContext2D | null {
-  const dpr = window.devicePixelRatio || 1;
+export function prepareCanvas(canvas: HTMLCanvasElement, width: number, height: number, zoom = 1): CanvasRenderingContext2D | null {
+  // Zoomed grids (CSS `zoom`) get a denser backing store, so text stays sharp.
+  const dpr = (window.devicePixelRatio || 1) * zoom;
   const pw = Math.max(1, Math.floor(width * dpr));
   const ph = Math.max(1, Math.floor(height * dpr));
   if (canvas.width !== pw || canvas.height !== ph) {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ setTitle: vi.fn() }) }));
@@ -22,12 +22,19 @@ async function mount() {
   return { backend, editor, setTitle };
 }
 
+
+/** Runs a File (backstage) command. */
+function fileCommand(name: string) {
+  fireEvent.click(screen.getByRole("tab", { name: "File" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "File" })).getByRole("button", { name }));
+}
+
 describe("Write app", () => {
-  it("mounts toolbar, editor and status bar on a new document", async () => {
+  it("mounts the ribbon, editor and status bar on a new document", async () => {
     const { editor, setTitle } = await mount();
     expect(editor.querySelectorAll("p").length).toBe(1);
     expect(screen.getByRole("toolbar", { name: "Formatting" })).toBeTruthy();
-    expect(screen.getByRole("combobox", { name: "Paragraph style" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Paragraph styles" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Bulleted list" })).toBeTruthy();
     expect(screen.queryByRole("group", { name: "Number" })).toBeNull();
     expect(screen.getByTestId("doc-name").textContent).toBe("Untitled");
@@ -40,7 +47,7 @@ describe("Write app", () => {
     const { backend, editor } = await mount();
     const doc = makeDoc([para(1, "Opened", { style: "Heading1" }), para(2, "two words")]);
     vi.spyOn(backend, "openFile").mockResolvedValue({ name: "r.docx", bytesBase64: b64(doc) });
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fileCommand("Open…");
     await waitFor(() => expect(editor.querySelector("h1")?.textContent).toBe("Opened"));
     expect(screen.getByTestId("doc-name").textContent).toBe("r.docx");
     expect(screen.getByTestId("warnings").textContent).toContain("1 warning");
@@ -57,7 +64,7 @@ describe("Write app", () => {
     fireEvent.keyDown(window, { key: "s", ctrlKey: true });
     await waitFor(() => expect(saveFile).toHaveBeenCalledTimes(1));
     expect(backend.log.some((r) => r.type === "markSaved")).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fileCommand("Save");
     await waitFor(() => expect(backend.log.some((r) => r.type === "markSaved")).toBe(true));
     expect(saveFile).toHaveBeenLastCalledWith("Untitled.docx", expect.any(String));
     await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("Untitled.docx"));
@@ -70,7 +77,7 @@ describe("Write app", () => {
       name: "f.docx",
       bytesBase64: b64(makeDoc([para(1, "red fish red")])),
     });
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fileCommand("Open…");
     await waitFor(() => expect(editor.textContent).toBe("red fish red"));
     fireEvent.click(screen.getByRole("button", { name: "Find and replace" }));
     fireEvent.change(screen.getByLabelText("Find"), { target: { value: "red" } });
@@ -84,7 +91,7 @@ describe("Write app", () => {
     const { backend } = await mount();
     vi.spyOn(backend, "openFile").mockResolvedValue({ name: "bad.docx", bytesBase64: btoa("not json") });
     vi.spyOn(backend, "dispatch").mockResolvedValueOnce({ err: { code: "bad_docx", message: "not a docx" } } as never);
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fileCommand("Open…");
     expect((await screen.findByRole("alert")).textContent).toContain("bad_docx");
   });
 
@@ -107,14 +114,15 @@ describe("Write app recovery (P5-3)", () => {
     expect(banner.textContent).toContain("letter.docx");
     fireEvent.click(screen.getByRole("button", { name: "Restore letter.docx" }));
     await waitFor(() => expect(editor.textContent).toBe("Recovered text"));
-    expect(screen.getByTestId("doc-name").textContent).toBe("letter.docx");
+    // The status bar is throttled (60 ms).
+    await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("letter.docx"));
     expect(screen.getByTestId("dirty").textContent).toBe("Modified");
     expect(screen.queryByTestId("recovery-banner")).toBeNull();
     await waitFor(() => expect(storage.recovery.has("crashed")).toBe(false));
     expect(storage.recovery.size).toBe(1);
   });
 
-  it("the File menu re-opens a recent document from browser storage", async () => {
+  it("the File view re-opens a recent document from browser storage", async () => {
     const { MemoryDocStorage } = await import("@rusuite/ui-shared");
     const storage = new MemoryDocStorage();
     await storage.rememberRecent("notes.docx", JSON.stringify(makeDoc([para(1, "From the recent list")])));
@@ -122,7 +130,7 @@ describe("Write app recovery (P5-3)", () => {
     render(<App backend={backend} />);
     const editor = await screen.findByTestId("editor");
     await waitFor(() => expect(backend.log.some((r) => r.type === "newDocument")).toBe(true));
-    fireEvent.click(screen.getByRole("button", { name: "File" }));
+    fireEvent.click(screen.getByRole("tab", { name: "File" }));
     fireEvent.click(await screen.findByTestId("recent-entry"));
     await waitFor(() => expect(editor.textContent).toBe("From the recent list"));
     await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("notes.docx"));

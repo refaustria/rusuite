@@ -1,30 +1,28 @@
-// Write toolbar: ui-shared run formatting groups plus paragraph style,
-// alignment, lists/indent, insert table/image, find/replace, file and
-// undo/redo actions.
+// Write's ribbon: File (backstage) / Home / Insert / Layout / View, built
+// from the ui-shared ribbon and formatting controls. Run formatting goes
+// through the editor's marks, paragraph formatting through node attributes
+// (the transaction mapper turns both into Rust commands); insertions and
+// page setup are Rust-first commands (`InsertTable`, `InsertImage`,
+// `SetPage`).
 
-import { useRef, type ReactNode } from "react";
+import { useRef, useSyncExternalStore, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
-import { useThrottledEditorState } from "./useThrottledEditorState";
+import type { Node as PMNode } from "@tiptap/pm/model";
 import {
-  BTN, Dropdown, Icon, ListButtons, ParagraphStyleSelect, Toolbar, bytesToBase64,
-  type CellStylePatch, type CellStyleView, type IconName,
+  ColorControls, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
+  RibbonRow, RibbonStack, RibbonTableSizePicker, StyleToggles, bytesToBase64, triggerShortcut,
+  type AnySession, type CellStylePatch, type CellStyleView, type FormatControlProps, type RibbonGalleryItem, type RibbonTab,
 } from "@rusuite/ui-shared";
 import type { Alignment } from "../generated/Alignment";
+import type { PageSetup } from "../generated/PageSetup";
+import type { PageSetupPatch } from "../generated/PageSetupPatch";
+import type { Spacing } from "../generated/Spacing";
 import {
   PARAGRAPH_STYLES, alignmentAt, cursorBlock, indent, runPropsAt, setAlignment, setParagraphStyle, setTextStyle, styleOf,
 } from "../sync/editorCommands";
 import { EMU_PER_PX, TEXTBLOCK_TYPES, TWIPS_PER_PX } from "../sync/schema";
-import type { SyncController } from "../sync/SyncPlugin";
-
-const TEXT_BTN = `${BTN} px-2 text-sm`;
-
-function Group({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div role="group" aria-label={label} className="flex items-center gap-0.5 border-r border-ui-border px-1 last:border-r-0">
-      {children}
-    </div>
-  );
-}
+import type { SyncController, SyncState } from "../sync/SyncPlugin";
+import { useThrottledEditorState } from "./useThrottledEditorState";
 
 /** Natural size of an image (falls back to 96×96 px when it cannot be decoded). */
 function naturalSize(dataUrl: string): Promise<{ w: number; h: number }> {
@@ -44,17 +42,130 @@ function naturalSize(dataUrl: string): Promise<{ w: number; h: number }> {
   });
 }
 
-export interface WriteToolbarProps {
+// ----- page setup ---------------------------------------------------------------
+
+/** Paper sizes in twips (portrait). */
+export const PAGE_SIZES: { id: string; label: string; width: number; height: number }[] = [
+  { id: "A4", label: "A4 (21 × 29.7 cm)", width: 11906, height: 16838 },
+  { id: "Letter", label: "Letter (8.5 × 11 in)", width: 12240, height: 15840 },
+];
+
+/** Margin presets in twips (Word's Normal / Narrow / Moderate / Wide). */
+export const MARGIN_PRESETS: { id: string; label: string; top: number; right: number; bottom: number; left: number }[] = [
+  { id: "normal", label: "Normal (2.54 cm)", top: 1440, right: 1440, bottom: 1440, left: 1440 },
+  { id: "narrow", label: "Narrow (1.27 cm)", top: 720, right: 720, bottom: 720, left: 720 },
+  { id: "moderate", label: "Moderate (2.54 / 1.91 cm)", top: 1440, right: 1080, bottom: 1440, left: 1080 },
+  { id: "wide", label: "Wide (2.54 / 5.08 cm)", top: 1440, right: 2880, bottom: 1440, left: 2880 },
+];
+
+const near = (a: number, b: number) => Math.abs(a - b) <= 20;
+
+/** The paper of a page (either orientation), if it is a known size. */
+export function paperOf(page: PageSetup | null): string | null {
+  if (!page) return null;
+  const short = Math.min(page.width, page.height);
+  const long = Math.max(page.width, page.height);
+  return PAGE_SIZES.find((p) => near(p.width, short) && near(p.height, long))?.id ?? null;
+}
+
+/** `SetPage` patch for a paper size, keeping the orientation. */
+export function paperPatch(page: PageSetup | null, id: string): PageSetupPatch | null {
+  const p = PAGE_SIZES.find((x) => x.id === id);
+  if (!p) return null;
+  const landscape = page?.orientation === "landscape";
+  return landscape ? { width: p.height, height: p.width } : { width: p.width, height: p.height };
+}
+
+export function marginPresetOf(page: PageSetup | null): string | null {
+  if (!page) return null;
+  const m = page.margins;
+  return MARGIN_PRESETS.find((p) => near(p.top, m.top) && near(p.right, m.right) && near(p.bottom, m.bottom) && near(p.left, m.left))?.id ?? null;
+}
+
+// ----- paragraph helpers ----------------------------------------------------------
+
+export const LINE_SPACINGS = [1, 1.15, 1.5, 2, 2.5, 3];
+
+function selectedTextblocks(editor: Editor): [PMNode, number][] {
+  const { from, to } = editor.state.selection;
+  const out: [PMNode, number][] = [];
+  editor.state.doc.nodesBetween(from, to, (node, pos) => {
+    if (TEXTBLOCK_TYPES.has(node.type.name)) {
+      out.push([node, pos]);
+      return false;
+    }
+    return true;
+  });
+  return out;
+}
+
+/** Sets the line spacing (multiple) of the selected paragraphs. */
+export function setLineSpacing(editor: Editor, value: number): boolean {
+  const tr = editor.state.tr;
+  for (const [node, pos] of selectedTextblocks(editor)) {
+    const cur = (node.attrs.spacing as Spacing | null) ?? {};
+    tr.setNodeMarkup(pos, undefined, { ...node.attrs, spacing: { ...cur, line: { kind: "multiple", value } } });
+  }
+  if (!tr.docChanged) return false;
+  editor.view.dispatch(tr);
+  return true;
+}
+
+function lineSpacingAt(editor: Editor): number | null {
+  const first = selectedTextblocks(editor)[0];
+  const line = (first?.[0].attrs.spacing as Spacing | null)?.line;
+  return line?.kind === "multiple" ? line.value : null;
+}
+
+// ----- style gallery ----------------------------------------------------------------
+
+const STYLE_PREVIEW: Record<string, string> = {
+  Normal: "text-xs",
+  Title: "text-lg font-light",
+  Heading1: "text-sm font-semibold text-blue-800 dark:text-blue-300",
+  Heading2: "text-xs font-semibold text-blue-800 dark:text-blue-300",
+  Heading3: "text-xs font-medium text-blue-900 dark:text-blue-200",
+  Heading4: "text-xs italic text-blue-800 dark:text-blue-300",
+  Heading5: "text-[11px] text-blue-800 dark:text-blue-300",
+  Heading6: "text-[11px] italic text-blue-900 dark:text-blue-200",
+};
+
+const STYLE_ITEMS: RibbonGalleryItem[] = PARAGRAPH_STYLES.map((s) => ({
+  id: s.id,
+  label: s.label,
+  preview: <span className={`leading-5 ${STYLE_PREVIEW[s.id] ?? "text-xs"}`}>AaBbCc</span>,
+}));
+
+/** Styles shown inline; the rest are in "More styles". */
+const INLINE_STYLES = 5;
+
+// ----- the ribbon ----------------------------------------------------------------------
+
+function useSync<T>(ctl: SyncController, select: (s: SyncState) => T): T {
+  return useSyncExternalStore(ctl.subscribe, () => select(ctl.getState()));
+}
+
+export interface WriteRibbonProps {
   editor: Editor;
   ctl: SyncController;
+  session: AnySession;
+  page: PageSetup | null;
   onOpen: () => void;
   onSave: () => void;
   onFind: () => void;
-  onExportPdf?: () => void;
+  onExportPdf: () => void;
+  zoom: number;
+  onZoom: (zoom: number) => void;
 }
 
-export function WriteToolbar({ editor, ctl, onOpen, onSave, onFind, onExportPdf }: WriteToolbarProps) {
+export const WRITE_ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+export function WriteRibbon({ editor, ctl, session, page, onOpen, onSave, onFind, onExportPdf, zoom, onZoom }: WriteRibbonProps) {
   const fileInput = useRef<HTMLInputElement>(null);
+  const canUndo = useSync(ctl, (s) => s.canUndo);
+  const canRedo = useSync(ctl, (s) => s.canRedo);
+  const name = useSync(ctl, (s) => s.name);
+  const dirty = useSync(ctl, (s) => s.dirty);
   const s = useThrottledEditorState({
     editor,
     selector: ({ editor: e }) => {
@@ -70,6 +181,7 @@ export function WriteToolbar({ editor, ctl, onOpen, onSave, onFind, onExportPdf 
         props: runPropsAt(e),
         style,
         align: alignmentAt(e),
+        line: lineSpacingAt(e),
         bullet: e.isActive("bulletList"),
         ordered: e.isActive("orderedList"),
       };
@@ -100,24 +212,22 @@ export function WriteToolbar({ editor, ctl, onOpen, onSave, onFind, onExportPdf 
       setTextStyle(editor, ts);
     }
   };
+  const fmt: FormatControlProps = { value, onChange };
 
-  const alignBtn = (a: Alignment, label: string, icon: IconName | null) => (
-    <button
-      type="button"
-      className={icon ? BTN : TEXT_BTN}
-      aria-label={label}
-      aria-pressed={s.align === a}
+  const alignBtn = (a: Alignment, label: string, icon: ReactNode, shortcut: string) => (
+    <RibbonButton
+      label={label}
+      icon={icon}
+      shortcut={shortcut}
+      pressed={s.align === a}
       onClick={() => {
         editor.commands.focus();
         setAlignment(editor, a);
       }}
-    >
-      {icon ? <Icon name={icon} /> : "≡"}
-    </button>
+    />
   );
 
-  const insertTable = (size: string) => {
-    const [rows, cols] = size.split("x").map(Number) as [number, number];
+  const insertTable = (rows: number, cols: number) => {
     const at = cursorBlock(editor);
     void ctl.run({ type: "insertTable", after: at?.id ?? null, parent: at?.cell ?? null, rows, cols });
   };
@@ -128,8 +238,8 @@ export function WriteToolbar({ editor, ctl, onOpen, onSave, onFind, onExportPdf 
     const bytesBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
     const contentType = file.type || "image/png";
     const { w, h } = await naturalSize(`data:${contentType};base64,${bytesBase64}`);
-    const page = ctl.page;
-    const maxPx = page ? (page.width - page.margins.left - page.margins.right) / TWIPS_PER_PX : 600;
+    const pg = ctl.page;
+    const maxPx = pg ? (pg.width - pg.margins.left - pg.margins.right) / TWIPS_PER_PX : 600;
     const scale = Math.min(1, maxPx / w);
     await ctl.run({
       type: "insertImage", block: at.id, offset: at.offset, contentType, bytesBase64,
@@ -137,78 +247,275 @@ export function WriteToolbar({ editor, ctl, onOpen, onSave, onFind, onExportPdf 
     });
   };
 
+  const clipboard = (kind: "cut" | "copy") => {
+    editor.commands.focus();
+    try {
+      document.execCommand(kind);
+    } catch {
+      // not supported: the keyboard shortcut still works
+    }
+  };
+  const paste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) editor.chain().focus().insertContent(text).run();
+    } catch {
+      ctl.pushError(new Error("Paste needs clipboard access here – use Ctrl+V."));
+    }
+  };
+
+  const setPage = (patch: PageSetupPatch | null) => {
+    if (patch) void ctl.run({ type: "setPage", patch });
+  };
+  const paper = paperOf(page);
+  const margins = marginPresetOf(page);
+  const orientation = page?.orientation ?? "portrait";
+
+  const pickStyle = (id: string) => {
+    editor.commands.focus();
+    setParagraphStyle(editor, id);
+  };
+
+  const home: RibbonTab = {
+    id: "home",
+    label: "Home",
+    toolbarLabel: "Formatting",
+    groups: [
+      {
+        label: "Undo",
+        items: (
+          <RibbonStack>
+            <RibbonButton label="Undo" icon="undo" shortcut="Mod+Z" disabled={!canUndo} onClick={() => ctl.undo()} />
+            <RibbonButton label="Redo" icon="redo" shortcut="Mod+Y" disabled={!canRedo} onClick={() => ctl.redo()} />
+          </RibbonStack>
+        ),
+      },
+      {
+        label: "Clipboard",
+        items: (
+          <>
+            <RibbonButton label="Paste" icon="paste" size="large" shortcut="Mod+V" onClick={() => void paste()} />
+            <RibbonStack>
+              <RibbonButton label="Cut" icon="cut" showLabel shortcut="Mod+X" onClick={() => clipboard("cut")} />
+              <RibbonButton label="Copy" icon="copy" showLabel shortcut="Mod+C" onClick={() => clipboard("copy")} />
+            </RibbonStack>
+          </>
+        ),
+      },
+      {
+        label: "Font",
+        items: (
+          <RibbonStack>
+            <RibbonRow>
+              <FontControls {...fmt} />
+            </RibbonRow>
+            <RibbonRow>
+              <StyleToggles {...fmt} />
+              <ColorControls {...fmt} fillLabel="Highlight color" />
+            </RibbonRow>
+          </RibbonStack>
+        ),
+      },
+      {
+        label: "Paragraph",
+        items: (
+          <RibbonStack>
+            <RibbonRow>
+              <ListButtons
+                bullet={s.bullet}
+                ordered={s.ordered}
+                onToggle={(kind) => (kind === "bullet" ? editor.chain().focus().toggleBulletList() : editor.chain().focus().toggleOrderedList()).run()}
+                onIndent={(d) => {
+                  editor.commands.focus();
+                  indent(editor, d);
+                }}
+              />
+              <RibbonMenuButton
+                label="Line spacing"
+                icon="lineSpacing"
+                menu={LINE_SPACINGS.map((v) => ({
+                  id: String(v),
+                  label: v.toFixed(v === 1.15 ? 2 : 1),
+                  checked: s.line === v,
+                  onSelect: () => {
+                    editor.commands.focus();
+                    setLineSpacing(editor, v);
+                  },
+                }))}
+              />
+            </RibbonRow>
+            <RibbonRow>
+              {alignBtn("left", "Align left", <Icon name="alignLeft" />, "Mod+L")}
+              {alignBtn("center", "Align center", <Icon name="alignCenter" />, "Mod+E")}
+              {alignBtn("right", "Align right", <Icon name="alignRight" />, "Mod+R")}
+              {alignBtn("justify", "Justify", <RibbonIcon name="alignJustify" />, "Mod+J")}
+            </RibbonRow>
+          </RibbonStack>
+        ),
+      },
+      {
+        label: "Styles",
+        items: (
+          <>
+            <RibbonGallery label="Paragraph styles" items={STYLE_ITEMS.slice(0, INLINE_STYLES)} selected={s.style} onSelect={pickStyle} />
+            <RibbonGallery
+              label="More styles"
+              variant="dropdown"
+              size="small"
+              icon="chevronDown"
+              items={STYLE_ITEMS}
+              selected={s.style}
+              columns={4}
+              itemClassName="h-14 w-20 p-1"
+              onSelect={pickStyle}
+            />
+          </>
+        ),
+      },
+      {
+        label: "Editing",
+        items: <RibbonButton label="Find and replace" icon="find" size="large" shortcut="Mod+F" onClick={onFind} />,
+      },
+    ],
+  };
+
+  const insert: RibbonTab = {
+    id: "insert",
+    label: "Insert",
+    groups: [
+      {
+        label: "Tables",
+        items: (
+          <RibbonMenuButton
+            label="Table"
+            icon="table"
+            size="large"
+            menu={(close) => (
+              <RibbonTableSizePicker
+                onPick={(r, c) => {
+                  close();
+                  insertTable(r, c);
+                }}
+              />
+            )}
+          />
+        ),
+      },
+      {
+        label: "Illustrations",
+        items: (
+          <>
+            <RibbonButton label="Picture" icon="image" size="large" tooltip="Insert a picture" onClick={() => fileInput.current?.click()} />
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/png,image/jpeg,image/gif"
+              className="hidden"
+              data-testid="image-input"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void insertImage(file);
+              }}
+            />
+          </>
+        ),
+      },
+      {
+        label: "Breaks",
+        items: (
+          <>
+            <RibbonButton label="Page break" icon="pageBreak" size="large" onClick={() => editor.chain().focus().insertContent({ type: "pageBreak" }).run()} />
+            <RibbonButton label="Line break" icon="lineBreak" size="large" shortcut="Shift+Enter" onClick={() => editor.chain().focus().setHardBreak().run()} />
+          </>
+        ),
+      },
+    ],
+  };
+
+  const layout: RibbonTab = {
+    id: "layout",
+    label: "Layout",
+    groups: [
+      {
+        label: "Page setup",
+        items: (
+          <>
+            <RibbonMenuButton
+              label="Margins"
+              icon="margins"
+              size="large"
+              menu={MARGIN_PRESETS.map((m) => ({
+                id: m.id,
+                label: m.label,
+                checked: margins === m.id,
+                onSelect: () => setPage({ margins: { top: m.top, right: m.right, bottom: m.bottom, left: m.left } }),
+              }))}
+            />
+            <RibbonMenuButton
+              label="Orientation"
+              icon="orientation"
+              size="large"
+              menu={(["portrait", "landscape"] as const).map((o) => ({
+                id: o,
+                label: o === "portrait" ? "Portrait" : "Landscape",
+                checked: orientation === o,
+                onSelect: () => setPage({ orientation: o }),
+              }))}
+            />
+            <RibbonMenuButton
+              label="Size"
+              icon="pageSize"
+              size="large"
+              menu={PAGE_SIZES.map((p) => ({ id: p.id, label: p.label, checked: paper === p.id, onSelect: () => setPage(paperPatch(page, p.id)) }))}
+            />
+          </>
+        ),
+      },
+    ],
+  };
+
+  const view: RibbonTab = {
+    id: "view",
+    label: "View",
+    groups: [
+      {
+        label: "Zoom",
+        items: (
+          <RibbonStack>
+            <select aria-label="Zoom" className={`${RIBBON_SELECT} w-20`} value={String(zoom)} onChange={(e) => onZoom(Number(e.target.value))}>
+              {WRITE_ZOOM_LEVELS.map((z) => (
+                <option key={z} value={String(z)}>
+                  {Math.round(z * 100)} %
+                </option>
+              ))}
+            </select>
+            <RibbonButton label="100 %" icon="zoom" showLabel tooltip="Zoom to 100 %" onClick={() => onZoom(1)} />
+          </RibbonStack>
+        ),
+      },
+      {
+        label: "Help",
+        items: <RibbonButton label="Keyboard shortcuts" icon="keyboard" size="large" shortcut="Mod+/" onClick={() => triggerShortcut("Mod+/")} />,
+      },
+    ],
+  };
+
   return (
-    <Toolbar value={value} onChange={onChange} groups={["font", "style", "colors"]} fillLabel="Highlight color">
-      <Group label="Paragraph">
-        <ParagraphStyleSelect
-          value={s.style}
-          styles={PARAGRAPH_STYLES}
-          onChange={(id) => {
-            editor.commands.focus();
-            setParagraphStyle(editor, id);
-          }}
-        />
-        {alignBtn("left", "Align left", "alignLeft")}
-        {alignBtn("center", "Align center", "alignCenter")}
-        {alignBtn("right", "Align right", "alignRight")}
-        {alignBtn("justify", "Justify", null)}
-      </Group>
-      <ListButtons
-        bullet={s.bullet}
-        ordered={s.ordered}
-        onToggle={(kind) => (kind === "bullet" ? editor.chain().focus().toggleBulletList() : editor.chain().focus().toggleOrderedList()).run()}
-        onIndent={(d) => {
-          editor.commands.focus();
-          indent(editor, d);
-        }}
-      />
-      <Group label="Insert">
-        <Dropdown
-          label="Insert table"
-          trigger={<span className="px-1 text-sm">Table</span>}
-          items={["2x2", "3x3", "4x4", "2x5"].map((v) => ({ value: v, label: v.replace("x", " × ") }))}
-          onSelect={insertTable}
-        />
-        <button type="button" className={TEXT_BTN} aria-label="Insert image" onClick={() => fileInput.current?.click()}>
-          Image
-        </button>
-        <input
-          ref={fileInput}
-          type="file"
-          accept="image/png,image/jpeg,image/gif"
-          className="hidden"
-          data-testid="image-input"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = "";
-            if (file) void insertImage(file);
-          }}
-        />
-      </Group>
-      <Group label="Edit">
-        <button type="button" className={TEXT_BTN} aria-label="Undo" onClick={() => ctl.undo()}>
-          ↶
-        </button>
-        <button type="button" className={TEXT_BTN} aria-label="Redo" onClick={() => ctl.redo()}>
-          ↷
-        </button>
-        <button type="button" className={TEXT_BTN} aria-label="Find and replace" onClick={onFind}>
-          Find
-        </button>
-      </Group>
-      <Group label="File">
-        <button type="button" className={TEXT_BTN} aria-label="Open" title="Open (Ctrl+O)" onClick={onOpen}>
-          Open
-        </button>
-        <button type="button" className={TEXT_BTN} aria-label="Save" title="Save (Ctrl+S)" onClick={onSave}>
-          Save
-        </button>
-        {onExportPdf && (
-          <button type="button" className={TEXT_BTN} aria-label="Export PDF" title="Export PDF… (Ctrl+P)" onClick={onExportPdf}>
-            Export PDF…
-          </button>
-        )}
-      </Group>
-    </Toolbar>
+    <Ribbon
+      appName="Rusuite Write"
+      documentTitle={`${name ?? "Untitled"}${dirty ? " •" : ""}`}
+      accent="#2b579a"
+      tabs={[home, insert, layout, view]}
+      backstage={{
+        session,
+        onNew: () => triggerShortcut("Mod+N"),
+        onOpen,
+        onSave,
+        onSaveAs: () => triggerShortcut("Mod+Shift+S"),
+        onExportPdf,
+        onCloseDocument: () => triggerShortcut("Mod+N"),
+      }}
+    />
   );
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ setTitle: vi.fn() }) }));
@@ -13,6 +13,13 @@ afterEach(cleanup);
 
 const margins = { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720 };
 const page = (p: Partial<PageSetup>): PageSetup => ({ width: 11906, height: 16838, margins, orientation: "portrait", ...p });
+
+
+/** Runs a File (backstage) command. */
+function fileCommand(name: string) {
+  fireEvent.click(screen.getByRole("tab", { name: "File" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "File" })).getByRole("button", { name }));
+}
 
 describe("writePageCss", () => {
   it("A4 portrait with 1in margins", () => {
@@ -36,14 +43,14 @@ describe("writePageCss", () => {
 });
 
 describe("Write export", () => {
-  it("Ctrl+P and the button print; the document's @page is in the DOM", async () => {
+  it("Ctrl+P and File › Export PDF… print; the document's @page is in the DOM", async () => {
     const backend = new FakeWriteBackend();
     const print = vi.spyOn(backend, "print");
     render(<App backend={backend} />);
     await screen.findByTestId("editor");
     await waitFor(() => expect([...document.querySelectorAll("style")].some((s) => s.textContent?.includes("@page"))).toBe(true));
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
-    fireEvent.click(screen.getByRole("button", { name: "Export PDF" }));
+    fileCommand("Export PDF…");
     await waitFor(() => expect(print).toHaveBeenCalledTimes(2));
   });
 });
