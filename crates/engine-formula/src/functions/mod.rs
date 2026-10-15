@@ -81,7 +81,7 @@ impl FunctionRegistry {
     /// A registry with every built-in function.
     pub fn with_builtins() -> Self {
         let mut r = Self::new();
-        r.register(Box::new(math::sum::Sum));
+        math::register(&mut r);
         logical::register(&mut r);
         text::register(&mut r);
         info::register(&mut r);
