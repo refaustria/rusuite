@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { Dropdown } from "../Dropdown";
 import { Icon, type IconName } from "../Icon";
 import { BTN, FOCUS_RING } from "../Popover";
@@ -65,7 +65,7 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Toggle({
+export function Toggle({
   label, icon, pressed, disabled, onClick,
 }: { label: string; icon: IconName; pressed: boolean; disabled?: boolean; onClick: () => void }) {
   return (
@@ -77,7 +77,7 @@ function Toggle({
 
 const SELECT = `h-7 rounded border border-ui-border bg-ui-bg px-1 text-sm text-ui-fg disabled:opacity-40 ${FOCUS_RING}`;
 
-function FontSizePicker({
+export function FontSizePicker({
   size, disabled, onCommit,
 }: { size?: number; disabled?: boolean; onCommit: (hundredths: number) => void }) {
   const current = size === undefined ? "" : String(size / 100);
@@ -116,18 +116,89 @@ function FontSizePicker({
   );
 }
 
-export function Toolbar({
-  value, onChange, disabled, theme = OFFICE_THEME, groups = ALL_TOOLBAR_GROUPS, fillLabel = "Fill color", children,
-}: ToolbarProps) {
-  const show = (g: ToolbarGroup) => groups.includes(g);
+/** Props shared by the formatting control groups (the Toolbar's groups, also used inside ribbon groups). */
+export interface FormatControlProps {
+  value: CellStyleView;
+  onChange: (patch: CellStylePatch) => void;
+  disabled?: boolean;
+  theme?: ThemePalette;
+}
+
+/** Font family select + font size input. */
+export function FontControls({ value, onChange, disabled }: FormatControlProps) {
   const f = value.font ?? {};
-  const a = value.alignment ?? {};
   const fontName = f.font?.value;
   const families = fontName && !FONT_FAMILIES.includes(fontName) ? [fontName, ...FONT_FAMILIES] : FONT_FAMILIES;
-  const fillColor = value.fill?.kind === "solid" ? value.fill.color : undefined;
-  const nf = value.numberFormat ?? "General";
-  const known = NUMBER_FORMATS.some((n) => n.code === nf);
+  return (
+    <>
+      <select
+        aria-label="Font family"
+        className={`${SELECT} w-36`}
+        disabled={disabled}
+        value={fontName ?? ""}
+        onChange={(e) => onChange({ font: { font: { kind: "named", value: e.target.value } } })}
+      >
+        {fontName === undefined && <option value="" disabled hidden />}
+        {families.map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+      </select>
+      <FontSizePicker size={f.size} disabled={disabled} onCommit={(size) => onChange({ font: { size } })} />
+    </>
+  );
+}
 
+/** Bold / italic / underline / strikethrough toggles. */
+export function StyleToggles({ value, onChange, disabled }: FormatControlProps) {
+  const f = value.font ?? {};
+  return (
+    <>
+      <Toggle label="Bold" icon="bold" pressed={!!f.bold} disabled={disabled} onClick={() => onChange({ font: { bold: !f.bold } })} />
+      <Toggle label="Italic" icon="italic" pressed={!!f.italic} disabled={disabled} onClick={() => onChange({ font: { italic: !f.italic } })} />
+      <Toggle
+        label="Underline"
+        icon="underline"
+        pressed={!!f.underline && f.underline !== "none"}
+        disabled={disabled}
+        onClick={() => onChange({ font: { underline: f.underline && f.underline !== "none" ? "none" : "single" } })}
+      />
+      <Toggle label="Strikethrough" icon="strike" pressed={!!f.strike} disabled={disabled} onClick={() => onChange({ font: { strike: !f.strike } })} />
+    </>
+  );
+}
+
+/** Text color + fill (highlight / shape fill) pickers. */
+export function ColorControls({ value, onChange, disabled, theme = OFFICE_THEME, fillLabel = "Fill color" }: FormatControlProps & { fillLabel?: string }) {
+  const fillColor = value.fill?.kind === "solid" ? value.fill.color : undefined;
+  return (
+    <>
+      <ColorPicker
+        label="Text color"
+        kind="text"
+        value={value.font?.color}
+        theme={theme}
+        disabled={disabled}
+        onSelect={(c: Color | null) => onChange({ font: { color: c ?? { kind: "auto" } } })}
+      />
+      <ColorPicker
+        label={fillLabel}
+        kind="fill"
+        value={fillColor}
+        theme={theme}
+        disabled={disabled}
+        onSelect={(c: Color | null) => onChange({ fill: c ? { kind: "solid", color: c } : { kind: "none" } })}
+      />
+    </>
+  );
+}
+
+/** Horizontal / vertical alignment and wrap toggles (`parts` picks a subset). */
+export function AlignmentControls({
+  value, onChange, disabled, parts = ["horizontal", "vertical", "wrap"],
+}: FormatControlProps & { parts?: ("horizontal" | "vertical" | "wrap")[] }) {
+  const a = value.alignment ?? {};
   const setH = (h: HAlign) => onChange({ alignment: { horizontal: h } });
   const setV = (v: VAlign) => onChange({ alignment: { vertical: v } });
   const hBtn = (h: HAlign, label: string, icon: IconName) => (
@@ -136,16 +207,82 @@ export function Toolbar({
   const vBtn = (v: VAlign, label: string, icon: IconName) => (
     <Toggle label={label} icon={icon} pressed={a.vertical === v} disabled={disabled} onClick={() => setV(v)} />
   );
-  const borderItems: { value: BorderPreset; label: string; icon: IconName }[] = [
-    { value: "none", label: "No border", icon: "borderNone" },
-    { value: "all", label: "All borders", icon: "borderAll" },
-    { value: "outline", label: "Outside borders", icon: "borderOutline" },
-    { value: "bottom", label: "Bottom border", icon: "borderBottom" },
-    { value: "top", label: "Top border", icon: "borderTop" },
-    { value: "left", label: "Left border", icon: "borderLeft" },
-    { value: "right", label: "Right border", icon: "borderRight" },
-  ];
+  const render = {
+    horizontal: (
+      <>
+        {hBtn("left", "Align left", "alignLeft")}
+        {hBtn("center", "Align center", "alignCenter")}
+        {hBtn("right", "Align right", "alignRight")}
+      </>
+    ),
+    vertical: (
+      <>
+        {vBtn("top", "Align top", "alignTop")}
+        {vBtn("center", "Align middle", "alignMiddle")}
+        {vBtn("bottom", "Align bottom", "alignBottom")}
+      </>
+    ),
+    wrap: <Toggle label="Wrap text" icon="wrap" pressed={!!a.wrapText} disabled={disabled} onClick={() => onChange({ alignment: { wrapText: !a.wrapText } })} />,
+  };
+  return (
+    <>
+      {parts.map((part) => (
+        <Fragment key={part}>{render[part]}</Fragment>
+      ))}
+    </>
+  );
+}
 
+/** Number format select (General, Number, …; unknown codes shown as Custom). */
+export function NumberFormatSelect({ value, onChange, disabled }: FormatControlProps) {
+  const nf = value.numberFormat ?? "General";
+  const known = NUMBER_FORMATS.some((n) => n.code === nf);
+  return (
+    <select
+      aria-label="Number format"
+      className={`${SELECT} w-32`}
+      disabled={disabled}
+      value={nf}
+      onChange={(e) => onChange({ numberFormat: e.target.value })}
+    >
+      {!known && <option value={nf}>Custom ({nf})</option>}
+      {NUMBER_FORMATS.map((n) => (
+        <option key={n.code} value={n.code}>
+          {n.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+const BORDER_ITEMS: { value: BorderPreset; label: string; icon: IconName }[] = [
+  { value: "none", label: "No border", icon: "borderNone" },
+  { value: "all", label: "All borders", icon: "borderAll" },
+  { value: "outline", label: "Outside borders", icon: "borderOutline" },
+  { value: "bottom", label: "Bottom border", icon: "borderBottom" },
+  { value: "top", label: "Top border", icon: "borderTop" },
+  { value: "left", label: "Left border", icon: "borderLeft" },
+  { value: "right", label: "Right border", icon: "borderRight" },
+];
+
+/** Border presets dropdown. */
+export function BordersDropdown({ onChange, disabled }: Pick<FormatControlProps, "onChange" | "disabled">) {
+  return (
+    <Dropdown
+      label="Borders"
+      disabled={disabled}
+      trigger={<><Icon name="borders" /><Icon name="chevronDown" size={12} /></>}
+      items={BORDER_ITEMS.map((b) => ({ value: b.value, label: b.label, icon: <Icon name={b.icon} /> }))}
+      onSelect={(p) => onChange(borderPatch(p))}
+    />
+  );
+}
+
+export function Toolbar({
+  value, onChange, disabled, theme = OFFICE_THEME, groups = ALL_TOOLBAR_GROUPS, fillLabel = "Fill color", children,
+}: ToolbarProps) {
+  const show = (g: ToolbarGroup) => groups.includes(g);
+  const p: FormatControlProps = { value, onChange, disabled, theme };
   return (
     <div
       role="toolbar"
@@ -154,95 +291,32 @@ export function Toolbar({
     >
       {show("font") && (
         <Group label="Font">
-          <select
-            aria-label="Font family"
-            className={`${SELECT} w-36`}
-            disabled={disabled}
-            value={fontName ?? ""}
-            onChange={(e) => onChange({ font: { font: { kind: "named", value: e.target.value } } })}
-          >
-            {fontName === undefined && <option value="" disabled hidden />}
-            {families.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-          <FontSizePicker size={f.size} disabled={disabled} onCommit={(size) => onChange({ font: { size } })} />
+          <FontControls {...p} />
         </Group>
       )}
       {show("style") && (
         <Group label="Style">
-          <Toggle label="Bold" icon="bold" pressed={!!f.bold} disabled={disabled} onClick={() => onChange({ font: { bold: !f.bold } })} />
-          <Toggle label="Italic" icon="italic" pressed={!!f.italic} disabled={disabled} onClick={() => onChange({ font: { italic: !f.italic } })} />
-          <Toggle
-            label="Underline"
-            icon="underline"
-            pressed={!!f.underline && f.underline !== "none"}
-            disabled={disabled}
-            onClick={() => onChange({ font: { underline: f.underline && f.underline !== "none" ? "none" : "single" } })}
-          />
-          <Toggle label="Strikethrough" icon="strike" pressed={!!f.strike} disabled={disabled} onClick={() => onChange({ font: { strike: !f.strike } })} />
+          <StyleToggles {...p} />
         </Group>
       )}
       {show("colors") && (
         <Group label="Colors">
-          <ColorPicker
-            label="Text color"
-            kind="text"
-            value={f.color}
-            theme={theme}
-            disabled={disabled}
-            onSelect={(c: Color | null) => onChange({ font: { color: c ?? { kind: "auto" } } })}
-          />
-          <ColorPicker
-            label={fillLabel}
-            kind="fill"
-            value={fillColor}
-            theme={theme}
-            disabled={disabled}
-            onSelect={(c: Color | null) => onChange({ fill: c ? { kind: "solid", color: c } : { kind: "none" } })}
-          />
+          <ColorControls {...p} fillLabel={fillLabel} />
         </Group>
       )}
       {show("alignment") && (
         <Group label="Alignment">
-          {hBtn("left", "Align left", "alignLeft")}
-          {hBtn("center", "Align center", "alignCenter")}
-          {hBtn("right", "Align right", "alignRight")}
-          {vBtn("top", "Align top", "alignTop")}
-          {vBtn("center", "Align middle", "alignMiddle")}
-          {vBtn("bottom", "Align bottom", "alignBottom")}
-          <Toggle label="Wrap text" icon="wrap" pressed={!!a.wrapText} disabled={disabled} onClick={() => onChange({ alignment: { wrapText: !a.wrapText } })} />
+          <AlignmentControls {...p} parts={["horizontal", "vertical", "wrap"]} />
         </Group>
       )}
       {show("number") && (
         <Group label="Number">
-          <select
-            aria-label="Number format"
-            className={`${SELECT} w-32`}
-            disabled={disabled}
-            value={nf}
-            onChange={(e) => onChange({ numberFormat: e.target.value })}
-          >
-            {!known && <option value={nf}>Custom ({nf})</option>}
-            {NUMBER_FORMATS.map((n) => (
-              <option key={n.code} value={n.code}>
-                {n.label}
-              </option>
-            ))}
-          </select>
+          <NumberFormatSelect {...p} />
         </Group>
       )}
       {show("borders") && (
         <Group label="Borders">
-          <Dropdown
-            label="Borders"
-            disabled={disabled}
-            trigger={<><Icon name="borders" /><Icon name="chevronDown" size={12} /></>}
-            items={borderItems.map((b) => ({ value: b.value, label: b.label, icon: <Icon name={b.icon} /> }))}
-            onSelect={(p) => onChange(borderPatch(p))}
-          />
+          <BordersDropdown onChange={onChange} disabled={disabled} />
         </Group>
       )}
       {children}
