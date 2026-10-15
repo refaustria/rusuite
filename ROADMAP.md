@@ -102,7 +102,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Split long tables/lists across pages and repeat header rows in print layout; rich-text headers/footers (first/odd/even); "Page X of Y" in the status bar; borders on selected cells + table style presets; incremental pagination for long documents (print layout disables the content-visibility fast path).
 
 ## Show (Phase 6 leftovers)
-- Presenter view (notes, next slide, timer); snap to equal spacing; Selection pane; Format Background pane (gradient/picture); formatted notes; paste-slide elsewhere as one undo step; Alt during drag can focus the ribbon.
+- Presenter: edit notes in the console, pause/per-slide timer, choose screen for the audience window, pen drawing; snap to equal spacing; Selection pane; Format Background pane (gradient/picture); formatted notes; paste-slide elsewhere as one undo step; Alt during drag can focus the ribbon.
 
 ## Ribbon
 - Groups that collapse into dropdowns on narrow windows; Quick Access Toolbar; remember collapsed state and zoom; Calc Data tab (sort/filter) if it enters scope; print preview in the backstage; Write font box shows the effective (style-derived) font.

@@ -17,6 +17,8 @@ export interface ShowShortcutProps {
   enabled: boolean;
   /** Starts the show; `fromStart` = from the first slide, else from the current one. */
   onPresent: (fromStart: boolean) => void;
+  /** Starts the presenter view (notes and timer here, the slide in a second window). */
+  onPresenterView: () => void;
   /** Opens the print view (Export PDF…). */
   onExportPdf: () => void;
 }
@@ -33,7 +35,7 @@ function action(store: ShowStore, label: string, group: string): ShortcutEntry {
   };
 }
 
-export function ShortcutLayer({ store, guard, enabled, onPresent, onExportPdf }: ShowShortcutProps) {
+export function ShortcutLayer({ store, guard, enabled, onPresent, onPresenterView, onExportPdf }: ShowShortcutProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
 
@@ -72,6 +74,7 @@ export function ShortcutLayer({ store, guard, enabled, onPresent, onExportPdf }:
       "Mod+/": { label: "Keyboard shortcuts", inField: true, run: () => setHelpOpen(true) },
       F5: { label: "Present from the first slide", group: "Slide show", run: () => onPresent(true) },
       "Shift+F5": { label: "Present from the current slide", group: "Slide show", run: () => onPresent(false) },
+      "Alt+F5": { label: "Presenter view (notes, timer; the slide in a second window)", group: "Slide show", run: () => onPresenterView() },
       "Mod+Z": edit("Undo"),
       "Mod+Y": edit("Redo"),
       "Mod+Shift+Z": edit("Redo"),
@@ -105,7 +108,7 @@ export function ShortcutLayer({ store, guard, enabled, onPresent, onExportPdf }:
       "Shift+ArrowUp": slide("Nudge up by 10"),
       "Shift+ArrowDown": slide("Nudge down by 10"),
     };
-  }, [store, guard, onPresent, onExportPdf]);
+  }, [store, guard, onPresent, onPresenterView, onExportPdf]);
 
   useShortcuts(map, { enabled });
 

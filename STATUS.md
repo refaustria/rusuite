@@ -97,7 +97,8 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 | P7-5 | Flaky Write App test (status-bar throttling) → `waitFor` | Sonnet | done (merged) | – | CI frontend green on branch |
 | P7-6 | Unsaved-changes safety: Save/Don't save/Cancel before New/Open/Recent/Restore/close; Tauri close-requested; recovery age limit; autosave status | Opus | done (merged) | – | verified: 841 Rust / 549 frontend tests, e2e 42/42; Save/Don't save/Cancel before New/Open/Recent/Restore/Close, beforeunload + Tauri close guard (desktop path untested in a real window), 7-day recovery limit, Autosaved HH:MM |
 | P7-7 | Desktop Save vs Save As with remembered path; real-window close-guard smoke (tauri-driver) | Opus | in progress | `p7/desktop-save` | brief docs/tasks/P7-7-desktop-save-as.md |
-| P7-8 | Show presenter view (second window, notes, next slide, timer) + presentation polish | Opus | in progress | `p7/presenter` | brief docs/tasks/P7-8-show-presenter-view.md |
+| P7-8 | Show presenter view (second window, notes, next slide, timer) + presentation polish | Opus | done (merged) | – | verified: 129 Show tests, e2e 44/44; presenter console (timer, next slide, notes, strip) + audience window via BroadcastChannel/Tauri events, blackout B/W, number+Enter, end slide; desktop second window untested in a real app |
+| P7-9 | Printing: File › Print with preview + options (page range, paper, margins, scale; Calc selection/sheet/workbook + headers/footers; Show handouts/notes pages), desktop native print command | Opus | in progress | `p7/printing` | brief docs/tasks/P7-9-printing.md; owner request |
 | P7-3 | De-duplicate XML writer/theme code into fmt-ooxml; docs/architecture.md real overview; README status/what-works | Opus | done (merged) | – | verified: 830 tests, harnesses 2/2, 52/52, 26/26 byte-identical output; −330 LOC; docs/architecture.md rewritten; README status Alpha; ADR 0003 amended (fmt-ooxml → core-model) |
 | P7-4 | Calc sheets: delete/duplicate/move/tab colour (engine + core + UI + xlsx) | Opus | done (merged) | – | verified: 838 Rust tests, e2e 39/39, suite 862/0; engine remove/restore/move/duplicate sheet with `#REF!`; undoable AddSheet; tab colours in xlsx; tab context menu + drag reorder |
 | P6-1 | Ribbon in ui-shared + all apps | Opus | done (merged) | – | verified: 437 frontend tests; Ribbon/Backstage/galleries in ui-shared, all apps adopted (File/Home/Insert/View, Layout in Write), keyboard (Alt, Ctrl+F1), zoom; docs/ui.md |
@@ -142,6 +143,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+21. 2026-10-15: Owner asked for printing functionality; the README non-goal "print layout beyond export to PDF" is relaxed to "pixel-exact print layout" (README amended). Printing goes through the webview print pipeline with our own preview and options.
 20. 2026-10-15: All planned work (README Phases 0–5, usability track, e2e suite, dedup, sheet ops) is merged and live. Further batches wait for the owner's priorities; ROADMAP.md holds the candidates.
 19. 2026-10-15: `fmt-ooxml` may depend on `core-model` (ADR 0003 amendment) so the theme part has one implementation.
 18. 2026-10-15: Phase 6 usability batches (ribbon, Calc formula editing, Calc/Write/Show batches) complete and live. Next: an end-to-end Playwright smoke suite in CI (P7-1) to protect the stack; further feature batches await the owner's priorities (leftover lists in ROADMAP).

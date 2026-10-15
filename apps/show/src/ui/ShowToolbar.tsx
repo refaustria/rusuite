@@ -131,12 +131,14 @@ export interface ShowRibbonProps {
   session: AnySession;
   /** Starts the show; `fromStart` = from the first slide. */
   onPresent: (fromStart: boolean) => void;
+  /** Starts the presenter view (Alt+F5). */
+  onPresenterView: () => void;
   onExportPdf: () => void;
   zoom: ShowZoom;
   onZoom: (zoom: ShowZoom) => void;
 }
 
-export function ShowRibbon({ store, session, onPresent, onExportPdf, zoom, onZoom }: ShowRibbonProps) {
+export function ShowRibbon({ store, session, onPresent, onPresenterView, onExportPdf, zoom, onZoom }: ShowRibbonProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const state = useShow(store, (s) => s);
   const fmt = useMemo(() => formattingOf(state), [state]);
@@ -522,6 +524,15 @@ export function ShowRibbon({ store, session, onPresent, onExportPdf, zoom, onZoo
           <>
             <RibbonButton label="From beginning" icon="present" size="large" shortcut="F5" disabled={!hasSlide} onClick={() => onPresent(true)} />
             <RibbonButton label="From current slide" icon="presentCurrent" size="large" shortcut="Shift+F5" disabled={!hasSlide} onClick={() => onPresent(false)} />
+            <RibbonButton
+              label="Presenter view"
+              icon="presentCurrent"
+              size="large"
+              shortcut="Alt+F5"
+              tooltip="Speaker notes, next slide and timer here, the slide in a second window"
+              disabled={!hasSlide}
+              onClick={onPresenterView}
+            />
           </>
         ),
       },
