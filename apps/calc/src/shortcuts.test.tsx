@@ -50,6 +50,19 @@ describe("Calc shortcuts", () => {
     expect(address()).toBe("A1:A1048576");
   });
 
+  it("Ctrl+D / Ctrl+R fill down / right from the selection's first row / column", async () => {
+    const { core, grid } = await setup();
+    fireEvent.keyDown(grid, { key: "ArrowDown" });
+    expect(address()).toBe("A2");
+    fireEvent.keyDown(grid, ctrl("d"));
+    fireEvent.keyDown(grid, ctrl("r"));
+    await waitFor(() =>
+      expect(applied(core.log)).toEqual([
+        { type: "fillRange", sheet: 0, src: { r0: 0, c0: 0, r1: 0, c1: 0 }, dst: { r0: 1, c0: 0, r1: 1, c1: 0 }, mode: "copy" },
+      ]),
+    );
+  });
+
   it("F2 edits the active cell; Delete clears the selection", async () => {
     const { core, grid } = await setup();
     fireEvent.keyDown(grid, { key: "F2" });

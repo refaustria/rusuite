@@ -2,7 +2,7 @@
 //! shifting and the per-line series logic of
 //! [`FillRange`](crate::CalcCommand::FillRange).
 
-use engine_formula::{offset_relative, Value};
+use engine_formula::{adjust_references_for_move, offset_relative, MoveContext, Value};
 
 use crate::command::FillMode;
 
@@ -17,6 +17,18 @@ pub fn shift_input(input: &str, d_row: i64, d_col: i64) -> String {
         Ok(ast) => format!("={}", offset_relative(&ast, d_row, d_col)),
         Err(_) => input.to_owned(),
     }
+}
+
+/// Rewrites a formula input (`=…`) for a cut-and-paste move (see
+/// [`adjust_references_for_move`]); `None` when it is not a formula, does
+/// not parse or does not reference the moved cells.
+pub fn move_input(input: &str, ctx: &MoveContext) -> Option<String> {
+    if !input.starts_with('=') {
+        return None;
+    }
+    let ast = engine_formula::parse(input).ok()?;
+    let moved = adjust_references_for_move(&ast, ctx);
+    (moved != ast).then(|| format!("={moved}"))
 }
 
 /// One source cell of a fill line, as the series logic sees it.

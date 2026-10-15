@@ -119,6 +119,35 @@ describe("fill handle", () => {
   });
 });
 
+describe("Ctrl+D / Ctrl+R", () => {
+  it("fills the selection from its first row / column with mode copy and keeps the selection", async () => {
+    const { store, core } = await ready();
+    const sel = { anchor: { row: 0, col: 0 }, focus: { row: 3, col: 1 } };
+    store.select(sel);
+    await store.fillCopy("down");
+    await store.fillCopy("right");
+    expect(applied(core.log)).toEqual([
+      { type: "fillRange", sheet: 0, src: { r0: 0, c0: 0, r1: 0, c1: 1 }, dst: { r0: 1, c0: 0, r1: 3, c1: 1 }, mode: "copy" },
+      { type: "fillRange", sheet: 0, src: { r0: 0, c0: 0, r1: 3, c1: 0 }, dst: { r0: 0, c0: 1, r1: 3, c1: 1 }, mode: "copy" },
+    ]);
+    expect(store.getState().selection).toEqual(sel);
+  });
+
+  it("a single row / column is filled from the one above / to the left; nothing at the edge", async () => {
+    const { store, core } = await ready();
+    store.select(cellSelection(4, 2));
+    await store.fillCopy("down");
+    await store.fillCopy("right");
+    store.select(cellSelection(0, 0));
+    await store.fillCopy("down");
+    await store.fillCopy("right");
+    expect(applied(core.log)).toEqual([
+      { type: "fillRange", sheet: 0, src: { r0: 3, c0: 2, r1: 3, c1: 2 }, dst: { r0: 4, c0: 2, r1: 4, c1: 2 }, mode: "copy" },
+      { type: "fillRange", sheet: 0, src: { r0: 4, c0: 1, r1: 4, c1: 1 }, dst: { r0: 4, c0: 2, r1: 4, c1: 2 }, mode: "copy" },
+    ]);
+  });
+});
+
 describe("wrap text", () => {
   it("Alt+Enter text turns wrap on and grows the row in the same undo step", async () => {
     const { store, core } = await ready();

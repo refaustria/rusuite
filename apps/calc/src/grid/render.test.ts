@@ -85,9 +85,15 @@ describe("computeRenderOps", () => {
     expect(texts(scrolled).map((t) => [t.col, t.x, t.clipW])).toEqual([[0, -64, 192]]);
   });
 
-  it("numbers never overflow: they shrink or show ####", () => {
-    const ops = computeRenderOps(vp, sheet([v(0, 0, "1234567890", "number"), v(0, 1, "0.333333333", "number")]), styles, m7);
-    expect(texts(ops).map((t) => [t.text, t.clipW])).toEqual([["########", 64], ["0.333333", 64]]);
+  it("numbers never overflow: they shrink, go scientific (General) or show ####", () => {
+    const fixed: CellStyle = { numberFormat: "0" };
+    const ops = computeRenderOps(
+      vp,
+      sheet([v(0, 0, "1234567890", "number"), v(0, 1, "0.333333333", "number"), v(0, 2, "1234567890", "number", styles.length)]),
+      [...styles, fixed],
+      m7,
+    );
+    expect(texts(ops).map((t) => [t.text, t.clipW])).toEqual([["1.23E+09", 64], ["0.333333", 64], ["########", 64]]);
   });
 
   it("wrap text breaks into lines; without wrap a line break shows as a space", () => {

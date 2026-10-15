@@ -59,7 +59,10 @@ pub use eval::{
 pub use functions::{Arity, CallContext, Function, FunctionRegistry};
 pub use graph::Cycle;
 pub use parser::{parse, ParseError};
-pub use transform::{adjust_references, offset_relative, AdjustContext, StructuralOp};
+pub use transform::{
+    adjust_references, adjust_references_for_move, offset_relative, AdjustContext, CellRect,
+    MoveContext, StructuralOp,
+};
 pub use value::{Array, Value};
 
 /// Formats `n` with an Excel number format code (the `TEXT` function's

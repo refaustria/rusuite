@@ -21,8 +21,7 @@ async function openDeck(page: Page) {
 async function insertRectangle(page: Page) {
   await page.getByRole("tab", { name: "Insert" }).click();
   await page.getByRole("button", { name: "Shapes" }).click();
-  // The gallery buttons overlap in the 5-column popup, so a pointer click would hit the neighbour.
-  await page.getByRole("button", { name: "Rectangle", exact: true }).dispatchEvent("click");
+  await page.getByRole("dialog", { name: "Shapes" }).getByRole("button", { name: "Rectangle", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Shape Format" })).toBeVisible();
 }
 
@@ -140,13 +139,25 @@ test.describe("Show", () => {
     await expect.poll(() => printCount(page)).toBeGreaterThan(0);
   });
 
-  // Known bug (reported with P7-1): useElementSize measures the canvas area once, so after the print view
-  // replaces the editor the remounted area stays 0 x 0 and the slide does not come back.
-  test.fixme("the slide editor comes back after Export PDF", async ({ page }) => {
+  // The print view replaces the editor; the remounted canvas area must be measured again (P7-2).
+  test("the slide editor comes back after Export PDF", async ({ page }) => {
     await interceptPrint(page);
     await openDeck(page);
     await fileCommand(page, /^Export PDF/);
     await expect.poll(() => printCount(page)).toBeGreaterThan(0);
     await expect(stage(page)).toBeVisible();
+    await expect.poll(async () => (await stage(page).boundingBox())?.width ?? 0).toBeGreaterThan(200);
+  });
+
+  test("each Shapes gallery button inserts its own shape with a real click", async ({ page }) => {
+    await openShow(page);
+    await page.getByRole("tab", { name: "Insert" }).click();
+    await page.getByRole("button", { name: "Shapes" }).click();
+    const gallery = page.getByRole("dialog", { name: "Shapes" });
+    const boxes = await Promise.all((await gallery.getByRole("button").all()).map((b) => b.boundingBox()));
+    for (let i = 1; i < boxes.length; i++) expect(boxes[i]!.x).toBeGreaterThanOrEqual(boxes[i - 1]!.x + boxes[i - 1]!.width);
+    await gallery.getByRole("button", { name: "Oval" }).click();
+    await expect(page.getByRole("tab", { name: "Shape Format" })).toBeVisible();
+    await expect(gallery).toBeHidden();
   });
 });

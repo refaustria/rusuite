@@ -105,6 +105,7 @@ describe("number format dialog model", () => {
       { category: "number", decimals: 3, thousands: true }, { category: "currency", symbol: "£", decimals: 0 },
       { category: "currency", symbol: "€", decimals: 2 }, { category: "percentage", decimals: 0 }, { category: "text" },
       { category: "date", date: "mmmm d, yyyy" }, { category: "time", time: "mm:ss" },
+      { category: "time", time: "h:mm AM/PM" }, { category: "time", time: "[h]:mm:ss" },
     ] as Partial<FormatChoice>[]) {
       const code = buildCode(choice(p));
       expect(buildCode(parseCode(code))).toBe(code);

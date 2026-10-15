@@ -4,8 +4,10 @@
 //!   rows or columns to every reference of a formula.
 //! * [`offset_relative`] moves the relative parts of every reference, as
 //!   when a formula is copied to another cell.
+//! * [`adjust_references_for_move`] makes references to cut-and-pasted
+//!   (moved) cells follow them.
 //!
-//! Both functions return a new [`Expr`]; a reference that cannot survive
+//! All three functions return a new [`Expr`]; a reference that cannot survive
 //! the edit becomes `Expr::Error(ErrorKind::Ref)` (printed `#REF!`).
 //!
 //! ```
@@ -164,30 +166,37 @@ fn same_sheet(a: &str, b: &str) -> bool {
 /// Rebuilds `expr` with every reference passed through `f`; `None`
 /// replaces the reference by `#REF!`.
 fn map_refs(expr: &Expr, f: &dyn Fn(&Reference) -> Option<RangeKind>) -> Expr {
+    map_references(expr, &|r: &Reference| {
+        Some(Reference {
+            sheet: r.sheet.clone(),
+            kind: f(r)?,
+        })
+    })
+}
+
+/// Like [`map_refs`], but `f` may also change the sheet prefix.
+fn map_references(expr: &Expr, f: &dyn Fn(&Reference) -> Option<Reference>) -> Expr {
     match expr {
         Expr::Reference(r) => match f(r) {
-            Some(kind) => Expr::Reference(Reference {
-                sheet: r.sheet.clone(),
-                kind,
-            }),
+            Some(r) => Expr::Reference(r),
             None => Expr::Error(ErrorKind::Ref),
         },
         Expr::Call { name, args } => Expr::Call {
             name: name.clone(),
-            args: args.iter().map(|a| map_refs(a, f)).collect(),
+            args: args.iter().map(|a| map_references(a, f)).collect(),
         },
         Expr::Unary { op, expr } => Expr::Unary {
             op: *op,
-            expr: Box::new(map_refs(expr, f)),
+            expr: Box::new(map_references(expr, f)),
         },
         Expr::Binary { op, lhs, rhs } => Expr::Binary {
             op: *op,
-            lhs: Box::new(map_refs(lhs, f)),
-            rhs: Box::new(map_refs(rhs, f)),
+            lhs: Box::new(map_references(lhs, f)),
+            rhs: Box::new(map_references(rhs, f)),
         },
         Expr::Array(rows) => Expr::Array(
             rows.iter()
-                .map(|row| row.iter().map(|e| map_refs(e, f)).collect())
+                .map(|row| row.iter().map(|e| map_references(e, f)).collect())
                 .collect(),
         ),
         Expr::Number(_)
@@ -313,6 +322,110 @@ pub fn offset_relative(expr: &Expr, d_row: i64, d_col: i64) -> Expr {
     })
 }
 
+/// An inclusive, 0-based cell rectangle (`r0 <= r1`, `c0 <= c1`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CellRect {
+    pub r0: u32,
+    pub c0: u32,
+    pub r1: u32,
+    pub c1: u32,
+}
+
+impl CellRect {
+    fn contains(&self, row: u32, col: u32) -> bool {
+        (self.r0..=self.r1).contains(&row) && (self.c0..=self.c1).contains(&col)
+    }
+}
+
+/// A cut-and-paste move, as seen from one formula: the cells of `src` on
+/// `src_sheet` move by `(d_row, d_col)` to `dst_sheet`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MoveContext<'a> {
+    /// Sheet the formula lives on before the move (resolves references
+    /// without a prefix).
+    pub host_sheet: &'a str,
+    pub src_sheet: &'a str,
+    pub dst_sheet: &'a str,
+    pub src: CellRect,
+    pub d_row: i64,
+    pub d_col: i64,
+    /// The formula is itself one of the moved cells, so it ends up on
+    /// `dst_sheet`; references that stay get a prefix where needed to keep
+    /// pointing at their old sheet.
+    pub formula_moves: bool,
+}
+
+/// Rewrites a formula for a cut-and-paste move (Excel rules): a cell
+/// reference inside the moved rectangle, and an area reference lying
+/// entirely inside it, follow the cells (`$` flags are kept and do not
+/// matter); everything else, including partially covered areas and
+/// whole-row/column references, is unchanged. When the cells move to
+/// another sheet, followed references get the destination sheet's prefix
+/// (none when the formula lives there). A reference pushed off the sheet
+/// becomes `#REF!`.
+///
+/// ```
+/// use engine_formula::{adjust_references_for_move, parse, CellRect, MoveContext};
+///
+/// let f = parse("=SUM(A1:A2)+A3+B1").unwrap();
+/// let ctx = MoveContext {
+///     host_sheet: "Sheet1",
+///     src_sheet: "Sheet1",
+///     dst_sheet: "Sheet1",
+///     src: CellRect { r0: 0, c0: 0, r1: 1, c1: 0 },
+///     d_row: 0,
+///     d_col: 2,
+///     formula_moves: false,
+/// };
+/// assert_eq!(adjust_references_for_move(&f, &ctx).to_string(), "SUM(C1:C2)+A3+B1");
+/// ```
+pub fn adjust_references_for_move(expr: &Expr, ctx: &MoveContext) -> Expr {
+    let new_host = if ctx.formula_moves {
+        ctx.dst_sheet
+    } else {
+        ctx.host_sheet
+    };
+    let cross = !same_sheet(ctx.src_sheet, ctx.dst_sheet);
+    let moved = |c: CellRef| {
+        Some(CellRef {
+            row: shift(c.row, ctx.d_row, false, MAX_ROW)?,
+            col: shift(c.col, ctx.d_col, false, MAX_COL)?,
+            ..c
+        })
+    };
+    map_references(expr, &|r: &Reference| {
+        let target = r.sheet.as_deref().unwrap_or(ctx.host_sheet);
+        let inside = same_sheet(target, ctx.src_sheet)
+            && match r.kind {
+                RangeKind::Cell(c) => ctx.src.contains(c.row, c.col),
+                RangeKind::Area(a, b) => {
+                    ctx.src.contains(a.row, a.col) && ctx.src.contains(b.row, b.col)
+                }
+                RangeKind::Rows { .. } | RangeKind::Cols { .. } => false,
+            };
+        let kind = if inside {
+            match r.kind {
+                RangeKind::Cell(c) => RangeKind::Cell(moved(c)?),
+                RangeKind::Area(a, b) => RangeKind::area(moved(a)?, moved(b)?),
+                kind => kind,
+            }
+        } else {
+            r.kind
+        };
+        let (new_target, retargeted) = if inside && cross {
+            (ctx.dst_sheet, true)
+        } else {
+            (target, false)
+        };
+        let sheet = match &r.sheet {
+            Some(p) if !retargeted => Some(p.clone()),
+            _ if same_sheet(new_target, new_host) => None,
+            _ => Some(new_target.to_owned()),
+        };
+        Some(Reference { sheet, kind })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,5 +460,91 @@ mod tests {
         assert_eq!(DEL.map_interval(1, 9), Some((1, 7)));
         assert_eq!(DEL.map_interval(3, 4), None);
         assert_eq!(DEL.map_interval(5, 6), Some((3, 4)));
+    }
+
+    fn mv(host: &str, formula: &str, ctx: MoveContext) -> String {
+        let f = crate::parse(formula).unwrap();
+        adjust_references_for_move(
+            &f,
+            &MoveContext {
+                host_sheet: host,
+                ..ctx
+            },
+        )
+        .to_string()
+    }
+
+    /// B2:C3 on Sheet1 moves 3 rows down and 1 column right (to C5:D6).
+    const MOVE: MoveContext = MoveContext {
+        host_sheet: "Sheet1",
+        src_sheet: "Sheet1",
+        dst_sheet: "Sheet1",
+        src: CellRect {
+            r0: 1,
+            c0: 1,
+            r1: 2,
+            c1: 2,
+        },
+        d_row: 3,
+        d_col: 1,
+        formula_moves: false,
+    };
+
+    #[test]
+    fn move_follows_cells_inside() {
+        assert_eq!(mv("Sheet1", "=B2+C3*2", MOVE), "C5+D6*2");
+        assert_eq!(mv("Sheet1", "=$B$2+B$3", MOVE), "$C$5+C$6");
+        assert_eq!(
+            mv("Sheet1", "=SUM(B2:C3)+SUM(B2:B3)", MOVE),
+            "SUM(C5:D6)+SUM(C5:C6)"
+        );
+        // Outside, partially covered or whole rows/columns: unchanged.
+        assert_eq!(
+            mv("Sheet1", "=A1+D2+SUM(A1:B2)+SUM(B:B)+SUM(2:2)", MOVE),
+            "A1+D2+SUM(A1:B2)+SUM(B:B)+SUM(2:2)"
+        );
+    }
+
+    #[test]
+    fn move_respects_sheets() {
+        // From another sheet: only references prefixed with the source sheet follow.
+        assert_eq!(
+            mv("Other", "=B2+Sheet1!B2+sheet1!C3:C3", MOVE),
+            "B2+Sheet1!C5+sheet1!D6:D6"
+        );
+        assert_eq!(mv("Other", "=Sheet1!A1:B2", MOVE), "Sheet1!A1:B2");
+        // Moved to another sheet: followed references get its prefix.
+        let to_s2 = MoveContext {
+            dst_sheet: "Sheet 2",
+            ..MOVE
+        };
+        assert_eq!(mv("Sheet1", "=B2+A1", to_s2), "'Sheet 2'!C5+A1");
+        assert_eq!(mv("Sheet 2", "=Sheet1!B2+B2", to_s2), "C5+B2");
+        assert_eq!(mv("Other", "=Sheet1!B2:C2", to_s2), "'Sheet 2'!C5:D5");
+    }
+
+    #[test]
+    fn moved_formula_keeps_pointing_at_its_old_sheet() {
+        let to_s2 = MoveContext {
+            dst_sheet: "Sheet2",
+            formula_moves: true,
+            ..MOVE
+        };
+        // A formula inside the block: block references follow, the rest keep their sheet.
+        assert_eq!(
+            mv("Sheet1", "=B3+A1+Other!A1", to_s2),
+            "C6+Sheet1!A1+Other!A1"
+        );
+        let same = MoveContext {
+            formula_moves: true,
+            ..MOVE
+        };
+        assert_eq!(mv("Sheet1", "=B3+A1", same), "C6+A1");
+    }
+
+    #[test]
+    fn move_off_the_sheet_is_ref_error() {
+        let up = MoveContext { d_row: -2, ..MOVE };
+        assert_eq!(mv("Sheet1", "=B2+B3", up), "#REF!+C1");
     }
 }

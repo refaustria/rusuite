@@ -14,19 +14,24 @@ import { NotesPane } from "./ui/NotesPane";
 import { ShowDialogs } from "./ui/ShowDialogs";
 import { Toasts } from "./ui/Toasts";
 
+/** Observes an element's client size. A callback ref, so a remounted element (e.g. after the print view replaced the
+ *  editor) is measured and observed again. */
 function useElementSize<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
-  useEffect(() => {
-    const el = ref.current;
+  const observer = useRef<ResizeObserver | null>(null);
+  const ref = useCallback((el: T | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
     if (!el) return;
-    const measure = () => setSize({ width: el.clientWidth, height: el.clientHeight });
+    const measure = () =>
+      setSize((prev) => (prev.width === el.clientWidth && prev.height === el.clientHeight ? prev : { width: el.clientWidth, height: el.clientHeight }));
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(measure);
     ro.observe(el);
-    return () => ro.disconnect();
+    observer.current = ro;
   }, []);
+  useEffect(() => () => observer.current?.disconnect(), []);
   return [ref, size] as const;
 }
 

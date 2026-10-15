@@ -97,6 +97,8 @@ export function ShortcutLayer({ store, onExportPdf }: { store: CalcStore; onExpo
       "Mod+F": { label: "Find", group: "Edit", when: inGrid, run: () => actions.find() },
       "Mod+H": { label: "Find and replace", group: "Edit", when: inGrid, run: () => actions.replace() },
       "Mod+Shift+V": { label: "Paste values only", group: "Edit", when: inGrid, run: () => void actions.pasteValues() },
+      "Mod+D": { label: "Fill down (copy the first row)", group: "Edit", when: inGrid, run: () => void actions.fillDown() },
+      "Mod+R": { label: "Fill right (copy the first column)", group: "Edit", when: inGrid, run: () => void actions.fillRight() },
       F2: { label: "Edit cell", group: "Edit", when: inGrid, run: () => store.beginEdit(null) },
       Delete: { label: "Clear cells", group: "Edit", when: inGrid, run: () => void store.clearSelection() },
       Backspace: { label: "Clear cells", group: "Edit", when: inGrid, run: () => void store.clearSelection() },

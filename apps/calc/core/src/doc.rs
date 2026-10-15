@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use app_common::{Applied, DispatchError, Document, Patch, Revision};
 use engine_formula::ast::{MAX_COL, MAX_ROW};
-use engine_formula::{CellContent, Cycle, StructuralOp, Value};
+use engine_formula::{CellContent, CellRect, Cycle, MoveContext, StructuralOp, Value};
 use model_sheet::{
     content_to_input, CellCoord, CellRange, ColInfo, EngineError, Recalc, RowInfo, SheetId,
     StyleId, Workbook, MAX_PATCH_CELLS,
@@ -12,7 +12,7 @@ use model_sheet::{
 
 use crate::command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect};
 use crate::display::display_value;
-use crate::fill::{plan, shift_input, FillItem};
+use crate::fill::{move_input, plan, shift_input, FillItem};
 use crate::patch::{
     CalcPatch, CellKind, CellView, ColView, FoundCell, RegionSnapshot, RowView, SheetCells,
     SheetCols, SheetInfo, SheetRows, StructuralChange, StructuralKind, WorkbookInfo,
@@ -750,7 +750,26 @@ impl CalcDocument {
             return Err(CalcError::InvalidRange);
         }
         let s_src = source.sheet;
+        let formulas = if cut { self.formulas() } else { Vec::new() };
         let wb = &self.workbook;
+        let name = |id| wb.engine().sheet_name(id).unwrap_or_default().to_owned();
+        let (src_name, dst_name) = (name(s_src), name(s));
+        // A cut moves the cells: references to them (in the moved formulas
+        // too) follow, as in Excel.
+        let mv = MoveContext {
+            host_sheet: &src_name,
+            src_sheet: &src_name,
+            dst_sheet: &dst_name,
+            src: CellRect {
+                r0: src.r0,
+                c0: src.c0,
+                r1: src.r1,
+                c1: src.c1,
+            },
+            d_row: i64::from(r0) - i64::from(src.r0),
+            d_col: i64::from(c0) - i64::from(src.c0),
+            formula_moves: true,
+        };
         let mut writes = Vec::new();
         let mut covered = BTreeSet::new();
         for ti in 0..rep_rows {
@@ -771,7 +790,11 @@ impl CalcDocument {
                     writes.push(match mode {
                         PasteMode::All => Write {
                             at,
-                            content: Some(WriteContent::Input(shift_input(&clip.input, dr, dc))),
+                            content: Some(WriteContent::Input(if cut {
+                                move_input(&clip.input, &mv).unwrap_or_else(|| clip.input.clone())
+                            } else {
+                                shift_input(&clip.input, dr, dc)
+                            })),
                             style,
                         },
                         PasteMode::ValuesOnly => Write {
@@ -838,6 +861,26 @@ impl CalcDocument {
                 .collect();
             all.extend(writes);
             writes = all;
+            // Formulas elsewhere (neither moved nor overwritten) that
+            // reference the moved cells.
+            for (c, text, _) in &formulas {
+                if source.contains(*c) || dest.contains(*c) {
+                    continue;
+                }
+                let host = name(c.sheet);
+                let ctx = MoveContext {
+                    host_sheet: &host,
+                    formula_moves: false,
+                    ..mv
+                };
+                if let Some(input) = move_input(text, &ctx) {
+                    writes.push(Write {
+                        at: *c,
+                        content: Some(WriteContent::Input(input)),
+                        style: None,
+                    });
+                }
+            }
         }
         self.write_cells(writes)
     }

@@ -45,6 +45,7 @@
 | Mod+V | Paste at the selection's top-left (relative references shift; the block repeats over a selection that is a multiple of it). Text from other programs is pasted as plain values (TSV) |
 | Mod+Shift+V | Paste values only (formulas paste their current values; destination formats kept) |
 | Esc | Leave copy / cut mode (the marching ants disappear) |
+| Mod+D, Mod+R | Fill down, fill right: copy the selection's first row down / first column right over the rest of it (a single row or column is filled from the one above / to the left); relative references shift |
 | Mod+F, Mod+H | Find, find and replace (sheet or workbook, match case, entire cell; inputs and displayed values are searched) |
 
 ### Mouse
@@ -52,7 +53,7 @@
 - **Fill handle** (the small square at the selection's bottom-right): drag down, up, right or left to fill. One cell is copied (relative references shift); two or more numbers continue their linear trend (1, 2 → 3, 4, …); a date steps by a day; text ending in a number counts up (`Item1` → `Item2`). Hold Ctrl while releasing to swap series and copy. Double-click the handle to fill down to the end of the neighbouring column's data.
 - **Right-click** cells, row headers, column headers or sheet tabs for a context menu (cut/copy/paste/paste values, insert/delete rows and columns, clear contents, format cells, row height / column width, hide/unhide, autofit column width, rename sheet). The menu is keyboard navigable (arrows, Home/End, Enter, Esc).
 - Double-click a column boundary to autofit the column, a row boundary to autofit the row. Autofit measures the cells loaded in the view cache (the visible area plus prefetched blocks), not the whole sheet.
-- Cut/paste moves the cells and their formulas keep their text; formulas elsewhere that refer to the moved cells are not adjusted yet.
+- Cut/paste moves the cells and their formulas keep their text; references to the moved cells (an area only when it lies entirely inside the moved block), in the moved formulas and anywhere in the workbook, follow them, as in Excel.
 
 ### Formula editing (point mode)
 

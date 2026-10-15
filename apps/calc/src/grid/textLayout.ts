@@ -1,5 +1,6 @@
 // Text layout for the cell canvas (pure, so it is testable without a
-// canvas): wrapping, Excel's `####` for numbers that do not fit and the
+// canvas): wrapping, Excel's scientific form and `####` for numbers that do
+// not fit and the
 // line height of wrapped text.
 
 /** Measures `text` in the canvas font `font`, CSS px. */
@@ -52,18 +53,35 @@ export function wrapLines(text: string, maxWidth: number, font: string, measure:
   return out;
 }
 
+/** Excel's scientific General form of `n` with at most `digits` decimals: `1.2E+12`, `-5E-07`. */
+export function scientific(n: number, digits: number): string {
+  const [mant, exp] = n.toExponential(digits).split("e") as [string, string];
+  const m = mant.includes(".") ? mant.replace(/\.?0+$/, "") : mant;
+  const e = Number(exp);
+  return `${m}E${e < 0 ? "-" : "+"}${String(Math.abs(e)).padStart(2, "0")}`;
+}
+
 /**
  * The text a number cell shows in `width` px: as is when it fits; a
- * plain decimal (General format) loses decimals until it fits; otherwise
- * Excel's `#` fill.
+ * plain decimal loses decimals until it fits; a General number
+ * (`general`) then switches to the scientific form (`1.2E+12`) with as
+ * many digits as fit; otherwise Excel's `#` fill.
  */
-export function fitNumber(display: string, width: number, font: string, measure: Measure): string {
+export function fitNumber(display: string, width: number, font: string, measure: Measure, general = false): string {
   if (measure(display, font) <= width) return display;
   const m = /^(-?\d+)\.(\d+)$/.exec(display);
+  const n = Number(display);
   if (m) {
-    const n = Number(display);
     for (let d = m[2].length - 1; d >= 0; d--) {
       const t = n.toFixed(d);
+      // A General number does not round away all its digits (0.00001234 → 1.2E-05, not 0).
+      if (general && Number(t) === 0 && n !== 0) break;
+      if (measure(t, font) <= width) return t;
+    }
+  }
+  if (general && display.trim() !== "" && Number.isFinite(n) && n !== 0) {
+    for (let d = 14; d >= 0; d--) {
+      const t = scientific(n, d);
       if (measure(t, font) <= width) return t;
     }
   }
