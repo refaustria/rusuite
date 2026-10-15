@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AutosaveStatus, applyPageRange, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { AutosaveStatus, applyPageRange, formatNumber, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { CalcApi, type CalcBackend } from "./backend/calcApi";
 import { installDevTools, perfOverlayEnabled, pickBackend } from "./dev/devTools";
 import { FormulaBar } from "./FormulaBar";
@@ -12,20 +12,22 @@ import { SheetTabs } from "./SheetTabs";
 import { CalcStore, useCalc } from "./state/store";
 import { Toasts } from "./Toasts";
 import { CalcRibbon, DEFAULT_CALC_VIEW, type CalcView } from "./ui/CalcRibbon";
+import { t, useT } from "./i18n";
 
 function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySession; zoom: number }) {
   const revision = useCalc(store, (s) => s.revision);
   const dirty = useCalc(store, (s) => s.dirty);
   const cycle = useCalc(store, (s) => s.cycle);
   const warnings = useCalc(store, (s) => s.warnings);
+  const t = useT();
   return (
     <div className="flex items-center gap-4 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted" data-testid="status-bar">
-      <span>Revision {revision}</span>
-      <span>{dirty ? "Modified" : "Saved"}</span>
+      <span>{t("calc.status.revision", { revision })}</span>
+      <span>{dirty ? t("status.modified") : t("status.saved")}</span>
       <AutosaveStatus session={session} />
       {warnings.length > 0 && (
         <span data-testid="open-warnings" className="truncate text-amber-700" title={warnings.join("\n")}>
-          {warnings.length === 1 ? warnings[0] : `${warnings.length} warnings: ${warnings.join("; ")}`}
+          {warnings.length === 1 ? warnings[0] : t("calc.status.warnings", { count: warnings.length, list: warnings.join("; ") })}
         </span>
       )}
       {cycle && (
@@ -34,7 +36,7 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
         </span>
       )}
       <span className="ml-auto" data-testid="zoom">
-        {Math.round(zoom * 100)} %
+        {formatNumber(Math.round(zoom * 100))} %
       </span>
     </div>
   );
@@ -50,7 +52,9 @@ export default function App({ backend }: { backend: CalcBackend }) {
       new UnsavedGuard(session.backend, {
         dirty: () => store.getState().dirty,
         name: () => store.getState().name,
-        defaultName: "Workbook.xlsx",
+        get defaultName() {
+          return t("calc.defaultName");
+        },
         save: async (asName) => {
           await store.saveFile(asName === undefined ? undefined : withExtension(asName, ".xlsx"));
           return !store.getState().dirty;

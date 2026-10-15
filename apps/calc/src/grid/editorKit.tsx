@@ -6,6 +6,7 @@
 import { Fragment, useEffect, useLayoutEffect, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject, type SyntheticEvent } from "react";
 import type { ColoredRef } from "../formula/refs";
 import { useCalc, type CalcStore, type EditState } from "../state/store";
+import { useT } from "../i18n";
 
 type Field = HTMLInputElement | HTMLTextAreaElement;
 
@@ -137,6 +138,7 @@ export function FormulaOverlay({ text, refs, className, style }: {
 
 /** Autocomplete list, signature tip or inline error under an editor. */
 export function EditPopups({ store }: { store: CalcStore }) {
+  const t = useT();
   const edit = useCalc(store, (s) => s.edit);
   if (!edit) return null;
   const completion = store.completion();
@@ -151,7 +153,7 @@ export function EditPopups({ store }: { store: CalcStore }) {
       {completion && (
         <ul
           role="listbox"
-          aria-label="Functions"
+          aria-label={t("calc.functions")}
           data-testid="function-list"
           className="max-h-60 w-72 overflow-auto rounded border border-ui-border bg-ui-bg py-0.5 text-ui-fg shadow-lg"
           onMouseDown={(e) => e.preventDefault()}

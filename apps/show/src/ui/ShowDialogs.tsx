@@ -10,6 +10,7 @@ import type { LineDash } from "../generated/LineDash";
 import { textOf, themePalette } from "../model";
 import { formatValuesOf, type FormatValues } from "../state/commands";
 import { useShow, type ShowStore } from "../state/store";
+import { useT } from "../i18n";
 
 const INPUT = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-ui-fg";
 const BUTTON = "h-7 rounded border border-ui-border bg-ui-bg px-3 hover:bg-ui-hover";
@@ -46,6 +47,7 @@ function Num({ label, value, onChange, step = 0.01, min }: { label: string; valu
 function ColorField({ label, noneLabel, value, palette, onChange }: {
   label: string; noneLabel: string; value: Color | null; palette: ReturnType<typeof themePalette>; onChange: (c: Color | null) => void;
 }) {
+  const t = useT();
   const hex = cssColor(value ?? undefined, palette) ?? "#4472c4";
   return (
     <div className="flex items-center justify-between gap-3">
@@ -57,7 +59,7 @@ function ColorField({ label, noneLabel, value, palette, onChange }: {
         </label>
         <input
           type="color"
-          aria-label={`${label} color`}
+          aria-label={t("show.fmt.colorOf", { label })}
           disabled={value === null}
           value={hex.toLowerCase()}
           onChange={(e) => onChange({ kind: "rgb", value: e.currentTarget.value.slice(1).toUpperCase() })}
@@ -68,6 +70,7 @@ function ColorField({ label, noneLabel, value, palette, onChange }: {
 }
 
 function FormatShapeDialog({ store }: { store: ShowStore }) {
+  const t = useT();
   const pres = useShow(store, (s) => s.pres);
   const sel = store.selectedShapes();
   const first = sel[0];
@@ -79,7 +82,7 @@ function FormatShapeDialog({ store }: { store: ShowStore }) {
   const hasText = sel.some((s) => !!textOf(s));
   const close = () => store.closeDialog();
   return (
-    <Dialog open title="Format shape" onClose={close}>
+    <Dialog open title={t("show.fmt.title")} onClose={close}>
       <form
         className="flex w-96 flex-col gap-2 text-sm"
         onSubmit={(e) => {
@@ -89,49 +92,49 @@ function FormatShapeDialog({ store }: { store: ShowStore }) {
         }}
       >
         <fieldset className="flex flex-col gap-1.5 border-t border-ui-border pt-2">
-          <legend className="pr-2 font-medium">Fill and line</legend>
-          <ColorField label="Fill" noneLabel="No fill" value={v.fill} palette={palette} onChange={(fill) => set({ fill })} />
-          <ColorField label="Line" noneLabel="No line" value={v.line} palette={palette} onChange={(line) => set({ line })} />
-          <Num label="Line width (pt)" value={v.lineWidthPt} step={0.25} min={0} onChange={(lineWidthPt) => set({ lineWidthPt })} />
-          <Field label="Dash type">
-            <select aria-label="Dash type" className={`${INPUT} w-24`} value={v.dash} onChange={(e) => set({ dash: e.currentTarget.value as LineDash })}>
-              <option value="solid">Solid</option>
-              <option value="dash">Dash</option>
-              <option value="dot">Dot</option>
+          <legend className="pr-2 font-medium">{t("show.fmt.fillLine")}</legend>
+          <ColorField label={t("show.fmt.fill")} noneLabel={t("show.fmt.noFill")} value={v.fill} palette={palette} onChange={(fill) => set({ fill })} />
+          <ColorField label={t("show.fmt.line")} noneLabel={t("show.fmt.noLine")} value={v.line} palette={palette} onChange={(line) => set({ line })} />
+          <Num label={t("show.fmt.lineWidth")} value={v.lineWidthPt} step={0.25} min={0} onChange={(lineWidthPt) => set({ lineWidthPt })} />
+          <Field label={t("show.fmt.dash")}>
+            <select aria-label={t("show.fmt.dash")} className={`${INPUT} w-24`} value={v.dash} onChange={(e) => set({ dash: e.currentTarget.value as LineDash })}>
+              <option value="solid">{t("show.fmt.solid")}</option>
+              <option value="dash">{t("show.fmt.dashed")}</option>
+              <option value="dot">{t("show.fmt.dot")}</option>
             </select>
           </Field>
         </fieldset>
         {hasText && (
           <fieldset className="flex flex-col gap-1.5 border-t border-ui-border pt-2">
-            <legend className="pr-2 font-medium">Text box</legend>
-            <Field label="Vertical alignment">
-              <select aria-label="Vertical alignment" className={`${INPUT} w-24`} value={v.anchor} onChange={(e) => set({ anchor: e.currentTarget.value as Anchor })}>
-                <option value="top">Top</option>
-                <option value="middle">Middle</option>
-                <option value="bottom">Bottom</option>
+            <legend className="pr-2 font-medium">{t("show.fmt.textBox")}</legend>
+            <Field label={t("show.fmt.vAlign")}>
+              <select aria-label={t("show.fmt.vAlign")} className={`${INPUT} w-24`} value={v.anchor} onChange={(e) => set({ anchor: e.currentTarget.value as Anchor })}>
+                <option value="top">{t("show.fmt.top")}</option>
+                <option value="middle">{t("show.fmt.middle")}</option>
+                <option value="bottom">{t("show.fmt.bottom")}</option>
               </select>
             </Field>
             {(["left", "right", "top", "bottom"] as const).map((k) => (
-              <Num key={k} label={`${k[0]!.toUpperCase()}${k.slice(1)} margin (cm)`} value={v.insets[k]} min={0} onChange={(n) => set({ insets: { ...v.insets, [k]: n } })} />
+              <Num key={k} label={t(`show.fmt.margin.${k}`)} value={v.insets[k]} min={0} onChange={(n) => set({ insets: { ...v.insets, [k]: n } })} />
             ))}
           </fieldset>
         )}
         {sel.length === 1 && (
           <fieldset className="flex flex-col gap-1.5 border-t border-ui-border pt-2">
-            <legend className="pr-2 font-medium">Size and position</legend>
-            <Num label="Height (cm)" value={v.h} min={0} onChange={(h) => set({ h })} />
-            <Num label="Width (cm)" value={v.w} min={0} onChange={(w) => set({ w })} />
-            <Num label="Rotation (°)" value={v.rotation} step={1} onChange={(rotation) => set({ rotation })} />
-            <Num label="Horizontal position (cm)" value={v.x} onChange={(x) => set({ x })} />
-            <Num label="Vertical position (cm)" value={v.y} onChange={(y) => set({ y })} />
+            <legend className="pr-2 font-medium">{t("show.fmt.sizePos")}</legend>
+            <Num label={t("show.fmt.height")} value={v.h} min={0} onChange={(h) => set({ h })} />
+            <Num label={t("show.fmt.width")} value={v.w} min={0} onChange={(w) => set({ w })} />
+            <Num label={t("show.fmt.rotation")} value={v.rotation} step={1} onChange={(rotation) => set({ rotation })} />
+            <Num label={t("show.fmt.x")} value={v.x} onChange={(x) => set({ x })} />
+            <Num label={t("show.fmt.y")} value={v.y} onChange={(y) => set({ y })} />
           </fieldset>
         )}
         <div className="mt-1 flex justify-end gap-2">
           <button type="button" className={BUTTON} onClick={close}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button type="submit" className={BUTTON}>
-            OK
+            {t("common.ok")}
           </button>
         </div>
       </form>
@@ -140,10 +143,11 @@ function FormatShapeDialog({ store }: { store: ShowStore }) {
 }
 
 function AltTextDialog({ store, shape }: { store: ShowStore; shape: number }) {
+  const t = useT();
   const [text, setText] = useState(() => store.shape(shape)?.alt ?? "");
   const close = () => store.closeDialog();
   return (
-    <Dialog open title="Alt text" onClose={close}>
+    <Dialog open title={t("show.altText")} onClose={close}>
       <form
         className="flex w-80 flex-col gap-2 text-sm"
         onSubmit={(e) => {
@@ -153,15 +157,15 @@ function AltTextDialog({ store, shape }: { store: ShowStore; shape: number }) {
         }}
       >
         <label className="flex flex-col gap-1">
-          <span>How would you describe this object to someone who is blind?</span>
-          <textarea aria-label="Alt text" rows={4} className="rounded border border-ui-border bg-ui-bg p-2 text-ui-fg" value={text} onChange={(e) => setText(e.currentTarget.value)} />
+          <span>{t("show.altQuestion")}</span>
+          <textarea aria-label={t("show.altText")} rows={4} className="rounded border border-ui-border bg-ui-bg p-2 text-ui-fg" value={text} onChange={(e) => setText(e.currentTarget.value)} />
         </label>
         <div className="flex justify-end gap-2">
           <button type="button" className={BUTTON} onClick={close}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button type="submit" className={BUTTON}>
-            OK
+            {t("common.ok")}
           </button>
         </div>
       </form>

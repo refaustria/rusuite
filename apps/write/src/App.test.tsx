@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ setTitle: vi.fn() }) }));
 
-import { bytesToBase64 } from "@rusuite/ui-shared";
+import { bytesToBase64, setLocale } from "@rusuite/ui-shared";
 import App, { countWords } from "./App";
 import { FakeWriteBackend } from "./test/fakeWriteBackend";
 import { makeDoc, para } from "./test/fixtures";
@@ -28,6 +28,24 @@ function fileCommand(name: string) {
   fireEvent.click(screen.getByRole("tab", { name: "File" }));
   fireEvent.click(within(screen.getByRole("dialog", { name: "File" })).getByRole("button", { name }));
 }
+
+describe("Write app in German", () => {
+  it("shows the German ribbon and status bar", async () => {
+    setLocale("de", { persist: false });
+    try {
+      await mount();
+      expect(screen.getByRole("tab", { name: "Start" }).getAttribute("aria-selected")).toBe("true");
+      expect(screen.getByRole("toolbar", { name: "Formatierung" })).toBeTruthy();
+      expect(screen.getByRole("group", { name: "Absatzformatvorlagen" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Überschrift 1" })).toBeTruthy();
+      await waitFor(() => expect(screen.getByTestId("words").textContent).toBe("0 Wörter"), { timeout: 3000 });
+      fireEvent.click(screen.getByRole("tab", { name: "Datei" }));
+      expect(within(screen.getByRole("dialog", { name: "Datei" })).getByRole("button", { name: "Speichern" }).title).toBe("Speichern (Strg+S)");
+    } finally {
+      setLocale("en", { persist: false });
+    }
+  });
+});
 
 describe("Write app", () => {
   it("mounts the ribbon, editor and status bar on a new document", async () => {

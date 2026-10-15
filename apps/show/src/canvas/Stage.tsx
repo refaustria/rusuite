@@ -17,6 +17,7 @@ import { shapeMenu, slideMenu } from "./menus";
 import { NO_GUIDES, SNAP_PX, anchorAxes, sameGuides, snapBox, snapPoint, snapTargets, type Guides, type SnapTargets } from "./snap";
 import { SlideView } from "./SlideView";
 import { TextOverlay } from "./TextOverlay";
+import { useT } from "../i18n";
 
 /** Union of rectangles (slide px). */
 function union(rects: R[]): R | null {
@@ -51,6 +52,7 @@ function shapeTargets(target: Konva.Node): { top: NodeId | null; leaf: NodeId | 
 }
 
 export function EditorStage({ store, width, height }: { store: ShowStore; width: number; height: number }) {
+  const t = useT();
   const pres = useShow(store, (s) => s.pres);
   const current = useShow(store, (s) => s.current);
   const selection = useShow(store, (s) => s.selection);
@@ -315,7 +317,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
         </Layer>
       </Stage>
       {editing && <TextOverlay store={store} scale={scale} />}
-      <ContextMenu at={menu?.at ?? null} label="Slide editor" items={menu?.items ?? []} onClose={() => setMenu(null)} />
+      <ContextMenu at={menu?.at ?? null} label={t("show.slideEditor")} items={menu?.items ?? []} onClose={() => setMenu(null)} />
     </div>
   );
 }

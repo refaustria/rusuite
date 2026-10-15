@@ -8,6 +8,7 @@ import type { Editor } from "@tiptap/react";
 import type { PageSetup } from "../generated/PageSetup";
 import { headerFooterText, pageGeometry } from "../features/pagination";
 import type { WriteFeatures, WriteView } from "../features/WriteFeatures";
+import { useT } from "../i18n";
 
 /**
  * App glue: view mode and page count for the frame, the find bar and
@@ -40,6 +41,7 @@ export interface PageFrameProps {
 }
 
 export function PageFrame({ page, view, pages, onEditHeaderFooter, children }: PageFrameProps) {
+  const t = useT();
   const g = pageGeometry(page);
   const print = view === "print";
   const hf = (which: "header" | "footer", text: string, style: React.CSSProperties) => (
@@ -48,7 +50,7 @@ export function PageFrame({ page, view, pages, onEditHeaderFooter, children }: P
       data-testid={`page-${which}`}
       data-hf={which}
       style={{ left: g.left, right: g.right, ...style }}
-      title={`Double-click to edit the ${which}`}
+      title={t(`write.hfTip.${which}`)}
       onDoubleClick={() => onEditHeaderFooter(which)}
     >
       {text}

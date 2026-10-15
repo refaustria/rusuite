@@ -48,6 +48,9 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
 
 Each app keeps its status bar; Calc and Show also show the zoom there, all three the last autosave.
 
+Every app's View tab also has **Language / Sprache** (English, Deutsch); the same picker sits at the bottom of the File
+backstage. The UI language follows the browser by default and switches in place; see [i18n.md](i18n.md) (P7-11).
+
 ## Save and Save As on the desktop (P7-7)
 
 The desktop shell remembers the document's file (`DocPath` in `apps/*/src-tauri/src/lib.rs`): Open (dialog or recent file)
@@ -150,4 +153,5 @@ data URIs in `apps/*/index.html`, `logos/rusuite-mono.svg` for the portal). `<na
 The portal (`apps/portal/index.html` + `styles.css`, no build step, ~12 KB with the SVGs) is the site root: header with the
 mark and the one-line pitch, a card per app (logo, name, one sentence, "Open … in browser" in the app colour, "Desktop
 downloads" → GitHub releases), footer with the alpha note, the repo link and the build from `/version.json`. Light/dark via
-`prefers-color-scheme`, system fonts, no external requests.
+`prefers-color-scheme`, system fonts, no external requests. An **EN / DE** switch (top right, `apps/portal/i18n.js` + `apps/portal/locales/`) translates the page
+and stores the choice where the apps read it; a German browser gets German by default (P7-11).

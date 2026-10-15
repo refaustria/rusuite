@@ -4,6 +4,7 @@
 // core would reject; the core's `invalid_formula` reply stays the
 // authority (see `CalcStore.commitEdit`).
 
+import { t } from "../i18n";
 import { referenceAt } from "./refs";
 import { isFormula, tokenize, type LexError, type Tok, type TokKind } from "./tokenize";
 
@@ -203,5 +204,5 @@ export function checkFormula(text: string): LexError | null {
 /** The inline message shown for a formula that cannot be committed. */
 export function formulaErrorMessage(message: string): string {
   const m = message.replace(/\s+at position \d+$/, "").replace(/^.*parse error:\s*/i, "");
-  return `${m.charAt(0).toUpperCase()}${m.slice(1)} – fix or press Esc to discard`;
+  return t("calc.formulaError", { message: `${m.charAt(0).toUpperCase()}${m.slice(1)}` });
 }

@@ -83,7 +83,7 @@ export function fontFamily(face: FontFace | null | undefined, theme: Theme | und
   else if (face?.kind === "theme") {
     const f = theme?.fonts;
     const slot = face.value;
-    name = (f && f[slot]) || (slot.startsWith("major") ? "Calibri Light" : "Calibri");
+    name = (f && f[slot]) || (slot.startsWith("major") ? "Calibri Light" : "Calibri"); // i18n-ignore: a font name
   } else if (theme?.fonts.minorLatin) name = theme.fonts.minorLatin;
   const fallback = /^calibri/i.test(name) ? ", Carlito" : "";
   return `${quote(name)}${fallback}, sans-serif`;

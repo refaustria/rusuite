@@ -9,8 +9,10 @@ import { FORMULA_BAR_ATTR } from "./grid/CellEditor";
 import { EditPopups, FormulaOverlay, handleEditorKey, syncCaret, useEditorBinding } from "./grid/editorKit";
 import { normalize } from "./grid/Selection";
 import { useCalc, type CalcStore } from "./state/store";
+import { useT } from "./i18n";
 
 export function FormulaBar({ store }: { store: CalcStore }) {
+  const t = useT();
   const input = useRef<HTMLInputElement>(null);
   const edit = useCalc(store, (s) => s.edit);
   const selection = useCalc(store, (s) => s.selection);
@@ -53,13 +55,13 @@ export function FormulaBar({ store }: { store: CalcStore }) {
 
   return (
     <div className="flex items-center gap-2 border-b border-ui-border bg-ui-bg px-2 py-1 text-sm text-ui-fg">
-      <output aria-label="Cell address" data-testid="cell-address" className="w-28 shrink-0 truncate rounded border border-ui-border px-2 py-0.5 font-mono">
+      <output aria-label={t("calc.cellAddress")} data-testid="cell-address" className="w-28 shrink-0 truncate rounded border border-ui-border px-2 py-0.5 font-mono">
         {address}
       </output>
       <button
         type="button"
-        aria-label="Insert function"
-        title="Insert function"
+        aria-label={t("calc.insertFunction")}
+        title={t("calc.insertFunction")}
         className="select-none rounded px-1 italic text-ui-muted hover:bg-ui-hover"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
@@ -78,7 +80,7 @@ export function FormulaBar({ store }: { store: CalcStore }) {
         <input
           ref={input}
           {...{ [FORMULA_BAR_ATTR]: "" }}
-          aria-label="Formula bar"
+          aria-label={t("calc.formulaBar")}
           spellCheck={false}
           autoComplete="off"
           className={`relative w-full rounded border border-ui-border px-2 py-0.5 font-mono outline-none focus:border-ui-focus ${

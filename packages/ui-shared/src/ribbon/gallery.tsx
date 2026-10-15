@@ -6,6 +6,7 @@ import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { FOCUS_RING } from "../Popover";
 import { RibbonMenuButton, type RibbonButtonSize } from "./controls";
 import type { RibbonIconName } from "./icons";
+import { useT } from "../i18n/react";
 
 export interface RibbonGalleryItem {
   id: string;
@@ -151,6 +152,7 @@ export interface RibbonTableSizePickerProps {
 
 /** Rows × columns picker: hovering/focusing a cell highlights the table size. */
 export function RibbonTableSizePicker({ maxRows = 8, maxCols = 8, onPick }: RibbonTableSizePickerProps) {
+  const t = useT();
   const [at, setAt] = useState({ r: 1, c: 1 });
   const ref = useRef<HTMLDivElement>(null);
   const cells: ReactNode[] = [];
@@ -162,7 +164,7 @@ export function RibbonTableSizePicker({ maxRows = 8, maxCols = 8, onPick }: Ribb
           key={`${r}x${c}`}
           type="button"
           data-gallery-item=""
-          aria-label={`${r} × ${c} table`}
+          aria-label={t("table.size", { rows: r, cols: c })}
           autoFocus={r === 1 && c === 1}
           className={`h-4 w-4 rounded-[2px] border ${on ? "border-ui-focus bg-ui-active" : "border-ui-border bg-ui-bg"} ${FOCUS_RING}`}
           onMouseEnter={() => setAt({ r, c })}
@@ -175,12 +177,12 @@ export function RibbonTableSizePicker({ maxRows = 8, maxCols = 8, onPick }: Ribb
   return (
     <div className="flex flex-col gap-1">
       <div className="text-xs text-ui-muted" aria-live="polite" data-testid="table-size">
-        {at.r} × {at.c} table
+        {t("table.size", { rows: at.r, cols: at.c })}
       </div>
       <div
         ref={ref}
         role="group"
-        aria-label="Table size"
+        aria-label={t("table.sizeLabel")}
         className="grid gap-0.5"
         style={{ gridTemplateColumns: `repeat(${maxCols}, 1rem)` }}
         onKeyDown={(e) => gridKeys(e, ref.current, maxCols)}

@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FOCUS_RING } from "../Popover";
 import { printDocHtml, type PrintDoc } from "../print";
+import { useT } from "../i18n/react";
 
 const NAV = `inline-flex h-7 w-7 items-center justify-center rounded border border-ui-border hover:bg-ui-hover disabled:opacity-40 ${FOCUS_RING}`;
 
@@ -15,6 +16,7 @@ export function previewZoom(wIn: number, hIn: number, availW: number, availH: nu
 }
 
 export function PrintPreview({ doc, busy }: { doc: PrintDoc | null; busy?: boolean }) {
+  const t = useT();
   const [page, setPage] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -43,7 +45,7 @@ export function PrintPreview({ doc, busy }: { doc: PrintDoc | null; busy?: boole
   const go = (d: number) => setPage(Math.max(0, Math.min(count - 1, current + d)));
 
   return (
-    <section aria-label="Print preview" className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
+    <section aria-label={t("print.preview")} className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
       <div
         ref={host}
         className="relative min-h-0 flex-1 overflow-hidden rounded border border-ui-border bg-neutral-300"
@@ -55,7 +57,7 @@ export function PrintPreview({ doc, busy }: { doc: PrintDoc | null; busy?: boole
         {doc && count > 0 && (
           <iframe
             ref={frame}
-            title="Print preview"
+            title={t("print.preview")}
             data-testid="print-preview"
             data-pages={count}
             sandbox="allow-same-origin"
@@ -66,18 +68,18 @@ export function PrintPreview({ doc, busy }: { doc: PrintDoc | null; busy?: boole
         )}
         {(busy || !doc || count === 0) && (
           <p className="absolute inset-x-0 top-1/3 text-center text-sm text-neutral-700" data-testid="print-preview-status">
-            {busy ? "Preparing preview…" : "Nothing to print"}
+            {busy ? t("print.preparingPreview") : t("print.nothing")}
           </p>
         )}
       </div>
       <div className="flex items-center justify-center gap-2 text-sm">
-        <button type="button" className={NAV} aria-label="Previous page" disabled={current <= 0} onClick={() => go(-1)}>
+        <button type="button" className={NAV} aria-label={t("print.prevPage")} disabled={current <= 0} onClick={() => go(-1)}>
           ‹
         </button>
         <span data-testid="print-page-count" aria-live="polite">
-          {count === 0 ? "0 pages" : `Page ${current + 1} of ${count}`}
+          {count === 0 ? t("print.zeroPages") : t("print.pageOf", { page: current + 1, count })}
         </span>
-        <button type="button" className={NAV} aria-label="Next page" disabled={current >= count - 1} onClick={() => go(1)}>
+        <button type="button" className={NAV} aria-label={t("print.nextPage")} disabled={current >= count - 1} onClick={() => go(1)}>
           ›
         </button>
       </div>

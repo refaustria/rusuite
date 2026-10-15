@@ -102,3 +102,10 @@ footer .note strong { color: var(--text); }
 #version { font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) { .button { transition: none; } }
+
+/* Language switch (P7-11) */
+.lang { position: absolute; top: 14px; right: 16px; display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.lang button { appearance: none; border: 0; background: transparent; color: var(--muted); font: 600 0.8rem/1 system-ui, sans-serif; padding: 7px 10px; cursor: pointer; }
+.lang button + button { border-left: 1px solid var(--line); }
+.lang button[aria-pressed="true"] { background: var(--text); color: var(--surface); }
+.lang button:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }

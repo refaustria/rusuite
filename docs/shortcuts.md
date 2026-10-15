@@ -1,6 +1,8 @@
 # Keyboard shortcuts
 
-`Mod` is Ctrl on Windows/Linux and Cmd on macOS. Press `Mod+/` in any app to list the shortcuts.
+`Mod` is Ctrl on Windows/Linux and Cmd on macOS. Press `Mod+/` in any app to list the shortcuts. The keys are the same in every UI language; the German UI
+labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips and menus, as German Office does
+([i18n.md](i18n.md)).
 
 ## How they are wired
 

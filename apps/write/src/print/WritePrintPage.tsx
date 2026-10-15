@@ -7,6 +7,7 @@ import type { Editor } from "@tiptap/react";
 import type { PageSetup } from "../generated/PageSetup";
 import type { WriteBackend } from "../backend";
 import { buildWritePrintDoc, WRITE_MARGIN_CHOICES, WRITE_ORIENTATION_CHOICES, WRITE_PAPER_CHOICES, type WritePrintOptions } from "./writePrintDoc";
+import { useT } from "../i18n";
 
 export interface WritePrintPageProps {
   editor: Editor;
@@ -27,6 +28,7 @@ export async function printWrite(backend: WriteBackend, doc: PrintDoc, onError: 
 }
 
 export function WritePrintPage({ editor, page, backend, options, onChange, onError }: WritePrintPageProps) {
+  const t = useT();
   const { range, paper, orientation, margins, scale } = options;
   const build = useCallback(
     async () => buildWritePrintDoc(editor.view.dom as HTMLElement, page, { range: "", paper, orientation, margins, scale }),
@@ -36,13 +38,13 @@ export function WritePrintPage({ editor, page, backend, options, onChange, onErr
   const set = <K extends keyof WritePrintOptions>(k: K, v: WritePrintOptions[K]) => onChange({ ...options, [k]: v });
   return (
     <PrintPanel doc={doc} busy={busy} error={error} range={range} onRange={(r) => set("range", r)} onPrint={(d) => printWrite(backend, d, onError)}>
-      <PrintSection title="Layout">
-        <PrintSelect label="Orientation" value={orientation} choices={WRITE_ORIENTATION_CHOICES} onChange={(v) => set("orientation", v as PageOrientation | "document")} />
-        <PrintSelect label="Paper size" value={paper} choices={WRITE_PAPER_CHOICES} onChange={(v) => set("paper", v as PaperName | "document")} />
-        <PrintSelect label="Margins" value={margins} choices={WRITE_MARGIN_CHOICES} onChange={(v) => set("margins", v as MarginPreset | "document")} />
-        <PrintNumber label="Scale" value={scale} min={25} max={200} suffix="%" onChange={(v) => set("scale", v)} />
+      <PrintSection title={t("print.layoutSection")}>
+        <PrintSelect label={t("print.orientation")} value={orientation} choices={WRITE_ORIENTATION_CHOICES} onChange={(v) => set("orientation", v as PageOrientation | "document")} />
+        <PrintSelect label={t("print.paperSize")} value={paper} choices={WRITE_PAPER_CHOICES} onChange={(v) => set("paper", v as PaperName | "document")} />
+        <PrintSelect label={t("print.margins")} value={margins} choices={WRITE_MARGIN_CHOICES} onChange={(v) => set("margins", v as MarginPreset | "document")} />
+        <PrintNumber label={t("print.scale")} value={scale} min={25} max={200} suffix="%" onChange={(v) => set("scale", v)} />
       </PrintSection>
-      <p className="text-xs text-ui-muted">Headers and footers print as set in Insert › Header / Footer; {"{PAGE}"} becomes the page number.</p>
+      <p className="text-xs text-ui-muted">{t("write.print.hfNote", { page: "{PAGE}" })}</p>
     </PrintPanel>
   );
 }

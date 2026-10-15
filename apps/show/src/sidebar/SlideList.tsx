@@ -7,7 +7,7 @@
 
 import { memo, useMemo, useState } from "react";
 import { Layer, Stage } from "react-konva";
-import { ContextMenu, Dropdown, type ContextMenuItem } from "@rusuite/ui-shared";
+import { ContextMenu, Dropdown, withLabel, type ContextMenuItem } from "@rusuite/ui-shared";
 import type { LayoutKind } from "../generated/LayoutKind";
 import type { Slide } from "../generated/Slide";
 import { slidePx } from "../geometry";
@@ -15,13 +15,14 @@ import { slideDropIndex } from "../state/commands";
 import { useShow, type ShowStore } from "../state/store";
 import { SlideView, type DeckContext } from "../canvas/SlideView";
 import { thumbnailMenu } from "../canvas/menus";
+import { useT } from "../i18n";
 
 export const THUMB_WIDTH = 152;
 
-export const LAYOUTS: { value: LayoutKind; label: string }[] = [
-  { value: "title", label: "Title slide" },
-  { value: "titleContent", label: "Title and content" },
-  { value: "blank", label: "Blank" },
+export const LAYOUTS: { value: LayoutKind; readonly label: string }[] = [
+  withLabel({ value: "title" as LayoutKind }, "show.layout.title"),
+  withLabel({ value: "titleContent" as LayoutKind }, "show.layout.titleContent"),
+  withLabel({ value: "blank" as LayoutKind }, "show.layout.blank"),
 ];
 
 const Thumb = memo(function Thumb({
@@ -39,6 +40,7 @@ const Thumb = memo(function Thumb({
 });
 
 export function SlideList({ store }: { store: ShowStore }) {
+  const t = useT();
   const pres = useShow(store, (s) => s.pres);
   const current = useShow(store, (s) => s.current);
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
@@ -52,7 +54,7 @@ export function SlideList({ store }: { store: ShowStore }) {
     [pres?.slideSize, pres?.layouts, pres?.theme],
   );
 
-  if (!pres || !deck) return <nav aria-label="Slides" className="w-48 shrink-0 border-r border-ui-border bg-ui-panel" />;
+  if (!pres || !deck) return <nav aria-label={t("show.slides")} className="w-48 shrink-0 border-r border-ui-border bg-ui-panel" />;
   const slides = pres.slides;
   const index = slides.findIndex((s) => s.id === current);
 
@@ -78,22 +80,22 @@ export function SlideList({ store }: { store: ShowStore }) {
 
   return (
     <nav
-      aria-label="Slides"
+      aria-label={t("show.slides")}
       tabIndex={0}
       onKeyDown={onKeyDown}
       data-testid="slide-list"
       className="flex w-48 shrink-0 flex-col gap-1 overflow-y-auto border-r border-ui-border bg-ui-panel p-2 outline-none"
     >
       <div className="mb-1 flex items-center justify-between text-xs text-ui-muted">
-        <span>Slides</span>
-        <Dropdown label="New slide" trigger={<span className="px-1 text-base leading-none">+</span>} items={LAYOUTS} onSelect={(l) => void store.addSlide(l)} />
+        <span>{t("show.slides")}</span>
+        <Dropdown label={t("show.newSlide")} trigger={<span className="px-1 text-base leading-none">+</span>} items={LAYOUTS} onSelect={(l) => void store.addSlide(l)} />
       </div>
       {slides.map((slide, i) => (
         <div
           key={slide.id}
           role="button"
           tabIndex={-1}
-          aria-label={`Slide ${i + 1}`}
+          aria-label={t("show.slideN", { n: i + 1 })}
           aria-current={slide.id === current ? "true" : undefined}
           data-testid="thumbnail"
           draggable
@@ -137,7 +139,7 @@ export function SlideList({ store }: { store: ShowStore }) {
           {dropAt === slides.length && i === slides.length - 1 && (
             <span data-testid="drop-indicator" className="pointer-events-none absolute -bottom-1 left-5 right-0 h-0.5 rounded bg-orange-600" />
           )}
-          <span className={`w-4 pt-1 text-right text-ui-muted ${slide.hidden ? "line-through" : ""}`} title={slide.hidden ? "Hidden slide" : undefined}>
+          <span className={`w-4 pt-1 text-right text-ui-muted ${slide.hidden ? "line-through" : ""}`} title={slide.hidden ? t("show.hiddenSlide") : undefined}>
             {i + 1}
           </span>
           <span className={`overflow-hidden rounded border border-ui-border bg-white ${slide.hidden ? "opacity-40" : ""}`}>
@@ -145,7 +147,7 @@ export function SlideList({ store }: { store: ShowStore }) {
           </span>
         </div>
       ))}
-      <ContextMenu at={menu?.at ?? null} label="Slide actions" items={menu?.items ?? []} onClose={() => setMenu(null)} />
+      <ContextMenu at={menu?.at ?? null} label={t("show.slideActions")} items={menu?.items ?? []} onClose={() => setMenu(null)} />
     </nav>
   );
 }

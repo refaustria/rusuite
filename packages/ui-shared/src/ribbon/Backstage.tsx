@@ -8,6 +8,7 @@ import type { AnySession } from "../recent/session";
 import { formatTime, useSession } from "../recent/useSession";
 import { formatCombo } from "../shortcuts/keys";
 import { RibbonIcon, type RibbonIconName } from "./icons";
+import { LanguageSelect, useT } from "../i18n/react";
 
 const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
@@ -48,17 +49,18 @@ export interface BackstageProps extends BackstageActions {
 }
 
 function RecentFiles({ session, disabled, pick }: { session: AnySession; disabled: boolean; pick: (fn: () => void) => void }) {
+  const t = useT();
   const recent = useSession(session, (st) => st.recent);
   useEffect(() => {
     void session.refresh();
   }, [session]);
   const browser = session.storage?.kind === "browser";
   return (
-    <section aria-label="Recent" className="flex min-h-0 flex-col">
-      <h2 className="mb-2 text-lg font-semibold">Recent</h2>
+    <section aria-label={t("recent.title")} className="flex min-h-0 flex-col">
+      <h2 className="mb-2 text-lg font-semibold">{t("recent.title")}</h2>
       {recent.length === 0 && (
         <p className="text-sm text-ui-muted" data-testid="recent-empty">
-          No recent files
+          {t("recent.empty")}
         </p>
       )}
       <ul className="flex min-h-0 flex-col overflow-auto">
@@ -68,7 +70,7 @@ function RecentFiles({ session, disabled, pick }: { session: AnySession; disable
               type="button"
               disabled={disabled}
               className={`flex w-full items-center gap-3 rounded px-2 py-1.5 text-left text-sm hover:bg-ui-hover disabled:opacity-40 ${FOCUS_RING}`}
-              title={r.path ?? `${r.name} (copy stored in this browser)`}
+              title={r.path ?? t("recent.browserCopy", { name: r.name })}
               data-testid="recent-entry"
               onClick={() => pick(() => void session.openRecent(r))}
             >
@@ -84,8 +86,7 @@ function RecentFiles({ session, disabled, pick }: { session: AnySession; disable
       </ul>
       {browser && (
         <p role="note" className="mt-2 max-w-xl text-xs text-ui-muted" data-testid="recent-web-note">
-          In the browser, recent files re-open the copy stored in this browser when the file was last opened or saved – not the file on
-          disk.
+          {t("recent.webNote")}
         </p>
       )}
     </section>
@@ -97,6 +98,7 @@ export function Backstage({
   open, onClose, appName, documentTitle, accent = "var(--ui-focus)", onNew, onOpen, onSave, onSaveAs, onExportPdf, onCloseDocument,
   session, fileDisabledReason, exportDisabled, info, print, page: pageProp = "home", onPage,
 }: BackstageProps) {
+  const t = useT();
   const page: BackstagePage = pageProp === "print" && print && !exportDisabled ? "print" : "home";
   const ref = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -145,7 +147,7 @@ export function Backstage({
       ref={ref}
       role="dialog"
       aria-modal="true"
-      aria-label="File"
+      aria-label={t("ribbon.file")}
       data-testid="backstage"
       className="fixed inset-0 z-40 flex bg-ui-bg text-ui-fg"
       onKeyDown={(e) => {
@@ -168,11 +170,11 @@ export function Backstage({
         }
       }}
     >
-      <nav aria-label="File commands" className="flex w-52 shrink-0 flex-col py-3 text-white" style={{ background: accent }}>
+      <nav aria-label={t("backstage.commands")} className="flex w-52 shrink-0 flex-col py-3 text-white" style={{ background: accent }}>
         <button
           type="button"
-          aria-label="Back to the document"
-          title="Back (Esc)"
+          aria-label={t("backstage.back")}
+          title={t("backstage.backTip")}
           className={`mx-3 mb-3 flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15 ${FOCUS_RING}`}
           onClick={() => onCloseRef.current()}
         >
@@ -188,37 +190,38 @@ export function Backstage({
                 onClick={() => onPage?.("home")}
               >
                 <RibbonIcon name="home" size={18} />
-                Home
+                {t("backstage.home")}
               </button>
             </li>
           )}
-          {item("new", "New", "new", onNew, "Mod+N")}
-          {item("open", "Open…", "open", onOpen, "Mod+O", fileOff)}
-          {item("save", "Save", "save", onSave, "Mod+S", fileOff)}
-          {item("saveAs", "Save As…", "saveAs", onSaveAs, "Mod+Shift+S", fileOff)}
+          {item("new", t("backstage.new"), "new", onNew, "Mod+N")}
+          {item("open", t("backstage.open"), "open", onOpen, "Mod+O", fileOff)}
+          {item("save", t("backstage.save"), "save", onSave, "Mod+S", fileOff)}
+          {item("saveAs", t("backstage.saveAs"), "saveAs", onSaveAs, "Mod+Shift+S", fileOff)}
           {print && (
             <li key="print">
               <button
                 type="button"
                 disabled={!!exportDisabled}
                 aria-current={page === "print" ? "page" : undefined}
-                title={`Print (${formatCombo("Mod+P")})`}
+                title={`${t("backstage.print")} (${formatCombo("Mod+P")})`}
                 className={`flex w-full items-center gap-3 px-5 py-2 text-left text-sm hover:bg-white/15 disabled:opacity-50 ${page === "print" ? "bg-white/20 font-semibold" : ""} ${FOCUS_RING}`}
                 onClick={() => onPage?.("print")}
               >
                 <RibbonIcon name="print" size={18} />
-                Print
+                {t("backstage.print")}
               </button>
             </li>
           )}
-          {item("export", "Export PDF…", "pdf", onExportPdf, print ? undefined : "Mod+P", !!exportDisabled)}
+          {item("export", t("backstage.exportPdf"), "pdf", onExportPdf, print ? undefined : "Mod+P", !!exportDisabled)}
         </ul>
-        <ul className="mt-auto flex flex-col border-t border-white/20 pt-2">{item("close", "Close", "close", onCloseDocument)}</ul>
+        <ul className="mt-auto flex flex-col border-t border-white/20 pt-2">{item("close", t("backstage.close"), "close", onCloseDocument)}</ul>
+        <LanguageSelect className="px-5 pb-1 pt-2 text-xs [&_span]:text-white/90" />
       </nav>
       <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-auto p-8">
         <header>
           <p className="text-sm text-ui-muted">{appName}</p>
-          <h1 className="truncate text-2xl font-semibold">{documentTitle ?? "Untitled"}</h1>
+          <h1 className="truncate text-2xl font-semibold">{documentTitle ?? t("doc.untitled")}</h1>
           {fileOff && (
             <p className="mt-1 text-sm text-amber-700 dark:text-amber-400" data-testid="file-disabled">
               {fileDisabledReason}

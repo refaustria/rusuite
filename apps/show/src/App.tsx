@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { applyPageRange, AutosaveStatus, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { applyPageRange, AutosaveStatus, formatNumber, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
 import { EditorStage } from "./canvas/Stage";
@@ -15,6 +15,7 @@ import { ShowRibbon, type ShowZoom } from "./ui/ShowToolbar";
 import { NotesPane } from "./ui/NotesPane";
 import { ShowDialogs } from "./ui/ShowDialogs";
 import { Toasts } from "./ui/Toasts";
+import { t, useT } from "./i18n";
 
 /** Observes an element's client size. A callback ref, so a remounted element is measured and observed again. */
 function useElementSize<T extends HTMLElement>() {
@@ -37,6 +38,7 @@ function useElementSize<T extends HTMLElement>() {
 }
 
 function StatusBar({ store, backend, session, zoom }: { store: ShowStore; backend: ShowBackend; session: AnySession; zoom: ShowZoom }) {
+  const t = useT();
   const pres = useShow(store, (s) => s.pres);
   const current = useShow(store, (s) => s.current);
   const revision = useShow(store, (s) => s.revision);
@@ -50,22 +52,22 @@ function StatusBar({ store, backend, session, zoom }: { store: ShowStore; backen
   const hidden = i >= 0 && !!pres?.slides[i]?.hidden;
   return (
     <div className="flex items-center gap-4 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted" data-testid="status-bar">
-      <span data-testid="slide-count">{n ? `Slide ${i + 1} of ${n}${hidden ? " (hidden)" : ""}` : "No slides"}</span>
-      <span data-testid="doc-name">{name ?? "Untitled"}</span>
-      <span data-testid="dirty">{dirty ? "Modified" : "Saved"}</span>
+      <span data-testid="slide-count">{n ? `${t("show.slideOf", { n: i + 1, count: n })}${hidden ? t("show.hiddenSuffix") : ""}` : t("show.noSlides")}</span>
+      <span data-testid="doc-name">{name ?? t("doc.untitled")}</span>
+      <span data-testid="dirty">{dirty ? t("status.modified") : t("status.saved")}</span>
       <span data-testid="revision">rev {Math.max(0, revision)}</span>
       <AutosaveStatus session={session} />
       {info && <span data-testid="info">{info}</span>}
       {warnings.length > 0 && (
         <span data-testid="warnings" title={warnings.join("\n")} className="truncate text-amber-600">
-          {warnings.length} warning{warnings.length === 1 ? "" : "s"}: {warnings[0]}
+          {t("status.warnings", { count: warnings.length, first: warnings[0] ?? "" })}
         </span>
       )}
       <button type="button" className={`ml-auto rounded px-1 hover:bg-ui-hover ${notesVisible ? "text-ui-fg" : ""}`} aria-pressed={notesVisible} onClick={() => store.toggleNotes()}>
-        Notes
+        {t("show.notes")}
       </button>
       <span data-testid="zoom">
-        {zoom === "fit" ? "Fit" : `${Math.round(zoom * 100)} %`}
+        {zoom === "fit" ? t("show.fitShort") : `${formatNumber(Math.round(zoom * 100))} %`}
       </span>
       <span data-testid="backend-kind">
         {backend.kind}
@@ -75,6 +77,7 @@ function StatusBar({ store, backend, session, zoom }: { store: ShowStore; backen
 }
 
 export default function App({ backend, store: given }: { backend: ShowBackend; store?: ShowStore }) {
+  const locale = useLocale();
   // Recent files, autosave, crash recovery: the store talks through the session's backend.
   const session = useMemo(() => new DocumentSession(backend), [backend]);
   const store = useMemo(() => given ?? new ShowStore(new ShowApi(session.backend)), [session, given]);
@@ -84,7 +87,9 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       new UnsavedGuard(backend, {
         dirty: () => store.getState().dirty,
         name: () => store.getState().name,
-        defaultName: "Presentation.pptx",
+        get defaultName() {
+          return t("show.defaultName");
+        },
         save: async (asName) => {
           await store.save(asName === undefined ? undefined : withExtension(asName, ".pptx"));
           return !store.getState().dirty;
@@ -118,9 +123,9 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   useEffect(() => guard.watchWindow(), [guard]);
 
   useEffect(() => {
-    void backend.setTitle(`${dirty ? "• " : ""}${name ?? "Untitled"} – Rusuite Show`).catch(() => undefined);
+    void backend.setTitle(`${dirty ? "• " : ""}${name ?? t("doc.untitled")} – Rusuite Show`).catch(() => undefined);
     guard.syncDirty();
-  }, [backend, guard, dirty, name]);
+  }, [backend, guard, dirty, name, locale]);
 
   const startPresenting = useCallback(
     (mode: "single" | "presenter" = "single") => {
