@@ -95,6 +95,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Locale-aware formula input/display (German `;`/`,`, function names) – owner decision pending; translated core messages via error codes; unused-key catalog check; wider gallery tiles for long German labels ("Überschri…"); Write Clipboard group overflow.
 
 ## Calc parity follow-ups
+- CF: core should send the data-bar axis position and min/max lengths (UI estimates the axis today); Excel 2010 data bar options (solid fill, border, negative colour); "A Date Occurring" and standard-deviation rules; copy/paste + Format Painter for CF rules and validations; a rule's number format is stored but not displayed; sort/paste do not move CF; sheet rename does not rewrite rule formulas; time-period rules; "Circle Invalid Data".
 - Dynamic arrays: element-wise scalar functions over arrays (`LEN(A1:A3)`), `A:A` spilling, merged cells blocking spills, sort/fill/paste guards on spill ranges in model-sheet, TAKE/DROP/VSTACK/CHOOSECOLS/MMULT/LET/LAMBDA.
 - Store the pane top-left cell (freeze while scrolled like Excel); grid mouse handlers → pointer events; Ctrl+PageUp/Down skipping hidden sheets; unhide several sheets; sort by colour/custom lists, colour/date-group filters, AutoFilter range growth, left-to-right sort, AGGREGATE, "sort warning" for adjacent data; hidden-by-hand rows inside a filtered range read back as filtered (xlsx cannot distinguish).
 
@@ -103,6 +104,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Effect Options for sorter-selected slides; transitions when going back/jumping; badges for grouped shapes; emphasis auto-reverse; Animation Painter; Konva-rendered transitions in PDF export; Float In / Split effects; per-paragraph builds; p14 transitions.
 
 ## Write parity follow-ups
+- Tables: grid-aware insert/delete column commands (today cell indices + normalize_merges); layer table-style text formatting into run resolution; image crop and borders; Word's exact theme-colour fallback hex values.
 - write-core: normalize runs in note paragraphs after edits (typed note text is saved one run per char); per-section text width in the editor; footnotes at page bottom in print output (currently at the end) and not duplicated in print layout; `ApplyNumbering` command for list presets; document author property for the AUTHOR field.
 - Heading numbers in TOC entries; outlineLvl; section-level note formats; core field-update pass; split/join inside notes and headers; ADR 0006 numbering bullet to update (shared abstractNum now).
 
