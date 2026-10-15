@@ -92,6 +92,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Move the XML DOM/writer and theme parser into fmt-ooxml (now triplicated).
 
 ## Phase 5 leftovers
+- Performance: paged/virtual Write editor for very long documents; range-level `ApplyStyle` patches in Calc (1M-cell style patch is 2.7 s because the patch carries every cell); cache parsed number formats; move the Playwright perf scripts into an e2e package so `scripts/perf.sh` needs no scratchpad files.
 - Confirm-before-discard dialog shared by New/Open/Restore/window close; recovery entries age limit; Web Locks live-session check does not span desktop processes; web recent-list rules duplicated in TS.
 - PDF export: Calc `UsedRange` request in the core (print view scans blocks); print area/selection; multi-sheet export; Write headers/footers; Show handouts; verify `window.print()` on WebKitGTK/WebView2 (Tauri 2.12 has no webview print API).
 - Shortcuts: move Calc grid-navigation keys into the map; user-configurable shortcuts; Tiptap handles Mod-Alt-1..6 itself while focused.
