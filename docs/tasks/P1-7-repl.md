@@ -13,3 +13,6 @@ Branch `p1/repl`, worktree `/home/bojan/rusuite-wt/p1-repl`. Scope: `crates/engi
 - `printf '=SUM(1,2,3)*2\nA1 = 5\nB1 = =A1*2\n=B1+1\n' | cargo run -q -p engine-formula --example repl` prints `12`, `5`, `10`, `11` on four lines.
 - `cargo clippy --workspace --all-targets -- -D warnings` (examples are included by `--all-targets`).
 - No new dependencies (no rustyline).
+
+## Part B – rustdoc hygiene (added by PM)
+`RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` must pass. Currently 5 intra-doc links from public docs to private items fail in `eval.rs:238`, `functions/logical/and.rs:8`, `functions/logical/or.rs:8`, `functions/text/text_.rs:9`, `graph.rs:11` – replace each `[`name`]` link with plain backticks (no code changes). Add the doc command to `.github/workflows/ci.yml` as a step in the `rust` job after `cargo test`. Rerun the command for the whole workspace and fix anything else it reports in the same way.
