@@ -1014,6 +1014,7 @@ dependencies = [
 name = "fmt-ooxml"
 version = "0.1.0"
 dependencies = [
+ "core-model",
  "quick-xml",
  "serde",
  "tempfile",
