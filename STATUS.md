@@ -34,7 +34,7 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 | P2-2 | `fmt-xlsx` read/write (bytes API, wasm-compatible) + `examples/rewrite.rs` + docs/ooxml-subset.md | Opus | in progress | `p2/fmt-xlsx` | brief docs/tasks/P2-2-fmt-xlsx.md |
 | P2-4 | `app-common` Host/undo-redo + `calc-core` (commands, patches, snapshots, JSON `dispatch`) + P2-1c model-sheet structural ops + ts-rs TS generation | Opus | in progress | `p2/app-common` | brief docs/tasks/P2-4-app-common-calc-core.md |
 | P2-W2 | Web scaffold: `app-calc-wasm` crate, wasm-pack build, Vite web mode (`/calc/`), `ui-shared` `Backend` abstraction (Tauri/WASM), CI wasm checks | Sonnet | done (merged) | – | verified: wasm 105 KB (51 KB gz), JS 146 KB; 7 backend tests; wasm check for 6 crates in CI; wasm-pack 0.15 via npm |
-| P2-W3 | nginx vhost resuite.inceptum.at + TLS + `scripts/deploy-web.sh`; first deploy | Sonnet | in progress | `p2/deploy-web` | brief docs/tasks/P2-W3-nginx-deploy.md |
+| P2-W3 | nginx vhost resuite.inceptum.at + TLS + `scripts/deploy-web.sh`; first deploy | Sonnet | done (merged) | – | LIVE: https://resuite.inceptum.at/calc/ (TLS via certbot, expires 2027-01-13, auto-renew); live conf copied to /etc/nginx/sites-available; redeploy with `scripts/deploy-web.sh` |
 | P2-5 | calc-ui canvas grid: virtualization (100k+ cells), selection, in-cell editing, formula bar, column/row headers, resize | Opus | todo | `p2/grid` | after P2-3 + P2-4 |
 | P2-6 | `ui-shared`: formatting toolbar (bold/italic/underline, font, size, colors, alignment, number format, borders) | Sonnet | todo | `p2/toolbar` | after P2-3 |
 | P2-7 | Wiring: both shells call `calc_core::dispatch`; open/save (Tauri dialogs / browser file APIs) via fmt-xlsx; frontend store | Opus | todo | `p2/wiring` | after P2-2/4/5/6/W2 |
@@ -81,6 +81,7 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 4. 2026-10-15: Roundtrip harness verification = LibreOffice headless `--convert-to` of the rewritten file succeeds and the output is non-empty, plus a structural diff of the ZIP part list and XML against the original. (LibreOffice has no "repair dialog" counter in headless mode; a failed/empty conversion is the proxy.)
 
 ## Open questions for the owner
+- FYI (not caused by us): `https://url.inceptum.at/` answers 502 (its upstream on 127.0.0.1:3002 seems down); gitai/ssh answer 401 (auth). We did not touch those vhosts.
 - (none new) Suite status on main: 855 passed / 0 failed / 7 skipped (all UNKNOWNFN rows; P1-11 makes them run). All 62 MVP functions implemented.
 - **Phase 1 model choice:** the owner's instructions list "the formula engine's evaluation semantics" as a Fable-tier decision. My plan: I write the semantics spec (coercions, error propagation, array/range handling, empty-cell rules) into the P1-2 brief and have Opus implement it. If you prefer a Fable agent for P1-2, say so; otherwise I proceed with the plan.
 - **Excel reference values for formulas:** `testdata/formulas/` needs expected results computed in real Excel. I will seed provisional values from LibreOffice Calc; please run the generated `.xlsx` through Excel when you can (I will produce one file with all test formulas in a column, so Excel's recalculated values can be exported).
