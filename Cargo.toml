@@ -11,6 +11,7 @@ members = [
     "crates/engine-formula",
     "crates/model-show",
     "crates/app-common",
+    "apps/calc/src-tauri",
 ]
 
 [workspace.package]
