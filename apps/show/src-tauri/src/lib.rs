@@ -4,6 +4,7 @@
 //! crash-recovery store (`SessionState`). No document logic lives here.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -14,7 +15,7 @@ use app_common::session::{
 use core_model::media::{base64_decode, base64_encode, Base64Error};
 use serde::{Serialize, Serializer};
 use show_core::{ShowDocument, ShowHost};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 /// The Tauri-managed app state: the host of the open presentation.
@@ -139,6 +140,36 @@ impl SessionState {
             Err(e) => Err(e),
         }
     }
+}
+
+/// Event sent to the UI when a close request was held (`ui-shared`'s
+/// `CLOSE_REQUESTED_EVENT`).
+pub const CLOSE_REQUESTED_EVENT: &str = "rusuite://close-requested";
+
+/// Unsaved-changes close guard (P7-6): the UI sets it while the document
+/// is dirty. A close request is then held and passed to the UI, which asks
+/// Save / Don't save / Cancel, clears the guard and closes the window again.
+#[derive(Debug, Default)]
+pub struct CloseGuard(AtomicBool);
+
+impl CloseGuard {
+    pub fn set(&self, on: bool) {
+        self.0.store(on, Ordering::SeqCst);
+    }
+
+    pub fn is_set(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+
+    /// Decides a close request: `true` = hold it (prevent the close and ask the UI).
+    pub fn hold_close(&self) -> bool {
+        self.is_set()
+    }
+}
+
+#[tauri::command]
+fn set_close_guard(on: bool, guard: tauri::State<'_, CloseGuard>) {
+    guard.set(on);
 }
 
 #[tauri::command]
@@ -269,6 +300,15 @@ async fn save_file_dialog(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(CloseGuard::default())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.state::<CloseGuard>().hold_close() {
+                    api.prevent_close();
+                    let _ = window.emit(CLOSE_REQUESTED_EVENT, ());
+                }
+            }
+        })
         .manage(ShowState::default())
         .setup(|app| {
             let dir = app
@@ -288,7 +328,8 @@ pub fn run() {
             recovery_list,
             recovery_get,
             recovery_put,
-            recovery_remove
+            recovery_remove,
+            set_close_guard
         ])
         .run(tauri::generate_context!())
         .expect("error while running Rusuite Show");
@@ -301,6 +342,20 @@ mod tests {
 
     fn call(state: &ShowState, request: Value) -> Value {
         serde_json::from_str(&state.dispatch(&request.to_string())).unwrap()
+    }
+
+    #[test]
+    fn close_guard_holds_close_requests_only_while_set() {
+        let guard = CloseGuard::default();
+        assert!(!guard.hold_close());
+        guard.set(true);
+        assert!(guard.is_set());
+        assert!(guard.hold_close());
+        // Still set: every further request is held until the UI clears it.
+        assert!(guard.hold_close());
+        guard.set(false);
+        assert!(!guard.hold_close());
+        assert_eq!(CLOSE_REQUESTED_EVENT, "rusuite://close-requested");
     }
 
     #[test]

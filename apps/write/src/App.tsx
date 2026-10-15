@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
-import { DocumentSession, RecoveryBanner } from "@rusuite/ui-shared";
+import { AutosaveStatus, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { writePrintCss } from "./print/printCss";
 import { WriteApi, type WriteBackend } from "./backend";
 import { writeExtensions } from "./sync/schema";
@@ -72,17 +72,18 @@ function useWordCount(editor: Editor): number {
 }
 
 /** Keeps the window title in sync; a component of its own so that revision/dirty changes do not re-render the App. */
-function TitleSync({ ctl, backend }: { ctl: SyncController; backend: WriteBackend }) {
+function TitleSync({ ctl, backend, guard }: { ctl: SyncController; backend: WriteBackend; guard: UnsavedGuard }) {
   const dirty = useSync(ctl, (s) => s.dirty);
   const name = useSync(ctl, (s) => s.name);
   const revision = useSync(ctl, (s) => s.revision);
   useEffect(() => {
     void backend.setTitle(`${dirty ? "• " : ""}${name ?? "Untitled"} – Rusuite Write`).catch(() => undefined);
-  }, [backend, dirty, name, revision]);
+    guard.syncDirty();
+  }, [backend, guard, dirty, name, revision]);
   return null;
 }
 
-const StatusBar = memo(function StatusBar({ ctl, editor, backend }: { ctl: SyncController; editor: Editor; backend: WriteBackend }) {
+const StatusBar = memo(function StatusBar({ ctl, editor, backend, session }: { ctl: SyncController; editor: Editor; backend: WriteBackend; session: AnySession }) {
   const { revision, dirty, name, info, warnings } = useThrottledSync(ctl);
   const words = useWordCount(editor);
   return (
@@ -91,6 +92,7 @@ const StatusBar = memo(function StatusBar({ ctl, editor, backend }: { ctl: SyncC
       <span data-testid="dirty">{dirty ? "Modified" : "Saved"}</span>
       <span data-testid="words">{words} words</span>
       <span data-testid="revision">rev {revision}</span>
+      <AutosaveStatus session={session} />
       {info && <span data-testid="info">{info}</span>}
       {warnings.length > 0 && (
         <span data-testid="warnings" title={warnings.join("\n")} className="truncate text-amber-600">
@@ -125,14 +127,33 @@ export default function App({ backend }: { backend: WriteBackend }) {
     if (editor) void ctl.newDocument();
   }, [editor, ctl]);
 
+  // Unsaved-changes question before New / Open / recent / Restore / Close and closing the window (P7-6).
+  const guard = useMemo(
+    () =>
+      new UnsavedGuard(backend, {
+        dirty: () => ctl.getState().dirty,
+        name: () => ctl.getState().name,
+        defaultName: "Document.docx",
+        save: (asName) => {
+          const name = asName === undefined ? undefined : withExtension(asName, ".docx");
+          return ctl.saveDocx((n, bytes) => backend.saveFile(name ?? n, bytes), name);
+        },
+      }),
+    [backend, ctl],
+  );
+  useEffect(() => guard.watchWindow(), [guard]);
+
   const open = useCallback(async () => {
     try {
+      if ((await guard.ensureSaved()) === "cancel") return;
       const file = await backend.openFile();
       if (file) await ctl.openDocx(file.bytesBase64, file.name);
     } catch (e) {
       ctl.pushError(e);
     }
-  }, [backend, ctl]);
+  }, [backend, ctl, guard]);
+
+  const newDocument = useCallback(() => void guard.run(() => ctl.newDocument()), [guard, ctl]);
 
   const save = useCallback(async () => {
     await ctl.saveDocx((n, bytes) => backend.saveFile(n, bytes));
@@ -143,10 +164,11 @@ export default function App({ backend }: { backend: WriteBackend }) {
       restore: (json, name) => ctl.restoreRecovery(json, name),
       openFile: (file) => ctl.openDocx(file.bytesBase64, file.name),
       onError: (e) => ctl.pushError(e),
+      confirmReplace: async () => (await guard.ensureSaved()) === "proceed",
     });
     void session.start();
     return () => session.stop();
-  }, [session, ctl]);
+  }, [session, ctl, guard]);
 
   const saveAs = useCallback(
     async (name: string) => {
@@ -159,7 +181,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
 
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
-      <TitleSync ctl={ctl} backend={backend} />
+      <TitleSync ctl={ctl} backend={backend} guard={guard} />
       <RecoveryBanner session={session} />
       {editor && (
         <WriteRibbon
@@ -185,12 +207,13 @@ export default function App({ backend }: { backend: WriteBackend }) {
           </PageFrame>
         </div>
       </div>
-      {editor && <StatusBar ctl={ctl} editor={editor} backend={backend} />}
+      {editor && <StatusBar ctl={ctl} editor={editor} backend={backend} session={session} />}
       <FindBar ctl={ctl} editor={editor} ui={features.ui} />
       <WriteDialogs ui={features.ui} ctl={ctl} editor={editor} />
       <EditorContextMenu editor={editor} ctl={ctl} features={features} />
       <Toasts ctl={ctl} />
-      <ShortcutLayer editor={editor} ctl={ctl} onOpen={() => void open()} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={chrome.onFind} onReplace={chrome.onReplace} features={features} onExportPdf={exportPdf} />
+      <ShortcutLayer editor={editor} ctl={ctl} onNew={newDocument} onOpen={() => void open()} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={chrome.onFind} onReplace={chrome.onReplace} features={features} onExportPdf={exportPdf} />
+      <ConfirmDiscard guard={guard} />
     </main>
   );
 }

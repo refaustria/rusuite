@@ -28,6 +28,12 @@ export interface SessionAdapter {
   openFile(file: OpenedFile): Promise<boolean | void>;
   /** Shows an error (e.g. as a toast). */
   onError?(e: unknown): void;
+  /**
+   * Asked before a recent file or a recovered document replaces the open
+   * one (the unsaved-changes question, `UnsavedGuard.ensureSaved`);
+   * `false` = keep the open document.
+   */
+  confirmReplace?(): Promise<boolean>;
 }
 
 export interface SessionState {
@@ -56,6 +62,8 @@ export interface SessionOptions {
 export type AnySession = DocumentSession<any, any>;
 
 export const AUTOSAVE_INTERVAL_MS = 30_000;
+/** Recovery entries older than this (7 days) are dropped instead of offered. */
+export const RECOVERY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const REPLACING = new Set([
   "newDocument",
@@ -216,7 +224,10 @@ export class DocumentSession<Req = unknown, Body = unknown> {
     await this.queue(async (s) => {
       const [recent, all] = await Promise.all([s.listRecent(), s.listRecovery()]);
       const live = await this.liveSessions();
-      this.set({ recent, recoveries: all.filter((r) => r.id !== this.docId && !live.has(r.id)) });
+      const oldest = this.now() - RECOVERY_MAX_AGE_MS;
+      const expired = all.filter((r) => r.id !== this.docId && !live.has(r.id) && r.savedAt < oldest);
+      for (const r of expired) await s.removeRecovery(r.id);
+      this.set({ recent, recoveries: all.filter((r) => r.id !== this.docId && r.savedAt >= oldest && !live.has(r.id)) });
     });
   }
 
@@ -255,6 +266,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
       const name = typeof body.name === "string" ? body.name : this.suggestedName;
       this.seenDirty = false;
       this.storedRevision = null;
+      if (this.state.lastAutosave !== null) this.set({ lastAutosave: null });
       void this.queue((s) => s.removeRecovery(this.docId));
       await this.remember(name ?? "Untitled");
     } else if (REPLACING.has(type)) {
@@ -265,6 +277,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
         return;
       }
       this.seenDirty = false;
+      if (this.state.lastAutosave !== null) this.set({ lastAutosave: null });
       void this.queue((s) => s.removeRecovery(this.docId));
       const name = isObj(request) && typeof request.name === "string" ? request.name : null;
       if (OPENING.has(type) && name !== null) await this.remember(name);
@@ -333,6 +346,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
 
   /** Restores a recovery entry of an earlier session; it is removed once this session stored its own copy. */
   async restore(id: string): Promise<boolean> {
+    if (!(await this.confirmReplace())) return false;
     const entry = await this.queue((s) => s.getRecovery(id));
     if (!entry) {
       if (entry === null) this.report(new Error("This recovered document is no longer available."));
@@ -353,6 +367,26 @@ export class DocumentSession<Req = unknown, Body = unknown> {
     return true;
   }
 
+  /** The app's unsaved-changes question (`SessionAdapter.confirmReplace`); `true` without one. */
+  private async confirmReplace(): Promise<boolean> {
+    if (!this.adapter?.confirmReplace) return true;
+    try {
+      return await this.adapter.confirmReplace();
+    } catch (e) {
+      this.report(e);
+      return false;
+    }
+  }
+
+  /** Deletes every recovery entry offered (the banner's "Discard all"). */
+  async discardAll(): Promise<void> {
+    const ids = this.state.recoveries.map((r) => r.id);
+    await this.queue(async (s) => {
+      for (const id of ids) await s.removeRecovery(id);
+    });
+    this.set({ recoveries: this.state.recoveries.filter((r) => !ids.includes(r.id)) });
+  }
+
   /** Deletes a recovery entry of an earlier session. */
   async discard(id: string): Promise<void> {
     await this.queue((s) => s.removeRecovery(id));
@@ -362,6 +396,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
   /** Re-opens a recent entry (desktop: the file; web: its stored snapshot). */
   async openRecent(entry: RecentEntry): Promise<boolean> {
     if (!this.storage || !this.adapter) return false;
+    if (!(await this.confirmReplace())) return false;
     try {
       const source = await this.storage.openRecent(entry);
       const ok = "file" in source ? await this.adapter.openFile(source.file) : await this.adapter.restore(source.snapshot, entry.name);

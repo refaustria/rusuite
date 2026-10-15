@@ -166,19 +166,30 @@ describe("Calc ribbon", () => {
     expect(await screen.findByRole("dialog", { name: "Export PDF" })).toBeTruthy();
   });
 
-  it("File › New asks before discarding changes", async () => {
+  it("File › New and File › Close ask before discarding changes", async () => {
     const { core, grid } = await setup();
     await typeCell(grid, "1");
     await waitFor(() => expect(screen.getByTestId("status-bar").textContent).toMatch(/Modified/));
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     fireEvent.click(tab("File"));
     fireEvent.click(screen.getByRole("button", { name: "New" }));
-    expect(confirm).toHaveBeenCalled();
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Save changes to Untitled?" })).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(core.log.some((r) => r.type === "newDocument")).toBe(false);
-    confirm.mockReturnValue(true);
     fireEvent.click(tab("File"));
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Don't save" }));
     await waitFor(() => expect(core.log.some((r) => r.type === "newDocument")).toBe(true));
+  });
+
+  it("File › Open asks before replacing a modified workbook", async () => {
+    const { backend, grid } = await setup();
+    await typeCell(grid, "1");
+    await waitFor(() => expect(screen.getByTestId("status-bar").textContent).toMatch(/Modified/));
+    const openFile = vi.spyOn(backend, "openFile");
+    fireEvent.click(tab("File"));
+    fireEvent.click(screen.getByRole("button", { name: "Open…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Don't save" }));
+    await waitFor(() => expect(openFile).toHaveBeenCalled());
   });
 
   it("Editing › Find and Format › Format cells… open the P6-3 dialogs", async () => {

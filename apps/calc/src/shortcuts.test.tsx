@@ -2,6 +2,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import App from "./App";
+import { MemoryDocStorage } from "@rusuite/ui-shared";
 import { FakeBackend, FakeCalcCore } from "./dev/fakeBackend";
 import type { Request } from "./generated/Request";
 
@@ -174,18 +175,73 @@ describe("Calc shortcuts", () => {
     await waitFor(() => expect(screen.getByTestId("status-bar").textContent).toMatch(/Saved/));
   });
 
-  it("Ctrl+N starts a new workbook, asking first when there are unsaved changes", async () => {
+  it("Ctrl+N starts a new workbook; with unsaved changes it asks Save / Don't save / Cancel", async () => {
     const { core, grid } = await setup();
     await typeCell(grid, "5");
     await waitFor(() => expect(screen.getByTestId("status-bar").textContent).toMatch(/Modified/));
     core.log.length = 0;
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     fireEvent.keyDown(grid, ctrl("n"));
+    const ask = await screen.findByRole("dialog", { name: "Save changes to Untitled?" });
+    fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(core.log.some((r) => r.type === "newDocument")).toBe(false);
+    expect(screen.getByTestId("status-bar").textContent).toMatch(/Modified/);
     fireEvent.keyDown(grid, ctrl("n"));
+    fireEvent.click(await screen.findByRole("button", { name: "Don't save" }));
     await waitFor(() => expect(core.log.some((r) => r.type === "newDocument")).toBe(true));
-    expect(confirm).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(screen.getByTestId("status-bar").textContent).toMatch(/Saved/));
+  });
+
+  it("Ctrl+O on an untitled modified workbook: Save asks the name, saves, then opens", async () => {
+    const { core, backend, grid } = await setup();
+    await typeCell(grid, "5");
+    await waitFor(() => expect(screen.getByTestId("status-bar").textContent).toMatch(/Modified/));
+    const openFile = vi.spyOn(backend, "openFile");
+    fireEvent.keyDown(grid, ctrl("o"));
+    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+    const input = (await screen.findByLabelText("File name")) as HTMLInputElement;
+    expect(input.value).toBe("Workbook.xlsx");
+    fireEvent.change(input, { target: { value: "q1" } });
+    fireEvent.submit(input.form!);
+    await waitFor(() => expect(openFile).toHaveBeenCalled());
+    expect(backend.saved.map((s) => s.name)).toEqual(["q1.xlsx"]);
+    expect(core.log.find((r) => r.type === "markSaved")).toEqual({ type: "markSaved", name: "q1.xlsx" });
+  });
+
+  it("Ctrl+O: a cancelled save dialog keeps the workbook and does not open", async () => {
+    const { backend, grid } = await setup();
+    await typeCell(grid, "5");
+    await waitFor(() => expect(screen.getByTestId("status-bar").textContent).toMatch(/Modified/));
+    backend.saveResult = false;
+    const openFile = vi.spyOn(backend, "openFile");
+    fireEvent.keyDown(grid, ctrl("o"));
+    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+    const input = (await screen.findByLabelText("File name")) as HTMLInputElement;
+    fireEvent.submit(input.form!);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(openFile).not.toHaveBeenCalled();
+    expect(screen.getByTestId("status-bar").textContent).toMatch(/Modified/);
+  });
+
+  it("Restore in the recovery banner asks first when the open workbook is modified", async () => {
+    const storage = new MemoryDocStorage();
+    await storage.putRecovery({ id: "old", name: "lost.xlsx", savedAt: Date.now(), revision: 1, json: "{}" });
+    const core = new FakeCalcCore();
+    const backend = Object.assign(new FakeBackend(core), { storage });
+    render(<App backend={backend} />);
+    await screen.findByRole("tab", { name: "Sheet1" });
+    const grid = screen.getByTestId("grid");
+    grid.focus();
+    await typeCell(grid, "5");
+    await waitFor(() => expect(screen.getByTestId("status-bar").textContent).toMatch(/Modified/));
+    core.log.length = 0;
+    fireEvent.click(await screen.findByRole("button", { name: "Restore lost.xlsx" }));
+    const ask = await screen.findByRole("dialog", { name: "Save changes to Untitled?" });
+    fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(core.log.some((r) => r.type === "restoreRecovery")).toBe(false);
+    expect(storage.recovery.has("old")).toBe(true);
   });
 
   it("Ctrl+/ lists the shortcuts", async () => {

@@ -1,6 +1,6 @@
 // Show keyboard shortcuts, driven through the real App (fake keyboard events).
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ setTitle: vi.fn() }) }));
@@ -155,19 +155,43 @@ describe("Show shortcuts", () => {
     await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("pitch.pptx"));
   });
 
-  it("Ctrl+N starts a new presentation, asking first when there are unsaved changes", async () => {
+  it("Ctrl+N starts a new presentation; unsaved changes ask Save / Don't save / Cancel", async () => {
     const { backend, store } = await mount();
     store.selectSlide(7);
     act(() => store.select([8]));
     await key({ key: "ArrowLeft" });
     expect(screen.getByTestId("dirty").textContent).toBe("Modified");
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     await key(ctrl("n"));
+    const ask = await screen.findByRole("dialog", { name: "Save changes to Untitled?" });
+    fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+    await flush();
     expect(backend.log.some((r) => r.type === "newPresentation")).toBe(false);
     await key(ctrl("n"));
-    expect(backend.log.some((r) => r.type === "newPresentation")).toBe(true);
-    expect(confirm).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId("dirty").textContent).toBe("Saved");
+    fireEvent.click(await screen.findByRole("button", { name: "Don't save" }));
+    await waitFor(() => expect(backend.log.some((r) => r.type === "newPresentation")).toBe(true));
+    await waitFor(() => expect(screen.getByTestId("dirty").textContent).toBe("Saved"));
+  });
+
+  it("File › Open on a modified presentation: Save names and saves it first; Cancel keeps it", async () => {
+    const { backend, store } = await mount();
+    store.selectSlide(7);
+    act(() => store.select([8]));
+    await key({ key: "ArrowLeft" });
+    backend.nextOpen = { name: "deck.pptx", bytesBase64: "UEsDBA==" };
+    fireEvent.click(screen.getByRole("tab", { name: "File" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    await flush();
+    expect(backend.log.some((r) => r.type === "openPptx")).toBe(false);
+    fireEvent.click(screen.getByRole("tab", { name: "File" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+    const input = (await screen.findByLabelText("File name")) as HTMLInputElement;
+    expect(input.value).toBe("Presentation.pptx");
+    fireEvent.change(input, { target: { value: "pitch" } });
+    fireEvent.submit(input.form!);
+    await waitFor(() => expect(backend.log.some((r) => r.type === "openPptx")).toBe(true));
+    expect(backend.saved.map((s) => s.name)).toEqual(["pitch.pptx"]);
   });
 
   it("Ctrl+/ lists the shortcuts and Ctrl+P is bound for the PDF export", async () => {

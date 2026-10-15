@@ -327,7 +327,7 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange }: 
       backstage={{
         session,
         onNew: () => triggerShortcut("Mod+N"),
-        onOpen: () => void store.openFile(),
+        onOpen: () => triggerShortcut("Mod+O"),
         onSave: () => void store.saveFile(),
         onSaveAs: () => triggerShortcut("Mod+Shift+S"),
         onExportPdf,

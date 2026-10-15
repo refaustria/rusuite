@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DocumentSession, RecoveryBanner, printAndWait } from "@rusuite/ui-shared";
+import { AutosaveStatus, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, printAndWait, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
 import { EditorStage } from "./canvas/Stage";
@@ -35,7 +35,7 @@ function useElementSize<T extends HTMLElement>() {
   return [ref, size] as const;
 }
 
-function StatusBar({ store, backend, zoom }: { store: ShowStore; backend: ShowBackend; zoom: ShowZoom }) {
+function StatusBar({ store, backend, session, zoom }: { store: ShowStore; backend: ShowBackend; session: AnySession; zoom: ShowZoom }) {
   const pres = useShow(store, (s) => s.pres);
   const current = useShow(store, (s) => s.current);
   const revision = useShow(store, (s) => s.revision);
@@ -53,6 +53,7 @@ function StatusBar({ store, backend, zoom }: { store: ShowStore; backend: ShowBa
       <span data-testid="doc-name">{name ?? "Untitled"}</span>
       <span data-testid="dirty">{dirty ? "Modified" : "Saved"}</span>
       <span data-testid="revision">rev {Math.max(0, revision)}</span>
+      <AutosaveStatus session={session} />
       {info && <span data-testid="info">{info}</span>}
       {warnings.length > 0 && (
         <span data-testid="warnings" title={warnings.join("\n")} className="truncate text-amber-600">
@@ -76,6 +77,20 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   // Recent files, autosave, crash recovery: the store talks through the session's backend.
   const session = useMemo(() => new DocumentSession(backend), [backend]);
   const store = useMemo(() => given ?? new ShowStore(new ShowApi(session.backend)), [session, given]);
+  // Unsaved-changes question before New / Open / recent / Restore / Close and closing the window (P7-6).
+  const guard = useMemo(
+    () =>
+      new UnsavedGuard(backend, {
+        dirty: () => store.getState().dirty,
+        name: () => store.getState().name,
+        defaultName: "Presentation.pptx",
+        save: async (asName) => {
+          await store.save(asName === undefined ? undefined : withExtension(asName, ".pptx"));
+          return !store.getState().dirty;
+        },
+      }),
+    [backend, store],
+  );
   const [presenting, setPresenting] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [zoom, setZoom] = useState<ShowZoom>("fit");
@@ -96,14 +111,17 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       restore: (json, name) => store.restoreRecovery(json, name),
       openFile: (file) => store.openBytes(file),
       onError: (e) => store.pushError(e),
+      confirmReplace: async () => (await guard.ensureSaved()) === "proceed",
     });
     void session.start();
     return () => session.stop();
-  }, [session, store]);
+  }, [session, store, guard]);
+  useEffect(() => guard.watchWindow(), [guard]);
 
   useEffect(() => {
     void backend.setTitle(`${dirty ? "• " : ""}${name ?? "Untitled"} – Rusuite Show`).catch(() => undefined);
-  }, [backend, dirty, name]);
+    guard.syncDirty();
+  }, [backend, guard, dirty, name]);
 
   const startPresenting = useCallback(() => {
     void store.commitEdit();
@@ -165,10 +183,11 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
         <NotesPane store={store} />
         </div>
       </div>
-      <StatusBar store={store} backend={backend} zoom={zoom} />
+      <StatusBar store={store} backend={backend} session={session} zoom={zoom} />
       <Toasts store={store} />
       <ShowDialogs store={store} />
-      <ShortcutLayer store={store} enabled={!presenting} onPresent={presentFrom} onExportPdf={exportPdf} />
+      <ShortcutLayer store={store} guard={guard} enabled={!presenting} onPresent={presentFrom} onExportPdf={exportPdf} />
+      <ConfirmDiscard guard={guard} />
       {presenting && pres && slides.length > 0 && (
         <Presenter
           deck={pres}

@@ -4,7 +4,7 @@
 // in-cell editor keys (Enter/Tab/Esc/Alt+Enter) live in the components.
 
 import { useMemo, useState } from "react";
-import { Dialog, PromptDialog, ShortcutHelp, useShortcuts, withExtension, type HelpRow, type ShortcutMap } from "@rusuite/ui-shared";
+import { Dialog, PromptDialog, ShortcutHelp, useShortcuts, withExtension, type HelpRow, type ShortcutMap, type UnsavedGuard } from "@rusuite/ui-shared";
 import { colSelection, isWholeCols, isWholeRows, normalize, rowSelection } from "./grid/Selection";
 import { calcActions } from "./calcActions";
 import { CalcDialogs } from "./CalcDialogs";
@@ -23,11 +23,6 @@ export const NATIVE_ROWS: HelpRow[] = [
   { combo: "Mod+V", label: "Paste (formulas shift; repeats over a multiple selection)", group: "Edit" },
   { combo: "Escape", label: "Cancel copy / cut mode", group: "Edit" },
 ];
-
-function discard(store: CalcStore): boolean {
-  if (!store.getState().dirty) return true;
-  return typeof window.confirm !== "function" || window.confirm("Discard unsaved changes?");
-}
 
 function StructureDialog({ kind, onClose, store }: { kind: "insert" | "delete" | null; onClose: () => void; store: CalcStore }) {
   const [axis, setAxis] = useState<"rows" | "cols">("rows");
@@ -64,7 +59,7 @@ function StructureDialog({ kind, onClose, store }: { kind: "insert" | "delete" |
   );
 }
 
-export function ShortcutLayer({ store, onExportPdf }: { store: CalcStore; onExportPdf: () => void }) {
+export function ShortcutLayer({ store, guard, onExportPdf }: { store: CalcStore; guard: UnsavedGuard; onExportPdf: () => void }) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   const [structure, setStructure] = useState<"insert" | "delete" | null>(null);
@@ -81,8 +76,8 @@ export function ShortcutLayer({ store, onExportPdf }: { store: CalcStore; onExpo
       else setStructure(kind);
     };
     return {
-      "Mod+N": { label: "New workbook", group: File, inField: true, run: () => discard(store) && void store.newFile() },
-      "Mod+O": { label: "Open", group: File, inField: true, run: () => void store.openFile() },
+      "Mod+N": { label: "New workbook", group: File, inField: true, run: () => void guard.run(() => store.newFile()) },
+      "Mod+O": { label: "Open", group: File, inField: true, run: () => void guard.run(() => store.openFile()) },
       "Mod+S": { label: "Save", group: File, inField: true, run: () => void store.saveFile() },
       "Mod+Shift+S": { label: "Save as", group: File, inField: true, run: () => setSaveAsOpen(true) },
       "Mod+P": { label: "Export PDF…", group: File, inField: true, run: () => onExportPdf() },
@@ -124,7 +119,7 @@ export function ShortcutLayer({ store, onExportPdf }: { store: CalcStore; onExpo
       "Mod+Plus": { label: "Insert rows / columns", group: grid, when: inGrid, run: structural("insert") },
       "Mod+Minus": { label: "Delete rows / columns", group: grid, when: inGrid, run: structural("delete") },
     };
-  }, [store, onExportPdf]);
+  }, [store, guard, onExportPdf]);
 
   useShortcuts(map);
 
