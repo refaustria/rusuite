@@ -12,15 +12,15 @@ Milestone: workspace + CI green, `fmt-ooxml` opens/writes OOXML packages, `core-
 |---|---|---|---|---|---|
 | P0-1 | Workspace scaffold: Cargo workspace (all crates as stubs), pnpm workspace, fmt/clippy config, `pnpm test` placeholder, CI workflow, .gitignore, LICENSE | Sonnet | done (merged f07e101) | – | verified: fmt/clippy/test/pnpm test all green |
 | P0-2 | `fmt-ooxml`: open ZIP package, parse `[Content_Types].xml` + `_rels`, generic XML helpers, write package back byte-stable | Opus | in progress | `p0/fmt-ooxml` | worktree rusuite-wt/p0-fmt-ooxml; testdata glob test tolerates empty dir until P0-5 merges |
-| P0-3 | `core-model`: run formatting, colors (RGB/theme/auto), font definitions, theme colors, serde derive | Opus | in progress | `p0/core-model` | worktree rusuite-wt/p0-core-model; PM type spec in brief |
-| P0-4 | Roundtrip harness: `scripts/roundtrip.sh` + `xtask roundtrip` – read → write → open in headless LibreOffice → count errors/warnings; reports per file | Sonnet | in progress | `p0/roundtrip` | worktree rusuite-wt/p0-roundtrip; `--identity` mode until P0-2 merges |
-| P0-5 | Provisional reference files in `testdata/{docx,xlsx,pptx}` generated with LibreOffice headless | Sonnet | in progress | `p0/roundtrip` | same agent as P0-4; PROVISIONAL – need real-Office files from owner |
+| P0-3 | `core-model`: run formatting, colors (RGB/theme/auto), font definitions, theme colors, serde derive | Opus | done (merged ab330bb) | – | verified: 18 unit + 6 snapshot tests; brief's black-tint refs corrected by agent (Excel 'Black, Lighter N%' = 0D0D0D/262626/404040/595959/808080) |
+| P0-4 | Roundtrip harness: `scripts/roundtrip.sh` + `xtask roundtrip` – read → write → open in headless LibreOffice → count errors/warnings; reports per file | Sonnet | done (merged 42b68e2) | – | verified: 5/5 PASS in `--identity` mode, shellcheck clean; must re-run with real rewriter after P0-2 |
+| P0-5 | Provisional reference files in `testdata/{docx,xlsx,pptx}` generated with LibreOffice headless | Sonnet | done (merged 42b68e2) | – | 5 PROVISIONAL files from LibreOffice 25.2 (see testdata/README.md); need real-Office files from owner |
 | P0-6 | ADRs: 0001 Rust owns the document model, 0002 IPC strategy, 0003 workspace/crate layout | PM | done (28000c6) | – | 0001 model ownership, 0002 IPC, 0003 crate layout |
 | P0-7 | `docs/setup.md` – what was installed on the dev server | PM | done (28000c6) | – | |
 
 ## Environment (dev server)
 - Debian 13, 16 cores, 30 GB RAM
-- Installed this session: rustup (stable 1.99, clippy, rustfmt), pnpm 12 (via npm -g), LibreOffice headless (apt). Details in `docs/setup.md`.
+- Installed this session: rustup (stable 1.99, clippy, rustfmt), pnpm 12 (via npm -g), LibreOffice headless, libxml2-utils, shellcheck (apt). Details in `docs/setup.md`.
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions

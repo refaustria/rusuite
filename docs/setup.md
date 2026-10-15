@@ -28,3 +28,9 @@ Verify with `soffice --headless --convert-to pdf --outdir /tmp some.docx`. The h
 
 ## Not installed
 - Microsoft Office (not available on Linux). Reference files in `testdata/` must be created elsewhere; provisional ones are generated with LibreOffice and marked as such in STATUS.md.
+
+## Harness helpers
+```
+sudo apt-get install -y libxml2-utils shellcheck
+```
+`xmllint` normalizes XML for the structural diff in `scripts/roundtrip.sh`; `shellcheck` lints the scripts. ImageMagick (`convert`) was already present and is used by `scripts/gen-testdata.sh` for the test PNG.

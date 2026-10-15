@@ -7,6 +7,17 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Pre-commit hook running `cargo fmt --check` and `clippy`.
 - Nightly CI job running the roundtrip harness against LibreOffice (slow; keep out of PR CI).
 
+## Roundtrip harness
+- Deterministic `gen-testdata.sh` (normalize zip mtimes) so regenerated provisional files are stable in git.
+- PDF page-count / text comparison original vs rewritten as a visual-regression proxy.
+- `--json` output for CI; clearer error when the rewriter example is missing.
+- Manual validation checklist for real Office on Windows/macOS.
+
+## core-model
+- Validating deserializer for `Color::Theme.tint` (reject outside ±1 instead of clamping on resolve).
+- proptest: Rgb → hex → Rgb roundtrip.
+- TS type generation (ts-rs vs specta, ADR 0002) must handle the `kind`/`value` enum shape.
+
 ## Formats
 - Compare rewritten files against Open XML SDK validator (Windows/.NET) in addition to LibreOffice – gives real "would Office repair this" signal.
 
