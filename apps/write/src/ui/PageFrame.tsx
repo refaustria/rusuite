@@ -20,12 +20,14 @@ export function useWriteChrome(features: WriteFeatures, editor: Editor | null) {
   const view = useSyncExternalStore(ui.subscribe, () => ui.getState().view);
   const pages = useSyncExternalStore(ui.subscribe, () => ui.getState().pages);
   const spellcheck = useSyncExternalStore(ui.subscribe, () => ui.getState().spellcheck);
+  const frame = useSyncExternalStore(ui.subscribe, () => ui.getState().frame);
   useEffect(() => {
     if (editor && !editor.isDestroyed && editor.view?.dom) editor.view.dispatch(editor.state.tr.setMeta("addToHistory", false));
   }, [editor, spellcheck]);
   return {
     view,
     pages,
+    frame,
     onFind: useCallback(() => ui.openFind(false), [ui]),
     onReplace: useCallback(() => ui.openFind(true), [ui]),
     onEditHeaderFooter: useCallback((which: "header" | "footer") => ui.openDialog("headerFooter", which), [ui]),
@@ -36,11 +38,13 @@ export interface PageFrameProps {
   page: PageSetup | null;
   view: WriteView;
   pages: number;
+  /** Header of the first page / footer of the last page from the section layout (else `page`'s texts). */
+  frame?: { firstHeader: string; lastFooter: string } | null;
   onEditHeaderFooter: (which: "header" | "footer") => void;
   children: ReactNode;
 }
 
-export function PageFrame({ page, view, pages, onEditHeaderFooter, children }: PageFrameProps) {
+export function PageFrame({ page, view, pages, frame, onEditHeaderFooter, children }: PageFrameProps) {
   const t = useT();
   const g = pageGeometry(page);
   const print = view === "print";
@@ -68,9 +72,9 @@ export function PageFrame({ page, view, pages, onEditHeaderFooter, children }: P
         padding: `${g.top}px ${g.right}px ${g.bottom}px ${g.left}px`,
       }}
     >
-      {print && hf("header", headerFooterText(page?.headerText, 1), { top: g.header })}
+      {print && hf("header", frame ? frame.firstHeader : headerFooterText(page?.headerText, 1), { top: g.header })}
       {children}
-      {print && hf("footer", headerFooterText(page?.footerText, pages), { bottom: g.footer })}
+      {print && hf("footer", frame ? frame.lastFooter : headerFooterText(page?.footerText, pages), { bottom: g.footer })}
     </div>
   );
 }

@@ -414,6 +414,15 @@ pub enum WriteCommand {
         #[ts(as = "Option<Vec<model_text::Block>>")]
         blocks: Option<Vec<NewBlock>>,
     },
+    /// Sets the cached results of fields: `[block, offset, text]` for the
+    /// field at position `offset` of paragraph `block` (body, cells, notes,
+    /// headers and footers). The UI computes them (page numbers from its
+    /// pagination, date and time from the clock, the file name from the
+    /// document name) before saving.
+    UpdateFields {
+        #[ts(type = "Array<[NodeId, number, string]>")]
+        values: Vec<(NodeId, u32, String)>,
+    },
     /// Applies the commands in order as one undo step; all or nothing.
     Compound { commands: Vec<WriteCommand> },
     /// *Internal.* Replaces positions `from..to` of `block` by `inlines`.

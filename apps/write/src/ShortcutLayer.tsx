@@ -9,6 +9,7 @@ import type { Alignment } from "./generated/Alignment";
 import { indent, setAlignment, setParagraphStyle, styleOf } from "./sync/editorCommands";
 import { clearFormatting, setLineSpacingRule, toggleSpaceBefore } from "./features/formatting";
 import type { WriteFeatures } from "./features/WriteFeatures";
+import { insertNote } from "./features/structureCommands";
 import type { SyncController } from "./sync/SyncPlugin";
 import { useT } from "./i18n";
 
@@ -133,6 +134,19 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
         run: () => (editor ? editor.chain().focus().toggleBulletList().run() : false),
       },
       ...headings,
+      // Tiptap handles these while the editor has focus; these cover the focus being elsewhere.
+      "Mod+Alt+F": {
+        label: t("write.insertFootnote"),
+        group: t("write.footnotes"),
+        inField: true,
+        run: () => (editor ? void insertNote(editor, ctl, "foot") : false),
+      },
+      "Mod+Alt+D": {
+        label: t("write.insertEndnote"),
+        group: t("write.footnotes"),
+        inField: true,
+        run: () => (editor ? void insertNote(editor, ctl, "end") : false),
+      },
     };
   }, [editor, ctl, onNew, onOpen, onSave, onSaveAs, onFind, onReplace, features, t]);
 

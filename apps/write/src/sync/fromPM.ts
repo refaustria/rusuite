@@ -2,11 +2,17 @@
 
 import type { Mark, Node as PMNode } from "@tiptap/pm/model";
 import type { Block } from "../generated/Block";
+import type { Field } from "../generated/Field";
+import type { FieldKind } from "../generated/FieldKind";
 import type { Inline } from "../generated/Inline";
+import type { Note } from "../generated/Note";
+import type { NoteKind } from "../generated/NoteKind";
+import type { NoteRef } from "../generated/NoteRef";
 import type { NumberingRef } from "../generated/NumberingRef";
 import type { Paragraph } from "../generated/Paragraph";
 import type { ParagraphProperties } from "../generated/ParagraphProperties";
 import type { Table } from "../generated/Table";
+import type { Toc } from "../generated/Toc";
 import { listContext, numberingOf, type ListContext } from "./listMapping";
 import { canonValue, mergeRuns, type RunProperties } from "./model";
 import { LIST_TYPES, TEXTBLOCK_TYPES } from "./schema";
@@ -64,6 +70,16 @@ export function inlinesFromPM(node: PMNode): Inline[] {
       out.push({ kind: "break", value: "line" });
     } else if (child.type.name === "pageBreak") {
       out.push({ kind: "break", value: "page" });
+    } else if (child.type.name === "field") {
+      const props = propsFromMarks(child.marks);
+      const value: Field = { kind: child.attrs.kind as FieldKind, cached: String(child.attrs.cached ?? "") };
+      if (Object.keys(props).length) value.props = props;
+      out.push({ kind: "field", value });
+    } else if (child.type.name === "noteRef") {
+      const props = propsFromMarks(child.marks);
+      const value: NoteRef = { id: child.attrs.id as number, kind: child.attrs.kind as NoteKind };
+      if (Object.keys(props).length) value.props = props;
+      out.push({ kind: "noteRef", value });
     }
   });
   return mergeRuns(out);
@@ -129,6 +145,33 @@ export function nodeToBlocks(node: PMNode, out: Block[] = [], parentList: ListCo
   if (TEXTBLOCK_TYPES.has(name)) out.push({ kind: "paragraph", value: paragraphFromPM(node) });
   else if (LIST_TYPES.has(name)) listToBlocks(node, parentList, out);
   else if (name === "table") out.push({ kind: "table", value: tableFromPM(node) });
+  else if (name === "toc") out.push({ kind: "toc", value: tocFromPM(node) });
+  return out;
+}
+
+/** A `toc` node → `Toc`. */
+export function tocFromPM(node: PMNode): Toc {
+  const a = node.attrs;
+  const t: Toc = { id: a.id, fromLevel: a.fromLevel, toLevel: a.toLevel, entries: (a.entries ?? []) as Toc["entries"] };
+  if (a.title) t.title = a.title;
+  return t;
+}
+
+/** A `note` node → `Note`. */
+export function noteFromPM(node: PMNode): Note {
+  return { id: node.attrs.id as number, kind: node.attrs.kind as NoteKind, blocks: nodesToBlocks(node) };
+}
+
+/** The notes area of a document node (null without one). */
+export function notesNode(doc: PMNode): PMNode | null {
+  const last = doc.lastChild;
+  return last?.type.name === "notes" ? last : null;
+}
+
+/** All notes of the document, in display order. */
+export function notesFromPM(doc: PMNode): Note[] {
+  const out: Note[] = [];
+  notesNode(doc)?.forEach((n) => out.push(noteFromPM(n)));
   return out;
 }
 
@@ -164,6 +207,7 @@ export function blockAt(doc: PMNode, pos: number): Block | null {
   const node = doc.nodeAt(pos);
   if (!node) return null;
   if (node.type.name === "table") return { kind: "table", value: tableFromPM(node) };
+  if (node.type.name === "toc") return { kind: "toc", value: tocFromPM(node) };
   if (!TEXTBLOCK_TYPES.has(node.type.name)) return null;
   const ctx = listContextAt(doc, pos + 1);
   // Only the first textblock of a list item is numbered.

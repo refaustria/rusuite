@@ -126,6 +126,8 @@ export default function App({ backend }: { backend: WriteBackend }) {
   const chrome = useWriteChrome(features, editor);
   // ctl.page is replaced before the state change that announces it.
   const page = useSync(ctl, () => ctl.page);
+  // The frame (first page) uses the first section's page setup.
+  const firstPage = useSync(ctl, () => ctl.sections[0]?.page ?? ctl.page);
 
   useEffect(() => {
     if (editor) void ctl.newDocument();
@@ -220,7 +222,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
       )}
       <div className="write-scroll min-h-0 flex-1 overflow-auto bg-ui-panel p-6">
         <div className="write-zoom" data-testid="write-zoom" style={zoom !== 1 ? { zoom } : undefined}>
-          <PageFrame page={page} view={chrome.view} pages={chrome.pages} onEditHeaderFooter={chrome.onEditHeaderFooter}>
+          <PageFrame page={firstPage} view={chrome.view} pages={chrome.pages} frame={chrome.frame} onEditHeaderFooter={chrome.onEditHeaderFooter}>
             <EditorContent editor={editor} />
           </PageFrame>
         </div>

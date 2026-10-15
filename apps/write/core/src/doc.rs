@@ -1026,6 +1026,34 @@ impl WriteDocument {
                 ch.sections = true;
                 Ok(old)
             }
+            C::UpdateFields { values } => {
+                // Validate everything first: on error nothing changes.
+                for (block, offset, _) in values {
+                    let p = self.para(*block)?;
+                    if field_index(p, *offset).is_none() {
+                        return Err(invalid(format!(
+                            "no field at {offset} in block {}",
+                            block.0
+                        )));
+                    }
+                }
+                let mut old = Vec::with_capacity(values.len());
+                for (block, offset, text) in values {
+                    let p = self.para_mut(*block)?;
+                    if let Some(Inline::Field(f)) =
+                        field_index(p, *offset).map(|i| &mut p.inlines[i])
+                    {
+                        old.push((
+                            *block,
+                            *offset,
+                            std::mem::replace(&mut f.cached, text.clone()),
+                        ));
+                    }
+                    ch.block(*block);
+                }
+                old.reverse();
+                Ok(C::UpdateFields { values: old })
+            }
             C::Compound { commands } => {
                 let mut inverses = Vec::with_capacity(commands.len());
                 for cmd in commands {
@@ -2282,6 +2310,7 @@ fn affects_labels(cmd: &WriteCommand) -> bool {
         | C::SetHeaderFooter { .. }
         | C::RestoreSections { .. }
         | C::UpdateToc { .. }
+        | C::UpdateFields { .. }
         | C::SetCellProps { .. }
         | C::RestoreCellProps { .. }
         | C::SetTableProps { .. }
@@ -2289,6 +2318,28 @@ fn affects_labels(cmd: &WriteCommand) -> bool {
         | C::SetRowProps { .. } => false,
         _ => true,
     }
+}
+
+/// Index in `p.inlines` of the field at char position `offset`.
+fn field_index(p: &Paragraph, offset: u32) -> Option<usize> {
+    let mut pos = 0usize;
+    for (i, inline) in p.inlines.iter().enumerate() {
+        let len = match inline {
+            Inline::Run(r) => r.text.chars().count(),
+            _ => 1,
+        };
+        if len == 0 {
+            continue;
+        }
+        if pos == offset as usize {
+            return matches!(inline, Inline::Field(_)).then_some(i);
+        }
+        if pos + len > offset as usize {
+            return None;
+        }
+        pos += len;
+    }
+    None
 }
 
 /// `base` overlaid with `over`, side by side.

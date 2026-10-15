@@ -153,4 +153,86 @@ test.describe("Write", () => {
     await fileCommand(page, /^Export PDF/);
     await expect.poll(() => printCount(page)).toBeGreaterThan(0);
   });
+
+  test("a footnote: Ctrl+Alt+F, type the note, save → footnotes.xml has it", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Body with a note");
+    await page.keyboard.press("Control+Alt+f");
+    await expect(editor(page).locator("sup.note-ref")).toHaveAttribute("data-n", "1");
+    const note = editor(page).locator(".notes-area .note").first();
+    await expect(note).toBeVisible();
+    // The caret is in the note now.
+    await page.keyboard.type("Footnote from e2e");
+    await expect(note).toContainText("Footnote from e2e");
+    const docx = await saveViaBackstage(page);
+    // The note's text (runs may be split).
+    expect(zipText(docx, "word/footnotes.xml").replace(/<[^>]+>/g, "")).toContain("Footnote from e2e");
+    expect(zipText(docx, "word/document.xml")).toContain("w:footnoteReference");
+    errors.expectNone();
+  });
+
+  test("References › Table of contents after two headings lists both entries", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Alpha chapter");
+    await page.keyboard.press("Control+Alt+1");
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Some text.");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Beta section");
+    await page.keyboard.press("Control+Alt+2");
+    await expect(editor(page).locator("h2")).toHaveText("Beta section");
+    await page.keyboard.press("Control+Home");
+    await page.getByRole("tab", { name: "References" }).click();
+    await page.getByRole("button", { name: "Table of contents" }).click();
+    await page.getByRole("menuitem", { name: "Automatic table (3 levels)" }).click();
+    const entries = editor(page).locator(".toc .toc-entry .toc-text");
+    await expect(entries).toHaveText(["Alpha chapter", "Beta section"]);
+    await page.getByRole("button", { name: "Update table" }).click();
+    await expect(editor(page).locator(".toc .toc-page").first()).toHaveText("1");
+    // Clicking an entry goes to its heading.
+    await entries.nth(1).click();
+    const docx = await saveViaBackstage(page);
+    expect(zipText(docx, "word/document.xml")).toMatch(/TOC \\o/);
+  });
+
+  test("a next-page section break with a landscape second section → two sectPr", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Portrait part");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Landscape part");
+    await editor(page).locator("p", { hasText: "Portrait part" }).click();
+    await page.keyboard.press("End");
+    await page.getByRole("tab", { name: "Layout" }).click();
+    await page.getByRole("button", { name: "Breaks" }).click();
+    await page.getByRole("menuitem", { name: "Next page" }).click();
+    await expect(editor(page).locator("[data-section-label]")).toHaveAttribute("data-section-label", "Section break (Next page)");
+    await editor(page).locator("p", { hasText: "Landscape part" }).click();
+    await page.getByRole("button", { name: "Orientation" }).click();
+    await page.getByRole("menuitemradio", { name: "Landscape" }).click();
+    // The second section starts on its own page.
+    await expect(page.locator(".page-gap").first()).toBeVisible();
+    const docx = await saveViaBackstage(page);
+    const xml = zipText(docx, "word/document.xml");
+    expect(xml.match(/<w:sectPr[ >]/g)).toHaveLength(2);
+    expect(xml).toContain('w:orient="landscape"');
+  });
+
+  test("Multilevel list: 1. then Tab → 1.1", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("First item");
+    await page.getByRole("button", { name: "Multilevel list" }).click();
+    await page.getByRole("menuitem", { name: /Numbered outline/ }).click();
+    await expect(editor(page).locator("li p").first()).toHaveAttribute("data-label", "1.");
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Sub item");
+    await page.keyboard.press("Tab");
+    await expect(editor(page).locator("li p", { hasText: "Sub item" })).toHaveAttribute("data-label", "1.1");
+  });
 });
