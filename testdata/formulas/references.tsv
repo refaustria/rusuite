@@ -1,0 +1,37 @@
+# PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
+# family: references (32 cases); evaluate in the context of sheet Data, see fixture.tsv
+formula	type	expected	note
+=Other!A1*2	number	14	
+=Other!B1	text	remote	
+=Other!B1&"!"	text	remote!	
+=Other!A1+A1	number	8	
+=SUM(Data!A1:A6)	number	21	
+=SUM(Other!A1:B1)	number	7	
+=Data!A1	number	1	
+=Data!B1&Other!B1	text	appleremote	
+# NOTE: LibreOffice treats boolean cells as numbers in references [excel=12]
+=COUNT(A1:D6)	number	14	DIFF: LibreOffice treats boolean cells as numbers in references [excel=12]
+=COUNTA(A1:D6)	number	23	
+# NOTE: LibreOffice treats boolean cells as numbers in references [excel=20]
+=COUNT(Data!A1:H6)	number	22	DIFF: LibreOffice treats boolean cells as numbers in references [excel=20]
+=COUNTA(Data!A1:H6)	number	37	
+=SUM(A1:A3,Other!A1)	number	13	
+=AVERAGE(Other!A1,A1)	number	4	
+=SUM($A$1:$A$3)	number	6	
+=SUM(A$1:A3)	number	6	
+=$A1+A$2	number	3	
+=INDEX(Other!A1:B1,2)	text	remote	
+=A1+Other!A1+Data!A2	number	10	
+=Z99	number	0	empty cell evaluates to 0
+=Other!Z99	number	0	
+=SUM(A:A)	number	21	whole-column reference
+=COUNT(A:A)	number	6	
+=SUM(A:B)	number	21	
+=SUM(C:C)	number	1000111.75	
+='Data'!A1	number	1	quoted sheet name
+='Other'!B1	text	remote	
+=SUM(Data!A1:A3,Other!A1:B1)	number	13	
+=Other!A1+H1	error	#DIV/0!	error propagation
+=SUM(Data!H1:H2)	error	#DIV/0!	
+=MAX(Data!C1:C6)-MIN(Other!A1,0)	number	1000000	
+=SUM(A1:A3)*Other!A1	number	42	

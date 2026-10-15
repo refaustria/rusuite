@@ -15,4 +15,14 @@ files as soon as those are available. Regenerate with `scripts/gen-testdata.sh` 
 | `xlsx/provisional-types.xlsx` | LibreOffice 25.2 headless – PROVISIONAL, replace with real Office file | Sheet `Types`: empty cell, integer, negative, decimal, 1e15, text, text `0123`, TRUE/FALSE, date, time, percentage, error `=1/0` |
 | `pptx/provisional-basic.pptx` | LibreOffice 25.2 headless – PROVISIONAL, replace with real Office file | Slide 1 title + subtitle; slide 2 title + 3 bullets; slide 3 rectangle, ellipse and a text box |
 
-`formulas/` is reserved for formula test corpora. `*/out/` holds harness output and is git-ignored.
+### Formula reference suite (`formulas/`) - PROVISIONAL
+
+Expected values were computed by LibreOffice 25.2 headless and **must be replaced by Excel-computed values** (workflow in `docs/formula-suite.md`). Regenerate with `scripts/gen-formula-suite.sh` (source in `scripts/testdata-src/formulas.*`), check with `--verify`; formulas are evaluated on sheet `Data`.
+
+| File | Contents |
+|------|----------|
+| `formulas/fixture.tsv` | Fixture grid (sheets `Data`, `Other`): `sheet, cell, type, value` |
+| `formulas/{math,logical,info,text,lookup,datetime,operators,references,errors}.tsv` | 862 cases `formula, type, expected, note` - PROVISIONAL (LibreOffice values; rows with `DIFF:` notes are known to differ from Excel) |
+| `formulas/formula-suite.xlsx` | Same cases as a workbook (formulas in `Data!L`, text in `Data!K`); open in Excel, recalc, send back for `--from-xlsx` |
+
+The function list the suite covers is `docs/functions.md`. `*/out/` holds harness output and is git-ignored.
