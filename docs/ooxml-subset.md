@@ -118,3 +118,77 @@ same document (the test suite checks read → write → read on all reference fi
 - Paragraph direction (`w:bidi`, `w:rtl`) is not modelled; RTL paragraphs keep their visual
   alignment but lose their direction.
 - Merged cells become separate cells; their grid span is lost.
+
+## pptx (`fmt-pptx`)
+
+`fmt_pptx::read(&[u8]) -> Presentation` and `fmt_pptx::write(&Presentation) -> Vec<u8>` (plus
+`read_with_warnings`, `read_with_context` / `write_with_context` with `PptxContext`, and
+native-only `read_path` / `write_path`), mapping to `model_show::Presentation` (ADR 0008). The
+crate compiles for `wasm32-unknown-unknown`. Transitional PresentationML + DrawingML; parts are
+found by relationship type (last path segment). Unsupported content never fails a read: it is
+dropped with a warning (repeats merged into one line with a count). The XML DOM/writer and the
+theme parser are copies of `fmt-docx`'s (format crates do not depend on each other).
+
+### Read
+
+| Part / element | Handling |
+|---|---|
+| `ppt/presentation.xml` | `p:sldSz cx cy` → `SlideSize` (missing → 16:9); `p:sldIdLst` order → slides (each `sldId` resolved via its `r:id`; dangling ids dropped with warning). Built-in layouts are created for the slide size (`Presentation::empty`). |
+| `ppt/theme/theme1.xml` | → `Presentation.theme` (color scheme, major/minor latin/ea/cs fonts); raw bytes kept in `PptxContext.theme_xml` (not if the theme part has relationships: warning). |
+| slide layout | Layouts and masters are **not imported**. Each slide is mapped to a built-in `LayoutKind` from its placeholders, the layout part's `type` only breaking ties: a `ctrTitle` or `subTitle` placeholder → Title; a body-like placeholder (`body`, `obj`/no type, `pic`, `chart`, `tbl`, `dgm`, `media`, `clipArt`) → Title and Content; only a `title` → Title if the layout part is `type="title"`, else Title and Content (types other than `title`/`obj`/`tx`/`blank`: warning); no placeholders → Blank. (LibreOffice references a `title` or `blank` layout from almost every slide, so the layout part alone is unreliable.) |
+| placeholders (`p:nvPr/p:ph`) | `title`/`ctrTitle` → `Title` (on Title slides `CenteredTitle`), `subTitle` → `Subtitle`, body-like → `Body`. Other types (`dt`, `ftr`, `sldNum`, `hdr`, …) → plain text boxes (warning). A placeholder without `a:xfrm` takes its position from the file's layout part (same `idx`, else same type, else same class: title/ctrTitle, body/obj/subTitle), then from its master, then from our built-in layout; with none → dropped (warning). Body properties of placeholders start from the built-in layout's defaults (e.g. title anchored middle, shrink on overflow) and are overridden by what the slide's `a:bodyPr` sets. |
+| `p:cSld/p:spTree` | Children in order (= z-order): `p:sp`, `p:cxnSp`, `p:pic`, `p:grpSp`; `mc:AlternateContent` → its `mc:Fallback` (else first `mc:Choice`). `p:graphicFrame` → dropped with warning ("tables dropped", "charts dropped", "graphic frames … dropped"); `p:contentPart` (ink) dropped with warning. |
+| `p:sp` | `p:cNvPr name` (empty names get the model's defaults, e.g. `Rectangle 7`); `p:spPr/a:xfrm` (`off`, `ext`, `rot` 60000ths of a degree clockwise → degrees `0..360`, `flipH`, `flipV`); `a:prstGeom prst`: `rect`, `roundRect` (adjust values dropped, warning), `ellipse`, `line`/`straightConnector1` → `Line`; other presets and `a:custGeom` → `Rect` (warning). Fill: `a:noFill`, `a:solidFill`; `a:gradFill` → first stop color, `a:pattFill` → foreground color, `a:blipFill`/`a:grpFill` → none (all with warning); no fill element → `p:style/a:fillRef` color (idx ≥ 1), else none. `a:ln`: `w`, fill as above (none given → `a:lnRef` color, else none), `a:prstDash` (`solid`; `dash`/`sysDash`/`lgDash` → dash; `dot`/`sysDot` → dot; others and `a:custDash` → dash with warning); arrowheads and compound lines: warning. No `a:ln` → `p:style/a:lnRef` (idx ≥ 1: its color, width 0.5/1/1.5 pt by idx), else no outline. `p:style/a:fontRef` color → color of runs that set none. `p:txBody` → `TextBody` (below). A `Line` with an empty text body (LibreOffice) gets no text body. |
+| `p:cxnSp` | → `Auto { geometry: Line, text: None }` with xfrm, fill and outline as for `p:sp`; bent/curved connectors read as straight lines (warning). |
+| `p:pic` | `p:blipFill/a:blip r:embed` → the image part into the `MediaStore` (first-reference order, content type from `[Content_Types].xml`, identical images deduplicated) → `Picture { media }`; `a:xfrm`, outline (`a:ln`). Linked images, missing parts and dangling relationships: picture dropped (warning). `a:srcRect` cropping: warning. |
+| `p:grpSp` | `p:grpSpPr/a:xfrm` (`off`/`ext` → the group's transform; `rot`, flips) and `chOff`/`chExt`: children are renormalized to the model's convention (relative to the group's top-left at scale 1): `x' = (x − chOff.x) · ext.cx / chExt.cx` (same for y, w, h; zero `chExt` → scale 1). Recursive for nested groups. |
+| `a:bodyPr` | `wrap` (`none` → false), `lIns`/`tIns`/`rIns`/`bIns`, `anchor` (`t`/`ctr`/`b`; `just`/`dist` → top, warning), `a:noAutofit`/`a:normAutofit` (font scale ignored)/`a:spAutoFit`. Absent attributes keep the base (defaults, or the placeholder's layout defaults). Vertical text, text columns, `rot`, WordArt warp, 3-D: warning. Non-empty `a:lstStyle`: warning. |
+| `a:p` / `a:pPr` | `algn` (`l`, `ctr`, `r`, `just`; `dist`/`justLow`/`thaiDist` → justify, warning), `lvl` (0–8), `a:lnSpc`/`a:spcBef`/`a:spcAft` (`a:spcPct val` thousandths of a percent, also `"90%"`; `a:spcPts val` hundredths of a point), bullets `a:buNone` → `Bullet::None`, `a:buChar char` → `Bullet::Char`, `a:buAutoNum type` (`arabicPeriod`, `arabicParenR`, `alphaLc/UcPeriod`, `romanLc/UcPeriod`; others → `arabicPeriod`, `startAt ≠ 1` dropped, warnings), `a:buBlip` → `•` (warning). Ignored: `marL`, `indent`, `marR`, `buFont`, `buClr`, `buSz*`, `defRPr`. `rtl="1"`, non-empty `a:tabLst`: warning. `a:endParaRPr` ignored. |
+| runs | `a:r` → `TextRun` (`a:t` text as is); **`a:br` → a run with text `"\n"`** (the line break's own `a:rPr`); `a:fld` → its current text (warning). Adjacent runs with equal formatting are merged, empty runs dropped. |
+| `a:rPr` | `sz` (hundredths of a point) → `FontSize`, `b`, `i`, `u` (`sng`/`heavy`/`words`… → single, `dbl`, `dotted*`, `dash*`/`dotDash*` → dashed, `wavy*`, `none`), `strike` (`noStrike` → false, else true), `baseline` (> 0 superscript, < 0 subscript, 0 baseline), `a:solidFill` → color (`a:gradFill` → first stop, warning), `a:highlight` → highlight color, `a:latin typeface` → font (`+mj-lt`/`+mn-lt` → theme major/minor latin, `+mj-ea` … → the other theme slots, empty → none). `cap`, `spc`, `a:ln`, non-empty effects, hyperlinks (text kept), `a:noFill`: warning. Ignored: `lang`, `altLang`, `dirty`, `err`, `kern`, `noProof`, `a:ea`, `a:cs`, `a:sym`, underline line/fill. |
+| colors | `a:srgbClr`, `a:schemeClr` (`tx1`/`bg1`/`tx2`/`bg2` and scheme names; `phClr` → none), `a:sysClr lastClr`, `a:prstClr` (common names; unknown → black, warning), `a:scrgbClr` (sRGB-encoded). Modifiers: `lumMod`/`lumOff` → `Color::Theme { tint }` exactly (`lumOff > 0`: tint = lumOff; else tint = lumMod − 1); `a:shade`/`a:tint` approximated as tints without warning; on RGB colors the tint is applied to the RGB value. `a:alpha` and other modifiers: dropped (warning). `a:hslClr`: dropped (warning). |
+| `p:bg` | `p:bgPr` fill (as above) → `Slide.background`; `p:bgRef` → its color as solid fill. |
+| other | `p:sld show="0"`: slide kept, warning. `p:transition` (also inside `mc:AlternateContent`) and `p:timing`: warning. Masters, layouts, `presProps`, `viewProps`, `tableStyles`, notes/handout masters and `docProps` are ignored; notes slides → "speaker notes dropped", comments → "comments dropped", any other part → "part … dropped". |
+
+### Write
+
+All parts are regenerated (only the theme may come verbatim from `PptxContext`); output is
+byte-for-byte deterministic, and read → write → read gives the same presentation (ids aside) for
+every reference file and for the built deck (`examples/build_deck.rs`, also `tests/built.rs`).
+
+| Part | Content |
+|---|---|
+| `[Content_Types].xml`, `_rels/.rels`, `docProps/core.xml` (empty, no timestamps), `docProps/app.xml` (`Application` Rusuite, `Slides`) | Via `fmt_ooxml::Package`. |
+| `ppt/presentation.xml` (+ rels) | `p:sldMasterIdLst` (2147483648 → `rId1`), `p:sldIdLst` (ids 256…, `rId2`…; omitted without slides), `p:sldSz` (clamped to 1"–56"), `p:notesSz` 7.5"×10", `p:defaultTextStyle` (18 pt minor font). Rels: master, slides, `presProps`, `viewProps`, theme, `tableStyles`. |
+| `ppt/slideMasters/slideMaster1.xml` | Background `p:bgRef idx=1001 bg1`; title (`type="title"`) and body (`type="body" idx="1"`) placeholders at the Title and Content positions; standard `p:clrMap`; `p:sldLayoutIdLst` (2147483649–51); `p:txStyles`: title 44 pt major font, 90 % line spacing; body levels 1–9 with `•` bullets (Arial), `marL` 0.25" + 0.5" per level, hanging 0.25", 28/24/20/18 pt minor font; other text 18 pt. |
+| `ppt/slideLayouts/slideLayout{1,2,3}.xml` | Title Slide (`type="title"`: `ctrTitle`, `subTitle idx=1`), Title and Content (`type="obj"`: `title`, body `idx=1`), Blank (`type="blank"`). Placeholders at the positions of `Presentation.layouts`, each with `a:bodyPr` from the placeholder's body defaults and an `a:lstStyle/a:lvl1pPr` with its paragraph defaults (alignment, bullet) and run defaults (size, theme font) as `a:defRPr`. |
+| `ppt/slides/slideN.xml` (+ rels: layout, then one image rel per media item) | `p:bg/p:bgPr` (fill + `a:effectLst`) if the slide has a background; shapes in z-order with `p:cNvPr id` 2, 3, … per slide (empty names → `<default name> <id − 1>`). `p:sp`: `p:cNvSpPr` (`a:spLocks noGrp` for placeholders, `txBox="1"` for text boxes), `p:nvPr/p:ph` (`ctrTitle`; `title`; `subTitle` / body with `idx` 1, 2, … unique per slide), `p:spPr` (`a:xfrm` always, also for placeholders: `rot` only if ≠ 0, `flipH`/`flipV` only if set; `a:prstGeom` `rect`/`roundRect`/`ellipse`/`line` with empty `a:avLst`; `a:noFill`/`a:solidFill`; `a:ln w` + fill + `a:prstDash`), `p:txBody` (`a:bodyPr wrap lIns tIns rIns bIns rtlCol anchor` + autofit element, empty `a:lstStyle`, paragraphs). A `Line` without text (and not a placeholder) is written as `p:cxnSp` with `prst="line"`. Pictures: `p:pic` (`a:picLocks noChangeAspect`, `a:blip r:embed`, `a:stretch/a:fillRect`, xfrm, `rect`, `a:ln`). Groups: `p:grpSp` with `a:xfrm` + `a:chOff 0 0` + `a:chExt` = the group's size, then the children. No `p:style` is written. |
+| text | `a:pPr` attributes `marL lvl indent algn` (`marL`/`indent` only for bulleted paragraphs: 0.25" hanging + 0.5" per level for `buChar`, 0.375" for `buAutoNum`), children `a:lnSpc`, `a:spcBef`, `a:spcAft`, `a:buFont` (Arial for characters, `+mj-lt` for numbering) + `a:buChar`/`a:buAutoNum`, or `a:buNone`. `a:rPr` attributes `sz b i u strike baseline` (superscript 30 %, subscript −25 %), children `a:solidFill`, `a:highlight`, `a:latin`. Run text: `\n` and U+000B → `a:br` (with the run's `a:rPr`), `\r` dropped, characters XML cannot carry dropped. Empty paragraphs → `<a:p/>`; a body without paragraphs gets one. |
+| colors | RGB → `a:srgbClr`; theme → `a:schemeClr` (`tx1`/`bg1`/`tx2`/`bg2` for dark/light 1/2) with `a:lumMod` (darker: 1 + tint) or `a:lumMod` + `a:lumOff` (lighter: 1 − tint, tint); `Color::Auto` → `tx1` in fills, omitted for text. |
+| `ppt/theme/theme1.xml` | `PptxContext.theme_xml` verbatim if it still parses to `Presentation.theme`, else generated from the model (all 12 colors as `a:srgbClr`, major/minor latin/ea/cs fonts, Office-like format scheme: three solid `phClr` fills, 0.5/1/1.5 pt lines, no effects). |
+| `ppt/presProps.xml`, `ppt/viewProps.xml`, `ppt/tableStyles.xml` | Empty presentation properties; normal view at 100 %; no table styles (PowerPoint's default style id). |
+| `ppt/media/imageN.ext` | Each referenced media item once, numbered in first-reference order across slides; extension from the content type (`png`, `jpeg`, `gif`, `bmp`, `tiff`, `svg`, `webp`, `emf`, `wmf`, else `bin`). A picture whose media is missing fails the write (`Error::InvalidPresentation`). |
+
+### Known lossy points
+
+- Masters and layouts of the file are replaced by the built-ins: master graphics, layout-specific
+  text styles, footers/date/slide-number placeholders and non-standard layouts are lost; slides are
+  mapped to Title / Title and Content / Blank. Placeholder text that relied on the file's master
+  styles (size, color, font) is shown with ours (title 44 pt, body 28 pt…) unless the runs set
+  them explicitly (LibreOffice always does).
+- Shapes that took their look from `p:style` get it resolved into explicit fill/outline/run color;
+  effects (shadows, glow) are lost. We never write `p:style`, so text in auto shapes uses the
+  master's text color (dark) unless runs set a color – PowerPoint's default white-on-accent comes
+  back only when the file stated it.
+- Bullet font, color and size (`buFont`, `buClr`, `buSzPct`) and paragraph indents (`marL`,
+  `indent`) are not modelled; bulleted paragraphs are written with fixed indents.
+- `a:br` is modelled as `"\n"` inside a run (no separate break inline); a vertical tab (U+000B) is
+  written as `a:br` and reads back as `"\n"`.
+- Rounded-rectangle corner radius, arrowheads, compound lines, cropping, transparency,
+  gradients/patterns (first color kept) and preset geometries other than rect, roundRect, ellipse
+  and line (read as rectangles) are lost.
+- Font faces map to `a:latin` only; theme east-asian/complex-script slots are written as
+  `+mj-lt`/`+mn-lt`.
+- Rotations are stored in 1/60000°; a model angle with more precision is rounded on write.
+- Group children with non-uniform child scaling (`chExt` aspect ≠ `ext` aspect) are scaled
+  per axis; rotated children of such groups are approximated.

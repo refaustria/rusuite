@@ -1,0 +1,67 @@
+---
+source: crates/fmt-pptx/tests/suite.rs
+expression: "pretty_part(&bytes, \"/ppt/slides/slide1.xml\")"
+---
+
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+ <p:cSld>
+  <p:spTree>
+   <p:nvGrpSpPr>
+    <p:cNvPr id="1" name=""/>
+    <p:cNvGrpSpPr/>
+    <p:nvPr/>
+   </p:nvGrpSpPr>
+   <p:grpSpPr>
+    <a:xfrm>
+     <a:off x="0" y="0"/>
+     <a:ext cx="0" cy="0"/>
+     <a:chOff x="0" y="0"/>
+     <a:chExt cx="0" cy="0"/>
+    </a:xfrm>
+   </p:grpSpPr>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="2" name="Rectangle 2"/>
+     <p:cNvSpPr/>
+     <p:nvPr/>
+    </p:nvSpPr>
+    <p:spPr>
+     <a:xfrm rot="19800000">
+      <a:off x="1015200" y="2757600"/>
+      <a:ext cx="4320000" cy="1800000"/>
+     </a:xfrm>
+     <a:prstGeom prst="rect">
+      <a:avLst/>
+     </a:prstGeom>
+     <a:solidFill>
+      <a:srgbClr val="4E9A06"/>
+     </a:solidFill>
+     <a:ln w="0">
+      <a:noFill/>
+      <a:prstDash val="solid"/>
+     </a:ln>
+    </p:spPr>
+    <p:txBody>
+     <a:bodyPr wrap="square" lIns="90000" tIns="45000" rIns="90000" bIns="45000" rtlCol="0" anchor="t">
+      <a:noAutofit/>
+     </a:bodyPr>
+     <a:lstStyle/>
+     <a:p>
+      <a:r>
+       <a:rPr sz="1800" b="0" u="none" strike="noStrike">
+        <a:solidFill>
+         <a:srgbClr val="FFFFFF"/>
+        </a:solidFill>
+        <a:latin typeface="Arial"/>
+       </a:rPr>
+       <a:t>Rotated 30</a:t>
+      </a:r>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+  </p:spTree>
+ </p:cSld>
+ <p:clrMapOvr>
+  <a:masterClrMapping/>
+ </p:clrMapOvr>
+</p:sld>

@@ -1,0 +1,107 @@
+---
+source: crates/fmt-pptx/tests/suite.rs
+expression: "pretty_part(&bytes, \"/ppt/slideLayouts/slideLayout2.xml\")"
+---
+
+<p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="obj" preserve="1">
+ <p:cSld name="Title and Content">
+  <p:spTree>
+   <p:nvGrpSpPr>
+    <p:cNvPr id="1" name=""/>
+    <p:cNvGrpSpPr/>
+    <p:nvPr/>
+   </p:nvGrpSpPr>
+   <p:grpSpPr>
+    <a:xfrm>
+     <a:off x="0" y="0"/>
+     <a:ext cx="0" cy="0"/>
+     <a:chOff x="0" y="0"/>
+     <a:chExt cx="0" cy="0"/>
+    </a:xfrm>
+   </p:grpSpPr>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="2" name="Title 1"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph type="title"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr>
+     <a:xfrm>
+      <a:off x="838200" y="365125"/>
+      <a:ext cx="10515600" cy="1325563"/>
+     </a:xfrm>
+     <a:prstGeom prst="rect">
+      <a:avLst/>
+     </a:prstGeom>
+    </p:spPr>
+    <p:txBody>
+     <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
+      <a:normAutofit/>
+     </a:bodyPr>
+     <a:lstStyle>
+      <a:lvl1pPr algn="l">
+       <a:defRPr sz="4400">
+        <a:latin typeface="+mj-lt"/>
+       </a:defRPr>
+      </a:lvl1pPr>
+     </a:lstStyle>
+     <a:p>
+      <a:r>
+       <a:rPr lang="en-US"/>
+       <a:t>Click to edit Master title style</a:t>
+      </a:r>
+      <a:endParaRPr lang="en-US"/>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="3" name="Content Placeholder 2"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph idx="1"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr>
+     <a:xfrm>
+      <a:off x="838200" y="1825625"/>
+      <a:ext cx="10515600" cy="4351338"/>
+     </a:xfrm>
+     <a:prstGeom prst="rect">
+      <a:avLst/>
+     </a:prstGeom>
+    </p:spPr>
+    <p:txBody>
+     <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="t">
+      <a:normAutofit/>
+     </a:bodyPr>
+     <a:lstStyle>
+      <a:lvl1pPr marL="228600" indent="-228600" algn="l">
+       <a:buFont typeface="Arial"/>
+       <a:buChar char="•"/>
+       <a:defRPr sz="2800">
+        <a:latin typeface="+mn-lt"/>
+       </a:defRPr>
+      </a:lvl1pPr>
+     </a:lstStyle>
+     <a:p>
+      <a:r>
+       <a:rPr lang="en-US"/>
+       <a:t>Click to edit Master text styles</a:t>
+      </a:r>
+      <a:endParaRPr lang="en-US"/>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+  </p:spTree>
+ </p:cSld>
+ <p:clrMapOvr>
+  <a:masterClrMapping/>
+ </p:clrMapOvr>
+</p:sldLayout>
