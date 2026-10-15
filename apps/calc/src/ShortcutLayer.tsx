@@ -23,6 +23,7 @@ export const nativeRows = (t = translate): HelpRow[] => [
   { combo: "Mod+X", label: t("calc.sc.cut"), group: t("sc.edit") },
   { combo: "Mod+V", label: t("calc.sc.paste"), group: t("sc.edit") },
   { combo: "Escape", label: t("calc.sc.cancelCopy"), group: t("sc.edit") },
+  { combo: "Alt+ArrowDown", label: t("calc.sc.filterMenu"), group: t("calc.sortFilter") },
 ];
 
 function StructureDialog({ kind, onClose, store }: { kind: "insert" | "delete" | null; onClose: () => void; store: CalcStore }) {
@@ -132,6 +133,7 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
           store.select(rowSelection(s.anchor.row, s.focus.row));
         },
       },
+      "Mod+Shift+L": { label: t("calc.sc.toggleFilter"), group: t("calc.sortFilter"), when: inGrid, run: () => void actions.toggleFilter() },
       "Shift+F11": { label: t("calc.sc.insertSheet"), group: t("calc.sheets"), when: inGrid, run: () => void store.insertSheet() },
       "Mod+Plus": { label: t("calc.sc.insertRowsCols"), group: grid, when: inGrid, run: structural("insert") },
       "Mod+Minus": { label: t("calc.sc.deleteRowsCols"), group: grid, when: inGrid, run: structural("delete") },

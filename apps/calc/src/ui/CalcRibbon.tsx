@@ -1,4 +1,4 @@
-// Calc's ribbon: File (backstage) / Home / Insert / View. The commands
+// Calc's ribbon: File (backstage) / Home / Insert / Data / View. The commands
 // reuse `calcActions` (shared with the shortcuts and context menus, whose
 // dialogs CalcDialogs renders) and, for the dialogs owned by the
 // ShortcutLayer (Save As, New with its discard prompt, shortcut help), the
@@ -15,7 +15,9 @@ import { calcActions } from "../calcActions";
 import { sheetMenu } from "../SheetTabs";
 import { toolbarValue } from "../grid/style";
 import { useCalc, type CalcStore } from "../state/store";
-import { freezeIcon, headingsIcon, mergeIcon, unmergeIcon } from "./icons";
+import {
+  clearFilterIcon, filterIcon, freezeIcon, headingsIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon,
+} from "./icons";
 
 /** View options of the grid (View tab): zoom (1 = 100 %), gridlines and headings are the active sheet's. */
 export interface CalcView {
@@ -84,6 +86,19 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
     },
   };
   const numberFormat = fmt.value.numberFormat ?? "General";
+
+  const filterOn = actions.hasAutoFilter();
+  const filtered = actions.hasFilters();
+  // Home › Editing › Sort & Filter ▾ (Excel's menu; the Data tab has the same commands as buttons).
+  const sortFilterMenu = [
+    { id: "sortAsc", label: t("calc.sortAsc"), icon: sortAscIcon(), onSelect: run(actions.sortAsc) },
+    { id: "sortDesc", label: t("calc.sortDesc"), icon: sortDescIcon(), onSelect: run(actions.sortDesc) },
+    { id: "customSort", label: t("calc.customSort"), icon: sortIcon(16), onSelect: actions.customSort },
+    { separator: true as const },
+    { id: "filter", label: t("calc.filter"), icon: filterIcon(16), shortcut: "Mod+Shift+L", checked: filterOn, onSelect: run(actions.toggleFilter) },
+    { id: "clear", label: t("calc.filter.clear"), icon: clearFilterIcon(), disabled: !filtered, onSelect: run(actions.clearFilters) },
+    { id: "reapply", label: t("calc.filter.reapply"), icon: reapplyIcon(), disabled: !filterOn, onSelect: run(actions.reapplyFilter) },
+  ];
 
   const home: RibbonTab = {
     id: "home",
@@ -261,6 +276,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
                 { id: "replace", label: t("cmd.replaceDots"), shortcut: "Mod+H", onSelect: actions.replace },
               ]}
             />
+            <RibbonMenuButton label={t("calc.sortFilter")} icon={sortIcon()} size="large" disabled={off} menu={sortFilterMenu} />
           </>
         ),
       },
@@ -293,6 +309,38 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
             <RibbonButton label={t("calc.insertRows")} icon="insertRows" showLabel disabled={off} onClick={run(actions.insertRows)} />
             <RibbonButton label={t("calc.insertCols")} icon="insertCols" showLabel disabled={off} onClick={run(actions.insertCols)} />
           </RibbonStack>
+        ),
+      },
+    ],
+  };
+
+  const data: RibbonTab = {
+    id: "data",
+    label: t("calc.tab.data"),
+    groups: [
+      {
+        label: t("calc.sortFilter"),
+        items: (
+          <>
+            <RibbonStack>
+              <RibbonButton label={t("calc.sortAsc")} icon={sortAscIcon()} disabled={off} onClick={run(actions.sortAsc)} />
+              <RibbonButton label={t("calc.sortDesc")} icon={sortDescIcon()} disabled={off} onClick={run(actions.sortDesc)} />
+            </RibbonStack>
+            <RibbonButton label={t("calc.sort")} icon={sortIcon()} size="large" tooltip={t("calc.customSort")} disabled={off} onClick={actions.customSort} />
+            <RibbonButton
+              label={t("calc.filter")}
+              icon={filterIcon()}
+              size="large"
+              shortcut="Mod+Shift+L"
+              pressed={filterOn}
+              disabled={off}
+              onClick={run(actions.toggleFilter)}
+            />
+            <RibbonStack>
+              <RibbonButton label={t("calc.filter.clear")} icon={clearFilterIcon()} showLabel disabled={off || !filtered} onClick={run(actions.clearFilters)} />
+              <RibbonButton label={t("calc.filter.reapply")} icon={reapplyIcon()} showLabel disabled={off || !filterOn} onClick={run(actions.reapplyFilter)} />
+            </RibbonStack>
+          </>
         ),
       },
     ],
@@ -367,7 +415,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
       appName="Rusuite Calc"
       documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#217346"
-      tabs={[home, insert, viewTab]}
+      tabs={[home, insert, data, viewTab]}
       backstage={{
         session,
         onNew: () => triggerShortcut("Mod+N"),

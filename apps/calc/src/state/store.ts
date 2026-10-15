@@ -8,7 +8,12 @@ import { useSyncExternalStore } from "react";
 import type { CellStylePatch, Color } from "@rusuite/ui-shared";
 import { CalcApiError, type CalcApi, type PatchEnvelope } from "../backend/calcApi";
 import type { CalcCommand } from "../generated/CalcCommand";
+import type { AutoFilter } from "../generated/AutoFilter";
+import type { CellKind } from "../generated/CellKind";
 import type { FillMode } from "../generated/FillMode";
+import type { Filter } from "../generated/Filter";
+import type { FilterValue } from "../generated/FilterValue";
+import type { SortState } from "../generated/SortState";
 import type { FoundCell } from "../generated/FoundCell";
 import type { PasteMode } from "../generated/PasteMode";
 import type { Rect } from "../generated/Rect";
@@ -26,7 +31,7 @@ import type { WorkbookInfo } from "../generated/WorkbookInfo";
 import { AxisGeometry, colGeometry, DEFAULT_FORMAT, rowGeometry, rowHeightPx } from "../grid/geometry";
 import { CELL_PADDING } from "../grid/render";
 import { approxMeasure, lineHeightPx, wrapLines, type Measure } from "../grid/textLayout";
-import { sheetPrefix } from "../grid/address";
+import { colName, sheetPrefix } from "../grid/address";
 import { cellSelection, LAST_COL, LAST_ROW, move, normalize, type Cell, type NavContext, type Range, type Selection } from "../grid/Selection";
 import { intersects, mergeAnchor, mergeLookup, mergeSnapshot, partialMerge, snapSelection } from "../grid/merges";
 import { fontCss, styleAt } from "../grid/style";
@@ -38,6 +43,8 @@ import { colorRefs, cycleAnchor, rangeText, type ColoredRef } from "../formula/r
 import { isFormula } from "../formula/tokenize";
 import { checkFormula, formulaErrorMessage } from "../formula/validate";
 import { t } from "../i18n";
+import { hasFilters, recordsFound, type CustomPreset } from "../sortFilter/filter";
+import { currentRegion, duplicateColumns, guessHeader, sortRangeCommand, sortScope, type SortLevel } from "../sortFilter/sort";
 
 /** Snapshot blocks: 64 rows × 32 columns. */
 export const BLOCK_ROWS = 64;
@@ -143,7 +150,17 @@ export type CalcDialog =
   /** Lists the hidden sheets to show one again. */
   | { kind: "unhideSheet" }
   /** Warns that merging keeps only the upper-left value. */
-  | { kind: "mergeConfirm"; merge: MergeKind };
+  | { kind: "mergeConfirm"; merge: MergeKind }
+  /** Excel's "expand the selection?" before sorting part of a table (`next`: A→Z / Z→A, or the Custom Sort dialog). */
+  | { kind: "sortExpand"; sel: Range; expandTo: Range; next: "custom" | { ascending: boolean } }
+  /** Custom Sort: levels, headers, case sensitivity over `range`. */
+  | { kind: "customSort"; range: Range; hasHeader: boolean }
+  /** The AutoFilter dropdown of column `col`, at viewport point `at`. */
+  | { kind: "filterMenu"; col: number; at: { x: number; y: number } }
+  /** Custom AutoFilter (two criteria) for column `col`, started from `preset`. */
+  | { kind: "customFilter"; col: number; preset: CustomPreset }
+  /** Top 10 AutoFilter for column `col`. */
+  | { kind: "top10"; col: number };
 
 export interface CalcState {
   info: WorkbookInfo | null;
@@ -1560,6 +1577,176 @@ export class CalcStore {
       for (const [col, cell] of cells) if (col >= r.c0 && col <= r.c1 && cell.input !== "") n++;
     }
     return n;
+  }
+
+  // --- sort and AutoFilter (P8-5) ----------------------------------------------
+
+  /** The AutoFilter of `sheet` (default: the active one), `null` when none. */
+  autoFilter(sheet = this.state.activeSheet): AutoFilter | null {
+    return this.state.info?.sheets.find((s) => s.id === sheet)?.autoFilter ?? null;
+  }
+
+  /** The last sort of `sheet` (sort arrows on the filter buttons). */
+  sortState(sheet = this.state.activeSheet): SortState | null {
+    return this.state.info?.sheets.find((s) => s.id === sheet)?.sortState ?? null;
+  }
+
+  /** The current region around `(row, col)` of the active sheet (cached cells). */
+  currentRegion(row: number, col: number): Range {
+    const sheet = this.state.activeSheet;
+    const cache = this.cache(sheet);
+    return currentRegion((r, c) => (cache.cells.get(r)?.get(c)?.input ?? "") !== "", row, col, this.usedExtent(sheet));
+  }
+
+  /** The selection clipped to the used range (whole rows / columns sort and filter only the data). */
+  private usedSelection(): Range {
+    const r = this.selectionRange();
+    const used = this.usedExtent(this.state.activeSheet);
+    return { r0: r.r0, c0: r.c0, r1: Math.min(r.r1, Math.max(r.r0, used.lastRow)), c1: Math.min(r.c1, Math.max(r.c0, used.lastCol)) };
+  }
+
+  private cellAt = (row: number, col: number): CellView | undefined => this.cache(this.state.activeSheet).cells.get(row)?.get(col);
+
+  /** Excel's refusal when a sort or filter starts on an empty cell with no data around it. */
+  private refuseEmpty(r: Range): boolean {
+    if (r.r0 !== r.r1 || r.c0 !== r.c1 || (this.cellAt(r.r0, r.c0)?.input ?? "") !== "") return false;
+    this.pushError(new Error(t("calc.sort.empty")));
+    return true;
+  }
+
+  /**
+   * Sort A→Z / Z→A by the active cell's column. A single cell sorts its
+   * region (or the AutoFilter range) in the core (`sortSheetByColumn`); a
+   * larger selection sorts itself, after Excel's "expand the selection?"
+   * when data continues beside it.
+   */
+  sortSelection(ascending: boolean): Promise<void> {
+    const sheet = this.state.activeSheet;
+    const sel = this.usedSelection();
+    const { row, col } = this.activeAnchor();
+    if (sel.r0 === sel.r1 && sel.c0 === sel.c1) {
+      if (this.refuseEmpty(this.currentRegion(row, col))) return Promise.resolve();
+      return this.apply({ type: "sortSheetByColumn", sheet, row, col, ascending });
+    }
+    const scope = sortScope(sel, this.currentRegion(row, col));
+    if (scope.expandTo) {
+      this.openDialog({ kind: "sortExpand", sel, expandTo: scope.expandTo, next: { ascending } });
+      return Promise.resolve();
+    }
+    return this.sortRangeBy(scope.range, ascending);
+  }
+
+  /** One-key sort of `range` by the active column (clamped into it), header guessed. */
+  private sortRangeBy(range: Range, ascending: boolean): Promise<void> {
+    const col = Math.max(range.c0, Math.min(range.c1, this.activeAnchor().col));
+    const level: SortLevel = { col, ascending, kind: "auto" };
+    return this.apply(sortRangeCommand(this.state.activeSheet, range, [level], guessHeader(range, this.cellAt, col), false));
+  }
+
+  /** The "expand the selection?" answer: sort (or open Custom Sort on) the region or the selection. */
+  continueSort(expand: boolean): Promise<void> {
+    const d = this.state.dialog;
+    if (d?.kind !== "sortExpand") return Promise.resolve();
+    const range = expand ? d.expandTo : d.sel;
+    this.closeDialog();
+    if (d.next === "custom") {
+      this.openCustomSortOn(range);
+      return Promise.resolve();
+    }
+    return this.sortRangeBy(range, d.next.ascending);
+  }
+
+  /** Data › Sort (Custom Sort…): on the AutoFilter range, the region, or the selection (asking to expand first). */
+  openCustomSort(): void {
+    const sel = this.usedSelection();
+    const { row, col } = this.activeAnchor();
+    const af = this.autoFilter();
+    if (af && sel.r0 === sel.r1 && sel.c0 === sel.c1 && row >= af.r0 && row <= af.r1 && col >= af.c0 && col <= af.c1) {
+      this.openDialog({ kind: "customSort", range: { r0: af.r0, c0: af.c0, r1: af.r1, c1: af.c1 }, hasHeader: true });
+      return;
+    }
+    const region = this.currentRegion(row, col);
+    if (sel.r0 === sel.r1 && sel.c0 === sel.c1 && this.refuseEmpty(region)) return;
+    const scope = sortScope(sel, region);
+    if (scope.expandTo) this.openDialog({ kind: "sortExpand", sel, expandTo: scope.expandTo, next: "custom" });
+    else this.openCustomSortOn(scope.range);
+  }
+
+  private openCustomSortOn(range: Range): void {
+    this.openDialog({ kind: "customSort", range, hasHeader: guessHeader(range, this.cellAt, this.activeAnchor().col) });
+  }
+
+  /** The Custom Sort dialog's OK: `sortRange`; a column used twice is refused (as Excel does). */
+  customSort(range: Range, levels: readonly SortLevel[], hasHeader: boolean, caseSensitive: boolean): Promise<void> {
+    if (levels.length === 0) return Promise.resolve();
+    if (duplicateColumns(levels).length > 0) {
+      this.pushError(new Error(t("calc.sort.duplicate")));
+      return Promise.resolve();
+    }
+    return this.apply(sortRangeCommand(this.state.activeSheet, range, levels, hasHeader, caseSensitive));
+  }
+
+  /** The text of a header cell for the dialogs ("Column B" when it is empty or there is no header). */
+  columnLabel(col: number, headerRow: number | null): string {
+    const text = headerRow === null ? "" : (this.cellAt(headerRow, col)?.display ?? "");
+    return text !== "" ? text : t("calc.sort.columnN", { col: colName(col) });
+  }
+
+  /** Data › Filter (Ctrl+Shift+L): turns the AutoFilter off, or on for the selection (a single cell: its region). */
+  toggleAutoFilter(): Promise<void> {
+    const sheet = this.state.activeSheet;
+    if (this.autoFilter()) return this.apply({ type: "setAutoFilter", sheet, range: null });
+    const r = this.usedSelection();
+    const { row, col } = this.activeAnchor();
+    if (r.r0 === r.r1 && r.c0 === r.c1 && this.refuseEmpty(this.currentRegion(row, col))) return Promise.resolve();
+    return this.apply({ type: "setAutoFilter", sheet, range: r });
+  }
+
+  /** Sets (or with `null` removes) the filter of AutoFilter column `col`. */
+  setColumnFilter(col: number, filter: Filter | null): Promise<void> {
+    return this.apply({ type: "setFilterColumn", sheet: this.state.activeSheet, col, filter });
+  }
+
+  /** Data › Clear: removes every column filter (the buttons stay). */
+  clearFilters(): Promise<void> {
+    return hasFilters(this.autoFilter()) ? this.apply({ type: "clearFilters", sheet: this.state.activeSheet }) : Promise.resolve();
+  }
+
+  /** Data › Reapply: filters the current data again. */
+  reapplyFilter(): Promise<void> {
+    return this.autoFilter() ? this.apply({ type: "reapplyFilter", sheet: this.state.activeSheet }) : Promise.resolve();
+  }
+
+  /** Sort A→Z / Z→A from a filter dropdown: the AutoFilter range by column `col`. */
+  sortFilterColumn(col: number, ascending: boolean): Promise<void> {
+    const af = this.autoFilter();
+    return af ? this.apply({ type: "sortSheetByColumn", sheet: this.state.activeSheet, row: af.r0, col, ascending }) : Promise.resolve();
+  }
+
+  /** The dropdown's value list of column `col` (empty on failure, with a toast). */
+  async filterValues(col: number): Promise<FilterValue[]> {
+    let values: FilterValue[] = [];
+    await this.guard(async () => {
+      values = await this.api.filterValues(this.state.activeSheet, col);
+    });
+    return values;
+  }
+
+  /** Cell kinds of the data rows of AutoFilter column `col` (cached cells), for Text vs Number Filters. */
+  filterColumnKinds(col: number): CellKind[] {
+    const af = this.autoFilter();
+    if (!af) return [];
+    const out: CellKind[] = [];
+    for (const [r, row] of this.cache(this.state.activeSheet).cells) {
+      const c = r > af.r0 && r <= af.r1 ? row.get(col) : undefined;
+      if (c) out.push(c.kind);
+    }
+    return out;
+  }
+
+  /** "n of m records found" while a filter is set (`null`: none). */
+  recordsFound(): { shown: number; total: number } | null {
+    return recordsFound(this.autoFilter(), this.cache(this.state.activeSheet).rows);
   }
 
   renameSheet(sheet: number, name: string): Promise<void> {
