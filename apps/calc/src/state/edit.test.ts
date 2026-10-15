@@ -165,7 +165,7 @@ describe("edit session: functions", () => {
     expect(store.completion()?.index).toBe(1);
     store.moveCompletion(-2);
     expect(store.completion()?.index).toBe((c?.items.length ?? 0) - 1);
-    store.moveCompletion(2);
+    store.moveCompletion(3); // SUBSTITUTE, SUBTOTAL, SUM
     expect(store.acceptCompletion()).toBe(true);
     expect(text(store)).toBe("=SUM(");
     expect(store.completion()).toBeNull();

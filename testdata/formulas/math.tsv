@@ -1,5 +1,5 @@
 # PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
-# family: math (604 cases); evaluate in the context of sheet Data, see fixture.tsv
+# family: math (618 cases); evaluate in the context of sheet Data, see fixture.tsv
 formula	type	expected	note
 =SUM(1,2,3)	number	6	
 =SUM(A1:A6)	number	21	
@@ -379,6 +379,20 @@ formula	type	expected	note
 # NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
 =SUMX2PY2(A1:A3,A1:A4)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
 =SUMX2PY2(F1:F2,A1:A2)	number	50005	
+=SUBTOTAL(9,A1:A6)	number	21	no hidden rows: SUM
+=SUBTOTAL(109,A1:A6,C1:C6)	number	1000132.75	
+=SUBTOTAL(1,C1:C6)	number	166685.291666667	
+=SUBTOTAL(2,A1:B6)	number	6	COUNT ignores text
+=SUBTOTAL(103,A1:B6)	number	12	
+=SUBTOTAL(4,C1:C6)	number	1000000	
+=SUBTOTAL(105,C1:C6)	number	-2	
+=SUBTOTAL(6,A1:A4)	number	24	
+=SUBTOTAL(7,A1:A6)	number	1.87082869338697	
+=SUBTOTAL(108,A1:A6)	number	1.70782512765993	
+=SUBTOTAL(10,F1:F4)	number	16666.6666666667	
+=SUBTOTAL(111,F1:F4)	number	12500	
+=SUBTOTAL(9,A1:A3,H1)	error	#DIV/0!	error propagation
+=SUBTOTAL(9.9,A1:A3)	number	6	function number truncated
 =SUMXMY2({2,3,9,1,8,7,5},{6,5,11,7,5,4,4})	number	79	
 =SUMXMY2(A1:A3,A4:A6)	number	27	
 # NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]

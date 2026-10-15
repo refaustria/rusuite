@@ -44,6 +44,10 @@ pub struct RowInfo {
     /// precedence over the column style, as in Excel).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<StyleId>,
+    /// Hidden by an AutoFilter (with `hidden`), not by hand: clearing the
+    /// filter shows it again, `SUBTOTAL(1..11)` skips it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub filtered: bool,
 }
 
 impl RowInfo {
@@ -170,6 +174,9 @@ pub(crate) struct SheetData {
     pub very_hidden: bool,
     /// Merged ranges, pairwise disjoint, sorted by `(r0, c0)`.
     pub merges: Vec<MergeRect>,
+    pub auto_filter: Option<crate::sortfilter::AutoFilter>,
+    /// The last sort.
+    pub sort_state: Option<crate::sortfilter::SortState>,
 }
 
 impl SheetData {

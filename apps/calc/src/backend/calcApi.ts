@@ -63,6 +63,7 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     recoverySnapshot: { json: "string", revision: "number", dirty: "boolean" },
     found: { cells: "array" },
     formatted: { text: "string" },
+    filterValues: { values: "array" },
     // `last` may be null (empty sheet): checked by the caller.
     usedRange: {},
   };

@@ -40,7 +40,7 @@
 use core_model::Color;
 use engine_formula::ast::{MAX_COL, MAX_ROW};
 use engine_formula::{
-    CellContent, CellCoord, Engine, EngineError, Recalc, SheetId, StructuralOp, Value,
+    CellContent, CellCoord, Engine, EngineError, Recalc, RowHidden, SheetId, StructuralOp, Value,
 };
 
 use crate::sheet::{
@@ -200,13 +200,13 @@ impl Workbook {
         self.engine.sheet_id(name)
     }
 
-    fn sheet_data(&self, id: SheetId) -> &SheetData {
+    pub(crate) fn sheet_data(&self, id: SheetId) -> &SheetData {
         self.sheets
             .get(id.0 as usize)
             .unwrap_or_else(|| DEFAULT_SHEET.get_or_init(SheetData::default))
     }
 
-    fn sheet_data_mut(&mut self, id: SheetId) -> Result<&mut SheetData, Error> {
+    pub(crate) fn sheet_data_mut(&mut self, id: SheetId) -> Result<&mut SheetData, Error> {
         if self.engine.sheet_name(id).is_none() {
             return Err(Error::UnknownSheet(id));
         }
@@ -370,14 +370,31 @@ impl Workbook {
     }
 
     /// Replaces all properties of a row (e.g. when loading a file).
-    pub fn set_row_info(&mut self, sheet: SheetId, row: u32, info: RowInfo) -> Result<(), Error> {
+    /// `filtered` without `hidden` is dropped. The engine learns the row's
+    /// visibility; the returned recalculation lists the `SUBTOTAL`s that
+    /// changed (empty inside a batch).
+    pub fn set_row_info(
+        &mut self,
+        sheet: SheetId,
+        row: u32,
+        info: RowInfo,
+    ) -> Result<Recalc, Error> {
         check_coord(CellCoord::new(sheet, row, 0))?;
         check_dimension(info.height)?;
         if let Some(id) = info.style.filter(|id| !self.styles.contains(*id)) {
             return Err(Error::UnknownStyle(id));
         }
+        let info = RowInfo {
+            filtered: info.filtered && info.hidden,
+            ..info
+        };
         self.sheet_data_mut(sheet)?.set_row(row, info);
-        Ok(())
+        let state = match (info.hidden, info.filtered) {
+            (false, _) => RowHidden::Visible,
+            (true, false) => RowHidden::Manual,
+            (true, true) => RowHidden::Filtered,
+        };
+        Ok(self.engine.set_row_hidden(sheet, row, state)?)
     }
 
     /// Sets a column width in character units; `None` = sheet default.
@@ -405,7 +422,7 @@ impl Workbook {
             height,
             ..self.row_info(sheet, row)
         };
-        self.set_row_info(sheet, row, info)
+        self.set_row_info(sheet, row, info).map(drop)
     }
 
     pub fn set_col_hidden(&mut self, sheet: SheetId, col: u32, hidden: bool) -> Result<(), Error> {
@@ -416,9 +433,17 @@ impl Workbook {
         self.set_col_info(sheet, col, info)
     }
 
-    pub fn set_row_hidden(&mut self, sheet: SheetId, row: u32, hidden: bool) -> Result<(), Error> {
+    /// Hides or shows a row by hand (clears `filtered`). See
+    /// [`set_row_info`](Self::set_row_info) for the result.
+    pub fn set_row_hidden(
+        &mut self,
+        sheet: SheetId,
+        row: u32,
+        hidden: bool,
+    ) -> Result<Recalc, Error> {
         let info = RowInfo {
             hidden,
+            filtered: false,
             ..self.row_info(sheet, row)
         };
         self.set_row_info(sheet, row, info)
@@ -726,6 +751,63 @@ impl Workbook {
         } else {
             data.view.frozen_cols = frozen(data.view.frozen_cols);
         }
+        // The AutoFilter and the sort state move like merges; filtered or
+        // sort columns that are deleted disappear.
+        let span = |r0: u32, c0: u32, r1: u32, c1: u32| {
+            if op.is_rows() {
+                op.map_interval(r0, r1).map(|(r0, r1)| (r0, c0, r1, c1))
+            } else {
+                op.map_interval(c0, c1).map(|(c0, c1)| (r0, c0, r1, c1))
+            }
+        };
+        let col = |c: u32| {
+            if op.is_rows() {
+                Some(c)
+            } else {
+                op.map_index(c)
+            }
+        };
+        data.auto_filter = data.auto_filter.take().and_then(|af| {
+            let (r0, c0, r1, c1) = span(af.r0, af.c0, af.r1, af.c1)?;
+            let columns = af
+                .columns
+                .into_iter()
+                .filter_map(|fc| {
+                    Some(crate::FilterColumn {
+                        col: col(fc.col)?,
+                        ..fc
+                    })
+                })
+                .collect();
+            Some(crate::AutoFilter {
+                r0,
+                c0,
+                r1,
+                c1,
+                columns,
+            })
+        });
+        data.sort_state = data.sort_state.take().and_then(|st| {
+            let (r0, c0, r1, c1) = span(st.r0, st.c0, st.r1, st.c1)?;
+            let keys: Vec<crate::SortKey> = st
+                .keys
+                .into_iter()
+                .filter_map(|k| {
+                    Some(crate::SortKey {
+                        col: col(k.col)?,
+                        ..k
+                    })
+                })
+                .collect();
+            (!keys.is_empty()).then_some(crate::SortState {
+                r0,
+                c0,
+                r1,
+                c1,
+                keys,
+                ..st
+            })
+        });
         Ok(recalc)
     }
 

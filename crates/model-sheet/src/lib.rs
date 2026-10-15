@@ -5,13 +5,15 @@
 //! cell's content and computed value; this crate adds what a spreadsheet
 //! document needs on top: deduplicated [`CellStyle`]s ([`StyleTable`]),
 //! number formats ([`numfmt`]), column/row dimensions, sheet defaults,
-//! sheet views (frozen panes, zoom), hidden sheets and merged cells.
+//! sheet views (frozen panes, zoom), hidden sheets, merged cells, sorting
+//! and AutoFilter ([`sortfilter`]).
 //! [`WorkbookSnapshot`] is the serializable form (camelCase JSON) used by
 //! serde, the IPC layer and `fmt-xlsx`.
 
 pub mod numfmt;
 pub mod sheet;
 pub mod snapshot;
+pub mod sortfilter;
 pub mod style;
 pub mod workbook;
 
@@ -19,6 +21,10 @@ pub use engine_formula::{CellContent, CellCoord, EngineError, Recalc, SheetId};
 pub use sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView, MAX_ZOOM, MIN_ZOOM};
 pub use snapshot::{
     content_to_input, CellSnapshot, ColSnapshot, RowSnapshot, SheetSnapshot, WorkbookSnapshot,
+};
+pub use sortfilter::{
+    AutoFilter, Criterion, DynamicFilter, Filter, FilterChange, FilterColumn, FilterOp,
+    FilterValue, SortKey, SortKind, SortSpec, SortState,
 };
 pub use style::{
     Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, StyleId, StyleTable,
@@ -58,4 +64,10 @@ pub enum Error {
     InvalidSheetView(String),
     #[error("invalid snapshot: {0}")]
     InvalidSnapshot(String),
+    /// Sorting a range that intersects merged cells.
+    #[error("cannot sort a range containing merged cells")]
+    CannotSortMerged,
+    /// A filter operation on a sheet without AutoFilter.
+    #[error("the sheet has no AutoFilter")]
+    NoAutoFilter,
 }
