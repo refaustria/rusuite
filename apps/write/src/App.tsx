@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
+import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { DocumentSession, FileMenu, RecoveryBanner } from "@rusuite/ui-shared";
 import { writePrintCss } from "./print/printCss";
 import { WriteApi, type WriteBackend } from "./backend";
@@ -8,27 +8,79 @@ import { SyncController, SyncExtension, type SyncState } from "./sync/SyncPlugin
 import { FindReplaceDialog } from "./ui/FindReplaceDialog";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { Toasts } from "./ui/Toasts";
+import { countDocWords, countWords } from "./wordCount";
 import { WriteToolbar } from "./ui/WriteToolbar";
 
 function useSync<T>(ctl: SyncController, select: (s: SyncState) => T): T {
   return useSyncExternalStore(ctl.subscribe, () => select(ctl.getState()));
 }
 
-export function countWords(text: string): number {
-  const t = text.trim();
-  return t ? t.split(/\s+/).length : 0;
+export { countWords };
+
+/**
+ * The controller state shown in the status bar, re-rendered at most every
+ * 60 ms (each keystroke's patch changes `revision`; the bar need not follow
+ * at keystroke rate).
+ */
+function useThrottledSync(ctl: SyncController): SyncState {
+  const [state, setState] = useState(ctl.getState);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = () => {
+      timer = undefined;
+      setState(ctl.getState());
+    };
+    const unsubscribe = ctl.subscribe(() => {
+      timer ??= setTimeout(flush, STATUS_THROTTLE_MS);
+    });
+    flush();
+    return () => {
+      clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [ctl]);
+  return state;
 }
 
-function StatusBar({ ctl, editor, backend }: { ctl: SyncController; editor: Editor; backend: WriteBackend }) {
-  const revision = useSync(ctl, (s) => s.revision);
+/** The status bar updates at most this often while typing, so a keystroke never waits on it. */
+export const WORD_COUNT_DEBOUNCE_MS = 250;
+const STATUS_THROTTLE_MS = 60;
+
+/** Incremental word count of the editor document, recomputed 250 ms after the last edit. */
+function useWordCount(editor: Editor): number {
+  const [words, setWords] = useState(() => countDocWords(editor.state.doc));
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const update = () => setWords(countDocWords(editor.state.doc));
+    const onTransaction = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+      if (!transaction.docChanged) return;
+      clearTimeout(timer);
+      timer = setTimeout(update, WORD_COUNT_DEBOUNCE_MS);
+    };
+    update();
+    editor.on("transaction", onTransaction);
+    return () => {
+      clearTimeout(timer);
+      editor.off("transaction", onTransaction);
+    };
+  }, [editor]);
+  return words;
+}
+
+/** Keeps the window title in sync; a component of its own so that revision/dirty changes do not re-render the App. */
+function TitleSync({ ctl, backend }: { ctl: SyncController; backend: WriteBackend }) {
   const dirty = useSync(ctl, (s) => s.dirty);
   const name = useSync(ctl, (s) => s.name);
-  const info = useSync(ctl, (s) => s.info);
-  const warnings = useSync(ctl, (s) => s.warnings);
-  const words = useEditorState({
-    editor,
-    selector: ({ editor: e }) => countWords(e.state.doc.textBetween(0, e.state.doc.content.size, " ", " ")),
-  });
+  const revision = useSync(ctl, (s) => s.revision);
+  useEffect(() => {
+    void backend.setTitle(`${dirty ? "• " : ""}${name ?? "Untitled"} – Rusuite Write`).catch(() => undefined);
+  }, [backend, dirty, name, revision]);
+  return null;
+}
+
+const StatusBar = memo(function StatusBar({ ctl, editor, backend }: { ctl: SyncController; editor: Editor; backend: WriteBackend }) {
+  const { revision, dirty, name, info, warnings } = useThrottledSync(ctl);
+  const words = useWordCount(editor);
   return (
     <div className="flex items-center gap-4 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted" data-testid="status-bar">
       <span data-testid="doc-name">{name ?? "Untitled"}</span>
@@ -46,7 +98,7 @@ function StatusBar({ ctl, editor, backend }: { ctl: SyncController; editor: Edit
       </span>
     </div>
   );
-}
+});
 
 export default function App({ backend }: { backend: WriteBackend }) {
   // Recent files, autosave, crash recovery: the controller talks through the session's backend.
@@ -60,19 +112,12 @@ export default function App({ backend }: { backend: WriteBackend }) {
     },
     [ctl],
   );
-  const ready = useSync(ctl, (s) => s.ready);
-  const dirty = useSync(ctl, (s) => s.dirty);
-  const name = useSync(ctl, (s) => s.name);
-  const revision = useSync(ctl, (s) => s.revision);
-  const page = ready ? ctl.page : null;
+  // ctl.page is replaced before the state change that announces it.
+  const page = useSync(ctl, () => ctl.page);
 
   useEffect(() => {
     if (editor) void ctl.newDocument();
   }, [editor, ctl]);
-
-  useEffect(() => {
-    void backend.setTitle(`${dirty ? "• " : ""}${name ?? "Untitled"} – Rusuite Write`).catch(() => undefined);
-  }, [backend, dirty, name, revision]);
 
   const open = useCallback(async () => {
     try {
@@ -111,6 +156,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
 
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
+      <TitleSync ctl={ctl} backend={backend} />
       <RecoveryBanner session={session} />
       {editor && (
         <div className="flex items-stretch">

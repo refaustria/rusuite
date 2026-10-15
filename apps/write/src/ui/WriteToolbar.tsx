@@ -3,7 +3,8 @@
 // undo/redo actions.
 
 import { useRef, type ReactNode } from "react";
-import { useEditorState, type Editor } from "@tiptap/react";
+import type { Editor } from "@tiptap/react";
+import { useThrottledEditorState } from "./useThrottledEditorState";
 import {
   BTN, Dropdown, Icon, ListButtons, ParagraphStyleSelect, Toolbar, bytesToBase64,
   type CellStylePatch, type CellStyleView, type IconName,
@@ -54,7 +55,7 @@ export interface WriteToolbarProps {
 
 export function WriteToolbar({ editor, ctl, onOpen, onSave, onFind, onExportPdf }: WriteToolbarProps) {
   const fileInput = useRef<HTMLInputElement>(null);
-  const s = useEditorState({
+  const s = useThrottledEditorState({
     editor,
     selector: ({ editor: e }) => {
       const { $from } = e.state.selection;

@@ -14,24 +14,24 @@ Workbook: sheet 1 = 1000 × 1000 cells (70 % numbers, 20 % text, 10 % formulas: 
 
 | Measurement | Value | Target | |
 |---|---:|---:|---|
-| load 1M cells + 10k chain (set_input in one batch, incl. end_batch) | 1.50 s | < 10.00 s | ok |
-| … of which set_input ×1.01M | 891.7 ms | – |  |
-| … of which end_batch (recalculation) | 604.3 ms | – |  |
-| peak RSS after load (VmHWM) | 332.2 MB | < 1536.0 MB | ok |
-| recalc_all (100k formulas + chain) | 229.6 ms | – |  |
-| edit at the head of the 10k chain (Host::apply, patch of 10k cells) | 16.4 ms | < 100.0 ms | ok |
-| edit at the head of the 10k chain (dispatch JSON) | 17.2 ms | < 100.0 ms | ok |
-| edit one cell of the 1M sheet (dispatch JSON) | 0.003 ms | < 100.0 ms | ok |
+| load 1M cells + 10k chain (set_input in one batch, incl. end_batch) | 1.41 s | < 10.00 s | ok |
+| … of which set_input ×1.01M | 802.8 ms | – |  |
+| … of which end_batch (recalculation) | 606.7 ms | – |  |
+| peak RSS after load (VmHWM) | 331.8 MB | < 1536.0 MB | ok |
+| recalc_all (100k formulas + chain) | 224.1 ms | – |  |
+| edit at the head of the 10k chain (Host::apply, patch of 10k cells) | 17.1 ms | < 100.0 ms | ok |
+| edit at the head of the 10k chain (dispatch JSON) | 16.6 ms | < 100.0 ms | ok |
+| edit one cell of the 1M sheet (dispatch JSON) | 0.004 ms | < 100.0 ms | ok |
 | RegionSnapshot 64×32 at A1 (CalcDocument::snapshot) | 1.6 ms | < 5.0 ms | ok |
 | RegionSnapshot 64×32 at row 512, col 512 | 1.6 ms | < 5.0 ms | ok |
-| RegionSnapshot 64×32 (dispatch JSON) | 1.9 ms | < 5.0 ms | ok |
-| ApplyStyle number format to all 1M cells (Host::apply) | 2.67 s | – |  |
+| RegionSnapshot 64×32 (dispatch JSON) | 2.0 ms | < 5.0 ms | ok |
+| ApplyStyle number format to all 1M cells (Host::apply) | 2.63 s | – |  |
 | styled: RegionSnapshot 64×32 at row 512, col 512 | 2.6 ms | < 5.0 ms | ok |
-| styled: edit at the head of the 10k chain (dispatch JSON) | 18.7 ms | < 100.0 ms | ok |
+| styled: edit at the head of the 10k chain (dispatch JSON) | 17.6 ms | < 100.0 ms | ok |
 | save_xlsx (styled) | 2.07 s | – |  |
 | xlsx size (styled) | 7.6 MB | – |  |
-| open_xlsx (styled; incl. recalculation) | 2.23 s | < 10.00 s | ok |
-| peak RSS overall (VmHWM) | 460.4 MB | < 1536.0 MB | ok |
+| open_xlsx (styled; incl. recalculation) | 2.46 s | < 10.00 s | ok |
+| peak RSS overall (VmHWM) | 460.5 MB | < 1536.0 MB | ok |
 
 ## Calc – wasm (`app-calc-wasm`, `--target nodejs`, Node)
 
@@ -39,13 +39,13 @@ Same workbook: built through `restoreCells` (`set_input` inside one batch per re
 
 | Measurement | Value | Target | |
 |---|---:|---:|---|
-| wasm: load 1M cells + chain (11 batched restoreCells requests = set_input in batches) | 4.68 s | < 30.00 s | ok |
+| wasm: load 1M cells + chain (11 batched restoreCells requests = set_input in batches) | 4.57 s | < 30.00 s | ok |
 | wasm: WebAssembly.Memory peak (build; the wasm32 limit is 4096 MB) | 303.3 MB | < 4096.0 MB | ok |
-| wasm: openXlsx of the generated workbook (styled, 1M cells + chain; incl. recalculation) | 3.27 s | < 30.00 s | ok |
+| wasm: openXlsx of the generated workbook (styled, 1M cells + chain; incl. recalculation) | 3.06 s | < 30.00 s | ok |
 | wasm: memory after open | 389.3 MB | < 4096.0 MB | ok |
-| wasm: edit at the head of the 10k chain (dispatch) | 23.6 ms | < 100.0 ms | ok |
-| wasm: RegionSnapshot 64×32 (dispatch) | 4.2 ms | < 5.0 ms | ok |
-| wasm: saveXlsx (incl. base64) | 2.47 s | – |  |
+| wasm: edit at the head of the 10k chain (dispatch) | 27.3 ms | < 100.0 ms | ok |
+| wasm: RegionSnapshot 64×32 (dispatch) | 4.8 ms | < 5.0 ms | ok |
+| wasm: saveXlsx (incl. base64) | 2.50 s | – |  |
 | wasm: WebAssembly.Memory peak (open; the wasm32 limit is 4096 MB) | 446.3 MB | < 4096.0 MB | ok |
 
 ## Write – native (`write-core`)
@@ -57,20 +57,20 @@ Document: ~200 pages – 4000 paragraphs (~25 words in 3–5 runs with bold/ital
 | fixture: words | 112540 | – |  |
 | fixture: top-level blocks | 4020 | – |  |
 | fixture: Document JSON (with media) | 7.9 MB | – |  |
-| Load (dispatch: parse + normalize + reply with the document) | 75.4 ms | < 3.00 s | ok |
+| Load (dispatch: parse + normalize + reply with the document) | 90.4 ms | < 3.00 s | ok |
 | Load reply size | 7.9 MB | – |  |
-| Load (WriteDocument::from_document, no JSON) | 6.9 ms | – |  |
-| InsertText in the middle (Host::apply) | 0.109 ms | < 30.0 ms | ok |
-| InsertText in the middle (dispatch JSON) | 0.113 ms | < 30.0 ms | ok |
-| FindReplace all ("revenue" → "turnover", Host::apply) | 55.7 ms | – |  |
+| Load (WriteDocument::from_document, no JSON) | 8.2 ms | – |  |
+| InsertText in the middle (Host::apply) | 0.106 ms | < 30.0 ms | ok |
+| InsertText in the middle (dispatch JSON) | 0.107 ms | < 30.0 ms | ok |
+| FindReplace all ("revenue" → "turnover", Host::apply) | 59.4 ms | – |  |
 | FindReplace: replaced paragraphs in the patch | 2702 | – |  |
-| FindReplace all back (dispatch JSON incl. patch) | 60.2 ms | – |  |
+| FindReplace all back (dispatch JSON incl. patch) | 63.9 ms | – |  |
 | FindReplace patch JSON size | 1.2 MB | – |  |
-| GetDocument (dispatch: clone + JSON) | 27.0 ms | – |  |
+| GetDocument (dispatch: clone + JSON) | 29.7 ms | – |  |
 | GetDocument JSON size | 7.9 MB | – |  |
-| save_docx | 121.1 ms | < 2.00 s | ok |
+| save_docx | 131.6 ms | < 2.00 s | ok |
 | docx size | 2.7 MB | – |  |
-| open_docx | 74.4 ms | < 3.00 s | ok |
+| open_docx | 80.4 ms | < 3.00 s | ok |
 | peak RSS (VmHWM) | 74.1 MB | – |  |
 
 ## Write – browser (production web build, headless Chromium)
@@ -79,16 +79,16 @@ Typing: 200 keystrokes at the end of paragraph 2000 with 100 ms between keys; la
 
 | Measurement | Value | Target | |
 |---|---:|---:|---|
-| JSON.parse of the Document JSON (7.9 MB, Node) | 23.1 ms | – |  |
-| toPM of the whole document (Node, median of 7) | 31.6 ms | – |  |
-| fromPM of the whole document (Node, median of 5) | 19.2 ms | – |  |
-| open .docx → document rendered (file read, OpenDocx, JSON.parse, toPM, PM render, next frame) | 807.6 ms | < 3.00 s | ok |
-| JSON.parse of the OpenDocx reply (7.9 MB) | 26.0 ms | – |  |
+| JSON.parse of the Document JSON (7.9 MB, Node) | 35.5 ms | – |  |
+| toPM of the whole document (Node, median of 7) | 45.3 ms | – |  |
+| fromPM of the whole document (Node, median of 5) | 49.9 ms | – |  |
+| open .docx → document rendered (file read, OpenDocx, JSON.parse, toPM, PM render, next frame) | 856.6 ms | < 3.00 s | ok |
+| JSON.parse of the OpenDocx reply (7.9 MB) | 24.0 ms | – |  |
 | ProseMirror top-level nodes | 4020 | – |  |
 | typing: keystrokes measured / patches applied (200 / 200) | 200 | – |  |
-| typing latency p50 (keydown → patch applied) | 50.6 ms | < 30.0 ms | MISSED |
-| typing latency p95 (keydown → patch applied) | 65.3 ms | < 30.0 ms | MISSED |
-| typing latency max | 128.1 ms | – |  |
+| typing latency p50 (keydown → patch applied) | 26.9 ms | < 30.0 ms | ok |
+| typing latency p95 (keydown → patch applied) | 32.3 ms | < 30.0 ms | MISSED |
+| typing latency max | 107.0 ms | – |  |
 
 ## Show – native (`show-core`)
 
@@ -97,27 +97,27 @@ Deck: 100 slides × 20 shapes with text (a title text box, bulleted text boxes, 
 | Measurement | Value | Target | |
 |---|---:|---:|---|
 | fixture: Presentation JSON | 1.1 MB | – |  |
-| Load (dispatch: parse + validate + reply with the presentation) | 22.0 ms | < 2.00 s | ok |
-| GetPresentation (dispatch) | 3.4 ms | – |  |
+| Load (dispatch: parse + validate + reply with the presentation) | 31.6 ms | < 2.00 s | ok |
+| GetPresentation (dispatch) | 3.5 ms | – |  |
 | GetPresentation JSON size | 1.1 MB | – |  |
 | SetTransform of one shape (Host::apply) | 0.019 ms | < 50.0 ms | ok |
 | SetTransform of one shape (dispatch JSON) | 0.039 ms | < 50.0 ms | ok |
-| DuplicateSlide (dispatch JSON) | 0.149 ms | < 50.0 ms | ok |
-| save_pptx | 20.3 ms | < 2.00 s | ok |
+| DuplicateSlide (dispatch JSON) | 0.153 ms | < 50.0 ms | ok |
+| save_pptx | 21.0 ms | < 2.00 s | ok |
 | pptx size | 0.2 MB | – |  |
 | open_pptx | 33.6 ms | < 2.00 s | ok |
-| peak RSS (VmHWM) | 24.4 MB | – |  |
+| peak RSS (VmHWM) | 24.6 MB | – |  |
 
 ## Show – browser (production web build, headless Chromium)
 
 | Measurement | Value | Target | |
 |---|---:|---:|---|
-| open .pptx → 100 sidebar thumbnails + main slide drawn (next frame) | 1.13 s | < 2.00 s | ok |
-| slide switch (thumbnail click → main canvas drawn), median of 30 | 22.4 ms | < 50.0 ms | ok |
-| slide switch p95 | 24.9 ms | < 50.0 ms | ok |
-| nudge selected shape (keydown → patch → canvas + thumbnail drawn), median of 20 | 21.7 ms | – |  |
-| presenter: next slide (key → slide drawn), median of 30 | 25.2 ms | < 50.0 ms | ok |
-| presenter: next slide p95 | 36.2 ms | < 50.0 ms | ok |
+| open .pptx → 100 sidebar thumbnails + main slide drawn (next frame) | 1.52 s | < 2.00 s | ok |
+| slide switch (thumbnail click → main canvas drawn), median of 30 | 23.7 ms | < 50.0 ms | ok |
+| slide switch p95 | 38.6 ms | < 50.0 ms | ok |
+| nudge selected shape (keydown → patch → canvas + thumbnail drawn), median of 20 | 29.0 ms | – |  |
+| presenter: next slide (key → slide drawn), median of 30 | 32.0 ms | < 50.0 ms | ok |
+| presenter: next slide p95 | 57.4 ms | < 50.0 ms | MISSED |
 
 ## Findings and fixes
 
@@ -127,12 +127,13 @@ Baseline = first P5-4 commit; each fix is its own commit with these numbers.
 2. **Calc: `Workbook::used_range` scanned every styled cell on each call** (every snapshot, clear and style command calls it through `cells_in`). Styled cells are now counted per row and column, so the bound is O(log n) (`crates/model-sheet/src/sheet.rs`, `workbook.rs`). Styled 64 × 32 snapshot 7.3 → 2.6 ms native, 9.4 → 4.2 ms wasm.
 3. **Write: Chromium lays out and copies the whole 200-page editor on every keystroke** (the insert's forced layout, hit testing and the IME text-input state, which reads the editable's whole text). Top-level editor blocks use `content-visibility: auto` on screen (`apps/write/src/styles.css`). Typing p50/p95 94/110 → 54/70 ms, open + first render 991 → 839 ms.
 4. **Write: every keystroke in a table cell resent the whole table** (`ReplaceBlocks`). Edits inside one cell of an otherwise unchanged table now map to the in-place paragraph commands (`apps/write/src/sync/transactionMapper.ts`). Typing in the middle of a 300-row table: p50/p95 142/171 → 116/136 ms (the standard fixture's 6 × 4 tables: within noise).
+5. **Write: the status-bar word count re-read the whole document on every transaction, and every patch re-rendered the App.** The count is incremental now (per top-level node, cached in a `WeakMap`, `apps/write/src/wordCount.ts`) and debounced to 250 ms; the window-title effect lives in its own component so a patch no longer re-renders the App (and its `EditorContent`); the status bar and the toolbar state (`ui/useThrottledEditorState.ts`) update at most every 60 ms while typing (selection-only changes update the toolbar at once). Typing p50/p95 54/69 → 27/32 ms.
 
 Checked and not changed (the numbers did not justify it): `Recalc.changed` sorting and the 10k-cell chain patch (17 ms), `RegionSnapshot` number formatting (~1 ms of the styled snapshot), the Write sync plugin's per-transaction document walks (< 1 ms per keystroke), `GetDocument` with inline media (25 ms for 7.9 MB; the browser parses it in ~26 ms), Show thumbnails (memoized per slide; 100 render in ~1.2 s on open, a slide switch takes ~22 ms).
 
 ## Known shortfalls and follow-ups
 
-- **Write typing p95 is above the 30 ms target on a 200-page document** (a small document types in < 10 ms; a large table, laid out as one block, is slower still). Per keystroke what remains is ~20 ms for the status-bar word count, which re-reads the whole document text on every transaction (`apps/write/src/App.tsx`, owned by another task, not changed here: count incrementally with a per-top-level-node cache, or debounce), ~5 ms of React's selection bookkeeping for the re-renders each patch causes while the editor has focus, and Chromium's native editing of the large `contenteditable`. Longer term: a windowed/paged editor so the `contenteditable` holds only the visible pages.
+- **Write typing p95 vs the 30 ms target on a 200-page document:** after the fixes above p50/p95 are 27/32 ms (median of three quiet runs; the machine is shared and p95 doubles under load, so the table of a single run can show more), ~2 ms over the target. What remains is Chromium's native editing of the large `contenteditable` (insert, selection, layout of the edited block) and the ~60 ms-throttled React work. Longer term: a windowed/paged editor so the `contenteditable` holds only the visible pages.
 - Calc `ApplyStyle` over all 1M cells takes ~2.6 s: the patch carries every cell's view and the inverse every cell's old style; range-level style patches would fix it (no target).
 - The wasm 64 × 32 snapshot of a fully styled sheet (4.2 ms) is close to the 5 ms target; caching parsed number formats per snapshot is the next step if it regresses.
 - The browser measurements need Playwright, which is not a repository dependency: `PERF_FRONTEND_DIR` points at scripts kept outside the repository. Moving them into an e2e package would make `scripts/perf.sh` self-contained.
