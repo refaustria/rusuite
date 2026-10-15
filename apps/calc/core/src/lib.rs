@@ -23,6 +23,7 @@
 //! assert!(reply.contains(r#""display":"2""#));
 //! ```
 
+mod cfdv;
 mod command;
 mod dispatch;
 mod display;
@@ -30,6 +31,7 @@ mod doc;
 mod fill;
 mod patch;
 pub mod wire;
+pub mod wire_cf;
 
 pub use command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect, SheetViewPatch};
 pub use dispatch::{dispatch, CalcHost, Request, Response, ResponseBody};
@@ -37,6 +39,6 @@ pub use display::{display_value, UNDISPLAYABLE};
 pub use doc::{CalcDocument, CalcError};
 pub use fill::{plan as fill_plan, shift_input, FillItem, FillPlan};
 pub use patch::{
-    CalcPatch, CellKind, CellView, ColView, FoundCell, RegionSnapshot, RowView, SheetCells,
+    CalcPatch, CellCf, CellKind, CellView, ColView, FoundCell, RegionSnapshot, RowView, SheetCells,
     SheetCols, SheetInfo, SheetMerges, SheetRows, StructuralChange, StructuralKind, WorkbookInfo,
 };

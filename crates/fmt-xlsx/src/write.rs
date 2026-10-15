@@ -13,7 +13,7 @@ use model_sheet::{
 };
 
 use crate::a1::{cell_name, range_name};
-use crate::styles::{builtin_default_font, color_el, write_styles, MAIN_NS};
+use crate::styles::{builtin_default_font, color_el, write_styles_with_dxfs, MAIN_NS};
 use crate::xlfn::add_xlfn_prefixes;
 use crate::xml::{encode_x_escapes, fmt_num, needs_preserve, XmlOut};
 use crate::{Result, XlsxContext};
@@ -27,6 +27,7 @@ pub fn write(wb: &Workbook) -> Result<Vec<u8>> {
 /// from `ctx` (as returned by [`read_with_context`](crate::read_with_context)).
 pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     let mut sst = SharedStrings::default();
+    let dxfs = crate::condfmt::collect_dxfs(wb);
     let sheets = wb.sheets();
     // The first visible sheet is the selected (active) one.
     let active = sheets
@@ -36,7 +37,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     let sheet_xml: Vec<Vec<u8>> = sheets
         .iter()
         .enumerate()
-        .map(|(i, (id, _))| sheet_xml(wb, *id, i == active, &mut sst))
+        .map(|(i, (id, _))| sheet_xml(wb, *id, i == active, &mut sst, &dxfs))
         .collect();
     let default_font = ctx
         .default_font
@@ -67,7 +68,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     pkg.insert_part(
         pn("/xl/styles.xml")?,
         ct::SPREADSHEET_STYLES,
-        write_styles(wb.styles(), &default_font),
+        write_styles_with_dxfs(wb.styles(), &default_font, &dxfs),
     );
     rels.add(rel::STYLES, "styles.xml");
     rels.add(rel::THEME, "theme/theme1.xml");
@@ -235,7 +236,13 @@ pub(crate) fn col_runs(cols: impl IntoIterator<Item = (u32, ColInfo)>) -> Vec<(u
     runs
 }
 
-fn sheet_xml(wb: &Workbook, id: SheetId, selected: bool, sst: &mut SharedStrings) -> Vec<u8> {
+fn sheet_xml(
+    wb: &Workbook,
+    id: SheetId,
+    selected: bool,
+    sst: &mut SharedStrings,
+    dxfs: &[model_sheet::DxfStyle],
+) -> Vec<u8> {
     let format = wb.sheet_format(id);
     let mut x = XmlOut::new();
     x.start("worksheet", &[("xmlns", MAIN_NS), ("xmlns:r", rel::NS)]);
@@ -354,6 +361,7 @@ fn sheet_xml(wb: &Workbook, id: SheetId, selected: bool, sst: &mut SharedStrings
         }
         x.end("mergeCells");
     }
+    crate::condfmt::write_sheet_rules(&mut x, wb, id, dxfs);
     x.empty(
         "pageMargins",
         &[

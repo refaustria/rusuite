@@ -40,4 +40,11 @@ merges?: Array<SheetMerges>,
  * after hiding, its nearest visible neighbour (to switch to when the
  * hidden sheet was the active one).
  */
-activateSheet?: number, };
+activateSheet?: number, 
+/**
+ * Sheets whose conditional formatting results, rules or data
+ * validations may have changed (a rule command, or any cell change on
+ * a workbook with rules): the UI refetches their region snapshot (and
+ * `sheetRules` if a dialog shows them); absent = none.
+ */
+cfSheets?: Array<number>, };

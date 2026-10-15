@@ -177,6 +177,10 @@ pub(crate) struct SheetData {
     pub auto_filter: Option<crate::sortfilter::AutoFilter>,
     /// The last sort.
     pub sort_state: Option<crate::sortfilter::SortState>,
+    /// Conditional formatting rules in priority order.
+    pub conditional_formats: Vec<crate::condfmt::CfRule>,
+    /// Data validations with pairwise disjoint ranges.
+    pub validations: Vec<crate::validation::DataValidation>,
 }
 
 impl SheetData {
