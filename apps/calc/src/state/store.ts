@@ -20,6 +20,11 @@ import type { Rect } from "../generated/Rect";
 import type { CalcPatch } from "../generated/CalcPatch";
 import type { CellStyle } from "../generated/CellStyle";
 import type { CellView } from "../generated/CellView";
+import type { CfResult } from "../generated/CfResult";
+import type { CfRule } from "../generated/CfRule";
+import type { ErrorStyle } from "../generated/ErrorStyle";
+import type { QuickRuleKind } from "../condFormat/presets";
+import type { DataValidation } from "../generated/DataValidation";
 import type { ColView } from "../generated/ColView";
 import type { RegionSnapshot } from "../generated/RegionSnapshot";
 import type { RowView } from "../generated/RowView";
@@ -36,6 +41,7 @@ import { cellSelection, LAST_COL, LAST_ROW, move, normalize, type Cell, type Nav
 import { changesPartOfArray, hasSpilledCells, isFilledCell, obstructingCells, onlySpilledCells, spillAt, type SpillOutline } from "../grid/spill";
 import { intersects, mergeAnchor, mergeLookup, mergeSnapshot, partialMerge, snapSelection } from "../grid/merges";
 import { fontCss, styleAt } from "../grid/style";
+import { cfKey, dataBarAxes } from "../grid/cf";
 import { captureClip, fillDownEnd, pasteTarget, tsvClip, type Clip } from "./clipboard";
 import { findStep, replaceInInput, type FindOptions } from "./find";
 import { activeArg, applyFunction, FUNCTIONS, functionInfo, matchFunctions, signatureArgs, type FunctionInfo } from "../formula/functions";
@@ -45,6 +51,7 @@ import { isFormula } from "../formula/tokenize";
 import { checkFormula, formulaErrorMessage } from "../formula/validate";
 import { t } from "../i18n";
 import { hasFilters, recordsFound, type CustomPreset } from "../sortFilter/filter";
+import { validationAt } from "../validation/validation";
 import { currentRegion, duplicateColumns, guessHeader, sortRangeCommand, sortScope, type SortLevel } from "../sortFilter/sort";
 
 /** Snapshot blocks: 64 rows × 32 columns. */
@@ -64,6 +71,10 @@ export interface SheetCache {
   loaded: Set<string>;
   /** Array formula cells (those with a `spill`) by `spillKey`: the spill outlines' index. */
   spills: Map<number, CellView>;
+  /** Conditional formatting results of the loaded blocks by `cfKey`. */
+  cf: Map<number, CfResult>;
+  /** The data validations intersecting the loaded blocks (whole ranges). */
+  validations: DataValidation[];
 }
 
 const spillKey = (row: number, col: number) => row * (LAST_COL + 1) + col;
@@ -165,7 +176,25 @@ export type CalcDialog =
   /** Custom AutoFilter (two criteria) for column `col`, started from `preset`. */
   | { kind: "customFilter"; col: number; preset: CustomPreset }
   /** Top 10 AutoFilter for column `col`. */
-  | { kind: "top10"; col: number };
+  | { kind: "top10"; col: number }
+  /** Home › Conditional Formatting: one of the small quick-rule dialogs (Greater Than…, Top 10 Items…). */
+  | { kind: "cfQuick"; quick: QuickRuleKind }
+  /** New Formatting Rule (`rule` null) or a rule to start from. */
+  | { kind: "cfRule"; rule: CfRule | null }
+  /** Conditional Formatting Rules Manager. */
+  | { kind: "cfManage" }
+  /** Data › Data Validation…. */
+  | { kind: "dataValidation" };
+
+/** The failed check of a committed edit (Excel's Stop / Warning / Information alert). */
+export interface ValidationAlert {
+  style: ErrorStyle;
+  title: string | null;
+  message: string;
+  /** Where the commit moves on when the value is accepted. */
+  dRow: number;
+  dCol: number;
+}
 
 export interface CalcState {
   info: WorkbookInfo | null;
@@ -189,10 +218,12 @@ export interface CalcState {
   /** The copied/cut range shown with marching ants (`null`: none). */
   clipMark: { sheet: number; range: Range; cut: boolean } | null;
   dialog: CalcDialog | null;
+  /** A data validation alert over the open edit (`null`: none). */
+  validationAlert: ValidationAlert | null;
 }
 
 export function emptyCache(): SheetCache {
-  return { cells: new Map(), cols: new Map(), rows: new Map(), format: DEFAULT_FORMAT, merges: [], loaded: new Set(), spills: new Map() };
+  return { cells: new Map(), cols: new Map(), rows: new Map(), format: DEFAULT_FORMAT, merges: [], loaded: new Set(), spills: new Map(), cf: new Map(), validations: [] };
 }
 
 function isBlankCell(c: CellView): boolean {
@@ -220,6 +251,24 @@ function putCol(cache: SheetCache, c: ColView): void {
 function putRow(cache: SheetCache, r: RowView): void {
   if (r.height === null && !r.hidden && r.style === null) cache.rows.delete(r.row);
   else cache.rows.set(r.row, r);
+}
+
+/**
+ * Merges a snapshot's conditional formatting results and data validations
+ * into the cache: the snapshot is authoritative for its region (results
+ * there are replaced; validations touching it are replaced by its list).
+ */
+export function applyCfSnapshot(cache: SheetCache, snap: RegionSnapshot): void {
+  if (cache.cf.size > 0) {
+    for (const key of [...cache.cf.keys()]) {
+      const r = Math.floor(key / (LAST_COL + 1));
+      const c = key % (LAST_COL + 1);
+      if (r >= snap.r0 && r <= snap.r1 && c >= snap.c0 && c <= snap.c1) cache.cf.delete(key);
+    }
+  }
+  for (const e of snap.cf ?? []) cache.cf.set(cfKey(e.row, e.col), e.cf);
+  if (cache.validations.length > 0) cache.validations = cache.validations.filter((v) => !v.ranges.some((r) => intersects(r, snap)));
+  for (const v of snap.validations ?? []) cache.validations.push(v);
 }
 
 /** Last row/col holding a cell with input or a spilled value (−1 when none). */
@@ -275,6 +324,7 @@ export class CalcStore {
     toasts: [],
     clipMark: null,
     dialog: null,
+    validationAlert: null,
   };
   private listeners = new Set<() => void>();
   private caches = new Map<number, SheetCache>();
@@ -293,6 +343,15 @@ export class CalcStore {
   private autoRows = new Set<string>();
   /** Text measurement (the grid installs the canvas; the default estimates). */
   measure: Measure = approxMeasure;
+  /** Opens the active cell's validation list (set by the grid's overlay; Alt+↓). */
+  openValidationList: (() => void) | null = null;
+  /** A `validateInput` round trip of a commit is pending. */
+  private validating = false;
+  private cfTimer: ReturnType<typeof setTimeout> | null = null;
+  private cfPending = new Set<number>();
+  /** Debounce of the region re-fetch after patches with `cfSheets`, ms. */
+  cfRefreshDelay = 40;
+  private axesMemo = new Map<number, { version: number; axes: Map<string, number> }>();
 
   constructor(readonly api: CalcApi) {}
 
@@ -521,6 +580,7 @@ export class CalcStore {
       const vp = this.lastViewport.get(sheet);
       if (vp) void this.ensureRegion(sheet, vp.r0, vp.c0, vp.r1, vp.c1);
     }
+    if (patch.cfSheets?.length) this.invalidateCf(patch.cfSheets);
   }
 
   /** Applies a command reply; replies older than the newest seen revision are discarded (ADR 0002 §5). */
@@ -549,6 +609,7 @@ export class CalcStore {
     for (const c of snap.cols) putCol(cache, c);
     for (const r of snap.rows) putRow(cache, r);
     if (snap.merges?.length || cache.merges.length) cache.merges = mergeSnapshot(cache.merges, snap, snap.merges ?? []);
+    applyCfSnapshot(cache, snap);
     this.bump();
   }
 
@@ -991,9 +1052,10 @@ export class CalcStore {
    * An unparsable formula is not sent: the editor stays open with an
    * inline error (resolves `false`); so does a formula the core rejects.
    */
-  commitEdit(dRow: number, dCol: number): Promise<boolean> {
+  commitEdit(dRow: number, dCol: number, validated = false): Promise<boolean> {
     const edit = this.state.edit;
     if (!edit) return Promise.resolve(true);
+    if (this.state.validationAlert || this.validating) return Promise.resolve(false);
     const bad = checkFormula(edit.text);
     if (bad) {
       this.patchEdit({ error: formulaErrorMessage(bad.message), point: null, menuForced: false });
@@ -1002,6 +1064,33 @@ export class CalcStore {
     const { row, col } = edit.cell;
     const sheet = edit.sheet;
     const before = this.cache(sheet).cells.get(row)?.get(col)?.input ?? "";
+    const dv = validated || edit.text === before ? undefined : this.validationAt(row, col, sheet);
+    if (dv && dv.showError && dv.kind.type !== "any") {
+      // Data validation: the core checks the typed value first; the edit stays open meanwhile.
+      this.validating = true;
+      return this.api.validateInput(sheet, row, col, edit.text).then(
+        (res) => {
+          this.validating = false;
+          if (this.state.edit !== edit) return false;
+          if (res.ok) {
+            const done = this.commitEdit(dRow, dCol, true);
+            if (!this.state.edit) this.focusGrid();
+            return done;
+          }
+          this.set({
+            validationAlert: {
+              style: res.errorStyle ?? dv.errorStyle, title: res.title ?? null, message: res.message ?? "", dRow, dCol,
+            },
+          });
+          return false;
+        },
+        (e: unknown) => {
+          this.validating = false;
+          this.pushError(e);
+          return false;
+        },
+      );
+    }
     // Moving on skips the cells a merge covers.
     const next = move(cellSelection(row, col), dRow, dCol, false, mergeLookup(this.merges(sheet)));
     if (sheet !== this.state.activeSheet) this.showSheet(sheet, next, null);
@@ -1822,6 +1911,142 @@ export class CalcStore {
   /** "n of m records found" while a filter is set (`null`: none). */
   recordsFound(): { shown: number; total: number } | null {
     return recordsFound(this.autoFilter(), this.cache(this.state.activeSheet).rows);
+  }
+
+  // --- conditional formatting and data validation (P8-13) ----------------------
+
+  /**
+   * Conditional formatting results are only in snapshots: a patch naming
+   * a sheet in `cfSheets` makes its loaded blocks stale. The active sheet's
+   * viewport is fetched again (debounced: typing sends many patches);
+   * other sheets reload when shown.
+   */
+  private invalidateCf(sheets: readonly number[]): void {
+    for (const s of sheets) {
+      if (s === this.state.activeSheet) this.cfPending.add(s);
+      else this.caches.get(s)?.loaded.clear();
+    }
+    if (this.cfPending.size === 0) return;
+    if (this.cfTimer !== null) clearTimeout(this.cfTimer);
+    this.cfTimer = setTimeout(() => {
+      this.cfTimer = null;
+      const pending = [...this.cfPending];
+      this.cfPending.clear();
+      for (const sheet of pending) {
+        const cache = this.caches.get(sheet);
+        if (!cache) continue;
+        cache.loaded.clear();
+        const vp = this.lastViewport.get(sheet) ?? { r0: 0, c0: 0, r1: BLOCK_ROWS - 1, c1: BLOCK_COLS - 1 };
+        void this.ensureRegion(sheet, vp.r0, vp.c0, vp.r1, vp.c1);
+      }
+    }, this.cfRefreshDelay);
+  }
+
+  /** Zero axes of the data bars of `sheet` (see `dataBarAxes`), memoized per cache version. */
+  barAxes(sheet = this.state.activeSheet): Map<string, number> {
+    const m = this.axesMemo.get(sheet);
+    if (m && m.version === this.state.version) return m.axes;
+    const cache = this.cache(sheet);
+    const axes = cache.cf.size === 0 ? new Map<string, number>() : dataBarAxes(cache.cf, (r, c) => cache.cells.get(r)?.get(c));
+    this.axesMemo.set(sheet, { version: this.state.version, axes });
+    return axes;
+  }
+
+  /** The conditional formatting rules (by priority) and validations of `sheet` (empty on failure, with a toast). */
+  async sheetRules(sheet = this.state.activeSheet): Promise<{ rules: CfRule[]; validations: DataValidation[] }> {
+    let out: { rules: CfRule[]; validations: DataValidation[] } = { rules: [], validations: [] };
+    await this.guard(async () => {
+      out = await this.api.sheetRules(sheet);
+    });
+    return out;
+  }
+
+  /** The selection as a rule's "applies to" ranges (clipped like range commands). */
+  selectionRects(): Rect[] {
+    const r = this.selectionRange();
+    return [{ r0: r.r0, c0: r.c0, r1: r.r1, c1: r.c1 }];
+  }
+
+  /** Adds a rule on top of the active sheet's rules (as Excel does). */
+  addCfRule(rule: CfRule): Promise<void> {
+    return this.apply({ type: "addCfRule", sheet: this.state.activeSheet, rule: { ...rule, id: 0, priority: 1 } });
+  }
+
+  /** Applies the Rules Manager's edits as one undo step. */
+  applyCfCommands(commands: CalcCommand[]): Promise<void> {
+    return this.applyAll(commands);
+  }
+
+  /** Clear Rules from Selected Cells / from Entire Sheet. */
+  clearCf(scope: "selection" | "sheet"): Promise<void> {
+    const sheet = this.state.activeSheet;
+    if (scope === "sheet") return this.apply({ type: "clearCf", sheet, range: null });
+    const r = this.selectionRange();
+    return this.apply({ type: "clearCf", sheet, range: { r0: r.r0, c0: r.c0, r1: r.r1, c1: r.c1 } });
+  }
+
+  /** The cached data validation of a cell (`sheet` default: the active one). */
+  validationAt(row: number, col: number, sheet = this.state.activeSheet): DataValidation | undefined {
+    return validationAt(this.cache(sheet).validations, row, col);
+  }
+
+  /** The validation of the active cell. */
+  activeValidation(): DataValidation | undefined {
+    const { row, col } = this.activeAnchor();
+    return this.validationAt(row, col);
+  }
+
+  /** Data Validation OK: replaces the validation of the selection (`kind` any without messages removes it). */
+  setValidation(v: DataValidation): Promise<void> {
+    return this.apply({ type: "setValidation", sheet: this.state.activeSheet, validation: v });
+  }
+
+  /** Data Validation › Clear All: removes the validation of the selection. */
+  removeValidation(): Promise<void> {
+    const r = this.selectionRange();
+    return this.apply({ type: "removeValidation", sheet: this.state.activeSheet, range: { r0: r.r0, c0: r.c0, r1: r.r1, c1: r.c1 } });
+  }
+
+  /** The in-cell dropdown values of the active cell's list validation. */
+  async listValues(): Promise<string[]> {
+    const { row, col } = this.activeAnchor();
+    let values: string[] = [];
+    await this.guard(async () => {
+      values = await this.api.listValues(this.state.activeSheet, row, col);
+    });
+    return values;
+  }
+
+  /** A value picked from the in-cell dropdown becomes the active cell's input (valid by construction). */
+  pickListValue(value: string): Promise<void> {
+    const { row, col } = this.activeAnchor();
+    return this.apply({ type: "setInput", sheet: this.state.activeSheet, row, col, input: value });
+  }
+
+  /**
+   * The answer to a validation alert. Stop: Retry keeps editing with the
+   * text selected, Cancel discards the edit. Warning: Yes accepts the
+   * value, No keeps editing, Cancel discards. Information: OK accepts,
+   * Cancel discards.
+   */
+  answerValidation(answer: "accept" | "retry" | "cancel"): Promise<boolean> {
+    const a = this.state.validationAlert;
+    if (!a) return Promise.resolve(false);
+    this.set({ validationAlert: null });
+    const e = this.state.edit;
+    if (answer === "accept" && a.style !== "stop") {
+      const done = this.commitEdit(a.dRow, a.dCol, true);
+      if (!this.state.edit) this.focusGrid();
+      return done;
+    }
+    if (answer === "cancel" || !e) {
+      this.cancelEdit();
+      this.focusGrid();
+      return Promise.resolve(false);
+    }
+    this.patchEdit({ selStart: 0, selEnd: e.text.length, mode: "edit" });
+    this.focusEditor();
+    return Promise.resolve(false);
   }
 
   renameSheet(sheet: number, name: string): Promise<void> {

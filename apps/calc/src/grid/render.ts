@@ -5,11 +5,14 @@ import type { BorderSide } from "../generated/BorderSide";
 import type { BorderStyle } from "../generated/BorderStyle";
 import type { CellStyle } from "../generated/CellStyle";
 import type { CellView } from "../generated/CellView";
+import type { CfResult } from "../generated/CfResult";
+import type { IconSetKind } from "../generated/IconSetKind";
 import type { ColView } from "../generated/ColView";
 import type { Rect } from "../generated/Rect";
 import type { RowView } from "../generated/RowView";
 import type { AxisGeometry } from "./geometry";
 import { colName } from "./address";
+import { barSpan, cfKey, cfStyle, dataBarAxes, drawGlyph, iconGlyph, ICON_SIZE, NEGATIVE_BAR } from "./cf";
 import { intersects, mergeAt } from "./merges";
 import { axisSegments, type PaneLayout } from "./panes";
 import { isWholeCols, isWholeRows, LAST_COL, type Range } from "./Selection";
@@ -35,6 +38,10 @@ export interface SheetData {
   rowGeo: AxisGeometry;
   /** Merged ranges (absent: none). */
   merges?: readonly Rect[];
+  /** Conditional formatting results by `cfKey` (absent: none). */
+  cf?: ReadonlyMap<number, CfResult>;
+  /** Zero axes of the data bars by bar colour (see `dataBarAxes`; computed when absent). */
+  barAxes?: ReadonlyMap<string, number>;
 }
 
 export interface VisibleRange {
@@ -70,7 +77,11 @@ export type RenderOp =
       underline: boolean;
       strike: boolean;
     }
-  | { op: "line"; x1: number; y1: number; x2: number; y2: number; color: string; width: number; dash: number[] };
+  | { op: "line"; x1: number; y1: number; x2: number; y2: number; color: string; width: number; dash: number[] }
+  /** A conditional-formatting data bar: the bar rect, its colour, and the zero axis (x) when the rule has negative values. */
+  | { op: "bar"; row: number; col: number; x: number; y: number; w: number; h: number; color: string; negative: boolean; axisX?: number }
+  /** A conditional-formatting icon (`index` into `ICON_SETS[set]`), `size` px square. */
+  | { op: "icon"; row: number; col: number; x: number; y: number; size: number; set: IconSetKind; index: number };
 
 export type TextOp = Extract<RenderOp, { op: "text" }>;
 
@@ -117,6 +128,8 @@ export function computeRenderOps(
   const { colGeo, rowGeo } = sheet;
   const vis = visibleRange(vp, colGeo, rowGeo);
   const fills: RenderOp[] = [];
+  const bars: RenderOp[] = [];
+  const icons: RenderOp[] = [];
   const masks: RenderOp[] = [];
   const lines: RenderOp[] = [];
   const texts: TextOp[] = [];
@@ -132,21 +145,55 @@ export function computeRenderOps(
     const cell = rowCells?.get(c);
     return cell ? cell.style : (rowStyle ?? sheet.cols.get(c)?.style ?? 0);
   };
-  const hasFill = (id: number) => styleAt(styles, id).fill?.kind === "solid";
-  const textAttrs = (styleId: number, style: CellStyle) => {
+  const cfMap = sheet.cf;
+  const cfAt = cfMap && cfMap.size > 0 ? (r: number, c: number) => cfMap.get(cfKey(r, c)) : () => undefined;
+  const hasFill = (id: number, r: number, c: number) => {
+    if (styleAt(styles, id).fill?.kind === "solid") return true;
+    const cf = cfAt(r, c);
+    return !!cf && (!!cf.color || !!cf.dxf?.fill);
+  };
+  const resolveText = (style: CellStyle) => {
+    const u = style.font?.underline;
+    return {
+      valign: verticalAlign(style),
+      font: fontCss(style),
+      color: colorCss(style.font?.color) ?? TEXT_COLOR,
+      underline: !!u && u !== "none",
+      strike: !!style.font?.strike,
+    };
+  };
+  const textAttrs = (styleId: number, style: CellStyle, cf?: CfResult) => {
+    // A highlight rule's format is per cell: not cached.
+    if (cf?.dxf) return resolveText(cfStyle(style, cf));
     let t = textStyles.get(styleId);
     if (!t) {
-      const u = style.font?.underline;
-      t = {
-        valign: verticalAlign(style),
-        font: fontCss(style),
-        color: colorCss(style.font?.color) ?? TEXT_COLOR,
-        underline: !!u && u !== "none",
-        strike: !!style.font?.strike,
-      };
+      t = resolveText(style);
       textStyles.set(styleId, t);
     }
     return t;
+  };
+  let axes = sheet.barAxes;
+  const axisOf = (cf: CfResult) => {
+    axes ??= cfMap ? dataBarAxes(cfMap, (r, c) => sheet.cells.get(r)?.get(c)) : new Map();
+    return cf.barColor ? axes.get(JSON.stringify(cf.barColor)) : undefined;
+  };
+  /** Data bar and icon of a cell (or merged range) at its rect. */
+  const decorate = (r: number, c: number, cf: CfResult, x: number, y: number, w: number, h: number) => {
+    if (cf.bar !== undefined && cf.barColor) {
+      const axis = axisOf(cf);
+      const span = barSpan(cf.bar, axis);
+      const inner = Math.max(0, w - 4);
+      const bx = x + 2 + span.from * inner;
+      const bw = (span.to - span.from) * inner;
+      const color = span.negative ? NEGATIVE_BAR : (colorCss(cf.barColor) ?? "#638EC6");
+      if (bw > 0 && h > 4) {
+        bars.push({ op: "bar", row: r, col: c, x: bx, y: y + 2, w: bw, h: h - 5, color, negative: span.negative, ...(axis !== undefined ? { axisX: x + 2 + axis * inner } : {}) });
+      }
+    }
+    if (cf.icon !== undefined && cf.iconSet) {
+      const size = Math.min(ICON_SIZE, h - 2);
+      if (size > 4) icons.push({ op: "icon", row: r, col: c, x: x + 2, y: y + (h - size) / 2, size, set: cf.iconSet, index: cf.icon });
+    }
   };
   // Text may come from up to MAX_OVERFLOW_COLS columns outside the view.
   const t0 = Math.max(0, vis.c0 - MAX_OVERFLOW_COLS);
@@ -178,8 +225,10 @@ export function computeRenderOps(
       if (covered.size > 0 && covered.has(r * (LAST_COL + 1) + c)) continue;
       const cell = rowCells?.get(c);
       const styleId = styleIdAt(rowCells, rowStyle, c);
-      if (styleId === 0 && !cell) continue;
-      const style = styleAt(styles, styleId);
+      const cf = cfAt(r, c);
+      if (styleId === 0 && !cell && !cf) continue;
+      const style = cfStyle(styleAt(styles, styleId), cf);
+      if (cf) decorate(r, c, cf, x, y, w, h);
       if (style.fill?.kind === "solid") {
         const color = colorCss(style.fill.color);
         if (color) fills.push({ op: "fill", x, y, w, h, color });
@@ -199,12 +248,16 @@ export function computeRenderOps(
     for (const [c, cell] of rowCells) {
       if (c < t0 || c > t1 || cell.display === "") continue;
       if (rowMerges.length > 0 && merged(c)) continue;
-      const x = xOf(c);
-      const w = colGeo.size(c);
-      if (w === 0) continue;
+      const cf = cfAt(r, c);
+      if (cf?.hideValue) continue;
+      // An icon sits at the left edge: the text starts after it.
+      const shift = cf?.icon !== undefined && cf.iconSet ? ICON_SIZE + 2 : 0;
+      const x = xOf(c) + shift;
+      const w = colGeo.size(c) - shift;
+      if (w <= 0) continue;
       const styleId = cell.style;
       const style = styleAt(styles, styleId);
-      const t = textAttrs(styleId, style);
+      const t = textAttrs(styleId, style, cf);
       const align = horizontalAlign(style, cell.kind);
       const avail = w - 2 * CELL_PADDING;
       const base = { op: "text" as const, row: r, col: c, x, y, w, h, align, ...t };
@@ -232,7 +285,7 @@ export function computeRenderOps(
           for (let k = c + dir, n = 0; budget > got && n < MAX_OVERFLOW_COLS && k >= 0 && k <= LAST_COL && isEmpty(k); k += dir, n++) {
             const kw = colGeo.size(k);
             const edge = dir === 1 ? xOf(k) : xOf(k + 1);
-            if (kw > 0 && !hasFill(styleIdAt(rowCells, rowStyle, k)) && !hasFill(styleIdAt(rowCells, rowStyle, k - dir))) {
+            if (kw > 0 && !hasFill(styleIdAt(rowCells, rowStyle, k), r, k) && !hasFill(styleIdAt(rowCells, rowStyle, k - dir), r, k - dir)) {
               masks.push({ op: "fill", x: Math.round(edge) - 1, y, w: 1, h: h - 1, color: bg });
             }
             got += kw;
@@ -262,7 +315,8 @@ export function computeRenderOps(
     if (w <= 0 || h <= 0) continue;
     const anchorRow = sheet.cells.get(m.r0);
     const styleId = styleIdAt(anchorRow, sheet.rows.get(m.r0)?.style ?? null, m.c0);
-    const style = styleAt(styles, styleId);
+    const cf = cfAt(m.r0, m.c0);
+    const style = cfStyle(styleAt(styles, styleId), cf);
     const fill = style.fill?.kind === "solid" ? colorCss(style.fill.color) : undefined;
     // Covers the inner gridlines; the outer right/bottom ones stay.
     masks.push({ op: "fill", x, y, w: w - 1, h: h - 1, color: fill ?? bg });
@@ -283,9 +337,10 @@ export function computeRenderOps(
       if (left) lines.push(borderLine(left, x, ry, x, ry + rh));
       if (right) lines.push(borderLine(right, x + w, ry, x + w, ry + rh));
     }
+    if (cf) decorate(m.r0, m.c0, cf, x, y, w, h);
     const cell = anchorRow?.get(m.c0);
-    if (!cell || cell.display === "") continue;
-    const t = textAttrs(styleId, style);
+    if (!cell || cell.display === "" || cf?.hideValue) continue;
+    const t = textAttrs(styleId, styleAt(styles, styleId), cf);
     const align = horizontalAlign(style, cell.kind);
     const avail = w - 2 * CELL_PADDING;
     const base = { op: "text" as const, row: m.r0, col: m.c0, x, y, w, h, align, ...t, clipX: x, clipW: w };
@@ -302,7 +357,7 @@ export function computeRenderOps(
   for (let c = vis.c0; c <= vis.c1; c++) {
     if (colGeo.size(c) > 0) xs.push(colX[c - vis.c0 + 1]);
   }
-  return [...fills, { op: "gridlines", xs, ys, width: vp.width, height: vp.height }, ...masks, ...lines, ...texts];
+  return [...fills, ...bars, { op: "gridlines", xs, ys, width: vp.width, height: vp.height }, ...masks, ...lines, ...icons, ...texts];
 }
 
 // --- canvas painters (not unit-tested; jsdom has no canvas) -------------
@@ -354,6 +409,32 @@ export function drawOps(ctx: CanvasRenderingContext2D, ops: RenderOp[], bg: stri
         }
         ctx.stroke();
         break;
+      case "bar": {
+        // Excel's gradient fill: the colour fading to white, with a border in the colour.
+        const g = ctx.createLinearGradient(o.negative ? o.x + o.w : o.x, 0, o.negative ? o.x : o.x + o.w, 0);
+        g.addColorStop(0, o.color);
+        g.addColorStop(1, "#ffffff");
+        ctx.fillStyle = g;
+        ctx.fillRect(o.x, o.y, o.w, o.h);
+        ctx.strokeStyle = o.color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(Math.round(o.x) + 0.5, Math.round(o.y) + 0.5, Math.max(0, Math.round(o.w) - 1), Math.max(0, Math.round(o.h) - 1));
+        if (o.axisX !== undefined) {
+          ctx.beginPath();
+          ctx.strokeStyle = "#000000";
+          ctx.setLineDash([1, 1]);
+          ctx.moveTo(Math.round(o.axisX) + 0.5, o.y - 1);
+          ctx.lineTo(Math.round(o.axisX) + 0.5, o.y + o.h + 1);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        break;
+      }
+      case "icon": {
+        const glyph = iconGlyph(o.set, o.index);
+        if (glyph) drawGlyph(ctx, glyph, o.x, o.y, o.size);
+        break;
+      }
       case "line":
         ctx.beginPath();
         ctx.strokeStyle = o.color;

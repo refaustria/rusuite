@@ -59,10 +59,10 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
 
 - **Calc**: Home (Undo; Clipboard: Paste ▾ values, Cut, Copy – `calcActions`; Font incl. borders; Alignment incl. wrap and
   Merge & Center ▾ (Merge & Center – a toggle that unmerges a merged selection –, Merge Across, Merge Cells, Unmerge Cells);
-  Number: format, %, comma, decimals ±; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide
+  Number: format, %, comma, decimals ±; Styles: Conditional Formatting ▾; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide
   rows and columns, Hide Sheet / Unhide Sheet…, Format cells…); Editing: Clear, Find ▾ Replace, Sort & Filter ▾ (Sort A
   to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (New sheet, rows/columns), Data (Sort & Filter: A→Z,
-  Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
+  Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Data Validation…), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
   scaled; Window: Freeze Panes ▾ (Freeze/Unfreeze Panes, Freeze Top Row, Freeze First Column); shortcuts help). Zoom,
   gridlines, headings and frozen panes are the active sheet's `SheetView` (`setSheetView` / `setFreeze`, undoable, saved in
   the file's `<sheetView>`); the formula bar toggle is the app's.
@@ -99,6 +99,32 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   on spilled cells alone it does nothing. Copying spilled cells copies their values (with their formula they paste blank and
   spill again); spilled cells count as data for Ctrl+arrows, regions and the used range. The formula editor knows `A1#`
   (coloured over the whole spill range), `@`, `#SPILL!` and `#CALC!`.
+- **Calc conditional formatting** (P8-13, `apps/calc/src/condFormat`, `grid/cf.ts`): Home › Styles › Conditional
+  Formatting ▾ is Excel's menu with flyouts (click, Enter or → opens one, ← / Esc closes it; hover opens too):
+  Highlight Cells Rules (Greater Than… / Less Than… / Between… / Equal To… / Text that Contains… / Duplicate Values…) and
+  Top/Bottom Rules (Top/Bottom 10 Items…, 10 %…, Above/Below Average…) open Excel's small dialogs with the six presets
+  (Light Red Fill with Dark Red Text … Red Border) or Custom Format…; Data Bars (6 gradient colours), Color Scales (Excel's
+  12) and Icon Sets (17, grouped Directional / Shapes / Indicators / Ratings) apply at once; New Rule… is the full dialog
+  (the six rule types, 2-/3-colour scale, data bar and icon set editors with threshold types, cell value / specific text /
+  blanks / errors, top/bottom, average, unique/duplicate, "Use a formula"; Format… edits the dxf: font style, underline,
+  strikethrough, colours, outline border, number format); Clear Rules ▸ from the selection / the sheet; Manage Rules… lists
+  the rules by priority for the selection or the sheet (description, format sample, editable "applies to", Stop If True;
+  New / Edit / Delete, Move Up / Down) and sends its edits on OK / Apply as one compound (`manageCommands`: removals, then
+  per position a reorder, update or add). New rules go on top (priority 1). The grid draws the snapshot's `cf` results:
+  the dxf over the cell style, colour-scale fills (blank cells too), gradient data bars from the left (negative values red,
+  left of a dotted zero axis fitted from the visible values), 16 px vector icons (`ICON_SETS`, shared with the gallery SVGs
+  and the print view) with the text after them, and Show Bar/Icon Only. Patches with `cfSheets` re-fetch the active sheet's
+  viewport (debounced 40 ms; other sheets reload when shown). The print view prints fills, bars (CSS gradients) and icons
+  (inline SVG). `window.__calcCfOps` holds the last frame's bar/icon ops for the end-to-end tests.
+- **Calc data validation** (P8-13, `apps/calc/src/validation`): Data › Data Tools › Data Validation… (Settings: Allow
+  any / whole / decimal / list / date / time / text length / custom, operator, minimum/maximum or value – dates and times
+  typed as dates –, list source `a,b,c` or `=$A$1:$A$5`, Ignore blank, In-cell dropdown; Input Message; Error Alert:
+  Stop / Warning / Information, title, message; Clear All). Any value without an input message removes the validation. A
+  selected list cell shows a ▼ button right of it (also Alt+↓) with the core's `listValues`; a picked value is written
+  directly. The input message shows as a yellow note under the selected cell. Committing an edit in a validated cell asks
+  the core (`validateInput`) first; a failed check shows Excel's alert while the editor stays open: Stop → Retry (back to
+  the edit, text selected) / Cancel (discard); Warning "Continue?" → Yes (keep) / No (back) / Cancel; Information → OK /
+  Cancel. Paste and fill are not checked (as in Excel); Circle Invalid Data is not offered.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).

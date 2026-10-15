@@ -2,7 +2,9 @@
 // Cells (number format, Ctrl+1), Find & Replace (Ctrl+F / Ctrl+H), the
 // row height / column width prompts, the sheet dialogs (confirm
 // delete, rename, tab colour, unhide), the merge warning and the sort /
-// AutoFilter dialogs (sortFilter/SortFilterDialogs.tsx).
+// AutoFilter dialogs (sortFilter/SortFilterDialogs.tsx), conditional
+// formatting (condFormat/CfDialogs.tsx) and data validation
+// (validation/ValidationDialogs.tsx).
 
 import { useEffect, useRef, useState } from "react";
 import { cssColor, Dialog, OFFICE_THEME, PromptDialog, STANDARD_COLORS, THEME_SLOTS, type Color } from "@rusuite/ui-shared";
@@ -12,6 +14,8 @@ import {
 import type { FindOptions } from "./state/find";
 import { unhideableSheets, useCalc, type CalcStore } from "./state/store";
 import { useT } from "./i18n";
+import { CfDialog } from "./condFormat/CfDialogs";
+import { ValidationDialog } from "./validation/ValidationDialogs";
 import { CustomFilterDialog, CustomSortDialog, FilterPanel, SortExpandDialog, Top10Dialog } from "./sortFilter/SortFilterDialogs";
 
 const BTN = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover disabled:opacity-40";
@@ -421,6 +425,12 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       return <CustomFilterDialog store={store} col={dialog.col} preset={dialog.preset} />;
     case "top10":
       return <Top10Dialog store={store} col={dialog.col} />;
+    case "cfQuick":
+    case "cfRule":
+    case "cfManage":
+      return <CfDialog store={store} dialog={dialog} />;
+    case "dataValidation":
+      return <ValidationDialog store={store} />;
     case "mergeConfirm":
       return (
         <Dialog open title={t("calc.mergeCells")} onClose={close}>

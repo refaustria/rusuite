@@ -8,6 +8,7 @@ import { Dialog, openBackstage, PromptDialog, ShortcutHelp, useShortcuts, withEx
 import { colSelection, isWholeCols, isWholeRows, normalize, rowSelection } from "./grid/Selection";
 import { calcActions } from "./calcActions";
 import { CalcDialogs } from "./CalcDialogs";
+import { ValidationAlertDialog } from "./validation/ValidationDialogs";
 import { t as translate, useT } from "./i18n";
 import type { CalcStore } from "./state/store";
 
@@ -159,6 +160,7 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       />
       <StructureDialog kind={structure} store={store} onClose={() => setStructure(null)} />
       <CalcDialogs store={store} />
+      <ValidationAlertDialog store={store} />
     </>
   );
 }

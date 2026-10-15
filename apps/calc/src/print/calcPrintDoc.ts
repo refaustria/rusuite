@@ -8,6 +8,8 @@ import type { CalcStore } from "../state/store";
 import { loadUsedRange } from "./loadUsed";
 import { CALC_MARGINS, HEADING_COL_PX, HEADING_ROW_PX, colLetters, paginate, printableArea, type CalcPrintOptions, type PageSlice } from "./layout";
 import { buildPrintTable, type PrintTable } from "./printTable";
+import type { IconSetKind } from "../generated/IconSetKind";
+import { iconGlyph } from "../grid/cf";
 
 /** One sheet (or the selection) to print. */
 export interface CalcPrintPart {
@@ -29,6 +31,16 @@ export const CALC_PRINT_CSS = `.rs-calc-body { position: absolute; }
 .rs-calc-table td { overflow: hidden; white-space: nowrap; padding: 0 3px; box-sizing: border-box; line-height: 1.1; }
 .rs-calc-table.rs-grid td { border: 1px solid #c8c8c8; }
 .rs-calc-table th { overflow: hidden; white-space: nowrap; padding: 0 2px; background: #efefef; border: 1px solid #a6a6a6; font: 8pt Arial, sans-serif; color: #333; text-align: center; }`;
+
+/** A conditional-formatting icon as inline SVG (the canvas glyph), floated left of the cell text. */
+export function iconHtml(set: IconSetKind, index: number): string {
+  const glyph = iconGlyph(set, index);
+  if (!glyph) return "";
+  const paths = glyph
+    .map((p) => `<path d="${p.d}" fill="${p.fill}" fill-rule="evenodd"${p.stroke ? ` stroke="${p.stroke}"` : ""}/>`)
+    .join("");
+  return `<svg class="rs-cf-icon" width="14" height="14" viewBox="0 0 16 16" style="float:left;margin-top:1px">${paths}</svg>`;
+}
 
 /** The `<table>` of one page slice. */
 export function sliceTableHtml(table: PrintTable, slice: PageSlice, o: Pick<CalcPrintOptions, "gridlines" | "headings">): string {
@@ -56,7 +68,7 @@ export function sliceTableHtml(table: PrintTable, slice: PageSlice, o: Pick<Calc
             for (let dr = 0; dr < rows; dr++) for (let dc = 0; dc < cols; dc++) if (dr || dc) taken.add(`${p + dr}:${ci + dc}`);
             attrs = `${cols > 1 ? ` colspan="${cols}"` : ""}${rows > 1 ? ` rowspan="${rows}"` : ""}`;
           }
-          return `<td${attrs} style="${styleText(c.style)}">${escapeHtml(c.text)}</td>`;
+          return `<td${attrs} style="${styleText(c.style)}">${c.icon ? iconHtml(c.icon.set, c.icon.index) : ""}${escapeHtml(c.text)}</td>`;
         })
         .join("");
       return `<tr style="height:${r.height}px" data-row="${r.row}">${o.headings ? `<th>${r.row + 1}</th>` : ""}${cells}</tr>`;

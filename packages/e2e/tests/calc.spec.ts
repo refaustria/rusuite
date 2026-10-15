@@ -534,4 +534,119 @@ test.describe("Calc", () => {
     await expect(page.getByRole("button", { name: "Spill error" })).toHaveCount(0);
     errors.expectNone();
   });
+
+  test("conditional formatting: Greater Than… colours the matching cell; the saved file has the cfRule", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "3");
+    await grid.type(1, 0, "8");
+    await grid.click(0, 0);
+    await grid.click(1, 0, { shift: true });
+    await page.getByRole("tab", { name: "Home" }).click();
+    await page.getByRole("button", { name: "Conditional Formatting" }).click();
+    await page.getByRole("menuitem", { name: "Highlight Cells Rules" }).click();
+    await page.getByRole("menuitem", { name: "Greater Than…" }).click();
+    const dlg = page.getByRole("dialog", { name: "Greater Than" });
+    await dlg.getByLabel("Value").fill("5");
+    await dlg.getByRole("button", { name: "OK" }).click();
+    // Light red fill (FFC7CE) in A2 only (left part of the cells: the numbers are right-aligned).
+    const LIGHT_RED: [number, number, number] = [0xff, 0xc7, 0xce];
+    const a2: [number, number][] = [[6, 26], [10, 30], [20, 34]];
+    const a1: [number, number][] = [[6, 6], [10, 10], [20, 14]];
+    await expect.poll(() => edgePixels(page, a2, LIGHT_RED)).toBe(3);
+    expect(await edgePixels(page, a1, LIGHT_RED)).toBe(0);
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-cf-greater-than.png` });
+    const xlsx = await saveViaBackstage(page);
+    const sheet1 = zipText(xlsx, "xl/worksheets/sheet1.xml");
+    expect(sheet1).toMatch(/<conditionalFormatting sqref="A1:A2">\s*<cfRule type="cellIs"[^>]*operator="greaterThan"/);
+    expect(zipText(xlsx, "xl/styles.xml")).toMatch(/<dxfs count="\d+">/);
+    errors.expectNone();
+  });
+
+  test("conditional formatting: the Data Bars gallery draws a bar per value (render-op hook)", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    for (const [i, v] of ["1", "2", "3", "4"].entries()) await grid.type(i, 0, v);
+    await grid.click(0, 0);
+    await grid.click(3, 0, { shift: true });
+    await page.getByRole("tab", { name: "Home" }).click();
+    await page.getByRole("button", { name: "Conditional Formatting" }).click();
+    await page.getByRole("menuitem", { name: "Data Bars" }).click();
+    await page.getByRole("menuitem", { name: "Blue Data Bar", exact: true }).click();
+    const bars = () =>
+      page.evaluate(() =>
+        ((window as unknown as { __calcCfOps?: { op: string; row: number; w: number; negative: boolean }[] }).__calcCfOps ?? [])
+          .filter((o) => o.op === "bar")
+          .map((o) => ({ row: o.row, w: Math.round(o.w), negative: o.negative })),
+      );
+    await expect.poll(async () => (await bars()).length).toBe(4);
+    const list = await bars();
+    expect(list.map((b) => b.row)).toEqual([0, 1, 2, 3]);
+    for (let i = 1; i < 4; i++) expect(list[i]!.w).toBeGreaterThan(list[i - 1]!.w);
+    expect(list.every((b) => !b.negative)).toBe(true);
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-cf-data-bars.png` });
+    errors.expectNone();
+  });
+
+  test("data validation: a list's in-cell dropdown picks a value", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.click(1, 1);
+    await page.getByRole("tab", { name: "Data" }).click();
+    await page.getByRole("button", { name: "Data Validation" }).click();
+    const dlg = page.getByRole("dialog", { name: "Data Validation" });
+    await dlg.getByLabel("Allow:").selectOption("list");
+    await dlg.getByLabel("Source:").fill("pear,apple,fig");
+    await dlg.getByRole("tab", { name: "Input Message" }).click();
+    await dlg.getByLabel("Title:").fill("Fruit");
+    await dlg.getByLabel("Input message:").fill("Pick one from the list");
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(page.getByTestId("validation-input-message")).toContainText("Pick one from the list");
+    await page.getByRole("button", { name: "Show list" }).click();
+    const list = page.getByRole("listbox", { name: "Allowed values" });
+    await expect(list.getByRole("option")).toHaveText(["pear", "apple", "fig"]);
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-dv-list.png` });
+    await list.getByRole("option", { name: "fig" }).click();
+    await expect.poll(() => grid.input(1, 1)).toBe("fig");
+    const xlsx = await saveViaBackstage(page);
+    expect(zipText(xlsx, "xl/worksheets/sheet1.xml")).toMatch(/<dataValidation [^>]*type="list"[^>]*sqref="B2"/);
+    errors.expectNone();
+  });
+
+  test("data validation: a Stop alert keeps the editor open; Retry returns to it, Cancel restores the cell", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.click(0, 0);
+    await page.getByRole("tab", { name: "Data" }).click();
+    await page.getByRole("button", { name: "Data Validation" }).click();
+    const dlg = page.getByRole("dialog", { name: "Data Validation" });
+    await dlg.getByLabel("Allow:").selectOption("whole");
+    await dlg.getByLabel("Data:").selectOption("lessThan");
+    await dlg.getByLabel("Value:").fill("10");
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(dlg).toHaveCount(0);
+    await grid.click(0, 0);
+    await page.keyboard.type("42");
+    await page.keyboard.press("Enter");
+    const alert = page.getByTestId("validation-alert");
+    await expect(alert).toBeVisible();
+    await expect(alert).toHaveAttribute("data-style", "stop");
+    await expect(page.getByTestId("cell-editor")).toHaveCount(1);
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-dv-stop.png` });
+    await alert.getByRole("button", { name: "Retry" }).click();
+    await expect(alert).toHaveCount(0);
+    await expect(page.getByTestId("cell-editor")).toHaveValue("42");
+    await page.keyboard.press("Enter");
+    await page.getByTestId("validation-alert").getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByTestId("cell-editor")).toHaveCount(0);
+    expect(await grid.input(0, 0)).toBe("");
+    // A valid value goes through.
+    await grid.type(0, 0, "7");
+    expect(await grid.input(0, 0)).toBe("7");
+    errors.expectNone();
+  });
 });
