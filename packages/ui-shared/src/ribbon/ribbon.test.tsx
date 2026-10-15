@@ -8,7 +8,7 @@ import { FakeCore, fakeBackend } from "../recent/testing";
 import { useShortcuts } from "../shortcuts/useShortcuts";
 import { RibbonButton, RibbonDivider, RibbonMenuButton, RibbonSplitButton, ribbonTooltip } from "./controls";
 import { RibbonGallery, RibbonTableSizePicker } from "./gallery";
-import { Ribbon, visibleTabs, type RibbonProps, type RibbonTab } from "./Ribbon";
+import { openBackstage, Ribbon, visibleTabs, type RibbonProps, type RibbonTab } from "./Ribbon";
 import { comboEventInit, triggerShortcut } from "./triggerShortcut";
 
 afterEach(cleanup);
@@ -255,6 +255,31 @@ describe("Backstage", () => {
     }
     await user.click(tab("File"));
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
+
+  it("Print page: the File › Print entry and openBackstage(\"print\") show it; Home goes back", async () => {
+    const { user } = setup({ backstage: { onExportPdf: vi.fn(), print: <div data-testid="print-panel"><button type="button">Print it</button></div> } });
+    await user.click(tab("File"));
+    const view = screen.getByRole("dialog", { name: "File" });
+    expect(within(view).queryByTestId("print-panel")).toBeNull();
+    await user.click(within(view).getByRole("button", { name: "Print" }));
+    expect(within(view).getByTestId("print-panel")).toBeTruthy();
+    expect(within(view).getByRole("button", { name: "Print" }).getAttribute("aria-current")).toBe("page");
+    expect(document.activeElement?.textContent).toBe("Print it");
+    await user.click(within(view).getByRole("button", { name: "Home" }));
+    expect(within(view).queryByTestId("print-panel")).toBeNull();
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "File" })).toBeNull();
+    act(() => void expect(openBackstage("print")).toBe(true));
+    expect(within(screen.getByRole("dialog", { name: "File" })).getByTestId("print-panel")).toBeTruthy();
+  });
+
+  it("without a ribbon openBackstage reports that nobody took it; a disabled print falls back to Home", () => {
+    expect(openBackstage("print")).toBe(false);
+    setup({ backstage: { exportDisabled: true, print: <div data-testid="print-panel" /> } });
+    act(() => void openBackstage("print"));
+    expect(screen.queryByTestId("print-panel")).toBeNull();
+    expect(screen.getByRole("dialog", { name: "File" })).toBeTruthy();
   });
 
   it("lists the recent files of the session and re-opens one", async () => {

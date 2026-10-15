@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { PromptDialog, ShortcutHelp, useShortcuts, withExtension, type HelpRow, type ShortcutMap } from "@rusuite/ui-shared";
+import { openBackstage, PromptDialog, ShortcutHelp, useShortcuts, withExtension, type HelpRow, type ShortcutMap } from "@rusuite/ui-shared";
 import type { Alignment } from "./generated/Alignment";
 import { indent, setAlignment, setParagraphStyle, styleOf } from "./sync/editorCommands";
 import { clearFormatting, setLineSpacingRule, toggleSpaceBefore } from "./features/formatting";
@@ -39,7 +39,6 @@ export interface WriteShortcutProps {
   /** Ctrl+H (default: `onFind`). */
   onReplace?: () => void;
   features?: WriteFeatures;
-  onExportPdf: () => void;
 }
 
 /** Heading level toggle: pressing it again returns to Normal. */
@@ -57,7 +56,7 @@ function toggleHeading(editor: Editor, level: number): void {
   setParagraphStyle(editor, current === id ? "Normal" : id);
 }
 
-export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, onFind, onReplace, features, onExportPdf }: WriteShortcutProps) {
+export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, onFind, onReplace, features }: WriteShortcutProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
 
@@ -87,7 +86,7 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
       "Mod+O": { label: "Open", group: File, inField: true, run: () => void onOpen() },
       "Mod+S": { label: "Save", group: File, inField: true, run: () => void onSave() },
       "Mod+Shift+S": { label: "Save as", group: File, inField: true, run: () => setSaveAsOpen(true) },
-      "Mod+P": { label: "Export PDF…", group: File, inField: true, run: () => onExportPdf() },
+      "Mod+P": { label: "Print (File › Print: settings and preview)", group: File, inField: true, run: () => void openBackstage("print") },
       "Mod+/": { label: "Keyboard shortcuts", inField: true, run: () => setHelpOpen(true) },
       "Mod+F": { label: "Find and replace", group: "Edit", inField: true, run: () => onFind() },
       "Mod+H": { label: "Replace", group: "Edit", inField: true, run: () => (onReplace ?? onFind)() },
@@ -126,7 +125,7 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
       },
       ...headings,
     };
-  }, [editor, ctl, onNew, onOpen, onSave, onFind, onReplace, features, onExportPdf]);
+  }, [editor, ctl, onNew, onOpen, onSave, onFind, onReplace, features]);
 
   useShortcuts(map);
 

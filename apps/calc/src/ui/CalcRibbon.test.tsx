@@ -152,7 +152,7 @@ describe("Calc ribbon", () => {
     expect(screen.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeTruthy();
   });
 
-  it("File › Save As… asks for a name; File › Export PDF… opens the setup", async () => {
+  it("File › Save As… asks for a name; File › Print shows the print settings", async () => {
     const { core } = await setup();
     fireEvent.click(tab("File"));
     fireEvent.click(screen.getByRole("button", { name: "Save As…" }));
@@ -162,8 +162,9 @@ describe("Calc ribbon", () => {
     fireEvent.submit(input.closest("form")!);
     await waitFor(() => expect(core.log.find((r) => r.type === "saveXlsx")).toBeTruthy());
     fireEvent.click(tab("File"));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "File" })).getByRole("button", { name: "Export PDF…" }));
-    expect(await screen.findByRole("dialog", { name: "Export PDF" })).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "File" })).getByRole("button", { name: "Print" }));
+    expect(await screen.findByTestId("print-panel")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Export PDF…" })).toBeTruthy();
   });
 
   it("File › New and File › Close ask before discarding changes", async () => {

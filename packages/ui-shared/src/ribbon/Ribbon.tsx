@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { FOCUS_RING } from "../Popover";
-import { Backstage, type BackstageActions } from "./Backstage";
+import { Backstage, type BackstageActions, type BackstagePage } from "./Backstage";
 import { RibbonIcon } from "./icons";
 
 export interface RibbonGroup {
@@ -50,6 +50,16 @@ export interface RibbonProps {
   globalKeys?: boolean;
 }
 
+/** Window event that opens the File backstage on a page (`detail`: `BackstagePage`). */
+export const OPEN_BACKSTAGE_EVENT = "rusuite:open-backstage";
+
+/** Opens the backstage of the window's ribbon on `page` (Ctrl+P → File › Print). Returns whether a ribbon took it. */
+export function openBackstage(page: BackstagePage = "home"): boolean {
+  const e = new CustomEvent<BackstagePage>(OPEN_BACKSTAGE_EVENT, { detail: page, cancelable: true });
+  window.dispatchEvent(e);
+  return e.defaultPrevented;
+}
+
 const hasItems = (g: RibbonGroup) => g.items !== null && g.items !== undefined && g.items !== false && !(Array.isArray(g.items) && g.items.filter(Boolean).length === 0);
 
 /** Tabs with their empty groups removed; tabs left without groups are dropped. */
@@ -68,6 +78,7 @@ export function Ribbon({
   const [innerCollapsed, setInnerCollapsed] = useState(defaultCollapsed);
   const [peek, setPeek] = useState(false);
   const [backstageOpen, setBackstageOpen] = useState(false);
+  const [backstagePage, setBackstagePage] = useState<BackstagePage>("home");
   const collapsed = collapsedProp ?? innerCollapsed;
   const requested = activeTab ?? innerTab;
   const active = shown.find((t) => t.id === requested) ?? shown[0];
@@ -96,6 +107,7 @@ export function Ribbon({
   const activate = (id: string) => {
     if (id === "file") {
       setPeek(false);
+      setBackstagePage("home");
       setBackstageOpen(true);
       return;
     }
@@ -159,6 +171,21 @@ export function Ribbon({
       window.removeEventListener("blur", reset);
     };
   }, [globalKeys, setCollapsed]);
+
+  // `openBackstage(page)` (e.g. the app's Ctrl+P).
+  const hasBackstage = !!backstage;
+  useEffect(() => {
+    if (!hasBackstage) return;
+    const onOpen = (e: Event) => {
+      e.preventDefault();
+      if (!backstageOpen) rememberFocus();
+      setPeek(false);
+      setBackstagePage((e as CustomEvent<BackstagePage>).detail ?? "home");
+      setBackstageOpen(true);
+    };
+    window.addEventListener(OPEN_BACKSTAGE_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_BACKSTAGE_EVENT, onOpen);
+  });
 
   // A temporarily shown (collapsed) tab closes on a click elsewhere.
   useEffect(() => {
@@ -323,7 +350,7 @@ export function Ribbon({
         </div>
       )}
       {backstage && (
-        <Backstage {...backstage} open={backstageOpen} onClose={closeBackstage} appName={appName} documentTitle={documentTitle} accent={accent} />
+        <Backstage {...backstage} open={backstageOpen} page={backstagePage} onPage={setBackstagePage} onClose={closeBackstage} appName={appName} documentTitle={documentTitle} accent={accent} />
       )}
     </div>
   );

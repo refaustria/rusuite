@@ -4,7 +4,7 @@
 // ShortcutLayer (Save As, New with its discard prompt, shortcut help), the
 // shortcut map.
 
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   AlignmentControls, BordersDropdown, ColorControls, FontControls, NumberFormatSelect, RIBBON_SELECT, Ribbon, RibbonButton,
   RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack, StyleToggles, triggerShortcut, type AnySession, type CellStylePatch,
@@ -47,11 +47,13 @@ export interface CalcRibbonProps {
   store: CalcStore;
   session: AnySession;
   onExportPdf: () => void;
+  /** File › Print page (settings and preview). */
+  print?: ReactNode;
   view: CalcView;
   onViewChange: (v: CalcView) => void;
 }
 
-export function CalcRibbon({ store, session, onExportPdf, view, onViewChange }: CalcRibbonProps) {
+export function CalcRibbon({ store, session, onExportPdf, print, view, onViewChange }: CalcRibbonProps) {
   useCalc(store, (s) => s.version);
   useCalc(store, (s) => s.selection);
   const activeSheet = useCalc(store, (s) => s.activeSheet);
@@ -331,6 +333,7 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange }: 
         onSave: () => void store.saveFile(),
         onSaveAs: () => triggerShortcut("Mod+Shift+S"),
         onExportPdf,
+        print,
         onCloseDocument: () => triggerShortcut("Mod+N"),
       }}
     />

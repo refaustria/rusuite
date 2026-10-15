@@ -61,19 +61,20 @@ export function cellCss(style: CellStyle, kind: Parameters<typeof horizontalAlig
 }
 
 /**
- * Builds the table for rows/cols `0..=lastRow × 0..=lastCol` of a sheet
- * cache; hidden rows and columns are left out. Cell style resolution is as
- * on the canvas (cell → row → column → default).
+ * Builds the table for rows/cols `firstRow..=lastRow × firstCol..=lastCol`
+ * of a sheet cache (a selection; default from A1); hidden rows and columns
+ * are left out. Cell style resolution is as on the canvas (cell → row →
+ * column → default).
  */
-export function buildPrintTable(cache: SheetCache, styles: readonly CellStyle[], lastRow: number, lastCol: number): PrintTable {
+export function buildPrintTable(cache: SheetCache, styles: readonly CellStyle[], lastRow: number, lastCol: number, firstRow = 0, firstCol = 0): PrintTable {
   const cols: PrintTable["cols"] = [];
-  for (let c = 0; c <= lastCol; c++) {
+  for (let c = firstCol; c <= lastCol; c++) {
     const v = cache.cols.get(c);
     if (v?.hidden) continue;
     cols.push({ col: c, width: v?.width != null ? colWidthPx(v.width) : colWidthPx(cache.format.defaultColWidth) });
   }
   const rows: PrintRow[] = [];
-  for (let r = 0; r <= lastRow; r++) {
+  for (let r = firstRow; r <= lastRow; r++) {
     const v = cache.rows.get(r);
     if (v?.hidden) continue;
     const height = v?.height != null ? rowHeightPx(v.height) : rowHeightPx(cache.format.defaultRowHeight);

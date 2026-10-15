@@ -3,7 +3,7 @@
 // (state/shortcuts.ts) and `ShowStore.shortcut`.
 
 import { useMemo, useState } from "react";
-import { PromptDialog, ShortcutHelp, fromField, useShortcuts, withExtension, type ShortcutEntry, type ShortcutMap, type UnsavedGuard } from "@rusuite/ui-shared";
+import { openBackstage, PromptDialog, ShortcutHelp, fromField, useShortcuts, withExtension, type ShortcutEntry, type ShortcutMap, type UnsavedGuard } from "@rusuite/ui-shared";
 import type { RunProperties } from "../../../packages/ui-shared/src/generated/RunProperties";
 import { shortcutFor } from "./state/shortcuts";
 import type { ShowStore } from "./state/store";
@@ -19,8 +19,6 @@ export interface ShowShortcutProps {
   onPresent: (fromStart: boolean) => void;
   /** Starts the presenter view (notes and timer here, the slide in a second window). */
   onPresenterView: () => void;
-  /** Opens the print view (Export PDF…). */
-  onExportPdf: () => void;
 }
 
 /** Entry running the slide-editor action `shortcutFor` derives from the key event. */
@@ -35,7 +33,7 @@ function action(store: ShowStore, label: string, group: string): ShortcutEntry {
   };
 }
 
-export function ShortcutLayer({ store, guard, enabled, onPresent, onPresenterView, onExportPdf }: ShowShortcutProps) {
+export function ShortcutLayer({ store, guard, enabled, onPresent, onPresenterView }: ShowShortcutProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
 
@@ -70,7 +68,15 @@ export function ShortcutLayer({ store, guard, enabled, onPresent, onPresenterVie
       "Mod+O": { label: "Open", group: File, inField: true, run: fileIo(() => void guard.run(() => store.open())) },
       "Mod+S": { label: "Save", group: File, inField: true, run: fileIo(() => void store.save()) },
       "Mod+Shift+S": { label: "Save as", group: File, inField: true, run: fileIo(() => setSaveAsOpen(true)) },
-      "Mod+P": { label: "Export PDF…", group: File, inField: true, run: () => onExportPdf() },
+      "Mod+P": {
+        label: "Print (File › Print: settings and preview)",
+        group: File,
+        inField: true,
+        run: () => {
+          void store.commitEdit();
+          openBackstage("print");
+        },
+      },
       "Mod+/": { label: "Keyboard shortcuts", inField: true, run: () => setHelpOpen(true) },
       F5: { label: "Present from the first slide", group: "Slide show", run: () => onPresent(true) },
       "Shift+F5": { label: "Present from the current slide", group: "Slide show", run: () => onPresent(false) },
@@ -108,7 +114,7 @@ export function ShortcutLayer({ store, guard, enabled, onPresent, onPresenterVie
       "Shift+ArrowUp": slide("Nudge up by 10"),
       "Shift+ArrowDown": slide("Nudge down by 10"),
     };
-  }, [store, guard, onPresent, onPresenterView, onExportPdf]);
+  }, [store, guard, onPresent, onPresenterView]);
 
   useShortcuts(map, { enabled });
 

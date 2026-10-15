@@ -189,6 +189,18 @@ describe("TauriBackend", () => {
     expect(await b.saveFile("cancel.xlsx", "UEs=")).toBe(false);
   });
 
+  it("prints through the shell's print_webview, falling back to window.print", async () => {
+    const spy = vi.spyOn(window, "print").mockImplementation(() => {});
+    vi.mocked(invoke).mockResolvedValueOnce(null);
+    await new TauriBackend().print();
+    expect(invoke).toHaveBeenLastCalledWith("print_webview");
+    expect(spy).not.toHaveBeenCalled();
+    vi.mocked(invoke).mockRejectedValueOnce(new Error("no print"));
+    await new TauriBackend().print();
+    expect(spy).toHaveBeenCalledOnce();
+    spy.mockRestore();
+  });
+
   it("sets the window title", async () => {
     await new TauriBackend().setTitle("x – Rusuite Calc");
     expect(setTitle).toHaveBeenCalledWith("x – Rusuite Calc");

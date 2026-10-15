@@ -209,6 +209,8 @@ export interface WriteRibbonProps {
   onFind: () => void;
   onReplace?: () => void;
   onExportPdf: () => void;
+  /** File › Print page (settings and preview). */
+  print?: ReactNode;
   zoom: number;
   onZoom: (zoom: number) => void;
 }
@@ -220,7 +222,7 @@ function selectionInfo(e: Editor): { table: TableContext | null; image: { node: 
   return { table: tableContext(e.state), image: selectedImage(e.state) };
 }
 
-export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSave, onFind, onReplace, onExportPdf, zoom, onZoom }: WriteRibbonProps) {
+export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSave, onFind, onReplace, onExportPdf, print, zoom, onZoom }: WriteRibbonProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const canUndo = useSync(ctl, (s) => s.canUndo);
   const canRedo = useSync(ctl, (s) => s.canRedo);
@@ -819,6 +821,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         onSave,
         onSaveAs: () => triggerShortcut("Mod+Shift+S"),
         onExportPdf,
+        print,
         onCloseDocument: () => triggerShortcut("Mod+N"),
       }}
     />
