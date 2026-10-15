@@ -67,7 +67,25 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Mod+E, Mod+L, Mod+R, Mod+J | Center, left, right, justify |
 | Mod+Shift+L | Bulleted list |
 | Mod+Alt+1..3 | Heading 1..3 (Tiptap also binds 4..6) |
-| Mod+F, Mod+H | Find and replace |
+| Mod+F | Find: the find bar highlights every match in the document; Enter / Shift+Enter (or ↓ / ↑) go to the next / previous match; Esc closes it and removes the highlights |
+| Mod+H | Find and replace (the bar with the replace field: Replace = the current match, Replace all = Rust `FindReplace`) |
+| Mod+=, Mod+Shift+= | Subscript, superscript (bound in the editor) |
+| Mod+Space | Clear character formatting of the selection (bound in the editor) |
+| Mod+Shift+N | Clear all formatting (the paragraph becomes Normal) |
+| Mod+Shift+C, Mod+Shift+V | Copy formatting (format painter stays on until Esc), paste formatting onto the selection |
+| Mod+1, Mod+2, Mod+5 | Line spacing single, double, 1.5 |
+| Mod+0 | Add / remove 12 pt space before the paragraph |
+| Mod+M, Mod+Shift+M | Increase, decrease indent (list level inside lists) |
+| Tab, Shift+Tab | In a table: next / previous cell; Tab in the last cell appends a row (formatted like the last one) |
+| Esc | Stops the format painter |
+
+### Mouse
+
+- **Pictures**: click selects a picture and shows eight handles; dragging a corner resizes proportionally, a side handle changes one dimension (one `SetImageSize` on release). Delete / Backspace removes a selected picture. Pictures pasted (Ctrl+V of a screenshot or copied image) or dropped on the page are inserted at the caret / drop point, scaled to the text width.
+- **Tables**: the pointer becomes a resize cursor on a cell's right border; dragging moves the border (the neighbouring column gives or takes the difference, the last border widens the table) → `SetTableProps { colWidths }`.
+- **Right-click** in the document: Cut/Copy/Paste, picture commands (alt text, reset size, delete) on a picture, table commands (insert rows above/below, columns left/right, delete rows/columns/table, row height…) in a table, Paragraph…, Clear formatting.
+- **Format painter** (Home › Clipboard): click copies the formatting at the caret for one use, double-click keeps it on; the next mouse selection (or the word clicked) gets it.
+- **Headers and footers** are shown greyed in the page margins (print layout); double-click one to edit both in the Header and footer dialog (`{PAGE}` = page number).
 
 ## Show
 

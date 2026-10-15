@@ -527,9 +527,110 @@ export class FakeWriteBackend implements WriteBackend {
         for (const sub of c.commands) this.exec(sub, idMap);
         return null;
       }
+      case "insertTableRow": {
+        const t = this.table(c.table);
+        if (c.at > t.rows.length) throw new Fail("invalid_command", `row ${c.at} out of range`);
+        const model = t.rows[Math.min(Math.max(0, c.at - 1), t.rows.length - 1)]!;
+        t.rows.splice(c.at, 0, {
+          id: this.alloc(),
+          cells: model.cells.map((m) => ({
+            id: this.alloc(),
+            ...(m.props ? { props: structuredClone(m.props) } : {}),
+            blocks: [{ kind: "paragraph", value: { id: this.alloc(), inlines: [] } } as Block],
+          })),
+        });
+        return null;
+      }
+      case "deleteTableRow": {
+        const t = this.table(c.table);
+        if (c.at >= t.rows.length || t.rows.length === 1) throw new Fail("invalid_command", `cannot delete row ${c.at}`);
+        t.rows.splice(c.at, 1);
+        return null;
+      }
+      case "insertTableCol": {
+        const t = this.table(c.table);
+        for (const r of t.rows) {
+          if (c.at > r.cells.length) throw new Fail("invalid_command", `column ${c.at} out of range`);
+          r.cells.splice(c.at, 0, { id: this.alloc(), blocks: [{ kind: "paragraph", value: { id: this.alloc(), inlines: [] } } as Block] });
+        }
+        const w = t.props?.colWidths;
+        if (w?.length) w.splice(c.at, 0, w[Math.min(Math.max(0, c.at - 1), w.length - 1)]!);
+        return null;
+      }
+      case "deleteTableCol": {
+        const t = this.table(c.table);
+        if (t.rows.some((r) => c.at >= r.cells.length || r.cells.length === 1)) throw new Fail("invalid_command", `cannot delete column ${c.at}`);
+        for (const r of t.rows) r.cells.splice(c.at, 1);
+        t.props?.colWidths?.splice(c.at, 1);
+        return null;
+      }
+      case "setCellProps": {
+        for (const id of c.cells) {
+          const cell = this.cell(id);
+          const props = { ...(cell.props ?? {}), ...Object.fromEntries(Object.entries(c.patch).filter(([, v]) => v != null)) };
+          if (c.patch.shading?.kind === "auto") delete props.shading;
+          cell.props = props;
+        }
+        return null;
+      }
+      case "setTableProps": {
+        const t = this.table(c.table);
+        const props = { ...(t.props ?? {}) };
+        if (c.patch.colWidths?.length) props.colWidths = [...c.patch.colWidths];
+        if (c.patch.borders) props.borders = { ...(props.borders ?? {}), ...c.patch.borders };
+        t.props = props;
+        return null;
+      }
+      case "setRowProps": {
+        const t = this.table(c.table);
+        for (const r of c.rows) {
+          const row = t.rows[r];
+          if (!row) throw new Fail("invalid_command", `row ${r} out of range`);
+          const props = { ...(row.props ?? {}) };
+          if (c.header != null) props.header = c.header;
+          if (c.height != null) {
+            if (c.height.value > 0) props.height = c.height;
+            else delete props.height;
+          }
+          if (!props.header) delete props.header;
+          row.props = props;
+        }
+        return null;
+      }
+      case "setImageSize":
+      case "setImageAlt": {
+        const p = this.para(c.block);
+        const [a, mid, z] = splitInlines(p.inlines, c.offset, c.offset + 1);
+        const img = mid[0];
+        if (mid.length !== 1 || img?.kind !== "image") throw new Fail("invalid_command", `no image at ${c.offset}`);
+        const value = { ...img.value };
+        if (c.type === "setImageSize") {
+          value.width = c.width;
+          value.height = c.height;
+        } else if (c.alt) value.alt = c.alt;
+        else delete value.alt;
+        p.inlines = [...a, { kind: "image", value }, ...z];
+        return null;
+      }
+      case "clearFormatting": {
+        const p = this.para(c.block);
+        this.range(p, c.from, c.to);
+        const [a, mid, z] = splitInlines(p.inlines, c.from, c.to);
+        const plain = mid.map((i) => (i.kind === "run" ? ({ kind: "run", value: { text: i.value.text } } as Inline) : i));
+        p.inlines = mergeRuns([...a, ...plain, ...z]);
+        if (c.paragraph) delete p.props;
+        return null;
+      }
       case "setPage": {
         const page = this.doc.page;
         const { orientation, width, height, margins } = c.patch;
+        for (const k of ["headerText", "footerText"] as const) {
+          const v = c.patch[k];
+          if (v != null) {
+            if (v) page[k] = v;
+            else delete page[k];
+          }
+        }
         if (orientation && orientation !== page.orientation) {
           [page.width, page.height] = [page.height, page.width];
           page.orientation = orientation;
@@ -542,6 +643,19 @@ export class FakeWriteBackend implements WriteBackend {
       default:
         throw new Fail("invalid_command", `fake backend does not implement ${c.type}`);
     }
+  }
+
+  private table(id: number): Extract<Block, { kind: "table" }>["value"] {
+    for (const b of walkBlocks(this.doc.body)) if (b.kind === "table" && b.value.id === id) return b.value;
+    throw new Fail("unknown_block", `unknown table ${id}`);
+  }
+
+  private cell(id: number) {
+    for (const b of walkBlocks(this.doc.body)) {
+      if (b.kind !== "table") continue;
+      for (const r of b.value.rows) for (const c of r.cells) if (c.id === id) return c;
+    }
+    throw new Fail("unknown_block", `unknown cell ${id}`);
   }
 
   private cellBlocks(cellId: number): Block[] {
