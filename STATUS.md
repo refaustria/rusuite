@@ -32,10 +32,21 @@ Order: P2-1 model-sheet (design) ∥ P2-3 Tauri Calc scaffold → P2-2 fmt-xlsx 
 ### Phase 1 plan (README: lexer/parser, dependency graph, evaluator + types, function registry, reference test suite, parser proptests)
 Decision pending owner (see open questions): evaluation-semantics spec written by PM in the P1-2 brief and implemented by Opus, instead of a Fable agent.
 
+## Phase 3 plan – Write (README: model-text + fmt-docx; Tiptap schema 1:1; bidirectional sync; images, tables, lists; milestone: roundtrip 50 reference documents)
+Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 fmt-docx ∥ P3-4 write-core + sync protocol (ADR 0007) → P3-5 Tiptap editor sync + UI → P3-7 wiring/open-save → P3-8 milestone (roundtrip 50 files via harness + manifest assertions).
+
 ## Task board
 
 | ID | Task | Model | State | Branch | Notes |
 |---|---|---|---|---|---|
+| P3-1 | `model-text` document model + `core_model::units`; ADR 0006 | Opus | in progress | `p3/model-text` | brief docs/tasks/P3-1-model-text.md |
+| P3-3 | Write app scaffold: `apps/write` core/src-tauri/src-wasm/Tiptap UI, deployed at /write/ | Sonnet | in progress | `p3/write-scaffold` | brief docs/tasks/P3-3-write-scaffold.md |
+| P3-6 | 50 provisional reference .docx files + manifest + docs/docx-suite.md | Sonnet | in progress | `p3/docx-testdata` | brief docs/tasks/P3-6-docx-reference-files.md |
+| P3-2 | `fmt-docx` read/write ↔ model-text (document/styles/numbering/media/sectPr) + roundtrip tests over the manifest | Opus | todo | `p3/fmt-docx` | after P3-1 + P3-6 |
+| P3-4 | `write-core`: commands/patches, Tiptap↔Rust sync protocol (ADR 0007), find/replace, undo | Opus | todo | `p3/write-core` | after P3-1 |
+| P3-5 | Write UI: Tiptap schema mapping, transaction → command sync, toolbar from ui-shared | Opus | todo | `p3/write-ui` | after P3-4 |
+| P3-7 | Wiring: docx open/save both shells; deploy | Opus | todo | `p3/write-wiring` | after P3-2 + P3-5 |
+| P3-8 | Milestone verification | PM | todo | – | |
 | P2-1 | `model-sheet`: Workbook wrapping `engine_formula::Engine` for contents/values + StyleTable (font/fill/border/alignment/number format), column/row dimensions, sheet metadata; serde; ADR 0004 | Opus | done (merged a112e4b) | – | verified: 15 tests, snapshot DTO, style interning; follow-up fixed a rustdoc link |
 | P2-3 | Tauri 2 Calc app scaffold: `apps/calc` (Vite+React+Tailwind+Tauri), crate `app-calc` in workspace, `pnpm --filter calc tauri dev` runs, CI builds it | Sonnet | done (merged 1e8d201) | – | verified: tests, vite build, release binary 10.6 MiB runs under xvfb; tauri 2.12 / vite 6 / react 18 / tailwind 4 / vitest 3 |
 | P2-1b | `engine-formula`: `transform.rs` (Excel reference adjustment for insert/delete rows/cols, copy/paste offset) + `Engine::insert_rows/delete_rows/insert_cols/delete_cols/cells` | Opus | done (merged) | – | verified: ~70 transform table cases, 4 engine tests; incremental graph update; `StructuralOp::map_cell` for model-sheet to move styles |
