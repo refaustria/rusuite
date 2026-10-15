@@ -48,6 +48,12 @@ impl Slide {
         find_in_mut(&mut self.shapes, id)
     }
 
+    /// The shape list holding shape `id` (the slide's shapes or a group's
+    /// children) and the shape's index in it.
+    pub fn container_mut(&mut self, id: NodeId) -> Option<(&mut Vec<Shape>, usize)> {
+        container_of(&mut self.shapes, id)
+    }
+
     /// Moves shape `id` one step up in z-order (within its group, if any).
     /// Returns whether anything changed.
     pub fn bring_forward(&mut self, id: NodeId) -> bool {

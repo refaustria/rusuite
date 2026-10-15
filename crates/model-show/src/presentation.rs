@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use crate::layout::{Layout, LayoutKind};
 use crate::shape::{Shape, ShapeKind};
 use crate::slide::{find_in, Slide};
-use crate::text::{TextBody, TextParagraph};
 use crate::{Error, NodeId, Result};
 
 /// The slide size (`p:sldSz`).
@@ -132,16 +131,7 @@ impl Presentation {
     pub fn add_slide(&mut self, layout: LayoutKind) -> NodeId {
         let id = self.alloc_id();
         let mut slide = Slide::new(id, layout);
-        let defs = self.layouts[layout.index()].placeholders.clone();
-        for def in defs {
-            let mut shape = Shape::text_box(def.transform, "");
-            if let Some(body) = shape.text_mut() {
-                *body = TextBody {
-                    props: def.body_defaults,
-                    paragraphs: vec![TextParagraph::new()],
-                };
-            }
-            shape.placeholder = Some(def.kind);
+        for mut shape in self.layouts[layout.index()].placeholder_shapes() {
             self.assign_ids(&mut shape);
             slide.shapes.push(shape);
         }
@@ -238,9 +228,7 @@ impl Presentation {
     /// ([`Shape::default_name`] + id).
     pub fn assign_ids(&mut self, shape: &mut Shape) {
         shape.id = self.alloc_id();
-        if shape.name.is_empty() {
-            shape.name = format!("{} {}", shape.default_name(), shape.id.0);
-        }
+        shape.fill_default_name();
         if let ShapeKind::Group { children } = &mut shape.kind {
             for child in children {
                 self.assign_ids(child);
