@@ -42,10 +42,10 @@ General rules that apply to every function below:
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
 | `IF` | `IF(condition, then, [else])` | Conditional | Missing else = `FALSE`; numbers are truthy when non-zero; text `"TRUE"` accepted, other text `#VALUE!`; lazy | planned |
-| `AND` | `AND(logical1, ...)` | All true | References with only text/empty = `#VALUE!`; not short-circuiting for errors | planned |
-| `OR` | `OR(logical1, ...)` | Any true | Same coercion rules as `AND` | planned |
-| `NOT` | `NOT(logical)` | Negation | Non-numeric text `#VALUE!` | planned |
-| `IFERROR` | `IFERROR(value, value_if_error)` | Fallback on any error | Catches all seven error kinds; empty cell result is 0 | planned |
+| `AND` | `AND(logical1, ...)` | All true | References with only text/empty = `#VALUE!`; not short-circuiting for errors | implemented |
+| `OR` | `OR(logical1, ...)` | Any true | Same coercion rules as `AND` | implemented |
+| `NOT` | `NOT(logical)` | Negation | Non-numeric text `#VALUE!` | implemented |
+| `IFERROR` | `IFERROR(value, value_if_error)` | Fallback on any error | Catches all seven error kinds; empty cell result is 0 | implemented |
 | `TRUE` | `TRUE()` | Boolean true | Also valid as the literal `TRUE`; `TRUE()+1` = 2 | planned |
 | `FALSE` | `FALSE()` | Boolean false | Also valid as the literal `FALSE` | planned |
 
@@ -53,31 +53,31 @@ General rules that apply to every function below:
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
-| `ISBLANK` | `ISBLANK(value)` | Cell is truly empty | `""` constant is not blank; error cell is not blank | planned |
-| `ISNUMBER` | `ISNUMBER(value)` | Value is a number | Dates are numbers; numeric text and bools are not | planned |
-| `ISTEXT` | `ISTEXT(value)` | Value is text | `""` is text; empty cell is not | planned |
-| `ISERROR` | `ISERROR(value)` | Value is any error | Does not propagate the error | planned |
-| `ISNA` | `ISNA(value)` | Value is `#N/A` | Other errors give `FALSE` | planned |
+| `ISBLANK` | `ISBLANK(value)` | Cell is truly empty | `""` constant is not blank; error cell is not blank | implemented |
+| `ISNUMBER` | `ISNUMBER(value)` | Value is a number | Dates are numbers; numeric text and bools are not | implemented |
+| `ISTEXT` | `ISTEXT(value)` | Value is text | `""` is text; empty cell is not | implemented |
+| `ISERROR` | `ISERROR(value)` | Value is any error | Does not propagate the error | implemented |
+| `ISNA` | `ISNA(value)` | Value is `#N/A` | Other errors give `FALSE` | implemented |
 | `NA` | `NA()` | Returns `#N/A` | Takes no arguments | planned |
 
 ## Text (14)
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
-| `CONCAT` | `CONCAT(text1, ...)` | Join, ranges flattened | Stored as `_xlfn.CONCAT` in files; bools become `TRUE`/`FALSE` | planned |
-| `CONCATENATE` | `CONCATENATE(text1, ...)` | Join scalar arguments | Legacy; numbers use general format | planned |
-| `LEFT` | `LEFT(text, [count])` | Leading characters | Default 1; negative count `#VALUE!`; numbers converted to text first | planned |
-| `RIGHT` | `RIGHT(text, [count])` | Trailing characters | Default 1; negative count `#VALUE!` | planned |
-| `MID` | `MID(text, start, count)` | Substring | Start < 1 or count < 0 `#VALUE!`; start beyond end = `""` | planned |
-| `LEN` | `LEN(text)` | Character count | Numbers measured on their text form; `LEN(TRUE)` = 4 | planned |
-| `UPPER` | `UPPER(text)` | Upper case | Unicode aware | planned |
-| `LOWER` | `LOWER(text)` | Lower case | Unicode aware | planned |
-| `TRIM` | `TRIM(text)` | Strip leading/trailing spaces, collapse inner runs | Only the ASCII space | planned |
-| `FIND` | `FIND(find, within, [start])` | 1-based position, case-sensitive | No wildcards; empty needle returns start; not found `#VALUE!`; start < 1 `#VALUE!` | planned |
-| `SUBSTITUTE` | `SUBSTITUTE(text, old, new, [instance])` | Replace occurrences | Case-sensitive; empty `old` leaves text unchanged; instance 0 `#VALUE!` | planned |
-| `TEXT` | `TEXT(value, format)` | Format a value as text | MVP codes only: `0` `0.00` `#,##0` `#,##0.00` `0%` `0.0%` `yyyy-mm-dd` `dd.mm.yyyy` `mm/dd/yyyy` `@`; text input returned unchanged; numeric text converted first | planned |
-| `VALUE` | `VALUE(text)` | Parse number from text | Accepts spaces, `%`, exponent, dates (locale); `""` and bools `#VALUE!` | planned |
-| `EXACT` | `EXACT(text1, text2)` | Case-sensitive equality | Numbers compared as text | planned |
+| `CONCAT` | `CONCAT(text1, ...)` | Join, ranges flattened | Stored as `_xlfn.CONCAT` in files; bools become `TRUE`/`FALSE` | implemented |
+| `CONCATENATE` | `CONCATENATE(text1, ...)` | Join scalar arguments | Legacy; numbers use general format | implemented |
+| `LEFT` | `LEFT(text, [count])` | Leading characters | Default 1; negative count `#VALUE!`; numbers converted to text first | implemented |
+| `RIGHT` | `RIGHT(text, [count])` | Trailing characters | Default 1; negative count `#VALUE!` | implemented |
+| `MID` | `MID(text, start, count)` | Substring | Start < 1 or count < 0 `#VALUE!`; start beyond end = `""` | implemented |
+| `LEN` | `LEN(text)` | Character count | Numbers measured on their text form; `LEN(TRUE)` = 4 | implemented |
+| `UPPER` | `UPPER(text)` | Upper case | Unicode aware | implemented |
+| `LOWER` | `LOWER(text)` | Lower case | Unicode aware | implemented |
+| `TRIM` | `TRIM(text)` | Strip leading/trailing spaces, collapse inner runs | Only the ASCII space | implemented |
+| `FIND` | `FIND(find, within, [start])` | 1-based position, case-sensitive | No wildcards; empty needle returns start; not found `#VALUE!`; start < 1 `#VALUE!` | implemented |
+| `SUBSTITUTE` | `SUBSTITUTE(text, old, new, [instance])` | Replace occurrences | Case-sensitive; empty `old` leaves text unchanged; instance 0 `#VALUE!` | implemented |
+| `TEXT` | `TEXT(value, format)` | Format a value as text | MVP codes only: `0` `0.00` `#,##0` `#,##0.00` `0%` `0.0%` `yyyy-mm-dd` `dd.mm.yyyy` `mm/dd/yyyy` `@`; text input returned unchanged; numeric text converted first | implemented |
+| `VALUE` | `VALUE(text)` | Parse number from text | Accepts spaces, `%`, exponent, dates (locale); `""` and bools `#VALUE!` | implemented |
+| `EXACT` | `EXACT(text1, text2)` | Case-sensitive equality | Numbers compared as text | implemented |
 
 ## Lookup / reference (7)
 
@@ -95,14 +95,14 @@ General rules that apply to every function below:
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
-| `TODAY` | `TODAY()` | Current date serial | Volatile | planned |
-| `NOW` | `NOW()` | Current date-time serial | Volatile | planned |
-| `DATE` | `DATE(year, month, day)` | Build a date serial | Months/days overflow and underflow roll over; years 0-1899 get 1900 added; year >= 10000 `#NUM!`; arguments truncated | planned |
-| `YEAR` | `YEAR(serial)` | Year of a date | Negative serial `#NUM!`; serial 0 = 1900 | planned |
-| `MONTH` | `MONTH(serial)` | Month of a date | Serial 60 = February (1900-02-29 quirk) | planned |
-| `DAY` | `DAY(serial)` | Day of month | Serial 0 = day 0; serial 60 = day 29 | planned |
-| `WEEKDAY` | `WEEKDAY(serial, [type=1])` | Day of week | Types 1, 2, 3, 11-17; other types `#NUM!`; serial 1 is treated as a Sunday | planned |
-| `DAYS` | `DAYS(end, start)` | `end - start` in days | Stored as `_xlfn.DAYS`; time part ignored; text dates parsed | planned |
+| `TODAY` | `TODAY()` | Current date serial | Volatile | implemented |
+| `NOW` | `NOW()` | Current date-time serial | Volatile | implemented |
+| `DATE` | `DATE(year, month, day)` | Build a date serial | Months/days overflow and underflow roll over; years 0-1899 get 1900 added; year >= 10000 `#NUM!`; arguments truncated | implemented |
+| `YEAR` | `YEAR(serial)` | Year of a date | Negative serial `#NUM!`; serial 0 = 1900 | implemented |
+| `MONTH` | `MONTH(serial)` | Month of a date | Serial 60 = February (1900-02-29 quirk) | implemented |
+| `DAY` | `DAY(serial)` | Day of month | Serial 0 = day 0; serial 60 = day 29 | implemented |
+| `WEEKDAY` | `WEEKDAY(serial, [type=1])` | Day of week | Types 1, 2, 3, 11-17; other types `#NUM!`; serial 1 is treated as a Sunday | implemented |
+| `DAYS` | `DAYS(end, start)` | `end - start` in days | Stored as `_xlfn.DAYS`; time part ignored; text dates parsed | implemented |
 
 ## Deferred
 

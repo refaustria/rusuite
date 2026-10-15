@@ -94,7 +94,7 @@ fn ctx_at<'a>(fx: &'a Fixture, reg: &'a FunctionRegistry, row: u32) -> EvalConte
             // Column L.
             col: 11,
         },
-        now: || 45306.5,
+        now: || 46310.5,
     }
 }
 
@@ -175,8 +175,9 @@ fn excel_override(note: &str, ty: &str) -> Option<Expected> {
     if let Ok(e) = raw.parse::<ErrorKind>() {
         return Some(Expected::Error(e));
     }
-    let _ = ty;
-    Some(if raw == "TRUE" || raw == "FALSE" {
+    Some(if ty == "text" {
+        Expected::Text(unescape(raw))
+    } else if raw == "TRUE" || raw == "FALSE" {
         Expected::Bool(raw == "TRUE")
     } else if let Ok(n) = raw.parse() {
         Expected::Number(n)

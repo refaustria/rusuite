@@ -119,7 +119,7 @@ math	=POWER(0,0)	DIFF: Excel rejects 0^0 [excel=#NUM!]
 math	=POWER(-8,1/3)	DIFF: LibreOffice computes the real cube root [excel=#NUM!]
 math	=POWER(A3,A2)	
 math	=POWER(H1,2)	error propagation
-math	=POWER(0,-1)	
+math	=POWER(0,-1)	DIFF: LibreOffice returns #NUM! for 0^negative [excel=#DIV/0!]
 math	=POWER(4,0.5)	
 math	=POWER(-2,3)	
 math	=POWER(D4,2)	empty cell

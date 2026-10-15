@@ -22,10 +22,10 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 | P1-4 | (folded into P1-2: registry + lazy args; `docs/functions.md` delivered by P1-6) | – | done via P1-2/P1-6 | – | |
 | P1-5a | math/stat functions (19) | Sonnet | in progress | `p1/fn-math` | brief docs/tasks/P1-5a-math.md |
 | P1-5b | logical + info + date/time (16) | Sonnet | in progress | `p1/fn-logic-date` | brief docs/tasks/P1-5b-logical-info-datetime.md |
-| P1-5c | text (13, incl. TEXT number formats) | Sonnet | in progress | `p1/fn-text` | brief docs/tasks/P1-5c-text.md |
+| P1-5c | text (13, incl. TEXT number formats) | Sonnet | done (merged) | – | verified: 166/166 text suite rows; TEXT numfmt subset + extras (sections, mmm/ddd); not: `?`, `E+`, fractions, AM/PM |
 | P1-5d | lookup (7): VLOOKUP HLOOKUP INDEX MATCH CHOOSE ROW COLUMN | Sonnet | todo | `p1/fn-lookup` | after a slot frees (max 3 agents) |
 | P1-6 | Reference test suite format (`testdata/formulas/*.tsv`: formula, expected, note) + runner test; provisional values computed with LibreOffice headless, marked provisional | Sonnet | done (merged) | – | 862 cases, 62 functions, `docs/functions.md`; 66 rows marked DIFF with excel= values from agent memory; owner's Excel run of `testdata/formulas/formula-suite.xlsx` will settle them |
-| P1-8 | Engine façade: `Engine` holding cells + graph + evaluator; set value/formula, recalc, get; unify SheetId/CellCoord types | Opus | todo | `p1/engine` | brief docs/tasks/P1-8-engine-facade.md; launch when a slot frees |
+| P1-8 | Engine façade: `Engine` holding cells + graph + evaluator; set value/formula, recalc, get; unify SheetId/CellCoord types | Opus | in progress | `p1/engine` | brief docs/tasks/P1-8-engine-facade.md |
 | P1-7 | `examples/repl.rs` as in README | Sonnet | todo | `p1/repl` | after P1-8 |
 | P0-1 | Workspace scaffold: Cargo workspace (all crates as stubs), pnpm workspace, fmt/clippy config, `pnpm test` placeholder, CI workflow, .gitignore, LICENSE | Sonnet | done (merged f07e101) | – | verified: fmt/clippy/test/pnpm test all green |
 | P0-2 | `fmt-ooxml`: open ZIP package, parse `[Content_Types].xml` + `_rels`, generic XML helpers, write package back byte-stable | Opus | done (merged 6f474a3) | – | verified: 27 tests + testdata roundtrip over 5 files; harness 5/5 PASS with real rewriter |
