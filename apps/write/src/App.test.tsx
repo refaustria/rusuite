@@ -37,9 +37,9 @@ describe("Write app", () => {
     expect(screen.getByRole("group", { name: "Paragraph styles" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Bulleted list" })).toBeTruthy();
     expect(screen.queryByRole("group", { name: "Number" })).toBeNull();
-    expect(screen.getByTestId("doc-name").textContent).toBe("Untitled");
-    expect(screen.getByTestId("dirty").textContent).toBe("Saved");
-    expect(screen.getByTestId("words").textContent).toBe("0 words");
+    await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("Untitled"), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByTestId("dirty").textContent).toBe("Saved"), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByTestId("words").textContent).toBe("0 words"), { timeout: 3000 });
     await waitFor(() => expect(setTitle).toHaveBeenLastCalledWith("Untitled – Rusuite Write"));
   });
 
@@ -49,8 +49,8 @@ describe("Write app", () => {
     vi.spyOn(backend, "openFile").mockResolvedValue({ name: "r.docx", bytesBase64: b64(doc) });
     fileCommand("Open…");
     await waitFor(() => expect(editor.querySelector("h1")?.textContent).toBe("Opened"));
-    expect(screen.getByTestId("doc-name").textContent).toBe("r.docx");
-    expect(screen.getByTestId("warnings").textContent).toContain("1 warning");
+    await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("r.docx"), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByTestId("warnings").textContent).toContain("1 warning"), { timeout: 3000 });
     // The status-bar count is debounced (250 ms).
     await waitFor(() => expect(screen.getByTestId("words").textContent).toBe("3 words"));
   });
@@ -116,7 +116,7 @@ describe("Write app recovery (P5-3)", () => {
     await waitFor(() => expect(editor.textContent).toBe("Recovered text"));
     // The status bar is throttled (60 ms).
     await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("letter.docx"));
-    expect(screen.getByTestId("dirty").textContent).toBe("Modified");
+    await waitFor(() => expect(screen.getByTestId("dirty").textContent).toBe("Modified"), { timeout: 3000 });
     expect(screen.queryByTestId("recovery-banner")).toBeNull();
     await waitFor(() => expect(storage.recovery.has("crashed")).toBe(false));
     expect(storage.recovery.size).toBe(1);
