@@ -1,0 +1,37 @@
+/* Shared UI tokens; apps `@import "@rusuite/ui-shared/styles.css";` after tailwindcss. */
+@source "./**/*.tsx";
+
+:root {
+  --ui-bg: #ffffff;
+  --ui-panel: #f6f6f7;
+  --ui-fg: #1f2328;
+  --ui-muted: #656d76;
+  --ui-border: #d0d7de;
+  --ui-hover: #e8eaed;
+  --ui-active: #cfe2ff;
+  --ui-focus: #0969da;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ui-bg: #1e1f22;
+    --ui-panel: #2b2d30;
+    --ui-fg: #e6e6e6;
+    --ui-muted: #9da5ae;
+    --ui-border: #44474c;
+    --ui-hover: #3a3d41;
+    --ui-active: #1f4a7a;
+    --ui-focus: #58a6ff;
+  }
+}
+
+@theme inline {
+  --color-ui-bg: var(--ui-bg);
+  --color-ui-panel: var(--ui-panel);
+  --color-ui-fg: var(--ui-fg);
+  --color-ui-muted: var(--ui-muted);
+  --color-ui-border: var(--ui-border);
+  --color-ui-hover: var(--ui-hover);
+  --color-ui-active: var(--ui-active);
+  --color-ui-focus: var(--ui-focus);
+}
