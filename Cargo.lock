@@ -970,7 +970,14 @@ dependencies = [
 name = "fmt-docx"
 version = "0.1.0"
 dependencies = [
+ "core-model",
+ "fmt-ooxml",
+ "insta",
+ "model-text",
+ "quick-xml",
  "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
