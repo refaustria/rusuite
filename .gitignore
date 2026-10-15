@@ -6,3 +6,4 @@ dist/
 /testdata/**/out/
 .insta-pending*
 *.snap.new
+apps/calc/src-tauri/gen/
