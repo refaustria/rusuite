@@ -72,6 +72,10 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Playwright end-to-end tests in CI (the PM's live check script lives in the scratchpad only); cron/CI hook calling `scripts/deploy-web.sh` on main; CSP header; `gzip_static` for the wasm.
 - ts-rs derives behind a feature in core-model/model-sheet to remove the TS-only mirror types in app-common/calc-core.
 
+## Write / model-text
+- `Document.theme: Theme` so heading theme colours resolve without the docx context; character styles in `resolve_run_props`; `paragraphs_mut` and (id, offset) position helpers; re-export `core_model::units` at the crate root; line spacing stored as f64 259/240 (consider storing 240ths).
+- Write UI: split the Tiptap chunk (lazy import); add write-core to the generated-types CI check.
+
 ## Formats
 - Compare rewritten files against Open XML SDK validator (Windows/.NET) in addition to LibreOffice – gives real "would Office repair this" signal.
 
