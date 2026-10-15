@@ -394,6 +394,15 @@ impl Shape {
             && self.placeholder.is_none()
     }
 
+    /// Gives the shape PowerPoint's default name for its current id (e.g.
+    /// `"Rectangle 4"`, see [`default_name`](Self::default_name)) if its
+    /// name is empty.
+    pub fn fill_default_name(&mut self) {
+        if self.name.is_empty() {
+            self.name = format!("{} {}", self.default_name(), self.id.0);
+        }
+    }
+
     /// The base of PowerPoint's default name for this shape, e.g.
     /// `"Rectangle"` (the full name appends the id: `"Rectangle 4"`).
     pub fn default_name(&self) -> &'static str {
