@@ -299,24 +299,31 @@ export function tableDesignTab(store: ShowStore, palette: ThemePalette, t: T): R
       {
         label: t("show.table.cellFormat"),
         items: (
-          <RibbonStack>
-            <RibbonRow>
-              <ColorPicker
-                label={t("show.table.shading")}
-                kind="fill"
-                value={shading?.kind === "solid" ? shading.value : undefined}
-                theme={palette}
-                onSelect={(c) => void store.setCellShading(c)}
+          <>
+            <RibbonStack>
+              <RibbonRow>
+                <ColorPicker
+                  label={t("show.table.shading")}
+                  kind="fill"
+                  value={shading?.kind === "solid" ? shading.value : undefined}
+                  theme={palette}
+                  onSelect={(c) => void store.setCellShading(c)}
+                />
+                <span aria-hidden="true" className="whitespace-nowrap pr-1 text-xs">
+                  {t("show.table.shading")}
+                </span>
+              </RibbonRow>
+              <RibbonButton label={t("show.table.noShading")} icon="clear" showLabel onClick={() => void store.setCellShading(null)} />
+            </RibbonStack>
+            <RibbonStack>
+              <RibbonMenuButton
+                label={t("show.table.borders")}
+                icon="gridlines"
+                showLabel
+                menu={BORDERS.map((b) => ({ id: `border-${b}`, label: t(`show.border.${b}`), onSelect: () => void store.setCellBorders(b) }))}
               />
-              <RibbonButton label={t("show.table.noShading")} icon="clear" onClick={() => void store.setCellShading(null)} />
-            </RibbonRow>
-            <RibbonMenuButton
-              label={t("show.table.borders")}
-              icon="gridlines"
-              showLabel
-              menu={BORDERS.map((b) => ({ id: `border-${b}`, label: t(`show.border.${b}`), onSelect: () => void store.setCellBorders(b) }))}
-            />
-          </RibbonStack>
+            </RibbonStack>
+          </>
         ),
       },
     ],
