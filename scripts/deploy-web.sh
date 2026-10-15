@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Calc and Write web targets and publish it to /var/www/resuite (ADR 0005).
+# Build the Calc, Write and Show web targets and publish it to /var/www/resuite (ADR 0005).
 # Usage: scripts/deploy-web.sh [--no-build]
 set -euo pipefail
 
@@ -17,7 +17,7 @@ esac
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 commit="$(git rev-parse --short HEAD)"
 
-apps=(calc write)
+apps=(calc write show)
 
 if [ "$build" = 1 ]; then
   pnpm install --frozen-lockfile
