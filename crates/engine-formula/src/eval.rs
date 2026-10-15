@@ -199,7 +199,7 @@ pub fn eval_operand(expr: &Expr, ctx: &EvalContext) -> Operand {
             })
         }
         Expr::Call { name, args } => Operand::Scalar(call(name, args, ctx)),
-        Expr::Unary { op, expr } => Operand::Scalar(unary(*op, eval_scalar(expr, ctx))),
+        Expr::Unary { op, expr } => Operand::Scalar(apply_unary(*op, eval_scalar(expr, ctx))),
         Expr::Binary {
             op: BinaryOp::Range,
             lhs,
@@ -208,7 +208,7 @@ pub fn eval_operand(expr: &Expr, ctx: &EvalContext) -> Operand {
         Expr::Binary { op, lhs, rhs } => {
             let l = eval_scalar(lhs, ctx);
             let r = eval_scalar(rhs, ctx);
-            Operand::Scalar(binary(*op, l, r))
+            Operand::Scalar(apply_binary(*op, l, r))
         }
     }
 }
@@ -225,6 +225,105 @@ pub fn scalar(op: Operand, ctx: &EvalContext) -> Value {
         Operand::Scalar(v) => v.into_scalar(),
         Operand::Range(r) => intersect(&r, ctx),
     }
+}
+
+/// Evaluates an expression in *array mode* (used for arguments that expect
+/// a range or an array, such as those of `SUMPRODUCT`).
+///
+/// References stay [`Operand::Range`] and literals, array literals, names
+/// and function calls evaluate exactly as in [`eval_operand`] (functions
+/// are not lifted over arrays). Unary and binary operators (except the
+/// range operator `:`) evaluate their operands in array mode, materialize
+/// ranges into arrays of cell values and apply the scalar operator
+/// element-wise with broadcasting (see [`broadcast`]). The result is
+/// `Scalar(Array)` when an operand was a range or an array, else a plain
+/// scalar.
+pub fn eval_array(expr: &Expr, ctx: &EvalContext) -> Operand {
+    match expr {
+        Expr::Unary { op, expr } => {
+            let v = materialize(eval_array(expr, ctx), ctx);
+            Operand::Scalar(match v {
+                Value::Array(a) => Value::Array(a.map(|x| apply_unary(*op, x))),
+                v => apply_unary(*op, v),
+            })
+        }
+        Expr::Binary { op, lhs, rhs } if *op != BinaryOp::Range => {
+            let l = materialize(eval_array(lhs, ctx), ctx);
+            let r = materialize(eval_array(rhs, ctx), ctx);
+            Operand::Scalar(match (l, r) {
+                (l @ Value::Array(_), r) | (l, r @ Value::Array(_)) => {
+                    Value::Array(broadcast(&as_array(l), &as_array(r), |a, b| {
+                        apply_binary(*op, a, b)
+                    }))
+                }
+                (l, r) => apply_binary(*op, l, r),
+            })
+        }
+        _ => eval_operand(expr, ctx),
+    }
+}
+
+/// Turns a range operand into an array of its cell values (`Empty` cells
+/// stay `Empty`); scalars are returned unchanged. Whole-column/row ranges
+/// are clipped to the used range, keeping at least one row/column.
+fn materialize(op: Operand, ctx: &EvalContext) -> Value {
+    let r = match op {
+        Operand::Scalar(v) => return v,
+        Operand::Range(r) => r,
+    };
+    let (max_row, max_col) = ctx.provider.used_range(r.sheet).unwrap_or((0, 0));
+    let r1 = if r.is_whole_columns() {
+        r.r1.min(max_row.max(r.r0))
+    } else {
+        r.r1
+    };
+    let c1 = if r.is_whole_rows() {
+        r.c1.min(max_col.max(r.c0))
+    } else {
+        r.c1
+    };
+    let mut data = Vec::with_capacity((r1 - r.r0 + 1) as usize * (c1 - r.c0 + 1) as usize);
+    for row in r.r0..=r1 {
+        for col in r.c0..=c1 {
+            let v = ctx.provider.value(CellCoord {
+                sheet: r.sheet,
+                row,
+                col,
+            });
+            data.push(v);
+        }
+    }
+    let rows = (r1 - r.r0 + 1) as usize;
+    let cols = (c1 - r.c0 + 1) as usize;
+    Value::Array(Array::new(rows, cols, data).expect("rows * cols cells"))
+}
+
+/// A value as an array (a scalar becomes 1x1).
+fn as_array(v: Value) -> Array {
+    match v {
+        Value::Array(a) => a,
+        v => Array::new(1, 1, vec![v]).expect("1x1 array"),
+    }
+}
+
+/// Element-wise combination with Excel broadcasting, per dimension: an
+/// extent of 1 repeats along that dimension; otherwise the result extent is
+/// the larger one and positions outside an operand's extent are `#N/A`.
+fn broadcast(a: &Array, b: &Array, f: impl Fn(Value, Value) -> Value) -> Array {
+    let rows = a.rows().max(b.rows());
+    let cols = a.cols().max(b.cols());
+    let pick = |x: &Array, r: usize, c: usize| {
+        let r = if x.rows() == 1 { 0 } else { r };
+        let c = if x.cols() == 1 { 0 } else { c };
+        x.get(r, c).cloned().unwrap_or(Value::Error(ErrorKind::NA))
+    };
+    let mut data = Vec::with_capacity(rows * cols);
+    for r in 0..rows {
+        for c in 0..cols {
+            data.push(f(pick(a, r, c), pick(b, r, c)));
+        }
+    }
+    Array::new(rows, cols, data).expect("rows * cols elements")
 }
 
 /// Implicit intersection of a range with the formula cell.
@@ -303,7 +402,8 @@ fn range_op(l: Operand, r: Operand) -> Operand {
     }
 }
 
-fn unary(op: UnaryOp, v: Value) -> Value {
+/// A unary operator on one scalar value (shared by scalar and array mode).
+fn apply_unary(op: UnaryOp, v: Value) -> Value {
     match op {
         UnaryOp::Plus => v,
         UnaryOp::Neg => Value::from_result(to_number(&v).map(|n| -n)),
@@ -311,7 +411,9 @@ fn unary(op: UnaryOp, v: Value) -> Value {
     }
 }
 
-fn binary(op: BinaryOp, l: Value, r: Value) -> Value {
+/// A binary operator on two scalar values (shared by scalar and array
+/// mode). The left error wins.
+fn apply_binary(op: BinaryOp, l: Value, r: Value) -> Value {
     if let Value::Error(e) = l {
         return Value::Error(e);
     }
@@ -352,6 +454,10 @@ fn arith(op: BinaryOp, l: &Value, r: &Value) -> Result<f64, ErrorKind> {
             x / y
         }
         _ => {
+            if x == 0.0 && y < 0.0 {
+                // Excel: 0 raised to a negative power is a division by zero.
+                return Err(ErrorKind::Div0);
+            }
             if (x == 0.0 && y == 0.0) || (x < 0.0 && y.fract() != 0.0) {
                 return Err(ErrorKind::Num);
             }
@@ -471,7 +577,8 @@ mod tests {
         assert_eq!(ev("=(-8)^(1/3)"), e(ErrorKind::Num));
         assert_eq!(ev("=(-2)^3"), n(-8.0));
         assert_eq!(ev("=10^400"), e(ErrorKind::Num));
-        assert_eq!(ev("=0^-1"), e(ErrorKind::Num));
+        assert_eq!(ev("=0^-1"), e(ErrorKind::Div0));
+        assert_eq!(ev("=0^-0.5"), e(ErrorKind::Div0));
     }
 
     #[test]
@@ -610,6 +717,168 @@ mod tests {
         assert_eq!(ev("=SUM(Blank!1:3)"), n(0.0));
         assert_eq!(ev("=SUM(S1!2:2)"), n(5.0));
         assert_eq!(ev("=SUM(C:C)"), e(ErrorKind::NA));
+    }
+
+    /// `eval_array` in S1!J10.
+    fn arr(formula: &str) -> Operand {
+        let grid = Grid::new();
+        let reg = FunctionRegistry::with_builtins();
+        let ctx = EvalContext {
+            provider: &grid,
+            registry: &reg,
+            current: CellCoord {
+                sheet: SheetId(0),
+                row: 9,
+                col: 9,
+            },
+            now: || 45000.5,
+        };
+        eval_array(&parse(formula).unwrap(), &ctx)
+    }
+
+    /// Expected `Scalar(Array)` from rows.
+    fn grid_of(rows: Vec<Vec<Value>>) -> Operand {
+        Operand::Scalar(Value::Array(Array::from_rows(rows).unwrap()))
+    }
+
+    #[test]
+    fn array_mode_range_times_scalar() {
+        assert_eq!(
+            arr("=A1:A3*2"),
+            grid_of(vec![vec![n(2.0)], vec![e(ErrorKind::Value)], vec![n(6.0)]])
+        );
+        // "x" > 2 is TRUE (text ranks above numbers).
+        assert_eq!(
+            arr("=(A1:A3>2)*1"),
+            grid_of(vec![vec![n(0.0)], vec![n(1.0)], vec![n(1.0)]])
+        );
+        // Scalar mode is unchanged: implicit intersection fails in J10.
+        assert_eq!(ev("=A1:A3*2"), e(ErrorKind::Value));
+    }
+
+    #[test]
+    fn array_mode_column_by_row_broadcast() {
+        assert_eq!(
+            arr("=A1:A3&{\"a\",\"b\"}"),
+            grid_of(vec![
+                vec![t("1a"), t("1b")],
+                vec![t("xa"), t("xb")],
+                vec![t("3a"), t("3b")],
+            ])
+        );
+        assert_eq!(
+            arr("={1,2}+{10;20}"),
+            grid_of(vec![vec![n(11.0), n(12.0)], vec![n(21.0), n(22.0)]])
+        );
+        // A column pairs with every column of a 2-D array.
+        assert_eq!(
+            arr("={1;2}*{1,2;3,4}"),
+            grid_of(vec![vec![n(1.0), n(2.0)], vec![n(6.0), n(8.0)]])
+        );
+    }
+
+    #[test]
+    fn array_mode_mismatched_shapes_give_na() {
+        let na = e(ErrorKind::NA);
+        assert_eq!(
+            arr("={1,2,3}+{10,20}"),
+            grid_of(vec![vec![n(11.0), n(22.0), na.clone()]])
+        );
+        assert_eq!(
+            arr("={1;2}*{1,2;3,4;5,6}"),
+            grid_of(vec![
+                vec![n(1.0), n(2.0)],
+                vec![n(6.0), n(8.0)],
+                vec![na.clone(), na.clone()],
+            ])
+        );
+        assert_eq!(
+            arr("={1,2;3,4}-{1,2,3;4,5,6}"),
+            grid_of(vec![
+                vec![n(0.0), n(0.0), na.clone()],
+                vec![n(-1.0), n(-1.0), na],
+            ])
+        );
+    }
+
+    #[test]
+    fn array_mode_scalars_stay_scalar() {
+        assert_eq!(arr("=1+2"), Operand::Scalar(n(3.0)));
+        assert_eq!(arr("=-\"3\"%"), Operand::Scalar(n(-0.03)));
+        assert_eq!(arr("=1/0"), Operand::Scalar(e(ErrorKind::Div0)));
+        assert_eq!(arr("=foo+1"), Operand::Scalar(e(ErrorKind::Name)));
+        assert_eq!(arr("=SUM(A1:A3)*2"), Operand::Scalar(n(8.0)));
+        // Plain references and the range operator are left as ranges.
+        let a1_a3 = RangeRef {
+            sheet: SheetId(0),
+            r0: 0,
+            c0: 0,
+            r1: 2,
+            c1: 0,
+        };
+        assert_eq!(arr("=A1:A3"), Operand::Range(a1_a3));
+        assert_eq!(arr("=A1:(A3)"), Operand::Range(a1_a3));
+        assert_eq!(arr("={1,2}"), grid_of(vec![vec![n(1.0), n(2.0)]]));
+    }
+
+    #[test]
+    fn array_mode_call_is_broadcast() {
+        assert_eq!(
+            arr("=A1:A3+SUM(A1:A3)"),
+            grid_of(vec![vec![n(5.0)], vec![e(ErrorKind::Value)], vec![n(7.0)]])
+        );
+        assert_eq!(
+            arr("=LEN({\"ab\",\"c\"})&A1:A2"),
+            grid_of(vec![vec![t("21")], vec![t("2x")]])
+        );
+    }
+
+    #[test]
+    fn array_mode_unary_empty_and_errors() {
+        assert_eq!(
+            arr("=-A1:A3"),
+            grid_of(vec![
+                vec![n(-1.0)],
+                vec![e(ErrorKind::Value)],
+                vec![n(-3.0)]
+            ])
+        );
+        // Empty cells stay Empty when materialized.
+        assert_eq!(
+            arr("=+B1:B2"),
+            grid_of(vec![vec![b(true)], vec![Value::Empty]])
+        );
+        assert_eq!(
+            arr("=B1:B2&\"\""),
+            grid_of(vec![vec![t("TRUE")], vec![t("")]])
+        );
+        // Element-wise left-first error propagation.
+        assert_eq!(
+            arr("=C1:C2+#DIV/0!"),
+            grid_of(vec![vec![e(ErrorKind::NA)], vec![e(ErrorKind::Div0)]])
+        );
+        assert_eq!(arr("=Nope!A1:A2*1"), Operand::Scalar(e(ErrorKind::Ref)));
+    }
+
+    #[test]
+    fn array_mode_whole_columns_are_clipped() {
+        assert_eq!(
+            arr("=A:A*1"),
+            grid_of(vec![vec![n(1.0)], vec![e(ErrorKind::Value)], vec![n(3.0)]])
+        );
+        assert_eq!(arr("=Blank!A:A+1"), grid_of(vec![vec![n(1.0)]]));
+        assert_eq!(arr("=Blank!1:1+1"), grid_of(vec![vec![n(1.0)]]));
+    }
+
+    #[test]
+    fn array_mode_sumproduct_style() {
+        let Operand::Scalar(Value::Array(a)) = arr("=(A1:A3>1)*(A1:A3<4)") else {
+            panic!("expected an array");
+        };
+        let total: f64 = a.values().iter().map(|v| to_number(v).unwrap()).sum();
+        assert_eq!(total, 1.0);
+        // Through `CallContext::range` (CONCAT reads its arguments as ranges).
+        assert_eq!(ev("=CONCAT(A1:A3&\"-\")"), t("1-x-3-"));
     }
 
     #[test]

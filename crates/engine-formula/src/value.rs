@@ -160,6 +160,21 @@ impl Array {
         &self.data
     }
 
+    /// Applies `f` to every element, keeping the shape (results are
+    /// flattened to scalars like in [`Array::new`]).
+    pub fn map(self, f: impl FnMut(Value) -> Value) -> Array {
+        Array {
+            rows: self.rows,
+            cols: self.cols,
+            data: self
+                .data
+                .into_iter()
+                .map(f)
+                .map(Value::into_scalar)
+                .collect(),
+        }
+    }
+
     /// The top-left element, or `#VALUE!` for a zero-size array.
     pub fn top_left(self) -> Value {
         self.data
