@@ -91,6 +91,11 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Write `p:style` for auto shapes (PowerPoint default white text on accent fill); footer/date/slide-number placeholders; tables (graphic frames) later; bullet size/colour + paragraph indents in the model; `Shape::alt`; gradients/transparency/cropping/arrowheads/other presets are approximated.
 - Move the XML DOM/writer and theme parser into fmt-ooxml (now triplicated).
 
+## Phase 5 leftovers
+- Confirm-before-discard dialog shared by New/Open/Restore/window close; recovery entries age limit; Web Locks live-session check does not span desktop processes; web recent-list rules duplicated in TS.
+- PDF export: Calc `UsedRange` request in the core (print view scans blocks); print area/selection; multi-sheet export; Write headers/footers; Show handouts; verify `window.print()` on WebKitGTK/WebView2 (Tauri 2.12 has no webview print API).
+- Shortcuts: move Calc grid-navigation keys into the map; user-configurable shortcuts; Tiptap handles Mod-Alt-1..6 itself while focused.
+
 ## Formats
 - Compare rewritten files against Open XML SDK validator (Windows/.NET) in addition to LibreOffice – gives real "would Office repair this" signal.
 
