@@ -17,13 +17,38 @@ async function openDeck(page: Page) {
   await expect(page.getByTestId("slide-count")).toHaveText("Slide 1 of 6");
 }
 
-/** Insert › Shapes › Rectangle (the shape lands selected, centred on the slide). */
+/** Insert › Shapes › Rectangle chosen with Enter (inserted at once, selected, centred on the slide). */
 async function insertRectangle(page: Page) {
   await page.getByRole("tab", { name: "Insert" }).click();
   await page.getByRole("button", { name: "Shapes" }).click();
-  await page.getByRole("dialog", { name: "Shapes" }).getByRole("button", { name: "Rectangle", exact: true }).click();
+  await page.getByRole("dialog", { name: "Shapes" }).getByRole("group", { name: "Rectangles" }).getByRole("button", { name: "Rectangle", exact: true }).press("Enter");
   await expect(page.getByRole("tab", { name: "Shape Format" })).toBeVisible();
 }
+
+/** Insert › Shapes, a real click on `name` (in `group`), then a drag on the stage from `a` to `b` (stage px). */
+async function drawShape(page: Page, group: string, name: string, a: [number, number], b: [number, number]) {
+  await page.getByRole("tab", { name: "Insert" }).click();
+  await page.getByRole("button", { name: "Shapes" }).click();
+  await page.getByRole("dialog", { name: "Shapes" }).getByRole("group", { name: group }).getByRole("button", { name, exact: true }).click();
+  await expect(stage(page)).toHaveAttribute("data-draw-mode", /.+/);
+  const box = (await stage(page).boundingBox())!;
+  await page.mouse.move(box.x + a[0], box.y + a[1]);
+  await page.mouse.down();
+  await page.mouse.move(box.x + (a[0] + b[0]) / 2, box.y + (a[1] + b[1]) / 2, { steps: 4 });
+  await page.mouse.move(box.x + b[0], box.y + b[1], { steps: 4 });
+  await page.mouse.up();
+  await expect(stage(page)).not.toHaveAttribute("data-draw-mode", /.+/);
+}
+
+/** Insert › Table › rows × cols from the picker; the table is selected. */
+async function insertTable(page: Page, rows: number, cols: number) {
+  await page.getByRole("tab", { name: "Insert" }).click();
+  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await page.getByRole("button", { name: `${rows} × ${cols} table` }).click();
+  await expect(page.getByTestId("table-overlay")).toBeVisible();
+}
+
+const cell = (page: Page, r: number, c: number) => page.locator(`[data-testid="table-cell"][data-cell="${r},${c}"]`);
 
 async function stageCentre(page: Page) {
   const b = (await stage(page).boundingBox())!;
@@ -218,16 +243,128 @@ test.describe("Show", () => {
     await expect.poll(async () => (await stage(page).boundingBox())?.width ?? 0).toBeGreaterThan(200);
   });
 
-  test("each Shapes gallery button inserts its own shape with a real click", async ({ page }) => {
+  test("a real click on a Shapes gallery button arms drawing; a click on the slide inserts the shape", async ({ page }) => {
     await openShow(page);
     await page.getByRole("tab", { name: "Insert" }).click();
     await page.getByRole("button", { name: "Shapes" }).click();
     const gallery = page.getByRole("dialog", { name: "Shapes" });
-    const boxes = await Promise.all((await gallery.getByRole("button").all()).map((b) => b.boundingBox()));
-    for (let i = 1; i < boxes.length; i++) expect(boxes[i]!.x).toBeGreaterThanOrEqual(boxes[i - 1]!.x + boxes[i - 1]!.width);
-    await gallery.getByRole("button", { name: "Oval" }).click();
-    await expect(page.getByRole("tab", { name: "Shape Format" })).toBeVisible();
+    const basic = gallery.getByRole("group", { name: "Basic shapes" });
+    const boxes = await Promise.all((await basic.getByRole("button").all()).map((b) => b.boundingBox()));
+    // no two buttons overlap
+    for (let i = 1; i < boxes.length; i++) {
+      const [p, q] = [boxes[i - 1]!, boxes[i]!];
+      expect(q.x >= p.x + p.width - 0.5 || q.y >= p.y + p.height - 0.5).toBe(true);
+    }
+    await basic.getByRole("button", { name: "Oval" }).click();
     await expect(gallery).toBeHidden();
+    await expect(stage(page)).toHaveAttribute("data-draw-mode", "ellipse");
+    const c = await stageCentre(page);
+    await page.mouse.click(c.x, c.y);
+    await expect(page.getByRole("tab", { name: "Shape Format" })).toBeVisible();
+    await expect(stage(page)).not.toHaveAttribute("data-draw-mode", /.+/);
+  });
+
+  // ----- P8-16: shape library, connectors, tables -----
+
+  test("Insert › Shapes › 5-point star drawn on the slide is saved as prst=star5", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await drawShape(page, "Stars and banners", "Star: 5 points", [80, 80], [220, 210]);
+    await expect(page.getByRole("tab", { name: "Shape Format" })).toBeVisible();
+    const slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    expect(slide1).toContain('prst="star5"');
+    errors.expectNone();
+  });
+
+  test("an elbow connector drawn between two shapes stays glued when a shape moves", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await drawShape(page, "Rectangles", "Rectangle", [80, 80], [200, 160]);
+    await drawShape(page, "Rectangles", "Rectangle", [480, 320], [600, 400]);
+    // from the first rectangle's right site to the second one's left site
+    await drawShape(page, "Lines", "Connector: elbow", [200, 120], [480, 360]);
+    let slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    const cxn = (xml: string) => xml.match(/<p:cxnSp>[\s\S]*?<\/p:cxnSp>/)?.[0] ?? "";
+    const before = cxn(slide1);
+    expect(before).toContain("<a:stCxn");
+    expect(before).toContain("<a:endCxn");
+    expect(before).toMatch(/prst="bentConnector\d"/);
+    // drag the first rectangle down
+    const box = (await stage(page).boundingBox())!;
+    await page.keyboard.press("Escape");
+    await page.mouse.move(box.x + 140, box.y + 120);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 140, box.y + 160, { steps: 4 });
+    await page.mouse.move(box.x + 140, box.y + 200, { steps: 4 });
+    await page.mouse.up();
+    slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    const after = cxn(slide1);
+    expect(after).toContain("<a:stCxn");
+    expect(after).toContain("<a:endCxn");
+    expect(after).not.toBe(before);
+    errors.expectNone();
+  });
+
+  test("Insert › Table 3 × 3, typing in a cell is saved in a:tbl", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await insertTable(page, 3, 3);
+    await cell(page, 0, 0).click({ force: true });
+    await expect(page.getByTestId("text-overlay")).toBeFocused();
+    await page.keyboard.type("Revenue");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("2026");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("text-overlay")).toHaveCount(0);
+    const slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    const tbl = slide1.match(/<a:tbl>[\s\S]*<\/a:tbl>/)?.[0] ?? "";
+    expect(tbl).toContain("Revenue");
+    expect(tbl).toContain("2026");
+    expect(tbl.match(/<a:tr /g)).toHaveLength(3);
+    errors.expectNone();
+  });
+
+  test("selecting two cells by dragging and Layout › Merge cells saves gridSpan", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await insertTable(page, 3, 3);
+    const a = (await cell(page, 1, 0).boundingBox())!;
+    const b = (await cell(page, 1, 1).boundingBox())!;
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect(cell(page, 1, 1)).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("tab", { name: "Layout" }).click();
+    await page.getByRole("button", { name: "Merge cells" }).click();
+    await expect(cell(page, 1, 1)).toHaveCount(0);
+    const slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    expect(slide1).toContain('gridSpan="2"');
+    expect(slide1).toContain('hMerge="1"');
+    errors.expectNone();
+  });
+
+  test("Table Design › table style changes the cells' fill on the canvas", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await insertTable(page, 3, 3);
+    const pixel = async () => {
+      const box = (await cell(page, 2, 0).boundingBox())!;
+      return page.evaluate(({ x, y }) => {
+        const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="editor-stage"] canvas')!;
+        const r = canvas.getBoundingClientRect();
+        const k = canvas.width / r.width;
+        const d = canvas.getContext("2d")!.getImageData(Math.round((x - r.left) * k), Math.round((y - r.top) * k), 1, 1).data;
+        return [d[0]!, d[1]!, d[2]!];
+      }, { x: box.x + box.width / 2, y: box.y + box.height - 4 });
+    };
+    const before = await pixel();
+    expect(before[2]).toBeGreaterThan(before[0]); // accent 1: blue
+    await page.getByRole("tab", { name: "Table Design" }).click();
+    await page.getByRole("button", { name: "Medium Style 2 – Accent 2" }).click();
+    await expect.poll(async () => { const [r, , b] = await pixel(); return r > b; }).toBe(true); // accent 2: orange
+    await expect(page.getByRole("button", { name: "Medium Style 2 – Accent 2" })).toHaveAttribute("aria-pressed", "true");
+    errors.expectNone();
   });
 
   // ----- P8-8: transitions and animations -----

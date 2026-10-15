@@ -39,3 +39,5 @@ export const Line = el("Line");
 export const Image = el("Image");
 export const Text = el("Text");
 export const Transformer = el("Transformer");
+export const Path = el("Path");
+export const Circle = el("Circle");

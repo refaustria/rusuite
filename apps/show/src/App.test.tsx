@@ -49,7 +49,7 @@ describe("Show app", () => {
     expect(screen.getByTestId("dirty").textContent).toBe("Saved");
     expect(screen.getByTestId("doc-name").textContent).toBe("Untitled");
     const thumbs = screen.getAllByTestId("thumbnail");
-    expect(thumbs[2]!.querySelector('[data-konva="Ellipse"]')).not.toBeNull();
+    expect(thumbs[2]!.querySelector('[data-konva="Ellipse"],[data-konva="Path"]')).not.toBeNull();
     expect(thumbs[0]!.textContent).toContain("Rusuite"); // wrapped: one Text node per line
     await flush();
     fireEvent.click(screen.getByRole("tab", { name: "File" }));

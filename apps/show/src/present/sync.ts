@@ -5,6 +5,7 @@
 
 import { isTauri } from "@rusuite/ui-shared";
 import type { DeckContext } from "../canvas/SlideView";
+import type { ShapePaths } from "../generated/ShapePaths";
 import type { Slide } from "../generated/Slide";
 import type { Blank, ShowAction } from "./showState";
 import { t } from "../i18n";
@@ -24,7 +25,7 @@ export type SyncMessage =
   /** presenter → audience: the slide shown, its click step, blank screen, end slide. */
   | ({ kind: "state" } & ShowView)
   /** presenter → audience: the slides of the show (JSON-safe: media as entries). */
-  | { kind: "deck"; deck: DeckContext; slides: Slide[]; media: [number, string][] }
+  | { kind: "deck"; deck: DeckContext; slides: Slide[]; media: [number, string][]; paths?: [string, ShapePaths][] }
   /** audience → presenter: the window is ready, send the deck. */
   | { kind: "hello" }
   /** audience → presenter: a key or click in the audience window. */

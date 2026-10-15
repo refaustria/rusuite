@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DeckContext } from "../canvas/SlideView";
+import { pathCache, slideQueries } from "../shapes/paths";
 import type { NodeId } from "../generated/NodeId";
 import type { Slide } from "../generated/Slide";
 import { useShow, type ShowStore } from "../state/store";
@@ -90,7 +91,10 @@ export function SlideShow({ store, mode, link, onEnd }: SlideShowProps) {
   const deck = useMemo<DeckContext | null>(() => (pres ? { slideSize: pres.slideSize, layouts: pres.layouts, theme: pres.theme } : null), [pres]);
   const deckMsg = useRef<() => void>(() => undefined);
   deckMsg.current = () => {
-    if (deck) sync.current?.post({ kind: "deck", deck, slides, media: [...store.media] });
+    // the audience window has no core: it gets the shape outlines with the deck
+    if (!deck) return;
+    const queries = slideQueries(slides);
+    void pathCache.ensure(queries).then(() => sync.current?.post({ kind: "deck", deck, slides, media: [...store.media], paths: pathCache.entries(queries) }));
   };
   const stateMsg = () => {
     const s = showRef.current;
