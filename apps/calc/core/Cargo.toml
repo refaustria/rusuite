@@ -10,8 +10,10 @@ publish = false
 
 [dependencies]
 app-common = { path = "../../../crates/app-common" }
+base64 = "=0.23.1"
 core-model = { path = "../../../crates/core-model" }
 engine-formula = { path = "../../../crates/engine-formula" }
+fmt-xlsx = { path = "../../../crates/fmt-xlsx" }
 model-sheet = { path = "../../../crates/model-sheet" }
 serde.workspace = true
 serde_json.workspace = true

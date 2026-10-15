@@ -5,4 +5,4 @@ import type { CalcCommand } from "./CalcCommand";
  * A request from the UI. JSON: `{"type":"apply","command":{...}}`,
  * `{"type":"undo"}`, `{"type":"snapshot","sheet":0,"r0":0,...}`.
  */
-export type Request = { "type": "apply", command: CalcCommand, } | { "type": "undo" } | { "type": "redo" } | { "type": "snapshot", sheet: number, r0: number, c0: number, r1: number, c1: number, } | { "type": "info" } | { "type": "newDocument" } | { "type": "loadSnapshotJson", json: string, } | { "type": "saveSnapshotJson" };
+export type Request = { "type": "apply", command: CalcCommand, } | { "type": "undo" } | { "type": "redo" } | { "type": "snapshot", sheet: number, r0: number, c0: number, r1: number, c1: number, } | { "type": "info" } | { "type": "newDocument" } | { "type": "loadSnapshotJson", json: string, } | { "type": "saveSnapshotJson" } | { "type": "openXlsx", bytesBase64: string, name: string, } | { "type": "saveXlsx" } | { "type": "markSaved" } | { "type": "documentState" };

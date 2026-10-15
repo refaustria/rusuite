@@ -29,6 +29,12 @@ pub enum CalcError {
     InvalidRange,
     #[error("range has more than {MAX_PATCH_CELLS} cells")]
     RangeTooLarge,
+    /// The bytes are not a readable `.xlsx` file.
+    #[error("cannot read xlsx: {0}")]
+    ReadXlsx(String),
+    /// Writing the `.xlsx` file failed.
+    #[error("cannot write xlsx: {0}")]
+    WriteXlsx(String),
 }
 
 impl From<EngineError> for CalcError {
@@ -54,6 +60,8 @@ impl CalcError {
             CalcError::Model(M::UnknownStyle(_)) => "unknown_style",
             CalcError::Model(M::InvalidDimension(_)) => "invalid_dimension",
             CalcError::Model(M::InvalidSnapshot(_)) => "invalid_snapshot",
+            CalcError::ReadXlsx(_) => "invalid_file",
+            CalcError::WriteXlsx(_) => "internal",
         }
     }
 }
@@ -68,6 +76,11 @@ impl From<CalcError> for DispatchError {
 #[derive(Debug, Default)]
 pub struct CalcDocument {
     workbook: Workbook,
+    /// File-level `.xlsx` data (theme, default font) kept from
+    /// [`open_xlsx`](Self::open_xlsx) for [`save_xlsx`](Self::save_xlsx).
+    pub xlsx_context: Option<fmt_xlsx::XlsxContext>,
+    /// The file name the document was opened from (no directory).
+    pub source_name: Option<String>,
 }
 
 /// `A`, `B`, …, `Z`, `AA`, … for a 0-based column.
@@ -123,7 +136,46 @@ impl CalcDocument {
     }
 
     pub fn from_workbook(workbook: Workbook) -> Self {
-        CalcDocument { workbook }
+        CalcDocument {
+            workbook,
+            ..Self::default()
+        }
+    }
+
+    /// Reads an `.xlsx` file; `name` is the file name shown to the user.
+    /// Returns the document and the reader's warnings about content that
+    /// was dropped or approximated.
+    pub fn open_xlsx(bytes: &[u8], name: &str) -> Result<(Self, Vec<String>)> {
+        let out =
+            fmt_xlsx::read_with_context(bytes).map_err(|e| CalcError::ReadXlsx(e.to_string()))?;
+        let doc = CalcDocument {
+            workbook: out.workbook,
+            xlsx_context: Some(out.context),
+            source_name: Some(name.to_owned()),
+        };
+        Ok((doc, out.warnings))
+    }
+
+    /// Writes the document as `.xlsx`, with the file-level data it was
+    /// opened with (if any).
+    pub fn save_xlsx(&self) -> Result<Vec<u8>> {
+        let default_ctx = fmt_xlsx::XlsxContext::default();
+        let ctx = self.xlsx_context.as_ref().unwrap_or(&default_ctx);
+        fmt_xlsx::write_with_context(&self.workbook, ctx)
+            .map_err(|e| CalcError::WriteXlsx(e.to_string()))
+    }
+
+    /// The file name to offer when saving: the source name with an
+    /// `.xlsx` extension, else `Untitled.xlsx`.
+    pub fn suggested_name(&self) -> String {
+        match self.source_name.as_deref() {
+            None | Some("") => "Untitled.xlsx".to_owned(),
+            Some(n) if n.to_ascii_lowercase().ends_with(".xlsx") => n.to_owned(),
+            Some(n) => {
+                let stem = n.rsplit_once('.').map_or(n, |(stem, _)| stem);
+                format!("{stem}.xlsx")
+            }
+        }
     }
 
     pub fn workbook(&self) -> &Workbook {
@@ -842,5 +894,24 @@ mod tests {
         assert_eq!(col_letters(701), "ZZ");
         assert_eq!(col_letters(702), "AAA");
         assert_eq!(col_letters(MAX_COL), "XFD");
+    }
+
+    #[test]
+    fn suggested_names() {
+        let named = |n: &str| CalcDocument {
+            source_name: Some(n.into()),
+            ..CalcDocument::new()
+        };
+        assert_eq!(CalcDocument::new().suggested_name(), "Untitled.xlsx");
+        assert_eq!(named("a.xlsx").suggested_name(), "a.xlsx");
+        assert_eq!(named("b.XLSX").suggested_name(), "b.XLSX");
+        assert_eq!(named("c.xls").suggested_name(), "c.xlsx");
+        assert_eq!(named("d").suggested_name(), "d.xlsx");
+    }
+
+    #[test]
+    fn open_rejects_garbage() {
+        let err = CalcDocument::open_xlsx(b"not a zip", "x.xlsx").unwrap_err();
+        assert_eq!(err.code(), "invalid_file");
     }
 }

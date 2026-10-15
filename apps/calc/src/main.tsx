@@ -2,6 +2,8 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { createBackend, type WasmModule } from "@rusuite/ui-shared";
 import App from "./App";
+import type { Request } from "./generated/Request";
+import type { ResponseBody } from "./generated/ResponseBody";
 import "./styles.css";
 
 async function loadWasm(): Promise<WasmModule> {
@@ -16,7 +18,7 @@ async function loadWasm(): Promise<WasmModule> {
   return mod as WasmModule;
 }
 
-createBackend(loadWasm).then((backend) => {
+createBackend<Request, ResponseBody>(loadWasm).then((backend) => {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <App backend={backend} />

@@ -7,6 +7,9 @@ const backend: Backend = {
   kind: "wasm",
   ping: async () => "Rusuite Calc 0.1.0",
   dispatch: async <T,>() => undefined as T,
+  openFile: async () => null,
+  saveFile: async () => false,
+  setTitle: async () => {},
 };
 
 describe("App", () => {
