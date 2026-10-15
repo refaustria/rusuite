@@ -107,6 +107,9 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## Ribbon
 - Groups that collapse into dropdowns on narrow windows; Quick Access Toolbar; remember collapsed state and zoom; Calc Data tab (sort/filter) if it enters scope; print preview in the backstage; Write font box shows the effective (style-derived) font.
 
+## Desktop shells
+- Real Save As with a remembered path (Save should not open a dialog every time); exercise the close-guard path in a real desktop window (xvfb + WebDriver or tauri-driver); document the unsaved-changes question in docs/shortcuts.md.
+
 ## Phase 5 leftovers
 - Write: windowed/paged editor so the contenteditable holds only visible pages (remaining ~2 ms typing p95 gap).
 - Performance: paged/virtual Write editor for very long documents; range-level `ApplyStyle` patches in Calc (1M-cell style patch is 2.7 s because the patch carries every cell); cache parsed number formats; move the Playwright perf scripts into an e2e package so `scripts/perf.sh` needs no scratchpad files.
