@@ -577,17 +577,23 @@ export class CalcStore {
   }
 
   /**
-   * Writes the document as `.xlsx` through the shell's save dialog /
-   * download; only a completed write marks the document saved. `asName`
-   * (Save As) overrides the suggested file name.
+   * Writes the document as `.xlsx` through the shell (desktop: the
+   * document's file, or the save dialog; web: a download); only a
+   * completed write marks the document saved. `asName` (Save As)
+   * overrides the suggested file name; `saveAs` (default: with `asName`)
+   * makes the desktop ask even when the document has a file. The name
+   * becomes the file actually written.
    */
-  saveFile(asName?: string): Promise<void> {
+  saveFile(asName?: string, saveAs = asName !== undefined): Promise<void> {
     return this.guard(async () => {
       await this.commitEdit(0, 0);
       const saved = await this.api.saveXlsx();
-      if (!(await this.api.backend.saveFile(asName ?? saved.suggestedName, saved.bytesBase64))) return;
-      const st = await this.api.markSaved(asName);
-      this.set({ dirty: st.dirty, name: asName ?? st.name ?? saved.suggestedName });
+      const suggested = asName ?? this.state.name ?? saved.suggestedName;
+      const result = await this.api.backend.saveFile(suggested, saved.bytesBase64, { saveAs });
+      if (!result) return;
+      const name = typeof result === "object" ? result.name : asName;
+      const st = await this.api.markSaved(name);
+      this.set({ dirty: st.dirty, name: name ?? st.name ?? saved.suggestedName });
     });
   }
 

@@ -26,7 +26,5 @@ core-model = { path = "../../../crates/core-model" }
 app-common = { path = "../../../crates/app-common", features = ["fs"] }
 thiserror = { workspace = true }
 serde = { workspace = true }
-
-[dev-dependencies]
 serde_json = { workspace = true }
 

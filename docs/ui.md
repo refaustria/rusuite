@@ -48,6 +48,17 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
 
 Each app keeps its status bar; Calc and Show also show the zoom there, all three the last autosave.
 
+## Save and Save As on the desktop (P7-7)
+
+The desktop shell remembers the document's file (`DocPath` in `apps/*/src-tauri/src/lib.rs`): Open (dialog or recent file)
+binds it once the core opened the file, Save As re-binds it, New / a recovered document unbind it (the shell watches
+`dispatch` replies). `Backend.saveFile(name, bytes, { saveAs })` → `save_file`: a plain **Save** (Ctrl+S, File › Save, Save in
+the unsaved-changes question) of a bound document writes that file without a dialog; an untitled document or **Save As**
+(Ctrl+Shift+S, File › Save As…) shows the native save dialog, starting in the current file's folder. The result is the
+written file (`SaveResult`: `SavedFile { name, path }`), whose name becomes the document's name (`markSaved`) and the window
+title. Calc and Write go straight to the native dialog for Save As; Show still asks for the name first and then opens the
+dialog with it. The web shell is unchanged: Save downloads, Save As asks for the download's name.
+
 ## Unsaved changes (P7-6)
 
 Before a command replaces or closes a modified document – New (Ctrl+N), Open (Ctrl+O, File › Open…), a recent file, Restore in

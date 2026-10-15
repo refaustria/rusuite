@@ -5,7 +5,7 @@
 // undo/redo). Patches are computed by diffing the body before and after a
 // command (a changed table is reported whole).
 
-import { base64ToBytes, bytesToBase64, type OpenedFile } from "@rusuite/ui-shared";
+import { base64ToBytes, bytesToBase64, type OpenedFile, type SaveResult } from "@rusuite/ui-shared";
 import type { WriteBackend } from "../backend";
 import type { Block } from "../generated/Block";
 import type { Document } from "../generated/Document";
@@ -69,7 +69,8 @@ function inheritedProps(p: Paragraph, offset: number) {
 }
 
 export class FakeWriteBackend implements WriteBackend {
-  readonly kind = "wasm" as const;
+  /** `"tauri"` makes the app behave as on the desktop. */
+  kind: "tauri" | "wasm" = "wasm";
   readonly log: Request[] = [];
   doc: Document = structuredClone(template) as unknown as Document;
   revision = 0;
@@ -93,7 +94,7 @@ export class FakeWriteBackend implements WriteBackend {
   async openFile(): Promise<OpenedFile | null> {
     return null;
   }
-  async saveFile() {
+  async saveFile(): Promise<SaveResult> {
     return false;
   }
   async setTitle() {}

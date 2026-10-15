@@ -131,9 +131,23 @@ describe("Write shortcuts", () => {
     expect(input.value).toBe("t.docx");
     fireEvent.change(input, { target: { value: "report" } });
     fireEvent.submit(input.form!);
-    await waitFor(() => expect(save).toHaveBeenCalledWith("report.docx", expect.any(String)));
+    await waitFor(() => expect(save).toHaveBeenCalledWith("report.docx", expect.any(String), { saveAs: true }));
     await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("report.docx"));
     expect(backend.log.find((r) => r.type === "markSaved")).toEqual({ type: "markSaved", name: "report.docx" });
+  });
+
+  it("desktop: Ctrl+Shift+S goes straight to the save dialog; the chosen file names the document and Ctrl+S saves there", async () => {
+    const { backend, editor } = await mount();
+    backend.kind = "tauri";
+    const save = vi.spyOn(backend, "saveFile").mockResolvedValue({ name: "final.docx", path: "/docs/final.docx" });
+    fireEvent.keyDown(editor, ctrl("S", { shiftKey: true }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith("t.docx", expect.any(String), { saveAs: true }));
+    expect(screen.queryByLabelText("File name")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("final.docx"));
+    expect(backend.log.find((r) => r.type === "markSaved")).toEqual({ type: "markSaved", name: "final.docx" });
+    fireEvent.keyDown(editor, ctrl("s"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save).toHaveBeenLastCalledWith("final.docx", expect.any(String));
   });
 
   it("Ctrl+N starts a new document; unsaved changes ask Save / Don't save / Cancel", async () => {

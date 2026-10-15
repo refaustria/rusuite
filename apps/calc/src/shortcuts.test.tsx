@@ -14,9 +14,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function setup() {
+async function setup(configure: (backend: FakeBackend) => void = () => {}) {
   const core = new FakeCalcCore();
   const backend = new FakeBackend(core);
+  configure(backend);
   render(<App backend={backend} />);
   await screen.findByRole("tab", { name: "Sheet1" });
   await waitFor(() => expect(core.log.some((r) => r.type === "snapshot")).toBe(true));
@@ -173,6 +174,24 @@ describe("Calc shortcuts", () => {
     await waitFor(() => expect(backend.saved.map((s) => s.name)).toEqual(["budget.xlsx"]));
     expect(core.log.find((r) => r.type === "markSaved")).toEqual({ type: "markSaved", name: "budget.xlsx" });
     await waitFor(() => expect(screen.getByTestId("status-bar").textContent).toMatch(/Saved/));
+  });
+
+  it("desktop: Ctrl+Shift+S goes straight to the save dialog; the chosen file names the workbook and Ctrl+S saves there", async () => {
+    const { core, backend, grid } = await setup((b) => {
+      b.kind = "tauri";
+      b.saveResult = { name: "chosen.xlsx", path: "/docs/chosen.xlsx" };
+    });
+    fireEvent.keyDown(grid, ctrl("S", { shiftKey: true }));
+    await waitFor(() => expect(backend.saveOptions).toEqual([{ saveAs: true }]));
+    expect(screen.queryByLabelText("File name")).toBeNull();
+    await waitFor(() => expect(core.log.find((r) => r.type === "markSaved")).toEqual({ type: "markSaved", name: "chosen.xlsx" }));
+    await waitFor(() => expect(backend.title).toMatch(/^chosen\.xlsx – Rusuite Calc/));
+    await typeCell(grid, "5");
+    await waitFor(() => expect(backend.title).toMatch(/^chosen\.xlsx •/));
+    fireEvent.keyDown(grid, ctrl("s"));
+    await waitFor(() => expect(backend.saveOptions).toEqual([{ saveAs: true }, { saveAs: false }]));
+    expect(backend.saved.map((s) => s.name)).toEqual(["Untitled.xlsx", "chosen.xlsx"]);
+    await waitFor(() => expect(backend.title).toMatch(/^chosen\.xlsx – /));
   });
 
   it("Ctrl+N starts a new workbook; with unsaved changes it asks Save / Don't save / Cancel", async () => {

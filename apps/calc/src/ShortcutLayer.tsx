@@ -79,7 +79,13 @@ export function ShortcutLayer({ store, guard, onExportPdf }: { store: CalcStore;
       "Mod+N": { label: "New workbook", group: File, inField: true, run: () => void guard.run(() => store.newFile()) },
       "Mod+O": { label: "Open", group: File, inField: true, run: () => void guard.run(() => store.openFile()) },
       "Mod+S": { label: "Save", group: File, inField: true, run: () => void store.saveFile() },
-      "Mod+Shift+S": { label: "Save as", group: File, inField: true, run: () => setSaveAsOpen(true) },
+      // Desktop: the native save dialog is the Save As; web: name the download first.
+      "Mod+Shift+S": {
+        label: "Save as",
+        group: File,
+        inField: true,
+        run: () => (store.api.backend.kind === "tauri" ? void store.saveFile(undefined, true) : setSaveAsOpen(true)),
+      },
       "Mod+P": { label: "Export PDF…", group: File, inField: true, run: () => onExportPdf() },
       "Mod+/": { label: "Keyboard shortcuts", inField: true, run: () => setHelpOpen(true) },
       "Mod+Z": { label: "Undo", group: "Edit", when: inGrid, run: () => void store.undo() },
