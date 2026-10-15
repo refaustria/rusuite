@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FOCUS_RING } from "./Popover";
+import { formatCombo } from "./shortcuts/keys";
+import { useLocale } from "./i18n/react";
 
 export type ContextMenuItem =
   | {
@@ -29,6 +31,7 @@ const isItem = (i: ContextMenuItem): i is Exclude<ContextMenuItem, { separator: 
  * menu and then runs the item.
  */
 export function ContextMenu({ at, label, items, onClose }: ContextMenuProps) {
+  useLocale();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState(at);
   const onCloseRef = useRef(onClose);
@@ -97,7 +100,7 @@ export function ContextMenu({ at, label, items, onClose }: ContextMenuProps) {
             }}
           >
             <span>{it.label}</span>
-            {it.shortcut && <span className="text-xs text-ui-muted">{it.shortcut}</span>}
+            {it.shortcut && <span className="text-xs text-ui-muted">{formatCombo(it.shortcut)}</span>}
           </button>
         ) : (
           <div key={`sep-${i}`} role="separator" className="my-1 border-t border-ui-border" />

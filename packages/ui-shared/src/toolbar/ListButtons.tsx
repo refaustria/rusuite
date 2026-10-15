@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { BTN } from "../Popover";
+import { useT } from "../i18n/react";
 
 export type ListKindChoice = "bullet" | "decimal";
 
@@ -47,18 +48,19 @@ const ICONS = {
 
 /** Bulleted/numbered list toggles and indent/outdent (Write). */
 export function ListButtons({ bullet, ordered, onToggle, onIndent, disabled }: ListButtonsProps) {
+  const t = useT();
   return (
-    <div role="group" aria-label="Lists" className="flex items-center gap-0.5 border-r border-ui-border px-1 last:border-r-0">
-      <button type="button" className={BTN} aria-label="Bulleted list" aria-pressed={bullet} disabled={disabled} onClick={() => onToggle("bullet")}>
+    <div role="group" aria-label={t("list.group")} className="flex items-center gap-0.5 border-r border-ui-border px-1 last:border-r-0">
+      <button type="button" className={BTN} aria-label={t("list.bullet")} aria-pressed={bullet} disabled={disabled} onClick={() => onToggle("bullet")}>
         {ICONS.bullet}
       </button>
-      <button type="button" className={BTN} aria-label="Numbered list" aria-pressed={ordered} disabled={disabled} onClick={() => onToggle("decimal")}>
+      <button type="button" className={BTN} aria-label={t("list.numbered")} aria-pressed={ordered} disabled={disabled} onClick={() => onToggle("decimal")}>
         {ICONS.ordered}
       </button>
-      <button type="button" className={BTN} aria-label="Decrease indent" disabled={disabled} onClick={() => onIndent(-1)}>
+      <button type="button" className={BTN} aria-label={t("list.outdent")} disabled={disabled} onClick={() => onIndent(-1)}>
         {ICONS.outdent}
       </button>
-      <button type="button" className={BTN} aria-label="Increase indent" disabled={disabled} onClick={() => onIndent(1)}>
+      <button type="button" className={BTN} aria-label={t("list.indent")} disabled={disabled} onClick={() => onIndent(1)}>
         {ICONS.indent}
       </button>
     </div>

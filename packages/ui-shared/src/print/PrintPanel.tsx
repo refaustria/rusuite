@@ -8,6 +8,7 @@ import { FOCUS_RING } from "../Popover";
 import { applyPageRange, parsePageRange, type PrintChoice, type PrintDoc } from "../print";
 import { RibbonIcon } from "../ribbon/icons";
 import { PrintPreview } from "./PrintPreview";
+import { useT } from "../i18n/react";
 
 const FIELD = "flex flex-col gap-0.5 text-sm";
 const INPUT = `h-7 rounded border border-ui-border bg-ui-bg px-1.5 text-sm text-ui-fg ${FOCUS_RING}`;
@@ -102,6 +103,7 @@ export interface PrintPanelProps {
 }
 
 export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, children, disabledReason }: PrintPanelProps) {
+  const t = useT();
   const [custom, setCustom] = useState(range !== "");
   const [text, setText] = useState(range);
   const [printing, setPrinting] = useState(false);
@@ -110,7 +112,7 @@ export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, 
   const parsed = range === "" ? null : parsePageRange(range, total);
   const rangeError = parsed && "error" in parsed && doc ? parsed.error : null;
   const shown = doc ? applyPageRange(doc, range) : null;
-  const blocked = disabledReason ?? (error ? error : rangeError ? rangeError : !shown || shown.pages.length === 0 ? (busy ? "Preparing…" : "Nothing to print") : undefined);
+  const blocked = disabledReason ?? (error ? error : rangeError ? rangeError : !shown || shown.pages.length === 0 ? (busy ? t("print.preparing") : t("print.nothing")) : undefined);
 
   const print = async () => {
     if (!shown || blocked || printing) return;
@@ -132,15 +134,15 @@ export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, 
             data-testid="print-button"
             disabled={!!blocked}
             aria-busy={printing || undefined}
-            title={blocked ?? "Print (opens the system print dialog)"}
+            title={blocked ?? t("print.buttonTip")}
             className={`flex h-16 w-20 flex-col items-center justify-center gap-1 rounded border border-ui-border bg-ui-panel text-sm hover:bg-ui-hover disabled:opacity-50 ${FOCUS_RING}`}
             onClick={() => void print()}
           >
             <RibbonIcon name="print" size={24} />
-            Print
+            {t("backstage.print")}
           </button>
           <p className="text-xs text-ui-muted" data-testid="print-os-note">
-            Copies, printer and two-sided printing are chosen in the system print dialog. Choose “Save as PDF” there for a PDF.
+            {t("print.osNote")}
           </p>
         </div>
         {(error || rangeError || disabledReason) && (
@@ -149,8 +151,8 @@ export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, 
           </p>
         )}
         {before}
-        <PrintSection title="Pages">
-          <div role="radiogroup" aria-label="Pages" className="flex flex-col gap-1 text-sm">
+        <PrintSection title={t("print.pages")}>
+          <div role="radiogroup" aria-label={t("print.pages")} className="flex flex-col gap-1 text-sm">
             <label className="flex items-center gap-2">
               <input
                 type="radio"
@@ -161,7 +163,7 @@ export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, 
                   onRange("");
                 }}
               />
-              All pages
+              {t("print.allPages")}
             </label>
             <label className="flex items-center gap-2">
               <input
@@ -173,11 +175,11 @@ export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, 
                   onRange(text);
                 }}
               />
-              Pages
+              {t("print.pages")}
               <input
                 type="text"
-                aria-label="Page range"
-                placeholder="e.g. 1-3,5"
+                aria-label={t("print.pageRange")}
+                placeholder={t("print.pageRangeHint")}
                 className={`${INPUT} w-32`}
                 value={text}
                 onChange={(e) => {

@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { FOCUS_RING } from "../Popover";
 import { formatCombo } from "../shortcuts/keys";
 import { RibbonIcon, type RibbonIconName } from "./icons";
+import { useT } from "../i18n/react";
 
 export type RibbonButtonSize = "large" | "small";
 
@@ -246,11 +247,12 @@ export interface RibbonSplitButtonProps extends Omit<RibbonButtonProps, "pressed
 
 /** Main action plus an arrow that opens a menu or gallery (Paste ▾, New Slide ▾ …). */
 export function RibbonSplitButton({ label, icon: i, size = "small", showLabel, disabled, shortcut, tooltip, onClick, menu, menuLabel }: RibbonSplitButtonProps) {
+  const t = useT();
   const { open, setOpen, root } = usePopup();
   const arrow = useRef<HTMLButtonElement>(null);
   const id = useId();
   const large = size === "large";
-  const optionsLabel = menuLabel ?? `${label} options`;
+  const optionsLabel = menuLabel ?? t("ribbon.options", { label });
   const close = () => {
     setOpen(false);
     arrow.current?.focus();

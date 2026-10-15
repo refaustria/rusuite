@@ -10,6 +10,8 @@
 // `@media print`), so the preview's page count is the printed one.
 
 import type { Backend } from "./backend";
+import { withLabel } from "./i18n/localized";
+import { t } from "./i18n/locale";
 
 export type PaperName = "A4" | "Letter" | "Legal" | "A3";
 export type PageOrientation = "portrait" | "landscape";
@@ -26,15 +28,15 @@ export const PAPER_NAMES = Object.keys(PAPER_IN) as PaperName[];
 
 /** `{ value, label }` choices of the paper select. */
 export const PAPER_CHOICES: PrintChoice[] = [
-  { value: "A4", label: "A4 (21 × 29.7 cm)" },
-  { value: "Letter", label: "Letter (8.5 × 11 in)" },
-  { value: "Legal", label: "Legal (8.5 × 14 in)" },
-  { value: "A3", label: "A3 (29.7 × 42 cm)" },
+  withLabel({ value: "A4" }, "print.paper.A4"),
+  withLabel({ value: "Letter" }, "print.paper.Letter"),
+  withLabel({ value: "Legal" }, "print.paper.Legal"),
+  withLabel({ value: "A3" }, "print.paper.A3"),
 ];
 
 export const ORIENTATION_CHOICES: PrintChoice[] = [
-  { value: "portrait", label: "Portrait" },
-  { value: "landscape", label: "Landscape" },
+  withLabel({ value: "portrait" }, "print.portrait"),
+  withLabel({ value: "landscape" }, "print.landscape"),
 ];
 
 /** Page margins in inches; `header`/`footer` = distance of the header/footer from the sheet edge. */
@@ -57,9 +59,9 @@ export const MARGIN_PRESETS: Record<MarginPreset, PrintMargins> = {
 };
 
 export const MARGIN_CHOICES: PrintChoice[] = [
-  { value: "normal", label: "Normal" },
-  { value: "narrow", label: "Narrow" },
-  { value: "wide", label: "Wide" },
+  withLabel({ value: "normal" }, "print.margins.normal"),
+  withLabel({ value: "narrow" }, "print.margins.narrow"),
+  withLabel({ value: "wide" }, "print.margins.wide"),
 ];
 
 /** One entry of a print-option select. */
@@ -114,13 +116,13 @@ export function parsePageRange(text: string, count: number): PageRangeResult {
     const part = raw.trim();
     if (part === "") continue;
     const m = /^(\d*)\s*(-?)\s*(\d*)$/.exec(part);
-    if (!m || (m[1] === "" && m[3] === "") || (m[2] === "" && m[3] !== "")) return { error: `"${part}" is not a page or a range` };
+    if (!m || (m[1] === "" && m[3] === "") || (m[2] === "" && m[3] !== "")) return { error: t("print.range.notPage", { part }) };
     const from = m[1] === "" ? 1 : Number(m[1]);
     const to = m[2] === "" ? from : m[3] === "" ? count : Number(m[3]);
-    if (from < 1 || to < from) return { error: `"${part}" is not a valid range` };
+    if (from < 1 || to < from) return { error: t("print.range.invalid", { part }) };
     for (let p = from; p <= Math.min(to, count); p++) out.add(p);
   }
-  if (out.size === 0) return { error: count === 0 ? "Nothing to print" : `The document has ${count} page${count === 1 ? "" : "s"}` };
+  if (out.size === 0) return { error: count === 0 ? t("print.nothing") : t("print.range.pages", { count }) };
   return { pages: [...out].sort((a, b) => a - b) };
 }
 
@@ -239,7 +241,7 @@ export const DESKTOP_PRINT_KEEP_MS = 60_000;
  * WebKitGTK / WKWebView may render the pages after their dialog returned.
  */
 export async function printDocument(doc: PrintDoc, backend: Pick<Backend, "print" | "kind">): Promise<void> {
-  if (doc.pages.length === 0) throw new Error("Nothing to print");
+  if (doc.pages.length === 0) throw new Error(t("print.nothing"));
   mountPrintRoot(doc);
   try {
     await printAndWait(backend);
