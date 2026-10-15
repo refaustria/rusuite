@@ -24,7 +24,7 @@ Milestone: workspace + CI green, `fmt-ooxml` opens/writes OOXML packages, `core-
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
-5. 2026-10-15: Agents work in `git worktree`s under `/home/bojan/rusuite-wt/<branch>` so parallel tasks never share a checkout. Task briefs live in the PM scratchpad and are referenced by path.
+5. 2026-10-15: Agents work in `git worktree`s under `/home/bojan/rusuite-wt/<branch>` so parallel tasks never share a checkout. Task briefs are committed under `docs/tasks/` (copied from the PM scratchpad) so they survive context loss.
 1. 2026-10-15: Git identity for commits set locally to `Bojan <bojan@referee.at>` (previous commits were by `refaustria`). Change with `git config user.*` if wrong.
 2. 2026-10-15: Phase 0 split into 7 tasks; P0-1 runs first, then P0-2/3/4 in parallel.
 3. 2026-10-15: `core-model` Phase 0 scope implemented by Opus against a PM-written type spec, not Fable (scope is a well-understood OOXML mapping; escalate only if design questions arise).
