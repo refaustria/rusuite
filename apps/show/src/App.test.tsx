@@ -27,7 +27,7 @@ async function mount() {
 const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
 
 describe("Show app", () => {
-  it("renders thumbnails from the model, the status bar and disabled file buttons", async () => {
+  it("renders thumbnails from the model, the status bar and enabled file buttons", async () => {
     const { store } = await mount();
     expect(screen.getByTestId("slide-count").textContent).toBe("Slide 1 of 3");
     expect(screen.getByTestId("dirty").textContent).toBe("Saved");
@@ -37,8 +37,8 @@ describe("Show app", () => {
     expect(thumbs[0]!.textContent).toContain("Rusuite"); // wrapped: one Text node per line
     await flush();
     const open = screen.getByRole("button", { name: "Open" }) as HTMLButtonElement;
-    expect(open.disabled).toBe(true);
-    expect(open.title).toMatch(/P4-7/);
+    expect(open.disabled).toBe(false);
+    expect(open.title).toBe("Open (Ctrl+O)");
     fireEvent.click(thumbs[1]!);
     expect(store.getState().current).toBe(4);
     expect(screen.getByTestId("slide-count").textContent).toBe("Slide 2 of 3");

@@ -5,6 +5,7 @@ import { installDevTools, perfOverlayEnabled, pickBackend } from "./dev/devTools
 import { FormulaBar } from "./FormulaBar";
 import { GridCanvas } from "./grid/GridCanvas";
 import { toolbarValue } from "./grid/style";
+import { ShortcutLayer } from "./ShortcutLayer";
 import { SheetTabs } from "./SheetTabs";
 import { CalcStore, useCalc } from "./state/store";
 import { Toasts } from "./Toasts";
@@ -76,22 +77,6 @@ export default function App({ backend }: { backend: CalcBackend }) {
     void store.api.backend.setTitle(store.title()).catch(() => undefined);
   }, [store, name, dirty]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
-      const k = e.key.toLowerCase();
-      if (k === "o") {
-        e.preventDefault();
-        void store.openFile();
-      } else if (k === "s") {
-        e.preventDefault();
-        void store.saveFile();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [store]);
-
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
       <div className="flex items-stretch">
@@ -105,6 +90,7 @@ export default function App({ backend }: { backend: CalcBackend }) {
       <SheetTabs store={store} />
       <StatusBar store={store} />
       <Toasts store={store} />
+      <ShortcutLayer store={store} />
     </main>
   );
 }

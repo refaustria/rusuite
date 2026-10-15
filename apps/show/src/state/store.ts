@@ -62,7 +62,7 @@ export interface ShowState {
   toasts: Toast[];
   /** Bumped when an image arrives in the media cache. */
   mediaVersion: number;
-  /** The core answers `openPptx`/`savePptx` (P4-7). */
+  /** The core answers the file requests (`openPptx`/`savePptx`). */
   fileIo: boolean;
 }
 
@@ -570,15 +570,25 @@ export class ShowStore {
 
   // --- files ----------------------------------------------------------------------
 
-  /** Checks whether the core answers `savePptx` (P4-7); enables Open/Save. */
+  /** Checks whether the core answers file requests (`documentState`, cheap); enables Open/Save. */
   async probeFileIo(): Promise<boolean> {
     try {
-      await this.enqueue(() => this.api.savePptx());
+      await this.enqueue(() => this.api.documentState());
       this.set({ fileIo: true });
       return true;
     } catch {
       this.set({ fileIo: false });
       return false;
+    }
+  }
+
+  /** Replaces the presentation by a new one (Ctrl+N). */
+  async newFile(): Promise<void> {
+    try {
+      const body = await this.enqueue(() => this.api.newPresentation());
+      this.setPresentation(body.presentation, body.envelope, { name: null, warnings: [] });
+    } catch (e) {
+      this.pushError(e);
     }
   }
 
@@ -588,19 +598,20 @@ export class ShowStore {
       if (!file) return;
       const opened = await this.enqueue(() => this.api.openPptx(file.bytesBase64, file.name));
       const body = await this.enqueue(() => this.api.getPresentation());
-      this.setPresentation(body.presentation, body.envelope, { name: file.name, warnings: opened.warnings ?? [] });
+      this.setPresentation(body.presentation, body.envelope, { name: file.name, warnings: opened.warnings });
     } catch (e) {
       this.pushError(e);
     }
   }
 
-  async save(): Promise<void> {
+  /** Saves as `.pptx`; `asName` (Save As) replaces the suggested file name. */
+  async save(asName?: string): Promise<void> {
     try {
       if (this.state.editing) await this.commitEdit();
       const saved = await this.enqueue(() => this.api.savePptx());
-      const ok = await this.api.backend.saveFile(saved.suggestedName, saved.bytesBase64);
+      const ok = await this.api.backend.saveFile(asName ?? saved.suggestedName, saved.bytesBase64);
       if (!ok) return;
-      const st = await this.enqueue(() => this.api.markSaved(this.state.name === null ? saved.suggestedName : undefined));
+      const st = await this.enqueue(() => this.api.markSaved(asName ?? (this.state.name === null ? saved.suggestedName : undefined)));
       this.set({ dirty: st.dirty, name: st.name, revision: Math.max(this.state.revision, st.revision) });
     } catch (e) {
       this.pushError(e);
