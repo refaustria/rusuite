@@ -9,6 +9,11 @@ use crate::props::{Indent, NumberingRef};
 /// Number format of a list level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub enum LevelKind {
     /// A bullet character (the level's `text`).
     Bullet,
@@ -27,6 +32,11 @@ pub enum LevelKind {
 /// One level of a list.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct Level {
     /// Number format.
     pub kind: LevelKind,
@@ -40,6 +50,7 @@ pub struct Level {
     pub indent: Option<Indent>,
     /// Font of the label (e.g. `Symbol` for bullets).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<app_common::wire::FontFace>"))]
     pub font: Option<FontFace>,
 }
 
@@ -47,6 +58,11 @@ pub struct Level {
 /// `w:abstractNum`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct NumberingDef {
     /// Id referenced by [`NumberingRef::num_id`]; never `0`.
     pub id: u32,
@@ -115,6 +131,11 @@ impl NumberingDef {
 /// All list definitions of a document.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct Numbering {
     /// Definitions; ids are unique.
     #[serde(default)]

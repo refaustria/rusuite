@@ -13,6 +13,11 @@ use serde::{Deserialize, Serialize};
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize,
 )]
 #[serde(transparent)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct MediaId(pub u32);
 
 /// A binary part, e.g. a PNG image.
@@ -75,6 +80,17 @@ impl MediaStore {
         id
     }
 
+    /// Puts `media` back under its old id `id` (e.g. when undoing its
+    /// removal), replacing an item with that id. Later
+    /// [`insert`](Self::insert)s never allocate `id` again.
+    pub fn insert_with_id(&mut self, id: MediaId, media: Media) {
+        self.remove(id);
+        let hash = content_hash(&media.content_type, &media.data);
+        self.next_id = self.next_id.max(id.0.saturating_add(1));
+        self.items.insert(id, media);
+        self.index.entry(hash).or_default().push(id);
+    }
+
     /// The item with id `id`.
     pub fn get(&self, id: MediaId) -> Option<&Media> {
         self.items.get(&id)
@@ -131,6 +147,24 @@ impl PartialEq for MediaStore {
     fn eq(&self, other: &Self) -> bool {
         self.items == other.items
     }
+}
+
+/// TypeScript shape of one [`MediaStore`] entry (the store serializes as
+/// an array of these); only used to generate the TS definitions.
+#[cfg(feature = "ts")]
+#[derive(ts_rs::TS)]
+#[ts(
+    export,
+    export_to = "apps/write/src/generated/",
+    rename_all = "camelCase"
+)]
+pub struct MediaItem {
+    /// Id.
+    pub id: MediaId,
+    /// MIME type.
+    pub content_type: String,
+    /// Standard base64 of the bytes.
+    pub data: String,
 }
 
 #[derive(Serialize)]
@@ -255,6 +289,21 @@ mod base64_serde {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn insert_with_id_restores_and_reserves() {
+        let mut store = MediaStore::new();
+        let a = store.insert("image/png", vec![1]);
+        let b = store.insert("image/png", vec![2]);
+        let removed = store.remove(b).unwrap();
+        store.insert_with_id(b, removed.clone());
+        assert_eq!(store.get(b), Some(&removed));
+        // Dedup sees the restored item; new items get fresh ids.
+        assert_eq!(store.insert("image/png", vec![2]), b);
+        store.insert_with_id(MediaId(10), removed);
+        let c = store.insert("image/gif", vec![3]);
+        assert!(c.0 > 10 && c != a);
+    }
 
     #[test]
     fn base64_rfc4648_vectors() {

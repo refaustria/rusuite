@@ -10,6 +10,11 @@ use serde::{Deserialize, Serialize};
 /// Horizontal paragraph alignment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub enum Alignment {
     /// Left (start) aligned.
     Left,
@@ -27,18 +32,27 @@ pub enum Alignment {
 /// treated as one value when merging (see [`Indent::merged_with`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct Indent {
     /// Left (start) indent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<i32>"))]
     pub left: Option<Twips>,
     /// Right (end) indent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<i32>"))]
     pub right: Option<Twips>,
     /// Additional indent of the first line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<i32>"))]
     pub first_line: Option<Twips>,
     /// Outdent of the first line relative to `left` (lists).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<i32>"))]
     pub hanging: Option<Twips>,
 }
 
@@ -73,14 +87,19 @@ impl Indent {
 /// `{"kind":"exact","value":240}` (twips).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub enum LineSpacing {
     /// A multiple of single line spacing (docx `lineRule="auto"`, stored
     /// there in 240ths of a line).
     Multiple(f64),
     /// Exactly this line height.
-    Exact(Twips),
+    Exact(#[cfg_attr(feature = "ts", ts(as = "i32"))] Twips),
     /// At least this line height.
-    AtLeast(Twips),
+    AtLeast(#[cfg_attr(feature = "ts", ts(as = "i32"))] Twips),
 }
 
 impl LineSpacing {
@@ -93,12 +112,19 @@ impl LineSpacing {
 /// Spacing around a paragraph.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct Spacing {
     /// Space before the paragraph.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<i32>"))]
     pub before: Option<Twips>,
     /// Space after the paragraph.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<i32>"))]
     pub after: Option<Twips>,
     /// Line spacing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -128,6 +154,11 @@ impl Spacing {
 /// paragraph switch off numbering inherited from its style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct NumberingRef {
     /// Id of a [`crate::NumberingDef`].
     pub num_id: u32,
@@ -138,6 +169,11 @@ pub struct NumberingRef {
 /// Paragraph formatting.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct ParagraphProperties {
     /// Paragraph style id (`None` = the default paragraph style).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -162,6 +198,7 @@ pub struct ParagraphProperties {
     pub page_break_before: Option<bool>,
     /// Formatting of the paragraph mark (docx `w:pPr/w:rPr`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<app_common::wire::RunProperties>"))]
     pub run_defaults: Option<RunProperties>,
 }
 
@@ -225,11 +262,16 @@ fn merge_opt<T: Copy>(base: Option<T>, over: Option<T>, f: impl Fn(&T, &T) -> T)
 /// `{"kind":"pct","value":5000}`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub enum TableWidth {
     /// Determined by the content.
     Auto,
     /// A fixed width.
-    Twips(Twips),
+    Twips(#[cfg_attr(feature = "ts", ts(as = "i32"))] Twips),
     /// A percentage of the available width in fiftieths of a percent
     /// (`5000` = 100 %), as docx `w:type="pct"`.
     Pct(u16),
@@ -238,6 +280,11 @@ pub enum TableWidth {
 /// Line style of a table border.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub enum BorderStyle {
     /// Single line.
     Single,
@@ -256,13 +303,20 @@ pub enum BorderStyle {
 /// One side of a table or cell border.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct BorderSide {
     /// Line style.
     pub style: BorderStyle,
     /// Line width. docx stores eighths of a point; see
     /// [`BorderSide::width_from_eighths`].
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
     pub width: Twips,
     /// Line color.
+    #[cfg_attr(feature = "ts", ts(as = "app_common::wire::Color"))]
     pub color: Color,
 }
 
@@ -281,6 +335,11 @@ impl BorderSide {
 /// Table or cell borders; `None` = inherit / no border.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct TableBorders {
     /// Top edge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -332,30 +391,45 @@ impl TableBorders {
 /// Default cell padding of a table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct CellMargins {
     /// Top padding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<i32>"))]
     pub top: Option<Twips>,
     /// Left padding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<i32>"))]
     pub left: Option<Twips>,
     /// Bottom padding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<i32>"))]
     pub bottom: Option<Twips>,
     /// Right padding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<i32>"))]
     pub right: Option<Twips>,
 }
 
 /// Table formatting.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct TableProperties {
     /// Preferred table width.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub width: Option<TableWidth>,
     /// Grid column widths (docx `w:tblGrid`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Vec<i32>"))]
     pub col_widths: Vec<Twips>,
     /// Table borders.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -375,6 +449,11 @@ impl TableProperties {
 /// How a row height is interpreted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub enum HeightRule {
     /// The row grows with its content.
     AtLeast,
@@ -385,8 +464,14 @@ pub enum HeightRule {
 /// Row height.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct RowHeight {
     /// The height.
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
     pub value: Twips,
     /// How `value` is interpreted.
     pub rule: HeightRule,
@@ -395,6 +480,11 @@ pub struct RowHeight {
 /// Table row formatting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct RowProperties {
     /// Row height (`None` = automatic).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -414,6 +504,11 @@ impl RowProperties {
 /// Vertical alignment of cell content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub enum VAlign {
     /// Top.
     Top,
@@ -426,12 +521,18 @@ pub enum VAlign {
 /// Table cell formatting.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct CellProperties {
     /// Preferred cell width.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub width: Option<TableWidth>,
     /// Background color.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<app_common::wire::Color>"))]
     pub shading: Option<Color>,
     /// Cell borders (override the table borders).
     #[serde(default, skip_serializing_if = "Option::is_none")]

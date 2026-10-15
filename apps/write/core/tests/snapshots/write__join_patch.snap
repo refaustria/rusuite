@@ -1,0 +1,31 @@
+---
+source: apps/write/core/tests/write.rs
+expression: pj
+---
+{
+  "replaced": [
+    {
+      "kind": "paragraph",
+      "value": {
+        "id": 5,
+        "inlines": [
+          {
+            "kind": "run",
+            "value": {
+              "text": "body"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "inserted": [],
+  "deleted": [
+    4
+  ],
+  "idMap": [],
+  "styles": null,
+  "numbering": null,
+  "page": null,
+  "info": null
+}
