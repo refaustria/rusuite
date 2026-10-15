@@ -104,7 +104,7 @@ data directory; web: IndexedDB).
 | Snapshots (`insta`) | `tests/snapshots/` | Model JSON (IPC payloads), parser output, written XML of fixed inputs. A changed snapshot is a review item and needs a reason. |
 | Properties (`proptest`) | `engine-formula/tests/roundtrip.rs` | Formula print → parse round trips over generated expressions. |
 | Reference suites | `testdata/` + manifests | `testdata/formulas/*.tsv` with Excel reference values ([formula-suite.md](formula-suite.md)); 52 `.docx` and 26 `.pptx` files with `manifest.json`: every manifest feature found after read, write → read equal ([docx-suite.md](docx-suite.md), [pptx-suite.md](pptx-suite.md)); `.xlsx` samples. |
-| Harness | `scripts/roundtrip.sh` ([roundtrip.md](roundtrip.md)) | Rewrite each file with a crate's `examples/rewrite` (`RUSUITE_REWRITE=…`), convert to PDF in headless LibreOffice, count errors/warnings, diff the parts. Baseline: xlsx 2/2, docx 52/52, pptx 26/26 PASS, `lo_warnings=0`. |
+| Harness | `scripts/roundtrip.sh` ([roundtrip.md](roundtrip.md)) | Rewrite each file with a crate's `examples/rewrite` (`RUSUITE_REWRITE=…`), convert to PDF in headless LibreOffice, count errors/warnings, diff the parts. Baseline: xlsx 2/2, docx 52/52, pptx 28/28 PASS, `lo_warnings=0`. |
 | Frontend unit | `apps/*/src/**/*.test.ts(x)`, `packages/ui-shared` (Vitest) | Sync mapping, state, components, shortcuts. |
 | End to end | `packages/e2e` (Playwright, [testing.md](testing.md)) | The three real web builds with their wasm cores; files from `testdata/`; downloads unzipped and inspected. |
 | Performance | `scripts/perf.sh` ([perf.md](perf.md)) | Load/edit/save timings native, wasm and in the browser against the MVP targets. |

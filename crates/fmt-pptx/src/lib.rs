@@ -4,7 +4,8 @@
 //!
 //! The supported PresentationML/DrawingML subset (slides, placeholders,
 //! auto shapes, pictures, groups, lines, DrawingML text, solid fills,
-//! outlines, backgrounds, the theme) and everything that is dropped are
+//! outlines, backgrounds, the theme, slide transitions and preset
+//! animations) and everything that is dropped are
 //! listed in `docs/ooxml-subset.md`. Masters and layouts are not imported:
 //! slides are mapped onto the three built-in layouts and written with fixed
 //! master/layout parts.
@@ -26,6 +27,7 @@
 //! [`read()`] / [`write()`] work on bytes and compile for `wasm32` (ADR 0005);
 //! the `*_path` helpers exist on native targets only.
 
+mod anim;
 mod drawing;
 mod parts;
 mod read;

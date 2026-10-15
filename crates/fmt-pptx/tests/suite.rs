@@ -30,7 +30,7 @@ fn files() -> Vec<PathBuf> {
         .filter(|p| p.extension().is_some_and(|e| e == "pptx"))
         .collect();
     v.sort();
-    assert!(v.len() >= 26, "{v:?}");
+    assert!(v.len() >= 28, "{v:?}");
     v
 }
 
@@ -105,6 +105,19 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
         });
         if matches!(slide.background, Some(Fill::Solid(_))) {
             add("background:solid".into());
+        }
+        if let Some(t) = &slide.transition {
+            add(format!("transition:{}", camel(&format!("{:?}", t.kind))));
+            if t.advance_after_ms.is_some() {
+                add("transition:advance".into());
+            }
+        }
+        for a in &slide.animations {
+            add(format!(
+                "animation:{}:{}",
+                camel(&format!("{:?}", a.kind)),
+                camel(&format!("{:?}", a.effect))
+            ));
         }
     }
     for s in all_shapes(p) {
@@ -219,6 +232,14 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
     f
 }
 
+/// `FlyIn` → `flyIn` (the manifest's spelling of enum variants).
+fn camel(debug: &str) -> String {
+    let mut c = debug.chars();
+    c.next()
+        .map(|f| f.to_lowercase().chain(c).collect())
+        .unwrap_or_default()
+}
+
 /// Checks one manifest feature against the found features (and warnings,
 /// for presets we read as rectangles).
 fn has_feature(found: &BTreeMap<String, usize>, warnings: &[String], feature: &str) -> bool {
@@ -243,7 +264,7 @@ fn has_feature(found: &BTreeMap<String, usize>, warnings: &[String], feature: &s
 fn manifest_features_are_found() {
     let mut failures = Vec::new();
     let entries = manifest();
-    assert_eq!(entries.len(), 25);
+    assert_eq!(entries.len(), 27);
     for e in entries {
         let (p, warnings) = fmt_pptx::read_with_warnings(&load(&e.file)).unwrap();
         let found = features_of(&p);
@@ -325,6 +346,67 @@ fn reference_details() {
     let p = fmt_pptx::read(&load("provisional-16-two-images.pptx")).unwrap();
     assert_eq!(p.media.len(), 2);
     assert!(p.media.iter().all(|(_, m)| m.content_type == "image/png"));
+
+    // 26: LibreOffice transitions (durations as LibreOffice writes them)
+    use model_show::{AnimationKind, Direction, Effect, TransitionKind, Trigger};
+    let (p, warnings) =
+        fmt_pptx::read_with_warnings(&load("provisional-26-transitions.pptx")).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let t: Vec<_> = p
+        .slides
+        .iter()
+        .map(|s| {
+            let t = s.transition.unwrap();
+            (t.kind, t.direction, t.advance_after_ms)
+        })
+        .collect();
+    assert_eq!(
+        t,
+        [
+            (TransitionKind::Fade, None, None),
+            (TransitionKind::Push, Some(Direction::Left), None),
+            (TransitionKind::Wipe, Some(Direction::Right), Some(3000)),
+            (TransitionKind::Cover, Some(Direction::Left), None),
+            (TransitionKind::Split, Some(Direction::VerticalIn), None),
+        ]
+    );
+
+    // 27: animations in play order, targets resolved
+    let (p, warnings) =
+        fmt_pptx::read_with_warnings(&load("provisional-27-animations.pptx")).unwrap();
+    assert_eq!(warnings, ["rounded rectangle corner size dropped"]);
+    p.validate().unwrap();
+    let s1 = &p.slides[0];
+    assert_eq!(s1.animations[0].shape, s1.shapes[0].id);
+    assert_eq!(
+        (s1.animations[1].trigger, s1.animations[1].duration_ms),
+        (Trigger::WithPrevious, 1000)
+    );
+    let s2 = &p.slides[1];
+    let seq: Vec<_> = s2
+        .animations
+        .iter()
+        .map(|a| {
+            let shape = s2.shapes.iter().position(|s| s.id == a.shape).unwrap();
+            (shape, a.kind, a.effect, a.trigger, a.direction)
+        })
+        .collect();
+    use AnimationKind::*;
+    use Trigger::*;
+    assert_eq!(
+        seq,
+        [
+            (0, Entrance, Effect::Wipe, OnClick, Some(Direction::Left)),
+            (1, Entrance, Effect::Zoom, AfterPrevious, None),
+            (2, Entrance, Effect::Appear, OnClick, None),
+            (0, Emphasis, Effect::Spin, OnClick, None),
+            (1, Emphasis, Effect::GrowShrink, AfterPrevious, None),
+            (2, Exit, Effect::Fade, OnClick, None),
+            (3, Exit, Effect::FlyIn, WithPrevious, Some(Direction::Right)),
+            (1, Exit, Effect::Appear, OnClick, None),
+        ]
+    );
+    assert_eq!(s2.animations[3].duration_ms, 2000);
 
     // 24: 4:3 slides
     let p = fmt_pptx::read(&load("provisional-24-size-4x3.pptx")).unwrap();
