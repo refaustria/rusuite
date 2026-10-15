@@ -1,0 +1,61 @@
+---
+source: crates/engine-formula/tests/parser.rs
+expression: "parse(\"={1,-2;TRUE,#N/A}&A1:INDEX(B:B,2)\").unwrap()"
+---
+Binary {
+    op: Concat,
+    lhs: Array(
+        [
+            [
+                Number(
+                    1.0,
+                ),
+                Number(
+                    -2.0,
+                ),
+            ],
+            [
+                Bool(
+                    true,
+                ),
+                Error(
+                    NA,
+                ),
+            ],
+        ],
+    ),
+    rhs: Binary {
+        op: Range,
+        lhs: Reference(
+            Reference {
+                sheet: None,
+                kind: Cell(
+                    CellRef {
+                        col: 0,
+                        row: 0,
+                        col_abs: false,
+                        row_abs: false,
+                    },
+                ),
+            },
+        ),
+        rhs: Call {
+            name: "INDEX",
+            args: [
+                Reference(
+                    Reference {
+                        sheet: None,
+                        kind: Cols {
+                            start: 1,
+                            end: 1,
+                            abs: false,
+                        },
+                    },
+                ),
+                Number(
+                    2.0,
+                ),
+            ],
+        },
+    },
+}
