@@ -1,32 +1,25 @@
-// Show toolbars: file/edit/insert/arrange actions, and the ui-shared
-// formatting toolbar (run formatting → `SetRunProps`, shape fill →
-// `SetShapeStyle`) with paragraph alignment, bullets and outline colour.
-// Everything is inside `[data-keep-edit]`, so using it does not end the
-// overlay text editor.
+// Show's ribbon: File (backstage) / Home / Insert / View, with Present in
+// the tab strip. Run formatting → `SetRunProps`, shape fill/outline →
+// `SetShapeStyle`, arrange/insert → the store's slide commands. Everything
+// is inside `[data-keep-edit]`, so using it does not end the overlay text
+// editor.
 
 import { useMemo, useRef, type ReactNode } from "react";
 import {
-  BTN, ColorPicker, Dropdown, Icon, ListButtons, Toolbar, bytesToBase64,
-  type CellStylePatch, type CellStyleView, type IconName,
+  ColorPicker, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
+  RibbonRow, RibbonSplitButton, RibbonStack, StyleToggles, bytesToBase64, triggerShortcut,
+  type AnySession, type CellStylePatch, type CellStyleView, type FormatControlProps, type RibbonGalleryItem, type RibbonMenuItem,
+  type RibbonTab,
 } from "@rusuite/ui-shared";
 import type { RunProperties } from "../../../../packages/ui-shared/src/generated/RunProperties";
 import type { Alignment } from "../generated/Alignment";
 import type { AlignMode } from "../generated/AlignMode";
+import type { LayoutKind } from "../generated/LayoutKind";
 import type { Shape } from "../generated/Shape";
 import type { ZOp } from "../generated/ZOp";
 import { charLen, effectiveParagraph, effectiveRun, findShape, placeholderDef, textOf, themePalette } from "../model";
-import { textPos } from "../state/commands";
+import { duplicateCommand, newShape, textPos, type InsertKind } from "../state/commands";
 import { useShow, type ShowState, type ShowStore } from "../state/store";
-
-const TEXT_BTN = `${BTN} px-2 text-sm`;
-
-function Group({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div role="group" aria-label={label} className="flex items-center gap-0.5 border-r border-ui-border px-1 last:border-r-0">
-      {children}
-    </div>
-  );
-}
 
 /** The shape the formatting controls reflect: the edited one, else the first selected. */
 function focusShape(s: ShowState): Shape | null {
@@ -36,7 +29,7 @@ function focusShape(s: ShowState): Shape | null {
   return id === undefined ? null : (findShape(slide.shapes, id)?.shape ?? null);
 }
 
-/** Formatting state shown by the toolbar. */
+/** Formatting state shown by the ribbon. */
 export function formattingOf(s: ShowState) {
   const slide = s.pres?.slides.find((x) => x.id === s.current);
   const shape = focusShape(s);
@@ -59,24 +52,93 @@ export function formattingOf(s: ShowState) {
   return { shape, run: effectiveRun(def, runProps), para, hasText: !!body };
 }
 
-export interface ShowToolbarProps {
+// ----- galleries ------------------------------------------------------------------------
+
+const Thumb = ({ children }: { children: ReactNode }) => (
+  <svg aria-hidden="true" width="72" height="40" viewBox="0 0 72 40" className="rounded-sm border border-ui-border bg-white text-gray-400">
+    {children}
+  </svg>
+);
+
+export const LAYOUTS: { id: LayoutKind; label: string; preview: ReactNode }[] = [
+  {
+    id: "title",
+    label: "Title slide",
+    preview: (
+      <Thumb>
+        <rect x="12" y="12" width="48" height="7" fill="currentColor" />
+        <rect x="20" y="23" width="32" height="4" fill="currentColor" opacity="0.5" />
+      </Thumb>
+    ),
+  },
+  {
+    id: "titleContent",
+    label: "Title and content",
+    preview: (
+      <Thumb>
+        <rect x="6" y="5" width="60" height="6" fill="currentColor" />
+        <path d="M8 18h40M8 24h48M8 30h36" stroke="currentColor" strokeWidth="2" />
+      </Thumb>
+    ),
+  },
+  { id: "blank", label: "Blank", preview: <Thumb>{null}</Thumb> },
+];
+const LAYOUT_ITEMS: RibbonGalleryItem[] = LAYOUTS;
+
+export type ShapeChoice = InsertKind | "roundRect";
+
+export const SHAPES: { id: ShapeChoice; label: string; icon: "rect" | "roundRect" | "ellipse" | "line" | "textBox" }[] = [
+  { id: "rect", label: "Rectangle", icon: "rect" },
+  { id: "roundRect", label: "Rounded rectangle", icon: "roundRect" },
+  { id: "ellipse", label: "Oval", icon: "ellipse" },
+  { id: "line", label: "Line", icon: "line" },
+  { id: "textBox", label: "Text box", icon: "textBox" },
+];
+const SHAPE_ITEMS: RibbonGalleryItem[] = SHAPES.map((s) => ({ id: s.id, label: s.label, preview: <RibbonIcon name={s.icon} /> }));
+
+const ORDER: { value: ZOp; label: string; shortcut: string }[] = [
+  { value: "bringToFront", label: "Bring to front", shortcut: "Mod+Shift+]" },
+  { value: "bringForward", label: "Bring forward", shortcut: "Mod+]" },
+  { value: "sendBackward", label: "Send backward", shortcut: "Mod+[" },
+  { value: "sendToBack", label: "Send to back", shortcut: "Mod+Shift+[" },
+];
+const ALIGN: { value: AlignMode; label: string }[] = [
+  { value: "left", label: "Align left" },
+  { value: "centerH", label: "Align center" },
+  { value: "right", label: "Align right" },
+  { value: "top", label: "Align top" },
+  { value: "centerV", label: "Align middle" },
+  { value: "bottom", label: "Align bottom" },
+];
+
+export const SHOW_ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+/** `"fit"`: the slide fills the canvas area. */
+export type ShowZoom = number | "fit";
+
+// ----- the ribbon -------------------------------------------------------------------------
+
+export interface ShowRibbonProps {
   store: ShowStore;
-  onPresent: () => void;
-  onExportPdf?: () => void;
+  session: AnySession;
+  /** Starts the show; `fromStart` = from the first slide. */
+  onPresent: (fromStart: boolean) => void;
+  onExportPdf: () => void;
+  zoom: ShowZoom;
+  onZoom: (zoom: ShowZoom) => void;
 }
 
-export function ShowToolbar({ store, onPresent, onExportPdf }: ShowToolbarProps) {
+export function ShowRibbon({ store, session, onPresent, onExportPdf, zoom, onZoom }: ShowRibbonProps) {
   const fileInput = useRef<HTMLInputElement>(null);
+  const clipboard = useRef<Shape[]>([]);
   const state = useShow(store, (s) => s);
   const fmt = useMemo(() => formattingOf(state), [state]);
-  const selCount = useShow(store, (s) => s.selection.length);
-  const canUndo = useShow(store, (s) => s.canUndo);
-  const canRedo = useShow(store, (s) => s.canRedo);
-  const fileIo = useShow(store, (s) => s.fileIo);
-  const theme = useShow(store, (s) => s.pres?.theme);
-  const hasSlide = useShow(store, (s) => s.current !== null);
+  const { canUndo, canRedo, fileIo, name, dirty } = state;
+  const selCount = state.selection.length;
+  const editing = state.editing !== null;
+  const theme = state.pres?.theme;
+  const hasSlide = state.current !== null;
+  const slideCount = state.pres?.slides.length ?? 0;
   const palette = themePalette(theme);
-  const fileTip = fileIo ? undefined : "File access is not available with this core";
 
   const value: CellStyleView = fmt
     ? {
@@ -93,149 +155,339 @@ export function ShowToolbar({ store, onPresent, onExportPdf }: ShowToolbarProps)
         fill: fmt.shape.fill.kind === "solid" ? { kind: "solid", color: fmt.shape.fill.value } : { kind: "none" },
       }
     : {};
-
   const onChange = (patch: CellStylePatch) => {
     if (patch.font) void store.applyRunPatch(patch.font as RunProperties);
     if (patch.fill) void store.setFill(patch.fill.kind === "solid" ? patch.fill.color : null);
   };
+  const f: FormatControlProps = { value, onChange, disabled: !fmt, theme: palette };
 
-  const alignBtn = (a: Alignment, label: string, icon: IconName | null) => (
-    <button
-      type="button"
-      className={icon ? BTN : TEXT_BTN}
-      aria-label={label}
-      aria-pressed={fmt?.para.alignment === a}
-      disabled={!fmt?.hasText}
-      onClick={() => void store.setAlignment(a)}
-    >
-      {icon ? <Icon name={icon} /> : "≡"}
-    </button>
+  const alignBtn = (a: Alignment, label: string, icon: ReactNode) => (
+    <RibbonButton label={label} icon={icon} pressed={fmt?.para.alignment === a} disabled={!fmt?.hasText} onClick={() => void store.setAlignment(a)} />
   );
 
-  const ALIGN: { value: AlignMode; label: string }[] = [
-    { value: "left", label: "Align left" },
-    { value: "centerH", label: "Align center" },
-    { value: "right", label: "Align right" },
-    { value: "top", label: "Align top" },
-    { value: "centerV", label: "Align middle" },
-    { value: "bottom", label: "Align bottom" },
-  ];
-  const ORDER: { value: ZOp; label: string }[] = [
-    { value: "bringToFront", label: "Bring to front (Ctrl+Shift+])" },
-    { value: "bringForward", label: "Bring forward (Ctrl+])" },
-    { value: "sendBackward", label: "Send backward (Ctrl+[)" },
-    { value: "sendToBack", label: "Send to back (Ctrl+Shift+[)" },
-  ];
-
+  const insertShape = async (kind: ShapeChoice) => {
+    if (kind !== "roundRect") return store.insert(kind);
+    const { pres, current } = store.getState();
+    if (!pres || current === null) return;
+    if (store.getState().editing) await store.commitEdit();
+    const shape = newShape("rect", pres.slideSize, store.temp());
+    if (shape.kind.kind === "auto") shape.kind.value.geometry = "roundRect";
+    store.select([shape.id]);
+    await store.run({ type: "addShape", slide: current, shape });
+  };
   const insertImage = async (file: File) => {
     const bytesBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
     await store.insertPicture(file.type || "image/png", bytesBase64);
   };
 
-  return (
-    <div data-keep-edit className="flex flex-col">
-      <div role="toolbar" aria-label="Presentation" className="flex flex-wrap items-center gap-1 border-b border-ui-border bg-ui-panel px-2 py-1">
-        <span className="mr-2 text-sm font-semibold">Rusuite Show</span>
-        <Group label="File">
-          <button type="button" className={TEXT_BTN} aria-label="Open" title={fileTip ?? "Open (Ctrl+O)"} disabled={!fileIo} onClick={() => void store.open()}>
-            Open
-          </button>
-          <button type="button" className={TEXT_BTN} aria-label="Save" title={fileTip ?? "Save (Ctrl+S)"} disabled={!fileIo} onClick={() => void store.save()}>
-            Save
-          </button>
-          {onExportPdf && (
-            <button type="button" className={TEXT_BTN} aria-label="Export PDF" title="Export PDF… (Ctrl+P)" disabled={!hasSlide} onClick={onExportPdf}>
-              Export PDF…
-            </button>
-          )}
-        </Group>
-        <Group label="Edit">
-          <button type="button" className={TEXT_BTN} aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!canUndo} onClick={() => void store.undo()}>
-            ↶
-          </button>
-          <button type="button" className={TEXT_BTN} aria-label="Redo" title="Redo (Ctrl+Y)" disabled={!canRedo} onClick={() => void store.redo()}>
-            ↷
-          </button>
-        </Group>
-        <Group label="Insert">
-          <button type="button" className={TEXT_BTN} aria-label="Insert rectangle" disabled={!hasSlide} onClick={() => void store.insert("rect")}>
-            ▭
-          </button>
-          <button type="button" className={TEXT_BTN} aria-label="Insert ellipse" disabled={!hasSlide} onClick={() => void store.insert("ellipse")}>
-            ◯
-          </button>
-          <button type="button" className={TEXT_BTN} aria-label="Insert line" disabled={!hasSlide} onClick={() => void store.insert("line")}>
-            ╱
-          </button>
-          <button type="button" className={TEXT_BTN} aria-label="Insert text box" disabled={!hasSlide} onClick={() => void store.insert("textBox")}>
-            Text
-          </button>
-          <button type="button" className={TEXT_BTN} aria-label="Insert image" disabled={!hasSlide} onClick={() => fileInput.current?.click()}>
-            Image
-          </button>
-          <input
-            ref={fileInput}
-            type="file"
-            accept="image/png,image/jpeg,image/gif"
-            className="hidden"
-            data-testid="image-input"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) void insertImage(file).catch((err) => store.pushError(err));
-            }}
-          />
-        </Group>
-        <Group label="Arrange">
-          <Dropdown label="Align shapes" disabled={selCount === 0} trigger={<span className="px-1 text-sm">Align</span>} items={ALIGN} onSelect={(m) => void store.align(m)} />
-          <button type="button" className={TEXT_BTN} aria-label="Distribute horizontally" disabled={selCount < 3} onClick={() => void store.distribute("horizontal")}>
-            ⇹
-          </button>
-          <button type="button" className={TEXT_BTN} aria-label="Distribute vertically" disabled={selCount < 3} onClick={() => void store.distribute("vertical")}>
-            ⇕
-          </button>
-          <Dropdown label="Order" disabled={selCount === 0} trigger={<span className="px-1 text-sm">Order</span>} items={ORDER} onSelect={(op) => void store.zOrder(op)} />
-          <button type="button" className={TEXT_BTN} aria-label="Group" title="Group (Ctrl+G)" disabled={selCount < 2} onClick={() => void store.group()}>
-            Group
-          </button>
-          <button type="button" className={TEXT_BTN} aria-label="Ungroup" title="Ungroup (Ctrl+Shift+G)" disabled={selCount === 0} onClick={() => void store.ungroup()}>
-            Ungroup
-          </button>
-        </Group>
-        <button
-          type="button"
-          onClick={onPresent}
-          disabled={!hasSlide}
-          className="ml-auto rounded bg-orange-700 px-3 py-1 text-sm font-medium text-white hover:bg-orange-800 disabled:opacity-40"
-        >
-          Present
-        </button>
-      </div>
-      <Toolbar value={value} onChange={onChange} groups={["font", "style", "colors"]} fillLabel="Shape fill" disabled={!fmt} theme={palette}>
-        <Group label="Paragraph">
-          {alignBtn("left", "Align text left", "alignLeft")}
-          {alignBtn("center", "Center text", "alignCenter")}
-          {alignBtn("right", "Align text right", "alignRight")}
-          {alignBtn("justify", "Justify text", null)}
-        </Group>
-        <ListButtons
-          bullet={fmt?.para.bullet?.kind === "char"}
-          ordered={fmt?.para.bullet?.kind === "autoNum"}
-          disabled={!fmt?.hasText}
-          onToggle={(kind) => void store.toggleBullet(kind)}
-          onIndent={(d) => void store.indent(d)}
+  // Shape clipboard (inside this window); text keeps the native Ctrl+X/C/V while editing.
+  const copy = () => {
+    clipboard.current = structuredClone(store.selectedShapes());
+  };
+  const paste = async () => {
+    const slide = store.getState().current;
+    if (slide === null || clipboard.current.length === 0) return;
+    const { command, ids } = duplicateCommand(slide, clipboard.current, store.temp);
+    if (!command) return;
+    store.select(ids);
+    await store.run(command);
+  };
+  const clipTip = editing ? "While editing text, use Ctrl+X / Ctrl+C / Ctrl+V" : undefined;
+
+  const addSlide = (layout: string) => void store.addSlide(layout as LayoutKind);
+  const newSlide = (size: "large" | "small") => (
+    <RibbonSplitButton
+      label="New slide"
+      icon="newSlide"
+      size={size}
+      showLabel={size === "small"}
+      disabled={!state.pres}
+      tooltip="New slide (Title and content)"
+      onClick={() => addSlide("titleContent")}
+      menuLabel="Slide layouts"
+      menu={(close) => (
+        <RibbonGallery
+          label="Slide layouts"
+          items={LAYOUT_ITEMS}
+          columns={3}
+          itemClassName="h-16 w-24 p-1"
+          autoFocus
+          onSelect={(id) => {
+            close();
+            addSlide(id);
+          }}
         />
-        <Group label="Outline">
-          <ColorPicker
-            label="Shape outline"
-            kind="fill"
-            value={fmt && fmt.shape.line.fill.kind === "solid" ? fmt.shape.line.fill.value : undefined}
-            theme={palette}
-            disabled={!fmt}
-            onSelect={(c) => void store.setLine(c)}
+      )}
+    />
+  );
+  const shapesGallery = (
+    <RibbonGallery
+      label="Shapes"
+      items={SHAPE_ITEMS}
+      columns={3}
+      hideLabels
+      itemClassName="h-6 w-7"
+      disabled={!hasSlide}
+      onSelect={(id) => void insertShape(id as ShapeChoice)}
+    />
+  );
+
+  const arrange: RibbonMenuItem[] = [
+    { separator: true, label: "Order" },
+    ...ORDER.map((o) => ({ id: o.value, label: o.label, shortcut: o.shortcut, disabled: selCount === 0, onSelect: () => void store.zOrder(o.value) })),
+    { separator: true, label: "Align" },
+    ...ALIGN.map((a) => ({ id: a.value, label: a.label, disabled: selCount === 0, onSelect: () => void store.align(a.value) })),
+    { id: "distH", label: "Distribute horizontally", disabled: selCount < 3, onSelect: () => void store.distribute("horizontal") },
+    { id: "distV", label: "Distribute vertically", disabled: selCount < 3, onSelect: () => void store.distribute("vertical") },
+    { separator: true, label: "Group" },
+    { id: "group", label: "Group", shortcut: "Mod+G", disabled: selCount < 2, onSelect: () => void store.group() },
+    { id: "ungroup", label: "Ungroup", shortcut: "Mod+Shift+G", disabled: selCount === 0, onSelect: () => void store.ungroup() },
+  ];
+
+  const home: RibbonTab = {
+    id: "home",
+    label: "Home",
+    toolbarLabel: "Formatting",
+    groups: [
+      {
+        label: "Undo",
+        items: (
+          <RibbonStack>
+            <RibbonButton label="Undo" icon="undo" shortcut="Mod+Z" disabled={!canUndo} onClick={() => void store.undo()} />
+            <RibbonButton label="Redo" icon="redo" shortcut="Mod+Y" disabled={!canRedo} onClick={() => void store.redo()} />
+          </RibbonStack>
+        ),
+      },
+      {
+        label: "Clipboard",
+        items: (
+          <>
+            <RibbonButton label="Paste" icon="paste" size="large" tooltip={clipTip ?? "Paste shapes"} disabled={editing || !hasSlide} onClick={() => void paste()} />
+            <RibbonStack>
+              <RibbonButton
+                label="Cut"
+                icon="cut"
+                showLabel
+                tooltip={clipTip}
+                disabled={editing || selCount === 0}
+                onClick={() => {
+                  copy();
+                  void store.deleteSelection();
+                }}
+              />
+              <RibbonButton label="Copy" icon="copy" showLabel tooltip={clipTip} disabled={editing || selCount === 0} onClick={copy} />
+            </RibbonStack>
+            <RibbonButton label="Duplicate" icon="duplicate" size="large" shortcut="Mod+D" disabled={editing || selCount === 0} onClick={() => void store.duplicateSelection()} />
+          </>
+        ),
+      },
+      {
+        label: "Slides",
+        items: (
+          <>
+            {newSlide("large")}
+            <RibbonStack>
+              <RibbonButton label="Duplicate slide" icon="duplicate" showLabel disabled={!hasSlide} onClick={() => state.current !== null && void store.duplicateSlide(state.current)} />
+              <RibbonButton
+                label="Delete slide"
+                icon="trash"
+                showLabel
+                disabled={!hasSlide || slideCount <= 1}
+                onClick={() => state.current !== null && void store.deleteSlides([state.current])}
+              />
+            </RibbonStack>
+          </>
+        ),
+      },
+      {
+        label: "Font",
+        items: (
+          <RibbonStack>
+            <RibbonRow>
+              <FontControls {...f} />
+            </RibbonRow>
+            <RibbonRow>
+              <StyleToggles {...f} />
+              <ColorPicker
+                label="Text color"
+                kind="text"
+                value={value.font?.color}
+                theme={palette}
+                disabled={!fmt}
+                onSelect={(c) => onChange({ font: { color: c ?? { kind: "auto" } } })}
+              />
+            </RibbonRow>
+          </RibbonStack>
+        ),
+      },
+      {
+        label: "Paragraph",
+        items: (
+          <RibbonStack>
+            <RibbonRow>
+              <ListButtons
+                bullet={fmt?.para.bullet?.kind === "char"}
+                ordered={fmt?.para.bullet?.kind === "autoNum"}
+                disabled={!fmt?.hasText}
+                onToggle={(kind) => void store.toggleBullet(kind)}
+                onIndent={(d) => void store.indent(d)}
+              />
+            </RibbonRow>
+            <RibbonRow>
+              {alignBtn("left", "Align text left", <Icon name="alignLeft" />)}
+              {alignBtn("center", "Center text", <Icon name="alignCenter" />)}
+              {alignBtn("right", "Align text right", <Icon name="alignRight" />)}
+              {alignBtn("justify", "Justify text", <RibbonIcon name="alignJustify" />)}
+            </RibbonRow>
+          </RibbonStack>
+        ),
+      },
+      {
+        label: "Drawing",
+        items: (
+          <>
+            {shapesGallery}
+            <RibbonMenuButton label="Arrange" icon="arrange" size="large" disabled={!hasSlide} menu={arrange} />
+            <RibbonStack>
+              <ColorPicker
+                label="Shape fill"
+                kind="fill"
+                value={fmt && fmt.shape.fill.kind === "solid" ? fmt.shape.fill.value : undefined}
+                theme={palette}
+                disabled={!fmt}
+                onSelect={(c) => void store.setFill(c)}
+              />
+              <ColorPicker
+                label="Shape outline"
+                kind="fill"
+                value={fmt && fmt.shape.line.fill.kind === "solid" ? fmt.shape.line.fill.value : undefined}
+                theme={palette}
+                disabled={!fmt}
+                onSelect={(c) => void store.setLine(c)}
+              />
+            </RibbonStack>
+          </>
+        ),
+      },
+    ],
+  };
+
+  const insert: RibbonTab = {
+    id: "insert",
+    label: "Insert",
+    groups: [
+      { label: "Slides", items: newSlide("large") },
+      {
+        label: "Images",
+        items: (
+          <>
+            <RibbonButton label="Picture" icon="image" size="large" tooltip="Insert a picture" disabled={!hasSlide} onClick={() => fileInput.current?.click()} />
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/png,image/jpeg,image/gif"
+              className="hidden"
+              data-testid="image-input"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void insertImage(file).catch((err) => store.pushError(err));
+              }}
+            />
+          </>
+        ),
+      },
+      {
+        label: "Illustrations",
+        items: (
+          <RibbonGallery
+            label="Shapes"
+            variant="dropdown"
+            icon="shapes"
+            items={SHAPE_ITEMS}
+            columns={5}
+            hideLabels
+            itemClassName="h-8 w-8"
+            disabled={!hasSlide}
+            onSelect={(id) => void insertShape(id as ShapeChoice)}
           />
-        </Group>
-      </Toolbar>
+        ),
+      },
+      {
+        label: "Text",
+        items: <RibbonButton label="Text box" icon="textBox" size="large" disabled={!hasSlide} onClick={() => void insertShape("textBox")} />,
+      },
+    ],
+  };
+
+  const view: RibbonTab = {
+    id: "view",
+    label: "View",
+    groups: [
+      {
+        label: "Slide show",
+        items: (
+          <>
+            <RibbonButton label="From beginning" icon="present" size="large" shortcut="F5" disabled={!hasSlide} onClick={() => onPresent(true)} />
+            <RibbonButton label="From current slide" icon="presentCurrent" size="large" shortcut="Shift+F5" disabled={!hasSlide} onClick={() => onPresent(false)} />
+          </>
+        ),
+      },
+      {
+        label: "Zoom",
+        items: (
+          <RibbonStack>
+            <select aria-label="Zoom" className={`${RIBBON_SELECT} w-24`} value={String(zoom)} onChange={(e) => onZoom(e.target.value === "fit" ? "fit" : Number(e.target.value))}>
+              <option value="fit">Fit to window</option>
+              {SHOW_ZOOM_LEVELS.map((z) => (
+                <option key={z} value={String(z)}>
+                  {Math.round(z * 100)} %
+                </option>
+              ))}
+            </select>
+            <RibbonButton label="Fit to window" icon="zoom" showLabel pressed={zoom === "fit"} onClick={() => onZoom("fit")} />
+          </RibbonStack>
+        ),
+      },
+      {
+        label: "Help",
+        items: <RibbonButton label="Keyboard shortcuts" icon="keyboard" size="large" shortcut="Mod+/" onClick={() => triggerShortcut("Mod+/")} />,
+      },
+    ],
+  };
+
+  const fileOff = fileIo ? undefined : "File access is not available with this core";
+  return (
+    <div data-keep-edit>
+      <Ribbon
+        appName="Rusuite Show"
+        documentTitle={`${name ?? "Untitled"}${dirty ? " •" : ""}`}
+        accent="#c2410c"
+        tabs={[home, insert, view]}
+        rightSlot={
+          <button
+            type="button"
+            onClick={() => onPresent(false)}
+            disabled={!hasSlide}
+            title="Present from the current slide (Shift+F5)"
+            className="flex h-6 items-center gap-1 rounded bg-orange-700 px-3 text-sm font-medium text-white hover:bg-orange-800 disabled:opacity-40"
+          >
+            <RibbonIcon name="present" />
+            Present
+          </button>
+        }
+        backstage={{
+          session,
+          onNew: () => triggerShortcut("Mod+N"),
+          onOpen: () => void store.open(),
+          onSave: () => void store.save(),
+          onSaveAs: () => triggerShortcut("Mod+Shift+S"),
+          onExportPdf,
+          onCloseDocument: () => triggerShortcut("Mod+N"),
+          fileDisabledReason: fileOff,
+          exportDisabled: !hasSlide,
+        }}
+      />
     </div>
   );
 }

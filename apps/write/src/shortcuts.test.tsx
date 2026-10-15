@@ -1,6 +1,6 @@
 // Write keyboard shortcuts, driven through the real App (fake keyboard events).
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ setTitle: vi.fn() }) }));
@@ -30,7 +30,7 @@ async function mount(text = "hello world") {
   const editor = await screen.findByTestId("editor");
   await waitFor(() => expect(backend.log.some((r) => r.type === "newDocument")).toBe(true));
   vi.spyOn(backend, "openFile").mockResolvedValue({ name: "t.docx", bytesBase64: b64(makeDoc([para(1, text)])) });
-  fireEvent.click(screen.getByRole("button", { name: "Open" }));
+  fileCommand("Open…");
   await waitFor(() => expect(editor.textContent).toBe(text));
   backend.log.length = 0;
   (editor as HTMLElement).focus();
@@ -39,6 +39,13 @@ async function mount(text = "hello world") {
 
 const applied = (backend: FakeWriteBackend): WriteCommand[] => backend.log.flatMap((r) => (r.type === "apply" ? [r.command] : []));
 const ctrl = (key: string, extra: KeyboardEventInit = {}) => ({ key, ctrlKey: true, ...extra });
+
+
+/** Runs a File (backstage) command. */
+function fileCommand(name: string) {
+  fireEvent.click(screen.getByRole("tab", { name: "File" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "File" })).getByRole("button", { name }));
+}
 
 describe("Write shortcuts", () => {
   it("Ctrl+E / L / R / J set the paragraph alignment", async () => {

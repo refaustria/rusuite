@@ -20,6 +20,8 @@
 | Mod+Z, Mod+Y, Mod+Shift+Z | Undo, redo, redo |
 | Mod+B, Mod+I, Mod+U | Bold, italic, underline |
 | Mod+/ | Shortcut help |
+| Alt (press and release) | Focus the ribbon tabs (again: back to the document); ←/→ move, Enter/Space open a tab, ↓ enters its commands, Esc leaves |
+| Ctrl+F1 | Collapse / expand the ribbon |
 
 ## Calc
 
