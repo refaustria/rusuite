@@ -62,6 +62,16 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Second locale pass for `TEXT`/`VALUE`; cases for SUMIFS/COUNTIFS/XLOOKUP if they ever enter scope.
 - Deferred functions list lives in `docs/functions.md`.
 
+## Calc (Phase 2 leftovers, from agent reports)
+- `WorkbookInfo`/`RegionSnapshot` should carry the used range (Ctrl+Arrow, Ctrl+A, virtual scroll height currently rely on cached cells).
+- Paste: shift formula references (`transform::offset_relative`) and a range-paste command; clicking a cell while editing a formula inserts a reference; IME composition when typing starts an edit.
+- Rendering: text overflow into empty neighbours, `####` for numbers that do not fit, wrap text; GPU text atlas if 100k-cell numbers need headroom.
+- Tauri: async `dispatch` (big opens block the main thread); save-as renames the document (`markSaved{name}` exists); show reader warnings in a panel; File System Access API on web; `tauri-plugin-fs` not needed so far.
+- calc-core: `addSheet` undoable (needs engine sheet removal); `Engine` could drop per-engine `now` in favour of `default_now`; style table never shrinks on undo; row/column-wide style patches should set row/col styles instead of per-cell entries.
+- fmt-xlsx: defined names, merged cells, freeze panes, hyperlinks, conditional formatting, data validation, real array formulas, `date1904` conversion, keep theme-font linkage (`scheme="minor"`), model-sheet slots for default font/theme/color scheme + hidden sheets.
+- Playwright end-to-end tests in CI (the PM's live check script lives in the scratchpad only); cron/CI hook calling `scripts/deploy-web.sh` on main; CSP header; `gzip_static` for the wasm.
+- ts-rs derives behind a feature in core-model/model-sheet to remove the TS-only mirror types in app-common/calc-core.
+
 ## Formats
 - Compare rewritten files against Open XML SDK validator (Windows/.NET) in addition to LibreOffice – gives real "would Office repair this" signal.
 

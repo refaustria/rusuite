@@ -2,7 +2,15 @@
 
 _Maintained by the PM agent. Read at the start of every session; update after every task._
 
-## Current phase: Phase 2 – Calc (Phases 0 and 1 complete) + web target (owner decision 2026-10-15)
+## Current phase: Phase 2 – Calc: milestone reached on the server 2026-10-15 (main 670ccda); owner's Excel check pending
+
+### Phase 2 milestone – verification run by the PM
+- Checks on main: fmt/clippy/rustdoc clean; `cargo test --workspace` 466 passed; `pnpm test` 29 + 45 passed; wasm `cargo check` for 8 crates OK.
+- Harness with the `fmt-xlsx` writer: `testdata/xlsx` 2/2 PASS (LibreOffice opens our output).
+- **End-to-end in the browser against https://resuite.inceptum.at/calc/ (headless Chromium):** typed `=SUM(1,2,3)*2` → 12; opened `provisional-basic.xlsx` via the file picker (sheets Data/Summary, styles rendered); edited Qty B2 → 99; Save downloaded a 5 KB `.xlsx`; that file has B2=99 with recalculated cached values (D2 247.5, D7 698.37); LibreOffice headless converts it (values correct); harness PASS with 11/11 identical parts through our writer. No console errors. Screenshots in the PM scratchpad (`e2e/live-*.png`).
+- Desktop: `pnpm --filter calc tauri build --no-bundle` + xvfb run (see below).
+- **Not verifiable here:** "created in Excel … reopen it in Excel" – the test file is LibreOffice-made (PROVISIONAL) and Excel is not available on Linux. Owner: please open https://resuite.inceptum.at/calc/, load one of your own `.xlsx` files, edit, Save, and open the download in Excel; report any repair dialog.
+
 
 **Scope change by owner (2026-10-15):** Rusuite must also run as a web app. Decisions: WASM in the browser (no server state), built now alongside Calc with a transport abstraction, deployed continuously from main to `https://resuite.inceptum.at/calc/`. Recorded in ADR 0005 and README; tasks P2-W2 (wasm scaffold + `Backend` abstraction), P2-W3 (nginx vhost + deploy script).
 
@@ -35,11 +43,11 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 | P2-4 | `app-common` Host/undo-redo + `calc-core` (commands, patches, snapshots, JSON `dispatch`) + P2-1c model-sheet structural ops + ts-rs TS generation | Opus | done (merged ba56017) | – | verified: 432 tests; `calc_core::dispatch` JSON API; ts-rs types in apps/calc/src/generated + packages/ui-shared/src/generated; `.cargo/config.toml` sets TS_RS_EXPORT_DIR; ADR 0002 amended |
 | P2-W2 | Web scaffold: `app-calc-wasm` crate, wasm-pack build, Vite web mode (`/calc/`), `ui-shared` `Backend` abstraction (Tauri/WASM), CI wasm checks | Sonnet | done (merged) | – | verified: wasm 105 KB (51 KB gz), JS 146 KB; 7 backend tests; wasm check for 6 crates in CI; wasm-pack 0.15 via npm |
 | P2-W3 | nginx vhost resuite.inceptum.at + TLS + `scripts/deploy-web.sh`; first deploy | Sonnet | done (merged) | – | LIVE: https://resuite.inceptum.at/calc/ (TLS via certbot, expires 2027-01-13, auto-renew); live conf copied to /etc/nginx/sites-available; redeploy with `scripts/deploy-web.sh` |
-| P2-5 | calc-ui canvas grid: virtualization (100k+ cells), selection, in-cell editing, formula bar, column/row headers, resize | Opus | in progress | `p2/grid` | brief docs/tasks/P2-5-grid.md |
+| P2-5 | calc-ui canvas grid: virtualization (100k+ cells), selection, in-cell editing, formula bar, column/row headers, resize | Opus | done (merged) | – | verified: 45 tests, 60 fps at 100k cells, real-core browser check; open/save/markSaved wired; toolbar type narrowed |
 | P2-6 | `ui-shared`: formatting toolbar (bold/italic/underline, font, size, colors, alignment, number format, borders) | Sonnet | done (merged) | – | verified: 22 tests, typecheck, no new runtime deps; agent's final report was empty – verified from the branch directly. Grid task must check `Fill` patch shape vs generated TS |
 | P2-7 | Wiring: both shells call `calc_core::dispatch`; open/save (Tauri dialogs / browser file APIs) via fmt-xlsx; frontend store | Opus | done (merged) | – | verified: 464 tests, 29 ui-shared tests, both builds; found wasm clock trap (→ P2-9); saveXlsx marks-saved-too-early (→ P2-9) |
-| P2-9 | wasm-safe default clock in engine-formula (`set_default_clock`/`default_now`), wasm shell init, `saveXlsx` no longer marks saved (`markSaved{name}` after write) | Sonnet | in progress | `p2/wasm-clock` | brief docs/tasks/P2-9-wasm-clock-and-save-marking.md |
-| P2-8 | Milestone verification: open testdata xlsx → edit → save → harness + LibreOffice; owner verifies in Excel; web build live at resuite.inceptum.at/calc | PM | todo | – | |
+| P2-9 | wasm-safe default clock in engine-formula (`set_default_clock`/`default_now`), wasm shell init, `saveXlsx` no longer marks saved (`markSaved{name}` after write) | Sonnet | done (merged 670ccda) | – | verified: `set_default_clock`/`default_now`, wasm start hook, NOW() workbook opens in node-driven wasm; saveXlsx no longer marks saved |
+| P2-8 | Milestone verification | PM | done on server; Excel check pending owner | – | see milestone section |
 | P1-1 | `engine-formula` lexer + Pratt parser + AST + printer; A1/absolute/range/cross-sheet refs, operators incl. `&` `%` `^`, arrays, errors, names; proptest AST→text→AST roundtrip | Opus | done (merged b0b70a6) | – | en-US syntax only (comma arg separator, dot decimal) |
 | P1-2 | Value type system + evaluator: Number/Text/Bool/Error/Array/Reference, coercion rules, error propagation, `CellProvider` trait, implicit intersection, range→array | Opus | done (merged 6b602bb) | – | verified: 52 unit tests; suite runner 232 passed / 0 failed / 630 skipped-unimplemented; deviations: numbers compared at 15 sig digits (Excel-like), `0^-1`→#NUM! (Excel #DIV/0!) |
 | P1-3 | Dependency graph + incremental recalc + circular detection (`#CIRC` → Excel reports 0 with warning; we return `Error::Circular`) | Opus | done (merged) | – | verified: 12 integration + 4 unit tests; 100k-cell chain ordered in <1 s debug |
@@ -68,6 +76,7 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+13. 2026-10-15: Phase 2 milestone declared reached on the server; the Excel reopen check is delegated to the owner (no Excel here). Phase 3 (Write) planning starts; Phase 2 leftovers (used range in snapshots, async Tauri dispatch, paste reference adjustment, text overflow) go to ROADMAP and are scheduled only if they block Phase 3/5.
 12. 2026-10-15: Owner added the web target (WASM, now, deploy from main). ADR 0005: one `<app>-core` crate + two shells (`src-tauri`, `src-wasm`), JSON `dispatch` over both transports, ts-rs for TS types, `Backend` abstraction in ui-shared, static hosting on nginx.
 11. 2026-10-15: Phase 1 closed. Phase 2 design: `model-sheet::Workbook` wraps `engine_formula::Engine` (single storage of cell contents/values) and adds styles + dimensions; no duplicate cell store. ADR 0004 to be written with P2-1.
 10. 2026-10-15: `Engine` typing rules follow Excel input parsing (`1,000`, `$5`, `50%` become numbers; surrounding whitespace keeps text). Sheet add/rename recalc internally without returning a `Recalc` – to be revisited for IPC in Phase 2.
