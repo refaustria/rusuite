@@ -6,7 +6,7 @@ on:
 
 jobs:
   rust:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Tauri system dependencies
@@ -32,7 +32,7 @@ jobs:
           test -z "$(git status --porcelain -- apps/calc/src/generated apps/write/src/generated apps/show/src/generated packages/ui-shared/src/generated)"
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

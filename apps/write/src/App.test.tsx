@@ -44,7 +44,8 @@ describe("Write app", () => {
     await waitFor(() => expect(editor.querySelector("h1")?.textContent).toBe("Opened"));
     expect(screen.getByTestId("doc-name").textContent).toBe("r.docx");
     expect(screen.getByTestId("warnings").textContent).toContain("1 warning");
-    expect(screen.getByTestId("words").textContent).toBe("3 words");
+    // The status-bar count is debounced (250 ms).
+    await waitFor(() => expect(screen.getByTestId("words").textContent).toBe("3 words"));
   });
 
   it("Save writes the file and marks it saved only when the shell confirms", async () => {
@@ -124,6 +125,6 @@ describe("Write app recovery (P5-3)", () => {
     fireEvent.click(screen.getByRole("button", { name: "File" }));
     fireEvent.click(await screen.findByTestId("recent-entry"));
     await waitFor(() => expect(editor.textContent).toBe("From the recent list"));
-    expect(screen.getByTestId("doc-name").textContent).toBe("notes.docx");
+    await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("notes.docx"));
   });
 });
