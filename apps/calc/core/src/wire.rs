@@ -124,6 +124,22 @@ pub struct SheetFormat {
     pub default_row_height: f64,
 }
 
+/// Mirror of `model_sheet::SheetView`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct SheetView {
+    /// Rows `0..frozenRows` stay visible when scrolling (0 = none).
+    pub frozen_rows: u32,
+    /// Columns `0..frozenCols` stay visible when scrolling (0 = none).
+    pub frozen_cols: u32,
+    /// Percent, 10..=400 (default 100).
+    pub zoom: u16,
+    pub show_gridlines: bool,
+    /// Row numbers and column letters.
+    pub show_headings: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,5 +214,12 @@ mod tests {
         same_shape::<_, CellStyle>(&full);
         same_shape::<_, CellStyle>(&ms::CellStyle::default());
         same_shape::<_, SheetFormat>(&ms::SheetFormat::default());
+        same_shape::<_, SheetView>(&ms::SheetView {
+            frozen_rows: 1,
+            frozen_cols: 2,
+            zoom: 150,
+            show_gridlines: false,
+            show_headings: true,
+        });
     }
 }

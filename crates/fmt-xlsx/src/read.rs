@@ -3,11 +3,13 @@
 use std::collections::{BTreeSet, HashMap};
 use std::io::Cursor;
 
-use engine_formula::ast::MAX_COL;
+use engine_formula::ast::{MAX_COL, MAX_ROW};
 use engine_formula::{offset_relative, CellContent, CellCoord, ErrorKind, Expr, SheetId, Value};
 use fmt_ooxml::theme::parse_color_scheme;
 use fmt_ooxml::{rel, Package, PartName, TargetMode};
-use model_sheet::{ColInfo, RowInfo, SheetFormat, StyleId, Workbook};
+use model_sheet::{
+    ColInfo, MergeRect, RowInfo, SheetFormat, SheetView, StyleId, Workbook, MAX_ZOOM, MIN_ZOOM,
+};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
@@ -101,6 +103,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     // Sheets: create all first so that cross-sheet formulas resolve.
     let rels = pkg.relationships(&main);
     let mut sheets: Vec<(SheetId, String, PartName)> = Vec::new();
+    let mut hidden: Vec<(SheetId, bool, bool)> = Vec::new();
     for entry in &book.sheets {
         let rel = rels.and_then(|r| r.get(&entry.rid));
         let Some(rel) = rel.filter(|r| r.target_mode == TargetMode::Internal) else {
@@ -122,11 +125,9 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         } else {
             wb.add_sheet(&entry.name)?
         };
-        if entry.hidden {
-            warnings.push(format!("sheet {:?}: hidden state dropped", entry.name));
-        }
         consumed.insert(part.clone());
         sheets.push((id, entry.name.clone(), part));
+        hidden.push((id, entry.hidden, entry.very_hidden));
     }
     if sheets.is_empty() {
         return Err(Error::Malformed {
@@ -154,6 +155,16 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     wb.end_batch();
     loaded?;
 
+    // Visibility last: hiding needs another visible sheet.
+    for &(id, is_hidden, very) in &hidden {
+        if is_hidden && wb.set_sheet_visibility(id, true, very).is_err() {
+            let name = wb.engine().sheet_name(id).unwrap_or_default().to_owned();
+            warnings.push(format!(
+                "sheet {name:?}: every sheet is hidden; this one is shown"
+            ));
+        }
+    }
+
     for (name, part) in pkg.parts() {
         if !consumed.contains(name) {
             warnings.push(format!("part {name} ({}) dropped", part.content_type));
@@ -171,7 +182,9 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
 struct SheetEntry {
     name: String,
     rid: String,
+    /// `state="hidden"` or `"veryHidden"`.
     hidden: bool,
+    very_hidden: bool,
 }
 
 struct BookInfo {
@@ -198,10 +211,12 @@ fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
                             reason: "<sheet> without name or r:id".into(),
                         });
                     };
+                    let state = attr(&el, "state");
                     info.sheets.push(SheetEntry {
                         name: name.into_owned(),
                         rid: rid.into_owned(),
-                        hidden: attr(&el, "state").is_some_and(|s| s != "visible"),
+                        hidden: state.as_deref().is_some_and(|s| s != "visible"),
+                        very_hidden: state.as_deref() == Some("veryHidden"),
                     });
                 }
                 b"definedName" => info.defined_names += 1,
@@ -260,6 +275,17 @@ pub(crate) fn parse_sst(xml: &[u8], part: &str) -> Result<Vec<String>> {
 }
 
 // --- worksheets --------------------------------------------------------------
+
+/// `showGridLines`, `showRowColHeaders` and `zoomScale` of a `<sheetView>`
+/// (a zoom outside Excel's 10..=400 is clamped; 0 means 100).
+fn read_view_attrs(el: &BytesStart<'_>, view: &mut SheetView) {
+    view.show_gridlines = attr_bool(el, "showGridLines").unwrap_or(true);
+    view.show_headings = attr_bool(el, "showRowColHeaders").unwrap_or(true);
+    view.zoom = match attr_parse::<u32>(el, "zoomScale") {
+        None | Some(0) => 100,
+        Some(z) => z.clamp(u32::from(MIN_ZOOM), u32::from(MAX_ZOOM)) as u16,
+    };
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Capture {
@@ -335,6 +361,10 @@ impl SheetLoader<'_> {
         let mut text = String::new();
         let mut merged: Vec<String> = Vec::new();
         let mut dropped: BTreeSet<&'static str> = BTreeSet::new();
+        let mut view = SheetView::default();
+        // 0 = before the first <sheetView>, 1 = inside it, 2 = after it
+        // (only the first view is read).
+        let mut view_state = 0u8;
         loop {
             let ev = reader.read_event().map_err(xml_err(part))?;
             match ev {
@@ -414,9 +444,22 @@ impl SheetLoader<'_> {
                                 merged.push(r.into_owned());
                             }
                         }
-                        b"pane" => {
-                            if attr(el, "state").is_some_and(|s| s.starts_with("frozen")) {
-                                dropped.insert("freeze panes");
+                        b"sheetView" if view_state == 0 => {
+                            view_state = if empty { 2 } else { 1 };
+                            read_view_attrs(el, &mut view);
+                        }
+                        b"pane" if view_state == 1 => {
+                            let state = attr(el, "state");
+                            if state.as_deref().is_some_and(|s| s.starts_with("frozen")) {
+                                let split = |name| {
+                                    attr_parse::<f64>(el, name)
+                                        .filter(|v| v.is_finite() && *v >= 0.0)
+                                        .map_or(0, |v| v.round() as u32)
+                                };
+                                view.frozen_rows = split("ySplit").min(MAX_ROW);
+                                view.frozen_cols = split("xSplit").min(MAX_COL);
+                            } else {
+                                dropped.insert("split panes");
                             }
                         }
                         name => {
@@ -440,6 +483,7 @@ impl SheetLoader<'_> {
                             }
                         }
                         b"rPh" => in_rph = false,
+                        b"sheetView" if view_state == 1 => view_state = 2,
                         b"f" | b"v" | b"t" if capture != Capture::None => {
                             if let Some(c) = cell.as_mut() {
                                 let s = std::mem::take(&mut text);
@@ -465,8 +509,26 @@ impl SheetLoader<'_> {
                 _ => {}
             }
         }
-        if !merged.is_empty() {
-            self.warn(format!("merged cells dropped: {}", merged.join(", ")));
+        self.wb.set_sheet_view(self.sheet, view)?;
+        let mut bad: Vec<String> = Vec::new();
+        for r in merged {
+            let rect = r.split_once(':').and_then(|(a, b)| {
+                let (r0, c0) = parse_cell(a)?;
+                let (r1, c1) = parse_cell(b)?;
+                Some(MergeRect::new(
+                    r0.min(r1),
+                    c0.min(c1),
+                    r0.max(r1),
+                    c0.max(c1),
+                ))
+            });
+            match rect {
+                Some(rect) if self.wb.add_merge(self.sheet, rect).is_ok() => {}
+                _ => bad.push(r),
+            }
+        }
+        if !bad.is_empty() {
+            self.warn(format!("invalid merged cells dropped: {}", bad.join(", ")));
         }
         for what in dropped {
             self.warn(format!("{what} dropped"));

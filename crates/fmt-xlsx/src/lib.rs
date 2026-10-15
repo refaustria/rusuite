@@ -3,8 +3,9 @@
 //! [`model_sheet::Workbook`].
 //!
 //! The supported subset (values, formulas, cell styles, column/row
-//! dimensions, sheet defaults) and everything that is dropped are listed
-//! in `docs/ooxml-subset.md`.
+//! dimensions, sheet defaults, sheet views with frozen panes, hidden
+//! sheets, merged cells) and everything that is dropped are listed in
+//! `docs/ooxml-subset.md`.
 //!
 //! ```
 //! use engine_formula::{CellCoord, Value};
