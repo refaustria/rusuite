@@ -30,7 +30,7 @@ export function Audience({ id, channel, onEnd = closeWindow }: AudienceProps) {
   const t = useT();
   const [ch, setCh] = useState<SyncChannel | null>(null);
   const [deck, setDeck] = useState<{ deck: DeckContext; slides: Slide[]; media: Map<number, string>; version: number } | null>(null);
-  const [view, setView] = useState<ShowView>({ slideIndex: 0, blackout: "none", ended: false });
+  const [view, setView] = useState<ShowView>({ slideIndex: 0, step: 0, blackout: "none", ended: false });
 
   useEffect(() => {
     let alive = true;
@@ -42,7 +42,7 @@ export function Audience({ id, channel, onEnd = closeWindow }: AudienceProps) {
       sync = c;
       unlisten = c.listen((m) => {
         if (m.kind === "deck") setDeck((d) => ({ deck: m.deck, slides: m.slides, media: new Map(m.media), version: (d?.version ?? 0) + 1 }));
-        else if (m.kind === "state") setView({ slideIndex: m.slideIndex, blackout: m.blackout, ended: m.ended });
+        else if (m.kind === "state") setView({ slideIndex: m.slideIndex, step: m.step ?? 0, blackout: m.blackout, ended: m.ended });
         else if (m.kind === "end") onEnd();
       });
       setCh(c);
@@ -63,7 +63,17 @@ export function Audience({ id, channel, onEnd = closeWindow }: AudienceProps) {
 
   const onAction = useCallback((action: ShowAction) => ch?.post({ kind: "action", action }), [ch]);
   const show = useMemo<ShowState>(
-    () => ({ index: view.slideIndex, count: deck?.slides.length ?? 0, blank: view.blackout, ended: view.ended, typed: "" }),
+    () => ({
+      index: view.slideIndex,
+      count: deck?.slides.length ?? 0,
+      blank: view.blackout,
+      ended: view.ended,
+      typed: "",
+      step: view.step,
+      steps: [],
+      clickAdvance: [],
+      autoStopped: false,
+    }),
     [view, deck],
   );
 

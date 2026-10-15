@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Slide } from "../generated/Slide";
 import type { DeckContext } from "../canvas/SlideView";
 import { SlideImage, useShowKeys } from "./Presenter";
+import { AnimatedSlide } from "./AnimatedSlide";
 import type { ShowAction, ShowState } from "./showState";
 import { formatDate } from "@rusuite/ui-shared";
 import { useT } from "../i18n";
@@ -89,7 +90,10 @@ export function PresenterConsole({ deck, slides, media, mediaVersion, show, onAc
   useShowKeys(onAction);
 
   const slide = slides[show.index];
-  const next = show.ended ? undefined : slides[show.index + 1];
+  // "Next": the current slide after its next click while it has steps left (as the audience will see it).
+  const moreSteps = !show.ended && show.step < (show.steps[show.index] ?? 0);
+  const next = show.ended ? undefined : moreSteps ? slide : slides[show.index + 1];
+  const nextStep = moreSteps ? show.step + 1 : 0;
   const notes = slide?.notes ?? "";
   const sizeAt = NOTES_SIZES.indexOf(notesSize);
   const counter = show.ended ? t("show.end") : t("show.slideOf", { n: show.index + 1, count: slides.length });
@@ -115,6 +119,7 @@ export function PresenterConsole({ deck, slides, media, mediaVersion, show, onAc
         <span className="text-lg" data-testid="console-counter">
           {counter}
         </span>
+        {show.autoStopped && <span className="text-sm text-white/60">{t("show.autoStopped")}</span>}
         {status && <span className="text-sm text-amber-300">{status}</span>}
         <span className="ml-auto text-sm text-white/60">{formatDate(now, { hour: "2-digit", minute: "2-digit" })}</span>
       </header>
@@ -124,7 +129,7 @@ export function PresenterConsole({ deck, slides, media, mediaVersion, show, onAc
           <div ref={mainRef} className="relative flex min-h-0 flex-1 items-center justify-center" data-testid="console-current">
             {slide && !show.ended && (
               <div className={screen ? "opacity-30" : undefined}>
-                <SlideImage deck={deck} slide={slide} media={media} mediaVersion={mediaVersion} width={mainSize.width} height={mainSize.height} />
+                <AnimatedSlide deck={deck} slide={slide} media={media} mediaVersion={mediaVersion} width={mainSize.width} height={mainSize.height} step={show.step} />
               </div>
             )}
             {screen && (
@@ -153,7 +158,7 @@ export function PresenterConsole({ deck, slides, media, mediaVersion, show, onAc
           <div className="text-xs uppercase tracking-wide text-white/50">{t("show.nextHeading")}</div>
           <div ref={nextRef} className="flex aspect-video w-full items-center justify-center bg-black/40" data-testid="console-next">
             {next ? (
-              <SlideImage deck={deck} slide={next} media={media} mediaVersion={mediaVersion} width={nextSize.width} height={nextSize.height} />
+              <AnimatedSlide key={`${next.id}:${nextStep}`} deck={deck} slide={next} media={media} mediaVersion={mediaVersion} width={nextSize.width} height={nextSize.height} step={nextStep} still />
             ) : (
               <span className="text-sm text-white/50">{show.ended ? "" : t("show.end")}</span>
             )}

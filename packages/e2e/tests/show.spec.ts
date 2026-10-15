@@ -229,4 +229,73 @@ test.describe("Show", () => {
     await expect(page.getByRole("tab", { name: "Shape Format" })).toBeVisible();
     await expect(gallery).toBeHidden();
   });
+
+  // ----- P8-8: transitions and animations -----
+
+  test("Transitions › Fade is saved as p:transition", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openDeck(page);
+    await page.getByRole("tab", { name: "Transitions" }).click();
+    await page.getByRole("group", { name: "Transitions", exact: true }).getByRole("button", { name: "Fade", exact: true }).click();
+    await expect(page.getByTestId("thumbnail").first().getByTestId("effects-star")).toBeVisible();
+    const slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    expect(slide1).toMatch(/<p:transition[^>]*>\s*<p:fade/);
+    errors.expectNone();
+  });
+
+  test("Animations › Fly In shows in the Animation pane and is saved as p:timing", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openDeck(page);
+    await insertRectangle(page);
+    await page.getByRole("tab", { name: "Animations" }).click();
+    await page.getByRole("button", { name: "Animation styles" }).click();
+    await page.getByRole("group", { name: "Entrance" }).getByRole("button", { name: "Fly In" }).click();
+    await expect(page.getByTestId("anim-badge")).toHaveText(["1"]);
+    await page.getByRole("button", { name: "Animation pane" }).click();
+    const rows = page.getByTestId("animation-pane").getByTestId("anim-row");
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText("Fly In");
+    const slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    expect(slide1).toContain("<p:timing");
+    expect(slide1).toContain('presetClass="entr"');
+    errors.expectNone();
+  });
+
+  test("the slide show needs two clicks to reveal two On Click shapes", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openDeck(page);
+    for (let i = 0; i < 2; i++) {
+      await insertRectangle(page);
+      await page.getByRole("tab", { name: "Animations" }).click();
+      await page.getByRole("button", { name: "Animation styles" }).click();
+      await page.getByRole("group", { name: "Entrance" }).getByRole("button", { name: "Fade", exact: true }).click();
+    }
+    await expect(page.getByTestId("anim-badge")).toHaveText(["1", "2"]);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Present" }).first().click();
+    const presenter = page.getByTestId("presenter");
+    const slide = presenter.getByTestId("animated-slide");
+    const hidden = async () => ((await slide.getAttribute("data-hidden-shapes")) ?? "").split(",").filter(Boolean).length;
+    await expect(page.getByTestId("presenter-counter")).toHaveText("1 / 6");
+    await expect.poll(hidden).toBe(2);
+    const box = (await presenter.boundingBox())!;
+    const click = () => presenter.click({ position: { x: box.width - 20, y: box.height / 2 } });
+    await click();
+    await expect(presenter).toHaveAttribute("data-step", "1");
+    await expect.poll(hidden).toBe(1);
+    await click();
+    await expect.poll(hidden).toBe(0);
+    await expect(page.getByTestId("presenter-counter")).toHaveText("1 / 6");
+    await click();
+    await expect(page.getByTestId("presenter-counter")).toHaveText("2 / 6");
+    // ← back onto the slide: every step done; once more: one step back.
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.getByTestId("presenter-counter")).toHaveText("1 / 6");
+    await expect.poll(hidden).toBe(0);
+    await page.keyboard.press("ArrowLeft");
+    await expect.poll(hidden).toBe(1);
+    await page.keyboard.press("Escape");
+    await expect(presenter).toHaveCount(0);
+    errors.expectNone();
+  });
 });

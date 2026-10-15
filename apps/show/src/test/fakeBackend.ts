@@ -12,6 +12,7 @@ import type { ShowCommand } from "../generated/ShowCommand";
 import type { ShowPatch } from "../generated/ShowPatch";
 import type { Slide } from "../generated/Slide";
 import { findShape } from "../model";
+import { applyAnimationPatch } from "../anim/effects";
 import { fixture } from "./fixture";
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -205,6 +206,45 @@ export class FakeBackend implements ShowBackend {
             const para = sh.kind.value.text.paragraphs[i];
             if (para) para.props = { ...(para.props ?? {}), ...(c.patch as object) } as typeof para.props;
           }
+        }
+        touched.add(s);
+        return;
+      }
+      case "setTransition":
+        for (const id of c.slides) {
+          const s = this.slideOf(id);
+          if (c.transition) s.transition = c.transition;
+          else delete s.transition;
+          touched.add(s);
+        }
+        return;
+      case "applyTransitionToAll": {
+        const t = this.slideOf(c.from).transition;
+        for (const s of p.slides) {
+          if (t) s.transition = clone(t);
+          else delete s.transition;
+          touched.add(s);
+        }
+        return;
+      }
+      case "addAnimation": {
+        const s = this.slideOf(c.slide);
+        const list = (s.animations ??= []);
+        list.splice(c.index ?? list.length, 0, { ...c.animation, id: this.real(c.newId, idMap) });
+        touched.add(s);
+        return;
+      }
+      case "updateAnimation":
+      case "removeAnimation":
+      case "reorderAnimation": {
+        const s = p.slides.find((sl) => sl.animations?.some((a) => a.id === c.id));
+        if (!s) throw new Error(`unknown animation ${c.id}`);
+        const list = s.animations!;
+        const i = list.findIndex((a) => a.id === c.id);
+        if (c.type === "updateAnimation") list[i] = applyAnimationPatch(list[i]!, c.patch);
+        else {
+          const [a] = list.splice(i, 1);
+          if (c.type === "reorderAnimation") list.splice(c.index, 0, a!);
         }
         touched.add(s);
         return;

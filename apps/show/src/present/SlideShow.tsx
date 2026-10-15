@@ -5,7 +5,9 @@
 // back to the single-window show with a speaker notes overlay toggle.
 //
 // The slides of the show are fixed when it starts: hidden slides are
-// skipped unless the show starts on one, as in PowerPoint.
+// skipped unless the show starts on one, as in PowerPoint. Each slide's
+// click steps (its On Click animations) and "After" timing come from the
+// model (P8-8); the timer here advances the show unless S stopped it.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DeckContext } from "../canvas/SlideView";
@@ -14,7 +16,8 @@ import type { Slide } from "../generated/Slide";
 import { useShow, type ShowStore } from "../state/store";
 import { Presenter } from "./Presenter";
 import { PresenterConsole } from "./PresenterConsole";
-import { initialShow, reduceShow, type ShowAction, type ShowState } from "./showState";
+import { initialShow, reduceShow, type ShowAction, type ShowMeta, type ShowState } from "./showState";
+import { autoAdvanceDelay, clickSteps } from "../anim/playback";
 import type { AudienceLink, AudienceWindow, SyncChannel } from "./sync";
 import { useT } from "../i18n";
 
@@ -29,6 +32,11 @@ export interface SlideShowProps {
 /** The slides of a show starting at `current`: the visible ones, plus `current` itself when hidden. */
 export function showSlideIds(slides: Slide[], current: NodeId | null): NodeId[] {
   return slides.filter((s) => !s.hidden || s.id === current).map((s) => s.id);
+}
+
+/** Click steps and "On mouse click" of the slides of a show. */
+export function showMeta(slides: Slide[]): ShowMeta {
+  return { steps: slides.map(clickSteps), clickAdvance: slides.map((s) => s.transition?.advanceOnClick ?? true) };
 }
 
 function NotesOverlay({ notes }: { notes: string }) {
@@ -50,7 +58,9 @@ export function SlideShow({ store, mode, link, onEnd }: SlideShowProps) {
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
   const [ids] = useState(() => showSlideIds(store.getState().pres?.slides ?? [], store.getState().current));
   const slides = useMemo(() => ids.map((id) => pres?.slides.find((s) => s.id === id)).filter((s): s is Slide => !!s), [ids, pres]);
-  const [show, setShow] = useState<ShowState>(() => initialShow(ids.length, Math.max(0, ids.indexOf(store.getState().current ?? -1))));
+  const [show, setShow] = useState<ShowState>(() =>
+    initialShow(ids.length, Math.max(0, ids.indexOf(store.getState().current ?? -1)), showMeta(slides)),
+  );
   const [phase, setPhase] = useState<"opening" | "console" | "single">(mode === "presenter" && link ? "opening" : "single");
   const [notesOn, setNotesOn] = useState(false);
   const fallback = mode === "presenter" && phase === "single";
@@ -84,7 +94,7 @@ export function SlideShow({ store, mode, link, onEnd }: SlideShowProps) {
   };
   const stateMsg = () => {
     const s = showRef.current;
-    sync.current?.post({ kind: "state", slideIndex: s.index, blackout: s.blank, ended: s.ended });
+    sync.current?.post({ kind: "state", slideIndex: s.index, step: s.step, blackout: s.blank, ended: s.ended });
   };
 
   // Set up once per show. The teardown waits a tick, so React's StrictMode remount (dev) keeps the window open.
@@ -154,8 +164,18 @@ export function SlideShow({ store, mode, link, onEnd }: SlideShowProps) {
     if (phase === "console") deckMsg.current();
   }, [phase, deck, slides, mediaVersion]);
   useEffect(() => {
-    if (phase === "console") sync.current?.post({ kind: "state", slideIndex: show.index, blackout: show.blank, ended: show.ended });
-  }, [phase, show.index, show.blank, show.ended]);
+    if (phase === "console") sync.current?.post({ kind: "state", slideIndex: show.index, step: show.step, blackout: show.blank, ended: show.ended });
+  }, [phase, show.index, show.step, show.blank, show.ended]);
+
+  // Automatic advance ("After" of the slide's transition), unless S stopped it.
+  const current = slides[show.index];
+  useEffect(() => {
+    if (!current || show.ended || show.blank !== "none" || show.autoStopped) return;
+    const ms = autoAdvanceDelay(current, show.step);
+    if (ms === null) return;
+    const timer = window.setTimeout(() => dispatch({ type: "next", via: "timer" }), ms);
+    return () => window.clearTimeout(timer);
+  }, [current, show.index, show.step, show.ended, show.blank, show.autoStopped, dispatch]);
 
   if (!pres || !deck || slides.length === 0) return null;
   if (phase !== "single") {

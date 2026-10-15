@@ -72,7 +72,10 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
 - **Show**: Home (Undo; Clipboard: shapes/slides clipboard + Duplicate; Slides: New slide ▾ layouts, Layout ▾, Duplicate,
   Delete, Hide slide; Font + grow/shrink; Paragraph + line spacing ▾; Drawing: shapes gallery, Arrange ▾
   order/align/distribute/group, fill and outline), Insert (New slide, Picture, Shapes ▾, Text box), Design (Background
-  colour, Apply to all, Reset), View (Notes pane, present from beginning/current, Presenter view, zoom Fit/50–200 %, shortcuts help),
+  colour, Apply to all, Reset), Transitions (Preview; gallery None/Fade/Push/Wipe/Cover/Split/Cut/Zoom + Effect Options ▾;
+  Timing: Duration, Apply to all, Advance slide On mouse click / After mm:ss), Animations (Preview; Animation styles ▾ grouped
+  Entrance/Emphasis/Exit + None, Effect Options ▾; Add animation ▾, Animation pane; Timing: Start, Duration, Delay, Move
+  earlier/later), View (Notes pane, present from beginning/current, Presenter view, zoom Fit/50–200 %, shortcuts help),
   contextual Shape Format while shapes are selected (Format shape…, Alt text…, Change picture…/Reset size, Arrange ▾);
   Present in the strip. Right-click menus on shapes, on the slide and on thumbnails (`apps/show/src/canvas/menus.ts`).
 
@@ -127,6 +130,41 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   sends `hello`, its keys/clicks as `action`, and `bye` when closed (which ends the show); `end` closes it.
 - If the window cannot be opened (popup blocked), the show runs in the main window with a speaker notes overlay and a
   Notes toggle in the corner.
+
+## Show: transitions and animations (P8-8)
+
+- **Model rules in the UI** (`apps/show/src/anim/effects.ts`): the rules of `crates/model-show/src/anim.rs` mirrored for the
+  menus (directions per transition kind / effect, defaults, which effects exist per kind), the labels (transition
+  directions name the side the slide comes from: `left` = "From Right"; animation directions the side of the shape) and
+  the click numbers (every On Click animation starts a number, With/After Previous share it, leading ones are 0).
+- **Transitions tab** → `setTransition` for the current slide (a new kind gets its default duration and direction and keeps
+  the advance settings; "None" with On mouse click and no After = no transition) and `applyTransitionToAll`. Effect
+  Options lists only the kind's directions. The slide sorter shows a small star under the number of slides with a
+  transition or animations.
+- **Animations tab**: the gallery applies its effect to the selected animation, else to each selected shape's first one
+  (`updateAnimation`, default duration, direction reset when it no longer fits), shapes without one get a new On Click
+  animation (`addAnimation`); None removes them. Add animation always appends. Effect Options / Start / Duration / Delay
+  patch the selected animation, else every animation of the selected shapes. While the Animations tab or the pane is
+  shown, number badges sit left of the animated shapes on the stage (a badge selects its animation).
+- **Animation pane** (`ui/AnimationPane.tsx`, right of the stage): rows in play order with number, kind star (green
+  entrance, gold emphasis, red exit), shape name and effect; click / arrows select, Delete or the bin removes, Alt+↑/↓ and
+  the ▲/▼ buttons move, dragging a row by its grip (pointer events) drops it at the insertion line (`reorderAnimation`);
+  Play all previews.
+- **Preview** (both tabs) plays on the editor stage (`canvas/AnimOverlay.tsx`): the transition from the previous slide
+  (black before the first), or the slide's whole sequence; a click or Esc stops it.
+- **Playback** (`anim/playback.ts`, pure; `anim/driver.ts`, Konva): a slide's animations form click groups (group 0 =
+  animations before the first On Click one, played when the slide appears); With Previous starts with the previous
+  animation, After Previous when it ends, each plus its delay. Shapes whose first animation is an entrance start hidden;
+  `shapeStates(slide, n)` rebuilds the visibility and Grow/Shrink scale after any number of groups, so ← can step back.
+  Effects are frames of `effectFrame` (fade, fly from outside the slide, wipe via a clip, zoom), Spin and Grow/Shrink are
+  Konva tweens. Transitions animate two slide pictures with the Web Animations API (`transitionFrames`: fade, push / cover
+  with direction, wipe and split via `clip-path`, zoom; cut/none instant).
+- **In the show** (`present/AnimatedSlide.tsx`): `ShowState.step` counts the click steps done on the slide; next plays the
+  next group before moving on, ← goes back one step (onto the previous slide with all its steps done); jumps start at
+  step 0. "On mouse click" off means a click does not leave the slide (keys and the timer still do). "After" advances
+  automatically once the step's animations (and the transition) have finished; S stops / restarts it. The sync `state`
+  message carries `step`, so the audience window and the presenter console's Next preview (the current slide after its
+  next click while steps are left) follow. The show element has `data-step`, the slide `data-hidden-shapes`.
 
 ## Printing (P7-9)
 

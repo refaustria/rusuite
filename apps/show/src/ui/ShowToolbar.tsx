@@ -23,6 +23,7 @@ import { charLen, effectiveParagraph, effectiveRun, findShape, placeholderDef, t
 import { LINE_SPACINGS, lineSpacingOf, newShape, textPos, type InsertKind } from "../state/commands";
 import { useShow, type ShowState, type ShowStore } from "../state/store";
 import { useT } from "../i18n";
+import { animationsTab, transitionsTab } from "./AnimTabs";
 
 /** The shape the formatting controls reflect: the edited one, else the first selected. */
 function focusShape(s: ShowState): Shape | null {
@@ -561,6 +562,9 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
     ],
   };
 
+  const transitions = transitionsTab(store, state, t);
+  const animations = animationsTab(store, state, t);
+
   const fileOff = fileIo ? undefined : t("show.noFileIo");
   return (
     <div data-keep-edit>
@@ -568,7 +572,8 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         appName="Rusuite Show"
         documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
         accent="#c2410c"
-        tabs={selCount > 0 ? [home, insert, design, view, shapeFormat] : [home, insert, design, view]}
+        tabs={selCount > 0 ? [home, insert, design, transitions, animations, view, shapeFormat] : [home, insert, design, transitions, animations, view]}
+        onTabChange={(id) => store.setRibbonTab(id)}
         rightSlot={
           <button
             type="button"

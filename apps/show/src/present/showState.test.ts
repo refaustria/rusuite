@@ -56,7 +56,59 @@ describe("slide show state", () => {
     expect(keyAction("7")).toEqual({ type: "digit", digit: "7" });
     expect(keyAction("x")).toBeNull();
     expect(keyAction("F5")).toBeNull();
-    expect(clickAction(700, 1000)).toEqual({ type: "next" });
+    expect(clickAction(700, 1000)).toEqual({ type: "next", via: "click" });
     expect(clickAction(300, 1000)).toEqual({ type: "prev" });
+  });
+});
+
+describe("click steps (animations)", () => {
+  const meta = { steps: [0, 2, 1], clickAdvance: [true, true, true] };
+  it("each next plays the slide's next click step before moving on", () => {
+    let s = initialShow(3, 0, meta);
+    s = run(s, { type: "next" }) as ShowState;
+    expect(s).toMatchObject({ index: 1, step: 0 });
+    s = run(s, { type: "next" }) as ShowState;
+    expect(s).toMatchObject({ index: 1, step: 1 });
+    s = run(s, ...keys(" ", "ArrowRight")) as ShowState;
+    expect(s).toMatchObject({ index: 2, step: 0 });
+    s = run(s, { type: "next" }, { type: "next" }) as ShowState;
+    expect(s).toMatchObject({ index: 2, step: 1, ended: true });
+  });
+
+  it("← goes back one step, then to the previous slide with all its steps done", () => {
+    const s = initialShow(3, 2, meta);
+    expect(run(s, { type: "prev" })).toMatchObject({ index: 1, step: 2 });
+    expect(run(s, { type: "prev" }, { type: "prev" })).toMatchObject({ index: 1, step: 1 });
+    expect(run(s, { type: "prev" }, { type: "prev" }, { type: "prev" }, { type: "prev" })).toMatchObject({ index: 0, step: 0 });
+    expect(run(initialShow(3, 0, meta), { type: "prev" })).toMatchObject({ index: 0, step: 0 });
+  });
+
+  it("jumps start the slide at step 0", () => {
+    const at = run(initialShow(3, 1, meta), { type: "next" }) as ShowState;
+    expect(at.step).toBe(1);
+    expect(run(at, { type: "goto", index: 1 })).toMatchObject({ index: 1, step: 0 });
+    expect(run(at, { type: "first" })).toMatchObject({ step: 0 });
+    expect(run(at, { type: "last" })).toMatchObject({ index: 2, step: 0 });
+    expect(run(at, ...keys("2", "Enter"))).toMatchObject({ index: 1, step: 0 });
+  });
+
+  it("On mouse click off: a click plays steps but does not leave the slide; keys and the timer do", () => {
+    const s = initialShow(2, 0, { steps: [1, 0], clickAdvance: [false, true] });
+    const click = clickAction(900, 1000);
+    const a = run(s, click) as ShowState;
+    expect(a).toMatchObject({ index: 0, step: 1 });
+    expect(run(a, click)).toBe(a);
+    expect(run(a, { type: "next" })).toMatchObject({ index: 1 });
+    expect(run(a, { type: "next", via: "timer" })).toMatchObject({ index: 1 });
+  });
+
+  it("S stops and restarts the automatic advance; the timer never ends the show", () => {
+    expect(keyAction("s")).toEqual({ type: "toggleAuto" });
+    const s = run(initialShow(2), ...keys("S")) as ShowState;
+    expect(s.autoStopped).toBe(true);
+    expect(run(s, ...keys("s"))).toMatchObject({ autoStopped: false });
+    const ended = run(initialShow(1), { type: "next" }) as ShowState;
+    expect(ended.ended).toBe(true);
+    expect(run(ended, { type: "next", via: "timer" })).toBe(ended);
   });
 });

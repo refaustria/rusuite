@@ -13,6 +13,7 @@ import { ShowStore, useShow } from "./state/store";
 import { slidePx } from "./geometry";
 import { ShowRibbon, type ShowZoom } from "./ui/ShowToolbar";
 import { NotesPane } from "./ui/NotesPane";
+import { AnimationPane } from "./ui/AnimationPane";
 import { ShowDialogs } from "./ui/ShowDialogs";
 import { Toasts } from "./ui/Toasts";
 import { t, useT } from "./i18n";
@@ -186,6 +187,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
         </div>
         <NotesPane store={store} />
         </div>
+        <AnimationPane store={store} />
       </div>
       <StatusBar store={store} backend={backend} session={session} zoom={zoom} />
       <Toasts store={store} />

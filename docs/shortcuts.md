@@ -127,14 +127,19 @@ The same keys work in the full-window show (F5), in the presenter view and in it
 
 | Keys / mouse | Action |
 | --- | --- |
-| →, ↓, PageDown, Space, Enter, N; click on the right half | Next slide (after the last one: a black "End of slide show" slide, then exit) |
-| ←, ↑, PageUp, Backspace, P; click on the left half | Previous slide |
+| →, ↓, PageDown, Space, Enter, N; click on the right half | Next animation step, then the next slide (after the last one: a black "End of slide show" slide, then exit) |
+| ←, ↑, PageUp, Backspace, P; click on the left half | Back one animation step, then the previous slide (with all its steps done) |
 | Home, End | First, last slide |
 | number + Enter | Go to that slide (`5` Enter) |
 | B or `.`, W or `,` | Black / white screen (again or any step: back to the slide) |
+| S | Stop / restart the automatic advance (Transitions › After) |
 | Esc | End the show |
 
-Hidden slides are skipped unless the show starts on one. The mouse pointer hides after 3 s without movement.
+Hidden slides are skipped unless the show starts on one. The mouse pointer hides after 3 s without movement. With
+Transitions › On mouse click off, a click does not leave the slide (the keys still do).
+
+In the Animation pane: ↑/↓ select an animation, Alt+↑/↓ move it earlier/later, Delete removes it. Esc or a click stops a
+Preview on the stage.
 
 Mod+B/I/U also format the selected text inside the text overlay; there Tab / Shift+Tab change the list level of the
 selected paragraphs. While dragging or resizing, shapes snap to the slide and to other shapes (smart guides); hold Alt to
