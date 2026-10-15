@@ -7,6 +7,13 @@ import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } fr
 import type { Editor } from "@tiptap/react";
 import { Dialog } from "@rusuite/ui-shared";
 import type { Alignment } from "../generated/Alignment";
+import type { Block } from "../generated/Block";
+import type { HeaderFooterSet } from "../generated/HeaderFooterSet";
+import type { HeaderSlot } from "../generated/HeaderSlot";
+import type { Inline } from "../generated/Inline";
+import type { LevelKind } from "../generated/LevelKind";
+import type { Section } from "../generated/Section";
+import type { WriteCommand } from "../generated/WriteCommand";
 import type { Indent } from "../generated/Indent";
 import type { LineSpacing } from "../generated/LineSpacing";
 import type { PageSetup } from "../generated/PageSetup";
@@ -18,7 +25,9 @@ import { indentAt, selectedTextblocks, setIndent, setSpacing, spacingAt } from "
 import { setRowHeight, tableContext } from "../features/tables";
 import type { WriteUi } from "../features/WriteFeatures";
 import { setAlignment } from "../sync/editorCommands";
-import type { SyncController } from "../sync/SyncPlugin";
+import { nextTempId, type SyncController } from "../sync/SyncPlugin";
+import { blocksText, sectionHf } from "../features/pagination";
+import { currentSection } from "../features/structureCommands";
 import { useT } from "../i18n";
 
 // ----- units ------------------------------------------------------------------------
@@ -188,49 +197,198 @@ export function PageSetupDialog({ open, page, onSubmit, onClose }: {
 
 // ----- header & footer --------------------------------------------------------------
 
-export function HeaderFooterDialog({ open, page, focus, onSubmit, onClose }: {
+/** The texts of the header/footer dialog: default, first-page and even-page header and footer. */
+export interface HeaderFooterTexts {
+  header: string;
+  footer: string;
+  firstHeader: string;
+  firstFooter: string;
+  evenHeader: string;
+  evenFooter: string;
+  /** Different first page (`titlePage`). */
+  differentFirst: boolean;
+  /** Different odd & even pages. */
+  differentOddEven: boolean;
+}
+
+export const EMPTY_HF: HeaderFooterTexts = {
+  header: "", footer: "", firstHeader: "", firstFooter: "", evenHeader: "", evenFooter: "", differentFirst: false, differentOddEven: false,
+};
+
+export function HeaderFooterDialog({ open, initial, focus, onSubmit, onClose }: {
   open: boolean;
-  page: PageSetup | null;
+  initial: HeaderFooterTexts;
   focus: "header" | "footer";
-  onSubmit: (texts: { headerText: string; footerText: string }) => void;
+  onSubmit: (texts: HeaderFooterTexts) => void;
   onClose: () => void;
 }) {
   const t = useT();
-  const [header, setHeader] = useState("");
-  const [footer, setFooter] = useState("");
+  const [v, setV] = useState<HeaderFooterTexts>(initial);
   useEffect(() => {
     if (!open) return;
-    setHeader(page?.headerText ?? "");
-    setFooter(page?.footerText ?? "");
+    setV(initial);
     setTimeout(() => document.querySelector<HTMLTextAreaElement>(`textarea[data-slot="${focus}"]`)?.focus(), 0);
-  }, [open, page, focus]);
-  const area = (slot: "header" | "footer", label: string, value: string, set: (v: string) => void) => (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between">
-        <span>{label}</span>
-        <button type="button" className={`${BUTTON} h-6 px-2 text-xs`} onClick={() => set(`${value}{PAGE}`)}>
-          {t("write.insertPageNumber")}
-        </button>
+  }, [open, initial, focus]);
+  const set = (k: keyof HeaderFooterTexts) => (value: string | boolean) => setV((cur) => ({ ...cur, [k]: value }));
+  const area = (slot: keyof HeaderFooterTexts, label: string) => {
+    const value = v[slot] as string;
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <span>{label}</span>
+          <button type="button" className={`${BUTTON} h-6 px-2 text-xs`} onClick={() => set(slot)(`${value}{PAGE}`)}>
+            {t("write.insertPageNumber")}
+          </button>
+        </div>
+        <textarea aria-label={label} data-slot={slot} className="h-12 w-full rounded border border-ui-border bg-ui-bg p-2 text-sm text-ui-fg" value={value} onChange={(e) => set(slot)(e.target.value)} />
       </div>
-      <textarea aria-label={label} data-slot={slot} className="h-14 w-full rounded border border-ui-border bg-ui-bg p-2 text-sm text-ui-fg" value={value} onChange={(e) => set(e.target.value)} />
-    </div>
+    );
+  };
+  const check = (k: "differentFirst" | "differentOddEven", label: string) => (
+    <label className="flex items-center gap-2">
+      <input type="checkbox" aria-label={label} checked={v[k]} onChange={(e) => set(k)(e.target.checked)} />
+      <span>{label}</span>
+    </label>
   );
   return (
     <Dialog open={open} title={t("print.headerFooter")} onClose={onClose}>
       <form
-        className="flex w-96 flex-col gap-2 text-sm"
+        className="flex max-h-[70vh] w-96 flex-col gap-2 overflow-auto text-sm"
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit({ headerText: header.replace(/\r/g, ""), footerText: footer.replace(/\r/g, "") });
+          const clean = (x: string) => x.replace(/\r/g, "");
+          onSubmit({
+            ...v,
+            header: clean(v.header), footer: clean(v.footer), firstHeader: clean(v.firstHeader), firstFooter: clean(v.firstFooter),
+            evenHeader: clean(v.evenHeader), evenFooter: clean(v.evenFooter),
+          });
         }}
       >
-        {area("header", t("print.header"), header, setHeader)}
-        {area("footer", t("print.footer"), footer, setFooter)}
+        <div className="flex gap-4">
+          {check("differentFirst", t("write.hf.differentFirst"))}
+          {check("differentOddEven", t("write.hf.differentOddEven"))}
+        </div>
+        {area("header", v.differentOddEven ? t("write.hf.oddHeader") : t("print.header"))}
+        {area("footer", v.differentOddEven ? t("write.hf.oddFooter") : t("print.footer"))}
+        {v.differentFirst && area("firstHeader", t("write.hf.firstHeader"))}
+        {v.differentFirst && area("firstFooter", t("write.hf.firstFooter"))}
+        {v.differentOddEven && area("evenHeader", t("write.hf.evenHeader"))}
+        {v.differentOddEven && area("evenFooter", t("write.hf.evenFooter"))}
         <p className="text-xs text-ui-muted">{t("write.hf.note", { page: "{PAGE}" })}</p>
         <Buttons onClose={onClose} />
       </form>
     </Dialog>
   );
+}
+
+// ----- page numbers -----------------------------------------------------------------
+
+export const PAGE_NUMBER_FORMATS: { id: LevelKind; sample: string }[] = [
+  { id: "decimal", sample: "1, 2, 3" },
+  { id: "lowerRoman", sample: "i, ii, iii" },
+  { id: "upperRoman", sample: "I, II, III" },
+  { id: "lowerLetter", sample: "a, b, c" },
+  { id: "upperLetter", sample: "A, B, C" },
+];
+
+export function PageNumbersDialog({ open, initial, onSubmit, onClose }: {
+  open: boolean;
+  initial: { format: LevelKind; start: number | null };
+  onSubmit: (v: { format: LevelKind; start: number | null }) => void;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const [format, setFormat] = useState<LevelKind>("decimal");
+  const [restart, setRestart] = useState(false);
+  const [start, setStart] = useState("1");
+  useEffect(() => {
+    if (!open) return;
+    setFormat(initial.format);
+    setRestart(initial.start != null);
+    setStart(String(initial.start ?? 1));
+  }, [open, initial]);
+  const n = Number(start);
+  const valid = !restart || (Number.isInteger(n) && n >= 1);
+  return (
+    <Dialog open={open} title={t("write.formatPageNumbers")} onClose={onClose}>
+      <form
+        className="flex w-72 flex-col gap-2 text-sm"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (valid) onSubmit({ format, start: restart ? n : null });
+        }}
+      >
+        <Row label={t("write.pageNumberFormat")}>
+          <select aria-label={t("write.pageNumberFormat")} className={INPUT} value={format} onChange={(e) => setFormat(e.target.value as LevelKind)}>
+            {PAGE_NUMBER_FORMATS.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.sample}
+              </option>
+            ))}
+          </select>
+        </Row>
+        <label className="flex items-center gap-2">
+          <input type="radio" name="pn-start" checked={!restart} onChange={() => setRestart(false)} />
+          <span>{t("write.pageNumberContinue")}</span>
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="radio" name="pn-start" checked={restart} onChange={() => setRestart(true)} />
+          <span>{t("write.pageNumberStartAt")}</span>
+          <input aria-label={t("write.pageNumberStartAt")} className={`${INPUT} w-16`} value={start} disabled={!restart} onChange={(e) => setStart(e.target.value)} />
+        </label>
+        <Buttons onClose={onClose} disabled={!valid} />
+      </form>
+    </Dialog>
+  );
+}
+
+/** Header/footer text → blocks (one paragraph per line, `{PAGE}` as a page field); `null` for an empty text. */
+export function hfBlocks(text: string): Block[] | null {
+  if (!text.trim()) return null;
+  return text.split("\n").map((line) => {
+    const inlines: Inline[] = [];
+    line.split("{PAGE}").forEach((part, i) => {
+      if (i > 0) inlines.push({ kind: "field", value: { kind: { kind: "page" }, cached: "1" } });
+      if (part) inlines.push({ kind: "run", value: { text: part } });
+    });
+    return { kind: "paragraph", value: { id: nextTempId(), inlines } } as Block;
+  });
+}
+
+/** The dialog's texts for section `index` (inherited slots included). */
+export function headerFooterTexts(sections: Section[], index: number, page: PageSetup | null): HeaderFooterTexts {
+  if (!sections.length) return { ...EMPTY_HF, header: page?.headerText ?? "", footer: page?.footerText ?? "" };
+  const text = (footer: boolean, slot: keyof HeaderFooterSet) => blocksText(sectionHf(sections, index, footer, slot));
+  const sec = sections[index]!;
+  const differentOddEven = sections.some((s) => s.headers?.even != null || s.footers?.even != null);
+  return {
+    header: text(false, "default"),
+    footer: text(true, "default"),
+    firstHeader: sec.titlePage ? text(false, "first") : "",
+    firstFooter: sec.titlePage ? text(true, "first") : "",
+    evenHeader: differentOddEven ? text(false, "even") : "",
+    evenFooter: differentOddEven ? text(true, "even") : "",
+    differentFirst: sec.titlePage,
+    differentOddEven,
+  };
+}
+
+/** Commands turning `before` into `after` for section `id`: `titlePage` and the changed slots as blocks. */
+export function headerFooterCommands(id: number, before: HeaderFooterTexts, after: HeaderFooterTexts): WriteCommand[] {
+  const out: WriteCommand[] = [];
+  if (after.differentFirst !== before.differentFirst) out.push({ type: "setSection", section: id, patch: { titlePage: after.differentFirst } });
+  const slot = (footer: boolean, s: HeaderSlot, key: keyof HeaderFooterTexts, enabled: boolean) => {
+    const was = before[key] as string;
+    const now = enabled ? (after[key] as string) : "";
+    if (now !== was || (!enabled && was)) out.push({ type: "setHeaderFooter", section: id, footer, slot: s, blocks: hfBlocks(now) });
+  };
+  slot(false, "default", "header", true);
+  slot(true, "default", "footer", true);
+  slot(false, "first", "firstHeader", after.differentFirst);
+  slot(true, "first", "firstFooter", after.differentFirst);
+  slot(false, "even", "evenHeader", after.differentOddEven);
+  slot(true, "even", "evenFooter", after.differentOddEven);
+  return out;
 }
 
 // ----- paragraph --------------------------------------------------------------------
@@ -365,6 +523,18 @@ const EMPTY_PARAGRAPH: ParagraphValues = { alignment: null, indent: {}, spacing:
 export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncController; editor: Editor | null }) {
   const { dialog, headerFooterFocus } = useSyncExternalStore(ui.subscribe, ui.getState);
   const page = useSyncExternalStore(ctl.subscribe, () => ctl.page);
+  const sections = useSyncExternalStore(ctl.subscribe, () => ctl.sections);
+  // The caret's section, captured when a section dialog opens.
+  const secIndex = useMemo(() => {
+    if (!editor || (dialog !== "headerFooter" && dialog !== "pageNumbers")) return -1;
+    const sec = currentSection(editor.state, sections);
+    return sec ? sections.indexOf(sec) : -1;
+  }, [editor, dialog, sections]);
+  const hfInitial = useMemo(() => (dialog === "headerFooter" ? headerFooterTexts(sections, Math.max(0, secIndex), page) : EMPTY_HF), [dialog, sections, secIndex, page]);
+  const pnInitial = useMemo(() => {
+    const sec = sections[secIndex];
+    return { format: sec?.pageNumberFormat ?? ("decimal" as LevelKind), start: sec?.pageNumberStart ?? null };
+  }, [sections, secIndex]);
   const close = () => {
     ui.openDialog(null);
     editor?.commands.focus();
@@ -414,11 +584,26 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
       />
       <HeaderFooterDialog
         open={dialog === "headerFooter"}
-        page={page}
+        initial={hfInitial}
         focus={headerFooterFocus}
         onClose={close}
         onSubmit={(texts) => {
-          void ctl.run({ type: "setPage", patch: texts });
+          const sec = sections[secIndex];
+          if (!sec) void ctl.run({ type: "setPage", patch: { headerText: texts.header, footerText: texts.footer } });
+          else {
+            const cmds = headerFooterCommands(sec.id, hfInitial, texts);
+            if (cmds.length) void ctl.run(cmds.length === 1 ? cmds[0]! : { type: "compound", commands: cmds });
+          }
+          close();
+        }}
+      />
+      <PageNumbersDialog
+        open={dialog === "pageNumbers"}
+        initial={pnInitial}
+        onClose={close}
+        onSubmit={(v) => {
+          const sec = sections[secIndex];
+          if (sec) void ctl.run({ type: "setSection", section: sec.id, patch: { pageNumberFormat: v.format, pageNumberStart: v.start ?? 0 } });
           close();
         }}
       />

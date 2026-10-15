@@ -62,6 +62,7 @@ describe("numbers", () => {
     expect(formatDateTime(d, "h:mm AM/PM")).toBe("2:05 PM");
     expect(formatDateTime(d, "d MMMM yyyy", "en")).toBe("15 October 2026");
     expect(formatDateTime(d, "'Day' d")).toBe("Day 15");
+    expect(formatDateTime(d, "dd\\.MM\\.yyyy")).toBe("15.10.2026");
   });
 });
 

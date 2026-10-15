@@ -54,6 +54,11 @@ export function formatDateTime(d: Date, picture: string, locale = "en"): string 
   let out = "";
   let rest = picture;
   while (rest) {
+    if (rest[0] === "\\" && rest.length > 1) {
+      out += rest[1];
+      rest = rest.slice(2);
+      continue;
+    }
     const quoted = /^'([^']*)'/.exec(rest);
     if (quoted) {
       out += quoted[1];

@@ -51,6 +51,7 @@ export async function insertField(editor: Editor, ctl: SyncController, field: Fi
   const at = cursorBlock(editor);
   if (!at) return false;
   await ctl.run({ type: "insertField", block: at.id, offset: at.offset, field, cached });
+  editor.commands.focus();
   return true;
 }
 
@@ -91,6 +92,7 @@ export async function insertToc(editor: Editor, ctl: SyncController, toLevel = 3
   const { before, current, atStart } = topBlockAtCaret(editor.state);
   const after = atStart ? before : current;
   await ctl.run({ type: "insertToc", after, fromLevel: 1, toLevel, title, newId: nextTempId() });
+  editor.commands.focus();
   return true;
 }
 
@@ -126,6 +128,7 @@ export async function updateTocs(editor: Editor, ctl: SyncController): Promise<n
   const pages = headingPages(editor.state);
   const commands: WriteCommand[] = ids.map((id) => ({ type: "updateToc", id, pages }));
   await ctl.run(commands.length === 1 ? commands[0]! : { type: "compound", commands });
+  editor.commands.focus();
   return ids.length;
 }
 
@@ -167,6 +170,7 @@ export async function insertSectionBreak(editor: Editor, ctl: SyncController, ki
       { type: "insertSectionBreak", block: at.id, kind },
     ],
   });
+  editor.commands.focus();
   return true;
 }
 
@@ -234,6 +238,7 @@ export async function applyMultilevel(editor: Editor, ctl: SyncController, prese
   for (const it of items) byLevel.set(it.level, [...(byLevel.get(it.level) ?? []), it.id]);
   for (const [level, blocks] of byLevel) commands.push({ type: "setParagraphProps", blocks, patch: { numbering: { numId: id, level } } });
   await ctl.run({ type: "compound", commands });
+  editor.commands.focus();
   return true;
 }
 

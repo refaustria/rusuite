@@ -52,9 +52,9 @@ describe("page setup helpers", () => {
 });
 
 describe("Write ribbon", () => {
-  it("has File, Home, Insert, Layout and View", async () => {
+  it("has File, Home, Insert, Layout, References and View", async () => {
     await mount();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["File", "Home", "Insert", "Layout", "View"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["File", "Home", "Insert", "Layout", "References", "View"]);
     const toolbar = screen.getByRole("toolbar", { name: "Formatting" });
     for (const g of ["Clipboard", "Font", "Paragraph", "Styles", "Editing"]) expect(within(toolbar).getByRole("group", { name: g })).toBeTruthy();
   });
