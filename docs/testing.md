@@ -31,6 +31,24 @@ publishing (`E2E_BASE_URL` overrides the URL).
 - No fixed sleeps beyond 400 ms; wait with `expect`/`expect.poll`. Downloads are parsed in Node (`support/zip.ts`).
 - Export PDF is asserted through a stubbed `window.print` (`interceptPrint`).
 
+## Desktop shells (real windows)
+
+`scripts/desktop-smoke.sh [calc|write|show ...]` runs the release binaries (`pnpm --filter <app> tauri build --no-bundle`)
+under `xvfb-run` + `dbus-run-session`, driven by `tauri-driver` → `WebKitWebDriver` (setup: docs/setup.md). The driver,
+`scripts/desktop-smoke.mjs`, speaks plain W3C WebDriver over `fetch`; data/config/cache dirs are private temp dirs. Per app:
+
+- **Close guard**: an edit (Calc: type + Enter on the grid; Write: Enter in the editor; Show: New slide) puts `•` in the native
+  window title → a close request (`Window.close()`, which raises `CloseRequested` like the window manager's close button) →
+  the "Save changes to …?" dialog → **Don't save** → the process exits.
+- **Save to the remembered file**: the app data dir is seeded with a recent entry for a copy of a `testdata/` file; File › that
+  entry opens it by path, an edit, **Ctrl+S** must rewrite the file without a dialog, the title shows the file name and the
+  clean window closes without asking.
+
+Limitations: GTK's native file dialogs cannot be driven through WebDriver, so Save As and saving an untitled document are
+covered by unit tests only (the shells' `DocPath` in `apps/*/src-tauri/src/lib.rs`, the stores' save flows with a desktop-like
+fake backend). WebKitWebDriver's key events reach `keydown` handlers but insert no text (no `beforeinput`), hence the edits
+above. A run takes ~10 s; it is not part of CI (no display server there).
+
 ## CI
 
 The `frontend` job packs the three `dist-web` directories as an artifact; the `e2e` job (needs `frontend`) installs Chromium,

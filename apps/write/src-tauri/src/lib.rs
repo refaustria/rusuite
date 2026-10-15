@@ -14,7 +14,7 @@ use app_common::session::{
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 use write_core::{WriteDocument, WriteHost};
@@ -71,14 +71,35 @@ pub struct OpenedFile {
     pub bytes_base64: String,
 }
 
+/// A file written by `save_file`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SavedFile {
+    pub path: String,
+    /// The file name without the directory (the document's new name).
+    pub name: String,
+}
+
+impl SavedFile {
+    fn new(path: &Path) -> Self {
+        SavedFile {
+            path: path.to_string_lossy().into_owned(),
+            name: file_name(path),
+        }
+    }
+}
+
+/// The file name of `path` without the directory.
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+}
+
 /// Reads `path` for the UI.
 pub fn read_file(path: &Path) -> Result<OpenedFile, FileError> {
     let bytes = std::fs::read(path)?;
     Ok(OpenedFile {
         path: path.to_string_lossy().into_owned(),
-        name: path
-            .file_name()
-            .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+        name: file_name(path),
         bytes_base64: STANDARD.encode(bytes),
     })
 }
@@ -168,6 +189,79 @@ impl CloseGuard {
     }
 }
 
+/// The file the open document is bound to (P7-7): set by Open (the
+/// dialog or a recent file) and by Save As, cleared when the document is
+/// replaced by a new or recovered one. A plain Save writes there without a
+/// dialog.
+#[derive(Debug, Default)]
+pub struct DocPath(Mutex<PathState>);
+
+#[derive(Debug, Default)]
+struct PathState {
+    current: Option<PathBuf>,
+    /// A file read for opening; it becomes `current` once the core opened it.
+    opening: Option<PathBuf>,
+}
+
+/// The `type` of a dispatched request (the rest is skipped).
+#[derive(Deserialize)]
+struct RequestType<'a> {
+    #[serde(rename = "type", borrow)]
+    kind: std::borrow::Cow<'a, str>,
+}
+
+impl DocPath {
+    fn state(&self) -> std::sync::MutexGuard<'_, PathState> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn current(&self) -> Option<PathBuf> {
+        self.state().current.clone()
+    }
+
+    /// Binds the document to `path` (after Save As).
+    pub fn set(&self, path: Option<PathBuf>) {
+        let mut st = self.state();
+        st.current = path;
+        st.opening = None;
+    }
+
+    /// `path` was read for opening (see [`DocPath::observe`]).
+    pub fn opening(&self, path: PathBuf) {
+        self.state().opening = Some(path);
+    }
+
+    /// Where a save writes without asking: the current file, unless Save As.
+    pub fn save_target(&self, save_as: bool) -> Option<PathBuf> {
+        if save_as {
+            None
+        } else {
+            self.current()
+        }
+    }
+
+    /// Follows a dispatched request and its reply: a successful open binds
+    /// the file read for it (none: opened from bytes, untitled); a new,
+    /// loaded or recovered document is untitled.
+    pub fn observe(&self, request: &str, reply: &str) {
+        if !reply.starts_with("{\"ok\"") {
+            return;
+        }
+        let Ok(RequestType { kind }) = serde_json::from_str::<RequestType<'_>>(request) else {
+            return;
+        };
+        let mut st = self.state();
+        match kind.as_ref() {
+            "openDocx" => st.current = st.opening.take(),
+            "newDocument" | "load" | "restoreRecovery" => {
+                st.current = None;
+                st.opening = None;
+            }
+            _ => {}
+        }
+    }
+}
+
 #[tauri::command]
 fn set_close_guard(on: bool, guard: tauri::State<'_, CloseGuard>) {
     guard.set(on);
@@ -183,8 +277,11 @@ fn recent_list(state: tauri::State<'_, SessionState>) -> Result<Vec<RecentEntry>
 fn recent_open(
     path: String,
     state: tauri::State<'_, SessionState>,
+    doc_path: tauri::State<'_, DocPath>,
 ) -> Result<OpenedFile, FileError> {
-    state.open_recent(&path)
+    let file = state.open_recent(&path)?;
+    doc_path.opening(PathBuf::from(&file.path));
+    Ok(file)
 }
 
 #[tauri::command]
@@ -229,10 +326,17 @@ fn ping() -> String {
     format!("Rusuite Write {}", env!("CARGO_PKG_VERSION"))
 }
 
-/// The single document entry point (ADR 0002 amendment).
+/// The single document entry point (ADR 0002 amendment); the shell only
+/// watches it for the document's file ([`DocPath::observe`]).
 #[tauri::command]
-fn dispatch(request: String, state: tauri::State<'_, WriteState>) -> String {
-    state.dispatch(&request)
+fn dispatch(
+    request: String,
+    state: tauri::State<'_, WriteState>,
+    doc_path: tauri::State<'_, DocPath>,
+) -> String {
+    let reply = state.dispatch(&request);
+    doc_path.observe(&request, &reply);
+    reply
 }
 
 fn docx_dialog(window: &tauri::Window) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
@@ -262,6 +366,7 @@ fn into_path(p: tauri_plugin_dialog::FilePath) -> Result<PathBuf, FileError> {
 async fn open_file_dialog(
     window: tauri::Window,
     session: tauri::State<'_, SessionState>,
+    doc_path: tauri::State<'_, DocPath>,
 ) -> Result<Option<OpenedFile>, FileError> {
     let dialog = docx_dialog(&window);
     let picked = blocking(move || {
@@ -275,33 +380,55 @@ async fn open_file_dialog(
         // The recent list is a convenience: failing to update it never
         // fails the open.
         let _ = session.record(&file.path);
+        doc_path.opening(PathBuf::from(&file.path));
     }
     Ok(picked)
 }
 
-/// Shows the native save dialog and writes the file; the chosen path, or
-/// `None` when cancelled.
+/// Saves the document (P7-7): a plain Save (`save_as` false) of a document
+/// bound to a file writes there; otherwise the native save dialog asks
+/// (in the current file's directory) and the document is bound to the
+/// chosen file. The written file, or `None` when cancelled.
 #[tauri::command]
-async fn save_file_dialog(
+async fn save_file(
     window: tauri::Window,
     session: tauri::State<'_, SessionState>,
+    doc_path: tauri::State<'_, DocPath>,
     suggested_name: String,
     bytes_base64: String,
-) -> Result<Option<String>, FileError> {
-    let dialog = docx_dialog(&window).set_file_name(suggested_name);
-    let saved = blocking(move || {
-        let Some(path) = dialog.blocking_save_file() else {
-            return Ok(None);
-        };
-        let path = into_path(path)?;
-        write_file(&path, &bytes_base64)?;
-        Ok(Some(path.to_string_lossy().into_owned()))
-    })
-    .await?;
-    if let Some(path) = &saved {
-        let _ = session.record(path);
-    }
-    Ok(saved)
+    save_as: bool,
+) -> Result<Option<SavedFile>, FileError> {
+    let saved = match doc_path.save_target(save_as) {
+        Some(path) => {
+            blocking(move || {
+                write_file(&path, &bytes_base64)?;
+                Ok(Some(path))
+            })
+            .await?
+        }
+        None => {
+            let mut dialog = docx_dialog(&window).set_file_name(suggested_name);
+            if let Some(dir) = doc_path.current().as_deref().and_then(Path::parent) {
+                dialog = dialog.set_directory(dir);
+            }
+            blocking(move || {
+                let Some(path) = dialog.blocking_save_file() else {
+                    return Ok(None);
+                };
+                let path = into_path(path)?;
+                write_file(&path, &bytes_base64)?;
+                Ok(Some(path))
+            })
+            .await?
+        }
+    };
+    let Some(path) = saved else {
+        return Ok(None);
+    };
+    doc_path.set(Some(path.clone()));
+    let file = SavedFile::new(&path);
+    let _ = session.record(&file.path);
+    Ok(Some(file))
 }
 
 /// Builds and runs the Tauri application.
@@ -312,6 +439,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(CloseGuard::default())
+        .manage(DocPath::default())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.state::<CloseGuard>().hold_close() {
@@ -333,7 +461,7 @@ pub fn run() {
             ping,
             dispatch,
             open_file_dialog,
-            save_file_dialog,
+            save_file,
             recent_list,
             recent_open,
             recovery_list,
@@ -368,6 +496,47 @@ mod tests {
         guard.set(false);
         assert!(!guard.hold_close());
         assert_eq!(CLOSE_REQUESTED_EVENT, "rusuite://close-requested");
+    }
+
+    #[test]
+    fn doc_path_follows_open_save_as_and_new() {
+        let state = WriteState::default();
+        let doc_path = DocPath::default();
+        let run = |request: Value| {
+            let request = request.to_string();
+            let reply = state.dispatch(&request);
+            doc_path.observe(&request, &reply);
+            serde_json::from_str::<Value>(&reply).unwrap()
+        };
+        // Untitled: Save asks (no target).
+        assert_eq!(doc_path.save_target(false), None);
+        let bytes = run(json!({"type": "saveDocx"}))["ok"]["bytesBase64"].clone();
+        // Opened from bytes alone (no file read for it): still untitled.
+        run(json!({"type": "openDocx", "bytesBase64": bytes, "name": "a.docx"}));
+        assert_eq!(doc_path.current(), None);
+        // A file read for opening is bound once the core opened it; a
+        // failed open keeps the previous binding.
+        let file = PathBuf::from("/docs/a.docx");
+        doc_path.opening(file.clone());
+        let bad = run(json!({"type": "openDocx", "bytesBase64": "UEsDBA==", "name": "a.docx"}));
+        assert!(bad.get("err").is_some(), "{bad}");
+        assert_eq!(doc_path.current(), None);
+        run(json!({"type": "openDocx", "bytesBase64": bytes, "name": "a.docx"}));
+        assert_eq!(doc_path.current(), Some(file.clone()));
+        // Save writes there; Save As always asks.
+        assert_eq!(doc_path.save_target(false), Some(file));
+        assert_eq!(doc_path.save_target(true), None);
+        // Other requests keep the binding; Save As re-binds.
+        run(json!({"type": "documentState"}));
+        let other = PathBuf::from("/docs/b.docx");
+        doc_path.set(Some(other.clone()));
+        assert_eq!(doc_path.save_target(false), Some(other));
+        assert_eq!(SavedFile::new(Path::new("/docs/b.docx")).name, "b.docx");
+        // New: untitled again.
+        run(json!({"type": "newDocument"}));
+        assert_eq!(doc_path.current(), None);
+        // Garbage never panics.
+        doc_path.observe("not json", "{\"ok\":{}}");
     }
 
     #[test]

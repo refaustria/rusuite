@@ -96,7 +96,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 | P7-2 | Show bugs (blank editor after Export PDF, shapes gallery overlap) + Calc leftovers (cut-reference adjustment, Ctrl+D/R, AM/PM + [h] formats, scientific General) | Opus | done (merged) | – | verified: 831 Rust tests, e2e 37/37; cut-move reference adjustment (`transform::adjust_references_for_move`), Ctrl+D/R, AM/PM + elapsed formats, scientific General, Show stage/gallery fixes |
 | P7-5 | Flaky Write App test (status-bar throttling) → `waitFor` | Sonnet | done (merged) | – | CI frontend green on branch |
 | P7-6 | Unsaved-changes safety: Save/Don't save/Cancel before New/Open/Recent/Restore/close; Tauri close-requested; recovery age limit; autosave status | Opus | done (merged) | – | verified: 841 Rust / 549 frontend tests, e2e 42/42; Save/Don't save/Cancel before New/Open/Recent/Restore/Close, beforeunload + Tauri close guard (desktop path untested in a real window), 7-day recovery limit, Autosaved HH:MM |
-| P7-7 | Desktop Save vs Save As with remembered path; real-window close-guard smoke (tauri-driver) | Opus | in progress | `p7/desktop-save` | brief docs/tasks/P7-7-desktop-save-as.md |
+| P7-7 | Desktop Save vs Save As with remembered path; real-window close-guard smoke (tauri-driver) | Opus | done (merged) | – | verified by PM: 844 Rust tests, e2e 44/44, `scripts/desktop-smoke.sh` 6/6 on the real release binaries (tauri-driver + WebKitWebDriver); Save writes the remembered file without a dialog; Save As native |
 | P7-8 | Show presenter view (second window, notes, next slide, timer) + presentation polish | Opus | done (merged) | – | verified: 129 Show tests, e2e 44/44; presenter console (timer, next slide, notes, strip) + audience window via BroadcastChannel/Tauri events, blackout B/W, number+Enter, end slide; desktop second window untested in a real app |
 | P7-9 | Printing: File › Print with preview + options (page range, paper, margins, scale; Calc selection/sheet/workbook + headers/footers; Show handouts/notes pages), desktop native print command | Opus | in progress | `p7/printing` | brief docs/tasks/P7-9-printing.md; owner request |
 | P7-3 | De-duplicate XML writer/theme code into fmt-ooxml; docs/architecture.md real overview; README status/what-works | Opus | done (merged) | – | verified: 830 tests, harnesses 2/2, 52/52, 26/26 byte-identical output; −330 LOC; docs/architecture.md rewritten; README status Alpha; ADR 0003 amended (fmt-ooxml → core-model) |
@@ -139,7 +139,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 
 ## Environment (dev server)
 - Debian 13, 16 cores, 30 GB RAM
-- Installed this session: rustup (stable 1.99, clippy, rustfmt), pnpm 12 (via npm -g), LibreOffice headless, libxml2-utils, shellcheck, xvfb (apt). Server is 77.244.242.34; nginx 1.26 + certbot 4 already serve other vhosts (erp/gitai/url.inceptum.at, …) – do not disturb them. Details in `docs/setup.md`.
+- Installed this session: rustup (stable 1.99, clippy, rustfmt), pnpm 12 (via npm -g), LibreOffice headless, libxml2-utils, shellcheck, xvfb, poppler-utils, webkit2gtk-driver (apt), tauri-driver 2.1.0 (cargo), wasm32 target + wasm-pack (npm). Server is 77.244.242.34; nginx 1.26 + certbot 4 already serve other vhosts (erp/gitai/url.inceptum.at, …) – do not disturb them. Details in `docs/setup.md`.
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions

@@ -25,6 +25,34 @@ export interface OpenedFile {
   bytesBase64: string;
 }
 
+/** Options of `Backend.saveFile`. */
+export interface SaveOptions {
+  /**
+   * Save As: always ask where to save (desktop: the native dialog), even
+   * when the document is bound to a file. Default: a plain Save, which on
+   * the desktop writes to the document's file without a dialog.
+   */
+  saveAs?: boolean;
+}
+
+/** A file written by the desktop shell. */
+export interface SavedFile {
+  /** The file name without the directory (the user may have changed it in the dialog). */
+  name: string;
+  path?: string;
+}
+
+/**
+ * Result of `Backend.saveFile`: `false` = cancelled; `true` = written under
+ * the suggested name (web download); a `SavedFile` = written as that file.
+ */
+export type SaveResult = boolean | SavedFile;
+
+/** The name a `saveFile` result was written under (`suggested` for a plain `true`). */
+export function savedName(result: SaveResult, suggested: string): string {
+  return typeof result === "object" ? result.name : suggested;
+}
+
 /** The exports of an app's `wasm-pack` package. */
 export interface WasmModule {
   ping(): string;
@@ -44,8 +72,14 @@ export interface Backend<Req = unknown, Body = unknown> {
   dispatch<T = Body>(request: Req): Promise<Response<T>>;
   /** Lets the user pick a file; `null` when cancelled. */
   openFile(): Promise<OpenedFile | null>;
-  /** Lets the user save a file; `false` when cancelled. */
-  saveFile(suggestedName: string, bytesBase64: string): Promise<boolean>;
+  /**
+   * Saves the document's bytes; `false` when cancelled. Desktop: a plain
+   * Save of a document opened from or saved to a file writes that file
+   * without asking; otherwise (untitled, or `saveAs`) the native save
+   * dialog asks and the shell remembers the chosen file. Web: a download
+   * named `suggestedName`.
+   */
+  saveFile(suggestedName: string, bytesBase64: string, options?: SaveOptions): Promise<SaveResult>;
   /** Sets the window (Tauri) or document (web) title. */
   setTitle(title: string): Promise<void>;
   /**
@@ -128,12 +162,14 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
     return picked ? { name: picked.name, bytesBase64: picked.bytesBase64 } : null;
   }
 
-  async saveFile(suggestedName: string, bytesBase64: string): Promise<boolean> {
-    const path = await invoke<string | null>("save_file_dialog", {
+  /** The shell's `save_file`: it keeps the document's file (`DocPath`) and asks only when needed. */
+  async saveFile(suggestedName: string, bytesBase64: string, options: SaveOptions = {}): Promise<SaveResult> {
+    const saved = await invoke<{ path: string; name: string } | null>("save_file", {
       suggestedName,
       bytesBase64,
+      saveAs: options.saveAs === true,
     });
-    return path !== null;
+    return saved ? { name: saved.name, path: saved.path } : false;
   }
 
   setTitle(title: string): Promise<void> {
@@ -217,7 +253,7 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
   }
 
   /** Downloads the file via `<a download>`; always `true` (the browser owns the rest). */
-  async saveFile(suggestedName: string, bytesBase64: string): Promise<boolean> {
+  async saveFile(suggestedName: string, bytesBase64: string): Promise<SaveResult> {
     const type = this.ext.startsWith(".") && suggestedName.toLowerCase().endsWith(this.ext)
       ? this.mime
       : "application/octet-stream";

@@ -171,9 +171,10 @@ export default function App({ backend }: { backend: WriteBackend }) {
     return () => session.stop();
   }, [session, ctl, guard]);
 
+  // Save As: `name` from the web's name prompt; the desktop asks in its native dialog.
   const saveAs = useCallback(
-    async (name: string) => {
-      await ctl.saveDocx((_n, bytes) => backend.saveFile(name, bytes), name);
+    async (name?: string) => {
+      await ctl.saveDocx((n, bytes) => backend.saveFile(name ?? n, bytes, { saveAs: true }), name);
     },
     [backend, ctl],
   );

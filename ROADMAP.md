@@ -108,7 +108,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Groups that collapse into dropdowns on narrow windows; Quick Access Toolbar; remember collapsed state and zoom; Calc Data tab (sort/filter) if it enters scope; print preview in the backstage; Write font box shows the effective (style-derived) font.
 
 ## Desktop shells
-- Real Save As with a remembered path (Save should not open a dialog every time); exercise the close-guard path in a real desktop window (xvfb + WebDriver or tauri-driver); document the unsaved-changes question in docs/shortcuts.md.
+- Atomic writes on save (temp + rename); warn when the remembered file changed on disk; run `scripts/desktop-smoke.sh` in CI under xvfb; Show Save As should skip the in-app name prompt on desktop (one line in apps/show/src/ShortcutLayer.tsx).
 
 ## Phase 5 leftovers
 - Write: windowed/paged editor so the contenteditable holds only visible pages (remaining ~2 ms typing p95 gap).
