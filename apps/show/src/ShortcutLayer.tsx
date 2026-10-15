@@ -48,6 +48,17 @@ export function ShortcutLayer({ store, enabled, onPresent, onExportPdf }: ShowSh
       when: (e) => store.getState().editing !== null || !fromField(e.target),
       run: () => void store.applyRunPatch(toggle(formattingOf(store.getState())?.run ?? {})),
     });
+    const fontStep = (label: string, dir: 1 | -1): ShortcutEntry => ({
+      label,
+      group: "Format",
+      inField: true,
+      when: (e) => store.getState().editing !== null || !fromField(e.target),
+      run: () => {
+        const f = formattingOf(store.getState());
+        if (!f?.hasText) return false;
+        void store.stepFont(dir, f.run.size ?? 1800);
+      },
+    });
     const edit = (label: string) => action(store, label, "Edit");
     const slide = (label: string) => action(store, label, "Slide");
     return {
@@ -79,6 +90,11 @@ export function ShortcutLayer({ store, enabled, onPresent, onExportPdf }: ShowSh
       "Mod+B": format("Bold", (r) => ({ bold: !r.bold })),
       "Mod+I": format("Italic", (r) => ({ italic: !r.italic })),
       "Mod+U": format("Underline", (r) => ({ underline: r.underline && r.underline !== "none" ? "none" : "single" })),
+      "Mod+C": edit("Copy shapes"),
+      "Mod+X": edit("Cut shapes"),
+      "Mod+V": edit("Paste"),
+      "Mod+Shift+>": fontStep("Increase font size", 1),
+      "Mod+Shift+<": fontStep("Decrease font size", -1),
       "Mod+D": edit("Duplicate"),
       "Mod+G": edit("Group"),
       "Mod+Shift+G": edit("Ungroup"),

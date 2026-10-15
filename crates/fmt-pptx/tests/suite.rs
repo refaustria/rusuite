@@ -518,7 +518,9 @@ fn powerpoint_style_package() -> Vec<u8> {
 fn powerpoint_style_inheritance() {
     use model_show::{Emu, PlaceholderKind};
     let (p, warnings) = fmt_pptx::read_with_warnings(&powerpoint_style_package()).unwrap();
-    assert_eq!(warnings, ["tables dropped", "speaker notes dropped"]);
+    assert_eq!(warnings, ["tables dropped"]);
+    // The (empty) notes part is read: no notes text.
+    assert_eq!(p.slides[0].notes, None);
     let slide = &p.slides[0];
     assert_eq!(slide.layout, LayoutKind::TitleContent);
     let [title, body, oval, line] = &slide.shapes[..] else {

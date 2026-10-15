@@ -23,4 +23,13 @@ shapes: Array<Shape>,
 /**
  * Background; `None` inherits the master's (white).
  */
-background?: Fill | null, };
+background?: Fill | null, 
+/**
+ * Hidden in the slide show (`p:sld/@show="0"`); still edited and saved.
+ */
+hidden?: boolean, 
+/**
+ * Speaker notes as plain text (paragraphs separated by `\n`; the
+ * slide's `notesSlide` part).
+ */
+notes?: string | null, };

@@ -44,6 +44,10 @@ export interface SlideViewProps {
   prompts?: boolean;
   /** Called when a top-level shape was dragged (editor only). */
   onShapeDragEnd?: (node: Konva.Node) => void;
+  /** Called when dragging a top-level shape starts (editor only). */
+  onShapeDragStart?: (node: Konva.Node) => void;
+  /** Bounds the absolute position of a dragged top-level shape (snapping; editor only). */
+  shapeDragBound?: (node: Konva.Node, pos: { x: number; y: number }, evt: MouseEvent | undefined) => { x: number; y: number };
 }
 
 interface Ctx {
@@ -55,6 +59,8 @@ interface Ctx {
   hiddenText: NodeId | null;
   prompts: boolean;
   onShapeDragEnd?: (node: Konva.Node) => void;
+  onShapeDragStart?: (node: Konva.Node) => void;
+  shapeDragBound?: SlideViewProps["shapeDragBound"];
 }
 
 const PROMPTS: Record<string, string> = {
@@ -237,6 +243,14 @@ function ShapeNode({ shape, ctx, top }: { shape: Shape; ctx: Ctx; top: boolean }
       rotation={a.rotation}
       draggable={ctx.interactive && top}
       onDragEnd={top && ctx.onShapeDragEnd ? (e: Konva.KonvaEventObject<DragEvent>) => ctx.onShapeDragEnd!(e.target) : undefined}
+      onDragStart={top && ctx.onShapeDragStart ? (e: Konva.KonvaEventObject<DragEvent>) => ctx.onShapeDragStart!(e.target) : undefined}
+      dragBoundFunc={
+        top && ctx.shapeDragBound
+          ? function (this: Konva.Node, pos: { x: number; y: number }, evt?: MouseEvent) {
+              return ctx.shapeDragBound!(this, pos, evt);
+            }
+          : undefined
+      }
       listening={ctx.interactive}
     >
       {shape.kind.kind === "group" ? (
@@ -257,11 +271,11 @@ function ShapeNode({ shape, ctx, top }: { shape: Shape; ctx: Ctx; top: boolean }
 
 /** The slide's background and shapes, in slide px (the parent `Stage` scales). */
 export const SlideView = memo(function SlideView({
-  deck, slide, media, interactive = false, hiddenText = null, prompts = false, onShapeDragEnd,
+  deck, slide, media, interactive = false, hiddenText = null, prompts = false, onShapeDragEnd, onShapeDragStart, shapeDragBound,
 }: SlideViewProps) {
   const palette = useMemo(() => themePalette(deck.theme), [deck.theme]);
   const size = slidePx(deck.slideSize);
-  const ctx: Ctx = { deck, slide, palette, media, interactive, hiddenText, prompts, onShapeDragEnd };
+  const ctx: Ctx = { deck, slide, palette, media, interactive, hiddenText, prompts, onShapeDragEnd, onShapeDragStart, shapeDragBound };
   const bg = fillCss(slide.background ?? null, palette) ?? "#ffffff";
   return (
     <>

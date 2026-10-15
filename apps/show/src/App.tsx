@@ -10,6 +10,8 @@ import { ShortcutLayer } from "./ShortcutLayer";
 import { ShowStore, useShow } from "./state/store";
 import { slidePx } from "./geometry";
 import { ShowRibbon, type ShowZoom } from "./ui/ShowToolbar";
+import { NotesPane } from "./ui/NotesPane";
+import { ShowDialogs } from "./ui/ShowDialogs";
 import { Toasts } from "./ui/Toasts";
 
 function useElementSize<T extends HTMLElement>() {
@@ -36,11 +38,13 @@ function StatusBar({ store, backend, zoom }: { store: ShowStore; backend: ShowBa
   const name = useShow(store, (s) => s.name);
   const info = useShow(store, (s) => s.info);
   const warnings = useShow(store, (s) => s.warnings);
+  const notesVisible = useShow(store, (s) => s.notesVisible);
   const n = pres?.slides.length ?? 0;
   const i = pres ? pres.slides.findIndex((s) => s.id === current) : -1;
+  const hidden = i >= 0 && !!pres?.slides[i]?.hidden;
   return (
     <div className="flex items-center gap-4 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted" data-testid="status-bar">
-      <span data-testid="slide-count">{n ? `Slide ${i + 1} of ${n}` : "No slides"}</span>
+      <span data-testid="slide-count">{n ? `Slide ${i + 1} of ${n}${hidden ? " (hidden)" : ""}` : "No slides"}</span>
       <span data-testid="doc-name">{name ?? "Untitled"}</span>
       <span data-testid="dirty">{dirty ? "Modified" : "Saved"}</span>
       <span data-testid="revision">rev {Math.max(0, revision)}</span>
@@ -50,7 +54,10 @@ function StatusBar({ store, backend, zoom }: { store: ShowStore; backend: ShowBa
           {warnings.length} warning{warnings.length === 1 ? "" : "s"}: {warnings[0]}
         </span>
       )}
-      <span className="ml-auto" data-testid="zoom">
+      <button type="button" className={`ml-auto rounded px-1 hover:bg-ui-hover ${notesVisible ? "text-ui-fg" : ""}`} aria-pressed={notesVisible} onClick={() => store.toggleNotes()}>
+        Notes
+      </button>
+      <span data-testid="zoom">
         {zoom === "fit" ? "Fit" : `${Math.round(zoom * 100)} %`}
       </span>
       <span data-testid="backend-kind">
@@ -109,20 +116,21 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   const presentFrom = useCallback(
     (fromStart: boolean) => {
       const first = store.getState().pres?.slides[0]?.id;
-      if (fromStart && first !== undefined) store.selectSlide(first);
+      if (fromStart && first !== undefined) store.selectSlide(store.getState().pres?.slides.find((s) => !s.hidden)?.id ?? first);
       startPresenting();
     },
     [store, startPresenting],
   );
   const exit = useCallback(() => setPresenting(false), []);
-  const slides = pres?.slides ?? [];
+  // The show skips hidden slides (unless started from one, as in PowerPoint).
+  const slides = useMemo(() => (pres?.slides ?? []).filter((s) => !s.hidden || s.id === current), [pres, current]);
   const index = Math.max(0, slides.findIndex((s) => s.id === current));
   const onIndex = useCallback(
     (i: number) => {
-      const id = store.getState().pres?.slides[i]?.id;
+      const id = slides[i]?.id;
       if (id !== undefined) store.selectSlide(id);
     },
-    [store],
+    [store, slides],
   );
 
   // Fit: the canvas area minus its padding; a fixed zoom: the slide at that scale.
@@ -131,7 +139,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       ? { width: Math.max(0, size.width - 32), height: Math.max(0, size.height - 32) }
       : { width: slidePx(pres.slideSize).width * zoom, height: slidePx(pres.slideSize).height * zoom };
 
-  if (printing && pres) return <PrintView deck={pres} slides={slides} media={store.media} onReady={printReady} />;
+  if (printing && pres) return <PrintView deck={pres} slides={pres.slides} media={store.media} onReady={printReady} />;
 
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
@@ -139,6 +147,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       <ShowRibbon store={store} session={session} onPresent={presentFrom} onExportPdf={exportPdf} zoom={zoom} onZoom={setZoom} />
       <div className="flex min-h-0 flex-1">
         <SlideList store={store} />
+        <div className="flex min-w-0 flex-1 flex-col">
         <div
           ref={canvasRef}
           className={`flex min-w-0 flex-1 bg-ui-hover p-4 ${zoom === "fit" ? "items-center justify-center overflow-hidden" : "overflow-auto"}`}
@@ -148,9 +157,12 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
             <EditorStage store={store} width={stageSize.width} height={stageSize.height} />
           </div>
         </div>
+        <NotesPane store={store} />
+        </div>
       </div>
       <StatusBar store={store} backend={backend} zoom={zoom} />
       <Toasts store={store} />
+      <ShowDialogs store={store} />
       <ShortcutLayer store={store} enabled={!presenting} onPresent={presentFrom} onExportPdf={exportPdf} />
       {presenting && pres && slides.length > 0 && (
         <Presenter

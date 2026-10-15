@@ -261,6 +261,9 @@ pub struct Shape {
     /// The layout placeholder this shape fills, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placeholder: Option<PlaceholderKind>,
+    /// Alternative text (`p:cNvPr/@descr`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt: Option<String>,
 }
 
 impl Shape {
@@ -273,6 +276,7 @@ impl Shape {
             fill: Fill::None,
             line: Line::default(),
             placeholder: None,
+            alt: None,
         }
     }
 

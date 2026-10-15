@@ -1,17 +1,20 @@
 // The slide sorter: thumbnails rendered from the model (a small read-only
 // Konva stage per slide, memoized on the slide object, which patches
 // replace only when the slide changed), click to select, drag to reorder
-// (`MoveSlide`), "+" menu (`AddSlide`), Duplicate/Delete context actions.
+// (`MoveSlide`, with an insertion line), "+" menu (`AddSlide`), a context
+// menu (new/duplicate/delete, copy/paste, layout, hide) and Ctrl+C/V for
+// slides. Hidden slides are dimmed with a struck-through number.
 
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { Layer, Stage } from "react-konva";
-import { Dropdown } from "@rusuite/ui-shared";
+import { ContextMenu, Dropdown, type ContextMenuItem } from "@rusuite/ui-shared";
 import type { LayoutKind } from "../generated/LayoutKind";
-import type { NodeId } from "../generated/NodeId";
 import type { Slide } from "../generated/Slide";
 import { slidePx } from "../geometry";
+import { slideDropIndex } from "../state/commands";
 import { useShow, type ShowStore } from "../state/store";
 import { SlideView, type DeckContext } from "../canvas/SlideView";
+import { thumbnailMenu } from "../canvas/menus";
 
 export const THUMB_WIDTH = 152;
 
@@ -39,27 +42,32 @@ export function SlideList({ store }: { store: ShowStore }) {
   const pres = useShow(store, (s) => s.pres);
   const current = useShow(store, (s) => s.current);
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
-  const [menu, setMenu] = useState<{ id: NodeId; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: ContextMenuItem[] } | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
+  /** Insertion line: before thumbnail `index` (`slides.length` = after the last). */
+  const [dropAt, setDropAt] = useState<number | null>(null);
   // Stable while size, layouts and theme are unchanged, so unchanged thumbnails do not re-render.
   const deck = useMemo<DeckContext | null>(
     () => (pres ? { slideSize: pres.slideSize, layouts: pres.layouts, theme: pres.theme } : null),
     [pres?.slideSize, pres?.layouts, pres?.theme],
   );
 
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [menu]);
-
   if (!pres || !deck) return <nav aria-label="Slides" className="w-48 shrink-0 border-r border-ui-border bg-ui-panel" />;
   const slides = pres.slides;
   const index = slides.findIndex((s) => s.id === current);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Delete" || e.key === "Backspace") {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && !e.shiftKey && !e.altKey && (e.key.toLowerCase() === "c" || e.key.toLowerCase() === "v" || e.key.toLowerCase() === "x")) {
+      const k = e.key.toLowerCase();
+      if (k === "v") void store.paste();
+      else if (current !== null) {
+        store.copySlides([current]);
+        if (k === "x" && slides.length > 1) void store.deleteSlides([current]);
+      }
+    } else if (mod && !e.shiftKey && e.key.toLowerCase() === "d") {
+      if (current !== null) void store.duplicateSlide(current);
+    } else if (e.key === "Delete" || e.key === "Backspace") {
       if (current !== null) void store.deleteSlides([current]);
     } else if (e.key === "ArrowDown" && index < slides.length - 1) store.selectSlide(slides[index + 1]!.id);
     else if (e.key === "ArrowUp" && index > 0) store.selectSlide(slides[index - 1]!.id);
@@ -97,45 +105,47 @@ export function SlideList({ store }: { store: ShowStore }) {
           onDragOver={(e) => {
             e.preventDefault();
             e.dataTransfer.dropEffect = "move";
+            const r = e.currentTarget.getBoundingClientRect();
+            const after = r.height > 0 && e.clientY > r.top + r.height / 2;
+            setDropAt(i + (after ? 1 : 0));
           }}
           onDrop={(e) => {
             e.preventDefault();
             const id = Number(e.dataTransfer.getData("text/plain"));
             const from = slides.findIndex((s) => s.id === id);
+            const r = e.currentTarget.getBoundingClientRect();
+            const after = r.height > 0 && e.clientY > r.top + r.height / 2;
             setDragging(null);
-            if (from >= 0 && from !== i) void store.moveSlide(id, i);
+            setDropAt(null);
+            const to = from >= 0 ? slideDropIndex(from, i, after) : null;
+            if (to !== null) void store.moveSlide(id, to);
           }}
-          onDragEnd={() => setDragging(null)}
+          onDragEnd={() => {
+            setDragging(null);
+            setDropAt(null);
+          }}
           onClick={() => store.selectSlide(slide.id)}
           onContextMenu={(e) => {
             e.preventDefault();
             store.selectSlide(slide.id);
-            setMenu({ id: slide.id, x: e.clientX, y: e.clientY });
+            setMenu({ at: { x: e.clientX, y: e.clientY }, items: thumbnailMenu(store, slide.id) });
           }}
-          className={`flex cursor-pointer gap-2 rounded p-1 text-xs ${slide.id === current ? "bg-ui-active" : "hover:bg-ui-hover"} ${dragging === i ? "opacity-50" : ""}`}
+          data-hidden={slide.hidden ? "true" : undefined}
+          className={`relative flex cursor-pointer gap-2 rounded p-1 text-xs ${slide.id === current ? "bg-ui-active" : "hover:bg-ui-hover"} ${dragging === i ? "opacity-50" : ""}`}
         >
-          <span className="w-4 pt-1 text-right text-ui-muted">{i + 1}</span>
-          <span className="overflow-hidden rounded border border-ui-border bg-white">
+          {dropAt === i && <span data-testid="drop-indicator" className="pointer-events-none absolute -top-1 left-5 right-0 h-0.5 rounded bg-orange-600" />}
+          {dropAt === slides.length && i === slides.length - 1 && (
+            <span data-testid="drop-indicator" className="pointer-events-none absolute -bottom-1 left-5 right-0 h-0.5 rounded bg-orange-600" />
+          )}
+          <span className={`w-4 pt-1 text-right text-ui-muted ${slide.hidden ? "line-through" : ""}`} title={slide.hidden ? "Hidden slide" : undefined}>
+            {i + 1}
+          </span>
+          <span className={`overflow-hidden rounded border border-ui-border bg-white ${slide.hidden ? "opacity-40" : ""}`}>
             <Thumb deck={deck} slide={slide} media={store.media} mediaVersion={mediaVersion} />
           </span>
         </div>
       ))}
-      {menu && (
-        <div
-          role="menu"
-          aria-label="Slide actions"
-          className="fixed z-50 flex flex-col rounded border border-ui-border bg-ui-bg p-1 text-sm shadow-lg"
-          style={{ left: menu.x, top: menu.y }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <button type="button" role="menuitem" className="rounded px-2 py-1 text-left hover:bg-ui-hover" onClick={() => { setMenu(null); void store.duplicateSlide(menu.id); }}>
-            Duplicate slide
-          </button>
-          <button type="button" role="menuitem" className="rounded px-2 py-1 text-left hover:bg-ui-hover" onClick={() => { setMenu(null); void store.deleteSlides([menu.id]); }}>
-            Delete slide
-          </button>
-        </div>
-      )}
+      <ContextMenu at={menu?.at ?? null} label="Slide actions" items={menu?.items ?? []} onClose={() => setMenu(null)} />
     </nav>
   );
 }
