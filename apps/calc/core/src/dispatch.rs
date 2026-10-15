@@ -51,11 +51,16 @@ pub enum Request {
     /// Replaces the document by an `.xlsx` file (standard base64 of its
     /// bytes; `name` is the file name shown to the user) → `opened`.
     OpenXlsx { bytes_base64: String, name: String },
-    /// Writes the document as `.xlsx` → `saved`, and marks it saved.
+    /// Writes the document as `.xlsx` → `saved`. Does NOT mark it saved:
+    /// the shell sends `markSaved` once the file was really written.
     SaveXlsx,
-    /// Marks the current state as saved (after the shell wrote the
-    /// file) → `documentState`.
-    MarkSaved,
+    /// Marks the current state as saved (after the shell wrote the file);
+    /// `name` (save as) replaces the document's file name → `documentState`.
+    MarkSaved {
+        #[serde(default)]
+        #[ts(optional)]
+        name: Option<String>,
+    },
     /// → `documentState`.
     DocumentState,
 }
@@ -183,13 +188,15 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
         }
         Request::SaveXlsx => {
             let bytes = host.doc().save_xlsx()?;
-            host.mark_saved();
             ResponseBody::Saved {
                 bytes_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
                 suggested_name: host.doc().suggested_name(),
             }
         }
-        Request::MarkSaved => {
+        Request::MarkSaved { name } => {
+            if let Some(name) = name {
+                host.doc_mut().source_name = Some(name);
+            }
             host.mark_saved();
             state(host)
         }

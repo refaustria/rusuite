@@ -196,6 +196,10 @@ mod tests {
         assert_eq!(r["ok"]["suggestedName"], "Untitled.xlsx");
         assert_eq!(
             call(&state, json!({"type": "documentState"}))["ok"]["dirty"],
+            true
+        );
+        assert_eq!(
+            call(&state, json!({"type": "markSaved"}))["ok"]["dirty"],
             false
         );
         assert_eq!(

@@ -14,6 +14,7 @@ crate-type = ["cdylib", "rlib"]
 wasm-bindgen = "=0.2.129"
 js-sys = "=0.3.106"
 calc-core = { path = "../core" }
+engine-formula = { path = "../../../crates/engine-formula" }
 
 [dev-dependencies]
 serde_json = { workspace = true }

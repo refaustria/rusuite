@@ -66,6 +66,7 @@ name = "app-calc-wasm"
 version = "0.1.0"
 dependencies = [
  "calc-core",
+ "engine-formula",
  "js-sys",
  "serde_json",
  "wasm-bindgen",

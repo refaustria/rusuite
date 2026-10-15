@@ -75,14 +75,22 @@ fn open_edit_save_reopen() {
     let saved = &r["ok"];
     assert_eq!(saved["type"], "saved", "{r}");
     assert_eq!(saved["suggestedName"], "provisional-basic.xlsx");
-    assert_eq!(state(&mut host)["dirty"], false);
-
-    // Undo after save makes it dirty again; markSaved cleans it.
-    call(&mut host, json!({"type": "undo"}));
+    // saveXlsx alone does not mark the document saved.
     assert_eq!(state(&mut host)["dirty"], true);
     let r = call(&mut host, json!({"type": "markSaved"}));
     assert_eq!(r["ok"]["dirty"], false);
     assert_eq!(r["ok"]["type"], "documentState");
+    assert_eq!(r["ok"]["name"], "provisional-basic.xlsx");
+
+    // Undo after save makes it dirty again; markSaved with a name renames.
+    call(&mut host, json!({"type": "undo"}));
+    assert_eq!(state(&mut host)["dirty"], true);
+    let r = call(
+        &mut host,
+        json!({"type": "markSaved", "name": "renamed.xlsx"}),
+    );
+    assert_eq!(r["ok"]["dirty"], false);
+    assert_eq!(r["ok"]["name"], "renamed.xlsx");
 
     // The saved bytes re-open with the edit present.
     let bytes = saved["bytesBase64"].as_str().unwrap().to_owned();
@@ -129,4 +137,29 @@ fn open_errors_keep_the_document() {
     }
     assert_eq!(host.revision().0, 0);
     assert_eq!(state(&mut host)["name"], Json::Null);
+}
+
+#[test]
+fn now_workbook_round_trips_with_clock() {
+    engine_formula::set_default_clock(|| 45306.5);
+    let mut host = CalcHost::new(CalcDocument::new());
+    call(
+        &mut host,
+        json!({"type": "apply", "command": {"type": "setInput", "sheet": 0, "row": 0, "col": 0, "input": "=NOW()"}}),
+    );
+    let r = call(&mut host, json!({"type": "saveXlsx"}));
+    let bytes = r["ok"]["bytesBase64"].as_str().unwrap().to_owned();
+    let mut other = CalcHost::new(CalcDocument::new());
+    let r = call(
+        &mut other,
+        json!({"type": "openXlsx", "bytesBase64": bytes, "name": "now.xlsx"}),
+    );
+    assert!(r["ok"].is_object(), "{r}");
+    let r = call(
+        &mut other,
+        json!({"type": "snapshot", "sheet": 0, "r0": 0, "c0": 0, "r1": 0, "c1": 0}),
+    );
+    let cell = &r["ok"]["snapshot"]["cells"][0];
+    assert_eq!(cell["input"], "=NOW()", "{r}");
+    assert!(cell["display"].as_str().unwrap().len() > 1, "{r}");
 }

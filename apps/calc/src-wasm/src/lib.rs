@@ -27,19 +27,12 @@ fn browser_now() -> f64 {
     excel_serial(d.get_time(), d.get_timezone_offset())
 }
 
-/// Host builds (unit tests) use the engine's default system clock.
-#[cfg(not(target_arch = "wasm32"))]
-fn install_clock(_host: &mut CalcHost) {}
-
-/// Installs the browser clock. Called before every request because
-/// `openXlsx`/`newDocument`/`loadSnapshotJson` replace the workbook (and
-/// with it the engine's clock).
+/// Installs the browser clock as the engine's process-wide default, once,
+/// before any workbook is opened (readers recalculate while loading).
 #[cfg(target_arch = "wasm32")]
-fn install_clock(host: &mut CalcHost) {
-    host.doc_mut()
-        .workbook_mut()
-        .engine_mut()
-        .set_now(browser_now);
+#[wasm_bindgen(start)]
+fn init() {
+    engine_formula::set_default_clock(browser_now);
 }
 
 thread_local! {
@@ -60,7 +53,6 @@ pub fn ping() -> String {
 pub fn dispatch(request: &str) -> String {
     HOST.with(|host| {
         let mut host = host.borrow_mut();
-        install_clock(&mut host);
         calc_core::dispatch(&mut host, request)
     })
 }
@@ -72,6 +64,19 @@ mod tests {
 
     fn call(request: &str) -> Value {
         serde_json::from_str(&dispatch(request)).unwrap()
+    }
+
+    #[test]
+    fn default_clock_reaches_new_engines() {
+        engine_formula::set_default_clock(|| 45306.5);
+        let mut engine = engine_formula::Engine::new();
+        let c = engine_formula::CellCoord {
+            sheet: engine_formula::SheetId(0),
+            row: 0,
+            col: 0,
+        };
+        engine.set_input(c, "=TODAY()").unwrap();
+        assert_eq!(format!("{:?}", engine.value(c)), "Number(45306.0)");
     }
 
     #[test]
