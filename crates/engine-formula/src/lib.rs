@@ -4,7 +4,9 @@
 //! Front end: a [`lexer`], a hand-written Pratt [`parser`] and the typed
 //! [`ast`] (with a canonical printer via `Display`). Back end: the
 //! [`value`] system with Excel coercions, the [`eval`]uator and the
-//! pluggable [`functions`] registry.
+//! pluggable [`functions`] registry. The [`graph`] orders recalculation;
+//! the [`engine`] ties storage, graph and evaluator together into one
+//! workbook-level [`Engine`].
 //!
 //! ```
 //! let ast = engine_formula::parse("=sum(A1:B2, Sheet2!$C$3)*2").unwrap();
@@ -37,6 +39,8 @@
 //! ```
 
 pub mod ast;
+pub mod coord;
+pub mod engine;
 pub mod eval;
 pub mod functions;
 pub mod graph;
@@ -45,7 +49,9 @@ pub mod parser;
 pub mod value;
 
 pub use ast::{ErrorKind, Expr};
+pub use engine::{CellContent, Engine, EngineError, Recalc};
 pub use eval::{evaluate, CellCoord, CellProvider, EvalContext, Operand, RangeRef, SheetId};
 pub use functions::{Arity, CallContext, Function, FunctionRegistry};
+pub use graph::Cycle;
 pub use parser::{parse, ParseError};
 pub use value::{Array, Value};

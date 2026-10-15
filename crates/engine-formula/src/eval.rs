@@ -6,23 +6,11 @@
 
 use std::cmp::Ordering;
 
-use serde::{Deserialize, Serialize};
-
 use crate::ast::{BinaryOp, ErrorKind, Expr, RangeKind, Reference, UnaryOp, MAX_COL, MAX_ROW};
 use crate::functions::{CallContext, FunctionRegistry};
 use crate::value::{compare, to_number, to_text, Array, Value};
 
-/// Identifies a sheet within a workbook.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct SheetId(pub u32);
-
-/// Absolute cell position (0-based row and column).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct CellCoord {
-    pub sheet: SheetId,
-    pub row: u32,
-    pub col: u32,
-}
+pub use crate::coord::*;
 
 /// Source of cell values for the evaluator.
 pub trait CellProvider {
@@ -71,90 +59,6 @@ pub fn system_now() -> f64 {
         .map_or(0.0, |d| d.as_secs_f64());
     // 1970-01-01 is serial 25569.
     25569.0 + secs / 86_400.0
-}
-
-/// A resolved rectangular reference (0-based, inclusive bounds,
-/// `r0 <= r1`, `c0 <= c1`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct RangeRef {
-    pub sheet: SheetId,
-    pub r0: u32,
-    pub c0: u32,
-    pub r1: u32,
-    pub c1: u32,
-}
-
-impl RangeRef {
-    /// The one-cell range at `c`.
-    pub fn cell(c: CellCoord) -> Self {
-        RangeRef {
-            sheet: c.sheet,
-            r0: c.row,
-            c0: c.col,
-            r1: c.row,
-            c1: c.col,
-        }
-    }
-
-    pub fn rows(&self) -> u32 {
-        self.r1 - self.r0 + 1
-    }
-
-    pub fn cols(&self) -> u32 {
-        self.c1 - self.c0 + 1
-    }
-
-    pub fn is_single_cell(&self) -> bool {
-        self.r0 == self.r1 && self.c0 == self.c1
-    }
-
-    /// Spans every row (a whole-column reference such as `A:A`).
-    pub fn is_whole_columns(&self) -> bool {
-        self.r0 == 0 && self.r1 == MAX_ROW
-    }
-
-    /// Spans every column (a whole-row reference such as `1:1`).
-    pub fn is_whole_rows(&self) -> bool {
-        self.c0 == 0 && self.c1 == MAX_COL
-    }
-
-    /// Coordinate of the cell at 0-based offset `(row, col)` within the range.
-    pub fn at(&self, row: u32, col: u32) -> Option<CellCoord> {
-        (row < self.rows() && col < self.cols()).then(|| CellCoord {
-            sheet: self.sheet,
-            row: self.r0 + row,
-            col: self.c0 + col,
-        })
-    }
-
-    /// The part of the range that is worth iterating: whole-column/row
-    /// ranges are clipped to the sheet's used range (`None` when nothing is
-    /// left); other ranges are returned unchanged.
-    pub fn clipped(&self, provider: &dyn CellProvider) -> Option<RangeRef> {
-        if !self.is_whole_columns() && !self.is_whole_rows() {
-            return Some(*self);
-        }
-        let (max_row, max_col) = provider.used_range(self.sheet)?;
-        let mut r = *self;
-        if self.is_whole_columns() {
-            r.r1 = r.r1.min(max_row);
-        }
-        if self.is_whole_rows() {
-            r.c1 = r.c1.min(max_col);
-        }
-        (r.r0 <= r.r1 && r.c0 <= r.c1).then_some(r)
-    }
-
-    /// Smallest range containing both (same sheet as `self`).
-    pub fn union(&self, other: &RangeRef) -> RangeRef {
-        RangeRef {
-            sheet: self.sheet,
-            r0: self.r0.min(other.r0),
-            c0: self.c0.min(other.c0),
-            r1: self.r1.max(other.r1),
-            c1: self.c1.max(other.c1),
-        }
-    }
 }
 
 /// Result of evaluating a sub-expression before it is forced to a scalar.
