@@ -16,10 +16,14 @@
 //! `model-text`, ADR 0006). Images live in the presentation's
 //! [`core_model::MediaStore`].
 //!
+//! Slides may carry a [`Transition`] and [`Animation`]s of their shapes
+//! (play order = vector order; see [`anim`]).
+//!
 //! All types derive `serde` traits (camelCase fields; enums with data are
 //! tagged `{"kind": …, "value": …}` like `core_model::Color`) and double as
 //! IPC payloads. Lengths are [`Emu`].
 
+pub mod anim;
 pub mod layout;
 pub mod presentation;
 pub mod shape;
@@ -29,6 +33,7 @@ pub mod text;
 #[cfg(feature = "ts")]
 pub mod ts;
 
+pub use anim::{Animation, AnimationKind, Direction, Effect, Transition, TransitionKind, Trigger};
 pub use core_model::media::{Media, MediaId, MediaStore};
 pub use core_model::units::Emu;
 pub use core_model::{Color, RunProperties, Theme};
@@ -71,6 +76,14 @@ pub enum Error {
     /// No slide has this id.
     #[error("unknown slide {0:?}")]
     UnknownSlide(NodeId),
+    /// A slide's transition or animations are invalid.
+    #[error("invalid slide {slide:?}: {reason}")]
+    InvalidSlide {
+        /// The slide.
+        slide: NodeId,
+        /// What is wrong.
+        reason: String,
+    },
     /// A slide index is past the end of the slide list.
     #[error("slide index {index} out of range (0..{len})")]
     SlideIndexOutOfRange {

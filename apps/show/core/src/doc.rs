@@ -11,7 +11,7 @@ use model_show::{
     Shape, ShapeKind, Slide, Transform,
 };
 
-use crate::command::{AlignTarget, NewShape, NewShapeKind, ShowCommand, ZOp};
+use crate::command::{AlignTarget, AnimationPatch, NewShape, NewShapeKind, ShowCommand, ZOp};
 use crate::image::pixel_size;
 use crate::patch::ShowPatch;
 use crate::text::{para_len, set_run_props};
@@ -116,7 +116,7 @@ struct Changes {
     slide_size: bool,
 }
 
-/// Every slide and shape id of `p`.
+/// Every slide, shape and animation id of `p`.
 fn all_ids(p: &Presentation) -> HashSet<NodeId> {
     let mut out = HashSet::new();
     for slide in &p.slides {
@@ -124,7 +124,15 @@ fn all_ids(p: &Presentation) -> HashSet<NodeId> {
         for_each_shape(&slide.shapes, &mut |s| {
             out.insert(s.id);
         });
+        out.extend(slide.animations.iter().map(|a| a.id));
     }
+    out
+}
+
+/// Shape ids of `shapes`, depth-first (a group before its children).
+fn shape_ids(shapes: &[Shape]) -> Vec<NodeId> {
+    let mut out = Vec::new();
+    for_each_shape(shapes, &mut |s| out.push(s.id));
     out
 }
 
@@ -332,6 +340,11 @@ impl ShowDocument {
                     dup = dup.or(Some(s.id));
                 }
             });
+            for a in &slide.animations {
+                if !seen.insert(a.id) {
+                    dup = dup.or(Some(a.id));
+                }
+            }
         }
         if let Some(id) = dup {
             return Err(ShowError::InvalidDocument(format!(
@@ -339,6 +352,8 @@ impl ShowDocument {
                 id.0
             )));
         }
+        pres.validate()
+            .map_err(|e| ShowError::InvalidDocument(e.to_string()))?;
         pres.normalize();
         Ok(Self::from_valid(pres))
     }
@@ -481,6 +496,12 @@ impl ShowDocument {
             }
             return Err(e);
         }
+        // Animations of shapes that were removed go with them.
+        for &id in slides {
+            if let Some(s) = self.pres.slide_mut(id) {
+                s.prune_animations();
+            }
+        }
         ch.slides.extend_from_slice(slides);
         Ok(C::RestoreSlideContent { slides: old })
     }
@@ -582,7 +603,15 @@ impl ShowDocument {
                 let pres = &mut self.pres;
                 let mut next = || ids.resolve(pres, ch, it.next().flatten());
                 copy.id = next()?;
+                let old_ids = shape_ids(&copy.shapes);
                 reid(&mut copy.shapes, &mut next)?;
+                // animations get fresh ids and follow their shapes' copies
+                let map: std::collections::HashMap<NodeId, NodeId> =
+                    old_ids.into_iter().zip(shape_ids(&copy.shapes)).collect();
+                for a in &mut copy.animations {
+                    a.id = self.pres.alloc_id();
+                    a.shape = map.get(&a.shape).copied().unwrap_or(a.shape);
+                }
                 let new_id = copy.id;
                 self.pres.slides.insert(index + 1, copy);
                 ch.slides.push(new_id);
@@ -925,6 +954,42 @@ impl ShowDocument {
                 );
                 Ok(C::RemoveMedia { id: *id })
             }
+            C::SetTransition { slides, transition } => self.set_transition(slides, *transition, ch),
+            C::ApplyTransitionToAll { from } => {
+                let t = self.pres.slides[self.slide_index(*from)?].transition;
+                let all = self.order();
+                self.set_transition(&all, t, ch)
+            }
+            C::AddAnimation {
+                slide,
+                animation,
+                new_id,
+                index,
+            } => self.add_animation(*slide, animation, *new_id, *index, ch),
+            C::UpdateAnimation { id, patch } => self.update_animation(*id, patch, ch),
+            C::RemoveAnimation { id } => {
+                let slide = self.slide_of_animation(*id)?;
+                self.edit_slide(slide, ch, |s| {
+                    s.animations.retain(|a| a.id != *id);
+                    Ok(())
+                })
+            }
+            C::ReorderAnimation { id, index } => {
+                let slide = self.slide_of_animation(*id)?;
+                self.edit_slide(slide, ch, |s| {
+                    let len = s.animations.len();
+                    let to = *index as usize;
+                    if to >= len {
+                        return Err(invalid(format!(
+                            "animation index {to} out of range 0..{len}"
+                        )));
+                    }
+                    let from = s.animation_index(*id).unwrap_or(0);
+                    let a = s.animations.remove(from);
+                    s.animations.insert(to, a);
+                    Ok(())
+                })
+            }
             C::Compound { commands } => {
                 let mut inverses = Vec::with_capacity(commands.len());
                 for cmd in commands {
@@ -948,11 +1013,89 @@ impl ShowDocument {
 
     fn reserve_slide_ids(&mut self, slide: &Slide) {
         self.pres.reserve_id(slide.id);
-        let mut ids = Vec::new();
-        for_each_shape(&slide.shapes, &mut |s| ids.push(s.id));
+        let mut ids = shape_ids(&slide.shapes);
+        ids.extend(slide.animations.iter().map(|a| a.id));
         for id in ids {
             self.pres.reserve_id(id);
         }
+    }
+
+    /// The slide holding animation `id`.
+    fn slide_of_animation(&self, id: NodeId) -> R<NodeId> {
+        self.pres
+            .find_animation(id)
+            .map(|(s, _)| s.id)
+            .ok_or_else(|| invalid(format!("unknown animation {}", id.0)))
+    }
+
+    fn set_transition(
+        &mut self,
+        slides: &[NodeId],
+        transition: Option<model_show::Transition>,
+        ch: &mut Changes,
+    ) -> R<C> {
+        if let Some(t) = &transition {
+            t.validate().map_err(invalid)?;
+        }
+        let transition = transition.filter(|t| !t.is_noop());
+        let mut unique = Vec::with_capacity(slides.len());
+        for &id in slides {
+            self.slide_index(id)?;
+            if !unique.contains(&id) {
+                unique.push(id);
+            }
+        }
+        self.edit_slides(&unique, ch, |d| {
+            for &id in &unique {
+                d.slide_mut(id)?.transition = transition;
+            }
+            Ok(())
+        })
+    }
+
+    fn add_animation(
+        &mut self,
+        slide: NodeId,
+        animation: &model_show::Animation,
+        new_id: i64,
+        index: Option<u32>,
+        ch: &mut Changes,
+    ) -> R<C> {
+        let s = &self.pres.slides[self.slide_index(slide)?];
+        let len = s.animations.len();
+        let at = index.map_or(len, |i| i as usize);
+        if at > len {
+            return Err(invalid(format!(
+                "animation index {at} out of range 0..={len}"
+            )));
+        }
+        if s.find_shape(animation.shape).is_none() {
+            return Err(invalid(format!(
+                "shape {} is not on slide {}",
+                animation.shape.0, slide.0
+            )));
+        }
+        animation.validate().map_err(invalid)?;
+        let mut ids = Ids::new(&self.pres);
+        let id = ids.resolve(&mut self.pres, ch, Some(new_id))?;
+        let a = model_show::Animation { id, ..*animation };
+        self.edit_slide(slide, ch, |s| {
+            s.animations.insert(at, a);
+            Ok(())
+        })
+    }
+
+    fn update_animation(&mut self, id: NodeId, patch: &AnimationPatch, ch: &mut Changes) -> R<C> {
+        let slide = self.slide_of_animation(id)?;
+        self.edit_slide(slide, ch, |s| {
+            let a = s
+                .animations
+                .iter_mut()
+                .find(|a| a.id == id)
+                .ok_or_else(|| invalid(format!("unknown animation {}", id.0)))?;
+            patch.apply_to(a);
+            a.validate().map_err(invalid)
+        })
     }
 
     /// Checks `from <= to <= len` for paragraph `paragraph` of the text of

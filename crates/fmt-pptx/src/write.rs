@@ -8,9 +8,11 @@ use std::io::Cursor;
 use fmt_ooxml::theme::{parse_theme, theme_xml};
 use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
 use model_show::{
-    Fill, LayoutKind, MediaId, PlaceholderKind, Presentation, Preset, Shape, ShapeKind, Slide,
+    Fill, LayoutKind, MediaId, NodeId, PlaceholderKind, Presentation, Preset, Shape, ShapeKind,
+    Slide,
 };
 
+use crate::anim::{write_timing, write_transition, Target};
 use crate::drawing::{write_fill, write_line, write_text_body, write_xfrm};
 use crate::parts::{self, layout_meta, sp_tree_start, write_nv_pr_ph, ROOT_NS};
 use crate::xml::XmlOut;
@@ -206,6 +208,8 @@ struct SlideWriter<'a> {
     /// Media id → relationship id within this slide.
     media_rels: HashMap<MediaId, String>,
     next_shape_id: u32,
+    /// Node id → how the shape was written (animation targets).
+    targets: HashMap<NodeId, Target>,
     /// Next `idx` for subtitle/body placeholders (unique per slide).
     next_ph_idx: u32,
 }
@@ -238,6 +242,7 @@ fn write_slide(
         media,
         media_rels: HashMap::new(),
         next_shape_id: 2,
+        targets: HashMap::new(),
         next_ph_idx: 1,
     };
     let mut root: Vec<(&str, &str)> = ROOT_NS.to_vec();
@@ -263,6 +268,17 @@ fn write_slide(
     w.x.start("p:clrMapOvr", &[]);
     w.x.empty("a:masterClrMapping", &[]);
     w.x.end("p:clrMapOvr");
+    if let Some(t) = &slide.transition {
+        write_transition(&mut w.x, t);
+    }
+    if !slide.animations.is_empty() {
+        write_timing(&mut w.x, &slide.animations, &w.targets).map_err(|id| {
+            Error::InvalidPresentation(format!(
+                "animation {} targets a shape that is not on slide {number}",
+                id.0
+            ))
+        })?;
+    }
     w.x.end("p:sld");
     Ok((w.x.finish(), w.rels))
 }
@@ -273,6 +289,14 @@ impl SlideWriter<'_> {
     /// `p:cNvPr` attributes: id, name and (if set) the alt text.
     fn c_nv_pr(&mut self, s: &Shape) {
         let (id, name) = self.ids(s);
+        self.targets.insert(
+            s.id,
+            Target {
+                spid: self.next_shape_id - 1,
+                text: false,
+                placeholder: false,
+            },
+        );
         let mut attrs = vec![("id", id.as_str()), ("name", name.as_str())];
         if let Some(alt) = s.alt.as_deref().filter(|a| !a.is_empty()) {
             attrs.push(("descr", alt));
@@ -370,6 +394,10 @@ impl SlideWriter<'_> {
         self.x.end("p:spPr");
         if let Some(body) = s.text() {
             write_text_body(&mut self.x, "p:txBody", body);
+            if let Some(t) = self.targets.get_mut(&s.id) {
+                t.text = true;
+                t.placeholder = s.placeholder.is_some();
+            }
         }
         self.x.end("p:sp");
     }

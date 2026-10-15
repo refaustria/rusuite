@@ -5,10 +5,13 @@ use model_show::{
     AlignMode, Alignment, Axis, Bullet, Emu, Fill, LayoutKind, Line, MediaId, NodeId, Presentation,
     Preset, Shape, ShapeKind, Slide, SlideSize, TextBody, TextParagraph, Transform,
 };
+use model_show::{
+    Animation, AnimationKind, Direction, Effect, Transition, TransitionKind, Trigger,
+};
 use serde_json::{json, Value as Json};
 use show_core::{
-    dispatch_with, AlignTarget, NewShape, ShowCommand as C, ShowDocument, ShowHost, ShowPatch,
-    TextParagraphPatch, ZOp,
+    dispatch_with, AlignTarget, AnimationPatch, NewShape, ShowCommand as C, ShowDocument, ShowHost,
+    ShowPatch, TextParagraphPatch, ZOp,
 };
 
 /// A 2×3 px PNG header (enough for the size sniffer).
@@ -1122,6 +1125,24 @@ fn wire_types_roundtrip_through_json() {
         C::RestoreSlides {
             slides: vec![(0, Slide::new(id(3), LayoutKind::Blank))],
         },
+        C::SetTransition {
+            slides: vec![id(1)],
+            transition: Some(Transition::new(TransitionKind::Push)),
+        },
+        C::AddAnimation {
+            slide: id(4),
+            animation: Animation::new(id(5), AnimationKind::Entrance, Effect::FlyIn),
+            new_id: -1,
+            index: Some(0),
+        },
+        C::UpdateAnimation {
+            id: id(9),
+            patch: AnimationPatch {
+                direction: Some(None),
+                trigger: Some(Trigger::AfterPrevious),
+                ..Default::default()
+            },
+        },
     ];
     for c in cmds {
         let req = Request::Apply {
@@ -1137,4 +1158,324 @@ fn wire_types_roundtrip_through_json() {
         serde_json::to_value(NewShape::from(&g)).unwrap(),
         serde_json::to_value(&g).unwrap()
     );
+}
+
+fn anims(h: &ShowHost, slide: u64) -> Vec<Animation> {
+    pres(h).slide(id(slide)).unwrap().animations.clone()
+}
+
+#[test]
+fn transitions() {
+    let mut h = host();
+    let mut push = Transition::new(TransitionKind::Push);
+    push.direction = Some(Direction::Up);
+    push.advance_after_ms = Some(2000);
+    let patch = apply(
+        &mut h,
+        C::SetTransition {
+            slides: vec![id(4), id(4)],
+            transition: Some(push),
+        },
+    );
+    assert_eq!(patch.slides.len(), 1);
+    assert_eq!(patch.slides[0].transition, Some(push));
+    assert_eq!(pres(&h).slides[0].transition, None);
+
+    // apply to all
+    let patch = apply(&mut h, C::ApplyTransitionToAll { from: id(4) });
+    assert_eq!(patch.slides.len(), 2);
+    assert!(pres(&h).slides.iter().all(|s| s.transition == Some(push)));
+    // a no-op transition is stored as none; null removes
+    apply(
+        &mut h,
+        C::SetTransition {
+            slides: vec![id(1)],
+            transition: Some(Transition::new(TransitionKind::None)),
+        },
+    );
+    assert_eq!(pres(&h).slides[0].transition, None);
+    apply(
+        &mut h,
+        C::SetTransition {
+            slides: vec![id(4)],
+            transition: None,
+        },
+    );
+    assert_eq!(pres(&h).slides[1].transition, None);
+
+    // invalid direction, unknown slide
+    let mut bad = Transition::new(TransitionKind::Fade);
+    bad.direction = Some(Direction::Left);
+    let set = |t| C::SetTransition {
+        slides: vec![id(1)],
+        transition: Some(t),
+    };
+    assert_eq!(err_code(&mut h, set(bad)), "invalid_command");
+    assert_eq!(
+        err_code(
+            &mut h,
+            C::SetTransition {
+                slides: vec![id(99)],
+                transition: None
+            }
+        ),
+        "unknown_slide"
+    );
+    assert_eq!(
+        err_code(&mut h, C::ApplyTransitionToAll { from: id(99) }),
+        "unknown_slide"
+    );
+}
+
+#[test]
+fn animations_add_update_reorder_remove() {
+    let mut h = host();
+    let fly = Animation::new(id(5), AnimationKind::Entrance, Effect::FlyIn);
+    let patch = apply(
+        &mut h,
+        C::AddAnimation {
+            slide: id(4),
+            animation: fly,
+            new_id: -1,
+            index: None,
+        },
+    );
+    let a1 = patch.id_map[0].1;
+    assert_eq!(patch.slides.len(), 1);
+    assert_eq!(
+        patch.slides[0].animations,
+        vec![Animation { id: a1, ..fly }]
+    );
+    let spin = Animation::new(id(6), AnimationKind::Emphasis, Effect::Spin);
+    let patch = apply(
+        &mut h,
+        C::AddAnimation {
+            slide: id(4),
+            animation: spin,
+            new_id: -2,
+            index: Some(0),
+        },
+    );
+    let a2 = patch.id_map[0].1;
+    assert_eq!(
+        anims(&h, 4).iter().map(|a| a.id).collect::<Vec<_>>(),
+        [a2, a1]
+    );
+
+    // errors: shape on another slide, bad combination, bad index, used id
+    let add = |anim: Animation, new_id: i64, index: Option<u32>| C::AddAnimation {
+        slide: id(4),
+        animation: anim,
+        new_id,
+        index,
+    };
+    let on_title = Animation::new(id(2), AnimationKind::Entrance, Effect::Fade);
+    assert_eq!(err_code(&mut h, add(on_title, -3, None)), "invalid_command");
+    let bad = Animation::new(id(5), AnimationKind::Exit, Effect::GrowShrink);
+    assert_eq!(err_code(&mut h, add(bad, -3, None)), "invalid_command");
+    assert_eq!(err_code(&mut h, add(fly, -3, Some(9))), "invalid_command");
+    assert_eq!(
+        err_code(&mut h, add(fly, a1.0 as i64, None)),
+        "invalid_command"
+    );
+
+    // update: wipe from the left, after previous; direction kept while it fits
+    apply(
+        &mut h,
+        C::UpdateAnimation {
+            id: a1,
+            patch: AnimationPatch {
+                effect: Some(Effect::Wipe),
+                direction: Some(Some(Direction::Left)),
+                trigger: Some(Trigger::AfterPrevious),
+                duration_ms: Some(800),
+                delay_ms: Some(100),
+                ..Default::default()
+            },
+        },
+    );
+    let a = anims(&h, 4)[1];
+    assert_eq!(
+        (a.effect, a.direction, a.trigger, a.duration_ms, a.delay_ms),
+        (
+            Effect::Wipe,
+            Some(Direction::Left),
+            Trigger::AfterPrevious,
+            800,
+            100
+        )
+    );
+    // switching to Fade drops the direction that no longer fits
+    apply(
+        &mut h,
+        C::UpdateAnimation {
+            id: a1,
+            patch: AnimationPatch {
+                effect: Some(Effect::Fade),
+                ..Default::default()
+            },
+        },
+    );
+    assert_eq!(anims(&h, 4)[1].direction, None);
+    let upd = |patch| C::UpdateAnimation { id: a1, patch };
+    assert_eq!(
+        err_code(
+            &mut h,
+            upd(AnimationPatch {
+                direction: Some(Some(Direction::Up)),
+                ..Default::default()
+            })
+        ),
+        "invalid_command"
+    );
+    assert_eq!(
+        err_code(
+            &mut h,
+            upd(AnimationPatch {
+                kind: Some(AnimationKind::Emphasis),
+                ..Default::default()
+            })
+        ),
+        "invalid_command"
+    );
+    assert_eq!(
+        err_code(
+            &mut h,
+            C::UpdateAnimation {
+                id: id(99),
+                patch: AnimationPatch::default()
+            }
+        ),
+        "invalid_command"
+    );
+
+    // reorder
+    apply(&mut h, C::ReorderAnimation { id: a1, index: 0 });
+    assert_eq!(
+        anims(&h, 4).iter().map(|a| a.id).collect::<Vec<_>>(),
+        [a1, a2]
+    );
+    assert_eq!(
+        err_code(&mut h, C::ReorderAnimation { id: a1, index: 2 }),
+        "invalid_command"
+    );
+
+    // remove
+    apply(&mut h, C::RemoveAnimation { id: a2 });
+    assert_eq!(anims(&h, 4).len(), 1);
+    assert_eq!(
+        err_code(&mut h, C::RemoveAnimation { id: a2 }),
+        "invalid_command"
+    );
+}
+
+#[test]
+fn animations_follow_shapes() {
+    let mut h = host();
+    for (temp, shape) in [(-1, 5), (-2, 6), (-3, 7)] {
+        apply(
+            &mut h,
+            C::AddAnimation {
+                slide: id(4),
+                animation: Animation::new(id(shape), AnimationKind::Entrance, Effect::Fade),
+                new_id: temp,
+                index: None,
+            },
+        );
+    }
+    // deleting a shape removes its animations (undo brings both back)
+    apply(&mut h, C::DeleteShapes { ids: vec![id(6)] });
+    assert_eq!(
+        anims(&h, 4).iter().map(|a| a.shape.0).collect::<Vec<_>>(),
+        [5, 7]
+    );
+    // grouping keeps them (children are still on the slide); ungrouping
+    // removes the group, not the children
+    let patch = apply(
+        &mut h,
+        C::Group {
+            shapes: vec![id(5), id(7)],
+            new_id: -9,
+        },
+    );
+    let g = patch.id_map[0].1;
+    pres(&h).validate().unwrap();
+    apply(
+        &mut h,
+        C::AddAnimation {
+            slide: id(4),
+            animation: Animation::new(g, AnimationKind::Exit, Effect::Zoom),
+            new_id: -4,
+            index: None,
+        },
+    );
+    apply(&mut h, C::Ungroup { group: g });
+    assert_eq!(
+        anims(&h, 4).iter().map(|a| a.shape.0).collect::<Vec<_>>(),
+        [5, 7]
+    );
+    // duplicating a slide copies animations onto the copied shapes
+    let patch = apply(
+        &mut h,
+        C::DuplicateSlide {
+            id: id(4),
+            new_ids: vec![],
+        },
+    );
+    let copy = patch.slides_order.unwrap()[2];
+    let c = pres(&h).slide(copy).unwrap();
+    c.validate().unwrap();
+    assert_eq!(c.animations.len(), 2);
+    assert_eq!(c.animations[0].shape, c.shapes[0].id);
+    assert!(c.animations.iter().all(|a| a.id.0 > 7));
+    // deleting and restoring the slide keeps them
+    apply(&mut h, C::DeleteSlides { ids: vec![id(4)] });
+    pres(&h).validate().unwrap();
+}
+
+#[test]
+fn loading_checks_animations() {
+    let mut p = deck();
+    let mut a = Animation::new(id(5), AnimationKind::Entrance, Effect::Fade);
+    a.id = id(50);
+    p.slides[1].animations.push(a);
+    assert!(ShowDocument::from_presentation(p.clone()).is_ok());
+    // the animation id clashes with a shape id
+    p.slides[1].animations[0].id = id(6);
+    let e = ShowDocument::from_presentation(p.clone()).unwrap_err();
+    assert_eq!(e.code(), "invalid_document");
+    // the target is on another slide
+    p.slides[1].animations[0].id = id(50);
+    p.slides[1].animations[0].shape = id(2);
+    let e = ShowDocument::from_presentation(p).unwrap_err();
+    assert_eq!(e.code(), "invalid_document");
+}
+
+#[test]
+fn animations_survive_pptx() {
+    let mut h = host();
+    apply(
+        &mut h,
+        C::SetTransition {
+            slides: vec![id(1), id(4)],
+            transition: Some(Transition::new(TransitionKind::Fade)),
+        },
+    );
+    apply(
+        &mut h,
+        C::AddAnimation {
+            slide: id(4),
+            animation: Animation::new(id(5), AnimationKind::Entrance, Effect::FlyIn),
+            new_id: -1,
+            index: None,
+        },
+    );
+    let bytes = h.doc().save_pptx().unwrap();
+    let (doc, warnings) = ShowDocument::open_pptx(&bytes, "a.pptx").unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let s = &doc.presentation().slides[1];
+    assert_eq!(s.transition, Some(Transition::new(TransitionKind::Fade)));
+    assert_eq!(s.animations.len(), 1);
+    assert_eq!(s.animations[0].shape, s.shapes[0].id);
+    assert_eq!(s.animations[0].effect, Effect::FlyIn);
 }

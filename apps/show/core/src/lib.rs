@@ -35,7 +35,9 @@ mod image;
 mod patch;
 mod text;
 
-pub use command::{AlignTarget, NewShape, NewShapeKind, ShowCommand, TextParagraphPatch, ZOp};
+pub use command::{
+    AlignTarget, AnimationPatch, NewShape, NewShapeKind, ShowCommand, TextParagraphPatch, ZOp,
+};
 pub use dispatch::{dispatch_with, Request, Response, ResponseBody, ShowHost};
 pub use doc::{ShowDocument, ShowError};
 pub use patch::ShowPatch;
