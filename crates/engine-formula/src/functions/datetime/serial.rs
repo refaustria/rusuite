@@ -74,56 +74,114 @@ pub fn serial_to_ymd(serial: f64) -> Option<(i32, u32, u32)> {
     }
 }
 
-/// Parses a text date (and optional time) into a serial: `yyyy-mm-dd`,
-/// `yyyy/mm/dd` or US `m/d/yyyy`, each optionally followed by a space and
-/// `hh:mm[:ss]` (24h). Surrounding whitespace is ignored.
-pub fn parse_date_text(s: &str) -> Option<f64> {
-    let s = s.trim();
-    let (date, time) = match s.split_once(' ') {
-        Some((d, t)) => (d, Some(t.trim())),
-        None => (s, None),
-    };
-    let num = |p: &str, max_len: usize| -> Option<i32> {
-        if p.is_empty() || p.len() > max_len || !p.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-        p.parse().ok()
-    };
-    let (y, m, d) = if date.contains('-') || date.split('/').next().is_some_and(|p| p.len() == 4) {
-        let parts: Vec<&str> = date.split(['-', '/']).collect();
-        let [y, m, d] = parts[..] else { return None };
-        if y.len() != 4 {
-            return None;
-        }
-        (num(y, 4)?, num(m, 2)?, num(d, 2)?)
-    } else {
-        let parts: Vec<&str> = date.split('/').collect();
-        let [m, d, y] = parts[..] else { return None };
-        if y.len() != 4 {
-            return None;
-        }
-        (num(y, 4)?, num(m, 2)?, num(d, 2)?)
-    };
-    if !(1..=12).contains(&m) || d < 1 || d > days_in_month(y, m) || y < 1900 {
+/// Splits a serial into whole days and seconds within the day, rounding to
+/// the nearest second and carrying into the day (as Excel's display does).
+/// `None` for negative, non-finite or out-of-range input.
+fn split_serial(serial: f64) -> Option<(i64, u32)> {
+    if !serial.is_finite() || serial < 0.0 {
         return None;
     }
-    let day = ymd_to_serial(y, m, d)?;
-    let frac = match time {
-        None => 0.0,
-        Some(t) => {
-            let parts: Vec<&str> = t.split(':').collect();
-            let (h, mi, sec) = match parts[..] {
-                [h, mi] => (num(h, 2)?, num(mi, 2)?, 0),
-                [h, mi, sec] => (num(h, 2)?, num(mi, 2)?, num(sec, 2)?),
-                _ => return None,
+    let mut day = serial.floor() as i64;
+    let mut secs = ((serial - serial.floor()) * 86_400.0).round() as i64;
+    if secs >= 86_400 {
+        day += 1;
+        secs -= 86_400;
+    }
+    (day <= 2_958_465).then_some((day, secs as u32))
+}
+
+/// Whole day number and time of day of a serial after rounding to the
+/// nearest second: `(day, h, m, s)`. `None` as for [`serial_to_ymd_hms`].
+pub(crate) fn serial_day_hms(serial: f64) -> Option<(i64, u32, u32, u32)> {
+    let (day, secs) = split_serial(serial)?;
+    Some((day, secs / 3600, secs / 60 % 60, secs % 60))
+}
+
+/// Year, month, day, hour, minute, second of a serial, rounded to the
+/// nearest second (a carry may advance the date). Same day conventions as
+/// [`serial_to_ymd`]. `None` for negative, non-finite or out-of-range input.
+pub fn serial_to_ymd_hms(serial: f64) -> Option<(i32, u32, u32, u32, u32, u32)> {
+    let (day, h, m, s) = serial_day_hms(serial)?;
+    let (y, mo, d) = serial_to_ymd(day as f64)?;
+    Some((y, mo, d, h, m, s))
+}
+
+fn digits(s: &str, min: usize, max: usize) -> Option<u32> {
+    if s.len() < min || s.len() > max || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    s.parse().ok()
+}
+
+/// Parses a text time `hh:mm[:ss[.fff]]` (24h, 1-2 digit fields) into a
+/// fraction of a day.
+pub fn parse_time_text(s: &str) -> Option<f64> {
+    let mut it = s.trim_matches(|c: char| c.is_ascii_whitespace()).split(':');
+    let h = digits(it.next()?, 1, 2)?;
+    let m = digits(it.next()?, 1, 2)?;
+    let sec = match it.next() {
+        Some(x) => {
+            let (whole, frac) = x.split_once('.').unwrap_or((x, ""));
+            let w = digits(whole, 1, 2)?;
+            let f = if frac.is_empty() {
+                0.0
+            } else {
+                format!("0.{frac}")
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|_| frac.bytes().all(|b| b.is_ascii_digit()))?
             };
-            if h > 23 || mi > 59 || sec > 59 {
-                return None;
-            }
-            f64::from(h * 3600 + mi * 60 + sec) / 86_400.0
+            f64::from(w) + f
         }
+        None => 0.0,
     };
-    Some(day + frac)
+    if it.next().is_some() || h > 23 || m > 59 || sec >= 60.0 {
+        return None;
+    }
+    Some((f64::from(h) * 3600.0 + f64::from(m) * 60.0 + sec) / 86_400.0)
+}
+
+/// Parses a text date, date-time or time into a serial. Accepted grammar
+/// (surrounding ASCII whitespace ignored):
+///
+/// ```text
+/// text     = date [ (" " | "T") time ] | time
+/// date     = yyyy "-" m[m] "-" d[d]      (ISO)
+///          | yyyy "/" m[m] "/" d[d]
+///          | m[m] "/" d[d] "/" yyyy      (US)
+/// time     = h[h] ":" m[m] [ ":" s[s] [ "." digits ] ]   (24h)
+/// ```
+///
+/// The year has exactly four digits and lies in 1900..=9999; a date must
+/// exist, except that 1900-02-29 is accepted (serial 60). A time alone
+/// yields a fraction of a day; `24:00` and minutes/seconds of 60 or more
+/// are rejected. Two-digit years and mixed separators are rejected.
+pub fn parse_date_text(s: &str) -> Option<f64> {
+    let s = s.trim_matches(|c: char| c.is_ascii_whitespace());
+    if let Some((d, t)) = s.split_once([' ', 'T']) {
+        return Some(parse_date_part(d.trim())? + parse_time_text(t)?);
+    }
+    parse_date_part(s).or_else(|| parse_time_text(s))
+}
+
+fn parse_date_part(date: &str) -> Option<f64> {
+    let sep = if date.contains('-') { '-' } else { '/' };
+    let parts: Vec<&str> = date.split(sep).collect();
+    let [a, b, c] = parts[..] else { return None };
+    let (y, m, d) = if sep == '-' || a.len() == 4 {
+        (a, b, c)
+    } else {
+        (c, a, b)
+    };
+    let (y, m, d) = (digits(y, 4, 4)?, digits(m, 1, 2)?, digits(d, 1, 2)?);
+    if !(1900..=9999).contains(&y) || !(1..=12).contains(&m) || d < 1 {
+        return None;
+    }
+    // Excel believes 1900 was a leap year.
+    if d > days_in_month(y as i32, m as i32) as u32 && !(y == 1900 && m == 2 && d == 29) {
+        return None;
+    }
+    ymd_to_serial(y as i32, m as i32, d as i32)
 }
 
 fn days_in_month(y: i32, m: i32) -> i32 {
@@ -238,5 +296,35 @@ mod tests {
         ] {
             assert_eq!(parse_date_text(s), None, "{s:?}");
         }
+    }
+
+    #[test]
+    fn parses_value_forms() {
+        assert_eq!(parse_date_text("1900-02-29"), Some(60.0));
+        assert_eq!(parse_date_text("2023-02-29"), None);
+        assert_eq!(parse_date_text("1900-01-01"), Some(1.0));
+        assert_eq!(parse_date_text("1899-12-31"), None);
+        assert_eq!(parse_date_text("2024-01-15T18:00"), Some(45306.75));
+        assert_eq!(parse_date_text("12:00"), Some(0.5));
+        assert_eq!(parse_date_text("06:00:00"), Some(0.25));
+        assert_eq!(parse_date_text("24:00"), None);
+        assert_eq!(parse_date_text("12:00:30.5"), Some(43_230.5 / 86_400.0));
+        assert_eq!(parse_time_text("1:5"), Some(3900.0 / 86_400.0));
+        assert_eq!(parse_time_text("12:60"), None);
+        assert_eq!(parse_date_text("2024-01/15"), None);
+    }
+
+    #[test]
+    fn serial_to_hms() {
+        assert_eq!(serial_to_ymd_hms(45306.75), Some((2024, 1, 15, 18, 0, 0)));
+        // Rounds to the nearest second and carries into the next day.
+        assert_eq!(
+            serial_to_ymd_hms(45306.0 + 86_399.6 / 86_400.0),
+            Some((2024, 1, 16, 0, 0, 0))
+        );
+        assert_eq!(serial_to_ymd_hms(60.5), Some((1900, 2, 29, 12, 0, 0)));
+        assert_eq!(serial_to_ymd_hms(-1.0), None);
+        assert_eq!(serial_to_ymd_hms(2_958_466.0), None);
+        assert_eq!(serial_day_hms(45306.25), Some((45306, 6, 0, 0)));
     }
 }

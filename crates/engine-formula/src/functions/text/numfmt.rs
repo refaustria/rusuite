@@ -13,6 +13,7 @@
 //! behind the number), fractional seconds.
 
 use crate::ast::ErrorKind;
+use crate::functions::datetime::serial::{serial_day_hms, serial_to_ymd_hms};
 use crate::value::format_general;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -311,29 +312,6 @@ fn format_numeric(mut v: f64, toks: &[Tok]) -> String {
     out
 }
 
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let mp = (m + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146097 + doe - 719468
-}
-
-fn civil_from_days(z: i64) -> (i64, i64, i64) {
-    let z = z + 719468;
-    let era = z.div_euclid(146097);
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    (y, m, d)
-}
-
 const MONTHS: [&str; 12] = [
     "January",
     "February",
@@ -359,24 +337,9 @@ const DAYS: [&str; 7] = [
 ];
 
 fn format_date(serial: f64, toks: &[Tok]) -> Result<String, ErrorKind> {
-    if serial >= 2958466.0 {
-        return Err(ErrorKind::Value);
-    }
-    let mut day = serial.floor() as i64;
-    let mut secs = ((serial - serial.floor()) * 86400.0).round() as i64;
-    if secs >= 86400 {
-        day += 1;
-        secs -= 86400;
-    }
-    // Excel's 1900 calendar: serial 60 is the non-existent 1900-02-29.
-    let (y, m, d) = match day {
-        0 => (1900, 1, 0),
-        1..=59 => civil_from_days(day + days_from_civil(1899, 12, 31)),
-        60 => (1900, 2, 29),
-        _ => civil_from_days(day + days_from_civil(1899, 12, 30)),
-    };
+    let (day, _, _, _) = serial_day_hms(serial).ok_or(ErrorKind::Value)?;
+    let (y, m, d, hh, mi, ss) = serial_to_ymd_hms(serial).ok_or(ErrorKind::Value)?;
     let weekday = ((day + 6) % 7) as usize;
-    let (hh, mi, ss) = (secs / 3600, secs / 60 % 60, secs % 60);
 
     let date_toks: Vec<usize> = (0..toks.len())
         .filter(|&i| matches!(toks[i], Tok::Date(..)))
