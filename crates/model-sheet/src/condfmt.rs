@@ -9,7 +9,7 @@
 //! colour or an icon per number cell.
 //!
 //! Rule formulas are written for the anchor cell of the rule (see
-//! [`crate::rules`]); [`Workbook::effective_cf`] shifts them per cell like
+//! `crate::rules`); [`Workbook::effective_cf`] shifts them per cell like
 //! a copied formula and evaluates them with the engine's evaluator, the
 //! cell being the current cell.
 //!
@@ -1062,7 +1062,7 @@ impl Workbook {
     }
 
     /// Moves the rules and validations of every sheet for a row/column
-    /// insert or delete on `sheet` (see [`crate::rules`]).
+    /// insert or delete on `sheet` (see `crate::rules`).
     pub(crate) fn shift_rules(&mut self, sheet: SheetId, op: StructuralOp) {
         let names: Vec<(SheetId, String)> = self.sheets();
         let Some(target) = names
