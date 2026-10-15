@@ -95,7 +95,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Code signing + notarization (Windows/macOS warn today); auto-update (tauri-plugin-updater); CI check that the tag matches `tauri.conf.json` versions; bump actions to Node 24 variants when available.
 
 ## Calc (Phase 6 leftovers)
-- Adjust references that point at cut-moved cells; Ctrl+D/Ctrl+R fill down/right; delete-sheet core command; month/weekday fill series; General integers too long should switch to `1.2E+12` instead of `####`; engine number formats lack `AM/PM` and `[h]` (TEXT and cell display).
+- References to cells overwritten by a cut-move should become `#REF!` (Excel); delete-sheet core command; month/weekday fill series; small General numbers in narrow cells (`1.2E-05`); `is_date_format` should recognise `[h]`/AM/PM codes for date fill series; Fill Down/Right buttons in the ribbon Editing group; move the gallery width fix into ui-shared `gallery.tsx`.
 
 ## Write (Phase 6 leftovers)
 - Split long tables/lists across pages and repeat header rows in print layout; rich-text headers/footers (first/odd/even); "Page X of Y" in the status bar; borders on selected cells + table style presets; incremental pagination for long documents (print layout disables the content-visibility fast path).
