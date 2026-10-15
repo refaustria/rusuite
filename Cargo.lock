@@ -84,6 +84,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "app-show"
+version = "0.1.0"
+dependencies = [
+ "show-core",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+]
+
+[[package]]
+name = "app-show-wasm"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "show-core",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "app-write"
 version = "0.1.0"
 dependencies = [
@@ -3184,6 +3203,13 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "show-core"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "simd-adler32"

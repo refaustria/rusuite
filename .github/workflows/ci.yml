@@ -21,7 +21,7 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
-      - run: cargo check --target wasm32-unknown-unknown -p core-model -p engine-formula -p model-sheet -p fmt-ooxml -p app-common -p app-calc-wasm -p write-core -p app-write-wasm
+      - run: cargo check --target wasm32-unknown-unknown -p core-model -p engine-formula -p model-sheet -p fmt-ooxml -p app-common -p app-calc-wasm -p write-core -p app-write-wasm -p show-core -p app-show-wasm
       - run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
@@ -52,3 +52,5 @@ jobs:
       - run: pnpm --filter calc build:web
       - run: pnpm --filter write build
       - run: pnpm --filter write build:web
+      - run: pnpm --filter show build
+      - run: pnpm --filter show build:web
