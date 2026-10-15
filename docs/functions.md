@@ -83,13 +83,13 @@ General rules that apply to every function below:
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
-| `VLOOKUP` | `VLOOKUP(value, table, col, [approx=TRUE])` | Search first column | Default approximate (sorted) match; exact match supports wildcards and is case-insensitive; col < 1 `#VALUE!`; col > width `#REF!`; no match `#N/A` | planned |
-| `HLOOKUP` | `HLOOKUP(value, table, row, [approx=TRUE])` | Search first row | Mirror of `VLOOKUP` | planned |
-| `INDEX` | `INDEX(range, row, [col])` | Element of a range | Out of range `#REF!`; negative `#VALUE!`; one-dimensional ranges accept a single index; empty cell yields 0 | planned |
-| `MATCH` | `MATCH(value, range, [type=1])` | Position in a range | Type 0 exact (wildcards), 1 largest <=, -1 smallest >=; no match `#N/A` | planned |
-| `CHOOSE` | `CHOOSE(index, value1, ...)` | Pick by index | Index truncated; out of range `#VALUE!`; lazy | planned |
-| `ROW` | `ROW([reference])` | Row number of a reference | Errors in the referenced cell are not propagated; no-argument form is the host cell | planned |
-| `COLUMN` | `COLUMN([reference])` | Column number of a reference | `COLUMN(XFD1)` = 16384 | planned |
+| `VLOOKUP` | `VLOOKUP(value, table, col, [approx=TRUE])` | Search first column | Default approximate (sorted) match; exact match supports wildcards and is case-insensitive; col < 1 `#VALUE!`; col > width `#REF!`; no match `#N/A` | implemented |
+| `HLOOKUP` | `HLOOKUP(value, table, row, [approx=TRUE])` | Search first row | Mirror of `VLOOKUP` | implemented |
+| `INDEX` | `INDEX(range, row, [col])` | Element of a range | Out of range `#REF!`; negative `#VALUE!`; one-dimensional ranges accept a single index; empty cell yields 0 | implemented |
+| `MATCH` | `MATCH(value, range, [type=1])` | Position in a range | Type 0 exact (wildcards), 1 largest <=, -1 smallest >=; no match `#N/A` | implemented |
+| `CHOOSE` | `CHOOSE(index, value1, ...)` | Pick by index | Index truncated; out of range `#VALUE!`; lazy | implemented |
+| `ROW` | `ROW([reference])` | Row number of a reference | Errors in the referenced cell are not propagated; no-argument form is the host cell | implemented |
+| `COLUMN` | `COLUMN([reference])` | Column number of a reference | `COLUMN(XFD1)` = 16384 | implemented |
 
 ## Date / time (8)
 

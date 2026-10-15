@@ -15,6 +15,7 @@ use crate::value::{to_bool, to_number, to_text, Array, Value};
 pub mod datetime;
 pub mod info;
 pub mod logical;
+pub mod lookup;
 pub mod math;
 pub mod text;
 
@@ -86,6 +87,7 @@ impl FunctionRegistry {
         text::register(&mut r);
         info::register(&mut r);
         datetime::register(&mut r);
+        lookup::register(&mut r);
         r
     }
 
@@ -423,7 +425,7 @@ mod tests {
         assert!(names.windows(2).all(|w| w[0] < w[1]));
         assert_eq!(r.get("sum").map(|f| f.name()), Some("SUM"));
         assert_eq!(r.get("Iserror").map(|f| f.name()), Some("ISERROR"));
-        assert!(r.get("VLOOKUP").is_none());
+        assert!(r.get("NOSUCHFN").is_none());
         assert!(FunctionRegistry::new().names().is_empty());
     }
 
