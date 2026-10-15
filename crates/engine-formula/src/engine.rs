@@ -68,6 +68,7 @@ use crate::eval::{evaluate, system_now, CellCoord, CellProvider, EvalContext, Sh
 use crate::functions::FunctionRegistry;
 use crate::graph::{Cycle, DependencyGraph, Precedent, SheetResolver};
 use crate::parser::{parse, ParseError};
+use crate::transform::{adjust_references, AdjustContext, StructuralOp};
 use crate::value::{parse_number_text, Value};
 
 /// Functions whose result can change without any input changing; cells
@@ -464,6 +465,205 @@ impl Engine {
     pub fn end_batch(&mut self) -> Recalc {
         let pending = self.pending.take().unwrap_or_default();
         self.recalc(&pending)
+    }
+
+    /// All non-empty contents of `sheet`, in no particular order (empty for
+    /// an unknown sheet).
+    pub fn cells(&self, sheet: SheetId) -> impl Iterator<Item = (CellCoord, &CellContent)> {
+        self.sheets
+            .get(sheet.0 as usize)
+            .into_iter()
+            .flat_map(move |s| {
+                s.cells
+                    .iter()
+                    .map(move |(&(row, col), content)| (CellCoord::new(sheet, row, col), content))
+            })
+    }
+
+    /// Inserts `count` empty rows before row `at` (0-based) of `sheet`.
+    ///
+    /// Cells at or below `at` move down; every formula of the workbook is
+    /// rewritten with [`adjust_references`] (its text regenerated from the
+    /// new AST). [`Recalc::changed`] lists the vacated and the new
+    /// positions of every moved cell, every formula whose text was
+    /// rewritten (on any sheet) and every re-evaluated formula whose value
+    /// changed. Inside a batch the recalculation is deferred as for
+    /// `set_*`. Fails with [`EngineError::InvalidCoord`] if `at` is
+    /// past the last row or non-empty cells would be pushed off the sheet.
+    /// `count == 0` is a no-op.
+    ///
+    /// Cost: O(cells of `sheet` + formulas of the workbook) for moving and
+    /// rewriting; only the moved/rewritten formulas are re-registered in
+    /// the dependency graph, and recalculation is incremental, seeded with
+    /// every coordinate whose content changed.
+    pub fn insert_rows(
+        &mut self,
+        sheet: SheetId,
+        at: u32,
+        count: u32,
+    ) -> Result<Recalc, EngineError> {
+        self.structural(sheet, StructuralOp::InsertRows { at, count })
+    }
+
+    /// Deletes rows `at..at + count` of `sheet`; cells below move up and
+    /// references into the deleted rows become `#REF!` (ranges shrink).
+    /// Fails with [`EngineError::InvalidCoord`] if the span extends past
+    /// the last row. See [`insert_rows`](Self::insert_rows).
+    pub fn delete_rows(
+        &mut self,
+        sheet: SheetId,
+        at: u32,
+        count: u32,
+    ) -> Result<Recalc, EngineError> {
+        self.structural(sheet, StructuralOp::DeleteRows { at, count })
+    }
+
+    /// Inserts `count` empty columns before column `at`. See
+    /// [`insert_rows`](Self::insert_rows).
+    pub fn insert_cols(
+        &mut self,
+        sheet: SheetId,
+        at: u32,
+        count: u32,
+    ) -> Result<Recalc, EngineError> {
+        self.structural(sheet, StructuralOp::InsertCols { at, count })
+    }
+
+    /// Deletes columns `at..at + count`. See
+    /// [`delete_rows`](Self::delete_rows).
+    pub fn delete_cols(
+        &mut self,
+        sheet: SheetId,
+        at: u32,
+        count: u32,
+    ) -> Result<Recalc, EngineError> {
+        self.structural(sheet, StructuralOp::DeleteCols { at, count })
+    }
+
+    /// Shared implementation of the row/column insert and delete methods.
+    fn structural(&mut self, sheet: SheetId, op: StructuralOp) -> Result<Recalc, EngineError> {
+        let idx = self.sheet_index(sheet)?;
+        let (at, count) = op.span();
+        let max = u64::from(op.max_index());
+        if u64::from(at) > max {
+            return Err(EngineError::InvalidCoord);
+        }
+        if count == 0 {
+            return Ok(Recalc::default());
+        }
+        if op.is_insert() {
+            let pushed_off = self.sheets[idx]
+                .cells
+                .keys()
+                .any(|&(r, c)| op.map_cell(r, c).is_none());
+            if u64::from(at) + u64::from(count) > max + 1 || pushed_off {
+                return Err(EngineError::InvalidCoord);
+            }
+        } else if u64::from(at) + u64::from(count) > max + 1 {
+            return Err(EngineError::InvalidCoord);
+        }
+
+        // 1. Move contents and cached values on the target sheet.
+        let coord = |s: SheetId, (row, col): (u32, u32)| CellCoord::new(s, row, col);
+        let mut vacated = Vec::new();
+        let mut moved_to = Vec::new();
+        let mut unregister: HashSet<CellCoord> = HashSet::new();
+        let mut register: HashSet<CellCoord> = HashSet::new();
+        {
+            let s = &mut self.sheets[idx];
+            let old_cells = std::mem::take(&mut s.cells);
+            let mut old_values = std::mem::take(&mut s.values);
+            for (pos, content) in old_cells {
+                let new_pos = op.map_cell(pos.0, pos.1);
+                let is_formula = matches!(content, CellContent::Formula { .. });
+                if new_pos != Some(pos) {
+                    vacated.push(coord(sheet, pos));
+                    if is_formula {
+                        unregister.insert(coord(sheet, pos));
+                    }
+                }
+                let Some(new_pos) = new_pos else {
+                    continue;
+                };
+                if new_pos != pos {
+                    moved_to.push(coord(sheet, new_pos));
+                    if is_formula {
+                        register.insert(coord(sheet, new_pos));
+                    }
+                }
+                if let Some(v) = old_values.remove(&pos) {
+                    s.values.insert(new_pos, v);
+                }
+                s.cells.insert(new_pos, content);
+            }
+            s.used = s.cells.keys().fold(None, |acc, &(r, c)| match acc {
+                None => Some((r, c)),
+                Some((mr, mc)) => Some((mr.max(r), mc.max(c))),
+            });
+        }
+
+        // 2. Rewrite every formula of the workbook.
+        let target = self.sheets[idx].name.clone();
+        let mut rewritten = Vec::new();
+        for (i, s) in self.sheets.iter_mut().enumerate() {
+            let ctx = AdjustContext {
+                host_sheet: &s.name,
+                target_sheet: &target,
+                op,
+            };
+            for (&pos, content) in s.cells.iter_mut() {
+                let CellContent::Formula { text, ast } = content else {
+                    continue;
+                };
+                let new = adjust_references(ast, &ctx);
+                if new != *ast {
+                    *text = format!("={new}");
+                    *ast = new;
+                    let c = coord(SheetId(i as u32), pos);
+                    rewritten.push(c);
+                    unregister.insert(c);
+                    register.insert(c);
+                }
+            }
+        }
+
+        // 3. Re-register the moved and rewritten formulas (all removals
+        //    first: a new position may be another formula's old one).
+        for c in &unregister {
+            self.graph.remove_formula(*c);
+            self.volatile.remove(c);
+        }
+        for &c in &register {
+            let Some(CellContent::Formula { ast, .. }) =
+                self.sheets[c.sheet.0 as usize].cells.get(&(c.row, c.col))
+            else {
+                continue;
+            };
+            self.graph
+                .set_formula(c, ast, &Names(&self.sheets), c.sheet);
+            if is_volatile(ast) {
+                self.volatile.insert(c);
+            }
+        }
+
+        // 4. Recalculate from every coordinate whose content changed.
+        let mut seeds = vacated;
+        seeds.extend_from_slice(&moved_to);
+        seeds.extend(rewritten);
+        let mut changed = moved_to;
+        let mut cycle = None;
+        match &mut self.pending {
+            Some(pending) => pending.extend(seeds.iter().copied()),
+            None => {
+                let r = self.recalc(&seeds);
+                changed.extend(r.changed);
+                cycle = r.cycle;
+            }
+        }
+        changed.extend(seeds);
+        changed.sort_unstable();
+        changed.dedup();
+        Ok(Recalc { changed, cycle })
     }
 
     fn sheet_index(&self, id: SheetId) -> Result<usize, EngineError> {

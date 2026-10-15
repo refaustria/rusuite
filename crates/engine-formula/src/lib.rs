@@ -6,7 +6,8 @@
 //! [`value`] system with Excel coercions, the [`eval`]uator and the
 //! pluggable [`functions`] registry. The [`graph`] orders recalculation;
 //! the [`engine`] ties storage, graph and evaluator together into one
-//! workbook-level [`Engine`].
+//! workbook-level [`Engine`]. [`transform`] rewrites references for
+//! row/column inserts and deletes and for copy/paste.
 //!
 //! ```
 //! let ast = engine_formula::parse("=sum(A1:B2, Sheet2!$C$3)*2").unwrap();
@@ -46,6 +47,7 @@ pub mod functions;
 pub mod graph;
 pub mod lexer;
 pub mod parser;
+pub mod transform;
 pub mod value;
 
 pub use ast::{ErrorKind, Expr};
@@ -54,4 +56,5 @@ pub use eval::{evaluate, CellCoord, CellProvider, EvalContext, Operand, RangeRef
 pub use functions::{Arity, CallContext, Function, FunctionRegistry};
 pub use graph::Cycle;
 pub use parser::{parse, ParseError};
+pub use transform::{adjust_references, offset_relative, AdjustContext, StructuralOp};
 pub use value::{Array, Value};

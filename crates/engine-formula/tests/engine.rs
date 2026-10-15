@@ -297,3 +297,177 @@ fn long_chain_scales() {
     assert_eq!(e.value(CellCoord::new(S1, N - 1, 0)), n(f64::from(N + 1)));
     assert!(start.elapsed().as_secs() < 10, "took {:?}", start.elapsed());
 }
+
+fn text(e: &Engine, cell: CellCoord) -> Option<&str> {
+    e.formula_text(cell)
+}
+
+#[test]
+fn insert_and_delete_rows() {
+    let mut e = Engine::new();
+    let s2 = e.add_sheet("Sheet2").unwrap();
+    set(&mut e, c("A1"), "1");
+    set(&mut e, c("A2"), "=A1*2");
+    set(&mut e, c("A3"), "=SUM(A1:A2)");
+    set(&mut e, at(s2, "B1"), "=Sheet1!A3+Sheet1!A1");
+    set(&mut e, at(s2, "B2"), "=A3"); // Sheet2!A3: must not move
+    assert_eq!(e.value(at(s2, "B1")), n(4.0));
+
+    let r = e.insert_rows(S1, 1, 1).unwrap();
+    assert_eq!(r.cycle, None);
+    assert_eq!(e.value(c("A1")), n(1.0));
+    assert_eq!(e.content(c("A2")), &CellContent::Empty);
+    assert_eq!(text(&e, c("A3")), Some("=A1*2"));
+    assert_eq!(e.value(c("A3")), n(2.0));
+    assert_eq!(text(&e, c("A4")), Some("=SUM(A1:A3)"));
+    assert_eq!(e.value(c("A4")), n(3.0));
+    assert_eq!(text(&e, at(s2, "B1")), Some("=Sheet1!A4+Sheet1!A1"));
+    assert_eq!(text(&e, at(s2, "B2")), Some("=A3"));
+    assert_eq!(e.value(at(s2, "B1")), n(4.0));
+    assert_eq!(e.used_range(S1), Some((3, 0)));
+    // Vacated + new positions on Sheet1, the rewritten formula on Sheet2.
+    let mut want = cells(&["A2", "A3", "A4"]);
+    want.push(at(s2, "B1"));
+    assert_eq!(r.changed, want);
+
+    // cells() yields the moved contents.
+    let mut listed: Vec<(CellCoord, String)> = e
+        .cells(S1)
+        .map(|(cell, content)| {
+            let shown = match content {
+                CellContent::Formula { text, .. } => text.clone(),
+                CellContent::Value(v) => format!("{v:?}"),
+                CellContent::Empty => unreachable!("cells() skips empty cells"),
+            };
+            (cell, shown)
+        })
+        .collect();
+    listed.sort();
+    assert_eq!(
+        listed,
+        vec![
+            (c("A1"), format!("{:?}", n(1.0))),
+            (c("A3"), "=A1*2".to_string()),
+            (c("A4"), "=SUM(A1:A3)".to_string()),
+        ]
+    );
+    assert_eq!(e.cells(SheetId(9)).count(), 0);
+
+    // Graph consistency: the moved formulas follow their precedents.
+    let mut want = cells(&["A3", "A4"]);
+    want.push(at(s2, "B1"));
+    assert_eq!(set(&mut e, c("A1"), "5"), want);
+    assert_eq!(e.value(c("A4")), n(15.0));
+    assert_eq!(e.value(at(s2, "B1")), n(20.0));
+    // The new empty row is inside the SUM range.
+    assert_eq!(set(&mut e, c("A2"), "100"), vec![c("A4"), at(s2, "B1")]);
+    assert_eq!(e.value(at(s2, "B1")), n(120.0));
+    e.clear(c("A2")).unwrap();
+
+    // Deleting row 1 turns references to A1 into #REF!.
+    let r = e.delete_rows(S1, 0, 1).unwrap();
+    assert_eq!(e.content(c("A1")), &CellContent::Empty);
+    assert_eq!(text(&e, c("A2")), Some("=#REF!*2"));
+    assert_eq!(e.value(c("A2")), Value::Error(ErrorKind::Ref));
+    // SUM(A1:A3) lost its first row.
+    assert_eq!(text(&e, c("A3")), Some("=SUM(A1:A2)"));
+    assert_eq!(e.value(c("A3")), Value::Error(ErrorKind::Ref));
+    assert_eq!(e.content(c("A4")), &CellContent::Empty);
+    assert_eq!(e.used_range(S1), Some((2, 0)));
+    let mut want = cells(&["A1", "A2", "A3", "A4"]);
+    want.push(at(s2, "B1"));
+    assert_eq!(r.changed, want);
+    assert_eq!(
+        text(&e, at(s2, "B1")),
+        Some("=Sheet1!A3+#REF!"),
+        "the cross-sheet formula follows the move"
+    );
+    assert_eq!(e.value(at(s2, "B1")), Value::Error(ErrorKind::Ref));
+}
+
+#[test]
+fn delete_rows_moves_sum_and_values() {
+    let mut e = Engine::new();
+    for (cell, input) in [
+        ("A1", "1"),
+        ("A2", "2"),
+        ("A3", "3"),
+        ("A4", "4"),
+        ("A5", "=SUM(A1:A4)"),
+        ("B5", "=A5*10"),
+    ] {
+        set(&mut e, c(cell), input);
+    }
+    assert_eq!(e.value(c("B5")), n(100.0));
+    let r = e.delete_rows(S1, 1, 2).unwrap();
+    assert_eq!(text(&e, c("A3")), Some("=SUM(A1:A2)"));
+    assert_eq!(e.value(c("A3")), n(5.0));
+    assert_eq!(text(&e, c("B3")), Some("=A3*10"));
+    assert_eq!(e.value(c("B3")), n(50.0));
+    assert_eq!(e.value(c("A2")), n(4.0));
+    assert_eq!(e.content(c("A5")), &CellContent::Empty);
+    assert_eq!(e.content(c("B5")), &CellContent::Empty);
+    assert_eq!(
+        r.changed,
+        cells(&["A2", "A3", "B3", "A4", "A5", "B5"])
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(set(&mut e, c("A1"), "11"), cells(&["A3", "B3"]));
+    assert_eq!(e.value(c("B3")), n(150.0));
+}
+
+#[test]
+fn insert_and_delete_cols() {
+    let mut e = Engine::new();
+    set(&mut e, c("A1"), "2");
+    set(&mut e, c("B1"), "=A1+1");
+    set(&mut e, c("C1"), "=$B$1*A1");
+    e.insert_cols(S1, 1, 2).unwrap();
+    assert_eq!(text(&e, c("D1")), Some("=A1+1"));
+    assert_eq!(text(&e, c("E1")), Some("=$D$1*A1"));
+    assert_eq!(e.value(c("E1")), n(6.0));
+    assert_eq!(e.used_range(S1), Some((0, 4)));
+    e.delete_cols(S1, 0, 1).unwrap();
+    assert_eq!(text(&e, c("C1")), Some("=#REF!+1"));
+    assert_eq!(text(&e, c("D1")), Some("=$C$1*#REF!"));
+    assert_eq!(e.value(c("D1")), Value::Error(ErrorKind::Ref));
+    assert_eq!(e.content(c("A1")), &CellContent::Empty);
+}
+
+#[test]
+fn structural_errors_and_batches() {
+    let mut e = Engine::new();
+    assert_eq!(
+        e.insert_rows(SheetId(5), 0, 1),
+        Err(EngineError::UnknownSheet(SheetId(5)))
+    );
+    assert_eq!(
+        e.insert_rows(S1, 1_048_576, 1),
+        Err(EngineError::InvalidCoord)
+    );
+    assert_eq!(
+        e.delete_rows(S1, 1_048_575, 2),
+        Err(EngineError::InvalidCoord)
+    );
+    assert_eq!(e.delete_cols(S1, 16_383, 1), Ok(Default::default()));
+    assert_eq!(e.insert_cols(S1, 16_384, 1), Err(EngineError::InvalidCoord));
+    assert_eq!(e.insert_rows(S1, 0, 0), Ok(Default::default()));
+    // Content would be pushed off the sheet.
+    set(&mut e, at(S1, "A1048576"), "x");
+    assert_eq!(e.insert_rows(S1, 5, 1), Err(EngineError::InvalidCoord));
+    assert_eq!(e.value(at(S1, "A1048576")), t("x"));
+    e.clear(at(S1, "A1048576")).unwrap();
+
+    // Inside a batch the recalculation is deferred to end_batch.
+    set(&mut e, c("A1"), "3");
+    set(&mut e, c("B1"), "=A1");
+    e.begin_batch();
+    let r = e.insert_rows(S1, 0, 1).unwrap();
+    assert_eq!(r.changed, cells(&["A1", "B1", "A2", "B2"]));
+    set(&mut e, c("A2"), "4");
+    assert_eq!(e.end_batch().changed, cells(&["B2"]));
+    assert_eq!(e.value(c("B2")), n(4.0));
+}
