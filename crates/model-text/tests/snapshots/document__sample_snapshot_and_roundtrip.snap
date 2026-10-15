@@ -1,0 +1,628 @@
+---
+source: crates/model-text/tests/document.rs
+expression: "serde_json::to_value(&doc).unwrap()"
+---
+{
+  "body": [
+    {
+      "kind": "paragraph",
+      "value": {
+        "id": 2,
+        "inlines": [
+          {
+            "kind": "run",
+            "value": {
+              "text": "Report"
+            }
+          }
+        ],
+        "props": {
+          "style": "Heading1"
+        }
+      }
+    },
+    {
+      "kind": "paragraph",
+      "value": {
+        "id": 3,
+        "inlines": [
+          {
+            "kind": "run",
+            "value": {
+              "text": "First item"
+            }
+          }
+        ],
+        "props": {
+          "numbering": {
+            "level": 0,
+            "numId": 1
+          },
+          "style": "ListParagraph"
+        }
+      }
+    },
+    {
+      "kind": "paragraph",
+      "value": {
+        "id": 4,
+        "inlines": [
+          {
+            "kind": "run",
+            "value": {
+              "text": "Nested item"
+            }
+          }
+        ],
+        "props": {
+          "numbering": {
+            "level": 1,
+            "numId": 1
+          },
+          "style": "ListParagraph"
+        }
+      }
+    },
+    {
+      "kind": "table",
+      "value": {
+        "id": 15,
+        "props": {
+          "borders": {
+            "bottom": {
+              "color": {
+                "kind": "auto"
+              },
+              "style": "single",
+              "width": 10
+            },
+            "insideH": {
+              "color": {
+                "kind": "auto"
+              },
+              "style": "single",
+              "width": 10
+            },
+            "insideV": {
+              "color": {
+                "kind": "auto"
+              },
+              "style": "single",
+              "width": 10
+            },
+            "left": {
+              "color": {
+                "kind": "auto"
+              },
+              "style": "single",
+              "width": 10
+            },
+            "right": {
+              "color": {
+                "kind": "auto"
+              },
+              "style": "single",
+              "width": 10
+            },
+            "top": {
+              "color": {
+                "kind": "auto"
+              },
+              "style": "single",
+              "width": 10
+            }
+          },
+          "colWidths": [
+            4513,
+            4513
+          ],
+          "width": {
+            "kind": "pct",
+            "value": 5000
+          }
+        },
+        "rows": [
+          {
+            "cells": [
+              {
+                "blocks": [
+                  {
+                    "kind": "paragraph",
+                    "value": {
+                      "id": 7,
+                      "inlines": [
+                        {
+                          "kind": "run",
+                          "value": {
+                            "text": "Name"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "id": 6,
+                "props": {
+                  "shading": {
+                    "kind": "rgb",
+                    "value": "D9E2F3"
+                  }
+                }
+              },
+              {
+                "blocks": [
+                  {
+                    "kind": "paragraph",
+                    "value": {
+                      "id": 9,
+                      "inlines": [
+                        {
+                          "kind": "run",
+                          "value": {
+                            "text": "Value"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "id": 8,
+                "props": {
+                  "shading": {
+                    "kind": "rgb",
+                    "value": "D9E2F3"
+                  }
+                }
+              }
+            ],
+            "id": 5,
+            "props": {
+              "header": true
+            }
+          },
+          {
+            "cells": [
+              {
+                "blocks": [
+                  {
+                    "kind": "paragraph",
+                    "value": {
+                      "id": 12,
+                      "inlines": [
+                        {
+                          "kind": "run",
+                          "value": {
+                            "text": "Alpha"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "id": 11
+              },
+              {
+                "blocks": [
+                  {
+                    "kind": "paragraph",
+                    "value": {
+                      "id": 14,
+                      "inlines": [
+                        {
+                          "kind": "run",
+                          "value": {
+                            "text": "42"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "id": 13
+              }
+            ],
+            "id": 10
+          }
+        ]
+      }
+    },
+    {
+      "kind": "paragraph",
+      "value": {
+        "id": 16,
+        "inlines": [
+          {
+            "kind": "run",
+            "value": {
+              "text": "Logo: "
+            }
+          },
+          {
+            "kind": "image",
+            "value": {
+              "alt": "Company logo",
+              "height": 360000,
+              "media": 1,
+              "name": "Picture 1",
+              "width": 720000
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "media": [
+    {
+      "contentType": "image/png",
+      "data": "iVBORw0KGgpmYWtl",
+      "id": 1
+    }
+  ],
+  "numbering": {
+    "defs": [
+      {
+        "id": 1,
+        "levels": [
+          {
+            "font": {
+              "kind": "named",
+              "value": "Symbol"
+            },
+            "indent": {
+              "hanging": 360,
+              "left": 720
+            },
+            "kind": "bullet",
+            "start": 1,
+            "text": "•"
+          },
+          {
+            "font": {
+              "kind": "named",
+              "value": "Courier New"
+            },
+            "indent": {
+              "hanging": 360,
+              "left": 1440
+            },
+            "kind": "bullet",
+            "start": 1,
+            "text": "o"
+          },
+          {
+            "font": {
+              "kind": "named",
+              "value": "Wingdings"
+            },
+            "indent": {
+              "hanging": 360,
+              "left": 2160
+            },
+            "kind": "bullet",
+            "start": 1,
+            "text": "▪"
+          },
+          {
+            "font": {
+              "kind": "named",
+              "value": "Symbol"
+            },
+            "indent": {
+              "hanging": 360,
+              "left": 2880
+            },
+            "kind": "bullet",
+            "start": 1,
+            "text": "•"
+          },
+          {
+            "font": {
+              "kind": "named",
+              "value": "Courier New"
+            },
+            "indent": {
+              "hanging": 360,
+              "left": 3600
+            },
+            "kind": "bullet",
+            "start": 1,
+            "text": "o"
+          },
+          {
+            "font": {
+              "kind": "named",
+              "value": "Wingdings"
+            },
+            "indent": {
+              "hanging": 360,
+              "left": 4320
+            },
+            "kind": "bullet",
+            "start": 1,
+            "text": "▪"
+          },
+          {
+            "font": {
+              "kind": "named",
+              "value": "Symbol"
+            },
+            "indent": {
+              "hanging": 360,
+              "left": 5040
+            },
+            "kind": "bullet",
+            "start": 1,
+            "text": "•"
+          },
+          {
+            "font": {
+              "kind": "named",
+              "value": "Courier New"
+            },
+            "indent": {
+              "hanging": 360,
+              "left": 5760
+            },
+            "kind": "bullet",
+            "start": 1,
+            "text": "o"
+          },
+          {
+            "font": {
+              "kind": "named",
+              "value": "Wingdings"
+            },
+            "indent": {
+              "hanging": 360,
+              "left": 6480
+            },
+            "kind": "bullet",
+            "start": 1,
+            "text": "▪"
+          }
+        ]
+      }
+    ]
+  },
+  "page": {
+    "height": 16838,
+    "margins": {
+      "bottom": 1440,
+      "footer": 708,
+      "header": 708,
+      "left": 1440,
+      "right": 1440,
+      "top": 1440
+    },
+    "orientation": "portrait",
+    "width": 11906
+  },
+  "styles": {
+    "defaults": {
+      "paragraph": {
+        "spacing": {
+          "after": 160,
+          "line": {
+            "kind": "multiple",
+            "value": 1.0791666666666666
+          }
+        }
+      },
+      "run": {
+        "font": {
+          "kind": "theme",
+          "value": "minorLatin"
+        },
+        "size": 1100
+      }
+    },
+    "styles": [
+      {
+        "id": "Normal",
+        "isDefault": true,
+        "kind": "paragraph",
+        "name": "Normal"
+      },
+      {
+        "basedOn": "Normal",
+        "id": "Title",
+        "kind": "paragraph",
+        "name": "Title",
+        "next": "Normal",
+        "paragraph": {
+          "spacing": {
+            "after": 0,
+            "line": {
+              "kind": "multiple",
+              "value": 1.0
+            }
+          }
+        },
+        "run": {
+          "font": {
+            "kind": "theme",
+            "value": "majorLatin"
+          },
+          "size": 2800
+        }
+      },
+      {
+        "basedOn": "Normal",
+        "id": "Heading1",
+        "kind": "paragraph",
+        "name": "heading 1",
+        "next": "Normal",
+        "paragraph": {
+          "keepNext": true,
+          "spacing": {
+            "after": 0,
+            "before": 240
+          }
+        },
+        "run": {
+          "color": {
+            "kind": "theme",
+            "value": {
+              "slot": "accent1",
+              "tint": -0.25
+            }
+          },
+          "font": {
+            "kind": "theme",
+            "value": "majorLatin"
+          },
+          "size": 1600
+        }
+      },
+      {
+        "basedOn": "Normal",
+        "id": "Heading2",
+        "kind": "paragraph",
+        "name": "heading 2",
+        "next": "Normal",
+        "paragraph": {
+          "keepNext": true,
+          "spacing": {
+            "after": 0,
+            "before": 40
+          }
+        },
+        "run": {
+          "color": {
+            "kind": "theme",
+            "value": {
+              "slot": "accent1",
+              "tint": -0.25
+            }
+          },
+          "font": {
+            "kind": "theme",
+            "value": "majorLatin"
+          },
+          "size": 1300
+        }
+      },
+      {
+        "basedOn": "Normal",
+        "id": "Heading3",
+        "kind": "paragraph",
+        "name": "heading 3",
+        "next": "Normal",
+        "paragraph": {
+          "keepNext": true,
+          "spacing": {
+            "after": 0,
+            "before": 40
+          }
+        },
+        "run": {
+          "color": {
+            "kind": "theme",
+            "value": {
+              "slot": "accent1",
+              "tint": -0.5
+            }
+          },
+          "font": {
+            "kind": "theme",
+            "value": "majorLatin"
+          },
+          "size": 1200
+        }
+      },
+      {
+        "basedOn": "Normal",
+        "id": "Heading4",
+        "kind": "paragraph",
+        "name": "heading 4",
+        "next": "Normal",
+        "paragraph": {
+          "keepNext": true,
+          "spacing": {
+            "after": 0,
+            "before": 40
+          }
+        },
+        "run": {
+          "color": {
+            "kind": "theme",
+            "value": {
+              "slot": "accent1",
+              "tint": -0.25
+            }
+          },
+          "font": {
+            "kind": "theme",
+            "value": "majorLatin"
+          },
+          "italic": true
+        }
+      },
+      {
+        "basedOn": "Normal",
+        "id": "Heading5",
+        "kind": "paragraph",
+        "name": "heading 5",
+        "next": "Normal",
+        "paragraph": {
+          "keepNext": true,
+          "spacing": {
+            "after": 0,
+            "before": 40
+          }
+        },
+        "run": {
+          "color": {
+            "kind": "theme",
+            "value": {
+              "slot": "accent1",
+              "tint": -0.25
+            }
+          },
+          "font": {
+            "kind": "theme",
+            "value": "majorLatin"
+          }
+        }
+      },
+      {
+        "basedOn": "Normal",
+        "id": "Heading6",
+        "kind": "paragraph",
+        "name": "heading 6",
+        "next": "Normal",
+        "paragraph": {
+          "keepNext": true,
+          "spacing": {
+            "after": 0,
+            "before": 40
+          }
+        },
+        "run": {
+          "color": {
+            "kind": "theme",
+            "value": {
+              "slot": "accent1",
+              "tint": -0.5
+            }
+          },
+          "font": {
+            "kind": "theme",
+            "value": "majorLatin"
+          }
+        }
+      },
+      {
+        "basedOn": "Normal",
+        "id": "ListParagraph",
+        "kind": "paragraph",
+        "name": "List Paragraph",
+        "paragraph": {
+          "indent": {
+            "left": 720
+          }
+        }
+      }
+    ]
+  }
+}

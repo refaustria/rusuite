@@ -11,6 +11,7 @@ pub mod color;
 pub mod font;
 pub mod run;
 pub mod theme;
+pub mod units;
 
 pub use color::{apply_tint, Color, ColorParseError, ColorScheme, Rgb, ThemeColorSlot};
 pub use font::{FontFace, FontScheme, FontSize, ThemeFontSlot};
