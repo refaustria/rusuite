@@ -97,6 +97,9 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## Calc (Phase 6 leftovers)
 - Adjust references that point at cut-moved cells; Ctrl+D/Ctrl+R fill down/right; delete-sheet core command; month/weekday fill series; General integers too long should switch to `1.2E+12` instead of `####`; engine number formats lack `AM/PM` and `[h]` (TEXT and cell display).
 
+## Ribbon
+- Groups that collapse into dropdowns on narrow windows; Quick Access Toolbar; remember collapsed state and zoom; Calc Data tab (sort/filter) if it enters scope; print preview in the backstage; Write font box shows the effective (style-derived) font.
+
 ## Phase 5 leftovers
 - Write: windowed/paged editor so the contenteditable holds only visible pages (remaining ~2 ms typing p95 gap).
 - Performance: paged/virtual Write editor for very long documents; range-level `ApplyStyle` patches in Calc (1M-cell style patch is 2.7 s because the patch carries every cell); cache parsed number formats; move the Playwright perf scripts into an e2e package so `scripts/perf.sh` needs no scratchpad files.
