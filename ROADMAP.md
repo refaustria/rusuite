@@ -102,6 +102,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Effect Options for sorter-selected slides; transitions when going back/jumping; badges for grouped shapes; emphasis auto-reverse; Animation Painter; Konva-rendered transitions in PDF export; Float In / Split effects; per-paragraph builds; p14 transitions.
 
 ## Write parity follow-ups
+- write-core: normalize runs in note paragraphs after edits (typed note text is saved one run per char); per-section text width in the editor; footnotes at page bottom in print output (currently at the end) and not duplicated in print layout; `ApplyNumbering` command for list presets; document author property for the AUTHOR field.
 - Heading numbers in TOC entries; outlineLvl; section-level note formats; core field-update pass; split/join inside notes and headers; ADR 0006 numbering bullet to update (shared abstractNum now).
 
 ## Office parity – tracked in docs/parity-backlog.md (Phase 8)
