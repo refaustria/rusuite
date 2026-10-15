@@ -43,8 +43,8 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 | P3-3 | Write app scaffold: `apps/write` core/src-tauri/src-wasm/Tiptap UI, deployed at /write/ | Sonnet | done (merged) | – | verified: LIVE https://resuite.inceptum.at/write/ (Tiptap 3.31.3 placeholder editor), tauri build runs under xvfb, deploy script covers calc+write |
 | P3-6 | 50 provisional reference .docx files + manifest + docs/docx-suite.md | Sonnet | done (merged) | – | verified: 50 files + manifest, 52/52 harness PASS, structural spot-checks OK; LibreOffice writes highlights as `w:shd` (reader must accept both) |
 | P3-2 | `fmt-docx` read/write ↔ model-text (document/styles/numbering/media/sectPr) + roundtrip tests over the manifest | Opus | in progress | `p3/fmt-docx` | brief docs/tasks/P3-2-fmt-docx.md |
-| P3-4 | `write-core`: commands/patches, Tiptap↔Rust sync protocol (ADR 0007), find/replace, undo | Opus | in progress | `p3/write-core` | brief docs/tasks/P3-4-write-core.md |
-| P3-5 | Write UI: Tiptap schema mapping, transaction → command sync, toolbar from ui-shared | Opus | todo | `p3/write-ui` | after P3-4 |
+| P3-4 | `write-core`: commands/patches, Tiptap↔Rust sync protocol (ADR 0007), find/replace, undo | Opus | done (merged) | – | verified: 572 tests; `dispatch_with(&mut WriteHost, json)` is the real entry (shells switch in P3-7); re-inserted ids appear in deleted+inserted (UI must handle); model-text got a `ts` feature |
+| P3-5 | Write UI: Tiptap schema mapping, transaction → command sync, toolbar from ui-shared | Opus | in progress | `p3/write-ui` | brief docs/tasks/P3-5-write-ui-sync.md |
 | P3-7 | Wiring: docx open/save both shells; deploy | Opus | todo | `p3/write-wiring` | after P3-2 + P3-5 |
 | P3-8 | Milestone verification | PM | todo | – | |
 | P2-1 | `model-sheet`: Workbook wrapping `engine_formula::Engine` for contents/values + StyleTable (font/fill/border/alignment/number format), column/row dimensions, sheet metadata; serde; ADR 0004 | Opus | done (merged a112e4b) | – | verified: 15 tests, snapshot DTO, style interning; follow-up fixed a rustdoc link |
