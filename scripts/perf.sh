@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+# P5-4 performance measurements: runs the release perf examples of the
+# three app cores, the Calc wasm package under Node and (optionally) the
+# browser measurements, and writes docs/perf.md.
+#
+#   scripts/perf.sh                 # native + wasm (Node)
+#   PERF_FRONTEND_DIR=<dir> scripts/perf.sh
+#                                   # + headless Chromium measurements
+#
+# PERF_FRONTEND_DIR holds Playwright scripts kept outside the repository
+# (write-browser.mjs, show-browser.mjs, topm.ts). Each prints a JSON
+# array of {name, value, unit, target}; write-browser.mjs also writes the
+# Chromium version to $PERF_BROWSER_VERSION_FILE.
+# Needs: cargo, node, pnpm install done (wasm-pack), python3 (static server).
+set -euo pipefail
+export PATH="$HOME/.cargo/bin:$PATH"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+OUT="$ROOT/docs/perf.md"
+TMP="$(mktemp -d)"
+SERVER_PID=""
+cleanup() {
+  [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
+  rm -rf "$TMP"
+}
+trap cleanup EXIT
+
+log() { echo "perf.sh: $*" >&2; }
+
+# JSON rows (stdin) → Markdown table (same format as the Rust examples).
+json_table() {
+  node -e '
+    let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+      const rows = s.trim().split("\n").filter(Boolean).flatMap((l) => JSON.parse(l));
+      const fmt = (v, u) => u === "ms" ? (v >= 1000 ? (v / 1000).toFixed(2) + " s" : v < 1 ? v.toFixed(3) + " ms" : v.toFixed(1) + " ms") : u ? `${v.toFixed(1)} ${u}` : `${Math.round(v)}`;
+      console.log("| Measurement | Value | Target | |\n|---|---:|---:|---|");
+      for (const r of rows) {
+        const t = r.target == null ? "–" : "< " + fmt(r.target, r.unit);
+        const st = r.target == null ? "" : r.value <= r.target ? "ok" : "MISSED";
+        console.log(`| ${r.name} | ${fmt(r.value, r.unit)} | ${t} | ${st} |`);
+      }
+    });'
+}
+
+log "building release examples"
+cargo build -q --release -p calc-core --example bench_calc -p write-core --example bench_write \
+  -p show-core --example bench_show
+
+log "calc (native)"
+CALC="$(./target/release/examples/bench_calc "$TMP/perf.xlsx")"
+log "write (native)"
+WRITE="$(./target/release/examples/bench_write "$TMP/perf.docx" "$TMP/perf.json")"
+log "show (native)"
+SHOW="$(./target/release/examples/bench_show "$TMP/perf.pptx")"
+
+log "calc (wasm under Node)"
+WASM_PACK="$ROOT/apps/calc/node_modules/.bin/wasm-pack"
+"$WASM_PACK" build apps/calc/src-wasm --target nodejs --release --out-dir "$TMP/calc-node" >&2 2>"$TMP/wasm-pack.log" \
+  || { cat "$TMP/wasm-pack.log" >&2; exit 1; }
+echo 'module.exports.__wasm = wasm;' >> "$TMP/calc-node/app_calc_wasm.js"
+cat > "$TMP/calc-wasm.cjs" <<'EOF'
+// node calc-wasm.cjs <pkg dir> <xlsx> open|build
+const fs = require("fs");
+const [pkgDir, xlsx, mode] = process.argv.slice(2);
+const pkg = require(`${pkgDir}/app_calc_wasm.js`);
+const mem = () => pkg.__wasm.memory.buffer.byteLength / 2 ** 20;
+const rows = [];
+const add = (name, value, target, unit = "ms") => rows.push({ name, value, unit, target });
+const call = (req) => {
+  const out = pkg.dispatch(JSON.stringify(req));
+  if (!out.startsWith('{"ok"')) throw new Error(out.slice(0, 300));
+  return out;
+};
+const time = (f) => { const t = performance.now(); f(); return performance.now() - t; };
+const median = (n, f) => { const v = []; for (let i = 0; i < n; i++) v.push(time(f)); v.sort((a, b) => a - b); return v[n >> 1]; };
+const colLetters = (c) => { let s = ""; for (;;) { s = String.fromCharCode(65 + (c % 26)) + s; if (c < 26) break; c = Math.floor(c / 26) - 1; } return s; };
+const a1 = (r, c) => `${colLetters(c)}${r + 1}`;
+const M = (1n << 64n) - 1n;
+// Same generator as apps/calc/core/benches/calc_perf.rs.
+function input(row, col) {
+  const b = Number(((((BigInt(row) << 32n) | BigInt(col)) * 0x9E3779B97F4A7C15n & M) >> 32n) % 100n);
+  if (b < 70) { const n = (row * 31 + col * 17) % 10000; return b % 2 === 0 ? `${n}` : `${n}.25`; }
+  if (b < 90) return `Item ${row}-${col}`;
+  if (b < 95) { if (row === 0 && col === 0) return "1"; return col === 0 ? `=${a1(row - 1, 0)}*2` : `=${a1(row, col - 1)}*2`; }
+  if (row >= 3) return `=SUM(${a1(row - 3, col)}:${a1(row - 1, Math.min(col + 1, 999))})`;
+  return "7";
+}
+if (mode === "open") {
+  const b64 = fs.readFileSync(xlsx).toString("base64");
+  add("wasm: openXlsx of the generated workbook (styled, 1M cells + chain; incl. recalculation)", time(() => call({ type: "openXlsx", bytesBase64: b64, name: "perf.xlsx" })), 30000);
+  add("wasm: memory after open", mem(), 4096, "MB");
+  let n = 1;
+  add("wasm: edit at the head of the 10k chain (dispatch)", median(5, () => call({ type: "apply", command: { type: "setInput", sheet: 1, row: 0, col: 0, input: String(++n) } })), 100);
+  add("wasm: RegionSnapshot 64×32 (dispatch)", median(21, () => call({ type: "snapshot", sheet: 0, r0: 512, c0: 512, r1: 575, c1: 543 })), 5);
+  add("wasm: saveXlsx (incl. base64)", time(() => call({ type: "saveXlsx" })), null);
+} else {
+  const t0 = performance.now();
+  call({ type: "apply", command: { type: "addSheet", name: "Chain" } });
+  for (let r0 = 0; r0 < 1000; r0 += 100) {
+    const cells = [];
+    for (let r = r0; r < r0 + 100; r++) for (let c = 0; c < 1000; c++) cells.push([r, c, input(r, c), 0]);
+    call({ type: "apply", command: { type: "restoreCells", sheet: 0, cells } });
+  }
+  const chain = [[0, 0, "1", 0]];
+  for (let r = 1; r < 10000; r++) chain.push([r, 0, `=A${r}+1`, 0]);
+  call({ type: "apply", command: { type: "restoreCells", sheet: 1, cells: chain } });
+  add("wasm: load 1M cells + chain (11 batched restoreCells requests = set_input in batches)", performance.now() - t0, 30000);
+}
+add(`wasm: WebAssembly.Memory peak (${mode}; the wasm32 limit is 4096 MB)`, mem(), 4096, "MB");
+console.log(JSON.stringify(rows));
+EOF
+WASM="$( (node "$TMP/calc-wasm.cjs" "$TMP/calc-node" "$TMP/perf.xlsx" build; node "$TMP/calc-wasm.cjs" "$TMP/calc-node" "$TMP/perf.xlsx" open) | json_table)"
+
+FRONT_WRITE="_Not measured in this run (set \`PERF_FRONTEND_DIR\`)._"
+FRONT_SHOW="$FRONT_WRITE"
+CHROMIUM=""
+if [ -n "${PERF_FRONTEND_DIR:-}" ]; then
+  log "frontend: building web apps"
+  (cd apps/write && pnpm -s build:web >&2)
+  (cd apps/show && pnpm -s build:web >&2)
+  mkdir -p "$TMP/site"
+  ln -s "$ROOT/apps/write/dist-web" "$TMP/site/write"
+  ln -s "$ROOT/apps/show/dist-web" "$TMP/site/show"
+  PORT="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+  python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$TMP/site" >/dev/null 2>&1 &
+  SERVER_PID=$!
+  sleep 1
+  BASE="http://127.0.0.1:$PORT"
+  VITE_NODE="$(ls -d "$ROOT"/node_modules/.pnpm/vite-node@*/node_modules/vite-node | tail -n 1)/vite-node.mjs"
+  log "frontend: write"
+  FRONT_WRITE="$( {
+    (cd apps/write && REPO="$ROOT" node "$VITE_NODE" --root / "$PERF_FRONTEND_DIR/topm.ts" "$TMP/perf.json")
+    PERF_BROWSER_VERSION_FILE="$TMP/browser-version" node "$PERF_FRONTEND_DIR/write-browser.mjs" "$BASE" "$TMP/perf.docx" 200
+  } | json_table)"
+  log "frontend: show"
+  FRONT_SHOW="$(node "$PERF_FRONTEND_DIR/show-browser.mjs" "$BASE" "$TMP/perf.pptx" | json_table)"
+  CHROMIUM="$(cat "$TMP/browser-version" 2>/dev/null || echo "?")"
+fi
+
+CPU="$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //')"
+MEM="$(awk '/MemTotal/ { printf "%.0f GB", $2 / 1024 / 1024 }' /proc/meminfo)"
+cat > "$OUT" <<EOF
+# Performance (P5-4)
+
+Generated by \`scripts/perf.sh\` on $(date -u +%Y-%m-%d). Do not edit the tables by hand; rerun the script.
+
+**Machine:** ${CPU}, $(nproc) cores, ${MEM} RAM, $(uname -sr). $(rustc --version), Node $(node --version)${CHROMIUM:+, headless Chromium ${CHROMIUM}}. Release builds; single run per number unless the row says median.
+
+**Targets (MVP acceptance):** Calc load 1M cells < 10 s native / < 30 s wasm, edit at the head of a 10k chain < 100 ms, 64×32 snapshot < 5 ms, RSS < 1.5 GB; Write load + first render < 3 s, typing p95 < 30 ms, save < 2 s; Show load < 2 s, slide switch < 50 ms, save < 2 s.
+
+**How to reproduce:** \`scripts/perf.sh\` (native + wasm), \`PERF_FRONTEND_DIR=<dir> scripts/perf.sh\` (+ browser). The scenarios are \`apps/{calc,write,show}/core/benches/*_perf.rs\`, run as examples (\`cargo run --release -p calc-core --example bench_calc\`) and as ignored tests with 3× the targets as bounds (\`cargo test --release -p calc-core --test perf -- --ignored\`, same for \`write-core\`, \`show-core\`).
+
+## Calc – native (\`calc-core\`)
+
+Workbook: sheet 1 = 1000 × 1000 cells (70 % numbers, 20 % text, 10 % formulas: \`=B7*2\` on the left neighbour and \`=SUM(C4:D6)\` over the 3 × 2 block above), sheet 2 = a 10 000-cell chain (\`A1 = 1\`, \`An = A(n-1)+1\`). "styled" rows run after a number format was applied to all 1M cells (per-cell styles, as files with formatted columns store them).
+
+${CALC}
+
+## Calc – wasm (\`app-calc-wasm\`, \`--target nodejs\`, Node)
+
+Same workbook: built through \`restoreCells\` (\`set_input\` inside one batch per request) and opened from the \`.xlsx\` the native run saved. Memory = \`WebAssembly.Memory\` size (it only grows).
+
+${WASM}
+
+## Write – native (\`write-core\`)
+
+Document: ~200 pages – 4000 paragraphs (~25 words in 3–5 runs with bold/italic/colour), a heading every 40 paragraphs, 20 tables (6 × 4), 20 PNG images (320 × 240, uncompressed).
+
+${WRITE}
+
+## Write – browser (production web build, headless Chromium)
+
+Typing: 200 keystrokes at the end of paragraph 2000 with 100 ms between keys; latency = keydown → the \`WritePatch\` of that keystroke has been reconciled (first task after the reply).
+
+${FRONT_WRITE}
+
+## Show – native (\`show-core\`)
+
+Deck: 100 slides × 20 shapes with text (a title text box, bulleted text boxes, labelled rectangles and ellipses).
+
+${SHOW}
+
+## Show – browser (production web build, headless Chromium)
+
+${FRONT_SHOW}
+EOF
+log "wrote $OUT"
