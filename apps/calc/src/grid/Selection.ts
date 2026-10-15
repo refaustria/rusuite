@@ -7,10 +7,15 @@ export interface Cell {
   col: number;
 }
 
-/** `anchor` is the active cell; `focus` the moving corner. */
+/**
+ * `anchor` is the active cell; `focus` the moving corner. `range`, when
+ * set, is the selected range (a range grown to whole merged cells, which
+ * the two corners cannot express); otherwise it spans anchor and focus.
+ */
 export interface Selection {
   anchor: Cell;
   focus: Cell;
+  range?: Range;
 }
 
 export interface Range {
@@ -28,6 +33,7 @@ export function cellSelection(row: number, col: number): Selection {
 }
 
 export function normalize(sel: Selection): Range {
+  if (sel.range) return { ...sel.range };
   return {
     r0: Math.min(sel.anchor.row, sel.focus.row),
     c0: Math.min(sel.anchor.col, sel.focus.col),
@@ -66,12 +72,26 @@ export function pointerSelect(sel: Selection, cell: Cell, extend: boolean): Sele
   return extend ? { anchor: sel.anchor, focus: { ...cell } } : cellSelection(cell.row, cell.col);
 }
 
-/** Moves the active cell (collapsing) or, with `extend`, the focus corner. */
-export function move(sel: Selection, dRow: number, dCol: number, extend: boolean): Selection {
-  if (extend) {
-    return { anchor: sel.anchor, focus: { row: clampRow(sel.focus.row + dRow), col: clampCol(sel.focus.col + dCol) } };
-  }
-  return cellSelection(clampRow(sel.anchor.row + dRow), clampCol(sel.anchor.col + dCol));
+/** The merged range covering a cell (`null`: not merged). */
+export type MergeLookup = (row: number, col: number) => Range | null;
+
+/**
+ * One step from `from`: a merged cell is left from its far edge in the
+ * direction of the move (so covered cells are skipped, as in Excel).
+ */
+export function step(from: Cell, dRow: number, dCol: number, mergeAt?: MergeLookup): Cell {
+  const m = mergeAt?.(from.row, from.col) ?? null;
+  const row = !m || dRow === 0 ? from.row : dRow > 0 ? m.r1 : m.r0;
+  const col = !m || dCol === 0 ? from.col : dCol > 0 ? m.c1 : m.c0;
+  return { row: clampRow(row + dRow), col: clampCol(col + dCol) };
+}
+
+/** Moves the active cell (collapsing) or, with `extend`, the focus corner; a merged target becomes its top-left cell. */
+export function move(sel: Selection, dRow: number, dCol: number, extend: boolean, mergeAt?: MergeLookup): Selection {
+  if (extend) return { anchor: sel.anchor, focus: step(sel.focus, dRow, dCol, mergeAt) };
+  const to = step(sel.anchor, dRow, dCol, mergeAt);
+  const m = mergeAt?.(to.row, to.col) ?? null;
+  return m ? cellSelection(m.r0, m.c0) : cellSelection(to.row, to.col);
 }
 
 export function moveTo(sel: Selection, cell: Cell, extend: boolean): Selection {
@@ -86,6 +106,8 @@ export interface NavContext {
   usedLastCol: number;
   /** Rows visible in the viewport (Page Up/Down step). */
   pageRows: number;
+  /** Merged cells of the sheet (absent: none). */
+  mergeAt?: MergeLookup;
 }
 
 /**
@@ -135,17 +157,17 @@ export function navigate(sel: Selection, k: KeyInput, ctx: NavContext): Selectio
       const from = k.shift ? sel.focus : sel.anchor;
       return moveTo(sel, dataEdge(from, d[0], d[1], ctx), k.shift);
     }
-    return move(sel, d[0], d[1], k.shift);
+    return move(sel, d[0], d[1], k.shift, ctx.mergeAt);
   }
   switch (k.key) {
     case "Tab":
-      return move(sel, 0, k.shift ? -1 : 1, false);
+      return move(sel, 0, k.shift ? -1 : 1, false, ctx.mergeAt);
     case "Enter":
-      return move(sel, k.shift ? -1 : 1, 0, false);
+      return move(sel, k.shift ? -1 : 1, 0, false, ctx.mergeAt);
     case "PageDown":
-      return move(sel, Math.max(1, ctx.pageRows), 0, k.shift);
+      return move(sel, Math.max(1, ctx.pageRows), 0, k.shift, ctx.mergeAt);
     case "PageUp":
-      return move(sel, -Math.max(1, ctx.pageRows), 0, k.shift);
+      return move(sel, -Math.max(1, ctx.pageRows), 0, k.shift, ctx.mergeAt);
     case "Home": {
       const row = k.ctrl ? 0 : (k.shift ? sel.focus : sel.anchor).row;
       return moveTo(sel, { row, col: 0 }, k.shift);

@@ -289,4 +289,87 @@ test.describe("Calc", () => {
     expect(await grid.display(1, 0)).toBe("6");
     errors.expectNone();
   });
+
+  test("Freeze Top Row keeps row 1 in place while the rest scrolls", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "Header");
+    await grid.type(0, 1, "Amount");
+    await page.getByRole("tab", { name: "View" }).click();
+    await page.getByRole("button", { name: "Freeze Panes" }).click();
+    await page.getByRole("menuitem", { name: "Freeze Top Row" }).click();
+    await expect(page.getByTestId("grid-cells")).toHaveAttribute("data-frozen", "1,0");
+    await page.getByTestId("grid").evaluate((el) => {
+      el.scrollTop = 1000;
+    });
+    // The frozen row is still where it was; just below it the sheet continues at row 52 (1000 px / 20 px + 2).
+    await grid.click(0, 0);
+    await expect(page.getByTestId("cell-address")).toHaveText("A1");
+    await expect(page.getByRole("textbox", { name: "Formula bar" })).toHaveValue("Header");
+    await grid.click(1, 0);
+    await expect(page.getByTestId("cell-address")).toHaveText("A52");
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-frozen-scrolled.png` });
+    errors.expectNone();
+  });
+
+  test("Merge & Center, then typing edits the merged cell; the saved file has the merge", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.click(0, 0);
+    await grid.click(0, 2, { shift: true });
+    await page.getByRole("tab", { name: "Home" }).click();
+    await page.getByRole("button", { name: "Merge & Center" }).click();
+    await expect(page.getByTestId("cell-address")).toHaveText("A1");
+    await page.keyboard.type("Quarterly report");
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("cell-editor")).toHaveCount(0);
+    // A covered cell selects the merge, whose content is A1's.
+    await grid.click(0, 2);
+    await expect(page.getByTestId("cell-address")).toHaveText("A1");
+    await expect(page.getByRole("textbox", { name: "Formula bar" })).toHaveValue("Quarterly report");
+    await grid.type(1, 0, "1");
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-merged-header.png` });
+    const xlsx = await saveViaBackstage(page);
+    const sheet1 = zipText(xlsx, "xl/worksheets/sheet1.xml");
+    expect(sheet1).toContain('<mergeCell ref="A1:C1"/>');
+    expect(sheet1).toMatch(/<c r="A1"[^>]*t="(s|inlineStr|str)"/);
+    errors.expectNone();
+  });
+
+  test("hiding a sheet removes its tab; Unhide… brings it back", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const sheets = page.getByRole("tablist", { name: "Sheets" });
+    await page.getByRole("button", { name: "Add sheet" }).click();
+    await expect(sheets.getByRole("tab", { name: "Sheet2" })).toHaveAttribute("aria-selected", "true");
+    await sheets.getByRole("tab", { name: "Sheet2" }).click({ button: "right" });
+    await page.getByRole("menu", { name: "Sheet" }).getByRole("menuitem", { name: "Hide", exact: true }).click();
+    await expect(sheets.getByRole("tab")).toHaveText(["Sheet1"]);
+    await expect(sheets.getByRole("tab", { name: "Sheet1" })).toHaveAttribute("aria-selected", "true");
+    const hidden = await saveViaBackstage(page);
+    expect(zipText(hidden, "xl/workbook.xml")).toMatch(/<sheet name="Sheet2"[^>]*state="hidden"/);
+    await sheets.getByRole("tab", { name: "Sheet1" }).click({ button: "right" });
+    await page.getByRole("menu", { name: "Sheet" }).getByRole("menuitem", { name: "Unhide…" }).click();
+    const dialog = page.getByRole("dialog", { name: "Unhide" });
+    await dialog.getByRole("option", { name: "Sheet2" }).click();
+    await dialog.getByRole("button", { name: "OK" }).click();
+    await expect(sheets.getByRole("tab")).toHaveText(["Sheet1", "Sheet2"]);
+    await expect(sheets.getByRole("tab", { name: "Sheet2" })).toHaveAttribute("aria-selected", "true");
+    errors.expectNone();
+  });
+
+  test("the zoom is the sheet's: it is saved in the file's sheetView", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "7");
+    await page.getByRole("tab", { name: "View" }).click();
+    await page.getByRole("combobox", { name: "Zoom" }).selectOption("1.5");
+    await expect(page.getByTestId("zoom")).toHaveText("150 %");
+    const xlsx = await saveViaBackstage(page);
+    expect(zipText(xlsx, "xl/worksheets/sheet1.xml")).toMatch(/<sheetView [^>]*zoomScale="150"/);
+    errors.expectNone();
+  });
 });

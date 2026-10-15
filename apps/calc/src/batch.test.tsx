@@ -51,8 +51,9 @@ describe("context menus", () => {
     const menu = screen.getByRole("menu", { name: "Cell" });
     expect(within(menu).getAllByRole("menuitem").map((b) => b.textContent?.replace(/Ctrl.*|Del$/, ""))).toEqual([
       "Cut", "Copy", "Paste", "Paste values", "Insert rows", "Insert columns", "Delete rows", "Delete columns",
-      "Clear contents", "Format cells…", "Row height…", "Column width…",
+      "Clear contents", "Merge & Center", "Merge Cells", "Unmerge Cells", "Format cells…", "Row height…", "Column width…",
     ]);
+    expect((within(menu).getByRole("menuitem", { name: "Unmerge Cells" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Insert rows" }));
     await waitFor(() => expect(applied(core.log)).toEqual([{ type: "insertRows", sheet: 0, at: 2, count: 1 }]));
     expect(screen.queryByRole("menu", { name: "Cell" })).toBeNull();

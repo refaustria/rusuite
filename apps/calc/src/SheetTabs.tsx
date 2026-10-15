@@ -5,12 +5,14 @@
 
 import { useRef, useState } from "react";
 import { ContextMenu, cssColor, OFFICE_THEME, type ContextMenuItem } from "@rusuite/ui-shared";
-import { useCalc, type CalcStore } from "./state/store";
+import { unhideableSheets, useCalc, visibleSheets, type CalcStore } from "./state/store";
 import { t, useT } from "./i18n";
 
 /** The sheet commands shared by the tab context menu and the ribbon (acting on `sheet`). */
 export function sheetMenu(store: CalcStore, sheet: number, rename: () => void): ContextMenuItem[] {
-  const sheets = store.getState().info?.sheets ?? [];
+  const sheets = visibleSheets(store.getState().info?.sheets ?? []);
+  const hidden = unhideableSheets(store.getState().info?.sheets ?? []);
+  // Positions among the tabs (hidden sheets have none).
   const at = sheets.findIndex((s) => s.id === sheet);
   const item = (id: string, label: string, run: () => unknown, extra: { shortcut?: string; disabled?: boolean } = {}): ContextMenuItem => ({
     id,
@@ -28,12 +30,17 @@ export function sheetMenu(store: CalcStore, sheet: number, rename: () => void): 
     item("move-right", t("calc.moveRight"), () => store.moveSheetBy(sheet, 1), { disabled: at < 0 || at >= sheets.length - 1 }),
     { separator: true },
     item("tab-color", t("calc.tabColorDots"), () => store.openDialog({ kind: "tabColor", sheet })),
+    { separator: true },
+    item("hide", t("calc.hide"), () => store.hideSheet(sheet), { disabled: sheets.length <= 1 }),
+    item("unhide", t("calc.unhideDots"), () => store.openDialog({ kind: "unhideSheet" }), { disabled: hidden.length === 0 }),
   ];
 }
 
 export function SheetTabs({ store }: { store: CalcStore }) {
   const t = useT();
-  const sheets = useCalc(store, (s) => s.info?.sheets) ?? [];
+  const all = useCalc(store, (s) => s.info?.sheets) ?? [];
+  // Hidden sheets get no tab; drag positions are mapped back to the full order.
+  const sheets = visibleSheets(all);
   const active = useCalc(store, (s) => s.activeSheet);
   const [renaming, setRenamingState] = useState<{ id: number; name: string } | null>(null);
   // Mirrors `renaming` so Enter followed by the unmount blur commits once.
@@ -122,9 +129,10 @@ export function SheetTabs({ store }: { store: CalcStore }) {
               dragged.current = null;
               setDropAt(null);
               if (id === null) return;
-              const from = sheets.findIndex((x) => x.id === id);
+              const from = all.findIndex((x) => x.id === id);
+              const to = target < sheets.length ? all.findIndex((x) => x.id === sheets[target]!.id) : all.length;
               // Positions count after the dragged tab is taken out.
-              void store.moveSheet(id, target > from ? target - 1 : target);
+              void store.moveSheet(id, to > from ? to - 1 : to);
             }}
             onDragEnd={() => {
               dragged.current = null;
