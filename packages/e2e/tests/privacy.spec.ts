@@ -96,7 +96,7 @@ const APPS = [
     edit: async (p: Page) => {
       await p.getByRole("tab", { name: "Insert" }).click();
       await p.getByRole("button", { name: "Shapes" }).click();
-      await p.getByRole("dialog", { name: "Shapes" }).getByRole("button", { name: "Rectangle", exact: true }).click();
+      await p.getByRole("dialog", { name: "Shapes" }).getByRole("group", { name: "Rectangles" }).getByRole("button", { name: "Rectangle", exact: true }).press("Enter"); // Enter inserts at once (a click arms drawing, P8-16)
       await expect(p.getByTestId("dirty")).toHaveText("Modified");
     },
   },

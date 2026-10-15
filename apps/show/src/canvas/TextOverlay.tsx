@@ -12,6 +12,10 @@ import type { Shape } from "../generated/Shape";
 import type { Transform } from "../generated/Transform";
 import { emuToPx, PX_PER_PT } from "../geometry";
 import { css, effectiveParagraph, effectiveRun, findShape, fontFamily, placeholderDef, textOf, themePalette } from "../model";
+import { textRect } from "../shapes/presets";
+import { keyMove } from "../shapes/tables";
+import { tableOf } from "../state/store";
+import { cellRunBase, tableLayout } from "./tableLayout";
 import { useShow, type ShowStore } from "../state/store";
 import { useT } from "../i18n";
 
@@ -63,12 +67,30 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
   });
 
   if (!editing || !hit || !pres || !slide) return null;
-  const tf = absoluteTransform(hit.shape, hit.parents);
-  const body = textOf(hit.shape);
-  const def = placeholderDef(pres, slide, hit.shape);
+  let tf = absoluteTransform(hit.shape, hit.parents);
+  const palette = themePalette(pres.theme);
+  const table = editing.cell ? tableOf(hit.shape) : null;
+  const cell = table && editing.cell ? table.cells[editing.cell.row]?.[editing.cell.col] : null;
+  let body = cell ? cell.text : textOf(hit.shape);
+  let base: { color?: string; bold?: boolean } = {};
+  if (table && editing.cell) {
+    // the cell's box on the slide (rows grown with their text, as drawn)
+    const box = tableLayout(table, pres.theme, palette).cells.find((c) => c.row === editing.cell!.row && c.col === editing.cell!.col);
+    if (box) tf = { ...tf, x: tf.x + Math.round(box.x * 9525), y: tf.y + Math.round(box.y * 9525), w: Math.round(box.w * 9525), h: Math.round(box.h * 9525), rotationDeg: 0 };
+    base = cellRunBase(table, editing.cell.row, editing.cell.col, palette);
+  } else if (hit.shape.kind.kind === "auto" && body) {
+    // the preset's text rectangle (inside ellipses, diamonds, triangles …)
+    const r = textRect(hit.shape.kind.value.geometry, tf.w, tf.h);
+    if (r.x || r.y || r.w !== tf.w || r.h !== tf.h) {
+      const cx = tf.x + tf.w / 2;
+      const cy = tf.y + tf.h / 2;
+      tf = { ...tf, x: Math.round(cx - tf.w / 2 + r.x), y: Math.round(cy - tf.h / 2 + r.y), w: Math.round(r.w), h: Math.round(r.h) };
+    }
+  }
+  body = body ?? null;
+  const def = table ? undefined : placeholderDef(pres, slide, hit.shape);
   const run = effectiveRun(def, body?.paragraphs[0]?.runs[0]?.props);
   const para = effectiveParagraph(def, body?.paragraphs[0]?.props);
-  const palette = themePalette(pres.theme);
   const ins = body?.props.insets ?? { left: 91440, top: 45720, right: 91440, bottom: 45720 };
   const fontPx = ((run.size ?? 1800) / 100) * PX_PER_PT * scale;
 
@@ -80,6 +102,7 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
   return (
     <div
       data-testid="text-overlay-box"
+      data-cell={editing.cell ? `${editing.cell.row},${editing.cell.col}` : undefined}
       data-anchor={anchor}
       className="absolute flex flex-col border border-dashed border-blue-500 bg-white/70"
       style={{
@@ -106,7 +129,12 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
         onKeyDown={(e) => {
           e.stopPropagation();
           const mod = e.ctrlKey || e.metaKey;
-          if (e.key === "Escape" || (e.key === "Enter" && mod)) {
+          const move = editing.cell && !mod && !e.altKey ? keyMove(e.key, e.shiftKey, e.currentTarget.value, e.currentTarget.selectionStart, e.currentTarget.selectionEnd) : null;
+          if (move) {
+            e.preventDefault();
+            sync(e.currentTarget);
+            void store.moveCellEdit(move);
+          } else if (e.key === "Escape" || (e.key === "Enter" && mod)) {
             e.preventDefault();
             commit();
           } else if (e.key === "Tab" && !mod && !e.altKey) {
@@ -128,10 +156,10 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
         style={{
           fontFamily: fontFamily(run.font, pres.theme),
           fontSize: fontPx,
-          fontWeight: run.bold ? 700 : 400,
+          fontWeight: (run.bold ?? base.bold) ? 700 : 400,
           fontStyle: run.italic ? "italic" : "normal",
           lineHeight: 1.2,
-          color: css(run.color, palette) ?? "#000",
+          color: css(run.color, palette) ?? base.color ?? "#000",
           textAlign: para.alignment === "justify" ? "justify" : (para.alignment ?? "left"),
         }}
       />

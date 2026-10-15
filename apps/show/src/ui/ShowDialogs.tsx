@@ -173,6 +173,38 @@ function AltTextDialog({ store, shape }: { store: ShowStore; shape: number }) {
   );
 }
 
+/** Insert › Table › Insert Table…: rows and columns (1–75 like PowerPoint). */
+function InsertTableDialog({ store }: { store: ShowStore }) {
+  const t = useT();
+  const [rows, setRows] = useState(2);
+  const [cols, setCols] = useState(5);
+  const close = () => store.closeDialog();
+  const clamp = (v: number) => Math.max(1, Math.min(75, Math.round(v)));
+  return (
+    <Dialog open title={t("show.table.insertTitle")} onClose={close}>
+      <form
+        className="flex w-64 flex-col gap-2 text-sm"
+        onSubmit={(e) => {
+          e.preventDefault();
+          close();
+          void store.insertTable(clamp(rows), clamp(cols));
+        }}
+      >
+        <Num label={t("show.table.cols")} value={cols} step={1} min={1} onChange={setCols} />
+        <Num label={t("show.table.rows")} value={rows} step={1} min={1} onChange={setRows} />
+        <div className="flex justify-end gap-2">
+          <button type="button" className={BUTTON} onClick={close}>
+            {t("common.cancel")}
+          </button>
+          <button type="submit" className={BUTTON}>
+            {t("common.ok")}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
 /** Mounts the open dialog; Change Picture opens the file picker. */
 export function ShowDialogs({ store }: { store: ShowStore }) {
   const dialog = useShow(store, (s) => s.dialog);
@@ -190,6 +222,7 @@ export function ShowDialogs({ store }: { store: ShowStore }) {
     <>
       {dialog?.kind === "format" && <FormatShapeDialog store={store} />}
       {dialog?.kind === "alt" && <AltTextDialog store={store} shape={dialog.shape} />}
+      {dialog?.kind === "insertTable" && <InsertTableDialog store={store} />}
       <input
         ref={input}
         type="file"

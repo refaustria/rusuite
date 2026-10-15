@@ -34,6 +34,28 @@ import {
 } from "./commands";
 import type { ShortcutAction } from "./shortcuts";
 import { changeTransition, effectPatch, newAnimation, type TransitionChange } from "../anim/effects";
+import type { Alignment as Align } from "../generated/Alignment";
+import type { Anchor } from "../generated/Anchor";
+import type { ArrowKind } from "../generated/ArrowKind";
+import type { ArrowSize } from "../generated/ArrowSize";
+import type { ConnectorKind } from "../generated/ConnectorKind";
+import type { Insets } from "../generated/Insets";
+import type { Line } from "../generated/Line";
+import type { Preset } from "../generated/Preset";
+import type { Table } from "../generated/Table";
+import type { TableLook } from "../generated/TableLook";
+import { pathCache } from "../shapes/paths";
+import { centredTransform } from "../geometry";
+import { choiceOf, choiceShape, clickBox, pushRecent } from "../shapes/presets";
+import type { ThemeColorSlot } from "../../../../packages/ui-shared/src/generated/ThemeColorSlot";
+import {
+  arrowCommand, arrowSizeCommand, connectorKindCommand, drawConnectorCommand, moveEndCommands, rerouteCommand, type ConnEnd, type SlideSite,
+} from "../shapes/connectors";
+import {
+  alignCommand as cellAlignCommand, anchorCommand, anchorOf, bordersCommand, deleteColsCommand, deleteRowsCommand, distributeCommand,
+  expandRange, insertColsCommand, insertRowsCommand, insertTableCommand, lookCommand, marginsCommand, mergeCommand, moveCell,
+  resizeColCommand, resizeRowCommand, shadingCommand, splitCommand, styleCommand, type BorderKind, type CellMove, type CellRange,
+} from "../shapes/tables";
 
 export interface Toast {
   id: number;
@@ -43,6 +65,8 @@ export interface Toast {
 /** The overlay text editor's session. */
 export interface EditSession {
   shape: NodeId;
+  /** A table cell being edited (`shape` is the table). */
+  cell?: { row: number; col: number };
   text: string;
   /** Textarea selection (UTF-16 offsets). */
   start: number;
@@ -84,10 +108,23 @@ export interface ShowState {
   animSelection: NodeId | null;
   /** A Preview playing on the editor stage (`seq` restarts it). */
   preview: { kind: "transition" | "animations"; seq: number } | null;
+  /** Insert › Shapes: the gallery item being drawn on the slide (click or drag; Esc cancels). */
+  drawMode: string | null;
+  /** Recently used gallery items, newest first. */
+  recentShapes: string[];
+  /** Selected cells of the selected table. */
+  cellSel: { shape: NodeId; range: CellRange } | null;
 }
 
+/** Theme shape styles of Shape Format › Shape Styles: fill and outline per accent. */
+export type ShapeStyleChoice = { accent: number; kind: "fill" | "outline" | "light" };
+
 /** Dialogs opened from menus: Format Shape, Alt Text, the Replace Picture file picker. */
-export type ShowDialog = { kind: "format" } | { kind: "alt"; shape: NodeId } | { kind: "replacePicture"; shape: NodeId };
+export type ShowDialog =
+  | { kind: "format" }
+  | { kind: "alt"; shape: NodeId }
+  | { kind: "replacePicture"; shape: NodeId }
+  | { kind: "insertTable" };
 
 /** The internal clipboard: shapes (with the slide they came from) or slide ids. */
 type Clip = { kind: "shapes"; shapes: Shape[]; slide: NodeId | null; pastes: number } | { kind: "slides"; ids: NodeId[] };
@@ -139,6 +176,9 @@ export class ShowStore {
     animPane: false,
     animSelection: null,
     preview: null,
+    drawMode: null,
+    recentShapes: loadRecent(),
+    cellSel: null,
   };
   private clip: Clip | null = null;
   private listeners = new Set<() => void>();
@@ -149,7 +189,9 @@ export class ShowStore {
   readonly media = new Map<number, string>();
   private mediaPending = new Set<number>();
 
-  constructor(readonly api: ShowApi) {}
+  constructor(readonly api: ShowApi) {
+    pathCache.setFetcher((queries) => api.shapePaths(queries));
+  }
 
   // --- plumbing -----------------------------------------------------------
 
@@ -248,6 +290,17 @@ export class ShowStore {
     const selection = mapIds(s.selection, idMap).filter((id) => top.has(id));
     let editing = s.editing ? { ...s.editing, shape: idMap.get(s.editing.shape) ?? s.editing.shape } : null;
     if (editing && !(slide && findShape(slide.shapes, editing.shape))) editing = null;
+    if (editing?.cell) {
+      const tb = tableOf(slide ? (findShape(slide.shapes, editing.shape)?.shape ?? null) : null);
+      const cell = tb?.cells[editing.cell.row]?.[editing.cell.col];
+      if (!cell || cell.covered) editing = null;
+    }
+    let cellSel = s.cellSel;
+    if (cellSel) {
+      const tb = selection.includes(cellSel.shape) ? tableOf(slide?.shapes.find((x) => x.id === cellSel!.shape) ?? null) : null;
+      const r = cellSel.range;
+      cellSel = tb && r.r1 < tb.rows.length && r.c1 < tb.cols.length ? cellSel : null;
+    }
     let animSelection = s.animSelection === null ? null : (idMap.get(s.animSelection) ?? s.animSelection);
     if (animSelection !== null && !slide?.animations?.some((a) => a.id === animSelection)) animSelection = null;
     this.set({
@@ -255,6 +308,7 @@ export class ShowStore {
       current,
       selection,
       editing,
+      cellSel,
       animSelection,
       revision: env.revision,
       canUndo: env.canUndo,
@@ -504,7 +558,8 @@ export class ShowStore {
     if (this.state.editing && !next.includes(this.state.editing.shape)) void this.commitEdit();
     const a = this.animation(this.state.animSelection);
     const keep = a && next.includes(this.topOf(a.shape));
-    this.set({ selection: next, animSelection: keep ? this.state.animSelection : null });
+    const cs = this.state.cellSel;
+    this.set({ selection: next, animSelection: keep ? this.state.animSelection : null, cellSel: cs && next.length === 1 && next[0] === cs.shape ? cs : null });
   }
 
   // --- transitions and animations (P8-8) ------------------------------------------
@@ -756,9 +811,13 @@ export class ShowStore {
 
   // --- text -------------------------------------------------------------------
 
-  /** Starts the overlay editor on a text-bearing shape. */
+  /** Starts the overlay editor on a text-bearing shape (a table: its first cell). */
   startEdit(id: NodeId): void {
     const shape = this.shape(id);
+    if (shape?.kind.kind === "table") {
+      this.startCellEdit(id, 0, 0);
+      return;
+    }
     if (!shape || shape.kind.kind !== "auto" || shape.kind.value.geometry === "line") return;
     const text = textOf(shape);
     const t = text ? bodyText(text) : "";
@@ -770,8 +829,12 @@ export class ShowStore {
     if (this.state.editing) this.set({ editing: { ...this.state.editing, text, start, end } });
   }
 
-  private oldBody(id: NodeId): TextBody {
+  private oldBody(id: NodeId, cell?: { row: number; col: number }): TextBody {
     const shape = this.shape(id);
+    if (cell) {
+      const body = tableOf(shape)?.cells[cell.row]?.[cell.col]?.text;
+      if (body) return body;
+    }
     return (shape && textOf(shape)) ?? {
       props: { anchor: "middle", wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" },
       paragraphs: [{ runs: [] }],
@@ -780,6 +843,11 @@ export class ShowStore {
 
   /** `SetTextBody` for the session's text, when it changed. */
   private textCommand(e: EditSession): ShowCommand | null {
+    if (e.cell) {
+      const old = this.oldBody(e.shape, e.cell);
+      if (bodyText(old) === e.text) return null;
+      return { type: "setTableCellText", shape: e.shape, row: e.cell.row, col: e.cell.col, body: bodyFromText(e.text, old) };
+    }
     const old = this.oldBody(e.shape);
     const shape = this.shape(e.shape);
     if (shape && textOf(shape) && bodyText(old) === e.text) return null;
@@ -797,6 +865,7 @@ export class ShowStore {
   /** Shapes the text commands apply to: the edited one, else every selected shape that can hold text. */
   private textTargets(): Shape[] {
     const e = this.state.editing;
+    if (e?.cell) return [];
     if (e) {
       const s = this.shape(e.shape);
       return s ? [s] : [];
@@ -807,6 +876,14 @@ export class ShowStore {
   /** Run formatting from the toolbar: the editor's selection, else the whole text of the selected shapes. */
   async applyRunPatch(patch: RunProperties): Promise<void> {
     const e = this.state.editing;
+    if (e?.cell) {
+      // the edited text first, then the formatting of the whole cell
+      const text = this.textCommand(e);
+      const body = text?.type === "setTableCellText" ? text.body : this.oldBody(e.shape, e.cell);
+      const formatted = { ...body, paragraphs: body.paragraphs.map((p) => ({ ...p, runs: p.runs.map((r) => ({ ...r, props: { ...(r.props ?? {}), ...patch } })) })) };
+      await this.run({ type: "setTableCellText", shape: e.shape, row: e.cell.row, col: e.cell.col, body: formatted });
+      return;
+    }
     if (e) {
       const commands = [this.textCommand(e), ...runPropsRange(e.shape, e.text, e.start, e.end, patch)].filter(
         (c): c is ShowCommand => !!c,
@@ -868,6 +945,283 @@ export class ShowStore {
     await this.run(compound(cmds.filter((c): c is ShowCommand => !!c)));
   }
 
+
+  // --- shapes library, connectors, tables (P8-16) --------------------------------------
+
+  /** Arms (or with `null` disarms) drawing the gallery item `id` on the slide. */
+  setDrawMode(id: string | null): void {
+    if (id !== null && this.state.editing) void this.commitEdit();
+    if (id !== this.state.drawMode) this.set({ drawMode: id });
+  }
+
+  private useShape(id: string): void {
+    const recentShapes = pushRecent(this.state.recentShapes, id);
+    saveRecent(recentShapes);
+    this.set({ recentShapes, drawMode: null });
+  }
+
+  /**
+   * Inserts gallery item `id` in `box` (slide EMU), or centred at its
+   * default size (keyboard), and selects it; a text box opens the editor.
+   */
+  async insertChoice(id: string, box?: Transform): Promise<void> {
+    const choice = choiceOf(id);
+    const { pres, current } = this.state;
+    if (!choice || !pres || current === null) return;
+    if (this.state.editing) await this.commitEdit();
+    this.useShape(id);
+    const def = clickBox(choice, 0, 0);
+    const t = box ?? centredTransform(pres.slideSize, def.w, def.h);
+    const shape = choiceShape(choice, t, this.temp());
+    this.set({ selection: [shape.id] });
+    const res = await this.run({ type: "addShape", slide: current, shape });
+    const real = res?.idMap.get(shape.id);
+    if (choice.kind === "textBox" && real !== undefined) this.startEdit(real);
+  }
+
+  /** Inserts a connector drawn from `start` to `end` (glued where an end is on a site) and selects it. */
+  async insertConnector(id: string, start: ConnEnd, end: ConnEnd): Promise<void> {
+    const choice = choiceOf(id);
+    const slide = this.state.current;
+    if (!choice || choice.kind !== "connector" || slide === null) return;
+    this.useShape(id);
+    const temp = this.temp();
+    this.set({ selection: [temp] });
+    await this.run(drawConnectorCommand(slide, choice, start, end, temp));
+  }
+
+  /** Edit Shape › Change Shape: the selected auto shapes get `geometry`. */
+  async changeShape(geometry: Preset): Promise<void> {
+    const shapes = this.selectedShapes().filter((s) => s.kind.kind === "auto").map((s) => s.id);
+    if (shapes.length) await this.run({ type: "setGeometry", shapes, geometry });
+  }
+
+  /** An adjust handle drag: the shape's adjust values. */
+  async setAdjust(shape: NodeId, adjust: Record<string, number>): Promise<void> {
+    await this.run({ type: "setGeometry", shapes: [shape], adjust });
+  }
+
+  /** Shape Styles gallery: theme fill / outline of the selected shapes. */
+  async applyShapeStyle(choice: ShapeStyleChoice): Promise<void> {
+    const shapes = this.state.selection;
+    if (!shapes.length) return;
+    const slot = `accent${choice.accent}` as ThemeColorSlot;
+    const color = (tint: number): Color => ({ kind: "theme", value: { slot, tint } });
+    const line = (tint: number): Line => ({ fill: { kind: "solid", value: color(tint) }, width: 12700, dash: "solid" });
+    if (choice.kind === "fill") await this.run({ type: "setShapeStyle", shapes, fill: { kind: "solid", value: color(0) }, line: line(-0.25) });
+    else if (choice.kind === "light") await this.run({ type: "setShapeStyle", shapes, fill: { kind: "solid", value: color(0.8) }, line: line(0) });
+    else await this.run({ type: "setShapeStyle", shapes, fill: null, line: { ...line(0), width: 19050 } });
+  }
+
+  /** Arrange › Rotate: by `deg` (±90) or flip horizontally / vertically. */
+  async rotateOrFlip(op: "right" | "left" | "flipH" | "flipV"): Promise<void> {
+    const sel = this.selectedShapes();
+    if (!sel.length) return;
+    const shapes: [NodeId, Transform][] = sel.map((s) => {
+      const t = s.transform;
+      if (op === "flipH") return [s.id, { ...t, flipH: !t.flipH }];
+      if (op === "flipV") return [s.id, { ...t, flipV: !t.flipV }];
+      const r = (((t.rotationDeg ?? 0) + (op === "right" ? 90 : -90)) % 360 + 360) % 360;
+      return [s.id, { ...t, rotationDeg: r }];
+    });
+    await this.run({ type: "setTransform", shapes });
+  }
+
+  /** The selected connectors. */
+  selectedConnectors(): Shape[] {
+    return this.selectedShapes().filter((s) => s.kind.kind === "connector");
+  }
+
+  /** Dragging an end of a connector to `to` (glued when on a site). */
+  async moveConnectorEnd(shape: NodeId, which: "start" | "end", to: ConnEnd): Promise<void> {
+    const s = this.shape(shape);
+    if (s) await this.run(compound(moveEndCommands(s, which, to)));
+  }
+
+  /** The elbow handle: where the middle segment of a two-turn connector runs. */
+  async setConnectorAdjust(shape: NodeId, adjust: Record<string, number>): Promise<void> {
+    await this.run({ type: "setConnector", shape, patch: { adjust } });
+  }
+
+  /** Shape Outline › Arrows preset for the selected connectors. */
+  async setArrows(head: ArrowKind, tail: ArrowKind): Promise<void> {
+    await this.run(compound(this.selectedConnectors().map((s) => arrowCommand(s, head, tail)).filter((c): c is ShowCommand => !!c)));
+  }
+
+  /** Shape Outline › Arrows › size of the selected connectors' arrowheads. */
+  async setArrowSize(size: ArrowSize): Promise<void> {
+    await this.run(compound(this.selectedConnectors().map((s) => arrowSizeCommand(s, size)).filter((c): c is ShowCommand => !!c)));
+  }
+
+  /** Connector type of the selected connectors. */
+  async setConnectorKind(kind: ConnectorKind): Promise<void> {
+    await this.run(compound(this.selectedConnectors().map((s) => connectorKindCommand(s, kind)).filter((c): c is ShowCommand => !!c)));
+  }
+
+  /** Reroute Connectors: glued ends move to the nearest sites (`sitesOf` gives a shape's sites on the slide). */
+  async rerouteConnectors(sitesOf: (id: NodeId) => SlideSite[]): Promise<void> {
+    await this.run(compound(this.selectedConnectors().map((s) => rerouteCommand(s, sitesOf)).filter((c): c is ShowCommand => !!c)));
+  }
+
+  // ----- tables
+
+  /** Insert › Table: a `rows` × `cols` table centred on the slide, selected. */
+  async insertTable(rows: number, cols: number): Promise<void> {
+    const slide = this.state.current;
+    if (slide === null || rows < 1 || cols < 1) return;
+    if (this.state.editing) await this.commitEdit();
+    const temp = this.temp();
+    this.set({ selection: [temp], drawMode: null });
+    await this.run(insertTableCommand(slide, rows, cols, temp));
+  }
+
+  /** The selected table (a single selected table shape). */
+  selectedTable(): { shape: Shape; table: Table } | null {
+    const sel = this.selectedShapes();
+    const one = sel.length === 1 ? sel[0]! : null;
+    const table = tableOf(one);
+    return one && table ? { shape: one, table } : null;
+  }
+
+  /** The cells the table commands work on: the cell selection, else the edited cell, else the whole table. */
+  cellRange(): CellRange | null {
+    const t = this.selectedTable();
+    if (!t) return null;
+    const cs = this.state.cellSel;
+    if (cs && cs.shape === t.shape.id) return cs.range;
+    const e = this.state.editing;
+    if (e?.cell && e.shape === t.shape.id) {
+      const cell = t.table.cells[e.cell.row]?.[e.cell.col];
+      return { r0: e.cell.row, c0: e.cell.col, r1: e.cell.row + (cell?.rowSpan ?? 1) - 1, c1: e.cell.col + (cell?.colSpan ?? 1) - 1 };
+    }
+    return { r0: 0, c0: 0, r1: t.table.rows.length - 1, c1: t.table.cols.length - 1 };
+  }
+
+  /** Selects cells of a table (drag across cells); ends cell editing. */
+  selectCells(shape: NodeId, range: CellRange | null): void {
+    if (this.state.editing) void this.commitEdit();
+    if (!this.state.selection.includes(shape) || this.state.selection.length !== 1) this.select([shape]);
+    this.set({ cellSel: range ? { shape, range } : null });
+  }
+
+  /** Starts editing cell `row`, `col` (its anchor) of table `shape`. */
+  startCellEdit(shape: NodeId, row: number, col: number): void {
+    const table = tableOf(this.shape(shape));
+    if (!table) return;
+    const [r, c] = anchorOf(table, row, col);
+    const body = table.cells[r]?.[c]?.text;
+    const text = body ? bodyText(body) : "";
+    this.set({
+      editing: { shape, cell: { row: r, col: c }, text, start: text.length, end: text.length },
+      selection: [shape],
+      cellSel: { shape, range: { r0: r, c0: c, r1: r, c1: c } },
+    });
+  }
+
+  /** Moves the cell editor (Tab, Shift+Tab, arrows at the text's edges); Tab in the last cell adds a row. */
+  async moveCellEdit(move: CellMove): Promise<void> {
+    const e = this.state.editing;
+    if (!e?.cell) return;
+    const table = tableOf(this.shape(e.shape));
+    if (!table) return;
+    const to = moveCell(table, e.cell.row, e.cell.col, move);
+    if (to === null) return;
+    const shape = e.shape;
+    await this.commitEdit();
+    if (to === "insertRow") {
+      const rows = table.rows.length;
+      await this.run({ type: "insertTableRow", shape, index: rows });
+      this.startCellEdit(shape, rows, 0);
+      return;
+    }
+    this.startCellEdit(shape, to[0], to[1]);
+  }
+
+  private async tableRun(build: (shape: NodeId, table: Table, range: CellRange) => ShowCommand | null): Promise<void> {
+    const t = this.selectedTable();
+    const range = this.cellRange();
+    if (!t || !range) return;
+    if (this.state.editing) await this.commitEdit();
+    await this.run(build(t.shape.id, t.table, range));
+  }
+
+  insertRows(below: boolean): Promise<void> {
+    return this.tableRun((s, t, r) => insertRowsCommand(s, t, r, below));
+  }
+
+  insertCols(right: boolean): Promise<void> {
+    return this.tableRun((s, t, r) => insertColsCommand(s, t, r, right));
+  }
+
+  deleteRows(): Promise<void> {
+    return this.tableRun((s, t, r) => deleteRowsCommand(s, t, r));
+  }
+
+  deleteCols(): Promise<void> {
+    return this.tableRun((s, t, r) => deleteColsCommand(s, t, r));
+  }
+
+  async deleteTable(): Promise<void> {
+    const t = this.selectedTable();
+    if (t) {
+      if (this.state.editing) this.set({ editing: null });
+      await this.run({ type: "deleteShapes", ids: [t.shape.id] });
+    }
+  }
+
+  async mergeCells(): Promise<void> {
+    await this.tableRun((s, t, r) => mergeCommand(s, t, r));
+    const t = this.selectedTable();
+    const cs = this.state.cellSel;
+    if (t && cs) this.set({ cellSel: { shape: cs.shape, range: expandRange(t.table, cs.range) } });
+  }
+
+  splitCell(): Promise<void> {
+    return this.tableRun((s, t, r) => splitCommand(s, t, r.r0, r.c0));
+  }
+
+  setCellShading(color: Color | null): Promise<void> {
+    return this.tableRun((s, _t, r) => shadingCommand(s, r, color ? { kind: "solid", value: color } : null));
+  }
+
+  setCellBorders(kind: BorderKind, color: Color = { kind: "rgb", value: "000000" }, widthPt = 1): Promise<void> {
+    const line: Line = { fill: { kind: "solid", value: color }, width: Math.round(widthPt * 12700), dash: "solid" };
+    return this.tableRun((s, _t, r) => bordersCommand(s, r, kind, line));
+  }
+
+  setCellAnchor(anchor: Anchor): Promise<void> {
+    return this.tableRun((s, _t, r) => anchorCommand(s, r, anchor));
+  }
+
+  setCellAlignment(alignment: Align): Promise<void> {
+    return this.tableRun((s, t, r) => cellAlignCommand(s, t, r, alignment));
+  }
+
+  setCellMargins(margins: Insets): Promise<void> {
+    return this.tableRun((s, _t, r) => marginsCommand(s, r, margins));
+  }
+
+  distributeTable(axis: "rows" | "cols"): Promise<void> {
+    return this.tableRun((s, t, r) => distributeCommand(s, t, r, axis));
+  }
+
+  async setTableStyle(styleId: string | null): Promise<void> {
+    const t = this.selectedTable();
+    if (t) await this.run(styleCommand(t.shape.id, t.table, styleId));
+  }
+
+  async setTableLook(key: keyof TableLook, on: boolean): Promise<void> {
+    const t = this.selectedTable();
+    if (t) await this.run(lookCommand(t.shape.id, t.table, key, on));
+  }
+
+  /** Dragging a column border (`axis` cols) or a row border by `delta` EMU. */
+  async resizeTrack(shape: NodeId, axis: "rows" | "cols", index: number, delta: number): Promise<void> {
+    const table = tableOf(this.shape(shape));
+    if (!table) return;
+    await this.run(axis === "cols" ? resizeColCommand(shape, table, index, delta) : resizeRowCommand(shape, table, index, delta));
+  }
+
   // --- keyboard -----------------------------------------------------------------
 
   /** Executes a shortcut of the slide editor. Returns false when it did nothing applicable. */
@@ -885,7 +1239,10 @@ export class ShowStore {
       case "cut": if (!this.copy()) return false; void this.deleteSelection(); break;
       case "paste": if (!this.clip || this.state.editing) return false; void this.paste(); break;
       case "selectAll": this.select(this.currentSlide()?.shapes.map((s) => s.id) ?? []); break;
-      case "deselect": this.select([]); break;
+      case "deselect":
+        if (this.state.drawMode) this.setDrawMode(null);
+        else this.select([]);
+        break;
       case "editText": {
         const one = this.state.selection.length === 1 ? this.state.selection[0]! : null;
         if (one === null) return false;
@@ -978,6 +1335,31 @@ export class ShowStore {
     } catch (e) {
       this.pushError(e);
     }
+  }
+}
+
+/** The table of a table shape. */
+export function tableOf(shape: Shape | null | undefined): Table | null {
+  return shape?.kind.kind === "table" ? shape.kind.value : null;
+}
+
+const RECENT_KEY = "rusuite.show.recentShapes";
+
+function loadRecent(): string[] {
+  try {
+    const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(RECENT_KEY);
+    const list = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(list) ? list.filter((x): x is string => typeof x === "string" && choiceOf(x) !== null).slice(0, 10) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecent(list: string[]): void {
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  } catch {
+    // private mode: recent shapes only for this session
   }
 }
 

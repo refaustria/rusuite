@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { isTauri } from "@rusuite/ui-shared";
 import type { DeckContext } from "../canvas/SlideView";
 import type { Slide } from "../generated/Slide";
+import { pathCache } from "../shapes/paths";
 import { Presenter } from "./Presenter";
 import type { ShowAction, ShowState } from "./showState";
 import { openSync, type ShowView, type SyncChannel } from "./sync";
@@ -41,6 +42,7 @@ export function Audience({ id, channel, onEnd = closeWindow }: AudienceProps) {
       if (!alive) return c.close();
       sync = c;
       unlisten = c.listen((m) => {
+        if (m.kind === "deck" && m.paths) pathCache.load(m.paths);
         if (m.kind === "deck") setDeck((d) => ({ deck: m.deck, slides: m.slides, media: new Map(m.media), version: (d?.version ?? 0) + 1 }));
         else if (m.kind === "state") setView({ slideIndex: m.slideIndex, step: m.step ?? 0, blackout: m.blackout, ended: m.ended });
         else if (m.kind === "end") onEnd();

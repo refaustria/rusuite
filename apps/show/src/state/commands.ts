@@ -73,6 +73,24 @@ export const DUPLICATE_OFFSET_EMU = 20 * EMU_PER_PX;
  */
 export function duplicateCommand(slide: NodeId, shapes: Shape[], temp: TempIds, offset = DUPLICATE_OFFSET_EMU): { command: ShowCommand | null; ids: number[] } {
   const copies = shapes.map((s) => copyShape(s, temp, offset));
+  // Connectors stay glued only to shapes copied before them (the core resolves those temporary ids); PowerPoint
+  // pastes a connector without its shapes unglued.
+  const copied = new Map<number, number>();
+  shapes.forEach((orig, i) => {
+    const c = copies[i]!;
+    if (c.kind.kind === "connector") {
+      const v = { ...c.kind.value };
+      for (const end of ["start", "end"] as const) {
+        const a = v[end];
+        if (!a) continue;
+        const to = copied.get(a.shape);
+        if (to === undefined) delete v[end];
+        else v[end] = { ...a, shape: to };
+      }
+      c.kind = { kind: "connector", value: v };
+    }
+    copied.set(orig.id, c.id);
+  });
   return {
     command: compound(copies.map((shape) => ({ type: "addShape", slide, shape }))),
     ids: copies.map((c) => c.id),
