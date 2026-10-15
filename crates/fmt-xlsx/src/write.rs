@@ -13,6 +13,7 @@ use model_sheet::{
 };
 
 use crate::a1::{cell_name, range_name};
+use crate::dynarray::{metadata_xml, needs_dynamic, to_file_ast, METADATA_CT, METADATA_REL};
 use crate::styles::{builtin_default_font, color_el, write_styles, MAIN_NS};
 use crate::xlfn::add_xlfn_prefixes;
 use crate::xml::{encode_x_escapes, fmt_num, needs_preserve, XmlOut};
@@ -33,10 +34,11 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
         .iter()
         .position(|(id, _)| !wb.is_sheet_hidden(*id))
         .unwrap_or(0);
+    let mut dynamic = false;
     let sheet_xml: Vec<Vec<u8>> = sheets
         .iter()
         .enumerate()
-        .map(|(i, (id, _))| sheet_xml(wb, *id, i == active, &mut sst))
+        .map(|(i, (id, _))| sheet_xml(wb, *id, i == active, &mut sst, &mut dynamic))
         .collect();
     let default_font = ctx
         .default_font
@@ -78,6 +80,10 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
             sst.to_xml(),
         );
         rels.add(rel::SHARED_STRINGS, "sharedStrings.xml");
+    }
+    if dynamic {
+        pkg.insert_part(pn("/xl/metadata.xml")?, METADATA_CT, metadata_xml());
+        rels.add(METADATA_REL, "metadata.xml");
     }
     pkg.set_relationships(main, rels);
     pkg.insert_part(pn("/docProps/core.xml")?, ct::CORE_PROPERTIES, core_xml());
@@ -235,7 +241,13 @@ pub(crate) fn col_runs(cols: impl IntoIterator<Item = (u32, ColInfo)>) -> Vec<(u
     runs
 }
 
-fn sheet_xml(wb: &Workbook, id: SheetId, selected: bool, sst: &mut SharedStrings) -> Vec<u8> {
+fn sheet_xml(
+    wb: &Workbook,
+    id: SheetId,
+    selected: bool,
+    sst: &mut SharedStrings,
+    dynamic: &mut bool,
+) -> Vec<u8> {
     let format = wb.sheet_format(id);
     let mut x = XmlOut::new();
     x.start("worksheet", &[("xmlns", MAIN_NS), ("xmlns:r", rel::NS)]);
@@ -332,7 +344,7 @@ fn sheet_xml(wb: &Workbook, id: SheetId, selected: bool, sst: &mut SharedStrings
             x.start("row", &a);
             while let Some(&(c, content)) = cells.last().filter(|(c, _)| c.row == row) {
                 cells.pop();
-                write_cell(&mut x, wb, c, content, sst);
+                *dynamic |= write_cell(&mut x, wb, c, content, sst);
             }
             x.end("row");
         } else {
@@ -540,13 +552,14 @@ fn sheet_view_xml(x: &mut XmlOut, view: &SheetView, selected: bool) {
     x.end("sheetViews");
 }
 
+/// Writes one `<c>`; returns whether it is a dynamic array formula.
 fn write_cell(
     x: &mut XmlOut,
     wb: &Workbook,
     c: CellCoord,
     content: &CellContent,
     sst: &mut SharedStrings,
-) {
+) -> bool {
     let r = cell_name(c.row, c.col);
     // Excel applies a row/column style only to cells absent from
     // <sheetData>, so a written cell carries its effective style.
@@ -562,32 +575,56 @@ fn write_cell(
             Value::Text(s) => (Some("s"), Some(sst.add(s).to_string())),
             other => value_repr(other),
         },
-        CellContent::Formula { .. } => match wb.value(c).into_scalar() {
-            Value::Text(s) => (Some("str"), Some(encode_x_escapes(&s).into_owned())),
-            other => value_repr(&other),
-        },
+        // Spilled cells are stored as plain values (as Excel does).
+        CellContent::Formula { .. } | CellContent::Spilled { .. } => {
+            match wb.value(c).into_scalar() {
+                Value::Text(s) => (Some("str"), Some(encode_x_escapes(&s).into_owned())),
+                other => value_repr(&other),
+            }
+        }
     };
     if let Some(t) = t {
         a.push(("t", t));
     }
     let formula = match content {
-        CellContent::Formula { text, .. } => {
-            Some(add_xlfn_prefixes(text.strip_prefix('=').unwrap_or(text)))
+        CellContent::Formula { text, ast } => Some(match to_file_ast(ast) {
+            Some(file) => add_xlfn_prefixes(&file.to_string()),
+            None => add_xlfn_prefixes(text.strip_prefix('=').unwrap_or(text)),
+        }),
+        _ => None,
+    };
+    // Dynamic array formula: `cm` on the cell, `t="array"` with the spill
+    // range (the anchor alone when blocked or a single value).
+    let array_ref = match content {
+        CellContent::Formula { ast, .. }
+            if wb.engine().spill(c).is_some() || needs_dynamic(ast) =>
+        {
+            Some(match wb.engine().spill_range(c) {
+                Some(r) => range_name(r.r0, r.c0, r.r1, r.c1),
+                None => r.clone(),
+            })
         }
         _ => None,
     };
+    if array_ref.is_some() {
+        a.push(("cm", "1"));
+    }
     if formula.is_none() && v.is_none() {
         x.empty("c", &a);
-        return;
+        return false;
     }
     x.start("c", &a);
     if let Some(f) = &formula {
-        x.text_el("f", &[], f);
+        match &array_ref {
+            Some(r) => x.text_el("f", &[("t", "array"), ("ref", r)], f),
+            None => x.text_el("f", &[], f),
+        }
     }
     if let Some(v) = &v {
         x.text_el("v", &[], v);
     }
     x.end("c");
+    array_ref.is_some()
 }
 
 /// `t` attribute and `<v>` text of a non-text value.

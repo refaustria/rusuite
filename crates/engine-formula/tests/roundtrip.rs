@@ -125,6 +125,17 @@ fn expr() -> impl Strategy<Value = Expr> {
             )
                 .prop_map(|(op, e)| Expr::Unary { op, expr: Box::new(e) }),
             2 => call.clone(),
+            1 => inner.clone().prop_map(|e| Expr::Unary {
+                op: UnaryOp::ImplicitIntersection,
+                expr: Box::new(e),
+            }),
+            // Spilled-range operator on a reference (or a call).
+            1 => prop_oneof![reference().prop_map(Expr::Reference), call.clone()].prop_map(|e| {
+                Expr::Unary {
+                    op: UnaryOp::SpillRange,
+                    expr: Box::new(e),
+                }
+            }),
             // Reference operator: reference or call on the left, call or
             // reference on the right.
             1 => (

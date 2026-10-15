@@ -17,6 +17,7 @@ use crate::value::{to_bool, to_number, to_text, Array, Value};
 mod macros;
 pub(crate) mod helpers;
 
+pub mod array;
 pub mod datetime;
 pub mod financial;
 pub mod info;
@@ -120,6 +121,7 @@ impl FunctionRegistry {
         info::register(&mut r);
         datetime::register(&mut r);
         lookup::register(&mut r);
+        array::register(&mut r);
         r
     }
 
@@ -404,7 +406,7 @@ pub(crate) mod test_support {
     use std::collections::HashMap;
 
     use crate::ast::ErrorKind;
-    use crate::eval::{evaluate, CellCoord, CellProvider, EvalContext, SheetId};
+    use crate::eval::{evaluate, evaluate_formula, CellCoord, CellProvider, EvalContext, SheetId};
     use crate::value::Value;
 
     use super::FunctionRegistry;
@@ -460,6 +462,16 @@ pub(crate) mod test_support {
 
     /// Evaluates `formula` in S1!J10 with the built-in registry.
     pub(crate) fn eval(formula: &str) -> Value {
+        eval_with(formula, evaluate)
+    }
+
+    /// Evaluates `formula` in S1!J10 as a cell formula (array results are
+    /// kept, see [`evaluate_formula`]).
+    pub(crate) fn eval_cell(formula: &str) -> Value {
+        eval_with(formula, evaluate_formula)
+    }
+
+    fn eval_with(formula: &str, f: fn(&crate::ast::Expr, &EvalContext) -> Value) -> Value {
         let grid = Grid(HashMap::from([
             ((0, 0), Value::Number(1.0)),
             ((1, 0), Value::Text("x".into())),
@@ -480,7 +492,7 @@ pub(crate) mod test_support {
             },
             now: || 45000.5,
         };
-        evaluate(&crate::parse(formula).expect("formula parses"), &ctx)
+        f(&crate::parse(formula).expect("formula parses"), &ctx)
     }
 }
 

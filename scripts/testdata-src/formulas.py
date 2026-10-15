@@ -25,7 +25,7 @@ NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 RNS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
 NONDET = re.compile(r"^=(TODAY|NOW)\(\)$")
 TYPES = {"number", "text", "bool", "error", "number?"}
-ERRORS = {"#DIV/0!", "#N/A", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#NULL!"}
+ERRORS = {"#DIV/0!", "#N/A", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#NULL!", "#SPILL!", "#CALC!"}
 
 
 def die(msg):
@@ -82,13 +82,17 @@ def col_num(letters):
 # Functions Excel stores with the `_xlfn.` prefix (added after Excel 2007).
 FUTURE_NAMES = """CONCAT DAYS IFNA IFS MAXIFS MINIFS SWITCH TEXTJOIN XLOOKUP XMATCH XOR NUMBERVALUE UNICODE UNICHAR
 ISOWEEKNUM CEILING.MATH FLOOR.MATH STDEV.S STDEV.P VAR.S VAR.P MODE.SNGL RANK.EQ RANK.AVG PERCENTILE.INC
-PERCENTILE.EXC QUARTILE.INC QUARTILE.EXC PERCENTRANK.INC COVARIANCE.P COVARIANCE.S FORECAST.LINEAR""".split()
+PERCENTILE.EXC QUARTILE.INC QUARTILE.EXC PERCENTRANK.INC COVARIANCE.P COVARIANCE.S FORECAST.LINEAR
+SORTBY UNIQUE SEQUENCE RANDARRAY""".split()
 FUTURE = re.compile(r"(?<![A-Za-z0-9_.])(%s)\(" % "|".join(re.escape(n) for n in FUTURE_NAMES))
+# Dynamic array functions Excel stores as `_xlfn._xlws.NAME`.
+XLWS_NAMES = ["SORT", "FILTER"]
+XLWS = re.compile(r"(?<![A-Za-z0-9_.])(%s)\(" % "|".join(XLWS_NAMES))
 
 
 def file_formula(formula):
     """Formula text as stored in OOXML: no leading '=', newer functions carry the _xlfn. prefix."""
-    return FUTURE.sub(r"_xlfn.\1(", formula[1:])
+    return XLWS.sub(r"_xlfn._xlws.\1(", FUTURE.sub(r"_xlfn.\1(", formula[1:]))
 
 
 def build(out):

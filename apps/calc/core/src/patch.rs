@@ -36,6 +36,19 @@ pub struct CellView {
     /// Effective style id (cell → row → column → default) into the style
     /// table of [`WorkbookInfo::styles`] / [`CalcPatch::styles`].
     pub style: u32,
+    /// A cell an array formula spills into: `[row, col]` of the formula
+    /// cell (same sheet). Its `input` is empty and it is not edited
+    /// directly (typing into it blocks the spill: `#SPILL!`). Absent = not
+    /// spilled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub spilled: Option<(u32, u32)>,
+    /// A formula cell with an array result: the range it spills into
+    /// (formula cell included), or would spill into when its value is
+    /// `#SPILL!` (the UI outlines it). Absent = no array result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub spill: Option<Rect>,
 }
 
 /// A match of the `findCells` request.

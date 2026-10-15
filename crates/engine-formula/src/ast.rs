@@ -52,6 +52,20 @@ pub enum UnaryOp {
     Plus,
     /// Postfix `%`.
     Percent,
+    /// Prefix `@`: implicit intersection (forces a range or array to one
+    /// value, as legacy Excel did for every formula).
+    ImplicitIntersection,
+    /// Postfix `#` after a cell reference (`A1#`): the range the formula in
+    /// that cell spills into.
+    SpillRange,
+}
+
+impl UnaryOp {
+    /// True for the arithmetic operators (`-`, `+`, `%`), which apply
+    /// element-wise to arrays.
+    pub fn is_arithmetic(self) -> bool {
+        matches!(self, UnaryOp::Neg | UnaryOp::Plus | UnaryOp::Percent)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -119,8 +133,10 @@ const PREC_MUL: u8 = 4;
 const PREC_POW: u8 = 5;
 const PREC_PREFIX: u8 = 6;
 const PREC_PERCENT: u8 = 7;
-const PREC_RANGE: u8 = 8;
-const PREC_ATOM: u8 = 9;
+const PREC_AT: u8 = 8;
+const PREC_RANGE: u8 = 9;
+const PREC_SPILL: u8 = 10;
+const PREC_ATOM: u8 = 11;
 
 /// Excel error values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -132,10 +148,16 @@ pub enum ErrorKind {
     Name,
     Num,
     NA,
+    /// `#SPILL!`: an array result cannot spill (the target range is not
+    /// empty or leaves the sheet).
+    Spill,
+    /// `#CALC!`: a calculation the engine cannot represent, such as an
+    /// empty array (`FILTER` without matches).
+    Calc,
 }
 
 impl ErrorKind {
-    pub const ALL: [ErrorKind; 7] = [
+    pub const ALL: [ErrorKind; 9] = [
         ErrorKind::Null,
         ErrorKind::Div0,
         ErrorKind::Value,
@@ -143,6 +165,8 @@ impl ErrorKind {
         ErrorKind::Name,
         ErrorKind::Num,
         ErrorKind::NA,
+        ErrorKind::Spill,
+        ErrorKind::Calc,
     ];
 
     /// Excel text of the error, e.g. `#DIV/0!`.
@@ -155,6 +179,8 @@ impl ErrorKind {
             ErrorKind::Name => "#NAME?",
             ErrorKind::Num => "#NUM!",
             ErrorKind::NA => "#N/A",
+            ErrorKind::Spill => "#SPILL!",
+            ErrorKind::Calc => "#CALC!",
         }
     }
 }
@@ -447,6 +473,14 @@ impl Expr {
                 op: UnaryOp::Percent,
                 ..
             } => PREC_PERCENT,
+            Expr::Unary {
+                op: UnaryOp::ImplicitIntersection,
+                ..
+            } => PREC_AT,
+            Expr::Unary {
+                op: UnaryOp::SpillRange,
+                ..
+            } => PREC_SPILL,
             Expr::Unary { .. } => PREC_PREFIX,
             _ => PREC_ATOM,
         }
@@ -530,6 +564,20 @@ impl fmt::Display for Expr {
                 write_wrapped(f, expr, expr.precedence() < PREC_PERCENT)?;
                 f.write_str("%")
             }
+            Expr::Unary {
+                op: UnaryOp::ImplicitIntersection,
+                expr,
+            } => {
+                f.write_str("@")?;
+                write_wrapped(f, expr, expr.precedence() < PREC_AT)
+            }
+            Expr::Unary {
+                op: UnaryOp::SpillRange,
+                expr,
+            } => {
+                write_wrapped(f, expr, expr.precedence() < PREC_SPILL)?;
+                f.write_str("#")
+            }
             Expr::Unary { op, expr } => {
                 f.write_str(if *op == UnaryOp::Neg { "-" } else { "+" })?;
                 write_wrapped(f, expr, expr.precedence() < PREC_PREFIX)
@@ -541,8 +589,18 @@ impl fmt::Display for Expr {
                 // For `:`, a bare reference/number/name on the right would be
                 // merged with the left operand into an area/row/column range
                 // when re-parsed, so keep it parenthesized.
+                // `A1:B1#` likewise reads as `(A1:B1)#`.
                 let merge_risk = *op == BinaryOp::Range
-                    && matches!(**rhs, Expr::Reference(_) | Expr::Number(_) | Expr::Name(_));
+                    && matches!(
+                        **rhs,
+                        Expr::Reference(_)
+                            | Expr::Number(_)
+                            | Expr::Name(_)
+                            | Expr::Unary {
+                                op: UnaryOp::SpillRange,
+                                ..
+                            }
+                    );
                 write_wrapped(f, rhs, rhs.precedence() <= p || merge_risk)
             }
         }
