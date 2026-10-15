@@ -41,13 +41,13 @@ General rules that apply to every function below:
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
-| `IF` | `IF(condition, then, [else])` | Conditional | Missing else = `FALSE`; numbers are truthy when non-zero; text `"TRUE"` accepted, other text `#VALUE!`; lazy | planned |
+| `IF` | `IF(condition, then, [else])` | Conditional | Missing else = `FALSE`; numbers are truthy when non-zero; text `"TRUE"` accepted, other text `#VALUE!`; lazy | implemented |
 | `AND` | `AND(logical1, ...)` | All true | References with only text/empty = `#VALUE!`; not short-circuiting for errors | implemented |
 | `OR` | `OR(logical1, ...)` | Any true | Same coercion rules as `AND` | implemented |
 | `NOT` | `NOT(logical)` | Negation | Non-numeric text `#VALUE!` | implemented |
 | `IFERROR` | `IFERROR(value, value_if_error)` | Fallback on any error | Catches all seven error kinds; empty cell result is 0 | implemented |
-| `TRUE` | `TRUE()` | Boolean true | Also valid as the literal `TRUE`; `TRUE()+1` = 2 | planned |
-| `FALSE` | `FALSE()` | Boolean false | Also valid as the literal `FALSE` | planned |
+| `TRUE` | `TRUE()` | Boolean true | Also valid as the literal `TRUE`; `TRUE()+1` = 2 | implemented |
+| `FALSE` | `FALSE()` | Boolean false | Also valid as the literal `FALSE` | implemented |
 
 ## Information (6)
 
@@ -58,7 +58,7 @@ General rules that apply to every function below:
 | `ISTEXT` | `ISTEXT(value)` | Value is text | `""` is text; empty cell is not | implemented |
 | `ISERROR` | `ISERROR(value)` | Value is any error | Does not propagate the error | implemented |
 | `ISNA` | `ISNA(value)` | Value is `#N/A` | Other errors give `FALSE` | implemented |
-| `NA` | `NA()` | Returns `#N/A` | Takes no arguments | planned |
+| `NA` | `NA()` | Returns `#N/A` | Takes no arguments | implemented |
 
 ## Text (14)
 

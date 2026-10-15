@@ -2,7 +2,17 @@
 
 _Maintained by the PM agent. Read at the start of every session; update after every task._
 
-## Current phase: Phase 1 – Formula Engine (Phase 0 complete)
+## Current phase: Phase 2 – Calc (Phases 0 and 1 complete)
+
+### Phase 1 milestone – VERIFIED 2026-10-15 on main d27be64
+- `cargo fmt --check` OK · `cargo clippy --workspace --all-targets -D warnings` clean · `cargo test --workspace` 338 passed / 0 failed · `RUSTDOCFLAGS=-D warnings cargo doc` clean · `pnpm test` 1 passed.
+- Reference suite: **862 passed / 0 failed / 0 skipped** (67 rows compared against their Excel value where LibreOffice diverges). All 62 MVP functions implemented (`docs/functions.md`).
+- Parser proptest roundtrip (512 cases) green; `echo '=SUM(1,2,3)*2' | cargo run -p engine-formula --example repl` → `12` as in the README.
+- Phase 0 harness still 6/6 PASS (now includes `formula-suite.xlsx`).
+- Caveat: expected values are LibreOffice-computed (PROVISIONAL) except the 67 Excel overrides, which come from agent knowledge of Excel. The owner's Excel recalculation of `testdata/formulas/formula-suite.xlsx` is still the authoritative step (`scripts/gen-formula-suite.sh --from-xlsx`).
+
+### Phase 2 plan (README: `model-sheet` + `fmt-xlsx`, Tauri app with canvas grid, formatting toolbar from `ui-shared`, undo/redo in `app-common`; milestone: open an Excel file, edit, save, reopen in Excel)
+Order: P2-1 model-sheet (design) ∥ P2-3 Tauri Calc scaffold → P2-2 fmt-xlsx ∥ P2-4 app-common commands/undo → P2-5 canvas grid ∥ P2-6 ui-shared toolbar → P2-7 IPC wiring → P2-8 milestone verification (LibreOffice on the server; Excel by owner).
 
 ### Phase 0 milestone – VERIFIED 2026-10-15 on main 6f474a3
 - `cargo fmt --all --check` OK; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace` 61 passed / 0 failed; `pnpm test` 1 passed.
@@ -16,6 +26,14 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 
 | ID | Task | Model | State | Branch | Notes |
 |---|---|---|---|---|---|
+| P2-1 | `model-sheet`: Workbook wrapping `engine_formula::Engine` for contents/values + StyleTable (font/fill/border/alignment/number format), column/row dimensions, sheet metadata; serde; ADR 0004 | Opus | todo | `p2/model-sheet` | PM spec in brief |
+| P2-3 | Tauri 2 Calc app scaffold: `apps/calc` (Vite+React+Tailwind+Tauri), crate `app-calc` in workspace, `pnpm --filter calc tauri dev` runs, CI builds it | Sonnet | todo | `p2/calc-scaffold` | installs @tauri-apps/cli |
+| P2-2 | `fmt-xlsx` read/write: workbook, sheets, sharedStrings, styles (fonts/fills/borders/numFmts/cellXfs), cells (v/f/t/s, inlineStr), cols/rows; roundtrip tests vs testdata/xlsx | Opus | todo | `p2/fmt-xlsx` | after P2-1 |
+| P2-4 | `app-common`: command pattern, undo/redo stack, document state, IPC envelope types per ADR 0002, TS type generation choice (ADR) | Opus | todo | `p2/app-common` | after P2-1 |
+| P2-5 | calc-ui canvas grid: virtualization (100k+ cells), selection, in-cell editing, formula bar, column/row headers, resize | Opus | todo | `p2/grid` | after P2-3 + P2-4 |
+| P2-6 | `ui-shared`: formatting toolbar (bold/italic/underline, font, size, colors, alignment, number format, borders) | Sonnet | todo | `p2/toolbar` | after P2-3 |
+| P2-7 | Wiring: Tauri commands open/save/apply/snapshot/undo/redo; events; frontend store | Opus | todo | `p2/wiring` | after P2-2/4/5/6 |
+| P2-8 | Milestone verification: open testdata xlsx → edit → save → harness + LibreOffice; owner verifies in Excel | PM | todo | – | |
 | P1-1 | `engine-formula` lexer + Pratt parser + AST + printer; A1/absolute/range/cross-sheet refs, operators incl. `&` `%` `^`, arrays, errors, names; proptest AST→text→AST roundtrip | Opus | done (merged b0b70a6) | – | en-US syntax only (comma arg separator, dot decimal) |
 | P1-2 | Value type system + evaluator: Number/Text/Bool/Error/Array/Reference, coercion rules, error propagation, `CellProvider` trait, implicit intersection, range→array | Opus | done (merged 6b602bb) | – | verified: 52 unit tests; suite runner 232 passed / 0 failed / 630 skipped-unimplemented; deviations: numbers compared at 15 sig digits (Excel-like), `0^-1`→#NUM! (Excel #DIV/0!) |
 | P1-3 | Dependency graph + incremental recalc + circular detection (`#CIRC` → Excel reports 0 with warning; we return `Error::Circular`) | Opus | done (merged) | – | verified: 12 integration + 4 unit tests; 100k-cell chain ordered in <1 s debug |
@@ -26,7 +44,7 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 | P1-5d | lookup (7): VLOOKUP HLOOKUP INDEX MATCH CHOOSE ROW COLUMN | Sonnet | done (merged) | – | verified: 88/88 lookup rows; ROW/COLUMN special-case INDEX literal (to be replaced by P1-11 `call_ref`) |
 | P1-6 | Reference test suite format (`testdata/formulas/*.tsv`: formula, expected, note) + runner test; provisional values computed with LibreOffice headless, marked provisional | Sonnet | done (merged) | – | 862 cases, 62 functions, `docs/functions.md`; 66 rows marked DIFF with excel= values from agent memory; owner's Excel run of `testdata/formulas/formula-suite.xlsx` will settle them |
 | P1-9 | Array-mode evaluation for range arguments (`eval_array`, broadcasting, `0^neg`→#DIV/0!) | Opus | done (merged) | – | verified: 8 unit tests; `CallContext::range` evaluates in array mode with broadcasting; `0^neg`→#DIV/0! |
-| P1-11 | Reference-returning functions (`Function::call_ref`, `A1:INDEX(..)`) + runner skips only planned-but-unimplemented names (UNKNOWNFN rows evaluated) | Opus | in progress | `p1/ref-fns` | brief docs/tasks/P1-11-ref-functions-and-runner.md |
+| P1-11 | Reference-returning functions (`Function::call_ref`, `A1:INDEX(..)`) + runner skips only planned-but-unimplemented names (UNKNOWNFN rows evaluated) | Opus | done (merged d27be64) | – | verified: `Function::call_ref`, `A1:INDEX(..)`, runner evaluates unlisted names → suite 862/0/0 |
 | P1-10 | Unify duplicated civil-date/serial + date-text parsing (datetime/serial.rs ← text/value.rs, text/numfmt.rs) | Sonnet | done (merged) | – | verified: suite counts unchanged, 318 tests; one shared serial/date-text parser; agent self-reported an accidental `git stash`/pop in its own worktree, no damage |
 | P1-8 | Engine façade: `Engine` holding cells + graph + evaluator; set value/formula, recalc, get; unify SheetId/CellCoord types | Opus | done (merged) | – | verified: 9 integration tests, coord.rs unifies types, `begin_batch/end_batch` added, `Schedule` with Tarjan cycle grouping; 50k chain 0.9 s build / 0.35 s head change (debug) |
 | P1-7 | `examples/repl.rs` as in README + rustdoc `-D warnings` hygiene and CI doc step | Sonnet | done (merged) | – | verified: README example prints 12; cycle + parse-error output; rustdoc -D warnings clean, CI doc step added |
@@ -44,6 +62,7 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+11. 2026-10-15: Phase 1 closed. Phase 2 design: `model-sheet::Workbook` wraps `engine_formula::Engine` (single storage of cell contents/values) and adds styles + dimensions; no duplicate cell store. ADR 0004 to be written with P2-1.
 10. 2026-10-15: `Engine` typing rules follow Excel input parsing (`1,000`, `$5`, `50%` become numbers; surrounding whitespace keeps text). Sheet add/rename recalc internally without returning a `Recalc` – to be revisited for IPC in Phase 2.
 9. 2026-10-15: Array-mode evaluation (Excel legacy array semantics with broadcasting) applies only to arguments requested via `CallContext::range`; scalar positions keep implicit intersection. Functions are not lifted over arrays in MVP. `0^negative` → #DIV/0! (Excel) replaces the earlier #NUM!.
 8. 2026-10-15: Cells in a circular reference evaluate to `#NUM!` with the cycle reported in `Recalc.cycle` (AST `ErrorKind` is frozen; Excel shows 0 + warning). Function batches register per family module to keep `with_builtins` merges to one line each.
