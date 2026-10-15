@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
+import { DocumentSession, FileMenu, RecoveryBanner } from "@rusuite/ui-shared";
 import { writePrintCss } from "./print/printCss";
 import { WriteApi, type WriteBackend } from "./backend";
 import { writeExtensions, TWIPS_PER_PX } from "./sync/schema";
@@ -48,7 +49,9 @@ function StatusBar({ ctl, editor, backend }: { ctl: SyncController; editor: Edit
 }
 
 export default function App({ backend }: { backend: WriteBackend }) {
-  const ctl = useMemo(() => new SyncController(new WriteApi(backend)), [backend]);
+  // Recent files, autosave, crash recovery: the controller talks through the session's backend.
+  const session = useMemo(() => new DocumentSession(backend), [backend]);
+  const ctl = useMemo(() => new SyncController(new WriteApi(session.backend)), [session]);
   const [findOpen, setFindOpen] = useState(false);
   const editor = useEditor(
     {
@@ -84,6 +87,16 @@ export default function App({ backend }: { backend: WriteBackend }) {
     await ctl.saveDocx((n, bytes) => backend.saveFile(n, bytes));
   }, [backend, ctl]);
 
+  useEffect(() => {
+    session.attach({
+      restore: (json, name) => ctl.restoreRecovery(json, name),
+      openFile: (file) => ctl.openDocx(file.bytesBase64, file.name),
+      onError: (e) => ctl.pushError(e),
+    });
+    void session.start();
+    return () => session.stop();
+  }, [session, ctl]);
+
   const saveAs = useCallback(
     async (name: string) => {
       await ctl.saveDocx((_n, bytes) => backend.saveFile(name, bytes), name);
@@ -98,8 +111,16 @@ export default function App({ backend }: { backend: WriteBackend }) {
 
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
+      <RecoveryBanner session={session} />
       {editor && (
-        <WriteToolbar editor={editor} ctl={ctl} onOpen={() => void open()} onSave={() => void save()} onFind={() => setFindOpen(true)} onExportPdf={exportPdf} />
+        <div className="flex items-stretch">
+          <div className="flex items-center border-b border-r border-ui-border bg-ui-panel px-1">
+            <FileMenu session={session} onOpen={() => void open()} onSave={() => void save()} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <WriteToolbar editor={editor} ctl={ctl} onOpen={() => void open()} onSave={() => void save()} onFind={() => setFindOpen(true)} onExportPdf={exportPdf} />
+          </div>
+        </div>
       )}
       <style>{writePrintCss(page)}</style>
       <div className="write-scroll min-h-0 flex-1 overflow-auto bg-ui-panel p-6">

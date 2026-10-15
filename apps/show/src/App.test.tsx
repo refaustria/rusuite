@@ -107,3 +107,28 @@ describe("Show app", () => {
     expect(screen.getByTestId("slide-count").textContent).toBe("Slide 3 of 4");
   });
 });
+
+describe("Show app recovery (P5-3)", () => {
+  it("restores an autosaved presentation from the banner as modified", async () => {
+    const { MemoryDocStorage } = await import("@rusuite/ui-shared");
+    const earlier = new FakeBackend();
+    const snap = await earlier.dispatch<{ type: string; json: string }>({ type: "recoverySnapshot" });
+    const deck = JSON.parse("ok" in snap ? snap.ok.json : "{}") as { slides: unknown[] };
+    deck.slides = deck.slides.slice(0, 2);
+    const storage = new MemoryDocStorage();
+    await storage.putRecovery({ id: "crashed", name: "deck.pptx", savedAt: Date.now(), revision: 5, json: JSON.stringify(deck) });
+
+    const backend = Object.assign(new FakeBackend(), { storage });
+    render(<App backend={backend} />);
+    await waitFor(() => expect(screen.getAllByTestId("thumbnail")).toHaveLength(3));
+    const banner = await screen.findByRole("region", { name: "Recovered documents" });
+    expect(within(banner).getByText("deck.pptx")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Restore deck.pptx" }));
+    await waitFor(() => expect(screen.getAllByTestId("thumbnail")).toHaveLength(2));
+    expect(screen.getByTestId("doc-name").textContent).toBe("deck.pptx");
+    expect(screen.getByTestId("dirty").textContent).toBe("Modified");
+    expect(screen.queryByTestId("recovery-banner")).toBeNull();
+    await waitFor(() => expect(storage.recovery.has("crashed")).toBe(false));
+    expect(storage.recovery.size).toBe(1);
+  });
+});

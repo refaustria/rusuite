@@ -188,3 +188,49 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByTestId("status-bar").textContent).toMatch(/Saved/));
   });
 });
+
+describe("App recovery (P5-3)", () => {
+  it("offers an earlier session's autosave and restores it as modified", async () => {
+    const { MemoryDocStorage } = await import("@rusuite/ui-shared");
+    const storage = new MemoryDocStorage();
+    // What an earlier session of the fake core autosaved before it crashed.
+    const earlier = new FakeCalcCore();
+    earlier.handle({ type: "apply", command: { type: "setInput", sheet: 0, row: 0, col: 0, input: "recovered" } });
+    const snap = earlier.handle({ type: "recoverySnapshot" });
+    const json = "ok" in snap && snap.ok.type === "recoverySnapshot" ? snap.ok.json : "";
+    await storage.putRecovery({ id: "crashed", name: "budget.xlsx", savedAt: Date.now(), revision: 1, json });
+
+    const core = new FakeCalcCore();
+    const backend = Object.assign(new FakeBackend(core), { storage });
+    render(<App backend={backend} />);
+    const banner = await screen.findByRole("region", { name: "Recovered documents" });
+    expect(banner.textContent).toContain("budget.xlsx");
+    fireEvent.click(screen.getByRole("button", { name: "Restore budget.xlsx" }));
+    await waitFor(() => expect(screen.queryByTestId("recovery-banner")).toBeNull());
+    expect(core.log.some((r) => r.type === "restoreRecovery")).toBe(true);
+    await waitFor(() => expect(backend.title).toBe("budget.xlsx • – Rusuite Calc"));
+    expect(screen.getByTestId("status-bar").textContent).toContain("Modified");
+    expect((screen.getByLabelText("Formula bar") as HTMLInputElement).value).toBe("recovered");
+    // The restored workbook is autosaved under the new session; the old entry is gone.
+    await waitFor(() => expect([...storage.recovery.keys()]).toHaveLength(1));
+    expect(storage.recovery.has("crashed")).toBe(false);
+  });
+
+  it("Discard drops the entry; the File menu lists recent files", async () => {
+    const { MemoryDocStorage } = await import("@rusuite/ui-shared");
+    const storage = new MemoryDocStorage();
+    await storage.putRecovery({ id: "old", name: null, savedAt: Date.now(), revision: 1, json: '{"cells":[]}' });
+    await storage.rememberRecent("last.xlsx", '{"cells":[[0,0,0,"from recent"]]}');
+    const core = new FakeCalcCore();
+    render(<App backend={Object.assign(new FakeBackend(core), { storage })} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Discard Untitled" }));
+    await waitFor(() => expect(screen.queryByTestId("recovery-banner")).toBeNull());
+    expect(storage.recovery.size).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "File" }));
+    const entry = await screen.findByTestId("recent-entry");
+    expect(entry.textContent).toContain("last.xlsx");
+    expect(screen.getByTestId("recent-web-note")).toBeTruthy();
+    fireEvent.click(entry);
+    await waitFor(() => expect((screen.getByLabelText("Formula bar") as HTMLInputElement).value).toBe("from recent"));
+  });
+});

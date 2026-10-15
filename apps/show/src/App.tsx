@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { printAndWait } from "@rusuite/ui-shared";
+import { DocumentSession, FileMenu, RecoveryBanner, printAndWait } from "@rusuite/ui-shared";
 import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
 import { EditorStage } from "./canvas/Stage";
@@ -57,7 +57,9 @@ function StatusBar({ store, backend }: { store: ShowStore; backend: ShowBackend 
 }
 
 export default function App({ backend, store: given }: { backend: ShowBackend; store?: ShowStore }) {
-  const store = useMemo(() => given ?? new ShowStore(new ShowApi(backend)), [backend, given]);
+  // Recent files, autosave, crash recovery: the store talks through the session's backend.
+  const session = useMemo(() => new DocumentSession(backend), [backend]);
+  const store = useMemo(() => given ?? new ShowStore(new ShowApi(session.backend)), [session, given]);
   const [presenting, setPresenting] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [canvasRef, size] = useElementSize<HTMLDivElement>();
@@ -71,6 +73,17 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     void store.init().then(() => store.probeFileIo());
     if (import.meta.env.DEV) (window as unknown as { __showStore?: ShowStore }).__showStore = store;
   }, [store]);
+
+  useEffect(() => {
+    session.attach({
+      restore: (json, name) => store.restoreRecovery(json, name),
+      openFile: (file) => store.openBytes(file),
+      onError: (e) => store.pushError(e),
+    });
+    void session.start();
+    return () => session.stop();
+  }, [session, store]);
+  const fileIo = useShow(store, (s) => s.fileIo);
 
   useEffect(() => {
     void backend.setTitle(`${dirty ? "• " : ""}${name ?? "Untitled"} – Rusuite Show`).catch(() => undefined);
@@ -112,7 +125,15 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
 
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
-      <ShowToolbar store={store} onPresent={startPresenting} onExportPdf={exportPdf} />
+      <RecoveryBanner session={session} />
+      <div className="flex items-stretch">
+        <div className="flex items-center border-b border-r border-ui-border bg-ui-panel px-1">
+          <FileMenu session={session} disabled={!fileIo} onOpen={() => void store.open()} onSave={() => void store.save()} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <ShowToolbar store={store} onPresent={startPresenting} onExportPdf={exportPdf} />
+        </div>
+      </div>
       <div className="flex min-h-0 flex-1">
         <SlideList store={store} />
         <div ref={canvasRef} className="flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-ui-hover p-4" data-testid="canvas-area">

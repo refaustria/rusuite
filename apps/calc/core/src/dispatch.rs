@@ -61,6 +61,17 @@ pub enum Request {
         #[ts(optional)]
         name: Option<String>,
     },
+    /// The whole document for crash recovery → `recoverySnapshot`
+    /// (changes nothing; the JSON is the input of `restoreRecovery`).
+    RecoverySnapshot,
+    /// Replaces the document by a `recoverySnapshot` JSON and marks it
+    /// dirty (it was never saved); `name` becomes the file name → `info`.
+    RestoreRecovery {
+        json: String,
+        #[serde(default)]
+        #[ts(optional)]
+        name: Option<String>,
+    },
     /// → `documentState`.
     DocumentState,
 }
@@ -99,6 +110,14 @@ pub enum ResponseBody {
     Saved {
         bytes_base64: String,
         suggested_name: String,
+    },
+    /// The reply to `recoverySnapshot`: the whole workbook (`WorkbookSnapshot`) as JSON plus
+    /// the host state it was taken at.
+    RecoverySnapshot {
+        json: String,
+        revision: Revision,
+        dirty: bool,
+        name: Option<String>,
     },
     /// Host state for the title bar: dirty flag, revision and the file
     /// name (`null` for a new document).
@@ -199,6 +218,24 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
             }
             host.mark_saved();
             state(host)
+        }
+        Request::RecoverySnapshot => ResponseBody::RecoverySnapshot {
+            json: serde_json::to_string(&host.doc().workbook().to_snapshot())
+                .map_err(|e| DispatchError::new("internal", e.to_string()))?,
+            revision: host.revision(),
+            dirty: host.is_dirty(),
+            name: host.doc().source_name.clone(),
+        },
+        Request::RestoreRecovery { json, name } => {
+            let snapshot: WorkbookSnapshot = serde_json::from_str(&json)
+                .map_err(|e| DispatchError::new("invalid_snapshot", e.to_string()))?;
+            let workbook = Workbook::from_snapshot(&snapshot)
+                .map_err(|e| DispatchError::from(crate::CalcError::from(e)))?;
+            let mut doc = CalcDocument::from_workbook(workbook);
+            doc.source_name = name;
+            host.replace(doc);
+            host.mark_dirty();
+            info(host)
         }
         Request::DocumentState => state(host),
     })

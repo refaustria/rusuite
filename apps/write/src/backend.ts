@@ -55,6 +55,7 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     saved: { bytesBase64: "string", suggestedName: "string" },
     media: { contentType: "string", bytesBase64: "string" },
     documentState: { dirty: "boolean", revision: "number" },
+    recoverySnapshot: { json: "string", revision: "number", dirty: "boolean" },
   };
   for (const [field, kind] of Object.entries(shapes[expected])) {
     const value = body[field];
@@ -133,6 +134,16 @@ export class WriteApi {
 
   documentState(): Promise<BodyOf<"documentState">> {
     return this.call({ type: "documentState" }, "documentState");
+  }
+
+  /** The whole document for crash recovery (P5-3). */
+  recoverySnapshot(): Promise<BodyOf<"recoverySnapshot">> {
+    return this.call({ type: "recoverySnapshot" }, "recoverySnapshot");
+  }
+
+  /** Replaces the document by a `recoverySnapshot` JSON (dirty; `name` = file name). */
+  restoreRecovery(json: string, name: string | null): Promise<BodyOf<"document">> {
+    return this.call({ type: "restoreRecovery", json, name: name ?? undefined }, "document");
   }
 
   markSaved(name?: string): Promise<BodyOf<"documentState">> {

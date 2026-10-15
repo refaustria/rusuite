@@ -59,6 +59,7 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     opened: { info: "object", warnings: "array", envelope: "object" },
     saved: { bytesBase64: "string", suggestedName: "string" },
     documentState: { dirty: "boolean", revision: "number" },
+    recoverySnapshot: { json: "string", revision: "number", dirty: "boolean" },
   };
   for (const [field, kind] of Object.entries(shapes[expected])) {
     const value = body[field];
@@ -137,6 +138,16 @@ export class CalcApi {
   /** Marks the current state saved (after the shell wrote the file). */
   markSaved(name?: string): Promise<BodyOf<"documentState">> {
     return this.call(name === undefined ? { type: "markSaved" } : { type: "markSaved", name }, "documentState");
+  }
+
+  /** The whole workbook for crash recovery (P5-3). */
+  recoverySnapshot(): Promise<BodyOf<"recoverySnapshot">> {
+    return this.call({ type: "recoverySnapshot" }, "recoverySnapshot");
+  }
+
+  /** Replaces the workbook by a `recoverySnapshot` JSON (dirty; `name` = file name). */
+  async restoreRecovery(json: string, name: string | null): Promise<WorkbookInfo> {
+    return (await this.call({ type: "restoreRecovery", json, name: name ?? undefined }, "info")).info;
   }
 
   documentState(): Promise<BodyOf<"documentState">> {

@@ -3,7 +3,8 @@
 //! document [`Host`] (undo/redo, revision, dirty flag), the [`Document`]
 //! trait every app core implements, and the wire types shared by all
 //! apps ([`Revision`], [`Envelope`], [`DispatchError`] and the TypeScript
-//! mirrors of `core-model` types in [`wire`]).
+//! mirrors of `core-model` types in [`wire`]), and the recent-files /
+//! crash-recovery [`session`].
 //!
 //! TypeScript definitions are generated with `ts-rs` into
 //! `packages/ui-shared/src/generated/` when `cargo test -p app-common`
@@ -49,6 +50,7 @@
 //! ```
 
 pub mod host;
+pub mod session;
 pub mod wire;
 
 pub use host::{Applied, Document, Envelope, Host, Patch, Revision, DEFAULT_UNDO_LIMIT};
