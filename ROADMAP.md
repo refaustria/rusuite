@@ -31,6 +31,12 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Per-end `$` flags on whole-column/row ranges (`$A:C` currently loses the `$`).
 - Source spans on AST nodes for editor diagnostics.
 
+## engine-formula (dependency graph)
+- 2-D interval index (R-tree) for heavy range use; incremental topological order instead of re-sorting per edit.
+- `HashSet` for reverse edges if bulk removal of formulas pointing at one hot cell gets quadratic.
+- Façade needs: volatile cells (NOW/RAND) always recalculated, re-resolving `Precedent::Unresolved` on sheet add/rename, coordinate shifting on row/col insert/delete, partial order alongside a reported cycle.
+- Dynamic references (`A1:INDEX(...)`, INDIRECT/OFFSET) are not tracked by the graph – treat as volatile when they arrive.
+
 ## engine-formula (reference suite)
 - Host-cell cases (`ROW()`, `COLUMN()` without args), implicit-intersection and spill cases once the evaluator exists.
 - Second locale pass for `TEXT`/`VALUE`; cases for SUMIFS/COUNTIFS/XLOOKUP if they ever enter scope.
