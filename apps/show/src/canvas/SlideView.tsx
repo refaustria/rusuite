@@ -89,6 +89,27 @@ function useImage(url: string | undefined): HTMLImageElement | null {
   return img;
 }
 
+/** Loads `urls` into the image cache; resolves when all are decoded (or failed). */
+export function preloadImages(urls: readonly string[]): Promise<void> {
+  if (typeof Image === "undefined") return Promise.resolve();
+  return Promise.all(
+    urls.map(
+      (url) =>
+        new Promise<void>((resolve) => {
+          let el = imageCache.get(url);
+          if (!el) {
+            el = new Image();
+            el.src = url;
+            imageCache.set(url, el);
+          }
+          if (el.complete) return resolve();
+          el.addEventListener("load", () => resolve(), { once: true });
+          el.addEventListener("error", () => resolve(), { once: true });
+        }),
+    ),
+  ).then(() => undefined);
+}
+
 /** Resolves run formatting to a concrete style. */
 export function runStyleFor(def: PlaceholderDef | undefined, theme: Theme, palette: ThemePalette) {
   return (props: RunProperties | undefined): RunStyle => {

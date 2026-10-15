@@ -416,14 +416,16 @@ export class SyncController {
 
   /**
    * Saves as `.docx`: `SaveDocx`, then `save(name, bytes)` (the shell's
-   * file dialog / download); only when that succeeds, `MarkSaved`.
+   * file dialog / download); only when that succeeds, `MarkSaved`. `asName`
+   * (Save As) replaces the suggested name.
    */
-  async saveDocx(save: (suggestedName: string, bytesBase64: string) => Promise<boolean>): Promise<boolean> {
+  async saveDocx(save: (suggestedName: string, bytesBase64: string) => Promise<boolean>, asName?: string): Promise<boolean> {
     await this.idle();
     try {
       const file = await this.api.saveDocx();
-      if (!(await save(file.suggestedName, file.bytesBase64))) return false;
-      const st = await this.api.markSaved(file.suggestedName);
+      const name = asName ?? file.suggestedName;
+      if (!(await save(name, file.bytesBase64))) return false;
+      const st = await this.api.markSaved(name);
       this.set({ dirty: st.dirty, name: st.name, revision: Math.max(this.state.revision, st.revision) });
       return true;
     } catch (e) {

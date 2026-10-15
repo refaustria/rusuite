@@ -73,5 +73,6 @@ export function fakeBackend(core = new FakeCore(), storage: DocStorage | null = 
     openFile: async () => ({ name: "picked.xlsx", bytesBase64: "picked" }),
     saveFile: async () => true,
     setTitle: async () => {},
+    print: async () => {},
   };
 }

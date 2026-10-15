@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DocumentSession, FileMenu, RecoveryBanner } from "@rusuite/ui-shared";
+import { DocumentSession, FileMenu, RecoveryBanner, printAndWait } from "@rusuite/ui-shared";
 import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
 import { EditorStage } from "./canvas/Stage";
+import { PrintView } from "./print/PrintView";
 import { Presenter } from "./present/Presenter";
 import { SlideList } from "./sidebar/SlideList";
-import { shortcutFor } from "./state/shortcuts";
+import { ShortcutLayer } from "./ShortcutLayer";
 import { ShowStore, useShow } from "./state/store";
 import { ShowToolbar } from "./ui/ShowToolbar";
 import { Toasts } from "./ui/Toasts";
@@ -55,18 +56,12 @@ function StatusBar({ store, backend }: { store: ShowStore; backend: ShowBackend 
   );
 }
 
-/** Whether a key event comes from a text field or a menu (those keep their keys). */
-function fromField(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  if (!el || !el.closest) return false;
-  return !!el.closest("input, textarea, select, [contenteditable=true], [role=menu], [role=dialog], nav");
-}
-
 export default function App({ backend, store: given }: { backend: ShowBackend; store?: ShowStore }) {
   // Recent files, autosave, crash recovery: the store talks through the session's backend.
   const session = useMemo(() => new DocumentSession(backend), [backend]);
   const store = useMemo(() => given ?? new ShowStore(new ShowApi(session.backend)), [session, given]);
   const [presenting, setPresenting] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [canvasRef, size] = useElementSize<HTMLDivElement>();
   const pres = useShow(store, (s) => s.pres);
   const current = useShow(store, (s) => s.current);
@@ -94,32 +89,27 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     void backend.setTitle(`${dirty ? "• " : ""}${name ?? "Untitled"} – Rusuite Show`).catch(() => undefined);
   }, [backend, dirty, name]);
 
-  useEffect(() => {
-    if (presenting) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (fromField(e.target)) return;
-      if (e.key === "F5") {
-        e.preventDefault();
-        setPresenting(true);
-        return;
-      }
-      const action = shortcutFor(e);
-      if (!action) return;
-      if (action.kind === "open" || action.kind === "save") {
-        e.preventDefault();
-        if (store.getState().fileIo) void (action.kind === "open" ? store.open() : store.save());
-        return;
-      }
-      if (store.shortcut(action)) e.preventDefault();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [store, presenting]);
-
   const startPresenting = useCallback(() => {
     void store.commitEdit();
     setPresenting(true);
   }, [store]);
+  const exportPdf = useCallback(() => {
+    void store.commitEdit();
+    setPrinting(true);
+  }, [store]);
+  const printReady = useCallback(() => {
+    void printAndWait(backend)
+      .catch((e) => store.pushError(e))
+      .finally(() => setPrinting(false));
+  }, [backend, store]);
+  const presentFrom = useCallback(
+    (fromStart: boolean) => {
+      const first = store.getState().pres?.slides[0]?.id;
+      if (fromStart && first !== undefined) store.selectSlide(first);
+      startPresenting();
+    },
+    [store, startPresenting],
+  );
   const exit = useCallback(() => setPresenting(false), []);
   const slides = pres?.slides ?? [];
   const index = Math.max(0, slides.findIndex((s) => s.id === current));
@@ -131,6 +121,8 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     [store],
   );
 
+  if (printing && pres) return <PrintView deck={pres} slides={slides} media={store.media} onReady={printReady} />;
+
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
       <RecoveryBanner session={session} />
@@ -139,7 +131,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
           <FileMenu session={session} disabled={!fileIo} onOpen={() => void store.open()} onSave={() => void store.save()} />
         </div>
         <div className="min-w-0 flex-1">
-          <ShowToolbar store={store} onPresent={startPresenting} />
+          <ShowToolbar store={store} onPresent={startPresenting} onExportPdf={exportPdf} />
         </div>
       </div>
       <div className="flex min-h-0 flex-1">
@@ -152,6 +144,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       </div>
       <StatusBar store={store} backend={backend} />
       <Toasts store={store} />
+      <ShortcutLayer store={store} enabled={!presenting} onPresent={presentFrom} onExportPdf={exportPdf} />
       {presenting && pres && slides.length > 0 && (
         <Presenter
           deck={pres}

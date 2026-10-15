@@ -49,9 +49,10 @@ export interface WriteToolbarProps {
   onOpen: () => void;
   onSave: () => void;
   onFind: () => void;
+  onExportPdf?: () => void;
 }
 
-export function WriteToolbar({ editor, ctl, onOpen, onSave, onFind }: WriteToolbarProps) {
+export function WriteToolbar({ editor, ctl, onOpen, onSave, onFind, onExportPdf }: WriteToolbarProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const s = useEditorState({
     editor,
@@ -201,6 +202,11 @@ export function WriteToolbar({ editor, ctl, onOpen, onSave, onFind }: WriteToolb
         <button type="button" className={TEXT_BTN} aria-label="Save" title="Save (Ctrl+S)" onClick={onSave}>
           Save
         </button>
+        {onExportPdf && (
+          <button type="button" className={TEXT_BTN} aria-label="Export PDF" title="Export PDF… (Ctrl+P)" onClick={onExportPdf}>
+            Export PDF…
+          </button>
+        )}
       </Group>
     </Toolbar>
   );

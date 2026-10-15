@@ -136,8 +136,8 @@ export class CalcApi {
   }
 
   /** Marks the current state saved (after the shell wrote the file). */
-  markSaved(): Promise<BodyOf<"documentState">> {
-    return this.call({ type: "markSaved" }, "documentState");
+  markSaved(name?: string): Promise<BodyOf<"documentState">> {
+    return this.call(name === undefined ? { type: "markSaved" } : { type: "markSaved", name }, "documentState");
   }
 
   /** The whole workbook for crash recovery (P5-3). */

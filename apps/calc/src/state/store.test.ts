@@ -8,7 +8,7 @@ import type { Request } from "../generated/Request";
 import { LAST_COL, LAST_ROW } from "../grid/Selection";
 import { CalcStore, clipRange, emptyCache, MAX_RANGE_CELLS, parseTsv } from "./store";
 
-const fileStubs = { openFile: async () => null, saveFile: async () => false, setTitle: async () => {} };
+const fileStubs = { openFile: async () => null, saveFile: async () => false, setTitle: async () => {}, print: async () => {} };
 
 const cell = (row: number, col: number, input: string, style = 0): CellView => ({
   row, col, input, display: input, kind: input === "" ? "empty" : "text", style,

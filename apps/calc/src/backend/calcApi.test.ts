@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Backend } from "@rusuite/ui-shared";
 import { CalcApi, CalcApiError, parseResponse } from "./calcApi";
 
-const fileStubs = { openFile: async () => null, saveFile: async () => false, setTitle: async () => {} };
+const fileStubs = { openFile: async () => null, saveFile: async () => false, setTitle: async () => {}, print: async () => {} };
 
 function backendReturning(reply: unknown | (() => unknown)): Backend & { sent: unknown[] } {
   const sent: unknown[] = [];

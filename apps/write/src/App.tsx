@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
 import { DocumentSession, FileMenu, RecoveryBanner } from "@rusuite/ui-shared";
+import { writePrintCss } from "./print/printCss";
 import { WriteApi, type WriteBackend } from "./backend";
 import { writeExtensions, TWIPS_PER_PX } from "./sync/schema";
 import { SyncController, SyncExtension, type SyncState } from "./sync/SyncPlugin";
 import { FindReplaceDialog } from "./ui/FindReplaceDialog";
+import { ShortcutLayer } from "./ShortcutLayer";
 import { Toasts } from "./ui/Toasts";
 import { WriteToolbar } from "./ui/WriteToolbar";
 
@@ -95,24 +97,14 @@ export default function App({ backend }: { backend: WriteBackend }) {
     return () => session.stop();
   }, [session, ctl]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-      const k = e.key.toLowerCase();
-      if (k === "o") {
-        e.preventDefault();
-        void open();
-      } else if (k === "s") {
-        e.preventDefault();
-        void save();
-      } else if (k === "h") {
-        e.preventDefault();
-        setFindOpen(true);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, save]);
+  const saveAs = useCallback(
+    async (name: string) => {
+      await ctl.saveDocx((_n, bytes) => backend.saveFile(name, bytes), name);
+    },
+    [backend, ctl],
+  );
+
+  const exportPdf = useCallback(() => void backend.print().catch((e) => ctl.pushError(e)), [backend, ctl]);
 
   const m = page?.margins;
   const px = (twips: number | undefined, fallback: number) => (twips === undefined ? fallback : twips / TWIPS_PER_PX);
@@ -126,11 +118,12 @@ export default function App({ backend }: { backend: WriteBackend }) {
             <FileMenu session={session} onOpen={() => void open()} onSave={() => void save()} />
           </div>
           <div className="min-w-0 flex-1">
-            <WriteToolbar editor={editor} ctl={ctl} onOpen={() => void open()} onSave={() => void save()} onFind={() => setFindOpen(true)} />
+            <WriteToolbar editor={editor} ctl={ctl} onOpen={() => void open()} onSave={() => void save()} onFind={() => setFindOpen(true)} onExportPdf={exportPdf} />
           </div>
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-auto bg-ui-panel p-6">
+      <style>{writePrintCss(page)}</style>
+      <div className="write-scroll min-h-0 flex-1 overflow-auto bg-ui-panel p-6">
         <div
           className="write-page mx-auto bg-white text-black shadow"
           style={{
@@ -145,6 +138,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
       {editor && <StatusBar ctl={ctl} editor={editor} backend={backend} />}
       <FindReplaceDialog ctl={ctl} open={findOpen} onClose={() => setFindOpen(false)} />
       <Toasts ctl={ctl} />
+      <ShortcutLayer editor={editor} ctl={ctl} onOpen={() => void open()} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={() => setFindOpen(true)} onExportPdf={exportPdf} />
     </main>
   );
 }

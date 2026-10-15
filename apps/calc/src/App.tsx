@@ -1,10 +1,12 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DocumentSession, FileMenu, RecoveryBanner, Toolbar, type AnySession } from "@rusuite/ui-shared";
 import { CalcApi, type CalcBackend } from "./backend/calcApi";
 import { installDevTools, perfOverlayEnabled, pickBackend } from "./dev/devTools";
 import { FormulaBar } from "./FormulaBar";
 import { GridCanvas } from "./grid/GridCanvas";
 import { toolbarValue } from "./grid/style";
+import { ExportPdf, type ExportStage } from "./print/ExportPdf";
+import { ShortcutLayer } from "./ShortcutLayer";
 import { SheetTabs } from "./SheetTabs";
 import { CalcStore, useCalc } from "./state/store";
 import { Toasts } from "./Toasts";
@@ -32,7 +34,17 @@ function StatusBar({ store }: { store: CalcStore }) {
   );
 }
 
-function FileButtons({ store, session }: { store: CalcStore; session: AnySession }) {
+function FileButtons({
+  store,
+  session,
+  stage,
+  onStage,
+}: {
+  store: CalcStore;
+  session: AnySession;
+  stage: ExportStage;
+  onStage: (s: ExportStage) => void;
+}) {
   const btn = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg hover:bg-ui-hover";
   return (
     <div role="group" aria-label="File" className="flex items-center gap-1 border-b border-r border-ui-border bg-ui-panel px-1">
@@ -43,6 +55,7 @@ function FileButtons({ store, session }: { store: CalcStore; session: AnySession
       <button type="button" className={btn} title="Save (Ctrl+S)" onClick={() => void store.saveFile()}>
         Save
       </button>
+      <ExportPdf store={store} stage={stage} onStage={onStage} />
     </div>
   );
 }
@@ -68,6 +81,11 @@ export default function App({ backend }: { backend: CalcBackend }) {
   // Recent files, autosave, crash recovery: the store talks through the session's backend.
   const session = useMemo(() => new DocumentSession(pickBackend(backend)), [backend]);
   const store = useMemo(() => new CalcStore(new CalcApi(session.backend)), [session]);
+  const [exportStage, setExportStage] = useState<ExportStage>("idle");
+  const openExport = useCallback(() => {
+    store.cancelEdit();
+    setExportStage("setup");
+  }, [store]);
   useEffect(() => {
     installDevTools(store);
     void store.init();
@@ -88,27 +106,11 @@ export default function App({ backend }: { backend: CalcBackend }) {
     void store.api.backend.setTitle(store.title()).catch(() => undefined);
   }, [store, name, dirty]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
-      const k = e.key.toLowerCase();
-      if (k === "o") {
-        e.preventDefault();
-        void store.openFile();
-      } else if (k === "s") {
-        e.preventDefault();
-        void store.saveFile();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [store]);
-
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
       <RecoveryBanner session={session} />
       <div className="flex items-stretch">
-        <FileButtons store={store} session={session} />
+        <FileButtons store={store} session={session} stage={exportStage} onStage={setExportStage} />
         <div className="min-w-0 flex-1">
           <StyleToolbar store={store} />
         </div>
@@ -118,6 +120,7 @@ export default function App({ backend }: { backend: CalcBackend }) {
       <SheetTabs store={store} />
       <StatusBar store={store} />
       <Toasts store={store} />
+      <ShortcutLayer store={store} onExportPdf={openExport} />
     </main>
   );
 }
