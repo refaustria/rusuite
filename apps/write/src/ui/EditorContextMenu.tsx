@@ -10,6 +10,7 @@ import { clearFormatting } from "../features/formatting";
 import { resetImageSize, selectedImage } from "../features/images";
 import { deleteCols, deleteRows, deleteTable, insertCol, insertRow, tableContext } from "../features/tables";
 import type { WriteFeatures } from "../features/WriteFeatures";
+import { numberedAtCaret } from "../features/structureCommands";
 import type { SyncController } from "../sync/SyncPlugin";
 import { t, useT } from "../i18n";
 
@@ -64,6 +65,14 @@ export function contextItems(editor: Editor, ctl: SyncController, features: Writ
       { id: "delete-table", label: t("write.deleteTable"), onSelect: run(deleteTable(tc)) },
       sep,
       { id: "row-height", label: t("write.rowHeightDots"), onSelect: () => features.ui.openDialog("rowHeight") },
+    );
+  }
+  const numbered = numberedAtCaret(editor);
+  if (numbered != null && numbered > 0) {
+    items.push(
+      sep,
+      { id: "restart-list", label: t("write.restartAt1"), onSelect: () => void ctl.run({ type: "restartList", block: numbered, start: 1 }) },
+      { id: "continue-list", label: t("write.continueNumbering"), onSelect: () => void ctl.run({ type: "continueList", block: numbered }) },
     );
   }
   items.push(

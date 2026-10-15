@@ -11,11 +11,14 @@ import { findPlugin } from "./find";
 import { clearFormatting, FormatPainter, toggleScript } from "./formatting";
 import { imageFiles, insertImageFile } from "./images";
 import { paginationPlugin, remeasurePages } from "./pagination";
+import { layoutFieldContext, refreshStructure, structurePlugin, updateFieldsCommand, type FieldContext } from "./structure";
+import { insertNote } from "./structureCommands";
+import { getLocale } from "@rusuite/ui-shared";
 import { caretToCell, inLastCell, tableContext } from "./tables";
 import type { SyncController } from "../sync/SyncPlugin";
 
 export type WriteView = "print" | "draft";
-export type WriteDialog = "rowHeight" | "altText" | "pageSetup" | "headerFooter" | "paragraph" | null;
+export type WriteDialog = "rowHeight" | "altText" | "pageSetup" | "headerFooter" | "paragraph" | "pageNumbers" | null;
 
 export interface WriteUiState {
   view: WriteView;
@@ -25,6 +28,8 @@ export interface WriteUiState {
   /** Which field the header/footer dialog focuses. */
   headerFooterFocus: "header" | "footer";
   pages: number;
+  /** Header of the first page and footer of the last page in print layout (from the sections). */
+  frame: { firstHeader: string; lastFooter: string } | null;
 }
 
 /** Observable UI state shared by the ribbon, the dialogs and the editor plugins. */
@@ -36,6 +41,7 @@ export class WriteUi {
     dialog: null,
     headerFooterFocus: "header",
     pages: 1,
+    frame: null,
   };
   private listeners = new Set<() => void>();
 
@@ -70,8 +76,13 @@ export class WriteFeatures {
   readonly ui = new WriteUi();
   readonly painter = new FormatPainter();
   editor: Editor | null = null;
+  /** Live field values: pages from the pagination, the clock, the document name. */
+  readonly fields: FieldContext;
 
-  constructor(readonly ctl: SyncController) {}
+  constructor(readonly ctl: SyncController) {
+    this.fields = layoutFieldContext(() => ctl.getState().name, () => getLocale());
+    ctl.beforeSave = () => (this.editor && !this.editor.isDestroyed ? updateFieldsCommand(this.editor.state, this.fields) : null);
+  }
 
   /** Attributes of the editor element (spell check follows the View › Spelling toggle). */
   editorAttributes(): Record<string, string> {
@@ -129,6 +140,15 @@ export class WriteFeatures {
             void clearFormatting(this.editor as Editor, ctl, false);
             return true;
           },
+          // Word: Ctrl+Alt+F footnote, Ctrl+Alt+D endnote.
+          "Mod-Alt-f": () => {
+            void insertNote(this.editor as Editor, ctl, "foot");
+            return true;
+          },
+          "Mod-Alt-d": () => {
+            void insertNote(this.editor as Editor, ctl, "end");
+            return true;
+          },
         };
       },
       addProseMirrorPlugins() {
@@ -139,9 +159,16 @@ export class WriteFeatures {
           paginationPlugin({
             enabled: () => ui.getState().view === "print",
             page: () => ctl.page,
+            sections: () => ctl.sections,
             onEditHeaderFooter: (which) => ui.openDialog("headerFooter", which),
             onPages: (pages) => ui.set({ pages }),
+            onLayout: (l) => {
+              const f = ui.getState().frame;
+              if (f?.firstHeader !== l.firstHeader || f?.lastFooter !== l.lastFooter) ui.set({ frame: { firstHeader: l.firstHeader, lastFooter: l.lastFooter } });
+            },
           }),
+          // After the pagination: page fields read its layout.
+          structurePlugin({ sections: () => ctl.sections, fields: features.fields }),
           new Plugin({
             key: featuresKey,
             props: {
@@ -179,16 +206,25 @@ export class WriteFeatures {
             view(view) {
               // Lay the pages out again when the page setup or the view mode changes.
               let page = ctl.page;
+              let sections = ctl.sections;
+              let name = ctl.getState().name;
               let mode = ui.getState().view;
               const offCtl = ctl.subscribe(() => {
-                if (ctl.page !== page) {
+                if (ctl.page !== page || ctl.sections !== sections) {
                   page = ctl.page;
+                  sections = ctl.sections;
                   remeasurePages(view);
+                  refreshStructure(view);
+                }
+                if (ctl.getState().name !== name) {
+                  name = ctl.getState().name;
+                  refreshStructure(view);
                 }
               });
               const offUi = ui.subscribe(() => {
                 if (ui.getState().view !== mode) {
                   mode = ui.getState().view;
+                  if (mode === "draft") ui.set({ frame: null });
                   remeasurePages(view);
                 }
               });

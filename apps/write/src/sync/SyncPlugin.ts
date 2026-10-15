@@ -20,15 +20,17 @@ import { base64ToBytes, savedName, type SaveResult } from "@rusuite/ui-shared";
 import { WriteApiError, type EditRequest, type PatchEnvelope, type WriteApi } from "../backend";
 import type { Block } from "../generated/Block";
 import type { Document } from "../generated/Document";
+import type { Note } from "../generated/Note";
+import type { Section } from "../generated/Section";
 import type { Numbering } from "../generated/Numbering";
 import type { PageSetup } from "../generated/PageSetup";
 import type { StyleSheet } from "../generated/StyleSheet";
 import type { WriteCommand } from "../generated/WriteCommand";
 import type { WritePatch } from "../generated/WritePatch";
-import { blockAt } from "./fromPM";
-import { blockKey, stableStringify, substituteBlock } from "./model";
+import { blockAt, notesFromPM, notesNode } from "./fromPM";
+import { blockKey, canonNote, stableStringify, substituteBlock, walkBlocks } from "./model";
 import { ID_NODE_TYPES, LIST_TYPES } from "./schema";
-import { blocksToPM, toPM } from "./toPM";
+import { blocksToPM, notesToPM, orderNotes, toPM } from "./toPM";
 import { mapDocChange, topBlocks, type MapperOptions, type MapResult } from "./transactionMapper";
 
 /** Transaction meta key: `"remote"` marks changes that come from Rust. */
@@ -65,6 +67,51 @@ export function idTaggerPlugin(): Plugin {
         return !node.isTextblock;
       });
       return tr;
+    },
+  });
+}
+
+// ----- notes guard -------------------------------------------------------------
+
+export const notesGuardKey = new PluginKey("rusuiteNotesGuard");
+
+/** Note ids referenced from the body (everything before the notes area). */
+export function bodyRefIds(doc: PMNode): Set<number> {
+  const out = new Set<number>();
+  doc.forEach((child) => {
+    if (child.type.name === "notes") return;
+    child.descendants((n) => {
+      if (n.type.name === "noteRef") out.add(n.attrs.id as number);
+      return true;
+    });
+  });
+  return out;
+}
+
+const noteIdsOf = (area: PMNode | null): Set<number> => {
+  const out = new Set<number>();
+  area?.forEach((n) => out.add(n.attrs.id as number));
+  return out;
+};
+
+/**
+ * Rejects local edits that remove a note whose reference stays in the
+ * text (e.g. a selection from the body into the notes area deleted): notes
+ * go away only with their references (`DeleteFootnote`).
+ */
+export function notesGuardPlugin(): Plugin {
+  return new Plugin({
+    key: notesGuardKey,
+    filterTransaction(tr) {
+      if (!tr.docChanged || tr.getMeta(SYNC_META) === "remote") return true;
+      const before = notesNode(tr.before);
+      const after = notesNode(tr.doc);
+      if (before === after || !before) return true;
+      const kept = noteIdsOf(after);
+      const lost = [...noteIdsOf(before)].filter((id) => !kept.has(id));
+      if (!lost.length) return true;
+      const refs = bodyRefIds(tr.doc);
+      return !lost.some((id) => refs.has(id));
     },
   });
 }
@@ -235,6 +282,12 @@ export class SyncController {
   numbering: Numbering = { defs: [] };
   styles: StyleSheet | null = null;
   page: PageSetup | null = null;
+  /** Sections (page setup, headers/footers) of the document. */
+  sections: Section[] = [];
+  /** Footnotes and endnotes as Rust last reported them. */
+  notes: Note[] = [];
+  /** Runs before `SaveDocx` (fields update: `UpdateFields`); its command is applied first. */
+  beforeSave: (() => WriteCommand | null) | null = null;
   readonly stats: SyncStats = { sent: 0, mismatches: 0, applied: 0, listIdUpdates: 0, reloads: 0, stale: 0 };
   private queue: Pending[] = [];
   private busy = false;
@@ -343,6 +396,8 @@ export class SyncController {
     this.numbering = doc.numbering;
     this.styles = doc.styles;
     this.page = doc.page;
+    this.sections = doc.sections ?? [];
+    this.notes = doc.notes ?? [];
     this.tempMap.clear();
     const view = this.view;
     if (view) {
@@ -423,6 +478,8 @@ export class SyncController {
   async saveDocx(save: (suggestedName: string, bytesBase64: string) => Promise<SaveResult>, asName?: string): Promise<boolean> {
     await this.idle();
     try {
+      const update = this.beforeSave?.() ?? null;
+      if (update) await this.run(update);
       const file = await this.api.saveDocx();
       const suggested = asName ?? file.suggestedName;
       const result = await save(suggested, file.bytesBase64);
@@ -505,6 +562,8 @@ export class SyncController {
     if (patch.numbering) this.numbering = patch.numbering;
     if (patch.styles) this.styles = patch.styles;
     if (patch.page) this.page = patch.page;
+    if (patch.sections) this.sections = patch.sections;
+    if (patch.notes) this.notes = patch.notes;
     this.set({
       revision: env.revision, dirty: env.dirty, canUndo: env.canUndo, canRedo: env.canRedo, info: patch.info ?? this.state.info,
     });
@@ -626,18 +685,78 @@ export class SyncController {
       else adopted.push([id, (local.value as { props: { numbering: { numId: number } } }).props.numbering.numId, numIdOf(block)!]);
       substituteBlock(edit(), id, block);
     }
-    if (!mismatch || !body) return;
-    // The other items of a new list take over the real numbering id too.
-    for (const [id, synthetic, real] of adopted) adoptListId(body, id, synthetic, real);
-    if (kind === "remote") this.stats.applied++;
-    else if (listIdsOnly) this.stats.listIdUpdates++;
-    else {
-      this.stats.mismatches++;
-      if (import.meta.env?.DEV) {
-        console.warn(`[write-sync] patch mismatch → node replaced (#${this.stats.mismatches})`, patch);
+    if (mismatch && body) {
+      // The other items of a new list take over the real numbering id too.
+      for (const [id, synthetic, real] of adopted) adoptListId(body, id, synthetic, real);
+      if (kind === "remote") this.stats.applied++;
+      else if (listIdsOnly) this.stats.listIdUpdates++;
+      else {
+        this.stats.mismatches++;
+        if (import.meta.env?.DEV) {
+          console.warn(`[write-sync] patch mismatch → node replaced (#${this.stats.mismatches})`, patch);
+        }
       }
+      this.rerender(oldBody, body);
     }
-    this.rerender(oldBody, body);
+    if (patch.notes) this.reconcileNotes(patch.notes, skip, kind);
+    this.applyLabels(patch);
+  }
+
+  /** Re-renders the notes area when Rust's notes differ from the editor's (not while queued edits touch them). */
+  private reconcileNotes(notes: Note[], skip: Set<number>, kind: Pending["kind"]): void {
+    const view = this.view!;
+    const doc = view.state.doc;
+    const area = notesNode(doc);
+    const local = notesFromPM(doc);
+    const ids = new Set<number>();
+    for (const n of local) {
+      ids.add(n.id);
+      for (const b of walkBlocks(n.blocks)) ids.add(b.value.id);
+    }
+    if (kind === "optimistic" && [...skip].some((id) => ids.has(id))) return;
+    const key = (ns: Note[]) => stableStringify(ns.map(canonNote));
+    const body: Block[] = [];
+    doc.forEach((n) => body.push(...topBlocks(n)));
+    // Same notes in the same display order: nothing to do.
+    if (key(local) === key(orderNotes(notes, body))) return;
+    const fresh = notesToPM({ schema: view.state.schema, numbering: this.numbering }, notes, body);
+    if (kind === "optimistic") this.stats.mismatches++;
+    else this.stats.applied++;
+    const from = area ? doc.content.size - area.nodeSize : doc.content.size;
+    const { anchor, head } = view.state.selection;
+    const pa = pointAt(doc, anchor);
+    const ph = pointAt(doc, head);
+    const tr = fresh ? view.state.tr.replaceWith(from, doc.content.size, fresh) : view.state.tr.delete(from, doc.content.size);
+    const an = resolvePoint(tr.doc, pa, tr.mapping.map(anchor));
+    const hd = resolvePoint(tr.doc, ph, tr.mapping.map(head));
+    try {
+      tr.setSelection(TextSelection.between(tr.doc.resolve(an), tr.doc.resolve(hd)));
+    } catch {
+      // Keep the mapped selection.
+    }
+    this.dispatchRemote(tr);
+  }
+
+  /** Sets the derived list labels (`listLabel`) of every paragraph the patch reports. */
+  private applyLabels(patch: WritePatch): void {
+    const view = this.view!;
+    const want = new Map<number, string | null>();
+    const visit = (blocks: Block[]) => {
+      for (const b of walkBlocks(blocks)) if (b.kind === "paragraph") want.set(b.value.id, b.value.listLabel ?? null);
+    };
+    visit(patch.replaced);
+    visit(patch.inserted.map((i) => i.block));
+    if (!want.size) return;
+    const tr = view.state.tr;
+    view.state.doc.descendants((node, pos) => {
+      if (node.isTextblock) {
+        const id = node.attrs.id as number | null;
+        if (id != null && want.has(id) && (node.attrs.listLabel ?? null) !== want.get(id)) tr.setNodeAttribute(pos, "listLabel", want.get(id));
+        return false;
+      }
+      return true;
+    });
+    if (tr.docChanged) this.dispatchRemote(tr);
   }
 
   /** Re-renders the top-level nodes covering the difference `oldBody → newBody`. */
@@ -657,6 +776,7 @@ export class SyncController {
     const counts: number[] = [];
     const nodes: PMNode[] = [];
     doc.forEach((n) => {
+      if (n.type.name === "notes") return;
       nodes.push(n);
       counts.push(topBlocks(n).length);
     });
@@ -739,6 +859,7 @@ export function SyncExtension(controller: SyncController) {
     addProseMirrorPlugins() {
       return [
         idTaggerPlugin(),
+        notesGuardPlugin(),
         new Plugin({
           key: syncKey,
           view(view) {

@@ -4,11 +4,13 @@ import { Mark, type Node as PMNode, type Schema } from "@tiptap/pm/model";
 import type { Block } from "../generated/Block";
 import type { Document } from "../generated/Document";
 import type { Inline } from "../generated/Inline";
+import type { Note } from "../generated/Note";
 import type { Numbering } from "../generated/Numbering";
 import type { Paragraph } from "../generated/Paragraph";
 import type { Table } from "../generated/Table";
+import type { Toc } from "../generated/Toc";
 import { buildLists } from "./listMapping";
-import { canonValue, type RunProperties } from "./model";
+import { canonValue, walkBlocks, type RunProperties } from "./model";
 import { TWIPS_PER_PX } from "./schema";
 
 export interface ToPMContext {
@@ -69,6 +71,18 @@ export function inlinesToPM(schema: Schema, inlines: Inline[]): PMNode[] {
       case "break":
         out.push(inline.value === "page" ? schema.nodes.pageBreak!.create() : schema.nodes.hardBreak!.create());
         break;
+      case "field":
+        out.push(
+          schema.nodes.field!.create(
+            { kind: canonValue(inline.value.kind), cached: inline.value.cached ?? "" },
+            null,
+            marksFromProps(schema, inline.value.props),
+          ),
+        );
+        break;
+      case "noteRef":
+        out.push(schema.nodes.noteRef!.create({ id: inline.value.id, kind: inline.value.kind }, null, marksFromProps(schema, inline.value.props)));
+        break;
     }
   }
   return out;
@@ -85,6 +99,7 @@ export function paragraphToPM(schema: Schema, p: Paragraph, inList = false): PMN
   if (numbering && !inList) extra.numbering = numbering;
   const attrs = {
     id: p.id,
+    listLabel: p.listLabel ?? null,
     align: alignment ?? null,
     indent: emptyToNull(indent),
     spacing: emptyToNull(spacing),
@@ -137,15 +152,64 @@ export function blocksToPM(ctx: ToPMContext, blocks: Block[]): PMNode[] {
       out.push(...buildLists(ctx, run));
       continue;
     }
-    out.push(b.kind === "paragraph" ? paragraphToPM(ctx.schema, b.value) : tableToPM(ctx, b.value));
+    out.push(b.kind === "paragraph" ? paragraphToPM(ctx.schema, b.value) : b.kind === "table" ? tableToPM(ctx, b.value) : tocToPM(ctx.schema, b.value));
     i++;
   }
   return out;
+}
+
+/** A table of contents block. */
+export function tocToPM(schema: Schema, t: Toc): PMNode {
+  return schema.nodes.toc!.create({
+    id: t.id,
+    fromLevel: t.fromLevel,
+    toLevel: t.toLevel,
+    title: t.title ?? null,
+    entries: canonValue(t.entries ?? []),
+  });
+}
+
+/** Note ids in the order of their first reference in `blocks` (cells included). */
+export function noteRefOrder(blocks: Block[]): number[] {
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const b of walkBlocks(blocks)) {
+    if (b.kind !== "paragraph") continue;
+    for (const i of b.value.inlines ?? []) {
+      if (i.kind === "noteRef" && !seen.has(i.value.id)) {
+        seen.add(i.value.id);
+        out.push(i.value.id);
+      }
+    }
+  }
+  return out;
+}
+
+/** Notes in display order: footnotes, then endnotes, each by first reference (unreferenced last, by id). */
+export function orderNotes(notes: Note[], body: Block[]): Note[] {
+  const order = new Map(noteRefOrder(body).map((id, i) => [id, i]));
+  const rank = (n: Note) => order.get(n.id) ?? Number.MAX_SAFE_INTEGER;
+  return [...notes].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "foot" ? -1 : 1) || rank(a) - rank(b) || a.id - b.id);
+}
+
+/** One note (its blocks; an empty paragraph-less note gets an empty paragraph for the cursor). */
+export function noteToPM(ctx: ToPMContext, note: Note): PMNode {
+  const content = blocksToPM(ctx, note.blocks ?? []);
+  return ctx.schema.nodes.note!.create({ id: note.id, kind: note.kind }, content.length ? content : [ctx.schema.nodes.paragraph!.create()]);
+}
+
+/** The notes area, or null without notes. */
+export function notesToPM(ctx: ToPMContext, notes: Note[] | undefined, body: Block[]): PMNode | null {
+  if (!notes?.length) return null;
+  return ctx.schema.nodes.notes!.create(null, orderNotes(notes, body).map((n) => noteToPM(ctx, n)));
 }
 
 /** The whole document. */
 export function toPM(doc: Document, schema: Schema): PMNode {
   const ctx: ToPMContext = { schema, numbering: doc.numbering };
   const content = blocksToPM(ctx, doc.body);
-  return schema.nodes.doc!.create(null, content.length ? content : [schema.nodes.paragraph!.create()]);
+  if (!content.length) content.push(schema.nodes.paragraph!.create());
+  const notes = notesToPM(ctx, doc.notes, doc.body);
+  if (notes) content.push(notes);
+  return schema.nodes.doc!.create(null, content);
 }
