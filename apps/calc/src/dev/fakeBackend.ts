@@ -12,11 +12,13 @@ import type { CellKind } from "../generated/CellKind";
 import type { CellStyle } from "../generated/CellStyle";
 import type { CellView } from "../generated/CellView";
 import type { ColView } from "../generated/ColView";
+import type { Rect } from "../generated/Rect";
 import type { Request } from "../generated/Request";
 import type { Response } from "../generated/Response";
 import type { ResponseBody } from "../generated/ResponseBody";
 import type { RowView } from "../generated/RowView";
 import type { SheetInfo } from "../generated/SheetInfo";
+import type { SheetView } from "../generated/SheetView";
 
 interface FakeCell {
   input: string;
@@ -31,6 +33,16 @@ interface FakeSheet {
   rows: Map<number, RowView>;
   formulas: Set<string>;
   tabColor?: Color;
+  hidden?: boolean;
+  veryHidden?: boolean;
+  view: SheetView;
+  merges: Rect[];
+}
+
+const DEFAULT_VIEW: SheetView = { frozenRows: 0, frozenCols: 0, zoom: 100, showGridlines: true, showHeadings: true };
+
+function intersects(a: Rect, b: Rect): boolean {
+  return a.r0 <= b.r1 && b.r0 <= a.r1 && a.c0 <= b.c1 && b.c0 <= a.c1;
 }
 
 type Value = number | string | boolean | { error: string };
@@ -97,7 +109,7 @@ export class FakeCalcCore {
   }
 
   private newSheet(id: number, name: string): FakeSheet {
-    return { id, name, cells: new Map(), cols: new Map(), rows: new Map(), formulas: new Set() };
+    return { id, name, cells: new Map(), cols: new Map(), rows: new Map(), formulas: new Set(), view: { ...DEFAULT_VIEW }, merges: [] };
   }
 
   private sheet(id: number): FakeSheet {
@@ -107,7 +119,26 @@ export class FakeCalcCore {
   }
 
   private sheetInfos(): SheetInfo[] {
-    return this.sheets.map(({ id, name, tabColor }) => (tabColor ? { id, name, tabColor } : { id, name }));
+    return this.sheets.map(({ id, name, tabColor, hidden, veryHidden, view }) => {
+      const info: SheetInfo = { id, name };
+      if (tabColor) info.tabColor = tabColor;
+      if (hidden) info.hidden = true;
+      if (veryHidden) info.veryHidden = true;
+      if (JSON.stringify(view) !== JSON.stringify(DEFAULT_VIEW)) info.view = { ...view };
+      return info;
+    });
+  }
+
+  private sheetsPatch(): CalcPatch {
+    const patch = this.emptyPatch();
+    patch.sheets = this.sheetInfos();
+    return patch;
+  }
+
+  private mergesPatch(s: FakeSheet): CalcPatch {
+    const patch = this.emptyPatch();
+    patch.merges = [{ sheet: s.id, merges: s.merges.map((m) => ({ ...m })) }];
+    return patch;
   }
 
   private cell(s: FakeSheet, r: number, c: number): FakeCell | undefined {
@@ -314,6 +345,8 @@ export class FakeCalcCore {
             rows: new Map(src.rows),
             formulas: new Set(src.formulas),
             tabColor: src.tabColor,
+            view: { ...src.view },
+            merges: src.merges.map((m) => ({ ...m })),
           };
         }
         if (at > this.sheets.length) throw new Fail("invalid_sheet_index", `bad index ${at}`);
@@ -325,6 +358,7 @@ export class FakeCalcCore {
       case "deleteSheet": {
         const s = this.sheet(cmd.sheet);
         if (this.sheets.length === 1) throw new Fail("last_sheet", "a workbook needs at least one sheet");
+        if (!s.hidden && !this.sheets.some((x) => x !== s && !x.hidden)) throw new Fail("last_visible_sheet", "a workbook needs at least one visible sheet");
         const index = this.sheets.indexOf(s);
         this.sheets.splice(index, 1);
         this.removed.set(s.id, s);
@@ -367,6 +401,81 @@ export class FakeCalcCore {
         const patch = this.emptyPatch();
         patch.sheets = this.sheetInfos();
         return [patch, { type: "renameSheet", sheet: cmd.sheet, name: old }];
+      }
+      case "setFreeze": {
+        const s = this.sheet(cmd.sheet);
+        const old = s.view;
+        s.view = { ...old, frozenRows: cmd.rows, frozenCols: cmd.cols };
+        return [this.sheetsPatch(), { type: "setFreeze", sheet: cmd.sheet, rows: old.frozenRows, cols: old.frozenCols }];
+      }
+      case "setSheetView": {
+        const s = this.sheet(cmd.sheet);
+        const old = s.view;
+        const z = cmd.patch.zoom;
+        if (z !== undefined && (z < 10 || z > 400)) throw new Fail("invalid_view", `invalid sheet view: zoom ${z}`);
+        const defined = Object.fromEntries(Object.entries(cmd.patch).filter(([, v]) => v !== undefined));
+        s.view = { ...old, ...defined };
+        return [this.sheetsPatch(), { type: "setSheetView", sheet: cmd.sheet, patch: { ...old } }];
+      }
+      case "setSheetHidden": {
+        const s = this.sheet(cmd.sheet);
+        const [oldHidden, oldVery] = [!!s.hidden, !!s.veryHidden];
+        if (cmd.hidden && !oldHidden && !this.sheets.some((x) => x !== s && !x.hidden)) {
+          throw new Fail("last_visible_sheet", "a workbook needs at least one visible sheet");
+        }
+        s.hidden = cmd.hidden || undefined;
+        s.veryHidden = (cmd.hidden && !!cmd.veryHidden) || undefined;
+        const patch = this.sheetsPatch();
+        if (cmd.hidden) {
+          const i = this.sheets.indexOf(s);
+          const next = this.sheets.slice(i).find((x) => !x.hidden) ?? [...this.sheets.slice(0, i)].reverse().find((x) => !x.hidden);
+          if (next) patch.activateSheet = next.id;
+        } else {
+          patch.activateSheet = s.id;
+        }
+        const inverse: CalcCommand = { type: "setSheetHidden", sheet: cmd.sheet, hidden: oldHidden };
+        if (oldVery) inverse.veryHidden = true;
+        return [patch, inverse];
+      }
+      case "mergeCells": {
+        const s = this.sheet(cmd.sheet);
+        this.checkRange(cmd.r0, cmd.c0, cmd.r1, cmd.c1);
+        const rect: Rect = { r0: cmd.r0, c0: cmd.c0, r1: cmd.r1, c1: cmd.c1 };
+        if (rect.r0 === rect.r1 && rect.c0 === rect.c1) throw new Fail("invalid_merge", "invalid merge range");
+        const covers = (m: Rect) => rect.r0 <= m.r0 && m.r1 <= rect.r1 && rect.c0 <= m.c0 && m.c1 <= rect.c1;
+        if (s.merges.some((m) => intersects(m, rect) && !covers(m))) {
+          throw new Fail("merge_overlap", "merge range overlaps an existing merged range");
+        }
+        const old = s.merges.map((m) => ({ ...m }));
+        const cleared: [number, number, string, number][] = [];
+        for (const [r, row] of s.cells) {
+          if (r < rect.r0 || r > rect.r1) continue;
+          for (const [c, cell] of row) {
+            if (c >= rect.c0 && c <= rect.c1 && cell.input !== "" && !(r === rect.r0 && c === rect.c0)) cleared.push([r, c, cell.input, cell.style]);
+          }
+        }
+        for (const [r, c] of cleared) this.setCell(s, r, c, "");
+        s.merges = [...s.merges.filter((m) => !covers(m)), rect].sort((a, b) => a.r0 - b.r0 || a.c0 - b.c0);
+        const patch = this.cellsPatch(s, cleared.map(([r, c]) => [r, c]));
+        mergePatch(patch, this.mergesPatch(s));
+        const restore: CalcCommand = { type: "restoreMerges", sheet: cmd.sheet, merges: old };
+        const inverse: CalcCommand = cleared.length
+          ? { type: "compound", commands: [restore, { type: "restoreCells", sheet: cmd.sheet, cells: cleared }] }
+          : restore;
+        return [patch, inverse];
+      }
+      case "unmergeCells": {
+        const s = this.sheet(cmd.sheet);
+        this.checkRange(cmd.r0, cmd.c0, cmd.r1, cmd.c1);
+        const old = s.merges.map((m) => ({ ...m }));
+        s.merges = s.merges.filter((m) => !intersects(m, cmd));
+        return [this.mergesPatch(s), { type: "restoreMerges", sheet: cmd.sheet, merges: old }];
+      }
+      case "restoreMerges": {
+        const s = this.sheet(cmd.sheet);
+        const old = s.merges.map((m) => ({ ...m }));
+        s.merges = cmd.merges.map((m) => ({ ...m }));
+        return [this.mergesPatch(s), { type: "restoreMerges", sheet: cmd.sheet, merges: old }];
       }
       case "compound": {
         const patch = this.emptyPatch();
@@ -470,6 +579,10 @@ export class FakeCalcCore {
         const inverse: CalcCommand = { ...cmd, type: (ins ? "delete" : "insert") + (rowsAxis ? "Rows" : "Cols") } as CalcCommand;
         return [patch, inverse];
       }
+      default: {
+        const unknown: never = cmd;
+        throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
+      }
     }
   }
 
@@ -531,6 +644,7 @@ export class FakeCalcCore {
             for (const c of row.keys()) if (c >= req.c0 && c <= req.c1) cells.push(this.view(s, r, c));
           }
           cells.sort((a, b) => a.row - b.row || a.col - b.col);
+          const merges = s.merges.filter((m) => intersects(m, req)).map((m) => ({ ...m }));
           return {
             ok: {
               type: "snapshot",
@@ -540,6 +654,7 @@ export class FakeCalcCore {
                 cols: [...s.cols.values()].filter((c) => c.col >= req.c0 && c.col <= req.c1),
                 rows: [...s.rows.values()].filter((r) => r.row >= req.r0 && r.row <= req.r1),
                 format: { defaultColWidth: 8.43, defaultRowHeight: 15 },
+                ...(merges.length ? { merges } : {}),
               },
             },
           };
@@ -677,6 +792,11 @@ function mergePatch(into: CalcPatch, p: CalcPatch): void {
   if (p.sheets) into.sheets = p.sheets;
   if (p.styles) into.styles = p.styles;
   if (p.cycle) into.cycle = p.cycle;
+  if (p.activateSheet !== undefined) into.activateSheet = p.activateSheet;
+  for (const g of p.merges ?? []) {
+    into.merges = (into.merges ?? []).filter((x) => x.sheet !== g.sheet);
+    into.merges.push({ sheet: g.sheet, merges: g.merges.map((m) => ({ ...m })) });
+  }
   into.structural.push(...p.structural);
   for (const key of ["cells", "cols", "rows"] as const) {
     for (const g of p[key]) {
