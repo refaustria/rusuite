@@ -1,5 +1,5 @@
 # PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
-# family: lookup (88 cases); evaluate in the context of sheet Data, see fixture.tsv
+# family: lookup (146 cases); evaluate in the context of sheet Data, see fixture.tsv
 formula	type	expected	note
 =VLOOKUP(200,F1:G4,2,FALSE)	text	two hundred	
 =VLOOKUP(200,F1:G4,2)	text	two hundred	default is approximate match
@@ -93,3 +93,66 @@ formula	type	expected	note
 =SUM(COLUMN(A1:C1))	number	6	
 =COLUMN(INDEX(A1:H6,1,5))	number	5	
 =COLUMN(XFD1)	number	16384	
+=ROWS(A1:A6)	number	6	
+=ROWS(A1:C3)	number	3	
+=ROWS(A:A)	number	1048576	
+=ROWS({1,2;3,4})	number	2	
+=COLUMNS(A1:C3)	number	3	
+=COLUMNS(A:C)	number	3	
+=COLUMNS(1:1)	number	16384	
+=COLUMNS({1,2;3,4})	number	2	
+=LOOKUP(3,A1:A6,B1:B6)	text	cherry	
+=LOOKUP(3.5,A1:A6,B1:B6)	text	cherry	
+=LOOKUP(0,A1:A6,B1:B6)	error	#N/A	
+=LOOKUP(100,A1:A6,B1:B6)	text	fig	
+=LOOKUP(2,A1:B6)	text	banana	
+=XMATCH(3,A1:A6)	number	3	
+=XMATCH("cherry",B1:B6)	number	3	
+=XMATCH(3.5,A1:A6,-1)	number	3	
+=XMATCH(3.5,A1:A6,1)	number	4	
+=XMATCH("ch*",B1:B6,2)	number	3	
+=XMATCH(9,A1:A6)	error	#N/A	
+=XMATCH(3,A1:A6,0,-1)	number	3	
+=XMATCH(3,A1:C6)	error	#VALUE!	
+=XLOOKUP(3,A1:A6,B1:B6)	text	cherry	
+=XLOOKUP(9,A1:A6,B1:B6,"none")	text	none	
+=XLOOKUP(9,A1:A6,B1:B6)	error	#N/A	
+=XLOOKUP(3.5,A1:A6,B1:B6,,-1)	text	cherry	
+=XLOOKUP("fig",B1:B6,A1:A6)	number	6	
+=XLOOKUP(4,A1:A6,C1:C6)	number	100	
+=XLOOKUP(3,A1:A6,B1:B5)	error	#VALUE!	
+# NOTE: LibreOffice does not return a reference from XLOOKUP [excel=6]
+=SUM(A1:XLOOKUP(3,A1:A6,A1:A6))	number	6	DIFF: LibreOffice does not return a reference from XLOOKUP [excel=6]
+=INDIRECT("A1")	number	1	
+=INDIRECT("A"&3)	number	3	
+=SUM(INDIRECT("A1:A3"))	number	6	
+=INDIRECT("Other!A1")	number	7	
+=INDIRECT("R2C1",FALSE)	number	2	
+=INDIRECT("zzz")	error	#REF!	
+=INDIRECT(B1)	error	#REF!	
+=OFFSET(A1,2,1)	text	cherry	
+=SUM(OFFSET(A1,0,0,3,1))	number	6	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#REF!]
+=OFFSET(A1,-1,0)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#REF!]
+=SUM(OFFSET(A1:A2,1,0))	number	5	
+=ROWS(OFFSET(A1,0,0,3,2))	number	3	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#REF!]
+=OFFSET(A1,0,0,0,1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#REF!]
+=ADDRESS(1,1)	text	$A$1	
+=ADDRESS(5,3,4)	text	C5	
+=ADDRESS(2,28,2)	text	AB$2	
+=ADDRESS(1,1,1,FALSE)	text	R1C1	
+# NOTE: LibreOffice separates the sheet with '.' [excel='My Sheet'!$A$1]
+=ADDRESS(1,1,1,TRUE,"My Sheet")	text	'My Sheet'.$A$1	DIFF: LibreOffice separates the sheet with '.' [excel='My Sheet'!$A$1]
+=ADDRESS(0,1)	error	#VALUE!	
+# NOTE: LibreOffice accepts abs_num 5 [excel=#VALUE!]
+=ADDRESS(1,1,5)	text	$A$1	DIFF: LibreOffice accepts abs_num 5 [excel=#VALUE!]
+=SUM(TRANSPOSE(A1:A3))	number	6	
+=INDEX(TRANSPOSE(A1:A3),1,2)	number	2	
+=COLUMNS(TRANSPOSE(A1:A6))	number	6	
+=ROWS(TRANSPOSE(A1:C1))	number	3	
+=TRANSPOSE(A1:A3)	number	1	
+=HYPERLINK("http://x.y","click")	text	click	
+=HYPERLINK("http://x.y")	text	http://x.y	
+=HYPERLINK(B1,"go")	text	go	
+=HYPERLINK("u",A2)	number	2	

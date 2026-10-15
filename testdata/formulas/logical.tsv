@@ -1,5 +1,5 @@
 # PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
-# family: logical (73 cases); evaluate in the context of sheet Data, see fixture.tsv
+# family: logical (92 cases); evaluate in the context of sheet Data, see fixture.tsv
 formula	type	expected	note
 =IF(TRUE,1,2)	number	1	
 =IF(FALSE,1,2)	number	2	
@@ -76,3 +76,22 @@ formula	type	expected	note
 =FALSE()&""	text	0	DIFF: LibreOffice converts booleans to 1/0 when concatenating [excel=FALSE]
 =FALSE()=D2	bool	TRUE	
 =FALSE()*H1	error	#DIV/0!	error propagation
+=IFS(A1>5,"a",A1>0,"b")	text	b	
+=IFS(FALSE,1,TRUE,2)	number	2	
+=IFS(FALSE,1,FALSE,2)	error	#N/A	
+=IFS(TRUE,1,1/0,2)	number	1	later pairs are not evaluated
+=IFS(A1,"x")	text	x	
+=SWITCH(2,1,"a",2,"b","z")	text	b	
+=SWITCH(9,1,"a",2,"b","z")	text	z	
+=SWITCH(9,1,"a")	error	#N/A	
+=SWITCH("B","a",1,"b",2)	number	2	
+=SWITCH(A3,1,"one",3,"three")	text	three	
+=IFNA(H2,"x")	text	x	
+=IFNA(H1,"x")	error	#DIV/0!	
+=IFNA(5,"x")	number	5	
+=IFNA(MATCH(9,A1:A6,0),0)	number	0	
+=XOR(TRUE,FALSE)	bool	TRUE	
+=XOR(TRUE,TRUE)	bool	FALSE	
+=XOR(TRUE,TRUE,TRUE)	bool	TRUE	
+=XOR(1,0,0)	bool	TRUE	
+=XOR(H1)	error	#DIV/0!	

@@ -79,7 +79,11 @@ def col_num(letters):
 
 
 # ---------------------------------------------------------------- build
-FUTURE = re.compile(r"(?<![A-Za-z0-9_.])(CONCAT|DAYS)\(")
+# Functions Excel stores with the `_xlfn.` prefix (added after Excel 2007).
+FUTURE_NAMES = """CONCAT DAYS IFNA IFS MAXIFS MINIFS SWITCH TEXTJOIN XLOOKUP XMATCH XOR NUMBERVALUE UNICODE UNICHAR
+ISOWEEKNUM CEILING.MATH FLOOR.MATH STDEV.S STDEV.P VAR.S VAR.P MODE.SNGL RANK.EQ RANK.AVG PERCENTILE.INC
+PERCENTILE.EXC QUARTILE.INC QUARTILE.EXC PERCENTRANK.INC COVARIANCE.P COVARIANCE.S FORECAST.LINEAR""".split()
+FUTURE = re.compile(r"(?<![A-Za-z0-9_.])(%s)\(" % "|".join(re.escape(n) for n in FUTURE_NAMES))
 
 
 def file_formula(formula):
@@ -327,8 +331,8 @@ def verify(root):
             m = re.match(r"\| `([A-Z][A-Z0-9.]*)` \|", line)
             if m:
                 names.append(m.group(1))
-    if len(names) != 62 or len(set(names)) != 62:
-        fails.append("docs/functions.md lists %d (%d unique) functions, expected 62" % (len(names), len(set(names))))
+    if len(set(names)) != len(names):
+        fails.append("docs/functions.md lists %d functions, only %d unique" % (len(names), len(set(names))))
     cases = read_cases()
     fdir = os.path.join(root, "testdata", "formulas")
     total = 0

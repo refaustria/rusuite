@@ -1,5 +1,5 @@
 # PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
-# family: info (53 cases); evaluate in the context of sheet Data, see fixture.tsv
+# family: info (106 cases); evaluate in the context of sheet Data, see fixture.tsv
 formula	type	expected	note
 =ISBLANK(D4)	bool	TRUE	
 =ISBLANK(D3)	bool	FALSE	empty-string constant is not blank
@@ -55,3 +55,59 @@ formula	type	expected	note
 =H2	error	#N/A	reference to an error cell
 =NA()&"x"	error	#N/A	
 =NA()+H1	error	#N/A	leftmost error wins
+=ISLOGICAL(TRUE)	bool	TRUE	
+=ISLOGICAL(1)	bool	FALSE	
+=ISLOGICAL("TRUE")	bool	FALSE	
+=ISLOGICAL(1=1)	bool	TRUE	
+=ISEVEN(2)	bool	TRUE	
+=ISEVEN(3)	bool	FALSE	
+=ISEVEN(-2.9)	bool	TRUE	
+=ISEVEN("a")	error	#VALUE!	
+=ISEVEN(A2)	bool	TRUE	
+=ISODD(2)	bool	FALSE	
+=ISODD(3)	bool	TRUE	
+=ISODD(-3.5)	bool	TRUE	
+=ISODD("a")	error	#VALUE!	
+=ISODD(A1)	bool	TRUE	
+=N(5)	number	5	
+=N("a")	number	0	
+=N(TRUE)	number	1	
+=N(H1)	error	#DIV/0!	
+=N(B1)	number	0	
+=N(A3)	number	3	
+=T("a")	text	a	
+=T(5)	text		
+=T(B1)	text	apple	
+=T(H2)	error	#N/A	
+=T(TRUE)	text		
+=TYPE(1)	number	1	
+=TYPE("a")	number	2	
+# NOTE: LibreOffice stores booleans as numbers [excel=4]
+=TYPE(TRUE)	number	1	DIFF: LibreOffice stores booleans as numbers [excel=4]
+=TYPE(H1)	number	16	
+=TYPE({1,2})	number	64	
+# NOTE: LibreOffice intersects the range implicitly [excel=64]
+=TYPE(A1:A2)	error	#VALUE!	DIFF: LibreOffice intersects the range implicitly [excel=64]
+=TYPE(A1)	number	1	
+=TYPE(B1)	number	2	
+=CELL("row",A5)	number	5	
+=CELL("col",C1)	number	3	
+# NOTE: LibreOffice returns a sheet-qualified address ($Data.$B$2) [excel=$B$2]
+=CELL("address",B2)	text	$B$2	DIFF: LibreOffice returns a sheet-qualified address ($Data.$B$2) [excel=$B$2]
+=CELL("contents",A3)	number	3	
+=CELL("type",B1)	text	l	
+=CELL("type",A1)	text	v	
+=CELL("type",J9)	text	b	
+=ISERR(H1)	bool	TRUE	
+=ISERR(H2)	bool	FALSE	
+=ISERR(1)	bool	FALSE	
+=ISERR(1/0)	bool	TRUE	
+=ISNONTEXT(1)	bool	TRUE	
+=ISNONTEXT("a")	bool	FALSE	
+=ISNONTEXT(J9)	bool	TRUE	
+=ISNONTEXT(H1)	bool	TRUE	
+=ISREF(A1)	bool	TRUE	
+=ISREF(1)	bool	FALSE	
+=ISREF(A1:B2)	bool	TRUE	
+=ISREF(INDEX(A1:A3,2))	bool	TRUE	
+=ISREF("A1")	bool	FALSE	

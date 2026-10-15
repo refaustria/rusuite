@@ -1,5 +1,5 @@
 # PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
-# family: text (166 cases); evaluate in the context of sheet Data, see fixture.tsv
+# family: text (230 cases); evaluate in the context of sheet Data, see fixture.tsv
 formula	type	expected	note
 =CONCAT("a","b")	text	ab	
 =CONCAT(B1:B3)	text	applebananacherry	ranges are flattened
@@ -176,3 +176,75 @@ formula	type	expected	note
 =EXACT(B1,B2)	bool	FALSE	
 =EXACT(D5,42)	bool	TRUE	
 =EXACT("a ","a")	bool	FALSE	
+=SEARCH("an","banana")	number	2	
+=SEARCH("AN","banana",3)	number	4	
+=SEARCH("b?n","banana")	number	1	
+=SEARCH("z","banana")	error	#VALUE!	
+=SEARCH("a*a","banana")	number	2	
+=SEARCH("~?","what?")	number	5	
+=REPLACE("abcdef",3,2,"XY")	text	abXYef	
+=REPLACE("abc",5,1,"Z")	text	abcZ	
+=REPLACE("abc",1,0,"Z")	text	Zabc	
+=REPLACE("abc",0,1,"Z")	error	#VALUE!	
+=REPLACE(B1,1,1,"A")	text	Apple	
+=REPT("ab",3)	text	ababab	
+=REPT("x",0)	text		
+=REPT("x",-1)	error	#VALUE!	
+=REPT(A1,3)	text	111	
+=REPT("-",2.9)	text	--	
+=PROPER("hello world")	text	Hello World	
+=PROPER("o'neil mc-donald")	text	O'Neil Mc-Donald	
+=PROPER("2nd place")	text	2Nd Place	
+=PROPER(B1)	text	Apple	
+=PROPER("ÀB cD")	text	Àb Cd	
+=CHAR(65)	text	A	
+=CHAR(97)	text	a	
+# NOTE: LibreOffice returns the text _x0000_ [excel=#VALUE!]
+=CHAR(0)	text	_x0000_	DIFF: LibreOffice returns the text _x0000_ [excel=#VALUE!]
+=CHAR(256)	error	#VALUE!	
+# NOTE: LibreOffice uses the system code page [excel=©]
+=CHAR(169)	text	�	DIFF: LibreOffice uses the system code page [excel=©]
+# NOTE: LibreOffice uses the system code page [excel=é]
+=CHAR(233)	text	�	DIFF: LibreOffice uses the system code page [excel=é]
+=CODE("A")	number	65	
+=CODE("apple")	number	97	
+# NOTE: LibreOffice returns 0 [excel=#VALUE!]
+=CODE("")	number	0	DIFF: LibreOffice returns 0 [excel=#VALUE!]
+# NOTE: LibreOffice returns the first UTF-8 byte [excel=233]
+=CODE("é")	number	195	DIFF: LibreOffice returns the first UTF-8 byte [excel=233]
+=CODE(B1)	number	97	
+=UNICODE("A")	number	65	
+=UNICODE("€")	number	8364	
+=UNICODE("")	error	#VALUE!	
+=UNICODE(B2)	number	98	
+=UNICHAR(65)	text	A	
+=UNICHAR(8364)	text	€	
+# NOTE: LibreOffice returns the text _x0000_ [excel=#VALUE!]
+=UNICHAR(0)	text	_x0000_	DIFF: LibreOffice returns the text _x0000_ [excel=#VALUE!]
+=UNICHAR(97)	text	a	
+=CLEAN("a"&CHAR(7)&"b")	text	ab	
+=CLEAN(B1)	text	apple	
+=CLEAN("  x ")	text	  x 	
+=CLEAN(A1)	text	1	
+# NOTE: LibreOffice follows the document locale for the default separators [excel=1234.5]
+=NUMBERVALUE("1,234.5")	error	#VALUE!	DIFF: LibreOffice follows the document locale for the default separators [excel=1234.5]
+=NUMBERVALUE("1.234,5",",",".")	number	1234.5	
+=NUMBERVALUE("5%")	number	0.05	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=0]
+=NUMBERVALUE("")	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=0]
+=NUMBERVALUE("abc")	error	#VALUE!	
+=NUMBERVALUE("1%%")	number	0.0001	
+=NUMBERVALUE("1.5",".",".")	error	#VALUE!	
+=NUMBERVALUE(" 12 ")	number	12	
+=FIXED(1234.567,1)	text	1,234.6	
+=FIXED(1234.567,-1)	text	1,230	
+=FIXED(-1234.567,2,TRUE)	text	-1234.57	
+=FIXED(0.5,0)	text	1	
+=FIXED(1234567)	text	1,234,567.00	
+=FIXED(A1)	text	1.00	
+=TEXTJOIN(",",TRUE,B1:B3)	text	apple,banana,cherry	
+=TEXTJOIN("-",FALSE,A1:A3)	text	1-2-3	
+=TEXTJOIN(", ",TRUE,"a","","b")	text	a, b	
+=TEXTJOIN(",",FALSE,"a","","b")	text	a,,b	
+=TEXTJOIN("",TRUE,B1:B2,"!")	text	applebanana!	
+=TEXTJOIN(",",TRUE,H1,"a")	error	#DIV/0!	

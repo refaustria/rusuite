@@ -1,5 +1,5 @@
 # PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
-# family: math (179 cases); evaluate in the context of sheet Data, see fixture.tsv
+# family: math (604 cases); evaluate in the context of sheet Data, see fixture.tsv
 formula	type	expected	note
 =SUM(1,2,3)	number	6	
 =SUM(A1:A6)	number	21	
@@ -196,3 +196,495 @@ formula	type	expected	note
 =CEILING(0,5)	number	0	
 =CEILING(1.234,0.01)	number	1.24	
 =CEILING(D4,3)	number	0	empty cell
+=TRUNC(8.9)	number	8	
+=TRUNC(-8.9)	number	-8	
+=TRUNC(3.14159,2)	number	3.14	
+=TRUNC(1234.5,-2)	number	1200	
+=TRUNC(C1)	number	10	
+=CEILING.MATH(6.3)	number	7	
+=CEILING.MATH(-5.5,2)	number	-4	negative number rounds toward +infinity in mode 0
+=CEILING.MATH(-5.5,2,1)	number	-6	non-zero mode rounds away from zero
+=CEILING.MATH(6.3,0)	number	0	
+=CEILING.MATH(24.3,5)	number	25	
+=FLOOR.MATH(6.7)	number	6	
+=FLOOR.MATH(-5.5,2)	number	-6	negative number rounds away from zero in mode 0
+=FLOOR.MATH(-5.5,2,1)	number	-4	non-zero mode rounds toward zero
+=FLOOR.MATH(24.3,5)	number	20	
+=FLOOR(3.7,2)	number	2	
+=FLOOR(-2.5,2)	number	-4	
+=FLOOR(-2.5,-2)	number	-2	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=FLOOR(2.5,-2)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=FLOOR(3,0)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=MROUND(10,3)	number	9	
+=MROUND(-10,-3)	number	-9	
+=MROUND(1.3,0.2)	number	1.4	
+# NOTE: LibreOffice ignores the sign mismatch [excel=#NUM!]
+=MROUND(5,-2)	number	6	DIFF: LibreOffice ignores the sign mismatch [excel=#NUM!]
+=MROUND(7,0)	number	0	
+=EXP(0)	number	1	
+=EXP(1)	number	2.71828182845905	
+=EXP(-1)	number	0.367879441171442	
+=EXP(A2)	number	7.38905609893065	
+=EXP(B1)	error	#VALUE!	
+=LN(1)	number	0	
+=LN(EXP(2))	number	2	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=LN(0)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=LN(-1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=LN(A6)	number	1.79175946922806	
+=LOG(100)	number	2	
+=LOG(8,2)	number	3	
+=LOG(10,10)	number	1	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=LOG(5,1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=LOG(-1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=LOG10(1000)	number	3	
+=LOG10(0.01)	number	-2	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=LOG10(0)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=LOG10(A4)	number	0.602059991327962	
+=SIGN(-5)	number	-1	
+=SIGN(0)	number	0	
+=SIGN(C1)	number	1	
+=SIGN(C2)	number	-1	
+=SIGN(B1)	error	#VALUE!	
+=AND(RAND()>=0,RAND()<1)	bool	TRUE	
+=INT(RAND())	number	0	
+=RAND()<>RAND()	bool	TRUE	two draws differ
+=IF(RAND()<1,"ok","bad")	text	ok	
+=RANDBETWEEN(5,5)	number	5	
+=AND(RANDBETWEEN(1,6)>=1,RANDBETWEEN(1,6)<=6)	bool	TRUE	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=RANDBETWEEN(3,1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=RANDBETWEEN(-2,-2)	number	-2	
+=SUMSQ(3,4)	number	25	
+=SUMSQ(A1:A3)	number	14	
+=SUMSQ(C1:C3)	number	114.25	
+=SUMSQ(A1:A2,B1:B3)	number	5	text ignored in references
+=SUMSQ(H1)	error	#DIV/0!	
+=SQRTPI(1)	number	1.77245385090552	
+=SQRTPI(2)	number	2.506628274631	
+=SQRTPI(0)	number	0	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=SQRTPI(-1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=FACT(5)	number	120	
+=FACT(0)	number	1	
+=FACT(5.9)	number	120	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=FACT(-1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=FACT(171)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=FACTDOUBLE(6)	number	48	
+=FACTDOUBLE(7)	number	105	
+=FACTDOUBLE(0)	number	1	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=FACTDOUBLE(-2)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=COMBIN(8,2)	number	28	
+=COMBIN(5,0)	number	1	
+=COMBIN(5,5)	number	1	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=COMBIN(3,5)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=COMBIN(10.9,2.5)	number	45	
+=PERMUT(5,2)	number	20	
+=PERMUT(3,3)	number	6	
+=PERMUT(3,0)	number	1	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=PERMUT(2,3)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=GCD(24,36)	number	12	
+=GCD(5,0)	number	5	
+=GCD(A1:A6)	number	1	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=GCD(-1,2)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=GCD(7.9,14)	number	7	
+=LCM(4,6)	number	12	
+=LCM(A1:A6)	number	60	
+=LCM(0,5)	number	0	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=LCM(-1,2)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=QUOTIENT(7,2)	number	3	
+=QUOTIENT(-7,2)	number	-3	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=QUOTIENT(5,0)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=QUOTIENT(C1,A2)	number	5	
+=EVEN(3)	number	4	
+=EVEN(-1)	number	-2	
+=EVEN(2)	number	2	
+=EVEN(1.5)	number	2	
+=EVEN(0)	number	0	
+=ODD(2)	number	3	
+=ODD(-2)	number	-3	
+=ODD(3)	number	3	
+=ODD(1.5)	number	3	
+=ODD(0)	number	1	
+=SIN(0)	number	0	
+=SIN(PI()/2)	number	1	
+=SIN(1)	number	0.841470984807897	
+=SIN(B1)	error	#VALUE!	
+=COS(0)	number	1	
+=COS(PI())	number	-1	
+=COS(1)	number	0.54030230586814	
+=COS(H1)	error	#DIV/0!	
+=TAN(0)	number	0	
+=TAN(1)	number	1.5574077246549	
+=TAN(-1)	number	-1.5574077246549	
+=TAN(A2)	number	-2.18503986326152	
+=ASIN(1)	number	1.5707963267949	
+=ASIN(0.5)	number	0.523598775598299	
+=ASIN(2)	error	#NUM!	
+=ASIN(-1)	number	-1.5707963267949	
+=ACOS(1)	number	0	
+=ACOS(-1)	number	3.14159265358979	
+=ACOS(0.5)	number	1.0471975511966	
+=ACOS(2)	error	#NUM!	
+=ATAN(1)	number	0.785398163397448	
+=ATAN(0)	number	0	
+=ATAN(-1)	number	-0.785398163397448	
+=ATAN(1000000)	number	1.5707953267949	
+=ATAN2(1,1)	number	0.785398163397448	
+=ATAN2(-1,-1)	number	-2.35619449019235	
+# NOTE: LibreOffice returns 0 [excel=#DIV/0!]
+=ATAN2(0,0)	number	0	DIFF: LibreOffice returns 0 [excel=#DIV/0!]
+=ATAN2(1,0)	number	0	
+=SINH(1)	number	1.1752011936438	
+=SINH(0)	number	0	
+=SINH(-2)	number	-3.62686040784702	
+=SINH(B1)	error	#VALUE!	
+=COSH(0)	number	1	
+=COSH(1)	number	1.54308063481524	
+=COSH(-2)	number	3.76219569108363	
+=COSH(H2)	error	#N/A	
+=TANH(0)	number	0	
+=TANH(1)	number	0.761594155955765	
+=TANH(-0.5)	number	-0.46211715726001	
+=TANH(100)	number	1	
+=DEGREES(PI())	number	180	
+=DEGREES(1)	number	57.2957795130823	
+=DEGREES(0)	number	0	
+=DEGREES(B1)	error	#VALUE!	
+=RADIANS(180)	number	3.14159265358979	
+=RADIANS(90)	number	1.5707963267949	
+=RADIANS(0)	number	0	
+=RADIANS(-45)	number	-0.785398163397448	
+=SUMX2MY2({2,3,9,1,8,7,5},{6,5,11,7,5,4,4})	number	-55	
+=SUMX2MY2(A1:A3,A4:A6)	number	-63	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=SUMX2MY2(A1:A3,A1:A4)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=SUMX2MY2(A1:A3,H1:H3)	error	#DIV/0!	
+=SUMX2PY2({2,3,9,1,8,7,5},{6,5,11,7,5,4,4})	number	521	
+=SUMX2PY2(A1:A3,A4:A6)	number	91	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=SUMX2PY2(A1:A3,A1:A4)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=SUMX2PY2(F1:F2,A1:A2)	number	50005	
+=SUMXMY2({2,3,9,1,8,7,5},{6,5,11,7,5,4,4})	number	79	
+=SUMXMY2(A1:A3,A4:A6)	number	27	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=SUMXMY2(A1:A3,A1:A4)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=SUMXMY2(F1:F2,A1:A2)	number	49005	
+=COUNTBLANK(D1:D6)	number	2	
+=COUNTBLANK(A1:A6)	number	0	
+=COUNTBLANK(D3:D4)	number	2	
+=COUNTBLANK(J1:J4)	number	4	
+=SUMIFS(A1:A6,B1:B6,"*a*")	number	7	
+=SUMIFS(A1:A6,A1:A6,">2",A1:A6,"<5")	number	7	
+=SUMIFS(C1:C6,A1:A6,">=3")	number	1000103.25	
+=SUMIFS(A1:A6,A1:A6,">2",B1:B3,"x")	error	#VALUE!	ranges of different size
+=SUMIFS(F1:F4,A1:A4,2)	number	200	
+=SUMIFS(A1:A2,H1:H2,"#N/A")	number	2	
+=COUNTIFS(A1:A6,">2")	number	4	
+=COUNTIFS(A1:A6,">2",C1:C6,"<50")	number	2	
+=COUNTIFS(B1:B6,"?????")	number	1	
+=COUNTIFS(A1:A6,">2",B1:B5,"a*")	error	#VALUE!	ranges of different size
+=COUNTIFS(D1:D6,"")	number	2	
+=COUNTIFS(A1:A6,"<>3",A1:A6,"<>4")	number	4	
+=AVERAGEIFS(A1:A6,A1:A6,">2")	number	4.5	
+=AVERAGEIFS(C1:C6,A1:A6,"<=3")	number	2.83333333333333	
+=AVERAGEIFS(A1:A6,A1:A6,">10")	error	#DIV/0!	
+=AVERAGEIFS(A1:A6,B1:B6,"*e*")	number	3.25	
+=AVERAGEIF(A1:A6,">3")	number	5	
+=AVERAGEIF(B1:B6,"*e*",A1:A6)	number	3.25	
+=AVERAGEIF(A1:A6,">10")	error	#DIV/0!	
+=AVERAGEIF(C1:C6,"<>0")	number	200022.35	
+=AVERAGEIF(F1:F4,">=200")	number	300	
+=MAXIFS(C1:C6,A1:A6,"<=4")	number	100	
+=MAXIFS(A1:A6,B1:B6,"*e*")	number	5	
+=MAXIFS(A1:A6,A1:A6,">10")	number	0	
+=MAXIFS(C1:C6,A1:A6,">=2",A1:A6,"<=3")	number	0	
+=MINIFS(C1:C6,A1:A6,"<=4")	number	-2	
+=MINIFS(A1:A6,B1:B6,"*e*")	number	1	
+=MINIFS(A1:A6,A1:A6,">10")	number	0	
+=MINIFS(C1:C6,A1:A6,">=3")	number	0	
+=MEDIAN(A1:A6)	number	3.5	
+=MEDIAN(1,2,3)	number	2	
+=MEDIAN(C1:C6)	number	6.875	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=MEDIAN(B1:B3)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=MEDIAN(A1:A2,H1)	error	#DIV/0!	
+=MEDIAN(A1:A5)	number	3	
+=MODE(1,2,2,3,3,3)	number	3	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=MODE(A1:A6)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=MODE(2,2,3,3)	number	2	
+=MODE({1,2,2,3})	number	2	
+=MODE.SNGL(1,2,2,3,3,3)	number	3	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=MODE.SNGL(A1:A6)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=MODE.SNGL(2,2,3,3)	number	2	
+=MODE.SNGL(B1:B3,5,5)	number	5	
+=VAR(A1:A6)	number	3.5	
+=VAR(5)	error	#DIV/0!	
+=VAR(1,2)	number	0.5	
+=VAR(B1:B3)	error	#DIV/0!	
+=VAR.S(A1:A6)	number	3.5	
+=VAR.S(C1:C4)	number	2390.39583333333	
+=VAR.S(A1,H1)	error	#DIV/0!	
+=VAR.S(A1)	error	#DIV/0!	
+=VAR.P(A1:A6)	number	2.91666666666667	
+=VAR.P(5)	number	0	
+=VAR.P(C1:C4)	number	1792.796875	
+=VAR.P(B1:B3)	error	#DIV/0!	
+=VARP(A1:A6)	number	2.91666666666667	
+=VARP(5)	number	0	
+=VARP(1,2,3,4)	number	1.25	
+=VARP(B1:B3)	error	#DIV/0!	
+=STDEV(A1:A6)	number	1.87082869338697	
+=STDEV(5)	error	#DIV/0!	
+=STDEV(1,2)	number	0.707106781186548	
+=STDEV(B1:B3)	error	#DIV/0!	
+=STDEV.S(A1:A6)	number	1.87082869338697	
+=STDEV.S(C1:C4)	number	48.8916744787222	
+=STDEV.S(1)	error	#DIV/0!	
+=STDEV.S(A1,H1)	error	#DIV/0!	
+=STDEV.P(A1:A6)	number	1.70782512765993	
+=STDEV.P(5)	number	0	
+=STDEV.P(C1:C4)	number	42.3414321321327	
+=STDEV.P(B1:B3)	error	#DIV/0!	
+=STDEVP(A1:A6)	number	1.70782512765993	
+=STDEVP(5)	number	0	
+=STDEVP(1,2,3,4)	number	1.1180339887499	
+=STDEVP(B1:B3)	error	#DIV/0!	
+=LARGE(A1:A6,2)	number	5	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=LARGE(A1:A6,7)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=LARGE(C1:C6,1)	number	1000000	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=LARGE(A1:A6,0)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=LARGE(A1:A6,1.5)	number	5	
+=SMALL(A1:A6,1)	number	1	
+=SMALL(C1:C6,2)	number	0	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=SMALL(B1:B6,1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=SMALL(A1:A6,6)	number	6	
+=RANK(3,A1:A6)	number	4	
+=RANK(3,A1:A6,1)	number	3	
+=RANK(9,A1:A6)	error	#N/A	
+=RANK(100,C1:C6)	number	2	
+=RANK.EQ(100,C1:C6)	number	2	
+=RANK.EQ(1,A1:A6,1)	number	1	
+=RANK.EQ(9,A1:A6)	error	#N/A	
+=RANK.EQ(0,C1:C6,1)	number	2	
+=RANK.AVG(3,A1:A6)	number	4	
+=RANK.AVG(1,A1:A6,1)	number	1	
+=RANK.AVG(9,A1:A6)	error	#N/A	
+=RANK.AVG(100,C1:C6)	number	2	
+=PERCENTILE(A1:A6,0.5)	number	3.5	
+=PERCENTILE(A1:A6,0.25)	number	2.25	
+=PERCENTILE(A1:A6,0)	number	1	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=PERCENTILE(A1:A6,1.5)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=PERCENTILE.INC(A1:A6,0.9)	number	5.5	
+=PERCENTILE.INC(C1:C6,0.5)	number	6.875	
+=PERCENTILE.INC(A1:A6,1)	number	6	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=PERCENTILE.INC(B1:B3,0.5)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=PERCENTILE.EXC(A1:A6,0.5)	number	3.5	
+=PERCENTILE.EXC(A1:A6,0.25)	number	1.75	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=PERCENTILE.EXC(A1:A6,0.1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=PERCENTILE.EXC(A1:A6,0.8)	number	5.6	
+=QUARTILE(A1:A6,1)	number	2.25	
+=QUARTILE(A1:A6,3)	number	4.75	
+=QUARTILE(A1:A6,0)	number	1	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=QUARTILE(A1:A6,5)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=QUARTILE.INC(A1:A6,2)	number	3.5	
+=QUARTILE.INC(C1:C6,1)	number	0.8125	
+=QUARTILE.INC(A1:A6,4)	number	6	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=QUARTILE.INC(A1:A6,-1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=QUARTILE.EXC(A1:A6,1)	number	1.75	
+=QUARTILE.EXC(A1:A6,3)	number	5.25	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=QUARTILE.EXC(A1:A6,0)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=QUARTILE.EXC(A1:A6,4)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=PERCENTRANK(A1:A6,3)	number	0.4	
+=PERCENTRANK(A1:A6,3.5)	number	0.5	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=PERCENTRANK(A1:A6,7)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=PERCENTRANK(A1:A6,1)	number	0	
+=PERCENTRANK.INC(A1:A6,2.5,2)	number	0.3	
+=PERCENTRANK.INC(A1:A6,6)	number	1	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=PERCENTRANK.INC(A1:A6,0)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=PERCENTRANK.INC(C1:C6,10.5)	number	0.6	
+=CORREL(A1:A4,F1:F4)	number	1	
+=CORREL(A1:A4,{4;3;2;1})	number	-1	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=CORREL(A1:A3,A1:A4)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=CORREL(A1:A1,F1:F1)	error	#DIV/0!	
+=CORREL(A1:A6,C1:C6)	number	0.654676581102423	
+=COVAR(A1:A4,F1:F4)	number	125	
+=COVAR(A1:A6,C1:C6)	number	416671.9375	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=COVAR(A1:A3,A1:A4)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=COVAR(B1:B3,A1:A3)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=COVARIANCE.P(A1:A4,F1:F4)	number	125	
+=COVARIANCE.P(A1:A6,C1:C6)	number	416671.9375	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=COVARIANCE.P(A1:A3,A1:A4)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=COVARIANCE.P(B1:B3,A1:A3)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=COVARIANCE.S(A1:A4,F1:F4)	number	166.666666666667	
+=COVARIANCE.S(A1:A6,C1:C6)	number	500006.325	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=COVARIANCE.S(A1:A3,A1:A4)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=COVARIANCE.S(A1:A1,F1:F1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=SLOPE(F1:F4,A1:A4)	number	100	
+=SLOPE(C1:C6,A1:A6)	number	142858.95	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=SLOPE(F1:F4,A1:A3)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=SLOPE(F1:F4,{1;1;1;1})	error	#DIV/0!	
+=INTERCEPT(F1:F4,A1:A4)	number	0	
+=INTERCEPT(C1:C6,A1:A6)	number	-333321.033333333	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=INTERCEPT(F1:F4,A1:A3)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=INTERCEPT(F1:F4,{1;1;1;1})	error	#DIV/0!	
+=RSQ(F1:F4,A1:A4)	number	1	
+=RSQ(C1:C6,A1:A6)	number	0.428601425843957	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=RSQ(F1:F4,A1:A3)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=RSQ(F1:F4,{1;1;1;1})	error	#DIV/0!	
+=FORECAST(5,F1:F4,A1:A4)	number	500	
+=FORECAST(7,C1:C6,A1:A6)	number	666691.616666667	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=FORECAST(5,F1:F4,A1:A3)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=FORECAST(B1,F1:F4,A1:A4)	error	#VALUE!	
+=FORECAST.LINEAR(10,F1:F4,A1:A4)	number	1000	
+=FORECAST.LINEAR(0,C1:C6,A1:A6)	number	-333321.033333333	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=FORECAST.LINEAR(5,F1:F4,A1:A3)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#N/A]
+=FORECAST.LINEAR(2.5,F1:F4,A1:A4)	number	250	
+=TREND(F1:F4,A1:A4,5)	number	500	
+=SUM(TREND(F1:F4,A1:A4,A5:A6))	number	1100	
+=INDEX(TREND(F1:F4),2)	number	200	
+=TREND(F1:F4,A1:A4,5,FALSE)	number	500	
+=TREND(A1:A4,F1:F4,250)	number	2.5	
+=GEOMEAN(1,2,4)	number	2	
+=GEOMEAN(A1:A6)	number	2.99379516552391	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=GEOMEAN(C1:C3)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=GEOMEAN(B1:B2)	error	#NUM!	
+=HARMEAN(1,2,4)	number	1.71428571428571	
+=HARMEAN(A1:A3)	number	1.63636363636364	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=HARMEAN(C1:C3)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=HARMEAN(B1:B2)	error	#NUM!	
+=DEVSQ(A1:A6)	number	17.5	
+=DEVSQ(1,2,3)	number	2	
+=DEVSQ(C1:C4)	number	7171.1875	
+# NOTE: LibreOffice returns #DIV/0! without numbers [excel=#NUM!]
+=DEVSQ(B1:B3)	error	#DIV/0!	DIFF: LibreOffice returns #DIV/0! without numbers [excel=#NUM!]
+=AVEDEV(A1:A6)	number	1.5	
+=AVEDEV(1,2,3,4)	number	1	
+=AVEDEV(C1:C4)	number	36.4375	
+=AVEDEV(B1:B3)	error	#NUM!	
+=PMT(0.08/12,10,10000)	number	-1037.03208935915	
+=PMT(0,10,1000)	number	-100	
+=PMT(0.05,5,1000,0,1)	number	-219.975998217398	
+=PMT(0.05,0,100)	error	#NUM!	
+=PMT(0.06,12,-5000,1000)	number	537.108117522654	
+=FV(0.06/12,10,-200,-500,1)	number	2581.40337406014	
+=FV(0,10,-100)	number	1000	
+=FV(0.05,5,-100,0,0)	number	552.563125000001	
+=FV(0.1,2,0,-100)	number	121	
+=PV(0.08/12,240,500)	number	-59777.1458511878	
+=PV(0,5,-10)	number	50	
+=PV(0.05,10,-100,0,1)	number	810.782167564406	
+=PV(0.05,10,0,1000)	number	-613.913253540759	
+=NPER(0.12/12,-100,-1000,10000)	number	60.0821228537617	
+=NPER(0,-100,1000)	number	10	
+=NPER(0.05,-100,1000,0,1)	number	13.2532278981381	
+=NPER(0.01,0,100)	error	#NUM!	
+=IPMT(0.1/12,1,36,8000)	number	-66.6666666666667	
+=IPMT(0.1/12,3,36,8000)	number	-63.4621895664547	
+=IPMT(0.1,3,3,8000)	number	-292.447129909365	
+=IPMT(0.1/12,1,36,8000,0,1)	number	0	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=IPMT(0.05,0,3,1000)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=IPMT(0.05,2,3,1000,0,1)	number	-32.5138778747026	
+=PPMT(0.1/12,1,24,2000)	number	-75.6231860083664	
+=PPMT(0.08,10,10,200000)	number	-27598.0534624214	
+=PPMT(0.05,2,3,1000,0,1)	number	-317.208564631245	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=PPMT(0.05,4,3,1000)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=NPV(0.1,-10000,3000,4200,6800)	number	1188.44341233522	
+=NPV(0.1,A1:A3)	number	4.81592787377911	
+# NOTE: LibreOffice returns #NUM! [excel=#DIV/0!]
+=NPV(-1,1,2)	error	#NUM!	DIFF: LibreOffice returns #NUM! [excel=#DIV/0!]
+=NPV(0.08,F1:F4)	number	796.221970077581	
+=ROUND(IRR({-70000,12000,15000,18000,21000,26000}),6)	number	0.086631	
+=ROUND(IRR({-100,110}),6)	number	0.1	
+# NOTE: LibreOffice returns #N/A without a sign change [excel=#NUM!]
+=IRR({1,2,3})	error	#N/A	DIFF: LibreOffice returns #N/A without a sign change [excel=#NUM!]
+=ROUND(IRR({-1000,300,400,500},0.2),6)	number	0.088963	
+=ROUND(RATE(48,-200,8000),6)	number	0.007701	
+=ROUND(RATE(10,0,-100,200),6)	number	0.071773	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=RATE(0,-100,1000)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=ROUND(RATE(12,-100,1000),6)	number	0.029229	
+=SLN(30000,7500,10)	number	2250	
+=SLN(100,0,4)	number	25	
+=SLN(100,10,0)	error	#DIV/0!	
+=SLN(F1,0,4)	number	25	
+=SYD(30000,7500,10,1)	number	4090.90909090909	
+=SYD(30000,7500,10,10)	number	409.090909090909	
+# NOTE: LibreOffice accepts per beyond the life [excel=#NUM!]
+=SYD(100,0,4,5)	number	0	DIFF: LibreOffice accepts per beyond the life [excel=#NUM!]
+# NOTE: LibreOffice accepts per 0 [excel=#NUM!]
+=SYD(100,0,4,0)	number	50	DIFF: LibreOffice accepts per 0 [excel=#NUM!]
+=DB(1000000,100000,6,1,7)	number	186083.333333333	
+=DB(1000000,100000,6,2,7)	number	259639.416666667	
+=DB(1000000,100000,6,7,7)	number	15845.0984738481	
+=DB(1000000,100000,6,1)	number	319000	
+# NOTE: LibreOffice returns 0 beyond the life [excel=#NUM!]
+=DB(1000,100,5,6)	number	0	DIFF: LibreOffice returns 0 beyond the life [excel=#NUM!]
+=DDB(2400,300,10*365,1)	number	1.31506849315065	
+=DDB(2400,300,10,1,2)	number	480	
+=DDB(2400,300,10,2,2)	number	384	
+=DDB(2400,300,10,10)	number	22.1225472000002	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=DDB(100,0,5,6)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=EFFECT(0.0525,4)	number	0.0535426673707582	
+=EFFECT(0.1,1)	number	0.1	
+# NOTE: LibreOffice accepts a zero rate [excel=#NUM!]
+=EFFECT(0,4)	number	0	DIFF: LibreOffice accepts a zero rate [excel=#NUM!]
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=EFFECT(0.1,0)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=NOMINAL(0.053543,4)	number	0.052500319868356	
+=NOMINAL(0.1,1)	number	0.1	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=NOMINAL(0,4)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=NOMINAL(0.1,0)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#NUM!]
+=ROUND(MIRR({-120000,39000,30000,21000,37000,46000},0.1,0.12),6)	number	0.126094	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=MIRR({1,2,3},0.1,0.1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=ROUND(MIRR({-100,50,60},0.05,0.05),6)	number	0.06066	
+# NOTE: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=MIRR({-100,-50},0.1,0.1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
