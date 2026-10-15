@@ -35,6 +35,15 @@ sudo apt-get install -y libxml2-utils shellcheck
 ```
 `xmllint` normalizes XML for the structural diff in `scripts/roundtrip.sh`; `shellcheck` lints the scripts. ImageMagick (`convert`) was already present and is used by `scripts/gen-testdata.sh` for the test PNG.
 
+## openpyxl (chart reference workbooks, P8-18)
+```
+pip3 install --user --break-system-packages openpyxl   # 3.1.5; Debian 13 needs the flag (PEP 668)
+```
+Used only by `scripts/testdata-src/xlsx/charts.py`, which writes the provisional chart workbooks
+(`python3 -I scripts/testdata-src/xlsx/charts.py testdata/xlsx`). LibreOffice cannot be used for
+them: its chart export is not what Excel writes. `-I` ignores the user site directory, so the
+script adds it back itself.
+
 ## Logo exports (P7-10)
 ```
 sudo apt-get install -y librsvg2-bin    # rsvg-convert 2.60.0 (Debian 13)
