@@ -1,0 +1,157 @@
+---
+source: crates/fmt-pptx/tests/suite.rs
+expression: "pretty_part(&bytes, \"/ppt/slides/slide1.xml\")"
+---
+
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+ <p:cSld>
+  <p:spTree>
+   <p:nvGrpSpPr>
+    <p:cNvPr id="1" name=""/>
+    <p:cNvGrpSpPr/>
+    <p:nvPr/>
+   </p:nvGrpSpPr>
+   <p:grpSpPr>
+    <a:xfrm>
+     <a:off x="0" y="0"/>
+     <a:ext cx="0" cy="0"/>
+     <a:chOff x="0" y="0"/>
+     <a:chExt cx="0" cy="0"/>
+    </a:xfrm>
+   </p:grpSpPr>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="2" name="PlaceHolder 1"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph type="title"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr>
+     <a:xfrm>
+      <a:off x="720000" y="360000"/>
+      <a:ext cx="8640000" cy="900000"/>
+     </a:xfrm>
+     <a:prstGeom prst="rect">
+      <a:avLst/>
+     </a:prstGeom>
+     <a:noFill/>
+     <a:ln w="0">
+      <a:noFill/>
+      <a:prstDash val="solid"/>
+     </a:ln>
+    </p:spPr>
+    <p:txBody>
+     <a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" rtlCol="0" anchor="ctr">
+      <a:spAutoFit/>
+     </a:bodyPr>
+     <a:lstStyle/>
+     <a:p>
+      <a:pPr algn="ctr">
+       <a:buNone/>
+      </a:pPr>
+      <a:r>
+       <a:rPr sz="4400" b="0" u="none" strike="noStrike">
+        <a:solidFill>
+         <a:srgbClr val="000000"/>
+        </a:solidFill>
+        <a:latin typeface="Arial"/>
+       </a:rPr>
+       <a:t>Three Points</a:t>
+      </a:r>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="3" name="PlaceHolder 2"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph idx="1"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr>
+     <a:xfrm>
+      <a:off x="720000" y="1440000"/>
+      <a:ext cx="8640000" cy="3690000"/>
+     </a:xfrm>
+     <a:prstGeom prst="rect">
+      <a:avLst/>
+     </a:prstGeom>
+     <a:noFill/>
+     <a:ln w="0">
+      <a:noFill/>
+      <a:prstDash val="solid"/>
+     </a:ln>
+    </p:spPr>
+    <p:txBody>
+     <a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" rtlCol="0" anchor="t">
+      <a:normAutofit/>
+     </a:bodyPr>
+     <a:lstStyle/>
+     <a:p>
+      <a:pPr marL="228600" indent="-228600">
+       <a:spcBef>
+        <a:spcPts val="1417"/>
+       </a:spcBef>
+       <a:buFont typeface="Arial"/>
+       <a:buChar char="•"/>
+      </a:pPr>
+      <a:r>
+       <a:rPr sz="3200" b="0" u="none" strike="noStrike">
+        <a:solidFill>
+         <a:srgbClr val="000000"/>
+        </a:solidFill>
+        <a:latin typeface="Arial"/>
+       </a:rPr>
+       <a:t>First point</a:t>
+      </a:r>
+     </a:p>
+     <a:p>
+      <a:pPr marL="228600" indent="-228600">
+       <a:spcBef>
+        <a:spcPts val="1417"/>
+       </a:spcBef>
+       <a:buFont typeface="Arial"/>
+       <a:buChar char="•"/>
+      </a:pPr>
+      <a:r>
+       <a:rPr sz="3200" b="0" u="none" strike="noStrike">
+        <a:solidFill>
+         <a:srgbClr val="000000"/>
+        </a:solidFill>
+        <a:latin typeface="Arial"/>
+       </a:rPr>
+       <a:t>Second point</a:t>
+      </a:r>
+     </a:p>
+     <a:p>
+      <a:pPr marL="228600" indent="-228600">
+       <a:spcBef>
+        <a:spcPts val="1417"/>
+       </a:spcBef>
+       <a:buFont typeface="Arial"/>
+       <a:buChar char="•"/>
+      </a:pPr>
+      <a:r>
+       <a:rPr sz="3200" b="0" u="none" strike="noStrike">
+        <a:solidFill>
+         <a:srgbClr val="000000"/>
+        </a:solidFill>
+        <a:latin typeface="Arial"/>
+       </a:rPr>
+       <a:t>Third point</a:t>
+      </a:r>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+  </p:spTree>
+ </p:cSld>
+ <p:clrMapOvr>
+  <a:masterClrMapping/>
+ </p:clrMapOvr>
+</p:sld>
