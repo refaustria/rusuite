@@ -13,16 +13,22 @@
 //! * single-cell precedents live in a `HashMap<CellCoord, Vec<CellCoord>>`
 //!   (exact match, O(1) expected lookup);
 //! * range precedents are **never expanded cell by cell** (`=SUM(A:A)` is a
-//!   single entry). Ranges spanning at most [`WIDE_BUCKETS`] column buckets
-//!   of [`BUCKET_WIDTH`] columns are stored in every bucket they touch; wider
-//!   ranges (e.g. whole rows `1:1`) go into one linear `wide` list.
+//!   single entry). Small ranges, touching at most [`TILE_LIMIT`] tiles of
+//!   [`BUCKET_HEIGHT`] rows × [`BUCKET_WIDTH`] columns, are stored in every
+//!   tile they touch. Taller ranges spanning at most [`WIDE_BUCKETS`] column
+//!   buckets of [`BUCKET_WIDTH`] columns (e.g. whole columns `A:A`) are
+//!   stored in every column bucket they touch; wider ranges (e.g. whole
+//!   rows `1:1`) go into one linear `wide` list.
 //!
 //! Looking up the dependents of a cell therefore costs
-//! O(d_cell + r_bucket + r_wide + k log k): the exact cell hits, plus a
-//! linear scan of the range entries in the cell's column bucket and of the
-//! wide ranges, plus sorting the `k` results. This is fine for typical
-//! sheets; a 2-D interval index (R-tree or row/column interval trees) is the
-//! natural upgrade if many overlapping ranges in the same columns appear.
+//! O(d_cell + r_tile + r_bucket + r_wide + k log k): the exact cell hits,
+//! plus a linear scan of the range entries in the cell's tile, in its
+//! column bucket and of the wide ranges, plus sorting the `k` results.
+//! Tiles keep the scan short when a sheet holds many small ranges (100k
+//! `=SUM(A1:B3)`-style formulas over 1M cells: column buckets alone held
+//! thousands of entries each). A 2-D interval index (R-tree) is the
+//! natural upgrade if many overlapping large ranges in the same columns
+//! appear.
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -39,6 +45,12 @@ pub const BUCKET_WIDTH: u32 = 64;
 /// Ranges touching more than this many column buckets are kept in the
 /// per-sheet linear "wide" list instead of being bucketed.
 pub const WIDE_BUCKETS: u32 = 16;
+/// Height (in rows) of one tile of the small-range index (tiles are
+/// [`BUCKET_HEIGHT`] × [`BUCKET_WIDTH`] cells).
+pub const BUCKET_HEIGHT: u32 = 64;
+/// Ranges touching at most this many tiles are stored per tile; larger
+/// ones go to the column buckets or the wide list.
+pub const TILE_LIMIT: u32 = 16;
 
 /// Resolves sheet names used in references (`Sheet2!A1`) to ids.
 pub trait SheetResolver {
@@ -83,40 +95,85 @@ pub struct Schedule {
 #[derive(Debug, Clone, Default)]
 struct SheetIndex {
     cells: HashMap<CellCoord, Vec<CellCoord>>,
+    /// Small ranges per `(row / BUCKET_HEIGHT, col / BUCKET_WIDTH)` tile.
+    tiles: HashMap<(u32, u32), Vec<(RangeRef, CellCoord)>>,
     buckets: HashMap<u32, Vec<(RangeRef, CellCoord)>>,
     wide: Vec<(RangeRef, CellCoord)>,
 }
 
+/// Where a range precedent is indexed.
+enum Slot {
+    Tiles {
+        rows: std::ops::RangeInclusive<u32>,
+        cols: std::ops::RangeInclusive<u32>,
+    },
+    Buckets(std::ops::RangeInclusive<u32>),
+    Wide,
+}
+
+/// Removes `entry` from the list under `key`, dropping the list when empty.
+fn remove_entry<K: std::hash::Hash + Eq>(
+    map: &mut HashMap<K, Vec<(RangeRef, CellCoord)>>,
+    key: K,
+    entry: (RangeRef, CellCoord),
+) {
+    if let Some(list) = map.get_mut(&key) {
+        list.retain(|e| *e != entry);
+        if list.is_empty() {
+            map.remove(&key);
+        }
+    }
+}
+
 impl SheetIndex {
-    fn bucket_span(r: &RangeRef) -> Option<std::ops::RangeInclusive<u32>> {
+    fn slot(r: &RangeRef) -> Slot {
         let (b0, b1) = (r.c0 / BUCKET_WIDTH, r.c1 / BUCKET_WIDTH);
-        (b1 - b0 < WIDE_BUCKETS).then_some(b0..=b1)
+        let (t0, t1) = (r.r0 / BUCKET_HEIGHT, r.r1 / BUCKET_HEIGHT);
+        if u64::from(b1 - b0 + 1) * u64::from(t1 - t0 + 1) <= u64::from(TILE_LIMIT) {
+            Slot::Tiles {
+                rows: t0..=t1,
+                cols: b0..=b1,
+            }
+        } else if b1 - b0 < WIDE_BUCKETS {
+            Slot::Buckets(b0..=b1)
+        } else {
+            Slot::Wide
+        }
     }
 
     fn add_range(&mut self, r: RangeRef, dep: CellCoord) {
-        match Self::bucket_span(&r) {
-            Some(span) => {
+        match Self::slot(&r) {
+            Slot::Tiles { rows, cols } => {
+                for t in rows {
+                    for b in cols.clone() {
+                        self.tiles.entry((t, b)).or_default().push((r, dep));
+                    }
+                }
+            }
+            Slot::Buckets(span) => {
                 for b in span {
                     self.buckets.entry(b).or_default().push((r, dep));
                 }
             }
-            None => self.wide.push((r, dep)),
+            Slot::Wide => self.wide.push((r, dep)),
         }
     }
 
     fn remove_range(&mut self, r: RangeRef, dep: CellCoord) {
-        match Self::bucket_span(&r) {
-            Some(span) => {
-                for b in span {
-                    if let Some(list) = self.buckets.get_mut(&b) {
-                        list.retain(|e| *e != (r, dep));
-                        if list.is_empty() {
-                            self.buckets.remove(&b);
-                        }
+        match Self::slot(&r) {
+            Slot::Tiles { rows, cols } => {
+                for t in rows {
+                    for b in cols.clone() {
+                        remove_entry(&mut self.tiles, (t, b), (r, dep));
                     }
                 }
             }
-            None => self.wide.retain(|e| *e != (r, dep)),
+            Slot::Buckets(span) => {
+                for b in span {
+                    remove_entry(&mut self.buckets, b, (r, dep));
+                }
+            }
+            Slot::Wide => self.wide.retain(|e| *e != (r, dep)),
         }
     }
 
@@ -137,7 +194,11 @@ impl SheetIndex {
         if let Some(list) = self.cells.get(&cell) {
             out.extend_from_slice(list);
         }
-        if let Some(list) = self.buckets.get(&(cell.col / BUCKET_WIDTH)) {
+        let tile = (cell.row / BUCKET_HEIGHT, cell.col / BUCKET_WIDTH);
+        for list in [self.tiles.get(&tile), self.buckets.get(&tile.1)]
+            .into_iter()
+            .flatten()
+        {
             out.extend(list.iter().filter(|(r, _)| r.contains(cell)).map(|e| e.1));
         }
         out.extend(
@@ -149,7 +210,10 @@ impl SheetIndex {
     }
 
     fn is_empty(&self) -> bool {
-        self.cells.is_empty() && self.buckets.is_empty() && self.wide.is_empty()
+        self.cells.is_empty()
+            && self.tiles.is_empty()
+            && self.buckets.is_empty()
+            && self.wide.is_empty()
     }
 }
 
@@ -571,10 +635,16 @@ mod tests {
     #[test]
     fn range_spanning_buckets_is_found_and_removed_everywhere() {
         let mut g = DependencyGraph::new();
-        set(&mut g, 0, 0, "=SUM(B2:CZ9)"); // columns 1..=103, buckets 0 and 1
+        set(&mut g, 0, 0, "=SUM(B2:CZ9)"); // columns 1..=103: tiles (0, 0) and (0, 1)
+        set(&mut g, 0, 1, "=SUM(B2:CZ900)"); // 15 row tiles × 2 = 30 > TILE_LIMIT: buckets
+        assert_eq!(g.sheets[&S].tiles.len(), 2);
         assert_eq!(g.sheets[&S].buckets.len(), 2);
-        assert_eq!(g.direct_dependents(CellCoord::new(S, 3, 100)).len(), 1);
+        assert_eq!(g.direct_dependents(CellCoord::new(S, 3, 100)).len(), 2);
+        assert_eq!(g.direct_dependents(CellCoord::new(S, 99, 100)).len(), 1);
+        assert_eq!(g.direct_dependents(CellCoord::new(S, 900, 100)).len(), 0);
         g.remove_formula(CellCoord::new(S, 0, 0));
+        assert!(g.sheets[&S].tiles.is_empty());
+        g.remove_formula(CellCoord::new(S, 0, 1));
         assert!(g.sheets.is_empty());
     }
 
