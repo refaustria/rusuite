@@ -5,45 +5,16 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 
-use fmt_ooxml::{Package, PartName, Relationships, OFFICE_DOCUMENT_REL};
+use fmt_ooxml::theme::{parse_theme, theme_xml};
+use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
 use model_show::{
     Fill, LayoutKind, MediaId, PlaceholderKind, Presentation, Preset, Shape, ShapeKind, Slide,
 };
 
 use crate::drawing::{write_fill, write_line, write_text_body, write_xfrm};
 use crate::parts::{self, layout_meta, sp_tree_start, write_nv_pr_ph, ROOT_NS};
-use crate::theme::{parse_theme, theme_xml};
 use crate::xml::XmlOut;
 use crate::{Error, PptxContext, Result};
-
-const CT_PRESENTATION: &str =
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml";
-const CT_SLIDE: &str = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml";
-const CT_LAYOUT: &str =
-    "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml";
-const CT_MASTER: &str =
-    "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml";
-const CT_PRES_PROPS: &str =
-    "application/vnd.openxmlformats-officedocument.presentationml.presProps+xml";
-const CT_VIEW_PROPS: &str =
-    "application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml";
-const CT_TABLE_STYLES: &str =
-    "application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml";
-const CT_NOTES_SLIDE: &str =
-    "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml";
-const CT_NOTES_MASTER: &str =
-    "application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml";
-const CT_THEME: &str = "application/vnd.openxmlformats-officedocument.theme+xml";
-const CT_CORE: &str = "application/vnd.openxmlformats-package.core-properties+xml";
-const CT_APP: &str = "application/vnd.openxmlformats-officedocument.extended-properties+xml";
-
-const REL_BASE: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-const REL_CORE: &str =
-    "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties";
-
-fn rel(kind: &str) -> String {
-    format!("{REL_BASE}/{kind}")
-}
 
 /// Writes `presentation` as `.pptx` bytes with a theme part generated from
 /// [`Presentation::theme`].
@@ -69,68 +40,72 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
     let mut pkg = Package::new();
     let main = pn("/ppt/presentation.xml")?;
     let mut pres_rels = Relationships::new();
-    pres_rels.add(rel("slideMaster"), "slideMasters/slideMaster1.xml");
+    pres_rels.add(rel::SLIDE_MASTER, "slideMasters/slideMaster1.xml");
     for i in 0..p.slides.len() {
-        pres_rels.add(rel("slide"), format!("slides/slide{}.xml", i + 1));
+        pres_rels.add(rel::SLIDE, format!("slides/slide{}.xml", i + 1));
     }
-    pres_rels.add(rel("presProps"), "presProps.xml");
-    pres_rels.add(rel("viewProps"), "viewProps.xml");
-    pres_rels.add(rel("theme"), "theme/theme1.xml");
-    pres_rels.add(rel("tableStyles"), "tableStyles.xml");
+    pres_rels.add(rel::PRES_PROPS, "presProps.xml");
+    pres_rels.add(rel::VIEW_PROPS, "viewProps.xml");
+    pres_rels.add(rel::THEME, "theme/theme1.xml");
+    pres_rels.add(rel::TABLE_STYLES, "tableStyles.xml");
     let notes_master_rid = has_notes.then(|| {
         pres_rels
-            .add(rel("notesMaster"), "notesMasters/notesMaster1.xml")
+            .add(rel::NOTES_MASTER, "notesMasters/notesMaster1.xml")
             .id
             .clone()
     });
     pkg.insert_part(
         main.clone(),
-        CT_PRESENTATION,
+        ct::PRESENTATION,
         parts::presentation_xml(p, notes_master_rid.as_deref()),
     );
     pkg.set_relationships(main, pres_rels);
 
     let master = pn("/ppt/slideMasters/slideMaster1.xml")?;
-    pkg.insert_part(master.clone(), CT_MASTER, parts::slide_master_xml(p));
+    pkg.insert_part(master.clone(), ct::SLIDE_MASTER, parts::slide_master_xml(p));
     let mut master_rels = Relationships::new();
     for kind in LayoutKind::ALL {
         let (_, _, n) = layout_meta(kind);
         master_rels.add(
-            rel("slideLayout"),
+            rel::SLIDE_LAYOUT,
             format!("../slideLayouts/slideLayout{n}.xml"),
         );
     }
-    master_rels.add(rel("theme"), "../theme/theme1.xml");
+    master_rels.add(rel::THEME, "../theme/theme1.xml");
     pkg.set_relationships(master, master_rels);
 
     for layout in &p.layouts {
         let (_, _, n) = layout_meta(layout.kind);
         let name = PartName::new(format!("/ppt/slideLayouts/slideLayout{n}.xml"))?;
-        pkg.insert_part(name.clone(), CT_LAYOUT, parts::slide_layout_xml(layout));
+        pkg.insert_part(
+            name.clone(),
+            ct::SLIDE_LAYOUT,
+            parts::slide_layout_xml(layout),
+        );
         let mut r = Relationships::new();
-        r.add(rel("slideMaster"), "../slideMasters/slideMaster1.xml");
+        r.add(rel::SLIDE_MASTER, "../slideMasters/slideMaster1.xml");
         pkg.set_relationships(name, r);
     }
 
     for (i, (xml, rels)) in slides.into_iter().enumerate() {
         let name = PartName::new(format!("/ppt/slides/slide{}.xml", i + 1))?;
-        pkg.insert_part(name.clone(), CT_SLIDE, xml);
+        pkg.insert_part(name.clone(), ct::SLIDE, xml);
         pkg.set_relationships(name, rels);
     }
 
     if has_notes {
         let master = pn("/ppt/notesMasters/notesMaster1.xml")?;
-        pkg.insert_part(master.clone(), CT_NOTES_MASTER, parts::notes_master_xml());
+        pkg.insert_part(master.clone(), ct::NOTES_MASTER, parts::notes_master_xml());
         let mut r = Relationships::new();
-        r.add(rel("theme"), "../theme/theme2.xml");
+        r.add(rel::THEME, "../theme/theme2.xml");
         pkg.set_relationships(master, r);
         for (i, slide) in p.slides.iter().enumerate() {
             let Some(notes) = &slide.notes else { continue };
             let name = PartName::new(format!("/ppt/notesSlides/notesSlide{}.xml", i + 1))?;
-            pkg.insert_part(name.clone(), CT_NOTES_SLIDE, parts::notes_slide_xml(notes));
+            pkg.insert_part(name.clone(), ct::NOTES_SLIDE, parts::notes_slide_xml(notes));
             let mut r = Relationships::new();
-            r.add(rel("notesMaster"), "../notesMasters/notesMaster1.xml");
-            r.add(rel("slide"), format!("../slides/slide{}.xml", i + 1));
+            r.add(rel::NOTES_MASTER, "../notesMasters/notesMaster1.xml");
+            r.add(rel::SLIDE, format!("../slides/slide{}.xml", i + 1));
             pkg.set_relationships(name, r);
         }
     }
@@ -140,37 +115,41 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
         _ => theme_xml(&p.theme),
     };
     if has_notes {
-        pkg.insert_part(pn("/ppt/theme/theme2.xml")?, CT_THEME, theme_xml(&p.theme));
+        pkg.insert_part(pn("/ppt/theme/theme2.xml")?, ct::THEME, theme_xml(&p.theme));
     }
-    pkg.insert_part(pn("/ppt/theme/theme1.xml")?, CT_THEME, theme);
+    pkg.insert_part(pn("/ppt/theme/theme1.xml")?, ct::THEME, theme);
     pkg.insert_part(
         pn("/ppt/presProps.xml")?,
-        CT_PRES_PROPS,
+        ct::PRES_PROPS,
         parts::pres_props_xml(),
     );
     pkg.insert_part(
         pn("/ppt/viewProps.xml")?,
-        CT_VIEW_PROPS,
+        ct::VIEW_PROPS,
         parts::view_props_xml(),
     );
     pkg.insert_part(
         pn("/ppt/tableStyles.xml")?,
-        CT_TABLE_STYLES,
+        ct::TABLE_STYLES,
         parts::table_styles_xml(),
     );
     for (name, content_type, data) in media.parts {
         pkg.insert_part(PartName::new(format!("/ppt/{name}"))?, content_type, data);
     }
-    pkg.insert_part(pn("/docProps/core.xml")?, CT_CORE, parts::core_xml());
+    pkg.insert_part(
+        pn("/docProps/core.xml")?,
+        ct::CORE_PROPERTIES,
+        parts::core_xml(),
+    );
     pkg.insert_part(
         pn("/docProps/app.xml")?,
-        CT_APP,
+        ct::EXTENDED_PROPERTIES,
         parts::app_xml(p.slides.len()),
     );
     let root = pkg.package_relationships_mut();
-    root.add(OFFICE_DOCUMENT_REL, "ppt/presentation.xml");
-    root.add(REL_CORE, "docProps/core.xml");
-    root.add(rel("extended-properties"), "docProps/app.xml");
+    root.add(rel::OFFICE_DOCUMENT, "ppt/presentation.xml");
+    root.add(rel::CORE_PROPERTIES, "docProps/core.xml");
+    root.add(rel::EXTENDED_PROPERTIES, "docProps/app.xml");
     Ok(pkg.write(Cursor::new(Vec::new()))?.into_inner())
 }
 
@@ -243,12 +222,12 @@ fn write_slide(
     let mut rels = Relationships::new();
     let (_, _, n) = layout_meta(slide.layout);
     rels.add(
-        rel("slideLayout"),
+        rel::SLIDE_LAYOUT,
         format!("../slideLayouts/slideLayout{n}.xml"),
     );
     if slide.notes.is_some() {
         rels.add(
-            rel("notesSlide"),
+            rel::NOTES_SLIDE,
             format!("../notesSlides/notesSlide{number}.xml"),
         );
     }
@@ -420,7 +399,7 @@ impl SlideWriter<'_> {
             Some(r) => r.clone(),
             None => {
                 let name = self.media.name_of(self.p, media)?;
-                let rid = self.rels.add(rel("image"), format!("../{name}")).id.clone();
+                let rid = self.rels.add(rel::IMAGE, format!("../{name}")).id.clone();
                 self.media_rels.insert(media, rid.clone());
                 rid
             }

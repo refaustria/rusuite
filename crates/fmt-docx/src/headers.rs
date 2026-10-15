@@ -5,15 +5,8 @@
 use model_text::PAGE_FIELD;
 
 use crate::numbering::W_NS;
-use crate::xml::{El, Node, XmlOut};
+use crate::xml::{El, Node, WriteVal, XmlOut};
 use crate::Warnings;
-
-/// Content type of a header part.
-pub(crate) const CT_HEADER: &str =
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml";
-/// Content type of a footer part.
-pub(crate) const CT_FOOTER: &str =
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml";
 
 /// Whether a field instruction (`PAGE \* MERGEFORMAT`) is the page number.
 fn is_page_field(instr: &str) -> bool {

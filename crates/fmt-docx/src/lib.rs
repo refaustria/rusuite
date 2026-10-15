@@ -28,7 +28,6 @@ mod numbering;
 mod props;
 mod read;
 mod styles;
-mod theme;
 mod write;
 mod xml;
 

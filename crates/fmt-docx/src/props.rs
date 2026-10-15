@@ -12,7 +12,7 @@ use model_text::{
     ParagraphProperties, Spacing, TableBorders, TableWidth,
 };
 
-use crate::xml::{parse_twips, parse_u32, toggle, El, XmlOut};
+use crate::xml::{parse_twips, parse_u32, toggle, El, WriteVal, XmlOut};
 use crate::Warnings;
 
 // --- colors -------------------------------------------------------------------

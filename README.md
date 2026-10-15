@@ -2,7 +2,14 @@
 
 > A stripped-down but fully working office suite with a Rust backend and a web frontend via Tauri – and the same apps running in the browser via WebAssembly. Three apps: **Rusuite Write** (documents), **Rusuite Calc** (spreadsheets), **Rusuite Show** (presentations). Not an MS Office replacement, but a cleanly architected minimum that can read and write real `.docx`, `.xlsx` and `.pptx` files.
 
-**Status:** 🚧 Early development – nothing here is production-ready.
+**Status:** Alpha – all three apps run on desktop (Tauri) and in the browser (WASM); see [Downloads](#downloads).
+
+**What works today**
+- **Calc:** formulas with an Excel-compatible engine (recalc, cell references by pointing, fill, copy/cut/paste with reference adjustment), cell styles and number formats, row/column operations, `.xlsx` open/save.
+- **Write:** Tiptap editor with styles, lists, tables, images, headers/footers, page view, find/replace, `.docx` open/save.
+- **Show:** Konva slide editor with layouts, shapes, pictures, groups, text formatting, speaker notes, presentation mode, `.pptx` open/save.
+- **All apps:** Office-like ribbon, undo/redo, keyboard shortcuts, PDF export via print, recent files, autosave and crash recovery.
+- **Files** written by Rusuite open in LibreOffice without warnings for every reference file in `testdata/`; the supported OOXML subset is listed in [docs/ooxml-subset.md](docs/ooxml-subset.md).
 
 ---
 

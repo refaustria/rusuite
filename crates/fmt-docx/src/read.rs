@@ -5,6 +5,7 @@ use std::io::Cursor;
 
 use core_model::units::{Emu, Twips};
 use core_model::RunProperties;
+use fmt_ooxml::theme::parse_theme;
 use fmt_ooxml::{Package, PartName, TargetMode};
 use model_text::{
     Block, BreakKind, CellProperties, Document, HeightRule, Inline, InlineImage, Margins, MediaId,
@@ -15,8 +16,7 @@ use model_text::{
 use crate::numbering::read_numbering;
 use crate::props::{read_borders, read_cell_margins, read_ppr, read_rpr, read_shading, read_width};
 use crate::styles::read_styles;
-use crate::theme::parse_theme;
-use crate::xml::{parse, parse_twips, parse_u32, toggle, El, Node};
+use crate::xml::{parse, parse_twips, parse_u32, toggle, xml_error, El, Node};
 use crate::{DocxContext, Error, Result, Warnings};
 
 /// Everything [`read_with_context`] returns.
@@ -89,7 +89,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
 
     let mut context = DocxContext::default();
     if let Some((name, data)) = data_of("theme") {
-        context.theme = Some(parse_theme(data, name.as_str())?);
+        context.theme = Some(parse_theme(data, name.as_str()).map_err(xml_error)?);
         if pkg.relationships(name).is_some_and(|r| !r.is_empty()) {
             w.add(format!(
                 "{name}: theme has its own relationships; replaced by the built-in theme"
