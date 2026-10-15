@@ -3,6 +3,21 @@ import { downloadBuffer, fileCommand, interceptPrint, openPrint, openViaBackstag
 import { Grid, openCalc } from "../support/calc";
 import { zipText } from "../support/zip";
 
+/** Name / Qty table in A1:B4: pear 3, apple 1, fig 2. */
+async function typeTable(grid: Grid) {
+  const rows = [["Name", "Qty"], ["pear", "3"], ["apple", "1"], ["fig", "2"]];
+  for (const [r, row] of rows.entries()) for (const [c, v] of row.entries()) await grid.type(r, c, v);
+}
+
+/** Clicks the AutoFilter dropdown button of header cell (0, col) (right edge of the cell) and waits for its value list. */
+async function openFilterPanel(page: import("@playwright/test").Page, grid: Grid, col: number) {
+  const q = await grid.pos(0, col, 64 / 2 - 9, 1);
+  await page.mouse.click(q.x, q.y);
+  const panel = page.getByTestId("filter-panel");
+  await expect(panel.getByTestId("filter-value").first()).toBeVisible();
+  return panel;
+}
+
 async function previewPagesAfterReopen(page: import("@playwright/test").Page) {
   await openPrint(page);
   return previewPages(page);
@@ -357,6 +372,93 @@ test.describe("Calc", () => {
     await dialog.getByRole("button", { name: "OK" }).click();
     await expect(sheets.getByRole("tab")).toHaveText(["Sheet1", "Sheet2"]);
     await expect(sheets.getByRole("tab", { name: "Sheet2" })).toHaveAttribute("aria-selected", "true");
+    errors.expectNone();
+  });
+
+  test("Data › Sort A to Z reorders the rows under the header; the saved file has sortState", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await typeTable(grid);
+    await grid.click(2, 0);
+    await page.getByRole("tab", { name: "Data" }).click();
+    await page.getByRole("button", { name: "Sort A to Z" }).click();
+    await expect.poll(() => grid.input(1, 0)).toBe("apple");
+    expect(await grid.input(0, 0)).toBe("Name");
+    expect(await grid.input(2, 0)).toBe("fig");
+    expect(await grid.input(3, 0)).toBe("pear");
+    expect(await grid.input(3, 1)).toBe("3");
+    const xlsx = await saveViaBackstage(page);
+    expect(zipText(xlsx, "xl/worksheets/sheet1.xml")).toMatch(/<sortState [^>]*ref="A2:B4"/);
+    errors.expectNone();
+  });
+
+  test("AutoFilter: unchecking a value hides its rows; the saved file has autoFilter and hidden rows", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await typeTable(grid);
+    await grid.click(0, 0);
+    await page.keyboard.press("Control+Shift+L");
+    const panel = await openFilterPanel(page, grid, 1);
+    await expect(panel.getByTestId("filter-value")).toHaveText(["11", "21", "31"]);
+    await panel.getByRole("checkbox", { name: "3", exact: true }).uncheck();
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-filter-panel.png` });
+    await panel.getByRole("button", { name: "OK" }).click();
+    await expect(page.getByTestId("filter-records")).toHaveText("2 of 3 records found");
+    // Row 2 (pear) is hidden: the second visible row is apple.
+    expect(await grid.input(1, 0)).toBe("apple");
+    const xlsx = await saveViaBackstage(page);
+    const sheet1 = zipText(xlsx, "xl/worksheets/sheet1.xml");
+    expect(sheet1).toMatch(/<autoFilter ref="A1:B4"/);
+    expect(sheet1).toMatch(/<row r="2"[^>]*hidden="1"/);
+    errors.expectNone();
+  });
+
+  test("AutoFilter: Number Filters › Greater Than… keeps the larger values", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await typeTable(grid);
+    await grid.click(1, 1);
+    await page.getByRole("tab", { name: "Data" }).click();
+    await page.getByRole("button", { name: "Filter", exact: true }).click();
+    const panel = await openFilterPanel(page, grid, 1);
+    await panel.getByRole("button", { name: "Number Filters" }).click();
+    await panel.getByRole("menuitem", { name: "Greater Than…" }).click();
+    const dlg = page.getByRole("dialog", { name: "Custom AutoFilter" });
+    await dlg.getByLabel("Value 1").fill("1");
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(page.getByTestId("filter-records")).toHaveText("2 of 3 records found");
+    // apple (1) is hidden: rows pear, fig remain.
+    expect(await grid.input(1, 0)).toBe("pear");
+    expect(await grid.input(2, 0)).toBe("fig");
+    errors.expectNone();
+  });
+
+  test("AutoFilter: sorted and filtered, then Clear shows every row again", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await typeTable(grid);
+    await grid.click(0, 0);
+    await page.keyboard.press("Control+Shift+L");
+    let panel = await openFilterPanel(page, grid, 1);
+    await panel.getByRole("button", { name: "Sort Z to A" }).click();
+    await expect.poll(() => grid.input(1, 0)).toBe("pear");
+    panel = await openFilterPanel(page, grid, 0);
+    await panel.getByRole("checkbox", { name: "fig", exact: true }).uncheck();
+    await panel.getByRole("button", { name: "OK" }).click();
+    await expect(page.getByTestId("filter-records")).toHaveText("2 of 3 records found");
+    expect(await grid.input(2, 0)).toBe("apple");
+    await grid.click(0, 3);
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-sorted-filtered.png` });
+    await page.getByRole("tab", { name: "Data" }).click();
+    await page.getByRole("button", { name: "Clear", exact: true }).click();
+    await expect(page.getByTestId("filter-records")).toHaveCount(0);
+    expect(await grid.input(1, 0)).toBe("pear");
+    expect(await grid.input(2, 0)).toBe("fig");
+    expect(await grid.input(3, 0)).toBe("apple");
     errors.expectNone();
   });
 

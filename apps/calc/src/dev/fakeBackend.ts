@@ -6,12 +6,15 @@
 // lives in Rust (ADR 0001); nothing here is used in production builds.
 
 import type { Backend, Color, OpenedFile, SaveOptions, SaveResult } from "@rusuite/ui-shared";
+import type { AutoFilter } from "../generated/AutoFilter";
 import type { CalcCommand } from "../generated/CalcCommand";
 import type { CalcPatch } from "../generated/CalcPatch";
 import type { CellKind } from "../generated/CellKind";
 import type { CellStyle } from "../generated/CellStyle";
 import type { CellView } from "../generated/CellView";
 import type { ColView } from "../generated/ColView";
+import type { Filter } from "../generated/Filter";
+import type { FilterValue } from "../generated/FilterValue";
 import type { Rect } from "../generated/Rect";
 import type { Request } from "../generated/Request";
 import type { Response } from "../generated/Response";
@@ -19,6 +22,8 @@ import type { ResponseBody } from "../generated/ResponseBody";
 import type { RowView } from "../generated/RowView";
 import type { SheetInfo } from "../generated/SheetInfo";
 import type { SheetView } from "../generated/SheetView";
+import type { SortKey } from "../generated/SortKey";
+import type { SortState } from "../generated/SortState";
 
 interface FakeCell {
   input: string;
@@ -37,6 +42,8 @@ interface FakeSheet {
   veryHidden?: boolean;
   view: SheetView;
   merges: Rect[];
+  autoFilter?: AutoFilter;
+  sortState?: SortState;
 }
 
 const DEFAULT_VIEW: SheetView = { frozenRows: 0, frozenCols: 0, zoom: 100, showGridlines: true, showHeadings: true };
@@ -119,8 +126,10 @@ export class FakeCalcCore {
   }
 
   private sheetInfos(): SheetInfo[] {
-    return this.sheets.map(({ id, name, tabColor, hidden, veryHidden, view }) => {
+    return this.sheets.map(({ id, name, tabColor, hidden, veryHidden, view, autoFilter, sortState }) => {
       const info: SheetInfo = { id, name };
+      if (autoFilter) info.autoFilter = JSON.parse(JSON.stringify(autoFilter)) as AutoFilter;
+      if (sortState) info.sortState = JSON.parse(JSON.stringify(sortState)) as SortState;
       if (tabColor) info.tabColor = tabColor;
       if (hidden) info.hidden = true;
       if (veryHidden) info.veryHidden = true;
@@ -586,12 +595,237 @@ export class FakeCalcCore {
       case "clearFilters":
       case "reapplyFilter":
       case "restoreFilterState":
-        throw new Fail("internal", "sort and filter are not supported by the fake backend");
+        return this.sortFilter(cmd);
       default: {
         const unknown: never = cmd;
         throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
       }
     }
+  }
+
+  // --- sort and AutoFilter (a toy: values, custom, top 10 and average filters; auto-kind sorts) ---
+
+  private filled(s: FakeSheet, r: number, c: number): boolean {
+    return (this.cell(s, r, c)?.input ?? "") !== "";
+  }
+
+  /** `current_region`, as in the core. */
+  private region(s: FakeSheet, row: number, col: number): Rect {
+    let lastRow = -1, lastCol = -1;
+    for (const [r, cells] of s.cells) for (const [c, x] of cells) if (x.input !== "") [lastRow, lastCol] = [Math.max(lastRow, r), Math.max(lastCol, c)];
+    let r0 = row, c0 = col, r1 = row, c1 = col;
+    if (lastRow < 0) return { r0, c0, r1, c1 };
+    const any = (a: number, b: number, f: (i: number) => boolean) => Array.from({ length: Math.max(0, b - a + 1) }, (_, k) => a + k).some(f);
+    for (let grown = true; grown; ) {
+      grown = false;
+      const [lc, hc, lr, hr] = [Math.max(0, c0 - 1), Math.min(c1 + 1, lastCol), Math.max(0, r0 - 1), Math.min(r1 + 1, lastRow)];
+      if (r0 > 0 && any(lc, hc, (c) => this.filled(s, r0 - 1, c))) [r0, grown] = [r0 - 1, true];
+      if (r1 < lastRow && any(lc, hc, (c) => this.filled(s, r1 + 1, c))) [r1, grown] = [r1 + 1, true];
+      if (c0 > 0 && any(lr, hr, (r) => this.filled(s, r, c0 - 1))) [c0, grown] = [c0 - 1, true];
+      if (c1 < lastCol && any(lr, hr, (r) => this.filled(s, r, c1 + 1))) [c1, grown] = [c1 + 1, true];
+    }
+    return { r0, c0, r1, c1 };
+  }
+
+  private passes(s: FakeSheet, row: number, col: number, f: Filter, data: CellView[]): boolean {
+    const v = this.view(s, row, col);
+    const fold = (x: string) => x.toLowerCase();
+    const num = (x: CellView) => (x.kind === "number" ? Number(x.display) : NaN);
+    switch (f.kind) {
+      case "values":
+        return f.values.some((x) => fold(x) === fold(v.display));
+      case "custom": {
+        const one = (op: string, value: string) => {
+          const n = Number(value);
+          const both = value.trim() !== "" && Number.isFinite(n) && v.kind === "number";
+          const [a, b] = both ? [num(v), n] : [fold(v.display), fold(value)];
+          const glob = (p: string) => new RegExp(`^${p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`, "i");
+          switch (op) {
+            case "eq": return both ? a === b : glob(value).test(v.display);
+            case "ne": return both ? a !== b : !glob(value).test(v.display);
+            case "gt": return a > b;
+            case "ge": return a >= b;
+            case "lt": return a < b;
+            case "le": return a <= b;
+            case "beginsWith": return fold(v.display).startsWith(fold(value));
+            case "endsWith": return fold(v.display).endsWith(fold(value));
+            case "contains": return fold(v.display).includes(fold(value));
+            default: return !fold(v.display).includes(fold(value));
+          }
+        };
+        const hits = f.criteria.map((c) => one(c.op, c.value));
+        return f.and ? hits.every(Boolean) : hits.some(Boolean);
+      }
+      case "top10": {
+        const nums = data.map(num).filter((n) => !Number.isNaN(n)).sort((a, b) => (f.top ? b - a : a - b));
+        const n = f.percent ? Math.max(1, Math.floor((nums.length * f.value) / 100)) : f.value;
+        const edge = nums[Math.min(n, nums.length) - 1];
+        const x = num(v);
+        return edge !== undefined && !Number.isNaN(x) && (f.top ? x >= edge : x <= edge);
+      }
+      case "dynamic": {
+        const nums = data.map(num).filter((n) => !Number.isNaN(n));
+        const avg = nums.reduce((a, b) => a + b, 0) / Math.max(1, nums.length);
+        const x = num(v);
+        if (Number.isNaN(x)) return false;
+        return f.filter === "aboveAverage" ? x > avg : f.filter === "belowAverage" ? x < avg : true;
+      }
+    }
+  }
+
+  private rowPasses(s: FakeSheet, af: AutoFilter, row: number, skip: number | null): boolean {
+    return (af.columns ?? []).every((fc) => {
+      if (fc.col === skip) return true;
+      const data: CellView[] = [];
+      for (let r = af.r0 + 1; r <= af.r1; r++) data.push(this.view(s, r, fc.col));
+      return this.passes(s, row, fc.col, fc.filter, data);
+    });
+  }
+
+  /** Hides failing rows as `filtered`, shows passing filtered rows; returns the changed rows' previous views. */
+  private applyFilters(s: FakeSheet, af: AutoFilter | undefined, showAll = false): RowView[] {
+    const prev: RowView[] = [];
+    if (!af) return prev;
+    for (let r = af.r0 + 1; r <= af.r1; r++) {
+      const old = s.rows.get(r) ?? { row: r, height: null, hidden: false, style: null };
+      const pass = showAll || this.rowPasses(s, af, r, null);
+      if (!pass && !old.hidden) {
+        prev.push({ ...old });
+        s.rows.set(r, { ...old, hidden: true, filtered: true });
+      } else if (pass && old.filtered) {
+        prev.push({ ...old });
+        const next: RowView = { ...old, hidden: false };
+        delete next.filtered;
+        s.rows.set(r, next);
+      }
+    }
+    return prev;
+  }
+
+  private sortFilter(cmd: Extract<CalcCommand, { type: "sortRange" | "sortSheetByColumn" | "setAutoFilter" | "setFilterColumn" | "clearFilters" | "reapplyFilter" | "restoreFilterState" }>): [CalcPatch, CalcCommand] {
+    const s = this.sheet(cmd.sheet);
+    const state: CalcCommand = {
+      type: "restoreFilterState", sheet: s.id,
+      autoFilter: s.autoFilter ? JSON.parse(JSON.stringify(s.autoFilter)) : null, sortState: s.sortState ? JSON.parse(JSON.stringify(s.sortState)) : null,
+    };
+    const finish = (prevRows: RowView[], patch: CalcPatch = this.emptyPatch()): [CalcPatch, CalcCommand] => {
+      patch.sheets = this.sheetInfos();
+      if (prevRows.length > 0) patch.rows = [{ sheet: s.id, rows: prevRows.map((r) => s.rows.get(r.row) ?? { row: r.row, height: null, hidden: false, style: null }) }];
+      const inverse: CalcCommand[] = prevRows.length > 0 ? [{ type: "restoreRows", sheet: s.id, rows: prevRows }, state] : [state];
+      return [patch, { type: "compound", commands: inverse }];
+    };
+    switch (cmd.type) {
+      case "restoreFilterState":
+        s.autoFilter = cmd.autoFilter ?? undefined;
+        s.sortState = cmd.sortState ?? undefined;
+        return finish([]);
+      case "setAutoFilter": {
+        const shown = this.applyFilters(s, s.autoFilter, true);
+        if (cmd.range === null) s.autoFilter = undefined;
+        else {
+          const r = cmd.range.r0 === cmd.range.r1 && cmd.range.c0 === cmd.range.c1 ? this.region(s, cmd.range.r0, cmd.range.c0) : cmd.range;
+          s.autoFilter = { ...r };
+        }
+        return finish(shown);
+      }
+      case "setFilterColumn": {
+        const af = s.autoFilter;
+        if (!af) throw new Fail("no_auto_filter", "no AutoFilter");
+        if (cmd.col < af.c0 || cmd.col > af.c1) throw new Fail("invalid_range", "column outside the AutoFilter");
+        const cols = (af.columns ?? []).filter((c) => c.col !== cmd.col);
+        if (cmd.filter) cols.push({ col: cmd.col, filter: cmd.filter });
+        cols.sort((a, b) => a.col - b.col);
+        s.autoFilter = { ...af, columns: cols };
+        if (cols.length === 0) delete s.autoFilter.columns;
+        return finish(this.applyFilters(s, s.autoFilter));
+      }
+      case "clearFilters":
+        if (s.autoFilter) {
+          s.autoFilter = { ...s.autoFilter };
+          delete s.autoFilter.columns;
+        }
+        return finish(this.applyFilters(s, s.autoFilter));
+      case "reapplyFilter":
+        return finish(this.applyFilters(s, s.autoFilter));
+      case "sortRange":
+      case "sortSheetByColumn": {
+        let range: Rect, keys: SortKey[], hasHeader: boolean, caseSensitive = false;
+        if (cmd.type === "sortRange") {
+          this.checkRange(cmd.r0, cmd.c0, cmd.r1, cmd.c1);
+          [range, keys, hasHeader, caseSensitive] = [{ r0: cmd.r0, c0: cmd.c0, r1: cmd.r1, c1: cmd.c1 }, cmd.keys, cmd.hasHeader, cmd.caseSensitive];
+        } else {
+          const af = s.autoFilter;
+          const inAf = af && cmd.row >= af.r0 && cmd.row <= af.r1 && cmd.col >= af.c0 && cmd.col <= af.c1;
+          range = inAf ? { r0: af.r0, c0: af.c0, r1: af.r1, c1: af.c1 } : this.region(s, cmd.row, cmd.col);
+          keys = [{ col: cmd.col, ascending: cmd.ascending }];
+          const first = this.view(s, range.r0, cmd.col), second = this.view(s, range.r0 + 1, cmd.col);
+          hasHeader = !!inAf || (range.r1 > range.r0 && first.kind === "text" && second.kind !== "text");
+        }
+        const r0 = range.r0 + (hasHeader ? 1 : 0);
+        const before = new Map<string, FakeCell>();
+        const rows: number[] = [];
+        for (let r = r0; r <= range.r1; r++) {
+          if (s.rows.get(r)?.filtered) continue; // filtered rows stay put
+          rows.push(r);
+          for (let c = range.c0; c <= range.c1; c++) {
+            const x = this.cell(s, r, c);
+            if (x) before.set(`${r},${c}`, { ...x });
+          }
+        }
+        const fold = (t: string) => (caseSensitive ? t : t.toLowerCase());
+        const order = [...rows].sort((a, b) => {
+          for (const k of keys) {
+            const [x, y] = [this.view(s, a, k.col), this.view(s, b, k.col)];
+            const rank = (v: CellView) => (v.kind === "empty" ? 2 : v.kind === "number" ? 0 : 1);
+            if (rank(x) === 2 || rank(y) === 2) {
+              if (rank(x) !== rank(y)) return rank(x) - rank(y); // blanks last either way
+              continue;
+            }
+            let d = rank(x) - rank(y);
+            if (d === 0) d = x.kind === "number" ? Number(x.display) - Number(y.display) : fold(x.display) < fold(y.display) ? -1 : fold(x.display) > fold(y.display) ? 1 : 0;
+            if (d !== 0) return k.ascending ? d : -d;
+          }
+          return a - b;
+        });
+        const restore: [number, number, string, number][] = [];
+        const coords: [number, number][] = [];
+        order.forEach((from, i) => {
+          const to = rows[i]!;
+          for (let c = range.c0; c <= range.c1; c++) {
+            const old = this.cell(s, to, c);
+            const src = before.get(`${from},${c}`);
+            restore.push([to, c, old?.input ?? "", old?.style ?? 0]);
+            this.setCell(s, to, c, src?.input ?? "", src?.style ?? 0);
+            coords.push([to, c]);
+          }
+        });
+        s.sortState = { r0, c0: range.c0, r1: range.r1, c1: range.c1, keys, ...(caseSensitive ? { caseSensitive } : {}) };
+        const [patch, inverse] = finish([], this.cellsPatch(s, coords));
+        if (inverse.type === "compound") inverse.commands.unshift({ type: "restoreCells", sheet: s.id, cells: restore });
+        return [patch, inverse];
+      }
+    }
+  }
+
+  /** The `filterValues` request: distinct displays of the data rows the other columns' filters keep, blanks last. */
+  filterValues(sheet: number, col: number): FilterValue[] {
+    const s = this.sheet(sheet);
+    const af = s.autoFilter;
+    if (!af) throw new Fail("no_auto_filter", "no AutoFilter");
+    if (col < af.c0 || col > af.c1) throw new Fail("invalid_range", "column outside the AutoFilter");
+    const out = new Map<string, FilterValue & { num: number | null }>();
+    for (let r = af.r0 + 1; r <= af.r1; r++) {
+      if (!this.rowPasses(s, af, r, col)) continue;
+      const v = this.view(s, r, col);
+      const key = v.display.toLowerCase();
+      const e = out.get(key);
+      if (e) e.count++;
+      else out.set(key, { display: v.display, count: 1, num: v.kind === "number" ? Number(v.display) : null });
+    }
+    const rank = (e: { display: string; num: number | null }) => (e.display === "" ? 2 : e.num !== null ? 0 : 1);
+    return [...out.values()]
+      .sort((a, b) => rank(a) - rank(b) || (a.num !== null && b.num !== null ? a.num - b.num : a.display.toLowerCase().localeCompare(b.display.toLowerCase())))
+      .map(({ display, count }) => ({ display, count }));
   }
 
   private intern(style: CellStyle): number {
@@ -760,6 +994,8 @@ export class FakeCalcCore {
           }
           return { ok: { type: "formatted", text } };
         }
+        case "filterValues":
+          return { ok: { type: "filterValues", values: this.filterValues(req.sheet, req.col) } };
         case "loadSnapshotJson":
         case "saveSnapshotJson":
           throw new Fail("internal", "not supported by the fake backend");

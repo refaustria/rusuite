@@ -35,12 +35,29 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
 - **Calc**: Home (Undo; Clipboard: Paste ▾ values, Cut, Copy – `calcActions`; Font incl. borders; Alignment incl. wrap and
   Merge & Center ▾ (Merge & Center – a toggle that unmerges a merged selection –, Merge Across, Merge Cells, Unmerge Cells);
   Number: format, %, comma, decimals ±; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide
-  rows and columns, Hide Sheet / Unhide Sheet…, Format cells…); Editing: Clear, Find ▾ Replace), Insert (New sheet,
-  rows/columns), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
+  rows and columns, Hide Sheet / Unhide Sheet…, Format cells…); Editing: Clear, Find ▾ Replace, Sort & Filter ▾ (Sort A
+  to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (New sheet, rows/columns), Data (Sort & Filter: A→Z,
+  Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
   scaled; Window: Freeze Panes ▾ (Freeze/Unfreeze Panes, Freeze Top Row, Freeze First Column); shortcuts help). Zoom,
   gridlines, headings and frozen panes are the active sheet's `SheetView` (`setSheetView` / `setFreeze`, undoable, saved in
   the file's `<sheetView>`); the formula bar toggle is the app's.
-- **Calc grid** (`apps/calc/src/grid`): frozen panes split the cell canvas into up to four quadrants (`panes.ts`: one viewport
+- **Calc sort and AutoFilter** (`apps/calc/src/sortFilter`, P8-5): Sort A→Z / Z→A from a single cell is the core's
+  `sortSheetByColumn` (its region, or the AutoFilter range); a larger selection sorts itself with the header guessed,
+  after Excel's Sort Warning ("Expand the selection" / "Continue with the current selection") when data continues beside a
+  multi-row selection (the current region is computed from the cached cells, `sort.ts`). Custom Sort…: levels (column –
+  header text with "My data has headers" –, sort as Automatic/Numbers/Text, order), Add/Delete/Copy level, move up/down,
+  case sensitive; a column used twice is refused → `sortRange`. The cell context menu has Sort A to Z / Z to A / Custom
+  Sort… (flat items: the shared ContextMenu has no submenus). Filter (Ctrl+Shift+L) → `setAutoFilter` (a single cell: its
+  region). The header row gets dropdown buttons drawn on the canvas at the right edge of each header cell (`filter.ts`:
+  layout, hit-testing with a 2 px slop, a funnel when filtered, an arrow on the sorted column); a press (pointer event) or
+  Alt+↓ on a header cell opens the panel: Sort A to Z / Z to A (the AutoFilter range), Clear Filter From "…", Text or
+  Number Filters ▸ (click to expand: Equals…, Does Not Equal…, Begins/Ends With…, Contains…, Greater/Less Than (Or Equal
+  To)…, Between…, Custom Filter… → the Custom AutoFilter dialog with two criteria and And/Or; Top 10… dialog; Above/Below
+  Average at once), a search box and the value check-list from `filterValues` with (Select All) (tri-state), counts and
+  "(Blanks)"; OK → `setFilterColumn` (all values ticked = no filter; nothing ticked = OK disabled; while searching only the
+  ticked results). Number vs Text Filters follows the majority of the cached cell kinds. Filtered rows arrive as hidden
+  `filtered` rows; the row numbers of a filtered range turn blue and the status bar shows "n of m records found".
+ frozen panes split the cell canvas into up to four quadrants (`panes.ts`: one viewport
   per quadrant, frozen ones fixed, a divider line, headers split the same way, pointer positions mapped per quadrant,
   scroll-into-view only for the scrolling part). Merged cells (`merges.ts`) paint as one cell (top-left content and fill over
   the range, inner gridlines masked, outer borders only, no overflow); selections snap to whole merges, the active cell is a

@@ -495,8 +495,18 @@ export const FREEZE_LINE = "#8a8a8a";
  * Column and row headers plus the corner box; with frozen panes the
  * frozen headers stay put and the rest scroll (one clipped stretch each).
  */
+/** Row numbers of filtered data rows (Excel paints them blue). */
+export const FILTERED_ROW_COLOR = "#1a5fb4";
+
+/** Text colour of row number `r`: white when its whole row is selected, blue in a filtered range. */
+export function rowHeaderColor(r: number, selected: boolean, blueRows: { r0: number; r1: number } | null | undefined, fg: string): string {
+  if (selected) return "#ffffff";
+  return blueRows && r >= blueRows.r0 && r <= blueRows.r1 ? FILTERED_ROW_COLOR : fg;
+}
+
 export function drawHeaders(
   ctx: CanvasRenderingContext2D, l: PaneLayout, sheet: SheetData, range: Range, colors: { bg: string; fg: string; line: string; active: string },
+  blueRows: { r0: number; r1: number } | null = null,
 ): void {
   const { colGeo, rowGeo } = sheet;
   const fullW = HEADER_W + l.width, fullH = HEADER_H + l.height;
@@ -550,7 +560,7 @@ export function drawHeaders(
         ctx.fillStyle = rowsSel ? "#217346" : colors.active;
         ctx.fillRect(0, y, HEADER_W, h);
       }
-      ctx.fillStyle = rowsSel && r >= range.r0 && r <= range.r1 ? "#ffffff" : colors.fg;
+      ctx.fillStyle = rowHeaderColor(r, rowsSel && r >= range.r0 && r <= range.r1, blueRows, colors.fg);
       ctx.fillText(String(r + 1), HEADER_W / 2, y + h / 2 + 1);
       ctx.moveTo(0, Math.round(y + h) - 0.5);
       ctx.lineTo(HEADER_W, Math.round(y + h) - 0.5);

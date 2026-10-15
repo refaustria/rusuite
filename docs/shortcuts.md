@@ -53,11 +53,14 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Mod+D, Mod+R | Fill down, fill right: copy the selection's first row down / first column right over the rest of it (a single row or column is filled from the one above / to the left); relative references shift |
 | Mod+F, Mod+H | Find, find and replace (sheet or workbook, match case, entire cell; inputs and displayed values are searched) |
 | Shift+F11 | Insert a sheet before the active one |
+| Mod+Shift+L | AutoFilter on / off (a single cell: its current region) |
+| Alt+ArrowDown | On an AutoFilter header cell: open its filter dropdown (Esc closes it) |
 
 ### Mouse
 
+- **Filter buttons** (the ▾ boxes on an AutoFilter's header row): click to open the filter dropdown (sort, clear, text / number filters, search, value list).
 - **Fill handle** (the small square at the selection's bottom-right): drag down, up, right or left to fill. One cell is copied (relative references shift); two or more numbers continue their linear trend (1, 2 → 3, 4, …); a date steps by a day; text ending in a number counts up (`Item1` → `Item2`). Hold Ctrl while releasing to swap series and copy. Double-click the handle to fill down to the end of the neighbouring column's data.
-- **Right-click** cells, row headers or column headers for a context menu (cut/copy/paste/paste values, insert/delete rows and columns, clear contents, format cells, row height / column width, hide/unhide, autofit column width). The menu is keyboard navigable (arrows, Home/End, Enter, Esc).
+- **Right-click** cells, row headers or column headers for a context menu (cut/copy/paste/paste values, insert/delete rows and columns, clear contents, sort A to Z / Z to A / custom sort (cells), format cells, row height / column width, hide/unhide, autofit column width). The menu is keyboard navigable (arrows, Home/End, Enter, Esc).
 - **Sheet tabs**: right-click for Insert sheet, Delete sheet (asks first when the sheet has content; references to it become `#REF!`, Undo brings it back), Rename, Duplicate (`Name (2)`, formulas referring to the sheet itself point at the copy), Move left / right and Tab colour… (shown as the tab's underline, saved as `sheetPr/tabColor`). Drag a tab to reorder. Ribbon Insert › Sheet offers the same for the active sheet. All of it is undoable.
 - **Merged cells**: clicking any part of a merged cell selects the whole merge (its top-left cell is the active cell); dragging or Shift+clicking grows the range to whole merges; double-click or typing edits the top-left cell. Right-click cells for Merge & Center, Merge Cells and Unmerge Cells (also Home › Merge & Center ▾ with Merge Across).
 - **Sheet tabs**: Hide and Unhide… (lists the hidden sheets) are also in the tab menu, and in Home › Format.
