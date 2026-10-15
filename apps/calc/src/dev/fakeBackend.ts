@@ -596,6 +596,16 @@ export class FakeCalcCore {
       case "reapplyFilter":
       case "restoreFilterState":
         return this.sortFilter(cmd);
+      case "addCfRule":
+      case "updateCfRule":
+      case "removeCfRule":
+      case "reorderCfRule":
+      case "clearCf":
+      case "setValidation":
+      case "removeValidation":
+      case "restoreCfRules":
+      case "restoreValidations":
+        throw new Fail("bad_request", `${cmd.type} is not supported by the fake backend`);
       default: {
         const unknown: never = cmd;
         throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
@@ -996,6 +1006,16 @@ export class FakeCalcCore {
         }
         case "filterValues":
           return { ok: { type: "filterValues", values: this.filterValues(req.sheet, req.col) } };
+        // No conditional formatting or data validation in the fake backend.
+        case "validateInput":
+          this.sheet(req.sheet);
+          return { ok: { type: "validation", result: { ok: true } } };
+        case "listValues":
+          this.sheet(req.sheet);
+          return { ok: { type: "listValues", values: [] } };
+        case "sheetRules":
+          this.sheet(req.sheet);
+          return { ok: { type: "sheetRules", rules: [], validations: [] } };
         case "loadSnapshotJson":
         case "saveSnapshotJson":
           throw new Fail("internal", "not supported by the fake backend");

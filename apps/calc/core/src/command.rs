@@ -5,7 +5,10 @@
 //! (`r0..=r1`, `c0..=c1`, `r0 <= r1`, `c0 <= c1`).
 
 use core_model::Color;
-use model_sheet::{AutoFilter, CellStyle, Filter, SheetFormat, SheetView, SortKey, SortState};
+use model_sheet::{
+    AutoFilter, CellStyle, CfRule, DataValidation, Filter, SheetFormat, SheetView, SortKey,
+    SortState,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -269,6 +272,51 @@ pub enum CalcCommand {
     ReapplyFilter {
         sheet: u32,
     },
+    /// Adds a conditional formatting rule at position `rule.priority` (1 or
+    /// 0 = top, as Excel adds new rules); `rule.id` 0 = assign a new id.
+    /// Formulas are written for the top-left cell of the ranges' bounding
+    /// box. Fails with `invalid_rule` for a malformed rule. The patch lists
+    /// the sheet in `cfSheets`.
+    AddCfRule {
+        sheet: u32,
+        #[ts(as = "crate::wire_cf::CfRule")]
+        rule: CfRule,
+    },
+    /// Replaces the rule with `rule.id` (`unknown_rule` if there is none),
+    /// moving it to `rule.priority` (0 = keep its position).
+    UpdateCfRule {
+        sheet: u32,
+        #[ts(as = "crate::wire_cf::CfRule")]
+        rule: CfRule,
+    },
+    RemoveCfRule {
+        sheet: u32,
+        id: u32,
+    },
+    /// Moves rule `id` to `priority` (1 = top, clamped to the end).
+    ReorderCfRule {
+        sheet: u32,
+        id: u32,
+        priority: u32,
+    },
+    /// Removes the range from every rule of the sheet (rules left without
+    /// cells disappear); `null` = all rules of the sheet.
+    ClearCf {
+        sheet: u32,
+        range: Option<Rect>,
+    },
+    /// Sets a data validation on its ranges, replacing the validation of
+    /// those cells (one per cell, as in Excel).
+    SetValidation {
+        sheet: u32,
+        #[ts(as = "crate::wire_cf::DataValidation")]
+        validation: DataValidation,
+    },
+    /// Removes the validation of every cell of the range.
+    RemoveValidation {
+        sheet: u32,
+        range: Rect,
+    },
     /// *Internal.* Replaces the AutoFilter and the sort state (rows are
     /// restored separately).
     RestoreFilterState {
@@ -313,6 +361,18 @@ pub enum CalcCommand {
     RestoreMerges {
         sheet: u32,
         merges: Vec<Rect>,
+    },
+    /// *Internal.* Replaces all conditional formatting rules of the sheet.
+    RestoreCfRules {
+        sheet: u32,
+        #[ts(as = "Vec<crate::wire_cf::CfRule>")]
+        rules: Vec<CfRule>,
+    },
+    /// *Internal.* Replaces all data validations of the sheet.
+    RestoreValidations {
+        sheet: u32,
+        #[ts(as = "Vec<crate::wire_cf::DataValidation>")]
+        validations: Vec<DataValidation>,
     },
     /// *Internal.* Applies the commands in order as one undo step.
     Compound {

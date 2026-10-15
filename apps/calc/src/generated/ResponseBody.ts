@@ -2,12 +2,15 @@
 import type { Envelope } from "../../../../packages/ui-shared/src/generated/Envelope";
 import type { Revision } from "../../../../packages/ui-shared/src/generated/Revision";
 import type { CalcPatch } from "./CalcPatch";
+import type { CfRule } from "./CfRule";
+import type { DataValidation } from "./DataValidation";
 import type { FilterValue } from "./FilterValue";
 import type { FoundCell } from "./FoundCell";
 import type { RegionSnapshot } from "./RegionSnapshot";
+import type { ValidationResult } from "./ValidationResult";
 import type { WorkbookInfo } from "./WorkbookInfo";
 
 /**
  * The successful part of a [`Response`].
  */
-export type ResponseBody = { "type": "patch", envelope: Envelope<CalcPatch>, } | { "type": "snapshot", snapshot: RegionSnapshot, } | { "type": "info", info: WorkbookInfo, } | { "type": "snapshotJson", json: string, } | { "type": "opened", info: WorkbookInfo, warnings: Array<string>, envelope: Envelope<CalcPatch>, } | { "type": "saved", bytesBase64: string, suggestedName: string, } | { "type": "recoverySnapshot", json: string, revision: Revision, dirty: boolean, name: string | null, } | { "type": "documentState", dirty: boolean, revision: Revision, name: string | null, } | { "type": "found", cells: Array<FoundCell>, } | { "type": "formatted", text: string, } | { "type": "usedRange", last: [number, number] | null, } | { "type": "filterValues", values: Array<FilterValue>, };
+export type ResponseBody = { "type": "patch", envelope: Envelope<CalcPatch>, } | { "type": "snapshot", snapshot: RegionSnapshot, } | { "type": "info", info: WorkbookInfo, } | { "type": "snapshotJson", json: string, } | { "type": "opened", info: WorkbookInfo, warnings: Array<string>, envelope: Envelope<CalcPatch>, } | { "type": "saved", bytesBase64: string, suggestedName: string, } | { "type": "recoverySnapshot", json: string, revision: Revision, dirty: boolean, name: string | null, } | { "type": "documentState", dirty: boolean, revision: Revision, name: string | null, } | { "type": "found", cells: Array<FoundCell>, } | { "type": "formatted", text: string, } | { "type": "usedRange", last: [number, number] | null, } | { "type": "filterValues", values: Array<FilterValue>, } | { "type": "validation", result: ValidationResult, } | { "type": "listValues", values: Array<string>, } | { "type": "sheetRules", rules: Array<CfRule>, validations: Array<DataValidation>, };

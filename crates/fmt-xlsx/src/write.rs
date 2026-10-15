@@ -14,7 +14,7 @@ use model_sheet::{
 
 use crate::a1::{cell_name, range_name};
 use crate::dynarray::{metadata_xml, needs_dynamic, to_file_ast, METADATA_CT, METADATA_REL};
-use crate::styles::{builtin_default_font, color_el, write_styles, MAIN_NS};
+use crate::styles::{builtin_default_font, color_el, write_styles_with_dxfs, MAIN_NS};
 use crate::xlfn::add_xlfn_prefixes;
 use crate::xml::{encode_x_escapes, fmt_num, needs_preserve, XmlOut};
 use crate::{Result, XlsxContext};
@@ -28,6 +28,7 @@ pub fn write(wb: &Workbook) -> Result<Vec<u8>> {
 /// from `ctx` (as returned by [`read_with_context`](crate::read_with_context)).
 pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     let mut sst = SharedStrings::default();
+    let dxfs = crate::condfmt::collect_dxfs(wb);
     let sheets = wb.sheets();
     // The first visible sheet is the selected (active) one.
     let active = sheets
@@ -38,7 +39,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     let sheet_xml: Vec<Vec<u8>> = sheets
         .iter()
         .enumerate()
-        .map(|(i, (id, _))| sheet_xml(wb, *id, i == active, &mut sst, &mut dynamic))
+        .map(|(i, (id, _))| sheet_xml(wb, *id, i == active, &mut sst, &dxfs, &mut dynamic))
         .collect();
     let default_font = ctx
         .default_font
@@ -69,7 +70,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     pkg.insert_part(
         pn("/xl/styles.xml")?,
         ct::SPREADSHEET_STYLES,
-        write_styles(wb.styles(), &default_font),
+        write_styles_with_dxfs(wb.styles(), &default_font, &dxfs),
     );
     rels.add(rel::STYLES, "styles.xml");
     rels.add(rel::THEME, "theme/theme1.xml");
@@ -246,6 +247,7 @@ fn sheet_xml(
     id: SheetId,
     selected: bool,
     sst: &mut SharedStrings,
+    dxfs: &[model_sheet::DxfStyle],
     dynamic: &mut bool,
 ) -> Vec<u8> {
     let format = wb.sheet_format(id);
@@ -366,6 +368,7 @@ fn sheet_xml(
         }
         x.end("mergeCells");
     }
+    crate::condfmt::write_sheet_rules(&mut x, wb, id, dxfs);
     x.empty(
         "pageMargins",
         &[

@@ -43,3 +43,10 @@ all = "warn"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+
+# Keep dev builds small on the shared dev server (three parallel worktrees): line tables are enough for backtraces.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = "line-tables-only"

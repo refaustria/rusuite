@@ -70,6 +70,8 @@ impl CalcError {
             CalcError::Model(M::InvalidSheetView(_)) => "invalid_view",
             CalcError::Model(M::CannotSortMerged) => "cannot_sort_merged",
             CalcError::Model(M::NoAutoFilter) => "no_auto_filter",
+            CalcError::Model(M::InvalidRule(_)) => "invalid_rule",
+            CalcError::Model(M::UnknownRule(_)) => "unknown_rule",
             CalcError::ReadXlsx(_) => "invalid_file",
             CalcError::WriteXlsx(_) => "internal",
         }
@@ -146,7 +148,7 @@ fn row_view(row: u32, info: RowInfo) -> RowView {
     }
 }
 
-type Result<T, E = CalcError> = std::result::Result<T, E>;
+pub(crate) type Result<T, E = CalcError> = std::result::Result<T, E>;
 
 /// What [`CalcDocument::write_cells`] stores in a cell.
 enum WriteContent {
@@ -162,7 +164,7 @@ struct Write {
     content: Option<WriteContent>,
     style: Option<StyleId>,
 }
-type CalcApplied = Applied<CalcCommand, CalcPatch>;
+pub(crate) type CalcApplied = Applied<CalcCommand, CalcPatch>;
 
 impl CalcDocument {
     /// A document with one empty sheet `Sheet1`.
@@ -300,6 +302,12 @@ impl CalcDocument {
                 .filter(|m| m.intersects(&MergeRect::new(r0, c0, r1, c1)))
                 .map(rect_of)
                 .collect(),
+            cf: self.region_cf(range),
+            validations: wb
+                .validations_in(range)
+                .into_iter()
+                .map(|(_, dv)| dv.clone())
+                .collect(),
         })
     }
 
@@ -344,7 +352,7 @@ impl CalcDocument {
 
     // --- validation -------------------------------------------------------
 
-    fn sheet(&self, id: u32) -> Result<SheetId> {
+    pub(crate) fn sheet(&self, id: u32) -> Result<SheetId> {
         let s = SheetId(id);
         self.workbook
             .engine()
@@ -353,7 +361,14 @@ impl CalcDocument {
             .ok_or(CalcError::UnknownSheet(id))
     }
 
-    fn range(&self, sheet: u32, r0: u32, c0: u32, r1: u32, c1: u32) -> Result<CellRange> {
+    pub(crate) fn range(
+        &self,
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+    ) -> Result<CellRange> {
         let s = self.sheet(sheet)?;
         if r0 > r1 || c0 > c1 || r1 > MAX_ROW || c1 > MAX_COL {
             return Err(CalcError::InvalidRange);
@@ -526,6 +541,7 @@ impl CalcDocument {
             tab_color: wb.tab_color(s),
             format: wb.sheet_format(s),
         }];
+        inverse.extend(self.rules_inverse(s));
         let view = wb.sheet_view(s);
         if !view.is_default() {
             inverse.push(C::SetSheetView {
@@ -1091,6 +1107,15 @@ impl CalcDocument {
                     inverse: Some(inverse),
                 })
             }
+            C::AddCfRule { .. }
+            | C::UpdateCfRule { .. }
+            | C::RemoveCfRule { .. }
+            | C::ReorderCfRule { .. }
+            | C::ClearCf { .. }
+            | C::SetValidation { .. }
+            | C::RemoveValidation { .. }
+            | C::RestoreCfRules { .. }
+            | C::RestoreValidations { .. } => self.rules_cmd(cmd),
             C::Compound { commands } => {
                 let mut patch = CalcPatch::default();
                 let mut inverses = Vec::with_capacity(commands.len());
@@ -1806,6 +1831,7 @@ impl CalcDocument {
         let merges_before = wb.merges(s).to_vec();
         let view_before = wb.sheet_view(s);
         let filter_before = (wb.auto_filter(s).cloned(), wb.sort_state(s).cloned());
+        let rules_before = self.rules_state();
 
         // What a delete destroys.
         let mut span_cells = Vec::new();
@@ -1936,6 +1962,9 @@ impl CalcDocument {
             });
             extra.sheets = Some(self.sheet_infos());
         }
+        let (restore, changed) = self.rules_changed(rules_before);
+        inverse.extend(restore);
+        extra.cf_sheets = changed;
         let inverse = if inverse.len() == 1 {
             inverse.pop()
         } else {
@@ -1969,7 +1998,9 @@ impl Document for CalcDocument {
     type Error = CalcError;
 
     fn apply(&mut self, cmd: &CalcCommand) -> Result<CalcApplied> {
-        self.apply_cmd(cmd)
+        let mut applied = self.apply_cmd(cmd)?;
+        self.mark_cf_sheets(&mut applied.patch);
+        Ok(applied)
     }
 }
 
