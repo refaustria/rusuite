@@ -1,0 +1,7 @@
+# Task P7-4 – Calc: delete, duplicate, move and recolour sheets
+
+Branch `p7/calc-sheets`, worktree `/home/bojan/rusuite-wt/p7-calc-sheets`. Scope: `crates/engine-formula/src/{engine.rs,graph.rs}` (sheet removal), `crates/model-sheet/src/**`, `crates/fmt-xlsx` (tab colour read/write `sheetPr/tabColor`, sheet order), `apps/calc/core/src/**`, `apps/calc/src/**` (SheetTabs context menu + ribbon Insert group), `packages/e2e/tests/calc.spec.ts`, docs. Up to 3 commits.
+- Engine: `Engine::remove_sheet(id)` – formulas referencing the removed sheet get `#REF!` (Excel), graph edges dropped, ids never reused; `Engine::move_sheet(id, index)`; `Engine::duplicate_sheet(id, name)` (copy contents + formulas with sheet-local references kept local). model-sheet mirrors (styles/dims copied; tab colour field `Option<Color>` additive).
+- calc-core: `DeleteSheet`, `DuplicateSheet`, `MoveSheet`, `SetSheetTabColor` commands with exact inverses (delete inverse restores contents, styles, dims, formulas text, position); `AddSheet` becomes undoable now that removal exists. Patches carry `sheets` order.
+- UI: sheet-tab context menu (Insert, Delete (confirm if non-empty), Rename, Duplicate, Move left/right, Tab colour), drag-reorder of tabs, coloured tab underline; ribbon Insert › Sheet menu gains the same; shortcuts: Shift+F11 insert sheet.
+- Tests: engine `#REF!` on removal with reference suite unchanged; undo/redo identity for the new commands; UI tests; 2 e2e tests (delete with confirm; duplicate keeps formulas).
