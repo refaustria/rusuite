@@ -77,6 +77,11 @@ Captured here, **not implemented** unless essential to the current phase. README
 - write-core: report a re-inserted id at the same position as `replaced`; `GetDocument` without media; orphaned media cleanup on save; `SplitParagraph` uses `next` style only when splitting at the end (Word); `ApplyList` sets `ListParagraph` style.
 - Write UI: split the Tiptap chunk (lazy import); add write-core to the generated-types CI check.
 
+## fmt-docx
+- Fix `scripts/testdata-src/docx/gen.py` so file 46 really contains green/magenta highlights (or drop them from the manifest); run a Word-authored check when real files arrive (likely friction: `wp:docPr name=""`).
+- Model paragraph direction (bidi), hyperlinks, merged cells (gridSpan/vMerge), tab stops, character styles – the most frequent reader warnings.
+- Move default theme XML, theme parsing and the small XML writer into fmt-ooxml (currently duplicated between fmt-xlsx and fmt-docx because format crates must not depend on each other).
+
 ## Formats
 - Compare rewritten files against Open XML SDK validator (Windows/.NET) in addition to LibreOffice – gives real "would Office repair this" signal.
 
