@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 //! OPC (Open Packaging Conventions) package reader/writer shared by the OOXML
-//! format crates: ZIP container, `[Content_Types].xml`, relationships and a few
-//! XML helpers.
+//! format crates: ZIP container, `[Content_Types].xml`, relationships, the
+//! well-known relationship/content types ([`rel`], [`ct`]), XML helpers
+//! (a small DOM and element writer, [`xml`]) and the DrawingML theme part
+//! ([`theme`]) that Excel, Word and PowerPoint files share.
 //!
-//! This crate has no knowledge of Word/Excel/PowerPoint vocabularies.
+//! Word/Excel/PowerPoint *content* vocabularies stay in the format crates.
 //!
 //! ```no_run
 //! use fmt_ooxml::Package;
@@ -19,6 +21,8 @@ mod error;
 mod package;
 mod part_name;
 pub mod relationships;
+pub mod theme;
+mod types;
 pub mod xml;
 
 pub use content_types::{ContentTypes, DefaultEntry, OverrideEntry};
@@ -26,3 +30,4 @@ pub use error::{Error, Result};
 pub use package::{Package, Part, OFFICE_DOCUMENT_REL, OFFICE_DOCUMENT_REL_STRICT};
 pub use part_name::PartName;
 pub use relationships::{Relationship, Relationships, TargetMode};
+pub use types::{ct, rel};

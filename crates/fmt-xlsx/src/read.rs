@@ -5,31 +5,20 @@ use std::io::Cursor;
 
 use engine_formula::ast::MAX_COL;
 use engine_formula::{offset_relative, CellContent, CellCoord, ErrorKind, Expr, SheetId, Value};
-use fmt_ooxml::{Package, PartName, TargetMode};
+use fmt_ooxml::theme::parse_color_scheme;
+use fmt_ooxml::{rel, Package, PartName, TargetMode};
 use model_sheet::{ColInfo, RowInfo, SheetFormat, StyleId, Workbook};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
 use crate::a1::{cell_name, parse_cell};
 use crate::styles::parse_styles;
-use crate::theme::parse_color_scheme;
 use crate::xlfn::strip_xlfn_prefixes;
 use crate::xml::{
     attr, attr_bool, attr_parse, decode_x_escapes, name_of, parse_bool, push_ref, push_text,
-    xml_err,
+    xml_err, xml_error,
 };
 use crate::{Error, Result, XlsxContext};
-
-pub(crate) const REL_NS: &str =
-    "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-pub(crate) const REL_WORKSHEET: &str =
-    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet";
-pub(crate) const REL_STYLES: &str =
-    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles";
-pub(crate) const REL_THEME: &str =
-    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme";
-pub(crate) const REL_SST: &str =
-    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings";
 
 /// Everything [`read_with_context`] returns.
 #[derive(Debug)]
@@ -81,9 +70,10 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
 
     // Theme.
     let mut context = XlsxContext::default();
-    if let Some(theme) = pkg.related_part(&main, REL_THEME) {
+    if let Some(theme) = pkg.related_part(&main, rel::THEME) {
         if let Some(p) = pkg.part(&theme) {
-            context.color_scheme = parse_color_scheme(&p.data, theme.as_str())?;
+            context.color_scheme =
+                parse_color_scheme(&p.data, theme.as_str()).map_err(xml_error)?;
             context.theme_xml = Some(p.data.clone());
             consumed.insert(theme);
         }
@@ -92,7 +82,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     // Styles.
     let mut wb = Workbook::new();
     let mut xf_ids: Vec<StyleId> = Vec::new();
-    if let Some(styles) = pkg.related_part(&main, REL_STYLES) {
+    if let Some(styles) = pkg.related_part(&main, rel::STYLES) {
         let parsed = parse_styles(part_data(&styles)?, styles.as_str(), &mut |w| {
             warnings.push(w)
         })?;
@@ -103,7 +93,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
 
     // Shared strings.
     let mut sst: Vec<String> = Vec::new();
-    if let Some(part) = pkg.related_part(&main, REL_SST) {
+    if let Some(part) = pkg.related_part(&main, rel::SHARED_STRINGS) {
         sst = parse_sst(part_data(&part)?, part.as_str())?;
         consumed.insert(part);
     }
@@ -117,7 +107,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
             warnings.push(format!("sheet {:?} has no part; dropped", entry.name));
             continue;
         };
-        if rel.rel_type != REL_WORKSHEET {
+        if rel.rel_type != rel::WORKSHEET {
             warnings.push(format!(
                 "sheet {:?} is not a worksheet ({}); dropped",
                 entry.name,

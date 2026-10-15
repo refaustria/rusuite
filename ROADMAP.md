@@ -113,6 +113,9 @@ Captured here, **not implemented** unless essential to the current phase. README
 - PDF export: Calc `UsedRange` request in the core (print view scans blocks); print area/selection; multi-sheet export; Write headers/footers; Show handouts; verify `window.print()` on WebKitGTK/WebView2 (Tauri 2.12 has no webview print API).
 - Shortcuts: move Calc grid-navigation keys into the map; user-configurable shortcuts; Tiptap handles Mod-Alt-1..6 itself while focused.
 
+## fmt-ooxml (follow-ups)
+- Move namespace constants, `core.xml`/`app.xml` writers and media `extension_of` helpers into fmt-ooxml; Strict-aware shared relationship matching.
+
 ## Formats
 - Compare rewritten files against Open XML SDK validator (Windows/.NET) in addition to LibreOffice – gives real "would Office repair this" signal.
 

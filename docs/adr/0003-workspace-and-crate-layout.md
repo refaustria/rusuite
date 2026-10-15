@@ -24,3 +24,7 @@ The README prescribes a Cargo workspace with ten crates and a pnpm workspace for
 ## Consequences
 - `engine-formula` can be tested and shipped standalone (README goal).
 - Adding a format feature means touching exactly one `fmt-*` crate and one model crate.
+
+## Amendment 2026-10-15 – `fmt-ooxml` → `core-model`
+
+`fmt-ooxml` now depends on `core-model`: the shared theme part parser/writer (`fmt_ooxml::theme`) produces and consumes `core_model::Theme`, which removed three private copies from `fmt-xlsx`, `fmt-docx` and `fmt-pptx` (P7-3). `core-model` is a leaf crate with no project-internal dependencies, so no cycle is possible and the rest of the direction rules stand. The dependency table in `docs/architecture.md` is authoritative for the current graph.
