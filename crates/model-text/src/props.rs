@@ -196,6 +196,21 @@ pub struct ParagraphProperties {
     /// Start on a new page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_break_before: Option<bool>,
+    /// Paragraph borders (docx `w:pBdr`), merged side by side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub borders: Option<ParagraphBorders>,
+    /// Background color (docx `w:shd/@w:fill`). In a
+    /// `setParagraphProps` patch, `auto` removes the direct shading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<app_common::wire::Color>", optional))]
+    pub shading: Option<Color>,
+    /// Custom tab stops (docx `w:tabs`), sorted by position. They merge
+    /// with the inherited ones by position; a [`TabKind::Clear`] entry
+    /// removes an inherited stop (resolved properties contain no `clear`
+    /// entries).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tabs: Vec<TabStop>,
     /// Formatting of the paragraph mark (docx `w:pPr/w:rPr`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(as = "Option<app_common::wire::RunProperties>"))]
@@ -235,6 +250,9 @@ impl ParagraphProperties {
             numbering,
             keep_next,
             page_break_before,
+            borders,
+            shading,
+            tabs,
             run_defaults,
             section_end,
         } = over;
@@ -248,11 +266,155 @@ impl ParagraphProperties {
         self.keep_next = keep_next.or(self.keep_next);
         self.page_break_before = page_break_before.or(self.page_break_before);
         self.section_end = section_end.or(self.section_end);
+        self.borders = merge_opt(self.borders, *borders, |a, b| a.merged_with(b));
+        self.shading = shading.or(self.shading);
+        merge_tabs(&mut self.tabs, tabs);
         if let Some(over_run) = run_defaults {
             self.run_defaults = Some(match &self.run_defaults {
                 Some(base) => base.merged_with(over_run),
                 None => over_run.clone(),
             });
+        }
+    }
+}
+
+impl ParagraphProperties {
+    /// Drops the [`TabKind::Clear`] entries (after resolution they have
+    /// done their job).
+    pub fn strip_cleared_tabs(&mut self) {
+        self.tabs.retain(|t| t.kind != TabKind::Clear);
+    }
+}
+
+/// Overlays the tab stops `over` onto `base`: a stop replaces the one at
+/// the same position; the result is sorted by position.
+pub fn merge_tabs(base: &mut Vec<TabStop>, over: &[TabStop]) {
+    for t in over {
+        base.retain(|b| b.pos != t.pos);
+        base.push(*t);
+    }
+    base.sort_by_key(|t| t.pos);
+}
+
+/// Alignment of a tab stop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum TabKind {
+    /// Text starts at the stop.
+    Left,
+    /// Text is centered on the stop.
+    Center,
+    /// Text ends at the stop.
+    Right,
+    /// The decimal separator aligns on the stop.
+    Decimal,
+    /// A vertical bar at the position (not a stop).
+    Bar,
+    /// Removes an inherited stop at this position (docx `clear`).
+    Clear,
+}
+
+/// Fill characters before a tab stop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum TabLeader {
+    /// No leader.
+    #[default]
+    None,
+    /// Dots (`.....`).
+    Dot,
+    /// Hyphens (`-----`).
+    Hyphen,
+    /// Underscores / a line (`_____`).
+    Underscore,
+}
+
+/// A custom tab stop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct TabStop {
+    /// Position from the left edge of the text column (Word's ruler
+    /// origin; docx `w:pos`).
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
+    pub pos: Twips,
+    /// Alignment.
+    pub kind: TabKind,
+    /// Leader characters.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub leader: TabLeader,
+}
+
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
+/// Paragraph borders; `None` = inherit / no border.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct ParagraphBorders {
+    /// Above the paragraph (above a group of paragraphs with equal borders).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top: Option<BorderSide>,
+    /// Below the paragraph (below the group).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bottom: Option<BorderSide>,
+    /// Left of the text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<BorderSide>,
+    /// Right of the text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right: Option<BorderSide>,
+    /// Between paragraphs of a group with equal borders.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub between: Option<BorderSide>,
+}
+
+impl ParagraphBorders {
+    /// Top, bottom, left and right set to `side` (Word's "Box").
+    pub fn boxed(side: BorderSide) -> Self {
+        Self {
+            top: Some(side),
+            bottom: Some(side),
+            left: Some(side),
+            right: Some(side),
+            between: None,
+        }
+    }
+
+    /// Returns `true` if no side is set.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// `self` overlaid with `over`, side by side.
+    #[must_use]
+    pub fn merged_with(&self, over: &ParagraphBorders) -> ParagraphBorders {
+        ParagraphBorders {
+            top: over.top.or(self.top),
+            bottom: over.bottom.or(self.bottom),
+            left: over.left.or(self.left),
+            right: over.right.or(self.right),
+            between: over.between.or(self.between),
         }
     }
 }
@@ -326,9 +488,24 @@ pub struct BorderSide {
     /// Line color.
     #[cfg_attr(feature = "ts", ts(as = "app_common::wire::Color"))]
     pub color: Color,
+    /// Distance from the text in points (docx `w:space`; paragraph
+    /// borders); `None` = 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub space: Option<u8>,
 }
 
 impl BorderSide {
+    /// A border without distance from the text.
+    pub fn new(style: BorderStyle, width: Twips, color: Color) -> Self {
+        Self {
+            style,
+            width,
+            color,
+            space: None,
+        }
+    }
+
     /// Converts docx `w:sz` (eighths of a point) to twips (×2.5, rounded).
     pub fn width_from_eighths(eighths: u32) -> Twips {
         Twips((u64::from(eighths) * 5).div_ceil(2).min(i32::MAX as u64) as i32)
@@ -423,6 +600,82 @@ pub struct CellMargins {
     pub right: Option<Twips>,
 }
 
+/// Horizontal position of a table between the margins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum TableAlignment {
+    /// At the left margin (plus `indent`).
+    Left,
+    /// Centered.
+    Center,
+    /// At the right margin.
+    Right,
+}
+
+/// How column widths are determined (docx `w:tblLayout`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum TableLayout {
+    /// Columns adapt to the content (Word's AutoFit, the default).
+    Autofit,
+    /// The grid widths are used as given.
+    Fixed,
+}
+
+/// Which conditional formats of the table style apply (docx `w:tblLook`).
+/// Word's default for new tables is header row, first column and banded
+/// rows ([`TableLook::word_default`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct TableLook {
+    /// Header row formatting (`firstRow`).
+    #[serde(default)]
+    pub first_row: bool,
+    /// Total row formatting (`lastRow`).
+    #[serde(default)]
+    pub last_row: bool,
+    /// First column formatting.
+    #[serde(default)]
+    pub first_col: bool,
+    /// Last column formatting.
+    #[serde(default)]
+    pub last_col: bool,
+    /// Banded rows (docx `noHBand="0"`).
+    #[serde(default)]
+    pub banded_rows: bool,
+    /// Banded columns (docx `noVBand="0"`).
+    #[serde(default)]
+    pub banded_cols: bool,
+}
+
+impl TableLook {
+    /// Word's look for new tables (`w:val="04A0"`): header row, first
+    /// column, banded rows.
+    pub fn word_default() -> Self {
+        Self {
+            first_row: true,
+            first_col: true,
+            banded_rows: true,
+            ..Default::default()
+        }
+    }
+}
+
 /// Table formatting.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -445,6 +698,26 @@ pub struct TableProperties {
     /// Default cell padding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cell_margins: Option<CellMargins>,
+    /// Table style id (`None` = the default table style).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub style: Option<String>,
+    /// Which conditional formats of the style apply (`None` = none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub look: Option<TableLook>,
+    /// Horizontal position between the margins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub alignment: Option<TableAlignment>,
+    /// Indent from the left margin (docx `w:tblInd`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<i32>"))]
+    pub indent: Option<Twips>,
+    /// Fixed or automatic column widths (`None` = automatic).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub layout: Option<TableLayout>,
 }
 
 impl TableProperties {
@@ -500,6 +773,9 @@ pub struct RowProperties {
     /// Repeat as header row on each page.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub header: bool,
+    /// The row must not break across pages (docx `w:cantSplit`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cant_split: bool,
 }
 
 impl RowProperties {
@@ -548,6 +824,40 @@ pub struct CellProperties {
     /// Vertical alignment of the content.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vertical_align: Option<VAlign>,
+    /// Cell padding (overrides the table's `cellMargins`; docx `w:tcMar`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub margins: Option<CellMargins>,
+}
+
+impl CellMargins {
+    /// `self` overlaid with `over`, side by side.
+    #[must_use]
+    pub fn merged_with(&self, over: &CellMargins) -> CellMargins {
+        CellMargins {
+            top: over.top.or(self.top),
+            left: over.left.or(self.left),
+            bottom: over.bottom.or(self.bottom),
+            right: over.right.or(self.right),
+        }
+    }
+}
+
+/// Vertical merge state of a table cell (docx `w:vMerge`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum VMerge {
+    /// The first (top) cell of a vertically merged region; holds the
+    /// content.
+    Restart,
+    /// Covered by the cell above (its content is ignored, normally one
+    /// empty paragraph).
+    Continue,
 }
 
 impl CellProperties {
@@ -633,11 +943,11 @@ mod tests {
         assert_eq!(BorderSide::width_from_eighths(12), Twips(30));
         assert_eq!(BorderSide::width_from_eighths(1), Twips(3));
         for sz in [2, 4, 6, 8, 12, 18, 24, 36, 48] {
-            let side = BorderSide {
-                style: BorderStyle::Single,
-                width: BorderSide::width_from_eighths(sz),
-                color: Color::Rgb(Rgb::BLACK),
-            };
+            let side = BorderSide::new(
+                BorderStyle::Single,
+                BorderSide::width_from_eighths(sz),
+                Color::Rgb(Rgb::BLACK),
+            );
             assert_eq!(side.width_eighths(), sz);
         }
     }

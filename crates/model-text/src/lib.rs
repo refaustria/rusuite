@@ -29,12 +29,16 @@ pub mod props;
 pub mod section;
 pub mod snapshot;
 pub mod style;
+pub mod table;
 
 pub use block::{Block, NodeId, Paragraph, Table, TableCell, TableRow, Toc, TocEntry};
 pub use core_model::units::{Emu, Pt, Twips};
 pub use core_model::RunProperties;
 pub use document::Document;
-pub use inline::{BreakKind, Field, FieldKind, Inline, InlineImage, NoteKind, NoteRef, Run};
+pub use inline::{
+    Anchor, BreakKind, Field, FieldKind, HAlign, HPos, HRelative, Inline, InlineImage, Insets,
+    NoteKind, NoteRef, Placement, Run, VAlignPos, VPos, VRelative, WrapKind, WrapSide,
+};
 pub use media::{Base64Error, Media, MediaId, MediaStore};
 pub use numbering::{
     AbstractNumbering, Level, LevelKind, LevelOverride, LevelSuffix, Numbering, NumberingDef,
@@ -42,12 +46,15 @@ pub use numbering::{
 pub use page::{Margins, Orientation, PageSetup, PAGE_FIELD};
 pub use props::{
     Alignment, BorderSide, BorderStyle, CellMargins, CellProperties, HeightRule, Indent,
-    LineSpacing, NumberingRef, ParagraphProperties, RowHeight, RowProperties, Spacing,
-    TableBorders, TableProperties, TableWidth, VAlign,
+    LineSpacing, NumberingRef, ParagraphBorders, ParagraphProperties, RowHeight, RowProperties,
+    Spacing, TabKind, TabLeader, TabStop, TableAlignment, TableBorders, TableLayout, TableLook,
+    TableProperties, TableWidth, VAlign, VMerge,
 };
 pub use section::{HeaderFooterSet, HeaderSlot, Note, Section, SectionId, SectionKind};
 pub use snapshot::DocumentSnapshot;
-pub use style::{Defaults, Style, StyleKind, StyleSheet};
+pub use style::{
+    ConditionalFormat, ConditionalKind, Defaults, Style, StyleKind, StyleSheet, TableStyle,
+};
 
 /// Errors of the `model-text` crate.
 #[derive(Debug, thiserror::Error)]
@@ -55,4 +62,7 @@ pub enum Error {
     /// A snapshot could not be serialized or parsed as JSON.
     #[error("document snapshot JSON: {0}")]
     Json(#[from] serde_json::Error),
+    /// A table operation (merge, split) that cannot be applied.
+    #[error("table: {0}")]
+    Table(String),
 }

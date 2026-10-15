@@ -216,6 +216,7 @@ impl Document {
         }
         out.apply(&p.props);
         out.style = style.map(str::to_owned);
+        out.strip_cleared_tabs();
         out
     }
 

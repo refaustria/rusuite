@@ -12,4 +12,8 @@ height?: RowHeight | null,
 /**
  * Repeat as header row on each page.
  */
-header?: boolean, };
+header?: boolean, 
+/**
+ * The row must not break across pages (docx `w:cantSplit`).
+ */
+cantSplit?: boolean, };
