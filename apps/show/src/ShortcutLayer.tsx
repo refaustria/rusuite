@@ -15,6 +15,8 @@ export interface ShowShortcutProps {
   enabled: boolean;
   /** Starts the show; `fromStart` = from the first slide, else from the current one. */
   onPresent: (fromStart: boolean) => void;
+  /** Opens the print view (Export PDF…). */
+  onExportPdf: () => void;
 }
 
 /** Entry running the slide-editor action `shortcutFor` derives from the key event. */
@@ -29,7 +31,7 @@ function action(store: ShowStore, label: string, group: string): ShortcutEntry {
   };
 }
 
-export function ShortcutLayer({ store, enabled, onPresent }: ShowShortcutProps) {
+export function ShortcutLayer({ store, enabled, onPresent, onExportPdf }: ShowShortcutProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
 
@@ -61,8 +63,7 @@ export function ShortcutLayer({ store, enabled, onPresent }: ShowShortcutProps) 
       "Mod+O": { label: "Open", group: File, inField: true, run: fileIo(() => void store.open()) },
       "Mod+S": { label: "Save", group: File, inField: true, run: fileIo(() => void store.save()) },
       "Mod+Shift+S": { label: "Save as", group: File, inField: true, run: fileIo(() => setSaveAsOpen(true)) },
-      // Replaced by the PDF export task (P5-2); a no-op until then.
-      "Mod+P": { label: "Print / export PDF", group: File, inField: true, run: () => undefined },
+      "Mod+P": { label: "Export PDF…", group: File, inField: true, run: () => onExportPdf() },
       "Mod+/": { label: "Keyboard shortcuts", inField: true, run: () => setHelpOpen(true) },
       F5: { label: "Present from the first slide", group: "Slide show", run: () => onPresent(true) },
       "Shift+F5": { label: "Present from the current slide", group: "Slide show", run: () => onPresent(false) },
@@ -94,7 +95,7 @@ export function ShortcutLayer({ store, enabled, onPresent }: ShowShortcutProps) 
       "Shift+ArrowUp": slide("Nudge up by 10"),
       "Shift+ArrowDown": slide("Nudge down by 10"),
     };
-  }, [store, onPresent]);
+  }, [store, onPresent, onExportPdf]);
 
   useShortcuts(map, { enabled });
 

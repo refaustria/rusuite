@@ -58,7 +58,7 @@ function StructureDialog({ kind, onClose, store }: { kind: "insert" | "delete" |
   );
 }
 
-export function ShortcutLayer({ store }: { store: CalcStore }) {
+export function ShortcutLayer({ store, onExportPdf }: { store: CalcStore; onExportPdf: () => void }) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   const [structure, setStructure] = useState<"insert" | "delete" | null>(null);
@@ -78,8 +78,7 @@ export function ShortcutLayer({ store }: { store: CalcStore }) {
       "Mod+O": { label: "Open", group: File, inField: true, run: () => void store.openFile() },
       "Mod+S": { label: "Save", group: File, inField: true, run: () => void store.saveFile() },
       "Mod+Shift+S": { label: "Save as", group: File, inField: true, run: () => setSaveAsOpen(true) },
-      // Replaced by the PDF export task (P5-2); a no-op until then.
-      "Mod+P": { label: "Print / export PDF", group: File, inField: true, run: () => undefined },
+      "Mod+P": { label: "Export PDF…", group: File, inField: true, run: () => onExportPdf() },
       "Mod+/": { label: "Keyboard shortcuts", inField: true, run: () => setHelpOpen(true) },
       "Mod+Z": { label: "Undo", group: "Edit", when: inGrid, run: () => void store.undo() },
       "Mod+Y": { label: "Redo", group: "Edit", when: inGrid, run: () => void store.redo() },
@@ -120,7 +119,7 @@ export function ShortcutLayer({ store }: { store: CalcStore }) {
       "Mod+Plus": { label: "Insert rows / columns", group: grid, when: inGrid, run: structural("insert") },
       "Mod+Minus": { label: "Delete rows / columns", group: grid, when: inGrid, run: structural("delete") },
     };
-  }, [store]);
+  }, [store, onExportPdf]);
 
   useShortcuts(map);
 

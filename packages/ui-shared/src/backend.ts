@@ -43,6 +43,12 @@ export interface Backend<Req = unknown, Body = unknown> {
   saveFile(suggestedName: string, bytesBase64: string): Promise<boolean>;
   /** Sets the window (Tauri) or document (web) title. */
   setTitle(title: string): Promise<void>;
+  /**
+   * Opens the system print dialog for the current page (the user picks
+   * "Save as PDF"). `@tauri-apps/api` 2.12 has no webview `print()`, so both
+   * shells use `window.print()`, which the desktop webviews support.
+   */
+  print(): Promise<void>;
 }
 
 /** Standard base64 of `bytes` (chunked: large files exceed the argument limit). */
@@ -117,6 +123,10 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
 
   setTitle(title: string): Promise<void> {
     return getCurrentWindow().setTitle(title);
+  }
+
+  async print(): Promise<void> {
+    window.print();
   }
 }
 
@@ -200,6 +210,10 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
 
   async setTitle(title: string): Promise<void> {
     document.title = title;
+  }
+
+  async print(): Promise<void> {
+    window.print();
   }
 }
 

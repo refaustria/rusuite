@@ -685,4 +685,11 @@ export class FakeBackend implements Backend<Request, ResponseBody> {
   async setTitle(title: string): Promise<void> {
     this.title = title;
   }
+
+  /** Number of `print()` calls. */
+  printed = 0;
+
+  async print(): Promise<void> {
+    this.printed++;
+  }
 }

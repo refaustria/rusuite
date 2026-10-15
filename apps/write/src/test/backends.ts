@@ -52,6 +52,7 @@ export class RealCoreBackend implements WriteBackend {
     return false;
   }
   async setTitle() {}
+  async print() {}
 }
 
 export type TestBackend = FakeWriteBackend | RealCoreBackend;

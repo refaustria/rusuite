@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { printAndWait } from "@rusuite/ui-shared";
 import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
 import { EditorStage } from "./canvas/Stage";
+import { PrintView } from "./print/PrintView";
 import { Presenter } from "./present/Presenter";
 import { SlideList } from "./sidebar/SlideList";
 import { ShortcutLayer } from "./ShortcutLayer";
@@ -57,6 +59,7 @@ function StatusBar({ store, backend }: { store: ShowStore; backend: ShowBackend 
 export default function App({ backend, store: given }: { backend: ShowBackend; store?: ShowStore }) {
   const store = useMemo(() => given ?? new ShowStore(new ShowApi(backend)), [backend, given]);
   const [presenting, setPresenting] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [canvasRef, size] = useElementSize<HTMLDivElement>();
   const pres = useShow(store, (s) => s.pres);
   const current = useShow(store, (s) => s.current);
@@ -77,6 +80,15 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     void store.commitEdit();
     setPresenting(true);
   }, [store]);
+  const exportPdf = useCallback(() => {
+    void store.commitEdit();
+    setPrinting(true);
+  }, [store]);
+  const printReady = useCallback(() => {
+    void printAndWait(backend)
+      .catch((e) => store.pushError(e))
+      .finally(() => setPrinting(false));
+  }, [backend, store]);
   const presentFrom = useCallback(
     (fromStart: boolean) => {
       const first = store.getState().pres?.slides[0]?.id;
@@ -96,9 +108,11 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     [store],
   );
 
+  if (printing && pres) return <PrintView deck={pres} slides={slides} media={store.media} onReady={printReady} />;
+
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
-      <ShowToolbar store={store} onPresent={startPresenting} />
+      <ShowToolbar store={store} onPresent={startPresenting} onExportPdf={exportPdf} />
       <div className="flex min-h-0 flex-1">
         <SlideList store={store} />
         <div ref={canvasRef} className="flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-ui-hover p-4" data-testid="canvas-area">
@@ -109,7 +123,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       </div>
       <StatusBar store={store} backend={backend} />
       <Toasts store={store} />
-      <ShortcutLayer store={store} enabled={!presenting} onPresent={presentFrom} />
+      <ShortcutLayer store={store} enabled={!presenting} onPresent={presentFrom} onExportPdf={exportPdf} />
       {presenting && pres && slides.length > 0 && (
         <Presenter
           deck={pres}

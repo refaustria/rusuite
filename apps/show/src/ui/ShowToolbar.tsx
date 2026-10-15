@@ -62,9 +62,10 @@ export function formattingOf(s: ShowState) {
 export interface ShowToolbarProps {
   store: ShowStore;
   onPresent: () => void;
+  onExportPdf?: () => void;
 }
 
-export function ShowToolbar({ store, onPresent }: ShowToolbarProps) {
+export function ShowToolbar({ store, onPresent, onExportPdf }: ShowToolbarProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const state = useShow(store, (s) => s);
   const fmt = useMemo(() => formattingOf(state), [state]);
@@ -142,6 +143,11 @@ export function ShowToolbar({ store, onPresent }: ShowToolbarProps) {
           <button type="button" className={TEXT_BTN} aria-label="Save" title={fileTip ?? "Save (Ctrl+S)"} disabled={!fileIo} onClick={() => void store.save()}>
             Save
           </button>
+          {onExportPdf && (
+            <button type="button" className={TEXT_BTN} aria-label="Export PDF" title="Export PDF… (Ctrl+P)" disabled={!hasSlide} onClick={onExportPdf}>
+              Export PDF…
+            </button>
+          )}
         </Group>
         <Group label="Edit">
           <button type="button" className={TEXT_BTN} aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!canUndo} onClick={() => void store.undo()}>

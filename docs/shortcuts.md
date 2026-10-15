@@ -6,7 +6,7 @@
 
 `packages/ui-shared/src/shortcuts` provides `useShortcuts(map)`: a map from combo (`"Mod+Shift+S"`) to `{ label, group, run, inField?, when? }`, bound to `window` keydown (bubbling, so the editor's own handling goes first and handled events are skipped). By default a shortcut does not fire when the key comes from an input, textarea, contenteditable, menu or dialog; `inField: true` opts in (file and help keys). `when` is an extra guard (Calc: the grid has focus). Entries without `run` document keys that the editor binds itself (Tiptap marks, Write undo/redo). Each app registers its map in `src/ShortcutLayer.tsx`; each map is tested by firing keyboard events (`src/shortcuts.test.tsx`, `packages/ui-shared/src/shortcuts/shortcuts.test.tsx`).
 
-`Mod+P` is bound to a no-op placeholder in every app; the PDF export task replaces it.
+`Mod+P` runs the app's "Export PDF…" (webview print) through the same map: Calc opens its print setup dialog, Write and Show go straight to the print view / print dialog.
 
 ## All apps
 
@@ -16,7 +16,7 @@
 | Mod+O | Open |
 | Mod+S | Save |
 | Mod+Shift+S | Save as (asks for a file name) |
-| Mod+P | Print / export PDF (placeholder) |
+| Mod+P | Export PDF… |
 | Mod+Z, Mod+Y, Mod+Shift+Z | Undo, redo, redo |
 | Mod+B, Mod+I, Mod+U | Bold, italic, underline |
 | Mod+/ | Shortcut help |

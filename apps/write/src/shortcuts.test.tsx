@@ -152,7 +152,7 @@ describe("Write shortcuts", () => {
     expect(help.textContent).toContain("Ctrl+Shift+L");
   });
 
-  it("Ctrl+P is bound (placeholder until the PDF export lands)", async () => {
+  it("Ctrl+P is bound (Export PDF)", async () => {
     const { editor } = await mount();
     const e = new KeyboardEvent("keydown", { key: "p", ctrlKey: true, bubbles: true, cancelable: true });
     editor.dispatchEvent(e);
