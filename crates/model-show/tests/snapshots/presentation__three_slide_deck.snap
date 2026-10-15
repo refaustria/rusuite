@@ -1,0 +1,742 @@
+---
+source: crates/model-show/tests/presentation.rs
+expression: p
+---
+{
+  "slideSize": {
+    "width": 12192000,
+    "height": 6858000
+  },
+  "slides": [
+    {
+      "id": 1,
+      "layout": "title",
+      "shapes": [
+        {
+          "id": 2,
+          "name": "Title 2",
+          "transform": {
+            "x": 1524000,
+            "y": 1122363,
+            "w": 9144000,
+            "h": 2387600
+          },
+          "kind": {
+            "kind": "auto",
+            "value": {
+              "geometry": "rect",
+              "text": {
+                "props": {
+                  "anchor": "bottom",
+                  "wrap": true,
+                  "insets": {
+                    "left": 91440,
+                    "top": 45720,
+                    "right": 91440,
+                    "bottom": 45720
+                  },
+                  "autofit": "shrink"
+                },
+                "paragraphs": [
+                  {
+                    "runs": [
+                      {
+                        "text": "Rusuite Show"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "fill": {
+            "kind": "none"
+          },
+          "line": {
+            "fill": {
+              "kind": "none"
+            },
+            "width": 12700,
+            "dash": "solid"
+          },
+          "placeholder": "centeredTitle"
+        },
+        {
+          "id": 3,
+          "name": "Subtitle 3",
+          "transform": {
+            "x": 1524000,
+            "y": 3602038,
+            "w": 9144000,
+            "h": 1655762
+          },
+          "kind": {
+            "kind": "auto",
+            "value": {
+              "geometry": "rect",
+              "text": {
+                "props": {
+                  "anchor": "top",
+                  "wrap": true,
+                  "insets": {
+                    "left": 91440,
+                    "top": 45720,
+                    "right": 91440,
+                    "bottom": 45720
+                  },
+                  "autofit": "shrink"
+                },
+                "paragraphs": [
+                  {
+                    "runs": [
+                      {
+                        "text": "A deck built in Rust"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "fill": {
+            "kind": "none"
+          },
+          "line": {
+            "fill": {
+              "kind": "none"
+            },
+            "width": 12700,
+            "dash": "solid"
+          },
+          "placeholder": "subtitle"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "layout": "titleContent",
+      "shapes": [
+        {
+          "id": 5,
+          "name": "Title 5",
+          "transform": {
+            "x": 838200,
+            "y": 365125,
+            "w": 10515600,
+            "h": 1325563
+          },
+          "kind": {
+            "kind": "auto",
+            "value": {
+              "geometry": "rect",
+              "text": {
+                "props": {
+                  "anchor": "middle",
+                  "wrap": true,
+                  "insets": {
+                    "left": 91440,
+                    "top": 45720,
+                    "right": 91440,
+                    "bottom": 45720
+                  },
+                  "autofit": "shrink"
+                },
+                "paragraphs": [
+                  {
+                    "runs": [
+                      {
+                        "text": "Agenda"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "fill": {
+            "kind": "none"
+          },
+          "line": {
+            "fill": {
+              "kind": "none"
+            },
+            "width": 12700,
+            "dash": "solid"
+          },
+          "placeholder": "title"
+        },
+        {
+          "id": 6,
+          "name": "Content Placeholder 6",
+          "transform": {
+            "x": 838200,
+            "y": 1825625,
+            "w": 10515600,
+            "h": 4351338
+          },
+          "kind": {
+            "kind": "auto",
+            "value": {
+              "geometry": "rect",
+              "text": {
+                "props": {
+                  "anchor": "top",
+                  "wrap": true,
+                  "insets": {
+                    "left": 91440,
+                    "top": 45720,
+                    "right": 91440,
+                    "bottom": 45720
+                  },
+                  "autofit": "shrink"
+                },
+                "paragraphs": [
+                  {
+                    "props": {
+                      "bullet": {
+                        "kind": "char",
+                        "value": "•"
+                      }
+                    },
+                    "runs": [
+                      {
+                        "text": "Model"
+                      }
+                    ]
+                  },
+                  {
+                    "props": {
+                      "level": 1,
+                      "bullet": {
+                        "kind": "char",
+                        "value": "•"
+                      }
+                    },
+                    "runs": [
+                      {
+                        "text": "Shapes and text"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "fill": {
+            "kind": "none"
+          },
+          "line": {
+            "fill": {
+              "kind": "none"
+            },
+            "width": 12700,
+            "dash": "solid"
+          },
+          "placeholder": "body"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "layout": "blank",
+      "shapes": [
+        {
+          "id": 8,
+          "name": "Rectangle 8",
+          "transform": {
+            "x": 914400,
+            "y": 914400,
+            "w": 1828800,
+            "h": 914400
+          },
+          "kind": {
+            "kind": "auto",
+            "value": {
+              "geometry": "rect",
+              "text": {
+                "props": {
+                  "anchor": "middle",
+                  "wrap": true,
+                  "insets": {
+                    "left": 91440,
+                    "top": 45720,
+                    "right": 91440,
+                    "bottom": 45720
+                  },
+                  "autofit": "none"
+                },
+                "paragraphs": [
+                  {
+                    "props": {
+                      "alignment": "center"
+                    },
+                    "runs": []
+                  }
+                ]
+              }
+            }
+          },
+          "fill": {
+            "kind": "solid",
+            "value": {
+              "kind": "theme",
+              "value": {
+                "slot": "accent1",
+                "tint": 0.0
+              }
+            }
+          },
+          "line": {
+            "fill": {
+              "kind": "solid",
+              "value": {
+                "kind": "theme",
+                "value": {
+                  "slot": "accent1",
+                  "tint": -0.5
+                }
+              }
+            },
+            "width": 12700,
+            "dash": "solid"
+          }
+        },
+        {
+          "id": 9,
+          "name": "Oval 9",
+          "transform": {
+            "x": 3657600,
+            "y": 914400,
+            "w": 914400,
+            "h": 914400
+          },
+          "kind": {
+            "kind": "auto",
+            "value": {
+              "geometry": "ellipse",
+              "text": {
+                "props": {
+                  "anchor": "middle",
+                  "wrap": true,
+                  "insets": {
+                    "left": 91440,
+                    "top": 45720,
+                    "right": 91440,
+                    "bottom": 45720
+                  },
+                  "autofit": "none"
+                },
+                "paragraphs": [
+                  {
+                    "props": {
+                      "alignment": "center"
+                    },
+                    "runs": []
+                  }
+                ]
+              }
+            }
+          },
+          "fill": {
+            "kind": "solid",
+            "value": {
+              "kind": "theme",
+              "value": {
+                "slot": "accent1",
+                "tint": 0.0
+              }
+            }
+          },
+          "line": {
+            "fill": {
+              "kind": "solid",
+              "value": {
+                "kind": "theme",
+                "value": {
+                  "slot": "accent1",
+                  "tint": -0.5
+                }
+              }
+            },
+            "width": 12700,
+            "dash": "solid"
+          }
+        },
+        {
+          "id": 10,
+          "name": "Straight Connector 10",
+          "transform": {
+            "x": 914400,
+            "y": 2743200,
+            "w": 3657600,
+            "h": 0
+          },
+          "kind": {
+            "kind": "auto",
+            "value": {
+              "geometry": "line"
+            }
+          },
+          "fill": {
+            "kind": "none"
+          },
+          "line": {
+            "fill": {
+              "kind": "solid",
+              "value": {
+                "kind": "theme",
+                "value": {
+                  "slot": "accent1",
+                  "tint": 0.0
+                }
+              }
+            },
+            "width": 6350,
+            "dash": "solid"
+          }
+        },
+        {
+          "id": 11,
+          "name": "Picture 11",
+          "transform": {
+            "x": 6400800,
+            "y": 914400,
+            "w": 1828800,
+            "h": 1371600
+          },
+          "kind": {
+            "kind": "picture",
+            "value": {
+              "media": 1
+            }
+          },
+          "fill": {
+            "kind": "none"
+          },
+          "line": {
+            "fill": {
+              "kind": "none"
+            },
+            "width": 12700,
+            "dash": "solid"
+          }
+        },
+        {
+          "id": 12,
+          "name": "Group 12",
+          "transform": {
+            "x": 914400,
+            "y": 4114800,
+            "w": 3657600,
+            "h": 914400
+          },
+          "kind": {
+            "kind": "group",
+            "value": {
+              "children": [
+                {
+                  "id": 13,
+                  "name": "Rounded Rectangle 13",
+                  "transform": {
+                    "x": 0,
+                    "y": 0,
+                    "w": 1371600,
+                    "h": 914400
+                  },
+                  "kind": {
+                    "kind": "auto",
+                    "value": {
+                      "geometry": "roundRect",
+                      "text": {
+                        "props": {
+                          "anchor": "middle",
+                          "wrap": true,
+                          "insets": {
+                            "left": 91440,
+                            "top": 45720,
+                            "right": 91440,
+                            "bottom": 45720
+                          },
+                          "autofit": "none"
+                        },
+                        "paragraphs": [
+                          {
+                            "props": {
+                              "alignment": "center"
+                            },
+                            "runs": []
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "fill": {
+                    "kind": "solid",
+                    "value": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent1",
+                        "tint": 0.0
+                      }
+                    }
+                  },
+                  "line": {
+                    "fill": {
+                      "kind": "solid",
+                      "value": {
+                        "kind": "theme",
+                        "value": {
+                          "slot": "accent1",
+                          "tint": -0.5
+                        }
+                      }
+                    },
+                    "width": 12700,
+                    "dash": "solid"
+                  }
+                },
+                {
+                  "id": 14,
+                  "name": "TextBox 14",
+                  "transform": {
+                    "x": 1828800,
+                    "y": 457200,
+                    "w": 1828800,
+                    "h": 457200
+                  },
+                  "kind": {
+                    "kind": "auto",
+                    "value": {
+                      "geometry": "rect",
+                      "text": {
+                        "props": {
+                          "anchor": "top",
+                          "wrap": true,
+                          "insets": {
+                            "left": 91440,
+                            "top": 45720,
+                            "right": 91440,
+                            "bottom": 45720
+                          },
+                          "autofit": "resize"
+                        },
+                        "paragraphs": [
+                          {
+                            "runs": [
+                              {
+                                "text": "Grouped"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "fill": {
+                    "kind": "none"
+                  },
+                  "line": {
+                    "fill": {
+                      "kind": "none"
+                    },
+                    "width": 12700,
+                    "dash": "solid"
+                  }
+                }
+              ]
+            }
+          },
+          "fill": {
+            "kind": "none"
+          },
+          "line": {
+            "fill": {
+              "kind": "none"
+            },
+            "width": 12700,
+            "dash": "solid"
+          }
+        }
+      ]
+    }
+  ],
+  "layouts": [
+    {
+      "kind": "title",
+      "placeholders": [
+        {
+          "kind": "centeredTitle",
+          "transform": {
+            "x": 1524000,
+            "y": 1122363,
+            "w": 9144000,
+            "h": 2387600
+          },
+          "bodyDefaults": {
+            "anchor": "bottom",
+            "wrap": true,
+            "insets": {
+              "left": 91440,
+              "top": 45720,
+              "right": 91440,
+              "bottom": 45720
+            },
+            "autofit": "shrink"
+          },
+          "runDefaults": {
+            "font": {
+              "kind": "theme",
+              "value": "majorLatin"
+            },
+            "size": 6000
+          },
+          "paragraphDefaults": {
+            "alignment": "center"
+          }
+        },
+        {
+          "kind": "subtitle",
+          "transform": {
+            "x": 1524000,
+            "y": 3602038,
+            "w": 9144000,
+            "h": 1655762
+          },
+          "bodyDefaults": {
+            "anchor": "top",
+            "wrap": true,
+            "insets": {
+              "left": 91440,
+              "top": 45720,
+              "right": 91440,
+              "bottom": 45720
+            },
+            "autofit": "shrink"
+          },
+          "runDefaults": {
+            "font": {
+              "kind": "theme",
+              "value": "minorLatin"
+            },
+            "size": 2400
+          },
+          "paragraphDefaults": {
+            "alignment": "center",
+            "bullet": {
+              "kind": "none"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "titleContent",
+      "placeholders": [
+        {
+          "kind": "title",
+          "transform": {
+            "x": 838200,
+            "y": 365125,
+            "w": 10515600,
+            "h": 1325563
+          },
+          "bodyDefaults": {
+            "anchor": "middle",
+            "wrap": true,
+            "insets": {
+              "left": 91440,
+              "top": 45720,
+              "right": 91440,
+              "bottom": 45720
+            },
+            "autofit": "shrink"
+          },
+          "runDefaults": {
+            "font": {
+              "kind": "theme",
+              "value": "majorLatin"
+            },
+            "size": 4400
+          },
+          "paragraphDefaults": {
+            "alignment": "left"
+          }
+        },
+        {
+          "kind": "body",
+          "transform": {
+            "x": 838200,
+            "y": 1825625,
+            "w": 10515600,
+            "h": 4351338
+          },
+          "bodyDefaults": {
+            "anchor": "top",
+            "wrap": true,
+            "insets": {
+              "left": 91440,
+              "top": 45720,
+              "right": 91440,
+              "bottom": 45720
+            },
+            "autofit": "shrink"
+          },
+          "runDefaults": {
+            "font": {
+              "kind": "theme",
+              "value": "minorLatin"
+            },
+            "size": 2800
+          },
+          "paragraphDefaults": {
+            "alignment": "left",
+            "bullet": {
+              "kind": "char",
+              "value": "•"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "blank",
+      "placeholders": []
+    }
+  ],
+  "theme": {
+    "name": "Office",
+    "colors": {
+      "name": "Office",
+      "colors": [
+        "000000",
+        "FFFFFF",
+        "44546A",
+        "E7E6E6",
+        "4472C4",
+        "ED7D31",
+        "A5A5A5",
+        "FFC000",
+        "5B9BD5",
+        "70AD47",
+        "0563C1",
+        "954F72"
+      ]
+    },
+    "fonts": {
+      "name": "Office",
+      "majorLatin": "Calibri Light",
+      "minorLatin": "Calibri",
+      "majorEastAsian": "",
+      "minorEastAsian": "",
+      "majorComplexScript": "",
+      "minorComplexScript": ""
+    }
+  },
+  "media": [
+    {
+      "id": 1,
+      "contentType": "image/png",
+      "data": "iVBORyBmYWtl"
+    }
+  ]
+}

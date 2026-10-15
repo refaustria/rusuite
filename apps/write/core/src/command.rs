@@ -273,9 +273,13 @@ pub enum WriteCommand {
     /// *Internal.* Replaces all list definitions.
     RestoreNumbering { numbering: Numbering },
     /// *Internal.* Removes a media item.
-    RemoveMedia { id: MediaId },
+    RemoveMedia {
+        #[ts(as = "model_text::media::MediaIdTs")]
+        id: MediaId,
+    },
     /// *Internal.* Puts a media item back under its old id.
     RestoreMedia {
+        #[ts(as = "model_text::media::MediaIdTs")]
         id: MediaId,
         content_type: String,
         bytes_base64: String,

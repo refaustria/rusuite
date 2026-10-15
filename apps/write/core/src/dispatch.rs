@@ -39,7 +39,10 @@ pub enum Request {
     /// Replaces the document by an empty one → `document`.
     NewDocument,
     /// → `media` with the bytes of image `id`.
-    GetMedia { id: MediaId },
+    GetMedia {
+        #[ts(as = "model_text::media::MediaIdTs")]
+        id: MediaId,
+    },
     /// Replaces the document by a `.docx` file (standard base64 of its
     /// bytes; `name` is the file name shown to the user) → `opened`.
     OpenDocx { bytes_base64: String, name: String },

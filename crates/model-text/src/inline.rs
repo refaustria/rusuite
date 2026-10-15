@@ -98,6 +98,7 @@ pub enum BreakKind {
 )]
 pub struct InlineImage {
     /// The image data in the document's [`crate::MediaStore`].
+    #[cfg_attr(feature = "ts", ts(as = "crate::media::MediaIdTs"))]
     pub media: MediaId,
     /// Displayed width.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
