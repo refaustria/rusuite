@@ -87,6 +87,10 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Effective placeholder text formatting helper (layout defaults layered like model-text `resolve_*`); ungroup helper; picture alt text; line arrowheads; per-level body font sizes (28/24/20); merge adjacent equal runs in `normalize`; white default text on filled auto shapes.
 - pptx suite: `layout:titleOnly` once PowerPoint files exist; notes/tables/transitions suites; byte-reproducible generation.
 
+## fmt-pptx
+- Write `p:style` for auto shapes (PowerPoint default white text on accent fill); footer/date/slide-number placeholders; tables (graphic frames) later; bullet size/colour + paragraph indents in the model; `Shape::alt`; gradients/transparency/cropping/arrowheads/other presets are approximated.
+- Move the XML DOM/writer and theme parser into fmt-ooxml (now triplicated).
+
 ## Formats
 - Compare rewritten files against Open XML SDK validator (Windows/.NET) in addition to LibreOffice – gives real "would Office repair this" signal.
 

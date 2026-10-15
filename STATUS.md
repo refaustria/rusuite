@@ -61,10 +61,10 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 | P4-1 | `model-show` + move `MediaStore` to core-model; ADR 0008 | Opus | done (merged) | – | verified: 625 tests, wasm check; MediaStore now in core-model; group children stored relative at scale 1 (fmt-pptx must renormalise chOff/chExt; group resize scales children in show-core) |
 | P4-3 | Show app scaffold (Tauri + WASM + Konva), deployed at /show/ | Sonnet | done (merged) | – | verified: LIVE https://resuite.inceptum.at/show/ (konva 10.7, react-konva 18.2.16 placeholder stage + Present mode), tauri build runs under xvfb |
 | P4-6 | 25 provisional reference .pptx files + manifest | Sonnet | done (merged) | – | verified: 25 decks + manifest, 26/26 harness PASS; LibreOffice export quirks documented (title ph type, bare body ph, lines as p:sp, txBox rects) |
-| P4-2 | `fmt-pptx` read/write | Opus | in progress | `p4/fmt-pptx` | brief docs/tasks/P4-2-fmt-pptx.md |
+| P4-2 | `fmt-pptx` read/write | Opus | done (merged) | – | verified: 720 tests, harness 26/26 PASS (lo_warnings=0), `examples/build_deck` → 10-slide deck PASS 40/40 parts; deck sent to owner for PowerPoint check |
 | P4-4 | `show-core` commands/patches/dispatch | Opus | done (merged) | – | verified: 692 tests; whole-slide patches/inverses; `TextParagraphPatch` (null = inherit); 42 generated TS files; wiring must add show-core to CI generated-diff/wasm checks and delete ping dispatch |
 | P4-5 | Show UI: Konva object model, selection/transform, text editing, sidebar, presentation mode | Opus | in progress | `p4/show-ui` | brief docs/tasks/P4-5-show-ui.md |
-| P4-7 | Wiring: pptx open/save both shells; deploy | Opus | todo | `p4/show-wiring` | after P4-2 + P4-5 |
+| P4-7 | Wiring: pptx open/save both shells; deploy | Opus | in progress | `p4/show-wiring` | brief docs/tasks/P4-7-show-wiring.md (parallel to P4-5; UI buttons owned by P4-5) |
 | P4-8 | Milestone verification | PM | todo | – | |
 | P2-1 | `model-sheet`: Workbook wrapping `engine_formula::Engine` for contents/values + StyleTable (font/fill/border/alignment/number format), column/row dimensions, sheet metadata; serde; ADR 0004 | Opus | done (merged a112e4b) | – | verified: 15 tests, snapshot DTO, style interning; follow-up fixed a rustdoc link |
 | P2-3 | Tauri 2 Calc app scaffold: `apps/calc` (Vite+React+Tailwind+Tauri), crate `app-calc` in workspace, `pnpm --filter calc tauri dev` runs, CI builds it | Sonnet | done (merged 1e8d201) | – | verified: tests, vite build, release binary 10.6 MiB runs under xvfb; tauri 2.12 / vite 6 / react 18 / tailwind 4 / vitest 3 |
@@ -123,6 +123,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 4. 2026-10-15: Roundtrip harness verification = LibreOffice headless `--convert-to` of the rewritten file succeeds and the output is non-empty, plus a structural diff of the ZIP part list and XML against the original. (LibreOffice has no "repair dialog" counter in headless mode; a failed/empty conversion is the proxy.)
 
 ## Open questions for the owner
+- **PowerPoint check (Phase 4 milestone):** `testdata/pptx/out/rusuite-10-slides.pptx` (sent via the session; regenerate with `cargo run -p fmt-pptx --example build_deck`) – please open it in PowerPoint and report any repair dialog or visual problem.
 - Testdata caveat: `provisional-basic.xlsx` has a stale LibreOffice cached value for `Data!C7` (27.028; the stored inputs give 27.128, which our engine computes). Harmless (we ignore cached values) but another reason to replace provisional files with Excel-authored ones.
 - FYI (not caused by us): `https://url.inceptum.at/` answers 502 (its upstream on 127.0.0.1:3002 seems down); gitai/ssh answer 401 (auth). We did not touch those vhosts.
 - (none new) Suite status on main: 855 passed / 0 failed / 7 skipped (all UNKNOWNFN rows; P1-11 makes them run). All 62 MVP functions implemented.
