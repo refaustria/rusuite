@@ -175,17 +175,13 @@ fn excel_override(note: &str, ty: &str) -> Option<Expected> {
     if let Ok(e) = raw.parse::<ErrorKind>() {
         return Some(Expected::Error(e));
     }
-    Some(match ty {
-        "error" => {
-            if let Ok(n) = raw.parse() {
-                Expected::Number(n)
-            } else if raw == "TRUE" || raw == "FALSE" {
-                Expected::Bool(raw == "TRUE")
-            } else {
-                Expected::Text(unescape(raw))
-            }
-        }
-        _ => expected(ty, raw),
+    let _ = ty;
+    Some(if raw == "TRUE" || raw == "FALSE" {
+        Expected::Bool(raw == "TRUE")
+    } else if let Ok(n) = raw.parse() {
+        Expected::Number(n)
+    } else {
+        Expected::Text(unescape(raw))
     })
 }
 

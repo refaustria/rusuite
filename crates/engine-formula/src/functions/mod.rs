@@ -78,7 +78,7 @@ impl FunctionRegistry {
     /// A registry with every built-in function.
     pub fn with_builtins() -> Self {
         let mut r = Self::new();
-        r.register(Box::new(math::sum::Sum));
+        math::register(&mut r);
         r.register(Box::new(logical::if_::If));
         r.register(Box::new(logical::true_::True));
         r.register(Box::new(logical::false_::False));
@@ -415,7 +415,34 @@ mod tests {
         let r = FunctionRegistry::with_builtins();
         assert_eq!(
             r.names(),
-            vec!["FALSE", "IF", "ISERROR", "LEN", "NA", "SUM", "TRUE"]
+            vec![
+                "ABS",
+                "AVERAGE",
+                "CEILING",
+                "COUNT",
+                "COUNTA",
+                "COUNTIF",
+                "FALSE",
+                "IF",
+                "INT",
+                "ISERROR",
+                "LEN",
+                "MAX",
+                "MIN",
+                "MOD",
+                "NA",
+                "PI",
+                "POWER",
+                "PRODUCT",
+                "ROUND",
+                "ROUNDDOWN",
+                "ROUNDUP",
+                "SQRT",
+                "SUM",
+                "SUMIF",
+                "SUMPRODUCT",
+                "TRUE"
+            ]
         );
         assert_eq!(r.get("sum").map(|f| f.name()), Some("SUM"));
         assert_eq!(r.get("Iserror").map(|f| f.name()), Some("ISERROR"));
