@@ -78,7 +78,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 | P4-8 | Milestone verification | PM | done on server; PowerPoint check pending owner | – | see milestone section |
 | P5-2 | PDF export via webview print (all apps) | Sonnet | in progress | `p5/pdf-export` | brief docs/tasks/P5-2-pdf-export.md |
 | P5-3 | Recent files, autosave, crash recovery (app-common + shells + IndexedDB on web) | Opus | in progress | `p5/autosave` | brief docs/tasks/P5-3-recent-autosave-recovery.md |
-| P5-5 | Shortcut parity + hygiene (generated-types CI for write, favicons, show api.ts cleanup, chunk splitting) | Sonnet | in progress | `p5/shortcuts` | brief docs/tasks/P5-5-shortcuts-and-cleanup.md |
+| P5-5 | Shortcut parity + hygiene (generated-types CI for write, favicons, show api.ts cleanup, chunk splitting) | Sonnet | done (merged) | – | verified: 234 frontend tests, `useShortcuts` + help dialog (Ctrl+/), Save As prompt, docs/shortcuts.md; tiptap/konva chunks split; CI diffs write generated types |
 | P5-4 | Performance: 1M cells / 200-page doc / 100 slides benchmarks + fixes | Opus | todo | `p5/perf` | after P5-2/3/5 |
 | P5-1 | Installers for Windows/macOS/Linux | – | blocked: owner decision (GitHub push + Actions) | – | Linux bundles possible locally |
 | P2-1 | `model-sheet`: Workbook wrapping `engine_formula::Engine` for contents/values + StyleTable (font/fill/border/alignment/number format), column/row dimensions, sheet metadata; serde; ADR 0004 | Opus | done (merged a112e4b) | – | verified: 15 tests, snapshot DTO, style interning; follow-up fixed a rustdoc link |

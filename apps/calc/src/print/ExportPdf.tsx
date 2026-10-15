@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Dialog, printAndWait, usePrintShortcut, type PageOrientation, type PaperName } from "@rusuite/ui-shared";
+import { Dialog, printAndWait, type PageOrientation, type PaperName } from "@rusuite/ui-shared";
 import type { CalcStore } from "../state/store";
 import { loadUsedRange } from "./loadUsed";
 import { CALC_PRINT_RULES, DEFAULT_PRINT_SETUP, calcPageCss, fitZoom, resolveOrientation, type PrintSetup } from "./printCss";
@@ -96,22 +96,22 @@ function PrintOverlay({ store, setup, onDone }: { store: CalcStore; setup: Print
   );
 }
 
-/** The File-group button, the Ctrl+P shortcut, the setup dialog and the print overlay. */
-export function ExportPdf({ store }: { store: CalcStore }) {
+export type ExportStage = "idle" | "setup" | "printing";
+
+/** The File-group button, the setup dialog and the print overlay (Ctrl+P lives in the ShortcutLayer map). */
+export function ExportPdf({ store, stage, onStage }: { store: CalcStore; stage: ExportStage; onStage: (s: ExportStage) => void }) {
   const [setup, setSetup] = useState<PrintSetup>(DEFAULT_PRINT_SETUP);
-  const [stage, setStage] = useState<"idle" | "setup" | "printing">("idle");
   const open = useCallback(() => {
     store.cancelEdit();
-    setStage("setup");
-  }, [store]);
-  const done = useCallback(() => setStage("idle"), []);
-  usePrintShortcut(open, stage === "idle");
+    onStage("setup");
+  }, [store, onStage]);
+  const done = useCallback(() => onStage("idle"), [onStage]);
   return (
     <>
       <button type="button" className={BTN} title="Export PDF… (Ctrl+P)" onClick={open}>
         Export PDF…
       </button>
-      <SetupDialog open={stage === "setup"} setup={setup} onChange={setSetup} onPrint={() => setStage("printing")} onClose={done} />
+      <SetupDialog open={stage === "setup"} setup={setup} onChange={setSetup} onPrint={() => onStage("printing")} onClose={done} />
       {stage === "printing" && <PrintOverlay store={store} setup={setup} onDone={done} />}
     </>
   );

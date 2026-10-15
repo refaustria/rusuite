@@ -1,6 +1,5 @@
 // Shared print helpers: CSS `@page` generation and the print-then-restore flow.
 
-import { useEffect } from "react";
 import type { Backend } from "./backend";
 
 export type PaperName = "A4" | "Letter";
@@ -51,19 +50,4 @@ export async function printAndWait(backend: Pick<Backend, "print">, graceMs = 15
   } finally {
     window.removeEventListener("afterprint", done);
   }
-}
-
-/** Calls `onPrint` on Ctrl/Cmd+P (and suppresses the browser's own print). */
-export function usePrintShortcut(onPrint: () => void, enabled = true): void {
-  useEffect(() => {
-    if (!enabled) return;
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "p") {
-        e.preventDefault();
-        onPrint();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onPrint, enabled]);
 }

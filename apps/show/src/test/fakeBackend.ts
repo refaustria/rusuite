@@ -25,9 +25,19 @@ export class FakeBackend implements ShowBackend {
   private history: Presentation[] = [];
   /** Commands that answer with this error code. */
   failWith: string | null = null;
+  /** Unsaved changes (cleared by `markSaved`). */
+  private dirty = false;
+  /** What `openFile` returns next (`null` = cancelled). */
+  nextOpen: OpenedFile | null = null;
+  /** What `saveFile` returns (`false` = cancelled). */
+  saveResult = true;
+  saved: { name: string; bytesBase64: string }[] = [];
+
+  private fresh: Presentation;
 
   constructor(pres: Presentation = fixture()) {
     this.pres = clone(pres);
+    this.fresh = clone(pres);
   }
 
   /** The commands sent (`apply` requests only). */
@@ -45,7 +55,7 @@ export class FakeBackend implements ShowBackend {
       patch: { slidesOrder: null, slides: [], deletedSlides: [], idMap: [], slideSize: null, info: null, ...patch },
       canUndo: this.history.length > 0,
       canRedo: false,
-      dirty: this.history.length > 0,
+      dirty: this.dirty,
     };
   }
 
@@ -147,7 +157,19 @@ export class FakeBackend implements ShowBackend {
       case "getPresentation":
         return ok({ type: "presentation", presentation: clone(this.pres), envelope: this.envelope({}) });
       case "documentState":
-        return ok({ type: "documentState", dirty: this.history.length > 0, revision: this.revision, name: null });
+        return ok({ type: "documentState", dirty: this.dirty, revision: this.revision, name: null });
+      case "newPresentation":
+        this.pres = clone(this.fresh);
+        this.history = [];
+        this.dirty = false;
+        return ok({ type: "presentation", presentation: clone(this.pres), envelope: this.envelope({}) });
+      case "openPptx":
+        return ok({ type: "opened", presentation: clone(this.pres), warnings: [], envelope: this.envelope({}) });
+      case "savePptx":
+        return ok({ type: "saved", bytesBase64: "UEsDBA==", suggestedName: "Presentation.pptx" });
+      case "markSaved":
+        this.dirty = false;
+        return ok({ type: "documentState", dirty: false, revision: this.revision, name: request.name ?? null });
       case "getMedia": {
         const m = this.pres.media.find((x) => x.id === request.id);
         return m ? ok({ type: "media", contentType: m.contentType, bytesBase64: m.data }) : { err: { code: "unknown_media", message: "?" } };
@@ -163,6 +185,7 @@ export class FakeBackend implements ShowBackend {
       case "apply": {
         if (this.failWith) return { err: { code: this.failWith, message: `fake ${this.failWith}` } };
         this.history.push(clone(this.pres));
+        this.dirty = true;
         const touched = new Set<Slide>();
         const idMap: [number, number][] = [];
         const order = { changed: false };
@@ -183,11 +206,12 @@ export class FakeBackend implements ShowBackend {
   }
 
   async openFile(): Promise<OpenedFile | null> {
-    return null;
+    return this.nextOpen;
   }
 
-  async saveFile() {
-    return false;
+  async saveFile(name: string, bytesBase64: string) {
+    if (this.saveResult) this.saved.push({ name, bytesBase64 });
+    return this.saveResult;
   }
 
   async setTitle() {}

@@ -390,6 +390,18 @@ export class CalcStore {
     });
   }
 
+  /** Replaces the document by an empty one (Ctrl+N). */
+  newFile(): Promise<void> {
+    return this.guard(async () => {
+      this.cancelEdit();
+      const info = await this.api.newDocument();
+      this.lastViewport.clear();
+      this.setInfo(info);
+      this.set({ selection: cellSelection(0, 0), name: null, warnings: [], cycle: null, dirty: false, canUndo: false, canRedo: false });
+      await this.ensureRegion(this.state.activeSheet, 0, 0, BLOCK_ROWS - 1, BLOCK_COLS - 1);
+    });
+  }
+
   /** Lets the user pick an `.xlsx` file and replaces the document by it. */
   openFile(): Promise<void> {
     return this.guard(async () => {
@@ -416,15 +428,16 @@ export class CalcStore {
 
   /**
    * Writes the document as `.xlsx` through the shell's save dialog /
-   * download; only a completed write marks the document saved.
+   * download; only a completed write marks the document saved. `asName`
+   * (Save As) overrides the suggested file name.
    */
-  saveFile(): Promise<void> {
+  saveFile(asName?: string): Promise<void> {
     return this.guard(async () => {
       await this.commitEdit(0, 0);
       const saved = await this.api.saveXlsx();
-      if (!(await this.api.backend.saveFile(saved.suggestedName, saved.bytesBase64))) return;
-      const st = await this.api.markSaved();
-      this.set({ dirty: st.dirty, name: st.name ?? saved.suggestedName });
+      if (!(await this.api.backend.saveFile(asName ?? saved.suggestedName, saved.bytesBase64))) return;
+      const st = await this.api.markSaved(asName);
+      this.set({ dirty: st.dirty, name: asName ?? st.name ?? saved.suggestedName });
     });
   }
 
@@ -500,6 +513,15 @@ export class CalcStore {
 
   selectionRange(): Range {
     return clipRange(normalize(this.state.selection), this.cache(this.state.activeSheet));
+  }
+
+  /** Inserts or deletes the rows/columns spanned by the selection. */
+  structure(kind: "insert" | "delete", axis: "rows" | "cols"): Promise<void> {
+    const r = this.selectionRange();
+    const sheet = this.state.activeSheet;
+    const [at, count] = axis === "rows" ? [r.r0, r.r1 - r.r0 + 1] : [r.c0, r.c1 - r.c0 + 1];
+    const type = `${kind}${axis === "rows" ? "Rows" : "Cols"}` as "insertRows" | "deleteRows" | "insertCols" | "deleteCols";
+    return this.apply({ type, sheet, at, count });
   }
 
   clearSelection(): Promise<void> {

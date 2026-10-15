@@ -76,7 +76,7 @@ export function ShowToolbar({ store, onPresent, onExportPdf }: ShowToolbarProps)
   const theme = useShow(store, (s) => s.pres?.theme);
   const hasSlide = useShow(store, (s) => s.current !== null);
   const palette = themePalette(theme);
-  const fileTip = fileIo ? undefined : "Needs .pptx support in the core (P4-7)";
+  const fileTip = fileIo ? undefined : "File access is not available with this core";
 
   const value: CellStyleView = fmt
     ? {
