@@ -75,6 +75,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## Write / model-text
 - `Document.theme: Theme` so heading theme colours resolve without the docx context; character styles in `resolve_run_props`; `paragraphs_mut` and (id, offset) position helpers; re-export `core_model::units` at the crate root; line spacing stored as f64 259/240 (consider storing 240ths).
 - write-core: report a re-inserted id at the same position as `replaced`; `GetDocument` without media; orphaned media cleanup on save; `SplitParagraph` uses `next` style only when splitting at the end (Word); `ApplyList` sets `ListParagraph` style.
+- Write (Phase 3 leftovers): merge consecutive typing into one undo step in write-core; `InsertText` inside table cells instead of whole-table replace; effective (style-derived) font shown in the toolbar; table context menu (insert/delete rows/cols); browser save to a file handle; lazy media in `opened`; `accept`/MIME now parameterised in ui-shared.
 - Write UI: split the Tiptap chunk (lazy import); add write-core to the generated-types CI check.
 
 ## fmt-docx

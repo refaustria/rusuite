@@ -2,7 +2,18 @@
 
 _Maintained by the PM agent. Read at the start of every session; update after every task._
 
-## Current phase: Phase 2 – Calc: milestone reached on the server 2026-10-15 (main 670ccda); owner's Excel check pending
+## Current phase: Phase 4 – Show (Phases 0–3 complete on the server; owner's Excel/Word checks pending)
+
+### Phase 3 milestone – verified by the PM 2026-10-15 on main aeff1a3
+- fmt/clippy/rustdoc clean; `cargo test --workspace` 603 passed; `pnpm test` 34 + 56 + 45 passed; wasm check for all Write crates.
+- **Roundtrip of the 50 reference documents (+2 older):** `fmt-docx` suite test asserts every manifest feature after read and equality after write→read; harness with our writer 52/52 PASS, `lo_warnings=0` for every file; LibreOffice text export identical for all 50 (agent check).
+- **Live end-to-end at https://resuite.inceptum.at/write/ (headless Chromium):** opened `provisional-47-report.docx` through the file picker (title, headings, list, table, image rendered; 78 words; 3 reader warnings shown), typed an edit, Save → downloaded `.docx` → our reader opens it, harness PASS 11/11 identical parts, LibreOffice text export contains the edit. 0 sync mismatches in the agent's typing check (36 commands).
+- **Not verifiable here:** the 50 documents are LibreOffice-made (PROVISIONAL); Word is not available. Owner: open one of your own `.docx` at the URL above, edit, Save, reopen in Word.
+
+### Phase 4 plan – Show (README: model-show + fmt-pptx; Konva canvas; slide sidebar; presentation mode; milestone: build a 10-slide presentation and open it in PowerPoint without errors)
+Order: P4-1 model-show (ADR 0008) ∥ P4-3 Show scaffold (Konva) ∥ P4-6 pptx reference files → P4-2 fmt-pptx ∥ P4-4 show-core commands/patches → P4-5 Show UI (Konva object model, selection, transforms, text overlay editor, sidebar, presentation mode) → P4-7 wiring/open-save → P4-8 milestone (10-slide deck built through the UI, harness + owner's PowerPoint check).
+
+### Phase 2 milestone – reached on the server 2026-10-15 (main 670ccda); owner's Excel check pending
 
 ### Phase 2 milestone – verification run by the PM
 - Checks on main: fmt/clippy/rustdoc clean; `cargo test --workspace` 466 passed; `pnpm test` 29 + 45 passed; wasm `cargo check` for 8 crates OK.
@@ -44,9 +55,17 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 | P3-6 | 50 provisional reference .docx files + manifest + docs/docx-suite.md | Sonnet | done (merged) | – | verified: 50 files + manifest, 52/52 harness PASS, structural spot-checks OK; LibreOffice writes highlights as `w:shd` (reader must accept both) |
 | P3-2 | `fmt-docx` read/write ↔ model-text (document/styles/numbering/media/sectPr) + roundtrip tests over the manifest | Opus | done (merged) | – | verified: 595 tests, harness 52/52 PASS with our writer (lo_warnings=0), wasm check; tint math follows Word (`99`→0.4, brief's test line was wrong); manifest erratum file 46 (claims 4 highlights, file has 2) allow-listed |
 | P3-4 | `write-core`: commands/patches, Tiptap↔Rust sync protocol (ADR 0007), find/replace, undo | Opus | done (merged) | – | verified: 572 tests; `dispatch_with(&mut WriteHost, json)` is the real entry (shells switch in P3-7); re-inserted ids appear in deleted+inserted (UI must handle); model-text got a `ts` feature |
-| P3-5 | Write UI: Tiptap schema mapping, transaction → command sync, toolbar from ui-shared | Opus | in progress | `p3/write-ui` | brief docs/tasks/P3-5-write-ui-sync.md |
+| P3-5 | Write UI: Tiptap schema mapping, transaction → command sync, toolbar from ui-shared | Opus | done (merged aeff1a3) | – | verified: 56 Write tests, 0 sync mismatches against the real core, Open/Save, Find/Replace; ui-shared gained ParagraphStyleSelect/ListButtons and `createBackend` accept/mime option |
 | P3-7 | Wiring: docx open/save both shells; deploy | Opus | done (merged) | – | verified: 52 manifest files open+save via dispatch, node-driven wasm check, deploy OK; UI Open/Save + `.docx` accept handed to P3-5 |
-| P3-8 | Milestone verification | PM | todo | – | |
+| P3-8 | Milestone verification | PM | done on server; Word check pending owner | – | see milestone section |
+| P4-1 | `model-show` + move `MediaStore` to core-model; ADR 0008 | Opus | in progress | `p4/model-show` | brief docs/tasks/P4-1-model-show.md |
+| P4-3 | Show app scaffold (Tauri + WASM + Konva), deployed at /show/ | Sonnet | in progress | `p4/show-scaffold` | brief docs/tasks/P4-3-show-scaffold.md |
+| P4-6 | 25 provisional reference .pptx files + manifest | Sonnet | in progress | `p4/pptx-testdata` | brief docs/tasks/P4-6-pptx-reference-files.md |
+| P4-2 | `fmt-pptx` read/write | Opus | todo | `p4/fmt-pptx` | after P4-1 + P4-6 |
+| P4-4 | `show-core` commands/patches/dispatch | Opus | todo | `p4/show-core` | after P4-1 |
+| P4-5 | Show UI: Konva object model, selection/transform, text editing, sidebar, presentation mode | Opus | todo | `p4/show-ui` | after P4-4 |
+| P4-7 | Wiring: pptx open/save both shells; deploy | Opus | todo | `p4/show-wiring` | after P4-2 + P4-5 |
+| P4-8 | Milestone verification | PM | todo | – | |
 | P2-1 | `model-sheet`: Workbook wrapping `engine_formula::Engine` for contents/values + StyleTable (font/fill/border/alignment/number format), column/row dimensions, sheet metadata; serde; ADR 0004 | Opus | done (merged a112e4b) | – | verified: 15 tests, snapshot DTO, style interning; follow-up fixed a rustdoc link |
 | P2-3 | Tauri 2 Calc app scaffold: `apps/calc` (Vite+React+Tailwind+Tauri), crate `app-calc` in workspace, `pnpm --filter calc tauri dev` runs, CI builds it | Sonnet | done (merged 1e8d201) | – | verified: tests, vite build, release binary 10.6 MiB runs under xvfb; tauri 2.12 / vite 6 / react 18 / tailwind 4 / vitest 3 |
 | P2-1b | `engine-formula`: `transform.rs` (Excel reference adjustment for insert/delete rows/cols, copy/paste offset) + `Engine::insert_rows/delete_rows/insert_cols/delete_cols/cells` | Opus | done (merged) | – | verified: ~70 transform table cases, 4 engine tests; incremental graph update; `StructuralOp::map_cell` for model-sheet to move styles |
@@ -87,6 +106,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+15. 2026-10-15: Phase 3 closed on the server (Word check delegated to the owner). ADR 0008 fixes the Show model (fixed built-in layouts, DrawingML-shaped text reusing RunProperties, MediaStore moved to core-model). Phase 4 started.
 14. 2026-10-15: ADR 0007 fixes the Tiptap↔Rust sync: optimistic ProseMirror apply + authoritative block-level `WritePatch`, block ids in the PM schema with temp-id mapping, fine-grained commands plus `ReplaceBlocks` fallback, lists mapped in TS between nested PM lists and docx numbering, undo/find-replace in Rust, full-document snapshot on load (no regions in Write for MVP).
 13. 2026-10-15: Phase 2 milestone declared reached on the server; the Excel reopen check is delegated to the owner (no Excel here). Phase 3 (Write) planning starts; Phase 2 leftovers (used range in snapshots, async Tauri dispatch, paste reference adjustment, text overflow) go to ROADMAP and are scheduled only if they block Phase 3/5.
 12. 2026-10-15: Owner added the web target (WASM, now, deploy from main). ADR 0005: one `<app>-core` crate + two shells (`src-tauri`, `src-wasm`), JSON `dispatch` over both transports, ts-rs for TS types, `Backend` abstraction in ui-shared, static hosting on nginx.
