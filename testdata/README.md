@@ -1,0 +1,18 @@
+# testdata
+
+Reference OOXML files used by the roundtrip harness (`scripts/roundtrip.sh`) and the format crates.
+
+**Provisional files are NOT authoritative for "opens in MS Office" claims.** They are produced by
+LibreOffice and only prove that LibreOffice can read them. Replace them with real Office-authored
+files as soon as those are available. Regenerate with `scripts/gen-testdata.sh` (sources in
+`scripts/testdata-src/`), check with `scripts/gen-testdata.sh --verify`.
+
+| File | Origin | Contents |
+|------|--------|----------|
+| `docx/provisional-basic.docx` | LibreOffice 25.2 headless – PROVISIONAL, replace with real Office file | Title, Heading 1, Heading 2, three body paragraphs with bold/italic/underline and one red run, 3-item bulleted list, 3-item numbered list, 3x3 table with header row, one centered and one right-aligned paragraph |
+| `docx/provisional-image.docx` | LibreOffice 25.2 headless – PROVISIONAL, replace with real Office file | One paragraph, one paragraph with an inline 64x64 PNG (3 cm square) |
+| `xlsx/provisional-basic.xlsx` | LibreOffice 25.2 headless – PROVISIONAL, replace with real Office file | Sheets `Data` and `Summary`. `Data`: bold header (Item/Qty/Price/Total/Date/Active), 5 rows, `B*C` formulas, `SUM`, `AVERAGE`, `IF`, a date and a boolean cell, yellow fill, thin border, `0.00` and `#,##0` formats. `Summary`: cross-sheet `=Data!D7` plus a text cell |
+| `xlsx/provisional-types.xlsx` | LibreOffice 25.2 headless – PROVISIONAL, replace with real Office file | Sheet `Types`: empty cell, integer, negative, decimal, 1e15, text, text `0123`, TRUE/FALSE, date, time, percentage, error `=1/0` |
+| `pptx/provisional-basic.pptx` | LibreOffice 25.2 headless – PROVISIONAL, replace with real Office file | Slide 1 title + subtitle; slide 2 title + 3 bullets; slide 3 rectangle, ellipse and a text box |
+
+`formulas/` is reserved for formula test corpora. `*/out/` holds harness output and is git-ignored.

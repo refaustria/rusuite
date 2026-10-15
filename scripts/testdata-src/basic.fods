@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.spreadsheet">
+<office:automatic-styles>
+<number:boolean-style style:name="NB"><number:boolean/></number:boolean-style>
+<number:number-style style:name="N2"><number:number number:decimal-places="2" number:min-integer-digits="1"/></number:number-style>
+<number:number-style style:name="N0"><number:number number:decimal-places="0" number:min-integer-digits="1" number:grouping="true"/></number:number-style>
+<number:percentage-style style:name="NP"><number:number number:decimal-places="1" number:min-integer-digits="1"/><number:text>%</number:text></number:percentage-style>
+<number:date-style style:name="ND"><number:year number:style="long"/><number:text>-</number:text><number:month number:style="long"/><number:text>-</number:text><number:day number:style="long"/></number:date-style>
+<number:time-style style:name="NT"><number:hours number:style="long"/><number:text>:</number:text><number:minutes number:style="long"/><number:text>:</number:text><number:seconds number:style="long"/></number:time-style>
+<style:style style:name="hdr" style:family="table-cell"><style:text-properties fo:font-weight="bold"/></style:style>
+<style:style style:name="qty" style:family="table-cell" style:data-style-name="N0"/>
+<style:style style:name="dec" style:family="table-cell" style:data-style-name="N2"/>
+<style:style style:name="fill" style:family="table-cell"><style:table-cell-properties fo:background-color="#ffff00"/><style:text-properties fo:font-weight="bold"/></style:style>
+<style:style style:name="box" style:family="table-cell" style:data-style-name="N2"><style:table-cell-properties fo:border="1pt solid #000000"/></style:style>
+<style:style style:name="bool" style:family="table-cell" style:data-style-name="NB"/>
+<style:style style:name="dat" style:family="table-cell" style:data-style-name="ND"/>
+</office:automatic-styles>
+<office:body><office:spreadsheet>
+<table:table table:name="Data">
+<table:table-row>
+<table:table-cell table:style-name="hdr" office:value-type="string"><text:p>Item</text:p></table:table-cell>
+<table:table-cell table:style-name="hdr" office:value-type="string"><text:p>Qty</text:p></table:table-cell>
+<table:table-cell table:style-name="hdr" office:value-type="string"><text:p>Price</text:p></table:table-cell>
+<table:table-cell table:style-name="hdr" office:value-type="string"><text:p>Total</text:p></table:table-cell>
+<table:table-cell table:style-name="hdr" office:value-type="string"><text:p>Date</text:p></table:table-cell>
+<table:table-cell table:style-name="hdr" office:value-type="string"><text:p>Active</text:p></table:table-cell>
+</table:table-row>
+<table:table-row>
+<table:table-cell office:value-type="string"><text:p>Widget</text:p></table:table-cell>
+<table:table-cell table:style-name="qty" office:value-type="float" office:value="4"><text:p>4</text:p></table:table-cell>
+<table:table-cell table:style-name="dec" office:value-type="float" office:value="2.5"><text:p>2.5</text:p></table:table-cell>
+<table:table-cell table:style-name="dec" table:formula="of:=[.B2]*[.C2]" office:value-type="float" office:value="10"><text:p>10</text:p></table:table-cell>
+<table:table-cell table:style-name="dat" office:value-type="date" office:date-value="2025-03-15"><text:p>2025-03-15</text:p></table:table-cell><table:table-cell table:style-name="bool" office:value-type="boolean" office:boolean-value="true"><text:p>TRUE</text:p></table:table-cell>
+</table:table-row>
+<table:table-row>
+<table:table-cell office:value-type="string"><text:p>Gadget</text:p></table:table-cell>
+<table:table-cell table:style-name="qty" office:value-type="float" office:value="10"><text:p>10</text:p></table:table-cell>
+<table:table-cell table:style-name="dec" office:value-type="float" office:value="12.75"><text:p>12.75</text:p></table:table-cell>
+<table:table-cell table:style-name="dec" table:formula="of:=[.B3]*[.C3]" office:value-type="float" office:value="127.5"><text:p>127.5</text:p></table:table-cell>
+<table:table-cell/><table:table-cell/>
+</table:table-row>
+<table:table-row>
+<table:table-cell office:value-type="string"><text:p>Gizmo</text:p></table:table-cell>
+<table:table-cell table:style-name="qty" office:value-type="float" office:value="3"><text:p>3</text:p></table:table-cell>
+<table:table-cell table:style-name="dec" office:value-type="float" office:value="99.99"><text:p>99.99</text:p></table:table-cell>
+<table:table-cell table:style-name="dec" table:formula="of:=[.B4]*[.C4]" office:value-type="float" office:value="299.97"><text:p>299.97</text:p></table:table-cell>
+<table:table-cell/><table:table-cell/>
+</table:table-row>
+<table:table-row>
+<table:table-cell office:value-type="string"><text:p>Doohickey</text:p></table:table-cell>
+<table:table-cell table:style-name="qty" office:value-type="float" office:value="7"><text:p>7</text:p></table:table-cell>
+<table:table-cell table:style-name="dec" office:value-type="float" office:value="0.5"><text:p>0.5</text:p></table:table-cell>
+<table:table-cell table:style-name="dec" table:formula="of:=[.B5]*[.C5]" office:value-type="float" office:value="3.5"><text:p>3.5</text:p></table:table-cell>
+<table:table-cell/><table:table-cell/>
+</table:table-row>
+<table:table-row>
+<table:table-cell office:value-type="string"><text:p>Thingamajig</text:p></table:table-cell>
+<table:table-cell table:style-name="qty" office:value-type="float" office:value="1"><text:p>1</text:p></table:table-cell>
+<table:table-cell table:style-name="dec" office:value-type="float" office:value="19.9"><text:p>19.9</text:p></table:table-cell>
+<table:table-cell table:style-name="dec" table:formula="of:=[.B6]*[.C6]" office:value-type="float" office:value="19.9"><text:p>19.9</text:p></table:table-cell>
+<table:table-cell/><table:table-cell/>
+</table:table-row>
+<table:table-row>
+<table:table-cell table:style-name="fill" office:value-type="string"><text:p>Totals</text:p></table:table-cell>
+<table:table-cell/>
+<table:table-cell table:style-name="dec" table:formula="of:=AVERAGE([.C2:.C6])" office:value-type="float" office:value="27.028"><text:p>27.03</text:p></table:table-cell>
+<table:table-cell table:style-name="box" table:formula="of:=SUM([.D2:.D6])" office:value-type="float" office:value="460.87"><text:p>460.87</text:p></table:table-cell>
+<table:table-cell table:formula="of:=IF([.D7]&gt;100;&quot;big&quot;;&quot;small&quot;)" office:value-type="string" office:string-value="big"><text:p>big</text:p></table:table-cell>
+</table:table-row>
+</table:table>
+<table:table table:name="Summary">
+<table:table-row>
+<table:table-cell office:value-type="string"><text:p>Grand total</text:p></table:table-cell>
+<table:table-cell table:formula="of:=[Data.D7]" office:value-type="float" office:value="460.87"><text:p>460.87</text:p></table:table-cell>
+</table:table-row>
+<table:table-row>
+<table:table-cell office:value-type="string"><text:p>Note</text:p></table:table-cell>
+<table:table-cell office:value-type="string"><text:p>Cross-sheet formula above references Data.D7</text:p></table:table-cell>
+</table:table-row>
+</table:table>
+</office:spreadsheet></office:body></office:document>
