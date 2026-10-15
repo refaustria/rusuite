@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import type { Backend } from "@rusuite/ui-shared";
 
-export default function App() {
+export default function App({ backend }: { backend: Backend }) {
   const [reply, setReply] = useState<string | null>(null);
 
   async function ping() {
-    setReply(await invoke<string>("ping"));
+    setReply(await backend.ping());
   }
 
   return (
@@ -18,7 +18,11 @@ export default function App() {
       >
         Ping backend
       </button>
-      {reply !== null && <p className="mt-4">{reply}</p>}
+      {reply !== null && (
+        <p className="mt-4">
+          {reply} <span data-testid="backend-kind">({backend.kind})</span>
+        </p>
+      )}
     </main>
   );
 }

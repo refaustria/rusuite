@@ -58,3 +58,10 @@ pub use graph::Cycle;
 pub use parser::{parse, ParseError};
 pub use transform::{adjust_references, offset_relative, AdjustContext, StructuralOp};
 pub use value::{Array, Value};
+
+/// Formats `n` with an Excel number format code (the `TEXT` function's
+/// subset, see `functions::text::numfmt`); `None` when the code cannot
+/// format it (e.g. a negative date).
+pub fn format_number(n: f64, code: &str) -> Option<String> {
+    functions::text::numfmt::format_number(n, code).ok()
+}

@@ -41,3 +41,13 @@ Additional apt packages for building `apps/calc` (Tauri 2) and smoke-testing it 
 sudo apt-get install -y libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf xvfb
 ```
 (`xvfb` was already present here.) The Tauri CLI comes from the npm package `@tauri-apps/cli` (prebuilt binary, no `cargo install`). Build with `pnpm --filter calc tauri build --no-bundle`; smoke test with `timeout 15 xvfb-run -a target/release/app-calc` (expect exit 124, no panic). Icons were generated from a 1024x1024 ImageMagick PNG via `pnpm --filter calc tauri icon`; only desktop icons are committed.
+
+## Web (WASM) target
+Needed for `pnpm --filter calc build:web` / `dev:web` (ADR 0005):
+```
+rustup target add wasm32-unknown-unknown
+```
+`wasm-pack` comes from the npm devDependency `wasm-pack@0.15.0` in `apps/calc` (its postinstall downloads the prebuilt binary from github.com/wasm-bindgen/wasm-pack; pnpm needs `allowBuilds: wasm-pack` in `pnpm-workspace.yaml`). Versions before 0.15.0 download from a dead URL (404). wasm-pack fetches the `wasm-bindgen` CLI matching the pinned crate version itself. Output: `apps/calc/src-wasm/pkg/` (wasm package, gitignored) and `apps/calc/dist-web/` (static site, base path `/calc/`, gitignored). Quick check: `cargo check --target wasm32-unknown-unknown -p app-calc-wasm`.
+
+## Web deployment (nginx + certbot, P2-W3)
+The vhost `deploy/nginx/resuite.inceptum.at.conf` is symlinked into `/etc/nginx/sites-enabled/`, static root `/var/www/resuite` (owned by the deploy user). TLS: `sudo certbot --nginx -d resuite.inceptum.at --non-interactive --agree-tos -m bojan@referee.at --redirect` (nginx plugin is installed; renewal is automatic). Deploy with `scripts/deploy-web.sh`; details in `deploy/README.md`.
