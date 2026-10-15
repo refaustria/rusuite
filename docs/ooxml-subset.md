@@ -1,6 +1,24 @@
 # OOXML Subset
 
-To be filled in Phase 1. See the project README.md for the overall scope and plan.
+Which parts and elements of Office Open XML (ECMA-376, transitional) Rusuite reads and writes, per
+format, and where it is knowingly lossy. Scope rules are in the README; the crate layout is in
+[architecture.md](architecture.md).
+
+Common to all three formats (`fmt-ooxml`):
+
+- **Package.** ZIP container, `[Content_Types].xml` (Default + Override), package and part relationships,
+  OPC part-name rules. The main part is found through the `officeDocument` relationship (transitional or
+  Strict URI).
+- **Reading** is tolerant: elements and attributes are matched by local name (any namespace prefix);
+  content outside the subset is dropped with a warning in `ReadOutput.warnings`, never silently.
+- **Writing** regenerates every part from the model with the standard declaration
+  (`standalone="yes"`) and deterministic output; characters XML 1.0 cannot carry are dropped (SpreadsheetML
+  text keeps them as `_xHHHH_`). Relationship and content types come from `fmt_ooxml::{rel, ct}`.
+- **Theme** (`*/theme/theme1.xml`, `fmt_ooxml::theme`): color scheme (`a:srgbClr`, `a:sysClr/@lastClr`)
+  and major/minor fonts are read into `core_model::Theme`; format/effect styles are not modelled. Each
+  writer can put the imported theme part back verbatim (conditions per format below); otherwise it emits a
+  minimal Office-like theme (Word: `dk1`/`lt1` as `a:sysClr`; Show: generated from the model's theme).
+- **docProps** (`core.xml`, `app.xml`) are ignored on read and written minimal.
 
 ## xlsx (`fmt-xlsx`)
 
