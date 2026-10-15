@@ -9,7 +9,7 @@ use ts_rs::TS;
 
 use crate::command::CalcCommand;
 use crate::doc::CalcDocument;
-use crate::patch::{CalcPatch, RegionSnapshot, WorkbookInfo};
+use crate::patch::{CalcPatch, FoundCell, RegionSnapshot, WorkbookInfo};
 
 /// The document host the shells keep (one per open document).
 pub type CalcHost = Host<CalcDocument>;
@@ -74,6 +74,17 @@ pub enum Request {
     },
     /// → `documentState`.
     DocumentState,
+    /// Cells whose input or displayed value contains `query` (`wholeCell`:
+    /// equals it), on `sheet` or (`null`) every sheet → `found`.
+    FindCells {
+        sheet: Option<u32>,
+        query: String,
+        match_case: bool,
+        whole_cell: bool,
+    },
+    /// `value` displayed with the number format `code` → `formatted`
+    /// (the Format Cells dialog's preview).
+    FormatPreview { value: f64, code: String },
 }
 
 /// The successful part of a [`Response`].
@@ -125,6 +136,14 @@ pub enum ResponseBody {
         dirty: bool,
         revision: Revision,
         name: Option<String>,
+    },
+    /// The reply to `findCells`, in sheet order then row-major order.
+    Found {
+        cells: Vec<FoundCell>,
+    },
+    /// The reply to `formatPreview`.
+    Formatted {
+        text: String,
     },
 }
 
@@ -238,6 +257,22 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
             info(host)
         }
         Request::DocumentState => state(host),
+        Request::FindCells {
+            sheet,
+            query,
+            match_case,
+            whole_cell,
+        } => ResponseBody::Found {
+            cells: host
+                .doc()
+                .find_cells(sheet, &query, match_case, whole_cell)?,
+        },
+        Request::FormatPreview { value, code } => ResponseBody::Formatted {
+            text: crate::display::display_value(
+                &engine_formula::Value::Number(value),
+                Some(code.as_str()),
+            ),
+        },
     })
 }
 

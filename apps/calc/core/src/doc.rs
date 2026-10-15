@@ -10,11 +10,12 @@ use model_sheet::{
     StyleId, Workbook, MAX_PATCH_CELLS,
 };
 
-use crate::command::CalcCommand;
+use crate::command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect};
 use crate::display::display_value;
+use crate::fill::{plan, shift_input, FillItem};
 use crate::patch::{
-    CalcPatch, CellKind, CellView, ColView, RegionSnapshot, RowView, SheetCells, SheetCols,
-    SheetInfo, SheetRows, StructuralChange, StructuralKind, WorkbookInfo,
+    CalcPatch, CellKind, CellView, ColView, FoundCell, RegionSnapshot, RowView, SheetCells,
+    SheetCols, SheetInfo, SheetRows, StructuralChange, StructuralKind, WorkbookInfo,
 };
 
 /// Errors of [`CalcDocument`]; [`code`](Self::code) is the stable
@@ -127,6 +128,21 @@ fn row_view(row: u32, info: RowInfo) -> RowView {
 }
 
 type Result<T, E = CalcError> = std::result::Result<T, E>;
+
+/// What [`CalcDocument::write_cells`] stores in a cell.
+enum WriteContent {
+    /// User input (`""` clears).
+    Input(String),
+    /// A constant value.
+    Value(Value),
+}
+
+/// One cell write: content and/or own style (`None` = unchanged).
+struct Write {
+    at: CellCoord,
+    content: Option<WriteContent>,
+    style: Option<StyleId>,
+}
 type CalcApplied = Applied<CalcCommand, CalcPatch>;
 
 impl CalcDocument {
@@ -586,6 +602,31 @@ impl CalcDocument {
                     }),
                 })
             }
+            &C::PasteRange {
+                sheet,
+                r0,
+                c0,
+                src,
+                ref cells,
+                mode,
+                cut,
+                repeat_rows,
+                repeat_cols,
+            } => self.paste_range(
+                sheet,
+                (r0, c0),
+                src,
+                cells,
+                mode,
+                cut,
+                (repeat_rows, repeat_cols),
+            ),
+            &C::FillRange {
+                sheet,
+                src,
+                dst,
+                mode,
+            } => self.fill_range(sheet, src, dst, mode),
             C::Compound { commands } => {
                 let mut patch = CalcPatch::default();
                 let mut inverses = Vec::with_capacity(commands.len());
@@ -612,6 +653,328 @@ impl CalcDocument {
                 Ok(Applied { patch, inverse })
             }
         }
+    }
+
+    /// Writes `cells` (content and/or own style per coordinate) in one
+    /// batch; returns the patch and the inverse (`RestoreCells` per
+    /// sheet). On failure every written cell is put back.
+    fn write_cells(&mut self, writes: Vec<Write>) -> Result<CalcApplied> {
+        for w in &writes {
+            if w.at.row > MAX_ROW || w.at.col > MAX_COL {
+                return Err(EngineError::InvalidCoord.into());
+            }
+            if let Some(style) = w.style {
+                if !self.workbook.styles().contains(style) {
+                    return Err(model_sheet::Error::UnknownStyle(style).into());
+                }
+            }
+        }
+        let mut prev: BTreeMap<u32, Vec<(u32, u32, String, u32)>> = BTreeMap::new();
+        let mut seen = BTreeSet::new();
+        for w in &writes {
+            if seen.insert(w.at) {
+                prev.entry(w.at.sheet.0).or_default().push((
+                    w.at.row,
+                    w.at.col,
+                    content_to_input(self.workbook.content(w.at)),
+                    self.workbook.cell_style_id(w.at).0,
+                ));
+            }
+        }
+        let wb = &mut self.workbook;
+        wb.begin_batch();
+        let result = writes.iter().try_for_each(|w| {
+            match &w.content {
+                Some(WriteContent::Input(input)) => {
+                    wb.set_input(w.at, input)?;
+                }
+                Some(WriteContent::Value(v)) => {
+                    wb.set_content(w.at, CellContent::Value(v.clone()))?;
+                }
+                None => {}
+            }
+            if let Some(style) = w.style {
+                wb.set_style(w.at, style)?;
+            }
+            Ok::<_, model_sheet::Error>(())
+        });
+        if result.is_err() {
+            for (sheet, cells) in &prev {
+                for (row, col, input, style) in cells {
+                    let c = CellCoord::new(SheetId(*sheet), *row, *col);
+                    let _ = wb.set_input(c, input);
+                    let _ = wb.set_style(c, StyleId(*style));
+                }
+            }
+        }
+        let recalc = wb.end_batch();
+        result?;
+        let patch = self.content_patch(seen, &recalc);
+        let mut inverses: Vec<CalcCommand> = prev
+            .into_iter()
+            .map(|(sheet, cells)| CalcCommand::RestoreCells { sheet, cells })
+            .collect();
+        let inverse = if inverses.len() == 1 {
+            inverses.pop()
+        } else {
+            Some(CalcCommand::Compound { commands: inverses })
+        };
+        Ok(Applied { patch, inverse })
+    }
+
+    /// [`CalcCommand::PasteRange`] (its fields, unpacked).
+    #[allow(clippy::too_many_arguments)]
+    fn paste_range(
+        &mut self,
+        sheet: u32,
+        (r0, c0): (u32, u32),
+        src: SheetRect,
+        cells: &[ClipCell],
+        mode: PasteMode,
+        cut: bool,
+        (rep_rows, rep_cols): (u32, u32),
+    ) -> Result<CalcApplied> {
+        let source = self.range(src.sheet, src.r0, src.c0, src.r1, src.c1)?;
+        let s = self.sheet(sheet)?;
+        let (h, w) = (source.rows(), source.cols());
+        if rep_rows == 0 || rep_cols == 0 || (cut && (rep_rows, rep_cols) != (1, 1)) {
+            return Err(CalcError::InvalidRange);
+        }
+        let r1 = u64::from(r0) + u64::from(h) * u64::from(rep_rows) - 1;
+        let c1 = u64::from(c0) + u64::from(w) * u64::from(rep_cols) - 1;
+        if r1 > u64::from(MAX_ROW) || c1 > u64::from(MAX_COL) {
+            return Err(CalcError::InvalidRange);
+        }
+        let dest = self.range(sheet, r0, c0, r1 as u32, c1 as u32)?;
+        if cells.iter().any(|c| c.dr >= h || c.dc >= w) {
+            return Err(CalcError::InvalidRange);
+        }
+        let s_src = source.sheet;
+        let wb = &self.workbook;
+        let mut writes = Vec::new();
+        let mut covered = BTreeSet::new();
+        for ti in 0..rep_rows {
+            for tj in 0..rep_cols {
+                for clip in cells {
+                    let at = CellCoord::new(s, r0 + ti * h + clip.dr, c0 + tj * w + clip.dc);
+                    let from = CellCoord::new(s_src, src.r0 + clip.dr, src.c0 + clip.dc);
+                    covered.insert((at.row, at.col));
+                    let (dr, dc) = if cut {
+                        (0, 0)
+                    } else {
+                        (
+                            i64::from(at.row) - i64::from(from.row),
+                            i64::from(at.col) - i64::from(from.col),
+                        )
+                    };
+                    let style = clip.style.map(StyleId);
+                    writes.push(match mode {
+                        PasteMode::All => Write {
+                            at,
+                            content: Some(WriteContent::Input(shift_input(&clip.input, dr, dc))),
+                            style,
+                        },
+                        PasteMode::ValuesOnly => Write {
+                            at,
+                            content: Some(if clip.input.starts_with('=') {
+                                WriteContent::Value(wb.value(from).into_scalar())
+                            } else {
+                                WriteContent::Input(clip.input.clone())
+                            }),
+                            style: None,
+                        },
+                        PasteMode::FormatsOnly => Write {
+                            at,
+                            content: None,
+                            style,
+                        },
+                    });
+                }
+            }
+        }
+        // Block positions without a copied cell paste as blanks.
+        let blank = |at: CellCoord| match mode {
+            PasteMode::All => Write {
+                at,
+                content: Some(WriteContent::Input(String::new())),
+                style: Some(StyleId::default()),
+            },
+            PasteMode::ValuesOnly => Write {
+                at,
+                content: Some(WriteContent::Input(String::new())),
+                style: None,
+            },
+            PasteMode::FormatsOnly => Write {
+                at,
+                content: None,
+                style: Some(StyleId::default()),
+            },
+        };
+        let stale: Vec<CellCoord> = wb
+            .cells_in(dest)
+            .map(|(c, _, _)| c)
+            .filter(|c| !covered.contains(&(c.row, c.col)))
+            .collect();
+        writes.extend(stale.into_iter().map(blank));
+        if cut {
+            let inside = |c: &CellCoord| {
+                c.sheet == s
+                    && (dest.r0..=dest.r1).contains(&c.row)
+                    && (dest.c0..=dest.c1).contains(&c.col)
+            };
+            let vacated: Vec<CellCoord> = wb
+                .cells_in(source)
+                .map(|(c, _, _)| c)
+                .filter(|c| !inside(c))
+                .collect();
+            // Cleared first: the block may overlap its source.
+            let mut all: Vec<Write> = vacated
+                .into_iter()
+                .map(|at| Write {
+                    at,
+                    content: Some(WriteContent::Input(String::new())),
+                    style: Some(StyleId::default()),
+                })
+                .collect();
+            all.extend(writes);
+            writes = all;
+        }
+        self.write_cells(writes)
+    }
+
+    /// [`CalcCommand::FillRange`].
+    fn fill_range(
+        &mut self,
+        sheet: u32,
+        src: Rect,
+        dst: Rect,
+        mode: FillMode,
+    ) -> Result<CalcApplied> {
+        let s = self.sheet(sheet)?;
+        self.range(sheet, src.r0, src.c0, src.r1, src.c1)?;
+        self.range(sheet, dst.r0, dst.c0, dst.r1, dst.c1)?;
+        let vertical =
+            src.c0 == dst.c0 && src.c1 == dst.c1 && (dst.r0 == src.r1 + 1 || dst.r1 + 1 == src.r0);
+        let horizontal =
+            src.r0 == dst.r0 && src.r1 == dst.r1 && (dst.c0 == src.c1 + 1 || dst.c1 + 1 == src.c0);
+        if !vertical && !horizontal {
+            return Err(CalcError::InvalidRange);
+        }
+        let wb = &self.workbook;
+        // Lines run along the fill direction: columns when filling
+        // vertically, rows when filling horizontally.
+        let (lines, n, targets) = if vertical {
+            (src.c0..=src.c1, src.r1 - src.r0 + 1, dst.r0..=dst.r1)
+        } else {
+            (src.r0..=src.r1, src.c1 - src.c0 + 1, dst.c0..=dst.c1)
+        };
+        let origin = if vertical { src.r0 } else { src.c0 };
+        let at = |line: u32, pos: u32| {
+            if vertical {
+                CellCoord::new(s, pos, line)
+            } else {
+                CellCoord::new(s, line, pos)
+            }
+        };
+        let mut writes = Vec::new();
+        for line in lines {
+            let sources: Vec<CellCoord> = (0..n).map(|p| at(line, origin + p)).collect();
+            let items: Vec<FillItem> = sources
+                .iter()
+                .map(|&c| match wb.content(c) {
+                    CellContent::Value(Value::Number(n)) => FillItem::Number {
+                        n: *n,
+                        date: wb
+                            .style(c)
+                            .number_format
+                            .as_deref()
+                            .is_some_and(model_sheet::numfmt::is_date_format),
+                    },
+                    CellContent::Value(Value::Text(t)) => FillItem::Text(t.clone()),
+                    _ => FillItem::Other,
+                })
+                .collect();
+            let plan = plan(&items, mode);
+            for pos in targets.clone() {
+                let k = i64::from(pos) - i64::from(origin);
+                let p = k.rem_euclid(i64::from(n));
+                let from = sources[p as usize];
+                let content = match plan.value_at(k) {
+                    Some(v) => WriteContent::Value(v),
+                    None => {
+                        let input = content_to_input(wb.content(from));
+                        let d = k - p;
+                        let (dr, dc) = if vertical { (d, 0) } else { (0, d) };
+                        WriteContent::Input(shift_input(&input, dr, dc))
+                    }
+                };
+                writes.push(Write {
+                    at: at(line, pos),
+                    content: Some(content),
+                    style: Some(wb.style_id(from)),
+                });
+            }
+        }
+        self.write_cells(writes)
+    }
+
+    /// Cells whose input or displayed value contains `query` (or equals
+    /// it with `whole_cell`), on `sheet` or on every sheet, in sheet
+    /// order then row-major order. Only cells with content are searched.
+    pub fn find_cells(
+        &self,
+        sheet: Option<u32>,
+        query: &str,
+        match_case: bool,
+        whole_cell: bool,
+    ) -> Result<Vec<FoundCell>> {
+        let sheets: Vec<SheetId> = match sheet {
+            Some(id) => vec![self.sheet(id)?],
+            None => self
+                .workbook
+                .sheets()
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect(),
+        };
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let fold = |t: &str| {
+            if match_case {
+                t.to_owned()
+            } else {
+                t.to_lowercase()
+            }
+        };
+        let q = fold(query);
+        let hit = |t: &str| {
+            let t = fold(t);
+            if whole_cell {
+                t == q
+            } else {
+                t.contains(&q)
+            }
+        };
+        let engine = self.workbook.engine();
+        let mut found = Vec::new();
+        for s in sheets {
+            let mut cells: Vec<CellCoord> = engine.cells(s).map(|(c, _)| c).collect();
+            cells.sort_by_key(|c| (c.row, c.col));
+            for c in cells {
+                let view = self.cell_view(c);
+                if hit(&view.input) || hit(&view.display) {
+                    found.push(FoundCell {
+                        sheet: s.0,
+                        row: c.row,
+                        col: c.col,
+                        input: view.input,
+                        display: view.display,
+                    });
+                }
+            }
+        }
+        Ok(found)
     }
 
     /// Sets `(row, col, input, style)` per cell in one batch; on failure
