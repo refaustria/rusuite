@@ -12,6 +12,10 @@ export interface PrintCell {
   col: number;
   text: string;
   style: CSSProperties;
+  /** Top-left cell of a merged range: how many printed rows/columns it spans. */
+  span?: { rows: number; cols: number };
+  /** Covered by a merged range (printed by its top-left cell). */
+  covered?: boolean;
 }
 
 export interface PrintRow {
@@ -85,6 +89,27 @@ export function buildPrintTable(cache: SheetCache, styles: readonly CellStyle[],
       return { col, text: cell?.display ?? "", style: cellCss(styleAt(styles, id), cell?.kind ?? "empty") };
     });
     rows.push({ row: r, height, cells });
+  }
+  // Merged ranges: the first printed cell of each spans the printed part of it; the rest are covered.
+  const colAt = new Map(cols.map((c, i) => [c.col, i]));
+  const rowAt = new Map(rows.map((r, i) => [r.row, i]));
+  for (const m of cache.merges) {
+    const r0 = Math.max(m.r0, firstRow), r1 = Math.min(m.r1, lastRow);
+    const c0 = Math.max(m.c0, firstCol), c1 = Math.min(m.c1, lastCol);
+    if (r0 > r1 || c0 > c1) continue;
+    const ris: number[] = [];
+    const cis: number[] = [];
+    for (let r = r0; r <= r1; r++) if (rowAt.has(r)) ris.push(rowAt.get(r)!);
+    for (let c = c0; c <= c1; c++) if (colAt.has(c)) cis.push(colAt.get(c)!);
+    if (ris.length === 0 || cis.length === 0 || ris.length * cis.length === 1) continue;
+    for (const ri of ris) for (const ci of cis) rows[ri]!.cells[ci]!.covered = true;
+    const lead = rows[ris[0]!]!.cells[cis[0]!]!;
+    const anchor = cache.cells.get(m.r0)?.get(m.c0);
+    const styleOf = (r: number, c: number) => styleAt(styles, cache.cells.get(r)?.get(c)?.style ?? cache.rows.get(r)?.style ?? cache.cols.get(c)?.style ?? 0);
+    const css = cellCss(styleOf(m.r0, m.c0), anchor?.kind ?? "empty");
+    css.borderRight = cellCss(styleOf(m.r0, m.c1), "empty").borderRight;
+    css.borderBottom = cellCss(styleOf(m.r1, m.c0), "empty").borderBottom;
+    Object.assign(lead, { text: anchor?.display ?? "", style: css, span: { rows: ris.length, cols: cis.length }, covered: false });
   }
   return {
     cols,

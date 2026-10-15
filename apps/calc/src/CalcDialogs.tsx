@@ -1,7 +1,7 @@
 // The dialogs Calc opens through the store (`store.openDialog`): Format
 // Cells (number format, Ctrl+1), Find & Replace (Ctrl+F / Ctrl+H), the
-// row height / column width prompts and the sheet dialogs (confirm
-// delete, rename, tab colour).
+// row height / column width prompts, the sheet dialogs (confirm
+// delete, rename, tab colour, unhide) and the merge warning.
 
 import { useEffect, useRef, useState } from "react";
 import { cssColor, Dialog, OFFICE_THEME, PromptDialog, STANDARD_COLORS, THEME_SLOTS, type Color } from "@rusuite/ui-shared";
@@ -9,7 +9,7 @@ import {
   buildCode, CATEGORIES, DATE_CODES, parseCode, previewValue, SYMBOLS, TIME_CODES, type CurrencySymbol, type FormatChoice,
 } from "./numberFormat";
 import type { FindOptions } from "./state/find";
-import { useCalc, type CalcStore } from "./state/store";
+import { unhideableSheets, useCalc, type CalcStore } from "./state/store";
 import { useT } from "./i18n";
 
 const BTN = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover disabled:opacity-40";
@@ -299,6 +299,57 @@ function TabColorDialog({ store, sheet }: { store: CalcStore; sheet: number }) {
   );
 }
 
+/** Unhide: the hidden sheets ("very hidden" ones excluded), one to show again. */
+function UnhideDialog({ store }: { store: CalcStore }) {
+  const t = useT();
+  const hidden = unhideableSheets(store.getState().info?.sheets ?? []);
+  const [picked, setPicked] = useState<number | null>(hidden[0]?.id ?? null);
+  const close = () => {
+    store.closeDialog();
+    store.focusGrid();
+  };
+  return (
+    <Dialog open title={t("calc.unhide")} onClose={close}>
+      <form
+        className="flex w-72 flex-col gap-2 text-sm"
+        onSubmit={(e) => {
+          e.preventDefault();
+          close();
+          if (picked !== null) void store.unhideSheet(picked);
+        }}
+      >
+        <span id="calc-unhide-label">{t("calc.unhide.label")}</span>
+        <div role="listbox" aria-labelledby="calc-unhide-label" className="flex max-h-48 flex-col overflow-auto rounded border border-ui-border bg-ui-bg py-0.5">
+          {hidden.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              role="option"
+              aria-selected={s.id === picked}
+              className="min-h-8 px-2 text-left hover:bg-ui-hover aria-selected:bg-ui-active"
+              onClick={() => setPicked(s.id)}
+              onDoubleClick={() => {
+                close();
+                void store.unhideSheet(s.id);
+              }}
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+        <div className="flex justify-end gap-2">
+          <button type="button" className={BTN} onClick={close}>
+            {t("common.cancel")}
+          </button>
+          <button type="submit" className={BTN} disabled={picked === null}>
+            {t("common.ok")}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
 export function CalcDialogs({ store }: { store: CalcStore }) {
   const t = useT();
   const dialog = useCalc(store, (s) => s.dialog);
@@ -356,6 +407,31 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       );
     case "find":
       return <FindPanel store={store} replace={dialog.replace} />;
+    case "unhideSheet":
+      return <UnhideDialog store={store} />;
+    case "mergeConfirm":
+      return (
+        <Dialog open title={t("calc.mergeCells")} onClose={close}>
+          <form
+            className="flex w-80 flex-col gap-3 text-sm"
+            onSubmit={(e) => {
+              e.preventDefault();
+              close();
+              void store.mergeSelection(dialog.merge, true);
+            }}
+          >
+            <p>{t("calc.mergeConfirm.text")}</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" className={BTN} onClick={close}>
+                {t("common.cancel")}
+              </button>
+              <button type="submit" className={BTN}>
+                {t("common.ok")}
+              </button>
+            </div>
+          </form>
+        </Dialog>
+      );
     case "rowHeight":
     case "colWidth": {
       const rows = dialog.kind === "rowHeight";

@@ -9,9 +9,9 @@ import { CalcPrintPage, printCalc } from "./print/CalcPrintPage";
 import { DEFAULT_CALC_PRINT, type CalcPrintOptions } from "./print/layout";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { SheetTabs } from "./SheetTabs";
-import { CalcStore, useCalc } from "./state/store";
+import { CalcStore, sheetViewOf, useCalc } from "./state/store";
 import { Toasts } from "./Toasts";
-import { CalcRibbon, DEFAULT_CALC_VIEW, type CalcView } from "./ui/CalcRibbon";
+import { CalcRibbon, type CalcView } from "./ui/CalcRibbon";
 import { t, useT } from "./i18n";
 
 function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySession; zoom: number }) {
@@ -63,7 +63,19 @@ export default function App({ backend }: { backend: CalcBackend }) {
     [session, store],
   );
   const [printOptions, setPrintOptions] = useState<CalcPrintOptions>(DEFAULT_CALC_PRINT);
-  const [view, setView] = useState<CalcView>(DEFAULT_CALC_VIEW);
+  // Zoom, gridlines and headings belong to the active sheet (saved in the file); the formula bar is the app's.
+  const [formulaBar, setFormulaBar] = useState(true);
+  const sheetView = useCalc(store, (s) => sheetViewOf(s.info, s.activeSheet));
+  const view: CalcView = { zoom: sheetView.zoom / 100, gridlines: sheetView.showGridlines, headings: sheetView.showHeadings, formulaBar };
+  const setView = (v: CalcView) => {
+    if (v.formulaBar !== formulaBar) setFormulaBar(v.formulaBar);
+    const zoom = Math.max(10, Math.min(400, Math.round(v.zoom * 100)));
+    void store.setSheetView({
+      ...(zoom !== sheetView.zoom ? { zoom } : {}),
+      ...(v.gridlines !== sheetView.showGridlines ? { showGridlines: v.gridlines } : {}),
+      ...(v.headings !== sheetView.showHeadings ? { showHeadings: v.headings } : {}),
+    });
+  };
   // File › Export PDF…: the Print pipeline with the current settings, straight to the system dialog ("Save as PDF").
   const exportPdf = useCallback(() => {
     store.cancelEdit();
@@ -106,7 +118,7 @@ export default function App({ backend }: { backend: CalcBackend }) {
         onViewChange={setView}
       />
       {view.formulaBar && <FormulaBar store={store} />}
-      <GridCanvas store={store} showPerf={perfOverlayEnabled()} zoom={view.zoom} gridlines={view.gridlines} />
+      <GridCanvas store={store} showPerf={perfOverlayEnabled()} />
       <SheetTabs store={store} />
       <StatusBar store={store} session={session} zoom={view.zoom} />
       <Toasts store={store} />

@@ -6,9 +6,12 @@ import type { BorderStyle } from "../generated/BorderStyle";
 import type { CellStyle } from "../generated/CellStyle";
 import type { CellView } from "../generated/CellView";
 import type { ColView } from "../generated/ColView";
+import type { Rect } from "../generated/Rect";
 import type { RowView } from "../generated/RowView";
 import type { AxisGeometry } from "./geometry";
 import { colName } from "./address";
+import { intersects, mergeAt } from "./merges";
+import { axisSegments, type PaneLayout } from "./panes";
 import { isWholeCols, isWholeRows, LAST_COL, type Range } from "./Selection";
 import { approxMeasure, fitNumber, lineHeightPx, wrapLines, type Measure } from "./textLayout";
 import {
@@ -30,6 +33,8 @@ export interface SheetData {
   rows: Map<number, RowView>;
   colGeo: AxisGeometry;
   rowGeo: AxisGeometry;
+  /** Merged ranges (absent: none). */
+  merges?: readonly Rect[];
 }
 
 export interface VisibleRange {
@@ -101,6 +106,10 @@ function borderLine(side: BorderSide, x1: number, y1: number, x2: number, y2: nu
  * Text that does not fit overflows into empty neighbours (left-aligned
  * to the right, right-aligned to the left, centred both ways), numbers
  * never overflow (`####`), and wrapped cells break into lines.
+ *
+ * A merged range paints as one cell: its top-left cell's fill and text
+ * over the whole range (masking the inner gridlines, never overflowing),
+ * borders only on its outer edges (each edge cell's own side).
  */
 export function computeRenderOps(
   vp: Viewport, sheet: SheetData, styles: readonly CellStyle[], measure: Measure = approxMeasure, bg = "#ffffff",
@@ -124,9 +133,36 @@ export function computeRenderOps(
     return cell ? cell.style : (rowStyle ?? sheet.cols.get(c)?.style ?? 0);
   };
   const hasFill = (id: number) => styleAt(styles, id).fill?.kind === "solid";
+  const textAttrs = (styleId: number, style: CellStyle) => {
+    let t = textStyles.get(styleId);
+    if (!t) {
+      const u = style.font?.underline;
+      t = {
+        valign: verticalAlign(style),
+        font: fontCss(style),
+        color: colorCss(style.font?.color) ?? TEXT_COLOR,
+        underline: !!u && u !== "none",
+        strike: !!style.font?.strike,
+      };
+      textStyles.set(styleId, t);
+    }
+    return t;
+  };
   // Text may come from up to MAX_OVERFLOW_COLS columns outside the view.
   const t0 = Math.max(0, vis.c0 - MAX_OVERFLOW_COLS);
   const t1 = Math.min(LAST_COL, vis.c1 + MAX_OVERFLOW_COLS);
+
+  // Merged ranges: their cells are skipped below and painted as one.
+  const merges = sheet.merges ?? [];
+  const visMerges = merges.filter((m) => intersects(m, vis));
+  const covered = new Set<number>();
+  for (const m of visMerges) {
+    for (let r = Math.max(m.r0, vis.r0); r <= Math.min(m.r1, vis.r1); r++) {
+      for (let c = Math.max(m.c0, vis.c0); c <= Math.min(m.c1, vis.c1); c++) covered.add(r * (LAST_COL + 1) + c);
+    }
+  }
+  const textSpan = { r0: vis.r0, r1: vis.r1, c0: t0, c1: t1 };
+  const textMerges = merges.length === 0 ? [] : merges.filter((m) => intersects(m, textSpan));
 
   for (let r = vis.r0; r <= vis.r1; r++) {
     const y = rowGeo.offset(r) - vp.scrollY;
@@ -139,6 +175,7 @@ export function computeRenderOps(
       const x = colX[c - vis.c0];
       const w = colX[c - vis.c0 + 1] - x;
       if (w === 0) continue;
+      if (covered.size > 0 && covered.has(r * (LAST_COL + 1) + c)) continue;
       const cell = rowCells?.get(c);
       const styleId = styleIdAt(rowCells, rowStyle, c);
       if (styleId === 0 && !cell) continue;
@@ -156,26 +193,18 @@ export function computeRenderOps(
       }
     }
     if (!rowCells) continue;
-    const isEmpty = (c: number) => (rowCells.get(c)?.display ?? "") === "";
+    const rowMerges = textMerges.filter((m) => m.r0 <= r && r <= m.r1);
+    const merged = (c: number) => rowMerges.some((m) => c >= m.c0 && c <= m.c1);
+    const isEmpty = (c: number) => (rowCells.get(c)?.display ?? "") === "" && !merged(c);
     for (const [c, cell] of rowCells) {
       if (c < t0 || c > t1 || cell.display === "") continue;
+      if (rowMerges.length > 0 && merged(c)) continue;
       const x = xOf(c);
       const w = colGeo.size(c);
       if (w === 0) continue;
       const styleId = cell.style;
       const style = styleAt(styles, styleId);
-      let t = textStyles.get(styleId);
-      if (!t) {
-        const u = style.font?.underline;
-        t = {
-          valign: verticalAlign(style),
-          font: fontCss(style),
-          color: colorCss(style.font?.color) ?? TEXT_COLOR,
-          underline: !!u && u !== "none",
-          strike: !!style.font?.strike,
-        };
-        textStyles.set(styleId, t);
-      }
+      const t = textAttrs(styleId, style);
       const align = horizontalAlign(style, cell.kind);
       const avail = w - 2 * CELL_PADDING;
       const base = { op: "text" as const, row: r, col: c, x, y, w, h, align, ...t };
@@ -225,6 +254,50 @@ export function computeRenderOps(
       texts.push({ ...base, text, clipX, clipW });
     }
   }
+  for (const m of visMerges) {
+    const x = xOf(m.c0);
+    const w = xOf(m.c1 + 1) - x;
+    const y = rowGeo.offset(m.r0) - vp.scrollY;
+    const h = rowGeo.offset(m.r1 + 1) - vp.scrollY - y;
+    if (w <= 0 || h <= 0) continue;
+    const anchorRow = sheet.cells.get(m.r0);
+    const styleId = styleIdAt(anchorRow, sheet.rows.get(m.r0)?.style ?? null, m.c0);
+    const style = styleAt(styles, styleId);
+    const fill = style.fill?.kind === "solid" ? colorCss(style.fill.color) : undefined;
+    // Covers the inner gridlines; the outer right/bottom ones stay.
+    masks.push({ op: "fill", x, y, w: w - 1, h: h - 1, color: fill ?? bg });
+    const sideOf = (row: number, col: number) => styleAt(styles, styleIdAt(sheet.cells.get(row), sheet.rows.get(row)?.style ?? null, col)).borders;
+    for (let c = Math.max(m.c0, vis.c0); c <= Math.min(m.c1, vis.c1); c++) {
+      const cx = xOf(c), cw = xOf(c + 1) - cx;
+      if (cw === 0) continue;
+      const top = sideOf(m.r0, c)?.top;
+      const bottom = sideOf(m.r1, c)?.bottom;
+      if (top) lines.push(borderLine(top, cx, y, cx + cw, y));
+      if (bottom) lines.push(borderLine(bottom, cx, y + h, cx + cw, y + h));
+    }
+    for (let r = Math.max(m.r0, vis.r0); r <= Math.min(m.r1, vis.r1); r++) {
+      const ry = rowGeo.offset(r) - vp.scrollY, rh = rowGeo.size(r);
+      if (rh === 0) continue;
+      const left = sideOf(r, m.c0)?.left;
+      const right = sideOf(r, m.c1)?.right;
+      if (left) lines.push(borderLine(left, x, ry, x, ry + rh));
+      if (right) lines.push(borderLine(right, x + w, ry, x + w, ry + rh));
+    }
+    const cell = anchorRow?.get(m.c0);
+    if (!cell || cell.display === "") continue;
+    const t = textAttrs(styleId, style);
+    const align = horizontalAlign(style, cell.kind);
+    const avail = w - 2 * CELL_PADDING;
+    const base = { op: "text" as const, row: m.r0, col: m.c0, x, y, w, h, align, ...t, clipX: x, clipW: w };
+    if (style.alignment?.wrapText) {
+      texts.push({ ...base, text: cell.display, lines: wrapLines(cell.display, avail, t.font, measure), lineHeight: lineHeightPx(t.font) });
+    } else if (cell.kind === "number") {
+      const code = style.numberFormat;
+      texts.push({ ...base, text: fitNumber(cell.display, avail, t.font, measure, !code || code.trim().toLowerCase() === "general") });
+    } else {
+      texts.push({ ...base, text: cell.display.replace(/\n/g, " ") });
+    }
+  }
   texts.sort((a, b) => a.row - b.row || a.col - b.col);
   for (let c = vis.c0; c <= vis.c1; c++) {
     if (colGeo.size(c) > 0) xs.push(colX[c - vis.c0 + 1]);
@@ -251,13 +324,16 @@ export function prepareCanvas(canvas: HTMLCanvasElement, width: number, height: 
   return ctx;
 }
 
-export function drawOps(ctx: CanvasRenderingContext2D, ops: RenderOp[], bg: string): void {
-  const { width, height } = ctx.canvas;
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, width, height);
-  ctx.restore();
+/** Paints `ops`; with `bg`, the whole canvas is cleared to it first (`null`: draw over what is there). */
+export function drawOps(ctx: CanvasRenderingContext2D, ops: RenderOp[], bg: string | null): void {
+  if (bg !== null) {
+    const { width, height } = ctx.canvas;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+  }
   for (const o of ops) {
     switch (o.op) {
       case "fill":
@@ -357,10 +433,12 @@ export function drawSelection(
   const cx = Math.max(-4, x0), cy = Math.max(-4, y0);
   const cw = Math.min(vp.width + 4, x1) - cx, ch = Math.min(vp.height + 4, y1) - cy;
   if (cw <= 0 || ch <= 0) return;
-  const ax = colGeo.offset(active.col) - vp.scrollX;
-  const ay = rowGeo.offset(active.row) - vp.scrollY;
-  const aw = colGeo.size(active.col), ah = rowGeo.size(active.row);
-  if (range.r0 !== range.r1 || range.c0 !== range.c1) {
+  // The active cell (a whole merged range when it is merged).
+  const am = mergeAt(sheet.merges ?? [], active.row, active.col) ?? { r0: active.row, c0: active.col, r1: active.row, c1: active.col };
+  const ax = colGeo.offset(am.c0) - vp.scrollX;
+  const ay = rowGeo.offset(am.r0) - vp.scrollY;
+  const aw = colGeo.offset(am.c1 + 1) - colGeo.offset(am.c0), ah = rowGeo.offset(am.r1 + 1) - rowGeo.offset(am.r0);
+  if (range.r0 !== am.r0 || range.r1 !== am.r1 || range.c0 !== am.c0 || range.c1 !== am.c1) {
     ctx.fillStyle = "rgba(33, 115, 70, 0.12)";
     ctx.beginPath();
     ctx.rect(cx, cy, cw, ch);
@@ -410,13 +488,18 @@ export function drawRefHighlights(ctx: CanvasRenderingContext2D, vp: Viewport, s
   }
 }
 
-/** Column and row headers plus the corner box. */
+/** Colour of the frozen-panes divider lines. */
+export const FREEZE_LINE = "#8a8a8a";
+
+/**
+ * Column and row headers plus the corner box; with frozen panes the
+ * frozen headers stay put and the rest scroll (one clipped stretch each).
+ */
 export function drawHeaders(
-  ctx: CanvasRenderingContext2D, vp: Viewport, sheet: SheetData, range: Range, colors: { bg: string; fg: string; line: string; active: string },
+  ctx: CanvasRenderingContext2D, l: PaneLayout, sheet: SheetData, range: Range, colors: { bg: string; fg: string; line: string; active: string },
 ): void {
   const { colGeo, rowGeo } = sheet;
-  const vis = visibleRange(vp, colGeo, rowGeo);
-  const fullW = HEADER_W + vp.width, fullH = HEADER_H + vp.height;
+  const fullW = HEADER_W + l.width, fullH = HEADER_H + l.height;
   ctx.clearRect(0, 0, fullW, fullH);
   ctx.fillStyle = colors.bg;
   ctx.fillRect(0, 0, fullW, HEADER_H);
@@ -427,33 +510,55 @@ export function drawHeaders(
   ctx.strokeStyle = colors.line;
   ctx.lineWidth = 1;
   const rowsSel = isWholeRows(range), colsSel = isWholeCols(range);
+  for (const seg of axisSegments(l.frozenW, l.scrollX, l.width)) {
+    if (seg.size <= 0) continue;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(HEADER_W + seg.at, 0, seg.size, HEADER_H);
+    ctx.clip();
+    ctx.beginPath();
+    const [c0, c1] = colGeo.visibleRange(seg.scroll, seg.size);
+    for (let c = c0; c <= c1; c++) {
+      const w = colGeo.size(c);
+      if (w === 0) continue;
+      const x = HEADER_W + seg.at + colGeo.offset(c) - seg.scroll;
+      if (c >= range.c0 && c <= range.c1) {
+        ctx.fillStyle = colsSel ? "#217346" : colors.active;
+        ctx.fillRect(x, 0, w, HEADER_H);
+      }
+      ctx.fillStyle = colsSel && c >= range.c0 && c <= range.c1 ? "#ffffff" : colors.fg;
+      ctx.fillText(colName(c), x + w / 2, HEADER_H / 2 + 1);
+      ctx.moveTo(Math.round(x + w) - 0.5, 0);
+      ctx.lineTo(Math.round(x + w) - 0.5, HEADER_H);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+  for (const seg of axisSegments(l.frozenH, l.scrollY, l.height)) {
+    if (seg.size <= 0) continue;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, HEADER_H + seg.at, HEADER_W, seg.size);
+    ctx.clip();
+    ctx.beginPath();
+    const [r0, r1] = rowGeo.visibleRange(seg.scroll, seg.size);
+    for (let r = r0; r <= r1; r++) {
+      const h = rowGeo.size(r);
+      if (h === 0) continue;
+      const y = HEADER_H + seg.at + rowGeo.offset(r) - seg.scroll;
+      if (r >= range.r0 && r <= range.r1) {
+        ctx.fillStyle = rowsSel ? "#217346" : colors.active;
+        ctx.fillRect(0, y, HEADER_W, h);
+      }
+      ctx.fillStyle = rowsSel && r >= range.r0 && r <= range.r1 ? "#ffffff" : colors.fg;
+      ctx.fillText(String(r + 1), HEADER_W / 2, y + h / 2 + 1);
+      ctx.moveTo(0, Math.round(y + h) - 0.5);
+      ctx.lineTo(HEADER_W, Math.round(y + h) - 0.5);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
   ctx.beginPath();
-  for (let c = vis.c0; c <= vis.c1; c++) {
-    const w = colGeo.size(c);
-    if (w === 0) continue;
-    const x = HEADER_W + colGeo.offset(c) - vp.scrollX;
-    if (c >= range.c0 && c <= range.c1) {
-      ctx.fillStyle = colsSel ? "#217346" : colors.active;
-      ctx.fillRect(x, 0, w, HEADER_H);
-    }
-    ctx.fillStyle = colsSel && c >= range.c0 && c <= range.c1 ? "#ffffff" : colors.fg;
-    ctx.fillText(colName(c), x + w / 2, HEADER_H / 2 + 1);
-    ctx.moveTo(Math.round(x + w) - 0.5, 0);
-    ctx.lineTo(Math.round(x + w) - 0.5, HEADER_H);
-  }
-  for (let r = vis.r0; r <= vis.r1; r++) {
-    const h = rowGeo.size(r);
-    if (h === 0) continue;
-    const y = HEADER_H + rowGeo.offset(r) - vp.scrollY;
-    if (r >= range.r0 && r <= range.r1) {
-      ctx.fillStyle = rowsSel ? "#217346" : colors.active;
-      ctx.fillRect(0, y, HEADER_W, h);
-    }
-    ctx.fillStyle = rowsSel && r >= range.r0 && r <= range.r1 ? "#ffffff" : colors.fg;
-    ctx.fillText(String(r + 1), HEADER_W / 2, y + h / 2 + 1);
-    ctx.moveTo(0, Math.round(y + h) - 0.5);
-    ctx.lineTo(HEADER_W, Math.round(y + h) - 0.5);
-  }
   ctx.moveTo(0, HEADER_H - 0.5);
   ctx.lineTo(fullW, HEADER_H - 0.5);
   ctx.moveTo(HEADER_W - 0.5, 0);
@@ -462,4 +567,23 @@ export function drawHeaders(
   // Corner box (clears what scrolled under it).
   ctx.fillStyle = colors.bg;
   ctx.fillRect(0, 0, HEADER_W - 1, HEADER_H - 1);
+}
+
+/** The frozen-panes divider lines in the cell canvas. */
+export function drawFreezeLines(ctx: CanvasRenderingContext2D, l: PaneLayout): void {
+  if (l.frozenW <= 0 && l.frozenH <= 0) return;
+  ctx.save();
+  ctx.strokeStyle = FREEZE_LINE;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  if (l.frozenW > 0 && l.frozenW < l.width) {
+    ctx.moveTo(Math.round(l.frozenW) - 0.5, 0);
+    ctx.lineTo(Math.round(l.frozenW) - 0.5, l.height);
+  }
+  if (l.frozenH > 0 && l.frozenH < l.height) {
+    ctx.moveTo(0, Math.round(l.frozenH) - 0.5);
+    ctx.lineTo(l.width, Math.round(l.frozenH) - 0.5);
+  }
+  ctx.stroke();
+  ctx.restore();
 }

@@ -32,10 +32,23 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
 
 ## Tabs per app
 
-- **Calc**: Home (Undo; Clipboard: Paste ▾ values, Cut, Copy – `calcActions`; Font incl. borders; Alignment incl. wrap; Number:
-  format, %, comma, decimals ±; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide, Format
-  cells…); Editing: Clear, Find ▾ Replace), Insert (New sheet, rows/columns), View (gridlines, formula bar, zoom 50–200 % via CSS
-  `zoom` on the grid with hit-testing scaled, shortcuts help).
+- **Calc**: Home (Undo; Clipboard: Paste ▾ values, Cut, Copy – `calcActions`; Font incl. borders; Alignment incl. wrap and
+  Merge & Center ▾ (Merge & Center – a toggle that unmerges a merged selection –, Merge Across, Merge Cells, Unmerge Cells);
+  Number: format, %, comma, decimals ±; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide
+  rows and columns, Hide Sheet / Unhide Sheet…, Format cells…); Editing: Clear, Find ▾ Replace), Insert (New sheet,
+  rows/columns), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
+  scaled; Window: Freeze Panes ▾ (Freeze/Unfreeze Panes, Freeze Top Row, Freeze First Column); shortcuts help). Zoom,
+  gridlines, headings and frozen panes are the active sheet's `SheetView` (`setSheetView` / `setFreeze`, undoable, saved in
+  the file's `<sheetView>`); the formula bar toggle is the app's.
+- **Calc grid** (`apps/calc/src/grid`): frozen panes split the cell canvas into up to four quadrants (`panes.ts`: one viewport
+  per quadrant, frozen ones fixed, a divider line, headers split the same way, pointer positions mapped per quadrant,
+  scroll-into-view only for the scrolling part). Merged cells (`merges.ts`) paint as one cell (top-left content and fill over
+  the range, inner gridlines masked, outer borders only, no overflow); selections snap to whole merges, the active cell is a
+  merge's top-left cell (editing, typing, Delete and the name box use it), arrow keys skip covered cells, and paste / the
+  fill handle refuse to change part of a merge with a toast. Merging cells that hold more than one value asks first (only
+  the upper-left value is kept). Hidden sheets have no tab (tab menu Hide / Unhide… with a list of the hidden sheets;
+  "very hidden" ones are not offered); the sheet a hide/unhide patch names (`activateSheet`) becomes active; the last
+  visible sheet can be neither hidden nor deleted; hidden sheets are not printed.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).
@@ -115,7 +128,8 @@ the current settings, straight to the system dialog (desktop and browser alike: 
 - **Calc** (`apps/calc/src/print`): active sheet / entire workbook (every sheet from a new page, `&P`/`&N` over the whole
   printout) / selection; orientation, paper A4/Letter/Legal/A3, Excel margin presets, scaling (100 %, custom %, fit sheet on
   one page, fit all columns, fit all rows); wide sheets paginate into page columns, ordered down, then over; gridlines, row
-  and column headings, rows to repeat at the top; header and footer as left/center/right slots with `&P &N &D &T &A &F`.
+  and column headings, rows to repeat at the top; header and footer as left/center/right slots with `&P &N &D &T &A &F`. Merged
+  cells print as one cell (`colspan`/`rowspan`, cut at page breaks).
 - **Write** (`apps/write/src/print`): the editor's top-level blocks cloned onto pages, measured at the printed text width and
   packed with the print layout's `computeBreaks` – with the document's own page setup at 100 % the pages are the editor's
   pages; overrides for paper, orientation, margins and a content scale; headers/footers with `{PAGE}` on every page.

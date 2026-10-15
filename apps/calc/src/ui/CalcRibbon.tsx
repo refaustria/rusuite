@@ -15,15 +15,17 @@ import { calcActions } from "../calcActions";
 import { sheetMenu } from "../SheetTabs";
 import { toolbarValue } from "../grid/style";
 import { useCalc, type CalcStore } from "../state/store";
+import { freezeIcon, headingsIcon, mergeIcon, unmergeIcon } from "./icons";
 
-/** View options of the grid (View tab). */
+/** View options of the grid (View tab): zoom (1 = 100 %), gridlines and headings are the active sheet's. */
 export interface CalcView {
   zoom: number;
   gridlines: boolean;
+  headings: boolean;
   formulaBar: boolean;
 }
 
-export const DEFAULT_CALC_VIEW: CalcView = { zoom: 1, gridlines: true, formulaBar: true };
+export const DEFAULT_CALC_VIEW: CalcView = { zoom: 1, gridlines: true, headings: true, formulaBar: true };
 export const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 /**
@@ -145,6 +147,20 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
             </RibbonRow>
             <RibbonRow>
               <AlignmentControls {...fmt} parts={["horizontal"]} />
+              <RibbonSplitButton
+                label={t("calc.mergeCenter")}
+                icon={mergeIcon()}
+                showLabel
+                disabled={off}
+                onClick={run(() => store.toggleMergeCenter())}
+                menuLabel={t("calc.mergeOptions")}
+                menu={[
+                  { id: "mergeCenter", label: t("calc.mergeCenter"), icon: mergeIcon(), onSelect: run(() => store.mergeSelection("center")) },
+                  { id: "mergeAcross", label: t("calc.mergeAcross"), onSelect: run(() => store.mergeSelection("across")) },
+                  { id: "mergeCells", label: t("calc.mergeCells"), onSelect: run(() => store.mergeSelection("cells")) },
+                  { id: "unmerge", label: t("calc.unmergeCells"), icon: unmergeIcon(), disabled: !store.selectionHasMerge(), onSelect: run(() => store.unmergeSelection()) },
+                ]}
+              />
             </RibbonRow>
           </RibbonStack>
         ),
@@ -218,6 +234,8 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
                 { id: "hideCols", label: t("calc.hideCols"), onSelect: run(actions.hideCols) },
                 { id: "unhideRows", label: t("calc.unhideRows"), onSelect: run(actions.unhideRows) },
                 { id: "unhideCols", label: t("calc.unhideCols"), onSelect: run(actions.unhideCols) },
+                { id: "hideSheet", label: t("calc.hideSheet"), disabled: !actions.canHideSheet(), onSelect: run(actions.hideSheet) },
+                { id: "unhideSheet", label: t("calc.unhideSheetDots"), disabled: !actions.canUnhideSheet(), onSelect: actions.unhideSheet },
                 { separator: true },
                 { id: "formatCells", label: t("calc.formatCellsDots"), icon: "format", shortcut: "Mod+1", onSelect: actions.formatCells },
               ]}
@@ -280,6 +298,17 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
     ],
   };
 
+  const frozen = store.sheetView();
+  const isFrozen = frozen.frozenRows > 0 || frozen.frozenCols > 0;
+  // Excel's menu: the first entry freezes at the active cell, or unfreezes when something is frozen.
+  const freezeMenu = [
+    isFrozen
+      ? { id: "unfreeze", label: t("calc.unfreezePanes"), onSelect: run(() => store.freezePanes("none")) }
+      : { id: "freeze", label: t("calc.freezePanes"), onSelect: run(() => store.freezePanes("selection")) },
+    { id: "topRow", label: t("calc.freezeTopRow"), onSelect: run(() => store.freezePanes("topRow")) },
+    { id: "firstCol", label: t("calc.freezeFirstCol"), onSelect: run(() => store.freezePanes("firstCol")) },
+  ];
+
   const viewTab: RibbonTab = {
     id: "view",
     label: t("tab.view"),
@@ -287,10 +316,15 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
       {
         label: t("group.show"),
         items: (
-          <RibbonStack>
-            <RibbonButton label={t("calc.gridlines")} icon="gridlines" showLabel pressed={view.gridlines} onClick={() => onViewChange({ ...view, gridlines: !view.gridlines })} />
-            <RibbonButton label={t("calc.formulaBar")} icon="formulaBar" showLabel pressed={view.formulaBar} onClick={() => onViewChange({ ...view, formulaBar: !view.formulaBar })} />
-          </RibbonStack>
+          <>
+            <RibbonStack>
+              <RibbonButton label={t("calc.gridlines")} icon="gridlines" showLabel pressed={view.gridlines} disabled={off} onClick={() => onViewChange({ ...view, gridlines: !view.gridlines })} />
+              <RibbonButton label={t("calc.headings")} icon={headingsIcon()} showLabel pressed={view.headings} disabled={off} onClick={() => onViewChange({ ...view, headings: !view.headings })} />
+            </RibbonStack>
+            <RibbonStack>
+              <RibbonButton label={t("calc.formulaBar")} icon="formulaBar" showLabel pressed={view.formulaBar} onClick={() => onViewChange({ ...view, formulaBar: !view.formulaBar })} />
+            </RibbonStack>
+          </>
         ),
       },
       {
@@ -302,18 +336,23 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
                 aria-label={t("group.zoom")}
                 className={`${RIBBON_SELECT} w-20`}
                 value={String(view.zoom)}
+                disabled={off}
                 onChange={(e) => onViewChange({ ...view, zoom: Number(e.target.value) })}
               >
-                {ZOOM_LEVELS.map((z) => (
+                {(ZOOM_LEVELS.includes(view.zoom) ? ZOOM_LEVELS : [...ZOOM_LEVELS, view.zoom].sort((a, b) => a - b)).map((z) => (
                   <option key={z} value={String(z)}>
                     {Math.round(z * 100)} %
                   </option>
                 ))}
               </select>
-              <RibbonButton label="100 %" icon="zoom" showLabel tooltip={t("cmd.zoomTo100")} onClick={() => onViewChange({ ...view, zoom: 1 })} />
+              <RibbonButton label="100 %" icon="zoom" showLabel tooltip={t("cmd.zoomTo100")} disabled={off} onClick={() => onViewChange({ ...view, zoom: 1 })} />
             </RibbonStack>
           </>
         ),
+      },
+      {
+        label: t("calc.window"),
+        items: <RibbonMenuButton label={t("calc.freezePanes")} icon={freezeIcon()} size="large" disabled={off} menu={freezeMenu} />,
       },
       languageRibbonGroup(t),
       {

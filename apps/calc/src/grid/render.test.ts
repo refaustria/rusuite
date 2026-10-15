@@ -22,7 +22,7 @@ function sheet(cells: CellView[], extra: Partial<SheetData> = {}): SheetData {
   }
   const cols = extra.cols ?? new Map();
   const rows = extra.rows ?? new Map();
-  return { cells: map, cols, rows, colGeo: colGeometry(DEFAULT_FORMAT, cols), rowGeo: rowGeometry(DEFAULT_FORMAT, rows) };
+  return { cells: map, cols, rows, colGeo: colGeometry(DEFAULT_FORMAT, cols), rowGeo: rowGeometry(DEFAULT_FORMAT, rows), merges: extra.merges };
 }
 
 const v = (row: number, col: number, display: string, kind: CellView["kind"], style = 0): CellView => ({
@@ -107,3 +107,48 @@ describe("computeRenderOps", () => {
   });
 });
 
+
+describe("computeRenderOps: merged cells (P8-3)", () => {
+  const vp = { scrollX: 0, scrollY: 0, width: 300, height: 100 };
+  const A1C2 = { r0: 0, c0: 0, r1: 1, c1: 2 };
+
+  it("paints a merge as one cell: text over the whole range, inner gridlines masked", () => {
+    const ops = computeRenderOps(vp, sheet([v(0, 0, "Title", "text", 2)], { merges: [A1C2] }), styles, m7);
+    const [t] = texts(ops);
+    expect(t).toMatchObject({ row: 0, col: 0, text: "Title", x: 0, y: 0, w: 192, h: 40, clipX: 0, clipW: 192, align: "center" });
+    const gi = ops.findIndex((o) => o.op === "gridlines");
+    const mask = ops.slice(gi + 1).find((o) => o.op === "fill");
+    expect(mask).toEqual({ op: "fill", x: 0, y: 0, w: 191, h: 39, color: "#ffffff" });
+  });
+
+  it("covered cells draw nothing of their own and merged text never overflows", () => {
+    const long = "a long heading that does not fit";
+    const ops = computeRenderOps(vp, sheet([v(0, 0, long, "text"), v(0, 1, "stale", "text"), v(1, 2, "x", "number", 1)], { merges: [A1C2] }), styles, m7);
+    expect(texts(ops).map((t) => [t.text, t.clipW])).toEqual([[long, 192]]);
+    // The covered cell's own fill (style 1 at C2) is not painted either.
+    expect(ops.filter((o) => o.op === "fill" && o.color === "#FFFF00")).toHaveLength(0);
+  });
+
+  it("uses the top-left cell's fill and outer borders only", () => {
+    const boxed: CellStyle = { borders: { top: { style: "thin", color: { kind: "rgb", value: "000000" } }, bottom: { style: "thin", color: { kind: "rgb", value: "000000" } }, left: { style: "thin", color: { kind: "rgb", value: "000000" } }, right: { style: "thin", color: { kind: "rgb", value: "000000" } } } };
+    const all = [...styles, boxed];
+    const id = all.length - 1;
+    const cells = [v(0, 0, "", "empty", 1)];
+    for (let r = 0; r <= 1; r++) for (let c = 0; c <= 2; c++) if (r || c) cells.push(v(r, c, "", "empty", id));
+    cells[0] = { ...cells[0]!, style: 1 };
+    const ops = computeRenderOps(vp, sheet(cells, { merges: [A1C2] }), all, m7);
+    expect(ops.find((o) => o.op === "fill" && o.color === "#FFFF00")).toMatchObject({ x: 0, y: 0, w: 191, h: 39 });
+    const lines = ops.flatMap((o) => (o.op === "line" ? [[o.x1, o.y1, o.x2, o.y2]] : []));
+    // Bottom edge of B2, C2; right edge of C1, C2 – no inner lines, none for A1 (style 1 has no borders).
+    expect(lines).toEqual(expect.arrayContaining([[64, 40, 128, 40], [128, 40, 192, 40], [192, 0, 192, 20], [192, 20, 192, 40]]));
+    expect(lines.some(([x1, y1, x2, y2]) => (x1 === 64 && x2 === 64) || (y1 === 20 && y2 === 20 && x1 < 192))).toBe(false);
+  });
+
+  it("a merge scrolled partly out of view keeps its top-left text, and neighbours do not overflow into it", () => {
+    const merged = { r0: 0, c0: 1, r1: 0, c1: 3 };
+    const ops = computeRenderOps({ ...vp, scrollX: 100 }, sheet([v(0, 1, "kept", "text"), v(0, 0, "overflowing text", "text")], { merges: [merged] }), styles, m7);
+    const ts = texts(ops);
+    expect(ts.find((t) => t.col === 1)).toMatchObject({ x: -36, w: 192 });
+    expect(ts.find((t) => t.col === 0)?.clipW ?? 64).toBe(64);
+  });
+});

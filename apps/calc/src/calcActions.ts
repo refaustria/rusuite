@@ -4,7 +4,7 @@
 import type { ContextMenuItem } from "@rusuite/ui-shared";
 import { normalize } from "./grid/Selection";
 import { t } from "./i18n";
-import type { CalcStore } from "./state/store";
+import { unhideableSheets, visibleSheets, type CalcStore } from "./state/store";
 
 /** Writes text to the system clipboard (best effort: permissions may deny it). */
 async function writeSystem(text: string): Promise<void> {
@@ -70,6 +70,16 @@ export function calcActions(store: CalcStore) {
     /** Autofit every column with content (measures loaded cells only). */
     autofitAllCols: () => store.autofitAllCols(),
     toggleWrap: () => store.toggleWrap(),
+    mergeCenter: () => store.mergeSelection("center"),
+    mergeAcross: () => store.mergeSelection("across"),
+    mergeCells: () => store.mergeSelection("cells"),
+    unmergeCells: () => store.unmergeSelection(),
+    /** Hide Sheet (the active one); not for the last visible sheet. */
+    hideSheet: () => store.hideSheet(),
+    canHideSheet: () => visibleSheets(store.getState().info?.sheets ?? []).length > 1,
+    /** Unhide Sheet…: the dialog listing the hidden sheets. */
+    unhideSheet: () => store.openDialog({ kind: "unhideSheet" }),
+    canUnhideSheet: () => unhideableSheets(store.getState().info?.sheets ?? []).length > 0,
   };
 }
 
@@ -88,8 +98,8 @@ const clipboardItems = (a: CalcActions): ContextMenuItem[] => [
   item("paste-values", t("calc.pasteValues"), a.pasteValues, "Ctrl+Shift+V"),
 ];
 
-/** Right-click on cells. */
-export function cellMenu(a: CalcActions): ContextMenuItem[] {
+/** Right-click on cells; `hasMerge`: the selection touches a merged cell (Unmerge enabled). */
+export function cellMenu(a: CalcActions, hasMerge = false): ContextMenuItem[] {
   return [
     ...clipboardItems(a),
     SEP,
@@ -99,6 +109,10 @@ export function cellMenu(a: CalcActions): ContextMenuItem[] {
     item("delete-cols", t("calc.deleteCols"), a.deleteCols),
     SEP,
     item("clear", t("calc.clearContents"), a.clearContents, "Del"),
+    SEP,
+    item("merge-center", t("calc.mergeCenter"), a.mergeCenter),
+    item("merge-cells", t("calc.mergeCells"), a.mergeCells),
+    { ...item("unmerge", t("calc.unmergeCells"), a.unmergeCells), disabled: !hasMerge },
     SEP,
     item("format", t("calc.formatCellsDots"), a.formatCells, "Ctrl+1"),
     item("row-height", t("calc.rowHeightDots"), a.rowHeight),

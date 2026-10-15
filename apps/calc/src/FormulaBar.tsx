@@ -8,6 +8,7 @@ import { cellAddress, sheetPrefix } from "./grid/address";
 import { FORMULA_BAR_ATTR } from "./grid/CellEditor";
 import { EditPopups, FormulaOverlay, handleEditorKey, syncCaret, useEditorBinding } from "./grid/editorKit";
 import { normalize } from "./grid/Selection";
+import { isSingleCell } from "./grid/merges";
 import { useCalc, type CalcStore } from "./state/store";
 import { useT } from "./i18n";
 
@@ -32,7 +33,8 @@ export function FormulaBar({ store }: { store: CalcStore }) {
   const index = sheets?.findIndex((s) => s.id === activeSheet) ?? 0;
   const prefix = index > 0 && sheets ? sheetPrefix(sheets[index].name) : "";
   const r = normalize(selection);
-  const single = r.r0 === r.r1 && r.c0 === r.c1;
+  // A merged cell is addressed by its top-left cell, as in Excel's name box.
+  const single = isSingleCell(r, store.merges());
   const address = single ? `${prefix}${cellAddress(row, col)}` : `${prefix}${cellAddress(r.r0, r.c0)}:${cellAddress(r.r1, r.c1)}`;
   const value = edit ? edit.text : (store.activeCell()?.input ?? "");
   const refs = edit && isFormula(edit.text) ? store.editRefs() : [];

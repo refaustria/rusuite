@@ -31,6 +31,7 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 
 | Keys | Action |
 | --- | --- |
+| Arrows, Tab, Enter | Move the active cell; a merged cell is one cell (covered cells are skipped, Shift+Arrow extends past the whole merge) |
 | Mod+Arrow | Jump to the edge of the data |
 | Mod+Shift+Arrow | Extend the selection to the edge of the data |
 | F2 | Edit the active cell (edit mode); inside the editor: switch between edit and enter mode |
@@ -58,6 +59,9 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 - **Fill handle** (the small square at the selection's bottom-right): drag down, up, right or left to fill. One cell is copied (relative references shift); two or more numbers continue their linear trend (1, 2 → 3, 4, …); a date steps by a day; text ending in a number counts up (`Item1` → `Item2`). Hold Ctrl while releasing to swap series and copy. Double-click the handle to fill down to the end of the neighbouring column's data.
 - **Right-click** cells, row headers or column headers for a context menu (cut/copy/paste/paste values, insert/delete rows and columns, clear contents, format cells, row height / column width, hide/unhide, autofit column width). The menu is keyboard navigable (arrows, Home/End, Enter, Esc).
 - **Sheet tabs**: right-click for Insert sheet, Delete sheet (asks first when the sheet has content; references to it become `#REF!`, Undo brings it back), Rename, Duplicate (`Name (2)`, formulas referring to the sheet itself point at the copy), Move left / right and Tab colour… (shown as the tab's underline, saved as `sheetPr/tabColor`). Drag a tab to reorder. Ribbon Insert › Sheet offers the same for the active sheet. All of it is undoable.
+- **Merged cells**: clicking any part of a merged cell selects the whole merge (its top-left cell is the active cell); dragging or Shift+clicking grows the range to whole merges; double-click or typing edits the top-left cell. Right-click cells for Merge & Center, Merge Cells and Unmerge Cells (also Home › Merge & Center ▾ with Merge Across).
+- **Sheet tabs**: Hide and Unhide… (lists the hidden sheets) are also in the tab menu, and in Home › Format.
+- **Frozen panes** (View › Freeze Panes ▾): frozen rows and columns stay in place while the rest scrolls; clicks and drags work across the divider.
 - Double-click a column boundary to autofit the column, a row boundary to autofit the row. Autofit measures the cells loaded in the view cache (the visible area plus prefetched blocks), not the whole sheet.
 - Cut/paste moves the cells and their formulas keep their text; references to the moved cells (an area only when it lies entirely inside the moved block), in the moved formulas and anywhere in the workbook, follow them, as in Excel.
 

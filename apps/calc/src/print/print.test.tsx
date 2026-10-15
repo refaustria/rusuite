@@ -214,3 +214,32 @@ describe("print flow", () => {
     window.dispatchEvent(new Event("afterprint"));
   });
 });
+
+describe("merged cells in print (P8-3)", () => {
+  function mergedCache(): SheetCache {
+    const cache = emptyCache();
+    cache.cells.set(0, new Map([[0, { row: 0, col: 0, input: "Report", display: "Report", kind: "text", style: 1 }]]));
+    cache.cells.set(2, new Map([[1, { row: 2, col: 1, input: "x", display: "x", kind: "text", style: 0 }]]));
+    cache.merges = [{ r0: 0, c0: 0, r1: 1, c1: 2 }];
+    return cache;
+  }
+  const styles: CellStyle[] = [{}, { alignment: { horizontal: "center" } }];
+
+  it("the top-left cell spans the merge (colspan/rowspan), covered cells are left out", () => {
+    const t = buildPrintTable(mergedCache(), styles, 2, 2);
+    expect(t.rows[0]!.cells[0]).toMatchObject({ text: "Report", span: { rows: 2, cols: 3 } });
+    expect(t.rows[1]!.cells.map((c) => !!c.covered)).toEqual([true, true, true]);
+    const html = sliceTableHtml(t, { rows: [0, 3], cols: [0, 3], repeat: 0 }, { gridlines: false, headings: false });
+    expect(html).toContain('<td colspan="3" rowspan="2" style="');
+    expect(html).toContain("text-align:center");
+    expect((html.match(/<td/g) ?? []).length).toBe(1 + 3);
+  });
+
+  it("a page break through a merge cuts the spans; covered cells of the other page print empty", () => {
+    const t = buildPrintTable(mergedCache(), styles, 2, 2);
+    const left = sliceTableHtml(t, { rows: [0, 3], cols: [0, 2], repeat: 0 }, { gridlines: false, headings: false });
+    expect(left).toContain('<td colspan="2" rowspan="2"');
+    const right = sliceTableHtml(t, { rows: [0, 3], cols: [2, 3], repeat: 0 }, { gridlines: false, headings: false });
+    expect(right.match(/<td><\/td>/g)).toHaveLength(2);
+  });
+});

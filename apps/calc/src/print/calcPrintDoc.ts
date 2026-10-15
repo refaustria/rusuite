@@ -37,12 +37,27 @@ export function sliceTableHtml(table: PrintTable, slice: PageSlice, o: Pick<Calc
   const colgroup = `${o.headings ? `<col style="width:${HEADING_COL_PX}px">` : ""}${cols.map((c) => `<col style="width:${c.width}px">`).join("")}`;
   const head = o.headings ? `<tr style="height:${HEADING_ROW_PX}px"><th></th>${cols.map((c) => `<th>${colLetters(c.col)}</th>`).join("")}</tr>` : "";
   const rowIdx = [...Array.from({ length: slice.repeat }, (_, i) => i), ...Array.from({ length: slice.rows[1] - slice.rows[0] }, (_, i) => slice.rows[0] + i)];
+  // Merged cells: colspan/rowspan cut to the page; covered cells whose
+  // top-left cell is on another page print as empty cells.
+  const taken = new Set<string>();
   const body = rowIdx
-    .map((ri) => {
+    .map((ri, p) => {
       const r = table.rows[ri]!;
       const cells = r.cells
         .slice(slice.cols[0], slice.cols[1])
-        .map((c) => `<td style="${styleText(c.style)}">${escapeHtml(c.text)}</td>`)
+        .map((c, k) => {
+          const ci = slice.cols[0] + k;
+          if (c.covered) return taken.has(`${p}:${ci}`) ? "" : "<td></td>";
+          let attrs = "";
+          if (c.span) {
+            const cols = Math.min(c.span.cols, slice.cols[1] - ci);
+            let rows = 1;
+            while (rows < c.span.rows && rowIdx[p + rows] === ri + rows) rows++;
+            for (let dr = 0; dr < rows; dr++) for (let dc = 0; dc < cols; dc++) if (dr || dc) taken.add(`${p + dr}:${ci + dc}`);
+            attrs = `${cols > 1 ? ` colspan="${cols}"` : ""}${rows > 1 ? ` rowspan="${rows}"` : ""}`;
+          }
+          return `<td${attrs} style="${styleText(c.style)}">${escapeHtml(c.text)}</td>`;
+        })
         .join("");
       return `<tr style="height:${r.height}px" data-row="${r.row}">${o.headings ? `<th>${r.row + 1}</th>` : ""}${cells}</tr>`;
     })
@@ -98,7 +113,8 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
     parts.push({ sheetName: nameOf(id), table: buildPrintTable(store.cache(id), store.styles(), lastRow, lastCol) });
   };
   if (o.what === "workbook") {
-    for (const s of sheets) await sheetPart(s.id);
+    // Hidden sheets are not printed (Excel).
+    for (const s of sheets) if (!("hidden" in s && s.hidden)) await sheetPart(s.id);
   } else if (o.what === "selection") {
     const id = st.activeSheet;
     const used = await loadUsedRange(store, id);
