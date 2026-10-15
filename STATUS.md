@@ -16,13 +16,14 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 
 | ID | Task | Model | State | Branch | Notes |
 |---|---|---|---|---|---|
-| P1-1 | `engine-formula` lexer + Pratt parser + AST + printer; A1/absolute/range/cross-sheet refs, operators incl. `&` `%` `^`, arrays, errors, names; proptest AST→text→AST roundtrip | Opus | in progress | `p1/parser` | en-US syntax only (comma arg separator, dot decimal) |
-| P1-2 | Value type system + evaluator: Number/Text/Bool/Error/Array/Reference, coercion rules, error propagation, `CellProvider` trait, implicit intersection, range→array | Opus | todo | `p1/eval` | PM writes semantics spec in brief; depends on P1-1 |
-| P1-3 | Dependency graph + incremental recalc + circular detection (`#CIRC` → Excel reports 0 with warning; we return `Error::Circular`) | Opus | todo | `p1/depgraph` | depends on P1-1 (reference extraction) |
-| P1-4 | Function registry pattern (one function per file, arg spec, lazy args for IF) + `docs/functions.md` with the ~60-function list | Opus | todo | `p1/registry` | depends on P1-2 |
+| P1-1 | `engine-formula` lexer + Pratt parser + AST + printer; A1/absolute/range/cross-sheet refs, operators incl. `&` `%` `^`, arrays, errors, names; proptest AST→text→AST roundtrip | Opus | done (merged b0b70a6) | – | en-US syntax only (comma arg separator, dot decimal) |
+| P1-2 | Value type system + evaluator: Number/Text/Bool/Error/Array/Reference, coercion rules, error propagation, `CellProvider` trait, implicit intersection, range→array | Opus | in progress | `p1/eval` | semantics spec in docs/tasks/P1-2-evaluator.md; includes registry + 7 builtins + suite runner (P1-4 folded in) |
+| P1-3 | Dependency graph + incremental recalc + circular detection (`#CIRC` → Excel reports 0 with warning; we return `Error::Circular`) | Opus | in progress | `p1/depgraph` | graph only, no values; façade task P1-8 wires graph+evaluator |
+| P1-4 | (folded into P1-2: registry + lazy args; `docs/functions.md` delivered by P1-6) | – | done via P1-2/P1-6 | – | |
 | P1-5a/b/c/d | Function batches: math+stats / logical+info / text / lookup+date | Sonnet ×3 parallel | todo | `p1/fn-*` | each batch: tests with reference values from `testdata/formulas/` |
-| P1-6 | Reference test suite format (`testdata/formulas/*.tsv`: formula, expected, note) + runner test; provisional values computed with LibreOffice headless, marked provisional | Sonnet | in progress | `p1/testsuite` | need Excel-computed values from owner |
-| P1-7 | `examples/repl.rs` as in README | Sonnet | todo | `p1/repl` | |
+| P1-6 | Reference test suite format (`testdata/formulas/*.tsv`: formula, expected, note) + runner test; provisional values computed with LibreOffice headless, marked provisional | Sonnet | done (merged) | – | 862 cases, 62 functions, `docs/functions.md`; 66 rows marked DIFF with excel= values from agent memory; owner's Excel run of `testdata/formulas/formula-suite.xlsx` will settle them |
+| P1-8 | Engine façade: `Engine` holding cells + graph + evaluator; set value/formula, recalc, get; unify SheetId/CellCoord types | Opus | todo | `p1/engine` | after P1-2 + P1-3 |
+| P1-7 | `examples/repl.rs` as in README | Sonnet | todo | `p1/repl` | after P1-8 |
 | P0-1 | Workspace scaffold: Cargo workspace (all crates as stubs), pnpm workspace, fmt/clippy config, `pnpm test` placeholder, CI workflow, .gitignore, LICENSE | Sonnet | done (merged f07e101) | – | verified: fmt/clippy/test/pnpm test all green |
 | P0-2 | `fmt-ooxml`: open ZIP package, parse `[Content_Types].xml` + `_rels`, generic XML helpers, write package back byte-stable | Opus | done (merged 6f474a3) | – | verified: 27 tests + testdata roundtrip over 5 files; harness 5/5 PASS with real rewriter |
 | P0-3 | `core-model`: run formatting, colors (RGB/theme/auto), font definitions, theme colors, serde derive | Opus | done (merged ab330bb) | – | verified: 18 unit + 6 snapshot tests; brief's black-tint refs corrected by agent (Excel 'Black, Lighter N%' = 0D0D0D/262626/404040/595959/808080) |
@@ -37,6 +38,7 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+7. 2026-10-15: Reference-suite runner compares DIFF-marked rows against the `[excel=…]` value (Excel is the target), not against LibreOffice's value. Function registry folded into the evaluator task (one coherent API); `docs/functions.md` came with the suite.
 6. 2026-10-15: Phase 0 milestone verified and closed. Phase 1 begins; P1-1 (parser) starts first, P1-6 (test suite format) in parallel since it does not depend on the parser.
 5. 2026-10-15: Agents work in `git worktree`s under `/home/bojan/rusuite-wt/<branch>` so parallel tasks never share a checkout. Task briefs are committed under `docs/tasks/` (copied from the PM scratchpad) so they survive context loss.
 1. 2026-10-15: Git identity for commits set locally to `Bojan <bojan@referee.at>` (previous commits were by `refaustria`). Change with `git config user.*` if wrong.
