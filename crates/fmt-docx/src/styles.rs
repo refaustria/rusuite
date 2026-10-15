@@ -1,11 +1,16 @@
 //! `word/styles.xml` ↔ [`model_text::StyleSheet`].
 
 use core_model::{ColorScheme, RunProperties};
-use model_text::{Defaults, ParagraphProperties, Style, StyleKind, StyleSheet};
+use model_text::{
+    CellProperties, ConditionalFormat, ConditionalKind, Defaults, ParagraphProperties, Style,
+    StyleKind, StyleSheet, TableStyle,
+};
 
 use crate::numbering::W_NS;
 use crate::props::{read_ppr, read_rpr, write_ppr, write_rpr};
-use crate::xml::{parse, parse_bool, El, WriteVal, XmlOut};
+use crate::read::{read_tbl_pr, read_tc_pr};
+use crate::write::{write_tbl_pr, write_tc_pr};
+use crate::xml::{parse, parse_bool, parse_u32, El, WriteVal, XmlOut};
 use crate::{Result, Warnings};
 
 /// `w:style` children that carry no formatting we model and are dropped
@@ -89,7 +94,9 @@ fn read_style(el: &El, part: &str, w: &mut Warnings) -> Option<Style> {
         paragraph: ParagraphProperties::default(),
         run: RunProperties::default(),
         is_default: el.attr("default").and_then(parse_bool).unwrap_or(false),
+        table: None,
     };
+    let mut table = TableStyle::default();
     for c in el.elements() {
         match c.name.as_str() {
             "pPr" => {
@@ -102,14 +109,79 @@ fn read_style(el: &El, part: &str, w: &mut Warnings) -> Option<Style> {
                 }
             }
             "rPr" => style.run = read_rpr(c, &ctx, w),
-            "tblPr" | "trPr" | "tcPr" | "tblStylePr" => {
-                w.add(format!("{part}: table style formatting dropped"));
+            "tblPr" => {
+                table.table = read_tbl_pr(c, &ctx, w);
+                let band = |name: &str| {
+                    c.child(name)
+                        .and_then(El::val)
+                        .and_then(parse_u32)
+                        .map(|v| v.min(255) as u8)
+                };
+                table.row_band_size = band("tblStyleRowBandSize");
+                table.col_band_size = band("tblStyleColBandSize");
+            }
+            "tcPr" => table.cell = read_tc_pr(c, &ctx, w),
+            "trPr" => {
+                if c.elements().next().is_some() {
+                    w.add(format!("{ctx}: table style row formatting dropped"));
+                }
+            }
+            "tblStylePr" => {
+                if let Some(f) = read_conditional(c, &ctx, w) {
+                    table.conditional.retain(|o| o.kind != f.kind);
+                    table.conditional.push(f);
+                }
             }
             name if SILENT_STYLE.contains(&name) => {}
             _ => w.add(format!("{ctx}: {} dropped", c.qname())),
         }
     }
+    if style.kind == StyleKind::Table && !table.is_empty() {
+        style.table = Some(table);
+    } else if !table.is_empty() {
+        w.add(format!(
+            "{ctx}: table formatting of a non-table style dropped"
+        ));
+    }
     Some(style)
+}
+
+/// `w:tblStylePr` → conditional format (`None` for unknown types).
+fn read_conditional(el: &El, ctx: &str, w: &mut Warnings) -> Option<ConditionalFormat> {
+    let Some(kind) = el.attr("type").and_then(ConditionalKind::from_docx) else {
+        w.add(format!(
+            "{ctx}: conditional table formatting {:?} dropped",
+            el.attr("type")
+        ));
+        return None;
+    };
+    let mut f = ConditionalFormat {
+        kind,
+        paragraph: ParagraphProperties::default(),
+        run: RunProperties::default(),
+        cell: CellProperties::default(),
+    };
+    for c in el.elements() {
+        match c.name.as_str() {
+            "pPr" => {
+                f.paragraph = read_ppr(c, ctx, w);
+                f.paragraph.style = None;
+                f.paragraph.run_defaults = None;
+            }
+            "rPr" => f.run = read_rpr(c, ctx, w),
+            "tcPr" => f.cell = read_tc_pr(c, ctx, w),
+            "tblPr" | "trPr" => {
+                if c.elements().next().is_some() {
+                    w.add(format!(
+                        "{ctx}: conditional table/row formatting {} dropped",
+                        c.qname()
+                    ));
+                }
+            }
+            _ => w.add(format!("{ctx}: {} dropped", c.qname())),
+        }
+    }
+    Some(f)
 }
 
 /// Styles that Word shows in its quick style gallery.
@@ -173,10 +245,35 @@ pub(crate) fn write_styles(sheet: &StyleSheet, scheme: &ColorScheme) -> Vec<u8> 
             write_ppr(&mut x, &p, scheme);
         }
         write_rpr(&mut x, &s.run, scheme);
+        if let Some(t) = s.table.as_ref().filter(|_| s.kind == StyleKind::Table) {
+            write_table_style(&mut x, t, scheme);
+        }
         x.end("w:style");
     }
     x.end("w:styles");
     x.finish()
+}
+
+/// `w:tblPr`, `w:tcPr` and `w:tblStylePr` of a table style.
+fn write_table_style(x: &mut XmlOut, t: &TableStyle, scheme: &ColorScheme) {
+    let mut probe = t.table.clone();
+    probe.style = None;
+    probe.look = None;
+    probe.col_widths.clear();
+    if !probe.is_empty() || t.row_band_size.is_some() || t.col_band_size.is_some() {
+        write_tbl_pr(x, &probe, scheme, (t.row_band_size, t.col_band_size));
+    }
+    write_tc_pr(x, &t.cell, 1, None, scheme);
+    for f in &t.conditional {
+        x.start("w:tblStylePr", &[("w:type", f.kind.docx_name())]);
+        let mut p = f.paragraph.clone();
+        p.style = None;
+        p.run_defaults = None;
+        write_ppr(x, &p, scheme);
+        write_rpr(x, &f.run, scheme);
+        write_tc_pr(x, &f.cell, 1, None, scheme);
+        x.end("w:tblStylePr");
+    }
 }
 
 #[cfg(test)]
@@ -209,7 +306,7 @@ mod tests {
             <w:style w:type="table" w:styleId="T"><w:name w:val="T"/><w:tblPr/></w:style></w:styles>"#;
         let mut w = Warnings::default();
         let sheet = read_styles(xml, "styles", &mut w).unwrap();
-        assert_eq!(w.into_vec().len(), 2);
+        assert_eq!(w.into_vec().len(), 1);
         assert_eq!(sheet.defaults.run.size.unwrap().pt(), 11.0);
         assert!(sheet.defaults.paragraph.is_empty());
         let h1 = sheet.get("Heading1").unwrap();

@@ -4,7 +4,10 @@ import type { TableProperties } from "./TableProperties";
 import type { TableRow } from "./TableRow";
 
 /**
- * A table (no merged cells in the MVP).
+ * A table. Rows hold cells left to right; with merged cells
+ * ([`TableCell::grid_span`], [`TableCell::v_merge`]) every row should
+ * cover the same number of grid columns (see [`Table::merge_cells`],
+ * [`Table::split_cell`] and the other helpers in `crate::table`).
  */
 export type Table = { 
 /**

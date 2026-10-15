@@ -10,8 +10,9 @@ use core_model::units::Twips;
 use core_model::{Color, Rgb, Theme, VerticalAlign};
 use fmt_ooxml::{Package, PartName};
 use model_text::{
-    Alignment, Block, BorderStyle, BreakKind, Document, FieldKind, HeaderSlot, Inline, LevelKind,
-    LineSpacing, NodeId, NoteKind, Orientation, Paragraph, TableBorders,
+    Alignment, Block, BorderStyle, BreakKind, Document, FieldKind, HAlign, HeaderSlot, Inline,
+    LevelKind, LineSpacing, NodeId, NoteKind, Orientation, Paragraph, Placement, TabKind,
+    TabLeader, TableBorders, VMerge, WrapKind,
 };
 
 fn dir() -> PathBuf {
@@ -29,7 +30,7 @@ fn files() -> Vec<PathBuf> {
         .filter(|p| p.extension().is_some_and(|e| e == "docx"))
         .collect();
     v.sort();
-    assert!(v.len() >= 56, "{v:?}");
+    assert!(v.len() >= 59, "{v:?}");
     v
 }
 
@@ -221,6 +222,36 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
         if p.inlines.is_empty() {
             out.insert("para:empty".into());
         }
+        if let Some(b) = &pp.borders {
+            if [b.top, b.bottom, b.left, b.right]
+                .iter()
+                .flatten()
+                .any(|s| s.style != BorderStyle::None)
+            {
+                out.insert("para:border".into());
+            }
+        }
+        if pp.shading.is_some_and(|c| c != Color::Auto) {
+            out.insert("para:shading".into());
+        }
+        for t in &pp.tabs {
+            let kind = match t.kind {
+                TabKind::Left => "left",
+                TabKind::Center => "center",
+                TabKind::Right => "right",
+                TabKind::Decimal => "decimal",
+                TabKind::Bar => "bar",
+                TabKind::Clear => continue,
+            };
+            out.insert(format!("para:tab={kind}"));
+            let leader = match t.leader {
+                TabLeader::None => continue,
+                TabLeader::Dot => "dot",
+                TabLeader::Hyphen => "hyphen",
+                TabLeader::Underscore => "underscore",
+            };
+            out.insert(format!("para:tab-leader={leader}"));
+        }
         for inline in &p.inlines {
             match inline {
                 Inline::Run(run) => {
@@ -281,6 +312,28 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                     images += 1;
                     if img.alt.is_some() {
                         out.insert("image:alt".into());
+                    }
+                    if let Some(a) = &img.anchor {
+                        out.insert(format!(
+                            "image:float={}",
+                            match a.wrap {
+                                WrapKind::Square => "square",
+                                WrapKind::Tight => "tight",
+                                WrapKind::TopAndBottom => "top-bottom",
+                                WrapKind::Behind => "behind",
+                                WrapKind::InFront => "in-front",
+                            }
+                        ));
+                        if let Placement::Align(al) = a.h.place {
+                            out.insert(format!(
+                                "image:float-align={}",
+                                match al {
+                                    HAlign::Left => "left",
+                                    HAlign::Center => "center",
+                                    HAlign::Right => "right",
+                                }
+                            ));
+                        }
                     }
                 }
                 Inline::Break(BreakKind::Page) => {
@@ -417,7 +470,21 @@ fn tables_features(blocks: &[Block], in_table: bool, out: &mut BTreeSet<String>)
             }
             continue;
         };
-        let cols = t.rows.iter().map(|r| r.cells.len()).max().unwrap_or(0);
+        let cols = t.grid_cols();
+        if t.rows
+            .iter()
+            .flat_map(|r| &r.cells)
+            .any(|c| c.grid_span > 1)
+        {
+            out.insert("table:merged=horizontal".into());
+        }
+        if t.rows
+            .iter()
+            .flat_map(|r| &r.cells)
+            .any(|c| c.v_merge == Some(VMerge::Restart))
+        {
+            out.insert("table:merged=vertical".into());
+        }
         let header = if t.rows.first().is_some_and(|r| r.props.header) {
             ":header"
         } else {
@@ -840,4 +907,217 @@ fn table_of_contents() {
         assert!(xml.contains(needle), "{needle} missing in\n{xml}");
     }
     assert_same("54 (no context)", &doc, &reread(&doc));
+}
+
+// --- tables, floating images, paragraph borders (P8-15) --------------------------
+
+/// LibreOffice links its outline numbering to the heading styles; that
+/// link is all the reader drops from files 55–57.
+fn assert_no_new_warnings(warnings: &[String]) {
+    let other: Vec<&String> = warnings
+        .iter()
+        .filter(|w| !w.contains("list level linked to a style"))
+        .collect();
+    assert!(other.is_empty(), "{other:?}");
+}
+
+fn cell_texts(t: &model_text::Table) -> Vec<Vec<String>> {
+    t.rows
+        .iter()
+        .map(|r| {
+            r.cells
+                .iter()
+                .map(|c| {
+                    let tag = match c.v_merge {
+                        Some(VMerge::Restart) => "^",
+                        Some(VMerge::Continue) => "|",
+                        None => "",
+                    };
+                    let p: Vec<String> = model_text::document::paragraphs_in(&c.blocks)
+                        .map(Paragraph::text)
+                        .collect();
+                    format!("{tag}{}x{}", p.join("/"), c.grid_span)
+                })
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn merged_cells() {
+    let out = read_out("provisional-55-table-merged-cells.docx");
+    assert_no_new_warnings(&out.warnings);
+    let doc = out.document;
+    let tables: Vec<&model_text::Table> = doc.body.iter().filter_map(Block::as_table).collect();
+    assert_eq!(
+        cell_texts(tables[0]),
+        [
+            vec!["Quarterly figuresx4"],
+            vec!["^Regionx1", "Q1x1", "Q2x1", "Totalx1"],
+            vec!["|x1", "10x1", "12x1", "22x1"],
+            vec!["Northx1", "5x1", "8 (merged)x2"],
+        ]
+    );
+    assert_eq!(
+        cell_texts(tables[1]),
+        [
+            vec!["A1x1", "^Block B1:C2x2"],
+            vec!["A2x1", "|x2"],
+            vec!["A3x1", "B3x1", "C3x1"],
+        ]
+    );
+    for t in &tables {
+        t.check_grid().unwrap();
+    }
+    // Our output: gridSpan / vMerge as Word writes them, and the cell
+    // widths follow the grid.
+    let xml = pretty_document_xml(&fmt_docx::write(&doc).unwrap());
+    for needle in [
+        r#"<w:gridSpan w:val="4"/>"#,
+        r#"<w:vMerge w:val="restart"/>"#,
+        "<w:vMerge/>",
+        r#"<w:tcW w:w="4537" w:type="dxa"/>"#,
+        r#"<w:tblLayout w:type="fixed"/>"#,
+    ] {
+        assert!(xml.contains(needle), "{needle} missing in\n{xml}");
+    }
+    assert_same("55 (no context)", &doc, &reread(&doc));
+}
+
+#[test]
+fn floating_images() {
+    use model_text::{HRelative, VRelative};
+    let out = read_out("provisional-56-images-floating.docx");
+    assert_no_new_warnings(&out.warnings);
+    let doc = out.document;
+    let anchors: Vec<model_text::Anchor> = doc
+        .paragraphs()
+        .flat_map(|p| &p.inlines)
+        .filter_map(|i| match i {
+            Inline::Image(img) => img.anchor,
+            _ => None,
+        })
+        .collect();
+    let summary: Vec<(WrapKind, Placement<HAlign>, HRelative, VRelative)> = anchors
+        .iter()
+        .map(|a| (a.wrap, a.h.place, a.h.relative_to, a.v.relative_to))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (
+                WrapKind::Square,
+                Placement::Align(HAlign::Left),
+                HRelative::Column,
+                VRelative::Paragraph
+            ),
+            (
+                WrapKind::Tight,
+                Placement::Align(HAlign::Right),
+                HRelative::Column,
+                VRelative::Paragraph
+            ),
+            (
+                WrapKind::TopAndBottom,
+                Placement::Align(HAlign::Center),
+                HRelative::Column,
+                VRelative::Paragraph
+            ),
+            (
+                WrapKind::Behind,
+                Placement::Align(HAlign::Center),
+                HRelative::Column,
+                VRelative::Paragraph
+            ),
+        ]
+    );
+    // 0.2 cm side distance
+    assert_eq!(anchors[0].distance.left, core_model::units::Emu(71_755));
+    let bytes = fmt_docx::write(&doc).unwrap();
+    let xml = pretty_document_xml(&bytes);
+    for needle in [
+        r#"<wp:anchor distT="0" distB="0" distL="71755" distR="71755" simplePos="0""#,
+        r#"<wp:positionH relativeFrom="column">"#,
+        "<wp:align>right</wp:align>",
+        r#"<wp:wrapSquare wrapText="bothSides"/>"#,
+        r#"<wp:wrapTight wrapText="bothSides">"#,
+        "<wp:wrapTopAndBottom/>",
+        r#"behindDoc="1""#,
+    ] {
+        assert!(xml.contains(needle), "{needle} missing in\n{xml}");
+    }
+    assert_same("56 (no context)", &doc, &reread(&doc));
+}
+
+#[test]
+fn paragraph_borders_shading_and_tabs() {
+    let out = read_out("provisional-57-paragraph-borders-shading-tabs.docx");
+    assert_no_new_warnings(&out.warnings);
+    let doc = out.document;
+    let ps: Vec<&Paragraph> = doc.paragraphs().collect();
+    let boxed = doc.resolve_paragraph_props(ps[1]).borders.unwrap();
+    assert!([boxed.top, boxed.left, boxed.bottom, boxed.right]
+        .iter()
+        .all(|s| s.is_some_and(|s| s.style == BorderStyle::Single)));
+    assert_eq!(boxed.top.unwrap().space, Some(3));
+    let rule = doc.resolve_paragraph_props(ps[2]).borders.unwrap();
+    assert_eq!(
+        rule.bottom.unwrap().color,
+        Color::Rgb(Rgb::new(0x44, 0x72, 0xC4))
+    );
+    assert!(rule.top.is_none());
+    assert_eq!(
+        doc.resolve_paragraph_props(ps[3]).shading,
+        Some(Color::Rgb(Rgb::new(0xFF, 0xF2, 0xCC)))
+    );
+    let tabs = doc.resolve_paragraph_props(ps[6]).tabs;
+    let kinds: Vec<(i32, TabKind, TabLeader)> =
+        tabs.iter().map(|t| (t.pos.0, t.kind, t.leader)).collect();
+    assert_eq!(
+        kinds,
+        [
+            (1701, TabKind::Left, TabLeader::None),
+            (4535, TabKind::Center, TabLeader::None),
+            (6803, TabKind::Decimal, TabLeader::None),
+            (9071, TabKind::Right, TabLeader::Dot),
+        ]
+    );
+    let xml = pretty_document_xml(&fmt_docx::write(&doc).unwrap());
+    for needle in [
+        r#"<w:top w:val="single" w:sz="4" w:space="3" w:color="000000"/>"#,
+        r#"<w:shd w:val="clear" w:color="auto" w:fill="FFF2CC"/>"#,
+        r#"<w:tab w:val="right" w:leader="dot" w:pos="9071"/>"#,
+    ] {
+        assert!(xml.contains(needle), "{needle} missing in\n{xml}");
+    }
+    assert_same("57 (no context)", &doc, &reread(&doc));
+}
+
+#[test]
+fn built_in_table_styles_are_written_like_word() {
+    let doc = Document::new();
+    let bytes = fmt_docx::write(&doc).unwrap();
+    let pkg = Package::open(Cursor::new(bytes.as_slice())).unwrap();
+    let styles = String::from_utf8(
+        pkg.part(&PartName::new("/word/styles.xml").unwrap())
+            .unwrap()
+            .data
+            .clone(),
+    )
+    .unwrap();
+    for needle in [
+        r#"<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/>"#,
+        r#"<w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/><w:basedOn w:val="TableNormal"/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/>"#,
+        r#"<w:style w:type="table" w:styleId="GridTable4-Accent1"><w:name w:val="Grid Table 4 Accent 1"/>"#,
+        r#"<w:tblStyleRowBandSize w:val="1"/><w:tblStyleColBandSize w:val="1"/><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="8FAADC" w:themeColor="accent1" w:themeTint="99"/>"#,
+        r#"<w:tblStylePr w:type="firstRow"><w:rPr><w:b/><w:bCs/><w:color w:val="FFFFFF" w:themeColor="background1"/></w:rPr><w:tcPr><w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="4472C4" w:themeColor="accent1"/>"#,
+        r#"<w:insideH w:val="nil" w:sz="0" w:space="0" w:color="auto"/>"#,
+        r#"<w:shd w:val="clear" w:color="auto" w:fill="4472C4" w:themeFill="accent1"/></w:tcPr></w:tblStylePr>"#,
+        r#"<w:tblStylePr w:type="band1Horz"><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="DAE3F3" w:themeFill="accent1" w:themeFillTint="33"/>"#,
+    ] {
+        assert!(styles.contains(needle), "{needle} missing in\n{styles}");
+    }
+    // A table using a style keeps it, and the style resolves after reading.
+    let back = fmt_docx::read(&bytes).unwrap();
+    assert_eq!(back.styles, doc.styles);
 }

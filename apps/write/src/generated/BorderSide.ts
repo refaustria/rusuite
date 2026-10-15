@@ -18,4 +18,9 @@ width: number,
 /**
  * Line color.
  */
-color: Color, };
+color: Color, 
+/**
+ * Distance from the text in points (docx `w:space`; paragraph
+ * borders); `None` = 0.
+ */
+space?: number, };
