@@ -10,13 +10,13 @@ Milestone: workspace + CI green, `fmt-ooxml` opens/writes OOXML packages, `core-
 
 | ID | Task | Model | State | Branch | Notes |
 |---|---|---|---|---|---|
-| P0-1 | Workspace scaffold: Cargo workspace (all crates as stubs), pnpm workspace, fmt/clippy config, `pnpm test` placeholder, CI workflow, .gitignore, LICENSE | Sonnet | todo | `p0/workspace` | everything else depends on this |
-| P0-2 | `fmt-ooxml`: open ZIP package, parse `[Content_Types].xml` + `_rels`, generic XML helpers, write package back byte-stable | Opus | todo | `p0/fmt-ooxml` | needs provisional reference files (P0-5) |
-| P0-3 | `core-model`: run formatting, colors (RGB/theme/auto), font definitions, theme colors, serde derive | Opus | todo | `p0/core-model` | types specified in brief by PM |
-| P0-4 | Roundtrip harness: `scripts/roundtrip.sh` + `xtask roundtrip` – read → write → open in headless LibreOffice → count errors/warnings; reports per file | Sonnet | todo | `p0/roundtrip` | first version uses copy-through, then wires to fmt-ooxml |
-| P0-5 | Provisional reference files in `testdata/{docx,xlsx,pptx}` generated with LibreOffice headless | Sonnet | todo | (with P0-4) | PROVISIONAL – need real-Office files from owner |
-| P0-6 | ADRs: 0001 Rust owns the document model, 0002 IPC strategy, 0003 workspace/crate layout | PM | todo | `p0/adrs` | PM writes docs, not code |
-| P0-7 | `docs/setup.md` – what was installed on the dev server | PM | todo | `p0/adrs` | |
+| P0-1 | Workspace scaffold: Cargo workspace (all crates as stubs), pnpm workspace, fmt/clippy config, `pnpm test` placeholder, CI workflow, .gitignore, LICENSE | Sonnet | done (merged f07e101) | – | verified: fmt/clippy/test/pnpm test all green |
+| P0-2 | `fmt-ooxml`: open ZIP package, parse `[Content_Types].xml` + `_rels`, generic XML helpers, write package back byte-stable | Opus | in progress | `p0/fmt-ooxml` | worktree rusuite-wt/p0-fmt-ooxml; testdata glob test tolerates empty dir until P0-5 merges |
+| P0-3 | `core-model`: run formatting, colors (RGB/theme/auto), font definitions, theme colors, serde derive | Opus | in progress | `p0/core-model` | worktree rusuite-wt/p0-core-model; PM type spec in brief |
+| P0-4 | Roundtrip harness: `scripts/roundtrip.sh` + `xtask roundtrip` – read → write → open in headless LibreOffice → count errors/warnings; reports per file | Sonnet | in progress | `p0/roundtrip` | worktree rusuite-wt/p0-roundtrip; `--identity` mode until P0-2 merges |
+| P0-5 | Provisional reference files in `testdata/{docx,xlsx,pptx}` generated with LibreOffice headless | Sonnet | in progress | `p0/roundtrip` | same agent as P0-4; PROVISIONAL – need real-Office files from owner |
+| P0-6 | ADRs: 0001 Rust owns the document model, 0002 IPC strategy, 0003 workspace/crate layout | PM | done (28000c6) | – | 0001 model ownership, 0002 IPC, 0003 crate layout |
+| P0-7 | `docs/setup.md` – what was installed on the dev server | PM | done (28000c6) | – | |
 
 ## Environment (dev server)
 - Debian 13, 16 cores, 30 GB RAM
@@ -24,6 +24,7 @@ Milestone: workspace + CI green, `fmt-ooxml` opens/writes OOXML packages, `core-
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+5. 2026-10-15: Agents work in `git worktree`s under `/home/bojan/rusuite-wt/<branch>` so parallel tasks never share a checkout. Task briefs live in the PM scratchpad and are referenced by path.
 1. 2026-10-15: Git identity for commits set locally to `Bojan <bojan@referee.at>` (previous commits were by `refaustria`). Change with `git config user.*` if wrong.
 2. 2026-10-15: Phase 0 split into 7 tasks; P0-1 runs first, then P0-2/3/4 in parallel.
 3. 2026-10-15: `core-model` Phase 0 scope implemented by Opus against a PM-written type spec, not Fable (scope is a well-understood OOXML mapping; escalate only if design questions arise).
