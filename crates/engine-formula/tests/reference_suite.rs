@@ -94,7 +94,7 @@ fn ctx_at<'a>(fx: &'a Fixture, reg: &'a FunctionRegistry, row: u32) -> EvalConte
             // Column L.
             col: 11,
         },
-        now: || 45306.5,
+        now: || 46310.5,
     }
 }
 
