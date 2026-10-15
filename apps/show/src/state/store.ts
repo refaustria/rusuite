@@ -8,6 +8,10 @@ import { useSyncExternalStore } from "react";
 import type { RunProperties } from "../../../../packages/ui-shared/src/generated/RunProperties";
 import { ShowApiError, type PatchEnvelope, type ShowApi } from "../api";
 import type { Alignment } from "../generated/Alignment";
+import type { Animation } from "../generated/Animation";
+import type { AnimationKind } from "../generated/AnimationKind";
+import type { AnimationPatch } from "../generated/AnimationPatch";
+import type { Effect } from "../generated/Effect";
 import type { AlignMode } from "../generated/AlignMode";
 import type { Axis } from "../generated/Axis";
 import type { Bullet } from "../generated/Bullet";
@@ -29,6 +33,7 @@ import {
   type FormatValues, type InsertKind,
 } from "./commands";
 import type { ShortcutAction } from "./shortcuts";
+import { changeTransition, effectPatch, newAnimation, type TransitionChange } from "../anim/effects";
 
 export interface Toast {
   id: number;
@@ -71,6 +76,14 @@ export interface ShowState {
   notesVisible: boolean;
   /** An open dialog of the slide editor. */
   dialog: ShowDialog | null;
+  /** The ribbon tab shown (the stage shows animation badges on the Animations tab). */
+  ribbonTab: string;
+  /** The Animation pane on the right is open. */
+  animPane: boolean;
+  /** The animation selected in the pane (or by its badge); the Animations tab edits it. */
+  animSelection: NodeId | null;
+  /** A Preview playing on the editor stage (`seq` restarts it). */
+  preview: { kind: "transition" | "animations"; seq: number } | null;
 }
 
 /** Dialogs opened from menus: Format Shape, Alt Text, the Replace Picture file picker. */
@@ -122,6 +135,10 @@ export class ShowStore {
     clipboard: null,
     notesVisible: false,
     dialog: null,
+    ribbonTab: "home",
+    animPane: false,
+    animSelection: null,
+    preview: null,
   };
   private clip: Clip | null = null;
   private listeners = new Set<() => void>();
@@ -203,6 +220,8 @@ export class ShowStore {
       dirty: env.dirty,
       info: null,
       mediaVersion: this.state.mediaVersion + 1,
+      animSelection: null,
+      preview: null,
       ...extra,
     });
   }
@@ -229,11 +248,14 @@ export class ShowStore {
     const selection = mapIds(s.selection, idMap).filter((id) => top.has(id));
     let editing = s.editing ? { ...s.editing, shape: idMap.get(s.editing.shape) ?? s.editing.shape } : null;
     if (editing && !(slide && findShape(slide.shapes, editing.shape))) editing = null;
+    let animSelection = s.animSelection === null ? null : (idMap.get(s.animSelection) ?? s.animSelection);
+    if (animSelection !== null && !slide?.animations?.some((a) => a.id === animSelection)) animSelection = null;
     this.set({
       pres,
       current,
       selection,
       editing,
+      animSelection,
       revision: env.revision,
       canUndo: env.canUndo,
       canRedo: env.canRedo,
@@ -312,7 +334,7 @@ export class ShowStore {
 
   selectSlide(id: NodeId): void {
     if (this.state.editing) void this.commitEdit();
-    this.set({ current: id, selection: [], editing: null });
+    this.set({ current: id, selection: [], editing: null, animSelection: null, preview: null });
   }
 
   /** Runs a slide command and makes the slide it created current; returns its id. */
@@ -480,7 +502,163 @@ export class ShowStore {
       }
     }
     if (this.state.editing && !next.includes(this.state.editing.shape)) void this.commitEdit();
-    this.set({ selection: next });
+    const a = this.animation(this.state.animSelection);
+    const keep = a && next.includes(this.topOf(a.shape));
+    this.set({ selection: next, animSelection: keep ? this.state.animSelection : null });
+  }
+
+  // --- transitions and animations (P8-8) ------------------------------------------
+
+  setRibbonTab(id: string): void {
+    if (id !== this.state.ribbonTab) this.set({ ribbonTab: id });
+  }
+
+  toggleAnimPane(open = !this.state.animPane): void {
+    this.set({ animPane: open });
+  }
+
+  /** The current slide's animations, in play order. */
+  animations(): Animation[] {
+    return this.currentSlide()?.animations ?? [];
+  }
+
+  private animation(id: NodeId | null): Animation | undefined {
+    return id === null ? undefined : this.animations().find((a) => a.id === id);
+  }
+
+  /** The selected animation while its shape is still selected (inserting a shape replaces the selection directly). */
+  private selectedAnimation(): Animation | undefined {
+    const a = this.animation(this.state.animSelection);
+    return a && this.state.selection.includes(this.topOf(a.shape)) ? a : undefined;
+  }
+
+  /** The top-level shape of a (possibly grouped) shape of the current slide. */
+  private topOf(shape: NodeId): NodeId {
+    return findShape(this.currentSlide()?.shapes ?? [], shape)?.top.id ?? shape;
+  }
+
+  /** Selects an animation (pane row, stage badge) and its shape; `null` clears it. */
+  selectAnimation(id: NodeId | null): void {
+    const a = this.animation(id);
+    if (!a) {
+      this.set({ animSelection: null });
+      return;
+    }
+    if (this.state.editing) void this.commitEdit();
+    this.set({ animSelection: a.id, selection: [this.topOf(a.shape)] });
+  }
+
+  /**
+   * What the Animations tab edits: the selected animation, else every
+   * animation of the selected shapes (also of their grouped children).
+   */
+  targetAnimations(): Animation[] {
+    const one = this.selectedAnimation();
+    if (one) return [one];
+    const sel = new Set(this.state.selection);
+    return this.animations().filter((a) => sel.has(this.topOf(a.shape)));
+  }
+
+  /** Changes the current slide's transition (Transitions tab). */
+  async setTransition(change: TransitionChange): Promise<void> {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const transition = changeTransition(slide.transition, change);
+    if (JSON.stringify(transition ?? null) === JSON.stringify(slide.transition ?? null)) return;
+    await this.run({ type: "setTransition", slides: [slide.id], transition });
+  }
+
+  /** Transitions › Apply To All: every slide gets the current slide's transition. */
+  async applyTransitionToAll(): Promise<void> {
+    const from = this.state.current;
+    if (from !== null) await this.run({ type: "applyTransitionToAll", from });
+  }
+
+  /**
+   * The Animation gallery: gives the selected animation (else each selected
+   * shape's first animation) this effect; shapes without one get a new On
+   * Click animation. `null` (None) removes their animations.
+   */
+  async applyEffect(choice: { kind: AnimationKind; effect: Effect } | null): Promise<void> {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    if (this.state.editing) await this.commitEdit();
+    if (!choice) {
+      const ids = this.targetAnimations().map((a) => a.id);
+      await this.run(compound(ids.map((id) => ({ type: "removeAnimation", id }))));
+      return;
+    }
+    const sel = this.selectedAnimation();
+    if (sel) {
+      await this.run({ type: "updateAnimation", id: sel.id, patch: effectPatch(sel, choice.kind, choice.effect) });
+      return;
+    }
+    const commands: ShowCommand[] = [];
+    let added: number | null = null;
+    for (const shape of this.state.selection) {
+      const first = this.animations().find((a) => this.topOf(a.shape) === shape);
+      if (first) commands.push({ type: "updateAnimation", id: first.id, patch: effectPatch(first, choice.kind, choice.effect) });
+      else {
+        const newId = this.temp();
+        added ??= newId;
+        commands.push({ type: "addAnimation", slide: slide.id, animation: newAnimation(shape, choice.kind, choice.effect), newId });
+      }
+    }
+    const res = await this.run(compound(commands));
+    if (res && added !== null && this.state.selection.length === 1) this.selectAnimation(res.idMap.get(added) ?? null);
+  }
+
+  /** Add Animation: one more animation for each selected shape (after the last one); selects the new one. */
+  async addAnimation(kind: AnimationKind, effect: Effect): Promise<void> {
+    const slide = this.currentSlide();
+    if (!slide || !this.state.selection.length) return;
+    if (this.state.editing) await this.commitEdit();
+    const temps = this.state.selection.map(() => this.temp());
+    const commands: ShowCommand[] = this.state.selection.map((shape, i) => ({
+      type: "addAnimation",
+      slide: slide.id,
+      animation: newAnimation(shape, kind, effect),
+      newId: temps[i]!,
+    }));
+    const res = await this.run(compound(commands));
+    const id = res?.idMap.get(temps[temps.length - 1]!);
+    if (id !== undefined) this.selectAnimation(id);
+  }
+
+  /** Effect Options, Start, Duration, Delay: for every target animation (one undo step). */
+  async updateAnimations(patch: AnimationPatch): Promise<void> {
+    const ids = this.targetAnimations().map((a) => a.id);
+    await this.run(compound(ids.map((id) => ({ type: "updateAnimation", id, patch }))));
+  }
+
+  async removeAnimation(id: NodeId): Promise<void> {
+    await this.run({ type: "removeAnimation", id });
+  }
+
+  /** Moves an animation to `index` of the play order (pane drag, Move Earlier / Later). */
+  async reorderAnimation(id: NodeId, index: number): Promise<void> {
+    const list = this.animations();
+    const from = list.findIndex((a) => a.id === id);
+    if (from < 0 || index < 0 || index >= list.length || index === from) return;
+    await this.run({ type: "reorderAnimation", id, index });
+  }
+
+  /** Move Earlier (`-1`) / Move Later (`1`) of the selected animation. */
+  async moveAnimation(delta: -1 | 1): Promise<void> {
+    const id = this.state.animSelection;
+    const from = this.animations().findIndex((a) => a.id === id);
+    if (id !== null && from >= 0) await this.reorderAnimation(id, from + delta);
+  }
+
+  /** Plays the slide's transition or its animations on the editor stage. */
+  startPreview(kind: "transition" | "animations"): void {
+    if (this.state.current === null) return;
+    if (this.state.editing) void this.commitEdit();
+    this.set({ preview: { kind, seq: (this.state.preview?.seq ?? 0) + 1 } });
+  }
+
+  endPreview(): void {
+    if (this.state.preview) this.set({ preview: null });
   }
 
   // --- shape commands ---------------------------------------------------------

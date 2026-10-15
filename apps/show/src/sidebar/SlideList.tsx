@@ -3,7 +3,8 @@
 // replace only when the slide changed), click to select, drag to reorder
 // (`MoveSlide`, with an insertion line), "+" menu (`AddSlide`), a context
 // menu (new/duplicate/delete, copy/paste, layout, hide) and Ctrl+C/V for
-// slides. Hidden slides are dimmed with a struck-through number.
+// slides. Hidden slides are dimmed with a struck-through number; slides
+// with a transition or animations show a small star under it (P8-8).
 
 import { memo, useMemo, useState } from "react";
 import { Layer, Stage } from "react-konva";
@@ -16,6 +17,7 @@ import { useShow, type ShowStore } from "../state/store";
 import { SlideView, type DeckContext } from "../canvas/SlideView";
 import { thumbnailMenu } from "../canvas/menus";
 import { useT } from "../i18n";
+import { hasEffects } from "../anim/effects";
 
 export const THUMB_WIDTH = 152;
 
@@ -139,8 +141,16 @@ export function SlideList({ store }: { store: ShowStore }) {
           {dropAt === slides.length && i === slides.length - 1 && (
             <span data-testid="drop-indicator" className="pointer-events-none absolute -bottom-1 left-5 right-0 h-0.5 rounded bg-orange-600" />
           )}
-          <span className={`w-4 pt-1 text-right text-ui-muted ${slide.hidden ? "line-through" : ""}`} title={slide.hidden ? t("show.hiddenSlide") : undefined}>
-            {i + 1}
+          <span className="flex w-4 flex-col items-end gap-1 pt-1 text-ui-muted">
+            <span className={slide.hidden ? "line-through" : undefined} title={slide.hidden ? t("show.hiddenSlide") : undefined}>
+              {i + 1}
+            </span>
+            {hasEffects(slide) && (
+              <svg role="img" aria-label={t("show.hasEffects")} data-testid="effects-star" width="11" height="11" viewBox="0 0 20 20">
+                <title>{t("show.hasEffects")}</title>
+                <path d="M10 1.8l2.4 5 5.5.7-4 3.8 1 5.4L10 14l-4.9 2.7 1-5.4-4-3.8 5.5-.7z" fill="currentColor" />
+              </svg>
+            )}
           </span>
           <span className={`overflow-hidden rounded border border-ui-border bg-white ${slide.hidden ? "opacity-40" : ""}`}>
             <Thumb deck={deck} slide={slide} media={store.media} mediaVersion={mediaVersion} />

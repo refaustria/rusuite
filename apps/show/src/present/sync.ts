@@ -14,12 +14,14 @@ export type SyncRole = "presenter" | "audience";
 /** What the audience screen shows. */
 export interface ShowView {
   slideIndex: number;
+  /** Click step on the slide (P8-8: animations). */
+  step: number;
   blackout: Blank;
   ended: boolean;
 }
 
 export type SyncMessage =
-  /** presenter → audience: the slide shown, blank screen, end slide. */
+  /** presenter → audience: the slide shown, its click step, blank screen, end slide. */
   | ({ kind: "state" } & ShowView)
   /** presenter → audience: the slides of the show (JSON-safe: media as entries). */
   | { kind: "deck"; deck: DeckContext; slides: Slide[]; media: [number, string][] }

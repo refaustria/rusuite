@@ -3,7 +3,9 @@
 // Fullscreen via the Fullscreen API, falling back to a full-window overlay;
 // the slide is scaled to the screen. Keys and clicks become `ShowAction`s
 // (showState.ts); a blanked screen and the "End of slide show" slide are
-// drawn here; the mouse pointer hides after 3 s without movement.
+// drawn here; the mouse pointer hides after 3 s without movement. The
+// slide itself is a `ShowSlide` (P8-8): its transition when moving forward,
+// its animations step by step.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Layer, Stage } from "react-konva";
@@ -11,6 +13,7 @@ import type { Slide } from "../generated/Slide";
 import { fitScale, slidePx } from "../geometry";
 import { SlideView, type DeckContext } from "../canvas/SlideView";
 import { clickAction, keyAction, type ShowAction, type ShowState } from "./showState";
+import { nextVisit, ShowSlide, type SlideVisit } from "./AnimatedSlide";
 import { useT } from "../i18n";
 
 export const IDLE_CURSOR_MS = 3000;
@@ -119,6 +122,15 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
   };
   useShowKeys(act);
 
+  // The visit of the current slide survives a blank screen (its transition and entry play once).
+  const visitRef = useRef<SlideVisit | null>(null);
+  const lastStep = useRef(show.step);
+  const visit = nextVisit(visitRef.current, show.index, lastStep.current);
+  visitRef.current = visit;
+  useEffect(() => {
+    lastStep.current = show.step;
+  });
+
   const slide = slides[show.index];
   const blank = show.ended ? "black" : show.blank;
   return (
@@ -128,6 +140,7 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
       aria-label={t("show.presentation")}
       data-testid="presenter"
       data-blank={show.blank}
+      data-step={show.step}
       data-ended={show.ended ? "true" : undefined}
       data-idle={idle ? "true" : undefined}
       className={`fixed inset-0 z-50 flex select-none items-center justify-center ${blank === "white" ? "bg-white" : "bg-black"} ${idle ? "cursor-none" : "cursor-pointer"}`}
@@ -137,7 +150,7 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
       }}
     >
       {blank === "none" && slide && (
-        <SlideImage deck={deck} slide={slide} media={media} mediaVersion={mediaVersion} width={size.width} height={size.height} />
+        <ShowSlide deck={deck} slides={slides} visit={visit} step={show.step} media={media} mediaVersion={mediaVersion} width={size.width} height={size.height} />
       )}
       {show.ended && (
         <span className="absolute left-0 right-0 top-6 text-center text-sm text-white/70" data-testid="presenter-end">

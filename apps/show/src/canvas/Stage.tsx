@@ -17,6 +17,7 @@ import { shapeMenu, slideMenu } from "./menus";
 import { NO_GUIDES, SNAP_PX, anchorAxes, sameGuides, snapBox, snapPoint, snapTargets, type Guides, type SnapTargets } from "./snap";
 import { SlideView } from "./SlideView";
 import { TextOverlay } from "./TextOverlay";
+import { AnimBadges, StagePreview } from "./AnimOverlay";
 import { useT } from "../i18n";
 
 /** Union of rectangles (slide px). */
@@ -317,6 +318,8 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
         </Layer>
       </Stage>
       {editing && <TextOverlay store={store} scale={scale} />}
+      <AnimBadges store={store} slide={slide} scale={scale} />
+      <StagePreview store={store} deck={pres} slides={pres.slides} index={pres.slides.indexOf(slide)} width={size.width * scale} height={size.height * scale} />
       <ContextMenu at={menu?.at ?? null} label={t("show.slideEditor")} items={menu?.items ?? []} onClose={() => setMenu(null)} />
     </div>
   );

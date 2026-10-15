@@ -36,7 +36,7 @@ describe("sync channel", () => {
     const gotB: SyncMessage[] = [];
     a.listen((m) => gotA.push(m));
     const off = b.listen((m) => gotB.push(m));
-    const msg: SyncMessage = { kind: "state", slideIndex: 2, blackout: "black", ended: false };
+    const msg: SyncMessage = { kind: "state", slideIndex: 2, step: 0, blackout: "black", ended: false };
     a.post(msg);
     expect(gotA).toEqual([]);
     expect(gotB).toEqual([msg]);
@@ -158,7 +158,7 @@ describe("presenter view", () => {
     expect(got).toEqual([{ kind: "hello" }]);
     const pres = (await storeWithNotes()).getState().pres!;
     act(() => presenter.post({ kind: "deck", deck: pres, slides: pres.slides, media: [] }));
-    act(() => presenter.post({ kind: "state", slideIndex: 1, blackout: "none", ended: false }));
+    act(() => presenter.post({ kind: "state", slideIndex: 1, step: 0, blackout: "none", ended: false }));
     expect(screen.getByTestId("presenter-counter").textContent).toBe("2 / 3");
     fireEvent.keyDown(window, { key: "b" });
     fireEvent.keyDown(window, { key: "4" });
@@ -179,5 +179,97 @@ describe("presenter view", () => {
     store.selectSlide(4);
     render(<SlideShow store={store} mode="single" onEnd={vi.fn()} />);
     expect(screen.getByTestId("presenter-counter").textContent).toBe("1 / 2");
+  });
+});
+
+/** A store whose third slide (id 7) animates its shapes 8 and 9 in on two clicks. */
+async function storeWithAnimations() {
+  const store = await storeWithNotes();
+  store.selectSlide(7);
+  store.select([8]);
+  await store.addAnimation("entrance", "fade");
+  store.select([9]);
+  await store.addAnimation("entrance", "flyIn");
+  return store;
+}
+
+const hiddenOn = () => screen.getByTestId("animated-slide").getAttribute("data-hidden-shapes");
+
+describe("animations and timings in the show", () => {
+  it("two On Click shapes need two clicks; ← rebuilds the steps", async () => {
+    const store = await storeWithAnimations();
+    render(<SlideShow store={store} mode="single" onEnd={vi.fn()} />);
+    const presenter = screen.getByTestId("presenter");
+    expect(screen.getByTestId("presenter-counter").textContent).toBe("3 / 3");
+    expect(hiddenOn()).toBe("8,9");
+    fireEvent.click(presenter, { clientX: 2000 });
+    expect(presenter.getAttribute("data-step")).toBe("1");
+    expect(hiddenOn()).toBe("9");
+    fireEvent.keyDown(window, { key: " " });
+    expect(hiddenOn()).toBe("");
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(screen.getByTestId("presenter-end")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(hiddenOn()).toBe("9");
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(screen.getByTestId("presenter-counter").textContent).toBe("2 / 3");
+    // Forward again to the animated slide: it starts from the beginning.
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(hiddenOn()).toBe("8,9");
+  });
+
+  it("advances by itself after the After time; S stops it", async () => {
+    const store = await storeWithNotes();
+    store.selectSlide(1);
+    await store.setTransition({ kind: "fade" });
+    await store.setTransition({ advanceAfterMs: 2000 });
+    store.selectSlide(4);
+    await store.setTransition({ advanceAfterMs: 1000 });
+    store.selectSlide(1);
+    vi.useFakeTimers();
+    try {
+      render(<SlideShow store={store} mode="single" onEnd={vi.fn()} />);
+      const counter = () => screen.getByTestId("presenter-counter").textContent;
+      act(() => vi.advanceTimersByTime(1999));
+      expect(counter()).toBe("1 / 3");
+      act(() => vi.advanceTimersByTime(1));
+      expect(counter()).toBe("2 / 3");
+      fireEvent.keyDown(window, { key: "s" });
+      act(() => vi.advanceTimersByTime(5000));
+      expect(counter()).toBe("2 / 3");
+      fireEvent.keyDown(window, { key: "S" });
+      act(() => vi.advanceTimersByTime(1000));
+      expect(counter()).toBe("3 / 3");
+      // The last slide has no timing: the show waits.
+      act(() => vi.advanceTimersByTime(10_000));
+      expect(screen.queryByTestId("presenter-end")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("the presenter view sends the step; the audience and the next preview follow", async () => {
+    const store = await storeWithAnimations();
+    const { link, audience } = fakeLink();
+    const got: SyncMessage[] = [];
+    audience.listen((m) => got.push(m));
+    render(<SlideShow store={store} mode="presenter" link={link} onEnd={vi.fn()} />);
+    await flush();
+    const console = screen.getByTestId("presenter-console");
+    const next = () => within(screen.getByTestId("console-next")).getByTestId("animated-slide");
+    // Slide 3 of 3 at step 0: "Next" is the same slide after its first click.
+    expect(next().getAttribute("data-slide")).toBe("7");
+    expect(next().getAttribute("data-hidden-shapes")).toBe("9");
+    fireEvent.click(within(console).getByRole("button", { name: "Next" }));
+    await flush();
+    expect(got.filter((m) => m.kind === "state").at(-1)).toMatchObject({ slideIndex: 2, step: 1 });
+    expect(next().getAttribute("data-hidden-shapes")).toBe("");
+    render(<Audience id="t1" channel={Promise.resolve(audience)} onEnd={vi.fn()} />);
+    await flush();
+    const screenEl = screen.getAllByTestId("presenter").at(-1)!;
+    expect(screenEl.getAttribute("data-step")).toBe("1");
+    expect(within(screenEl).getByTestId("animated-slide").getAttribute("data-hidden-shapes")).toBe("9");
   });
 });
