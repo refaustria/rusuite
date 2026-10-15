@@ -183,5 +183,23 @@ ${SHOW}
 ## Show – browser (production web build, headless Chromium)
 
 ${FRONT_SHOW}
+
+## Findings and fixes
+
+Baseline = first P5-4 commit; each fix is its own commit with these numbers.
+
+1. **Calc: dependency lookups scanned thousands of ranges per changed cell.** The range index bucketed ranges by 64-column buckets only; the 50 000 small \`SUM\` ranges left ~3 000 entries per bucket, scanned for every cell of a bulk load. Small ranges are now indexed by 64 × 64 tiles (\`crates/engine-formula/src/graph.rs\`). Load 1M cells 4.29 s → 1.47 s (\`end_batch\` 3.46 s → 0.63 s), \`recalc_all\` 557 → 248 ms, \`open_xlsx\` 5.09 s → 2.41 s; wasm load 6.65 s → 4.55 s, wasm \`openXlsx\` 7.20 s → 3.02 s.
+2. **Calc: \`Workbook::used_range\` scanned every styled cell on each call** (every snapshot, clear and style command calls it through \`cells_in\`). Styled cells are now counted per row and column, so the bound is O(log n) (\`crates/model-sheet/src/sheet.rs\`, \`workbook.rs\`). Styled 64 × 32 snapshot 7.3 → 2.6 ms native, 9.4 → 4.2 ms wasm.
+3. **Write: Chromium lays out and copies the whole 200-page editor on every keystroke** (the insert's forced layout, hit testing and the IME text-input state, which reads the editable's whole text). Top-level editor blocks use \`content-visibility: auto\` on screen (\`apps/write/src/styles.css\`). Typing p50/p95 94/110 → 54/70 ms, open + first render 991 → 839 ms.
+4. **Write: every keystroke in a table cell resent the whole table** (\`ReplaceBlocks\`). Edits inside one cell of an otherwise unchanged table now map to the in-place paragraph commands (\`apps/write/src/sync/transactionMapper.ts\`). Typing in the middle of a 300-row table: p50/p95 142/171 → 116/136 ms (the standard fixture's 6 × 4 tables: within noise).
+
+Checked and not changed (the numbers did not justify it): \`Recalc.changed\` sorting and the 10k-cell chain patch (17 ms), \`RegionSnapshot\` number formatting (~1 ms of the styled snapshot), the Write sync plugin's per-transaction document walks (< 1 ms per keystroke), \`GetDocument\` with inline media (25 ms for 7.9 MB; the browser parses it in ~26 ms), Show thumbnails (memoized per slide; 100 render in ~1.2 s on open, a slide switch takes ~22 ms).
+
+## Known shortfalls and follow-ups
+
+- **Write typing p95 is above the 30 ms target on a 200-page document** (a small document types in < 10 ms; a large table, laid out as one block, is slower still). Per keystroke what remains is ~20 ms for the status-bar word count, which re-reads the whole document text on every transaction (\`apps/write/src/App.tsx\`, owned by another task, not changed here: count incrementally with a per-top-level-node cache, or debounce), ~5 ms of React's selection bookkeeping for the re-renders each patch causes while the editor has focus, and Chromium's native editing of the large \`contenteditable\`. Longer term: a windowed/paged editor so the \`contenteditable\` holds only the visible pages.
+- Calc \`ApplyStyle\` over all 1M cells takes ~2.6 s: the patch carries every cell's view and the inverse every cell's old style; range-level style patches would fix it (no target).
+- The wasm 64 × 32 snapshot of a fully styled sheet (4.2 ms) is close to the 5 ms target; caching parsed number formats per snapshot is the next step if it regresses.
+- The browser measurements need Playwright, which is not a repository dependency: \`PERF_FRONTEND_DIR\` points at scripts kept outside the repository. Moving them into an e2e package would make \`scripts/perf.sh\` self-contained.
 EOF
 log "wrote $OUT"
