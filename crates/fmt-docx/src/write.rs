@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use std::io::Cursor;
 
 use core_model::ColorScheme;
-use fmt_ooxml::{Package, PartName, Relationships, OFFICE_DOCUMENT_REL};
+use fmt_ooxml::theme::office_theme_xml;
+use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
 use model_text::{
     Block, BreakKind, Document, HeightRule, Inline, InlineImage, MediaId, Orientation, Paragraph,
     Run, Table, TableWidth, VAlign,
@@ -17,33 +18,13 @@ use crate::props::{
     write_borders, write_cell_margins, write_ppr, write_rpr, write_shading, write_width,
 };
 use crate::styles::write_styles;
-use crate::theme::default_theme_xml;
-use crate::xml::XmlOut;
+use crate::xml::{WriteVal, XmlOut};
 use crate::{DocxContext, Error, Result};
 
-const CT_DOCUMENT: &str =
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
-const CT_STYLES: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml";
-const CT_NUMBERING: &str =
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml";
-const CT_SETTINGS: &str =
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml";
-const CT_THEME: &str = "application/vnd.openxmlformats-officedocument.theme+xml";
-const CT_CORE: &str = "application/vnd.openxmlformats-package.core-properties+xml";
-const CT_APP: &str = "application/vnd.openxmlformats-officedocument.extended-properties+xml";
-
-const REL_BASE: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-const REL_CORE: &str =
-    "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties";
-
-const NS_R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+const NS_R: &str = rel::NS;
 const NS_WP: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
 const NS_A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const NS_PIC: &str = "http://schemas.openxmlformats.org/drawingml/2006/picture";
-
-fn rel(kind: &str) -> String {
-    format!("{REL_BASE}/{kind}")
-}
 
 /// Writes `doc` as `.docx` bytes with the built-in theme and settings.
 pub fn write(doc: &Document) -> Result<Vec<u8>> {
@@ -63,12 +44,12 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
     let pn = PartName::new;
 
     let mut rels = Relationships::new();
-    rels.add(rel("styles"), "styles.xml");
-    rels.add(rel("settings"), "settings.xml");
-    rels.add(rel("theme"), "theme/theme1.xml");
+    rels.add(rel::STYLES, "styles.xml");
+    rels.add(rel::SETTINGS, "settings.xml");
+    rels.add(rel::THEME, "theme/theme1.xml");
     let numbering_xml = write_numbering(&doc.numbering, ctx);
     if numbering_xml.is_some() {
-        rels.add(rel("numbering"), "numbering.xml");
+        rels.add(rel::NUMBERING, "numbering.xml");
     }
     // Default header/footer parts (plain text, `{PAGE}` as a field).
     let mut header_parts = Vec::new();
@@ -80,14 +61,18 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
         let Some(text) = text.as_deref().filter(|t| !t.is_empty()) else {
             continue;
         };
-        let (kind, file, style, ct) = if footer {
-            ("footer", "footer1.xml", "Footer", crate::headers::CT_FOOTER)
+        let (kind, file, style, content_type) = if footer {
+            (rel::FOOTER, "footer1.xml", "Footer", ct::FOOTER)
         } else {
-            ("header", "header1.xml", "Header", crate::headers::CT_HEADER)
+            (rel::HEADER, "header1.xml", "Header", ct::HEADER)
         };
-        let id = rels.add(rel(kind), file).id.clone();
+        let id = rels.add(kind, file).id.clone();
         let style = doc.styles.get(style).map(|_| style);
-        header_parts.push((file, ct, crate::headers::write_part(text, footer, style)));
+        header_parts.push((
+            file,
+            content_type,
+            crate::headers::write_part(text, footer, style),
+        ));
         header_refs.push((footer, id));
     }
 
@@ -111,26 +96,28 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
 
     let main = pn("/word/document.xml")?;
     let mut pkg = Package::new();
-    pkg.insert_part(main.clone(), CT_DOCUMENT, x.finish());
+    pkg.insert_part(main.clone(), ct::DOCUMENT, x.finish());
     pkg.insert_part(
         pn("/word/styles.xml")?,
-        CT_STYLES,
+        ct::WORD_STYLES,
         write_styles(&doc.styles, scheme),
     );
     pkg.insert_part(
         pn("/word/settings.xml")?,
-        CT_SETTINGS,
+        ct::SETTINGS,
         ctx.settings_xml
             .clone()
             .unwrap_or_else(default_settings_xml),
     );
     pkg.insert_part(
         pn("/word/theme/theme1.xml")?,
-        CT_THEME,
-        ctx.theme_xml.clone().unwrap_or_else(default_theme_xml),
+        ct::THEME,
+        ctx.theme_xml
+            .clone()
+            .unwrap_or_else(|| office_theme_xml(true)),
     );
     if let Some(xml) = numbering_xml {
-        pkg.insert_part(pn("/word/numbering.xml")?, CT_NUMBERING, xml);
+        pkg.insert_part(pn("/word/numbering.xml")?, ct::NUMBERING, xml);
     }
     for (file, content_type, data) in header_parts {
         pkg.insert_part(PartName::new(format!("/word/{file}"))?, content_type, data);
@@ -139,12 +126,12 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
         pkg.insert_part(PartName::new(format!("/word/{name}"))?, content_type, data);
     }
     pkg.set_relationships(main, rels);
-    pkg.insert_part(pn("/docProps/core.xml")?, CT_CORE, core_xml());
-    pkg.insert_part(pn("/docProps/app.xml")?, CT_APP, app_xml());
+    pkg.insert_part(pn("/docProps/core.xml")?, ct::CORE_PROPERTIES, core_xml());
+    pkg.insert_part(pn("/docProps/app.xml")?, ct::EXTENDED_PROPERTIES, app_xml());
     let root = pkg.package_relationships_mut();
-    root.add(OFFICE_DOCUMENT_REL, "word/document.xml");
-    root.add(REL_CORE, "docProps/core.xml");
-    root.add(rel("extended-properties"), "docProps/app.xml");
+    root.add(rel::OFFICE_DOCUMENT, "word/document.xml");
+    root.add(rel::CORE_PROPERTIES, "docProps/core.xml");
+    root.add(rel::EXTENDED_PROPERTIES, "docProps/app.xml");
     Ok(pkg.write(Cursor::new(Vec::new()))?.into_inner())
 }
 
@@ -298,7 +285,7 @@ impl DocWriter<'_> {
             self.media_parts.len() + 1,
             extension_of(&m.content_type)
         );
-        let rid = self.rels.add(rel("image"), name.clone()).id.clone();
+        let rid = self.rels.add(rel::IMAGE, name.clone()).id.clone();
         self.media_parts
             .push((name, m.content_type.clone(), m.data.clone()));
         self.media.insert(media, rid.clone());
@@ -676,7 +663,7 @@ mod tests {
         assert!(sect.contains("<w:footerReference"));
         assert!(pkg
             .part(&PartName::new("/word/footer1.xml").unwrap())
-            .is_some_and(|p| p.content_type == crate::headers::CT_FOOTER));
+            .is_some_and(|p| p.content_type == ct::FOOTER));
         let out = crate::read_with_context(&bytes).unwrap();
         assert!(out.warnings.is_empty(), "{:?}", out.warnings);
         assert_eq!(out.document.page, doc.page);

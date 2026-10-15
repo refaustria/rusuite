@@ -29,7 +29,6 @@
 mod drawing;
 mod parts;
 mod read;
-mod theme;
 mod write;
 mod xml;
 

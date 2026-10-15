@@ -5,7 +5,7 @@ use model_text::{Defaults, ParagraphProperties, Style, StyleKind, StyleSheet};
 
 use crate::numbering::W_NS;
 use crate::props::{read_ppr, read_rpr, write_ppr, write_rpr};
-use crate::xml::{parse, parse_bool, El, XmlOut};
+use crate::xml::{parse, parse_bool, El, WriteVal, XmlOut};
 use crate::{Result, Warnings};
 
 /// `w:style` children that carry no formatting we model and are dropped

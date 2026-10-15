@@ -5,31 +5,15 @@ use std::collections::{BTreeSet, HashMap};
 use std::io::Cursor;
 
 use engine_formula::{CellContent, CellCoord, RangeRef, SheetId, Value};
-use fmt_ooxml::{Package, PartName, Relationships, OFFICE_DOCUMENT_REL};
+use fmt_ooxml::theme::office_theme_xml;
+use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
 use model_sheet::{ColInfo, Workbook};
 
 use crate::a1::{cell_name, range_name};
-use crate::read::{REL_NS, REL_SST, REL_STYLES, REL_THEME, REL_WORKSHEET};
 use crate::styles::{builtin_default_font, write_styles, MAIN_NS};
-use crate::theme::default_theme_xml;
 use crate::xlfn::add_xlfn_prefixes;
 use crate::xml::{encode_x_escapes, fmt_num, needs_preserve, XmlOut};
 use crate::{Result, XlsxContext};
-
-const CT_WORKBOOK: &str =
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
-const CT_WORKSHEET: &str =
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
-const CT_STYLES: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml";
-const CT_SST: &str =
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml";
-const CT_THEME: &str = "application/vnd.openxmlformats-officedocument.theme+xml";
-const CT_CORE: &str = "application/vnd.openxmlformats-package.core-properties+xml";
-const CT_APP: &str = "application/vnd.openxmlformats-officedocument.extended-properties+xml";
-const REL_CORE: &str =
-    "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties";
-const REL_APP: &str =
-    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties";
 
 /// Writes `wb` as `.xlsx` bytes with the built-in theme and default font.
 pub fn write(wb: &Workbook) -> Result<Vec<u8>> {
@@ -54,36 +38,42 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     let pn = |s: &str| PartName::new(s);
     let main = pn("/xl/workbook.xml")?;
     let mut pkg = Package::new();
-    pkg.insert_part(main.clone(), CT_WORKBOOK, workbook_xml(&sheets));
+    pkg.insert_part(main.clone(), ct::WORKBOOK, workbook_xml(&sheets));
     let mut rels = Relationships::new();
     for (i, xml) in sheet_xml.into_iter().enumerate() {
         let target = format!("worksheets/sheet{}.xml", i + 1);
-        pkg.insert_part(pn(&format!("/xl/{target}"))?, CT_WORKSHEET, xml);
-        rels.add(REL_WORKSHEET, target);
+        pkg.insert_part(pn(&format!("/xl/{target}"))?, ct::WORKSHEET, xml);
+        rels.add(rel::WORKSHEET, target);
     }
     pkg.insert_part(
         pn("/xl/theme/theme1.xml")?,
-        CT_THEME,
-        ctx.theme_xml.clone().unwrap_or_else(default_theme_xml),
+        ct::THEME,
+        ctx.theme_xml
+            .clone()
+            .unwrap_or_else(|| office_theme_xml(false)),
     );
     pkg.insert_part(
         pn("/xl/styles.xml")?,
-        CT_STYLES,
+        ct::SPREADSHEET_STYLES,
         write_styles(wb.styles(), &default_font),
     );
-    rels.add(REL_STYLES, "styles.xml");
-    rels.add(REL_THEME, "theme/theme1.xml");
+    rels.add(rel::STYLES, "styles.xml");
+    rels.add(rel::THEME, "theme/theme1.xml");
     if !sst.strings.is_empty() {
-        pkg.insert_part(pn("/xl/sharedStrings.xml")?, CT_SST, sst.to_xml());
-        rels.add(REL_SST, "sharedStrings.xml");
+        pkg.insert_part(
+            pn("/xl/sharedStrings.xml")?,
+            ct::SHARED_STRINGS,
+            sst.to_xml(),
+        );
+        rels.add(rel::SHARED_STRINGS, "sharedStrings.xml");
     }
     pkg.set_relationships(main, rels);
-    pkg.insert_part(pn("/docProps/core.xml")?, CT_CORE, core_xml());
-    pkg.insert_part(pn("/docProps/app.xml")?, CT_APP, app_xml());
+    pkg.insert_part(pn("/docProps/core.xml")?, ct::CORE_PROPERTIES, core_xml());
+    pkg.insert_part(pn("/docProps/app.xml")?, ct::EXTENDED_PROPERTIES, app_xml());
     let root = pkg.package_relationships_mut();
-    root.add(OFFICE_DOCUMENT_REL, "xl/workbook.xml");
-    root.add(REL_CORE, "docProps/core.xml");
-    root.add(REL_APP, "docProps/app.xml");
+    root.add(rel::OFFICE_DOCUMENT, "xl/workbook.xml");
+    root.add(rel::CORE_PROPERTIES, "docProps/core.xml");
+    root.add(rel::EXTENDED_PROPERTIES, "docProps/app.xml");
     Ok(pkg.write(Cursor::new(Vec::new()))?.into_inner())
 }
 
@@ -134,7 +124,7 @@ impl SharedStrings {
 
 fn workbook_xml(sheets: &[(SheetId, String)]) -> Vec<u8> {
     let mut x = XmlOut::new();
-    x.start("workbook", &[("xmlns", MAIN_NS), ("xmlns:r", REL_NS)]);
+    x.start("workbook", &[("xmlns", MAIN_NS), ("xmlns:r", rel::NS)]);
     x.empty("workbookPr", &[]);
     x.start("bookViews", &[]);
     x.empty("workbookView", &[("activeTab", "0")]);
@@ -206,7 +196,7 @@ pub(crate) fn col_runs(cols: impl IntoIterator<Item = (u32, ColInfo)>) -> Vec<(u
 fn sheet_xml(wb: &Workbook, id: SheetId, first: bool, sst: &mut SharedStrings) -> Vec<u8> {
     let format = wb.sheet_format(id);
     let mut x = XmlOut::new();
-    x.start("worksheet", &[("xmlns", MAIN_NS), ("xmlns:r", REL_NS)]);
+    x.start("worksheet", &[("xmlns", MAIN_NS), ("xmlns:r", rel::NS)]);
     let dim = wb
         .used_range(id)
         .map_or_else(|| "A1".to_owned(), |(r, c)| range_name(0, 0, r, c));

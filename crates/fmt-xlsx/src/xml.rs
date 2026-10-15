@@ -1,11 +1,12 @@
-//! XML helpers: attribute access, text decoding (including Excel's
-//! `_xHHHH_` escapes) and a small writer over `quick_xml::Writer`.
+//! XML helpers for streaming SpreadsheetML: attribute access, text
+//! decoding (including Excel's `_xHHHH_` escapes) and number formatting.
+//! The element writer and scalar parsers come from [`fmt_ooxml::xml`].
 
 use std::borrow::Cow;
 
-use fmt_ooxml::xml::{attr_local, DECLARATION};
-use quick_xml::events::{BytesEnd, BytesRef, BytesStart, BytesText, Event};
-use quick_xml::Writer;
+use fmt_ooxml::xml::attr_local;
+pub use fmt_ooxml::xml::{parse_bool, XmlOut};
+use quick_xml::events::{BytesEnd, BytesRef, BytesStart, BytesText};
 
 use crate::Error;
 
@@ -34,14 +35,6 @@ pub fn attr_parse<T: std::str::FromStr>(el: &BytesStart<'_>, name: &str) -> Opti
     attr(el, name).and_then(|v| v.trim().parse().ok())
 }
 
-pub fn parse_bool(v: &str) -> Option<bool> {
-    match v.trim() {
-        "1" | "true" | "on" => Some(true),
-        "0" | "false" | "off" => Some(false),
-        _ => None,
-    }
-}
-
 /// A boolean toggle element such as `<b/>` or `<b val="0"/>`.
 pub fn toggle(el: &BytesStart<'_>) -> bool {
     attr_bool(el, "val").unwrap_or(true)
@@ -52,6 +45,16 @@ pub fn xml_err(part: &str) -> impl Fn(quick_xml::Error) -> Error + '_ {
     move |source| Error::Xml {
         part: part.to_owned(),
         source,
+    }
+}
+
+/// Maps the XML-level errors of `fmt-ooxml` helpers onto [`Error::Xml`] and
+/// [`Error::Malformed`]; anything else stays a package error.
+pub fn xml_error(e: fmt_ooxml::Error) -> Error {
+    match e {
+        fmt_ooxml::Error::Xml { part, source } => Error::Xml { part, source },
+        fmt_ooxml::Error::Malformed { part, reason } => Error::Malformed { part, reason },
+        other => Error::Package(other),
     }
 }
 
@@ -144,77 +147,6 @@ pub fn fmt_num(n: f64) -> String {
     }
 }
 
-/// A tiny element writer. Writing into a `Vec` cannot fail, so the I/O
-/// results are unwrapped.
-pub struct XmlOut {
-    w: Writer<Vec<u8>>,
-}
-
-impl XmlOut {
-    /// A new document starting with the standalone XML declaration.
-    pub fn new() -> Self {
-        XmlOut {
-            w: Writer::new(DECLARATION.as_bytes().to_vec()),
-        }
-    }
-
-    /// A writer for an XML fragment (no declaration).
-    pub fn fragment() -> Self {
-        XmlOut {
-            w: Writer::new(Vec::new()),
-        }
-    }
-
-    /// Appends already-serialized XML.
-    pub fn raw(&mut self, xml: &[u8]) {
-        self.w.get_mut().extend_from_slice(xml);
-    }
-
-    fn el<'a>(name: &'a str, attrs: &[(&str, &str)]) -> BytesStart<'a> {
-        let mut el = BytesStart::new(name);
-        for &(k, v) in attrs {
-            el.push_attribute((k, v));
-        }
-        el
-    }
-
-    fn put(&mut self, ev: Event<'_>) {
-        self.w
-            .write_event(ev)
-            .expect("writing XML into a Vec cannot fail");
-    }
-
-    pub fn start(&mut self, name: &str, attrs: &[(&str, &str)]) {
-        self.put(Event::Start(Self::el(name, attrs)));
-    }
-
-    pub fn empty(&mut self, name: &str, attrs: &[(&str, &str)]) {
-        self.put(Event::Empty(Self::el(name, attrs)));
-    }
-
-    pub fn end(&mut self, name: &str) {
-        self.put(Event::End(BytesEnd::new(name)));
-    }
-
-    /// Character data; only `<`, `>` and `&` are escaped.
-    pub fn text(&mut self, text: &str) {
-        self.put(Event::Text(BytesText::from_escaped(
-            fmt_ooxml::xml::escape_text(text),
-        )));
-    }
-
-    /// `<name attrs>text</name>`.
-    pub fn text_el(&mut self, name: &str, attrs: &[(&str, &str)], text: &str) {
-        self.start(name, attrs);
-        self.text(text);
-        self.end(name);
-    }
-
-    pub fn finish(self) -> Vec<u8> {
-        self.w.into_inner()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,14 +182,9 @@ mod tests {
     }
 
     #[test]
-    fn writer_escapes() {
-        let mut x = XmlOut::new();
-        x.text_el("a", &[("k", "<\"&>")], "1 < 2 & 3 \"q\" 'a'");
-        let s = String::from_utf8(x.finish()).unwrap();
-        assert!(s.starts_with(DECLARATION));
-        assert!(
-            s.contains(r#"<a k="&lt;&quot;&amp;&gt;">1 &lt; 2 &amp; 3 "q" 'a'</a>"#),
-            "{s}"
-        );
+    fn control_chars_survive_the_writer_as_x_escapes() {
+        let mut x = XmlOut::fragment();
+        x.text_el("t", &[], &encode_x_escapes("a\u{1}b <&>"));
+        assert_eq!(x.finish(), b"<t>a_x0001_b &lt;&amp;&gt;</t>");
     }
 }

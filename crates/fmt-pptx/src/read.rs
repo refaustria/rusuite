@@ -4,6 +4,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::io::Cursor;
 
 use core_model::Color;
+use fmt_ooxml::theme::parse_theme;
 use fmt_ooxml::{Package, PartName, TargetMode};
 use model_show::{
     BodyProps, Emu, Fill, LayoutKind, Line, MediaId, NodeId, PlaceholderDef, PlaceholderKind,
@@ -13,8 +14,7 @@ use model_show::{
 use crate::drawing::{
     read_color, read_fill, read_line, read_text_body, read_xfrm, Space, Xfrm, STYLE_LINE_WIDTHS,
 };
-use crate::theme::parse_theme;
-use crate::xml::{parse, parse_bool, parse_i64, parse_u32, El};
+use crate::xml::{parse, parse_bool, parse_i64, parse_u32, xml_error, El};
 use crate::{Error, PptxContext, Result, Warnings};
 
 /// Everything [`read_with_context`] returns.
@@ -92,7 +92,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
 
     if let Some(theme) = related(&pkg, &main, "theme") {
         if let Some(part) = pkg.part(&theme) {
-            p.theme = parse_theme(&part.data, theme.as_str())?;
+            p.theme = parse_theme(&part.data, theme.as_str()).map_err(xml_error)?;
             if pkg.relationships(&theme).is_some_and(|r| !r.is_empty()) {
                 w.add(format!(
                     "{theme}: theme has its own relationships; a generated theme part is written"

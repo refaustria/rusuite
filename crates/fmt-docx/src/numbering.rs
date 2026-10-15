@@ -12,7 +12,7 @@ use core_model::FontFace;
 use model_text::{Level, LevelKind, Numbering, NumberingDef};
 
 use crate::props::{read_fonts, read_indent_quiet, write_fonts, write_indent};
-use crate::xml::{parse, parse_u32, El, XmlOut};
+use crate::xml::{parse, parse_u32, El, WriteVal, XmlOut};
 use crate::{DocxContext, NumInstance, Result, Warnings};
 
 pub(crate) const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
