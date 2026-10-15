@@ -91,6 +91,9 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Write `p:style` for auto shapes (PowerPoint default white text on accent fill); footer/date/slide-number placeholders; tables (graphic frames) later; bullet size/colour + paragraph indents in the model; `Shape::alt`; gradients/transparency/cropping/arrowheads/other presets are approximated.
 - Move the XML DOM/writer and theme parser into fmt-ooxml (now triplicated).
 
+## Mobile (Android, iOS) – after v0.1.0, see docs/mobile-plan.md
+- Tauri mobile targets for the three apps; tablet-first layouts; touch editing; document picker + share sheet; Rust PDF generation; store publishing. Guardrails apply now (pointer events, responsive ribbon, Backend abstraction).
+
 ## Release / distribution
 - Code signing + notarization (Windows/macOS warn today); auto-update (tauri-plugin-updater); CI check that the tag matches `tauri.conf.json` versions; bump actions to Node 24 variants when available.
 

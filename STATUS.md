@@ -145,6 +145,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+23. 2026-10-15: Owner wants Android/iOS (phones + tablets) considered now and built after the initial version is published. Assessment and guardrails in docs/mobile-plan.md; not scheduled. New UI work must follow the guardrails (pointer events, responsive ribbon, everything platform-specific behind `Backend`).
 22. 2026-10-15: Owner asked for multi-language support (English + German). UI i18n is a task (P7-11); formula/number locale is a separate decision (see open questions).
 21. 2026-10-15: Owner asked for printing functionality; the README non-goal "print layout beyond export to PDF" is relaxed to "pixel-exact print layout" (README amended). Printing goes through the webview print pipeline with our own preview and options.
 20. 2026-10-15: All planned work (README Phases 0–5, usability track, e2e suite, dedup, sheet ops) is merged and live. Further batches wait for the owner's priorities; ROADMAP.md holds the candidates.
