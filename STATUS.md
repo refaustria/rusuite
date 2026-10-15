@@ -2,7 +2,9 @@
 
 _Maintained by the PM agent. Read at the start of every session; update after every task._
 
-## Current phase: Phase 5 – Polish + Phase 6 – Usability (owner feedback 2026-10-15)
+## Current phase: Phase 8 – Office parity (owner direction 2026-10-15) + pending P7 items
+
+**Owner direction 2026-10-15:** keep improving toward "very close to what an office suite offers", implementing functionality broadly (no VBA, no Power Query for now; JSON maybe later); consider an AI connection via API. Backlog: `docs/parity-backlog.md` (tiers per app); AI: `docs/ai-plan.md`. Work order: finish P7-11 i18n → P7-12 privacy → parity tier 1 in batches (Calc functions first, engine-only, started now) → cloud connectors → AI assistant → mobile after v0.1.0.
 
 **Owner feedback 2026-10-15 (after trying the web apps):** push to GitHub and build installers; expected Office-like **ribbons/menus (File, Home, …)**; expected **more functionality** – e.g. Calc formula editing must support clicking cells to insert references and must never discard an incomplete formula; "stripped" ≠ bare basics. Decision: a Phase 6 "Usability" track is added within the README feature scope: ribbon in ui-shared (P6-1), Calc formula editing like Excel (P6-2), then further ergonomics batches (see below). `main` is now pushed to github.com/refaustria/rusuite (owner's instruction).
 
@@ -102,6 +104,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 | P7-10 | Root landing page listing the apps + professional SVG logo set (icons/favicons regenerated); nginx root serves it instead of redirecting | Opus | done (merged) | – | verified: live `/` 200 (no redirect), e2e 46/46 incl. portal tests, logo set + regenerated icons/favicons |
 | P7-11 | Multi-language UI: English + German (i18n helper, catalogs, language switch, portal, German translations) | Opus | in progress | `p7/i18n` | brief docs/tasks/P7-11-i18n.md; owner request |
 | P7-12 | Privacy hardening per ADR 0009: CSP connect-src 'self', privacy check in CI, e2e request audit, clear-local-copies + autosave-in-browser setting, privacy note | Sonnet | todo | `p7/privacy` | brief docs/tasks/P7-12-privacy-hardening.md; after P7-11 (backstage strings) |
+| P8-1 | Calc function library to ~200 (all families, INDIRECT/OFFSET via call_ref, volatile flag) | Sonnet | in progress | `p8/functions` | brief docs/tasks/P8-1-calc-functions-200.md |
 | P7-3 | De-duplicate XML writer/theme code into fmt-ooxml; docs/architecture.md real overview; README status/what-works | Opus | done (merged) | – | verified: 830 tests, harnesses 2/2, 52/52, 26/26 byte-identical output; −330 LOC; docs/architecture.md rewritten; README status Alpha; ADR 0003 amended (fmt-ooxml → core-model) |
 | P7-4 | Calc sheets: delete/duplicate/move/tab colour (engine + core + UI + xlsx) | Opus | done (merged) | – | verified: 838 Rust tests, e2e 39/39, suite 862/0; engine remove/restore/move/duplicate sheet with `#REF!`; undoable AddSheet; tab colours in xlsx; tab context menu + drag reorder |
 | P6-1 | Ribbon in ui-shared + all apps | Opus | done (merged) | – | verified: 437 frontend tests; Ribbon/Backstage/galleries in ui-shared, all apps adopted (File/Home/Insert/View, Layout in Write), keyboard (Alt, Ctrl+F1), zoom; docs/ui.md |
@@ -146,6 +149,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+26. 2026-10-15: Phase 8 "Office parity" opened per owner direction; README non-goal "animations/transitions (for now)" will be revisited in Show tier 1 (ask before the animation pane). AI assistant planned client-side with the user's own API key (ADR 0009).
 25. 2026-10-15: Owner clarified storage: local drive or the user's own cloud (Google Drive, iCloud, OneDrive …) – never Rusuite infrastructure. ADR 0009 amended; connector design in docs/cloud-connectors-plan.md; scheduled after privacy hardening, before mobile. Owner must provide OAuth app registrations when we start.
 24. 2026-10-15: Owner: documents must never be shared across browsers (no cloud/server-side state). Verified: the only network request is `/version.json`; no HTTP clients in the shells. ADR 0009 written; hardening task P7-12 (CSP, CI check, e2e audit, clear-local-data) scheduled after i18n.
 23. 2026-10-15: Owner wants Android/iOS (phones + tablets) considered now and built after the initial version is published. Assessment and guardrails in docs/mobile-plan.md; not scheduled. New UI work must follow the guardrails (pointer events, responsive ribbon, everything platform-specific behind `Backend`).
@@ -173,6 +177,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 4. 2026-10-15: Roundtrip harness verification = LibreOffice headless `--convert-to` of the rewritten file succeeds and the output is non-empty, plus a structural diff of the ZIP part list and XML against the original. (LibreOffice has no "repair dialog" counter in headless mode; a failed/empty conversion is the proxy.)
 
 ## Open questions for the owner
+- **Parity scope confirmations:** pivot tables (currently a README non-goal) – later or never? Comments/notes in Calc/Write – wanted? Transitions/animations in Show – simple transitions + basic animations OK? AI providers to support first (Anthropic, OpenAI-compatible, local)?
 - **Cloud connectors:** which providers first (Google Drive / OneDrive / Dropbox / WebDAV)? iCloud works only through the native file dialogs (no web API). When you want this started, I will send the exact steps to create the OAuth client IDs in your Google/Microsoft/Dropbox accounts.
 - **Formula language for German (decision needed):** P7-11 translates the UI only. German Excel also uses `;` as the argument separator, `,` as the decimal separator and German function names (`SUMME`, `WENN`). Options: (a) UI only (current plan); (b) also accept `;`/`,` input and display numbers as `1.234,56` when the UI is German, function names stay English; (c) full German function names too. My recommendation: (b) as the next step after P7-11; (c) later if wanted.
 - **Next priorities?** Everything planned is merged and live; ROADMAP.md lists candidates per app (Write pagination of long tables, Show presenter view, Calc hidden sheets/3-D refs, signing/auto-update, Playwright on the desktop shells). Unless told otherwise I will next take: desktop Save As with a remembered path (Tauri shells) + a real-window test of the close guard, then Show presenter view.

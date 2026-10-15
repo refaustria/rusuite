@@ -91,6 +91,10 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Write `p:style` for auto shapes (PowerPoint default white text on accent fill); footer/date/slide-number placeholders; tables (graphic frames) later; bullet size/colour + paragraph indents in the model; `Shape::alt`; gradients/transparency/cropping/arrowheads/other presets are approximated.
 - Move the XML DOM/writer and theme parser into fmt-ooxml (now triplicated).
 
+## Office parity – tracked in docs/parity-backlog.md (Phase 8)
+
+## AI assistant – docs/ai-plan.md
+
 ## Cloud connectors (user-owned accounts) – see docs/cloud-connectors-plan.md
 - `FileProvider` abstraction + backstage provider tabs; Google Drive (PKCE + Picker + Drive v3), OneDrive (MSAL + Graph), Dropbox, optional WebDAV; iCloud only through the native file system; CSP connect-src per enabled provider; tokens client-side only (ADR 0009). Needs the owner's OAuth app registrations.
 
