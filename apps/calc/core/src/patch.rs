@@ -36,6 +36,19 @@ pub struct CellView {
     pub style: u32,
 }
 
+/// A match of the `findCells` request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct FoundCell {
+    pub sheet: u32,
+    pub row: u32,
+    pub col: u32,
+    /// The cell's input (what Replace edits).
+    pub input: String,
+    pub display: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "apps/calc/src/generated/")]

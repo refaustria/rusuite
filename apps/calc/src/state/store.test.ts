@@ -174,11 +174,15 @@ describe("store: edits", () => {
     expect(core.log[1]).toEqual({ type: "apply", command: { type: "clearRange", sheet: 0, r0: 0, c0: 0, r1: 0, c1: 0 } });
   });
 
-  it("copies the selection as TSV and pastes it as one compound of setInputs", async () => {
+  it("copies the selection as TSV and pastes external TSV as one pasteRange of plain inputs", async () => {
     const { store, core } = await readyStore();
     await store.paste("1\t=A1*2\nx\t\n");
     const cmd = core.log[0];
-    expect(cmd.type === "apply" && cmd.command.type).toBe("compound");
+    expect(cmd.type === "apply" && cmd.command).toEqual({
+      type: "pasteRange", sheet: 0, r0: 0, c0: 0, src: { sheet: 0, r0: 0, c0: 0, r1: 1, c1: 1 },
+      cells: [{ dr: 0, dc: 0, input: "1" }, { dr: 0, dc: 1, input: "=A1*2" }, { dr: 1, dc: 0, input: "x" }, { dr: 1, dc: 1, input: "" }],
+      mode: "all", cut: false, repeatRows: 1, repeatCols: 1,
+    });
     expect(store.cache(0).cells.get(0)?.get(1)?.display).toBe("2");
     expect(store.getState().selection.focus).toEqual({ row: 1, col: 1 });
     expect(store.copy()).toBe("1\t=A1*2\nx\t");

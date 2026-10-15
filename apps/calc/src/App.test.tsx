@@ -134,11 +134,9 @@ describe("App", () => {
     const { core, grid } = await setup();
     fireEvent.paste(grid, { clipboardData: { getData: () => "1\t2" } });
     await waitFor(() => expect(applied(core.log)).toEqual([{
-      type: "compound",
-      commands: [
-        { type: "setInput", sheet: 0, row: 0, col: 0, input: "1" },
-        { type: "setInput", sheet: 0, row: 0, col: 1, input: "2" },
-      ],
+      type: "pasteRange", sheet: 0, r0: 0, c0: 0, src: { sheet: 0, r0: 0, c0: 0, r1: 0, c1: 1 },
+      cells: [{ dr: 0, dc: 0, input: "1" }, { dr: 0, dc: 1, input: "2" }],
+      mode: "all", cut: false, repeatRows: 1, repeatCols: 1,
     }]));
     expect(address()).toBe("A1:B1");
   });

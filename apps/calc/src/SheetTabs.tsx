@@ -1,6 +1,8 @@
-// Sheet tabs: click switches, double-click renames inline, "+" adds.
+// Sheet tabs: click switches, double-click (or the context menu's
+// Rename) renames inline, "+" adds.
 
 import { useRef, useState } from "react";
+import { ContextMenu } from "@rusuite/ui-shared";
 import { useCalc, type CalcStore } from "./state/store";
 
 export function SheetTabs({ store }: { store: CalcStore }) {
@@ -13,6 +15,8 @@ export function SheetTabs({ store }: { store: CalcStore }) {
     current.current = r;
     setRenamingState(r);
   };
+
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; id: number; name: string } | null>(null);
 
   const finish = (commit: boolean) => {
     const r = current.current;
@@ -53,6 +57,11 @@ export function SheetTabs({ store }: { store: CalcStore }) {
               store.focusGrid();
             }}
             onDoubleClick={() => setRenaming({ id: s.id, name: s.name })}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              store.setActiveSheet(s.id);
+              setMenu({ at: { x: e.clientX, y: e.clientY }, id: s.id, name: s.name });
+            }}
           >
             {s.name}
           </button>
@@ -61,6 +70,19 @@ export function SheetTabs({ store }: { store: CalcStore }) {
       <button type="button" aria-label="Add sheet" className="px-2 py-1 hover:bg-ui-hover" onClick={() => void store.addSheet()}>
         +
       </button>
+      <ContextMenu
+        at={menu?.at ?? null}
+        label="Sheet"
+        items={
+          menu
+            ? [
+                { id: "rename", label: "Rename", onSelect: () => setRenaming({ id: menu.id, name: menu.name }) },
+                { id: "insert", label: "Insert sheet", onSelect: () => void store.addSheet() },
+              ]
+            : []
+        }
+        onClose={() => setMenu(null)}
+      />
     </div>
   );
 }
