@@ -1,0 +1,78 @@
+---
+source: crates/model-sheet/tests/workbook.rs
+expression: json
+---
+{
+  "sheets": [
+    {
+      "cells": [
+        {
+          "col": 0,
+          "input": "=Data!A1*2+1",
+          "row": 0,
+          "style": 1
+        },
+        {
+          "col": 1,
+          "input": "TRUE",
+          "row": 0
+        }
+      ],
+      "cols": [
+        {
+          "col": 0,
+          "width": 18.0
+        }
+      ],
+      "format": {
+        "defaultColWidth": 8.43,
+        "defaultRowHeight": 15.0
+      },
+      "name": "Sheet1",
+      "rows": []
+    },
+    {
+      "cells": [
+        {
+          "col": 0,
+          "input": "20",
+          "row": 0
+        },
+        {
+          "col": 0,
+          "input": "'007",
+          "row": 1
+        }
+      ],
+      "cols": [],
+      "format": {
+        "defaultColWidth": 8.43,
+        "defaultRowHeight": 15.0
+      },
+      "name": "Data",
+      "rows": [
+        {
+          "hidden": true,
+          "row": 4
+        }
+      ]
+    }
+  ],
+  "styles": [
+    {},
+    {
+      "fill": {
+        "color": {
+          "kind": "rgb",
+          "value": "FFFF00"
+        },
+        "kind": "solid"
+      },
+      "font": {
+        "bold": true,
+        "size": 1400
+      },
+      "numberFormat": "0.00"
+    }
+  ]
+}
