@@ -7,4 +7,4 @@ import type { WriteCommand } from "./WriteCommand";
  * A request from the UI. JSON: `{"type":"apply","command":{...}}`,
  * `{"type":"undo"}`, `{"type":"getMedia","id":3}`.
  */
-export type Request = { "type": "apply", command: WriteCommand, } | { "type": "undo" } | { "type": "redo" } | { "type": "load", document: Document, } | { "type": "getDocument" } | { "type": "newDocument" } | { "type": "getMedia", id: MediaId, } | { "type": "documentState" } | { "type": "markSaved", name?: string | null, };
+export type Request = { "type": "apply", command: WriteCommand, } | { "type": "undo" } | { "type": "redo" } | { "type": "load", document: Document, } | { "type": "getDocument" } | { "type": "newDocument" } | { "type": "getMedia", id: MediaId, } | { "type": "openDocx", bytesBase64: string, name: string, } | { "type": "saveDocx" } | { "type": "documentState" } | { "type": "markSaved", name?: string | null, };

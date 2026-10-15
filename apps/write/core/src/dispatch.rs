@@ -2,7 +2,7 @@
 //! [`dispatch_with`]`(host, request_json) -> response_json`.
 
 use app_common::{DispatchError, Envelope, Host, Revision};
-use model_text::media::base64_encode;
+use model_text::media::{base64_decode, base64_encode};
 use model_text::{Document, MediaId};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -40,6 +40,12 @@ pub enum Request {
     NewDocument,
     /// → `media` with the bytes of image `id`.
     GetMedia { id: MediaId },
+    /// Replaces the document by a `.docx` file (standard base64 of its
+    /// bytes; `name` is the file name shown to the user) → `opened`.
+    OpenDocx { bytes_base64: String, name: String },
+    /// Writes the document as `.docx` → `saved`. Does NOT mark it saved:
+    /// the shell sends `markSaved` once the file was really written.
+    SaveDocx,
     /// → `documentState`.
     DocumentState,
     /// Marks the current state as saved (after the shell wrote the file);
@@ -67,6 +73,20 @@ pub enum ResponseBody {
     Document {
         doc: Box<Document>,
         envelope: Box<Envelope<WritePatch>>,
+    },
+    /// The reply to `openDocx`: the whole new document, the reader's
+    /// warnings (dropped or approximated content) and the host state
+    /// (empty patch, new revision, clean, no undo).
+    Opened {
+        doc: Box<Document>,
+        warnings: Vec<String>,
+        envelope: Box<Envelope<WritePatch>>,
+    },
+    /// The reply to `saveDocx`: the file (standard base64) and the file
+    /// name to offer.
+    Saved {
+        bytes_base64: String,
+        suggested_name: String,
     },
     /// An image: MIME type and standard base64 of the bytes.
     Media {
@@ -134,6 +154,24 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
             ResponseBody::Media {
                 content_type: media.content_type.clone(),
                 bytes_base64: base64_encode(&media.data),
+            }
+        }
+        Request::OpenDocx { bytes_base64, name } => {
+            let bytes = base64_decode(&bytes_base64)
+                .map_err(|e| DispatchError::new("bad_request", format!("invalid base64: {e}")))?;
+            let (doc, warnings) = WriteDocument::open_docx(&bytes, &name)?;
+            host.replace(doc);
+            ResponseBody::Opened {
+                doc: Box::new(host.doc().document().clone()),
+                warnings,
+                envelope: Box::new(host.envelope(WritePatch::default())),
+            }
+        }
+        Request::SaveDocx => {
+            let bytes = host.doc().save_docx()?;
+            ResponseBody::Saved {
+                bytes_base64: base64_encode(&bytes),
+                suggested_name: host.doc().suggested_name(),
             }
         }
         Request::DocumentState => state(host),
