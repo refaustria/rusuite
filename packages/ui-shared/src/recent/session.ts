@@ -18,6 +18,7 @@
 //   file by path, web entries re-open the snapshot stored with them.
 
 import type { Backend, OpenedFile } from "../backend";
+import { t } from "../i18n/locale";
 import { newDocId, type DocStorage, type RecentEntry, type RecoveryInfo } from "./storage";
 
 /** App hooks the session calls; each resolves `false` (or rejects) on failure. */
@@ -268,7 +269,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
       this.storedRevision = null;
       if (this.state.lastAutosave !== null) this.set({ lastAutosave: null });
       void this.queue((s) => s.removeRecovery(this.docId));
-      await this.remember(name ?? "Untitled");
+      await this.remember(name ?? t("doc.untitled"));
     } else if (REPLACING.has(type)) {
       this.storedRevision = null;
       if (type === "restoreRecovery") {
@@ -349,7 +350,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
     if (!(await this.confirmReplace())) return false;
     const entry = await this.queue((s) => s.getRecovery(id));
     if (!entry) {
-      if (entry === null) this.report(new Error("This recovered document is no longer available."));
+      if (entry === null) this.report(new Error(t("recovery.gone")));
       this.set({ recoveries: this.state.recoveries.filter((r) => r.id !== id) });
       return false;
     }

@@ -5,6 +5,7 @@ import {
   OFFICE_THEME, STANDARD_COLORS, THEME_SLOTS, TINTS, applyTint, cssColor, isHex6,
 } from "./color";
 import type { Color, ThemePalette } from "./types";
+import { useT } from "../i18n/react";
 
 export interface ColorPickerProps {
   label: string;
@@ -21,6 +22,7 @@ const COLS = 10;
 const CELL = `h-5 w-5 rounded-sm border border-ui-border ${FOCUS_RING}`;
 
 function Grid({ theme, onPick }: { theme: ThemePalette; onPick: (c: Color) => void }) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const cells = () => Array.from(ref.current?.querySelectorAll<HTMLButtonElement>("button[data-cell]") ?? []);
   const move = (e: React.KeyboardEvent) => {
@@ -36,8 +38,8 @@ function Grid({ theme, onPick }: { theme: ThemePalette; onPick: (c: Color) => vo
   };
   const slotHex = (s: (typeof THEME_SLOTS)[number]) => theme[s] ?? OFFICE_THEME[s as keyof typeof OFFICE_THEME];
   return (
-    <div ref={ref} role="group" aria-label="Colors" onKeyDown={move}>
-      <div className="mb-1 text-xs text-ui-muted">Theme colors</div>
+    <div ref={ref} role="group" aria-label={t("fmt.colors")} onKeyDown={move}>
+      <div className="mb-1 text-xs text-ui-muted">{t("color.theme")}</div>
       <div className="grid grid-cols-10 gap-0.5">
         {TINTS.map((tint) =>
           THEME_SLOTS.map((slot, ci) => (
@@ -46,7 +48,7 @@ function Grid({ theme, onPick }: { theme: ThemePalette; onPick: (c: Color) => vo
               type="button"
               data-cell
               tabIndex={tint === 0 && ci === 0 ? 0 : -1}
-              aria-label={`${slot} tint ${tint}`}
+              aria-label={t("color.themeCell", { slot, tint })}
               className={CELL}
               style={{ background: `#${applyTint(slotHex(slot)!, tint)}` }}
               onFocus={(e) => cells().forEach((b) => (b.tabIndex = b === e.currentTarget ? 0 : -1))}
@@ -55,7 +57,7 @@ function Grid({ theme, onPick }: { theme: ThemePalette; onPick: (c: Color) => vo
           )),
         )}
       </div>
-      <div className="mb-1 mt-2 text-xs text-ui-muted">Standard colors</div>
+      <div className="mb-1 mt-2 text-xs text-ui-muted">{t("color.standard")}</div>
       <div className="grid grid-cols-10 gap-0.5">
         {STANDARD_COLORS.map((hex) => (
           <button
@@ -63,7 +65,7 @@ function Grid({ theme, onPick }: { theme: ThemePalette; onPick: (c: Color) => vo
             type="button"
             data-cell
             tabIndex={-1}
-            aria-label={`Standard color ${hex}`}
+            aria-label={t("color.standardCell", { hex })}
             className={CELL}
             style={{ background: `#${hex}` }}
             onFocus={(e) => cells().forEach((b) => (b.tabIndex = b === e.currentTarget ? 0 : -1))}
@@ -76,6 +78,7 @@ function Grid({ theme, onPick }: { theme: ThemePalette; onPick: (c: Color) => vo
 }
 
 function HexInput({ onPick }: { onPick: (c: Color) => void }) {
+  const t = useT();
   const [text, setText] = useState("");
   const raw = text.replace(/^#/, "");
   const valid = isHex6(raw);
@@ -83,7 +86,7 @@ function HexInput({ onPick }: { onPick: (c: Color) => void }) {
   return (
     <div className="mt-2 flex items-center gap-1">
       <input
-        aria-label="Hex color"
+        aria-label={t("color.hex")}
         aria-invalid={text !== "" && !valid}
         className={`h-6 w-24 rounded border border-ui-border bg-ui-bg px-1 text-sm text-ui-fg ${FOCUS_RING}`}
         placeholder="RRGGBB"
@@ -103,13 +106,14 @@ function HexInput({ onPick }: { onPick: (c: Color) => void }) {
         className={`h-6 rounded border border-ui-border px-2 text-sm text-ui-fg hover:bg-ui-hover disabled:opacity-40 ${FOCUS_RING}`}
         onClick={apply}
       >
-        Apply
+        {t("color.apply")}
       </button>
     </div>
   );
 }
 
 export function ColorPicker({ label, kind, value, theme = OFFICE_THEME, disabled, onSelect }: ColorPickerProps) {
+  const t = useT();
   const swatch = cssColor(value, theme) ?? (kind === "text" ? "currentColor" : "transparent");
   return (
     <Popover
@@ -134,7 +138,7 @@ export function ColorPicker({ label, kind, value, theme = OFFICE_THEME, disabled
               className={`mb-2 w-full rounded px-2 py-1 text-left text-sm hover:bg-ui-hover ${FOCUS_RING}`}
               onClick={() => pick(null)}
             >
-              {kind === "text" ? "Automatic" : "No fill"}
+              {kind === "text" ? t("color.automatic") : t("color.noFill")}
             </button>
             <Grid theme={theme} onPick={pick} />
             <HexInput onPick={pick} />

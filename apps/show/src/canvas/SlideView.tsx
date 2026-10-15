@@ -21,6 +21,7 @@ import type { Theme } from "../generated/Theme";
 import { boxAttrs, emuToPx, PX_PER_PT, slidePx } from "../geometry";
 import { bodyText, css, effectiveParagraph, effectiveRun, fillCss, fontFamily, themePalette } from "../model";
 import { layoutText, measureText, type RunStyle } from "../text/layout";
+import { useT } from "../i18n";
 
 /** What a slide needs from the presentation besides the slide itself. */
 export interface DeckContext {
@@ -64,10 +65,10 @@ interface Ctx {
 }
 
 const PROMPTS: Record<string, string> = {
-  title: "Click to add title",
-  centeredTitle: "Click to add title",
-  subtitle: "Click to add subtitle",
-  body: "Click to add text",
+  title: "show.prompt.title",
+  centeredTitle: "show.prompt.title",
+  subtitle: "show.prompt.subtitle",
+  body: "show.prompt.text",
 };
 
 const imageCache = new Map<string, HTMLImageElement>();
@@ -144,7 +145,9 @@ function placeholderOf(ctx: Ctx, shape: Shape): PlaceholderDef | undefined {
 function TextNodes({ body, shape, w, h, ctx }: { body: TextBody; shape: Shape; w: number; h: number; ctx: Ctx }) {
   const def = placeholderOf(ctx, shape);
   const empty = bodyText(body) === "";
-  const prompt = empty && ctx.prompts && shape.placeholder ? PROMPTS[shape.placeholder] : undefined;
+  const t = useT();
+  const promptKey = empty && ctx.prompts && shape.placeholder ? PROMPTS[shape.placeholder] : undefined;
+  const prompt = promptKey ? t(promptKey) : undefined;
   const layout = useMemo(() => {
     const shown: TextBody = prompt
       ? { ...body, paragraphs: [{ props: body.paragraphs[0]?.props, runs: [{ text: prompt }] }] }

@@ -1,6 +1,8 @@
 import { Dialog } from "../Dialog";
 import { formatCombo } from "./keys";
 import type { ShortcutMap } from "./useShortcuts";
+import { t as translate } from "../i18n/locale";
+import { useT } from "../i18n/react";
 
 export interface HelpRow {
   combo: string;
@@ -24,7 +26,7 @@ export function helpSections(shortcuts: ShortcutMap, extra: HelpRow[] = []): [st
   ];
   const sections = new Map<string, HelpRow[]>();
   for (const r of rows) {
-    const g = r.group ?? "General";
+    const g = r.group ?? translate("shortcuts.general");
     sections.set(g, [...(sections.get(g) ?? []), r]);
   }
   return [...sections];
@@ -32,8 +34,9 @@ export function helpSections(shortcuts: ShortcutMap, extra: HelpRow[] = []): [st
 
 /** Dialog listing every shortcut (opened with Ctrl+/). */
 export function ShortcutHelp({ open, onClose, shortcuts, extra }: ShortcutHelpProps) {
+  const t = useT();
   return (
-    <Dialog open={open} title="Keyboard shortcuts" onClose={onClose}>
+    <Dialog open={open} title={t("shortcuts.title")} onClose={onClose}>
       <div className="max-h-96 overflow-auto pr-2 text-sm" data-testid="shortcut-help">
         {helpSections(shortcuts, extra).map(([group, rows]) => (
           <section key={group} className="mb-3">
@@ -51,7 +54,7 @@ export function ShortcutHelp({ open, onClose, shortcuts, extra }: ShortcutHelpPr
       </div>
       <div className="mt-3 flex justify-end">
         <button type="button" className="h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover" onClick={onClose}>
-          Close
+          {t("common.close")}
         </button>
       </div>
     </Dialog>

@@ -6,6 +6,7 @@
 import { useRef, useState } from "react";
 import { ContextMenu, cssColor, OFFICE_THEME, type ContextMenuItem } from "@rusuite/ui-shared";
 import { useCalc, type CalcStore } from "./state/store";
+import { t, useT } from "./i18n";
 
 /** The sheet commands shared by the tab context menu and the ribbon (acting on `sheet`). */
 export function sheetMenu(store: CalcStore, sheet: number, rename: () => void): ContextMenuItem[] {
@@ -18,19 +19,20 @@ export function sheetMenu(store: CalcStore, sheet: number, rename: () => void): 
     onSelect: () => void run(),
   });
   return [
-    item("insert", "Insert sheet", () => store.insertSheet(sheet), { shortcut: "Shift+F11" }),
-    item("delete", "Delete sheet", () => store.deleteSheet(sheet), { disabled: sheets.length <= 1 }),
-    item("rename", "Rename", rename),
-    item("duplicate", "Duplicate", () => store.duplicateSheet(sheet)),
+    item("insert", t("calc.insertSheet"), () => store.insertSheet(sheet), { shortcut: "Shift+F11" }),
+    item("delete", t("calc.deleteSheet"), () => store.deleteSheet(sheet), { disabled: sheets.length <= 1 }),
+    item("rename", t("calc.rename.confirm"), rename),
+    item("duplicate", t("calc.duplicate"), () => store.duplicateSheet(sheet)),
     { separator: true },
-    item("move-left", "Move left", () => store.moveSheetBy(sheet, -1), { disabled: at <= 0 }),
-    item("move-right", "Move right", () => store.moveSheetBy(sheet, 1), { disabled: at < 0 || at >= sheets.length - 1 }),
+    item("move-left", t("calc.moveLeft"), () => store.moveSheetBy(sheet, -1), { disabled: at <= 0 }),
+    item("move-right", t("calc.moveRight"), () => store.moveSheetBy(sheet, 1), { disabled: at < 0 || at >= sheets.length - 1 }),
     { separator: true },
-    item("tab-color", "Tab colour…", () => store.openDialog({ kind: "tabColor", sheet })),
+    item("tab-color", t("calc.tabColorDots"), () => store.openDialog({ kind: "tabColor", sheet })),
   ];
 }
 
 export function SheetTabs({ store }: { store: CalcStore }) {
+  const t = useT();
   const sheets = useCalc(store, (s) => s.info?.sheets) ?? [];
   const active = useCalc(store, (s) => s.activeSheet);
   const [renaming, setRenamingState] = useState<{ id: number; name: string } | null>(null);
@@ -61,13 +63,13 @@ export function SheetTabs({ store }: { store: CalcStore }) {
   };
 
   return (
-    <div role="tablist" aria-label="Sheets" className="flex items-stretch gap-0.5 border-t border-ui-border bg-ui-panel px-2 text-sm text-ui-fg">
+    <div role="tablist" aria-label={t("calc.sheets")} className="flex items-stretch gap-0.5 border-t border-ui-border bg-ui-panel px-2 text-sm text-ui-fg">
       {sheets.map((s, index) => {
         const color = s.tabColor ? cssColor(s.tabColor, OFFICE_THEME) : undefined;
         return renaming?.id === s.id ? (
           <input
             key={s.id}
-            aria-label="Sheet name"
+            aria-label={t("calc.sheetName")}
             autoFocus
             className="w-28 border border-ui-focus bg-ui-bg px-2 outline-none"
             value={renaming.name}
@@ -134,12 +136,12 @@ export function SheetTabs({ store }: { store: CalcStore }) {
           </button>
         );
       })}
-      <button type="button" aria-label="Add sheet" className="px-2 py-1 hover:bg-ui-hover" onClick={() => void store.addSheet()}>
+      <button type="button" aria-label={t("calc.addSheet")} className="px-2 py-1 hover:bg-ui-hover" onClick={() => void store.addSheet()}>
         +
       </button>
       <ContextMenu
         at={menu?.at ?? null}
-        label="Sheet"
+        label={t("calc.sheet")}
         items={menu ? sheetMenu(store, menu.id, () => setRenaming({ id: menu.id, name: menu.name })) : []}
         onClose={() => setMenu(null)}
       />

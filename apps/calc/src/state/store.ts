@@ -33,6 +33,7 @@ import { callAt, functionPrefix, pointSpan, replaceSpan } from "../formula/point
 import { colorRefs, cycleAnchor, rangeText, type ColoredRef } from "../formula/refs";
 import { isFormula } from "../formula/tokenize";
 import { checkFormula, formulaErrorMessage } from "../formula/validate";
+import { t } from "../i18n";
 
 /** Snapshot blocks: 64 rows × 32 columns. */
 export const BLOCK_ROWS = 64;
@@ -599,7 +600,7 @@ export class CalcStore {
 
   /** Window/tab title: file name, dirty marker, app name. */
   title(): string {
-    return `${this.state.name ?? "Untitled"}${this.state.dirty ? " •" : ""} – Rusuite Calc`;
+    return `${this.state.name ?? t("doc.untitled")}${this.state.dirty ? " •" : ""} – Rusuite Calc`;
   }
 
   apply(command: CalcCommand): Promise<void> {
@@ -1069,7 +1070,7 @@ export class CalcStore {
       ({ rows, cols } = block);
       at = pasteTarget(sel, rows, cols);
       if (at.r0 + rows * at.repeatRows - 1 > LAST_ROW || at.c0 + cols * at.repeatCols - 1 > LAST_COL) {
-        this.pushError(new Error("The pasted data does not fit on the sheet"));
+        this.pushError(new Error(t("calc.pasteTooBig")));
         return Promise.resolve();
       }
       command = {
@@ -1339,7 +1340,7 @@ export class CalcStore {
     const info = sheets.find((s) => s.id === sheet);
     if (!info) return Promise.resolve();
     if (sheets.length <= 1) {
-      this.pushError(new Error("A workbook must contain at least one sheet."));
+      this.pushError(new Error(t("calc.lastSheet")));
       return Promise.resolve();
     }
     return this.guard(async () => {

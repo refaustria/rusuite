@@ -9,7 +9,7 @@ import { useMemo, useRef, type ReactNode } from "react";
 import { LAYOUT_LABELS } from "../canvas/menus";
 import {
   ColorPicker, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
-  RibbonRow, RibbonSplitButton, RibbonStack, StyleToggles, bytesToBase64, triggerShortcut,
+  RibbonRow, RibbonSplitButton, RibbonStack, StyleToggles, bytesToBase64, formatCombo, triggerShortcut, languageRibbonGroup, withLabel,
   type AnySession, type CellStylePatch, type CellStyleView, type FormatControlProps, type RibbonGalleryItem, type RibbonMenuItem,
   type RibbonTab,
 } from "@rusuite/ui-shared";
@@ -22,6 +22,7 @@ import type { ZOp } from "../generated/ZOp";
 import { charLen, effectiveParagraph, effectiveRun, findShape, placeholderDef, textOf, themePalette } from "../model";
 import { LINE_SPACINGS, lineSpacingOf, newShape, textPos, type InsertKind } from "../state/commands";
 import { useShow, type ShowState, type ShowStore } from "../state/store";
+import { useT } from "../i18n";
 
 /** The shape the formatting controls reflect: the edited one, else the first selected. */
 function focusShape(s: ShowState): Shape | null {
@@ -69,55 +70,52 @@ const Thumb = ({ children }: { children: ReactNode }) => (
   </svg>
 );
 
-export const LAYOUTS: { id: LayoutKind; label: string; preview: ReactNode }[] = [
-  {
-    id: "title",
-    label: "Title slide",
+export const LAYOUTS: { id: LayoutKind; readonly label: string; preview: ReactNode }[] = [
+  withLabel({
+    id: "title" as LayoutKind,
     preview: (
       <Thumb>
         <rect x="12" y="12" width="48" height="7" fill="currentColor" />
         <rect x="20" y="23" width="32" height="4" fill="currentColor" opacity="0.5" />
       </Thumb>
     ),
-  },
-  {
-    id: "titleContent",
-    label: "Title and content",
+  }, "show.layout.title"),
+  withLabel({
+    id: "titleContent" as LayoutKind,
     preview: (
       <Thumb>
         <rect x="6" y="5" width="60" height="6" fill="currentColor" />
         <path d="M8 18h40M8 24h48M8 30h36" stroke="currentColor" strokeWidth="2" />
       </Thumb>
     ),
-  },
-  { id: "blank", label: "Blank", preview: <Thumb>{null}</Thumb> },
+  }, "show.layout.titleContent"),
+  withLabel({ id: "blank" as LayoutKind, preview: <Thumb>{null}</Thumb> }, "show.layout.blank"),
 ];
-const LAYOUT_ITEMS: RibbonGalleryItem[] = LAYOUTS;
 
 export type ShapeChoice = InsertKind | "roundRect";
 
-export const SHAPES: { id: ShapeChoice; label: string; icon: "rect" | "roundRect" | "ellipse" | "line" | "textBox" }[] = [
-  { id: "rect", label: "Rectangle", icon: "rect" },
-  { id: "roundRect", label: "Rounded rectangle", icon: "roundRect" },
-  { id: "ellipse", label: "Oval", icon: "ellipse" },
-  { id: "line", label: "Line", icon: "line" },
-  { id: "textBox", label: "Text box", icon: "textBox" },
+export const SHAPES: { id: ShapeChoice; readonly label: string; icon: "rect" | "roundRect" | "ellipse" | "line" | "textBox" }[] = [
+  withLabel({ id: "rect" as ShapeChoice, icon: "rect" as const }, "show.shape.rect"),
+  withLabel({ id: "roundRect" as ShapeChoice, icon: "roundRect" as const }, "show.shape.roundRect"),
+  withLabel({ id: "ellipse" as ShapeChoice, icon: "ellipse" as const }, "show.shape.ellipse"),
+  withLabel({ id: "line" as ShapeChoice, icon: "line" as const }, "show.shape.line"),
+  withLabel({ id: "textBox" as ShapeChoice, icon: "textBox" as const }, "show.shape.textBox"),
 ];
-const SHAPE_ITEMS: RibbonGalleryItem[] = SHAPES.map((s) => ({ id: s.id, label: s.label, preview: <RibbonIcon name={s.icon} /> }));
+const shapeItems = (): RibbonGalleryItem[] => SHAPES.map((s) => ({ id: s.id, label: s.label, preview: <RibbonIcon name={s.icon} /> }));
 
-const ORDER: { value: ZOp; label: string; shortcut: string }[] = [
-  { value: "bringToFront", label: "Bring to front", shortcut: "Mod+Shift+]" },
-  { value: "bringForward", label: "Bring forward", shortcut: "Mod+]" },
-  { value: "sendBackward", label: "Send backward", shortcut: "Mod+[" },
-  { value: "sendToBack", label: "Send to back", shortcut: "Mod+Shift+[" },
+const ORDER: { value: ZOp; readonly label: string; shortcut: string }[] = [
+  withLabel({ value: "bringToFront" as ZOp, shortcut: "Mod+Shift+]" }, "show.order.bringToFront"),
+  withLabel({ value: "bringForward" as ZOp, shortcut: "Mod+]" }, "show.order.bringForward"),
+  withLabel({ value: "sendBackward" as ZOp, shortcut: "Mod+[" }, "show.order.sendBackward"),
+  withLabel({ value: "sendToBack" as ZOp, shortcut: "Mod+Shift+[" }, "show.order.sendToBack"),
 ];
-const ALIGN: { value: AlignMode; label: string }[] = [
-  { value: "left", label: "Align left" },
-  { value: "centerH", label: "Align center" },
-  { value: "right", label: "Align right" },
-  { value: "top", label: "Align top" },
-  { value: "centerV", label: "Align middle" },
-  { value: "bottom", label: "Align bottom" },
+const ALIGN: { value: AlignMode; readonly label: string }[] = [
+  withLabel({ value: "left" as AlignMode }, "fmt.alignLeft"),
+  withLabel({ value: "centerH" as AlignMode }, "fmt.alignCenter"),
+  withLabel({ value: "right" as AlignMode }, "fmt.alignRight"),
+  withLabel({ value: "top" as AlignMode }, "fmt.alignTop"),
+  withLabel({ value: "centerV" as AlignMode }, "fmt.alignMiddle"),
+  withLabel({ value: "bottom" as AlignMode }, "fmt.alignBottom"),
 ];
 
 export const SHOW_ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -141,6 +139,7 @@ export interface ShowRibbonProps {
 }
 
 export function ShowRibbon({ store, session, onPresent, onPresenterView, onExportPdf, print, zoom, onZoom }: ShowRibbonProps) {
+  const t = useT();
   const fileInput = useRef<HTMLInputElement>(null);
   const state = useShow(store, (s) => s);
   const fmt = useMemo(() => formattingOf(state), [state]);
@@ -195,24 +194,24 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
   // Shape clipboard (inside this window); text keeps the native Ctrl+X/C/V while editing.
   const copy = () => void store.copy();
   const paste = () => store.paste();
-  const clipTip = editing ? "While editing text, use Ctrl+X / Ctrl+C / Ctrl+V" : undefined;
+  const clipTip = editing ? t("show.clipTip", { keys: [formatCombo("Mod+X"), formatCombo("Mod+C"), formatCombo("Mod+V")].join(" / ") }) : undefined;
 
   const addSlide = (layout: string) => void store.addSlide(layout as LayoutKind);
   const newSlide = (size: "large" | "small") => (
     <RibbonSplitButton
-      label="New slide"
+      label={t("show.newSlide")}
       icon="newSlide"
       size={size}
       showLabel={size === "small"}
       disabled={!state.pres}
-      tooltip="New slide (Title and content)"
+      tooltip={t("show.newSlideTip")}
       onClick={() => addSlide("titleContent")}
-      menuLabel="Slide layouts"
+      menuLabel={t("show.slideLayouts")}
       menu={(close) => (
         <div className="w-max">
           <RibbonGallery
-            label="Slide layouts"
-            items={LAYOUT_ITEMS}
+            label={t("show.slideLayouts")}
+            items={LAYOUTS}
             columns={3}
             itemClassName="h-16 w-24 p-1"
             autoFocus
@@ -227,8 +226,8 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
   );
   const shapesGallery = (
     <RibbonGallery
-      label="Shapes"
-      items={SHAPE_ITEMS}
+      label={t("show.shapes")}
+      items={shapeItems()}
       columns={3}
       hideLabels
       itemClassName="h-6 w-7"
@@ -238,15 +237,15 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
   );
 
   const arrange: RibbonMenuItem[] = [
-    { separator: true, label: "Order" },
+    { separator: true, label: t("show.order") },
     ...ORDER.map((o) => ({ id: o.value, label: o.label, shortcut: o.shortcut, disabled: selCount === 0, onSelect: () => void store.zOrder(o.value) })),
-    { separator: true, label: "Align" },
+    { separator: true, label: t("show.align") },
     ...ALIGN.map((a) => ({ id: a.value, label: a.label, disabled: selCount === 0, onSelect: () => void store.align(a.value) })),
-    { id: "distH", label: "Distribute horizontally", disabled: selCount < 3, onSelect: () => void store.distribute("horizontal") },
-    { id: "distV", label: "Distribute vertically", disabled: selCount < 3, onSelect: () => void store.distribute("vertical") },
-    { separator: true, label: "Group" },
-    { id: "group", label: "Group", shortcut: "Mod+G", disabled: selCount < 2, onSelect: () => void store.group() },
-    { id: "ungroup", label: "Ungroup", shortcut: "Mod+Shift+G", disabled: selCount === 0, onSelect: () => void store.ungroup() },
+    { id: "distH", label: t("show.distH"), disabled: selCount < 3, onSelect: () => void store.distribute("horizontal") },
+    { id: "distV", label: t("show.distV"), disabled: selCount < 3, onSelect: () => void store.distribute("vertical") },
+    { separator: true, label: t("show.group") },
+    { id: "group", label: t("show.group"), shortcut: "Mod+G", disabled: selCount < 2, onSelect: () => void store.group() },
+    { id: "ungroup", label: t("show.ungroup"), shortcut: "Mod+Shift+G", disabled: selCount === 0, onSelect: () => void store.ungroup() },
   ];
 
   const currentSlide = state.pres?.slides.find((x) => x.id === state.current) ?? null;
@@ -268,26 +267,26 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
 
   const home: RibbonTab = {
     id: "home",
-    label: "Home",
-    toolbarLabel: "Formatting",
+    label: t("tab.home"),
+    toolbarLabel: t("fmt.toolbar"),
     groups: [
       {
-        label: "Undo",
+        label: t("group.undo"),
         items: (
           <RibbonStack>
-            <RibbonButton label="Undo" icon="undo" shortcut="Mod+Z" disabled={!canUndo} onClick={() => void store.undo()} />
-            <RibbonButton label="Redo" icon="redo" shortcut="Mod+Y" disabled={!canRedo} onClick={() => void store.redo()} />
+            <RibbonButton label={t("group.undo")} icon="undo" shortcut="Mod+Z" disabled={!canUndo} onClick={() => void store.undo()} />
+            <RibbonButton label={t("cmd.redo")} icon="redo" shortcut="Mod+Y" disabled={!canRedo} onClick={() => void store.redo()} />
           </RibbonStack>
         ),
       },
       {
-        label: "Clipboard",
+        label: t("group.clipboard"),
         items: (
           <>
-            <RibbonButton label="Paste" icon="paste" size="large" shortcut="Mod+V" tooltip={clipTip ?? "Paste"} disabled={editing || !hasSlide || state.clipboard === null} onClick={() => void paste()} />
+            <RibbonButton label={t("cmd.paste")} icon="paste" size="large" shortcut="Mod+V" tooltip={clipTip ?? t("cmd.paste")} disabled={editing || !hasSlide || state.clipboard === null} onClick={() => void paste()} />
             <RibbonStack>
               <RibbonButton
-                label="Cut"
+                label={t("cmd.cut")}
                 icon="cut"
                 showLabel
                 tooltip={clipTip}
@@ -295,25 +294,25 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
                 shortcut="Mod+X"
                 onClick={() => void store.cut()}
               />
-              <RibbonButton label="Copy" icon="copy" showLabel shortcut="Mod+C" tooltip={clipTip} disabled={editing || selCount === 0} onClick={copy} />
+              <RibbonButton label={t("cmd.copy")} icon="copy" showLabel shortcut="Mod+C" tooltip={clipTip} disabled={editing || selCount === 0} onClick={copy} />
             </RibbonStack>
-            <RibbonButton label="Duplicate" icon="duplicate" size="large" shortcut="Mod+D" disabled={editing || selCount === 0} onClick={() => void store.duplicateSelection()} />
+            <RibbonButton label={t("show.duplicate")} icon="duplicate" size="large" shortcut="Mod+D" disabled={editing || selCount === 0} onClick={() => void store.duplicateSelection()} />
           </>
         ),
       },
       {
-        label: "Slides",
+        label: t("show.slides"),
         items: (
           <>
             {newSlide("large")}
             <RibbonStack>
-              <RibbonMenuButton label="Layout" icon="format" showLabel disabled={!hasSlide} menu={layoutMenu} />
-              <RibbonButton label="Hide slide" icon="close" showLabel pressed={!!currentSlide?.hidden} disabled={!hasSlide} onClick={() => void store.toggleHidden()} />
+              <RibbonMenuButton label={t("tab.layout")} icon="format" showLabel disabled={!hasSlide} menu={layoutMenu} />
+              <RibbonButton label={t("show.hideSlide")} icon="close" showLabel pressed={!!currentSlide?.hidden} disabled={!hasSlide} onClick={() => void store.toggleHidden()} />
             </RibbonStack>
             <RibbonStack>
-              <RibbonButton label="Duplicate slide" icon="duplicate" showLabel disabled={!hasSlide} onClick={() => state.current !== null && void store.duplicateSlide(state.current)} />
+              <RibbonButton label={t("show.duplicateSlide")} icon="duplicate" showLabel disabled={!hasSlide} onClick={() => state.current !== null && void store.duplicateSlide(state.current)} />
               <RibbonButton
-                label="Delete slide"
+                label={t("show.deleteSlide")}
                 icon="trash"
                 showLabel
                 disabled={!hasSlide || slideCount <= 1}
@@ -324,18 +323,18 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         ),
       },
       {
-        label: "Font",
+        label: t("group.font"),
         items: (
           <RibbonStack>
             <RibbonRow>
               <FontControls {...f} />
-              <RibbonButton label="Increase font size" icon={<FontStep sign="+" />} shortcut="Mod+Shift+>" disabled={!fmt?.hasText} onClick={() => void store.stepFont(1, fmt?.run.size ?? 1800)} />
-              <RibbonButton label="Decrease font size" icon={<FontStep sign="-" />} shortcut="Mod+Shift+<" disabled={!fmt?.hasText} onClick={() => void store.stepFont(-1, fmt?.run.size ?? 1800)} />
+              <RibbonButton label={t("show.fontBigger")} icon={<FontStep sign="+" />} shortcut="Mod+Shift+>" disabled={!fmt?.hasText} onClick={() => void store.stepFont(1, fmt?.run.size ?? 1800)} />
+              <RibbonButton label={t("show.fontSmaller")} icon={<FontStep sign="-" />} shortcut="Mod+Shift+<" disabled={!fmt?.hasText} onClick={() => void store.stepFont(-1, fmt?.run.size ?? 1800)} />
             </RibbonRow>
             <RibbonRow>
               <StyleToggles {...f} />
               <ColorPicker
-                label="Text color"
+                label={t("fmt.textColor")}
                 kind="text"
                 value={value.font?.color}
                 theme={palette}
@@ -347,7 +346,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         ),
       },
       {
-        label: "Paragraph",
+        label: t("group.paragraph"),
         items: (
           <RibbonStack>
             <RibbonRow>
@@ -360,24 +359,24 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
               />
             </RibbonRow>
             <RibbonRow>
-              {alignBtn("left", "Align text left", <Icon name="alignLeft" />)}
-              {alignBtn("center", "Center text", <Icon name="alignCenter" />)}
-              {alignBtn("right", "Align text right", <Icon name="alignRight" />)}
-              {alignBtn("justify", "Justify text", <RibbonIcon name="alignJustify" />)}
-              <RibbonMenuButton label="Line spacing" icon="lineSpacing" disabled={!fmt?.hasText} menu={spacingMenu} />
+              {alignBtn("left", t("show.alignTextLeft"), <Icon name="alignLeft" />)}
+              {alignBtn("center", t("show.centerText"), <Icon name="alignCenter" />)}
+              {alignBtn("right", t("show.alignTextRight"), <Icon name="alignRight" />)}
+              {alignBtn("justify", t("show.justifyText"), <RibbonIcon name="alignJustify" />)}
+              <RibbonMenuButton label={t("show.lineSpacing")} icon="lineSpacing" disabled={!fmt?.hasText} menu={spacingMenu} />
             </RibbonRow>
           </RibbonStack>
         ),
       },
       {
-        label: "Drawing",
+        label: t("show.drawing"),
         items: (
           <>
             {shapesGallery}
-            <RibbonMenuButton label="Arrange" icon="arrange" size="large" disabled={!hasSlide} menu={arrange} />
+            <RibbonMenuButton label={t("show.arrange")} icon="arrange" size="large" disabled={!hasSlide} menu={arrange} />
             <RibbonStack>
               <ColorPicker
-                label="Shape fill"
+                label={t("show.shapeFill")}
                 kind="fill"
                 value={fmt && fmt.shape.fill.kind === "solid" ? fmt.shape.fill.value : undefined}
                 theme={palette}
@@ -385,7 +384,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
                 onSelect={(c) => void store.setFill(c)}
               />
               <ColorPicker
-                label="Shape outline"
+                label={t("show.shapeOutline")}
                 kind="fill"
                 value={fmt && fmt.shape.line.fill.kind === "solid" ? fmt.shape.line.fill.value : undefined}
                 theme={palette}
@@ -401,14 +400,14 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
 
   const insert: RibbonTab = {
     id: "insert",
-    label: "Insert",
+    label: t("tab.insert"),
     groups: [
-      { label: "Slides", items: newSlide("large") },
+      { label: t("show.slides"), items: newSlide("large") },
       {
-        label: "Images",
+        label: t("show.images"),
         items: (
           <>
-            <RibbonButton label="Picture" icon="image" size="large" tooltip="Insert a picture" disabled={!hasSlide} onClick={() => fileInput.current?.click()} />
+            <RibbonButton label={t("show.picture")} icon="image" size="large" tooltip={t("show.insertPicture")} disabled={!hasSlide} onClick={() => fileInput.current?.click()} />
             <input
               ref={fileInput}
               type="file"
@@ -425,20 +424,20 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         ),
       },
       {
-        label: "Illustrations",
+        label: t("show.illustrations"),
         items: (
           // A menu button around an inline gallery in a `w-max` box: the popup is anchored to the narrow trigger, so
           // the gallery's auto-sized columns would otherwise shrink and its buttons overlap.
           <RibbonMenuButton
-            label="Shapes"
+            label={t("show.shapes")}
             icon="shapes"
             size="large"
             disabled={!hasSlide}
             menu={(close) => (
               <div className="w-max">
                 <RibbonGallery
-                  label="Shapes"
-                  items={SHAPE_ITEMS}
+                  label={t("show.shapes")}
+                  items={shapeItems()}
                   columns={5}
                   hideLabels
                   itemClassName="h-8 w-8"
@@ -454,8 +453,8 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         ),
       },
       {
-        label: "Text",
-        items: <RibbonButton label="Text box" icon="textBox" size="large" disabled={!hasSlide} onClick={() => void insertShape("textBox")} />,
+        label: t("show.text"),
+        items: <RibbonButton label={t("show.shape.textBox")} icon="textBox" size="large" disabled={!hasSlide} onClick={() => void insertShape("textBox")} />,
       },
     ],
   };
@@ -463,16 +462,16 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
   const background = currentSlide?.background?.kind === "solid" ? currentSlide.background.value : undefined;
   const design: RibbonTab = {
     id: "design",
-    label: "Design",
+    label: t("tab.design"),
     groups: [
       {
-        label: "Background",
+        label: t("show.background"),
         items: (
           <>
-            <ColorPicker label="Background color" kind="fill" value={background} theme={palette} disabled={!hasSlide} onSelect={(c) => void store.setBackground(c)} />
+            <ColorPicker label={t("show.bgColor")} kind="fill" value={background} theme={palette} disabled={!hasSlide} onSelect={(c) => void store.setBackground(c)} />
             <RibbonStack>
-              <RibbonButton label="Apply to all" icon="duplicate" showLabel disabled={!hasSlide} onClick={() => void store.setBackground(background ?? null, true)} />
-              <RibbonButton label="Reset background" icon="clear" showLabel disabled={!currentSlide?.background} onClick={() => void store.setBackground(null)} />
+              <RibbonButton label={t("show.applyAll")} icon="duplicate" showLabel disabled={!hasSlide} onClick={() => void store.setBackground(background ?? null, true)} />
+              <RibbonButton label={t("show.resetBg")} icon="clear" showLabel disabled={!currentSlide?.background} onClick={() => void store.setBackground(null)} />
             </RibbonStack>
           </>
         ),
@@ -482,15 +481,15 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
 
   const shapeFormat: RibbonTab = {
     id: "shapeFormat",
-    label: "Shape Format",
+    label: t("show.shapeFormat"),
     groups: [
       {
-        label: "Format",
+        label: t("sc.format"),
         items: (
           <>
-            <RibbonButton label="Format shape…" icon="format" size="large" disabled={selCount === 0} onClick={() => store.openDialog({ kind: "format" })} />
+            <RibbonButton label={t("show.formatShapeDots")} icon="format" size="large" disabled={selCount === 0} onClick={() => store.openDialog({ kind: "format" })} />
             <RibbonButton
-              label="Alt text…"
+              label={t("show.altTextDots")}
               icon="textBox"
               size="large"
               disabled={selCount !== 1}
@@ -500,38 +499,38 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         ),
       },
       {
-        label: "Picture",
+        label: t("show.picture"),
         items: onePicture && (
           <RibbonStack>
-            <RibbonButton label="Change picture…" icon="image" showLabel onClick={() => store.openDialog({ kind: "replacePicture", shape: onePicture.id })} />
-            <RibbonButton label="Reset size" icon="zoom" showLabel onClick={() => void store.resetPictureSize()} />
+            <RibbonButton label={t("show.changePictureDots")} icon="image" showLabel onClick={() => store.openDialog({ kind: "replacePicture", shape: onePicture.id })} />
+            <RibbonButton label={t("show.resetSize")} icon="zoom" showLabel onClick={() => void store.resetPictureSize()} />
           </RibbonStack>
         ),
       },
-      { label: "Arrange", items: <RibbonMenuButton label="Arrange" icon="arrange" size="large" menu={arrange} /> },
+      { label: t("show.arrange"), items: <RibbonMenuButton label={t("show.arrange")} icon="arrange" size="large" menu={arrange} /> },
     ],
   };
 
   const view: RibbonTab = {
     id: "view",
-    label: "View",
+    label: t("tab.view"),
     groups: [
       {
-        label: "Show",
-        items: <RibbonButton label="Notes" icon="textBox" size="large" pressed={state.notesVisible} tooltip="Show or hide the speaker notes" onClick={() => store.toggleNotes()} />,
+        label: t("group.show"),
+        items: <RibbonButton label={t("show.notes")} icon="textBox" size="large" pressed={state.notesVisible} tooltip={t("show.notesTip")} onClick={() => store.toggleNotes()} />,
       },
       {
-        label: "Slide show",
+        label: t("show.slideShow"),
         items: (
           <>
-            <RibbonButton label="From beginning" icon="present" size="large" shortcut="F5" disabled={!hasSlide} onClick={() => onPresent(true)} />
-            <RibbonButton label="From current slide" icon="presentCurrent" size="large" shortcut="Shift+F5" disabled={!hasSlide} onClick={() => onPresent(false)} />
+            <RibbonButton label={t("show.fromBeginning")} icon="present" size="large" shortcut="F5" disabled={!hasSlide} onClick={() => onPresent(true)} />
+            <RibbonButton label={t("show.fromCurrent")} icon="presentCurrent" size="large" shortcut="Shift+F5" disabled={!hasSlide} onClick={() => onPresent(false)} />
             <RibbonButton
-              label="Presenter view"
+              label={t("show.presenterView")}
               icon="presentCurrent"
               size="large"
               shortcut="Alt+F5"
-              tooltip="Speaker notes, next slide and timer here, the slide in a second window"
+              tooltip={t("show.presenterTip")}
               disabled={!hasSlide}
               onClick={onPresenterView}
             />
@@ -539,34 +538,35 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         ),
       },
       {
-        label: "Zoom",
+        label: t("group.zoom"),
         items: (
           <RibbonStack>
-            <select aria-label="Zoom" className={`${RIBBON_SELECT} w-24`} value={String(zoom)} onChange={(e) => onZoom(e.target.value === "fit" ? "fit" : Number(e.target.value))}>
-              <option value="fit">Fit to window</option>
+            <select aria-label={t("group.zoom")} className={`${RIBBON_SELECT} w-24`} value={String(zoom)} onChange={(e) => onZoom(e.target.value === "fit" ? "fit" : Number(e.target.value))}>
+              <option value="fit">{t("show.fit")}</option>
               {SHOW_ZOOM_LEVELS.map((z) => (
                 <option key={z} value={String(z)}>
                   {Math.round(z * 100)} %
                 </option>
               ))}
             </select>
-            <RibbonButton label="Fit to window" icon="zoom" showLabel pressed={zoom === "fit"} onClick={() => onZoom("fit")} />
+            <RibbonButton label={t("show.fit")} icon="zoom" showLabel pressed={zoom === "fit"} onClick={() => onZoom("fit")} />
           </RibbonStack>
         ),
       },
+      languageRibbonGroup(t),
       {
-        label: "Help",
-        items: <RibbonButton label="Keyboard shortcuts" icon="keyboard" size="large" shortcut="Mod+/" onClick={() => triggerShortcut("Mod+/")} />,
+        label: t("group.help"),
+        items: <RibbonButton label={t("shortcuts.title")} icon="keyboard" size="large" shortcut="Mod+/" onClick={() => triggerShortcut("Mod+/")} />,
       },
     ],
   };
 
-  const fileOff = fileIo ? undefined : "File access is not available with this core";
+  const fileOff = fileIo ? undefined : t("show.noFileIo");
   return (
     <div data-keep-edit>
       <Ribbon
         appName="Rusuite Show"
-        documentTitle={`${name ?? "Untitled"}${dirty ? " •" : ""}`}
+        documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
         accent="#c2410c"
         tabs={selCount > 0 ? [home, insert, design, view, shapeFormat] : [home, insert, design, view]}
         rightSlot={
@@ -574,11 +574,11 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
             type="button"
             onClick={() => onPresent(false)}
             disabled={!hasSlide}
-            title="Present from the current slide (Shift+F5)"
+            title={t("show.presentTip")}
             className="flex h-6 items-center gap-1 rounded bg-orange-700 px-3 text-sm font-medium text-white hover:bg-orange-800 disabled:opacity-40"
           >
             <RibbonIcon name="present" />
-            Present
+            {t("show.present")}
           </button>
         }
         backstage={{

@@ -3,7 +3,8 @@
 // row/column headings.
 
 import { colName } from "../grid/address";
-import { EMPTY_SLOTS, paperSize, type HeaderFooterSlots, type PageOrientation, type PaperName, type PrintChoice, type PrintMargins } from "@rusuite/ui-shared";
+import "../i18n";
+import { EMPTY_SLOTS, paperSize, withLabel, type HeaderFooterSlots, type PageOrientation, type PaperName, type PrintChoice, type PrintMargins } from "@rusuite/ui-shared";
 
 export type CalcPrintWhat = "active" | "workbook" | "selection";
 export type CalcScaleMode = "actual" | "fitSheet" | "fitColumns" | "fitRows" | "custom";
@@ -51,23 +52,23 @@ export const CALC_MARGINS: Record<CalcMarginPreset, PrintMargins> = {
 };
 
 export const CALC_WHAT_CHOICES: PrintChoice[] = [
-  { value: "active", label: "Print active sheet" },
-  { value: "workbook", label: "Print entire workbook" },
-  { value: "selection", label: "Print selection" },
+  withLabel({ value: "active" }, "calc.print.active"),
+  withLabel({ value: "workbook" }, "calc.print.workbook"),
+  withLabel({ value: "selection" }, "calc.print.selection"),
 ];
 
 export const CALC_SCALE_CHOICES: PrintChoice[] = [
-  { value: "actual", label: "No scaling (100 %)" },
-  { value: "fitSheet", label: "Fit sheet on one page" },
-  { value: "fitColumns", label: "Fit all columns on one page" },
-  { value: "fitRows", label: "Fit all rows on one page" },
-  { value: "custom", label: "Custom scale…" },
+  withLabel({ value: "actual" }, "calc.print.noScaling"),
+  withLabel({ value: "fitSheet" }, "calc.print.fitSheet"),
+  withLabel({ value: "fitColumns" }, "calc.print.fitColumns"),
+  withLabel({ value: "fitRows" }, "calc.print.fitRows"),
+  withLabel({ value: "custom" }, "calc.print.customScale"),
 ];
 
 export const CALC_MARGIN_CHOICES: PrintChoice[] = [
-  { value: "normal", label: "Normal (0.75 / 0.7 in)" },
-  { value: "narrow", label: "Narrow (0.75 / 0.25 in)" },
-  { value: "wide", label: "Wide (1 in)" },
+  withLabel({ value: "normal" }, "calc.print.margins.normal"),
+  withLabel({ value: "narrow" }, "calc.print.margins.narrow"),
+  withLabel({ value: "wide" }, "calc.print.margins.wide"),
 ];
 
 /** Height of the column-letter heading row and width of the row-number column (CSS px, unscaled). */

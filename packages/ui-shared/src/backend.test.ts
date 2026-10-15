@@ -182,13 +182,13 @@ describe("TauriBackend", () => {
   it("opens and saves through the native dialogs", async () => {
     const b = new TauriBackend();
     expect(await b.openFile()).toEqual({ name: "a.xlsx", bytesBase64: "UEs=" });
-    expect(invoke).toHaveBeenCalledWith("open_file_dialog");
+    expect(invoke).toHaveBeenCalledWith("open_file_dialog", { dialog: { title: "Open" } });
     const saved = await b.saveFile("out.xlsx", "UEs=");
     expect(saved).toEqual({ name: "picked.xlsx", path: "/tmp/picked.xlsx" });
     expect(savedName(saved, "out.xlsx")).toBe("picked.xlsx");
-    expect(invoke).toHaveBeenCalledWith("save_file", { suggestedName: "out.xlsx", bytesBase64: "UEs=", saveAs: false });
+    expect(invoke).toHaveBeenCalledWith("save_file", { suggestedName: "out.xlsx", bytesBase64: "UEs=", saveAs: false, dialog: { title: "Save As" } });
     await b.saveFile("out.xlsx", "UEs=", { saveAs: true });
-    expect(invoke).toHaveBeenLastCalledWith("save_file", { suggestedName: "out.xlsx", bytesBase64: "UEs=", saveAs: true });
+    expect(invoke).toHaveBeenLastCalledWith("save_file", { suggestedName: "out.xlsx", bytesBase64: "UEs=", saveAs: true, dialog: { title: "Save As" } });
     expect(await b.saveFile("cancel.xlsx", "UEs=")).toBe(false);
     expect(savedName(true, "out.xlsx")).toBe("out.xlsx");
   });

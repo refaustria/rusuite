@@ -91,6 +91,9 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Write `p:style` for auto shapes (PowerPoint default white text on accent fill); footer/date/slide-number placeholders; tables (graphic frames) later; bullet size/colour + paragraph indents in the model; `Shape::alt`; gradients/transparency/cropping/arrowheads/other presets are approximated.
 - Move the XML DOM/writer and theme parser into fmt-ooxml (now triplicated).
 
+## i18n follow-ups
+- Locale-aware formula input/display (German `;`/`,`, function names) – owner decision pending; translated core messages via error codes; unused-key catalog check; wider gallery tiles for long German labels ("Überschri…"); Write Clipboard group overflow.
+
 ## Office parity – tracked in docs/parity-backlog.md (Phase 8)
 
 ## AI assistant – docs/ai-plan.md

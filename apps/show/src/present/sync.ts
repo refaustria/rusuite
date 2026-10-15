@@ -7,6 +7,7 @@ import { isTauri } from "@rusuite/ui-shared";
 import type { DeckContext } from "../canvas/SlideView";
 import type { Slide } from "../generated/Slide";
 import type { Blank, ShowAction } from "./showState";
+import { t } from "../i18n";
 
 export type SyncRole = "presenter" | "audience";
 
@@ -152,7 +153,7 @@ async function openTauriAudience(url: string): Promise<AudienceWindow | null> {
   }
   const win = new WebviewWindow(AUDIENCE_LABEL, {
     url,
-    title: "Rusuite Show – Slide show",
+    title: `Rusuite Show – ${t("show.slideShow")}`,
     width: 960,
     height: 540,
     ...(place ?? {}),

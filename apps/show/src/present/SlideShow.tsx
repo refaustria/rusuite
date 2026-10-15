@@ -16,6 +16,7 @@ import { Presenter } from "./Presenter";
 import { PresenterConsole } from "./PresenterConsole";
 import { initialShow, reduceShow, type ShowAction, type ShowState } from "./showState";
 import type { AudienceLink, AudienceWindow, SyncChannel } from "./sync";
+import { useT } from "../i18n";
 
 export interface SlideShowProps {
   store: ShowStore;
@@ -31,18 +32,20 @@ export function showSlideIds(slides: Slide[], current: NodeId | null): NodeId[] 
 }
 
 function NotesOverlay({ notes }: { notes: string }) {
+  const t = useT();
   return (
     <div
       className="absolute bottom-8 left-1/2 max-h-[40%] w-[min(90%,48rem)] -translate-x-1/2 overflow-auto whitespace-pre-wrap rounded bg-black/80 p-3 text-base text-white"
       data-testid="notes-overlay"
       onClick={(e) => e.stopPropagation()}
     >
-      {notes || <span className="text-white/50">No notes for this slide.</span>}
+      {notes || <span className="text-white/50">{t("show.noNotes")}</span>}
     </div>
   );
 }
 
 export function SlideShow({ store, mode, link, onEnd }: SlideShowProps) {
+  const t = useT();
   const pres = useShow(store, (s) => s.pres);
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
   const [ids] = useState(() => showSlideIds(store.getState().pres?.slides ?? [], store.getState().current));
@@ -164,7 +167,7 @@ export function SlideShow({ store, mode, link, onEnd }: SlideShowProps) {
         mediaVersion={mediaVersion}
         show={show}
         onAction={dispatch}
-        status={phase === "opening" ? "Opening the slide show window…" : undefined}
+        status={phase === "opening" ? t("show.opening") : undefined}
       />
     );
   }
@@ -185,13 +188,13 @@ export function SlideShow({ store, mode, link, onEnd }: SlideShowProps) {
               aria-pressed={notesOn}
               className="absolute bottom-2 left-3 rounded bg-white/10 px-2 py-0.5 text-xs text-white/70 hover:bg-white/20"
               data-testid="notes-overlay-toggle"
-              title="The slide show window could not be opened (pop-ups blocked?): speaker notes are shown here"
+              title={t("show.notesFallbackTip")}
               onClick={(e) => {
                 e.stopPropagation();
                 setNotesOn((v) => !v);
               }}
             >
-              Notes
+              {t("show.notes")}
             </button>
           </>
         )

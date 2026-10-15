@@ -11,6 +11,7 @@ import type { Slide } from "../generated/Slide";
 import { fitScale, slidePx } from "../geometry";
 import { SlideView, type DeckContext } from "../canvas/SlideView";
 import { clickAction, keyAction, type ShowAction, type ShowState } from "./showState";
+import { useT } from "../i18n";
 
 export const IDLE_CURSOR_MS = 3000;
 
@@ -63,6 +64,7 @@ export interface PresenterProps {
 }
 
 export function Presenter({ deck, slides, media, mediaVersion, show, onAction, fullscreenExits = true, overlay }: PresenterProps) {
+  const t = useT();
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [idle, setIdle] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -123,7 +125,7 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
     <div
       ref={root}
       role="dialog"
-      aria-label="Presentation"
+      aria-label={t("show.presentation")}
       data-testid="presenter"
       data-blank={show.blank}
       data-ended={show.ended ? "true" : undefined}
@@ -139,7 +141,7 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
       )}
       {show.ended && (
         <span className="absolute left-0 right-0 top-6 text-center text-sm text-white/70" data-testid="presenter-end">
-          End of slide show, click to exit.
+          {t("show.endClick")}
         </span>
       )}
       {blank === "none" && !show.ended && (

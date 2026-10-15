@@ -12,6 +12,7 @@
 // the document is dirty and the guard asks the same question.
 
 import type { Backend } from "../backend";
+import { t } from "../i18n/locale";
 import { tauriCloseHooks, type CloseHooks } from "./closeGuard";
 
 export type SaveChoice = "save" | "discard" | "cancel";
@@ -51,7 +52,7 @@ export interface SavePrompts {
 export async function ensureSaved(prompts: SavePrompts, doc: DocState): Promise<EnsureResult> {
   if (!doc.dirty()) return "proceed";
   const name = doc.name();
-  const choice = await prompts.askSave(name ?? "Untitled");
+  const choice = await prompts.askSave(name ?? t("doc.untitled"));
   if (choice === "cancel") return "cancel";
   if (choice === "discard") return "proceed";
   let asName: string | undefined;

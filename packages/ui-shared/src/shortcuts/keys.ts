@@ -3,6 +3,9 @@
 // `Minus`, `Space`, `ArrowLeft`, `]`, `1`, ...). Matching is case-insensitive
 // and independent of modifier order.
 
+import type { Locale } from "../i18n/core";
+import { getLocale } from "../i18n/locale";
+
 export interface KeyLike {
   key: string;
   code?: string;
@@ -72,13 +75,20 @@ export function canonicalCombo(spec: string): string {
 
 const isMac = (): boolean => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform ?? "");
 
-/** Human-readable combo for the help dialog (`Mod+Shift+S` -> `Ctrl+Shift+S`). */
-export function formatCombo(spec: string, mac: boolean = isMac()): string {
+/**
+ * Human-readable combo for the help dialog and tooltips (`Mod+Shift+S` ->
+ * `Ctrl+Shift+S`; German UI: `Strg+Shift+S`, as German Office). A spec
+ * may also name `Ctrl` directly (context menus).
+ */
+export function formatCombo(spec: string, mac: boolean = isMac(), locale: Locale = getLocale()): string {
+  const ctrl = locale === "de" ? "Strg" : "Ctrl";
   return spec
     .split("+")
     .map((p) => {
       const l = p.toLowerCase();
-      if (l === "mod") return mac ? "⌘" : "Ctrl";
+      if (l === "mod") return mac ? "⌘" : ctrl;
+      if (l === "ctrl") return ctrl;
+      if ((l === "delete" || l === "del") && locale === "de") return "Entf";
       if (l === "alt") return mac ? "⌥" : "Alt";
       if (l === "plus") return "+";
       if (l === "minus") return "-";

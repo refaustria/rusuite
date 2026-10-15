@@ -10,8 +10,10 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { FOCUS_RING } from "../Popover";
+import { formatCombo } from "../shortcuts/keys";
 import { Backstage, type BackstageActions, type BackstagePage } from "./Backstage";
 import { RibbonIcon } from "./icons";
+import { useT } from "../i18n/react";
 
 export interface RibbonGroup {
   label: string;
@@ -73,6 +75,7 @@ export function Ribbon({
   tabs, activeTab, defaultTab, onTabChange, collapsed: collapsedProp, defaultCollapsed = false, onCollapsedChange,
   appName, documentTitle, rightSlot, backstage, accent = "var(--ui-focus)", globalKeys = true,
 }: RibbonProps) {
+  const t = useT();
   const shown = visibleTabs(tabs);
   const [innerTab, setInnerTab] = useState(defaultTab ?? shown[0]?.id ?? "");
   const [innerCollapsed, setInnerCollapsed] = useState(defaultCollapsed);
@@ -262,7 +265,7 @@ export function Ribbon({
         )}
         <div
           role="tablist"
-          aria-label="Ribbon tabs"
+          aria-label={t("ribbon.tabs")}
           className="ml-2 flex min-w-0 items-stretch"
           onKeyDown={onStripKey}
           onMouseDown={rememberFocus}
@@ -280,7 +283,7 @@ export function Ribbon({
               style={{ background: accent }}
               onClick={() => activate("file")}
             >
-              File
+              {t("ribbon.file")}
             </button>
           )}
           {shown.map((t) => {
@@ -307,9 +310,9 @@ export function Ribbon({
           {rightSlot}
           <button
             type="button"
-            aria-label={collapsed ? "Expand the ribbon" : "Collapse the ribbon"}
+            aria-label={collapsed ? t("ribbon.expand") : t("ribbon.collapse")}
             aria-pressed={collapsed}
-            title={`${collapsed ? "Expand" : "Collapse"} the ribbon (Ctrl+F1)`}
+            title={`${collapsed ? t("ribbon.expand") : t("ribbon.collapse")} (${formatCombo("Mod+F1")})`}
             className={`inline-flex h-6 w-6 items-center justify-center rounded text-ui-muted hover:bg-ui-hover ${FOCUS_RING}`}
             onClick={() => setCollapsed(!collapsed)}
           >

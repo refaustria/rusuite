@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import { FOCUS_RING, Popover } from "../Popover";
 import type { AnySession } from "./session";
 import { formatTime, useSession } from "./useSession";
+import { useT } from "../i18n/react";
+import { formatCombo } from "../shortcuts/keys";
 
 export interface FileMenuProps {
   session: AnySession;
@@ -15,8 +17,9 @@ const ITEM = `flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm
 /** "File" menu: Open, Save and the recent files of the session's storage. */
 export function FileMenu({ session, onOpen, onSave, disabled }: FileMenuProps) {
   const s = session;
+  const t = useT();
   return (
-    <Popover label="File" disabled={disabled} trigger={<span className="px-1 text-sm">File</span>} role="menu">
+    <Popover label={t("ribbon.file")} disabled={disabled} trigger={<span className="px-1 text-sm">{t("ribbon.file")}</span>} role="menu">
       {(close) => (
         <FileMenuItems
           session={s}
@@ -43,6 +46,7 @@ function FileMenuItems({
   onOpen: () => void;
   onSave: () => void;
 }) {
+  const t = useT();
   const recent = useSession(session, (st) => st.recent);
   const ref = useRef<HTMLUListElement>(null);
   const buttons = () => Array.from(ref.current?.querySelectorAll<HTMLButtonElement>("button") ?? []);
@@ -55,7 +59,7 @@ function FileMenuItems({
     <ul
       ref={ref}
       role="presentation"
-      aria-label="File"
+      aria-label={t("ribbon.file")}
       className="flex w-72 max-w-[80vw] flex-col"
       onKeyDown={(e) => {
         const b = buttons();
@@ -68,21 +72,21 @@ function FileMenuItems({
     >
       <li role="none">
         <button type="button" role="menuitem" className={ITEM} onClick={() => pick(onOpen)}>
-          Open… <span className="ml-auto text-xs text-ui-muted">Ctrl+O</span>
+          {t("backstage.open")} <span className="ml-auto text-xs text-ui-muted">{formatCombo("Mod+O")}</span>
         </button>
       </li>
       <li role="none">
         <button type="button" role="menuitem" className={ITEM} onClick={() => pick(onSave)}>
-          Save <span className="ml-auto text-xs text-ui-muted">Ctrl+S</span>
+          {t("backstage.save")} <span className="ml-auto text-xs text-ui-muted">{formatCombo("Mod+S")}</span>
         </button>
       </li>
       <li role="separator" className="my-1 border-t border-ui-border" />
       <li role="none" className="px-2 pb-1 text-xs font-medium text-ui-muted">
-        Recent
+        {t("recent.title")}
       </li>
       {recent.length === 0 && (
         <li role="none" className="px-2 py-1 text-sm text-ui-muted" data-testid="recent-empty">
-          No recent files
+          {t("recent.empty")}
         </li>
       )}
       {recent.map((r) => (
@@ -91,7 +95,7 @@ function FileMenuItems({
             type="button"
             role="menuitem"
             className={ITEM}
-            title={r.path ?? `${r.name} (copy stored in this browser)`}
+            title={r.path ?? t("recent.browserCopy", { name: r.name })}
             data-testid="recent-entry"
             onClick={() => pick(() => void session.openRecent(r))}
           >
@@ -102,8 +106,7 @@ function FileMenuItems({
       ))}
       {browser && (
         <li role="note" className="px-2 pt-1 text-xs text-ui-muted" data-testid="recent-web-note">
-          In the browser, recent files re-open the copy stored in this browser when the file was last opened or saved – not the file
-          on disk.
+          {t("recent.webNote")}
         </li>
       )}
     </ul>

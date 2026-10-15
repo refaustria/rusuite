@@ -7,6 +7,7 @@ import type { DispatchError } from "./generated/DispatchError";
 import { IdbDocStorage, dbNameFromPing } from "./recent/idb";
 import type { DocStorage } from "./recent/storage";
 import { TauriDocStorage } from "./recent/tauri";
+import { t } from "./i18n/locale";
 
 export type { DispatchError };
 // Recent files, autosave and crash recovery (P5-3).
@@ -135,12 +136,22 @@ export interface WasmFileOptions {
   mime?: string;
   /** Recent/recovery storage; default IndexedDB (`rusuite-<app>` from `ping()`), `null` = none. */
   storage?: DocStorage | null;
+  /** Desktop: the localized name of the file-type filter of the native dialogs ("Excel workbook"). */
+  fileTypeLabel?: () => string;
 }
 
 /** Desktop shell: the Tauri commands of `apps/<app>/src-tauri`. */
 export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req, Body> {
   readonly kind = "tauri" as const;
   readonly storage: DocStorage = new TauriDocStorage();
+
+  /** `fileTypeLabel`: the localized filter name of the native file dialogs (read when a dialog opens). */
+  constructor(private readonly fileTypeLabel?: () => string) {}
+
+  /** The shell's `dialog` argument: localized title and filter name of its native dialogs (English filter name when absent). */
+  private dialogText(title: string): { dialog: { title: string; filterName?: string } } {
+    return { dialog: { title, ...(this.fileTypeLabel && { filterName: this.fileTypeLabel() }) } };
+  }
 
   ping(): Promise<string> {
     return invoke<string>("ping");
@@ -158,7 +169,7 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
       path: string;
       name: string;
       bytesBase64: string;
-    } | null>("open_file_dialog");
+    } | null>("open_file_dialog", this.dialogText(t("dialog.open.title")));
     return picked ? { name: picked.name, bytesBase64: picked.bytesBase64 } : null;
   }
 
@@ -168,6 +179,7 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
       suggestedName,
       bytesBase64,
       saveAs: options.saveAs === true,
+      ...this.dialogText(t("dialog.saveAs.title")),
     });
     return saved ? { name: saved.name, path: saved.path } : false;
   }
@@ -289,6 +301,6 @@ export async function createBackend<Req = unknown, Body = unknown>(
   loadWasm: () => Promise<WasmModule>,
   options: WasmFileOptions = {},
 ): Promise<Backend<Req, Body>> {
-  if (isTauri()) return new TauriBackend<Req, Body>();
+  if (isTauri()) return new TauriBackend<Req, Body>(options.fileTypeLabel);
   return new WasmBackend<Req, Body>(await loadWasm(), options);
 }

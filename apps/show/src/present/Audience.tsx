@@ -10,6 +10,7 @@ import type { Slide } from "../generated/Slide";
 import { Presenter } from "./Presenter";
 import type { ShowAction, ShowState } from "./showState";
 import { openSync, type ShowView, type SyncChannel } from "./sync";
+import { useT } from "../i18n";
 
 function closeWindow() {
   if (isTauri()) {
@@ -26,6 +27,7 @@ export interface AudienceProps {
 }
 
 export function Audience({ id, channel, onEnd = closeWindow }: AudienceProps) {
+  const t = useT();
   const [ch, setCh] = useState<SyncChannel | null>(null);
   const [deck, setDeck] = useState<{ deck: DeckContext; slides: Slide[]; media: Map<number, string>; version: number } | null>(null);
   const [view, setView] = useState<ShowView>({ slideIndex: 0, blackout: "none", ended: false });
@@ -68,7 +70,7 @@ export function Audience({ id, channel, onEnd = closeWindow }: AudienceProps) {
   if (!deck) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-black text-sm text-white/60" data-testid="audience-waiting">
-        Waiting for the presentation…
+        {t("show.waiting")}
       </div>
     );
   }
