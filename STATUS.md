@@ -2,7 +2,14 @@
 
 _Maintained by the PM agent. Read at the start of every session; update after every task._
 
-## Current phase: Phase 5 – Polish (Phases 0–4 complete on the server; owner's Excel/Word/PowerPoint checks pending)
+## Current phase: Phase 5 – Polish + Phase 6 – Usability (owner feedback 2026-10-15)
+
+**Owner feedback 2026-10-15 (after trying the web apps):** push to GitHub and build installers; expected Office-like **ribbons/menus (File, Home, …)**; expected **more functionality** – e.g. Calc formula editing must support clicking cells to insert references and must never discard an incomplete formula; "stripped" ≠ bare basics. Decision: a Phase 6 "Usability" track is added within the README feature scope: ribbon in ui-shared (P6-1), Calc formula editing like Excel (P6-2), then further ergonomics batches (see below). `main` is now pushed to github.com/refaustria/rusuite (owner's instruction).
+
+### Phase 6 plan – Usability (owner-requested; README features, Office-like ergonomics)
+- P6-1 Ribbon (File backstage / Home / Insert / View; Layout for Write) in ui-shared, all apps.
+- P6-2 Calc formula editing: point mode (mouse/keyboard reference insertion), never-lose-text with inline parse errors, reference colouring, function autocomplete + signature tips, F4 anchoring.
+- Proposed next batches (owner to confirm/re-order): **Calc**: fill handle + drag-fill series, copy/paste with reference adjustment, cut/paste, context menus (rows/cols/cells), wrap text + text overflow + `####`, number-format dialog, column autofit all, find/replace, multi-sheet print. **Write**: table context menu (rows/cols, cell shading), image resize handles + alignment, headers/footers, page view with page boundaries, find highlighting, spell-check via browser. **Show**: shape context menu, text in groups, slide thumbnails drag reorder polish, shape gallery, align guides/snap, speaker notes.
 
 ### Phase 4 milestone – verified by the PM 2026-10-15 on main 1fd33d8
 - fmt/clippy/rustdoc clean; `cargo test --workspace` 727 passed; `pnpm test` 34 + 41 + 56 + 45 passed; wasm checks for all Show crates.
@@ -81,7 +88,9 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 | P5-5 | Shortcut parity + hygiene (generated-types CI for write, favicons, show api.ts cleanup, chunk splitting) | Sonnet | done (merged) | – | verified: 234 frontend tests, `useShortcuts` + help dialog (Ctrl+/), Save As prompt, docs/shortcuts.md; tiptap/konva chunks split; CI diffs write generated types |
 | P5-4 | Performance: 1M cells / 200-page doc / 100 slides benchmarks + fixes | Opus | done (merged) | – | verified: 750 tests; docs/perf.md – Calc 1M cells load 1.5 s native / 4.7 s wasm, edit 17 ms, RSS 332 MB; Write open 0.8 s, typing p95 65 ms (target 30 → P5-6); Show 100 slides open 1.1 s, switch 22 ms; engine graph tiles + model-sheet used-range fixes |
 | P5-6 | Write typing latency: incremental word count + throttled toolbar state | Sonnet | in progress | `p5/write-typing` | brief docs/tasks/P5-6-write-typing-latency.md |
-| P5-1 | Installers for Windows/macOS/Linux | – | blocked: owner decision (GitHub push + Actions) | – | Linux bundles possible locally |
+| P5-1 | GitHub: CI green on runners + release workflow (deb/AppImage, msi/nsis, dmg) via tauri-action | Sonnet | in progress | `p5/release-workflow` | brief docs/tasks/P5-1-github-ci-release.md; main pushed |
+| P6-1 | Ribbon in ui-shared + all apps | Opus | todo | `p6/ribbon` | brief docs/tasks/P6-1-ribbon.md; after P5-6 (App.tsx) |
+| P6-2 | Calc formula editing like Excel (point mode, inline errors, colouring, autocomplete, F4) | Opus | in progress | `p6/calc-formula-ux` | brief docs/tasks/P6-2-calc-formula-editing.md |
 | P2-1 | `model-sheet`: Workbook wrapping `engine_formula::Engine` for contents/values + StyleTable (font/fill/border/alignment/number format), column/row dimensions, sheet metadata; serde; ADR 0004 | Opus | done (merged a112e4b) | – | verified: 15 tests, snapshot DTO, style interning; follow-up fixed a rustdoc link |
 | P2-3 | Tauri 2 Calc app scaffold: `apps/calc` (Vite+React+Tailwind+Tauri), crate `app-calc` in workspace, `pnpm --filter calc tauri dev` runs, CI builds it | Sonnet | done (merged 1e8d201) | – | verified: tests, vite build, release binary 10.6 MiB runs under xvfb; tauri 2.12 / vite 6 / react 18 / tailwind 4 / vitest 3 |
 | P2-1b | `engine-formula`: `transform.rs` (Excel reference adjustment for insert/delete rows/cols, copy/paste offset) + `Engine::insert_rows/delete_rows/insert_cols/delete_cols/cells` | Opus | done (merged) | – | verified: ~70 transform table cases, 4 engine tests; incremental graph update; `StructuralOp::map_cell` for model-sheet to move styles |
@@ -122,6 +131,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+16. 2026-10-15: Owner instruction: push to GitHub + build installers (done: main pushed; P5-1 builds the workflows). Owner feedback adds a Usability track (Phase 6): ribbon UI and Office-like editing ergonomics are in scope; feature scope of the README unchanged.
 15. 2026-10-15: Phase 3 closed on the server (Word check delegated to the owner). ADR 0008 fixes the Show model (fixed built-in layouts, DrawingML-shaped text reusing RunProperties, MediaStore moved to core-model). Phase 4 started.
 14. 2026-10-15: ADR 0007 fixes the Tiptap↔Rust sync: optimistic ProseMirror apply + authoritative block-level `WritePatch`, block ids in the PM schema with temp-id mapping, fine-grained commands plus `ReplaceBlocks` fallback, lists mapped in TS between nested PM lists and docx numbering, undo/find-replace in Rust, full-document snapshot on load (no regions in Write for MVP).
 13. 2026-10-15: Phase 2 milestone declared reached on the server; the Excel reopen check is delegated to the owner (no Excel here). Phase 3 (Write) planning starts; Phase 2 leftovers (used range in snapshots, async Tauri dispatch, paste reference adjustment, text overflow) go to ROADMAP and are scheduled only if they block Phase 3/5.
@@ -139,7 +149,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 4. 2026-10-15: Roundtrip harness verification = LibreOffice headless `--convert-to` of the rewritten file succeeds and the output is non-empty, plus a structural diff of the ZIP part list and XML against the original. (LibreOffice has no "repair dialog" counter in headless mode; a failed/empty conversion is the proxy.)
 
 ## Open questions for the owner
-- **Installers (Phase 5):** building Windows/macOS bundles needs GitHub Actions (`tauri-action`) on a pushed repo. Do you want me to push `main` to `origin` (github.com/refaustria/rusuite) and add the release workflow? Until then only Linux bundles can be built on this server.
+- **Usability batches after P6-1/P6-2:** see the proposed Calc/Write/Show lists in the Phase 6 plan – tell me which to prioritise, otherwise I go Calc → Write → Show in the listed order.
 - **PowerPoint check (Phase 4 milestone):** `testdata/pptx/out/rusuite-10-slides.pptx` (sent via the session; regenerate with `cargo run -p fmt-pptx --example build_deck`) – please open it in PowerPoint and report any repair dialog or visual problem.
 - Testdata caveat: `provisional-basic.xlsx` has a stale LibreOffice cached value for `Data!C7` (27.028; the stored inputs give 27.128, which our engine computes). Harmless (we ignore cached values) but another reason to replace provisional files with Excel-authored ones.
 - FYI (not caused by us): `https://url.inceptum.at/` answers 502 (its upstream on 127.0.0.1:3002 seems down); gitai/ssh answer 401 (auth). We did not touch those vhosts.
