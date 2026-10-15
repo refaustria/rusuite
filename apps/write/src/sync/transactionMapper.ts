@@ -5,7 +5,8 @@
 // shares them structurally), the changed range is converted with `fromPM`
 // and trimmed to the blocks that really differ. The difference is then
 // classified into a fine-grained command (typing, deletion, mark changes,
-// split/join, paragraph properties, lists); anything else becomes
+// split/join, paragraph properties, lists; typing and formatting inside one
+// table cell too); anything else becomes
 // `ReplaceBlocks` of the affected top-level blocks, which is always correct.
 
 import type { Node as PMNode } from "@tiptap/pm/model";
@@ -260,6 +261,45 @@ function replaceBlocks(ids: number[], blocks: Block[], opts: MapperOptions): Map
   return r.followUp ? { command, followUp: r.followUp } : { command };
 }
 
+/** Commands addressed to existing paragraphs only (valid inside a table cell as well). */
+const IN_PLACE = new Set<WriteCommand["type"]>(["insertText", "deleteText", "replaceText", "setRunProps", "setParagraphProps", "setStyle"]);
+const inPlace = (c: WriteCommand): boolean =>
+  c.type === "compound" ? c.commands.every(inPlace) : IN_PLACE.has(c.type);
+
+type T = Extract<Block, { kind: "table" }>["value"];
+const shell = (x: { props?: unknown }) => stableStringify(canonValue(x.props ?? {}));
+
+/**
+ * Typing or formatting inside one cell of an otherwise unchanged table:
+ * the in-place paragraph commands for that cell (P5-4: a 200-row table is
+ * not resent per keystroke), or null.
+ */
+function cellCommand(o: T, n: T, opts: MapperOptions): MapResult | null {
+  if (o.id !== n.id || shell(o) !== shell(n) || o.rows.length !== n.rows.length) return null;
+  let changed: [Block[], Block[]] | null = null;
+  for (let r = 0; r < o.rows.length; r++) {
+    const [or, nr] = [o.rows[r]!, n.rows[r]!];
+    if (or.id !== nr.id || shell(or) !== shell(nr) || or.cells.length !== nr.cells.length) return null;
+    for (let c = 0; c < or.cells.length; c++) {
+      const [oc, nc] = [or.cells[c]!, nr.cells[c]!];
+      if (oc.id !== nc.id || shell(oc) !== shell(nc)) return null;
+      if (oc.blocks.length === nc.blocks.length && oc.blocks.every((b, i) => blockKey(b) === blockKey(nc.blocks[i]!))) continue;
+      if (changed) return null;
+      changed = [oc.blocks, nc.blocks];
+    }
+  }
+  if (!changed) return null;
+  const [ob, nb] = changed;
+  let a = 0;
+  while (a < ob.length && a < nb.length && blockKey(ob[a]!) === blockKey(nb[a]!)) a++;
+  let z = 0;
+  while (z < ob.length - a && z < nb.length - a && blockKey(ob[ob.length - 1 - z]!) === blockKey(nb[nb.length - 1 - z]!)) z++;
+  const [os, ns] = [ob.slice(a, ob.length - z), nb.slice(a, nb.length - z)];
+  if (!os.length || os.length !== ns.length || !os.every(isPara) || !ns.every(isPara)) return null;
+  const r = classify(os, ns, a > 0 ? ob[a - 1]! : null, opts);
+  return r && !r.followUp && inPlace(r.command) ? r : null;
+}
+
 /**
  * Classifies the difference between the (trimmed) old blocks `ob` and new
  * blocks `nb`; `after` is the id of the block before them (null = start).
@@ -326,6 +366,10 @@ export function classify(ob: Block[], nb: Block[], prev: Block | null, opts: Map
         return { command: { type: "joinWithPrevious", block: q.id } };
       }
     }
+  }
+  if (ob.length === 1 && nb.length === 1 && ob[0]!.kind === "table" && nb[0]!.kind === "table") {
+    const r = cellCommand(ob[0]!.value, nb[0]!.value, opts);
+    if (r) return r;
   }
   return replaceBlocks(ob.map((b) => b.value.id), nb, opts);
 }
