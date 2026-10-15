@@ -30,7 +30,7 @@
 - Pixel-perfect reproduction of Office layout
 - Pivot tables, Power Query, data connections
 - Animations and transitions in Show (for now)
-- Print layout beyond "export to PDF via the browser"
+- Pixel-exact print layout (printing goes through the webview's print pipeline with our own previews and options; see docs/ui.md)
 
 If a feature isn't on the list, it isn't in. Scope discipline is the only reason this project has a chance.
 
