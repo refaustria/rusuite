@@ -18,7 +18,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.80"
 license = "MIT"
-repository = "https://github.com/rusuite/rusuite"
+repository = "https://github.com/refaustria/rusuite"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
