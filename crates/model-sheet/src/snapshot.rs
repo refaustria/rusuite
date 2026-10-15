@@ -4,6 +4,7 @@
 use engine_formula::{CellContent, CellCoord, ErrorKind, RangeRef, SheetId, Value};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::chart::ChartObject;
 use crate::condfmt::CfRule;
 use crate::sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView};
 use crate::sortfilter::{AutoFilter, SortState};
@@ -59,6 +60,9 @@ pub struct SheetSnapshot {
     pub conditional_formats: Vec<CfRule>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub validations: Vec<DataValidation>,
+    /// Charts, back to front.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub charts: Vec<ChartObject>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -179,6 +183,7 @@ impl Workbook {
             sort_state: self.sort_state(id).cloned(),
             conditional_formats: self.cf_rules(id).to_vec(),
             validations: self.validations(id).to_vec(),
+            charts: self.charts(id).to_vec(),
         }
     }
 
@@ -224,6 +229,7 @@ impl Workbook {
                 wb.set_sort_state(id, sheet.sort_state.clone())?;
                 wb.set_cf_rules(id, sheet.conditional_formats.clone())?;
                 wb.set_validations(id, sheet.validations.clone())?;
+                wb.set_charts(id, sheet.charts.clone())?;
                 for col in &sheet.cols {
                     let info = ColInfo {
                         style: map_opt(col.info.style)?,

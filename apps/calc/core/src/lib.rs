@@ -24,6 +24,7 @@
 //! ```
 
 mod cfdv;
+mod charts;
 mod command;
 mod dispatch;
 mod display;
@@ -32,6 +33,7 @@ mod fill;
 mod patch;
 pub mod wire;
 pub mod wire_cf;
+pub mod wire_chart;
 
 pub use command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect, SheetViewPatch};
 pub use dispatch::{dispatch, CalcHost, Request, Response, ResponseBody};

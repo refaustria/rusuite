@@ -615,6 +615,13 @@ export class FakeCalcCore {
       case "restoreCfRules":
       case "restoreValidations":
         return this.rules(cmd);
+      case "addChart":
+      case "updateChart":
+      case "setChartAnchor":
+      case "setChartSeries":
+      case "removeChart":
+      case "restoreCharts":
+        throw new Fail("internal", "charts are not supported by the fake backend");
       default: {
         const unknown: never = cmd;
         throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
