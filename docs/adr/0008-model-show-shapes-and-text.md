@@ -18,3 +18,6 @@ Show needs a slide/shape model that maps to PresentationML + DrawingML (`.pptx`)
 - The Konva frontend renders from the model (shapes → Konva nodes keyed by id); text editing uses an overlay editor that submits a whole `TextBody` (small) – no ProseMirror in Show.
 - Presentation mode is a frontend-only render of the same model.
 - Animations/transitions remain out of scope (README non-goal).
+
+## Amendment 2026-10-15 – transitions and animations are in scope
+The owner approved transitions and animations (parity backlog, Show tier 1). `Slide.transition` and `Slide.animations` (model-show `anim.rs`) model PowerPoint's presets we support (transitions: fade/push/wipe/cover/split/cut/zoom; entrance/exit: appear/fade/fly-in/wipe/zoom; emphasis: spin/grow-shrink) with PowerPoint's own `p:transition`/`p:timing` XML on save; unsupported effects are read as warnings and dropped. The "no animations" line in the Consequences section is superseded.
