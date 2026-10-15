@@ -113,6 +113,34 @@ fn script() -> Vec<C> {
             col: 1,
             width: None,
         },
+        // Sheet operations (sheet 1 is "Data").
+        set(0, 6, 6, "=Later!A1+Data!A1"),
+        C::AddSheet {
+            name: "Later".into(),
+            index: Some(0),
+        },
+        set(2, 0, 0, "=Data!A1*2"),
+        set(2, 1, 0, "=SUM(Sheet1!A1:B9)"),
+        C::SetSheetTabColor {
+            sheet: 2,
+            color: Some(Color::Rgb(Rgb::new(1, 2, 3))),
+        },
+        C::DuplicateSheet {
+            sheet: 0,
+            name: "Sheet1 (2)".into(),
+        },
+        C::MoveSheet { sheet: 3, index: 0 },
+        C::SetSheetTabColor {
+            sheet: 2,
+            color: None,
+        },
+        C::DeleteSheet { sheet: 1 },
+        C::DeleteSheet { sheet: 0 },
+        C::RenameSheet {
+            sheet: 2,
+            name: "Data".into(),
+        },
+        C::DeleteSheet { sheet: 3 },
     ]
 }
 
@@ -121,9 +149,12 @@ fn every_command_undoes_and_redoes_exactly() {
     let mut host = Host::new(CalcDocument::new());
     host.apply(C::AddSheet {
         name: "Sheet2".into(),
+        index: None,
     })
     .unwrap();
     host.mark_saved();
+    // Sheet ids, order and tab colours, plus every sheet's contents.
+    let sheets = |host: &CalcHost| (host.doc().info().sheets, sheets(host));
     let mut states = vec![sheets(&host)];
     for cmd in script() {
         host.apply(cmd.clone())
@@ -137,7 +168,13 @@ fn every_command_undoes_and_redoes_exactly() {
         host.undo().unwrap().unwrap();
         assert_eq!(sheets(&host), states[k], "after undoing to step {k}");
     }
-    assert!(!host.can_undo() && !host.is_dirty());
+    // Only the initial AddSheet is left (and undoing it removes Sheet2).
+    assert!(!host.is_dirty());
+    host.undo().unwrap().unwrap();
+    assert!(!host.can_undo());
+    assert_eq!(host.doc().info().sheets.len(), 1);
+    host.redo().unwrap().unwrap();
+    assert_eq!(sheets(&host), states[0]);
     for (k, state) in states.iter().enumerate().skip(1) {
         host.redo().unwrap().unwrap();
         assert_eq!(&sheets(&host), state, "after redoing step {k}");
@@ -293,6 +330,24 @@ fn errors_leave_the_document_unchanged() {
         (
             C::AddSheet {
                 name: "sheet1".into(),
+                index: None,
+            },
+            "duplicate_sheet",
+        ),
+        (
+            C::AddSheet {
+                name: "Other".into(),
+                index: Some(2),
+            },
+            "invalid_sheet_index",
+        ),
+        (C::DeleteSheet { sheet: 0 }, "last_sheet"),
+        (C::DeleteSheet { sheet: 3 }, "unknown_sheet"),
+        (C::MoveSheet { sheet: 0, index: 1 }, "invalid_sheet_index"),
+        (
+            C::DuplicateSheet {
+                sheet: 0,
+                name: "SHEET1".into(),
             },
             "duplicate_sheet",
         ),
@@ -474,6 +529,68 @@ fn dispatch_roundtrip_for_every_request() {
         json!({"type": "snapshot", "sheet": 0, "r0": 1, "c0": 2, "r1": 1, "c1": 2}),
     );
     assert_eq!(r["ok"]["snapshot"]["cells"][0]["display"], "42");
+}
+
+#[test]
+fn sheet_command_patches() {
+    let mut host = Host::new(CalcDocument::new());
+    let ids =
+        |p: &CalcPatch| -> Vec<u32> { p.sheets.as_ref().unwrap().iter().map(|s| s.id).collect() };
+    host.apply(C::AddSheet {
+        name: "Sheet2".into(),
+        index: None,
+    })
+    .unwrap();
+    host.apply(set(1, 0, 0, "5")).unwrap();
+    host.apply(set(0, 0, 0, "=Sheet2!A1")).unwrap();
+    let p = host
+        .apply(C::MoveSheet { sheet: 1, index: 0 })
+        .unwrap()
+        .patch;
+    assert_eq!(ids(&p), [1, 0]);
+    let red = Color::Rgb(Rgb::new(255, 0, 0));
+    let p = host
+        .apply(C::SetSheetTabColor {
+            sheet: 1,
+            color: Some(red),
+        })
+        .unwrap()
+        .patch;
+    assert_eq!(p.sheets.as_ref().unwrap()[0].tab_color, Some(red));
+    assert_eq!(
+        serde_json::to_value(&p.sheets.as_ref().unwrap()[0]).unwrap(),
+        json!({"id": 1, "name": "Sheet2", "tabColor": {"kind": "rgb", "value": "FF0000"}})
+    );
+
+    let p = host.apply(C::DeleteSheet { sheet: 1 }).unwrap().patch;
+    assert_eq!(ids(&p), [0]);
+    assert_eq!(patch_cells(&p, 0), [(0, 0, "#REF!".to_string())]);
+    assert!(patch_cells(&p, 1).is_empty());
+    assert_eq!(p.cells[0].cells[0].input, "=#REF!");
+    let p = host.undo().unwrap().unwrap().patch;
+    assert_eq!(ids(&p), [1, 0]);
+    assert_eq!(p.sheets.as_ref().unwrap()[0].tab_color, Some(red));
+    assert!(patch_cells(&p, 0).contains(&(0, 0, "5".to_string())));
+    assert!(patch_cells(&p, 1).contains(&(0, 0, "5".to_string())));
+
+    let p = host
+        .apply(C::DuplicateSheet {
+            sheet: 1,
+            name: "Sheet2 (2)".into(),
+        })
+        .unwrap()
+        .patch;
+    assert_eq!(ids(&p), [1, 2, 0]);
+    let r = call(&mut host, json!({"type": "usedRange", "sheet": 2}));
+    assert_eq!(r["ok"], json!({"type": "usedRange", "last": [0, 0]}));
+    call(
+        &mut host,
+        json!({"type": "apply", "command": {"type": "addSheet", "name": "E", "index": 1}}),
+    );
+    let r = call(&mut host, json!({"type": "info"}));
+    assert_eq!(r["ok"]["info"]["sheets"][1]["name"], "E");
+    let r = call(&mut host, json!({"type": "usedRange", "sheet": 3}));
+    assert_eq!(r["ok"], json!({"type": "usedRange", "last": null}));
 }
 
 #[test]

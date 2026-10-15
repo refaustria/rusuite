@@ -32,6 +32,9 @@ pub struct SheetSnapshot {
     pub rows: Vec<RowSnapshot>,
     #[serde(default)]
     pub format: SheetFormat,
+    /// Colour of the sheet tab; absent = default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_color: Option<core_model::Color>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,6 +141,7 @@ impl Workbook {
                 .map(|(row, info)| RowSnapshot { row, info })
                 .collect(),
             format: self.sheet_format(id),
+            tab_color: self.tab_color(id),
         }
     }
 
@@ -175,6 +179,7 @@ impl Workbook {
         let loaded = (|| -> Result<(), Error> {
             for (sheet, &id) in snapshot.sheets.iter().zip(&ids) {
                 wb.set_sheet_format(id, sheet.format)?;
+                wb.set_tab_color(id, sheet.tab_color)?;
                 for col in &sheet.cols {
                     let info = ColInfo {
                         style: map_opt(col.info.style)?,

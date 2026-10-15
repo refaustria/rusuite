@@ -15,7 +15,8 @@ import type { StructuralChange } from "./StructuralChange";
  */
 export type CalcPatch = { 
 /**
- * The full sheet list, when it changed.
+ * The full sheet list in display order, when it changed (added,
+ * deleted, renamed, moved or recoloured sheets).
  */
 sheets: Array<SheetInfo> | null, cells: Array<SheetCells>, cols: Array<SheetCols>, rows: Array<SheetRows>, 
 /**

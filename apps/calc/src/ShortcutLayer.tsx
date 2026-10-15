@@ -120,6 +120,7 @@ export function ShortcutLayer({ store, onExportPdf }: { store: CalcStore; onExpo
           store.select(rowSelection(s.anchor.row, s.focus.row));
         },
       },
+      "Shift+F11": { label: "Insert sheet (before the active one)", group: "Sheets", when: inGrid, run: () => void store.insertSheet() },
       "Mod+Plus": { label: "Insert rows / columns", group: grid, when: inGrid, run: structural("insert") },
       "Mod+Minus": { label: "Delete rows / columns", group: grid, when: inGrid, run: structural("delete") },
     };

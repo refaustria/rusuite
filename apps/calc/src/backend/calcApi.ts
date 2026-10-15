@@ -63,6 +63,8 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     recoverySnapshot: { json: "string", revision: "number", dirty: "boolean" },
     found: { cells: "array" },
     formatted: { text: "string" },
+    // `last` may be null (empty sheet): checked by the caller.
+    usedRange: {},
   };
   for (const [field, kind] of Object.entries(shapes[expected])) {
     const value = body[field];
@@ -160,6 +162,12 @@ export class CalcApi {
   /** Cells whose input or value matches `query` on `sheet` (`null`: all sheets), sheet then row-major order. */
   async findCells(sheet: number | null, query: string, matchCase: boolean, wholeCell: boolean): Promise<FoundCell[]> {
     return (await this.call({ type: "findCells", sheet, query, matchCase, wholeCell }, "found")).cells;
+  }
+
+  /** `[row, col]` of the last used cell of `sheet` (content or own style); `null` when empty. */
+  async usedRange(sheet: number): Promise<[number, number] | null> {
+    const { last } = await this.call({ type: "usedRange", sheet }, "usedRange");
+    return Array.isArray(last) ? last : null;
   }
 
   /** `value` displayed with the number format `code` (the core's `display_value`). */

@@ -4,7 +4,8 @@
 //! [`SheetInfo`](crate::SheetInfo)); ranges are inclusive
 //! (`r0..=r1`, `c0..=c1`, `r0 <= r1`, `c0 <= c1`).
 
-use model_sheet::CellStyle;
+use core_model::Color;
+use model_sheet::{CellStyle, SheetFormat};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -97,13 +98,42 @@ pub enum CalcCommand {
         at: u32,
         count: u32,
     },
-    /// Appends a sheet (not undoable yet).
+    /// Adds an empty sheet at position `index` of the sheet order (absent:
+    /// last). Undo deletes it; redo brings back the same sheet id.
     AddSheet {
         name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        index: Option<u32>,
     },
     RenameSheet {
         sheet: u32,
         name: String,
+    },
+    /// Deletes a sheet (not the last one): references to it in the other
+    /// sheets become `#REF!`. Undo restores the sheet (same id and
+    /// position) with its contents, styles, dimensions, format and tab
+    /// colour, and the original text of the rewritten formulas.
+    DeleteSheet {
+        sheet: u32,
+    },
+    /// Copies a sheet (contents, formulas, styles, dimensions, tab colour)
+    /// to a new sheet `name` right after it; the copy's references to its
+    /// source sheet point at the copy.
+    DuplicateSheet {
+        sheet: u32,
+        name: String,
+    },
+    /// Moves a sheet to position `index` of the sheet order (0 = first).
+    MoveSheet {
+        sheet: u32,
+        index: u32,
+    },
+    /// Sets the tab colour; `null` = default.
+    SetSheetTabColor {
+        sheet: u32,
+        #[ts(as = "Option<app_common::wire::Color>")]
+        color: Option<Color>,
     },
     /// Pastes a copied block at `(r0, c0)` of `sheet` as one undo step.
     ///
@@ -157,6 +187,17 @@ pub enum CalcCommand {
     RestoreRows {
         sheet: u32,
         rows: Vec<RowView>,
+    },
+    /// *Internal.* Brings back a deleted sheet, empty, at position
+    /// `index` (the undo of [`DeleteSheet`](Self::DeleteSheet)).
+    RestoreSheet {
+        sheet: u32,
+        name: String,
+        index: u32,
+        #[ts(as = "Option<app_common::wire::Color>")]
+        tab_color: Option<Color>,
+        #[ts(as = "crate::wire::SheetFormat")]
+        format: SheetFormat,
     },
     /// *Internal.* Applies the commands in order as one undo step.
     Compound {

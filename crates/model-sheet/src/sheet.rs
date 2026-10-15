@@ -87,6 +87,8 @@ pub(crate) struct SheetData {
     /// Non-default rows only.
     pub rows: BTreeMap<u32, RowInfo>,
     pub format: SheetFormat,
+    /// Colour of the sheet tab; `None` = default.
+    pub tab_color: Option<core_model::Color>,
 }
 
 impl SheetData {

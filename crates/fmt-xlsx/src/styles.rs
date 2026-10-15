@@ -134,6 +134,13 @@ impl RawColor {
     }
 }
 
+/// A `CT_Color` element outside the styles part (e.g. `sheetPr/tabColor`),
+/// resolved against the default indexed palette.
+pub(crate) fn color_of_el(el: &BytesStart<'_>) -> Option<Color> {
+    let palette: Vec<Rgb> = INDEXED_PALETTE.iter().map(|&v| rgb_of(v)).collect();
+    RawColor::from_el(el).resolve(&palette)
+}
+
 #[derive(Debug, Default)]
 struct RawFont {
     props: RunProperties,
@@ -481,7 +488,7 @@ fn color_attrs(c: Color) -> Vec<(&'static str, String)> {
     }
 }
 
-fn color_el(x: &mut XmlOut, name: &str, c: Color) {
+pub(crate) fn color_el(x: &mut XmlOut, name: &str, c: Color) {
     let attrs = color_attrs(c);
     let refs: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (*k, v.as_str())).collect();
     x.empty(name, &refs);

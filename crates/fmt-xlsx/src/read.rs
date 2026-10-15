@@ -351,6 +351,10 @@ impl SheetLoader<'_> {
                 Event::Start(ref el) | Event::Empty(ref el) => {
                     let empty = matches!(ev, Event::Empty(_));
                     match name_of(el) {
+                        b"tabColor" => {
+                            let color = crate::styles::color_of_el(el);
+                            self.wb.set_tab_color(self.sheet, color)?;
+                        }
                         b"sheetFormatPr" => {
                             if let Some(w) = attr_parse::<f64>(el, "defaultColWidth") {
                                 format.default_col_width = w;

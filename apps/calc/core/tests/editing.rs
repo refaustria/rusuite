@@ -13,6 +13,7 @@ fn host() -> CalcHost {
     let mut h = Host::new(CalcDocument::new());
     h.apply(C::AddSheet {
         name: "Sheet2".into(),
+        index: None,
     })
     .unwrap();
     h

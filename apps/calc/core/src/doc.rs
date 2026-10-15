@@ -58,6 +58,8 @@ impl CalcError {
             CalcError::Model(M::Engine(EngineError::Parse(_))) => "invalid_formula",
             CalcError::Model(M::Engine(EngineError::DuplicateSheet(_))) => "duplicate_sheet",
             CalcError::Model(M::Engine(EngineError::InvalidCoord)) => "invalid_coord",
+            CalcError::Model(M::Engine(EngineError::LastSheet)) => "last_sheet",
+            CalcError::Model(M::Engine(EngineError::InvalidSheetIndex(_))) => "invalid_sheet_index",
             CalcError::Model(M::UnknownStyle(_)) => "unknown_style",
             CalcError::Model(M::InvalidDimension(_)) => "invalid_dimension",
             CalcError::Model(M::InvalidSnapshot(_)) => "invalid_snapshot",
@@ -211,7 +213,11 @@ impl CalcDocument {
         self.workbook
             .sheets()
             .into_iter()
-            .map(|(id, name)| SheetInfo { id: id.0, name })
+            .map(|(id, name)| SheetInfo {
+                id: id.0,
+                name,
+                tab_color: self.workbook.tab_color(id),
+            })
             .collect()
     }
 
@@ -408,6 +414,119 @@ impl CalcDocument {
         }
     }
 
+    fn sheets_only_patch(&self) -> CalcPatch {
+        CalcPatch {
+            sheets: Some(self.sheet_infos()),
+            ..Default::default()
+        }
+    }
+
+    /// The undo of creating sheet `id` named `name` (add, duplicate,
+    /// restore): delete it, then put back the text of every other formula
+    /// that mentions the name. Deleting rewrites references to the sheet
+    /// as `#REF!`; those formulas referenced the name before the sheet
+    /// existed (or, for a restore, are restored by the rest of the undo
+    /// step anyway). Matching the text is a superset; restoring an
+    /// untouched formula is harmless.
+    fn created_inverse(&self, id: SheetId, name: &str) -> CalcCommand {
+        let needle = name.to_lowercase();
+        let mut texts: BTreeMap<u32, Vec<(u32, u32, String, u32)>> = BTreeMap::new();
+        for (c, text, style) in self.formulas() {
+            if c.sheet != id && text.to_lowercase().contains(&needle) {
+                texts
+                    .entry(c.sheet.0)
+                    .or_default()
+                    .push((c.row, c.col, text, style.0));
+            }
+        }
+        let delete = CalcCommand::DeleteSheet { sheet: id.0 };
+        if texts.is_empty() {
+            return delete;
+        }
+        let mut commands = vec![delete];
+        commands.extend(
+            texts
+                .into_iter()
+                .map(|(sheet, cells)| CalcCommand::RestoreCells { sheet, cells }),
+        );
+        CalcCommand::Compound { commands }
+    }
+
+    /// [`CalcCommand::DeleteSheet`]: the inverse restores the sheet at its
+    /// position, then its dimensions and cells, then the original text of
+    /// the formulas the removal rewrote to `#REF!`.
+    fn delete_sheet(&mut self, sheet: u32) -> Result<CalcApplied> {
+        use CalcCommand as C;
+        let s = self.sheet(sheet)?;
+        let wb = &self.workbook;
+        let name = wb.engine().sheet_name(s).unwrap_or_default().to_owned();
+        let index = wb.sheet_position(s).unwrap_or_default() as u32;
+        let all = CellRange::new(s, 0, 0, MAX_ROW, MAX_COL);
+        let cells: Vec<(u32, u32, String, u32)> = wb
+            .cells_in(all)
+            .map(|(c, content, style)| (c.row, c.col, content_to_input(content), style.0))
+            .collect();
+        let cols: Vec<ColView> = wb.cols(s).map(|(i, info)| col_view(i, info)).collect();
+        let rows: Vec<RowView> = wb.rows(s).map(|(i, info)| row_view(i, info)).collect();
+        let mut inverse = vec![C::RestoreSheet {
+            sheet,
+            name,
+            index,
+            tab_color: wb.tab_color(s),
+            format: wb.sheet_format(s),
+        }];
+        let formulas: Vec<_> = self
+            .formulas()
+            .into_iter()
+            .filter(|(c, _, _)| c.sheet != s)
+            .collect();
+        let before = self.formula_values();
+
+        let recalc = self.workbook.remove_sheet(s)?;
+
+        if !cols.is_empty() {
+            inverse.push(C::RestoreCols { sheet, cols });
+        }
+        if !rows.is_empty() {
+            inverse.push(C::RestoreRows { sheet, rows });
+        }
+        if !cells.is_empty() {
+            inverse.push(C::RestoreCells { sheet, cells });
+        }
+        let mut rewritten: BTreeMap<u32, Vec<(u32, u32, String, u32)>> = BTreeMap::new();
+        for (c, text, style) in formulas {
+            if self.workbook.formula_text(c) != Some(text.as_str()) {
+                rewritten
+                    .entry(c.sheet.0)
+                    .or_default()
+                    .push((c.row, c.col, text, style.0));
+            }
+        }
+        inverse.extend(
+            rewritten
+                .into_iter()
+                .map(|(sheet, cells)| C::RestoreCells { sheet, cells }),
+        );
+        let inverse = if inverse.len() == 1 {
+            inverse.pop()
+        } else {
+            Some(C::Compound { commands: inverse })
+        };
+        let mut patch = self.sheets_patch(&before);
+        patch.merge(CalcPatch {
+            cells: self.cells_patch(recalc.changed.iter().copied(), Some(s)),
+            cycle: self.cycle_text(recalc.cycle.as_ref()),
+            ..Default::default()
+        });
+        Ok(Applied { patch, inverse })
+    }
+
+    /// The last cell with content or an own style on `sheet`, `None` for
+    /// an empty sheet (the UI asks before deleting a non-empty sheet).
+    pub fn used_range(&self, sheet: u32) -> Result<Option<(u32, u32)>> {
+        Ok(self.workbook.used_range(self.sheet(sheet)?))
+    }
+
     // --- commands ---------------------------------------------------------
 
     fn apply_cmd(&mut self, cmd: &CalcCommand) -> Result<CalcApplied> {
@@ -576,12 +695,66 @@ impl CalcDocument {
             &C::DeleteCols { sheet, at, count } => {
                 self.structural(sheet, StructuralOp::DeleteCols { at, count })
             }
-            C::AddSheet { name } => {
+            C::AddSheet { name, index } => {
+                let count = self.workbook.sheets().len();
+                if index.is_some_and(|i| i as usize > count) {
+                    return Err(EngineError::InvalidSheetIndex(index.unwrap_or(0) as usize).into());
+                }
                 let before = self.formula_values();
-                self.workbook.add_sheet(name)?;
+                let id = self.workbook.add_sheet(name)?;
+                if let Some(i) = index {
+                    self.workbook.move_sheet(id, *i as usize)?;
+                }
                 Ok(Applied {
                     patch: self.sheets_patch(&before),
-                    inverse: None,
+                    inverse: Some(self.created_inverse(id, name)),
+                })
+            }
+            &C::DeleteSheet { sheet } => self.delete_sheet(sheet),
+            C::RestoreSheet {
+                sheet,
+                name,
+                index,
+                tab_color,
+                format,
+            } => {
+                let before = self.formula_values();
+                let id = SheetId(*sheet);
+                self.workbook.restore_sheet(id, name, *index as usize)?;
+                self.workbook.set_sheet_format(id, *format)?;
+                self.workbook.set_tab_color(id, *tab_color)?;
+                Ok(Applied {
+                    patch: self.sheets_patch(&before),
+                    inverse: Some(self.created_inverse(id, name)),
+                })
+            }
+            C::DuplicateSheet { sheet, name } => {
+                let s = self.sheet(*sheet)?;
+                let before = self.formula_values();
+                let (id, recalc) = self.workbook.duplicate_sheet(s, name)?;
+                let mut patch = self.sheets_patch(&before);
+                patch.cycle = self.cycle_text(recalc.cycle.as_ref());
+                Ok(Applied {
+                    patch,
+                    inverse: Some(self.created_inverse(id, name)),
+                })
+            }
+            &C::MoveSheet { sheet, index } => {
+                let s = self.sheet(sheet)?;
+                let old = self.workbook.sheet_position(s).unwrap_or_default() as u32;
+                self.workbook.move_sheet(s, index as usize)?;
+                Ok(Applied {
+                    patch: self.sheets_only_patch(),
+                    inverse: Some(C::MoveSheet { sheet, index: old }),
+                })
+            }
+            &C::SetSheetTabColor { sheet, color } => {
+                let s = self.sheet(sheet)?;
+                let old = self.workbook.tab_color(s);
+                self.workbook.set_tab_color(s, color)?;
+                Ok(Applied {
+                    patch: self.sheets_only_patch(),
+                    inverse: Some(C::SetSheetTabColor { sheet, color: old }),
                 })
             }
             C::RenameSheet { sheet, name } => {

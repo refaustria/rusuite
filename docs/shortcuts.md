@@ -47,11 +47,13 @@
 | Esc | Leave copy / cut mode (the marching ants disappear) |
 | Mod+D, Mod+R | Fill down, fill right: copy the selection's first row down / first column right over the rest of it (a single row or column is filled from the one above / to the left); relative references shift |
 | Mod+F, Mod+H | Find, find and replace (sheet or workbook, match case, entire cell; inputs and displayed values are searched) |
+| Shift+F11 | Insert a sheet before the active one |
 
 ### Mouse
 
 - **Fill handle** (the small square at the selection's bottom-right): drag down, up, right or left to fill. One cell is copied (relative references shift); two or more numbers continue their linear trend (1, 2 → 3, 4, …); a date steps by a day; text ending in a number counts up (`Item1` → `Item2`). Hold Ctrl while releasing to swap series and copy. Double-click the handle to fill down to the end of the neighbouring column's data.
-- **Right-click** cells, row headers, column headers or sheet tabs for a context menu (cut/copy/paste/paste values, insert/delete rows and columns, clear contents, format cells, row height / column width, hide/unhide, autofit column width, rename sheet). The menu is keyboard navigable (arrows, Home/End, Enter, Esc).
+- **Right-click** cells, row headers or column headers for a context menu (cut/copy/paste/paste values, insert/delete rows and columns, clear contents, format cells, row height / column width, hide/unhide, autofit column width). The menu is keyboard navigable (arrows, Home/End, Enter, Esc).
+- **Sheet tabs**: right-click for Insert sheet, Delete sheet (asks first when the sheet has content; references to it become `#REF!`, Undo brings it back), Rename, Duplicate (`Name (2)`, formulas referring to the sheet itself point at the copy), Move left / right and Tab colour… (shown as the tab's underline, saved as `sheetPr/tabColor`). Drag a tab to reorder. Ribbon Insert › Sheet offers the same for the active sheet. All of it is undoable.
 - Double-click a column boundary to autofit the column, a row boundary to autofit the row. Autofit measures the cells loaded in the view cache (the visible area plus prefetched blocks), not the whole sheet.
 - Cut/paste moves the cells and their formulas keep their text; references to the moved cells (an area only when it lies entirely inside the moved block), in the moved formulas and anywhere in the workbook, follow them, as in Excel.
 

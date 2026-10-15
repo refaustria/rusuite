@@ -27,6 +27,7 @@
 //! else the default style. A cell styled with [`StyleId::DEFAULT`] has no
 //! own style, so inside a styled row/column it shows that style.
 
+use core_model::Color;
 use engine_formula::ast::{MAX_COL, MAX_ROW};
 use engine_formula::{
     CellContent, CellCoord, Engine, EngineError, Recalc, SheetId, StructuralOp, Value,
@@ -111,6 +112,55 @@ impl Workbook {
 
     pub fn rename_sheet(&mut self, id: SheetId, new_name: &str) -> Result<(), Error> {
         self.engine.rename_sheet(id, new_name)?;
+        Ok(())
+    }
+
+    /// Deletes a sheet with its contents, styles and dimensions; references
+    /// to it in the other sheets become `#REF!`. See [`Engine::remove_sheet`].
+    pub fn remove_sheet(&mut self, id: SheetId) -> Result<Recalc, Error> {
+        let recalc = self.engine.remove_sheet(id)?;
+        if let Some(data) = self.sheets.get_mut(id.0 as usize) {
+            *data = SheetData::default();
+        }
+        Ok(recalc)
+    }
+
+    /// Brings back a removed sheet, empty and with default dimensions, at
+    /// position `index` (undo of [`remove_sheet`](Self::remove_sheet)).
+    /// See [`Engine::restore_sheet`].
+    pub fn restore_sheet(&mut self, id: SheetId, name: &str, index: usize) -> Result<(), Error> {
+        self.engine.restore_sheet(id, name, index)?;
+        *self.sheet_data_mut(id)? = SheetData::default();
+        Ok(())
+    }
+
+    /// Moves a sheet to position `index` of the sheet order.
+    pub fn move_sheet(&mut self, id: SheetId, index: usize) -> Result<(), Error> {
+        Ok(self.engine.move_sheet(id, index)?)
+    }
+
+    /// Position of a sheet in the sheet order (`None`: unknown or removed).
+    pub fn sheet_position(&self, id: SheetId) -> Option<usize> {
+        self.engine.sheet_position(id)
+    }
+
+    /// Copies a sheet (contents, formulas, cell styles, dimensions, sheet
+    /// format and tab colour) to a new sheet `name` right after it. See
+    /// [`Engine::duplicate_sheet`].
+    pub fn duplicate_sheet(&mut self, id: SheetId, name: &str) -> Result<(SheetId, Recalc), Error> {
+        let (new, recalc) = self.engine.duplicate_sheet(id, name)?;
+        let data = self.sheet_data(id).clone();
+        *self.sheet_data_mut(new)? = data;
+        Ok((new, recalc))
+    }
+
+    /// Colour of the sheet tab (`None` = default).
+    pub fn tab_color(&self, id: SheetId) -> Option<Color> {
+        self.sheet_data(id).tab_color
+    }
+
+    pub fn set_tab_color(&mut self, id: SheetId, color: Option<Color>) -> Result<(), Error> {
+        self.sheet_data_mut(id)?.tab_color = color;
         Ok(())
     }
 
@@ -584,5 +634,52 @@ mod tests {
         assert!(wb.delete_rows(s, MAX_ROW, 2).is_err());
         wb.insert_rows(s, 0, 0).unwrap();
         assert_eq!(wb.cell_style_id(CellCoord::new(s, 3, 0)), a);
+    }
+
+    #[test]
+    fn sheet_operations_carry_styles_dims_and_tab_colour() {
+        let mut wb = Workbook::new();
+        let s = SheetId(0);
+        let red = Color::Rgb(Rgb::new(255, 0, 0));
+        let a = styled(&mut wb, 1);
+        let c = |s, r, col| CellCoord::new(s, r, col);
+        wb.set_input(c(s, 0, 0), "4").unwrap();
+        wb.set_input(c(s, 0, 1), "=A1*2").unwrap();
+        wb.set_style(c(s, 0, 0), a).unwrap();
+        wb.set_col_width(s, 1, Some(20.0)).unwrap();
+        wb.set_row_height(s, 3, Some(30.0)).unwrap();
+        wb.set_tab_color(s, Some(red)).unwrap();
+        let other = wb.add_sheet("Other").unwrap();
+        wb.set_input(c(other, 0, 0), "=Sheet1!B1").unwrap();
+
+        let (copy, _) = wb.duplicate_sheet(s, "Copy").unwrap();
+        let names: Vec<String> = wb.sheets().into_iter().map(|(_, n)| n).collect();
+        assert_eq!(names, ["Sheet1", "Copy", "Other"]);
+        assert_eq!(wb.cell_style_id(c(copy, 0, 0)), a);
+        assert_eq!(wb.col_info(copy, 1).width, Some(20.0));
+        assert_eq!(wb.row_info(copy, 3).height, Some(30.0));
+        assert_eq!(wb.tab_color(copy), Some(red));
+        assert_eq!(wb.value(c(copy, 0, 1)), Value::Number(8.0));
+
+        wb.move_sheet(other, 0).unwrap();
+        assert_eq!(wb.sheet_position(other), Some(0));
+        wb.remove_sheet(s).unwrap();
+        assert_eq!(wb.formula_text(c(other, 0, 0)), Some("=#REF!"));
+        assert_eq!(wb.tab_color(s), None);
+        assert_eq!(wb.cols(s).count(), 0);
+        assert_eq!(wb.used_range(s), None);
+        assert!(wb.set_tab_color(s, Some(red)).is_err());
+        wb.restore_sheet(s, "Sheet1", 2).unwrap();
+        assert_eq!(wb.sheet_position(s), Some(2));
+        assert_eq!(wb.cell_style_id(c(s, 0, 0)), StyleId::DEFAULT);
+
+        // Snapshots keep the order and the tab colour.
+        wb.set_tab_color(copy, Some(red)).unwrap();
+        let snap = wb.to_snapshot();
+        let back = Workbook::from_snapshot(&snap).unwrap();
+        assert_eq!(back.to_snapshot(), snap);
+        let names: Vec<String> = back.sheets().into_iter().map(|(_, n)| n).collect();
+        assert_eq!(names, ["Other", "Copy", "Sheet1"]);
+        assert_eq!(back.tab_color(back.sheet_id("Copy").unwrap()), Some(red));
     }
 }
