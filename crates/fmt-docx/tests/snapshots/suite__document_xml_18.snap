@@ -1,0 +1,128 @@
+---
+source: crates/fmt-docx/tests/suite.rs
+expression: pretty_document_xml(&bytes)
+---
+
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+ <w:body>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:spacing w:before="0" w:after="120"/>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:t>Intro paragraph before the list.</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:numPr>
+     <w:ilvl w:val="0"/>
+     <w:numId w:val="2"/>
+    </w:numPr>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:t>Fruit</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:numPr>
+     <w:ilvl w:val="1"/>
+     <w:numId w:val="2"/>
+    </w:numPr>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:t>Apple</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:numPr>
+     <w:ilvl w:val="2"/>
+     <w:numId w:val="2"/>
+    </w:numPr>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:t>Cox Orange</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:numPr>
+     <w:ilvl w:val="2"/>
+     <w:numId w:val="2"/>
+    </w:numPr>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:t>Granny Smith</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:numPr>
+     <w:ilvl w:val="1"/>
+     <w:numId w:val="2"/>
+    </w:numPr>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:t>Pear</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:numPr>
+     <w:ilvl w:val="0"/>
+     <w:numId w:val="2"/>
+    </w:numPr>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:t>Vegetables</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:numPr>
+     <w:ilvl w:val="1"/>
+     <w:numId w:val="2"/>
+    </w:numPr>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:t>Carrot</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:numPr>
+     <w:ilvl w:val="0"/>
+     <w:numId w:val="2"/>
+    </w:numPr>
+    <w:spacing w:before="0" w:after="120"/>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:t>Grains</w:t>
+   </w:r>
+  </w:p>
+  <w:sectPr>
+   <w:pgSz w:w="11906" w:h="16838"/>
+   <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="0" w:footer="0" w:gutter="0"/>
+  </w:sectPr>
+ </w:body>
+</w:document>
