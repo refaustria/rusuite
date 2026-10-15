@@ -19,9 +19,17 @@ export type Color =
   | { kind: "rgb"; value: string }
   | { kind: "theme"; value: { slot: ThemeColorSlot; tint: number } };
 
+export type ThemeFontSlot =
+  | "majorLatin"
+  | "minorLatin"
+  | "majorEastAsian"
+  | "minorEastAsian"
+  | "majorComplexScript"
+  | "minorComplexScript";
+
 export type FontFace =
   | { kind: "named"; value: string }
-  | { kind: "theme"; value: string };
+  | { kind: "theme"; value: ThemeFontSlot };
 
 export type Underline = "none" | "single" | "double" | "dotted" | "dashed" | "wavy";
 export type VerticalAlign = "baseline" | "superscript" | "subscript";
