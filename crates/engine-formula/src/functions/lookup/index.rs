@@ -1,13 +1,15 @@
 //! `INDEX(array, row, [col])`.
 
 use crate::ast::{ErrorKind, Expr};
+use crate::eval::{Operand, RangeRef};
 use crate::functions::lookup::util::{index_numbers, select, Table};
 use crate::functions::{Arity, CallContext, Function};
 use crate::value::{Array, Value};
 
 /// Element, row or column of a range/array. An index of 0 returns the
-/// whole row/column as an array. Used as a reference (`A1:INDEX(..)`) is
-/// not supported; `ROW`/`COLUMN` accept a direct `INDEX` call though.
+/// whole row/column as an array. With a range as first argument the result
+/// is also a reference (see [`Function::call_ref`]), so `A1:INDEX(..)` and
+/// `ROW(INDEX(..))` work.
 pub struct Index;
 
 impl Function for Index {
@@ -24,6 +26,26 @@ impl Function for Index {
             Ok(v) => v,
             Err(e) => Value::Error(e),
         }
+    }
+
+    fn call_ref(&self, args: &[Expr], ctx: &mut CallContext) -> Option<Operand> {
+        // Only references can be narrowed to a reference; anything else
+        // (array literals, array expressions, errors) takes the value path.
+        let Operand::Range(r) = ctx.eval_ref(&args[0]) else {
+            return None;
+        };
+        let sel = index_numbers(args, ctx)
+            .and_then(|(row, col)| select(r.rows() as usize, r.cols() as usize, row, col));
+        Some(match sel {
+            Ok(s) => Operand::Range(RangeRef {
+                sheet: r.sheet,
+                r0: r.r0 + s.r0 as u32,
+                c0: r.c0 + s.c0 as u32,
+                r1: r.r0 + (s.r0 + s.nr - 1) as u32,
+                c1: r.c0 + (s.c0 + s.nc - 1) as u32,
+            }),
+            Err(k) => Operand::Scalar(Value::Error(k)),
+        })
     }
 }
 
@@ -85,5 +107,26 @@ mod tests {
         assert_eq!(eval("=INDEX(C1:C2,1)"), Value::Error(ErrorKind::Div0));
         assert_eq!(eval("=INDEX(A1:A3,C2)"), Value::Error(ErrorKind::NA));
         assert_eq!(eval("=INDEX(#N/A,1)"), Value::Error(ErrorKind::NA));
+    }
+
+    #[test]
+    fn as_reference() {
+        assert_eq!(eval("=SUM(A1:INDEX(A1:A3,2))"), Value::Number(1.0));
+        assert_eq!(eval("=SUM(A1:INDEX(A1:A3,0))"), Value::Number(4.0));
+        assert_eq!(
+            eval("=SUM(A1:INDEX(A1:A3,4))"),
+            Value::Error(ErrorKind::Ref)
+        );
+        assert_eq!(
+            eval("=SUM(A1:INDEX(A1:A3,-1))"),
+            Value::Error(ErrorKind::Value)
+        );
+        assert_eq!(
+            eval("=SUM(A1:INDEX({1;2},1))"),
+            Value::Error(ErrorKind::Value)
+        );
+        // Nested: the inner INDEX is itself a reference.
+        assert_eq!(eval("=ROW(INDEX(INDEX(A1:C6,0,2),4))"), Value::Number(4.0));
+        assert_eq!(eval("=COLUMN(INDEX(A1:H6,0,5))"), Value::Number(5.0));
     }
 }

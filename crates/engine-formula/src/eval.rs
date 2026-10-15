@@ -108,7 +108,7 @@ pub fn eval_operand(expr: &Expr, ctx: &EvalContext) -> Operand {
             op: BinaryOp::Range,
             lhs,
             rhs,
-        } => range_op(eval_operand(lhs, ctx), eval_operand(rhs, ctx)),
+        } => range_op(eval_ref(lhs, ctx), eval_ref(rhs, ctx)),
         Expr::Binary { op, lhs, rhs } => {
             let l = eval_scalar(lhs, ctx);
             let r = eval_scalar(rhs, ctx);
@@ -282,6 +282,28 @@ pub fn resolve(r: &Reference, ctx: &EvalContext) -> Result<RangeRef, ErrorKind> 
     })
 }
 
+/// Evaluates an expression in *reference position* (an operand of the
+/// range operator `:`, the argument of `ROW`/`COLUMN`): a function call
+/// whose [`Function::call_ref`](crate::functions::Function::call_ref)
+/// yields a reference (such as `INDEX(A1:A9,3)`) stays a range; anything
+/// else evaluates as in [`eval_operand`].
+pub fn eval_ref(expr: &Expr, ctx: &EvalContext) -> Operand {
+    let Expr::Call { name, args } = expr else {
+        return eval_operand(expr, ctx);
+    };
+    let Some(f) = ctx.registry.get(name) else {
+        return Operand::Scalar(Value::Error(ErrorKind::Name));
+    };
+    if !f.arity().accepts(args.len()) {
+        return Operand::Scalar(Value::Error(ErrorKind::Value));
+    }
+    let mut cc = CallContext::new(ctx);
+    match f.call_ref(args, &mut cc) {
+        Some(op) => op,
+        None => Operand::Scalar(finish(f.call(args, &mut cc))),
+    }
+}
+
 fn call(name: &str, args: &[Expr], ctx: &EvalContext) -> Value {
     let Some(f) = ctx.registry.get(name) else {
         return Value::Error(ErrorKind::Name);
@@ -290,7 +312,12 @@ fn call(name: &str, args: &[Expr], ctx: &EvalContext) -> Value {
         return Value::Error(ErrorKind::Value);
     }
     let mut cc = CallContext::new(ctx);
-    match f.call(args, &mut cc) {
+    finish(f.call(args, &mut cc))
+}
+
+/// Normalises a function result (`-0` and non-finite numbers).
+fn finish(v: Value) -> Value {
+    match v {
         Value::Number(n) => Value::number(n),
         v => v,
     }
@@ -601,6 +628,29 @@ mod tests {
         assert_eq!(ev("=SUM(A1:(A3))"), n(4.0));
         assert_eq!(ev("=SUM(A1:IF(TRUE,A3))"), e(ErrorKind::Value));
         assert_eq!(ev("=SUM(#N/A:A1)"), e(ErrorKind::NA));
+    }
+
+    #[test]
+    fn range_operator_with_reference_functions() {
+        // A1 = 1, A2 = "x": only the number is summed.
+        assert_eq!(ev("=SUM(A1:INDEX(A1:A3,2))"), n(1.0));
+        assert_eq!(ev("=SUM(INDEX(A1:C3,1,1):A3)"), n(4.0));
+        assert_eq!(ev("=SUM(A1:INDEX(C1:C3,2,1))"), e(ErrorKind::NA));
+        assert_eq!(ev("=SUM(A1:INDEX(A1:A3,9))"), e(ErrorKind::Ref));
+        assert_eq!(ev("=SUM(A1:INDEX({1,2},1))"), e(ErrorKind::Value));
+        assert_eq!(ev("=SUM(A1:INDEX(S2!A1:A3,1))"), e(ErrorKind::Value));
+        assert_eq!(ev("=SUM(A1:NOSUCHFN(A3))"), e(ErrorKind::Name));
+        assert_eq!(ev("=SUM(A1:INDEX(A1:A3))"), e(ErrorKind::Value));
+        assert_eq!(
+            arr("=A1:INDEX(A1:C3,2,0)"),
+            Operand::Range(RangeRef {
+                sheet: SheetId(0),
+                r0: 0,
+                c0: 0,
+                r1: 1,
+                c1: 2,
+            })
+        );
     }
 
     #[test]
