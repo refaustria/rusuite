@@ -28,7 +28,9 @@
 //! own style, so inside a styled row/column it shows that style.
 
 use engine_formula::ast::{MAX_COL, MAX_ROW};
-use engine_formula::{CellContent, CellCoord, Engine, EngineError, Recalc, SheetId, Value};
+use engine_formula::{
+    CellContent, CellCoord, Engine, EngineError, Recalc, SheetId, StructuralOp, Value,
+};
 
 use crate::sheet::{ColInfo, RowInfo, SheetData, SheetFormat};
 use crate::style::{CellStyle, StyleId, StyleTable};
@@ -370,6 +372,68 @@ impl Workbook {
         Ok(())
     }
 
+    // --- structure --------------------------------------------------------
+
+    /// Inserts `count` empty rows before row `at` of `sheet`: contents and
+    /// formulas move via [`Engine::insert_rows`]; cell styles and row
+    /// dimensions at or below `at` move down with them (the new rows get
+    /// default dimensions; styles pushed past the last row are dropped).
+    pub fn insert_rows(&mut self, sheet: SheetId, at: u32, count: u32) -> Result<Recalc, Error> {
+        self.structural(sheet, StructuralOp::InsertRows { at, count })
+    }
+
+    /// Deletes rows `at..at + count` of `sheet` with their contents, cell
+    /// styles and row dimensions; later rows move up. See
+    /// [`Engine::delete_rows`].
+    pub fn delete_rows(&mut self, sheet: SheetId, at: u32, count: u32) -> Result<Recalc, Error> {
+        self.structural(sheet, StructuralOp::DeleteRows { at, count })
+    }
+
+    /// Inserts `count` empty columns before column `at`. See
+    /// [`insert_rows`](Self::insert_rows).
+    pub fn insert_cols(&mut self, sheet: SheetId, at: u32, count: u32) -> Result<Recalc, Error> {
+        self.structural(sheet, StructuralOp::InsertCols { at, count })
+    }
+
+    /// Deletes columns `at..at + count`. See
+    /// [`delete_rows`](Self::delete_rows).
+    pub fn delete_cols(&mut self, sheet: SheetId, at: u32, count: u32) -> Result<Recalc, Error> {
+        self.structural(sheet, StructuralOp::DeleteCols { at, count })
+    }
+
+    /// Runs `op` on the engine, then moves cell styles and the row/column
+    /// dimension map of the affected axis with
+    /// [`StructuralOp::map_cell`] / [`StructuralOp::map_index`] (entries
+    /// mapped to `None` are dropped).
+    fn structural(&mut self, sheet: SheetId, op: StructuralOp) -> Result<Recalc, Error> {
+        let recalc = match op {
+            StructuralOp::InsertRows { at, count } => self.engine.insert_rows(sheet, at, count),
+            StructuralOp::DeleteRows { at, count } => self.engine.delete_rows(sheet, at, count),
+            StructuralOp::InsertCols { at, count } => self.engine.insert_cols(sheet, at, count),
+            StructuralOp::DeleteCols { at, count } => self.engine.delete_cols(sheet, at, count),
+        }?;
+        if op.span().1 == 0 {
+            return Ok(recalc);
+        }
+        let data = self.sheet_data_mut(sheet)?;
+        data.cell_styles = std::mem::take(&mut data.cell_styles)
+            .into_iter()
+            .filter_map(|((r, c), id)| op.map_cell(r, c).map(|p| (p, id)))
+            .collect();
+        fn shift<T>(op: StructuralOp, map: &mut std::collections::BTreeMap<u32, T>) {
+            *map = std::mem::take(map)
+                .into_iter()
+                .filter_map(|(i, v)| op.map_index(i).map(|j| (j, v)))
+                .collect();
+        }
+        if op.is_rows() {
+            shift(op, &mut data.rows);
+        } else {
+            shift(op, &mut data.cols);
+        }
+        Ok(recalc)
+    }
+
     // --- queries ----------------------------------------------------------
 
     /// `(max_row, max_col)` over non-empty contents (the engine's used
@@ -418,5 +482,107 @@ impl Workbook {
                 (!matches!(content, CellContent::Empty) || !style.is_default())
                     .then_some((c, content, style))
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::style::Fill;
+    use core_model::{Color, Rgb};
+
+    fn styled(wb: &mut Workbook, r: u8) -> StyleId {
+        wb.intern_style(&CellStyle {
+            fill: Some(Fill::Solid(Color::Rgb(Rgb::new(r, 0, 0)))),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn insert_and_delete_rows_move_styles_and_heights() {
+        let mut wb = Workbook::new();
+        let s = SheetId(0);
+        let c = |r, c| CellCoord::new(s, r, c);
+        let (a, b) = (styled(&mut wb, 1), styled(&mut wb, 2));
+        wb.set_input(c(0, 0), "1").unwrap();
+        wb.set_input(c(2, 0), "2").unwrap();
+        wb.set_input(c(3, 1), "=A1+A3").unwrap();
+        wb.set_style(c(0, 0), a).unwrap();
+        wb.set_style(c(2, 0), b).unwrap();
+        wb.set_row_height(s, 0, Some(20.0)).unwrap();
+        wb.set_row_height(s, 2, Some(30.0)).unwrap();
+        wb.set_col_width(s, 1, Some(12.0)).unwrap();
+
+        wb.insert_rows(s, 1, 2).unwrap();
+        assert_eq!(wb.cell_style_id(c(0, 0)), a);
+        assert_eq!(wb.cell_style_id(c(4, 0)), b);
+        assert_eq!(wb.cell_style_id(c(2, 0)), StyleId::DEFAULT);
+        assert_eq!(wb.row_info(s, 0).height, Some(20.0));
+        assert_eq!(wb.row_info(s, 1).height, None);
+        assert_eq!(wb.row_info(s, 2).height, None);
+        assert_eq!(wb.row_info(s, 4).height, Some(30.0));
+        assert_eq!(wb.col_info(s, 1).width, Some(12.0));
+        assert_eq!(wb.formula_text(c(5, 1)), Some("=A1+A5"));
+        assert_eq!(wb.value(c(5, 1)), Value::Number(3.0));
+
+        // Delete rows 0..=1: row 0 (style a, height 20) vanishes.
+        wb.delete_rows(s, 0, 2).unwrap();
+        assert_eq!(wb.cell_style_id(c(2, 0)), b);
+        assert!(wb.cells_in(CellRange::new(s, 0, 0, 1, 5)).next().is_none());
+        assert_eq!(wb.rows(s).collect::<Vec<_>>().len(), 1);
+        assert_eq!(wb.row_info(s, 2).height, Some(30.0));
+        assert_eq!(wb.formula_text(c(3, 1)), Some("=#REF!+A3"));
+        assert_eq!(
+            wb.value(c(3, 1)),
+            Value::Error(engine_formula::ErrorKind::Ref)
+        );
+    }
+
+    #[test]
+    fn insert_and_delete_cols_move_styles_and_widths() {
+        let mut wb = Workbook::new();
+        let s = SheetId(0);
+        let c = |r, c| CellCoord::new(s, r, c);
+        let a = styled(&mut wb, 1);
+        wb.set_input(c(0, 1), "5").unwrap();
+        wb.set_input(c(1, 0), "=B1*2").unwrap();
+        wb.set_style(c(0, 1), a).unwrap();
+        wb.set_style(c(5, 3), a).unwrap();
+        wb.set_col_width(s, 1, Some(20.0)).unwrap();
+        wb.set_col_hidden(s, 3, true).unwrap();
+        wb.set_row_height(s, 0, Some(9.0)).unwrap();
+
+        wb.insert_cols(s, 1, 1).unwrap();
+        assert_eq!(wb.cell_style_id(c(0, 2)), a);
+        assert_eq!(wb.cell_style_id(c(0, 1)), StyleId::DEFAULT);
+        assert_eq!(wb.cell_style_id(c(5, 4)), a);
+        assert_eq!(wb.col_info(s, 1), ColInfo::default());
+        assert_eq!(wb.col_info(s, 2).width, Some(20.0));
+        assert!(wb.col_info(s, 4).hidden);
+        assert_eq!(wb.row_info(s, 0).height, Some(9.0));
+        assert_eq!(wb.formula_text(c(1, 0)), Some("=C1*2"));
+
+        wb.delete_cols(s, 2, 1).unwrap();
+        assert_eq!(wb.cell_style_id(c(0, 2)), StyleId::DEFAULT);
+        assert_eq!(wb.cell_style_id(c(5, 3)), a);
+        assert_eq!(wb.col_info(s, 2), ColInfo::default());
+        assert!(wb.col_info(s, 3).hidden);
+        assert_eq!(
+            wb.value(c(1, 0)),
+            Value::Error(engine_formula::ErrorKind::Ref)
+        );
+        assert_eq!(wb.used_range(s), Some((5, 3)));
+    }
+
+    #[test]
+    fn structural_errors_leave_styles_alone() {
+        let mut wb = Workbook::new();
+        let s = SheetId(0);
+        let a = styled(&mut wb, 1);
+        wb.set_style(CellCoord::new(s, 3, 0), a).unwrap();
+        assert!(wb.insert_rows(SheetId(7), 0, 1).is_err());
+        assert!(wb.delete_rows(s, MAX_ROW, 2).is_err());
+        wb.insert_rows(s, 0, 0).unwrap();
+        assert_eq!(wb.cell_style_id(CellCoord::new(s, 3, 0)), a);
     }
 }
