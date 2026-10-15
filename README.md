@@ -280,6 +280,10 @@ The project is intentionally kept small. Before proposing a feature, check wheth
 
 ---
 
+## Trademarks
+
+Microsoft, Office, Word, Excel and PowerPoint are trademarks of Microsoft Corporation. Rusuite is an independent project, not affiliated with or endorsed by Microsoft; the file formats are implemented from the public ECMA-376 / ISO/IEC 29500 specification. See `docs/legal-notes.md`.
+
 ## License
 
 MIT – see [LICENSE](./LICENSE).
