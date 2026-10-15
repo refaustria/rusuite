@@ -818,6 +818,82 @@ impl ShowDocument {
                 let layouts = LayoutKind::ALL.map(|k| Layout::builtin(k, *size));
                 Ok(self.set_size(*size, layouts, ch))
             }
+            C::SetSlideLayout { slide, layout } => {
+                let old_kind = self.pres.slides[self.slide_index(*slide)?].layout;
+                let old = self.pres.layout(old_kind).clone();
+                let new = self.pres.layout(*layout).clone();
+                self.edit_slides(&[*slide], ch, |d| {
+                    let s = d.slide_mut(*slide)?;
+                    s.apply_layout(&old, &new);
+                    let fresh: Vec<usize> = (0..s.shapes.len())
+                        .filter(|&i| s.shapes[i].id == NodeId(0))
+                        .collect();
+                    for i in fresh {
+                        let id = d.pres.alloc_id();
+                        let shape = &mut d.slide_mut(*slide)?.shapes[i];
+                        shape.id = id;
+                        shape.fill_default_name();
+                    }
+                    Ok(())
+                })
+            }
+            C::SetSlidesHidden { slides, hidden } => {
+                for &id in slides {
+                    self.slide_index(id)?;
+                }
+                let mut unique = slides.clone();
+                unique.sort_unstable();
+                unique.dedup();
+                self.edit_slides(&unique, ch, |d| {
+                    for &id in &unique {
+                        d.slide_mut(id)?.hidden = *hidden;
+                    }
+                    Ok(())
+                })
+            }
+            C::SetNotes { slide, notes } => {
+                let notes = notes.clone().filter(|n| !n.is_empty());
+                self.edit_slide(*slide, ch, |s| {
+                    s.notes = notes;
+                    Ok(())
+                })
+            }
+            C::SetAltText { shape, alt } => {
+                let alt = alt.clone().filter(|a| !a.is_empty());
+                self.edit_shapes(&[*shape], ch, |s| {
+                    s.alt.clone_from(&alt);
+                    Ok(())
+                })
+            }
+            C::ReplacePicture {
+                shape,
+                content_type,
+                bytes_base64,
+            } => self.replace_picture(*shape, content_type, bytes_base64, ch),
+            C::ResetPictureSize { shapes } => {
+                let mut boxes = Vec::with_capacity(shapes.len());
+                for &id in shapes {
+                    let s = self.shape(id)?;
+                    let ShapeKind::Picture { media } = s.kind else {
+                        return Err(invalid(format!("shape {} is not a picture", id.0)));
+                    };
+                    let bytes = &self
+                        .pres
+                        .media
+                        .get(media)
+                        .ok_or(ShowError::UnknownMedia(media.0))?
+                        .data;
+                    let natural = self.natural_box(bytes);
+                    boxes.push((id, natural.w, natural.h));
+                }
+                self.edit_shapes(shapes, ch, |s| {
+                    if let Some((_, w, h)) = boxes.iter().find(|(id, ..)| *id == s.id) {
+                        s.transform.w = *w;
+                        s.transform.h = *h;
+                    }
+                    Ok(())
+                })
+            }
             C::RestoreSlideSize { size, layouts } => {
                 Ok(self.set_size(*size, (**layouts).clone(), ch))
             }
@@ -959,6 +1035,7 @@ impl ShowDocument {
             fill: ns.fill,
             line: ns.line,
             placeholder: ns.placeholder,
+            alt: ns.alt.clone().filter(|a| !a.is_empty()),
         };
         shape.fill_default_name();
         normalize_shape(&mut shape);
@@ -1028,6 +1105,64 @@ impl ShowDocument {
             s.shapes.push(shape);
             Ok(())
         })?;
+        Ok(if added {
+            C::Compound {
+                commands: vec![restore, C::RemoveMedia { id: media }],
+            }
+        } else {
+            restore
+        })
+    }
+
+    fn replace_picture(
+        &mut self,
+        shape: NodeId,
+        content_type: &str,
+        bytes_base64: &str,
+        ch: &mut Changes,
+    ) -> R<C> {
+        let old = self.shape(shape)?.transform;
+        if !matches!(self.shape(shape)?.kind, ShapeKind::Picture { .. }) {
+            return Err(invalid(format!("shape {} is not a picture", shape.0)));
+        }
+        if content_type.is_empty() {
+            return Err(invalid("missing content type"));
+        }
+        let bytes = base64_decode(bytes_base64)
+            .map_err(|e| ShowError::BadRequest(format!("invalid base64: {e}")))?;
+        let fitted = match pixel_size(&bytes) {
+            Some((pw, ph)) if pw > 0 && ph > 0 && old.w.0 > 0 && old.h.0 > 0 => {
+                let (pw, ph) = (f64::from(pw), f64::from(ph));
+                let scale = (old.w.0 as f64 / pw).min(old.h.0 as f64 / ph);
+                let w = ((pw * scale).round() as i64).max(1);
+                let h = ((ph * scale).round() as i64).max(1);
+                Transform {
+                    x: Emu(old.x.0 + (old.w.0 - w) / 2),
+                    y: Emu(old.y.0 + (old.h.0 - h) / 2),
+                    w: Emu(w),
+                    h: Emu(h),
+                    ..old
+                }
+            }
+            _ => old,
+        };
+        let count = self.pres.media.len();
+        let media = self.pres.media.insert(content_type.to_owned(), bytes);
+        let added = self.pres.media.len() > count;
+        let restore = self.edit_shapes(&[shape], ch, |s| {
+            s.kind = ShapeKind::Picture { media };
+            s.transform = fitted;
+            Ok(())
+        });
+        let restore = match restore {
+            Ok(r) => r,
+            Err(e) => {
+                if added {
+                    self.pres.media.remove(media);
+                }
+                return Err(e);
+            }
+        };
         Ok(if added {
             C::Compound {
                 commands: vec![restore, C::RemoveMedia { id: media }],

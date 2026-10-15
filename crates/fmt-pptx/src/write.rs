@@ -29,6 +29,10 @@ const CT_VIEW_PROPS: &str =
     "application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml";
 const CT_TABLE_STYLES: &str =
     "application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml";
+const CT_NOTES_SLIDE: &str =
+    "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml";
+const CT_NOTES_MASTER: &str =
+    "application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml";
 const CT_THEME: &str = "application/vnd.openxmlformats-officedocument.theme+xml";
 const CT_CORE: &str = "application/vnd.openxmlformats-package.core-properties+xml";
 const CT_APP: &str = "application/vnd.openxmlformats-officedocument.extended-properties+xml";
@@ -57,9 +61,10 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
     let pn = PartName::new;
     let mut media = MediaParts::default();
     let mut slides = Vec::with_capacity(p.slides.len());
-    for slide in &p.slides {
-        slides.push(write_slide(p, slide, &mut media)?);
+    for (i, slide) in p.slides.iter().enumerate() {
+        slides.push(write_slide(p, slide, i + 1, &mut media)?);
     }
+    let has_notes = p.slides.iter().any(|s| s.notes.is_some());
 
     let mut pkg = Package::new();
     let main = pn("/ppt/presentation.xml")?;
@@ -72,7 +77,17 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
     pres_rels.add(rel("viewProps"), "viewProps.xml");
     pres_rels.add(rel("theme"), "theme/theme1.xml");
     pres_rels.add(rel("tableStyles"), "tableStyles.xml");
-    pkg.insert_part(main.clone(), CT_PRESENTATION, parts::presentation_xml(p));
+    let notes_master_rid = has_notes.then(|| {
+        pres_rels
+            .add(rel("notesMaster"), "notesMasters/notesMaster1.xml")
+            .id
+            .clone()
+    });
+    pkg.insert_part(
+        main.clone(),
+        CT_PRESENTATION,
+        parts::presentation_xml(p, notes_master_rid.as_deref()),
+    );
     pkg.set_relationships(main, pres_rels);
 
     let master = pn("/ppt/slideMasters/slideMaster1.xml")?;
@@ -103,10 +118,30 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
         pkg.set_relationships(name, rels);
     }
 
+    if has_notes {
+        let master = pn("/ppt/notesMasters/notesMaster1.xml")?;
+        pkg.insert_part(master.clone(), CT_NOTES_MASTER, parts::notes_master_xml());
+        let mut r = Relationships::new();
+        r.add(rel("theme"), "../theme/theme2.xml");
+        pkg.set_relationships(master, r);
+        for (i, slide) in p.slides.iter().enumerate() {
+            let Some(notes) = &slide.notes else { continue };
+            let name = PartName::new(format!("/ppt/notesSlides/notesSlide{}.xml", i + 1))?;
+            pkg.insert_part(name.clone(), CT_NOTES_SLIDE, parts::notes_slide_xml(notes));
+            let mut r = Relationships::new();
+            r.add(rel("notesMaster"), "../notesMasters/notesMaster1.xml");
+            r.add(rel("slide"), format!("../slides/slide{}.xml", i + 1));
+            pkg.set_relationships(name, r);
+        }
+    }
+
     let theme = match &ctx.theme_xml {
         Some(xml) if parse_theme(xml, "theme").ok().as_ref() == Some(&p.theme) => xml.clone(),
         _ => theme_xml(&p.theme),
     };
+    if has_notes {
+        pkg.insert_part(pn("/ppt/theme/theme2.xml")?, CT_THEME, theme_xml(&p.theme));
+    }
     pkg.insert_part(pn("/ppt/theme/theme1.xml")?, CT_THEME, theme);
     pkg.insert_part(
         pn("/ppt/presProps.xml")?,
@@ -197,9 +232,12 @@ struct SlideWriter<'a> {
 }
 
 /// One slide part and its relationships.
+///
+/// `number` is the slide's 1-based part number (also of its notes part).
 fn write_slide(
     p: &Presentation,
     slide: &Slide,
+    number: usize,
     media: &mut MediaParts,
 ) -> Result<(Vec<u8>, Relationships)> {
     let mut rels = Relationships::new();
@@ -208,6 +246,12 @@ fn write_slide(
         rel("slideLayout"),
         format!("../slideLayouts/slideLayout{n}.xml"),
     );
+    if slide.notes.is_some() {
+        rels.add(
+            rel("notesSlide"),
+            format!("../notesSlides/notesSlide{number}.xml"),
+        );
+    }
     let mut w = SlideWriter {
         x: XmlOut::new(),
         p,
@@ -217,7 +261,11 @@ fn write_slide(
         next_shape_id: 2,
         next_ph_idx: 1,
     };
-    w.x.start("p:sld", &ROOT_NS);
+    let mut root: Vec<(&str, &str)> = ROOT_NS.to_vec();
+    if slide.hidden {
+        root.push(("show", "0"));
+    }
+    w.x.start("p:sld", &root);
     w.x.start("p:cSld", &[]);
     if let Some(bg) = &slide.background {
         w.x.start("p:bg", &[]);
@@ -243,6 +291,16 @@ fn write_slide(
 impl SlideWriter<'_> {
     /// `(id, name)` for the next `p:cNvPr`; empty names get PowerPoint-style
     /// defaults (`"Rectangle 3"`).
+    /// `p:cNvPr` attributes: id, name and (if set) the alt text.
+    fn c_nv_pr(&mut self, s: &Shape) {
+        let (id, name) = self.ids(s);
+        let mut attrs = vec![("id", id.as_str()), ("name", name.as_str())];
+        if let Some(alt) = s.alt.as_deref().filter(|a| !a.is_empty()) {
+            attrs.push(("descr", alt));
+        }
+        self.x.empty("p:cNvPr", &attrs);
+    }
+
     fn ids(&mut self, s: &Shape) -> (String, String) {
         let id = self.next_shape_id;
         self.next_shape_id += 1;
@@ -266,11 +324,11 @@ impl SlideWriter<'_> {
             }
             ShapeKind::Picture { media } => self.picture(s, *media)?,
             ShapeKind::Group { children } => {
-                let (id, name) = self.ids(s);
                 let x = &mut self.x;
                 x.start("p:grpSp", &[]);
                 x.start("p:nvGrpSpPr", &[]);
-                x.empty("p:cNvPr", &[("id", &id), ("name", &name)]);
+                self.c_nv_pr(s);
+                let x = &mut self.x;
                 x.empty("p:cNvGrpSpPr", &[]);
                 x.empty("p:nvPr", &[]);
                 x.end("p:nvGrpSpPr");
@@ -293,7 +351,6 @@ impl SlideWriter<'_> {
     }
 
     fn auto_shape(&mut self, s: &Shape, geometry: Preset) {
-        let (id, name) = self.ids(s);
         let ph_idx = match s.placeholder {
             Some(PlaceholderKind::Subtitle | PlaceholderKind::Body) => {
                 let i = self.next_ph_idx;
@@ -305,7 +362,8 @@ impl SlideWriter<'_> {
         let x = &mut self.x;
         x.start("p:sp", &[]);
         x.start("p:nvSpPr", &[]);
-        x.empty("p:cNvPr", &[("id", &id), ("name", &name)]);
+        self.c_nv_pr(s);
+        let x = &mut self.x;
         if s.placeholder.is_some() {
             x.start("p:cNvSpPr", &[]);
             x.empty("a:spLocks", &[("noGrp", "1")]);
@@ -338,11 +396,11 @@ impl SlideWriter<'_> {
     }
 
     fn connector(&mut self, s: &Shape) {
-        let (id, name) = self.ids(s);
         let x = &mut self.x;
         x.start("p:cxnSp", &[]);
         x.start("p:nvCxnSpPr", &[]);
-        x.empty("p:cNvPr", &[("id", &id), ("name", &name)]);
+        self.c_nv_pr(s);
+        let x = &mut self.x;
         x.empty("p:cNvCxnSpPr", &[]);
         x.empty("p:nvPr", &[]);
         x.end("p:nvCxnSpPr");
@@ -367,11 +425,11 @@ impl SlideWriter<'_> {
                 rid
             }
         };
-        let (id, name) = self.ids(s);
         let x = &mut self.x;
         x.start("p:pic", &[]);
         x.start("p:nvPicPr", &[]);
-        x.empty("p:cNvPr", &[("id", &id), ("name", &name)]);
+        self.c_nv_pr(s);
+        let x = &mut self.x;
         x.start("p:cNvPicPr", &[]);
         x.empty("a:picLocks", &[("noChangeAspect", "1")]);
         x.end("p:cNvPicPr");
@@ -434,5 +492,53 @@ mod tests {
                 "/docProps/app.xml",
             ]
         );
+    }
+
+    #[test]
+    fn hidden_notes_and_alt_roundtrip() {
+        let mut p = Presentation::new();
+        let s2 = p.add_slide(LayoutKind::Blank);
+        let pic_media = p.media.insert("image/png".to_owned(), vec![1, 2, 3]);
+        let mut pic = Shape::picture(pic_media, Transform::new(Emu(0), Emu(0), Emu(9), Emu(9)));
+        pic.alt = Some("A <logo> & \"mark\"".into());
+        p.add_shape(s2, pic).unwrap();
+        {
+            let slide = p.slide_mut(s2).unwrap();
+            slide.hidden = true;
+            slide.notes = Some("First line\n\nThird & last".into());
+        }
+        let bytes = write(&p).unwrap();
+        let pkg = Package::open(Cursor::new(bytes.clone())).unwrap();
+        let names: Vec<&str> = pkg.parts().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"/ppt/notesMasters/notesMaster1.xml"));
+        assert!(names.contains(&"/ppt/notesSlides/notesSlide2.xml"));
+        assert!(!names.contains(&"/ppt/notesSlides/notesSlide1.xml"));
+        assert!(names.contains(&"/ppt/theme/theme2.xml"));
+        let pres = String::from_utf8(
+            pkg.part(&PartName::new("/ppt/presentation.xml").unwrap())
+                .unwrap()
+                .data
+                .clone(),
+        )
+        .unwrap();
+        assert!(pres.contains("<p:notesMasterIdLst><p:notesMasterId r:id="));
+
+        let (back, warnings) = crate::read_with_warnings(&bytes).unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(!back.slides[0].hidden);
+        assert_eq!(back.slides[0].notes, None);
+        assert!(back.slides[1].hidden);
+        assert_eq!(
+            back.slides[1].notes.as_deref(),
+            Some("First line\n\nThird & last")
+        );
+        assert_eq!(
+            back.slides[1].shapes[0].alt.as_deref(),
+            Some("A <logo> & \"mark\"")
+        );
+        // Without notes, no notes parts are written.
+        let plain = write(&Presentation::new()).unwrap();
+        let pkg = Package::open(Cursor::new(plain)).unwrap();
+        assert!(!pkg.parts().any(|(n, _)| n.as_str().contains("notes")));
     }
 }

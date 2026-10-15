@@ -91,6 +91,7 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 
 | Keys | Action |
 | --- | --- |
+| Mod+C, Mod+X, Mod+V | Copy, cut, paste shapes (in the slide sorter: slides) |
 | Mod+D | Duplicate |
 | Mod+G, Mod+Shift+G | Group, ungroup |
 | Mod+], Mod+[ | Bring forward, send backward |
@@ -103,4 +104,9 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | F5 | Present from the first slide |
 | Shift+F5 | Present from the current slide |
 
-Mod+B/I/U also format the selected text inside the text overlay.
+| Mod+Shift+>, Mod+Shift+< | Increase, decrease font size |
+
+Mod+B/I/U also format the selected text inside the text overlay; there Tab / Shift+Tab change the list level of the
+selected paragraphs. While dragging or resizing, shapes snap to the slide and to other shapes (smart guides); hold Alt to
+move freely. Shift keeps the aspect ratio while resizing a shape (pictures keep it by default; Shift frees it). Arrow-key
+nudges never snap.

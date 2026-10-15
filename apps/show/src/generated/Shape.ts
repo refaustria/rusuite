@@ -37,4 +37,8 @@ line: Line,
 /**
  * The layout placeholder this shape fills, if any.
  */
-placeholder?: PlaceholderKind | null, };
+placeholder?: PlaceholderKind | null, 
+/**
+ * Alternative text (`p:cNvPr/@descr`).
+ */
+alt?: string | null, };

@@ -147,6 +147,68 @@ export class FakeBackend implements ShowBackend {
         order.changed = true;
         return;
       }
+      case "duplicateSlide": {
+        const i = p.slides.findIndex((s) => s.id === c.id);
+        const copy = clone(p.slides[i]!);
+        copy.id = this.nextId++;
+        copy.shapes = copy.shapes.map((sh) => ({ ...sh, id: this.nextId++ }));
+        p.slides.splice(i + 1, 0, copy);
+        touched.add(copy);
+        order.changed = true;
+        return;
+      }
+      case "setSlideLayout": {
+        const s = this.slideOf(c.slide);
+        s.layout = c.layout;
+        touched.add(s);
+        return;
+      }
+      case "setSlidesHidden":
+        for (const id of c.slides) {
+          const s = this.slideOf(id);
+          s.hidden = c.hidden;
+          touched.add(s);
+        }
+        return;
+      case "setNotes": {
+        const s = this.slideOf(c.slide);
+        s.notes = c.notes;
+        touched.add(s);
+        return;
+      }
+      case "setSlideBackground": {
+        const s = this.slideOf(c.slide);
+        s.background = c.fill;
+        touched.add(s);
+        return;
+      }
+      case "setAltText": {
+        const s = this.slideOf(c.shape);
+        findShape(s.shapes, c.shape)!.shape.alt = c.alt;
+        touched.add(s);
+        return;
+      }
+      case "setShapeStyle":
+        for (const id of c.shapes) {
+          const s = this.slideOf(id);
+          const sh = findShape(s.shapes, id)!.shape;
+          if (c.fill !== undefined) sh.fill = c.fill ?? { kind: "none" };
+          if (c.line !== undefined) sh.line = c.line ?? { fill: { kind: "none" }, width: 12700, dash: "solid" };
+          touched.add(s);
+        }
+        return;
+      case "setParagraphProps": {
+        const s = this.slideOf(c.shape);
+        const sh = findShape(s.shapes, c.shape)!.shape;
+        if (sh.kind.kind === "auto" && sh.kind.value.text) {
+          for (const i of c.paragraphs) {
+            const para = sh.kind.value.text.paragraphs[i];
+            if (para) para.props = { ...(para.props ?? {}), ...(c.patch as object) } as typeof para.props;
+          }
+        }
+        touched.add(s);
+        return;
+      }
       default:
         for (const id of "shapes" in c && Array.isArray(c.shapes) ? (c.shapes as unknown[]) : []) {
           if (typeof id === "number") touched.add(this.slideOf(id));

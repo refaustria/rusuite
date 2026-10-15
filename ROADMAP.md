@@ -97,6 +97,9 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## Calc (Phase 6 leftovers)
 - Adjust references that point at cut-moved cells; Ctrl+D/Ctrl+R fill down/right; delete-sheet core command; month/weekday fill series; General integers too long should switch to `1.2E+12` instead of `####`; engine number formats lack `AM/PM` and `[h]` (TEXT and cell display).
 
+## Show (Phase 6 leftovers)
+- Presenter view (notes, next slide, timer); snap to equal spacing; Selection pane; Format Background pane (gradient/picture); formatted notes; paste-slide elsewhere as one undo step; Alt during drag can focus the ribbon.
+
 ## Ribbon
 - Groups that collapse into dropdowns on narrow windows; Quick Access Toolbar; remember collapsed state and zoom; Calc Data tab (sort/filter) if it enters scope; print preview in the backstage; Write font box shows the effective (style-derived) font.
 

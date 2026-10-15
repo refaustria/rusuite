@@ -1,8 +1,11 @@
 // The overlay text editor (ADR 0008: no ProseMirror in Show): a
 // `<textarea>` over the edited shape with matching font, size, colour and
-// alignment. Blur, Esc and Ctrl+Enter commit (`SetTextBody`); focus moving
-// into the toolbar (`[data-keep-edit]`) keeps the session open so toolbar
-// formatting applies to the textarea selection.
+// alignment, rotated with the shape and placed at the top, middle or
+// bottom of the box like the shape's text anchor. Tab / Shift+Tab change
+// the list level of the selected paragraphs; Ctrl+Shift+> / < grow and
+// shrink the font. Blur, Esc and Ctrl+Enter commit (`SetTextBody`); focus
+// moving into the toolbar (`[data-keep-edit]`) keeps the session open so
+// toolbar formatting applies to the textarea selection.
 
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { Shape } from "../generated/Shape";
@@ -49,6 +52,14 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
     el.setSelectionRange(e.start, e.end);
   }, [revision, store]);
 
+  // The textarea grows with its text; the wrapper places it by the anchor.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  });
+
   if (!editing || !hit || !pres || !slide) return null;
   const t = absoluteTransform(hit.shape, hit.parents);
   const body = textOf(hit.shape);
@@ -62,44 +73,66 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
   const commit = () => void store.commitEdit();
   const sync = (el: HTMLTextAreaElement) => store.updateEdit(el.value, el.selectionStart, el.selectionEnd);
 
+  const anchor = body?.props.anchor ?? "top";
+  const boxH = Math.max(emuToPx(t.h) * scale, fontPx * 1.4);
   return (
-    <textarea
-      ref={ref}
-      aria-label="Shape text"
-      data-testid="text-overlay"
-      value={editing.text}
-      spellCheck={false}
-      onChange={(e) => sync(e.currentTarget)}
-      onSelect={(e) => sync(e.currentTarget)}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === "Escape" || (e.key === "Enter" && (e.ctrlKey || e.metaKey))) {
-          e.preventDefault();
-          commit();
-        }
-      }}
-      onBlur={(e) => {
-        const next = e.relatedTarget as HTMLElement | null;
-        if (next && next.closest("[data-keep-edit]")) return;
-        commit();
-      }}
-      className="absolute resize-none overflow-hidden border border-dashed border-blue-500 bg-white/70 outline-none"
+    <div
+      data-testid="text-overlay-box"
+      data-anchor={anchor}
+      className="absolute flex flex-col border border-dashed border-blue-500 bg-white/70"
       style={{
         left: emuToPx(t.x) * scale,
         top: emuToPx(t.y) * scale,
         width: emuToPx(t.w) * scale,
-        height: Math.max(emuToPx(t.h) * scale, fontPx * 1.4),
+        minHeight: boxH,
+        justifyContent: anchor === "middle" ? "center" : anchor === "bottom" ? "flex-end" : "flex-start",
         transform: t.rotationDeg ? `rotate(${t.rotationDeg}deg)` : undefined,
         transformOrigin: "center",
         padding: `${emuToPx(ins.top) * scale}px ${emuToPx(ins.right) * scale}px ${emuToPx(ins.bottom) * scale}px ${emuToPx(ins.left) * scale}px`,
-        fontFamily: fontFamily(run.font, pres.theme),
-        fontSize: fontPx,
-        fontWeight: run.bold ? 700 : 400,
-        fontStyle: run.italic ? "italic" : "normal",
-        lineHeight: 1.2,
-        color: css(run.color, palette) ?? "#000",
-        textAlign: para.alignment === "justify" ? "justify" : (para.alignment ?? "left"),
+        boxSizing: "border-box",
       }}
-    />
+    >
+      <textarea
+        ref={ref}
+        rows={1}
+        aria-label="Shape text"
+        data-testid="text-overlay"
+        value={editing.text}
+        spellCheck={false}
+        onChange={(e) => sync(e.currentTarget)}
+        onSelect={(e) => sync(e.currentTarget)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          const mod = e.ctrlKey || e.metaKey;
+          if (e.key === "Escape" || (e.key === "Enter" && mod)) {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Tab" && !mod && !e.altKey) {
+            e.preventDefault();
+            sync(e.currentTarget);
+            void store.indent(e.shiftKey ? -1 : 1);
+          } else if (mod && e.shiftKey && (e.key === ">" || e.key === "<" || e.code === "Period" || e.code === "Comma")) {
+            e.preventDefault();
+            sync(e.currentTarget);
+            void store.stepFont(e.key === ">" || e.code === "Period" ? 1 : -1, run.size ?? 1800);
+          }
+        }}
+        onBlur={(e) => {
+          const next = e.relatedTarget as HTMLElement | null;
+          if (next && next.closest("[data-keep-edit]")) return;
+          commit();
+        }}
+        className="w-full shrink-0 resize-none overflow-hidden border-0 bg-transparent p-0 outline-none"
+        style={{
+          fontFamily: fontFamily(run.font, pres.theme),
+          fontSize: fontPx,
+          fontWeight: run.bold ? 700 : 400,
+          fontStyle: run.italic ? "italic" : "normal",
+          lineHeight: 1.2,
+          color: css(run.color, palette) ?? "#000",
+          textAlign: para.alignment === "justify" ? "justify" : (para.alignment ?? "left"),
+        }}
+      />
+    </div>
   );
 }
