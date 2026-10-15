@@ -276,8 +276,8 @@ export function ShowRibbon({ store, session, onPresent, onExportPdf, zoom, onZoo
                 }}
               />
               <RibbonButton label="Copy" icon="copy" showLabel tooltip={clipTip} disabled={editing || selCount === 0} onClick={copy} />
-              <RibbonButton label="Duplicate" icon="duplicate" showLabel shortcut="Mod+D" disabled={editing || selCount === 0} onClick={() => void store.duplicateSelection()} />
             </RibbonStack>
+            <RibbonButton label="Duplicate" icon="duplicate" size="large" shortcut="Mod+D" disabled={editing || selCount === 0} onClick={() => void store.duplicateSelection()} />
           </>
         ),
       },

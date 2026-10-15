@@ -18,7 +18,7 @@ const icon = (i: RibbonIconName | ReactNode, size: number) =>
   typeof i === "string" ? <RibbonIcon name={i as RibbonIconName} size={size} /> : i;
 
 const BASE = `rounded text-ui-fg hover:bg-ui-hover disabled:cursor-not-allowed disabled:opacity-40 aria-pressed:bg-ui-active aria-expanded:bg-ui-hover ${FOCUS_RING}`;
-const LARGE = `${BASE} flex h-12 min-w-11 max-w-20 flex-col items-center justify-start gap-0.5 px-1 pt-1 text-center text-[11px] leading-3`;
+const LARGE = `${BASE} flex h-12 min-w-11 max-w-20 flex-col items-center justify-start gap-0.5 px-1 pt-0.5 text-center text-[11px] leading-[11px]`;
 const SMALL = `${BASE} inline-flex h-6 min-w-6 items-center justify-center gap-1 px-1 text-xs`;
 
 /** Select styling inside ribbon groups. */
@@ -54,7 +54,7 @@ export function RibbonButton({ label, icon: i, size = "small", showLabel, presse
       disabled={disabled}
       onClick={onClick}
     >
-      {i !== undefined && icon(i, large ? 24 : 16)}
+      {i !== undefined && icon(i, large ? 22 : 16)}
       {(large || showLabel || i === undefined) && <span className={large ? "line-clamp-2" : "whitespace-nowrap"}>{label}</span>}
     </button>
   );
@@ -222,7 +222,7 @@ export function RibbonMenuButton({ label, icon: i, size = "small", showLabel, di
           }
         }}
       >
-        {i !== undefined && icon(i, large ? 24 : 16)}
+        {i !== undefined && icon(i, large ? 22 : 16)}
         {(large || showLabel || i === undefined) && (
           <span className={large ? "flex items-center" : "flex items-center whitespace-nowrap"}>
             {label}
@@ -304,7 +304,7 @@ export function RibbonSplitButton({ label, icon: i, size = "small", showLabel, d
         disabled={disabled}
         onClick={onClick}
       >
-        {i !== undefined && icon(i, large ? 24 : 16)}
+        {i !== undefined && icon(i, large ? 22 : 16)}
         {!large && (showLabel || i === undefined) && <span className="whitespace-nowrap">{label}</span>}
       </button>
       {arrowButton}

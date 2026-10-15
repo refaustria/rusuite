@@ -121,7 +121,7 @@ function lineSpacingAt(editor: Editor): number | null {
 
 const STYLE_PREVIEW: Record<string, string> = {
   Normal: "text-xs",
-  Title: "text-lg font-light",
+  Title: "text-sm font-light",
   Heading1: "text-sm font-semibold text-blue-800 dark:text-blue-300",
   Heading2: "text-xs font-semibold text-blue-800 dark:text-blue-300",
   Heading3: "text-xs font-medium text-blue-900 dark:text-blue-200",

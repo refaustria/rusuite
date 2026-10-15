@@ -9,7 +9,7 @@ import { ShortcutLayer } from "./ShortcutLayer";
 import { SheetTabs } from "./SheetTabs";
 import { CalcStore, useCalc } from "./state/store";
 import { Toasts } from "./Toasts";
-import { CalcRibbon, DEFAULT_CALC_VIEW, type CalcRibbonExtras, type CalcView } from "./ui/CalcRibbon";
+import { CalcRibbon, DEFAULT_CALC_VIEW, type CalcView } from "./ui/CalcRibbon";
 
 function StatusBar({ store, zoom }: { store: CalcStore; zoom: number }) {
   const revision = useCalc(store, (s) => s.revision);
@@ -37,7 +37,7 @@ function StatusBar({ store, zoom }: { store: CalcStore; zoom: number }) {
   );
 }
 
-export default function App({ backend, ribbonExtras }: { backend: CalcBackend; ribbonExtras?: CalcRibbonExtras }) {
+export default function App({ backend }: { backend: CalcBackend }) {
   // Recent files, autosave, crash recovery: the store talks through the session's backend.
   const session = useMemo(() => new DocumentSession(pickBackend(backend)), [backend]);
   const store = useMemo(() => new CalcStore(new CalcApi(session.backend)), [session]);
@@ -70,7 +70,7 @@ export default function App({ backend, ribbonExtras }: { backend: CalcBackend; r
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
       <RecoveryBanner session={session} />
-      <CalcRibbon store={store} session={session} onExportPdf={openExport} view={view} onViewChange={setView} extras={ribbonExtras} />
+      <CalcRibbon store={store} session={session} onExportPdf={openExport} view={view} onViewChange={setView} />
       {/* The Export PDF flow (setup dialog, print view); its own button is replaced by File › Export PDF… */}
       <div className="contents [&>button]:hidden">
         <ExportPdf store={store} stage={exportStage} onStage={setExportStage} />

@@ -75,7 +75,7 @@ const PATHS: Record<RibbonIconName, ReactNode> = {
   chevronUp: P("M6 12l4-4 4 4"),
 };
 
-/** A ribbon icon; `size` in px (large buttons use 24). */
+/** A ribbon icon; `size` in px (large buttons use 22). */
 export function RibbonIcon({ name, size = 16 }: { name: RibbonIconName; size?: number }) {
   return (
     <svg

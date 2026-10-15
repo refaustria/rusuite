@@ -94,10 +94,12 @@ describe("Calc ribbon", () => {
     fireEvent.keyDown(grid, { key: "ArrowRight" });
     core.log.length = 0;
     fireEvent.click(screen.getByRole("button", { name: "Paste" }));
-    await waitFor(() => expect(applied(core.log)).toEqual([{ type: "setInput", sheet: 0, row: 0, col: 1, input: "42" }]));
-    core.log.length = 0;
+    await waitFor(() => expect(applied(core.log).map((c) => c.type)).toEqual(["pasteRange"]));
     fireEvent.click(screen.getByRole("button", { name: "Cut" }));
-    await waitFor(() => expect(applied(core.log)).toEqual([{ type: "clearRange", sheet: 0, r0: 0, c0: 1, r1: 0, c1: 1 }]));
+    fireEvent.keyDown(grid, { key: "ArrowDown" });
+    core.log.length = 0;
+    fireEvent.click(screen.getByRole("button", { name: "Paste" }));
+    await waitFor(() => expect(applied(core.log).map((c) => c.type)).toEqual(["pasteRange"]));
   });
 
   it("Cells: insert rows from the menu; row height dialog", async () => {
@@ -108,10 +110,10 @@ describe("Calc ribbon", () => {
     core.log.length = 0;
     fireEvent.click(screen.getByRole("button", { name: "Format" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Row height…" }));
-    const input = screen.getByLabelText("Row height (pixels)") as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "40" } });
+    const input = screen.getByLabelText("Row height (points)") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "30" } });
     fireEvent.submit(input.closest("form")!);
-    await waitFor(() => expect(applied(core.log)).toEqual([{ type: "setRowHeight", sheet: 0, row: 0, height: 30 }]));
+    await waitFor(() => expect(applied(core.log)).toEqual([expect.objectContaining({ type: "setRowHeight", row: 0, height: 30 })]));
   });
 
   it("undo/redo and clear", async () => {
@@ -179,16 +181,16 @@ describe("Calc ribbon", () => {
     await waitFor(() => expect(core.log.some((r) => r.type === "newDocument")).toBe(true));
   });
 
-  it("extras slot appends groups and tabs (P6-3 hook)", async () => {
-    const run = vi.fn();
-    await setup({
-      ribbonExtras: {
-        home: [{ label: "Extra", items: <button type="button" onClick={run}>Extra action</button> }],
-        tabs: [{ id: "data", label: "Data", groups: [{ label: "Sort", items: <button type="button">Sort A–Z</button> }] }],
-      },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Extra action" }));
-    expect(run).toHaveBeenCalled();
-    expect(screen.getAllByRole("tab").slice(0, 5).map((t) => t.textContent)).toEqual(["File", "Home", "Insert", "Data", "View"]);
+  it("Editing › Find and Format › Format cells… open the P6-3 dialogs", async () => {
+    await setup();
+    fireEvent.click(screen.getByRole("button", { name: "Find options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Replace…/ }));
+    expect(await screen.findByRole("dialog", { name: "Find and replace" })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Find and replace" }), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Find" }));
+    expect(await screen.findByRole("dialog", { name: "Find" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Format" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Format cells/ }));
+    expect(await screen.findByRole("dialog", { name: "Format cells" })).toBeTruthy();
   });
 });

@@ -1,14 +1,16 @@
 // Calc's ribbon: File (backstage) / Home / Insert / View. The commands
-// reuse the store actions and, for the dialogs owned by the ShortcutLayer
-// (Save As, New with its discard prompt, shortcut help), the shortcut map.
+// reuse `calcActions` (shared with the shortcuts and context menus, whose
+// dialogs CalcDialogs renders) and, for the dialogs owned by the
+// ShortcutLayer (Save As, New with its discard prompt, shortcut help), the
+// shortcut map.
 
-import { useState } from "react";
+import { useMemo } from "react";
 import {
-  AlignmentControls, BordersDropdown, ColorControls, FontControls, NumberFormatSelect, PromptDialog, RIBBON_SELECT, Ribbon, RibbonButton,
-  RibbonMenuButton, RibbonRow, RibbonStack, StyleToggles, triggerShortcut, type AnySession, type CellStylePatch,
-  type FormatControlProps, type RibbonGroup, type RibbonTab,
+  AlignmentControls, BordersDropdown, ColorControls, FontControls, NumberFormatSelect, RIBBON_SELECT, Ribbon, RibbonButton,
+  RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack, StyleToggles, triggerShortcut, type AnySession, type CellStylePatch,
+  type FormatControlProps, type RibbonTab,
 } from "@rusuite/ui-shared";
-import { normalize } from "../grid/Selection";
+import { calcActions } from "../calcActions";
 import { toolbarValue } from "../grid/style";
 import { useCalc, type CalcStore } from "../state/store";
 
@@ -21,18 +23,6 @@ export interface CalcView {
 
 export const DEFAULT_CALC_VIEW: CalcView = { zoom: 1, gridlines: true, formulaBar: true };
 export const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
-
-/**
- * TODO(P6-3): slot for the Calc commands P6-3 adds (`calcActions.ts`: context
- * menu actions, dialogs). Groups are appended to their tab; `tabs` adds
- * whole tabs (e.g. Data) after Insert.
- */
-export interface CalcRibbonExtras {
-  home?: RibbonGroup[];
-  insert?: RibbonGroup[];
-  view?: RibbonGroup[];
-  tabs?: RibbonTab[];
-}
 
 /**
  * Adds (`delta` 1) or removes (-1) one decimal place in every section of a
@@ -52,27 +42,15 @@ export function changeDecimals(code: string, delta: 1 | -1): string {
     .join(";");
 }
 
-/** Best effort: also put copied cells on the system clipboard. */
-function toSystemClipboard(text: string) {
-  try {
-    void navigator.clipboard?.writeText(text).catch(() => undefined);
-  } catch {
-    // no clipboard access (tests, insecure context)
-  }
-}
-
-type SizeDialog = { axis: "row" | "col"; initial: string } | null;
-
 export interface CalcRibbonProps {
   store: CalcStore;
   session: AnySession;
   onExportPdf: () => void;
   view: CalcView;
   onViewChange: (v: CalcView) => void;
-  extras?: CalcRibbonExtras;
 }
 
-export function CalcRibbon({ store, session, onExportPdf, view, onViewChange, extras }: CalcRibbonProps) {
+export function CalcRibbon({ store, session, onExportPdf, view, onViewChange }: CalcRibbonProps) {
   useCalc(store, (s) => s.version);
   useCalc(store, (s) => s.selection);
   useCalc(store, (s) => s.activeSheet);
@@ -81,7 +59,7 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange, ex
   const canRedo = useCalc(store, (s) => s.canRedo);
   const name = useCalc(store, (s) => s.name);
   const dirty = useCalc(store, (s) => s.dirty);
-  const [sizeDialog, setSizeDialog] = useState<SizeDialog>(null);
+  const actions = useMemo(() => calcActions(store), [store]);
 
   const off = !ready;
   const done = () => store.focusGrid();
@@ -98,24 +76,6 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange, ex
     },
   };
   const numberFormat = fmt.value.numberFormat ?? "General";
-
-  const openSizeDialog = (axis: "row" | "col") => {
-    const s = store.getState();
-    const geo = store.geometry(s.activeSheet);
-    const size = axis === "row" ? geo.row.size(s.selection.anchor.row) : geo.col.size(s.selection.anchor.col);
-    setSizeDialog({ axis, initial: String(Math.round(size)) });
-  };
-  const applySize = (text: string) => {
-    const dlg = sizeDialog;
-    setSizeDialog(null);
-    const px = Number(text);
-    if (!dlg || !Number.isFinite(px) || px < 0 || px > 2000) return;
-    const r = normalize(store.getState().selection);
-    const [from, to] = dlg.axis === "row" ? [r.r0, r.r1] : [r.c0, r.c1];
-    // Whole-sheet selections would be millions of commands: cap at the first 1000.
-    for (let i = from; i <= Math.min(to, from + 999); i++) void (dlg.axis === "row" ? store.setRowHeight(i, px) : store.setColWidth(i, px));
-    done();
-  };
 
   const home: RibbonTab = {
     id: "home",
@@ -135,20 +95,21 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange, ex
         label: "Clipboard",
         items: (
           <>
-            <RibbonButton label="Paste" icon="paste" size="large" shortcut="Mod+V" disabled={off} onClick={run(() => store.paste())} />
+            <RibbonSplitButton
+              label="Paste"
+              icon="paste"
+              size="large"
+              shortcut="Mod+V"
+              disabled={off}
+              onClick={run(actions.paste)}
+              menu={[
+                { id: "all", label: "Paste", icon: "paste", shortcut: "Mod+V", onSelect: run(actions.paste) },
+                { id: "values", label: "Paste values", shortcut: "Mod+Shift+V", onSelect: run(actions.pasteValues) },
+              ]}
+            />
             <RibbonStack>
-              <RibbonButton
-                label="Cut"
-                icon="cut"
-                shortcut="Mod+X"
-                showLabel
-                disabled={off}
-                onClick={run(() => {
-                  toSystemClipboard(store.copy());
-                  return store.clearSelection();
-                })}
-              />
-              <RibbonButton label="Copy" icon="copy" shortcut="Mod+C" showLabel disabled={off} onClick={run(() => toSystemClipboard(store.copy()))} />
+              <RibbonButton label="Cut" icon="cut" shortcut="Mod+X" showLabel disabled={off} onClick={run(actions.cut)} />
+              <RibbonButton label="Copy" icon="copy" shortcut="Mod+C" showLabel disabled={off} onClick={run(actions.copy)} />
             </RibbonStack>
           </>
         ),
@@ -173,7 +134,8 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange, ex
         items: (
           <RibbonStack>
             <RibbonRow>
-              <AlignmentControls {...fmt} parts={["vertical", "wrap"]} />
+              <AlignmentControls {...fmt} parts={["vertical"]} />
+              <RibbonButton label="Wrap text" icon="lineBreak" pressed={!!fmt.value.alignment?.wrapText} disabled={off} onClick={run(actions.toggleWrap)} />
             </RibbonRow>
             <RibbonRow>
               <AlignmentControls {...fmt} parts={["horizontal"]} />
@@ -217,8 +179,8 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange, ex
               size="large"
               disabled={off}
               menu={[
-                { id: "rows", label: "Insert sheet rows", icon: "insertRows", onSelect: run(() => store.structure("insert", "rows")) },
-                { id: "cols", label: "Insert sheet columns", icon: "insertCols", onSelect: run(() => store.structure("insert", "cols")) },
+                { id: "rows", label: "Insert sheet rows", icon: "insertRows", onSelect: run(actions.insertRows) },
+                { id: "cols", label: "Insert sheet columns", icon: "insertCols", onSelect: run(actions.insertCols) },
                 { separator: true },
                 { id: "sheet", label: "Insert sheet", icon: "sheet", onSelect: run(() => store.addSheet()) },
               ]}
@@ -229,8 +191,8 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange, ex
               size="large"
               disabled={off}
               menu={[
-                { id: "rows", label: "Delete sheet rows", icon: "deleteRows", onSelect: run(() => store.structure("delete", "rows")) },
-                { id: "cols", label: "Delete sheet columns", icon: "deleteCols", onSelect: run(() => store.structure("delete", "cols")) },
+                { id: "rows", label: "Delete sheet rows", icon: "deleteRows", onSelect: run(actions.deleteRows) },
+                { id: "cols", label: "Delete sheet columns", icon: "deleteCols", onSelect: run(actions.deleteCols) },
               ]}
             />
             <RibbonMenuButton
@@ -240,8 +202,16 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange, ex
               disabled={off}
               menu={[
                 { separator: true, label: "Cell size" },
-                { id: "rowHeight", label: "Row height…", icon: "rowHeight", onSelect: () => openSizeDialog("row") },
-                { id: "colWidth", label: "Column width…", icon: "colWidth", onSelect: () => openSizeDialog("col") },
+                { id: "rowHeight", label: "Row height…", icon: "rowHeight", onSelect: actions.rowHeight },
+                { id: "autofit", label: "AutoFit column width", onSelect: run(actions.autofitCols) },
+                { id: "colWidth", label: "Column width…", icon: "colWidth", onSelect: actions.colWidth },
+                { separator: true, label: "Visibility" },
+                { id: "hideRows", label: "Hide rows", onSelect: run(actions.hideRows) },
+                { id: "hideCols", label: "Hide columns", onSelect: run(actions.hideCols) },
+                { id: "unhideRows", label: "Unhide rows", onSelect: run(actions.unhideRows) },
+                { id: "unhideCols", label: "Unhide columns", onSelect: run(actions.unhideCols) },
+                { separator: true },
+                { id: "formatCells", label: "Format cells…", icon: "format", shortcut: "Mod+1", onSelect: actions.formatCells },
               ]}
             />
           </>
@@ -249,9 +219,25 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange, ex
       },
       {
         label: "Editing",
-        items: <RibbonButton label="Clear" icon="clear" size="large" shortcut="Delete" tooltip="Clear contents" disabled={off} onClick={run(() => store.clearSelection())} />,
+        items: (
+          <>
+            <RibbonButton label="Clear" icon="clear" size="large" shortcut="Delete" tooltip="Clear contents" disabled={off} onClick={run(actions.clearContents)} />
+            <RibbonSplitButton
+              label="Find"
+              icon="find"
+              size="large"
+              shortcut="Mod+F"
+              disabled={off}
+              onClick={actions.find}
+              menuLabel="Find options"
+              menu={[
+                { id: "find", label: "Find…", icon: "find", shortcut: "Mod+F", onSelect: actions.find },
+                { id: "replace", label: "Replace…", shortcut: "Mod+H", onSelect: actions.replace },
+              ]}
+            />
+          </>
+        ),
       },
-      ...(extras?.home ?? []),
     ],
   };
 
@@ -267,12 +253,11 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange, ex
         label: "Rows & columns",
         items: (
           <RibbonStack>
-            <RibbonButton label="Insert rows" icon="insertRows" showLabel disabled={off} onClick={run(() => store.structure("insert", "rows"))} />
-            <RibbonButton label="Insert columns" icon="insertCols" showLabel disabled={off} onClick={run(() => store.structure("insert", "cols"))} />
+            <RibbonButton label="Insert rows" icon="insertRows" showLabel disabled={off} onClick={run(actions.insertRows)} />
+            <RibbonButton label="Insert columns" icon="insertCols" showLabel disabled={off} onClick={run(actions.insertCols)} />
           </RibbonStack>
         ),
       },
-      ...(extras?.insert ?? []),
     ],
   };
 
@@ -315,35 +300,24 @@ export function CalcRibbon({ store, session, onExportPdf, view, onViewChange, ex
         label: "Help",
         items: <RibbonButton label="Keyboard shortcuts" icon="keyboard" size="large" shortcut="Mod+/" onClick={() => triggerShortcut("Mod+/")} />,
       },
-      ...(extras?.view ?? []),
     ],
   };
 
   return (
-    <>
-      <Ribbon
-        appName="Rusuite Calc"
-        documentTitle={`${name ?? "Untitled"}${dirty ? " •" : ""}`}
-        accent="#217346"
-        tabs={[home, insert, ...(extras?.tabs ?? []), viewTab]}
-        backstage={{
-          session,
-          onNew: () => triggerShortcut("Mod+N"),
-          onOpen: () => void store.openFile(),
-          onSave: () => void store.saveFile(),
-          onSaveAs: () => triggerShortcut("Mod+Shift+S"),
-          onExportPdf,
-          onCloseDocument: () => triggerShortcut("Mod+N"),
-        }}
-      />
-      <PromptDialog
-        open={sizeDialog !== null}
-        title={sizeDialog?.axis === "row" ? "Row height" : "Column width"}
-        label={sizeDialog?.axis === "row" ? "Row height (pixels)" : "Column width (pixels)"}
-        initial={sizeDialog?.initial ?? ""}
-        onClose={() => setSizeDialog(null)}
-        onSubmit={applySize}
-      />
-    </>
+    <Ribbon
+      appName="Rusuite Calc"
+      documentTitle={`${name ?? "Untitled"}${dirty ? " •" : ""}`}
+      accent="#217346"
+      tabs={[home, insert, viewTab]}
+      backstage={{
+        session,
+        onNew: () => triggerShortcut("Mod+N"),
+        onOpen: () => void store.openFile(),
+        onSave: () => void store.saveFile(),
+        onSaveAs: () => triggerShortcut("Mod+Shift+S"),
+        onExportPdf,
+        onCloseDocument: () => triggerShortcut("Mod+N"),
+      }}
+    />
   );
 }
