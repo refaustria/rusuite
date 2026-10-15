@@ -11,6 +11,7 @@ use crate::document::Document;
 use crate::media::MediaStore;
 use crate::numbering::Numbering;
 use crate::page::PageSetup;
+use crate::section::{Note, Section};
 use crate::style::StyleSheet;
 use crate::Error;
 
@@ -31,6 +32,10 @@ pub(crate) struct DocumentData {
     page: PageSetup,
     #[serde(default)]
     media: MediaStore,
+    #[serde(default)]
+    sections: Vec<Section>,
+    #[serde(default)]
+    notes: Vec<Note>,
 }
 
 impl From<DocumentData> for Document {
@@ -39,6 +44,8 @@ impl From<DocumentData> for Document {
         doc.body = d.body;
         doc.numbering = d.numbering;
         doc.media = d.media;
+        doc.sections = d.sections;
+        doc.notes = d.notes;
         doc.next_id = doc.max_node_id() + 1;
         doc
     }

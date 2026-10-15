@@ -200,6 +200,12 @@ pub struct ParagraphProperties {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(as = "Option<app_common::wire::RunProperties>"))]
     pub run_defaults: Option<RunProperties>,
+    /// This (top-level body) paragraph ends the section with this id
+    /// (docx: `w:sectPr` inside the paragraph's `w:pPr`). Never inherited
+    /// from styles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub section_end: Option<crate::section::SectionId>,
 }
 
 impl ParagraphProperties {
@@ -230,6 +236,7 @@ impl ParagraphProperties {
             keep_next,
             page_break_before,
             run_defaults,
+            section_end,
         } = over;
         if style.is_some() {
             self.style.clone_from(style);
@@ -240,6 +247,7 @@ impl ParagraphProperties {
         self.numbering = numbering.or(self.numbering);
         self.keep_next = keep_next.or(self.keep_next);
         self.page_break_before = page_break_before.or(self.page_break_before);
+        self.section_end = section_end.or(self.section_end);
         if let Some(over_run) = run_defaults {
             self.run_defaults = Some(match &self.run_defaults {
                 Some(base) => base.merged_with(over_run),

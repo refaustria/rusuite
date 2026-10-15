@@ -23,11 +23,12 @@
 //! [`read()`] / [`write()`] work on bytes and compile for `wasm32` (ADR 0005);
 //! the `*_path` helpers exist on native targets only.
 
-mod headers;
 mod numbering;
 mod props;
 mod read;
+mod sections;
 mod styles;
+mod toc;
 mod write;
 mod xml;
 
@@ -83,10 +84,9 @@ pub enum Error {
 /// One `w:num` of the file that was read and how it was defined: which
 /// `w:abstractNum` it used and which levels had a `w:startOverride`.
 ///
-/// The model flattens every `num` into its own [`model_text::NumberingDef`];
-/// this record lets [`write_with_context`] share an `abstractNum` between
-/// nums again, which keeps Word's list-continuation semantics (nums on the
-/// same `abstractNum` continue each other's numbering unless restarted).
+/// Informational: the model keeps this itself
+/// ([`model_text::NumberingDef::abstract_id`] and `overrides`), and the
+/// writer uses the model.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NumInstance {
@@ -118,9 +118,19 @@ pub struct DocxContext {
     /// settings part (compatibility mode 15).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings_xml: Option<Vec<u8>>,
-    /// How the nums of the file shared abstract definitions.
+    /// How the nums of the file shared abstract definitions
+    /// (informational, see [`NumInstance`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub numbering: Vec<NumInstance>,
+    /// Ids of the separator and continuation-separator footnotes as listed
+    /// in the settings part (`w:footnotePr/w:footnote`); the writer reuses
+    /// them so the kept settings stay consistent. `None` = `-1` and `0`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footnote_separators: Option<(i32, i32)>,
+    /// Like [`footnote_separators`](Self::footnote_separators) for
+    /// endnotes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endnote_separators: Option<(i32, i32)>,
 }
 
 impl DocxContext {
@@ -161,6 +171,10 @@ impl Warnings {
             self.order.push(msg);
         }
         *n += 1;
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.order.is_empty()
     }
 
     pub(crate) fn into_vec(self) -> Vec<String> {

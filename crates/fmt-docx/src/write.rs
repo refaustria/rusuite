@@ -5,18 +5,20 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 
-use core_model::ColorScheme;
+use core_model::{ColorScheme, RunProperties, VerticalAlign};
 use fmt_ooxml::theme::office_theme_xml;
 use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
 use model_text::{
-    Block, BreakKind, Document, HeightRule, Inline, InlineImage, MediaId, Orientation, Paragraph,
-    Run, Table, TableWidth, VAlign,
+    Block, BreakKind, Document, Field, HeightRule, Inline, InlineImage, MediaId, NodeId, NoteKind,
+    NoteRef, Paragraph, Run, StyleKind, Table, TableWidth, Toc, VAlign,
 };
 
 use crate::numbering::{write_numbering, W_NS};
 use crate::props::{
-    write_borders, write_cell_margins, write_ppr, write_rpr, write_shading, write_width,
+    write_borders, write_cell_margins, write_ppr_sect, write_rpr, write_rpr_styled, write_shading,
+    write_width,
 };
+use crate::sections::{write_sect_pr, HeaderRef};
 use crate::styles::write_styles;
 use crate::xml::{WriteVal, XmlOut};
 use crate::{DocxContext, Error, Result};
@@ -26,88 +28,169 @@ const NS_WP: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordproces
 const NS_A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const NS_PIC: &str = "http://schemas.openxmlformats.org/drawingml/2006/picture";
 
+/// Relationship type of `word/footnotes.xml`.
+pub(crate) const REL_FOOTNOTES: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes";
+/// Relationship type of `word/endnotes.xml`.
+pub(crate) const REL_ENDNOTES: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes";
+const CT_FOOTNOTES: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml";
+const CT_ENDNOTES: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml";
+
 /// Writes `doc` as `.docx` bytes with the built-in theme and settings.
 pub fn write(doc: &Document) -> Result<Vec<u8>> {
     write_with_context(doc, &DocxContext::default())
 }
 
-/// Writes `doc` as `.docx` bytes, reusing the theme and settings parts and
-/// the numbering layout from `ctx` (as returned by
+/// What all parts of one write share.
+struct Shared {
+    /// Media id → `media/imageN.ext`, in first-reference order.
+    media_names: HashMap<MediaId, String>,
+    /// (`media/imageN.ext`, content type, bytes).
+    media_parts: Vec<(String, String, Vec<u8>)>,
+    next_docpr: u32,
+    /// Headings that are table-of-contents targets → bookmark (id, name).
+    toc_targets: HashMap<NodeId, (u32, String)>,
+    /// Model note id → id written to the notes part.
+    note_ids: HashMap<u32, i64>,
+}
+
+/// Writes `doc` as `.docx` bytes, reusing the theme and settings parts
+/// from `ctx` (as returned by
 /// [`read_with_context`](crate::read_with_context)).
 ///
 /// Fails with [`Error::InvalidDocument`] if an image references media that
 /// is not in the document's store. Tables without rows and rows without
-/// cells are not written (Word rejects them).
+/// cells are not written (Word rejects them); references to missing notes
+/// are dropped.
 pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> {
     let theme = ctx.theme_or_default();
     let scheme = &theme.colors;
     let pn = PartName::new;
 
+    // Work on a synced copy if the sections are not in shape (a document
+    // built by hand without `normalize`, or `page` changed directly).
+    let in_sync = match doc.sections.last() {
+        Some(last) => {
+            let strip = |p: &model_text::PageSetup| model_text::PageSetup {
+                header_text: None,
+                footer_text: None,
+                ..p.clone()
+            };
+            strip(&last.page) == strip(&doc.page)
+        }
+        None => false,
+    };
+    let owned;
+    let doc = if in_sync {
+        doc
+    } else {
+        let mut copy = doc.clone();
+        copy.sync_sections();
+        owned = copy;
+        &owned
+    };
+
     let mut rels = Relationships::new();
     rels.add(rel::STYLES, "styles.xml");
     rels.add(rel::SETTINGS, "settings.xml");
     rels.add(rel::THEME, "theme/theme1.xml");
-    let numbering_xml = write_numbering(&doc.numbering, ctx);
+    let numbering_xml = write_numbering(&doc.numbering, scheme);
     if numbering_xml.is_some() {
         rels.add(rel::NUMBERING, "numbering.xml");
     }
-    // Default header/footer parts (plain text, `{PAGE}` as a field).
-    let mut header_parts = Vec::new();
-    let mut header_refs = Vec::new();
-    for (text, footer) in [
-        (&doc.page.header_text, false),
-        (&doc.page.footer_text, true),
-    ] {
-        let Some(text) = text.as_deref().filter(|t| !t.is_empty()) else {
-            continue;
-        };
-        let (kind, file, style, content_type) = if footer {
-            (rel::FOOTER, "footer1.xml", "Footer", ct::FOOTER)
-        } else {
-            (rel::HEADER, "header1.xml", "Header", ct::HEADER)
-        };
-        let id = rels.add(kind, file).id.clone();
-        let style = doc.styles.get(style).map(|_| style);
-        header_parts.push((
-            file,
-            content_type,
-            crate::headers::write_part(text, footer, style),
-        ));
-        header_refs.push((footer, id));
-    }
 
-    let mut w = DocWriter {
-        x: XmlOut::new(),
-        doc,
-        scheme,
-        rels,
-        media: HashMap::new(),
+    let foot_sep = ctx.footnote_separators.unwrap_or((-1, 0));
+    let end_sep = ctx.endnote_separators.unwrap_or((-1, 0));
+    let mut shared = Shared {
+        media_names: HashMap::new(),
         media_parts: Vec::new(),
         next_docpr: 1,
-        header_refs,
+        toc_targets: toc_targets(doc),
+        note_ids: note_ids(doc, [foot_sep.0, foot_sep.1, end_sep.0, end_sep.1]),
     };
-    w.document()?;
-    let DocWriter {
-        x,
-        rels,
-        media_parts,
-        ..
-    } = w;
+    let content_width = doc.page.content_width().0;
+    let mut parts: Vec<(String, &str, Vec<u8>, Relationships)> = Vec::new();
+
+    // Notes.
+    for (kind, sep, file, rel_type, content_type) in [
+        (
+            NoteKind::Foot,
+            foot_sep,
+            "footnotes.xml",
+            REL_FOOTNOTES,
+            CT_FOOTNOTES,
+        ),
+        (
+            NoteKind::End,
+            end_sep,
+            "endnotes.xml",
+            REL_ENDNOTES,
+            CT_ENDNOTES,
+        ),
+    ] {
+        if !doc.notes.iter().any(|n| n.kind == kind) {
+            continue;
+        }
+        let mut w = PartWriter::new(doc, scheme, &mut shared, content_width);
+        w.notes(kind, sep)?;
+        let (xml, part_rels) = w.finish();
+        rels.add(rel_type, file);
+        parts.push((file.to_owned(), content_type, xml, part_rels));
+    }
+
+    // Headers and footers, per section.
+    let mut section_refs: Vec<Vec<HeaderRef>> = Vec::new();
+    let mut counts = [0usize; 2];
+    for section in &doc.sections {
+        let mut refs = Vec::new();
+        for footer in [false, true] {
+            for (slot, blocks) in section.header_footer(footer).slots() {
+                let k = usize::from(footer);
+                counts[k] += 1;
+                let (name, rel_type, content_type) = if footer {
+                    (format!("footer{}.xml", counts[k]), rel::FOOTER, ct::FOOTER)
+                } else {
+                    (format!("header{}.xml", counts[k]), rel::HEADER, ct::HEADER)
+                };
+                let mut w = PartWriter::new(doc, scheme, &mut shared, content_width);
+                w.header_footer(blocks, footer)?;
+                let (xml, part_rels) = w.finish();
+                let rid = rels.add(rel_type, name.clone()).id.clone();
+                refs.push((footer, slot, rid));
+                parts.push((name, content_type, xml, part_rels));
+            }
+        }
+        section_refs.push(refs);
+    }
+
+    // The body.
+    let mut w = PartWriter::new(doc, scheme, &mut shared, content_width);
+    w.rels = rels;
+    w.document(&section_refs)?;
+    let (main_xml, rels) = w.finish();
 
     let main = pn("/word/document.xml")?;
     let mut pkg = Package::new();
-    pkg.insert_part(main.clone(), ct::DOCUMENT, x.finish());
+    pkg.insert_part(main.clone(), ct::DOCUMENT, main_xml);
     pkg.insert_part(
         pn("/word/styles.xml")?,
         ct::WORD_STYLES,
         write_styles(&doc.styles, scheme),
     );
+    let even_headers = doc
+        .sections
+        .iter()
+        .any(|s| s.headers.even.is_some() || s.footers.even.is_some());
+    let has_notes = [NoteKind::Foot, NoteKind::End].map(|k| doc.notes.iter().any(|n| n.kind == k));
     pkg.insert_part(
         pn("/word/settings.xml")?,
         ct::SETTINGS,
         ctx.settings_xml
             .clone()
-            .unwrap_or_else(default_settings_xml),
+            .unwrap_or_else(|| default_settings_xml(even_headers, has_notes, foot_sep, end_sep)),
     );
     pkg.insert_part(
         pn("/word/theme/theme1.xml")?,
@@ -119,10 +202,14 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
     if let Some(xml) = numbering_xml {
         pkg.insert_part(pn("/word/numbering.xml")?, ct::NUMBERING, xml);
     }
-    for (file, content_type, data) in header_parts {
-        pkg.insert_part(PartName::new(format!("/word/{file}"))?, content_type, data);
+    for (file, content_type, data, part_rels) in parts {
+        let name = PartName::new(format!("/word/{file}"))?;
+        pkg.insert_part(name.clone(), content_type, data);
+        if !part_rels.is_empty() {
+            pkg.set_relationships(name, part_rels);
+        }
     }
-    for (name, content_type, data) in media_parts {
+    for (name, content_type, data) in std::mem::take(&mut shared.media_parts) {
         pkg.insert_part(PartName::new(format!("/word/{name}"))?, content_type, data);
     }
     pkg.set_relationships(main, rels);
@@ -133,6 +220,39 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
     root.add(rel::CORE_PROPERTIES, "docProps/core.xml");
     root.add(rel::EXTENDED_PROPERTIES, "docProps/app.xml");
     Ok(pkg.write(Cursor::new(Vec::new()))?.into_inner())
+}
+
+/// Bookmarks for the headings that tables of contents point to:
+/// `_Toc` + nine digits, numbered in order of first reference.
+fn toc_targets(doc: &Document) -> HashMap<NodeId, (u32, String)> {
+    let mut out = HashMap::new();
+    for t in doc.body.iter().filter_map(Block::as_toc) {
+        for e in &t.entries {
+            if out.contains_key(&e.target) || doc.find_paragraph(e.target).is_none() {
+                continue;
+            }
+            let n = out.len() as u32;
+            out.insert(e.target, (n, format!("_Toc{:09}", n + 1)));
+        }
+    }
+    out
+}
+
+/// Ids to write for the notes: the model's, except where they collide
+/// with the separator ids (then the next free ids).
+fn note_ids(doc: &Document, reserved: [i32; 4]) -> HashMap<u32, i64> {
+    let reserved: Vec<i64> = reserved.iter().map(|&r| i64::from(r)).collect();
+    let mut used: Vec<i64> = doc.notes.iter().map(|n| i64::from(n.id)).collect();
+    let mut out = HashMap::new();
+    for n in &doc.notes {
+        let mut id = i64::from(n.id);
+        if reserved.contains(&id) {
+            id = used.iter().chain(&reserved).max().copied().unwrap_or(0) + 1;
+            used.push(id);
+        }
+        out.insert(n.id, id);
+    }
+    out
 }
 
 /// File extension for a media content type.
@@ -151,24 +271,47 @@ fn extension_of(content_type: &str) -> &str {
     }
 }
 
-struct DocWriter<'a> {
+/// Writes one part (document, header, footer, notes).
+struct PartWriter<'a> {
     x: XmlOut,
     doc: &'a Document,
     scheme: &'a ColorScheme,
+    /// This part's relationships.
     rels: Relationships,
-    /// Media id → relationship id, in first-reference order.
-    media: HashMap<MediaId, String>,
-    /// (`media/imageN.ext`, content type, bytes).
-    media_parts: Vec<(String, String, Vec<u8>)>,
-    next_docpr: u32,
-    /// (`is footer`, relationship id) of the default header/footer parts.
-    header_refs: Vec<(bool, String)>,
+    /// Media id → relationship id in this part.
+    media_rels: HashMap<MediaId, String>,
+    shared: &'a mut Shared,
+    content_width: i32,
+    /// The note whose reference mark opens the next paragraph.
+    note_mark: Option<NoteKind>,
 }
 
-impl DocWriter<'_> {
-    fn document(&mut self) -> Result<()> {
+impl<'a> PartWriter<'a> {
+    fn new(
+        doc: &'a Document,
+        scheme: &'a ColorScheme,
+        shared: &'a mut Shared,
+        content_width: i32,
+    ) -> Self {
+        Self {
+            x: XmlOut::new(),
+            doc,
+            scheme,
+            rels: Relationships::new(),
+            media_rels: HashMap::new(),
+            shared,
+            content_width,
+            note_mark: None,
+        }
+    }
+
+    fn finish(self) -> (Vec<u8>, Relationships) {
+        (self.x.finish(), self.rels)
+    }
+
+    fn root(&mut self, name: &str) {
         self.x.start(
-            "w:document",
+            name,
             &[
                 ("xmlns:w", W_NS),
                 ("xmlns:r", NS_R),
@@ -177,32 +320,129 @@ impl DocWriter<'_> {
                 ("xmlns:pic", NS_PIC),
             ],
         );
+    }
+
+    fn document(&mut self, refs: &[Vec<HeaderRef>]) -> Result<()> {
+        self.root("w:document");
         self.x.start("w:body", &[]);
-        self.blocks(&self.doc.body)?;
-        self.section();
+        let doc = self.doc;
+        let n = doc.sections.len();
+        let mut next = 0;
+        for b in &doc.body {
+            let sect = match b {
+                Block::Paragraph(p)
+                    if next + 1 < n && p.props.section_end == Some(doc.sections[next].id) =>
+                {
+                    next += 1;
+                    Some(write_sect_pr(&doc.sections[next - 1], &refs[next - 1]))
+                }
+                _ => None,
+            };
+            self.block(b, sect.as_deref())?;
+        }
+        if !matches!(doc.body.last(), Some(Block::Paragraph(_))) {
+            self.x.empty("w:p", &[]);
+        }
+        if let Some(last) = doc.sections.last() {
+            self.x.raw(&write_sect_pr(last, &refs[n - 1]));
+        }
         self.x.end("w:body");
         self.x.end("w:document");
         Ok(())
     }
 
-    /// Blocks, followed by an empty paragraph if they do not end with one
-    /// (Word requires a paragraph at the end of the body and every cell).
-    fn blocks(&mut self, blocks: &[Block]) -> Result<()> {
-        for b in blocks {
-            match b {
-                Block::Paragraph(p) => self.paragraph(p)?,
-                Block::Table(t) => self.table(t)?,
-            }
+    fn header_footer(&mut self, blocks: &[Block], footer: bool) -> Result<()> {
+        let root = if footer { "w:ftr" } else { "w:hdr" };
+        self.root(root);
+        self.blocks(blocks, true)?;
+        self.x.end(root);
+        Ok(())
+    }
+
+    fn notes(&mut self, kind: NoteKind, sep: (i32, i32)) -> Result<()> {
+        let (root, item) = match kind {
+            NoteKind::Foot => ("w:footnotes", "w:footnote"),
+            NoteKind::End => ("w:endnotes", "w:endnote"),
+        };
+        self.root(root);
+        for (id, ty, el) in [
+            (sep.0, "separator", "w:separator"),
+            (sep.1, "continuationSeparator", "w:continuationSeparator"),
+        ] {
+            self.x
+                .start(item, &[("w:type", ty), ("w:id", &id.to_string())]);
+            self.x.start("w:p", &[]);
+            self.x.start("w:pPr", &[]);
+            self.x.empty(
+                "w:spacing",
+                &[("w:after", "0"), ("w:line", "240"), ("w:lineRule", "auto")],
+            );
+            self.x.end("w:pPr");
+            self.x.start("w:r", &[]);
+            self.x.empty(el, &[]);
+            self.x.end("w:r");
+            self.x.end("w:p");
+            self.x.end(item);
         }
-        if !matches!(blocks.last(), Some(Block::Paragraph(_))) {
+        let doc = self.doc;
+        for note in doc.notes.iter().filter(|n| n.kind == kind) {
+            let id = self.shared.note_ids[&note.id].to_string();
+            self.x.start(item, &[("w:id", &id)]);
+            self.note_mark = Some(kind);
+            self.blocks(&note.blocks, true)?;
+            self.note_mark = None;
+            self.x.end(item);
+        }
+        self.x.end(root);
+        Ok(())
+    }
+
+    /// Blocks, followed by an empty paragraph if they do not end with one
+    /// and `trailing` (Word requires a paragraph at the end of every cell,
+    /// header and note).
+    fn blocks(&mut self, blocks: &[Block], trailing: bool) -> Result<()> {
+        for b in blocks {
+            self.block(b, None)?;
+        }
+        if trailing && !matches!(blocks.last(), Some(Block::Paragraph(_))) {
             self.x.empty("w:p", &[]);
         }
         Ok(())
     }
 
-    fn paragraph(&mut self, p: &Paragraph) -> Result<()> {
+    fn block(&mut self, b: &Block, sect: Option<&[u8]>) -> Result<()> {
+        match b {
+            Block::Paragraph(p) => self.paragraph(p, sect),
+            Block::Table(t) => self.table(t),
+            Block::Toc(t) => {
+                self.toc(t);
+                Ok(())
+            }
+        }
+    }
+
+    fn paragraph(&mut self, p: &Paragraph, sect: Option<&[u8]>) -> Result<()> {
         self.x.start("w:p", &[]);
-        write_ppr(&mut self.x, &p.props, self.scheme);
+        write_ppr_sect(&mut self.x, &p.props, self.scheme, sect);
+        if let Some(kind) = self.note_mark.take() {
+            self.x.start("w:r", &[]);
+            self.reference_rpr(kind, &RunProperties::default());
+            self.x.empty(
+                match kind {
+                    NoteKind::Foot => "w:footnoteRef",
+                    NoteKind::End => "w:endnoteRef",
+                },
+                &[],
+            );
+            self.x.end("w:r");
+        }
+        let bookmark = self.shared.toc_targets.get(&p.id).cloned();
+        if let Some((id, name)) = &bookmark {
+            self.x.empty(
+                "w:bookmarkStart",
+                &[("w:id", &id.to_string()), ("w:name", name)],
+            );
+        }
         for inline in &p.inlines {
             match inline {
                 Inline::Run(run) => self.run(run),
@@ -212,10 +452,67 @@ impl DocWriter<'_> {
                     self.brk(*kind);
                     self.x.end("w:r");
                 }
+                Inline::Field(f) => self.field(f),
+                Inline::NoteRef(r) => self.note_ref(r),
             }
+        }
+        if let Some((id, _)) = &bookmark {
+            self.x.empty("w:bookmarkEnd", &[("w:id", &id.to_string())]);
         }
         self.x.end("w:p");
         Ok(())
+    }
+
+    /// `w:rPr` of a note reference mark: the reference character style
+    /// when the document defines it, else plain superscript; plus `props`.
+    fn reference_rpr(&mut self, kind: NoteKind, props: &RunProperties) {
+        let style = match kind {
+            NoteKind::Foot => "FootnoteReference",
+            NoteKind::End => "EndnoteReference",
+        };
+        let has_style = self
+            .doc
+            .styles
+            .get(style)
+            .is_some_and(|s| s.kind == StyleKind::Character);
+        let mut props = props.clone();
+        if !has_style && props.vertical_align.is_none() {
+            props.vertical_align = Some(VerticalAlign::Superscript);
+        }
+        write_rpr_styled(&mut self.x, &props, self.scheme, has_style.then_some(style));
+    }
+
+    fn note_ref(&mut self, r: &NoteRef) {
+        let Some(id) = self
+            .doc
+            .note(r.id)
+            .filter(|n| n.kind == r.kind)
+            .and_then(|n| self.shared.note_ids.get(&n.id))
+            .copied()
+        else {
+            return; // a reference to a missing note
+        };
+        self.x.start("w:r", &[]);
+        self.reference_rpr(r.kind, &r.props);
+        let name = match r.kind {
+            NoteKind::Foot => "w:footnoteReference",
+            NoteKind::End => "w:endnoteReference",
+        };
+        self.x.empty(name, &[("w:id", &id.to_string())]);
+        self.x.end("w:r");
+    }
+
+    /// A field as `w:fldSimple` with its cached result.
+    fn field(&mut self, f: &Field) {
+        let instr = format!(" {} ", f.kind.instruction());
+        self.x.start("w:fldSimple", &[("w:instr", &instr)]);
+        if !f.cached.is_empty() || !f.props.is_empty() {
+            self.x.start("w:r", &[]);
+            write_rpr(&mut self.x, &f.props, self.scheme);
+            self.run_text(&f.cached);
+            self.x.end("w:r");
+        }
+        self.x.end("w:fldSimple");
     }
 
     fn brk(&mut self, kind: BreakKind) {
@@ -248,8 +545,14 @@ impl DocWriter<'_> {
         }
         self.x.start("w:r", &[]);
         write_rpr(&mut self.x, &run.props, self.scheme);
+        self.run_text(&run.text);
+        self.x.end("w:r");
+    }
+
+    /// The content of a run: text, `w:tab`, `w:br`.
+    fn run_text(&mut self, text: &str) {
         let mut seg = String::new();
-        for c in run.text.chars() {
+        for c in text.chars() {
             let special = match c {
                 '\t' => Some(None),
                 '\n' | '\u{B}' => Some(Some(BreakKind::Line)),
@@ -269,33 +572,135 @@ impl DocWriter<'_> {
             }
         }
         self.text(&seg);
+    }
+
+    /// Relationship id of `media` in this part, adding the media part on
+    /// first use in the package.
+    fn media_rel(&mut self, media: MediaId) -> Result<String> {
+        if let Some(rid) = self.media_rels.get(&media) {
+            return Ok(rid.clone());
+        }
+        let name = match self.shared.media_names.get(&media) {
+            Some(n) => n.clone(),
+            None => {
+                let m = self.doc.media.get(media).ok_or_else(|| {
+                    Error::InvalidDocument(format!("image references missing media {}", media.0))
+                })?;
+                let name = format!(
+                    "media/image{}.{}",
+                    self.shared.media_parts.len() + 1,
+                    extension_of(&m.content_type)
+                );
+                self.shared.media_parts.push((
+                    name.clone(),
+                    m.content_type.clone(),
+                    m.data.clone(),
+                ));
+                self.shared.media_names.insert(media, name.clone());
+                name
+            }
+        };
+        let rid = self.rels.add(rel::IMAGE, name).id.clone();
+        self.media_rels.insert(media, rid.clone());
+        Ok(rid)
+    }
+
+    /// A table of contents in a "Table of Contents" `w:sdt`: the title
+    /// paragraph (style `TOCHeading`), then one paragraph per entry (style
+    /// `TOCn`, right tab with dot leader at the text width, the text as a
+    /// hyperlink to the heading's `_Toc` bookmark, the page number as a
+    /// `PAGEREF` field), all inside the `TOC \o "a-b" \h \z \u` field.
+    fn toc(&mut self, t: &Toc) {
+        let instr = format!(" TOC \\o \"{}-{}\" \\h \\z \\u ", t.from_level, t.to_level);
+        self.x.start("w:sdt", &[]);
+        self.x.start("w:sdtPr", &[]);
+        self.x.start("w:docPartObj", &[]);
+        self.x.val("w:docPartGallery", "Table of Contents");
+        self.x.empty("w:docPartUnique", &[]);
+        self.x.end("w:docPartObj");
+        self.x.end("w:sdtPr");
+        self.x.start("w:sdtContent", &[]);
+        if let Some(title) = &t.title {
+            self.x.start("w:p", &[]);
+            self.x.start("w:pPr", &[]);
+            self.x.val("w:pStyle", "TOCHeading");
+            self.x.end("w:pPr");
+            self.run(&Run::new(title.clone()));
+            self.x.end("w:p");
+        }
+        let tab_pos = self.content_width.max(0).to_string();
+        let n = t.entries.len();
+        if n == 0 {
+            self.x.start("w:p", &[]);
+            self.fld_char("begin");
+            self.instr_text(&instr);
+            self.fld_char("separate");
+            self.fld_char("end");
+            self.x.end("w:p");
+        }
+        for (i, e) in t.entries.iter().enumerate() {
+            let bookmark = self.shared.toc_targets.get(&e.target).cloned();
+            self.x.start("w:p", &[]);
+            self.x.start("w:pPr", &[]);
+            self.x
+                .val("w:pStyle", &format!("TOC{}", e.level.clamp(1, 9)));
+            self.x.start("w:tabs", &[]);
+            self.x.empty(
+                "w:tab",
+                &[("w:val", "right"), ("w:leader", "dot"), ("w:pos", &tab_pos)],
+            );
+            self.x.end("w:tabs");
+            self.x.end("w:pPr");
+            if i == 0 {
+                self.fld_char("begin");
+                self.instr_text(&instr);
+                self.fld_char("separate");
+            }
+            if let Some((_, name)) = &bookmark {
+                self.x
+                    .start("w:hyperlink", &[("w:anchor", name), ("w:history", "1")]);
+            }
+            self.run(&Run::new(format!("{}\t", e.text)));
+            let page = e.page.map(|p| p.to_string()).unwrap_or_default();
+            match &bookmark {
+                Some((_, name)) => {
+                    self.fld_char("begin");
+                    self.instr_text(&format!(" PAGEREF {name} \\h "));
+                    self.fld_char("separate");
+                    self.run(&Run::new(page));
+                    self.fld_char("end");
+                    self.x.end("w:hyperlink");
+                }
+                None => self.run(&Run::new(page)),
+            }
+            if i + 1 == n {
+                self.fld_char("end");
+            }
+            self.x.end("w:p");
+        }
+        self.x.end("w:sdtContent");
+        self.x.end("w:sdt");
+    }
+
+    /// `<w:r><w:fldChar w:fldCharType="ty"/></w:r>`.
+    fn fld_char(&mut self, ty: &str) {
+        self.x.start("w:r", &[]);
+        self.x.empty("w:fldChar", &[("w:fldCharType", ty)]);
         self.x.end("w:r");
     }
 
-    /// Relationship id of `media`, adding the media part on first use.
-    fn media_rel(&mut self, media: MediaId) -> Result<String> {
-        if let Some(rid) = self.media.get(&media) {
-            return Ok(rid.clone());
-        }
-        let m = self.doc.media.get(media).ok_or_else(|| {
-            Error::InvalidDocument(format!("image references missing media {}", media.0))
-        })?;
-        let name = format!(
-            "media/image{}.{}",
-            self.media_parts.len() + 1,
-            extension_of(&m.content_type)
-        );
-        let rid = self.rels.add(rel::IMAGE, name.clone()).id.clone();
-        self.media_parts
-            .push((name, m.content_type.clone(), m.data.clone()));
-        self.media.insert(media, rid.clone());
-        Ok(rid)
+    /// `<w:r><w:instrText>text</w:instrText></w:r>`.
+    fn instr_text(&mut self, text: &str) {
+        self.x.start("w:r", &[]);
+        self.x
+            .text_el("w:instrText", &[("xml:space", "preserve")], text);
+        self.x.end("w:r");
     }
 
     fn image(&mut self, img: &InlineImage) -> Result<()> {
         let rid = self.media_rel(img.media)?;
-        let id = self.next_docpr.to_string();
-        self.next_docpr += 1;
+        let id = self.shared.next_docpr.to_string();
+        self.shared.next_docpr += 1;
         let (cx, cy) = (
             img.width.0.max(0).to_string(),
             img.height.0.max(0).to_string(),
@@ -381,7 +786,7 @@ impl DocWriter<'_> {
         }
         self.x.end("w:tblPr");
         self.x.start("w:tblGrid", &[]);
-        for w in grid(t, self.doc.page.content_width().0) {
+        for w in grid(t, self.content_width) {
             self.x.empty("w:gridCol", &[("w:w", &w.to_string())]);
         }
         self.x.end("w:tblGrid");
@@ -429,48 +834,13 @@ impl DocWriter<'_> {
                     }
                     self.x.end("w:tcPr");
                 }
-                self.blocks(&cell.blocks)?;
+                self.blocks(&cell.blocks, false)?;
                 self.x.end("w:tc");
             }
             self.x.end("w:tr");
         }
         self.x.end("w:tbl");
         Ok(())
-    }
-
-    fn section(&mut self) {
-        let p = &self.doc.page;
-        let x = &mut self.x;
-        x.start("w:sectPr", &[]);
-        for (footer, id) in &self.header_refs {
-            let name = if *footer {
-                "w:footerReference"
-            } else {
-                "w:headerReference"
-            };
-            x.empty(name, &[("w:type", "default"), ("r:id", id)]);
-        }
-        let (w, h) = (p.width.0.to_string(), p.height.0.to_string());
-        let mut size = vec![("w:w", w.as_str()), ("w:h", h.as_str())];
-        if p.orientation == Orientation::Landscape {
-            size.push(("w:orient", "landscape"));
-        }
-        x.empty("w:pgSz", &size);
-        let m = &p.margins;
-        let vals = [m.top, m.right, m.bottom, m.left, m.header, m.footer].map(|t| t.0.to_string());
-        x.empty(
-            "w:pgMar",
-            &[
-                ("w:top", &vals[0]),
-                ("w:right", &vals[1]),
-                ("w:bottom", &vals[2]),
-                ("w:left", &vals[3]),
-                ("w:header", &vals[4]),
-                ("w:footer", &vals[5]),
-                ("w:gutter", "0"),
-            ],
-        );
-        x.end("w:sectPr");
     }
 }
 
@@ -503,9 +873,28 @@ fn grid(t: &Table, content_width: i32) -> Vec<i32> {
     first.unwrap_or_else(|| vec![content_width.max(cols as i32) / cols as i32; cols])
 }
 
-fn default_settings_xml() -> Vec<u8> {
+fn default_settings_xml(
+    even_headers: bool,
+    notes: [bool; 2],
+    foot_sep: (i32, i32),
+    end_sep: (i32, i32),
+) -> Vec<u8> {
     let mut x = XmlOut::new();
     x.start("w:settings", &[("xmlns:w", W_NS)]);
+    if even_headers {
+        x.empty("w:evenAndOddHeaders", &[]);
+    }
+    for (on, pr, item, sep) in [
+        (notes[0], "w:footnotePr", "w:footnote", foot_sep),
+        (notes[1], "w:endnotePr", "w:endnote", end_sep),
+    ] {
+        if on {
+            x.start(pr, &[]);
+            x.empty(item, &[("w:id", &sep.0.to_string())]);
+            x.empty(item, &[("w:id", &sep.1.to_string())]);
+            x.end(pr);
+        }
+    }
     x.start("w:compat", &[]);
     x.empty(
         "w:compatSetting",
@@ -559,8 +948,8 @@ mod tests {
     use core_model::units::{Emu, Twips};
     use core_model::RunProperties;
     use model_text::{
-        NumberingDef, NumberingRef, PageSetup, ParagraphProperties, TableCell, TableProperties,
-        TableRow,
+        NumberingDef, NumberingRef, Orientation, PageSetup, ParagraphProperties, TableCell,
+        TableProperties, TableRow,
     };
 
     fn para(doc: &mut Document, inlines: Vec<Inline>) -> Block {
@@ -634,7 +1023,9 @@ mod tests {
         let back = out.document;
         assert_eq!(back.media, doc.media);
         assert_eq!(back.page, doc.page);
-        assert_eq!(back.numbering, doc.numbering);
+        // A standalone list comes back on an abstract definition of its own.
+        assert_eq!(back.numbering.defs[0].levels, doc.numbering.defs[0].levels);
+        assert_eq!(back.numbering.defs[0].abstract_id, Some(0));
         assert_eq!(back.plain_text(), doc.plain_text());
         assert_eq!(back.body.len(), doc.body.len());
         let Block::Paragraph(p) = &back.body[0] else {
@@ -652,8 +1043,9 @@ mod tests {
     #[test]
     fn header_and_footer_roundtrip() {
         let mut doc = Document::new();
-        doc.page.header_text = Some("Quarterly report\tDraft".into());
-        doc.page.footer_text = Some("Page {PAGE}".into());
+        doc.set_header_text(false, Some("Quarterly report\tDraft"));
+        doc.set_header_text(true, Some("Page {PAGE}"));
+        assert_eq!(doc.page.footer_text.as_deref(), Some("Page {PAGE}"));
         let bytes = write(&doc).unwrap();
         let pkg = fmt_ooxml::Package::open(Cursor::new(bytes.as_slice())).unwrap();
         let main = PartName::new("/word/document.xml").unwrap();
@@ -661,20 +1053,34 @@ mod tests {
         let sect = &xml[xml.find("<w:sectPr>").unwrap()..];
         assert!(sect.starts_with(r#"<w:sectPr><w:headerReference w:type="default" r:id="#));
         assert!(sect.contains("<w:footerReference"));
-        assert!(pkg
-            .part(&PartName::new("/word/footer1.xml").unwrap())
-            .is_some_and(|p| p.content_type == ct::FOOTER));
+        let footer = PartName::new("/word/footer1.xml").unwrap();
+        let part = pkg.part(&footer).unwrap();
+        assert_eq!(part.content_type, ct::FOOTER);
+        let footer_xml = String::from_utf8_lossy(&part.data);
+        assert!(
+            footer_xml
+                .contains(r#"<w:fldSimple w:instr=" PAGE "><w:r><w:t>1</w:t></w:r></w:fldSimple>"#),
+            "{footer_xml}"
+        );
         let out = crate::read_with_context(&bytes).unwrap();
         assert!(out.warnings.is_empty(), "{:?}", out.warnings);
         assert_eq!(out.document.page, doc.page);
 
         // Removing them removes the parts.
-        doc.page.header_text = None;
-        doc.page.footer_text = Some(String::new());
+        doc.set_header_text(false, None);
+        doc.set_header_text(true, Some(""));
         let bytes = write(&doc).unwrap();
         let back = crate::read(&bytes).unwrap();
         assert_eq!((back.page.header_text, back.page.footer_text), (None, None));
         assert!(!String::from_utf8_lossy(&bytes).contains("header1.xml"));
+    }
+
+    #[test]
+    fn page_changed_directly_is_written() {
+        let mut doc = Document::new();
+        doc.page = PageSetup::letter().with_orientation(Orientation::Landscape);
+        let back = crate::read(&write(&doc).unwrap()).unwrap();
+        assert_eq!(back.page, doc.page);
     }
 
     #[test]

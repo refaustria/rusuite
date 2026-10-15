@@ -29,6 +29,7 @@ expression: pretty_document_xml(&bytes)
   <w:sectPr>
    <w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>
    <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="0" w:footer="0" w:gutter="0"/>
+   <w:pgNumType w:fmt="decimal"/>
   </w:sectPr>
  </w:body>
 </w:document>
