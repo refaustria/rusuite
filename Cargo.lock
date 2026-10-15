@@ -87,9 +87,13 @@ dependencies = [
 name = "app-write"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "thiserror 2.0.21",
  "write-core",
 ]
 
@@ -4751,6 +4755,7 @@ version = "0.1.0"
 dependencies = [
  "app-common",
  "core-model",
+ "fmt-docx",
  "insta",
  "model-text",
  "serde",

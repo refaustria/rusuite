@@ -51,6 +51,12 @@ pub enum WriteError {
     /// A loaded document violates the model's invariants.
     #[error("invalid document: {0}")]
     InvalidDocument(String),
+    /// The bytes are not a readable `.docx` file.
+    #[error("cannot read .docx: {0}")]
+    ReadDocx(String),
+    /// Writing the `.docx` file failed.
+    #[error("cannot write .docx: {0}")]
+    WriteDocx(String),
 }
 
 impl WriteError {
@@ -64,6 +70,8 @@ impl WriteError {
             WriteError::Invalid(_) => "invalid_command",
             WriteError::BadRequest(_) => "bad_request",
             WriteError::InvalidDocument(_) => "invalid_document",
+            WriteError::ReadDocx(_) => "invalid_file",
+            WriteError::WriteDocx(_) => "internal",
         }
     }
 }
@@ -85,6 +93,9 @@ fn invalid(msg: impl Into<String>) -> WriteError {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WriteDocument {
     doc: Document,
+    /// File-level `.docx` data (theme, settings, numbering layout) kept
+    /// from [`open_docx`](Self::open_docx) for [`save_docx`](Self::save_docx).
+    pub docx_context: Option<fmt_docx::DocxContext>,
     /// The file name the document was opened from (no directory).
     pub source_name: Option<String>,
 }
@@ -273,6 +284,7 @@ impl WriteDocument {
     pub fn new() -> Self {
         WriteDocument {
             doc: Document::new(),
+            docx_context: None,
             source_name: None,
         }
     }
@@ -292,8 +304,44 @@ impl WriteDocument {
         doc.normalize();
         Ok(WriteDocument {
             doc,
+            docx_context: None,
             source_name: None,
         })
+    }
+
+    /// Reads a `.docx` file; `name` is the file name shown to the user.
+    /// Returns the document and the reader's warnings about content that
+    /// was dropped or approximated. The file's [`fmt_docx::DocxContext`]
+    /// is kept for [`save_docx`](Self::save_docx).
+    pub fn open_docx(bytes: &[u8], name: &str) -> Result<(Self, Vec<String>), WriteError> {
+        let out =
+            fmt_docx::read_with_context(bytes).map_err(|e| WriteError::ReadDocx(e.to_string()))?;
+        let mut doc = Self::from_document(out.document)?;
+        doc.docx_context = Some(out.context);
+        doc.source_name = Some(name.to_owned());
+        Ok((doc, out.warnings))
+    }
+
+    /// Writes the document as `.docx`, with the file-level data it was
+    /// opened with (if any).
+    pub fn save_docx(&self) -> Result<Vec<u8>, WriteError> {
+        let default_ctx = fmt_docx::DocxContext::default();
+        let ctx = self.docx_context.as_ref().unwrap_or(&default_ctx);
+        fmt_docx::write_with_context(&self.doc, ctx)
+            .map_err(|e| WriteError::WriteDocx(e.to_string()))
+    }
+
+    /// The file name to offer when saving: the source name with a `.docx`
+    /// extension, else `Untitled.docx`.
+    pub fn suggested_name(&self) -> String {
+        match self.source_name.as_deref() {
+            None | Some("") => "Untitled.docx".to_owned(),
+            Some(n) if n.to_ascii_lowercase().ends_with(".docx") => n.to_owned(),
+            Some(n) => {
+                let stem = n.rsplit_once('.').map_or(n, |(stem, _)| stem);
+                format!("{stem}.docx")
+            }
+        }
     }
 
     /// The model document.
@@ -1430,5 +1478,37 @@ impl AppDocument for WriteDocument {
             patch,
             inverse: Some(inverse),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suggested_names() {
+        let named = |n: &str| WriteDocument {
+            source_name: Some(n.into()),
+            ..WriteDocument::new()
+        };
+        assert_eq!(WriteDocument::new().suggested_name(), "Untitled.docx");
+        assert_eq!(named("a.docx").suggested_name(), "a.docx");
+        assert_eq!(named("b.DOCX").suggested_name(), "b.DOCX");
+        assert_eq!(named("c.doc").suggested_name(), "c.docx");
+        assert_eq!(named("d").suggested_name(), "d.docx");
+    }
+
+    #[test]
+    fn open_rejects_garbage() {
+        let err = WriteDocument::open_docx(b"not a zip", "x.docx").unwrap_err();
+        assert_eq!(err.code(), "invalid_file");
+    }
+
+    #[test]
+    fn new_document_saves_and_reopens() {
+        let bytes = WriteDocument::new().save_docx().unwrap();
+        let (doc, _) = WriteDocument::open_docx(&bytes, "n.docx").unwrap();
+        assert_eq!(doc.source_name.as_deref(), Some("n.docx"));
+        assert!(doc.docx_context.is_some());
     }
 }

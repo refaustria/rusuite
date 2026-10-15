@@ -7,4 +7,4 @@ import type { WritePatch } from "./WritePatch";
 /**
  * The successful part of a [`Response`].
  */
-export type ResponseBody = { "type": "patch", envelope: Envelope<WritePatch>, } | { "type": "document", doc: Document, envelope: Envelope<WritePatch>, } | { "type": "media", contentType: string, bytesBase64: string, } | { "type": "documentState", dirty: boolean, revision: Revision, name: string | null, };
+export type ResponseBody = { "type": "patch", envelope: Envelope<WritePatch>, } | { "type": "document", doc: Document, envelope: Envelope<WritePatch>, } | { "type": "opened", doc: Document, warnings: Array<string>, envelope: Envelope<WritePatch>, } | { "type": "saved", bytesBase64: string, suggestedName: string, } | { "type": "media", contentType: string, bytesBase64: string, } | { "type": "documentState", dirty: boolean, revision: Revision, name: string | null, };

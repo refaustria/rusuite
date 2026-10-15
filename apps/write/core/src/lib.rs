@@ -7,7 +7,9 @@
 //!   [`app_common::Document`]: [`WriteCommand`]s in, [`WritePatch`]es out,
 //!   each command returning its inverse for undo/redo.
 //! * [`dispatch_with`] is the single JSON entry point: a [`Request`] in, a
-//!   [`Response`] out, against the shell's [`WriteHost`].
+//!   [`Response`] out, against the shell's [`WriteHost`]. `.docx` files
+//!   cross it as standard base64 (`openDocx` / `saveDocx`, ADR 0002 file-IO
+//!   amendment); the core never touches the file system.
 //! * TypeScript definitions of every wire type (including the
 //!   `model-text` types, derived behind its `ts` feature) are generated
 //!   with `ts-rs` into `apps/write/src/generated/` by `cargo test`.
@@ -40,35 +42,3 @@ pub use command::{
 pub use dispatch::{dispatch_with, Request, Response, ResponseBody, WriteHost};
 pub use doc::{WriteDocument, WriteError};
 pub use patch::{InsertedBlock, WritePatch};
-
-/// Transitional health-check endpoint of the P3-3 shells, which keep no
-/// document yet: answers `{"type":"ping"}` with `{"ok":{"type":"pong"}}`,
-/// everything else with `{"err":{"code":"unknown_request",…}}`. The shells
-/// switch to [`dispatch_with`] and a [`WriteHost`] in P3-7; this function
-/// goes away then.
-#[must_use]
-pub fn dispatch(request: &str) -> String {
-    let kind = serde_json::from_str::<serde_json::Value>(request)
-        .ok()
-        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_owned));
-    let reply = match kind.as_deref() {
-        Some("ping") => serde_json::json!({"ok": {"type": "pong"}}),
-        _ => serde_json::json!({
-            "err": {"code": "unknown_request", "message": "unknown or malformed request"}
-        }),
-    };
-    reply.to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn legacy_ping() {
-        assert_eq!(dispatch(r#"{"type":"ping"}"#), r#"{"ok":{"type":"pong"}}"#);
-        for req in [r#"{"type":"nope"}"#, "not json", "{}"] {
-            assert!(dispatch(req).contains("unknown_request"));
-        }
-    }
-}
