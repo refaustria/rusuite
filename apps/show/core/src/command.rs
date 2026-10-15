@@ -262,6 +262,37 @@ pub enum ShowCommand {
     },
     /// Changes the slide size; the built-in layouts follow, shapes stay.
     SetSlideSize { size: SlideSize },
+    /// Changes the layout of a slide (PowerPoint's Home › Layout):
+    /// placeholders map to the new layout's (title ↔ centered title,
+    /// body ↔ subtitle; unmoved ones take the new position), missing ones
+    /// are added empty (fresh ids), empty ones without a counterpart are
+    /// removed; other shapes stay.
+    SetSlideLayout { slide: NodeId, layout: LayoutKind },
+    /// Hides slides in (or shows them again in) the slide show.
+    SetSlidesHidden { slides: Vec<NodeId>, hidden: bool },
+    /// Sets the speaker notes of a slide (plain text, `\n` between
+    /// paragraphs; `null` or empty = none).
+    SetNotes {
+        slide: NodeId,
+        #[serde(default)]
+        notes: Option<String>,
+    },
+    /// Sets the alternative text of a shape (`null` or empty = none).
+    SetAltText {
+        shape: NodeId,
+        #[serde(default)]
+        alt: Option<String>,
+    },
+    /// Replaces the image of a picture (bytes as standard base64). The new
+    /// image is fitted into the old box keeping its aspect ratio, centered.
+    ReplacePicture {
+        shape: NodeId,
+        content_type: String,
+        bytes_base64: String,
+    },
+    /// Gives pictures their natural size (96 dpi, scaled down to fit the
+    /// slide), keeping the top-left corner.
+    ResetPictureSize { shapes: Vec<NodeId> },
     /// Applies the commands in order as one undo step; all or nothing.
     Compound { commands: Vec<ShowCommand> },
     /// *Internal.* Inserts slides at the given indices (ascending).
@@ -304,6 +335,8 @@ pub struct NewShape {
     pub line: Line,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placeholder: Option<PlaceholderKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt: Option<String>,
 }
 
 /// [`ShapeKind`] with [`NewShape`] children.
@@ -342,6 +375,7 @@ impl From<&Shape> for NewShape {
             fill: s.fill,
             line: s.line,
             placeholder: s.placeholder,
+            alt: s.alt.clone(),
         }
     }
 }

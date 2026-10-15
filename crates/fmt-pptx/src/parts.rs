@@ -356,7 +356,10 @@ pub fn slide_layout_xml(layout: &Layout) -> Vec<u8> {
 
 /// `ppt/presentation.xml`: master id, slide ids (`rId2`…), slide size,
 /// notes size and a default text style.
-pub fn presentation_xml(p: &Presentation) -> Vec<u8> {
+///
+/// `notes_master_rid`: the relationship id of the notes master, when the
+/// package has one.
+pub fn presentation_xml(p: &Presentation, notes_master_rid: Option<&str>) -> Vec<u8> {
     let mut x = XmlOut::new();
     let mut attrs: Vec<(&str, &str)> = ROOT_NS.to_vec();
     attrs.push(("saveSubsetFonts", "1"));
@@ -364,6 +367,11 @@ pub fn presentation_xml(p: &Presentation) -> Vec<u8> {
     x.start("p:sldMasterIdLst", &[]);
     x.empty("p:sldMasterId", &[("id", "2147483648"), ("r:id", "rId1")]);
     x.end("p:sldMasterIdLst");
+    if let Some(rid) = notes_master_rid {
+        x.start("p:notesMasterIdLst", &[]);
+        x.empty("p:notesMasterId", &[("r:id", rid)]);
+        x.end("p:notesMasterIdLst");
+    }
     if !p.slides.is_empty() {
         x.start("p:sldIdLst", &[]);
         for i in 0..p.slides.len() {
@@ -394,6 +402,131 @@ pub fn presentation_xml(p: &Presentation) -> Vec<u8> {
     x.end("a:lvl1pPr");
     x.end("p:defaultTextStyle");
     x.end("p:presentation");
+    x.finish()
+}
+
+/// The standard colour map of masters.
+fn clr_map(x: &mut XmlOut) {
+    x.empty(
+        "p:clrMap",
+        &[
+            ("bg1", "lt1"),
+            ("tx1", "dk1"),
+            ("bg2", "lt2"),
+            ("tx2", "dk2"),
+            ("accent1", "accent1"),
+            ("accent2", "accent2"),
+            ("accent3", "accent3"),
+            ("accent4", "accent4"),
+            ("accent5", "accent5"),
+            ("accent6", "accent6"),
+            ("hlink", "hlink"),
+            ("folHlink", "folHlink"),
+        ],
+    );
+}
+
+/// Notes page boxes (portrait 7.5" × 10"): slide image and notes body.
+const NOTES_SLIDE_IMAGE: (&str, &str, &str, &str) = ("685800", "1143000", "5486400", "3086100");
+const NOTES_BODY: (&str, &str, &str, &str) = ("685800", "4400550", "5486400", "3600450");
+
+/// A notes placeholder `p:sp`: `ty` is `sldImg` or `body`; `xfrm` is
+/// written on the master only (slides inherit it).
+fn notes_ph(
+    x: &mut XmlOut,
+    id: u32,
+    ty: &str,
+    xfrm: Option<(&str, &str, &str, &str)>,
+    text: Option<&str>,
+) {
+    let (name, idx) = if ty == "body" {
+        (format!("Notes Placeholder {}", id - 1), Some("1"))
+    } else {
+        (format!("Slide Image Placeholder {}", id - 1), None)
+    };
+    x.start("p:sp", &[]);
+    x.start("p:nvSpPr", &[]);
+    x.empty("p:cNvPr", &[("id", &id.to_string()), ("name", &name)]);
+    x.start("p:cNvSpPr", &[]);
+    if ty == "body" {
+        x.empty("a:spLocks", &[("noGrp", "1")]);
+    } else {
+        x.empty(
+            "a:spLocks",
+            &[("noGrp", "1"), ("noRot", "1"), ("noChangeAspect", "1")],
+        );
+    }
+    x.end("p:cNvSpPr");
+    x.start("p:nvPr", &[]);
+    match idx {
+        Some(i) => x.empty("p:ph", &[("type", ty), ("idx", i)]),
+        None => x.empty("p:ph", &[("type", ty)]),
+    }
+    x.end("p:nvPr");
+    x.end("p:nvSpPr");
+    match xfrm {
+        Some((ox, oy, cx, cy)) => {
+            x.start("p:spPr", &[]);
+            x.start("a:xfrm", &[]);
+            x.empty("a:off", &[("x", ox), ("y", oy)]);
+            x.empty("a:ext", &[("cx", cx), ("cy", cy)]);
+            x.end("a:xfrm");
+            x.start("a:prstGeom", &[("prst", "rect")]);
+            x.empty("a:avLst", &[]);
+            x.end("a:prstGeom");
+            x.end("p:spPr");
+        }
+        None => x.empty("p:spPr", &[]),
+    }
+    if ty == "body" {
+        x.start("p:txBody", &[]);
+        x.empty("a:bodyPr", &[]);
+        x.empty("a:lstStyle", &[]);
+        for line in text.unwrap_or("").split('\n') {
+            x.start("a:p", &[]);
+            if !line.is_empty() {
+                x.start("a:r", &[]);
+                x.empty("a:rPr", &[("lang", "en-US"), ("dirty", "0")]);
+                x.text_el("a:t", &[], line);
+                x.end("a:r");
+            }
+            x.end("a:p");
+        }
+        x.end("p:txBody");
+    }
+    x.end("p:sp");
+}
+
+/// `ppt/notesMasters/notesMaster1.xml`: slide image and notes body
+/// placeholders on a portrait notes page.
+pub fn notes_master_xml() -> Vec<u8> {
+    let mut x = XmlOut::new();
+    x.start("p:notesMaster", &ROOT_NS);
+    x.start("p:cSld", &[]);
+    sp_tree_start(&mut x);
+    notes_ph(&mut x, 2, "sldImg", Some(NOTES_SLIDE_IMAGE), None);
+    notes_ph(&mut x, 3, "body", Some(NOTES_BODY), None);
+    x.end("p:spTree");
+    x.end("p:cSld");
+    clr_map(&mut x);
+    x.end("p:notesMaster");
+    x.finish()
+}
+
+/// `ppt/notesSlides/notesSlideN.xml` holding `notes` as plain paragraphs.
+pub fn notes_slide_xml(notes: &str) -> Vec<u8> {
+    let mut x = XmlOut::new();
+    x.start("p:notes", &ROOT_NS);
+    x.start("p:cSld", &[]);
+    sp_tree_start(&mut x);
+    notes_ph(&mut x, 2, "sldImg", None, None);
+    notes_ph(&mut x, 3, "body", None, Some(notes));
+    x.end("p:spTree");
+    x.end("p:cSld");
+    x.start("p:clrMapOvr", &[]);
+    x.empty("a:masterClrMapping", &[]);
+    x.end("p:clrMapOvr");
+    x.end("p:notes");
     x.finish()
 }
 

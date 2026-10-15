@@ -151,6 +151,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
             continue;
         }
         if ct.ends_with("notesSlide+xml") {
+            // Notes of slides that were dropped (or not linked from one).
             w.add("speaker notes dropped");
         } else if ct.contains("comment") {
             w.add("comments dropped");
@@ -390,9 +391,6 @@ impl Reader<'_> {
             part: part.to_string(),
             reason: "no p:cSld".into(),
         })?;
-        if root.attr("show").and_then(parse_bool) == Some(false) {
-            self.w.add("hidden slides read as visible");
-        }
         let info = self.layout_info(part);
         let tree = c_sld.child("spTree");
         let mut types = Vec::new();
@@ -403,6 +401,8 @@ impl Reader<'_> {
         let layout = infer_layout(&types, &info.ty, self.w);
 
         let mut slide = Slide::new(self.p.alloc_id(), layout);
+        slide.hidden = root.attr("show").and_then(parse_bool) == Some(false);
+        slide.notes = self.read_notes(part);
         if let Some(bg) = c_sld.child("bg") {
             slide.background = self.read_background(bg);
         }
@@ -430,6 +430,29 @@ impl Reader<'_> {
         }
         self.p.slides.push(slide);
         Ok(())
+    }
+
+    /// The plain text of the slide's notes (`notesSlide` part, body
+    /// placeholder): paragraphs joined by `\n`; `None` when empty.
+    fn read_notes(&mut self, slide: &PartName) -> Option<String> {
+        let part = related(self.pkg, slide, "notesSlide")?;
+        let data = &self.pkg.part(&part)?.data;
+        self.consumed.insert(part.clone());
+        let root = parse(data, part.as_str()).ok()?;
+        let tree = root.child("cSld")?.child("spTree")?;
+        let body = tree
+            .elements()
+            .find(|el| el.name == "sp" && ph_of(el).is_some_and(|ph| ph_type(ph) == "body"))?;
+        let mut scratch = Warnings::default();
+        let text = read_text_body(body.child("txBody")?, BodyProps::default(), &mut scratch);
+        let joined = text
+            .paragraphs
+            .iter()
+            .map(|p| p.runs.iter().map(|r| r.text.as_str()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let trimmed = joined.trim_end_matches('\n');
+        (!trimmed.is_empty()).then(|| trimmed.to_owned())
     }
 
     fn read_background(&mut self, bg: &El) -> Option<Fill> {
@@ -591,6 +614,7 @@ impl Reader<'_> {
         }
         Some(Shape {
             id: NodeId(0),
+            alt: alt_of(el),
             name,
             transform,
             kind: ShapeKind::Auto { geometry, text },
@@ -656,6 +680,7 @@ impl Reader<'_> {
         let line = read_line(sp_pr.and_then(|s| s.child("ln")), style.line, self.w);
         Some(Shape {
             id: NodeId(0),
+            alt: alt_of(el),
             name,
             transform: space.map(&read_xfrm(xfrm)),
             kind: ShapeKind::Auto {
@@ -730,6 +755,7 @@ impl Reader<'_> {
         let line = read_line(sp_pr.and_then(|s| s.child("ln")), style.line, self.w);
         Some(Shape {
             id: NodeId(0),
+            alt: alt_of(el),
             name,
             transform,
             kind: ShapeKind::Picture { media },
@@ -756,6 +782,7 @@ impl Reader<'_> {
         let children = self.read_tree(el, inner, ctx);
         Some(Shape {
             id: NodeId(0),
+            alt: alt_of(el),
             name,
             transform,
             kind: ShapeKind::Group { children },
@@ -764,6 +791,17 @@ impl Reader<'_> {
             placeholder: None,
         })
     }
+}
+
+/// `p:cNvPr/@descr` of a shape element (`p:sp`, `p:pic`, …), if set.
+fn alt_of(shape: &El) -> Option<String> {
+    shape
+        .elements()
+        .find(|e| e.name.starts_with("nv"))
+        .and_then(|nv| nv.child("cNvPr"))
+        .and_then(|c| c.attr("descr"))
+        .filter(|d| !d.is_empty())
+        .map(str::to_owned)
 }
 
 /// Types of all placeholders in a shape tree (including inside groups).
