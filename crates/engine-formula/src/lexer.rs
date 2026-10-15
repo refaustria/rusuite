@@ -49,6 +49,11 @@ pub enum TokenKind {
     Gt,
     Ge,
     Percent,
+    /// `@` (implicit intersection).
+    At,
+    /// `#` that does not start an error literal (spilled-range operator,
+    /// `A1#`).
+    Hash,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -95,6 +100,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseError> {
             '^' => simple(TokenKind::Caret, 1),
             '&' => simple(TokenKind::Amp, 1),
             '%' => simple(TokenKind::Percent, 1),
+            '@' => simple(TokenKind::At, 1),
             '=' => simple(TokenKind::Eq, 1),
             '<' => match bytes.get(i + 1) {
                 Some(b'>') => simple(TokenKind::Ne, 2),
@@ -107,7 +113,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseError> {
             },
             '"' => lex_string(src, start)?,
             '\'' => lex_quoted_sheet(src, start)?,
-            '#' => lex_error(src, start)?,
+            '#' => lex_error(src, start).unwrap_or((TokenKind::Hash, start + 1)),
             c if c.is_ascii_digit()
                 || (c == '.' && bytes.get(i + 1).is_some_and(u8::is_ascii_digit)) =>
             {
@@ -309,7 +315,19 @@ mod tests {
             assert_eq!(kinds(k.as_str()), vec![T::Error(k)]);
         }
         assert_eq!(kinds("#n/a"), vec![T::Error(ErrorKind::NA)]);
-        assert!(tokenize("#FOO").is_err());
+        assert_eq!(kinds("#spill!"), vec![T::Error(ErrorKind::Spill)]);
+        // Not an error literal: the spilled-range operator.
+        assert_eq!(kinds("#FOO"), vec![T::Hash, T::Ident("FOO".into())]);
+        assert_eq!(
+            kinds("A1#+@B1"),
+            vec![
+                T::Ident("A1".into()),
+                T::Hash,
+                T::Plus,
+                T::At,
+                T::Ident("B1".into())
+            ]
+        );
     }
 
     #[test]
@@ -354,7 +372,7 @@ mod tests {
                 T::RParen
             ]
         );
-        assert!(tokenize("1 @ 2").is_err());
+        assert!(tokenize("1 ~ 2").is_err());
     }
 
     #[test]

@@ -16,6 +16,7 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
 use crate::a1::{cell_name, parse_cell, parse_range};
+use crate::dynarray::{from_file_ast, legacy_intersection, METADATA_REL};
 use crate::styles::parse_styles;
 use crate::xlfn::strip_xlfn_prefixes;
 use crate::xml::{
@@ -97,6 +98,11 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         consumed.insert(styles);
     }
 
+    // Dynamic array metadata: every `t="array"` formula spills anyway.
+    if let Some(part) = pkg.related_part(&main, METADATA_REL) {
+        consumed.insert(part);
+    }
+
     // Shared strings.
     let mut sst: Vec<String> = Vec::new();
     if let Some(part) = pkg.related_part(&main, rel::SHARED_STRINGS) {
@@ -152,6 +158,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
                 sst: &sst,
                 warnings: &mut warnings,
                 shared: HashMap::new(),
+                arrays: Vec::new(),
             };
             loader.load(part_data(part)?, part.as_str())?;
         }
@@ -308,6 +315,8 @@ enum Capture {
 struct FormulaBuf {
     kind: String,
     si: Option<u32>,
+    /// `ref` of an array formula (its spill range).
+    range: Option<String>,
     text: String,
 }
 
@@ -345,6 +354,9 @@ struct SheetLoader<'a> {
     warnings: &'a mut Vec<String>,
     /// Shared formula index → (master AST, master row, master col).
     shared: HashMap<u32, (Expr, u32, u32)>,
+    /// `(r0, c0, r1, c1)` of the array formulas read so far: their other
+    /// cells hold the spilled values, which are not loaded.
+    arrays: Vec<(u32, u32, u32, u32)>,
 }
 
 impl SheetLoader<'_> {
@@ -427,6 +439,7 @@ impl SheetLoader<'_> {
                                 kind: attr(el, "t")
                                     .map_or_else(|| "normal".into(), |t| t.into_owned()),
                                 si: attr_parse(el, "si"),
+                                range: attr(el, "ref").map(|r| r.into_owned()),
                                 text: String::new(),
                             };
                             cell.as_mut().expect("checked").f = Some(f);
@@ -677,9 +690,6 @@ impl SheetLoader<'_> {
                 ));
                 return None;
             }
-            "array" => self.warn(format!(
-                "{at}: array formula loaded as a plain formula of its top-left cell"
-            )),
             _ => {}
         }
         if f.text.trim().is_empty() {
@@ -687,7 +697,26 @@ impl SheetLoader<'_> {
         }
         let input = format!("={}", strip_xlfn_prefixes(&f.text));
         match engine_formula::parse(&input) {
-            Ok(ast) => {
+            Ok(parsed) => {
+                // `ANCHORARRAY`/`SINGLE` → `#`/`@`; plain (legacy) formulas
+                // intersect implicitly where Excel 2019 did. Array formulas
+                // (dynamic or CSE) spill over their `ref`.
+                let mut ast = from_file_ast(&parsed);
+                if f.kind == "array" {
+                    let (r0, c0, r1, c1) = f
+                        .range
+                        .as_deref()
+                        .and_then(parse_range)
+                        .unwrap_or((cell.row, cell.col, cell.row, cell.col));
+                    self.arrays.push((r0, c0, r1, c1));
+                } else {
+                    ast = legacy_intersection(&ast);
+                }
+                let input = if ast == parsed {
+                    input
+                } else {
+                    format!("={ast}")
+                };
                 if f.kind == "shared" {
                     if let Some(si) = f.si {
                         self.shared.insert(si, (ast.clone(), cell.row, cell.col));
@@ -751,8 +780,16 @@ impl SheetLoader<'_> {
         if !style.is_default() {
             self.wb.set_style(c, style)?;
         }
-        let content = match self.formula_of(&cell) {
+        let formula = self.formula_of(&cell);
+        let spilled = self.arrays.iter().any(|&(r0, c0, r1, c1)| {
+            (r0..=r1).contains(&cell.row)
+                && (c0..=c1).contains(&cell.col)
+                && (cell.row, cell.col) != (r0, c0)
+        });
+        let content = match formula {
             Some((text, ast)) => Some(CellContent::Formula { text, ast }),
+            // The cached value of a cell an array formula spills into.
+            None if spilled => None,
             None => self.constant_of(&cell).map(CellContent::Value),
         };
         if let Some(content) = content {

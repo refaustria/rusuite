@@ -141,8 +141,13 @@ Not asserted either way (the LibreOffice value is kept as is): `TEXT` locale-dep
 | errors | `=H1+H2` | LibreOffice returns the right-hand error for cell references; Excel is believed to return the left-hand one | `#DIV/0!` |
 | errors | `=SQRT(-1)+1` | LibreOffice reports #VALUE! on xlsx export | `#NUM!` |
 | errors | `=Nope!A1` | LibreOffice reports #NAME? for an unknown sheet | `#REF!` |
+| lookup | `=SEQUENCE(0)` | LibreOffice has no #CALC! error for an empty array | `#CALC!` |
+| lookup | `=FILTER(A1:A6,A1:A6>10)` | LibreOffice has no #CALC! error for an empty array | `#CALC!` |
+| lookup | `=UNIQUE({1;1},FALSE,TRUE)` | LibreOffice has no #CALC! error for an empty array | `#CALC!` |
 
-Phase 8 (task P8-1) added the cases for the second function wave (about 700 rows, mostly in `math` and `lookup`). Besides the
+Task P8-6 added 44 `lookup` cases for the dynamic array functions (`SORT`, `SORTBY`, `FILTER`, `UNIQUE`, `SEQUENCE`,
+`RANDARRAY`, written with `_xlfn.` / `_xlfn._xlws.` prefixes); they wrap the arrays in `INDEX`, `SUM`, `ROWS`,
+`TEXTJOIN` so the result cell holds one value. Phase 8 (task P8-1) added the cases for the second function wave (about 700 rows, mostly in `math` and `lookup`). Besides the
 rows of the table above, many carry `DIFF:` notes with an `[excel=...]` value; the common reasons are that LibreOffice
 exports `#NUM!`, `#DIV/0!` or `#REF!` results of these functions as `#VALUE!`, that it accepts arguments Excel rejects
 (`SYD` with `per` beyond the life, `EFFECT` with a zero rate, negative serials in `HOUR`) and that `CHAR`/`CODE` depend on

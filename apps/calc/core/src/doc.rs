@@ -332,6 +332,7 @@ impl CalcDocument {
         let value = wb.value(c);
         let style = wb.style_id(c);
         let format = wb.styles().get(style).number_format.as_deref();
+        let engine = wb.engine();
         CellView {
             row: c.row,
             col: c.col,
@@ -339,6 +340,13 @@ impl CalcDocument {
             display: display_value(&value, format),
             kind: kind_of(&value),
             style: style.0,
+            spilled: engine.spill_anchor(c).map(|a| (a.row, a.col)),
+            spill: engine.spill(c).map(|s| Rect {
+                r0: c.row,
+                c0: c.col,
+                r1: c.row.saturating_add(s.rows - 1).min(MAX_ROW),
+                c1: c.col.saturating_add(s.cols - 1).min(MAX_COL),
+            }),
         }
     }
 
@@ -697,7 +705,10 @@ impl CalcDocument {
                 let cleared: Vec<(CellCoord, String, StyleId)> = self
                     .workbook
                     .cells_in(range)
-                    .filter(|(_, content, _)| !matches!(content, CellContent::Empty))
+                    // Spilled cells cannot be cleared (their anchor can).
+                    .filter(|(_, content, _)| {
+                        !matches!(content, CellContent::Empty | CellContent::Spilled { .. })
+                    })
                     .map(|(c, content, style)| (c, content_to_input(content), style))
                     .collect();
                 self.workbook.begin_batch();

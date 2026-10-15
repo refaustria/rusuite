@@ -99,10 +99,11 @@ pub struct RowSnapshot {
     pub info: RowInfo,
 }
 
-/// The input text that makes [`Workbook::set_input`] reproduce `content`.
+/// The input text that makes [`Workbook::set_input`] reproduce `content`
+/// (`""` for a spilled cell: the engine recreates it from its anchor).
 pub fn content_to_input(content: &CellContent) -> String {
     match content {
-        CellContent::Empty => String::new(),
+        CellContent::Empty | CellContent::Spilled { .. } => String::new(),
         CellContent::Formula { text, .. } => text.clone(),
         CellContent::Value(v) => match v {
             // `f64` Display is the shortest exact round-trip form.

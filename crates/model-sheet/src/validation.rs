@@ -348,6 +348,8 @@ impl Workbook {
         let value = match content {
             CellContent::Empty => Value::Empty,
             CellContent::Value(v) => v,
+            // Not produced by input parsing; a computed value like a formula.
+            CellContent::Spilled { .. } => engine.value(c).into_scalar(),
             CellContent::Formula { ast, .. } => {
                 let ctx = engine.eval_context(engine as &dyn CellProvider, c);
                 evaluate(&ast, &ctx).into_scalar()

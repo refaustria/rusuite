@@ -42,6 +42,22 @@
 //! cell, the volatile cells and their dependents are evaluated again (at
 //! most three more times), so they see the recalculated values.
 //!
+//! # Dynamic arrays
+//!
+//! Formulas are evaluated with Excel 365 semantics
+//! ([`evaluate_formula`]): a result of more than one cell *spills* into
+//! the range anchored at the formula cell. The anchor's value is the
+//! top-left element; the other cells of the range hold
+//! [`CellContent::Spilled`] and the element as their value. When a target
+//! cell is not empty (or the range leaves the sheet) nothing is written
+//! and the anchor shows `#SPILL!`; it spills again once the obstacle is
+//! cleared. Editing a spilled cell makes it an obstacle; clearing one is a
+//! no-op. Formulas reading spilled cells depend on the anchor (see
+//! [`DependencyGraph::set_spill`]); [`Recalc::changed`] lists spilled
+//! cells whose value changed and cells whose spill was removed.
+//! Row/column inserts and deletes drop every spill of the sheet and
+//! re-evaluate the (moved) anchors, which spill again.
+//!
 //! Between [`Engine::begin_batch`] and [`Engine::end_batch`] edits only
 //! update storage and the graph; the deferred recalculation runs once in
 //! `end_batch`. Use it for bulk loads (or load, then [`Engine::recalc_all`]).
@@ -80,7 +96,8 @@ use thiserror::Error;
 
 use crate::ast::{ErrorKind, Expr, MAX_COL, MAX_ROW};
 use crate::eval::{
-    default_now, evaluate, CellCoord, CellProvider, EvalContext, RowHidden, SheetId,
+    default_now, evaluate_formula, CellCoord, CellProvider, EvalContext, RangeRef, RowHidden,
+    SheetId,
 };
 use crate::functions::FunctionRegistry;
 use crate::graph::{Cycle, DependencyGraph, Precedent, SheetResolver};
@@ -98,12 +115,32 @@ pub enum CellContent {
     Value(Value),
     /// A formula as typed (`text`, including the leading `=`) and parsed.
     Formula { text: String, ast: Expr },
+    /// Part of the spill range of the array formula in `anchor` (never the
+    /// anchor itself). Written by the engine only: [`Engine::set_content`]
+    /// treats it as `Empty`.
+    Spilled { anchor: CellCoord },
 }
+
+/// The array result of a formula cell that has more than one cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Spill {
+    /// Size of the array (and of the spill range when not blocked).
+    pub rows: u32,
+    pub cols: u32,
+    /// The target range is not empty or leaves the sheet: nothing is
+    /// spilled and the anchor shows `#SPILL!`.
+    pub blocked: bool,
+}
+
+/// Follow-up passes for spill changes (a spill range that grew, cells a
+/// spill freed) after the main recalculation pass.
+const MAX_SPILL_PASSES: usize = 16;
 
 /// Result of an edit or recalculation.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Recalc {
-    /// Re-evaluated formula cells whose value changed, sorted.
+    /// Re-evaluated formula cells whose value changed, plus spilled cells
+    /// whose value changed and cells whose spill was removed; sorted.
     pub changed: Vec<CellCoord>,
     /// A circular reference among the re-evaluated cells, if any.
     pub cycle: Option<Cycle>,
@@ -139,6 +176,8 @@ struct Sheet {
     removed: bool,
     /// Hidden rows (absent = visible), for `SUBTOTAL`.
     hidden_rows: BTreeMap<u32, RowHidden>,
+    /// Formula cells with an array result of more than one cell.
+    arrays: HashMap<(u32, u32), Spill>,
 }
 
 impl Sheet {
@@ -161,6 +200,79 @@ impl Sheet {
                 Some((mr, mc)) => Some((mr.max(r), mc.max(c))),
             });
         }
+    }
+
+    /// Whether a cell of the `rows × cols` range at `anchor` other than
+    /// the anchor holds anything but `anchor`'s own spill.
+    fn obstructed(&self, anchor: CellCoord, rows: u32, cols: u32) -> bool {
+        let blocks = |pos: &(u32, u32), content: &CellContent| {
+            *pos != (anchor.row, anchor.col)
+                && !matches!(content, CellContent::Spilled { anchor: a } if *a == anchor)
+        };
+        let area = u64::from(rows) * u64::from(cols);
+        if area <= self.cells.len() as u64 {
+            (anchor.row..anchor.row + rows).any(|r| {
+                (anchor.col..anchor.col + cols)
+                    .any(|c| self.cells.get(&(r, c)).is_some_and(|x| blocks(&(r, c), x)))
+            })
+        } else {
+            self.cells.iter().any(|(pos, content)| {
+                (anchor.row..anchor.row + rows).contains(&pos.0)
+                    && (anchor.col..anchor.col + cols).contains(&pos.1)
+                    && blocks(pos, content)
+            })
+        }
+    }
+
+    /// Empties the cells spilled from `anchor` within its `rows × cols`
+    /// range, except those inside the top-left `keep` (rows, cols).
+    /// Returns the freed cells.
+    fn free_spill(
+        &mut self,
+        anchor: CellCoord,
+        rows: u32,
+        cols: u32,
+        keep: Option<(u32, u32)>,
+    ) -> Vec<CellCoord> {
+        let mut freed = Vec::new();
+        for r in 0..rows {
+            for c in 0..cols {
+                if keep.is_some_and(|(kr, kc)| r < kr && c < kc) || (r, c) == (0, 0) {
+                    continue;
+                }
+                let pos = (anchor.row + r, anchor.col + c);
+                if matches!(self.cells.get(&pos), Some(CellContent::Spilled { anchor: a }) if *a == anchor)
+                {
+                    self.cells.remove(&pos);
+                    self.values.remove(&pos);
+                    freed.push(CellCoord::new(anchor.sheet, pos.0, pos.1));
+                }
+            }
+        }
+        if let Some((ur, uc)) = self.used {
+            if freed.iter().any(|f| f.row == ur || f.col == uc) {
+                self.shrink_used(ur, uc);
+            }
+        }
+        freed
+    }
+
+    /// Blocked anchors whose array would cover one of `cells`.
+    fn blocked_over(&self, cells: &[CellCoord]) -> Vec<CellCoord> {
+        if cells.is_empty() {
+            return Vec::new();
+        }
+        self.arrays
+            .iter()
+            .filter(|(_, s)| s.blocked)
+            .filter(|(&(r, c), s)| {
+                cells.iter().any(|x| {
+                    (r..r.saturating_add(s.rows)).contains(&x.row)
+                        && (c..c.saturating_add(s.cols)).contains(&x.col)
+                })
+            })
+            .map(|(&(r, c), _)| CellCoord::new(cells[0].sheet, r, c))
+            .collect()
     }
 }
 
@@ -327,6 +439,9 @@ pub struct Engine {
     now: fn() -> f64,
     /// `Some` while a batch is open: the edited cells awaiting recalculation.
     pending: Option<Vec<CellCoord>>,
+    /// Spilled cells emptied outside a recalculation pass (an anchor was
+    /// overwritten or rows moved), reported by the next [`Recalc`].
+    freed: Vec<CellCoord>,
     /// A row's visibility changed inside the open batch: `end_batch`
     /// re-evaluates the cells reading row visibility.
     visibility_dirty: bool,
@@ -354,6 +469,7 @@ impl Engine {
             volatile: HashSet::new(),
             now: default_now,
             pending: None,
+            freed: Vec::new(),
             visibility_dirty: false,
         }
     }
@@ -425,9 +541,11 @@ impl Engine {
         let s = &mut self.sheets[idx];
         s.cells.clear();
         s.values.clear();
+        s.arrays.clear();
         s.used = None;
         s.hidden_rows.clear();
         s.removed = true;
+        self.freed.retain(|c| c.sheet != id);
         self.order.retain(|&o| o != id);
         if let Some(pending) = &mut self.pending {
             pending.extend(rewritten.iter().copied());
@@ -504,6 +622,7 @@ impl Engine {
         let mut cells: Vec<((u32, u32), CellContent)> = self.sheets[idx]
             .cells
             .iter()
+            .filter(|(_, content)| !matches!(content, CellContent::Spilled { .. }))
             .map(|(&pos, content)| (pos, content.clone()))
             .collect();
         cells.sort_unstable_by_key(|(pos, _)| *pos);
@@ -592,8 +711,14 @@ impl Engine {
         self.set_content(c, content)
     }
 
-    /// Stores `content` in `c` and recalculates. `Value(Empty)` is stored
-    /// as `Empty`, `Value(Array)` as its top-left element.
+    /// Stores `content` in `c` and recalculates. `Value(Empty)` and
+    /// `Spilled` are stored as `Empty`, `Value(Array)` as its top-left
+    /// element.
+    ///
+    /// Spilled cells: storing `Empty` in one is a no-op (the spill stays);
+    /// anything else makes the cell an obstacle and its anchor shows
+    /// `#SPILL!`. Replacing an anchor by a constant (or `Empty`) removes
+    /// its spill.
     pub fn set_content(
         &mut self,
         c: CellCoord,
@@ -601,7 +726,7 @@ impl Engine {
     ) -> Result<Recalc, EngineError> {
         let idx = self.check(c)?;
         let content = match content {
-            CellContent::Value(Value::Empty) => CellContent::Empty,
+            CellContent::Value(Value::Empty) | CellContent::Spilled { .. } => CellContent::Empty,
             CellContent::Value(v @ Value::Array(_)) => match v.into_scalar() {
                 Value::Empty => CellContent::Empty,
                 v => CellContent::Value(v),
@@ -609,6 +734,21 @@ impl Engine {
             CellContent::Value(Value::Number(n)) => CellContent::Value(Value::number(n)),
             other => other,
         };
+        let mut seeds = vec![c];
+        let pos = (c.row, c.col);
+        if let Some(CellContent::Spilled { anchor }) = self.sheets[idx].cells.get(&pos) {
+            if content == CellContent::Empty {
+                return Ok(Recalc::default());
+            }
+            // An obstacle now: the anchor re-evaluates to `#SPILL!`.
+            seeds.push(*anchor);
+            let s = &mut self.sheets[idx];
+            s.cells.remove(&pos);
+            s.values.remove(&pos);
+        }
+        if !matches!(content, CellContent::Formula { .. }) {
+            seeds.extend(self.clear_spill(c));
+        }
         match &content {
             CellContent::Formula { ast, .. } => {
                 self.graph
@@ -634,11 +774,71 @@ impl Engine {
             sheet.cells.insert((c.row, c.col), content);
             sheet.grow_used(c.row, c.col);
         }
+        // Arrays blocked by this cell (or by a freed one) try again.
+        seeds.extend(sheet.blocked_over(&seeds));
         if let Some(pending) = &mut self.pending {
-            pending.push(c);
+            pending.extend(seeds);
             return Ok(Recalc::default());
         }
-        Ok(self.recalc(&[c]))
+        Ok(self.recalc(&seeds))
+    }
+
+    /// Removes the array state of the formula in `anchor` and empties its
+    /// spilled cells, which are returned (and reported by the next
+    /// [`Recalc`]).
+    fn clear_spill(&mut self, anchor: CellCoord) -> Vec<CellCoord> {
+        self.graph.set_spill(anchor, None);
+        let s = &mut self.sheets[anchor.sheet.0 as usize];
+        let freed = match s.arrays.remove(&(anchor.row, anchor.col)) {
+            Some(spill) if !spill.blocked => s.free_spill(anchor, spill.rows, spill.cols, None),
+            _ => Vec::new(),
+        };
+        self.freed.extend(freed.iter().copied());
+        freed
+    }
+
+    /// The array state of the formula in `anchor`, if its result has more
+    /// than one cell.
+    pub fn spill(&self, anchor: CellCoord) -> Option<Spill> {
+        self.sheets
+            .get(anchor.sheet.0 as usize)
+            .and_then(|s| s.arrays.get(&(anchor.row, anchor.col)))
+            .copied()
+    }
+
+    /// The range the formula in `anchor` spills into (anchor included);
+    /// `None` unless it spills (blocked arrays do not).
+    pub fn spill_range(&self, anchor: CellCoord) -> Option<RangeRef> {
+        let s = self.spill(anchor).filter(|s| !s.blocked)?;
+        Some(RangeRef::new(
+            anchor.sheet,
+            anchor.row,
+            anchor.col,
+            anchor.row + s.rows - 1,
+            anchor.col + s.cols - 1,
+        ))
+    }
+
+    /// The anchor of a spilled cell (`None` for every other cell, anchors
+    /// included).
+    pub fn spill_anchor(&self, c: CellCoord) -> Option<CellCoord> {
+        match self.content(c) {
+            CellContent::Spilled { anchor } => Some(*anchor),
+            _ => None,
+        }
+    }
+
+    /// Every array formula of `sheet` with its state, sorted by anchor.
+    pub fn spills(&self, sheet: SheetId) -> Vec<(CellCoord, Spill)> {
+        let mut out: Vec<(CellCoord, Spill)> = self
+            .sheets
+            .get(sheet.0 as usize)
+            .into_iter()
+            .flat_map(|s| s.arrays.iter())
+            .map(|(&(r, c), &spill)| (CellCoord::new(sheet, r, c), spill))
+            .collect();
+        out.sort_unstable_by_key(|(c, _)| *c);
+        out
     }
 
     /// Empties a cell.
@@ -663,7 +863,7 @@ impl Engine {
         match sheet.cells.get(&(c.row, c.col)) {
             None | Some(CellContent::Empty) => Value::Empty,
             Some(CellContent::Value(v)) => v.clone(),
-            Some(CellContent::Formula { .. }) => sheet
+            Some(CellContent::Formula { .. } | CellContent::Spilled { .. }) => sheet
                 .values
                 .get(&(c.row, c.col))
                 .cloned()
@@ -782,8 +982,9 @@ impl Engine {
         out
     }
 
-    /// All non-empty contents of `sheet`, in no particular order (empty for
-    /// an unknown sheet).
+    /// All non-empty contents of `sheet` (spilled cells included, see
+    /// [`value`](Self::value) for what they show), in no particular order
+    /// (empty for an unknown sheet).
     pub fn cells(&self, sheet: SheetId) -> impl Iterator<Item = (CellCoord, &CellContent)> {
         self.sheets
             .get(sheet.0 as usize)
@@ -869,8 +1070,9 @@ impl Engine {
         if op.is_insert() {
             let pushed_off = self.sheets[idx]
                 .cells
-                .keys()
-                .any(|&(r, c)| op.map_cell(r, c).is_none());
+                .iter()
+                .filter(|(_, x)| !matches!(x, CellContent::Spilled { .. }))
+                .any(|(&(r, c), _)| op.map_cell(r, c).is_none());
             if u64::from(at) + u64::from(count) > max + 1 || pushed_off {
                 return Err(EngineError::InvalidCoord);
             }
@@ -878,8 +1080,15 @@ impl Engine {
             return Err(EngineError::InvalidCoord);
         }
 
-        // 1. Move contents and cached values on the target sheet.
+        // 0. Drop the spills of the sheet; the moved anchors spill again.
         let coord = |s: SheetId, (row, col): (u32, u32)| CellCoord::new(s, row, col);
+        let anchors: Vec<(u32, u32)> = self.sheets[idx].arrays.keys().copied().collect();
+        let mut freed = Vec::new();
+        for &a in &anchors {
+            freed.extend(self.clear_spill(coord(sheet, a)));
+        }
+
+        // 1. Move contents and cached values on the target sheet.
         let mut vacated = Vec::new();
         let mut moved_to = Vec::new();
         let mut unregister: HashSet<CellCoord> = HashSet::new();
@@ -971,6 +1180,13 @@ impl Engine {
         let mut seeds = vacated;
         seeds.extend_from_slice(&moved_to);
         seeds.extend(rewritten);
+        seeds.extend(freed);
+        seeds.extend(
+            anchors
+                .iter()
+                .filter_map(|&(r, c)| op.map_cell(r, c))
+                .map(|p| coord(sheet, p)),
+        );
         let mut changed = moved_to;
         let mut cycle = None;
         match &mut self.pending {
@@ -1045,24 +1261,45 @@ impl Engine {
     }
 
     fn run(&mut self, schedule: crate::graph::Schedule) -> Recalc {
-        let mut changed = Vec::new();
-        let cycle = schedule.cycle.clone();
-        let mut pass = self.eval_schedule(&schedule, &mut changed);
-        // Volatile cells that read other cells dynamically (`INDIRECT`,
-        // `OFFSET`) have no dependency edges to them, so the schedule may
-        // have evaluated them before a cell they read was recalculated.
-        // While a cell changed after the first volatile cell was
-        // evaluated, evaluate the volatile cells and their dependents again.
-        for _ in 0..3 {
+        let mut changed = std::mem::take(&mut self.freed);
+        let mut cycle = schedule.cycle.clone();
+        let mut followups = Vec::new();
+        // Cells found on a cycle stay `#NUM!` for the whole run (a spill
+        // read by its own anchor is a cycle only while it spills).
+        let mut cyclic = schedule.cyclic.clone();
+        let mut pass = self.eval_schedule(&schedule, &cyclic, &mut changed, &mut followups);
+        let mut volatile_rounds = 0;
+        for _ in 0..MAX_SPILL_PASSES {
+            // Spill ranges that grew (their new cells' readers were not
+            // scheduled) and cells freed by a spill (arrays blocked by them
+            // may fit now).
+            if !followups.is_empty() {
+                let seeds = std::mem::take(&mut followups);
+                let again = self.graph.recalc_schedule(&seeds);
+                if cycle.is_none() {
+                    cycle = again.cycle.clone();
+                }
+                cyclic.extend(again.cyclic.iter().copied());
+                pass = self.eval_schedule(&again, &cyclic, &mut changed, &mut followups);
+                continue;
+            }
+            // Volatile cells that read other cells dynamically (`INDIRECT`,
+            // `OFFSET`) have no dependency edges to them, so the schedule
+            // may have evaluated them before a cell they read was
+            // recalculated. While a cell changed after the first volatile
+            // cell was evaluated, evaluate the volatile cells and their
+            // dependents again (at most three times).
             let (Some(first_volatile), Some(last_change)) = pass else {
                 break;
             };
-            if last_change <= first_volatile {
+            if last_change <= first_volatile || volatile_rounds == 3 {
                 break;
             }
+            volatile_rounds += 1;
             let seeds: Vec<CellCoord> = self.volatile.iter().copied().collect();
             let again = self.graph.recalc_schedule(&seeds);
-            pass = self.eval_schedule(&again, &mut changed);
+            cyclic.extend(again.cyclic.iter().copied());
+            pass = self.eval_schedule(&again, &cyclic, &mut changed, &mut followups);
         }
         changed.sort_unstable();
         changed.dedup();
@@ -1075,11 +1312,13 @@ impl Engine {
     fn eval_schedule(
         &mut self,
         schedule: &crate::graph::Schedule,
+        cyclic: &HashSet<CellCoord>,
         changed: &mut Vec<CellCoord>,
+        followups: &mut Vec<CellCoord>,
     ) -> (Option<usize>, Option<usize>) {
         let (mut first_volatile, mut last_change) = (None, None);
         for (i, &c) in schedule.order.iter().enumerate() {
-            let new = if schedule.cyclic.contains(&c) {
+            let result = if cyclic.contains(&c) {
                 Value::Error(ErrorKind::Num)
             } else {
                 let CellContent::Formula { ast, .. } = self.content(c) else {
@@ -1087,8 +1326,9 @@ impl Engine {
                 };
                 let mut ctx = EvalContext::new(self, &self.registry, c);
                 ctx.now = self.now;
-                evaluate(ast, &ctx).into_scalar()
+                evaluate_formula(ast, &ctx)
             };
+            let new = self.store_result(c, result, changed, followups);
             if first_volatile.is_none() && self.volatile.contains(&c) {
                 first_volatile = Some(i);
             }
@@ -1100,6 +1340,85 @@ impl Engine {
             }
         }
         (first_volatile, last_change)
+    }
+
+    /// Spills an array result of the formula in `c` (or removes its old
+    /// spill for a scalar result) and returns the anchor's own value.
+    /// Spilled cells whose value changed and freed cells go to `changed`;
+    /// cells whose readers must be (re-)evaluated go to `followups`.
+    fn store_result(
+        &mut self,
+        c: CellCoord,
+        result: Value,
+        changed: &mut Vec<CellCoord>,
+        followups: &mut Vec<CellCoord>,
+    ) -> Value {
+        let idx = c.sheet.0 as usize;
+        let key = (c.row, c.col);
+        let old = self.sheets[idx].arrays.get(&key).copied();
+        let Value::Array(a) = result else {
+            if old.is_some() {
+                let freed = self.clear_spill(c);
+                self.freed.clear();
+                followups.extend(self.sheets[idx].blocked_over(&freed));
+                followups.extend_from_slice(&freed);
+                changed.extend(freed);
+            }
+            return result;
+        };
+        let rows = u32::try_from(a.rows()).unwrap_or(u32::MAX);
+        let cols = u32::try_from(a.cols()).unwrap_or(u32::MAX);
+        let fits = u64::from(c.row) + u64::from(rows) <= u64::from(MAX_ROW) + 1
+            && u64::from(c.col) + u64::from(cols) <= u64::from(MAX_COL) + 1;
+        let sheet = &mut self.sheets[idx];
+        let blocked = !fits || sheet.obstructed(c, rows, cols);
+        let keep = (!blocked).then_some((rows, cols));
+        let freed = match old {
+            Some(o) if !o.blocked => sheet.free_spill(c, o.rows, o.cols, keep),
+            _ => Vec::new(),
+        };
+        followups.extend(sheet.blocked_over(&freed));
+        followups.extend_from_slice(&freed);
+        changed.extend(freed);
+        sheet.arrays.insert(
+            key,
+            Spill {
+                rows,
+                cols,
+                blocked,
+            },
+        );
+        if blocked {
+            self.graph.set_spill(c, None);
+            return Value::Error(ErrorKind::Spill);
+        }
+        for (i, v) in a.values().iter().enumerate().skip(1) {
+            let (r, col) = ((i / a.cols()) as u32, (i % a.cols()) as u32);
+            let pos = (c.row + r, c.col + col);
+            let at = CellCoord::new(c.sheet, pos.0, pos.1);
+            let newly = !matches!(sheet.cells.get(&pos), Some(CellContent::Spilled { .. }));
+            if newly {
+                sheet.cells.insert(pos, CellContent::Spilled { anchor: c });
+                // Readers of a newly covered cell were not scheduled.
+                followups.push(at);
+            }
+            let old_value = sheet.values.insert(pos, v.clone());
+            if newly || !old_value.is_some_and(|o| same_value(&o, v)) {
+                changed.push(at);
+            }
+        }
+        sheet.grow_used(c.row + rows - 1, c.col + cols - 1);
+        self.graph.set_spill(
+            c,
+            Some(RangeRef::new(
+                c.sheet,
+                c.row,
+                c.col,
+                c.row + rows - 1,
+                c.col + cols - 1,
+            )),
+        );
+        a.top_left()
     }
 }
 
@@ -1122,6 +1441,17 @@ impl CellProvider for Engine {
 
     fn is_subtotal_cell(&self, c: CellCoord) -> bool {
         matches!(self.content(c), CellContent::Formula { ast, .. } if reads_row_visibility(ast, &self.registry))
+    }
+
+    fn spill_extent(&self, c: CellCoord) -> Option<(u32, u32)> {
+        match self.content(c) {
+            CellContent::Formula { .. } => match self.spill(c) {
+                Some(s) if s.blocked => None,
+                Some(s) => Some((s.rows, s.cols)),
+                None => Some((1, 1)),
+            },
+            _ => None,
+        }
     }
 }
 

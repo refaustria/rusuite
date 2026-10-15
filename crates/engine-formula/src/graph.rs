@@ -209,12 +209,63 @@ impl SheetIndex {
         );
     }
 
+    /// Formulas reading any cell of `rect` (exact cells or overlapping
+    /// ranges).
+    fn collect_rect_dependents(&self, rect: &RangeRef, out: &mut Vec<CellCoord>) {
+        let area = u64::from(rect.rows()) * u64::from(rect.cols());
+        if area <= self.cells.len() as u64 {
+            for row in rect.r0..=rect.r1 {
+                for col in rect.c0..=rect.c1 {
+                    if let Some(list) = self.cells.get(&CellCoord::new(rect.sheet, row, col)) {
+                        out.extend_from_slice(list);
+                    }
+                }
+            }
+        } else {
+            for (c, list) in &self.cells {
+                if rect.contains(*c) {
+                    out.extend_from_slice(list);
+                }
+            }
+        }
+        let hits = |list: &Vec<(RangeRef, CellCoord)>, out: &mut Vec<CellCoord>| {
+            out.extend(list.iter().filter(|(r, _)| overlaps(r, rect)).map(|e| e.1));
+        };
+        let (t0, t1) = (rect.r0 / BUCKET_HEIGHT, rect.r1 / BUCKET_HEIGHT);
+        let (b0, b1) = (rect.c0 / BUCKET_WIDTH, rect.c1 / BUCKET_WIDTH);
+        let tiles = u64::from(t1 - t0 + 1) * u64::from(b1 - b0 + 1);
+        if tiles <= self.tiles.len() as u64 {
+            for t in t0..=t1 {
+                for b in b0..=b1 {
+                    if let Some(list) = self.tiles.get(&(t, b)) {
+                        hits(list, out);
+                    }
+                }
+            }
+        } else {
+            for list in self.tiles.values() {
+                hits(list, out);
+            }
+        }
+        for b in b0..=b1 {
+            if let Some(list) = self.buckets.get(&b) {
+                hits(list, out);
+            }
+        }
+        hits(&self.wide, out);
+    }
+
     fn is_empty(&self) -> bool {
         self.cells.is_empty()
             && self.tiles.is_empty()
             && self.buckets.is_empty()
             && self.wide.is_empty()
     }
+}
+
+/// True if the two ranges (on the same sheet) share a cell.
+fn overlaps(a: &RangeRef, b: &RangeRef) -> bool {
+    a.sheet == b.sheet && a.r0 <= b.r1 && b.r0 <= a.r1 && a.c0 <= b.c1 && b.c0 <= a.c1
 }
 
 /// Dependency graph of all formula cells of a workbook. See the module docs
@@ -225,6 +276,9 @@ pub struct DependencyGraph {
     formulas: HashMap<CellCoord, Vec<Precedent>>,
     /// Reverse edges, per sheet of the precedent.
     sheets: HashMap<SheetId, SheetIndex>,
+    /// Spilling formula → the range it spills into: the formulas reading
+    /// that range are dependents of the formula.
+    spills: HashMap<CellCoord, RangeRef>,
 }
 
 impl DependencyGraph {
@@ -262,8 +316,24 @@ impl DependencyGraph {
         self.formulas.insert(cell, precedents);
     }
 
+    /// Records (or with `None` forgets) the range the formula in `anchor`
+    /// spills into: formulas reading cells of `range` become dependents
+    /// of `anchor` (see [`direct_dependents`](Self::direct_dependents)).
+    pub fn set_spill(&mut self, anchor: CellCoord, range: Option<RangeRef>) {
+        match range {
+            Some(r) => self.spills.insert(anchor, r),
+            None => self.spills.remove(&anchor),
+        };
+    }
+
+    /// The spill range recorded for `anchor`.
+    pub fn spill(&self, anchor: CellCoord) -> Option<RangeRef> {
+        self.spills.get(&anchor).copied()
+    }
+
     /// Removes the formula of `cell` (it became a constant or was cleared).
-    /// No-op if `cell` holds no formula.
+    /// No-op if `cell` holds no formula. A recorded spill range is kept
+    /// (forget it with [`set_spill`](Self::set_spill)).
     pub fn remove_formula(&mut self, cell: CellCoord) {
         let Some(old) = self.formulas.remove(&cell) else {
             return;
@@ -304,6 +374,7 @@ impl DependencyGraph {
             self.remove_formula(c);
         }
         self.sheets.remove(&sheet);
+        self.spills.retain(|c, _| c.sheet != sheet);
         hosted
     }
 
@@ -318,11 +389,16 @@ impl DependencyGraph {
     }
 
     /// Formula cells that reference `cell` directly or through a range
-    /// containing it; sorted and deduplicated.
+    /// containing it, plus, when `cell` spills (see
+    /// [`set_spill`](Self::set_spill)), the formulas reading its spill
+    /// range; sorted and deduplicated.
     pub fn direct_dependents(&self, cell: CellCoord) -> Vec<CellCoord> {
         let mut out = Vec::new();
         if let Some(idx) = self.sheets.get(&cell.sheet) {
             idx.collect_dependents(cell, &mut out);
+            if let Some(rect) = self.spills.get(&cell) {
+                idx.collect_rect_dependents(rect, &mut out);
+            }
         }
         out.sort_unstable();
         out.dedup();
