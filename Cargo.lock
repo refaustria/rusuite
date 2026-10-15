@@ -1988,7 +1988,7 @@ dependencies = [
  "insta",
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

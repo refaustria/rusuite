@@ -4,7 +4,7 @@
 //!
 //! [`CellStyle`] contains `f64`s (the tint of [`Color::Theme`]), so it
 //! cannot derive `Eq`/`Hash`. Both are implemented by hand over a borrowed
-//! key in which every color is replaced by a [`ColorKey`] that compares
+//! key in which every color is replaced by a `ColorKey` that compares
 //! tints by bit pattern (`f64::to_bits`). This makes equality reflexive
 //! (a `NaN` tint equals itself) and consistent with hashing; the price is
 //! that `0.0` and `-0.0` tints are distinct styles, which is harmless
