@@ -95,6 +95,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Code signing + notarization (Windows/macOS warn today); auto-update (tauri-plugin-updater); CI check that the tag matches `tauri.conf.json` versions; bump actions to Node 24 variants when available.
 
 ## Calc (Phase 6 leftovers)
+- Hidden sheets (reader drops the state); Move/Copy sheet dialog; coloured tab fill for inactive tabs; write `tabSelected`; 3-D references (`Sheet1:Sheet3!A1`) in the parser.
 - References to cells overwritten by a cut-move should become `#REF!` (Excel); delete-sheet core command; month/weekday fill series; small General numbers in narrow cells (`1.2E-05`); `is_date_format` should recognise `[h]`/AM/PM codes for date fill series; Fill Down/Right buttons in the ribbon Editing group; move the gallery width fix into ui-shared `gallery.tsx`.
 
 ## Write (Phase 6 leftovers)
