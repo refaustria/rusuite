@@ -2,7 +2,9 @@
 //! command, [`RegionSnapshot`] for a viewport, [`WorkbookInfo`] on open.
 
 use app_common::Revision;
-use model_sheet::{AutoFilter, CellStyle, SheetFormat, SheetView, SortState};
+use model_sheet::{
+    AutoFilter, CellStyle, CfResult, DataValidation, SheetFormat, SheetView, SortState,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -221,6 +223,13 @@ pub struct CalcPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub activate_sheet: Option<u32>,
+    /// Sheets whose conditional formatting results, rules or data
+    /// validations may have changed (a rule command, or any cell change on
+    /// a workbook with rules): the UI refetches their region snapshot (and
+    /// `sheetRules` if a dialog shows them); absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<u32>>")]
+    pub cf_sheets: Vec<u32>,
 }
 
 /// Merges `other` into `list`, replacing entries with the same key.
@@ -248,6 +257,11 @@ impl app_common::Patch for CalcPatch {
             self.activate_sheet = other.activate_sheet;
         }
         merge_keyed(&mut self.merges, other.merges, |m| m.sheet);
+        for s in other.cf_sheets {
+            if !self.cf_sheets.contains(&s) {
+                self.cf_sheets.push(s);
+            }
+        }
         // A structural change invalidates earlier cell/row/col entries of
         // that sheet: drop them.
         for s in &other.structural {
@@ -300,6 +314,28 @@ pub struct RegionSnapshot {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<Rect>>")]
     pub merges: Vec<Rect>,
+    /// The conditional formatting of the region's cells (blank cells
+    /// included), row-major; absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<CellCf>>")]
+    pub cf: Vec<CellCf>,
+    /// The data validations intersecting the region (whole ranges; the
+    /// UI shows list dropdowns and input messages from them); absent =
+    /// none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<crate::wire_cf::DataValidation>>")]
+    pub validations: Vec<DataValidation>,
+}
+
+/// The conditional formatting of one cell of a [`RegionSnapshot`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct CellCf {
+    pub row: u32,
+    pub col: u32,
+    #[ts(as = "crate::wire_cf::CfResult")]
+    pub cf: CfResult,
 }
 
 /// Workbook metadata sent on open/new.

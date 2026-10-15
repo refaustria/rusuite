@@ -87,12 +87,14 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     // Styles.
     let mut wb = Workbook::new();
     let mut xf_ids: Vec<StyleId> = Vec::new();
+    let mut dxfs: Vec<model_sheet::DxfStyle> = Vec::new();
     if let Some(styles) = pkg.related_part(&main, rel::STYLES) {
         let parsed = parse_styles(part_data(&styles)?, styles.as_str(), &mut |w| {
             warnings.push(w)
         })?;
         xf_ids = parsed.xfs.iter().map(|s| wb.intern_style(s)).collect();
         context.default_font = Some(parsed.default_font);
+        dxfs = parsed.dxfs;
         consumed.insert(styles);
     }
 
@@ -152,6 +154,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
                 sheet: *id,
                 sheet_name: name,
                 xf_ids: &xf_ids,
+                dxfs: &dxfs,
                 sst: &sst,
                 warnings: &mut warnings,
                 shared: HashMap::new(),
@@ -330,8 +333,6 @@ struct CellBuf {
 
 /// Elements we drop, with the wording used in the warning.
 const DROPPED: &[(&[u8], &str)] = &[
-    (b"conditionalFormatting", "conditional formatting"),
-    (b"dataValidations", "data validation"),
     (b"hyperlinks", "hyperlinks"),
     (b"drawing", "drawings/charts"),
     (b"legacyDrawing", "comments/legacy drawings"),
@@ -347,6 +348,8 @@ struct SheetLoader<'a> {
     sheet: SheetId,
     sheet_name: &'a str,
     xf_ids: &'a [StyleId],
+    /// Differential formats of `styles.xml` (conditional formatting).
+    dxfs: &'a [model_sheet::DxfStyle],
     sst: &'a [String],
     warnings: &'a mut Vec<String>,
     /// Shared formula index → (master AST, master row, master col).
@@ -383,6 +386,8 @@ impl SheetLoader<'_> {
         // (only the first view is read).
         let mut view_state = 0u8;
         let mut filter = FilterReader::default();
+        // `<conditionalFormatting>`, `<dataValidations>`, `<extLst>`.
+        let mut rules: Vec<fmt_ooxml::xml::El> = Vec::new();
         loop {
             let ev = reader.read_event().map_err(xml_err(part))?;
             match ev {
@@ -482,6 +487,13 @@ impl SheetLoader<'_> {
                             }
                         }
                         name if filter.start(name, el, empty) => {}
+                        b"conditionalFormatting" | b"dataValidations" | b"extLst" => {
+                            if !empty {
+                                let span = reader.read_to_end(el.name()).map_err(xml_err(part))?;
+                                let inner = &xml[span.start as usize..span.end as usize];
+                                rules.push(crate::condfmt::subtree(el, inner, part)?);
+                            }
+                        }
                         name => {
                             if let Some((_, what)) = DROPPED.iter().find(|(n, _)| *n == name) {
                                 dropped.insert(what);
@@ -553,6 +565,9 @@ impl SheetLoader<'_> {
         }
         for what in dropped {
             self.warn(format!("{what} dropped"));
+        }
+        for w in crate::condfmt::load(self.wb, self.sheet, &rules, self.dxfs)? {
+            self.warn(w);
         }
         self.finish_filter(filter)
     }

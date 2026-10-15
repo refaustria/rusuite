@@ -319,7 +319,7 @@ fn shared_formulas_and_dropped_features() {
 <row r="1"><c r="A1"><v>1</v></c><c r="B1"><f t="shared" ref="B1:B3" si="0">A1*2+$A$1</f><v>3</v></c><c r="C1" t="inlineStr"><is><t>inline</t></is></c></row>
 <row r="2"><c r="A2"><v>2</v></c><c r="B2"><f t="shared" si="0"/><v>5</v></c><c r="C2" t="str"><f>_xlfn.CONCAT("a",C1)</f><v>ainline</v></c></row>
 <row r="3"><c r="A3"><v>3</v></c><c r="B3"><f t="shared" si="0"/><v>7</v></c><c r="C3"><f>FOO.BAR(</f><v>9</v></c></row>
-</sheetData><mergeCells count="3"><mergeCell ref="E2:D1"/><mergeCell ref="F1"/><mergeCell ref="E2:F3"/></mergeCells><conditionalFormatting sqref="A1"/></worksheet>"#;
+</sheetData><mergeCells count="3"><mergeCell ref="E2:D1"/><mergeCell ref="F1"/><mergeCell ref="E2:F3"/></mergeCells><conditionalFormatting sqref="A1"/><hyperlinks><hyperlink ref="A1" r:id="rId1"/></hyperlinks></worksheet>"#;
     let base = fmt_xlsx::write(&Workbook::new()).unwrap();
     let mut pkg = Package::open(Cursor::new(base.as_slice())).unwrap();
     pkg.part_mut(&PartName::new("/xl/worksheets/sheet1.xml").unwrap())
@@ -349,7 +349,8 @@ fn shared_formulas_and_dropped_features() {
     // Only the first sheet view counts.
     assert_eq!(wb.sheet_view(s).zoom, 85);
     assert_eq!(wb.sheet_view(s).frozen_rows, 0);
-    assert!(all.contains("conditional formatting dropped"), "{all}");
+    assert!(all.contains("hyperlinks dropped"), "{all}");
+    assert!(wb.cf_rules(s).is_empty());
     assert!(all.contains("C3: formula"), "{all}");
 }
 

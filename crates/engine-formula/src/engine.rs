@@ -393,8 +393,9 @@ fn same_value(a: &Value, b: &Value) -> bool {
     }
 }
 
-/// Interprets user input the way a spreadsheet cell editor does.
-fn parse_input(input: &str) -> Result<CellContent, ParseError> {
+/// Interprets user input the way a spreadsheet cell editor does (what
+/// [`Engine::set_input`] stores).
+pub fn parse_input(input: &str) -> Result<CellContent, ParseError> {
     if input.is_empty() {
         return Ok(CellContent::Empty);
     }
@@ -888,6 +889,20 @@ impl Engine {
     /// unknown sheet.
     pub fn used_range(&self, sheet: SheetId) -> Option<(u32, u32)> {
         self.sheets.get(sheet.0 as usize).and_then(|s| s.used)
+    }
+
+    /// An evaluation context for an expression that is not stored in a
+    /// cell (conditional formatting and data validation rules): values come
+    /// from `provider` (usually `self`, or an overlay of it), `at` is the
+    /// current cell, and this engine's functions and clock are used.
+    pub fn eval_context<'a>(
+        &'a self,
+        provider: &'a dyn CellProvider,
+        at: CellCoord,
+    ) -> EvalContext<'a> {
+        let mut ctx = EvalContext::new(provider, &self.registry, at);
+        ctx.now = self.now;
+        ctx
     }
 
     /// Replaces the clock used by `NOW`/`TODAY` (Excel serial date-time).

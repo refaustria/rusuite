@@ -90,6 +90,22 @@ pub enum Request {
     /// The value list of AutoFilter column `col` (absolute) for its
     /// dropdown → `filterValues`.
     FilterValues { sheet: u32, col: u32 },
+    /// Checks `input` (as typed) against the data validation of the cell
+    /// before the UI sends `setInput` → `validation`. The UI decides by
+    /// `errorStyle` whether a failed check rejects (`stop`), asks
+    /// (`warning`) or only informs (`information`).
+    ValidateInput {
+        sheet: u32,
+        row: u32,
+        col: u32,
+        input: String,
+    },
+    /// The in-cell dropdown values of the cell's list validation →
+    /// `listValues` (empty without one).
+    ListValues { sheet: u32, row: u32, col: u32 },
+    /// The conditional formatting rules (priority order) and the data
+    /// validations of `sheet` (for the manage dialogs) → `sheetRules`.
+    SheetRules { sheet: u32 },
 }
 
 /// The successful part of a [`Response`].
@@ -161,6 +177,23 @@ pub enum ResponseBody {
     FilterValues {
         #[ts(as = "Vec<crate::wire::FilterValue>")]
         values: Vec<model_sheet::FilterValue>,
+    },
+    /// The reply to `validateInput`.
+    Validation {
+        #[ts(as = "crate::wire_cf::ValidationResult")]
+        result: model_sheet::ValidationResult,
+    },
+    /// The reply to `listValues`: the values as displayed, in source
+    /// order (blank source cells left out).
+    ListValues {
+        values: Vec<String>,
+    },
+    /// The reply to `sheetRules`.
+    SheetRules {
+        #[ts(as = "Vec<crate::wire_cf::CfRule>")]
+        rules: Vec<model_sheet::CfRule>,
+        #[ts(as = "Vec<crate::wire_cf::DataValidation>")]
+        validations: Vec<model_sheet::DataValidation>,
     },
 }
 
@@ -287,6 +320,21 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
         Request::FilterValues { sheet, col } => ResponseBody::FilterValues {
             values: host.doc().filter_values(sheet, col)?,
         },
+        Request::ValidateInput {
+            sheet,
+            row,
+            col,
+            input,
+        } => ResponseBody::Validation {
+            result: host.doc().validate_input(sheet, row, col, &input)?,
+        },
+        Request::ListValues { sheet, row, col } => ResponseBody::ListValues {
+            values: host.doc().list_values(sheet, row, col)?,
+        },
+        Request::SheetRules { sheet } => {
+            let (rules, validations) = host.doc().sheet_rules(sheet)?;
+            ResponseBody::SheetRules { rules, validations }
+        }
         Request::UsedRange { sheet } => ResponseBody::UsedRange {
             last: host.doc().used_range(sheet)?,
         },

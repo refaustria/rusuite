@@ -65,6 +65,9 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     found: { cells: "array" },
     formatted: { text: "string" },
     filterValues: { values: "array" },
+    validation: { result: "object" },
+    listValues: { values: "array" },
+    sheetRules: { rules: "array", validations: "array" },
     // `last` may be null (empty sheet): checked by the caller.
     usedRange: {},
   };
