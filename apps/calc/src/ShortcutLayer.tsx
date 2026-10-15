@@ -8,25 +8,27 @@ import { Dialog, openBackstage, PromptDialog, ShortcutHelp, useShortcuts, withEx
 import { colSelection, isWholeCols, isWholeRows, normalize, rowSelection } from "./grid/Selection";
 import { calcActions } from "./calcActions";
 import { CalcDialogs } from "./CalcDialogs";
+import { t as translate, useT } from "./i18n";
 import type { CalcStore } from "./state/store";
 
 const inGrid = (e: KeyboardEvent) => (e.target as HTMLElement | null)?.hasAttribute?.("data-calc-grid") ?? false;
 
 /** Keys handled inside the grid / cell editor components, listed for the help dialog. */
-export const NATIVE_ROWS: HelpRow[] = [
-  { combo: "Mod+ArrowRight", label: "Jump to the edge of the data (any arrow)", group: "Navigation" },
-  { combo: "Mod+Shift+ArrowRight", label: "Extend the selection to the edge of the data", group: "Navigation" },
-  { combo: "Mod+A", label: "Select all", group: "Navigation" },
-  { combo: "Alt+Enter", label: "Line break in the cell editor (turns wrap text on)", group: "Editing" },
-  { combo: "Mod+C", label: "Copy (marching ants until Esc or an edit)", group: "Edit" },
-  { combo: "Mod+X", label: "Cut: the paste moves the cells", group: "Edit" },
-  { combo: "Mod+V", label: "Paste (formulas shift; repeats over a multiple selection)", group: "Edit" },
-  { combo: "Escape", label: "Cancel copy / cut mode", group: "Edit" },
+export const nativeRows = (t = translate): HelpRow[] => [
+  { combo: "Mod+ArrowRight", label: t("calc.sc.jumpEdge"), group: t("sc.navigation") },
+  { combo: "Mod+Shift+ArrowRight", label: t("calc.sc.extendEdge"), group: t("sc.navigation") },
+  { combo: "Mod+A", label: t("cmd.selectAll"), group: t("sc.navigation") },
+  { combo: "Alt+Enter", label: t("calc.sc.lineBreak"), group: t("group.editing") },
+  { combo: "Mod+C", label: t("calc.sc.copy"), group: t("sc.edit") },
+  { combo: "Mod+X", label: t("calc.sc.cut"), group: t("sc.edit") },
+  { combo: "Mod+V", label: t("calc.sc.paste"), group: t("sc.edit") },
+  { combo: "Escape", label: t("calc.sc.cancelCopy"), group: t("sc.edit") },
 ];
 
 function StructureDialog({ kind, onClose, store }: { kind: "insert" | "delete" | null; onClose: () => void; store: CalcStore }) {
+  const t = useT();
   const [axis, setAxis] = useState<"rows" | "cols">("rows");
-  const Label = kind === "insert" ? "Insert" : "Delete";
+  const Label = kind === "insert" ? t("tab.insert") : t("cmd.delete");
   return (
     <Dialog open={kind !== null} title={Label} onClose={onClose}>
       <form
@@ -40,18 +42,18 @@ function StructureDialog({ kind, onClose, store }: { kind: "insert" | "delete" |
       >
         <label className="flex items-center gap-2">
           <input type="radio" name="axis" checked={axis === "rows"} onChange={() => setAxis("rows")} />
-          Entire row
+          {t("calc.sc.entireRow")}
         </label>
         <label className="flex items-center gap-2">
           <input type="radio" name="axis" checked={axis === "cols"} onChange={() => setAxis("cols")} />
-          Entire column
+          {t("calc.sc.entireCol")}
         </label>
         <div className="flex justify-end gap-2">
           <button type="button" className="h-7 rounded border border-ui-border px-3 hover:bg-ui-hover" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button type="submit" className="h-7 rounded border border-ui-border px-3 hover:bg-ui-hover">
-            OK
+            {t("common.ok")}
           </button>
         </div>
       </form>
@@ -60,13 +62,14 @@ function StructureDialog({ kind, onClose, store }: { kind: "insert" | "delete" |
 }
 
 export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: UnsavedGuard }) {
+  const t = useT();
   const [helpOpen, setHelpOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   const [structure, setStructure] = useState<"insert" | "delete" | null>(null);
 
   const map = useMemo<ShortcutMap>(() => {
-    const File = "File";
-    const grid = "Grid";
+    const File = t("sc.file");
+    const grid = t("calc.sc.grid");
     const actions = calcActions(store);
     /** Insert/delete: whole-row or whole-column selections skip the dialog. */
     const structural = (kind: "insert" | "delete") => () => {
@@ -76,18 +79,18 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       else setStructure(kind);
     };
     return {
-      "Mod+N": { label: "New workbook", group: File, inField: true, run: () => void guard.run(() => store.newFile()) },
-      "Mod+O": { label: "Open", group: File, inField: true, run: () => void guard.run(() => store.openFile()) },
-      "Mod+S": { label: "Save", group: File, inField: true, run: () => void store.saveFile() },
+      "Mod+N": { label: t("calc.sc.newWorkbook"), group: File, inField: true, run: () => void guard.run(() => store.newFile()) },
+      "Mod+O": { label: t("cmd.open"), group: File, inField: true, run: () => void guard.run(() => store.openFile()) },
+      "Mod+S": { label: t("cmd.save"), group: File, inField: true, run: () => void store.saveFile() },
       // Desktop: the native save dialog is the Save As; web: name the download first.
       "Mod+Shift+S": {
-        label: "Save as",
+        label: t("cmd.saveAs"),
         group: File,
         inField: true,
         run: () => (store.api.backend.kind === "tauri" ? void store.saveFile(undefined, true) : setSaveAsOpen(true)),
       },
       "Mod+P": {
-        label: "Print (File › Print: settings and preview)",
+        label: t("sc.printTip"),
         group: File,
         inField: true,
         run: () => {
@@ -95,24 +98,24 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
           openBackstage("print");
         },
       },
-      "Mod+/": { label: "Keyboard shortcuts", inField: true, run: () => setHelpOpen(true) },
-      "Mod+Z": { label: "Undo", group: "Edit", when: inGrid, run: () => void store.undo() },
-      "Mod+Y": { label: "Redo", group: "Edit", when: inGrid, run: () => void store.redo() },
-      "Mod+Shift+Z": { label: "Redo", group: "Edit", when: inGrid, run: () => void store.redo() },
-      "Mod+B": { label: "Bold", group: "Format", when: inGrid, run: () => void store.toggleFont("bold") },
-      "Mod+I": { label: "Italic", group: "Format", when: inGrid, run: () => void store.toggleFont("italic") },
-      "Mod+U": { label: "Underline", group: "Format", when: inGrid, run: () => void store.toggleFont("underline") },
-      "Mod+1": { label: "Format cells (number format)", group: "Format", when: inGrid, run: () => actions.formatCells() },
-      "Mod+F": { label: "Find", group: "Edit", when: inGrid, run: () => actions.find() },
-      "Mod+H": { label: "Find and replace", group: "Edit", when: inGrid, run: () => actions.replace() },
-      "Mod+Shift+V": { label: "Paste values only", group: "Edit", when: inGrid, run: () => void actions.pasteValues() },
-      "Mod+D": { label: "Fill down (copy the first row)", group: "Edit", when: inGrid, run: () => void actions.fillDown() },
-      "Mod+R": { label: "Fill right (copy the first column)", group: "Edit", when: inGrid, run: () => void actions.fillRight() },
-      F2: { label: "Edit cell", group: "Edit", when: inGrid, run: () => store.beginEdit(null) },
-      Delete: { label: "Clear cells", group: "Edit", when: inGrid, run: () => void store.clearSelection() },
-      Backspace: { label: "Clear cells", group: "Edit", when: inGrid, run: () => void store.clearSelection() },
+      "Mod+/": { label: t("shortcuts.title"), inField: true, run: () => setHelpOpen(true) },
+      "Mod+Z": { label: t("cmd.undo"), group: t("sc.edit"), when: inGrid, run: () => void store.undo() },
+      "Mod+Y": { label: t("cmd.redo"), group: t("sc.edit"), when: inGrid, run: () => void store.redo() },
+      "Mod+Shift+Z": { label: t("cmd.redo"), group: t("sc.edit"), when: inGrid, run: () => void store.redo() },
+      "Mod+B": { label: t("fmt.bold"), group: t("sc.format"), when: inGrid, run: () => void store.toggleFont("bold") },
+      "Mod+I": { label: t("fmt.italic"), group: t("sc.format"), when: inGrid, run: () => void store.toggleFont("italic") },
+      "Mod+U": { label: t("fmt.underline"), group: t("sc.format"), when: inGrid, run: () => void store.toggleFont("underline") },
+      "Mod+1": { label: t("calc.sc.formatCells"), group: t("sc.format"), when: inGrid, run: () => actions.formatCells() },
+      "Mod+F": { label: t("cmd.find"), group: t("sc.edit"), when: inGrid, run: () => actions.find() },
+      "Mod+H": { label: t("cmd.findReplace"), group: t("sc.edit"), when: inGrid, run: () => actions.replace() },
+      "Mod+Shift+V": { label: t("calc.sc.pasteValues"), group: t("sc.edit"), when: inGrid, run: () => void actions.pasteValues() },
+      "Mod+D": { label: t("calc.sc.fillDown"), group: t("sc.edit"), when: inGrid, run: () => void actions.fillDown() },
+      "Mod+R": { label: t("calc.sc.fillRight"), group: t("sc.edit"), when: inGrid, run: () => void actions.fillRight() },
+      F2: { label: t("calc.sc.editCell"), group: t("sc.edit"), when: inGrid, run: () => store.beginEdit(null) },
+      Delete: { label: t("calc.sc.clearCells"), group: t("sc.edit"), when: inGrid, run: () => void store.clearSelection() },
+      Backspace: { label: t("calc.sc.clearCells"), group: t("sc.edit"), when: inGrid, run: () => void store.clearSelection() },
       "Mod+Space": {
-        label: "Select column",
+        label: t("calc.sc.selectCol"),
         group: grid,
         when: inGrid,
         run: () => {
@@ -121,7 +124,7 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
         },
       },
       "Shift+Space": {
-        label: "Select row",
+        label: t("calc.sc.selectRow"),
         group: grid,
         when: inGrid,
         run: () => {
@@ -129,23 +132,23 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
           store.select(rowSelection(s.anchor.row, s.focus.row));
         },
       },
-      "Shift+F11": { label: "Insert sheet (before the active one)", group: "Sheets", when: inGrid, run: () => void store.insertSheet() },
-      "Mod+Plus": { label: "Insert rows / columns", group: grid, when: inGrid, run: structural("insert") },
-      "Mod+Minus": { label: "Delete rows / columns", group: grid, when: inGrid, run: structural("delete") },
+      "Shift+F11": { label: t("calc.sc.insertSheet"), group: t("calc.sheets"), when: inGrid, run: () => void store.insertSheet() },
+      "Mod+Plus": { label: t("calc.sc.insertRowsCols"), group: grid, when: inGrid, run: structural("insert") },
+      "Mod+Minus": { label: t("calc.sc.deleteRowsCols"), group: grid, when: inGrid, run: structural("delete") },
     };
-  }, [store, guard]);
+  }, [store, guard, t]);
 
   useShortcuts(map);
 
   return (
     <>
-      <ShortcutHelp open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={map} extra={NATIVE_ROWS} />
+      <ShortcutHelp open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={map} extra={nativeRows(t)} />
       <PromptDialog
         open={saveAsOpen}
-        title="Save as"
-        label="File name"
-        initial={store.getState().name ?? "Workbook.xlsx"}
-        confirmLabel="Save"
+        title={t("cmd.saveAs")}
+        label={t("saveAs.fileName")}
+        initial={store.getState().name ?? t("calc.defaultName")}
+        confirmLabel={t("cmd.save")}
         onClose={() => setSaveAsOpen(false)}
         onSubmit={(name) => {
           setSaveAsOpen(false);

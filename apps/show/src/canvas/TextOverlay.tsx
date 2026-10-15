@@ -13,6 +13,7 @@ import type { Transform } from "../generated/Transform";
 import { emuToPx, PX_PER_PT } from "../geometry";
 import { css, effectiveParagraph, effectiveRun, findShape, fontFamily, placeholderDef, textOf, themePalette } from "../model";
 import { useShow, type ShowStore } from "../state/store";
+import { useT } from "../i18n";
 
 /** Absolute (slide) transform of a shape inside groups; group rotation is ignored. */
 export function absoluteTransform(shape: Shape, parents: Shape[]): Transform {
@@ -25,6 +26,7 @@ export function absoluteTransform(shape: Shape, parents: Shape[]): Transform {
 }
 
 export function TextOverlay({ store, scale }: { store: ShowStore; scale: number }) {
+  const t = useT();
   const editing = useShow(store, (s) => s.editing);
   const pres = useShow(store, (s) => s.pres);
   const revision = useShow(store, (s) => s.revision);
@@ -61,7 +63,7 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
   });
 
   if (!editing || !hit || !pres || !slide) return null;
-  const t = absoluteTransform(hit.shape, hit.parents);
+  const tf = absoluteTransform(hit.shape, hit.parents);
   const body = textOf(hit.shape);
   const def = placeholderDef(pres, slide, hit.shape);
   const run = effectiveRun(def, body?.paragraphs[0]?.runs[0]?.props);
@@ -74,19 +76,19 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
   const sync = (el: HTMLTextAreaElement) => store.updateEdit(el.value, el.selectionStart, el.selectionEnd);
 
   const anchor = body?.props.anchor ?? "top";
-  const boxH = Math.max(emuToPx(t.h) * scale, fontPx * 1.4);
+  const boxH = Math.max(emuToPx(tf.h) * scale, fontPx * 1.4);
   return (
     <div
       data-testid="text-overlay-box"
       data-anchor={anchor}
       className="absolute flex flex-col border border-dashed border-blue-500 bg-white/70"
       style={{
-        left: emuToPx(t.x) * scale,
-        top: emuToPx(t.y) * scale,
-        width: emuToPx(t.w) * scale,
+        left: emuToPx(tf.x) * scale,
+        top: emuToPx(tf.y) * scale,
+        width: emuToPx(tf.w) * scale,
         minHeight: boxH,
         justifyContent: anchor === "middle" ? "center" : anchor === "bottom" ? "flex-end" : "flex-start",
-        transform: t.rotationDeg ? `rotate(${t.rotationDeg}deg)` : undefined,
+        transform: tf.rotationDeg ? `rotate(${tf.rotationDeg}deg)` : undefined,
         transformOrigin: "center",
         padding: `${emuToPx(ins.top) * scale}px ${emuToPx(ins.right) * scale}px ${emuToPx(ins.bottom) * scale}px ${emuToPx(ins.left) * scale}px`,
         boxSizing: "border-box",
@@ -95,7 +97,7 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
       <textarea
         ref={ref}
         rows={1}
-        aria-label="Shape text"
+        aria-label={t("show.shapeText")}
         data-testid="text-overlay"
         value={editing.text}
         spellCheck={false}

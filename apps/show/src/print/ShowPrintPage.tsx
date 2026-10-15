@@ -10,6 +10,7 @@ import { renderSlideImages } from "./slideImages";
 import {
   SHOW_LAYOUT_CHOICES, SHOW_ORIENTATION_CHOICES, SHOW_PAPER_CHOICES, buildShowPrintDoc, printedSlides, type ShowPrintLayout, type ShowPrintOptions,
 } from "./showPrintDoc";
+import { useT } from "../i18n";
 
 /** Builds the print document of the store's presentation. */
 export async function buildShowDoc(store: ShowStore, o: ShowPrintOptions): Promise<PrintDoc> {
@@ -30,6 +31,7 @@ export async function printShow(store: ShowStore, backend: ShowBackend, doc: Pri
 }
 
 export function ShowPrintPage({ store, backend, options, onChange }: { store: ShowStore; backend: ShowBackend; options: ShowPrintOptions; onChange: (o: ShowPrintOptions) => void }) {
+  const t = useT();
   const pres = useShow(store, (s) => s.pres);
   const { range, layout, paper, orientation, frame, fit, scale, hidden } = options;
   const build = useCallback(
@@ -47,20 +49,20 @@ export function ShowPrintPage({ store, backend, options, onChange }: { store: Sh
       range={range}
       onRange={(r) => set("range", r)}
       onPrint={(d) => printShow(store, backend, d)}
-      disabledReason={pres && pres.slides.length === 0 ? "The presentation has no slides" : undefined}
+      disabledReason={pres && pres.slides.length === 0 ? t("show.print.noSlides") : undefined}
       before={
-        <PrintSection title="Settings">
-          <PrintSelect label="Print layout" value={layout} choices={SHOW_LAYOUT_CHOICES} onChange={(v) => set("layout", v as ShowPrintLayout)} />
-          <PrintCheck label="Print hidden slides" checked={hidden} onChange={(v) => set("hidden", v)} />
+        <PrintSection title={t("print.settings")}>
+          <PrintSelect label={t("show.print.layout")} value={layout} choices={SHOW_LAYOUT_CHOICES} onChange={(v) => set("layout", v as ShowPrintLayout)} />
+          <PrintCheck label={t("show.print.hidden")} checked={hidden} onChange={(v) => set("hidden", v)} />
         </PrintSection>
       }
     >
-      <PrintSection title="Layout">
-        <PrintSelect label="Orientation" value={orientation} choices={SHOW_ORIENTATION_CHOICES} onChange={(v) => set("orientation", v as PageOrientation | "auto")} />
-        <PrintSelect label="Paper size" value={paper} choices={SHOW_PAPER_CHOICES} onChange={(v) => set("paper", v as PaperName | "slide")} />
-        <PrintCheck label="Frame slides" checked={frame} onChange={(v) => set("frame", v)} />
-        <PrintCheck label="Scale to fit paper" checked={fit} onChange={(v) => set("fit", v)} />
-        {!fit && <PrintNumber label="Scale" value={scale} min={10} max={200} suffix="%" onChange={(v) => set("scale", v)} />}
+      <PrintSection title={t("print.layoutSection")}>
+        <PrintSelect label={t("print.orientation")} value={orientation} choices={SHOW_ORIENTATION_CHOICES} onChange={(v) => set("orientation", v as PageOrientation | "auto")} />
+        <PrintSelect label={t("print.paperSize")} value={paper} choices={SHOW_PAPER_CHOICES} onChange={(v) => set("paper", v as PaperName | "slide")} />
+        <PrintCheck label={t("show.print.frame")} checked={frame} onChange={(v) => set("frame", v)} />
+        <PrintCheck label={t("show.print.fit")} checked={fit} onChange={(v) => set("fit", v)} />
+        {!fit && <PrintNumber label={t("print.scale")} value={scale} min={10} max={200} suffix="%" onChange={(v) => set("scale", v)} />}
       </PrintSection>
     </PrintPanel>
   );

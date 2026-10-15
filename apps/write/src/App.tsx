@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
-import { applyPageRange, AutosaveStatus, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { applyPageRange, AutosaveStatus, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { buildWritePrintDoc, DEFAULT_WRITE_PRINT, type WritePrintOptions } from "./print/writePrintDoc";
 import { printWrite, WritePrintPage } from "./print/WritePrintPage";
 import { WriteApi, type WriteBackend } from "./backend";
@@ -15,6 +15,7 @@ import { ShortcutLayer } from "./ShortcutLayer";
 import { Toasts } from "./ui/Toasts";
 import { countDocWords, countWords } from "./wordCount";
 import { WriteRibbon } from "./ui/WriteToolbar";
+import { t, useT } from "./i18n";
 
 function useSync<T>(ctl: SyncController, select: (s: SyncState) => T): T {
   return useSyncExternalStore(ctl.subscribe, () => select(ctl.getState()));
@@ -77,27 +78,29 @@ function TitleSync({ ctl, backend, guard }: { ctl: SyncController; backend: Writ
   const dirty = useSync(ctl, (s) => s.dirty);
   const name = useSync(ctl, (s) => s.name);
   const revision = useSync(ctl, (s) => s.revision);
+  const locale = useLocale();
   useEffect(() => {
-    void backend.setTitle(`${dirty ? "• " : ""}${name ?? "Untitled"} – Rusuite Write`).catch(() => undefined);
+    void backend.setTitle(`${dirty ? "• " : ""}${name ?? t("doc.untitled")} – Rusuite Write`).catch(() => undefined);
     guard.syncDirty();
-  }, [backend, guard, dirty, name, revision]);
+  }, [backend, guard, dirty, name, revision, locale]);
   return null;
 }
 
 const StatusBar = memo(function StatusBar({ ctl, editor, backend, session }: { ctl: SyncController; editor: Editor; backend: WriteBackend; session: AnySession }) {
   const { revision, dirty, name, info, warnings } = useThrottledSync(ctl);
   const words = useWordCount(editor);
+  const t = useT();
   return (
     <div className="flex items-center gap-4 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted" data-testid="status-bar">
-      <span data-testid="doc-name">{name ?? "Untitled"}</span>
-      <span data-testid="dirty">{dirty ? "Modified" : "Saved"}</span>
-      <span data-testid="words">{words} words</span>
+      <span data-testid="doc-name">{name ?? t("doc.untitled")}</span>
+      <span data-testid="dirty">{dirty ? t("status.modified") : t("status.saved")}</span>
+      <span data-testid="words">{t("write.status.words", { count: words })}</span>
       <span data-testid="revision">rev {revision}</span>
       <AutosaveStatus session={session} />
       {info && <span data-testid="info">{info}</span>}
       {warnings.length > 0 && (
         <span data-testid="warnings" title={warnings.join("\n")} className="truncate text-amber-600">
-          {warnings.length} warning{warnings.length === 1 ? "" : "s"}: {warnings[0]}
+          {t("status.warnings", { count: warnings.length, first: warnings[0] ?? "" })}
         </span>
       )}
       <span className="ml-auto" data-testid="backend-kind">
@@ -134,7 +137,9 @@ export default function App({ backend }: { backend: WriteBackend }) {
       new UnsavedGuard(backend, {
         dirty: () => ctl.getState().dirty,
         name: () => ctl.getState().name,
-        defaultName: "Document.docx",
+        get defaultName() {
+          return t("write.defaultName");
+        },
         save: (asName) => {
           const name = asName === undefined ? undefined : withExtension(asName, ".docx");
           return ctl.saveDocx((n, bytes) => backend.saveFile(name ?? n, bytes), name);

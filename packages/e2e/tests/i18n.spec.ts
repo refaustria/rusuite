@@ -1,0 +1,99 @@
+// UI languages (P7-11): English is the default; a German browser gets the
+// German UI; the choice (View › Language, the backstage, the portal's
+// EN/DE switch) is persisted and shared by the portal and the apps.
+// `I18N_SHOTS=<dir>` also saves screenshots of the German UI there.
+
+import { expect, test, type Page } from "@playwright/test";
+import path from "node:path";
+import { trackErrors } from "../support/common";
+
+const shots = process.env.I18N_SHOTS;
+const shot = async (page: Page, name: string) => {
+  if (shots) await page.screenshot({ path: path.join(shots, `${name}.png`) });
+};
+
+const APPS = [
+  { app: "calc", ready: (p: Page) => p.getByTestId("grid") },
+  { app: "write", ready: (p: Page) => p.locator(".ProseMirror") },
+  { app: "show", ready: (p: Page) => p.getByTestId("editor-stage") },
+] as const;
+
+test.describe("German UI", () => {
+  test.use({ locale: "de-DE" });
+
+  for (const { app, ready } of APPS) {
+    test(`${app}: the browser language selects German – "Start" tab, "Speichern" in the backstage`, async ({ page }) => {
+      const errors = trackErrors(page);
+      await page.goto(`${app}/`);
+      await ready(page).first().waitFor();
+      await expect(page.locator("html")).toHaveAttribute("lang", "de");
+      await expect(page.getByRole("tab", { name: "Start", exact: true })).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByRole("tab", { name: "Einfügen", exact: true })).toBeVisible();
+      await shot(page, `${app}-home-de`);
+      await page.getByRole("tab", { name: "Datei", exact: true }).click();
+      const backstage = page.getByTestId("backstage");
+      await expect(backstage.getByRole("button", { name: /^Speichern(?! unter)/ })).toBeVisible();
+      await expect(backstage.getByRole("button", { name: /^Speichern unter…/ })).toBeVisible();
+      await expect(backstage.getByRole("heading", { name: "Zuletzt verwendet" })).toBeVisible();
+      await shot(page, `${app}-backstage-de`);
+      // Shortcuts keep their keys; German shows Strg.
+      await expect(backstage.getByRole("button", { name: /^Speichern(?! unter)/ })).toHaveAttribute("title", "Speichern (Strg+S)");
+      errors.expectNone();
+    });
+  }
+
+  test("portal: German texts, links unchanged", async ({ page }) => {
+    const errors = trackErrors(page);
+    await page.goto("./");
+    await expect(page.locator("html")).toHaveAttribute("lang", "de");
+    await expect(page.getByRole("heading", { level: 1, name: "Rusuite" })).toBeVisible();
+    for (const app of ["Calc", "Write", "Show"]) {
+      await expect(page.getByRole("link", { name: `${app} im Browser öffnen` })).toHaveAttribute("href", `/${app.toLowerCase()}/`);
+      await expect(page.getByRole("img", { name: `Rusuite-${app}-Logo` })).toBeVisible();
+    }
+    await expect(page.getByText("Eine kleine Office-Suite mit Rust-Kern")).toBeVisible();
+    await expect(page.getByTestId("version")).toHaveText(/^Build \S+ · \d{4}-\d{2}-\d{2}$/);
+    await shot(page, "portal-de");
+    errors.expectNone();
+  });
+});
+
+test.describe("Language switch", () => {
+  test("calc: View › Language switches without a reload and persists after one", async ({ page }) => {
+    const errors = trackErrors(page);
+    await page.goto("calc/");
+    await page.getByTestId("grid").waitFor();
+    await expect(page.getByRole("tab", { name: "Home", exact: true })).toBeVisible();
+    await page.getByRole("tab", { name: "View", exact: true }).click();
+    await page.getByRole("combobox", { name: "Language / Sprache" }).selectOption("de");
+    // Re-rendered in place: the ribbon, the status bar and <html lang>.
+    await expect(page.getByRole("tab", { name: "Ansicht", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tab", { name: "Start", exact: true })).toBeVisible();
+    await expect(page.getByTestId("status-bar")).toContainText("Gespeichert");
+    await expect(page.locator("html")).toHaveAttribute("lang", "de");
+    await page.reload();
+    await page.getByTestId("grid").waitFor();
+    await expect(page.getByRole("tab", { name: "Start", exact: true })).toBeVisible();
+    // Back to English from the backstage.
+    await page.getByRole("tab", { name: "Datei", exact: true }).click();
+    await page.getByTestId("backstage").getByRole("combobox", { name: "Language / Sprache" }).selectOption("en");
+    await expect(page.getByTestId("backstage").getByRole("button", { name: /^Save As…/ })).toBeVisible();
+    await page.reload();
+    await page.getByTestId("grid").waitFor();
+    await expect(page.getByRole("tab", { name: "Home", exact: true })).toBeVisible();
+    errors.expectNone();
+  });
+
+  test("portal: the EN/DE switch persists and carries over to the apps", async ({ page }) => {
+    await page.goto("./");
+    await expect(page.getByRole("link", { name: "Open Calc in browser" })).toBeVisible();
+    await page.getByRole("button", { name: "DE", exact: true }).click();
+    await expect(page.getByRole("link", { name: "Calc im Browser öffnen" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "DE", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await page.reload();
+    await expect(page.getByRole("link", { name: "Calc im Browser öffnen" })).toBeVisible();
+    await page.getByRole("link", { name: "Calc im Browser öffnen" }).click();
+    await page.getByTestId("grid").waitFor();
+    await expect(page.getByRole("tab", { name: "Start", exact: true })).toBeVisible();
+  });
+});

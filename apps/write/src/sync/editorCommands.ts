@@ -4,6 +4,8 @@
 // `ReplaceBlocks`).
 
 import type { Editor } from "@tiptap/core";
+import { withLabel } from "@rusuite/ui-shared";
+import "../i18n";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import type { Alignment } from "../generated/Alignment";
 import type { Indent } from "../generated/Indent";
@@ -12,10 +14,10 @@ import type { RunProperties } from "./model";
 import { TEXTBLOCK_TYPES } from "./schema";
 
 /** Paragraph styles offered by the style select. */
-export const PARAGRAPH_STYLES: { id: string; label: string }[] = [
-  { id: "Normal", label: "Normal" },
-  { id: "Title", label: "Title" },
-  ...[1, 2, 3, 4, 5, 6].map((n) => ({ id: `Heading${n}`, label: `Heading ${n}` })),
+export const PARAGRAPH_STYLES: { id: string; readonly label: string }[] = [
+  withLabel({ id: "Normal" }, "write.style.normal"),
+  withLabel({ id: "Title" }, "write.style.title"),
+  ...[1, 2, 3, 4, 5, 6].map((n) => withLabel({ id: `Heading${n}` }, "write.style.heading", { n })),
 ];
 
 /** Textblocks touched by the selection: [node, pos]. */

@@ -8,6 +8,7 @@ import {
   type HeaderFooterSlots, type PageOrientation, type PaperName, type PrintDoc,
 } from "@rusuite/ui-shared";
 import type { CalcStore } from "../state/store";
+import { useT } from "../i18n";
 import { buildCalcPrintDoc } from "./calcPrintDoc";
 import { CALC_MARGIN_CHOICES, CALC_SCALE_CHOICES, CALC_WHAT_CHOICES, type CalcMarginPreset, type CalcPrintOptions, type CalcPrintWhat, type CalcScaleMode } from "./layout";
 
@@ -20,17 +21,19 @@ export async function printCalc(store: CalcStore, doc: PrintDoc): Promise<void> 
   }
 }
 
-function SlotsEditor({ label, value, onChange }: { label: string; value: HeaderFooterSlots; onChange: (v: HeaderFooterSlots) => void }) {
+function SlotsEditor({ label, value, onChange, footer }: { label: string; value: HeaderFooterSlots; onChange: (v: HeaderFooterSlots) => void; footer?: boolean }) {
+  const t = useT();
   return (
     <div className="grid grid-cols-3 gap-1">
       {(["left", "center", "right"] as const).map((k) => (
-        <PrintText key={k} label={`${label} ${k}`} value={value[k]} placeholder={k === "center" && label === "Footer" ? "Page &P of &N" : ""} onChange={(t) => onChange({ ...value, [k]: t })} />
+        <PrintText key={k} label={`${label} ${t(`print.slot.${k}`)}`} value={value[k]} placeholder={k === "center" && footer ? t("calc.print.footerHint") : ""} onChange={(v) => onChange({ ...value, [k]: v })} />
       ))}
     </div>
   );
 }
 
 export function CalcPrintPage({ store, options, onChange }: { store: CalcStore; options: CalcPrintOptions; onChange: (o: CalcPrintOptions) => void }) {
+  const t = useT();
   const { range, ...layout } = options;
   const key = JSON.stringify(layout);
   // Rebuilt when the layout options change; the range only filters the pages.
@@ -46,27 +49,27 @@ export function CalcPrintPage({ store, options, onChange }: { store: CalcStore; 
       onRange={(r) => set("range", r)}
       onPrint={(d) => printCalc(store, d)}
       before={
-        <PrintSection title="Settings">
-          <PrintSelect label="What to print" value={options.what} choices={CALC_WHAT_CHOICES} onChange={(v) => set("what", v as CalcPrintWhat)} />
+        <PrintSection title={t("print.settings")}>
+          <PrintSelect label={t("print.whatToPrint")} value={options.what} choices={CALC_WHAT_CHOICES} onChange={(v) => set("what", v as CalcPrintWhat)} />
         </PrintSection>
       }
     >
-      <PrintSection title="Layout">
-        <PrintSelect label="Orientation" value={options.orientation} choices={ORIENTATION_CHOICES} onChange={(v) => set("orientation", v as PageOrientation)} />
-        <PrintSelect label="Paper size" value={options.paper} choices={PAPER_CHOICES} onChange={(v) => set("paper", v as PaperName)} />
-        <PrintSelect label="Margins" value={options.margins} choices={CALC_MARGIN_CHOICES} onChange={(v) => set("margins", v as CalcMarginPreset)} />
-        <PrintSelect label="Scaling" value={options.scale} choices={CALC_SCALE_CHOICES} onChange={(v) => set("scale", v as CalcScaleMode)} />
-        {options.scale === "custom" && <PrintNumber label="Scale" value={options.percent} min={10} max={400} suffix="%" onChange={(v) => set("percent", v)} />}
+      <PrintSection title={t("print.layoutSection")}>
+        <PrintSelect label={t("print.orientation")} value={options.orientation} choices={ORIENTATION_CHOICES} onChange={(v) => set("orientation", v as PageOrientation)} />
+        <PrintSelect label={t("print.paperSize")} value={options.paper} choices={PAPER_CHOICES} onChange={(v) => set("paper", v as PaperName)} />
+        <PrintSelect label={t("print.margins")} value={options.margins} choices={CALC_MARGIN_CHOICES} onChange={(v) => set("margins", v as CalcMarginPreset)} />
+        <PrintSelect label={t("calc.print.scaling")} value={options.scale} choices={CALC_SCALE_CHOICES} onChange={(v) => set("scale", v as CalcScaleMode)} />
+        {options.scale === "custom" && <PrintNumber label={t("calc.print.scale")} value={options.percent} min={10} max={400} suffix="%" onChange={(v) => set("percent", v)} />}
       </PrintSection>
-      <PrintSection title="Sheet options">
-        <PrintCheck label="Gridlines" checked={options.gridlines} onChange={(v) => set("gridlines", v)} />
-        <PrintCheck label="Row and column headings" checked={options.headings} onChange={(v) => set("headings", v)} />
-        <PrintNumber label="Rows to repeat at top" value={options.repeatRows} min={0} max={50} onChange={(v) => set("repeatRows", v)} />
+      <PrintSection title={t("calc.print.sheetOptions")}>
+        <PrintCheck label={t("calc.gridlines")} checked={options.gridlines} onChange={(v) => set("gridlines", v)} />
+        <PrintCheck label={t("calc.print.headings")} checked={options.headings} onChange={(v) => set("headings", v)} />
+        <PrintNumber label={t("calc.print.repeatRows")} value={options.repeatRows} min={0} max={50} onChange={(v) => set("repeatRows", v)} />
       </PrintSection>
-      <PrintSection title="Header and footer">
-        <p className="text-xs text-ui-muted">&amp;P page, &amp;N pages, &amp;D date, &amp;T time, &amp;A sheet, &amp;F file</p>
-        <SlotsEditor label="Header" value={options.header} onChange={(v) => set("header", v)} />
-        <SlotsEditor label="Footer" value={options.footer} onChange={(v) => set("footer", v)} />
+      <PrintSection title={t("print.headerFooter")}>
+        <p className="text-xs text-ui-muted">{t("calc.print.tokens")}</p>
+        <SlotsEditor label={t("print.header")} value={options.header} onChange={(v) => set("header", v)} />
+        <SlotsEditor footer label={t("print.footer")} value={options.footer} onChange={(v) => set("footer", v)} />
       </PrintSection>
     </PrintPanel>
   );

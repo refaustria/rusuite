@@ -12,7 +12,7 @@ import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import {
   ColorPicker, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
-  RibbonRow, RibbonStack, RibbonTableSizePicker, StyleToggles, triggerShortcut,
+  RibbonRow, RibbonStack, RibbonTableSizePicker, StyleToggles, triggerShortcut, languageRibbonGroup, withLabel,
   type AnySession, type CellStylePatch, type CellStyleView, type FormatControlProps, type RibbonGalleryItem, type RibbonMenuItem, type RibbonTab,
 } from "@rusuite/ui-shared";
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
@@ -33,21 +33,22 @@ import { TEXTBLOCK_TYPES } from "../sync/schema";
 import type { SyncController, SyncState } from "../sync/SyncPlugin";
 import { cm, fromCm, fromPt, pt } from "./dialogs";
 import { useThrottledEditorState } from "./useThrottledEditorState";
+import { useT } from "../i18n";
 
 // ----- page setup ---------------------------------------------------------------
 
 /** Paper sizes in twips (portrait). */
-export const PAGE_SIZES: { id: string; label: string; width: number; height: number }[] = [
-  { id: "A4", label: "A4 (21 × 29.7 cm)", width: 11906, height: 16838 },
-  { id: "Letter", label: "Letter (8.5 × 11 in)", width: 12240, height: 15840 },
+export const PAGE_SIZES: { id: string; readonly label: string; width: number; height: number }[] = [
+  withLabel({ id: "A4", width: 11906, height: 16838 }, "print.paper.A4"),
+  withLabel({ id: "Letter", width: 12240, height: 15840 }, "print.paper.Letter"),
 ];
 
 /** Margin presets in twips (Word's Normal / Narrow / Moderate / Wide). */
-export const MARGIN_PRESETS: { id: string; label: string; top: number; right: number; bottom: number; left: number }[] = [
-  { id: "normal", label: "Normal (2.54 cm)", top: 1440, right: 1440, bottom: 1440, left: 1440 },
-  { id: "narrow", label: "Narrow (1.27 cm)", top: 720, right: 720, bottom: 720, left: 720 },
-  { id: "moderate", label: "Moderate (2.54 / 1.91 cm)", top: 1440, right: 1080, bottom: 1440, left: 1080 },
-  { id: "wide", label: "Wide (2.54 / 5.08 cm)", top: 1440, right: 2880, bottom: 1440, left: 2880 },
+export const MARGIN_PRESETS: { id: string; readonly label: string; top: number; right: number; bottom: number; left: number }[] = [
+  withLabel({ id: "normal", top: 1440, right: 1440, bottom: 1440, left: 1440 }, "write.margins.normal"),
+  withLabel({ id: "narrow", top: 720, right: 720, bottom: 720, left: 720 }, "write.margins.narrow"),
+  withLabel({ id: "moderate", top: 1440, right: 1080, bottom: 1440, left: 1080 }, "write.margins.moderate"),
+  withLabel({ id: "wide", top: 1440, right: 2880, bottom: 1440, left: 2880 }, "write.margins.wide"),
 ];
 
 const near = (a: number, b: number) => Math.abs(a - b) <= 20;
@@ -122,10 +123,10 @@ const STYLE_PREVIEW: Record<string, string> = {
   Heading6: "text-[11px] italic text-blue-900 dark:text-blue-200",
 };
 
-const STYLE_ITEMS: RibbonGalleryItem[] = PARAGRAPH_STYLES.map((s) => ({
+const styleItems = (): RibbonGalleryItem[] => PARAGRAPH_STYLES.map((s) => ({
   id: s.id,
   label: s.label,
-  preview: <span className={`leading-5 ${STYLE_PREVIEW[s.id] ?? "text-xs"}`}>AaBbCc</span>,
+  preview: <span className={`leading-5 ${STYLE_PREVIEW[s.id] ?? "text-xs"}`}>AaBbCc</span>, // i18n-ignore: sample text
 }));
 
 /** Styles shown inline; the rest are in "More styles". */
@@ -134,12 +135,12 @@ const INLINE_STYLES = 5;
 // ----- small controls ------------------------------------------------------------------
 
 /** Word's text highlight colors. */
-export const HIGHLIGHT_COLORS: { label: string; hex: string }[] = [
-  { label: "Yellow", hex: "FFFF00" }, { label: "Bright green", hex: "00FF00" }, { label: "Turquoise", hex: "00FFFF" },
-  { label: "Pink", hex: "FF00FF" }, { label: "Blue", hex: "0000FF" }, { label: "Red", hex: "FF0000" },
-  { label: "Dark blue", hex: "000080" }, { label: "Teal", hex: "008080" }, { label: "Green", hex: "008000" },
-  { label: "Violet", hex: "800080" }, { label: "Dark red", hex: "800000" }, { label: "Dark yellow", hex: "808000" },
-  { label: "Gray 50%", hex: "808080" }, { label: "Gray 25%", hex: "C0C0C0" }, { label: "Black", hex: "000000" },
+export const HIGHLIGHT_COLORS: { readonly label: string; hex: string }[] = [
+  withLabel({ hex: "FFFF00" }, "write.color.yellow"), withLabel({ hex: "00FF00" }, "write.color.brightGreen"), withLabel({ hex: "00FFFF" }, "write.color.turquoise"),
+  withLabel({ hex: "FF00FF" }, "write.color.pink"), withLabel({ hex: "0000FF" }, "write.color.blue"), withLabel({ hex: "FF0000" }, "write.color.red"),
+  withLabel({ hex: "000080" }, "write.color.darkBlue"), withLabel({ hex: "008080" }, "write.color.teal"), withLabel({ hex: "008000" }, "write.color.green"),
+  withLabel({ hex: "800080" }, "write.color.violet"), withLabel({ hex: "800000" }, "write.color.darkRed"), withLabel({ hex: "808000" }, "write.color.darkYellow"),
+  withLabel({ hex: "808080" }, "write.color.gray50"), withLabel({ hex: "C0C0C0" }, "write.color.gray25"), withLabel({ hex: "000000" }, "write.color.black"),
 ];
 
 const swatch = (css: string | undefined) => (
@@ -223,6 +224,7 @@ function selectionInfo(e: Editor): { table: TableContext | null; image: { node: 
 }
 
 export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSave, onFind, onReplace, onExportPdf, print, zoom, onZoom }: WriteRibbonProps) {
+  const t = useT();
   const fileInput = useRef<HTMLInputElement>(null);
   const canUndo = useSync(ctl, (s) => s.canUndo);
   const canRedo = useSync(ctl, (s) => s.canRedo);
@@ -322,7 +324,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       const text = await navigator.clipboard.readText();
       if (text) editor.chain().focus().insertContent(text).run();
     } catch {
-      ctl.pushError(new Error("Paste needs clipboard access here – use Ctrl+V."));
+      ctl.pushError(new Error(t("write.pasteNeedsClipboard")));
     }
   };
 
@@ -343,7 +345,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
   };
 
   const highlightMenu: RibbonMenuItem[] = [
-    { id: "none", label: "No color", icon: swatch(undefined), onSelect: () => textStyle({ highlight: null }) },
+    { id: "none", label: t("write.noColor"), icon: swatch(undefined), onSelect: () => textStyle({ highlight: null }) },
     ...HIGHLIGHT_COLORS.map((c) => ({
       id: c.hex,
       label: c.label,
@@ -361,49 +363,49 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       onSelect: para(() => setLineSpacing(editor, v)),
     })),
     { separator: true },
-    { id: "options", label: "Line spacing options…", onSelect: () => features.ui.openDialog("paragraph") },
+    { id: "options", label: t("write.lineSpacingOptions"), onSelect: () => features.ui.openDialog("paragraph") },
     { separator: true },
     (s.before ?? 0) > 0
-      ? { id: "before", label: "Remove space before paragraph", onSelect: para(() => setSpacing(editor, { before: 0 })) }
-      : { id: "before", label: "Add space before paragraph", onSelect: para(() => setSpacing(editor, { before: 240 })) },
+      ? { id: "before", label: t("write.removeSpaceBefore"), onSelect: para(() => setSpacing(editor, { before: 0 })) }
+      : { id: "before", label: t("write.addSpaceBefore"), onSelect: para(() => setSpacing(editor, { before: 240 })) },
     (s.after ?? 1) > 0
-      ? { id: "after", label: "Remove space after paragraph", onSelect: para(() => setSpacing(editor, { after: 0 })) }
-      : { id: "after", label: "Add space after paragraph", onSelect: para(() => setSpacing(editor, { after: 160 })) },
+      ? { id: "after", label: t("write.removeSpaceAfter"), onSelect: para(() => setSpacing(editor, { after: 0 })) }
+      : { id: "after", label: t("write.addSpaceAfter"), onSelect: para(() => setSpacing(editor, { after: 160 })) },
   ];
 
   const home: RibbonTab = {
     id: "home",
-    label: "Home",
-    toolbarLabel: "Formatting",
+    label: t("tab.home"),
+    toolbarLabel: t("fmt.toolbar"),
     groups: [
       {
-        label: "Undo",
+        label: t("group.undo"),
         items: (
           <RibbonStack>
-            <RibbonButton label="Undo" icon="undo" shortcut="Mod+Z" disabled={!canUndo} onClick={() => ctl.undo()} />
-            <RibbonButton label="Redo" icon="redo" shortcut="Mod+Y" disabled={!canRedo} onClick={() => ctl.redo()} />
+            <RibbonButton label={t("group.undo")} icon="undo" shortcut="Mod+Z" disabled={!canUndo} onClick={() => ctl.undo()} />
+            <RibbonButton label={t("cmd.redo")} icon="redo" shortcut="Mod+Y" disabled={!canRedo} onClick={() => ctl.redo()} />
           </RibbonStack>
         ),
       },
       {
-        label: "Clipboard",
+        label: t("group.clipboard"),
         items: (
           <>
-            <RibbonButton label="Paste" icon="paste" size="large" shortcut="Mod+V" onClick={() => void paste()} />
+            <RibbonButton label={t("cmd.paste")} icon="paste" size="large" shortcut="Mod+V" onClick={() => void paste()} />
             <RibbonStack>
-              <RibbonButton label="Cut" icon="cut" showLabel shortcut="Mod+X" onClick={() => clipboard("cut")} />
-              <RibbonButton label="Copy" icon="copy" showLabel shortcut="Mod+C" onClick={() => clipboard("copy")} />
+              <RibbonButton label={t("cmd.cut")} icon="cut" showLabel shortcut="Mod+X" onClick={() => clipboard("cut")} />
+              <RibbonButton label={t("cmd.copy")} icon="copy" showLabel shortcut="Mod+C" onClick={() => clipboard("copy")} />
               <span
                 onDoubleClick={() => {
                   features.painter.copy(editor, true);
                 }}
               >
                 <RibbonButton
-                  label="Format painter"
+                  label={t("write.formatPainter")}
                   icon={PAINTER_ICON}
                   pressed={painter}
                   shortcut="Mod+Shift+C"
-                  tooltip="Format painter (double-click: apply several times, Esc stops)"
+                  tooltip={t("write.formatPainterTip")}
                   onClick={() => (features.painter.active ? features.painter.cancel(editor) : features.painter.copy(editor))}
                 />
               </span>
@@ -412,25 +414,25 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         ),
       },
       {
-        label: "Font",
+        label: t("group.font"),
         items: (
           <RibbonStack>
             <RibbonRow>
               <FontControls {...fmt} />
-              <RibbonButton label="Clear formatting" icon="clear" tooltip="Clear all formatting" onClick={() => void clearFormatting(editor, ctl, true)} />
+              <RibbonButton label={t("write.clearFormatting")} icon="clear" tooltip={t("write.clearAllFormatting")} onClick={() => void clearFormatting(editor, ctl, true)} />
             </RibbonRow>
             <RibbonRow>
               <StyleToggles {...fmt} />
-              <RibbonButton label="Subscript" icon={SCRIPT_ICON(false)} shortcut="Mod+=" pressed={s.subscript} onClick={() => toggleScript(editor, "subscript")} />
-              <RibbonButton label="Superscript" icon={SCRIPT_ICON(true)} shortcut="Mod+Shift+=" pressed={s.superscript} onClick={() => toggleScript(editor, "superscript")} />
-              <RibbonMenuButton label="Text highlight color" icon={HIGHLIGHT_ICON} menu={highlightMenu} />
-              <ColorPicker label="Font color" kind="text" value={s.props.color ?? undefined} onSelect={(c) => textStyle({ color: c && c.kind !== "auto" ? c : null })} />
+              <RibbonButton label={t("write.subscript")} icon={SCRIPT_ICON(false)} shortcut="Mod+=" pressed={s.subscript} onClick={() => toggleScript(editor, "subscript")} />
+              <RibbonButton label={t("write.superscript")} icon={SCRIPT_ICON(true)} shortcut="Mod+Shift+=" pressed={s.superscript} onClick={() => toggleScript(editor, "superscript")} />
+              <RibbonMenuButton label={t("write.highlight")} icon={HIGHLIGHT_ICON} menu={highlightMenu} />
+              <ColorPicker label={t("write.fontColor")} kind="text" value={s.props.color ?? undefined} onSelect={(c) => textStyle({ color: c && c.kind !== "auto" ? c : null })} />
             </RibbonRow>
           </RibbonStack>
         ),
       },
       {
-        label: "Paragraph",
+        label: t("group.paragraph"),
         items: (
           <RibbonStack>
             <RibbonRow>
@@ -443,29 +445,29 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
                   indent(editor, d);
                 }}
               />
-              <RibbonMenuButton label="Line spacing" icon="lineSpacing" menu={lineMenu} />
-              <RibbonButton label="Paragraph settings" icon="format" tooltip="Paragraph… (indents and spacing)" onClick={() => features.ui.openDialog("paragraph")} />
+              <RibbonMenuButton label={t("write.lineSpacing")} icon="lineSpacing" menu={lineMenu} />
+              <RibbonButton label={t("write.paragraphSettings")} icon="format" tooltip={t("write.paragraphSettingsTip")} onClick={() => features.ui.openDialog("paragraph")} />
             </RibbonRow>
             <RibbonRow>
-              {alignBtn("left", "Align left", <Icon name="alignLeft" />, "Mod+L")}
-              {alignBtn("center", "Align center", <Icon name="alignCenter" />, "Mod+E")}
-              {alignBtn("right", "Align right", <Icon name="alignRight" />, "Mod+R")}
-              {alignBtn("justify", "Justify", <RibbonIcon name="alignJustify" />, "Mod+J")}
+              {alignBtn("left", t("fmt.alignLeft"), <Icon name="alignLeft" />, "Mod+L")}
+              {alignBtn("center", t("fmt.alignCenter"), <Icon name="alignCenter" />, "Mod+E")}
+              {alignBtn("right", t("fmt.alignRight"), <Icon name="alignRight" />, "Mod+R")}
+              {alignBtn("justify", t("write.justify"), <RibbonIcon name="alignJustify" />, "Mod+J")}
             </RibbonRow>
           </RibbonStack>
         ),
       },
       {
-        label: "Styles",
+        label: t("write.styles"),
         items: (
           <>
-            <RibbonGallery label="Paragraph styles" items={STYLE_ITEMS.slice(0, INLINE_STYLES)} selected={s.style} onSelect={pickStyle} />
+            <RibbonGallery label={t("write.paragraphStyles")} items={styleItems().slice(0, INLINE_STYLES)} selected={s.style} onSelect={pickStyle} />
             <RibbonGallery
-              label="More styles"
+              label={t("write.moreStyles")}
               variant="dropdown"
               size="small"
               icon="chevronDown"
-              items={STYLE_ITEMS}
+              items={styleItems()}
               selected={s.style}
               columns={4}
               itemClassName="h-14 w-20 p-1"
@@ -475,11 +477,11 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         ),
       },
       {
-        label: "Editing",
+        label: t("group.editing"),
         items: (
           <RibbonStack>
-            <RibbonButton label="Find and replace" icon="find" showLabel shortcut="Mod+F" tooltip="Find" onClick={onFind} />
-            <RibbonButton label="Replace" icon="format" showLabel shortcut="Mod+H" onClick={onReplace ?? onFind} />
+            <RibbonButton label={t("cmd.findReplace")} icon="find" showLabel shortcut="Mod+F" tooltip={t("cmd.find")} onClick={onFind} />
+            <RibbonButton label={t("cmd.replace")} icon="format" showLabel shortcut="Mod+H" onClick={onReplace ?? onFind} />
           </RibbonStack>
         ),
       },
@@ -488,13 +490,13 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
 
   const insert: RibbonTab = {
     id: "insert",
-    label: "Insert",
+    label: t("tab.insert"),
     groups: [
       {
-        label: "Tables",
+        label: t("write.tables"),
         items: (
           <RibbonMenuButton
-            label="Table"
+            label={t("write.table")}
             icon="table"
             size="large"
             menu={(close) => (
@@ -509,10 +511,10 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         ),
       },
       {
-        label: "Illustrations",
+        label: t("write.illustrations"),
         items: (
           <>
-            <RibbonButton label="Picture" icon="image" size="large" tooltip="Insert a picture (or paste one with Ctrl+V)" onClick={() => fileInput.current?.click()} />
+            <RibbonButton label={t("write.picture")} icon="image" size="large" tooltip={t("write.pictureTip")} onClick={() => fileInput.current?.click()} />
             <input
               ref={fileInput}
               type="file"
@@ -529,29 +531,29 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         ),
       },
       {
-        label: "Header & footer",
+        label: t("write.headerFooter"),
         items: (
           <>
-            <RibbonButton label="Header" icon="pageSize" size="large" onClick={() => features.ui.openDialog("headerFooter", "header")} />
-            <RibbonButton label="Footer" icon="pageSize" size="large" onClick={() => features.ui.openDialog("headerFooter", "footer")} />
+            <RibbonButton label={t("print.header")} icon="pageSize" size="large" onClick={() => features.ui.openDialog("headerFooter", "header")} />
+            <RibbonButton label={t("print.footer")} icon="pageSize" size="large" onClick={() => features.ui.openDialog("headerFooter", "footer")} />
             <RibbonMenuButton
-              label="Page number"
+              label={t("write.pageNumber")}
               icon="pageSize"
               size="large"
               menu={[
-                { id: "top", label: "Top of page", onSelect: () => setPage({ headerText: withPageNumber(page?.headerText) }) },
-                { id: "bottom", label: "Bottom of page", onSelect: () => setPage({ footerText: withPageNumber(page?.footerText) }) },
+                { id: "top", label: t("write.topOfPage"), onSelect: () => setPage({ headerText: withPageNumber(page?.headerText) }) },
+                { id: "bottom", label: t("write.bottomOfPage"), onSelect: () => setPage({ footerText: withPageNumber(page?.footerText) }) },
               ]}
             />
           </>
         ),
       },
       {
-        label: "Breaks",
+        label: t("write.breaks"),
         items: (
           <>
-            <RibbonButton label="Page break" icon="pageBreak" size="large" onClick={() => editor.chain().focus().insertContent({ type: "pageBreak" }).run()} />
-            <RibbonButton label="Line break" icon="lineBreak" size="large" shortcut="Shift+Enter" onClick={() => editor.chain().focus().setHardBreak().run()} />
+            <RibbonButton label={t("write.pageBreak")} icon="pageBreak" size="large" onClick={() => editor.chain().focus().insertContent({ type: "pageBreak" }).run()} />
+            <RibbonButton label={t("write.lineBreak")} icon="lineBreak" size="large" shortcut="Shift+Enter" onClick={() => editor.chain().focus().setHardBreak().run()} />
           </>
         ),
       },
@@ -567,14 +569,14 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
 
   const layout: RibbonTab = {
     id: "layout",
-    label: "Layout",
+    label: t("tab.layout"),
     groups: [
       {
-        label: "Page setup",
+        label: t("write.pageSetup"),
         items: (
           <>
             <RibbonMenuButton
-              label="Margins"
+              label={t("print.margins")}
               icon="margins"
               size="large"
               menu={[
@@ -585,22 +587,22 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
                   onSelect: () => setPage({ margins: { top: m.top, right: m.right, bottom: m.bottom, left: m.left } }),
                 })),
                 { separator: true as const },
-                { id: "custom", label: "Custom margins…", onSelect: () => features.ui.openDialog("pageSetup") },
+                { id: "custom", label: t("write.customMargins"), onSelect: () => features.ui.openDialog("pageSetup") },
               ]}
             />
             <RibbonMenuButton
-              label="Orientation"
+              label={t("print.orientation")}
               icon="orientation"
               size="large"
               menu={(["portrait", "landscape"] as const).map((o) => ({
                 id: o,
-                label: o === "portrait" ? "Portrait" : "Landscape",
+                label: o === "portrait" ? t("print.portrait") : t("print.landscape"),
                 checked: orientation === o,
                 onSelect: () => setPage({ orientation: o }),
               }))}
             />
             <RibbonMenuButton
-              label="Size"
+              label={t("write.size")}
               icon="pageSize"
               size="large"
               menu={PAGE_SIZES.map((p) => ({ id: p.id, label: p.label, checked: paper === p.id, onSelect: () => setPage(paperPatch(page, p.id)) }))}
@@ -609,16 +611,16 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         ),
       },
       {
-        label: "Paragraph",
+        label: t("group.paragraph"),
         items: (
           <>
             <RibbonStack>
-              <NumberField label="Indent left (cm)" value={cm(s.indentLeft ?? 0)} onCommit={(t) => commitTwips(t, "cm", (v) => setIndent(editor, { left: v }))} />
-              <NumberField label="Indent right (cm)" value={cm(s.indentRight ?? 0)} onCommit={(t) => commitTwips(t, "cm", (v) => setIndent(editor, { right: v }))} />
+              <NumberField label={t("write.indentLeft")} value={cm(s.indentLeft ?? 0)} onCommit={(text) => commitTwips(text, "cm", (v) => setIndent(editor, { left: v }))} />
+              <NumberField label={t("write.indentRight")} value={cm(s.indentRight ?? 0)} onCommit={(text) => commitTwips(text, "cm", (v) => setIndent(editor, { right: v }))} />
             </RibbonStack>
             <RibbonStack>
-              <NumberField label="Spacing before (pt)" value={pt(s.before ?? 0)} onCommit={(t) => commitTwips(t, "pt", (v) => setSpacing(editor, { before: v }))} />
-              <NumberField label="Spacing after (pt)" value={pt(s.after ?? 0)} onCommit={(t) => commitTwips(t, "pt", (v) => setSpacing(editor, { after: v }))} />
+              <NumberField label={t("write.spacingBefore")} value={pt(s.before ?? 0)} onCommit={(text) => commitTwips(text, "pt", (v) => setSpacing(editor, { before: v }))} />
+              <NumberField label={t("write.spacingAfter")} value={pt(s.after ?? 0)} onCommit={(text) => commitTwips(text, "pt", (v) => setSpacing(editor, { after: v }))} />
             </RibbonStack>
           </>
         ),
@@ -628,119 +630,120 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
 
   const view: RibbonTab = {
     id: "view",
-    label: "View",
+    label: t("tab.view"),
     groups: [
       {
-        label: "Views",
+        label: t("write.views"),
         items: (
           <>
-            <RibbonButton label="Print layout" icon="pageSize" size="large" pressed={ui.view === "print"} onClick={() => features.ui.set({ view: "print" })} />
-            <RibbonButton label="Draft" icon="lineSpacing" size="large" pressed={ui.view === "draft"} onClick={() => features.ui.set({ view: "draft" })} />
+            <RibbonButton label={t("write.printLayout")} icon="pageSize" size="large" pressed={ui.view === "print"} onClick={() => features.ui.set({ view: "print" })} />
+            <RibbonButton label={t("write.draft")} icon="lineSpacing" size="large" pressed={ui.view === "draft"} onClick={() => features.ui.set({ view: "draft" })} />
           </>
         ),
       },
       {
-        label: "Zoom",
+        label: t("group.zoom"),
         items: (
           <RibbonStack>
-            <select aria-label="Zoom" className={`${RIBBON_SELECT} w-20`} value={String(zoom)} onChange={(e) => onZoom(Number(e.target.value))}>
+            <select aria-label={t("group.zoom")} className={`${RIBBON_SELECT} w-20`} value={String(zoom)} onChange={(e) => onZoom(Number(e.target.value))}>
               {WRITE_ZOOM_LEVELS.map((z) => (
                 <option key={z} value={String(z)}>
                   {Math.round(z * 100)} %
                 </option>
               ))}
             </select>
-            <RibbonButton label="100 %" icon="zoom" showLabel tooltip="Zoom to 100 %" onClick={() => onZoom(1)} />
+            <RibbonButton label="100 %" icon="zoom" showLabel tooltip={t("cmd.zoomTo100")} onClick={() => onZoom(1)} />
           </RibbonStack>
         ),
       },
       {
-        label: "Proofing",
+        label: t("write.proofing"),
         items: (
           <RibbonButton
-            label="Spelling"
+            label={t("write.spelling")}
             icon="find"
             size="large"
             pressed={ui.spellcheck}
-            tooltip="Check spelling as you type (the browser's spell checker)"
+            tooltip={t("write.spellingTip")}
             onClick={() => features.ui.set({ spellcheck: !ui.spellcheck })}
           />
         ),
       },
+      languageRibbonGroup(t),
       {
-        label: "Help",
-        items: <RibbonButton label="Keyboard shortcuts" icon="keyboard" size="large" shortcut="Mod+/" onClick={() => triggerShortcut("Mod+/")} />,
+        label: t("group.help"),
+        items: <RibbonButton label={t("shortcuts.title")} icon="keyboard" size="large" shortcut="Mod+/" onClick={() => triggerShortcut("Mod+/")} />,
       },
     ],
   };
 
-  const t = s.table;
+  const tbl = s.table;
   const runT = (cmd: Parameters<SyncController["run"]>[0] | null) => () => {
     if (cmd) void ctl.run(cmd);
   };
   // Commands are built from the live selection when clicked (the throttled one may lag).
   const live = () => tableContext(editor.state);
-  const firstRow = t?.node.firstChild?.attrs.props as { header?: boolean } | null | undefined;
-  const tableTab: RibbonTab | null = t
+  const firstRow = tbl?.node.firstChild?.attrs.props as { header?: boolean } | null | undefined;
+  const tableTab: RibbonTab | null = tbl
     ? {
         id: "table",
-        label: "Table",
-        toolbarLabel: "Table",
+        label: t("write.table"),
+        toolbarLabel: t("write.table"),
         groups: [
           {
-            label: "Rows & columns",
+            label: t("write.rowsCols"),
             items: (
               <>
-                <RibbonButton label="Insert above" icon="insertRows" size="large" onClick={() => runT(live() && insertRow(live()!, false))()} />
-                <RibbonButton label="Insert below" icon="insertRows" size="large" onClick={() => runT(live() && insertRow(live()!, true))()} />
-                <RibbonButton label="Insert left" icon="insertCols" size="large" onClick={() => runT(live() && insertCol(live()!, false))()} />
-                <RibbonButton label="Insert right" icon="insertCols" size="large" onClick={() => runT(live() && insertCol(live()!, true))()} />
+                <RibbonButton label={t("write.insertAbove")} icon="insertRows" size="large" onClick={() => runT(live() && insertRow(live()!, false))()} />
+                <RibbonButton label={t("write.insertBelow")} icon="insertRows" size="large" onClick={() => runT(live() && insertRow(live()!, true))()} />
+                <RibbonButton label={t("write.insertLeft")} icon="insertCols" size="large" onClick={() => runT(live() && insertCol(live()!, false))()} />
+                <RibbonButton label={t("write.insertRight")} icon="insertCols" size="large" onClick={() => runT(live() && insertCol(live()!, true))()} />
                 <RibbonMenuButton
-                  label="Delete"
+                  label={t("cmd.delete")}
                   icon="trash"
                   size="large"
                   menu={[
-                    { id: "rows", label: "Delete rows", icon: "deleteRows", onSelect: () => runT(live() && deleteRows(live()!))() },
-                    { id: "cols", label: "Delete columns", icon: "deleteCols", onSelect: () => runT(live() && deleteCols(live()!))() },
-                    { id: "table", label: "Delete table", icon: "table", onSelect: () => runT(live() && deleteTable(live()!))() },
+                    { id: "rows", label: t("write.deleteRows"), icon: "deleteRows", onSelect: () => runT(live() && deleteRows(live()!))() },
+                    { id: "cols", label: t("write.deleteCols"), icon: "deleteCols", onSelect: () => runT(live() && deleteCols(live()!))() },
+                    { id: "table", label: t("write.deleteTable"), icon: "table", onSelect: () => runT(live() && deleteTable(live()!))() },
                   ]}
                 />
               </>
             ),
           },
           {
-            label: "Style options",
+            label: t("write.styleOptions"),
             items: (
               <RibbonButton
-                label="Header row"
+                label={t("write.headerRow")}
                 icon="insertRows"
                 size="large"
                 pressed={!!firstRow?.header}
-                tooltip="Header row: repeat the first row at the top of each page"
+                tooltip={t("write.headerRowTip")}
                 onClick={() => runT(live() && toggleHeaderRow(live()!))()}
               />
             ),
           },
           {
-            label: "Table styles",
+            label: t("write.tableStyles"),
             items: (
               <RibbonStack>
-                <ColorPicker label="Shading" kind="fill" onSelect={(c) => runT(live() && shadeCells(live()!, c))()} />
+                <ColorPicker label={t("write.shading")} kind="fill" onSelect={(c) => runT(live() && shadeCells(live()!, c))()} />
                 <RibbonMenuButton
-                  label="Borders"
+                  label={t("fmt.borders")}
                   icon={<Icon name="borders" />}
                   menu={[
-                    { id: "all", label: "All borders", icon: <Icon name="borderAll" />, onSelect: () => runT(live() && setBorders(live()!, "all"))() },
-                    { id: "outside", label: "Outside borders", icon: <Icon name="borderOutline" />, onSelect: () => runT(live() && setBorders(live()!, "outside"))() },
-                    { id: "none", label: "No border", icon: <Icon name="borderNone" />, onSelect: () => runT(live() && setBorders(live()!, "none"))() },
+                    { id: "all", label: t("fmt.border.all"), icon: <Icon name="borderAll" />, onSelect: () => runT(live() && setBorders(live()!, "all"))() },
+                    { id: "outside", label: t("fmt.border.outline"), icon: <Icon name="borderOutline" />, onSelect: () => runT(live() && setBorders(live()!, "outside"))() },
+                    { id: "none", label: t("fmt.border.none"), icon: <Icon name="borderNone" />, onSelect: () => runT(live() && setBorders(live()!, "none"))() },
                   ]}
                 />
               </RibbonStack>
             ),
           },
           {
-            label: "Cell size",
-            items: <RibbonButton label="Row height" icon="rowHeight" size="large" tooltip="Row height…" onClick={() => features.ui.openDialog("rowHeight")} />,
+            label: t("write.cellSize"),
+            items: <RibbonButton label={t("write.rowHeight")} icon="rowHeight" size="large" tooltip={t("write.rowHeightDots")} onClick={() => features.ui.openDialog("rowHeight")} />,
           },
         ],
       }
@@ -761,29 +764,29 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
   const pictureTab: RibbonTab | null = img
     ? {
         id: "picture",
-        label: "Picture Format",
+        label: t("write.pictureFormat"),
         groups: [
           {
-            label: "Accessibility",
-            items: <RibbonButton label="Alt text" icon="textBox" size="large" tooltip="Alt text…" onClick={() => features.ui.openDialog("altText")} />,
+            label: t("write.accessibility"),
+            items: <RibbonButton label={t("write.altText")} icon="textBox" size="large" tooltip={t("write.altTextDots")} onClick={() => features.ui.openDialog("altText")} />,
           },
           {
-            label: "Arrange",
+            label: t("write.arrange"),
             items: (
               <RibbonRow>
-                {alignBtn("left", "Picture align left", <Icon name="alignLeft" />, "Mod+L")}
-                {alignBtn("center", "Picture align center", <Icon name="alignCenter" />, "Mod+E")}
-                {alignBtn("right", "Picture align right", <Icon name="alignRight" />, "Mod+R")}
+                {alignBtn("left", t("write.picAlignLeft"), <Icon name="alignLeft" />, "Mod+L")}
+                {alignBtn("center", t("write.picAlignCenter"), <Icon name="alignCenter" />, "Mod+E")}
+                {alignBtn("right", t("write.picAlignRight"), <Icon name="alignRight" />, "Mod+R")}
               </RibbonRow>
             ),
           },
           {
-            label: "Size",
+            label: t("write.size"),
             items: (
               <>
                 <RibbonStack>
                   <NumberField
-                    label="Height (cm)"
+                    label={t("write.heightCm")}
                     value={String(Math.round((img.height / EMU_PER_CM) * 100) / 100)}
                     onCommit={(text) => {
                       const v = Number(text.replace(",", "."));
@@ -791,7 +794,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
                     }}
                   />
                   <NumberField
-                    label="Width (cm)"
+                    label={t("write.widthCm")}
                     value={String(Math.round((img.width / EMU_PER_CM) * 100) / 100)}
                     onCommit={(text) => {
                       const v = Number(text.replace(",", "."));
@@ -799,8 +802,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
                     }}
                   />
                 </RibbonStack>
-                <RibbonButton label="Reset size" icon="undo" size="large" onClick={() => void resetImageSize(editor.view, ctl, img.pos)} />
-                <RibbonButton label="Delete picture" icon="trash" size="large" onClick={() => editor.chain().focus().deleteSelection().run()} />
+                <RibbonButton label={t("write.resetSize")} icon="undo" size="large" onClick={() => void resetImageSize(editor.view, ctl, img.pos)} />
+                <RibbonButton label={t("write.deletePicture")} icon="trash" size="large" onClick={() => editor.chain().focus().deleteSelection().run()} />
               </>
             ),
           },
@@ -811,7 +814,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
   return (
     <Ribbon
       appName="Rusuite Write"
-      documentTitle={`${name ?? "Untitled"}${dirty ? " •" : ""}`}
+      documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#2b579a"
       tabs={[home, insert, layout, view, ...(tableTab ? [tableTab] : []), ...(pictureTab ? [pictureTab] : [])]}
       backstage={{

@@ -10,11 +10,13 @@ import {
 } from "./numberFormat";
 import type { FindOptions } from "./state/find";
 import { useCalc, type CalcStore } from "./state/store";
+import { useT } from "./i18n";
 
 const BTN = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover disabled:opacity-40";
 const FIELD = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";
 
 function NumberFormatDialog({ store }: { store: CalcStore }) {
+  const t = useT();
   const [choice, setChoice] = useState<FormatChoice>(() => parseCode(store.activeStyle().numberFormat));
   const [preview, setPreview] = useState("");
   const code = buildCode(choice);
@@ -41,7 +43,7 @@ function NumberFormatDialog({ store }: { store: CalcStore }) {
   };
   const c = choice.category;
   return (
-    <Dialog open title="Format cells" onClose={close}>
+    <Dialog open title={t("calc.fmt.title")} onClose={close}>
       <form
         className="flex w-[30rem] flex-col gap-3 text-sm"
         onSubmit={(e) => {
@@ -51,7 +53,7 @@ function NumberFormatDialog({ store }: { store: CalcStore }) {
         }}
       >
         <div className="flex gap-3">
-          <div role="listbox" aria-label="Category" className="flex w-32 flex-col rounded border border-ui-border bg-ui-bg py-1">
+          <div role="listbox" aria-label={t("calc.fmt.category")} className="flex w-32 flex-col rounded border border-ui-border bg-ui-bg py-1">
             {CATEGORIES.map((k) => (
               <button
                 key={k.id}
@@ -67,14 +69,14 @@ function NumberFormatDialog({ store }: { store: CalcStore }) {
           </div>
           <div className="flex flex-1 flex-col gap-2">
             <div className="rounded border border-ui-border bg-ui-bg px-2 py-1">
-              <div className="text-xs text-ui-muted">Sample</div>
+              <div className="text-xs text-ui-muted">{t("calc.fmt.sample")}</div>
               <div data-testid="format-preview" className="min-h-5 font-mono">
                 {preview}
               </div>
             </div>
             {(c === "number" || c === "currency" || c === "percentage") && (
               <label className="flex items-center gap-2">
-                Decimal places
+                {t("calc.fmt.decimals")}
                 <input
                   type="number"
                   min={0}
@@ -88,12 +90,12 @@ function NumberFormatDialog({ store }: { store: CalcStore }) {
             {c === "number" && (
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={choice.thousands} onChange={(e) => set({ thousands: e.target.checked })} />
-                Use 1000 separator (,)
+                {t("calc.fmt.thousands")}
               </label>
             )}
             {c === "currency" && (
               <label className="flex items-center gap-2">
-                Symbol
+                {t("calc.fmt.symbol")}
                 <select className={FIELD} value={choice.symbol} onChange={(e) => set({ symbol: e.target.value as CurrencySymbol })}>
                   {SYMBOLS.map((s) => (
                     <option key={s} value={s}>
@@ -105,7 +107,7 @@ function NumberFormatDialog({ store }: { store: CalcStore }) {
             )}
             {(c === "date" || c === "time") && (
               <label className="flex flex-col gap-1">
-                Type
+                {t("calc.fmt.type")}
                 <select
                   className={FIELD}
                   size={5}
@@ -122,20 +124,20 @@ function NumberFormatDialog({ store }: { store: CalcStore }) {
             )}
             {c === "custom" && (
               <label className="flex flex-col gap-1">
-                Format code
-                <input className={FIELD} aria-label="Format code" value={choice.custom} onChange={(e) => set({ custom: e.target.value })} />
+                {t("calc.fmt.code")}
+                <input className={FIELD} aria-label={t("calc.fmt.code")} value={choice.custom} onChange={(e) => set({ custom: e.target.value })} />
               </label>
             )}
-            {c === "general" && <p className="text-xs text-ui-muted">General cells have no specific number format.</p>}
-            {c === "text" && <p className="text-xs text-ui-muted">Text cells show the content exactly as entered.</p>}
+            {c === "general" && <p className="text-xs text-ui-muted">{t("calc.fmt.generalNote")}</p>}
+            {c === "text" && <p className="text-xs text-ui-muted">{t("calc.fmt.textNote")}</p>}
           </div>
         </div>
         <div className="flex justify-end gap-2">
           <button type="button" className={BTN} onClick={close}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button type="submit" className={BTN}>
-            OK
+            {t("common.ok")}
           </button>
         </div>
       </form>
@@ -145,6 +147,7 @@ function NumberFormatDialog({ store }: { store: CalcStore }) {
 
 /** Non-modal Find & Replace panel (the grid stays usable while it is open). */
 function FindPanel({ store, replace }: { store: CalcStore; replace: boolean }) {
+  const t = useT();
   const [opts, setOpts] = useState<FindOptions>({ query: "", matchCase: false, wholeCell: false, allSheets: false });
   const [replacement, setReplacement] = useState("");
   const [showReplace, setShowReplace] = useState(replace);
@@ -160,12 +163,12 @@ function FindPanel({ store, replace }: { store: CalcStore; replace: boolean }) {
     setOpts((o) => ({ ...o, ...p }));
     setStatus("");
   };
-  const report = (hit: unknown) => setStatus(hit ? "" : "No match found.");
+  const report = (hit: unknown) => setStatus(hit ? "" : t("calc.find.noMatch"));
   const empty = opts.query === "";
   return (
     <div
       role="dialog"
-      aria-label={showReplace ? "Find and replace" : "Find"}
+      aria-label={showReplace ? t("cmd.findReplace") : t("cmd.find")}
       className="fixed right-4 top-24 z-40 w-96 rounded-lg border border-ui-border bg-ui-panel p-3 text-sm text-ui-fg shadow-xl"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
@@ -182,36 +185,36 @@ function FindPanel({ store, replace }: { store: CalcStore; replace: boolean }) {
         }}
       >
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold">{showReplace ? "Find and replace" : "Find"}</h2>
+          <h2 className="font-semibold">{showReplace ? t("cmd.findReplace") : t("cmd.find")}</h2>
           <button type="button" className="text-xs underline" onClick={() => setShowReplace((r) => !r)}>
-            {showReplace ? "Hide replace" : "Replace…"}
+            {showReplace ? t("calc.find.hideReplace") : t("cmd.replaceDots")}
           </button>
         </div>
         <label className="flex items-center gap-2">
-          <span className="w-24">Find what</span>
+          <span className="w-24">{t("calc.find.what")}</span>
           <input ref={first} className={`${FIELD} flex-1`} value={opts.query} onChange={(e) => set({ query: e.target.value })} />
         </label>
         {showReplace && (
           <label className="flex items-center gap-2">
-            <span className="w-24">Replace with</span>
+            <span className="w-24">{t("calc.find.with")}</span>
             <input className={`${FIELD} flex-1`} value={replacement} onChange={(e) => setReplacement(e.target.value)} />
           </label>
         )}
         <div className="flex flex-wrap gap-x-4 gap-y-1">
           <label className="flex items-center gap-1">
-            Within
+            {t("calc.find.within")}
             <select className={FIELD} value={opts.allSheets ? "book" : "sheet"} onChange={(e) => set({ allSheets: e.target.value === "book" })}>
-              <option value="sheet">Sheet</option>
-              <option value="book">Workbook</option>
+              <option value="sheet">{t("calc.sheet")}</option>
+              <option value="book">{t("calc.find.workbook")}</option>
             </select>
           </label>
           <label className="flex items-center gap-1">
             <input type="checkbox" checked={opts.matchCase} onChange={(e) => set({ matchCase: e.target.checked })} />
-            Match case
+            {t("calc.find.matchCase")}
           </label>
           <label className="flex items-center gap-1">
             <input type="checkbox" checked={opts.wholeCell} onChange={(e) => set({ wholeCell: e.target.checked })} />
-            Match entire cell contents
+            {t("calc.find.wholeCell")}
           </label>
         </div>
         <div role="status" className="min-h-5 text-xs text-ui-muted">
@@ -224,23 +227,23 @@ function FindPanel({ store, replace }: { store: CalcStore; replace: boolean }) {
                 type="button"
                 className={BTN}
                 disabled={empty}
-                onClick={() => void store.replaceAll(opts, replacement).then((n) => setStatus(`Replaced ${n} cell${n === 1 ? "" : "s"}.`))}
+                onClick={() => void store.replaceAll(opts, replacement).then((n) => setStatus(t("calc.find.replaced", { count: n })))}
               >
-                Replace all
+                {t("calc.find.replaceAll")}
               </button>
               <button type="button" className={BTN} disabled={empty} onClick={() => void store.replaceNext(opts, replacement).then(report)}>
-                Replace
+                {t("cmd.replace")}
               </button>
             </>
           )}
           <button type="button" className={BTN} disabled={empty} onClick={() => void store.findNext(opts, true).then(report)}>
-            Find previous
+            {t("calc.find.prev")}
           </button>
           <button type="submit" className={BTN} disabled={empty}>
-            Find next
+            {t("calc.find.next")}
           </button>
           <button type="button" className={BTN} onClick={close}>
-            Close
+            {t("common.close")}
           </button>
         </div>
       </form>
@@ -250,11 +253,12 @@ function FindPanel({ store, replace }: { store: CalcStore; replace: boolean }) {
 
 /** Theme colours (no tint) then the standard colours, as in Excel's tab colour menu. */
 const TAB_COLORS: { label: string; color: Color }[] = [
-  ...THEME_SLOTS.map((slot) => ({ label: `Theme ${slot}`, color: { kind: "theme", value: { slot, tint: 0 } } as Color })),
+  ...THEME_SLOTS.map((slot) => ({ label: `theme-${slot}`, color: { kind: "theme", value: { slot, tint: 0 } } as Color })), // i18n-ignore: an id, named at render
   ...STANDARD_COLORS.map((hex) => ({ label: `#${hex}`, color: { kind: "rgb", value: hex } as Color })),
 ];
 
 function TabColorDialog({ store, sheet }: { store: CalcStore; sheet: number }) {
+  const t = useT();
   const info = store.getState().info?.sheets.find((s) => s.id === sheet);
   const close = () => {
     store.closeDialog();
@@ -266,15 +270,15 @@ function TabColorDialog({ store, sheet }: { store: CalcStore; sheet: number }) {
   };
   const current = JSON.stringify(info?.tabColor ?? null);
   return (
-    <Dialog open title="Tab colour" onClose={close}>
+    <Dialog open title={t("calc.tabColor.title")} onClose={close}>
       <div className="flex w-64 flex-col gap-2 text-sm">
         <div className="text-xs text-ui-muted">{info?.name}</div>
-        <div role="group" aria-label="Colours" className="grid grid-cols-10 gap-0.5">
+        <div role="group" aria-label={t("calc.tabColor.colours")} className="grid grid-cols-10 gap-0.5">
           {TAB_COLORS.map(({ label, color }) => (
             <button
               key={label}
               type="button"
-              aria-label={label}
+              aria-label={label.startsWith("theme-") ? t("calc.tabColor.theme", { slot: label.slice(6) }) : label}
               aria-pressed={JSON.stringify(color) === current}
               className="h-5 w-5 rounded-sm border border-ui-border aria-pressed:ring-2 aria-pressed:ring-ui-focus"
               style={{ background: cssColor(color, OFFICE_THEME) }}
@@ -284,10 +288,10 @@ function TabColorDialog({ store, sheet }: { store: CalcStore; sheet: number }) {
         </div>
         <div className="flex justify-end gap-2">
           <button type="button" className={BTN} onClick={() => pick(null)}>
-            No colour
+            {t("calc.tabColor.none")}
           </button>
           <button type="button" className={BTN} onClick={close}>
-            Cancel
+            {t("common.cancel")}
           </button>
         </div>
       </div>
@@ -296,6 +300,7 @@ function TabColorDialog({ store, sheet }: { store: CalcStore; sheet: number }) {
 }
 
 export function CalcDialogs({ store }: { store: CalcStore }) {
+  const t = useT();
   const dialog = useCalc(store, (s) => s.dialog);
   const close = () => {
     store.closeDialog();
@@ -312,10 +317,10 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       return (
         <PromptDialog
           open
-          title="Rename sheet"
-          label="Sheet name"
+          title={t("calc.rename.title")}
+          label={t("calc.sheetName")}
           initial={name}
-          confirmLabel="Rename"
+          confirmLabel={t("calc.rename.confirm")}
           onClose={close}
           onSubmit={(v) => {
             void store.renameSheet(dialog.sheet, v);
@@ -326,7 +331,7 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
     }
     case "deleteSheet":
       return (
-        <Dialog open title="Delete sheet" onClose={close}>
+        <Dialog open title={t("calc.deleteSheet")} onClose={close}>
           <form
             className="flex w-80 flex-col gap-3 text-sm"
             onSubmit={(e) => {
@@ -336,14 +341,14 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
             }}
           >
             <p>
-              “{dialog.name}” contains data. Delete the sheet? References to it in formulas become #REF! (Undo brings it back).
+              {t("calc.deleteSheet.confirm", { name: dialog.name })}
             </p>
             <div className="flex justify-end gap-2">
               <button type="button" className={BTN} onClick={close}>
-                Cancel
+                {t("common.cancel")}
               </button>
               <button type="submit" className={BTN}>
-                Delete
+                {t("cmd.delete")}
               </button>
             </div>
           </form>
@@ -357,14 +362,14 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       return (
         <PromptDialog
           open
-          title={rows ? "Row height" : "Column width"}
-          label={rows ? "Row height (points)" : "Column width (characters)"}
+          title={rows ? t("calc.rowHeight") : t("calc.colWidth")}
+          label={rows ? t("calc.rowHeightPt") : t("calc.colWidthChars")}
           initial={String(store.currentSize(rows ? "rows" : "cols"))}
           onClose={close}
           onSubmit={(v) => {
             const n = Number(v.replace(",", "."));
             if (!Number.isFinite(n) || n < 0 || n > (rows ? 409 : 255)) {
-              store.pushError(new Error(rows ? "Row height must be between 0 and 409" : "Column width must be between 0 and 255"));
+              store.pushError(new Error(rows ? t("calc.rowHeightRange") : t("calc.colWidthRange")));
               return;
             }
             void store.setSize(rows ? "rows" : "cols", n);

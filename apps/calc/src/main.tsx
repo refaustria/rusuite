@@ -1,7 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { createBackend, type WasmModule } from "@rusuite/ui-shared";
+import { createBackend, I18nProvider, type WasmModule } from "@rusuite/ui-shared";
 import App from "./App";
+import { t } from "./i18n";
 import type { Request } from "./generated/Request";
 import type { ResponseBody } from "./generated/ResponseBody";
 import "./styles.css";
@@ -18,10 +19,12 @@ async function loadWasm(): Promise<WasmModule> {
   return mod as WasmModule;
 }
 
-createBackend<Request, ResponseBody>(loadWasm).then((backend) => {
+createBackend<Request, ResponseBody>(loadWasm, { fileTypeLabel: () => t("calc.fileType") }).then((backend) => {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <App backend={backend} />
+      <I18nProvider>
+        <App backend={backend} />
+      </I18nProvider>
     </React.StrictMode>,
   );
 });

@@ -10,21 +10,22 @@ import { indent, setAlignment, setParagraphStyle, styleOf } from "./sync/editorC
 import { clearFormatting, setLineSpacingRule, toggleSpaceBefore } from "./features/formatting";
 import type { WriteFeatures } from "./features/WriteFeatures";
 import type { SyncController } from "./sync/SyncPlugin";
+import { useT } from "./i18n";
 
-const NATIVE_ROWS: HelpRow[] = [
-  { combo: "Mod+Z", label: "Undo", group: "Edit" },
-  { combo: "Mod+Y", label: "Redo", group: "Edit" },
-  { combo: "Mod+Shift+Z", label: "Redo", group: "Edit" },
-  { combo: "Mod+B", label: "Bold", group: "Format" },
-  { combo: "Mod+I", label: "Italic", group: "Format" },
-  { combo: "Mod+U", label: "Underline", group: "Format" },
-  { combo: "Mod+=", label: "Subscript", group: "Format" },
-  { combo: "Mod+Shift+=", label: "Superscript", group: "Format" },
-  { combo: "Mod+Space", label: "Clear character formatting", group: "Format" },
-  { combo: "Tab", label: "Table: next cell (in the last cell: new row)", group: "Tables" },
-  { combo: "Shift+Tab", label: "Table: previous cell", group: "Tables" },
-  { combo: "Enter", label: "Find bar: next match (Shift+Enter: previous)", group: "Edit" },
-  { combo: "Escape", label: "Stop the format painter / close the find bar", group: "Edit" },
+const nativeRows = (t: (key: string) => string): HelpRow[] => [
+  { combo: "Mod+Z", label: t("cmd.undo"), group: t("sc.edit") },
+  { combo: "Mod+Y", label: t("cmd.redo"), group: t("sc.edit") },
+  { combo: "Mod+Shift+Z", label: t("cmd.redo"), group: t("sc.edit") },
+  { combo: "Mod+B", label: t("fmt.bold"), group: t("sc.format") },
+  { combo: "Mod+I", label: t("fmt.italic"), group: t("sc.format") },
+  { combo: "Mod+U", label: t("fmt.underline"), group: t("sc.format") },
+  { combo: "Mod+=", label: t("write.subscript"), group: t("sc.format") },
+  { combo: "Mod+Shift+=", label: t("write.superscript"), group: t("sc.format") },
+  { combo: "Mod+Space", label: t("write.sc.clearChar"), group: t("sc.format") },
+  { combo: "Tab", label: t("write.sc.nextCell"), group: t("write.tables") },
+  { combo: "Shift+Tab", label: t("write.sc.prevCell"), group: t("write.tables") },
+  { combo: "Enter", label: t("write.sc.findNext"), group: t("sc.edit") },
+  { combo: "Escape", label: t("write.sc.stop"), group: t("sc.edit") },
 ];
 
 export interface WriteShortcutProps {
@@ -58,15 +59,16 @@ function toggleHeading(editor: Editor, level: number): void {
 }
 
 export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, onFind, onReplace, features }: WriteShortcutProps) {
+  const t = useT();
   const [helpOpen, setHelpOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
 
   const map = useMemo<ShortcutMap>(() => {
-    const File = "File";
+    const File = t("sc.file");
     const align = (a: Alignment, label: string, key: string): ShortcutMap => ({
       [key]: {
         label,
-        group: "Paragraph",
+        group: t("group.paragraph"),
         inField: true,
         run: () => (editor ? void setAlignment(editor, a) : false),
       },
@@ -76,36 +78,36 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
     const headings: ShortcutMap = {};
     for (const n of [1, 2, 3]) {
       headings[`Mod+Alt+${n}`] = {
-        label: `Heading ${n}`,
-        group: "Paragraph",
+        label: t("write.style.heading", { n }),
+        group: t("group.paragraph"),
         inField: true,
         run: () => (editor ? void toggleHeading(editor, n) : false),
       };
     }
     return {
-      "Mod+N": { label: "New document", group: File, inField: true, run: () => onNew() },
-      "Mod+O": { label: "Open", group: File, inField: true, run: () => void onOpen() },
-      "Mod+S": { label: "Save", group: File, inField: true, run: () => void onSave() },
+      "Mod+N": { label: t("write.sc.newDoc"), group: File, inField: true, run: () => onNew() },
+      "Mod+O": { label: t("cmd.open"), group: File, inField: true, run: () => void onOpen() },
+      "Mod+S": { label: t("cmd.save"), group: File, inField: true, run: () => void onSave() },
       // Desktop: the native save dialog is the Save As; web: name the download first.
       "Mod+Shift+S": {
-        label: "Save as",
+        label: t("cmd.saveAs"),
         group: File,
         inField: true,
         run: () => (ctl.api.backend.kind === "tauri" ? onSaveAs() : setSaveAsOpen(true)),
       },
-      "Mod+P": { label: "Print (File › Print: settings and preview)", group: File, inField: true, run: () => void openBackstage("print") },
-      "Mod+/": { label: "Keyboard shortcuts", inField: true, run: () => setHelpOpen(true) },
-      "Mod+F": { label: "Find and replace", group: "Edit", inField: true, run: () => onFind() },
-      "Mod+H": { label: "Replace", group: "Edit", inField: true, run: () => (onReplace ?? onFind)() },
+      "Mod+P": { label: t("sc.printTip"), group: File, inField: true, run: () => void openBackstage("print") },
+      "Mod+/": { label: t("shortcuts.title"), inField: true, run: () => setHelpOpen(true) },
+      "Mod+F": { label: t("cmd.findReplace"), group: t("sc.edit"), inField: true, run: () => onFind() },
+      "Mod+H": { label: t("cmd.replace"), group: t("sc.edit"), inField: true, run: () => (onReplace ?? onFind)() },
       "Mod+Shift+C": {
-        label: "Copy formatting (format painter)",
-        group: "Format",
+        label: t("write.sc.copyFormat"),
+        group: t("sc.format"),
         inField: true,
         run: () => (editor && features ? void features.painter.copy(editor, true) : false),
       },
       "Mod+Shift+V": {
-        label: "Paste formatting",
-        group: "Format",
+        label: t("write.sc.pasteFormat"),
+        group: t("sc.format"),
         inField: true,
         run: () => {
           if (!editor || !features?.painter.active) return false;
@@ -113,38 +115,38 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
           features.painter.cancel(editor);
         },
       },
-      "Mod+1": { label: "Single line spacing", group: "Paragraph", inField: true, run: () => (editor ? void setLineSpacingRule(editor, { kind: "multiple", value: 1 }) : false) },
-      "Mod+2": { label: "Double line spacing", group: "Paragraph", inField: true, run: () => (editor ? void setLineSpacingRule(editor, { kind: "multiple", value: 2 }) : false) },
-      "Mod+5": { label: "1.5 line spacing", group: "Paragraph", inField: true, run: () => (editor ? void setLineSpacingRule(editor, { kind: "multiple", value: 1.5 }) : false) },
-      "Mod+0": { label: "Add/remove 12 pt space before", group: "Paragraph", inField: true, run: () => (editor ? void toggleSpaceBefore(editor) : false) },
-      "Mod+M": { label: "Increase indent", group: "Paragraph", inField: true, run: () => (editor ? void indent(editor, 1) : false) },
-      "Mod+Shift+M": { label: "Decrease indent", group: "Paragraph", inField: true, run: () => (editor ? void indent(editor, -1) : false) },
-      "Mod+Shift+N": { label: "Clear all formatting (Normal)", group: "Format", inField: true, run: () => (editor ? void clearFormatting(editor, ctl, true) : false) },
-      ...align("center", "Center", "Mod+E"),
-      ...align("left", "Align left", "Mod+L"),
-      ...align("right", "Align right", "Mod+R"),
-      ...align("justify", "Justify", "Mod+J"),
+      "Mod+1": { label: t("write.sc.single"), group: t("group.paragraph"), inField: true, run: () => (editor ? void setLineSpacingRule(editor, { kind: "multiple", value: 1 }) : false) },
+      "Mod+2": { label: t("write.sc.double"), group: t("group.paragraph"), inField: true, run: () => (editor ? void setLineSpacingRule(editor, { kind: "multiple", value: 2 }) : false) },
+      "Mod+5": { label: t("write.sc.onePointFive"), group: t("group.paragraph"), inField: true, run: () => (editor ? void setLineSpacingRule(editor, { kind: "multiple", value: 1.5 }) : false) },
+      "Mod+0": { label: t("write.sc.space12"), group: t("group.paragraph"), inField: true, run: () => (editor ? void toggleSpaceBefore(editor) : false) },
+      "Mod+M": { label: t("list.indent"), group: t("group.paragraph"), inField: true, run: () => (editor ? void indent(editor, 1) : false) },
+      "Mod+Shift+M": { label: t("list.outdent"), group: t("group.paragraph"), inField: true, run: () => (editor ? void indent(editor, -1) : false) },
+      "Mod+Shift+N": { label: t("write.sc.clearAll"), group: t("sc.format"), inField: true, run: () => (editor ? void clearFormatting(editor, ctl, true) : false) },
+      ...align("center", t("write.sc.center"), "Mod+E"),
+      ...align("left", t("fmt.alignLeft"), "Mod+L"),
+      ...align("right", t("fmt.alignRight"), "Mod+R"),
+      ...align("justify", t("write.justify"), "Mod+J"),
       "Mod+Shift+L": {
-        label: "Bulleted list",
-        group: "Paragraph",
+        label: t("list.bullet"),
+        group: t("group.paragraph"),
         inField: true,
         run: () => (editor ? editor.chain().focus().toggleBulletList().run() : false),
       },
       ...headings,
     };
-  }, [editor, ctl, onNew, onOpen, onSave, onSaveAs, onFind, onReplace, features]);
+  }, [editor, ctl, onNew, onOpen, onSave, onSaveAs, onFind, onReplace, features, t]);
 
   useShortcuts(map);
 
   return (
     <>
-      <ShortcutHelp open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={map} extra={NATIVE_ROWS} />
+      <ShortcutHelp open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={map} extra={nativeRows(t)} />
       <PromptDialog
         open={saveAsOpen}
-        title="Save as"
-        label="File name"
-        initial={ctl.getState().name ?? "Document.docx"}
-        confirmLabel="Save"
+        title={t("cmd.saveAs")}
+        label={t("saveAs.fileName")}
+        initial={ctl.getState().name ?? t("write.defaultName")}
+        confirmLabel={t("cmd.save")}
         onClose={() => setSaveAsOpen(false)}
         onSubmit={(name) => {
           setSaveAsOpen(false);

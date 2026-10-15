@@ -9,6 +9,7 @@ import type { Editor } from "@tiptap/react";
 import { findState, findStep, replaceCurrent, setFindQuery } from "../features/find";
 import type { WriteUi } from "../features/WriteFeatures";
 import type { SyncController } from "../sync/SyncPlugin";
+import { t, useT } from "../i18n";
 
 const INPUT = "h-7 w-full rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";
 const BUTTON = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg hover:bg-ui-hover disabled:opacity-40";
@@ -16,11 +17,12 @@ const BUTTON = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-sm text-u
 /** "3 of 12" / "No results" for the match counter. */
 export function matchLabel(current: number, total: number, query: string): string {
   if (!query) return "";
-  if (!total) return "No results";
-  return current >= 0 ? `${current + 1} of ${total}` : `${total} results`;
+  if (!total) return t("write.find.none");
+  return current >= 0 ? t("write.find.nOfM", { n: current + 1, total }) : t("write.find.results", { count: total });
 }
 
 export function FindBar({ ctl, editor, ui }: { ctl: SyncController; editor: Editor | null; ui: WriteUi }) {
+  const tr = useT();
   const find = useSyncExternalStore(ui.subscribe, () => ui.getState().find);
   const [text, setText] = useState("");
   const [replace, setReplace] = useState("");
@@ -82,7 +84,7 @@ export function FindBar({ ctl, editor, ui }: { ctl: SyncController; editor: Edit
   return (
     <div
       role="dialog"
-      aria-label="Find and replace"
+      aria-label={tr("cmd.findReplace")}
       className="fixed right-6 top-[100px] z-30 flex w-80 flex-col gap-2 rounded-lg border border-ui-border bg-ui-panel p-3 text-sm text-ui-fg shadow-xl"
       data-testid="find-bar"
       onKeyDown={(e) => {
@@ -96,9 +98,9 @@ export function FindBar({ ctl, editor, ui }: { ctl: SyncController; editor: Edit
       <div className="flex items-center gap-1">
         <input
           ref={input}
-          aria-label="Find"
+          aria-label={tr("cmd.find")}
           className={INPUT}
-          placeholder="Search for text"
+          placeholder={tr("write.find.search")}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -108,10 +110,10 @@ export function FindBar({ ctl, editor, ui }: { ctl: SyncController; editor: Edit
             }
           }}
         />
-        <button type="button" className={BUTTON} aria-label="Previous match" title="Previous (Shift+Enter)" disabled={!total} onClick={() => step(-1)}>
+        <button type="button" className={BUTTON} aria-label={tr("write.find.prevMatch")} title={tr("write.find.prevTip")} disabled={!total} onClick={() => step(-1)}>
           ↑
         </button>
-        <button type="button" className={BUTTON} aria-label="Next match" title="Next (Enter)" disabled={!total} onClick={() => step(1)}>
+        <button type="button" className={BUTTON} aria-label={tr("write.find.nextMatch")} title={tr("write.find.nextTip")} disabled={!total} onClick={() => step(1)}>
           ↓
         </button>
       </div>
@@ -119,16 +121,16 @@ export function FindBar({ ctl, editor, ui }: { ctl: SyncController; editor: Edit
         <span data-testid="match-count">{matchLabel(st?.current ?? -1, total, text)}</span>
         <span className="flex gap-3">
           <label className="flex items-center gap-1">
-            <input type="checkbox" checked={matchCase} onChange={(e) => setMatchCase(e.target.checked)} /> Match case
+            <input type="checkbox" checked={matchCase} onChange={(e) => setMatchCase(e.target.checked)} /> {tr("write.find.matchCase")}
           </label>
           <label className="flex items-center gap-1">
-            <input type="checkbox" checked={wholeWord} onChange={(e) => setWholeWord(e.target.checked)} /> Whole words
+            <input type="checkbox" checked={wholeWord} onChange={(e) => setWholeWord(e.target.checked)} /> {tr("write.find.wholeWords")}
           </label>
         </span>
       </div>
       {showReplace ? (
         <>
-          <input aria-label="Replace with" className={INPUT} placeholder="Replace with" value={replace} onChange={(e) => setReplace(e.target.value)} />
+          <input aria-label={tr("write.find.replaceWith")} className={INPUT} placeholder={tr("write.find.replaceWith")} value={replace} onChange={(e) => setReplace(e.target.value)} />
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -138,23 +140,23 @@ export function FindBar({ ctl, editor, ui }: { ctl: SyncController; editor: Edit
                 if (editor) replaceCurrent(editor.view, replace);
               }}
             >
-              Replace
+              {tr("cmd.replace")}
             </button>
             <button type="button" className={BUTTON} disabled={!text} onClick={() => void replaceAll()}>
-              Replace all
+              {tr("write.find.replaceAll")}
             </button>
             <button type="button" className={BUTTON} onClick={close}>
-              Close
+              {tr("common.close")}
             </button>
           </div>
         </>
       ) : (
         <div className="flex justify-end gap-2">
           <button type="button" className={BUTTON} onClick={() => setShowReplace(true)}>
-            Replace…
+            {tr("cmd.replaceDots")}
           </button>
           <button type="button" className={BUTTON} onClick={close}>
-            Close
+            {tr("common.close")}
           </button>
         </div>
       )}
