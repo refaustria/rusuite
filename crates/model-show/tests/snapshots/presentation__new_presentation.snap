@@ -1,0 +1,281 @@
+---
+source: crates/model-show/tests/presentation.rs
+expression: p
+---
+{
+  "slideSize": {
+    "width": 12192000,
+    "height": 6858000
+  },
+  "slides": [
+    {
+      "id": 1,
+      "layout": "title",
+      "shapes": [
+        {
+          "id": 2,
+          "name": "Title 2",
+          "transform": {
+            "x": 1524000,
+            "y": 1122363,
+            "w": 9144000,
+            "h": 2387600
+          },
+          "kind": {
+            "kind": "auto",
+            "value": {
+              "geometry": "rect",
+              "text": {
+                "props": {
+                  "anchor": "bottom",
+                  "wrap": true,
+                  "insets": {
+                    "left": 91440,
+                    "top": 45720,
+                    "right": 91440,
+                    "bottom": 45720
+                  },
+                  "autofit": "shrink"
+                },
+                "paragraphs": [
+                  {
+                    "runs": []
+                  }
+                ]
+              }
+            }
+          },
+          "fill": {
+            "kind": "none"
+          },
+          "line": {
+            "fill": {
+              "kind": "none"
+            },
+            "width": 12700,
+            "dash": "solid"
+          },
+          "placeholder": "centeredTitle"
+        },
+        {
+          "id": 3,
+          "name": "Subtitle 3",
+          "transform": {
+            "x": 1524000,
+            "y": 3602038,
+            "w": 9144000,
+            "h": 1655762
+          },
+          "kind": {
+            "kind": "auto",
+            "value": {
+              "geometry": "rect",
+              "text": {
+                "props": {
+                  "anchor": "top",
+                  "wrap": true,
+                  "insets": {
+                    "left": 91440,
+                    "top": 45720,
+                    "right": 91440,
+                    "bottom": 45720
+                  },
+                  "autofit": "shrink"
+                },
+                "paragraphs": [
+                  {
+                    "runs": []
+                  }
+                ]
+              }
+            }
+          },
+          "fill": {
+            "kind": "none"
+          },
+          "line": {
+            "fill": {
+              "kind": "none"
+            },
+            "width": 12700,
+            "dash": "solid"
+          },
+          "placeholder": "subtitle"
+        }
+      ]
+    }
+  ],
+  "layouts": [
+    {
+      "kind": "title",
+      "placeholders": [
+        {
+          "kind": "centeredTitle",
+          "transform": {
+            "x": 1524000,
+            "y": 1122363,
+            "w": 9144000,
+            "h": 2387600
+          },
+          "bodyDefaults": {
+            "anchor": "bottom",
+            "wrap": true,
+            "insets": {
+              "left": 91440,
+              "top": 45720,
+              "right": 91440,
+              "bottom": 45720
+            },
+            "autofit": "shrink"
+          },
+          "runDefaults": {
+            "font": {
+              "kind": "theme",
+              "value": "majorLatin"
+            },
+            "size": 6000
+          },
+          "paragraphDefaults": {
+            "alignment": "center"
+          }
+        },
+        {
+          "kind": "subtitle",
+          "transform": {
+            "x": 1524000,
+            "y": 3602038,
+            "w": 9144000,
+            "h": 1655762
+          },
+          "bodyDefaults": {
+            "anchor": "top",
+            "wrap": true,
+            "insets": {
+              "left": 91440,
+              "top": 45720,
+              "right": 91440,
+              "bottom": 45720
+            },
+            "autofit": "shrink"
+          },
+          "runDefaults": {
+            "font": {
+              "kind": "theme",
+              "value": "minorLatin"
+            },
+            "size": 2400
+          },
+          "paragraphDefaults": {
+            "alignment": "center",
+            "bullet": {
+              "kind": "none"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "titleContent",
+      "placeholders": [
+        {
+          "kind": "title",
+          "transform": {
+            "x": 838200,
+            "y": 365125,
+            "w": 10515600,
+            "h": 1325563
+          },
+          "bodyDefaults": {
+            "anchor": "middle",
+            "wrap": true,
+            "insets": {
+              "left": 91440,
+              "top": 45720,
+              "right": 91440,
+              "bottom": 45720
+            },
+            "autofit": "shrink"
+          },
+          "runDefaults": {
+            "font": {
+              "kind": "theme",
+              "value": "majorLatin"
+            },
+            "size": 4400
+          },
+          "paragraphDefaults": {
+            "alignment": "left"
+          }
+        },
+        {
+          "kind": "body",
+          "transform": {
+            "x": 838200,
+            "y": 1825625,
+            "w": 10515600,
+            "h": 4351338
+          },
+          "bodyDefaults": {
+            "anchor": "top",
+            "wrap": true,
+            "insets": {
+              "left": 91440,
+              "top": 45720,
+              "right": 91440,
+              "bottom": 45720
+            },
+            "autofit": "shrink"
+          },
+          "runDefaults": {
+            "font": {
+              "kind": "theme",
+              "value": "minorLatin"
+            },
+            "size": 2800
+          },
+          "paragraphDefaults": {
+            "alignment": "left",
+            "bullet": {
+              "kind": "char",
+              "value": "•"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "blank",
+      "placeholders": []
+    }
+  ],
+  "theme": {
+    "name": "Office",
+    "colors": {
+      "name": "Office",
+      "colors": [
+        "000000",
+        "FFFFFF",
+        "44546A",
+        "E7E6E6",
+        "4472C4",
+        "ED7D31",
+        "A5A5A5",
+        "FFC000",
+        "5B9BD5",
+        "70AD47",
+        "0563C1",
+        "954F72"
+      ]
+    },
+    "fonts": {
+      "name": "Office",
+      "majorLatin": "Calibri Light",
+      "minorLatin": "Calibri",
+      "majorEastAsian": "",
+      "minorEastAsian": "",
+      "majorComplexScript": "",
+      "minorComplexScript": ""
+    }
+  },
+  "media": []
+}
