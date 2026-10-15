@@ -24,6 +24,18 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Part index (HashMap) if packages with thousands of parts become slow.
 - `PartName` helper to allocate the next free `/word/media/imageN.png`-style name.
 
+## engine-formula (parser)
+- Intersection (space) operator, union operator.
+- Sheet-scoped names (`Sheet1!Name`), 3-D refs (`Sheet1:Sheet3!A1`), external workbook refs (`[1]Sheet1!A1`), structured table refs.
+- R1C1 notation; `#SPILL!`/`#CALC!` literals and the spilled-range operator `A1#`.
+- Per-end `$` flags on whole-column/row ranges (`$A:C` currently loses the `$`).
+- Source spans on AST nodes for editor diagnostics.
+
+## engine-formula (reference suite)
+- Host-cell cases (`ROW()`, `COLUMN()` without args), implicit-intersection and spill cases once the evaluator exists.
+- Second locale pass for `TEXT`/`VALUE`; cases for SUMIFS/COUNTIFS/XLOOKUP if they ever enter scope.
+- Deferred functions list lives in `docs/functions.md`.
+
 ## Formats
 - Compare rewritten files against Open XML SDK validator (Windows/.NET) in addition to LibreOffice – gives real "would Office repair this" signal.
 
