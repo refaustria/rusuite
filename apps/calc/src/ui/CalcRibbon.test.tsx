@@ -5,6 +5,7 @@ import App from "../App";
 import { FakeBackend, FakeCalcCore } from "../dev/fakeBackend";
 import type { Request } from "../generated/Request";
 import { changeDecimals } from "./CalcRibbon";
+import { setLocale } from "@rusuite/ui-shared";
 
 beforeAll(() => {
   HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;
@@ -12,6 +13,8 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  setLocale("en");
+  localStorage.clear();
 });
 
 async function setup(props: Partial<Parameters<typeof App>[0]> = {}) {
@@ -204,5 +207,23 @@ describe("Calc ribbon", () => {
     fireEvent.click(screen.getByRole("button", { name: "Format" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Format cells/ }));
     expect(await screen.findByRole("dialog", { name: "Format cells" })).toBeTruthy();
+  });
+});
+
+describe("Calc ribbon in German", () => {
+  it("shows the German tabs, groups, tooltips (Strg) and status bar; switching back re-renders in English", async () => {
+    setLocale("de", { persist: false });
+    const core = new FakeCalcCore();
+    render(<App backend={new FakeBackend(core)} />);
+    await screen.findByRole("tab", { name: "Sheet1" });
+    expect(screen.getAllByRole("tab").slice(0, 4).map((t) => t.textContent)).toEqual(["Datei", "Start", "Einfügen", "Ansicht"]);
+    const toolbar = screen.getByRole("toolbar", { name: "Formatierung" });
+    for (const g of ["Zwischenablage", "Schriftart", "Ausrichtung", "Zahl", "Zellen", "Bearbeiten"]) expect(within(toolbar).getByRole("group", { name: g })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Kopieren" }).title).toBe("Kopieren (Strg+C)");
+    expect(screen.getByTestId("status-bar").textContent).toContain("Gespeichert");
+    fireEvent.click(tab("Ansicht"));
+    fireEvent.change(screen.getByRole("combobox", { name: "Language / Sprache" }), { target: { value: "en" } });
+    expect(tab("View").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("status-bar").textContent).toContain("Saved");
   });
 });

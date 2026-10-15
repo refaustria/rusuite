@@ -3,6 +3,7 @@
 // The shell records opened/saved paths in its file dialogs itself.
 
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "../i18n/locale";
 import type { DocStorage, RecentEntry, RecentSource, RecoveryEntry, RecoveryInfo } from "./storage";
 
 export class TauriDocStorage implements DocStorage {
@@ -17,7 +18,7 @@ export class TauriDocStorage implements DocStorage {
   }
 
   async openRecent(entry: RecentEntry): Promise<RecentSource> {
-    if (entry.path === null) throw new Error(`"${entry.name}" has no path`);
+    if (entry.path === null) throw new Error(t("recent.noPath", { name: entry.name }));
     const file = await invoke<{ name: string; bytesBase64: string }>("recent_open", { path: entry.path });
     return { file: { name: file.name, bytesBase64: file.bytesBase64 } };
   }

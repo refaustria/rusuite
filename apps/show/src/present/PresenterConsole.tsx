@@ -9,6 +9,8 @@ import type { Slide } from "../generated/Slide";
 import type { DeckContext } from "../canvas/SlideView";
 import { SlideImage, useShowKeys } from "./Presenter";
 import type { ShowAction, ShowState } from "./showState";
+import { formatDate } from "@rusuite/ui-shared";
+import { useT } from "../i18n";
 
 const NOTES_SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 40];
 const NOTES_SIZE_KEY = "rusuite.show.notesSize";
@@ -63,6 +65,7 @@ export interface PresenterConsoleProps {
 const BTN = "rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20 disabled:opacity-40";
 
 export function PresenterConsole({ deck, slides, media, mediaVersion, show, onAction, status }: PresenterConsoleProps) {
+  const t = useT();
   const [start, setStart] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
   const [notesSize, setNotesSize] = useState(loadNotesSize);
@@ -89,13 +92,13 @@ export function PresenterConsole({ deck, slides, media, mediaVersion, show, onAc
   const next = show.ended ? undefined : slides[show.index + 1];
   const notes = slide?.notes ?? "";
   const sizeAt = NOTES_SIZES.indexOf(notesSize);
-  const counter = show.ended ? "End of slide show" : `Slide ${show.index + 1} of ${slides.length}`;
-  const screen = show.ended ? "End of slide show" : show.blank === "black" ? "Black screen" : show.blank === "white" ? "White screen" : null;
+  const counter = show.ended ? t("show.end") : t("show.slideOf", { n: show.index + 1, count: slides.length });
+  const screen = show.ended ? t("show.end") : show.blank === "black" ? t("show.blackScreen") : show.blank === "white" ? t("show.whiteScreen") : null;
 
   return (
-    <div role="dialog" aria-label="Presenter view" data-testid="presenter-console" className="fixed inset-0 z-50 flex flex-col bg-neutral-900 text-neutral-100">
+    <div role="dialog" aria-label={t("show.presenterView")} data-testid="presenter-console" className="fixed inset-0 z-50 flex flex-col bg-neutral-900 text-neutral-100">
       <header className="flex items-center gap-4 border-b border-white/10 px-4 py-2">
-        <span className="font-mono text-2xl tabular-nums" data-testid="presenter-timer" aria-label="Elapsed time">
+        <span className="font-mono text-2xl tabular-nums" data-testid="presenter-timer" aria-label={t("show.elapsed")}>
           {formatElapsed(now - start)}
         </span>
         <button
@@ -107,17 +110,17 @@ export function PresenterConsole({ deck, slides, media, mediaVersion, show, onAc
             setNow(t);
           }}
         >
-          Reset timer
+          {t("show.resetTimer")}
         </button>
         <span className="text-lg" data-testid="console-counter">
           {counter}
         </span>
         {status && <span className="text-sm text-amber-300">{status}</span>}
-        <span className="ml-auto text-sm text-white/60">{new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+        <span className="ml-auto text-sm text-white/60">{formatDate(now, { hour: "2-digit", minute: "2-digit" })}</span>
       </header>
 
       <div className="flex min-h-0 flex-1 gap-4 p-4">
-        <section aria-label="Current slide" className="flex min-w-0 flex-[2] flex-col gap-2">
+        <section aria-label={t("show.currentSlide")} className="flex min-w-0 flex-[2] flex-col gap-2">
           <div ref={mainRef} className="relative flex min-h-0 flex-1 items-center justify-center" data-testid="console-current">
             {slide && !show.ended && (
               <div className={screen ? "opacity-30" : undefined}>
@@ -132,39 +135,39 @@ export function PresenterConsole({ deck, slides, media, mediaVersion, show, onAc
           </div>
           <div className="flex items-center gap-2">
             <button type="button" className={BTN} onClick={() => onAction({ type: "prev" })}>
-              Previous
+              {t("show.previous")}
             </button>
             <button type="button" className={BTN} onClick={() => onAction({ type: "next" })}>
-              Next
+              {t("show.next")}
             </button>
             <button type="button" className={BTN} aria-pressed={show.blank === "black"} onClick={() => onAction({ type: "blank", color: "black" })}>
-              Black screen
+              {t("show.blackScreen")}
             </button>
             <button type="button" className={`${BTN} ml-auto bg-orange-700 hover:bg-orange-800`} onClick={() => onAction({ type: "exit" })}>
-              End show
+              {t("show.endShow")}
             </button>
           </div>
         </section>
 
         <aside className="flex min-w-0 flex-1 flex-col gap-3">
-          <div className="text-xs uppercase tracking-wide text-white/50">Next</div>
+          <div className="text-xs uppercase tracking-wide text-white/50">{t("show.nextHeading")}</div>
           <div ref={nextRef} className="flex aspect-video w-full items-center justify-center bg-black/40" data-testid="console-next">
             {next ? (
               <SlideImage deck={deck} slide={next} media={media} mediaVersion={mediaVersion} width={nextSize.width} height={nextSize.height} />
             ) : (
-              <span className="text-sm text-white/50">{show.ended ? "" : "End of slide show"}</span>
+              <span className="text-sm text-white/50">{show.ended ? "" : t("show.end")}</span>
             )}
           </div>
           <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-white/50">
-            Notes
+            {t("show.notes")}
             <span className="ml-auto flex gap-1 normal-case">
-              <button type="button" className={BTN} aria-label="Smaller notes text" disabled={sizeAt <= 0} onClick={() => setNotesSize(NOTES_SIZES[sizeAt - 1] ?? notesSize)}>
+              <button type="button" className={BTN} aria-label={t("show.smallerNotes")} disabled={sizeAt <= 0} onClick={() => setNotesSize(NOTES_SIZES[sizeAt - 1] ?? notesSize)}>
                 A−
               </button>
               <button
                 type="button"
                 className={BTN}
-                aria-label="Larger notes text"
+                aria-label={t("show.largerNotes")}
                 disabled={sizeAt >= NOTES_SIZES.length - 1}
                 onClick={() => setNotesSize(NOTES_SIZES[sizeAt + 1] ?? notesSize)}
               >
@@ -176,20 +179,20 @@ export function PresenterConsole({ deck, slides, media, mediaVersion, show, onAc
             className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded bg-black/30 p-3 leading-snug"
             style={{ fontSize: notesSize }}
             data-testid="console-notes"
-            aria-label="Speaker notes"
+            aria-label={t("show.speakerNotes")}
           >
-            {notes || <span className="text-white/40">No notes for this slide.</span>}
+            {notes || <span className="text-white/40">{t("show.noNotes")}</span>}
           </div>
         </aside>
       </div>
 
-      <nav aria-label="Slides" className="flex gap-2 overflow-x-auto border-t border-white/10 p-2">
+      <nav aria-label={t("show.slides")} className="flex gap-2 overflow-x-auto border-t border-white/10 p-2">
         {slides.map((s, i) => (
           <button
             key={s.id}
             ref={i === show.index ? stripItem : undefined}
             type="button"
-            aria-label={`Go to slide ${i + 1}`}
+            aria-label={t("show.goTo", { n: i + 1 })}
             aria-current={i === show.index && !show.ended ? "true" : undefined}
             className={`relative shrink-0 rounded border-2 ${i === show.index && !show.ended ? "border-orange-500" : "border-transparent hover:border-white/40"}`}
             onClick={() => onAction({ type: "goto", index: i })}

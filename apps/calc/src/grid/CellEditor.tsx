@@ -7,12 +7,14 @@ import { isFormula } from "../formula/tokenize";
 import { useCalc, type CalcStore } from "../state/store";
 import { EditPopups, FormulaOverlay, handleEditorKey, syncCaret, useEditorBinding } from "./editorKit";
 import { fontCss } from "./style";
+import { useT } from "../i18n";
 
 export const FORMULA_BAR_ATTR = "data-formula-bar";
 
 export function CellEditor({
   store, boxRef, onMount,
 }: { store: CalcStore; boxRef: RefObject<HTMLDivElement>; onMount: () => void }) {
+  const t = useT();
   const edit = useCalc(store, (s) => s.edit);
   const input = useRef<HTMLTextAreaElement>(null);
   const origin = edit?.origin;
@@ -56,7 +58,7 @@ export function CellEditor({
         ref={input}
         rows={1}
         wrap="off"
-        aria-label="Cell editor"
+        aria-label={t("calc.cellEditor")}
         data-testid="cell-editor"
         spellCheck={false}
         autoComplete="off"

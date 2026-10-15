@@ -4,8 +4,9 @@
 // the document's own page setup at 100 % the pages are the editor's pages.
 
 import {
-  MARGIN_PRESETS, PAPER_IN, escapeHtml, type MarginPreset, type PageOrientation, type PaperName, type PrintChoice, type PrintDoc,
+  MARGIN_PRESETS, PAPER_IN, escapeHtml, type MarginPreset, type PageOrientation, type PaperName, type PrintChoice, type PrintDoc, withLabel,
 } from "@rusuite/ui-shared";
+import "../i18n";
 import type { PageSetup } from "../generated/PageSetup";
 import { computeBreaks, headerFooterText, pageGeometry, type BlockBox, type PageGeometry } from "../features/pagination";
 
@@ -23,24 +24,24 @@ export interface WritePrintOptions {
 export const DEFAULT_WRITE_PRINT: WritePrintOptions = { range: "", paper: "document", orientation: "document", margins: "document", scale: 100 };
 
 export const WRITE_PAPER_CHOICES: PrintChoice[] = [
-  { value: "document", label: "As in the document" },
-  { value: "A4", label: "A4 (21 × 29.7 cm)" },
-  { value: "Letter", label: "Letter (8.5 × 11 in)" },
-  { value: "Legal", label: "Legal (8.5 × 14 in)" },
-  { value: "A3", label: "A3 (29.7 × 42 cm)" },
+  withLabel({ value: "document" }, "print.asDocument"),
+  withLabel({ value: "A4" }, "print.paper.A4"),
+  withLabel({ value: "Letter" }, "print.paper.Letter"),
+  withLabel({ value: "Legal" }, "print.paper.Legal"),
+  withLabel({ value: "A3" }, "print.paper.A3"),
 ];
 
 export const WRITE_ORIENTATION_CHOICES: PrintChoice[] = [
-  { value: "document", label: "As in the document" },
-  { value: "portrait", label: "Portrait" },
-  { value: "landscape", label: "Landscape" },
+  withLabel({ value: "document" }, "print.asDocument"),
+  withLabel({ value: "portrait" }, "print.portrait"),
+  withLabel({ value: "landscape" }, "print.landscape"),
 ];
 
 export const WRITE_MARGIN_CHOICES: PrintChoice[] = [
-  { value: "document", label: "As in the document" },
-  { value: "normal", label: "Normal (1 in)" },
-  { value: "narrow", label: "Narrow (0.5 in)" },
-  { value: "wide", label: "Wide (1 in / 2 in)" },
+  withLabel({ value: "document" }, "print.asDocument"),
+  withLabel({ value: "normal" }, "write.print.margins.normal"),
+  withLabel({ value: "narrow" }, "write.print.margins.narrow"),
+  withLabel({ value: "wide" }, "write.print.margins.wide"),
 ];
 
 /** The printed page geometry (CSS px): the document's page setup with the print overrides. */

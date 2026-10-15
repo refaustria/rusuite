@@ -8,8 +8,9 @@ import { useMemo, type ReactNode } from "react";
 import {
   AlignmentControls, BordersDropdown, ColorControls, FontControls, NumberFormatSelect, RIBBON_SELECT, Ribbon, RibbonButton,
   RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack, StyleToggles, triggerShortcut, type AnySession, type CellStylePatch,
-  type FormatControlProps, type RibbonTab,
+  type FormatControlProps, type RibbonTab, languageRibbonGroup,
 } from "@rusuite/ui-shared";
+import { useT } from "../i18n";
 import { calcActions } from "../calcActions";
 import { sheetMenu } from "../SheetTabs";
 import { toolbarValue } from "../grid/style";
@@ -54,6 +55,7 @@ export interface CalcRibbonProps {
 }
 
 export function CalcRibbon({ store, session, onExportPdf, print, view, onViewChange }: CalcRibbonProps) {
+  const t = useT();
   useCalc(store, (s) => s.version);
   useCalc(store, (s) => s.selection);
   const activeSheet = useCalc(store, (s) => s.activeSheet);
@@ -83,43 +85,43 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
 
   const home: RibbonTab = {
     id: "home",
-    label: "Home",
-    toolbarLabel: "Formatting",
+    label: t("tab.home"),
+    toolbarLabel: t("fmt.toolbar"),
     groups: [
       {
-        label: "Undo",
+        label: t("group.undo"),
         items: (
           <RibbonStack>
-            <RibbonButton label="Undo" icon="undo" shortcut="Mod+Z" disabled={off || !canUndo} onClick={run(() => store.undo())} />
-            <RibbonButton label="Redo" icon="redo" shortcut="Mod+Y" disabled={off || !canRedo} onClick={run(() => store.redo())} />
+            <RibbonButton label={t("group.undo")} icon="undo" shortcut="Mod+Z" disabled={off || !canUndo} onClick={run(() => store.undo())} />
+            <RibbonButton label={t("cmd.redo")} icon="redo" shortcut="Mod+Y" disabled={off || !canRedo} onClick={run(() => store.redo())} />
           </RibbonStack>
         ),
       },
       {
-        label: "Clipboard",
+        label: t("group.clipboard"),
         items: (
           <>
             <RibbonSplitButton
-              label="Paste"
+              label={t("cmd.paste")}
               icon="paste"
               size="large"
               shortcut="Mod+V"
               disabled={off}
               onClick={run(actions.paste)}
               menu={[
-                { id: "all", label: "Paste", icon: "paste", shortcut: "Mod+V", onSelect: run(actions.paste) },
-                { id: "values", label: "Paste values", shortcut: "Mod+Shift+V", onSelect: run(actions.pasteValues) },
+                { id: "all", label: t("cmd.paste"), icon: "paste", shortcut: "Mod+V", onSelect: run(actions.paste) },
+                { id: "values", label: t("calc.pasteValues"), shortcut: "Mod+Shift+V", onSelect: run(actions.pasteValues) },
               ]}
             />
             <RibbonStack>
-              <RibbonButton label="Cut" icon="cut" shortcut="Mod+X" showLabel disabled={off} onClick={run(actions.cut)} />
-              <RibbonButton label="Copy" icon="copy" shortcut="Mod+C" showLabel disabled={off} onClick={run(actions.copy)} />
+              <RibbonButton label={t("cmd.cut")} icon="cut" shortcut="Mod+X" showLabel disabled={off} onClick={run(actions.cut)} />
+              <RibbonButton label={t("cmd.copy")} icon="copy" shortcut="Mod+C" showLabel disabled={off} onClick={run(actions.copy)} />
             </RibbonStack>
           </>
         ),
       },
       {
-        label: "Font",
+        label: t("group.font"),
         items: (
           <RibbonStack>
             <RibbonRow>
@@ -134,12 +136,12 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
         ),
       },
       {
-        label: "Alignment",
+        label: t("fmt.alignment"),
         items: (
           <RibbonStack>
             <RibbonRow>
               <AlignmentControls {...fmt} parts={["vertical"]} />
-              <RibbonButton label="Wrap text" icon="lineBreak" pressed={!!fmt.value.alignment?.wrapText} disabled={off} onClick={run(actions.toggleWrap)} />
+              <RibbonButton label={t("fmt.wrapText")} icon="lineBreak" pressed={!!fmt.value.alignment?.wrapText} disabled={off} onClick={run(actions.toggleWrap)} />
             </RibbonRow>
             <RibbonRow>
               <AlignmentControls {...fmt} parts={["horizontal"]} />
@@ -148,23 +150,23 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
         ),
       },
       {
-        label: "Number",
+        label: t("fmt.number"),
         items: (
           <RibbonStack>
             <RibbonRow>
               <NumberFormatSelect {...fmt} />
             </RibbonRow>
             <RibbonRow>
-              <RibbonButton label="Percent style" icon="percent" disabled={off} onClick={() => fmt.onChange({ numberFormat: "0%" })} />
-              <RibbonButton label="Comma style" icon="comma" disabled={off} onClick={() => fmt.onChange({ numberFormat: "#,##0.00" })} />
+              <RibbonButton label={t("calc.percentStyle")} icon="percent" disabled={off} onClick={() => fmt.onChange({ numberFormat: "0%" })} />
+              <RibbonButton label={t("calc.commaStyle")} icon="comma" disabled={off} onClick={() => fmt.onChange({ numberFormat: "#,##0.00" })} />
               <RibbonButton
-                label="Increase decimal"
+                label={t("calc.decimalMore")}
                 icon="decimalMore"
                 disabled={off}
                 onClick={() => fmt.onChange({ numberFormat: changeDecimals(numberFormat, 1) })}
               />
               <RibbonButton
-                label="Decrease decimal"
+                label={t("calc.decimalLess")}
                 icon="decimalLess"
                 disabled={off}
                 onClick={() => fmt.onChange({ numberFormat: changeDecimals(numberFormat, -1) })}
@@ -174,71 +176,71 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
         ),
       },
       {
-        label: "Cells",
+        label: t("calc.cells"),
         items: (
           <>
             <RibbonMenuButton
-              label="Insert"
+              label={t("tab.insert")}
               icon="insertCells"
               size="large"
               disabled={off}
               menu={[
-                { id: "rows", label: "Insert sheet rows", icon: "insertRows", onSelect: run(actions.insertRows) },
-                { id: "cols", label: "Insert sheet columns", icon: "insertCols", onSelect: run(actions.insertCols) },
+                { id: "rows", label: t("calc.insertSheetRows"), icon: "insertRows", onSelect: run(actions.insertRows) },
+                { id: "cols", label: t("calc.insertSheetCols"), icon: "insertCols", onSelect: run(actions.insertCols) },
                 { separator: true },
-                { id: "sheet", label: "Insert sheet", icon: "sheet", onSelect: run(() => store.addSheet()) },
+                { id: "sheet", label: t("calc.insertSheet"), icon: "sheet", onSelect: run(() => store.addSheet()) },
               ]}
             />
             <RibbonMenuButton
-              label="Delete"
+              label={t("cmd.delete")}
               icon="deleteCells"
               size="large"
               disabled={off}
               menu={[
-                { id: "rows", label: "Delete sheet rows", icon: "deleteRows", onSelect: run(actions.deleteRows) },
-                { id: "cols", label: "Delete sheet columns", icon: "deleteCols", onSelect: run(actions.deleteCols) },
+                { id: "rows", label: t("calc.deleteSheetRows"), icon: "deleteRows", onSelect: run(actions.deleteRows) },
+                { id: "cols", label: t("calc.deleteSheetCols"), icon: "deleteCols", onSelect: run(actions.deleteCols) },
                 { separator: true },
-                { id: "sheet", label: "Delete sheet", icon: "sheet", onSelect: () => void store.deleteSheet(activeSheet) },
+                { id: "sheet", label: t("calc.deleteSheet"), icon: "sheet", onSelect: () => void store.deleteSheet(activeSheet) },
               ]}
             />
             <RibbonMenuButton
-              label="Format"
+              label={t("sc.format")}
               icon="format"
               size="large"
               disabled={off}
               menu={[
-                { separator: true, label: "Cell size" },
-                { id: "rowHeight", label: "Row height…", icon: "rowHeight", onSelect: actions.rowHeight },
-                { id: "autofit", label: "AutoFit column width", onSelect: run(actions.autofitCols) },
-                { id: "colWidth", label: "Column width…", icon: "colWidth", onSelect: actions.colWidth },
-                { separator: true, label: "Visibility" },
-                { id: "hideRows", label: "Hide rows", onSelect: run(actions.hideRows) },
-                { id: "hideCols", label: "Hide columns", onSelect: run(actions.hideCols) },
-                { id: "unhideRows", label: "Unhide rows", onSelect: run(actions.unhideRows) },
-                { id: "unhideCols", label: "Unhide columns", onSelect: run(actions.unhideCols) },
+                { separator: true, label: t("calc.cellSize") },
+                { id: "rowHeight", label: t("calc.rowHeightDots"), icon: "rowHeight", onSelect: actions.rowHeight },
+                { id: "autofit", label: t("calc.autofitColWidth"), onSelect: run(actions.autofitCols) },
+                { id: "colWidth", label: t("calc.colWidthDots"), icon: "colWidth", onSelect: actions.colWidth },
+                { separator: true, label: t("calc.visibility") },
+                { id: "hideRows", label: t("calc.hideRows"), onSelect: run(actions.hideRows) },
+                { id: "hideCols", label: t("calc.hideCols"), onSelect: run(actions.hideCols) },
+                { id: "unhideRows", label: t("calc.unhideRows"), onSelect: run(actions.unhideRows) },
+                { id: "unhideCols", label: t("calc.unhideCols"), onSelect: run(actions.unhideCols) },
                 { separator: true },
-                { id: "formatCells", label: "Format cells…", icon: "format", shortcut: "Mod+1", onSelect: actions.formatCells },
+                { id: "formatCells", label: t("calc.formatCellsDots"), icon: "format", shortcut: "Mod+1", onSelect: actions.formatCells },
               ]}
             />
           </>
         ),
       },
       {
-        label: "Editing",
+        label: t("group.editing"),
         items: (
           <>
-            <RibbonButton label="Clear" icon="clear" size="large" shortcut="Delete" tooltip="Clear contents" disabled={off} onClick={run(actions.clearContents)} />
+            <RibbonButton label={t("calc.clear")} icon="clear" size="large" shortcut="Delete" tooltip={t("calc.clearContents")} disabled={off} onClick={run(actions.clearContents)} />
             <RibbonSplitButton
-              label="Find"
+              label={t("cmd.find")}
               icon="find"
               size="large"
               shortcut="Mod+F"
               disabled={off}
               onClick={actions.find}
-              menuLabel="Find options"
+              menuLabel={t("cmd.findOptions")}
               menu={[
-                { id: "find", label: "Find…", icon: "find", shortcut: "Mod+F", onSelect: actions.find },
-                { id: "replace", label: "Replace…", shortcut: "Mod+H", onSelect: actions.replace },
+                { id: "find", label: t("cmd.findDots"), icon: "find", shortcut: "Mod+F", onSelect: actions.find },
+                { id: "replace", label: t("cmd.replaceDots"), shortcut: "Mod+H", onSelect: actions.replace },
               ]}
             />
           </>
@@ -249,15 +251,15 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
 
   const insert: RibbonTab = {
     id: "insert",
-    label: "Insert",
+    label: t("tab.insert"),
     groups: [
       {
-        label: "Sheets",
+        label: t("calc.sheets"),
         items: (
           <>
-            <RibbonButton label="New sheet" icon="sheet" size="large" disabled={off} onClick={run(() => store.addSheet())} />
+            <RibbonButton label={t("calc.newSheet")} icon="sheet" size="large" disabled={off} onClick={run(() => store.addSheet())} />
             <RibbonMenuButton
-              label="Sheet"
+              label={t("calc.sheet")}
               icon="sheet"
               size="large"
               disabled={off}
@@ -267,11 +269,11 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
         ),
       },
       {
-        label: "Rows & columns",
+        label: t("calc.rowsCols"),
         items: (
           <RibbonStack>
-            <RibbonButton label="Insert rows" icon="insertRows" showLabel disabled={off} onClick={run(actions.insertRows)} />
-            <RibbonButton label="Insert columns" icon="insertCols" showLabel disabled={off} onClick={run(actions.insertCols)} />
+            <RibbonButton label={t("calc.insertRows")} icon="insertRows" showLabel disabled={off} onClick={run(actions.insertRows)} />
+            <RibbonButton label={t("calc.insertCols")} icon="insertCols" showLabel disabled={off} onClick={run(actions.insertCols)} />
           </RibbonStack>
         ),
       },
@@ -280,24 +282,24 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
 
   const viewTab: RibbonTab = {
     id: "view",
-    label: "View",
+    label: t("tab.view"),
     groups: [
       {
-        label: "Show",
+        label: t("group.show"),
         items: (
           <RibbonStack>
-            <RibbonButton label="Gridlines" icon="gridlines" showLabel pressed={view.gridlines} onClick={() => onViewChange({ ...view, gridlines: !view.gridlines })} />
-            <RibbonButton label="Formula bar" icon="formulaBar" showLabel pressed={view.formulaBar} onClick={() => onViewChange({ ...view, formulaBar: !view.formulaBar })} />
+            <RibbonButton label={t("calc.gridlines")} icon="gridlines" showLabel pressed={view.gridlines} onClick={() => onViewChange({ ...view, gridlines: !view.gridlines })} />
+            <RibbonButton label={t("calc.formulaBar")} icon="formulaBar" showLabel pressed={view.formulaBar} onClick={() => onViewChange({ ...view, formulaBar: !view.formulaBar })} />
           </RibbonStack>
         ),
       },
       {
-        label: "Zoom",
+        label: t("group.zoom"),
         items: (
           <>
             <RibbonStack>
               <select
-                aria-label="Zoom"
+                aria-label={t("group.zoom")}
                 className={`${RIBBON_SELECT} w-20`}
                 value={String(view.zoom)}
                 onChange={(e) => onViewChange({ ...view, zoom: Number(e.target.value) })}
@@ -308,14 +310,15 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
                   </option>
                 ))}
               </select>
-              <RibbonButton label="100 %" icon="zoom" showLabel tooltip="Zoom to 100 %" onClick={() => onViewChange({ ...view, zoom: 1 })} />
+              <RibbonButton label="100 %" icon="zoom" showLabel tooltip={t("cmd.zoomTo100")} onClick={() => onViewChange({ ...view, zoom: 1 })} />
             </RibbonStack>
           </>
         ),
       },
+      languageRibbonGroup(t),
       {
-        label: "Help",
-        items: <RibbonButton label="Keyboard shortcuts" icon="keyboard" size="large" shortcut="Mod+/" onClick={() => triggerShortcut("Mod+/")} />,
+        label: t("group.help"),
+        items: <RibbonButton label={t("shortcuts.title")} icon="keyboard" size="large" shortcut="Mod+/" onClick={() => triggerShortcut("Mod+/")} />,
       },
     ],
   };
@@ -323,7 +326,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
   return (
     <Ribbon
       appName="Rusuite Calc"
-      documentTitle={`${name ?? "Untitled"}${dirty ? " •" : ""}`}
+      documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#217346"
       tabs={[home, insert, viewTab]}
       backstage={{

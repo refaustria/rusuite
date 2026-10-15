@@ -1,7 +1,8 @@
 // Show's print layouts (pure): full-page slides, notes pages (slide +
 // speaker notes) and handouts with 2, 3, 4 or 6 numbered slides per page.
 
-import { escapeHtml, paperSize, type PageOrientation, type PaperName, type PrintChoice, type PrintDoc } from "@rusuite/ui-shared";
+import { escapeHtml, paperSize, withLabel, type PageOrientation, type PaperName, type PrintChoice, type PrintDoc } from "@rusuite/ui-shared";
+import { t } from "../i18n";
 import type { Slide } from "../generated/Slide";
 import type { SlideSize } from "../generated/SlideSize";
 
@@ -27,26 +28,26 @@ export interface ShowPrintOptions {
 export const DEFAULT_SHOW_PRINT: ShowPrintOptions = { range: "", layout: "full", paper: "slide", orientation: "auto", frame: false, fit: true, scale: 100, hidden: false };
 
 export const SHOW_LAYOUT_CHOICES: PrintChoice[] = [
-  { value: "full", label: "Full page slides" },
-  { value: "notes", label: "Notes pages" },
-  { value: "handout2", label: "Handouts: 2 slides per page" },
-  { value: "handout3", label: "Handouts: 3 slides per page (with lines)" },
-  { value: "handout4", label: "Handouts: 4 slides per page" },
-  { value: "handout6", label: "Handouts: 6 slides per page" },
+  withLabel({ value: "full" }, "show.print.full"),
+  withLabel({ value: "notes" }, "show.print.notes"),
+  withLabel({ value: "handout2" }, "show.print.handout2"),
+  withLabel({ value: "handout3" }, "show.print.handout3"),
+  withLabel({ value: "handout4" }, "show.print.handout4"),
+  withLabel({ value: "handout6" }, "show.print.handout6"),
 ];
 
 export const SHOW_PAPER_CHOICES: PrintChoice[] = [
-  { value: "slide", label: "Slide size" },
-  { value: "A4", label: "A4 (21 × 29.7 cm)" },
-  { value: "Letter", label: "Letter (8.5 × 11 in)" },
-  { value: "Legal", label: "Legal (8.5 × 14 in)" },
-  { value: "A3", label: "A3 (29.7 × 42 cm)" },
+  withLabel({ value: "slide" }, "show.print.slideSize"),
+  withLabel({ value: "A4" }, "print.paper.A4"),
+  withLabel({ value: "Letter" }, "print.paper.Letter"),
+  withLabel({ value: "Legal" }, "print.paper.Legal"),
+  withLabel({ value: "A3" }, "print.paper.A3"),
 ];
 
 export const SHOW_ORIENTATION_CHOICES: PrintChoice[] = [
-  { value: "auto", label: "Automatic" },
-  { value: "portrait", label: "Portrait" },
-  { value: "landscape", label: "Landscape" },
+  withLabel({ value: "auto" }, "show.print.auto"),
+  withLabel({ value: "portrait" }, "print.portrait"),
+  withLabel({ value: "landscape" }, "print.landscape"),
 ];
 
 const EMU_PER_IN = 914_400;
@@ -124,7 +125,7 @@ const n3 = (v: number) => Number(v.toFixed(3));
 const box = (r: Rect) => `left:${n3(r.x)}in;top:${n3(r.y)}in;width:${n3(r.w)}in;height:${n3(r.h)}in`;
 
 function slideImg(src: string, r: Rect, number: number, frame: boolean): string {
-  return `<img class="rs-show-slide${frame ? " rs-frame" : ""}" alt="Slide ${number}" src="${escapeHtml(src)}" style="${box(r)}">`;
+  return `<img class="rs-show-slide${frame ? " rs-frame" : ""}" alt="${escapeHtml(t("show.slideN", { n: number }))}" src="${escapeHtml(src)}" style="${box(r)}">`;
 }
 
 const pageNumber = (n: number) => `<div class="rs-show-pageno" style="right:0.5in;bottom:0.3in">${n}</div>`;

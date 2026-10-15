@@ -3,6 +3,7 @@
 
 import type { ContextMenuItem } from "@rusuite/ui-shared";
 import { normalize } from "./grid/Selection";
+import { t } from "./i18n";
 import type { CalcStore } from "./state/store";
 
 /** Writes text to the system clipboard (best effort: permissions may deny it). */
@@ -81,10 +82,10 @@ const item = (id: string, label: string, onSelect: () => unknown, shortcut?: str
 const SEP: ContextMenuItem = { separator: true };
 
 const clipboardItems = (a: CalcActions): ContextMenuItem[] => [
-  item("cut", "Cut", a.cut, "Ctrl+X"),
-  item("copy", "Copy", a.copy, "Ctrl+C"),
-  item("paste", "Paste", a.paste, "Ctrl+V"),
-  item("paste-values", "Paste values", a.pasteValues, "Ctrl+Shift+V"),
+  item("cut", t("cmd.cut"), a.cut, "Ctrl+X"),
+  item("copy", t("cmd.copy"), a.copy, "Ctrl+C"),
+  item("paste", t("cmd.paste"), a.paste, "Ctrl+V"),
+  item("paste-values", t("calc.pasteValues"), a.pasteValues, "Ctrl+Shift+V"),
 ];
 
 /** Right-click on cells. */
@@ -92,16 +93,16 @@ export function cellMenu(a: CalcActions): ContextMenuItem[] {
   return [
     ...clipboardItems(a),
     SEP,
-    item("insert-rows", "Insert rows", a.insertRows),
-    item("insert-cols", "Insert columns", a.insertCols),
-    item("delete-rows", "Delete rows", a.deleteRows),
-    item("delete-cols", "Delete columns", a.deleteCols),
+    item("insert-rows", t("calc.insertRows"), a.insertRows),
+    item("insert-cols", t("calc.insertCols"), a.insertCols),
+    item("delete-rows", t("calc.deleteRows"), a.deleteRows),
+    item("delete-cols", t("calc.deleteCols"), a.deleteCols),
     SEP,
-    item("clear", "Clear contents", a.clearContents, "Del"),
+    item("clear", t("calc.clearContents"), a.clearContents, "Del"),
     SEP,
-    item("format", "Format cells…", a.formatCells, "Ctrl+1"),
-    item("row-height", "Row height…", a.rowHeight),
-    item("col-width", "Column width…", a.colWidth),
+    item("format", t("calc.formatCellsDots"), a.formatCells, "Ctrl+1"),
+    item("row-height", t("calc.rowHeightDots"), a.rowHeight),
+    item("col-width", t("calc.colWidthDots"), a.colWidth),
   ];
 }
 
@@ -110,15 +111,15 @@ export function colHeaderMenu(a: CalcActions): ContextMenuItem[] {
   return [
     ...clipboardItems(a),
     SEP,
-    item("insert-cols", "Insert columns", a.insertCols),
-    item("delete-cols", "Delete columns", a.deleteCols),
-    item("clear", "Clear contents", a.clearContents, "Del"),
+    item("insert-cols", t("calc.insertCols"), a.insertCols),
+    item("delete-cols", t("calc.deleteCols"), a.deleteCols),
+    item("clear", t("calc.clearContents"), a.clearContents, "Del"),
     SEP,
-    item("format", "Format cells…", a.formatCells, "Ctrl+1"),
-    item("col-width", "Column width…", a.colWidth),
-    item("autofit", "Autofit column width", a.autofitCols),
-    item("hide", "Hide", a.hideCols),
-    item("unhide", "Unhide", a.unhideCols),
+    item("format", t("calc.formatCellsDots"), a.formatCells, "Ctrl+1"),
+    item("col-width", t("calc.colWidthDots"), a.colWidth),
+    item("autofit", t("calc.autofitColWidth2"), a.autofitCols),
+    item("hide", t("calc.hide"), a.hideCols),
+    item("unhide", t("calc.unhide"), a.unhideCols),
   ];
 }
 
@@ -127,13 +128,13 @@ export function rowHeaderMenu(a: CalcActions): ContextMenuItem[] {
   return [
     ...clipboardItems(a),
     SEP,
-    item("insert-rows", "Insert rows", a.insertRows),
-    item("delete-rows", "Delete rows", a.deleteRows),
-    item("clear", "Clear contents", a.clearContents, "Del"),
+    item("insert-rows", t("calc.insertRows"), a.insertRows),
+    item("delete-rows", t("calc.deleteRows"), a.deleteRows),
+    item("clear", t("calc.clearContents"), a.clearContents, "Del"),
     SEP,
-    item("format", "Format cells…", a.formatCells, "Ctrl+1"),
-    item("row-height", "Row height…", a.rowHeight),
-    item("hide", "Hide", a.hideRows),
-    item("unhide", "Unhide", a.unhideRows),
+    item("format", t("calc.formatCellsDots"), a.formatCells, "Ctrl+1"),
+    item("row-height", t("calc.rowHeightDots"), a.rowHeight),
+    item("hide", t("calc.hide"), a.hideRows),
+    item("unhide", t("calc.unhide"), a.unhideRows),
   ];
 }

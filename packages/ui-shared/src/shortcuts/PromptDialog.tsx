@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Dialog } from "../Dialog";
+import { useT } from "../i18n/react";
 
 export interface PromptDialogProps {
   open: boolean;
@@ -12,7 +13,8 @@ export interface PromptDialogProps {
 }
 
 /** A modal asking for one line of text (Save As: the file name). */
-export function PromptDialog({ open, title, label, initial = "", confirmLabel = "OK", onSubmit, onClose }: PromptDialogProps) {
+export function PromptDialog({ open, title, label, initial = "", confirmLabel, onSubmit, onClose }: PromptDialogProps) {
+  const t = useT();
   const [value, setValue] = useState(initial);
   useEffect(() => {
     if (open) setValue(initial);
@@ -38,10 +40,10 @@ export function PromptDialog({ open, title, label, initial = "", confirmLabel = 
         </label>
         <div className="flex justify-end gap-2">
           <button type="button" className="h-7 rounded border border-ui-border bg-ui-bg px-3 hover:bg-ui-hover" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button type="submit" className="h-7 rounded border border-ui-border bg-ui-bg px-3 hover:bg-ui-hover">
-            {confirmLabel}
+            {confirmLabel ?? t("common.ok")}
           </button>
         </div>
       </form>

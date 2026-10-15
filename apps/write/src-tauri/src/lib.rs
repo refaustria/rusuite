@@ -339,12 +339,31 @@ fn dispatch(
     reply
 }
 
-fn docx_dialog(window: &tauri::Window) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
-    window
-        .dialog()
-        .file()
-        .set_parent(window)
-        .add_filter("Word document", &["docx"])
+/// Localized texts of a native file dialog, passed by the UI (P7-11).
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DialogText {
+    /// Window title ("Open", "Speichern unter", …).
+    title: Option<String>,
+    /// Name of the file-type filter ("Excel workbook", …).
+    filter_name: Option<String>,
+}
+
+/// The native file dialog for `.docx` files, with the UI's texts; without
+/// them the platform's title and the English filter name.
+fn docx_dialog(
+    window: &tauri::Window,
+    text: Option<DialogText>,
+) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
+    let text = text.unwrap_or_default();
+    let dialog = window.dialog().file().set_parent(window).add_filter(
+        text.filter_name.as_deref().unwrap_or("Word document"),
+        &["docx"],
+    );
+    match text.title {
+        Some(title) => dialog.set_title(title),
+        None => dialog,
+    }
 }
 
 /// Runs a blocking dialog off the async runtime's worker threads.
@@ -367,8 +386,9 @@ async fn open_file_dialog(
     window: tauri::Window,
     session: tauri::State<'_, SessionState>,
     doc_path: tauri::State<'_, DocPath>,
+    dialog: Option<DialogText>,
 ) -> Result<Option<OpenedFile>, FileError> {
-    let dialog = docx_dialog(&window);
+    let dialog = docx_dialog(&window, dialog);
     let picked = blocking(move || {
         dialog
             .blocking_pick_file()
@@ -397,6 +417,7 @@ async fn save_file(
     suggested_name: String,
     bytes_base64: String,
     save_as: bool,
+    dialog: Option<DialogText>,
 ) -> Result<Option<SavedFile>, FileError> {
     let saved = match doc_path.save_target(save_as) {
         Some(path) => {
@@ -407,7 +428,7 @@ async fn save_file(
             .await?
         }
         None => {
-            let mut dialog = docx_dialog(&window).set_file_name(suggested_name);
+            let mut dialog = docx_dialog(&window, dialog).set_file_name(suggested_name);
             if let Some(dir) = doc_path.current().as_deref().and_then(Path::parent) {
                 dialog = dialog.set_directory(dir);
             }

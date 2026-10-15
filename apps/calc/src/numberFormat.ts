@@ -2,17 +2,20 @@
 // code each choice produces and the reverse mapping that preselects the
 // dialog from a cell's current code.
 
+import { withLabel } from "@rusuite/ui-shared";
+import "./i18n";
+
 export type FormatCategory = "general" | "number" | "currency" | "percentage" | "date" | "time" | "text" | "custom";
 
-export const CATEGORIES: { id: FormatCategory; label: string }[] = [
-  { id: "general", label: "General" },
-  { id: "number", label: "Number" },
-  { id: "currency", label: "Currency" },
-  { id: "percentage", label: "Percentage" },
-  { id: "date", label: "Date" },
-  { id: "time", label: "Time" },
-  { id: "text", label: "Text" },
-  { id: "custom", label: "Custom" },
+export const CATEGORIES: { id: FormatCategory; readonly label: string }[] = [
+  withLabel({ id: "general" as FormatCategory }, "calc.cat.general"),
+  withLabel({ id: "number" as FormatCategory }, "calc.cat.number"),
+  withLabel({ id: "currency" as FormatCategory }, "calc.cat.currency"),
+  withLabel({ id: "percentage" as FormatCategory }, "calc.cat.percentage"),
+  withLabel({ id: "date" as FormatCategory }, "calc.cat.date"),
+  withLabel({ id: "time" as FormatCategory }, "calc.cat.time"),
+  withLabel({ id: "text" as FormatCategory }, "calc.cat.text"),
+  withLabel({ id: "custom" as FormatCategory }, "calc.cat.custom"),
 ];
 
 export type CurrencySymbol = "€" | "$" | "£";

@@ -4,6 +4,7 @@
 //   recovery – RecoveryEntry, keyPath "id"
 //   blobs    – snapshot JSON of recent entries, keyed by `blobId`
 
+import { t } from "../i18n/locale";
 import { newDocId, pushRecent, recentKey, validId, type DocStorage, type RecentEntry, type RecentSource, type RecoveryEntry, type RecoveryInfo } from "./storage";
 
 const VERSION = 1;
@@ -110,7 +111,7 @@ export class IdbDocStorage implements DocStorage {
       const list = (await IdbDocStorage.recentOf(s.kv)).filter((e) => recentKey(e) !== recentKey(entry));
       s.kv.put(list, "recent");
     });
-    throw new Error(`"${entry.name}" is no longer stored in this browser`);
+    throw new Error(t("recent.notStored", { name: entry.name }));
   }
 
   listRecovery(): Promise<RecoveryInfo[]> {

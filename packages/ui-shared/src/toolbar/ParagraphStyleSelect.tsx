@@ -1,4 +1,5 @@
 import { FOCUS_RING } from "../Popover";
+import { useT } from "../i18n/react";
 
 export interface ParagraphStyleOption {
   id: string;
@@ -15,10 +16,11 @@ export interface ParagraphStyleSelectProps {
 
 /** Paragraph style picker (Write): Normal, Title, Heading 1–6, … */
 export function ParagraphStyleSelect({ value, styles, onChange, disabled }: ParagraphStyleSelectProps) {
+  const t = useT();
   const known = styles.some((s) => s.id === value);
   return (
     <select
-      aria-label="Paragraph style"
+      aria-label={t("fmt.paragraphStyle")}
       className={`h-7 w-32 rounded border border-ui-border bg-ui-bg px-1 text-sm text-ui-fg disabled:opacity-40 ${FOCUS_RING}`}
       disabled={disabled}
       value={value}

@@ -18,6 +18,7 @@ import {
   type Cell, type Range, type Selection,
 } from "./Selection";
 import type { Measure } from "./textLayout";
+import { useT } from "../i18n";
 
 /** Hit zone around a header boundary for resizing, px. */
 const RESIZE_SLOP = 4;
@@ -75,6 +76,7 @@ export interface GridViewOptions {
 }
 
 export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true }: { store: CalcStore; showPerf?: boolean } & GridViewOptions) {
+  const t = useT();
   const view = useRef({ zoom, gridlines });
   view.current = { zoom, gridlines };
   const scroller = useRef<HTMLDivElement>(null);
@@ -617,14 +619,14 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
     if (hit.kind === "colHeader" || hit.kind === "colEdge") {
       const col = hit.col;
       if (!(isWholeCols(sel) && col >= sel.c0 && col <= sel.c1)) store.select(colSelection(col));
-      [items, label] = [colHeaderMenu(actions), "Column"];
+      [items, label] = [colHeaderMenu(actions), t("calc.column")];
     } else if (hit.kind === "rowHeader" || hit.kind === "rowEdge") {
       const row = hit.row;
       if (!(isWholeRows(sel) && row >= sel.r0 && row <= sel.r1)) store.select(rowSelection(row));
-      [items, label] = [rowHeaderMenu(actions), "Row"];
+      [items, label] = [rowHeaderMenu(actions), t("calc.row")];
     } else {
       if (hit.kind === "cell" && !contains(sel, hit.cell.row, hit.cell.col)) store.select(cellSelection(hit.cell.row, hit.cell.col));
-      [items, label] = [cellMenu(actions), "Cell"];
+      [items, label] = [cellMenu(actions), t("calc.cell")];
     }
     setMenu({ at: { x: e.clientX, y: e.clientY }, items, label });
   };
@@ -639,7 +641,7 @@ export function GridCanvas({ store, showPerf = false, zoom = 1, gridlines = true
           data-testid="grid"
           role="grid"
           data-calc-grid=""
-          aria-label="Cells"
+          aria-label={t("calc.cells")}
           aria-rowcount={LAST_ROW + 1}
           aria-colcount={LAST_COL + 1}
           tabIndex={0}

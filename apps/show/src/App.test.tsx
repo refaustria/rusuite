@@ -5,6 +5,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ setTitle: vi.fn() }) }));
 vi.mock("react-konva", () => import("./test/konvaMock"));
 
+import { setLocale } from "@rusuite/ui-shared";
 import App from "./App";
 import { ShowApi } from "./api";
 import { ShowStore } from "./state/store";
@@ -25,6 +26,21 @@ async function mount() {
 }
 
 const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
+
+describe("Show app in German", () => {
+  it("shows the German ribbon, status bar and slide prompts' language", async () => {
+    setLocale("de", { persist: false });
+    try {
+      await mount();
+      expect(screen.getByTestId("slide-count").textContent).toBe("Folie 1 von 3");
+      expect(screen.getByTestId("dirty").textContent).toBe("Gespeichert");
+      expect(screen.getByRole("tab", { name: "Entwurf" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Präsentieren/ })).toBeTruthy();
+    } finally {
+      setLocale("en", { persist: false });
+    }
+  });
+});
 
 describe("Show app", () => {
   it("renders thumbnails from the model, the status bar and enabled file buttons", async () => {

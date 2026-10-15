@@ -4,8 +4,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useShow, type ShowStore } from "../state/store";
+import { useT } from "../i18n";
 
 export function NotesPane({ store }: { store: ShowStore }) {
+  const t = useT();
   const visible = useShow(store, (s) => s.notesVisible);
   const current = useShow(store, (s) => s.current);
   const notes = useShow(store, (s) => s.pres?.slides.find((x) => x.id === s.current)?.notes ?? "");
@@ -31,8 +33,8 @@ export function NotesPane({ store }: { store: ShowStore }) {
   return (
     <div className="h-28 shrink-0 border-t border-ui-border bg-ui-panel p-1" data-testid="notes-pane">
       <textarea
-        aria-label="Speaker notes"
-        placeholder="Click to add notes"
+        aria-label={t("show.speakerNotes")}
+        placeholder={t("show.addNotes")}
         className="h-full w-full resize-none rounded border border-ui-border bg-ui-bg p-2 text-sm text-ui-fg outline-none focus:border-ui-focus"
         value={draft}
         disabled={current === null}

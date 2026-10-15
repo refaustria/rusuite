@@ -19,6 +19,7 @@ import { setRowHeight, tableContext } from "../features/tables";
 import type { WriteUi } from "../features/WriteFeatures";
 import { setAlignment } from "../sync/editorCommands";
 import type { SyncController } from "../sync/SyncPlugin";
+import { useT } from "../i18n";
 
 // ----- units ------------------------------------------------------------------------
 
@@ -49,13 +50,14 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function Buttons({ onClose, disabled }: { onClose: () => void; disabled?: boolean }) {
+  const t = useT();
   return (
     <div className="mt-2 flex justify-end gap-2">
       <button type="submit" className={BUTTON} disabled={disabled}>
-        OK
+        {t("common.ok")}
       </button>
       <button type="button" className={BUTTON} onClick={onClose}>
-        Cancel
+        {t("common.cancel")}
       </button>
     </div>
   );
@@ -69,6 +71,7 @@ export function RowHeightDialog({ open, initial, onSubmit, onClose }: {
   onSubmit: (h: RowHeight | null) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [value, setValue] = useState("");
   const [rule, setRule] = useState<"auto" | RowHeight["rule"]>("atLeast");
   useEffect(() => {
@@ -78,7 +81,7 @@ export function RowHeightDialog({ open, initial, onSubmit, onClose }: {
   }, [open, initial]);
   const twips = fromCm(value);
   return (
-    <Dialog open={open} title="Row height" onClose={onClose}>
+    <Dialog open={open} title={t("write.rowHeight")} onClose={onClose}>
       <form
         className="flex w-72 flex-col gap-2 text-sm"
         onSubmit={(e) => {
@@ -86,14 +89,14 @@ export function RowHeightDialog({ open, initial, onSubmit, onClose }: {
           onSubmit(rule === "auto" || twips == null ? null : { value: twips, rule });
         }}
       >
-        <Row label="Height (cm)">
-          <input aria-label="Height (cm)" className={INPUT} value={value} disabled={rule === "auto"} onChange={(e) => setValue(e.target.value)} />
+        <Row label={t("write.heightCm")}>
+          <input aria-label={t("write.heightCm")} className={INPUT} value={value} disabled={rule === "auto"} onChange={(e) => setValue(e.target.value)} />
         </Row>
-        <Row label="Row height is">
-          <select aria-label="Row height is" className={INPUT} value={rule} onChange={(e) => setRule(e.target.value as typeof rule)}>
-            <option value="auto">Auto</option>
-            <option value="atLeast">At least</option>
-            <option value="exact">Exactly</option>
+        <Row label={t("write.rowHeightIs")}>
+          <select aria-label={t("write.rowHeightIs")} className={INPUT} value={rule} onChange={(e) => setRule(e.target.value as typeof rule)}>
+            <option value="auto">{t("write.auto")}</option>
+            <option value="atLeast">{t("write.atLeast")}</option>
+            <option value="exact">{t("write.exactly")}</option>
           </select>
         </Row>
         <Buttons onClose={onClose} disabled={rule !== "auto" && (twips == null || twips <= 0)} />
@@ -110,12 +113,13 @@ export function AltTextDialog({ open, initial, onSubmit, onClose }: {
   onSubmit: (alt: string) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [alt, setAlt] = useState(initial);
   useEffect(() => {
     if (open) setAlt(initial);
   }, [open, initial]);
   return (
-    <Dialog open={open} title="Alt text" onClose={onClose}>
+    <Dialog open={open} title={t("write.altText")} onClose={onClose}>
       <form
         className="flex w-80 flex-col gap-2 text-sm"
         onSubmit={(e) => {
@@ -123,8 +127,8 @@ export function AltTextDialog({ open, initial, onSubmit, onClose }: {
           onSubmit(alt.trim());
         }}
       >
-        <p className="text-xs text-ui-muted">How would you describe this picture to someone who cannot see it?</p>
-        <textarea aria-label="Alt text" className="h-20 w-full rounded border border-ui-border bg-ui-bg p-2 text-sm text-ui-fg" value={alt} onChange={(e) => setAlt(e.target.value)} />
+        <p className="text-xs text-ui-muted">{t("write.altTextQuestion")}</p>
+        <textarea aria-label={t("write.altText")} className="h-20 w-full rounded border border-ui-border bg-ui-bg p-2 text-sm text-ui-fg" value={alt} onChange={(e) => setAlt(e.target.value)} />
         <Buttons onClose={onClose} />
       </form>
     </Dialog>
@@ -139,6 +143,7 @@ export function PageSetupDialog({ open, page, onSubmit, onClose }: {
   onSubmit: (patch: PageSetupPatch) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [m, setM] = useState({ top: "", bottom: "", left: "", right: "" });
   const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
   useEffect(() => {
@@ -155,7 +160,7 @@ export function PageSetupDialog({ open, page, onSubmit, onClose }: {
     </Row>
   );
   return (
-    <Dialog open={open} title="Page setup" onClose={onClose}>
+    <Dialog open={open} title={t("write.pageSetup")} onClose={onClose}>
       <form
         className="flex w-72 flex-col gap-2 text-sm"
         onSubmit={(e) => {
@@ -164,15 +169,15 @@ export function PageSetupDialog({ open, page, onSubmit, onClose }: {
           onSubmit({ orientation, margins: { top: parsed.top!, bottom: parsed.bottom!, left: parsed.left!, right: parsed.right! } });
         }}
       >
-        <p className="font-medium">Margins</p>
-        {field("top", "Top (cm)")}
-        {field("bottom", "Bottom (cm)")}
-        {field("left", "Left (cm)")}
-        {field("right", "Right (cm)")}
-        <Row label="Orientation">
-          <select aria-label="Orientation" className={INPUT} value={orientation} onChange={(e) => setOrientation(e.target.value as typeof orientation)}>
-            <option value="portrait">Portrait</option>
-            <option value="landscape">Landscape</option>
+        <p className="font-medium">{t("print.margins")}</p>
+        {field("top", t("write.topCm"))}
+        {field("bottom", t("write.bottomCm"))}
+        {field("left", t("write.leftCm"))}
+        {field("right", t("write.rightCm"))}
+        <Row label={t("print.orientation")}>
+          <select aria-label={t("print.orientation")} className={INPUT} value={orientation} onChange={(e) => setOrientation(e.target.value as typeof orientation)}>
+            <option value="portrait">{t("print.portrait")}</option>
+            <option value="landscape">{t("print.landscape")}</option>
           </select>
         </Row>
         <Buttons onClose={onClose} disabled={!valid} />
@@ -190,27 +195,28 @@ export function HeaderFooterDialog({ open, page, focus, onSubmit, onClose }: {
   onSubmit: (texts: { headerText: string; footerText: string }) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [header, setHeader] = useState("");
   const [footer, setFooter] = useState("");
   useEffect(() => {
     if (!open) return;
     setHeader(page?.headerText ?? "");
     setFooter(page?.footerText ?? "");
-    setTimeout(() => document.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${focus === "footer" ? "Footer" : "Header"}"]`)?.focus(), 0);
+    setTimeout(() => document.querySelector<HTMLTextAreaElement>(`textarea[data-slot="${focus}"]`)?.focus(), 0);
   }, [open, page, focus]);
-  const area = (label: string, value: string, set: (v: string) => void) => (
+  const area = (slot: "header" | "footer", label: string, value: string, set: (v: string) => void) => (
     <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between">
         <span>{label}</span>
         <button type="button" className={`${BUTTON} h-6 px-2 text-xs`} onClick={() => set(`${value}{PAGE}`)}>
-          Insert page number
+          {t("write.insertPageNumber")}
         </button>
       </div>
-      <textarea aria-label={label} className="h-14 w-full rounded border border-ui-border bg-ui-bg p-2 text-sm text-ui-fg" value={value} onChange={(e) => set(e.target.value)} />
+      <textarea aria-label={label} data-slot={slot} className="h-14 w-full rounded border border-ui-border bg-ui-bg p-2 text-sm text-ui-fg" value={value} onChange={(e) => set(e.target.value)} />
     </div>
   );
   return (
-    <Dialog open={open} title="Header and footer" onClose={onClose}>
+    <Dialog open={open} title={t("print.headerFooter")} onClose={onClose}>
       <form
         className="flex w-96 flex-col gap-2 text-sm"
         onSubmit={(e) => {
@@ -218,9 +224,9 @@ export function HeaderFooterDialog({ open, page, focus, onSubmit, onClose }: {
           onSubmit({ headerText: header.replace(/\r/g, ""), footerText: footer.replace(/\r/g, "") });
         }}
       >
-        {area("Header", header, setHeader)}
-        {area("Footer", footer, setFooter)}
-        <p className="text-xs text-ui-muted">{"{PAGE}"} is replaced by the page number. Leave a field empty to remove it.</p>
+        {area("header", t("print.header"), header, setHeader)}
+        {area("footer", t("print.footer"), footer, setFooter)}
+        <p className="text-xs text-ui-muted">{t("write.hf.note", { page: "{PAGE}" })}</p>
         <Buttons onClose={onClose} />
       </form>
     </Dialog>
@@ -273,6 +279,7 @@ export function ParagraphDialog({ open, initial, onSubmit, onClose }: {
   onSubmit: (v: ParagraphValues) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [f, setF] = useState({ align: "left", left: "", right: "", first: "", before: "", after: "", rule: "single" as LineRule, at: "1" });
   useEffect(() => {
     if (!open) return;
@@ -293,7 +300,7 @@ export function ParagraphDialog({ open, initial, onSubmit, onClose }: {
   const nums = [fromCm(f.left), fromCm(f.right), fromCm(f.first), fromPt(f.before), fromPt(f.after)];
   const valid = line != null && nums.every((n) => n != null);
   return (
-    <Dialog open={open} title="Paragraph" onClose={onClose}>
+    <Dialog open={open} title={t("group.paragraph")} onClose={onClose}>
       <form
         className="flex w-80 flex-col gap-2 text-sm"
         onSubmit={(e) => {
@@ -304,44 +311,44 @@ export function ParagraphDialog({ open, initial, onSubmit, onClose }: {
           onSubmit({ alignment: f.align as Alignment, indent, spacing: { before: Math.max(0, before!), after: Math.max(0, after!), line: line! } });
         }}
       >
-        <Row label="Alignment">
-          <select aria-label="Alignment" className={INPUT} value={f.align} onChange={set("align")}>
-            <option value="left">Left</option>
-            <option value="center">Centered</option>
-            <option value="right">Right</option>
-            <option value="justify">Justified</option>
+        <Row label={t("fmt.alignment")}>
+          <select aria-label={t("fmt.alignment")} className={INPUT} value={f.align} onChange={set("align")}>
+            <option value="left">{t("write.left")}</option>
+            <option value="center">{t("write.centered")}</option>
+            <option value="right">{t("write.right")}</option>
+            <option value="justify">{t("write.justified")}</option>
           </select>
         </Row>
-        <p className="font-medium">Indentation</p>
-        <Row label="Left (cm)">
-          <input aria-label="Left (cm)" className={INPUT} value={f.left} onChange={set("left")} />
+        <p className="font-medium">{t("write.indentation")}</p>
+        <Row label={t("write.leftCm")}>
+          <input aria-label={t("write.leftCm")} className={INPUT} value={f.left} onChange={set("left")} />
         </Row>
-        <Row label="Right (cm)">
-          <input aria-label="Right (cm)" className={INPUT} value={f.right} onChange={set("right")} />
+        <Row label={t("write.rightCm")}>
+          <input aria-label={t("write.rightCm")} className={INPUT} value={f.right} onChange={set("right")} />
         </Row>
-        <Row label="First line (cm, negative = hanging)">
-          <input aria-label="First line (cm)" className={INPUT} value={f.first} onChange={set("first")} />
+        <Row label={t("write.firstLine")}>
+          <input aria-label={t("write.firstLineCm")} className={INPUT} value={f.first} onChange={set("first")} />
         </Row>
-        <p className="font-medium">Spacing</p>
-        <Row label="Before (pt)">
-          <input aria-label="Before (pt)" className={INPUT} value={f.before} onChange={set("before")} />
+        <p className="font-medium">{t("write.spacing")}</p>
+        <Row label={t("write.beforePt")}>
+          <input aria-label={t("write.beforePt")} className={INPUT} value={f.before} onChange={set("before")} />
         </Row>
-        <Row label="After (pt)">
-          <input aria-label="After (pt)" className={INPUT} value={f.after} onChange={set("after")} />
+        <Row label={t("write.afterPt")}>
+          <input aria-label={t("write.afterPt")} className={INPUT} value={f.after} onChange={set("after")} />
         </Row>
-        <Row label="Line spacing">
-          <select aria-label="Line spacing" className={INPUT} value={f.rule} onChange={set("rule")}>
-            <option value="single">Single</option>
-            <option value="1.5">1.5 lines</option>
-            <option value="double">Double</option>
-            <option value="multiple">Multiple</option>
-            <option value="atLeast">At least</option>
-            <option value="exact">Exactly</option>
+        <Row label={t("write.lineSpacing")}>
+          <select aria-label={t("write.lineSpacing")} className={INPUT} value={f.rule} onChange={set("rule")}>
+            <option value="single">{t("write.single")}</option>
+            <option value="1.5">{t("write.lines15")}</option>
+            <option value="double">{t("write.double")}</option>
+            <option value="multiple">{t("write.multiple")}</option>
+            <option value="atLeast">{t("write.atLeast")}</option>
+            <option value="exact">{t("write.exactly")}</option>
           </select>
         </Row>
         {(f.rule === "multiple" || f.rule === "atLeast" || f.rule === "exact") && (
-          <Row label={f.rule === "multiple" ? "At (lines)" : "At (pt)"}>
-            <input aria-label="At" className={INPUT} value={f.at} onChange={set("at")} />
+          <Row label={f.rule === "multiple" ? t("write.para.atLines") : t("write.para.atPt")}>
+            <input aria-label={t("write.para.at")} className={INPUT} value={f.at} onChange={set("at")} />
           </Row>
         )}
         <Buttons onClose={onClose} disabled={!valid} />
@@ -410,8 +417,8 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
         page={page}
         focus={headerFooterFocus}
         onClose={close}
-        onSubmit={(t) => {
-          void ctl.run({ type: "setPage", patch: t });
+        onSubmit={(texts) => {
+          void ctl.run({ type: "setPage", patch: texts });
           close();
         }}
       />

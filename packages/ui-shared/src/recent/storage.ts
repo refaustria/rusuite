@@ -3,6 +3,7 @@
 // (`app_common::session`). Web: IndexedDB (`IdbDocStorage`). Both use the
 // generated wire types, so entries look the same everywhere.
 
+import { t } from "../i18n/locale";
 import type { RecentEntry } from "../generated/RecentEntry";
 import type { RecoveryEntry } from "../generated/RecoveryEntry";
 import type { RecoveryInfo } from "../generated/RecoveryInfo";
@@ -103,7 +104,7 @@ export class MemoryDocStorage implements DocStorage {
     const json = entry.blobId ? this.blobs.get(entry.blobId) : undefined;
     if (json === undefined) {
       this.recent = this.recent.filter((e) => recentKey(e) !== recentKey(entry));
-      throw new Error(`"${entry.name}" is no longer stored in this browser`);
+      throw new Error(t("recent.notStored", { name: entry.name }));
     }
     return { snapshot: json };
   }

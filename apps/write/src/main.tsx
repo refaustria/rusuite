@@ -1,7 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { createBackend, DOCX_MIME, type WasmModule } from "@rusuite/ui-shared";
+import { createBackend, DOCX_MIME, I18nProvider, type WasmModule } from "@rusuite/ui-shared";
 import App from "./App";
+import { t } from "./i18n";
 import type { WriteBackend } from "./backend";
 import "./styles.css";
 
@@ -17,10 +18,12 @@ async function loadWasm(): Promise<WasmModule> {
   return mod as WasmModule;
 }
 
-createBackend(loadWasm, { accept: `.docx,${DOCX_MIME}`, mime: DOCX_MIME }).then((backend) => {
+createBackend(loadWasm, { accept: `.docx,${DOCX_MIME}`, mime: DOCX_MIME, fileTypeLabel: () => t("write.fileType") }).then((backend) => {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <App backend={backend as WriteBackend} />
+      <I18nProvider>
+        <App backend={backend as WriteBackend} />
+      </I18nProvider>
     </React.StrictMode>,
   );
 });
