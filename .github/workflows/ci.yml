@@ -25,6 +25,11 @@ jobs:
       - run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
+      - name: Generated TypeScript types are up to date
+        run: |
+          cargo test -p app-common -p calc-core
+          git diff --exit-code -- apps/calc/src/generated packages/ui-shared/src/generated
+          test -z "$(git status --porcelain -- apps/calc/src/generated packages/ui-shared/src/generated)"
 
   frontend:
     runs-on: ubuntu-latest
