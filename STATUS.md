@@ -26,8 +26,10 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 
 | ID | Task | Model | State | Branch | Notes |
 |---|---|---|---|---|---|
-| P2-1 | `model-sheet`: Workbook wrapping `engine_formula::Engine` for contents/values + StyleTable (font/fill/border/alignment/number format), column/row dimensions, sheet metadata; serde; ADR 0004 | Opus | todo | `p2/model-sheet` | PM spec in brief |
-| P2-3 | Tauri 2 Calc app scaffold: `apps/calc` (Vite+React+Tailwind+Tauri), crate `app-calc` in workspace, `pnpm --filter calc tauri dev` runs, CI builds it | Sonnet | todo | `p2/calc-scaffold` | installs @tauri-apps/cli |
+| P2-1 | `model-sheet`: Workbook wrapping `engine_formula::Engine` for contents/values + StyleTable (font/fill/border/alignment/number format), column/row dimensions, sheet metadata; serde; ADR 0004 | Opus | in progress | `p2/model-sheet` | brief docs/tasks/P2-1-model-sheet.md; ADR 0004 written |
+| P2-3 | Tauri 2 Calc app scaffold: `apps/calc` (Vite+React+Tailwind+Tauri), crate `app-calc` in workspace, `pnpm --filter calc tauri dev` runs, CI builds it | Sonnet | in progress | `p2/calc-scaffold` | brief docs/tasks/P2-3-calc-scaffold.md |
+| P2-1b | `engine-formula`: `transform.rs` (Excel reference adjustment for insert/delete rows/cols, copy/paste offset) + `Engine::insert_rows/delete_rows/insert_cols/delete_cols/cells` | Opus | in progress | `p2/engine-structural` | brief docs/tasks/P2-1b-engine-structural-ops.md |
+| P2-1c | `model-sheet` row/col insert/delete (styles + dims) calling the engine ops | Sonnet | todo | `p2/model-sheet-structural` | after P2-1 + P2-1b |
 | P2-2 | `fmt-xlsx` read/write: workbook, sheets, sharedStrings, styles (fonts/fills/borders/numFmts/cellXfs), cells (v/f/t/s, inlineStr), cols/rows; roundtrip tests vs testdata/xlsx | Opus | todo | `p2/fmt-xlsx` | after P2-1 |
 | P2-4 | `app-common`: command pattern, undo/redo stack, document state, IPC envelope types per ADR 0002, TS type generation choice (ADR) | Opus | todo | `p2/app-common` | after P2-1 |
 | P2-5 | calc-ui canvas grid: virtualization (100k+ cells), selection, in-cell editing, formula bar, column/row headers, resize | Opus | todo | `p2/grid` | after P2-3 + P2-4 |
