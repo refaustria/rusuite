@@ -3,9 +3,9 @@ import type { Paragraph } from "./Paragraph";
 import type { Table } from "./Table";
 
 /**
- * A block: paragraph or table.
+ * A block: paragraph, table or table of contents.
  *
- * Serializes as `{"kind":"paragraph","value":{…}}` or
- * `{"kind":"table","value":{…}}`.
+ * Serializes as `{"kind":"paragraph","value":{…}}`,
+ * `{"kind":"table","value":{…}}` or `{"kind":"toc","value":{…}}`.
  */
 export type Block = { "kind": "paragraph", "value": Paragraph } | { "kind": "table", "value": Table };
