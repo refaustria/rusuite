@@ -139,7 +139,7 @@ pub fn scalar(op: Operand, ctx: &EvalContext) -> Value {
 /// are not lifted over arrays). Unary and binary operators (except the
 /// range operator `:`) evaluate their operands in array mode, materialize
 /// ranges into arrays of cell values and apply the scalar operator
-/// element-wise with broadcasting (see [`broadcast`]). The result is
+/// element-wise with broadcasting (see `broadcast`). The result is
 /// `Scalar(Array)` when an operand was a range or an array, else a plain
 /// scalar.
 pub fn eval_array(expr: &Expr, ctx: &EvalContext) -> Operand {

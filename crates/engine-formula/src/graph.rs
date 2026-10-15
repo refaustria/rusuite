@@ -8,7 +8,7 @@
 //! # Data layout
 //!
 //! Per sheet, the reverse edges (precedent → dependent formula) are kept in
-//! a [`SheetIndex`]:
+//! a `SheetIndex`:
 //!
 //! * single-cell precedents live in a `HashMap<CellCoord, Vec<CellCoord>>`
 //!   (exact match, O(1) expected lookup);

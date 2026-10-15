@@ -6,7 +6,7 @@ use crate::functions::{Arity, CallContext, Function};
 use crate::value::{parse_number_text, to_text, Value};
 
 /// Formats a value with an Excel number format (MVP subset, see
-/// [`numfmt`]). Non-numeric text is returned unchanged; numeric text is
+/// `numfmt`). Non-numeric text is returned unchanged; numeric text is
 /// converted first.
 pub struct Text;
 

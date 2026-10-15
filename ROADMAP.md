@@ -52,6 +52,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Input parsing for dates/times (`1/2/2026`, `12:30`) and formulas starting with `+`/`-`.
 - Functions declare volatility themselves (RAND, OFFSET, INDIRECT later) instead of the engine's NOW/TODAY name list; optional iterative-calculation mode for cycles.
 - `parse_date_text`: two-digit years, month names (`15-Jan-2024`); suite cases for `1900-02-29` and time-only VALUE.
+- `Engine::cells()` iterator and `Engine::eval_formula(text, sheet)` (no scratch cell) – wanted by the REPL and later by the UI formula bar.
 - Share one wildcard matcher between `math/criteria.rs` and `lookup/util.rs`.
 
 ## engine-formula (reference suite)
