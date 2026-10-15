@@ -16,12 +16,12 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 
 | ID | Task | Model | State | Branch | Notes |
 |---|---|---|---|---|---|
-| P1-1 | `engine-formula` lexer + Pratt parser + AST + printer; A1/absolute/range/cross-sheet refs, operators incl. `&` `%` `^`, arrays, errors, names; proptest AST→text→AST roundtrip | Opus | todo | `p1/parser` | en-US syntax only (comma arg separator, dot decimal) |
+| P1-1 | `engine-formula` lexer + Pratt parser + AST + printer; A1/absolute/range/cross-sheet refs, operators incl. `&` `%` `^`, arrays, errors, names; proptest AST→text→AST roundtrip | Opus | in progress | `p1/parser` | en-US syntax only (comma arg separator, dot decimal) |
 | P1-2 | Value type system + evaluator: Number/Text/Bool/Error/Array/Reference, coercion rules, error propagation, `CellProvider` trait, implicit intersection, range→array | Opus | todo | `p1/eval` | PM writes semantics spec in brief; depends on P1-1 |
 | P1-3 | Dependency graph + incremental recalc + circular detection (`#CIRC` → Excel reports 0 with warning; we return `Error::Circular`) | Opus | todo | `p1/depgraph` | depends on P1-1 (reference extraction) |
 | P1-4 | Function registry pattern (one function per file, arg spec, lazy args for IF) + `docs/functions.md` with the ~60-function list | Opus | todo | `p1/registry` | depends on P1-2 |
 | P1-5a/b/c/d | Function batches: math+stats / logical+info / text / lookup+date | Sonnet ×3 parallel | todo | `p1/fn-*` | each batch: tests with reference values from `testdata/formulas/` |
-| P1-6 | Reference test suite format (`testdata/formulas/*.tsv`: formula, expected, note) + runner test; provisional values computed with LibreOffice headless, marked provisional | Sonnet | todo | `p1/testsuite` | need Excel-computed values from owner |
+| P1-6 | Reference test suite format (`testdata/formulas/*.tsv`: formula, expected, note) + runner test; provisional values computed with LibreOffice headless, marked provisional | Sonnet | in progress | `p1/testsuite` | need Excel-computed values from owner |
 | P1-7 | `examples/repl.rs` as in README | Sonnet | todo | `p1/repl` | |
 | P0-1 | Workspace scaffold: Cargo workspace (all crates as stubs), pnpm workspace, fmt/clippy config, `pnpm test` placeholder, CI workflow, .gitignore, LICENSE | Sonnet | done (merged f07e101) | – | verified: fmt/clippy/test/pnpm test all green |
 | P0-2 | `fmt-ooxml`: open ZIP package, parse `[Content_Types].xml` + `_rels`, generic XML helpers, write package back byte-stable | Opus | done (merged 6f474a3) | – | verified: 27 tests + testdata roundtrip over 5 files; harness 5/5 PASS with real rewriter |
