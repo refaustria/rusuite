@@ -7,10 +7,14 @@ import { ConfirmDiscard } from "./ConfirmDiscard";
 import { RecoveryBanner } from "./RecoveryBanner";
 import { DocumentSession, RECOVERY_MAX_AGE_MS } from "./session";
 import { MemoryDocStorage } from "./storage";
+import { formatTime } from "./useSession";
 import { FakeCore, fakeBackend } from "./testing";
 import { ensureSaved, UnsavedGuard, type DocState, type SaveChoice, type SavePrompts } from "./unsaved";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 /** A document whose save flow succeeds (`ok`) and then is clean. */
 function doc(opts: { dirty?: boolean; name?: string | null; ok?: boolean | "throw" } = {}) {
@@ -259,6 +263,7 @@ describe("session entry points", () => {
   it("the status shows 'Autosaved HH:MM' after an autosave and clears on save", async () => {
     const storage = new MemoryDocStorage();
     const at = new Date(2026, 9, 15, 14, 5).getTime();
+    vi.useFakeTimers({ now: new Date(2026, 9, 15, 18, 0), toFake: ["Date"] });
     const { session } = await sessionWith(storage, async () => true, () => at);
     render(<AutosaveStatus session={session} />);
     expect(screen.queryByTestId("autosave-status")).toBeNull();
@@ -272,5 +277,21 @@ describe("session entry points", () => {
       await session.backend.dispatch({ type: "markSaved" });
     });
     expect(screen.queryByTestId("autosave-status")).toBeNull();
+  });
+
+  it("the status includes the date when the autosave is from a previous day", async () => {
+    const storage = new MemoryDocStorage();
+    const at = new Date(2026, 9, 15, 14, 5).getTime();
+    vi.useFakeTimers({ now: new Date(2026, 9, 16, 9, 0), toFake: ["Date"] });
+    const { session } = await sessionWith(storage, async () => true, () => at);
+    render(<AutosaveStatus session={session} />);
+    await act(async () => {
+      await session.backend.dispatch({ type: "apply", text: "x" });
+      await session.autosave();
+    });
+    const text = screen.getByTestId("autosave-status").textContent ?? "";
+    expect(text).toMatch(/15/);
+    expect(text).toBe(`Autosaved ${formatTime(at, new Date(2026, 9, 16, 9, 0).getTime())}`);
+    expect(text).not.toBe(`Autosaved ${formatTime(at, at)}`);
   });
 });
