@@ -3,75 +3,91 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Rusuite – a small office suite with a Rust core: Calc, Write and Show, in your browser and on the desktop." />
+    <meta name="description" data-i18n-content="portal.description" content="Rusuite – a small office suite with a Rust core: Calc, Write and Show, in your browser and on the desktop." />
     <meta name="color-scheme" content="light dark" />
-    <title>Rusuite – Calc, Write and Show</title>
+    <title data-i18n="portal.title">Rusuite – Calc, Write and Show</title>
     <link rel="icon" href="logos/rusuite-mono.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div class="stripe" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="lang" role="group" data-i18n-aria-label="portal.language" aria-label="Language / Sprache">
+      <button type="button" data-lang="en" lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="de" lang="de" aria-pressed="false" title="Deutsch">DE</button>
+    </div>
     <header class="hero">
       <div class="brand">
-        <img src="logos/rusuite.svg" width="64" height="64" alt="Rusuite logo" />
+        <img src="logos/rusuite.svg" width="64" height="64" data-i18n-alt="portal.logo" alt="Rusuite logo" />
         <h1>Rusuite</h1>
       </div>
-      <p class="lead">A small office suite with a Rust core – runs in your browser and on the desktop.</p>
-      <p class="sub">Opens and saves real <code>.xlsx</code>, <code>.docx</code> and <code>.pptx</code> files. Nothing to install, no account, your files stay on your machine.</p>
+      <p class="lead" data-i18n="portal.lead">A small office suite with a Rust core – runs in your browser and on the desktop.</p>
+      <p class="sub" data-i18n-html="portal.sub">Opens and saves real <code>.xlsx</code>, <code>.docx</code> and <code>.pptx</code> files. Nothing to install, no account, your files stay on your machine.</p>
     </header>
 
     <main>
-      <h2 class="visually-hidden">Apps</h2>
+      <h2 class="visually-hidden" data-i18n="portal.apps">Apps</h2>
       <ul class="apps">
         <li class="card" data-app="calc">
-          <img src="logos/calc.svg" width="72" height="72" alt="Rusuite Calc logo" />
-          <h3>Calc <span>Spreadsheets</span></h3>
-          <p>Formulas with an Excel-compatible engine, cell styles, number formats and fill – saved as <code>.xlsx</code>.</p>
+          <img src="logos/calc.svg" width="72" height="72" data-i18n-alt="portal.calc.logo" alt="Rusuite Calc logo" />
+          <h3>Calc <span data-i18n="portal.calc.kind">Spreadsheets</span></h3>
+          <p data-i18n-html="portal.calc.text">Formulas with an Excel-compatible engine, cell styles, number formats and fill – saved as <code>.xlsx</code>.</p>
           <div class="actions">
-            <a class="button" href="/calc/">Open Calc in browser</a>
-            <a class="more" href="https://github.com/refaustria/rusuite/releases">Desktop downloads</a>
+            <a class="button" href="/calc/" data-i18n="portal.calc.open">Open Calc in browser</a>
+            <a class="more" href="https://github.com/refaustria/rusuite/releases" data-i18n="portal.downloads">Desktop downloads</a>
           </div>
         </li>
         <li class="card" data-app="write">
-          <img src="logos/write.svg" width="72" height="72" alt="Rusuite Write logo" />
-          <h3>Write <span>Documents</span></h3>
-          <p>Styles, lists, tables, images, headers and footers with a page view – saved as <code>.docx</code>.</p>
+          <img src="logos/write.svg" width="72" height="72" data-i18n-alt="portal.write.logo" alt="Rusuite Write logo" />
+          <h3>Write <span data-i18n="portal.write.kind">Documents</span></h3>
+          <p data-i18n-html="portal.write.text">Styles, lists, tables, images, headers and footers with a page view – saved as <code>.docx</code>.</p>
           <div class="actions">
-            <a class="button" href="/write/">Open Write in browser</a>
-            <a class="more" href="https://github.com/refaustria/rusuite/releases">Desktop downloads</a>
+            <a class="button" href="/write/" data-i18n="portal.write.open">Open Write in browser</a>
+            <a class="more" href="https://github.com/refaustria/rusuite/releases" data-i18n="portal.downloads">Desktop downloads</a>
           </div>
         </li>
         <li class="card" data-app="show">
-          <img src="logos/show.svg" width="72" height="72" alt="Rusuite Show logo" />
-          <h3>Show <span>Presentations</span></h3>
-          <p>Layouts, shapes, pictures, speaker notes and a presenter view – saved as <code>.pptx</code>.</p>
+          <img src="logos/show.svg" width="72" height="72" data-i18n-alt="portal.show.logo" alt="Rusuite Show logo" />
+          <h3>Show <span data-i18n="portal.show.kind">Presentations</span></h3>
+          <p data-i18n-html="portal.show.text">Layouts, shapes, pictures, speaker notes and a presenter view – saved as <code>.pptx</code>.</p>
           <div class="actions">
-            <a class="button" href="/show/">Open Show in browser</a>
-            <a class="more" href="https://github.com/refaustria/rusuite/releases">Desktop downloads</a>
+            <a class="button" href="/show/" data-i18n="portal.show.open">Open Show in browser</a>
+            <a class="more" href="https://github.com/refaustria/rusuite/releases" data-i18n="portal.downloads">Desktop downloads</a>
           </div>
         </li>
       </ul>
     </main>
 
     <footer>
-      <p class="note"><strong>Alpha</strong> – desktop builds for Windows, macOS and Linux are unsigned; your OS will ask before the first start.</p>
+      <p class="note" data-i18n-html="portal.alpha"><strong>Alpha</strong> – desktop builds for Windows, macOS and Linux are unsigned; your OS will ask before the first start.</p>
       <p class="meta">
-        <a href="https://github.com/refaustria/rusuite">Source on GitHub</a>
+        <a href="https://github.com/refaustria/rusuite" data-i18n="portal.source">Source on GitHub</a>
         <span aria-hidden="true">·</span>
-        <a href="https://github.com/refaustria/rusuite/releases">All releases</a>
+        <a href="https://github.com/refaustria/rusuite/releases" data-i18n="portal.releases">All releases</a>
         <span aria-hidden="true">·</span>
         <span id="version" data-testid="version">Version unknown</span>
       </p>
     </footer>
 
+    <script src="i18n.js"></script>
     <script>
+      let build = null;
+      const showVersion = () => {
+        const el = document.getElementById("version");
+        const t = window.rusuiteI18n.t;
+        if (!build) {
+          el.textContent = t("portal.versionUnknown");
+          return;
+        }
+        const date = String(build.builtAt || "").slice(0, 10);
+        el.textContent = t("portal.build", { commit: String(build.commit || "?").slice(0, 7) }) + (date ? " · " + date : "");
+        if (build.builtAt) el.title = t("portal.built", { date: build.builtAt });
+      };
+      window.addEventListener("rusuite:locale", showVersion);
       fetch("/version.json", { cache: "no-cache" })
         .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
         .then((v) => {
-          const el = document.getElementById("version");
-          const date = String(v.builtAt || "").slice(0, 10);
-          el.textContent = "Build " + String(v.commit || "?").slice(0, 7) + (date ? " · " + date : "");
-          if (v.builtAt) el.title = "Built " + v.builtAt;
+          build = v;
+          showVersion();
         })
         .catch(() => {});
     </script>
