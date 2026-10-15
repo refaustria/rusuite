@@ -7,7 +7,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+fmt-ooxml = { path = "../fmt-ooxml" }
+model-sheet = { path = "../model-sheet" }
+engine-formula = { path = "../engine-formula" }
+core-model = { path = "../core-model" }
+quick-xml.workspace = true
 serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
 
 [lints]
 workspace = true
