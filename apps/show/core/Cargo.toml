@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
+autobenches = false
 
 [dependencies]
 app-common = { path = "../../../crates/app-common" }
@@ -20,3 +21,12 @@ ts-rs = { version = "12", features = ["serde-compat"] }
 
 [lints]
 workspace = true
+
+# P5-4 perf harness: plain binaries/tests (no criterion), sources in benches/.
+[[example]]
+name = "bench_show"
+path = "benches/bench_show.rs"
+
+[[test]]
+name = "perf"
+path = "benches/perf.rs"

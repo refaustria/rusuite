@@ -73,8 +73,15 @@ impl Default for SheetFormat {
 /// What `model-sheet` stores per sheet beyond the engine's cell contents.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SheetData {
-    /// Explicit cell styles; default-styled cells are absent.
+    /// Explicit cell styles; default-styled cells are absent. Change it
+    /// only through [`set_cell_style`](Self::set_cell_style) /
+    /// [`replace_cell_styles`](Self::replace_cell_styles), which keep the
+    /// per-row/column counts below in sync.
     pub cell_styles: HashMap<(u32, u32), StyleId>,
+    /// Number of styled cells per row / per column (no zero entries): the
+    /// largest keys give the styled bound in O(log n) instead of a scan.
+    style_rows: BTreeMap<u32, u32>,
+    style_cols: BTreeMap<u32, u32>,
     /// Non-default columns only.
     pub cols: BTreeMap<u32, ColInfo>,
     /// Non-default rows only.
@@ -101,9 +108,72 @@ impl SheetData {
 
     pub fn set_cell_style(&mut self, row: u32, col: u32, id: StyleId) {
         if id.is_default() {
-            self.cell_styles.remove(&(row, col));
-        } else {
-            self.cell_styles.insert((row, col), id);
+            if self.cell_styles.remove(&(row, col)).is_some() {
+                uncount(&mut self.style_rows, row);
+                uncount(&mut self.style_cols, col);
+            }
+        } else if self.cell_styles.insert((row, col), id).is_none() {
+            *self.style_rows.entry(row).or_default() += 1;
+            *self.style_cols.entry(col).or_default() += 1;
         }
+    }
+
+    /// Replaces all cell styles (structural edits) and recounts.
+    pub fn replace_cell_styles(&mut self, styles: HashMap<(u32, u32), StyleId>) {
+        self.cell_styles = styles;
+        self.style_rows.clear();
+        self.style_cols.clear();
+        for &(row, col) in self.cell_styles.keys() {
+            *self.style_rows.entry(row).or_default() += 1;
+            *self.style_cols.entry(col).or_default() += 1;
+        }
+    }
+
+    /// `(max_row, max_col)` over the styled cells, `None` without any.
+    pub fn styled_bound(&self) -> Option<(u32, u32)> {
+        let row = self.style_rows.last_key_value()?.0;
+        let col = self.style_cols.last_key_value()?.0;
+        Some((*row, *col))
+    }
+}
+
+fn uncount(counts: &mut BTreeMap<u32, u32>, key: u32) {
+    if let Some(n) = counts.get_mut(&key) {
+        *n -= 1;
+        if *n == 0 {
+            counts.remove(&key);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scan(d: &SheetData) -> Option<(u32, u32)> {
+        d.cell_styles
+            .keys()
+            .copied()
+            .reduce(|(r, c), (r2, c2)| (r.max(r2), c.max(c2)))
+    }
+
+    #[test]
+    fn styled_bound_follows_edits() {
+        let mut d = SheetData::default();
+        let (a, b) = (StyleId(1), StyleId(2));
+        assert_eq!(d.styled_bound(), None);
+        d.set_cell_style(4, 1, a);
+        d.set_cell_style(2, 7, a);
+        d.set_cell_style(2, 7, b); // overwrite: counted once
+        assert_eq!(d.styled_bound(), Some((4, 7)));
+        d.set_cell_style(2, 7, StyleId::DEFAULT);
+        assert_eq!(d.styled_bound(), Some((4, 1)));
+        d.set_cell_style(9, 9, StyleId::DEFAULT); // absent: no-op
+        assert_eq!(d.styled_bound(), scan(&d));
+        d.replace_cell_styles(HashMap::from([((1, 3), a), ((6, 0), b)]));
+        assert_eq!(d.styled_bound(), Some((6, 3)));
+        d.set_cell_style(6, 0, StyleId::DEFAULT);
+        d.set_cell_style(1, 3, StyleId::DEFAULT);
+        assert_eq!(d.styled_bound(), None);
     }
 }

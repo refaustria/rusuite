@@ -416,10 +416,11 @@ impl Workbook {
             return Ok(recalc);
         }
         let data = self.sheet_data_mut(sheet)?;
-        data.cell_styles = std::mem::take(&mut data.cell_styles)
+        let styles = std::mem::take(&mut data.cell_styles)
             .into_iter()
             .filter_map(|((r, c), id)| op.map_cell(r, c).map(|p| (p, id)))
             .collect();
+        data.replace_cell_styles(styles);
         fn shift<T>(op: StructuralOp, map: &mut std::collections::BTreeMap<u32, T>) {
             *map = std::mem::take(map)
                 .into_iter()
@@ -439,13 +440,12 @@ impl Workbook {
     /// `(max_row, max_col)` over non-empty contents (the engine's used
     /// range) and cells with an own non-default style. Column/row
     /// dimension entries (widths, hidden flags, row/column styles) do not
-    /// extend it. `None` for an empty or unknown sheet. Costs O(styled
-    /// cells) per call.
+    /// extend it. `None` for an empty or unknown sheet. O(log n): the
+    /// styled bound is kept from per-row/column counts of styled cells.
     pub fn used_range(&self, sheet: SheetId) -> Option<(u32, u32)> {
         self.sheet_data(sheet)
-            .cell_styles
-            .keys()
-            .copied()
+            .styled_bound()
+            .into_iter()
             .chain(self.engine.used_range(sheet))
             .reduce(|(r, c), (r2, c2)| (r.max(r2), c.max(c2)))
     }

@@ -196,15 +196,25 @@ describe("transactionMapper: structure", () => {
     expect((c as { blocks: Block[] }).blocks).toHaveLength(2);
   });
 
-  it("typing inside a table cell → replaceBlocks of the table", () => {
+  it("typing inside a table cell → insertText on the cell paragraph", () => {
     const e = (editor = makeEditor(FIXTURES.table!));
     select(e, 7, 2);
-    const c = cmd(change(e, () => type(e, "!"))) as Extract<WriteCommand, { type: "replaceBlocks" }>;
+    expect(cmd(change(e, () => type(e, "!")))).toEqual({ type: "insertText", block: 7, offset: 2, text: "!", props: {} });
+    select(e, 13, 1);
+    expect(cmd(change(e, () => e.view.dispatch(e.state.tr.delete(posOf(e, 13, 0), posOf(e, 13, 1)))))).toEqual({
+      type: "deleteText", block: 13, from: 0, to: 1,
+    });
+  });
+
+  it("splitting a paragraph inside a table cell → replaceBlocks of the table", () => {
+    const e = (editor = makeEditor(FIXTURES.table!));
+    select(e, 7, 1);
+    const c = cmd(change(e, () => press(e, "Enter"))) as Extract<WriteCommand, { type: "replaceBlocks" }>;
     expect(c.type).toBe("replaceBlocks");
     expect(c.ids).toEqual([2]);
     expect(c.blocks[0]!.kind).toBe("table");
     const json = JSON.stringify(c.blocks[0]);
-    expect(json).toContain('"text":"B1!"');
+    expect(json).toContain('"text":"B"');
     expect(json).toContain('"colWidths":[4513,4513]');
   });
 
