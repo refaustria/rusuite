@@ -81,7 +81,7 @@ impl FunctionRegistry {
         let mut r = Self::new();
         r.register(Box::new(math::sum::Sum));
         logical::register(&mut r);
-        r.register(Box::new(text::len::Len));
+        text::register(&mut r);
         info::register(&mut r);
         datetime::register(&mut r);
         r

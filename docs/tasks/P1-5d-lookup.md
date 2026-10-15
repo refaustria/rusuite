@@ -1,0 +1,11 @@
+# Task P1-5d – lookup/reference functions
+Branch `p1/fn-lookup`, worktree `/home/bojan/rusuite-wt/p1-fn-lookup`. Scope: `crates/engine-formula/src/functions/lookup/**` (create), the `pub mod lookup;` line and one `lookup::register(&mut r);` line in `functions/mod.rs`, lookup rows of `docs/functions.md`. Read `docs/tasks/P1-5-functions-common.md` first.
+
+Implement (7): VLOOKUP HLOOKUP INDEX MATCH CHOOSE ROW COLUMN.
+Notes beyond docs/functions.md:
+- Lookup comparisons use the evaluator's `value::compare` rules (type ranking, case-insensitive text). Exact match (`MATCH` type 0, `VLOOKUP` range_lookup FALSE) supports wildcards `* ? ~` when the lookup value is text (reuse `functions/math/criteria.rs` if it has merged to main when you start – check `git log --oneline -1 -- crates/engine-formula/src/functions/math/criteria.rs` on main; if not present, implement a small private wildcard matcher and note it).
+- Approximate match (MATCH type 1 / VLOOKUP TRUE / HLOOKUP TRUE): binary search over the ascending first column/row for the largest value ≤ lookup value; values of a different type rank are ignored; none found → `#N/A`. MATCH type -1: smallest value ≥ lookup in a descending list.
+- VLOOKUP/HLOOKUP: `col_index` < 1 → `#VALUE!`, > number of columns → `#REF!`; the table may be a range or an array constant; returns the cell value (Empty → `Value::Empty`, which the evaluator shows as 0). The lookup value may be a range → `ctx.scalar` (implicit intersection).
+- INDEX(array, row, [col]): row/col 0 means "whole row/column" → return an `Array` (the evaluator reduces a final array to top-left; functions receiving it iterate it); out of bounds → `#REF!`; a 1-D range accepts a single index. INDEX used as a reference (`A1:INDEX(...)`) is NOT supported in MVP (`Function::call` returns a Value) – the two suite rows that need it, if any, are listed in the report.
+- CHOOSE(index, v1, ...) is lazy: evaluates only the chosen value (`ctx.scalar`); index is truncated; out of range → `#VALUE!`.
+- ROW([ref]) / COLUMN([ref]): with no argument return `ctx.current().row + 1` / `col + 1`; with a reference, the top-left row/col of that reference (1-based); with a non-reference argument → `#VALUE!`. To get at the un-dereferenced reference use `ctx.eval(e)` and match `Operand::Range`.
