@@ -1,0 +1,78 @@
+# PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
+# family: logical (73 cases); evaluate in the context of sheet Data, see fixture.tsv
+formula	type	expected	note
+=IF(TRUE,1,2)	number	1	
+=IF(FALSE,1,2)	number	2	
+=IF(0,"y","n")	text	n	
+=IF(A1>0,"pos","neg")	text	pos	
+=IF(D4,"y","n")	text	n	empty cell is FALSE
+=IF("TRUE",1,2)	number	1	text "TRUE" is accepted as a logical value
+=IF(H1,1,2)	error	#DIV/0!	error propagation
+=IF(FALSE,1)	bool	FALSE	missing else branch gives FALSE
+=IF(TRUE,1,1/0)	number	1	untaken branch is not evaluated
+=IF(FALSE,1/0,2)	number	2	
+=IF(B1,1,2)	error	#VALUE!	non-boolean text condition
+=IF(C3,"y","n")	text	n	
+=IF(A2,"y","n")	text	y	any non-zero number is TRUE
+=IF(1>2,"a")	bool	FALSE	
+=IF(D3="","empty","filled")	text	empty	
+=IF(D1,"yes","no")	text	yes	
+=AND(TRUE,TRUE)	bool	TRUE	
+=AND(TRUE,FALSE)	bool	FALSE	
+=AND(1,2)	bool	TRUE	
+=AND(A1:A3)	bool	TRUE	
+=AND(C1:C3)	bool	FALSE	
+=AND(D1:D2)	bool	FALSE	
+=AND(B1:B2)	error	#VALUE!	no logical values in reference
+=AND(D4)	error	#VALUE!	empty cell only
+=AND(TRUE,H1)	error	#DIV/0!	error propagation
+=AND(FALSE,H1)	error	#DIV/0!	AND does not short-circuit errors
+=AND(D1,D5)	bool	TRUE	text in reference ignored
+=AND(A1>0,C1>0,B1="apple")	bool	TRUE	
+=OR(FALSE,FALSE)	bool	FALSE	
+=OR(FALSE,TRUE)	bool	TRUE	
+=OR(0,0)	bool	FALSE	
+=OR(C1:C3)	bool	TRUE	
+=OR(D2,D3)	bool	FALSE	
+=OR(B1:B2)	error	#VALUE!	no logical values in reference
+=OR(H1,TRUE)	error	#DIV/0!	error propagation
+=OR(D4,FALSE)	bool	FALSE	
+=OR(A1<0,C2<0)	bool	TRUE	
+=NOT(TRUE)	bool	FALSE	
+=NOT(0)	bool	TRUE	
+=NOT(D4)	bool	TRUE	
+=NOT(A1)	bool	FALSE	
+=NOT(H1)	error	#DIV/0!	error propagation
+=NOT(B1)	error	#VALUE!	
+=NOT("abc")	error	#VALUE!	
+=NOT(D2)	bool	TRUE	
+=NOT(A1>2)	bool	TRUE	
+=IFERROR(1/0,"err")	text	err	
+=IFERROR(5,"err")	number	5	
+=IFERROR(H1,0)	number	0	
+=IFERROR(H2,"na")	text	na	
+=IFERROR(A1,0)	number	1	
+=IFERROR(D4,"x")	number	0	empty cell yields 0
+=IFERROR(VLOOKUP(999,F1:G4,2,FALSE),"missing")	text	missing	
+=IFERROR(SQRT(-1),-1)	number	-1	
+=IFERROR(1/0,1/0)	error	#DIV/0!	error in fallback propagates
+=IFERROR(B1,"x")	text	apple	
+=IFERROR(UNKNOWNFN(1),"x")	text	x	
+=TRUE()	bool	TRUE	
+=TRUE()+1	number	2	
+=AND(TRUE(),TRUE())	bool	TRUE	
+=IF(TRUE(),"y","n")	text	y	
+=NOT(TRUE())	bool	FALSE	
+# NOTE: LibreOffice converts booleans to 1/0 when concatenating [excel=TRUE]
+=TRUE()&""	text	1	DIFF: LibreOffice converts booleans to 1/0 when concatenating [excel=TRUE]
+=TRUE()+H1	error	#DIV/0!	error propagation
+=SUM(TRUE(),TRUE())	number	2	
+=FALSE()	bool	FALSE	
+=FALSE()+1	number	1	
+=OR(FALSE(),FALSE())	bool	FALSE	
+=IF(FALSE(),"y","n")	text	n	
+=NOT(FALSE())	bool	TRUE	
+# NOTE: LibreOffice converts booleans to 1/0 when concatenating [excel=FALSE]
+=FALSE()&""	text	0	DIFF: LibreOffice converts booleans to 1/0 when concatenating [excel=FALSE]
+=FALSE()=D2	bool	TRUE	
+=FALSE()*H1	error	#DIV/0!	error propagation

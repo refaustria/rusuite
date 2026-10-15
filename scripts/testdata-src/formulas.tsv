@@ -1,0 +1,866 @@
+# Source of truth for the formula reference suite (P1-6). Columns: family, formula, note.
+# A note starting with "DIFF:" marks a known LibreOffice/Excel divergence; it is also emitted as a "# NOTE:" line.
+# Formulas are evaluated on sheet Data (unqualified references mean Data!). Edit here, then run scripts/gen-formula-suite.sh.
+family	formula	note
+math	=SUM(1,2,3)	
+math	=SUM(A1:A6)	
+math	=SUM(C1:C6)	
+math	=SUM(D1:D6)	DIFF: LibreOffice treats boolean cells as numbers in references [excel=0]
+math	=SUM(B1:B3)	text-only range
+math	=SUM("3",4)	DIFF: LibreOffice rejects numeric text literals in SUM [excel=7]
+math	=SUM(TRUE,1)	bool literal argument counts as 1
+math	=SUM(A1:A3,H1)	error propagation
+math	=SUM(H1:H2)	first error wins
+math	=SUM(A1:A2,D4)	empty cell ignored
+math	=AVERAGE(A1:A6)	
+math	=AVERAGE(C1:C4)	
+math	=AVERAGE(B1:B3)	no numeric values
+math	=AVERAGE(A1,H1)	error propagation
+math	=AVERAGE(D1:D6)	DIFF: LibreOffice treats boolean cells as numbers in references [excel=#DIV/0!]
+math	=AVERAGE(1,"3")	DIFF: LibreOffice rejects numeric text literals in AVERAGE [excel=2]
+math	=AVERAGE(A1:A2,D4)	empty cell is not counted
+math	=AVERAGE(0,0)	
+math	=MIN(C1:C6)	
+math	=MIN(1,2,-3)	
+math	=MIN(B1:B3)	no numbers gives 0
+math	=MIN(A1:A3,H1)	error propagation
+math	=MIN(D1:D2)	DIFF: LibreOffice treats boolean cells as numbers in references [excel=0]
+math	=MIN(TRUE,5)	bool literal counts as 1
+math	=MIN(C1:C3,D4)	empty cell ignored
+math	=MAX(C1:C6)	
+math	=MAX(-5,-2)	
+math	=MAX(B1:B3)	no numbers gives 0
+math	=MAX(H2,1)	error propagation
+math	=MAX(D4,-1)	empty cell ignored
+math	=MAX(A1:A6,"x")	non-numeric text literal
+math	=MAX(-3,D4)	
+math	=COUNT(A1:A6)	
+math	=COUNT(A1:D6)	DIFF: LibreOffice treats boolean cells as numbers in references [excel=12]
+math	=COUNT(1,"a",TRUE)	bool literal is counted, non-numeric text is not
+math	=COUNT(B1:B6)	
+math	=COUNT(H1:H2)	errors in references are not counted
+math	=COUNT(D1:D6)	DIFF: LibreOffice treats boolean cells as numbers in references [excel=0]
+math	=COUNT(E1:E4)	
+math	=COUNT("5")	numeric text literal is counted
+math	=COUNT(A1,H1)	error cell as direct reference argument is not counted
+math	=COUNTA(A1:D6)	
+math	=COUNTA(D1:D6)	empty string and text count, empty cell does not
+math	=COUNTA(H1:H2)	errors are counted
+math	=COUNTA(D4)	
+math	=COUNTA(D3)	empty-string constant is non-empty
+math	=COUNTA(1,"",TRUE)	
+math	=ROUND(2.5,0)	half away from zero
+math	=ROUND(-2.5,0)	
+math	=ROUND(1234.5678,2)	
+math	=ROUND(1234.5678,-2)	negative digits
+math	=ROUND(C1,0)	
+math	=ROUND(H1,0)	error propagation
+math	=ROUND("3.7",0)	numeric text coerced
+math	=ROUND(D4,2)	empty cell is 0
+math	=ROUND(C5,1)	
+math	=ROUND(2.675,2)	decimal representation edge case
+math	=ROUND(B1,0)	text is not a number
+math	=ROUNDUP(2.1,0)	
+math	=ROUNDUP(-2.1,0)	away from zero
+math	=ROUNDUP(3.14159,3)	
+math	=ROUNDUP(C1,0)	
+math	=ROUNDUP(0,0)	
+math	=ROUNDUP(H1,1)	error propagation
+math	=ROUNDUP(1234,-2)	
+math	=ROUNDUP(A1:A1,0)	single-cell range
+math	=ROUNDDOWN(2.9,0)	
+math	=ROUNDDOWN(-2.9,0)	towards zero
+math	=ROUNDDOWN(3.14159,3)	
+math	=ROUNDDOWN(C5,1)	
+math	=ROUNDDOWN(1999,-3)	
+math	=ROUNDDOWN(H1,0)	error propagation
+math	=ROUNDDOWN(D4,0)	empty cell
+math	=INT(2.7)	
+math	=INT(-2.1)	floors towards minus infinity
+math	=INT(C1)	
+math	=INT(C2)	
+math	=INT(E3)	date+time to date part
+math	=INT("7.9")	numeric text coerced
+math	=INT(H1)	error propagation
+math	=INT(D4)	empty cell
+math	=INT(TRUE)	
+math	=INT(B1)	
+math	=MOD(10,3)	
+math	=MOD(-10,3)	sign follows the divisor
+math	=MOD(10,-3)	
+math	=MOD(5,0)	
+math	=MOD(A6,A3)	
+math	=MOD(C1,3)	
+math	=MOD(H1,2)	error propagation
+math	=MOD(3.5,1)	
+math	=MOD(0,5)	
+math	=MOD(D4,3)	empty cell
+math	=ABS(-5)	
+math	=ABS(C2)	
+math	=ABS(0)	
+math	=ABS(D4)	empty cell
+math	=ABS(H1)	error propagation
+math	=ABS("-3")	numeric text coerced
+math	=ABS(B1)	
+math	=ABS(-0.5)	
+math	=ABS(TRUE)	
+math	=SQRT(16)	
+math	=SQRT(2)	
+math	=SQRT(-1)	DIFF: LibreOffice reports #VALUE! on xlsx export [excel=#NUM!]
+math	=SQRT(0)	
+math	=SQRT(A4)	
+math	=SQRT(H1)	error propagation
+math	=SQRT("9")	numeric text coerced
+math	=SQRT(B1)	
+math	=SQRT(C2*-1)	
+math	=POWER(2,10)	
+math	=POWER(2,-1)	
+math	=POWER(0,0)	DIFF: Excel rejects 0^0 [excel=#NUM!]
+math	=POWER(-8,1/3)	DIFF: LibreOffice computes the real cube root [excel=#NUM!]
+math	=POWER(A3,A2)	
+math	=POWER(H1,2)	error propagation
+math	=POWER(0,-1)	
+math	=POWER(4,0.5)	
+math	=POWER(-2,3)	
+math	=POWER(D4,2)	empty cell
+math	=PI()	
+math	=PI()*2	
+math	=ROUND(PI(),2)	
+math	=PI()+H1	error propagation
+math	=PI()/PI()	
+math	=C1*PI()	
+math	=PRODUCT(1,2,3,4)	
+math	=PRODUCT(A1:A6)	
+math	=PRODUCT(B1:B3)	no numbers gives 0
+math	=PRODUCT(A1:A3,H1)	error propagation
+math	=PRODUCT(C1:C3)	
+math	=PRODUCT(D4)	
+math	=PRODUCT("2",3)	DIFF: LibreOffice rejects numeric text literals in PRODUCT [excel=6]
+math	=PRODUCT(A1:A2,D1:D2)	DIFF: LibreOffice treats boolean cells as numbers in references [excel=2]
+math	=PRODUCT(C2,C2)	
+math	=SUMIF(A1:A6,">3")	
+math	=SUMIF(B1:B6,"apple",A1:A6)	
+math	=SUMIF(C1:C6,"<0")	
+math	=SUMIF(B1:B6,"*e*",A1:A6)	wildcard
+math	=SUMIF(A1:A6,">="&A3)	criteria built with &
+math	=SUMIF(B1:B6,"zzz",A1:A6)	no match
+math	=SUMIF(A1:A6,"<>"&H1)	error propagation through criteria expression
+math	=SUMIF(H1:H2,">0")	errors in range are skipped
+math	=SUMIF(D1:D6,TRUE,A1:A6)	
+math	=SUMIF(A1:A6,">2",C1:C6)	
+math	=SUMIF(B1:B6,"APPLE",A1:A6)	case-insensitive
+math	=SUMIF(A1:A6,3)	
+math	=COUNTIF(A1:A6,">3")	
+math	=COUNTIF(B1:B6,"a*")	wildcard
+math	=COUNTIF(B1:B6,"?????")	single-character wildcard
+math	=COUNTIF(A1:A6,3)	
+math	=COUNTIF(D1:D6,"")	counts empty-string and truly empty cells
+math	=COUNTIF(B1:B6,"APPLE")	case-insensitive
+math	=COUNTIF(A1:A6,"<>"&H1)	error propagation through criteria expression
+math	=COUNTIF(D1:D6,TRUE)	
+math	=COUNTIF(D1:D6,42)	DIFF: Excel lets a numeric criterion match the text "42" [excel=1]
+math	=COUNTIF(H1:H2,"#N/A")	
+math	=COUNTIF(C1:C6,"<0")	
+math	=COUNTIF(A1:A6,">="&A3)	
+math	=SUMPRODUCT(A1:A3,A1:A3)	
+math	=SUMPRODUCT(A1:A3,C1:C3)	
+math	=SUMPRODUCT(A1:A3,B1:B3)	text treated as 0
+math	=SUMPRODUCT(A1:A3,A1:A2)	dimension mismatch
+math	=SUMPRODUCT(A1:A3,H1:H3)	error propagation
+math	=SUMPRODUCT((A1:A6>2)*(A1:A6<5))	array arithmetic
+math	=SUMPRODUCT(A1:A6)	
+math	=SUMPRODUCT(A1:A2,D1:D2)	DIFF: LibreOffice treats boolean cells as numbers in references [excel=0]
+math	=SUMPRODUCT(A1:A3*2)	
+math	=CEILING(2.5,1)	
+math	=CEILING(-2.5,-1)	
+math	=CEILING(-2.5,1)	towards zero for negative number, positive significance
+math	=CEILING(2.1,0)	
+math	=CEILING(C1,5)	
+math	=CEILING(H1,1)	error propagation
+math	=CEILING(2.5,-1)	DIFF: Excel rejects positive number with negative significance; LibreOffice gives #VALUE! [excel=#NUM!]
+math	=CEILING(0,5)	
+math	=CEILING(1.234,0.01)	
+math	=CEILING(D4,3)	empty cell
+logical	=IF(TRUE,1,2)	
+logical	=IF(FALSE,1,2)	
+logical	=IF(0,"y","n")	
+logical	=IF(A1>0,"pos","neg")	
+logical	=IF(D4,"y","n")	empty cell is FALSE
+logical	=IF("TRUE",1,2)	text "TRUE" is accepted as a logical value
+logical	=IF(H1,1,2)	error propagation
+logical	=IF(FALSE,1)	missing else branch gives FALSE
+logical	=IF(TRUE,1,1/0)	untaken branch is not evaluated
+logical	=IF(FALSE,1/0,2)	
+logical	=IF(B1,1,2)	non-boolean text condition
+logical	=IF(C3,"y","n")	
+logical	=IF(A2,"y","n")	any non-zero number is TRUE
+logical	=IF(1>2,"a")	
+logical	=IF(D3="","empty","filled")	
+logical	=IF(D1,"yes","no")	
+logical	=AND(TRUE,TRUE)	
+logical	=AND(TRUE,FALSE)	
+logical	=AND(1,2)	
+logical	=AND(A1:A3)	
+logical	=AND(C1:C3)	
+logical	=AND(D1:D2)	
+logical	=AND(B1:B2)	no logical values in reference
+logical	=AND(D4)	empty cell only
+logical	=AND(TRUE,H1)	error propagation
+logical	=AND(FALSE,H1)	AND does not short-circuit errors
+logical	=AND(D1,D5)	text in reference ignored
+logical	=AND(A1>0,C1>0,B1="apple")	
+logical	=OR(FALSE,FALSE)	
+logical	=OR(FALSE,TRUE)	
+logical	=OR(0,0)	
+logical	=OR(C1:C3)	
+logical	=OR(D2,D3)	
+logical	=OR(B1:B2)	no logical values in reference
+logical	=OR(H1,TRUE)	error propagation
+logical	=OR(D4,FALSE)	
+logical	=OR(A1<0,C2<0)	
+logical	=NOT(TRUE)	
+logical	=NOT(0)	
+logical	=NOT(D4)	
+logical	=NOT(A1)	
+logical	=NOT(H1)	error propagation
+logical	=NOT(B1)	
+logical	=NOT("abc")	
+logical	=NOT(D2)	
+logical	=NOT(A1>2)	
+logical	=IFERROR(1/0,"err")	
+logical	=IFERROR(5,"err")	
+logical	=IFERROR(H1,0)	
+logical	=IFERROR(H2,"na")	
+logical	=IFERROR(A1,0)	
+logical	=IFERROR(D4,"x")	empty cell yields 0
+logical	=IFERROR(VLOOKUP(999,F1:G4,2,FALSE),"missing")	
+logical	=IFERROR(SQRT(-1),-1)	
+logical	=IFERROR(1/0,1/0)	error in fallback propagates
+logical	=IFERROR(B1,"x")	
+logical	=IFERROR(UNKNOWNFN(1),"x")	
+logical	=TRUE()	
+logical	=TRUE()+1	
+logical	=AND(TRUE(),TRUE())	
+logical	=IF(TRUE(),"y","n")	
+logical	=NOT(TRUE())	
+logical	=TRUE()&""	DIFF: LibreOffice converts booleans to 1/0 when concatenating [excel=TRUE]
+logical	=TRUE()+H1	error propagation
+logical	=SUM(TRUE(),TRUE())	
+logical	=FALSE()	
+logical	=FALSE()+1	
+logical	=OR(FALSE(),FALSE())	
+logical	=IF(FALSE(),"y","n")	
+logical	=NOT(FALSE())	
+logical	=FALSE()&""	DIFF: LibreOffice converts booleans to 1/0 when concatenating [excel=FALSE]
+logical	=FALSE()=D2	
+logical	=FALSE()*H1	error propagation
+info	=ISBLANK(D4)	
+info	=ISBLANK(D3)	empty-string constant is not blank
+info	=ISBLANK(A1)	
+info	=ISBLANK(Z99)	
+info	=ISBLANK(H1)	error cell is not blank
+info	=ISBLANK("")	
+info	=ISBLANK(D5)	
+info	=ISBLANK(Other!Z1)	
+info	=ISNUMBER(A1)	
+info	=ISNUMBER(D5)	numeric text is not a number
+info	=ISNUMBER("1")	
+info	=ISNUMBER(D4)	
+info	=ISNUMBER(E1)	dates are numbers
+info	=ISNUMBER(D1)	DIFF: LibreOffice treats boolean cells as numbers [excel=FALSE]
+info	=ISNUMBER(H1)	error is not a number and is not propagated
+info	=ISNUMBER(--D5)	
+info	=ISNUMBER(A1:A1)	
+info	=ISTEXT(B1)	
+info	=ISTEXT(D5)	
+info	=ISTEXT(D3)	
+info	=ISTEXT(D4)	
+info	=ISTEXT(A1)	
+info	=ISTEXT(H1)	error is not propagated
+info	=ISTEXT("")	
+info	=ISTEXT(D1)	
+info	=ISTEXT(A1&"")	
+info	=ISERROR(H1)	
+info	=ISERROR(H2)	
+info	=ISERROR(A1)	
+info	=ISERROR(1/0)	
+info	=ISERROR(D4)	
+info	=ISERROR(VALUE("x"))	
+info	=ISERROR(NA())	
+info	=ISERROR(B1)	
+info	=ISERROR(SQRT(-1))	
+info	=ISNA(H2)	
+info	=ISNA(H1)	
+info	=ISNA(NA())	
+info	=ISNA(A1)	
+info	=ISNA(VLOOKUP(999,F1:G4,2,FALSE))	
+info	=ISNA(1/0)	
+info	=ISNA(D4)	
+info	=ISNA(MATCH("zzz",B1:B6,0))	
+info	=NA()	
+info	=ISNA(NA())	
+info	=IFERROR(NA(),0)	
+info	=NA()+1	error propagation
+info	=SUM(1,NA())	
+info	=IF(TRUE,NA(),1)	
+info	=ISERROR(NA())	
+info	=H2	reference to an error cell
+info	=NA()&"x"	
+info	=NA()+H1	leftmost error wins
+text	=CONCAT("a","b")	
+text	=CONCAT(B1:B3)	ranges are flattened
+text	=CONCAT(A1,B1)	
+text	=CONCAT(1,TRUE)	DIFF: LibreOffice converts booleans to 1/0 when concatenating [excel=1TRUE]
+text	=CONCAT(D4,"x")	empty cell is ""
+text	=CONCAT(H1,"x")	error propagation
+text	=CONCAT(A1:A3,"-")	
+text	=CONCAT(D1:D3)	DIFF: LibreOffice treats boolean cells as numbers [excel=TRUEFALSE]
+text	=CONCAT(C1:C2)	
+text	=CONCATENATE("a","b","c")	
+text	=CONCATENATE(B1," ",B2)	
+text	=CONCATENATE(A1,A2)	
+text	=CONCATENATE(D4)	
+text	=CONCATENATE(H1,"x")	error propagation
+text	=CONCATENATE(C1,"%")	
+text	=CONCATENATE(1/4)	
+text	=CONCATENATE(D1,D2)	DIFF: LibreOffice treats boolean cells as numbers [excel=TRUEFALSE]
+text	=LEFT("hello",2)	
+text	=LEFT("hello")	default count is 1
+text	=LEFT(B1,3)	
+text	=LEFT(B1,0)	
+text	=LEFT(B1,100)	count larger than length
+text	=LEFT(A4,1)	number converted to text
+text	=LEFT(C1,2)	
+text	=LEFT(H1,1)	error propagation
+text	=LEFT(B1,-1)	
+text	=LEFT(D4,2)	
+text	=LEFT(D1,2)	DIFF: LibreOffice treats boolean cells as numbers [excel=TR]
+text	=LEFT(E1,3)	
+text	=LEFT("abc",1.9)	count is truncated
+text	=RIGHT("hello",2)	
+text	=RIGHT("hello")	
+text	=RIGHT(B5,3)	
+text	=RIGHT(B1,0)	
+text	=RIGHT(B1,99)	
+text	=RIGHT(C1,1)	
+text	=RIGHT(H2,1)	error propagation
+text	=RIGHT(B1,-1)	
+text	=RIGHT(D4,1)	
+text	=RIGHT(D6,3)	
+text	=MID("hello",2,3)	
+text	=MID(B1,1,1)	
+text	=MID(B1,10,2)	start beyond end
+text	=MID(B1,0,2)	
+text	=MID(B5,3,100)	
+text	=MID(A1,1,1)	
+text	=MID(H1,1,1)	error propagation
+text	=MID(B1,2,-1)	
+text	=MID(C1,2,3)	
+text	=MID(B2,2,0)	
+text	=MID(D4,1,5)	
+text	=LEN("hello")	
+text	=LEN(B5)	
+text	=LEN(D3)	
+text	=LEN(D4)	
+text	=LEN(D6)	leading and trailing spaces count
+text	=LEN(C1)	
+text	=LEN(A1)	
+text	=LEN(H1)	error propagation
+text	=LEN(TRUE)	DIFF: LibreOffice converts booleans to numbers [excel=4]
+text	=LEN(E3)	
+text	=LEN("")	
+text	=LEN("Äpfel")	non-ASCII characters
+text	=UPPER("abc")	
+text	=UPPER(B1)	
+text	=UPPER(A1)	
+text	=UPPER(D4)	
+text	=UPPER(H1)	error propagation
+text	=UPPER("äö")	
+text	=UPPER(TRUE)	DIFF: LibreOffice converts booleans to numbers [excel=TRUE]
+text	=UPPER(B1&B2)	
+text	=LOWER("ABC")	
+text	=LOWER(B1)	
+text	=LOWER("ÄÖ")	
+text	=LOWER(D6)	
+text	=LOWER(H1)	error propagation
+text	=LOWER(D4)	
+text	=LOWER(TRUE)	DIFF: LibreOffice converts booleans to numbers [excel=true]
+text	=LOWER(UPPER(B2))	
+text	=TRIM("  a  b  ")	inner runs of spaces collapse to one
+text	=TRIM(D6)	
+text	=TRIM(B1)	
+text	=TRIM(D4)	
+text	=TRIM(H1)	error propagation
+text	=TRIM(A1)	
+text	=TRIM("   ")	
+text	=TRIM(D5)	
+text	=FIND("a","banana")	
+text	=FIND("a","banana",3)	
+text	=FIND("A","banana")	case-sensitive
+text	=FIND("","abc")	DIFF: Excel returns the start position for an empty search text [excel=1]
+text	=FIND("z",B1)	
+text	=FIND("e",B5)	
+text	=FIND("e",B5,2)	
+text	=FIND("na",B2)	
+text	=FIND("a",B1,0)	
+text	=FIND(H1,"abc")	error propagation
+text	=FIND("0",A1)	
+text	=FIND(1,A1)	
+text	=FIND("a",D4)	
+text	=FIND("?","a?b")	no wildcards in FIND
+text	=SUBSTITUTE("banana","a","o")	
+text	=SUBSTITUTE("banana","a","o",2)	
+text	=SUBSTITUTE("banana","A","o")	case-sensitive
+text	=SUBSTITUTE(B2,"an","")	
+text	=SUBSTITUTE(B1,"p","pp")	
+text	=SUBSTITUTE(H1,"a","b")	error propagation
+text	=SUBSTITUTE(A1,1,2)	
+text	=SUBSTITUTE(B1,"","x")	
+text	=SUBSTITUTE(D4,"a","b")	
+text	=SUBSTITUTE("aaa","a","b",4)	
+text	=SUBSTITUTE("abc","b","")	
+text	=SUBSTITUTE(B1,"a","x",0)	
+text	=TEXT(1234.5,"0")	
+text	=TEXT(1234.567,"0.00")	
+text	=TEXT(1234567.891,"#,##0")	
+text	=TEXT(1234567.891,"#,##0.00")	
+text	=TEXT(0.256,"0%")	
+text	=TEXT(0.256,"0.0%")	
+text	=TEXT(E1,"yyyy-mm-dd")	
+text	=TEXT(E1,"dd.mm.yyyy")	
+text	=TEXT(E1,"mm/dd/yyyy")	
+text	=TEXT(B1,"@")	
+text	=TEXT(A1,"@")	
+text	=TEXT(-2,"0.00")	
+text	=TEXT(C2,"#,##0.00")	
+text	=TEXT(0,"0.00")	
+text	=TEXT(H1,"0")	error propagation
+text	=TEXT(D4,"0")	
+text	=TEXT(C6,"#,##0")	
+text	=TEXT(C1,"0")	
+text	=TEXT(-1234.5,"#,##0.00")	
+text	=TEXT(E3,"yyyy-mm-dd")	
+text	=TEXT(E2,"dd.mm.yyyy")	
+text	=TEXT(B1,"0")	text input is returned unchanged
+text	=TEXT(0.5,"0%")	
+text	=TEXT(1,"0.0%")	
+text	=TEXT(E4,"0.0%")	
+text	=TEXT(D5,"0.00")	numeric text is converted
+text	=TEXT(0.005,"0.00")	
+text	=TEXT(999.995,"0.00")	
+text	=VALUE("123")	
+text	=VALUE("1.5")	
+text	=VALUE("abc")	
+text	=VALUE("")	empty string is not a number
+text	=VALUE(D5)	
+text	=VALUE(A1)	
+text	=VALUE(D4)	
+text	=VALUE(H1)	error propagation
+text	=VALUE(" 12 ")	
+text	=VALUE("1e3")	
+text	=VALUE("50%")	
+text	=VALUE("-7")	
+text	=VALUE(TRUE)	DIFF: Excel rejects booleans [excel=#VALUE!]
+text	=VALUE("2024-01-15")	date text parsing depends on locale (en-US assumed)
+text	=VALUE(B1)	
+text	=EXACT("a","a")	
+text	=EXACT("a","A")	
+text	=EXACT(B1,"apple")	
+text	=EXACT(A1,1)	number compared as text
+text	=EXACT(D4,"")	
+text	=EXACT(D3,D4)	
+text	=EXACT(H1,"a")	error propagation
+text	=EXACT(B1,B2)	
+text	=EXACT(D5,42)	
+text	=EXACT("a ","a")	
+lookup	=VLOOKUP(200,F1:G4,2,FALSE)	
+lookup	=VLOOKUP(200,F1:G4,2)	default is approximate match
+lookup	=VLOOKUP(250,F1:G4,2,TRUE)	
+lookup	=VLOOKUP(50,F1:G4,2,TRUE)	smaller than first key
+lookup	=VLOOKUP(999,F1:G4,2,FALSE)	
+lookup	=VLOOKUP(500,F1:G4,2,TRUE)	larger than last key
+lookup	=VLOOKUP(100,F1:G4,1,FALSE)	
+lookup	=VLOOKUP(100,F1:G4,3,FALSE)	DIFF: LibreOffice gives #VALUE! for a column index beyond the table [excel=#REF!]
+lookup	=VLOOKUP(100,F1:G4,0,FALSE)	
+lookup	=VLOOKUP(H1,F1:G4,2,FALSE)	error propagation
+lookup	=VLOOKUP("apple",B1:C6,2,FALSE)	
+lookup	=VLOOKUP("APPLE",B1:C6,2,FALSE)	case-insensitive
+lookup	=VLOOKUP("fi*",B1:C6,2,FALSE)	wildcard
+lookup	=VLOOKUP(3,A1:C6,3,FALSE)	
+lookup	=VLOOKUP("3",A1:A6,1,FALSE)	DIFF: LibreOffice matches numeric text against numbers [excel=#N/A]
+lookup	=VLOOKUP(D4,F1:G4,2,FALSE)	empty lookup value
+lookup	=VLOOKUP(300,F1:G4,2,0)	0 as FALSE
+lookup	=HLOOKUP(1,A1:F6,2,FALSE)	
+lookup	=HLOOKUP("apple",A1:F6,3,FALSE)	
+lookup	=HLOOKUP(TRUE,A1:F6,2,FALSE)	DIFF: LibreOffice matches TRUE against the number 1 [excel=FALSE]
+lookup	=HLOOKUP(45306,A1:F6,2,FALSE)	
+lookup	=HLOOKUP(100,A1:F6,4,FALSE)	
+lookup	=HLOOKUP(999,A1:F6,2,FALSE)	
+lookup	=HLOOKUP(1,A1:F6,7,FALSE)	DIFF: LibreOffice gives #VALUE! for a row index beyond the table [excel=#REF!]
+lookup	=HLOOKUP(H1,A1:F6,2,FALSE)	error propagation
+lookup	=HLOOKUP(1,A1:F6,0,FALSE)	
+lookup	=HLOOKUP(10.5,A1:F6,2,FALSE)	
+lookup	=HLOOKUP("APPLE",A1:F6,5,FALSE)	
+lookup	=HLOOKUP(1,A1:F6,1,FALSE)	
+lookup	=INDEX(A1:A6,3)	
+lookup	=INDEX(A1:C6,2,2)	
+lookup	=INDEX(A1:C6,6,3)	
+lookup	=INDEX(A1:A6,10)	
+lookup	=INDEX(A1:C6,2,5)	
+lookup	=INDEX(D1:D6,4)	empty cell yields 0
+lookup	=INDEX(H1:H2,1)	returns the error stored in the cell
+lookup	=INDEX(A1:A6,H1)	error propagation
+lookup	=INDEX(A1:A6,-1)	
+lookup	=INDEX(F1:G4,3,2)	
+lookup	=INDEX(A1:F1,5)	single row: index is the column
+lookup	=INDEX(B1:B6,"2")	
+lookup	=INDEX(A1:A6,2.9)	index is truncated
+lookup	=INDEX(A1:C6,1,1)	
+lookup	=MATCH(3,A1:A6,0)	
+lookup	=MATCH(3.5,A1:A6,1)	
+lookup	=MATCH("cherry",B1:B6,0)	
+lookup	=MATCH("CHERRY",B1:B6,0)	
+lookup	=MATCH("zzz",B1:B6,0)	
+lookup	=MATCH("c*",B1:B6,0)	wildcard
+lookup	=MATCH(0,A1:A6,1)	smaller than first
+lookup	=MATCH(100,F1:F4,0)	
+lookup	=MATCH(250,F1:F4,1)	
+lookup	=MATCH(500,F1:F4,1)	
+lookup	=MATCH(300,F1:F4)	default match type is 1
+lookup	=MATCH(H1,A1:A6,0)	error propagation
+lookup	=MATCH(D4,A1:A6,0)	
+lookup	=MATCH(TRUE,D1:D6,0)	
+lookup	=MATCH(FALSE,D1:D6,0)	
+lookup	=MATCH("fig",B1:B6,0)	
+lookup	=MATCH("",D1:D6,0)	
+lookup	=CHOOSE(1,"a","b","c")	
+lookup	=CHOOSE(3,"a","b","c")	
+lookup	=CHOOSE(2.9,"a","b","c")	index is truncated
+lookup	=CHOOSE(0,"a","b")	
+lookup	=CHOOSE(4,"a","b","c")	
+lookup	=CHOOSE(A2,B1,B2,B3)	
+lookup	=CHOOSE(H1,1,2)	error propagation
+lookup	=CHOOSE(2,1,1/0)	
+lookup	=CHOOSE(1,1,1/0)	unchosen argument is not evaluated
+lookup	=CHOOSE("2","a","b")	
+lookup	=CHOOSE(TRUE,"a","b")	
+lookup	=CHOOSE(2,A1,D4)	empty cell yields 0
+lookup	=ROW(A1)	
+lookup	=ROW(C5)	
+lookup	=SUM(ROW(B2:B4))	
+lookup	=ROW(Other!A5)	
+lookup	=ROW(Z100)	
+lookup	=ROW(H1)	error in the referenced cell is not propagated
+lookup	=ROW(INDEX(A1:A6,3))	
+lookup	=ROW(D4)+1	
+lookup	=COLUMN(A1)	
+lookup	=COLUMN(C5)	
+lookup	=COLUMN(AA1)	
+lookup	=COLUMN(Other!B1)	
+lookup	=COLUMN(H1)	error in the referenced cell is not propagated
+lookup	=SUM(COLUMN(A1:C1))	
+lookup	=COLUMN(INDEX(A1:H6,1,5))	
+lookup	=COLUMN(XFD1)	
+datetime	=TODAY()	
+datetime	=INT(TODAY())=TODAY()	
+datetime	=TODAY()>45306	
+datetime	=YEAR(TODAY())>=2024	
+datetime	=TODAY()-TODAY()	
+datetime	=TODAY()+H1	error propagation
+datetime	=ISNUMBER(TODAY())	
+datetime	=TODAY()-E1>0	
+datetime	=NOW()	
+datetime	=NOW()>=TODAY()	
+datetime	=INT(NOW())=TODAY()	
+datetime	=ISNUMBER(NOW())	
+datetime	=NOW()+H1	error propagation
+datetime	=MOD(NOW(),1)<1	
+datetime	=NOW()>E1	
+datetime	=NOW()-TODAY()<1	
+datetime	=DATE(2024,1,15)	
+datetime	=DATE(2024,13,1)	month overflow rolls into next year
+datetime	=DATE(2024,1,0)	day 0 is the last day of the previous month
+datetime	=DATE(2024,2,30)	
+datetime	=DATE(1900,1,1)	DIFF: LibreOffice serials before 1900-03-01 are off by one [excel=1]
+datetime	=DATE(2024,0,1)	
+datetime	=DATE(YEAR(E1),MONTH(E1),DAY(E1))	
+datetime	=DATE(H1,1,1)	error propagation
+datetime	=DATE(1,1,1)	DIFF: Excel adds 1900 to years 0..1899; LibreOffice reads year 1 as 2001 [excel=367]
+datetime	=DATE(2024,-1,1)	
+datetime	=DATE("2024","1","15")	
+datetime	=DATE(2024,1,15.9)	
+datetime	=DATE(10000,1,1)	DIFF: Excel limits years to 9999 [excel=#NUM!]
+datetime	=DATE(2024,1,D4)	
+datetime	=YEAR(45306)	
+datetime	=YEAR(E1)	
+datetime	=YEAR(E3)	
+datetime	=YEAR(0)	DIFF: Excel serial 0 is the fictitious 1900-01-00 [excel=1900]
+datetime	=YEAR(-1)	DIFF: Excel rejects negative serials [excel=#NUM!]
+datetime	=YEAR("2024-01-15")	
+datetime	=YEAR(H1)	error propagation
+datetime	=YEAR(D4)	DIFF: Excel serial 0 is the fictitious 1900-01-00 [excel=1900]
+datetime	=YEAR(E4)	DIFF: Excel serial 0.5 is in the fictitious 1900-01-00 [excel=1900]
+datetime	=YEAR(DATE(2000,2,29))	
+datetime	=YEAR(B1)	
+datetime	=YEAR(2958465)	
+datetime	=MONTH(E1)	
+datetime	=MONTH(E2)	
+datetime	=MONTH(45306.75)	
+datetime	=MONTH(0)	DIFF: Excel serial 0 is the fictitious 1900-01-00 [excel=1]
+datetime	=MONTH(-1)	DIFF: Excel rejects negative serials [excel=#NUM!]
+datetime	=MONTH(H1)	error propagation
+datetime	=MONTH("2024-12-31")	
+datetime	=MONTH(D4)	DIFF: Excel serial 0 is the fictitious 1900-01-00 [excel=1]
+datetime	=MONTH(DATE(2024,2,30))	
+datetime	=MONTH(B1)	
+datetime	=MONTH(60)	serial 60 is the fictitious 1900-02-29 in Excel
+datetime	=MONTH(59)	
+datetime	=DAY(E1)	
+datetime	=DAY(E2)	
+datetime	=DAY(E3)	
+datetime	=DAY(0)	DIFF: Excel serial 0 is the fictitious 1900-01-00 [excel=0]
+datetime	=DAY(1)	DIFF: LibreOffice serials before 1900-03-01 are off by one [excel=1]
+datetime	=DAY(H1)	error propagation
+datetime	=DAY("2024-01-15")	
+datetime	=DAY(D4)	DIFF: Excel serial 0 is the fictitious 1900-01-00 [excel=0]
+datetime	=DAY(B1)	
+datetime	=DAY(DATE(2024,3,0))	
+datetime	=DAY(-1)	DIFF: Excel rejects negative serials [excel=#NUM!]
+datetime	=DAY(60)	DIFF: Excel serial 60 is the non-existent 1900-02-29 [excel=29]
+datetime	=WEEKDAY(E1)	default type 1: Sunday=1
+datetime	=WEEKDAY(E1,2)	Monday=1
+datetime	=WEEKDAY(E1,3)	Monday=0
+datetime	=WEEKDAY(E2)	
+datetime	=WEEKDAY(E2,2)	
+datetime	=WEEKDAY(DATE(2024,1,14))	
+datetime	=WEEKDAY(DATE(2024,1,14),2)	
+datetime	=WEEKDAY(E1,11)	
+datetime	=WEEKDAY(E1,17)	
+datetime	=WEEKDAY(E1,4)	DIFF: LibreOffice gives #VALUE! for an invalid return type [excel=#NUM!]
+datetime	=WEEKDAY(H1)	error propagation
+datetime	=WEEKDAY(E3)	
+datetime	=WEEKDAY(0)	
+datetime	=WEEKDAY(1)	
+datetime	=WEEKDAY(D4)	
+datetime	=WEEKDAY(B1)	
+datetime	=WEEKDAY(-1)	DIFF: Excel rejects negative serials [excel=#NUM!]
+datetime	=WEEKDAY(E1,12)	
+datetime	=WEEKDAY("2024-01-15")	
+datetime	=DAYS(E2,E1)	
+datetime	=DAYS(E1,E2)	
+datetime	=DAYS(E1,E1)	
+datetime	=DAYS(DATE(2024,3,1),DATE(2024,2,1))	
+datetime	=DAYS("2024-12-31","2024-01-15")	
+datetime	=DAYS(E3,E1)	DIFF: LibreOffice keeps the fractional day; Excel is believed to truncate both dates [excel=0]
+datetime	=DAYS(H1,E1)	error propagation
+datetime	=DAYS(E1,H2)	
+datetime	=DAYS(B1,E1)	
+datetime	=DAYS(D4,E1)	
+datetime	=DAYS(E2,E1)+1	
+operators	=1+2*3	
+operators	=(1+2)*3	
+operators	=2*3+4	
+operators	=10-2-3	left-associative
+operators	=2/4/2	
+operators	=2^3^2	Excel evaluates left to right: (2^3)^2
+operators	=-2^2	Excel: unary minus binds tighter than ^
+operators	=--1	
+operators	=---1	
+operators	=+1	
+operators	=5%	
+operators	=50%*2	
+operators	=200*5%	
+operators	=2^-1	
+operators	=-A1^2	
+operators	=10%%	
+operators	=1+2&3	
+operators	=1&2+3	
+operators	=1&TRUE	DIFF: LibreOffice converts booleans to 1/0 when concatenating [excel=1TRUE]
+operators	=TRUE&FALSE	DIFF: LibreOffice converts booleans to 1/0 when concatenating [excel=TRUEFALSE]
+operators	="a"&1.5	
+operators	=1/4&""	
+operators	=1E3&""	
+operators	=D4&"x"	
+operators	=D4&D4	
+operators	=A1&B1	
+operators	=E1&""	
+operators	=C1&""	
+operators	=0.1+0.2	
+operators	=0.1+0.2=0.3	Excel compares at 15 significant digits
+operators	=1/3	
+operators	=2^0.5	
+operators	=1<2	
+operators	=2<=2	
+operators	=1<>1	
+operators	=1=1.0	
+operators	="a"="A"	string equality is case-insensitive
+operators	="a"="b"	
+operators	="a"<"b"	
+operators	="B"<"a"	case-insensitive ordering
+operators	="apple"<"banana"	
+operators	="a">1	text is greater than number
+operators	=1>"a"	
+operators	="1"=1	
+operators	="1">1	
+operators	=TRUE>1	DIFF: LibreOffice treats booleans as numbers in comparisons [excel=TRUE]
+operators	=TRUE>"a"	DIFF: LibreOffice treats booleans as numbers in comparisons [excel=TRUE]
+operators	=FALSE>"zzz"	DIFF: LibreOffice treats booleans as numbers in comparisons [excel=TRUE]
+operators	=TRUE=1	DIFF: LibreOffice treats booleans as numbers in comparisons [excel=FALSE]
+operators	=FALSE=0	DIFF: LibreOffice treats booleans as numbers in comparisons [excel=FALSE]
+operators	=D4=0	empty cell equals 0
+operators	=D4=""	empty cell equals the empty string
+operators	=D3=""	
+operators	=D4=FALSE	
+operators	=A1=1	
+operators	=B1="APPLE"	
+operators	=B1>A1	
+operators	=E4<1	
+operators	=""<"a"	
+operators	=""=0	
+operators	="a"<>"A"	
+operators	=H1=1	error propagation
+operators	=H1>1	
+operators	=1<>"1"	
+operators	=C2<0	
+operators	=D3=D4	
+operators	=1+1=2	
+operators	=2>1=TRUE	
+operators	="a"&"b"="ab"	
+operators	=1&1=11	concatenation binds tighter than comparison: "11"=11 is FALSE
+operators	=1/0	
+operators	=0/0	
+operators	=1/D4	
+operators	=D4/1	
+operators	="3"+1	
+operators	="a"+1	
+operators	=TRUE+1	
+operators	=TRUE+TRUE	
+operators	=FALSE*5	
+operators	=D4+1	
+operators	=D4*5	
+operators	=D3+1	empty-string constant is not a number
+operators	=D5+1	
+operators	=D6+1	
+operators	=""+1	
+operators	=" 3 "+1	
+operators	="1e2"+1	
+operators	="0x10"+1	
+operators	=B1+1	
+operators	=A1+A2*A3	
+operators	=C1*2	
+operators	=C6/A2	
+operators	=E1+1	
+operators	=E4*2	
+operators	=-D4	
+operators	=-TRUE	
+operators	=-"3"	
+operators	=-B1	
+operators	=+B1	unary plus returns its operand unchanged
+operators	=+D4	
+operators	="5"*"2"	
+operators	=1-"1"	
+operators	=2^"3"	
+operators	=H1+1	error propagation
+operators	=1+H2	
+operators	=H1+H2	DIFF: LibreOffice returns the right-hand error for cell references; Excel is believed to return the left-hand one [excel=#DIV/0!]
+operators	=H2+H1	DIFF: LibreOffice returns the right-hand error for cell references; Excel is believed to return the left-hand one [excel=#N/A]
+operators	=10%+A1	
+operators	=1E308*10	
+operators	=-1E308*10	
+operators	=0^0	DIFF: Excel rejects 0^0 [excel=#NUM!]
+operators	=(-8)^(1/3)	DIFF: LibreOffice computes the real cube root [excel=#NUM!]
+operators	=4^0.5	
+references	=Other!A1*2	
+references	=Other!B1	
+references	=Other!B1&"!"	
+references	=Other!A1+A1	
+references	=SUM(Data!A1:A6)	
+references	=SUM(Other!A1:B1)	
+references	=Data!A1	
+references	=Data!B1&Other!B1	
+references	=COUNT(A1:D6)	DIFF: LibreOffice treats boolean cells as numbers in references [excel=12]
+references	=COUNTA(A1:D6)	
+references	=COUNT(Data!A1:H6)	DIFF: LibreOffice treats boolean cells as numbers in references [excel=20]
+references	=COUNTA(Data!A1:H6)	
+references	=SUM(A1:A3,Other!A1)	
+references	=AVERAGE(Other!A1,A1)	
+references	=SUM($A$1:$A$3)	
+references	=SUM(A$1:A3)	
+references	=$A1+A$2	
+references	=INDEX(Other!A1:B1,2)	
+references	=A1+Other!A1+Data!A2	
+references	=Z99	empty cell evaluates to 0
+references	=Other!Z99	
+references	=SUM(A:A)	whole-column reference
+references	=COUNT(A:A)	
+references	=SUM(A:B)	
+references	=SUM(C:C)	
+references	='Data'!A1	quoted sheet name
+references	='Other'!B1	
+references	=SUM(Data!A1:A3,Other!A1:B1)	
+references	=Other!A1+H1	error propagation
+references	=SUM(Data!H1:H2)	
+references	=MAX(Data!C1:C6)-MIN(Other!A1,0)	
+references	=SUM(A1:A3)*Other!A1	
+errors	=#DIV/0!	error literal
+errors	=#N/A	
+errors	=#VALUE!	
+errors	=#REF!	
+errors	=#NAME?	
+errors	=#NUM!	
+errors	=#NULL!	
+errors	=IFERROR(#DIV/0!,"e")	
+errors	=IFERROR(#N/A,"e")	
+errors	=IFERROR(#VALUE!,"e")	
+errors	=IFERROR(#REF!,"e")	
+errors	=IFERROR(#NAME?,"e")	
+errors	=IFERROR(#NUM!,"e")	
+errors	=IFERROR(#NULL!,"e")	
+errors	=ISERROR(#DIV/0!)	
+errors	=ISERROR(#N/A)	
+errors	=ISERROR(#VALUE!)	
+errors	=ISERROR(#REF!)	
+errors	=ISERROR(#NAME?)	
+errors	=ISERROR(#NUM!)	
+errors	=ISERROR(#NULL!)	
+errors	=ISNA(#N/A)	
+errors	=ISNA(#DIV/0!)	
+errors	=ISNA(#VALUE!)	
+errors	=ISNA(#REF!)	
+errors	=ISNA(#NAME?)	
+errors	=ISNA(#NUM!)	
+errors	=ISNA(#NULL!)	
+errors	=1/0	
+errors	=SQRT(-1)	DIFF: LibreOffice reports #VALUE! on xlsx export [excel=#NUM!]
+errors	=VLOOKUP(999,F1:G4,2,FALSE)	
+errors	=UNKNOWNFN(1)	
+errors	=INDEX(A1:A6,10)	
+errors	=VALUE("abc")	
+errors	=NA()	
+errors	=H1	
+errors	=H2	
+errors	=H1+H2	DIFF: LibreOffice returns the right-hand error for cell references; Excel is believed to return the left-hand one [excel=#DIV/0!]
+errors	=SUM(H1:H2)	
+errors	=IF(ISERROR(H1),"bad","ok")	
+errors	=IF(ISNA(H2),"na",IF(ISERROR(H2),"err","ok"))	
+errors	=ISERROR(UNKNOWNFN(1))	
+errors	=IFERROR(UNKNOWNFN(1),"x")	
+errors	=ISNA(UNKNOWNFN(1))	
+errors	=#VALUE!+1	error propagation through arithmetic
+errors	=ABS(#NUM!)	
+errors	=#N/A&"x"	
+errors	=MAX(#REF!,1)	
+errors	=CHOOSE(2,1,#NAME?)	
+errors	=SQRT(-1)+1	DIFF: LibreOffice reports #VALUE! on xlsx export [excel=#NUM!]
+errors	=IFERROR(SQRT(-1),"nan")	
+errors	=ISNA(SQRT(-1))	
+errors	=LEN(#N/A)	
+errors	=UNKNOWNFN(H1)	unknown function wins over argument error
+errors	=SUM(UNKNOWNFN(1),1)	
+errors	=MATCH(1,B1:B6,0)	
+errors	=Nope!A1	DIFF: LibreOffice reports #NAME? for an unknown sheet [excel=#REF!]
+errors	=#N/A+#DIV/0!	leftmost error wins
+errors	=#DIV/0!+#N/A	
+errors	=IF(#N/A,1,2)	
+errors	=-#NUM!	
+errors	=1/0+NA()	

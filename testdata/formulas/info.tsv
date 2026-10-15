@@ -1,0 +1,57 @@
+# PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
+# family: info (53 cases); evaluate in the context of sheet Data, see fixture.tsv
+formula	type	expected	note
+=ISBLANK(D4)	bool	TRUE	
+=ISBLANK(D3)	bool	FALSE	empty-string constant is not blank
+=ISBLANK(A1)	bool	FALSE	
+=ISBLANK(Z99)	bool	TRUE	
+=ISBLANK(H1)	bool	FALSE	error cell is not blank
+=ISBLANK("")	bool	FALSE	
+=ISBLANK(D5)	bool	FALSE	
+=ISBLANK(Other!Z1)	bool	TRUE	
+=ISNUMBER(A1)	bool	TRUE	
+=ISNUMBER(D5)	bool	FALSE	numeric text is not a number
+=ISNUMBER("1")	bool	FALSE	
+=ISNUMBER(D4)	bool	FALSE	
+=ISNUMBER(E1)	bool	TRUE	dates are numbers
+# NOTE: LibreOffice treats boolean cells as numbers [excel=FALSE]
+=ISNUMBER(D1)	bool	TRUE	DIFF: LibreOffice treats boolean cells as numbers [excel=FALSE]
+=ISNUMBER(H1)	bool	FALSE	error is not a number and is not propagated
+=ISNUMBER(--D5)	bool	TRUE	
+=ISNUMBER(A1:A1)	bool	TRUE	
+=ISTEXT(B1)	bool	TRUE	
+=ISTEXT(D5)	bool	TRUE	
+=ISTEXT(D3)	bool	TRUE	
+=ISTEXT(D4)	bool	FALSE	
+=ISTEXT(A1)	bool	FALSE	
+=ISTEXT(H1)	bool	FALSE	error is not propagated
+=ISTEXT("")	bool	TRUE	
+=ISTEXT(D1)	bool	FALSE	
+=ISTEXT(A1&"")	bool	TRUE	
+=ISERROR(H1)	bool	TRUE	
+=ISERROR(H2)	bool	TRUE	
+=ISERROR(A1)	bool	FALSE	
+=ISERROR(1/0)	bool	TRUE	
+=ISERROR(D4)	bool	FALSE	
+=ISERROR(VALUE("x"))	bool	TRUE	
+=ISERROR(NA())	bool	TRUE	
+=ISERROR(B1)	bool	FALSE	
+=ISERROR(SQRT(-1))	bool	TRUE	
+=ISNA(H2)	bool	TRUE	
+=ISNA(H1)	bool	FALSE	
+=ISNA(NA())	bool	TRUE	
+=ISNA(A1)	bool	FALSE	
+=ISNA(VLOOKUP(999,F1:G4,2,FALSE))	bool	TRUE	
+=ISNA(1/0)	bool	FALSE	
+=ISNA(D4)	bool	FALSE	
+=ISNA(MATCH("zzz",B1:B6,0))	bool	TRUE	
+=NA()	error	#N/A	
+=ISNA(NA())	bool	TRUE	
+=IFERROR(NA(),0)	number	0	
+=NA()+1	error	#N/A	error propagation
+=SUM(1,NA())	error	#N/A	
+=IF(TRUE,NA(),1)	error	#N/A	
+=ISERROR(NA())	bool	TRUE	
+=H2	error	#N/A	reference to an error cell
+=NA()&"x"	error	#N/A	
+=NA()+H1	error	#N/A	leftmost error wins

@@ -1,0 +1,69 @@
+# PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
+# family: errors (62 cases); evaluate in the context of sheet Data, see fixture.tsv
+formula	type	expected	note
+=#DIV/0!	error	#DIV/0!	error literal
+=#N/A	error	#N/A	
+=#VALUE!	error	#VALUE!	
+=#REF!	error	#REF!	
+=#NAME?	error	#NAME?	
+=#NUM!	error	#NUM!	
+=#NULL!	error	#NULL!	
+=IFERROR(#DIV/0!,"e")	text	e	
+=IFERROR(#N/A,"e")	text	e	
+=IFERROR(#VALUE!,"e")	text	e	
+=IFERROR(#REF!,"e")	text	e	
+=IFERROR(#NAME?,"e")	text	e	
+=IFERROR(#NUM!,"e")	text	e	
+=IFERROR(#NULL!,"e")	text	e	
+=ISERROR(#DIV/0!)	bool	TRUE	
+=ISERROR(#N/A)	bool	TRUE	
+=ISERROR(#VALUE!)	bool	TRUE	
+=ISERROR(#REF!)	bool	TRUE	
+=ISERROR(#NAME?)	bool	TRUE	
+=ISERROR(#NUM!)	bool	TRUE	
+=ISERROR(#NULL!)	bool	TRUE	
+=ISNA(#N/A)	bool	TRUE	
+=ISNA(#DIV/0!)	bool	FALSE	
+=ISNA(#VALUE!)	bool	FALSE	
+=ISNA(#REF!)	bool	FALSE	
+=ISNA(#NAME?)	bool	FALSE	
+=ISNA(#NUM!)	bool	FALSE	
+=ISNA(#NULL!)	bool	FALSE	
+=1/0	error	#DIV/0!	
+# NOTE: LibreOffice reports #VALUE! on xlsx export [excel=#NUM!]
+=SQRT(-1)	error	#VALUE!	DIFF: LibreOffice reports #VALUE! on xlsx export [excel=#NUM!]
+=VLOOKUP(999,F1:G4,2,FALSE)	error	#N/A	
+=UNKNOWNFN(1)	error	#NAME?	
+=INDEX(A1:A6,10)	error	#REF!	
+=VALUE("abc")	error	#VALUE!	
+=NA()	error	#N/A	
+=H1	error	#DIV/0!	
+=H2	error	#N/A	
+# NOTE: LibreOffice returns the right-hand error for cell references; Excel is believed to return the left-hand one [excel=#DIV/0!]
+=H1+H2	error	#N/A	DIFF: LibreOffice returns the right-hand error for cell references; Excel is believed to return the left-hand one [excel=#DIV/0!]
+=SUM(H1:H2)	error	#DIV/0!	
+=IF(ISERROR(H1),"bad","ok")	text	bad	
+=IF(ISNA(H2),"na",IF(ISERROR(H2),"err","ok"))	text	na	
+=ISERROR(UNKNOWNFN(1))	bool	TRUE	
+=IFERROR(UNKNOWNFN(1),"x")	text	x	
+=ISNA(UNKNOWNFN(1))	bool	FALSE	
+=#VALUE!+1	error	#VALUE!	error propagation through arithmetic
+=ABS(#NUM!)	error	#NUM!	
+=#N/A&"x"	error	#N/A	
+=MAX(#REF!,1)	error	#REF!	
+=CHOOSE(2,1,#NAME?)	error	#NAME?	
+# NOTE: LibreOffice reports #VALUE! on xlsx export [excel=#NUM!]
+=SQRT(-1)+1	error	#VALUE!	DIFF: LibreOffice reports #VALUE! on xlsx export [excel=#NUM!]
+=IFERROR(SQRT(-1),"nan")	text	nan	
+=ISNA(SQRT(-1))	bool	FALSE	
+=LEN(#N/A)	error	#N/A	
+=UNKNOWNFN(H1)	error	#NAME?	unknown function wins over argument error
+=SUM(UNKNOWNFN(1),1)	error	#NAME?	
+=MATCH(1,B1:B6,0)	error	#N/A	
+# NOTE: LibreOffice reports #NAME? for an unknown sheet [excel=#REF!]
+=Nope!A1	error	#NAME?	DIFF: LibreOffice reports #NAME? for an unknown sheet [excel=#REF!]
+=#N/A+#DIV/0!	error	#N/A	leftmost error wins
+=#DIV/0!+#N/A	error	#DIV/0!	
+=IF(#N/A,1,2)	error	#N/A	
+=-#NUM!	error	#NUM!	
+=1/0+NA()	error	#DIV/0!	

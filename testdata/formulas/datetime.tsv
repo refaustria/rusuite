@@ -1,0 +1,117 @@
+# PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
+# family: datetime (96 cases); evaluate in the context of sheet Data, see fixture.tsv
+formula	type	expected	note
+=TODAY()	number?		
+=INT(TODAY())=TODAY()	bool	TRUE	
+=TODAY()>45306	bool	TRUE	
+=YEAR(TODAY())>=2024	bool	TRUE	
+=TODAY()-TODAY()	number	0	
+=TODAY()+H1	error	#DIV/0!	error propagation
+=ISNUMBER(TODAY())	bool	TRUE	
+=TODAY()-E1>0	bool	TRUE	
+=NOW()	number?		
+=NOW()>=TODAY()	bool	TRUE	
+=INT(NOW())=TODAY()	bool	TRUE	
+=ISNUMBER(NOW())	bool	TRUE	
+=NOW()+H1	error	#DIV/0!	error propagation
+=MOD(NOW(),1)<1	bool	TRUE	
+=NOW()>E1	bool	TRUE	
+=NOW()-TODAY()<1	bool	TRUE	
+=DATE(2024,1,15)	number	45306	
+=DATE(2024,13,1)	number	45658	month overflow rolls into next year
+=DATE(2024,1,0)	number	45291	day 0 is the last day of the previous month
+=DATE(2024,2,30)	number	45352	
+# NOTE: LibreOffice serials before 1900-03-01 are off by one [excel=1]
+=DATE(1900,1,1)	number	2	DIFF: LibreOffice serials before 1900-03-01 are off by one [excel=1]
+=DATE(2024,0,1)	number	45261	
+=DATE(YEAR(E1),MONTH(E1),DAY(E1))	number	45306	
+=DATE(H1,1,1)	error	#DIV/0!	error propagation
+# NOTE: Excel adds 1900 to years 0..1899; LibreOffice reads year 1 as 2001 [excel=367]
+=DATE(1,1,1)	number	36892	DIFF: Excel adds 1900 to years 0..1899; LibreOffice reads year 1 as 2001 [excel=367]
+=DATE(2024,-1,1)	number	45231	
+=DATE("2024","1","15")	number	45306	
+=DATE(2024,1,15.9)	number	45306	
+# NOTE: Excel limits years to 9999 [excel=#NUM!]
+=DATE(10000,1,1)	number	2958466	DIFF: Excel limits years to 9999 [excel=#NUM!]
+=DATE(2024,1,D4)	number	45291	
+=YEAR(45306)	number	2024	
+=YEAR(E1)	number	2024	
+=YEAR(E3)	number	2024	
+# NOTE: Excel serial 0 is the fictitious 1900-01-00 [excel=1900]
+=YEAR(0)	number	1899	DIFF: Excel serial 0 is the fictitious 1900-01-00 [excel=1900]
+# NOTE: Excel rejects negative serials [excel=#NUM!]
+=YEAR(-1)	number	1899	DIFF: Excel rejects negative serials [excel=#NUM!]
+=YEAR("2024-01-15")	number	2024	
+=YEAR(H1)	error	#DIV/0!	error propagation
+# NOTE: Excel serial 0 is the fictitious 1900-01-00 [excel=1900]
+=YEAR(D4)	number	1899	DIFF: Excel serial 0 is the fictitious 1900-01-00 [excel=1900]
+# NOTE: Excel serial 0.5 is in the fictitious 1900-01-00 [excel=1900]
+=YEAR(E4)	number	1899	DIFF: Excel serial 0.5 is in the fictitious 1900-01-00 [excel=1900]
+=YEAR(DATE(2000,2,29))	number	2000	
+=YEAR(B1)	error	#VALUE!	
+=YEAR(2958465)	number	9999	
+=MONTH(E1)	number	1	
+=MONTH(E2)	number	12	
+=MONTH(45306.75)	number	1	
+# NOTE: Excel serial 0 is the fictitious 1900-01-00 [excel=1]
+=MONTH(0)	number	12	DIFF: Excel serial 0 is the fictitious 1900-01-00 [excel=1]
+# NOTE: Excel rejects negative serials [excel=#NUM!]
+=MONTH(-1)	number	12	DIFF: Excel rejects negative serials [excel=#NUM!]
+=MONTH(H1)	error	#DIV/0!	error propagation
+=MONTH("2024-12-31")	number	12	
+# NOTE: Excel serial 0 is the fictitious 1900-01-00 [excel=1]
+=MONTH(D4)	number	12	DIFF: Excel serial 0 is the fictitious 1900-01-00 [excel=1]
+=MONTH(DATE(2024,2,30))	number	3	
+=MONTH(B1)	error	#VALUE!	
+=MONTH(60)	number	2	serial 60 is the fictitious 1900-02-29 in Excel
+=MONTH(59)	number	2	
+=DAY(E1)	number	15	
+=DAY(E2)	number	31	
+=DAY(E3)	number	15	
+# NOTE: Excel serial 0 is the fictitious 1900-01-00 [excel=0]
+=DAY(0)	number	30	DIFF: Excel serial 0 is the fictitious 1900-01-00 [excel=0]
+# NOTE: LibreOffice serials before 1900-03-01 are off by one [excel=1]
+=DAY(1)	number	31	DIFF: LibreOffice serials before 1900-03-01 are off by one [excel=1]
+=DAY(H1)	error	#DIV/0!	error propagation
+=DAY("2024-01-15")	number	15	
+# NOTE: Excel serial 0 is the fictitious 1900-01-00 [excel=0]
+=DAY(D4)	number	30	DIFF: Excel serial 0 is the fictitious 1900-01-00 [excel=0]
+=DAY(B1)	error	#VALUE!	
+=DAY(DATE(2024,3,0))	number	29	
+# NOTE: Excel rejects negative serials [excel=#NUM!]
+=DAY(-1)	number	29	DIFF: Excel rejects negative serials [excel=#NUM!]
+# NOTE: Excel serial 60 is the non-existent 1900-02-29 [excel=29]
+=DAY(60)	number	28	DIFF: Excel serial 60 is the non-existent 1900-02-29 [excel=29]
+=WEEKDAY(E1)	number	2	default type 1: Sunday=1
+=WEEKDAY(E1,2)	number	1	Monday=1
+=WEEKDAY(E1,3)	number	0	Monday=0
+=WEEKDAY(E2)	number	3	
+=WEEKDAY(E2,2)	number	2	
+=WEEKDAY(DATE(2024,1,14))	number	1	
+=WEEKDAY(DATE(2024,1,14),2)	number	7	
+=WEEKDAY(E1,11)	number	1	
+=WEEKDAY(E1,17)	number	2	
+# NOTE: LibreOffice gives #VALUE! for an invalid return type [excel=#NUM!]
+=WEEKDAY(E1,4)	error	#VALUE!	DIFF: LibreOffice gives #VALUE! for an invalid return type [excel=#NUM!]
+=WEEKDAY(H1)	error	#DIV/0!	error propagation
+=WEEKDAY(E3)	number	2	
+=WEEKDAY(0)	number	7	
+=WEEKDAY(1)	number	1	
+=WEEKDAY(D4)	number	7	
+=WEEKDAY(B1)	error	#VALUE!	
+# NOTE: Excel rejects negative serials [excel=#NUM!]
+=WEEKDAY(-1)	number	6	DIFF: Excel rejects negative serials [excel=#NUM!]
+=WEEKDAY(E1,12)	number	7	
+=WEEKDAY("2024-01-15")	number	2	
+=DAYS(E2,E1)	number	351	
+=DAYS(E1,E2)	number	-351	
+=DAYS(E1,E1)	number	0	
+=DAYS(DATE(2024,3,1),DATE(2024,2,1))	number	29	
+=DAYS("2024-12-31","2024-01-15")	number	351	
+# NOTE: LibreOffice keeps the fractional day; Excel is believed to truncate both dates [excel=0]
+=DAYS(E3,E1)	number	0.75	DIFF: LibreOffice keeps the fractional day; Excel is believed to truncate both dates [excel=0]
+=DAYS(H1,E1)	error	#DIV/0!	error propagation
+=DAYS(E1,H2)	error	#N/A	
+=DAYS(B1,E1)	error	#VALUE!	
+=DAYS(D4,E1)	number	-45306	
+=DAYS(E2,E1)+1	number	352	

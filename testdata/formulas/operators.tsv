@@ -1,0 +1,127 @@
+# PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
+# family: operators (113 cases); evaluate in the context of sheet Data, see fixture.tsv
+formula	type	expected	note
+=1+2*3	number	7	
+=(1+2)*3	number	9	
+=2*3+4	number	10	
+=10-2-3	number	5	left-associative
+=2/4/2	number	0.25	
+=2^3^2	number	64	Excel evaluates left to right: (2^3)^2
+=-2^2	number	4	Excel: unary minus binds tighter than ^
+=--1	number	1	
+=---1	number	-1	
+=+1	number	1	
+=5%	number	0.05	
+=50%*2	number	1	
+=200*5%	number	10	
+=2^-1	number	0.5	
+=-A1^2	number	1	
+=10%%	number	0.001	
+=1+2&3	text	33	
+=1&2+3	text	15	
+# NOTE: LibreOffice converts booleans to 1/0 when concatenating [excel=1TRUE]
+=1&TRUE	text	11	DIFF: LibreOffice converts booleans to 1/0 when concatenating [excel=1TRUE]
+# NOTE: LibreOffice converts booleans to 1/0 when concatenating [excel=TRUEFALSE]
+=TRUE&FALSE	text	10	DIFF: LibreOffice converts booleans to 1/0 when concatenating [excel=TRUEFALSE]
+="a"&1.5	text	a1.5	
+=1/4&""	text	0.25	
+=1E3&""	text	1000	
+=D4&"x"	text	x	
+=D4&D4	text		
+=A1&B1	text	1apple	
+=E1&""	text	45306	
+=C1&""	text	10.5	
+=0.1+0.2	number	0.3	
+=0.1+0.2=0.3	bool	TRUE	Excel compares at 15 significant digits
+=1/3	number	0.333333333333333	
+=2^0.5	number	1.4142135623731	
+=1<2	bool	TRUE	
+=2<=2	bool	TRUE	
+=1<>1	bool	FALSE	
+=1=1.0	bool	TRUE	
+="a"="A"	bool	TRUE	string equality is case-insensitive
+="a"="b"	bool	FALSE	
+="a"<"b"	bool	TRUE	
+="B"<"a"	bool	FALSE	case-insensitive ordering
+="apple"<"banana"	bool	TRUE	
+="a">1	bool	TRUE	text is greater than number
+=1>"a"	bool	FALSE	
+="1"=1	bool	FALSE	
+="1">1	bool	TRUE	
+# NOTE: LibreOffice treats booleans as numbers in comparisons [excel=TRUE]
+=TRUE>1	bool	FALSE	DIFF: LibreOffice treats booleans as numbers in comparisons [excel=TRUE]
+# NOTE: LibreOffice treats booleans as numbers in comparisons [excel=TRUE]
+=TRUE>"a"	bool	FALSE	DIFF: LibreOffice treats booleans as numbers in comparisons [excel=TRUE]
+# NOTE: LibreOffice treats booleans as numbers in comparisons [excel=TRUE]
+=FALSE>"zzz"	bool	FALSE	DIFF: LibreOffice treats booleans as numbers in comparisons [excel=TRUE]
+# NOTE: LibreOffice treats booleans as numbers in comparisons [excel=FALSE]
+=TRUE=1	bool	TRUE	DIFF: LibreOffice treats booleans as numbers in comparisons [excel=FALSE]
+# NOTE: LibreOffice treats booleans as numbers in comparisons [excel=FALSE]
+=FALSE=0	bool	TRUE	DIFF: LibreOffice treats booleans as numbers in comparisons [excel=FALSE]
+=D4=0	bool	TRUE	empty cell equals 0
+=D4=""	bool	TRUE	empty cell equals the empty string
+=D3=""	bool	TRUE	
+=D4=FALSE	bool	TRUE	
+=A1=1	bool	TRUE	
+=B1="APPLE"	bool	TRUE	
+=B1>A1	bool	TRUE	
+=E4<1	bool	TRUE	
+=""<"a"	bool	TRUE	
+=""=0	bool	FALSE	
+="a"<>"A"	bool	FALSE	
+=H1=1	error	#DIV/0!	error propagation
+=H1>1	error	#DIV/0!	
+=1<>"1"	bool	TRUE	
+=C2<0	bool	TRUE	
+=D3=D4	bool	TRUE	
+=1+1=2	bool	TRUE	
+=2>1=TRUE	bool	TRUE	
+="a"&"b"="ab"	bool	TRUE	
+=1&1=11	bool	FALSE	concatenation binds tighter than comparison: "11"=11 is FALSE
+=1/0	error	#DIV/0!	
+=0/0	error	#DIV/0!	
+=1/D4	error	#DIV/0!	
+=D4/1	number	0	
+="3"+1	number	4	
+="a"+1	error	#VALUE!	
+=TRUE+1	number	2	
+=TRUE+TRUE	number	2	
+=FALSE*5	number	0	
+=D4+1	number	1	
+=D4*5	number	0	
+=D3+1	error	#VALUE!	empty-string constant is not a number
+=D5+1	number	43	
+=D6+1	error	#VALUE!	
+=""+1	error	#VALUE!	
+=" 3 "+1	number	4	
+="1e2"+1	number	101	
+="0x10"+1	error	#VALUE!	
+=B1+1	error	#VALUE!	
+=A1+A2*A3	number	7	
+=C1*2	number	21	
+=C6/A2	number	500000	
+=E1+1	number	45307	
+=E4*2	number	1	
+=-D4	number	0	
+=-TRUE	number	-1	
+=-"3"	number	-3	
+=-B1	error	#VALUE!	
+=+B1	text	apple	unary plus returns its operand unchanged
+=+D4	number	0	
+="5"*"2"	number	10	
+=1-"1"	number	0	
+=2^"3"	number	8	
+=H1+1	error	#DIV/0!	error propagation
+=1+H2	error	#N/A	
+# NOTE: LibreOffice returns the right-hand error for cell references; Excel is believed to return the left-hand one [excel=#DIV/0!]
+=H1+H2	error	#N/A	DIFF: LibreOffice returns the right-hand error for cell references; Excel is believed to return the left-hand one [excel=#DIV/0!]
+# NOTE: LibreOffice returns the right-hand error for cell references; Excel is believed to return the left-hand one [excel=#N/A]
+=H2+H1	error	#DIV/0!	DIFF: LibreOffice returns the right-hand error for cell references; Excel is believed to return the left-hand one [excel=#N/A]
+=10%+A1	number	1.1	
+=1E308*10	error	#NUM!	
+=-1E308*10	error	#NUM!	
+# NOTE: Excel rejects 0^0 [excel=#NUM!]
+=0^0	number	1	DIFF: Excel rejects 0^0 [excel=#NUM!]
+# NOTE: LibreOffice computes the real cube root [excel=#NUM!]
+=(-8)^(1/3)	number	-2	DIFF: LibreOffice computes the real cube root [excel=#NUM!]
+=4^0.5	number	2	

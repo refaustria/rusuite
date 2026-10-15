@@ -1,0 +1,48 @@
+# Fixture grid for the formula reference suite (P1-6). Columns: sheet, cell, type, value.
+# type: number | text | bool | empty | date | formula
+#   date    = number cell carrying a yyyy-mm-dd number format; value is the serial.
+#   text    = text constant, value verbatim (may be empty or contain spaces).
+#   empty   = no cell content at all.
+#   formula = value is the formula text; its result is the cell value.
+# Suite formulas are evaluated in the context of sheet Data (unqualified refs mean Data!).
+sheet	cell	type	value
+Data	A1	number	1
+Data	A2	number	2
+Data	A3	number	3
+Data	A4	number	4
+Data	A5	number	5
+Data	A6	number	6
+Data	B1	text	apple
+Data	B2	text	banana
+Data	B3	text	cherry
+Data	B4	text	date
+Data	B5	text	elderberry
+Data	B6	text	fig
+Data	C1	number	10.5
+Data	C2	number	-2
+Data	C3	number	0
+Data	C4	number	100
+Data	C5	number	3.25
+Data	C6	number	1000000
+Data	D1	bool	TRUE
+Data	D2	bool	FALSE
+Data	D3	text	
+Data	D4	empty	
+Data	D5	text	42
+Data	D6	text	  padded  
+Data	E1	date	45306
+Data	E2	date	45657
+Data	E3	number	45306.75
+Data	E4	number	0.5
+Data	F1	number	100
+Data	F2	number	200
+Data	F3	number	300
+Data	F4	number	400
+Data	G1	text	one hundred
+Data	G2	text	two hundred
+Data	G3	text	three hundred
+Data	G4	text	four hundred
+Data	H1	formula	=1/0
+Data	H2	formula	=NA()
+Other	A1	number	7
+Other	B1	text	remote
