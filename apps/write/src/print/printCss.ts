@@ -18,6 +18,32 @@ export function writePageCss(page: PageSetup | null): string {
   return pageRule(pageSizeCss(w, h), `${inch(m.top)} ${inch(m.right)} ${inch(m.bottom)} ${inch(m.left)}`);
 }
 
+/** A CSS string for `content`: quotes and backslashes escaped, line breaks as `\A`, `{PAGE}` as `counter(page)`. */
+export function contentValue(text: string): string {
+  const str = (t: string) => `"${t.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\A ")}"`;
+  return text
+    .split("{PAGE}")
+    .map(str)
+    .join(" counter(page) ");
+}
+
+/**
+ * The header and footer as `@page` margin boxes (`@top-left` /
+ * `@bottom-left`, printed on every page by Chromium), at the header/footer
+ * distance from the sheet edge. Empty without header and footer.
+ */
+export function writeHeaderFooterCss(page: PageSetup | null): string {
+  if (!page) return "";
+  const box = (name: string, text: string | null | undefined, edge: "top" | "bottom", dist: number) =>
+    text
+      ? `@${name} { content: ${contentValue(text)}; vertical-align: ${edge}; padding-${edge}: ${inch(dist)}; white-space: pre-wrap; font: 9pt Calibri, Carlito, sans-serif; color: #000; }`
+      : "";
+  const inner = [box("top-left", page.headerText, "top", page.margins.header), box("bottom-left", page.footerText, "bottom", page.margins.footer)]
+    .filter(Boolean)
+    .join(" ");
+  return inner ? `@page { ${inner} }` : "";
+}
+
 /** Rules for `@media print` (the page frame fills the sheet; chrome is hidden). */
 export const WRITE_PRINT_RULES = `@media print {
   html, body, #root { height: auto !important; overflow: visible !important; background: #fff !important; }
@@ -31,5 +57,6 @@ export const WRITE_PRINT_RULES = `@media print {
 
 /** The complete `<style>` text for a document. */
 export function writePrintCss(page: PageSetup | null): string {
-  return `${writePageCss(page)}\n${WRITE_PRINT_RULES}`;
+  const hf = writeHeaderFooterCss(page);
+  return `${writePageCss(page)}\n${hf ? `${hf}\n` : ""}${WRITE_PRINT_RULES}`;
 }

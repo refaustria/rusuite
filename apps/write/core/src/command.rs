@@ -12,8 +12,8 @@
 use core_model::units::Emu;
 use model_text::{
     Block, CellProperties, Inline, MediaId, NodeId, Numbering, Orientation, Paragraph,
-    ParagraphProperties, RowProperties, RunProperties, Table, TableCell, TableProperties, TableRow,
-    Twips,
+    ParagraphProperties, RowHeight, RowProperties, RunProperties, Table, TableCell,
+    TableProperties, TableRow, Twips,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -58,8 +58,10 @@ pub struct MarginsPatch {
 
 /// Page setup changes for [`WriteCommand::SetPage`]. `orientation` is
 /// applied first (swapping width and height when it changes), then the
-/// explicit `width`/`height`, then the margins.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+/// explicit `width`/`height`, then the margins. `headerText`/`footerText`
+/// replace the default header/footer text (`{PAGE}` = page number); an
+/// empty string removes the header/footer.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "apps/write/src/generated/")]
 pub struct PageSetupPatch {
@@ -73,6 +75,10 @@ pub struct PageSetupPatch {
     pub height: Option<Twips>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub margins: Option<MarginsPatch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footer_text: Option<String>,
 }
 
 /// A document edit. JSON: `{"type":"insertText","block":7,"offset":3,"text":"é"}`.
@@ -237,6 +243,46 @@ pub enum WriteCommand {
     },
     /// Changes the page setup.
     SetPage { patch: PageSetupPatch },
+    /// Resizes the inline image at position `offset` of `block` (Word's
+    /// drag handles; both extents must be positive).
+    SetImageSize {
+        block: NodeId,
+        offset: u32,
+        #[ts(type = "number")]
+        width: Emu,
+        #[ts(type = "number")]
+        height: Emu,
+    },
+    /// Sets (or with `null`/empty, removes) the alternative text of the
+    /// inline image at position `offset` of `block`.
+    SetImageAlt {
+        block: NodeId,
+        offset: u32,
+        #[serde(default)]
+        alt: Option<String>,
+    },
+    /// Changes rows `rows` (indices) of `table`: `header` sets "repeat as
+    /// header row", `height` sets the row height (a value `<= 0` makes it
+    /// automatic). Absent fields keep their value.
+    SetRowProps {
+        table: NodeId,
+        rows: Vec<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        header: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        height: Option<RowHeight>,
+    },
+    /// Removes the direct character formatting of `from..to` (Word's
+    /// Ctrl+Space); with `paragraph`, also the paragraph's direct
+    /// formatting, list numbering and style (Word's "Clear All
+    /// Formatting": the paragraph becomes Normal).
+    ClearFormatting {
+        block: NodeId,
+        from: u32,
+        to: u32,
+        #[serde(default)]
+        paragraph: bool,
+    },
     /// Replaces matches of `find` in the text of every paragraph (a match
     /// may span runs; the replacement takes the formatting of the first
     /// matched character). `all == false` replaces only the first match.

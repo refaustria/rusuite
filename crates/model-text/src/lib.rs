@@ -33,7 +33,7 @@ pub use document::Document;
 pub use inline::{BreakKind, Inline, InlineImage, Run};
 pub use media::{Base64Error, Media, MediaId, MediaStore};
 pub use numbering::{Level, LevelKind, Numbering, NumberingDef};
-pub use page::{Margins, Orientation, PageSetup};
+pub use page::{Margins, Orientation, PageSetup, PAGE_FIELD};
 pub use props::{
     Alignment, BorderSide, BorderStyle, CellMargins, CellProperties, HeightRule, Indent,
     LineSpacing, NumberingRef, ParagraphProperties, RowHeight, RowProperties, Spacing,

@@ -5,6 +5,8 @@ import type { Orientation } from "./Orientation";
 /**
  * Page setup changes for [`WriteCommand::SetPage`]. `orientation` is
  * applied first (swapping width and height when it changes), then the
- * explicit `width`/`height`, then the margins.
+ * explicit `width`/`height`, then the margins. `headerText`/`footerText`
+ * replace the default header/footer text (`{PAGE}` = page number); an
+ * empty string removes the header/footer.
  */
-export type PageSetupPatch = { orientation?: Orientation | null, width?: number | null, height?: number | null, margins?: MarginsPatch | null, };
+export type PageSetupPatch = { orientation?: Orientation | null, width?: number | null, height?: number | null, margins?: MarginsPatch | null, headerText?: string | null, footerText?: string | null, };

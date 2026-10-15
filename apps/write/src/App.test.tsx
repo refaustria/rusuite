@@ -79,7 +79,7 @@ describe("Write app", () => {
     });
     fileCommand("Open…");
     await waitFor(() => expect(editor.textContent).toBe("red fish red"));
-    fireEvent.click(screen.getByRole("button", { name: "Find and replace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Replace" }));
     fireEvent.change(screen.getByLabelText("Find"), { target: { value: "red" } });
     fireEvent.change(screen.getByLabelText("Replace with"), { target: { value: "blue" } });
     fireEvent.click(screen.getByRole("button", { name: "Replace all" }));
