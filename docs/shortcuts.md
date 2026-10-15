@@ -117,7 +117,7 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Arrows, Shift+Arrows | Nudge by 1 px, by 10 px |
 | Delete, Backspace | Delete the selection |
 | Enter, F2 | Edit the text of the selected shape |
-| Escape | Deselect |
+| Escape | Deselect; cancels drawing a shape chosen in the Shapes gallery |
 | Mod+A | Select all shapes |
 | F5 | Present from the first slide |
 | Shift+F5 | Present from the current slide |
@@ -144,6 +144,19 @@ Transitions › On mouse click off, a click does not leave the slide (the keys s
 
 In the Animation pane: ↑/↓ select an animation, Alt+↑/↓ move it earlier/later, Delete removes it. Esc or a click stops a
 Preview on the stage.
+
+### Shapes, connectors and tables
+
+| Keys / mouse | Action |
+| --- | --- |
+| Click in the Shapes gallery, then drag on the slide | Draw the shape (a click alone inserts the default size; Shift keeps the aspect ratio, lines snap to 45°) |
+| Enter / Space on a Shapes gallery item | Insert it at the default size in the slide centre |
+| Drag a yellow diamond | Change the shape's adjust value (corner radius, arrow head, callout tail …); an elbow connector's middle segment |
+| Drag a connector end onto a shape | Glue it to the nearest connection site (grey dots, red when it snaps) |
+| Click in a table cell | Edit the cell; drag across cells to select them; drag a column / row border to resize |
+| Tab, Shift+Tab (in a cell) | Next / previous cell; Tab in the last cell adds a row |
+| Arrows at the text's edges (in a cell) | Move to the cell above / below / left / right |
+| Enter (in a cell) | New paragraph |
 
 Mod+B/I/U also format the selected text inside the text overlay; there Tab / Shift+Tab change the list level of the
 selected paragraphs. While dragging or resizing, shapes snap to the slide and to other shapes (smart guides); hold Alt to

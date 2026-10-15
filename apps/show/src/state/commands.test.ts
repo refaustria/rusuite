@@ -98,3 +98,17 @@ describe("commands", () => {
     expect(copyShape(textShape(2, ["x"], { placeholder: "title" }), temps()).placeholder).toBe("title");
   });
 });
+
+describe("duplicating connectors (P8-16)", () => {
+  it("keeps a connector glued to shapes copied with it, unglues it from the others", () => {
+    const a = rect(1, 0, 0);
+    const c = { ...rect(3, 0, 0), kind: { kind: "connector" as const, value: { kind: "straight" as const, start: { shape: 1, site: 3 }, end: { shape: 2, site: 1 } } } };
+    let n = 0;
+    const temp = () => --n;
+    const both = duplicateCommand(9, [a, c], temp);
+    const cmds = both.command?.type === "compound" ? both.command.commands : [];
+    expect(cmds[1]).toMatchObject({ type: "addShape", shape: { kind: { value: { start: { shape: -1, site: 3 } } } } });
+    expect(cmds[1]?.type === "addShape" && cmds[1].shape.kind.kind === "connector" && cmds[1].shape.kind.value.end).toBeUndefined();
+    expect(c.kind.value.end).toEqual({ shape: 2, site: 1 }); // the original is untouched
+  });
+});

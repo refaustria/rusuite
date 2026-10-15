@@ -3,10 +3,12 @@
 
 import type { Envelope } from "../../../packages/ui-shared/src/generated/Envelope";
 import type { ShowBackend } from "./backend";
+import type { PathQuery } from "./generated/PathQuery";
 import type { Presentation } from "./generated/Presentation";
 import type { Request } from "./generated/Request";
 import type { ResponseBody } from "./generated/ResponseBody";
 import type { ShowCommand } from "./generated/ShowCommand";
+import type { ShapePaths } from "./generated/ShapePaths";
 import type { ShowPatch } from "./generated/ShowPatch";
 
 export type PatchEnvelope = Envelope<ShowPatch>;
@@ -134,6 +136,15 @@ export class ShowApi {
   /** Replaces the presentation by a `.pptx` file. */
   openPptx(bytesBase64: string, name: string): Promise<BodyOf<"opened">> {
     return this.call({ type: "openPptx", bytesBase64, name }, "opened");
+  }
+
+  /** Outlines and connection sites of shapes (P8-14), one entry per query. */
+  async shapePaths(queries: PathQuery[]): Promise<ShapePaths[]> {
+    const body = await this.call({ type: "shapePaths", queries }, "shapePaths");
+    if (!Array.isArray(body.shapes) || body.shapes.length !== queries.length) {
+      throw new ShowApiError("bad_response", "shapePaths reply has the wrong number of entries");
+    }
+    return body.shapes;
   }
 
   /** The presentation as `.pptx`; does not mark it saved. */
