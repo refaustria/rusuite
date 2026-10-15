@@ -184,7 +184,7 @@ fn parse_date_part(date: &str) -> Option<f64> {
     ymd_to_serial(y as i32, m as i32, d as i32)
 }
 
-fn days_in_month(y: i32, m: i32) -> i32 {
+pub(crate) fn days_in_month(y: i32, m: i32) -> i32 {
     match m {
         2 if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 => 29,
         2 => 28,

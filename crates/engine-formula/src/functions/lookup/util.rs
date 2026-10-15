@@ -181,6 +181,11 @@ impl Pattern {
     }
 }
 
+/// Case-insensitive whole-string match with `*`, `?` and `~` escapes.
+pub(crate) fn wildcard_match(pattern: &str, text: &str) -> bool {
+    Pattern::new(pattern).is_match(text)
+}
+
 /// Truncated non-negative index argument.
 pub(crate) fn index_arg(n: f64) -> Result<usize, ErrorKind> {
     let t = n.trunc();
