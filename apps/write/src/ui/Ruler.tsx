@@ -4,7 +4,7 @@
 // the kind shown in the corner selector (click the selector to cycle Left
 // → Center → Right → Decimal → Bar); drag a stop to move it, drag it down
 // off the ruler to remove it; double-click a stop for the Tabs… dialog.
-// Pointer events throughout; stops have 24 px hit areas.
+// Pointer events throughout; stops have 32 px wide hit areas.
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Editor } from "@tiptap/react";
@@ -152,7 +152,7 @@ export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: Sy
   const px = (tw: number | null | undefined) => (tw ?? 0) / TWIPS_PER_PX;
   const firstLine = px(ind.left) + (ind.firstLine != null ? px(ind.firstLine) : -px(ind.hanging));
   return (
-    <div className="write-ruler-row mx-auto flex" style={{ width: g.width, maxWidth: "100%" }} data-testid="ruler">
+    <div className="write-ruler-row sticky top-0 z-[1] mx-auto mb-1 flex" style={{ width: g.width, maxWidth: "100%" }} data-testid="ruler">
       <div
         ref={band}
         className="write-ruler relative h-7 flex-1 select-none overflow-hidden border-b border-ui-border bg-ui-panel"
@@ -201,7 +201,7 @@ export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: Sy
               data-pos={s.pos}
               aria-label={t("write.tabStopAt", { kind: t(`write.tabKind.${s.kind}`), pos: (s.pos / (1440 / 2.54)).toFixed(2) })}
               title={t("write.tabStopAt", { kind: t(`write.tabKind.${s.kind}`), pos: (s.pos / (1440 / 2.54)).toFixed(2) })}
-              className={`absolute bottom-0 flex h-7 w-6 -translate-x-1/2 cursor-ew-resize items-end justify-center pb-0.5 text-ui-fg ${dragging && drag.off ? "opacity-30" : ""}`}
+              className={`absolute bottom-0 flex h-7 w-8 -translate-x-1/2 cursor-ew-resize items-end justify-center pb-0.5 text-ui-fg ${dragging && drag.off ? "opacity-30" : ""}`}
               style={{ left: x, touchAction: "none" }}
               onPointerDown={(e) => onStopDown(e, s)}
               onDoubleClick={() => features.ui.openDialog("tabs")}

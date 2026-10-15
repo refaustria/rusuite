@@ -143,6 +143,7 @@ describe("Table Design and Table Layout", () => {
     caret(editor, 22);
     await waitFor(() => expect(tab("Table Layout")).toBeTruthy());
     fireEvent.click(tab("Table Layout"));
+    fireEvent.click(screen.getByRole("button", { name: "Cell alignment" }));
     fireEvent.click(screen.getByRole("button", { name: "Align Bottom Right" }));
     await waitFor(() => {
       const cmds = flat(applied(backend));
@@ -225,6 +226,14 @@ describe("Home › Paragraph borders, shading, tabs; the ruler", () => {
     fireEvent.click(within(dlg).getByRole("button", { name: "OK" }));
     await waitFor(() => expect(applied(backend)).toContainEqual({ type: "setParagraphProps", blocks: [1], patch: { tabs: [{ pos: 2835, kind: "right", leader: "dot" }] } }));
     await waitFor(() => expect(editor.state.doc.child(0).attrs.extra).toEqual({ tabs: [{ pos: 2835, kind: "right", leader: "dot" }] }));
+  });
+
+  it("Tab outside tables and lists types a tab character (InsertText)", async () => {
+    const { backend, editor, editorEl } = await mount([para(1, "ab")]);
+    caret(editor, 1, 1);
+    fireEvent.keyDown(editorEl, { key: "Tab" });
+    expect(editor.state.doc.child(0).textContent).toBe("a\tb");
+    await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "insertText", block: 1, offset: 1, text: "\t" })));
   });
 
   it("the ruler: the corner selector cycles; a click adds a stop of that kind; View › Ruler hides it", async () => {

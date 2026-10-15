@@ -50,7 +50,7 @@ export function LayoutOptions({ editor }: { editor: Editor | null }) {
   if (!editor || !spot) return null;
   const wrap = wrapOf(spot.anchor);
   return (
-    <div className="fixed z-40" style={{ left: spot.x, top: spot.y }} data-testid="layout-options">
+    <div className="fixed z-10" style={{ left: spot.x, top: spot.y }} data-testid="layout-options">
       <button
         type="button"
         className={`flex h-7 w-7 items-center justify-center rounded border border-ui-border bg-ui-panel text-ui-fg shadow hover:bg-ui-hover ${FOCUS_RING}`}

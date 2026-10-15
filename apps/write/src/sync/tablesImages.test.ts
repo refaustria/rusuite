@@ -310,8 +310,10 @@ describe.runIf(real)("provisional-55…57 through the real core", () => {
       for (const b of bytes) bin += String.fromCharCode(b);
       expect(await s.ctl.openDocx(btoa(bin), name)).toBe(true);
       s.editor.state.doc.check();
-      // The editor holds exactly what Rust has (merged cells, anchors, borders, tabs).
+      // The editor holds exactly what Rust has (merged cells, anchors, borders, tabs), and opening sent nothing back
+      // (no table normalisation by the table plugin).
       await expectConverged(s);
+      expect(s.backend.log.filter((r) => r.type === "apply")).toEqual([]);
       // Type at the end of every textblock (cells included).
       const ids: number[] = [];
       s.editor.state.doc.descendants((n) => {

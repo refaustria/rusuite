@@ -186,7 +186,7 @@ export function tableTabs({ editor, ctl, features, info, styles }: TableTabsArgs
         items: (
           <div className="grid grid-cols-2 gap-x-3 text-[11px] leading-4 text-ui-fg" role="group" aria-label={t("write.styleOptions")}>
             {LOOK_KEYS.map(({ key, label }) => (
-              <label key={key} className="flex min-h-[20px] items-center gap-1 whitespace-nowrap">
+              <label key={key} className="flex min-h-4 items-center gap-1 whitespace-nowrap">
                 <input type="checkbox" checked={info.look[key]} onChange={run((tc) => toggleLook(tc, key))} />
                 {t(label)}
               </label>
@@ -229,13 +229,26 @@ export function tableTabs({ editor, ctl, features, info, styles }: TableTabsArgs
     ],
   };
 
-  const valign = (v: VAlign, h: Alignment) => (
-    <RibbonButton
-      key={`${v}-${h}`}
-      label={t(`write.cellAlign.${v}.${h}`)}
-      icon={alignIcon(v, h)}
-      onClick={run((tc) => cellAlignmentCommands(tc, v, h, editor.state.doc))}
-    />
+  const alignPanel = (close: () => void) => (
+    <div className="grid grid-cols-3 gap-0.5 p-0.5" role="group" aria-label={t("write.cellAlignment")}>
+      {(["top", "center", "bottom"] as VAlign[]).flatMap((v) =>
+        (["left", "center", "right"] as Alignment[]).map((h) => (
+          <button
+            key={`${v}-${h}`}
+            type="button"
+            className="flex h-8 w-8 items-center justify-center rounded text-ui-fg hover:bg-ui-hover"
+            aria-label={t(`write.cellAlign.${v}.${h}`)}
+            title={t(`write.cellAlign.${v}.${h}`)}
+            onClick={() => {
+              close();
+              run((tc) => cellAlignmentCommands(tc, v, h, editor.state.doc))();
+            }}
+          >
+            {alignIcon(v, h)}
+          </button>
+        )),
+      )}
+    </div>
   );
 
   const layout: RibbonTab = {
@@ -317,9 +330,7 @@ export function tableTabs({ editor, ctl, features, info, styles }: TableTabsArgs
         label: t("write.alignment"),
         items: (
           <>
-            <div className="grid grid-cols-3 gap-0.5" role="group" aria-label={t("write.cellAlignment")}>
-              {(["top", "center", "bottom"] as VAlign[]).flatMap((v) => (["left", "center", "right"] as Alignment[]).map((h) => valign(v, h)))}
-            </div>
+            <RibbonMenuButton label={t("write.cellAlignment")} icon={alignIcon("center", "center")} size="large" menu={alignPanel} />
             <RibbonButton label={t("write.cellMargins")} icon={MARGINS_ICON} size="large" tooltip={t("write.cellMarginsDots")} onClick={() => features.ui.openDialog("cellMargins")} />
           </>
         ),

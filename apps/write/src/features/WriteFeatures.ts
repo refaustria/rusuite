@@ -129,7 +129,16 @@ export class WriteFeatures {
         return {
           Tab: () => {
             const t = tableContext(this.editor.state);
-            if (!t) return false;
+            if (!t) {
+              // Word: Tab in a list item indents it (the list keymap); elsewhere it types a tab character.
+              const { $from } = this.editor.state.selection;
+              for (let d = $from.depth; d > 0; d--) if ($from.node(d).type.name === "listItem") return false;
+              if (!$from.parent.isTextblock) return false;
+              return this.editor.commands.command(({ tr }) => {
+                tr.insertText("\t");
+                return true;
+              });
+            }
             if (!inLastCell(t)) return this.editor.commands.goToNextCell();
             void features.appendRow(this.editor as Editor);
             return true;

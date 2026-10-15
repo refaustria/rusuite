@@ -74,7 +74,8 @@ function GalleryGrid({
       ref={ref}
       role="group"
       aria-label={label}
-      className="grid gap-0.5"
+      // `w-max`: in a dropdown panel (absolutely positioned under a small button) the grid keeps its items' widths.
+      className="grid w-max gap-0.5"
       style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, auto))` }}
       onKeyDown={(e) => gridKeys(e, ref.current, columns)}
     >

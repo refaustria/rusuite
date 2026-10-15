@@ -90,14 +90,22 @@ interface Measured {
   boxes: TabBox[];
 }
 
+/** Offsets (from the node's content start) of the tab characters of a textblock, cached per node. */
+const tabOffsets = new WeakMap<PMNode, number[]>();
+
 /** PM positions (absolute) of the tab characters of the textblock at `pos`. */
 function tabPositions(node: PMNode, pos: number): number[] {
-  const out: number[] = [];
-  node.forEach((child, offset) => {
-    if (!child.isText || !child.text!.includes("\t")) return;
-    for (let i = 0; i < child.text!.length; i++) if (child.text![i] === "\t") out.push(pos + 1 + offset + i);
-  });
-  return out;
+  let offs = tabOffsets.get(node);
+  if (!offs) {
+    offs = [];
+    const out = offs;
+    node.forEach((child, offset) => {
+      if (!child.isText || !child.text!.includes("\t")) return;
+      for (let i = 0; i < child.text!.length; i++) if (child.text![i] === "\t") out.push(offset + i);
+    });
+    tabOffsets.set(node, offs);
+  }
+  return offs.map((o) => pos + 1 + o);
 }
 
 function rangeWidth(view: EditorView, from: number, to: number, zoom: number): number {
@@ -195,7 +203,10 @@ export function tabStopsPlugin(styles: () => StyleSheet | null): Plugin<Decorati
       };
       schedule();
       return {
-        update: () => schedule(),
+        // Layout changes come with document changes (and the page / style refreshes, which dispatch a transaction).
+        update: (v, prev) => {
+          if (v.state.doc !== prev.doc || v.state.selection.eq(prev.selection)) schedule();
+        },
         destroy() {
           if (frame != null && typeof cancelAnimationFrame === "function" && typeof frame === "number") cancelAnimationFrame(frame);
           frame = null;
