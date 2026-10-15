@@ -4,7 +4,8 @@
 //! A [`Workbook`] owns an [`engine_formula::Engine`] that stores every
 //! cell's content and computed value; this crate adds what a spreadsheet
 //! document needs on top: deduplicated [`CellStyle`]s ([`StyleTable`]),
-//! number formats ([`numfmt`]), column/row dimensions and sheet defaults.
+//! number formats ([`numfmt`]), column/row dimensions, sheet defaults,
+//! sheet views (frozen panes, zoom), hidden sheets and merged cells.
 //! [`WorkbookSnapshot`] is the serializable form (camelCase JSON) used by
 //! serde, the IPC layer and `fmt-xlsx`.
 
@@ -15,7 +16,7 @@ pub mod style;
 pub mod workbook;
 
 pub use engine_formula::{CellContent, CellCoord, EngineError, Recalc, SheetId};
-pub use sheet::{ColInfo, RowInfo, SheetFormat};
+pub use sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView, MAX_ZOOM, MIN_ZOOM};
 pub use snapshot::{
     content_to_input, CellSnapshot, ColSnapshot, RowSnapshot, SheetSnapshot, WorkbookSnapshot,
 };
@@ -44,6 +45,17 @@ pub enum Error {
     UnknownStyle(StyleId),
     #[error("invalid width/height {0}")]
     InvalidDimension(f64),
+    /// Hiding or deleting the only visible sheet.
+    #[error("a workbook needs at least one visible sheet")]
+    LastVisibleSheet,
+    /// A merge of a single cell or outside the sheet.
+    #[error("invalid merge range")]
+    InvalidMerge,
+    /// A merge that partially overlaps an existing merged range.
+    #[error("merge range overlaps an existing merged range")]
+    MergeOverlap,
+    #[error("invalid sheet view: {0}")]
+    InvalidSheetView(String),
     #[error("invalid snapshot: {0}")]
     InvalidSnapshot(String),
 }

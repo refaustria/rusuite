@@ -4,7 +4,7 @@
 use engine_formula::{CellContent, CellCoord, ErrorKind, RangeRef, SheetId, Value};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::sheet::{ColInfo, RowInfo, SheetFormat};
+use crate::sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView};
 use crate::style::{CellStyle, StyleId, StyleTable};
 use crate::workbook::Workbook;
 use crate::Error;
@@ -35,6 +35,21 @@ pub struct SheetSnapshot {
     /// Colour of the sheet tab; absent = default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_color: Option<core_model::Color>,
+    /// Frozen panes, zoom, gridlines, headings; absent = defaults.
+    #[serde(default, skip_serializing_if = "SheetView::is_default")]
+    pub view: SheetView,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+    /// Excel's `veryHidden` (only meaningful with `hidden`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub very_hidden: bool,
+    /// Merged ranges, sorted by top-left cell.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub merges: Vec<MergeRect>,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,11 +157,16 @@ impl Workbook {
                 .collect(),
             format: self.sheet_format(id),
             tab_color: self.tab_color(id),
+            view: self.sheet_view(id),
+            hidden: self.is_sheet_hidden(id),
+            very_hidden: self.is_sheet_very_hidden(id),
+            merges: self.merges(id).to_vec(),
         }
     }
 
     /// Builds a workbook from a snapshot: contents are loaded in one engine
-    /// batch, whose `end_batch` evaluates every loaded formula.
+    /// batch, whose `end_batch` evaluates every loaded formula. A snapshot
+    /// whose sheets are all hidden keeps its last sheet shown.
     pub fn from_snapshot(snapshot: &WorkbookSnapshot) -> Result<Workbook, Error> {
         if snapshot.sheets.is_empty() {
             return Err(Error::InvalidSnapshot(
@@ -180,6 +200,8 @@ impl Workbook {
             for (sheet, &id) in snapshot.sheets.iter().zip(&ids) {
                 wb.set_sheet_format(id, sheet.format)?;
                 wb.set_tab_color(id, sheet.tab_color)?;
+                wb.set_sheet_view(id, sheet.view)?;
+                wb.set_merges(id, sheet.merges.clone())?;
                 for col in &sheet.cols {
                     let info = ColInfo {
                         style: map_opt(col.info.style)?,
@@ -206,6 +228,13 @@ impl Workbook {
         })();
         wb.end_batch();
         loaded?;
+        // Visibility last: hiding needs another visible sheet.
+        for (sheet, &id) in snapshot.sheets.iter().zip(&ids) {
+            if sheet.hidden {
+                // Fails only for the last visible sheet, which stays shown.
+                let _ = wb.set_sheet_visibility(id, true, sheet.very_hidden);
+            }
+        }
         Ok(wb)
     }
 }

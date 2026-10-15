@@ -1,5 +1,8 @@
 use app_common::Host;
-use calc_core::{dispatch, CalcCommand as C, CalcDocument, CalcHost, CalcPatch, CellKind, ColView};
+use calc_core::{
+    dispatch, CalcCommand as C, CalcDocument, CalcHost, CalcPatch, CellKind, ColView, Rect,
+    SheetViewPatch,
+};
 use core_model::{Color, Rgb};
 use model_sheet::{CellStyle, Fill, SheetSnapshot};
 use serde_json::{json, Value as Json};
@@ -40,6 +43,35 @@ fn script() -> Vec<C> {
         set(1, 0, 0, "=Sheet1!A2+Sheet1!B2"),
         set(0, 0, 0, "100"),
         set(0, 3, 3, "'0123"),
+        C::SetFreeze {
+            sheet: 0,
+            rows: 2,
+            cols: 1,
+        },
+        C::SetSheetView {
+            sheet: 0,
+            patch: SheetViewPatch {
+                zoom: Some(150),
+                show_gridlines: Some(false),
+                ..Default::default()
+            },
+        },
+        // A1:B2 clears A2, B1 and B2; A3:A4 is clipped away by the row
+        // delete below; the inserts grow A1:B2 and the frozen panes.
+        C::MergeCells {
+            sheet: 0,
+            r0: 0,
+            c0: 0,
+            r1: 1,
+            c1: 1,
+        },
+        C::MergeCells {
+            sheet: 0,
+            r0: 2,
+            c0: 0,
+            r1: 3,
+            c1: 0,
+        },
         C::ApplyStyle {
             sheet: 0,
             r0: 0,
@@ -108,6 +140,11 @@ fn script() -> Vec<C> {
             sheet: 1,
             name: "Data".into(),
         },
+        C::SetSheetHidden {
+            sheet: 1,
+            hidden: true,
+            very_hidden: None,
+        },
         C::SetColWidth {
             sheet: 0,
             col: 1,
@@ -125,9 +162,26 @@ fn script() -> Vec<C> {
             sheet: 2,
             color: Some(Color::Rgb(Rgb::new(1, 2, 3))),
         },
+        C::SetSheetHidden {
+            sheet: 2,
+            hidden: true,
+            very_hidden: Some(true),
+        },
+        C::SetSheetHidden {
+            sheet: 2,
+            hidden: false,
+            very_hidden: None,
+        },
         C::DuplicateSheet {
             sheet: 0,
             name: "Sheet1 (2)".into(),
+        },
+        C::UnmergeCells {
+            sheet: 3,
+            r0: 0,
+            c0: 0,
+            r1: 0,
+            c1: 5,
         },
         C::MoveSheet { sheet: 3, index: 0 },
         C::SetSheetTabColor {
@@ -163,6 +217,18 @@ fn every_command_undoes_and_redoes_exactly() {
     }
     // The script really produces irreversible reference rewrites.
     assert!(states.iter().any(|s| format!("{s:?}").contains("#REF!")));
+    // ... and merges, frozen panes and (very) hidden sheets.
+    for needle in [
+        "MergeRect {",
+        "frozen_rows: 4",
+        "very_hidden: true",
+        "hidden: true",
+    ] {
+        assert!(
+            states.iter().any(|s| format!("{s:?}").contains(needle)),
+            "{needle}"
+        );
+    }
     let n = states.len() - 1;
     for k in (0..n).rev() {
         host.undo().unwrap().unwrap();
@@ -304,9 +370,75 @@ fn style_and_dimension_patches() {
 fn errors_leave_the_document_unchanged() {
     let mut host = Host::new(CalcDocument::new());
     host.apply(set(0, 0, 0, "1")).unwrap();
+    host.apply(C::MergeCells {
+        sheet: 0,
+        r0: 0,
+        c0: 2,
+        r1: 1,
+        c1: 3,
+    })
+    .unwrap();
     let before = sheets(&host);
     let rev = host.revision();
     for (cmd, code) in [
+        (
+            C::SetSheetHidden {
+                sheet: 0,
+                hidden: true,
+                very_hidden: None,
+            },
+            "last_visible_sheet",
+        ),
+        (
+            C::MergeCells {
+                sheet: 0,
+                r0: 4,
+                c0: 4,
+                r1: 4,
+                c1: 4,
+            },
+            "invalid_merge",
+        ),
+        (
+            C::MergeCells {
+                sheet: 0,
+                r0: 0,
+                c0: 0,
+                r1: 2,
+                c1: 2,
+            },
+            "merge_overlap",
+        ),
+        (
+            C::SetSheetView {
+                sheet: 0,
+                patch: SheetViewPatch {
+                    zoom: Some(5),
+                    ..Default::default()
+                },
+            },
+            "invalid_view",
+        ),
+        (
+            C::RestoreMerges {
+                sheet: 0,
+                merges: vec![
+                    Rect {
+                        r0: 0,
+                        c0: 0,
+                        r1: 1,
+                        c1: 1,
+                    },
+                    Rect {
+                        r0: 1,
+                        c0: 1,
+                        r1: 2,
+                        c1: 2,
+                    },
+                ],
+            },
+            "merge_overlap",
+        ),
         (set(0, 0, 0, "=1+"), "invalid_formula"),
         (set(5, 0, 0, "1"), "unknown_sheet"),
         (
@@ -655,5 +787,173 @@ fn commands_roundtrip_through_json() {
     assert_eq!(
         serde_json::to_value(&restore).unwrap(),
         json!({"type": "compound", "commands": [{"type": "restoreCells", "sheet": 0, "cells": [[1, 2, "x", 0]]}]})
+    );
+}
+
+#[test]
+fn panes_hidden_sheets_and_merges() {
+    let mut host = Host::new(CalcDocument::new());
+    for name in ["B", "C"] {
+        host.apply(C::AddSheet {
+            name: name.into(),
+            index: None,
+        })
+        .unwrap();
+    }
+    let rect = |r0, c0, r1, c1| Rect { r0, c0, r1, c1 };
+
+    // Freeze: the sheet list carries the view.
+    let p = host
+        .apply(C::SetFreeze {
+            sheet: 1,
+            rows: 1,
+            cols: 2,
+        })
+        .unwrap()
+        .patch;
+    let view = p.sheets.as_ref().unwrap()[1].view;
+    assert_eq!((view.frozen_rows, view.frozen_cols, view.zoom), (1, 2, 100));
+    let p = host
+        .apply(C::SetSheetView {
+            sheet: 1,
+            patch: SheetViewPatch {
+                zoom: Some(75),
+                show_headings: Some(false),
+                ..Default::default()
+            },
+        })
+        .unwrap()
+        .patch;
+    let view = p.sheets.as_ref().unwrap()[1].view;
+    assert_eq!(
+        (view.frozen_rows, view.zoom, view.show_headings),
+        (1, 75, false)
+    );
+
+    // Hiding switches to the next visible sheet, unhiding to the sheet.
+    let p = host
+        .apply(C::SetSheetHidden {
+            sheet: 2,
+            hidden: true,
+            very_hidden: None,
+        })
+        .unwrap()
+        .patch;
+    assert_eq!(p.activate_sheet, Some(1));
+    assert!(p.sheets.as_ref().unwrap()[2].hidden);
+    let p = host
+        .apply(C::SetSheetHidden {
+            sheet: 0,
+            hidden: true,
+            very_hidden: None,
+        })
+        .unwrap()
+        .patch;
+    assert_eq!(p.activate_sheet, Some(1));
+    let e = host
+        .apply(C::SetSheetHidden {
+            sheet: 1,
+            hidden: true,
+            very_hidden: None,
+        })
+        .unwrap_err();
+    assert_eq!(e.code(), "last_visible_sheet");
+    let e = host.apply(C::DeleteSheet { sheet: 1 }).unwrap_err();
+    assert_eq!(e.code(), "last_visible_sheet");
+    let p = host.undo().unwrap().unwrap().patch;
+    assert_eq!(p.activate_sheet, Some(0));
+    assert!(!p.sheets.as_ref().unwrap()[0].hidden);
+
+    // Merging clears all but the top-left cell; undo brings them back.
+    host.apply(set(1, 0, 0, "1")).unwrap();
+    host.apply(set(1, 0, 1, "2")).unwrap();
+    host.apply(set(1, 5, 0, "=A1+B1")).unwrap();
+    let p = host
+        .apply(C::MergeCells {
+            sheet: 1,
+            r0: 0,
+            c0: 0,
+            r1: 1,
+            c1: 2,
+        })
+        .unwrap()
+        .patch;
+    assert_eq!(p.merges.len(), 1);
+    assert_eq!(p.merges[0].sheet, 1);
+    assert_eq!(p.merges[0].merges, [rect(0, 0, 1, 2)]);
+    assert_eq!(
+        patch_cells(&p, 1),
+        [(0, 1, String::new()), (5, 0, "1".to_string())]
+    );
+    let snap = host.doc().snapshot(1, 1, 1, 9, 9).unwrap();
+    assert_eq!(snap.merges, [rect(0, 0, 1, 2)]);
+    assert!(host
+        .doc()
+        .snapshot(1, 2, 0, 9, 9)
+        .unwrap()
+        .merges
+        .is_empty());
+    let p = host.undo().unwrap().unwrap().patch;
+    assert!(p.merges[0].merges.is_empty());
+    assert!(patch_cells(&p, 1).contains(&(5, 0, "3".to_string())));
+    host.redo().unwrap().unwrap();
+
+    // Deleting the merged rows drops the merge and unfreezes; undo restores both.
+    let p = host
+        .apply(C::DeleteRows {
+            sheet: 1,
+            at: 0,
+            count: 2,
+        })
+        .unwrap()
+        .patch;
+    assert!(p.merges[0].merges.is_empty());
+    assert_eq!(p.sheets.as_ref().unwrap()[1].view.frozen_rows, 0);
+    let p = host.undo().unwrap().unwrap().patch;
+    assert_eq!(p.merges[0].merges, [rect(0, 0, 1, 2)]);
+    assert_eq!(p.sheets.as_ref().unwrap()[1].view.frozen_rows, 1);
+
+    let p = host
+        .apply(C::UnmergeCells {
+            sheet: 1,
+            r0: 1,
+            c0: 1,
+            r1: 1,
+            c1: 1,
+        })
+        .unwrap()
+        .patch;
+    assert!(p.merges[0].merges.is_empty());
+    host.undo().unwrap().unwrap();
+    assert_eq!(
+        host.doc().workbook().merges(model_sheet::SheetId(1)).len(),
+        1
+    );
+
+    // The JSON shapes the UI sends.
+    let mut host = CalcHost::new(CalcDocument::new());
+    for command in [
+        json!({"type": "setFreeze", "sheet": 0, "rows": 1, "cols": 0}),
+        json!({"type": "setSheetView", "sheet": 0, "patch": {"zoom": 120, "showGridlines": false}}),
+        json!({"type": "mergeCells", "sheet": 0, "r0": 0, "c0": 0, "r1": 0, "c1": 3}),
+        json!({"type": "addSheet", "name": "X"}),
+        json!({"type": "setSheetHidden", "sheet": 1, "hidden": true}),
+    ] {
+        let r = call(&mut host, json!({"type": "apply", "command": command}));
+        assert_eq!(r["ok"]["type"], "patch", "{r}");
+    }
+    let r = call(&mut host, json!({"type": "info"}));
+    assert_eq!(
+        r["ok"]["info"]["sheets"][0]["view"],
+        json!({"frozenRows": 1, "frozenCols": 0, "zoom": 120, "showGridlines": false, "showHeadings": true})
+    );
+    assert_eq!(r["ok"]["info"]["sheets"][1]["hidden"], true);
+    let r = call(
+        &mut host,
+        json!({"type": "snapshot", "sheet": 0, "r0": 0, "c0": 2, "r1": 5, "c1": 5}),
+    );
+    assert_eq!(
+        r["ok"]["snapshot"]["merges"],
+        json!([{"r0": 0, "c0": 0, "r1": 0, "c1": 3}])
     );
 }

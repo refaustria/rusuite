@@ -9,7 +9,7 @@ use engine_formula::{CellCoord, ErrorKind, Value};
 use fmt_ooxml::{Package, PartName};
 use model_sheet::{
     Alignment, BorderSide, BorderStyle, Borders, CellContent, CellStyle, ColInfo, Fill, HAlign,
-    RowInfo, SheetFormat, VAlign, Workbook,
+    MergeRect, RowInfo, SheetFormat, SheetView, VAlign, Workbook,
 };
 
 fn side(style: BorderStyle, color: Color) -> Option<BorderSide> {
@@ -310,13 +310,14 @@ fn date1904_is_rejected() {
 
 #[test]
 fn shared_formulas_and_dropped_features() {
-    // Excel-style sheet: shared formulas, an inline string, _xlfn, a merged range.
+    // Excel-style sheet: shared formulas, an inline string, _xlfn, merged
+    // ranges (one inverted, two invalid), a split (not frozen) pane.
     let sheet = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView zoomScale="85" workbookViewId="0"><pane xSplit="2000" ySplit="1000"/></sheetView><sheetView workbookViewId="1" zoomScale="200"/></sheetViews><sheetData>
 <row r="1"><c r="A1"><v>1</v></c><c r="B1"><f t="shared" ref="B1:B3" si="0">A1*2+$A$1</f><v>3</v></c><c r="C1" t="inlineStr"><is><t>inline</t></is></c></row>
 <row r="2"><c r="A2"><v>2</v></c><c r="B2"><f t="shared" si="0"/><v>5</v></c><c r="C2" t="str"><f>_xlfn.CONCAT("a",C1)</f><v>ainline</v></c></row>
 <row r="3"><c r="A3"><v>3</v></c><c r="B3"><f t="shared" si="0"/><v>7</v></c><c r="C3"><f>FOO.BAR(</f><v>9</v></c></row>
-</sheetData><mergeCells count="1"><mergeCell ref="D1:E2"/></mergeCells><conditionalFormatting sqref="A1"/></worksheet>"#;
+</sheetData><mergeCells count="3"><mergeCell ref="E2:D1"/><mergeCell ref="F1"/><mergeCell ref="E2:F3"/></mergeCells><conditionalFormatting sqref="A1"/></worksheet>"#;
     let base = fmt_xlsx::write(&Workbook::new()).unwrap();
     let mut pkg = Package::open(Cursor::new(base.as_slice())).unwrap();
     pkg.part_mut(&PartName::new("/xl/worksheets/sheet1.xml").unwrap())
@@ -337,7 +338,92 @@ fn shared_formulas_and_dropped_features() {
     // Unparseable formula: the cached value is kept.
     assert_eq!(wb.content(c(2, 2)), &CellContent::Value(Value::Number(9.0)));
     let all = warnings.join("\n");
-    assert!(all.contains("merged cells dropped: D1:E2"), "{all}");
+    assert_eq!(wb.merges(s), &[MergeRect::new(0, 3, 1, 4)]);
+    assert!(
+        all.contains("invalid merged cells dropped: F1, E2:F3"),
+        "{all}"
+    );
+    assert!(all.contains("split panes dropped"), "{all}");
+    // Only the first sheet view counts.
+    assert_eq!(wb.sheet_view(s).zoom, 85);
+    assert_eq!(wb.sheet_view(s).frozen_rows, 0);
     assert!(all.contains("conditional formatting dropped"), "{all}");
     assert!(all.contains("C3: formula"), "{all}");
+}
+
+#[test]
+fn frozen_panes_merges_and_hidden_sheets_roundtrip() {
+    let mut wb = Workbook::new();
+    let first = wb.sheet_id("Sheet1").unwrap();
+    let data = wb.add_sheet("Data").unwrap();
+    let secret = wb.add_sheet("Secret").unwrap();
+    let rows_only = wb.add_sheet("Rows").unwrap();
+    wb.set_input(CellCoord::new(data, 0, 0), "Title").unwrap();
+    wb.set_input(CellCoord::new(data, 1, 2), "=Secret!A1")
+        .unwrap();
+    wb.set_input(CellCoord::new(secret, 0, 0), "42").unwrap();
+    wb.set_sheet_view(
+        data,
+        SheetView {
+            frozen_rows: 1,
+            frozen_cols: 2,
+            zoom: 125,
+            show_gridlines: false,
+            show_headings: false,
+        },
+    )
+    .unwrap();
+    wb.set_frozen(rows_only, 3, 0).unwrap();
+    wb.add_merge(data, MergeRect::new(0, 0, 0, 3)).unwrap();
+    wb.add_merge(data, MergeRect::new(4, 1, 6, 2)).unwrap();
+    wb.set_sheet_hidden(first, true).unwrap();
+    wb.set_sheet_visibility(secret, true, true).unwrap();
+
+    let bytes = fmt_xlsx::write(&wb).unwrap();
+    assert_eq!(bytes, fmt_xlsx::write(&wb).unwrap(), "deterministic");
+    let (back, warnings) = fmt_xlsx::read_with_warnings(&bytes).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(back.to_snapshot(), wb.to_snapshot());
+    assert!(back.is_sheet_hidden(first) && !back.is_sheet_very_hidden(first));
+    assert!(back.is_sheet_very_hidden(secret));
+    assert_eq!(back.value(CellCoord::new(data, 1, 2)), Value::Number(42.0));
+
+    let book = part(&bytes, "/xl/workbook.xml");
+    assert!(book.contains(r#"<workbookView activeTab="1"/>"#), "{book}");
+    assert!(
+        book.contains(r#"<sheet name="Sheet1" sheetId="1" state="hidden" r:id="rId1"/>"#),
+        "{book}"
+    );
+    assert!(
+        book.contains(r#"<sheet name="Secret" sheetId="3" state="veryHidden" r:id="rId3"/>"#),
+        "{book}"
+    );
+    let sheet1 = part(&bytes, "/xl/worksheets/sheet1.xml");
+    assert!(
+        sheet1.contains(r#"<sheetViews><sheetView workbookViewId="0"/></sheetViews>"#),
+        "{sheet1}"
+    );
+    let sheet2 = part(&bytes, "/xl/worksheets/sheet2.xml");
+    assert!(
+        sheet2.contains(concat!(
+            r#"<sheetView showGridLines="0" showRowColHeaders="0" tabSelected="1" zoomScale="125" workbookViewId="0">"#,
+            r#"<pane xSplit="2" ySplit="1" topLeftCell="C2" activePane="bottomRight" state="frozen"/>"#,
+            r#"<selection pane="bottomRight"/></sheetView>"#
+        )),
+        "{sheet2}"
+    );
+    assert!(
+        sheet2.contains(concat!(
+            r#"</sheetData><mergeCells count="2"><mergeCell ref="A1:D1"/>"#,
+            r#"<mergeCell ref="B5:C7"/></mergeCells><pageMargins"#
+        )),
+        "{sheet2}"
+    );
+    let sheet4 = part(&bytes, "/xl/worksheets/sheet4.xml");
+    assert!(
+        sheet4.contains(
+            r#"<pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/>"#
+        ),
+        "{sheet4}"
+    );
 }

@@ -26,6 +26,16 @@
 //! own style if it has one, else the row style, else the column style,
 //! else the default style. A cell styled with [`StyleId::DEFAULT`] has no
 //! own style, so inside a styled row/column it shows that style.
+//!
+//! # Merged cells
+//!
+//! Each sheet keeps a list of pairwise disjoint [`MergeRect`]s of at least
+//! two cells. [`Workbook::merge_cells`] follows Excel: only the top-left
+//! cell keeps its content, the other cells' contents are cleared (their
+//! styles stay). Row/column inserts and deletes move, grow and clip the
+//! merges like references ([`StructuralOp::map_interval`]); a merge clipped
+//! to one cell disappears. The frozen row/column counts of the
+//! [`SheetView`] follow the same rule.
 
 use core_model::Color;
 use engine_formula::ast::{MAX_COL, MAX_ROW};
@@ -33,7 +43,9 @@ use engine_formula::{
     CellContent, CellCoord, Engine, EngineError, Recalc, SheetId, StructuralOp, Value,
 };
 
-use crate::sheet::{ColInfo, RowInfo, SheetData, SheetFormat};
+use crate::sheet::{
+    ColInfo, MergeRect, RowInfo, SheetData, SheetFormat, SheetView, MAX_ZOOM, MIN_ZOOM,
+};
 use crate::style::{CellStyle, StyleId, StyleTable};
 use crate::{CellRange, Error};
 
@@ -117,7 +129,16 @@ impl Workbook {
 
     /// Deletes a sheet with its contents, styles and dimensions; references
     /// to it in the other sheets become `#REF!`. See [`Engine::remove_sheet`].
+    /// Fails with [`Error::LastVisibleSheet`] for the only visible sheet
+    /// of a workbook that has hidden ones.
     pub fn remove_sheet(&mut self, id: SheetId) -> Result<Recalc, Error> {
+        if self.engine.sheet_name(id).is_some()
+            && self.engine.sheets().count() > 1
+            && !self.is_sheet_hidden(id)
+            && !self.has_other_visible_sheet(id)
+        {
+            return Err(Error::LastVisibleSheet);
+        }
         let recalc = self.engine.remove_sheet(id)?;
         if let Some(data) = self.sheets.get_mut(id.0 as usize) {
             *data = SheetData::default();
@@ -145,11 +166,13 @@ impl Workbook {
     }
 
     /// Copies a sheet (contents, formulas, cell styles, dimensions, sheet
-    /// format and tab colour) to a new sheet `name` right after it. See
-    /// [`Engine::duplicate_sheet`].
+    /// format, tab colour, view and merges) to a new, visible sheet `name`
+    /// right after it. See [`Engine::duplicate_sheet`].
     pub fn duplicate_sheet(&mut self, id: SheetId, name: &str) -> Result<(SheetId, Recalc), Error> {
         let (new, recalc) = self.engine.duplicate_sheet(id, name)?;
-        let data = self.sheet_data(id).clone();
+        let mut data = self.sheet_data(id).clone();
+        data.hidden = false;
+        data.very_hidden = false;
         *self.sheet_data_mut(new)? = data;
         Ok((new, recalc))
     }
@@ -422,6 +445,198 @@ impl Workbook {
         Ok(())
     }
 
+    // --- view and visibility ---------------------------------------------
+
+    /// Frozen panes, zoom, gridlines and headings of `sheet`.
+    pub fn sheet_view(&self, sheet: SheetId) -> SheetView {
+        self.sheet_data(sheet).view
+    }
+
+    /// Replaces the view of `sheet`. The zoom must lie in
+    /// [`MIN_ZOOM`]..=[`MAX_ZOOM`], the frozen counts inside the sheet.
+    pub fn set_sheet_view(&mut self, sheet: SheetId, view: SheetView) -> Result<(), Error> {
+        if !(MIN_ZOOM..=MAX_ZOOM).contains(&view.zoom) {
+            return Err(Error::InvalidSheetView(format!("zoom {}", view.zoom)));
+        }
+        if view.frozen_rows > MAX_ROW || view.frozen_cols > MAX_COL {
+            return Err(Error::InvalidSheetView(
+                "frozen panes outside the sheet".into(),
+            ));
+        }
+        self.sheet_data_mut(sheet)?.view = view;
+        Ok(())
+    }
+
+    /// Freezes rows `0..rows` and columns `0..cols` (`0, 0` unfreezes).
+    pub fn set_frozen(&mut self, sheet: SheetId, rows: u32, cols: u32) -> Result<(), Error> {
+        let view = SheetView {
+            frozen_rows: rows,
+            frozen_cols: cols,
+            ..self.sheet_view(sheet)
+        };
+        self.set_sheet_view(sheet, view)
+    }
+
+    /// Hidden or very hidden.
+    pub fn is_sheet_hidden(&self, sheet: SheetId) -> bool {
+        self.sheet_data(sheet).hidden
+    }
+
+    /// Excel's `veryHidden` state.
+    pub fn is_sheet_very_hidden(&self, sheet: SheetId) -> bool {
+        self.sheet_data(sheet).very_hidden
+    }
+
+    fn has_other_visible_sheet(&self, sheet: SheetId) -> bool {
+        self.engine
+            .sheets()
+            .any(|(id, _)| id != sheet && !self.is_sheet_hidden(id))
+    }
+
+    /// Hides (`very_hidden`: very hides) or shows a sheet. Showing clears
+    /// both flags; hiding the last visible sheet fails with
+    /// [`Error::LastVisibleSheet`].
+    pub fn set_sheet_visibility(
+        &mut self,
+        sheet: SheetId,
+        hidden: bool,
+        very_hidden: bool,
+    ) -> Result<(), Error> {
+        self.sheet_data_mut(sheet)?;
+        if hidden && !self.is_sheet_hidden(sheet) && !self.has_other_visible_sheet(sheet) {
+            return Err(Error::LastVisibleSheet);
+        }
+        let data = self.sheet_data_mut(sheet)?;
+        data.hidden = hidden;
+        data.very_hidden = hidden && very_hidden;
+        Ok(())
+    }
+
+    /// [`set_sheet_visibility`](Self::set_sheet_visibility) without very
+    /// hiding.
+    pub fn set_sheet_hidden(&mut self, sheet: SheetId, hidden: bool) -> Result<(), Error> {
+        self.set_sheet_visibility(sheet, hidden, false)
+    }
+
+    // --- merged cells -----------------------------------------------------
+
+    /// The merged ranges of `sheet`, sorted by top-left cell.
+    pub fn merges(&self, sheet: SheetId) -> &[MergeRect] {
+        &self.sheet_data(sheet).merges
+    }
+
+    /// The merged range containing `c`, if any.
+    pub fn merge_at(&self, c: CellCoord) -> Option<&MergeRect> {
+        self.merges(c.sheet)
+            .iter()
+            .find(|m| m.contains(c.row, c.col))
+    }
+
+    fn check_merge(rect: &MergeRect) -> Result<(), Error> {
+        if rect.r0 > rect.r1
+            || rect.c0 > rect.c1
+            || rect.r1 > MAX_ROW
+            || rect.c1 > MAX_COL
+            || rect.cells() < 2
+        {
+            return Err(Error::InvalidMerge);
+        }
+        Ok(())
+    }
+
+    /// Adds a merged range without touching contents (loading files).
+    /// Fails with [`Error::InvalidMerge`] for a single cell or a range
+    /// outside the sheet and with [`Error::MergeOverlap`] when it
+    /// intersects an existing merge.
+    pub fn add_merge(&mut self, sheet: SheetId, rect: MergeRect) -> Result<(), Error> {
+        Self::check_merge(&rect)?;
+        let data = self.sheet_data_mut(sheet)?;
+        if data.merges.iter().any(|m| m.intersects(&rect)) {
+            return Err(Error::MergeOverlap);
+        }
+        let at = data.merges.partition_point(|m| *m < rect);
+        data.merges.insert(at, rect);
+        Ok(())
+    }
+
+    /// Removes exactly `rect`; `false` if it was not merged.
+    pub fn remove_merge(&mut self, sheet: SheetId, rect: MergeRect) -> Result<bool, Error> {
+        let data = self.sheet_data_mut(sheet)?;
+        let before = data.merges.len();
+        data.merges.retain(|m| *m != rect);
+        Ok(data.merges.len() != before)
+    }
+
+    /// Replaces all merges of `sheet` (validated like
+    /// [`add_merge`](Self::add_merge); on error nothing changes).
+    pub fn set_merges(&mut self, sheet: SheetId, merges: Vec<MergeRect>) -> Result<(), Error> {
+        self.sheet_data_mut(sheet)?;
+        let mut sorted = merges;
+        sorted.sort_unstable();
+        for (i, m) in sorted.iter().enumerate() {
+            Self::check_merge(m)?;
+            // Sorted by r0: only later ranges starting at or above m.r1 can
+            // intersect.
+            if sorted[i + 1..]
+                .iter()
+                .take_while(|n| n.r0 <= m.r1)
+                .any(|n| n.intersects(m))
+            {
+                return Err(Error::MergeOverlap);
+            }
+        }
+        self.sheet_data_mut(sheet)?.merges = sorted;
+        Ok(())
+    }
+
+    /// Merges `range` (Excel's "Merge Cells"): every cell but the top-left
+    /// one loses its content (styles are kept); merges lying completely
+    /// inside `range` are absorbed. Fails with [`Error::MergeOverlap`]
+    /// when an existing merge sticks out of `range`.
+    pub fn merge_cells(&mut self, range: CellRange) -> Result<Recalc, Error> {
+        let rect = MergeRect::new(range.r0, range.c0, range.r1, range.c1);
+        Self::check_merge(&rect)?;
+        let sheet = range.sheet;
+        let data = self.sheet_data_mut(sheet)?;
+        if data
+            .merges
+            .iter()
+            .any(|m| m.intersects(&rect) && !rect.covers(m))
+        {
+            return Err(Error::MergeOverlap);
+        }
+        let cleared: Vec<CellCoord> = self
+            .cells_in(range)
+            .filter(|(c, content, _)| {
+                !matches!(content, CellContent::Empty) && (c.row, c.col) != (rect.r0, rect.c0)
+            })
+            .map(|(c, _, _)| c)
+            .collect();
+        self.engine.begin_batch();
+        let result = cleared
+            .iter()
+            .try_for_each(|c| self.engine.clear(*c).map(drop));
+        let recalc = self.engine.end_batch();
+        result?;
+        let data = self.sheet_data_mut(sheet)?;
+        data.merges.retain(|m| !rect.covers(m));
+        let at = data.merges.partition_point(|m| *m < rect);
+        data.merges.insert(at, rect);
+        Ok(recalc)
+    }
+
+    /// Removes every merge that intersects `range` (Excel's "Unmerge
+    /// Cells"); returns the removed merges.
+    pub fn unmerge_cells(&mut self, range: CellRange) -> Result<Vec<MergeRect>, Error> {
+        let rect = MergeRect::new(range.r0, range.c0, range.r1, range.c1);
+        let data = self.sheet_data_mut(range.sheet)?;
+        let (removed, kept) = std::mem::take(&mut data.merges)
+            .into_iter()
+            .partition(|m| m.intersects(&rect));
+        data.merges = kept;
+        Ok(removed)
+    }
+
     // --- structure --------------------------------------------------------
 
     /// Inserts `count` empty rows before row `at` of `sheet`: contents and
@@ -454,7 +669,8 @@ impl Workbook {
     /// Runs `op` on the engine, then moves cell styles and the row/column
     /// dimension map of the affected axis with
     /// [`StructuralOp::map_cell`] / [`StructuralOp::map_index`] (entries
-    /// mapped to `None` are dropped).
+    /// mapped to `None` are dropped), and maps merges and frozen panes with
+    /// [`StructuralOp::map_interval`] (see the module docs).
     fn structural(&mut self, sheet: SheetId, op: StructuralOp) -> Result<Recalc, Error> {
         let recalc = match op {
             StructuralOp::InsertRows { at, count } => self.engine.insert_rows(sheet, at, count),
@@ -481,6 +697,34 @@ impl Workbook {
             shift(op, &mut data.rows);
         } else {
             shift(op, &mut data.cols);
+        }
+        data.merges = std::mem::take(&mut data.merges)
+            .into_iter()
+            .filter_map(|m| {
+                let m = if op.is_rows() {
+                    let (r0, r1) = op.map_interval(m.r0, m.r1)?;
+                    MergeRect { r0, r1, ..m }
+                } else {
+                    let (c0, c1) = op.map_interval(m.c0, m.c1)?;
+                    MergeRect { c0, c1, ..m }
+                };
+                (m.cells() >= 2).then_some(m)
+            })
+            .collect();
+        // The frozen area is the interval 0..frozen: an insert inside it
+        // grows it, a delete clips it.
+        let frozen = |n: u32| {
+            if n == 0 {
+                0
+            } else {
+                op.map_interval(0, n - 1)
+                    .map_or(0, |(_, hi)| (hi + 1).min(op.max_index()))
+            }
+        };
+        if op.is_rows() {
+            data.view.frozen_rows = frozen(data.view.frozen_rows);
+        } else {
+            data.view.frozen_cols = frozen(data.view.frozen_cols);
         }
         Ok(recalc)
     }
@@ -681,5 +925,170 @@ mod tests {
         let names: Vec<String> = back.sheets().into_iter().map(|(_, n)| n).collect();
         assert_eq!(names, ["Other", "Copy", "Sheet1"]);
         assert_eq!(back.tab_color(back.sheet_id("Copy").unwrap()), Some(red));
+    }
+    #[test]
+    fn merge_cells_keeps_top_left_content_and_styles() {
+        let mut wb = Workbook::new();
+        let s = SheetId(0);
+        let c = |r, col| CellCoord::new(s, r, col);
+        let a = styled(&mut wb, 1);
+        wb.set_input(c(0, 0), "1").unwrap();
+        wb.set_input(c(0, 1), "2").unwrap();
+        wb.set_input(c(1, 1), "=A1").unwrap();
+        wb.set_input(c(5, 0), "=SUM(A1:B2)").unwrap();
+        wb.set_style(c(1, 0), a).unwrap();
+        wb.add_merge(s, MergeRect::new(1, 0, 1, 1)).unwrap();
+
+        // A single cell, an overlap and a sticking-out merge are rejected.
+        let range = |r0, c0, r1, c1| CellRange::new(s, r0, c0, r1, c1);
+        assert_eq!(wb.merge_cells(range(3, 3, 3, 3)), Err(Error::InvalidMerge));
+        assert_eq!(
+            wb.add_merge(s, MergeRect::new(0, 1, 1, 2)),
+            Err(Error::MergeOverlap)
+        );
+        assert_eq!(wb.merge_cells(range(0, 1, 2, 2)), Err(Error::MergeOverlap));
+
+        let recalc = wb.merge_cells(range(0, 0, 2, 1)).unwrap();
+        assert!(recalc.changed.contains(&c(5, 0)));
+        assert_eq!(wb.value(c(0, 0)), Value::Number(1.0));
+        assert_eq!(wb.content(c(0, 1)), &CellContent::Empty);
+        assert_eq!(wb.content(c(1, 1)), &CellContent::Empty);
+        assert_eq!(wb.value(c(5, 0)), Value::Number(1.0));
+        assert_eq!(wb.cell_style_id(c(1, 0)), a);
+        // The inner merge was absorbed.
+        assert_eq!(wb.merges(s), &[MergeRect::new(0, 0, 2, 1)]);
+        assert_eq!(wb.merge_at(c(2, 1)), Some(&MergeRect::new(0, 0, 2, 1)));
+        assert_eq!(wb.merge_at(c(3, 1)), None);
+
+        wb.add_merge(s, MergeRect::new(0, 5, 0, 6)).unwrap();
+        wb.add_merge(s, MergeRect::new(9, 0, 9, 9)).unwrap();
+        let removed = wb.unmerge_cells(range(0, 1, 0, 5)).unwrap();
+        assert_eq!(
+            removed,
+            vec![MergeRect::new(0, 0, 2, 1), MergeRect::new(0, 5, 0, 6)]
+        );
+        assert_eq!(wb.merges(s), &[MergeRect::new(9, 0, 9, 9)]);
+        assert!(wb.remove_merge(s, MergeRect::new(9, 0, 9, 9)).unwrap());
+        assert!(!wb.remove_merge(s, MergeRect::new(9, 0, 9, 9)).unwrap());
+        assert_eq!(
+            wb.set_merges(
+                s,
+                vec![MergeRect::new(0, 0, 3, 3), MergeRect::new(3, 3, 4, 4)]
+            ),
+            Err(Error::MergeOverlap)
+        );
+        assert!(wb.merges(s).is_empty());
+    }
+
+    #[test]
+    fn structural_edits_move_merges_and_frozen_panes() {
+        let mut wb = Workbook::new();
+        let s = SheetId(0);
+        wb.set_frozen(s, 3, 2).unwrap();
+        wb.set_merges(
+            s,
+            vec![
+                MergeRect::new(0, 0, 0, 1), // header, columns A:B
+                MergeRect::new(4, 0, 6, 0), // A5:A7
+                MergeRect::new(10, 3, 11, 3),
+            ],
+        )
+        .unwrap();
+        // Insert inside the frozen rows and inside A5:A7.
+        wb.insert_rows(s, 1, 1).unwrap();
+        wb.insert_rows(s, 6, 2).unwrap();
+        assert_eq!(wb.sheet_view(s).frozen_rows, 4);
+        assert_eq!(
+            wb.merges(s),
+            &[
+                MergeRect::new(0, 0, 0, 1),
+                MergeRect::new(5, 0, 9, 0),
+                MergeRect::new(13, 3, 14, 3),
+            ]
+        );
+        // Deleting a column clips A1:B1 to one cell: it disappears.
+        wb.delete_cols(s, 1, 1).unwrap();
+        assert_eq!(wb.sheet_view(s).frozen_cols, 1);
+        assert_eq!(
+            wb.merges(s),
+            &[MergeRect::new(5, 0, 9, 0), MergeRect::new(13, 2, 14, 2)]
+        );
+        // Deleting rows straddling the frozen boundary and a merge.
+        wb.delete_rows(s, 2, 5).unwrap();
+        assert_eq!(wb.sheet_view(s).frozen_rows, 2);
+        assert_eq!(
+            wb.merges(s),
+            &[MergeRect::new(2, 0, 4, 0), MergeRect::new(8, 2, 9, 2)]
+        );
+        wb.delete_rows(s, 0, 9).unwrap();
+        assert_eq!(wb.sheet_view(s).frozen_rows, 0);
+        assert!(wb.merges(s).is_empty());
+    }
+
+    #[test]
+    fn views_and_hidden_sheets() {
+        let mut wb = Workbook::new();
+        let s = SheetId(0);
+        assert!(wb.sheet_view(s).is_default());
+        let bad = SheetView {
+            zoom: 5,
+            ..Default::default()
+        };
+        assert!(matches!(
+            wb.set_sheet_view(s, bad),
+            Err(Error::InvalidSheetView(_))
+        ));
+        let view = SheetView {
+            frozen_rows: 1,
+            zoom: 150,
+            show_gridlines: false,
+            ..Default::default()
+        };
+        wb.set_sheet_view(s, view).unwrap();
+        assert_eq!(wb.sheet_view(s), view);
+
+        assert_eq!(wb.set_sheet_hidden(s, true), Err(Error::LastVisibleSheet));
+        let b = wb.add_sheet("B").unwrap();
+        wb.set_sheet_visibility(s, true, true).unwrap();
+        assert!(wb.is_sheet_hidden(s) && wb.is_sheet_very_hidden(s));
+        assert_eq!(wb.set_sheet_hidden(b, true), Err(Error::LastVisibleSheet));
+        assert_eq!(wb.remove_sheet(b), Err(Error::LastVisibleSheet));
+        wb.add_merge(s, MergeRect::new(0, 0, 1, 1)).unwrap();
+
+        // Duplicates are visible and keep view and merges.
+        let (copy, _) = wb.duplicate_sheet(s, "Copy").unwrap();
+        assert!(!wb.is_sheet_hidden(copy));
+        assert_eq!(wb.sheet_view(copy), view);
+        assert_eq!(wb.merges(copy), wb.merges(s));
+
+        let snap = wb.to_snapshot();
+        assert!(snap.sheets[0].hidden && snap.sheets[0].very_hidden);
+        let back = Workbook::from_snapshot(&snap).unwrap();
+        assert_eq!(back.to_snapshot(), snap);
+        let json = serde_json::to_value(&snap.sheets[0]).unwrap();
+        assert_eq!(json["view"]["zoom"], 150);
+        assert_eq!(json["merges"][0]["r1"], 1);
+        assert!(serde_json::to_value(&snap.sheets[2])
+            .unwrap()
+            .get("hidden")
+            .is_none());
+
+        wb.set_sheet_hidden(s, false).unwrap();
+        assert!(!wb.is_sheet_hidden(s) && !wb.is_sheet_very_hidden(s));
+        wb.remove_sheet(b).unwrap();
+
+        // A snapshot with every sheet hidden keeps one shown.
+        let mut all_hidden = wb.to_snapshot();
+        for sh in &mut all_hidden.sheets {
+            sh.hidden = true;
+        }
+        let wb = Workbook::from_snapshot(&all_hidden).unwrap();
+        assert_eq!(
+            wb.sheets()
+                .iter()
+                .filter(|(id, _)| !wb.is_sheet_hidden(*id))
+                .count(),
+            1
+        );
     }
 }

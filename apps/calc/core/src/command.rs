@@ -5,7 +5,7 @@
 //! (`r0..=r1`, `c0..=c1`, `r0 <= r1`, `c0 <= c1`).
 
 use core_model::Color;
-use model_sheet::{CellStyle, SheetFormat};
+use model_sheet::{CellStyle, SheetFormat, SheetView};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -135,6 +135,48 @@ pub enum CalcCommand {
         #[ts(as = "Option<app_common::wire::Color>")]
         color: Option<Color>,
     },
+    /// Freezes rows `0..rows` and columns `0..cols` (`0, 0` unfreezes).
+    /// The sheet list in the patch carries the new view.
+    SetFreeze {
+        sheet: u32,
+        rows: u32,
+        cols: u32,
+    },
+    /// Changes the listed view settings (zoom 10..=400).
+    SetSheetView {
+        sheet: u32,
+        patch: SheetViewPatch,
+    },
+    /// Hides or shows a sheet. Hiding the last visible sheet fails with
+    /// `last_visible_sheet`. The patch carries the sheet list and
+    /// `activateSheet`. `veryHidden` (with `hidden`) is Excel's
+    /// "very hidden" state; the UI never needs to send it.
+    SetSheetHidden {
+        sheet: u32,
+        hidden: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        very_hidden: Option<bool>,
+    },
+    /// Merges the range (at least two cells): only the top-left cell keeps
+    /// its content, the others are cleared (styles stay); merges lying
+    /// inside the range are absorbed, one sticking out fails with
+    /// `merge_overlap`. Undo restores the cleared contents.
+    MergeCells {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+    },
+    /// Removes every merge that intersects the range.
+    UnmergeCells {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+    },
     /// Pastes a copied block at `(r0, c0)` of `sheet` as one undo step.
     ///
     /// `src` is the copied range: its size is the block size, its top-left
@@ -199,10 +241,63 @@ pub enum CalcCommand {
         #[ts(as = "crate::wire::SheetFormat")]
         format: SheetFormat,
     },
+    /// *Internal.* Replaces all merged ranges of the sheet.
+    RestoreMerges {
+        sheet: u32,
+        merges: Vec<Rect>,
+    },
     /// *Internal.* Applies the commands in order as one undo step.
     Compound {
         commands: Vec<CalcCommand>,
     },
+}
+
+/// The view settings [`CalcCommand::SetSheetView`] changes; absent fields
+/// stay as they are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct SheetViewPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub frozen_rows: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub frozen_cols: Option<u32>,
+    /// Percent, 10..=400.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub zoom: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub show_gridlines: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub show_headings: Option<bool>,
+}
+
+impl SheetViewPatch {
+    /// A patch that sets every field to `view`'s value.
+    pub fn full(view: SheetView) -> Self {
+        SheetViewPatch {
+            frozen_rows: Some(view.frozen_rows),
+            frozen_cols: Some(view.frozen_cols),
+            zoom: Some(view.zoom),
+            show_gridlines: Some(view.show_gridlines),
+            show_headings: Some(view.show_headings),
+        }
+    }
+
+    /// `view` with the present fields replaced.
+    pub fn apply(&self, view: SheetView) -> SheetView {
+        SheetView {
+            frozen_rows: self.frozen_rows.unwrap_or(view.frozen_rows),
+            frozen_cols: self.frozen_cols.unwrap_or(view.frozen_cols),
+            zoom: self.zoom.unwrap_or(view.zoom),
+            show_gridlines: self.show_gridlines.unwrap_or(view.show_gridlines),
+            show_headings: self.show_headings.unwrap_or(view.show_headings),
+        }
+    }
 }
 
 /// An inclusive cell range on an implied sheet.
