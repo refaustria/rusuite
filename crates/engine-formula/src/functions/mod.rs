@@ -13,11 +13,17 @@ use crate::eval::{
 };
 use crate::value::{to_bool, to_number, to_text, Array, Value};
 
+#[macro_use]
+mod macros;
+pub(crate) mod helpers;
+
 pub mod datetime;
+pub mod financial;
 pub mod info;
 pub mod logical;
 pub mod lookup;
 pub mod math;
+pub mod statistical;
 pub mod text;
 
 /// Accepted argument count.
@@ -66,6 +72,12 @@ pub trait Function: Send + Sync {
     /// such as `IF` can short-circuit; use the [`CallContext`] helpers to
     /// evaluate them.
     fn call(&self, args: &[Expr], ctx: &mut CallContext) -> Value;
+    /// True for functions whose result can change without any input
+    /// changing (`NOW`, `RAND`, `INDIRECT`, ...); the engine re-evaluates
+    /// cells calling them on every recalculation. The default is `false`.
+    fn is_volatile(&self) -> bool {
+        false
+    }
     /// The result as a reference, for functions that can return one (such
     /// as `INDEX`), used where a reference is expected (see
     /// [`CallContext::eval_ref`]). Returns `Some(Operand::Range(..))` for a
@@ -93,6 +105,8 @@ impl FunctionRegistry {
     pub fn with_builtins() -> Self {
         let mut r = Self::new();
         math::register(&mut r);
+        statistical::register(&mut r);
+        financial::register(&mut r);
         logical::register(&mut r);
         text::register(&mut r);
         info::register(&mut r);
@@ -401,6 +415,39 @@ pub(crate) mod test_support {
         fn used_range(&self, _sheet: SheetId) -> Option<(u32, u32)> {
             Some((2, 2))
         }
+    }
+
+    /// The number a formula evaluates to (panics otherwise).
+    pub(crate) fn num(formula: &str) -> f64 {
+        match eval(formula) {
+            Value::Number(n) => n,
+            v => panic!("{formula} -> {v:?}"),
+        }
+    }
+
+    /// The text a formula evaluates to (panics otherwise).
+    pub(crate) fn text(formula: &str) -> String {
+        match eval(formula) {
+            Value::Text(s) => s,
+            v => panic!("{formula} -> {v:?}"),
+        }
+    }
+
+    /// The error a formula evaluates to (panics otherwise).
+    pub(crate) fn err(formula: &str) -> ErrorKind {
+        match eval(formula) {
+            Value::Error(e) => e,
+            v => panic!("{formula} -> {v:?}"),
+        }
+    }
+
+    /// Asserts that a formula evaluates to `want` within 1e-9.
+    pub(crate) fn close(formula: &str, want: f64) {
+        let got = num(formula);
+        assert!(
+            (got - want).abs() <= 1e-9 * want.abs().max(1.0),
+            "{formula} -> {got}, want {want}"
+        );
     }
 
     /// Evaluates `formula` in S1!J10 with the built-in registry.

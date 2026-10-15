@@ -1,9 +1,8 @@
 //! `SUMIF(range, criteria, [sum_range])`.
 
 use crate::ast::Expr;
-use crate::eval::CellCoord;
-use crate::functions::math::criteria::{cells, Criteria};
-use crate::functions::{Arity, CallContext, Function, RangeArg};
+use crate::functions::math::criteria::{at, cells, Criteria};
+use crate::functions::{Arity, CallContext, Function};
 use crate::value::Value;
 
 /// Sums the cells of `sum_range` (default `range`) whose counterpart in
@@ -11,25 +10,6 @@ use crate::value::Value;
 /// cell and takes the shape of `range`. Errors in matching sum cells
 /// propagate.
 pub struct SumIf;
-
-/// Value at offset `(r, c)` of `arg`; a `Range` is extended past its own
-/// bounds, an array yields `None` outside.
-fn at(arg: &RangeArg, r: usize, c: usize) -> Option<Value> {
-    match arg {
-        RangeArg::Range { range, provider } => {
-            let row = range.r0.checked_add(u32::try_from(r).ok()?)?;
-            let col = range.c0.checked_add(u32::try_from(c).ok()?)?;
-            (row <= crate::ast::MAX_ROW && col <= crate::ast::MAX_COL).then(|| {
-                provider.value(CellCoord {
-                    sheet: range.sheet,
-                    row,
-                    col,
-                })
-            })
-        }
-        RangeArg::Array(_) => arg.get(r, c),
-    }
-}
 
 impl Function for SumIf {
     fn name(&self) -> &'static str {

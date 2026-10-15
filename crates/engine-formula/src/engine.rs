@@ -32,10 +32,15 @@
 //!
 //! Every `set_*` call updates the dependency graph and re-evaluates the
 //! edited cell (if it holds a formula), every transitive dependent and
-//! every volatile cell (formulas calling `NOW` or `TODAY`), in dependency
-//! order. [`Recalc::changed`] lists the re-evaluated formula cells whose
+//! every volatile cell (formulas calling a function whose
+//! `Function::is_volatile` is true, such as `NOW`, `TODAY`, `RAND`,
+//! `INDIRECT`, `OFFSET`), in dependency order. [`Recalc::changed`] lists the re-evaluated formula cells whose
 //! value actually changed; the edited cell itself appears there only when
 //! it holds a formula (callers know that they changed a constant).
+//! `INDIRECT` and `OFFSET` read cells the dependency graph does not know
+//! about; after a pass in which cells changed behind the first volatile
+//! cell, the volatile cells and their dependents are evaluated again (at
+//! most three more times), so they see the recalculated values.
 //!
 //! Between [`Engine::begin_batch`] and [`Engine::end_batch`] edits only
 //! update storage and the graph; the deferred recalculation runs once in
@@ -80,10 +85,6 @@ use crate::graph::{Cycle, DependencyGraph, Precedent, SheetResolver};
 use crate::parser::{parse, ParseError};
 use crate::transform::{adjust_references, AdjustContext, StructuralOp};
 use crate::value::{parse_number_text, Value};
-
-/// Functions whose result can change without any input changing; cells
-/// calling them are re-evaluated on every recalculation.
-const VOLATILE_FUNCTIONS: [&str; 2] = ["NOW", "TODAY"];
 
 /// What a cell holds.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -183,17 +184,18 @@ impl SheetResolver for Names<'_> {
     }
 }
 
-fn is_volatile(e: &Expr) -> bool {
+/// Whether `e` calls a function whose [`Function::is_volatile`] flag is
+/// set (such as `NOW`, `RAND` or `INDIRECT`); those cells are re-evaluated
+/// on every recalculation.
+fn is_volatile(e: &Expr, registry: &FunctionRegistry) -> bool {
     match e {
         Expr::Call { name, args } => {
-            VOLATILE_FUNCTIONS
-                .iter()
-                .any(|v| v.eq_ignore_ascii_case(name))
-                || args.iter().any(is_volatile)
+            registry.get(name).is_some_and(|f| f.is_volatile())
+                || args.iter().any(|a| is_volatile(a, registry))
         }
-        Expr::Unary { expr, .. } => is_volatile(expr),
-        Expr::Binary { lhs, rhs, .. } => is_volatile(lhs) || is_volatile(rhs),
-        Expr::Array(rows) => rows.iter().flatten().any(is_volatile),
+        Expr::Unary { expr, .. } => is_volatile(expr, registry),
+        Expr::Binary { lhs, rhs, .. } => is_volatile(lhs, registry) || is_volatile(rhs, registry),
+        Expr::Array(rows) => rows.iter().flatten().any(|a| is_volatile(a, registry)),
         _ => false,
     }
 }
@@ -384,7 +386,7 @@ impl Engine {
             };
             self.graph
                 .set_formula(c, ast, &Names(&self.sheets), c.sheet);
-            if is_volatile(ast) {
+            if is_volatile(ast, &self.registry) {
                 self.volatile.insert(c);
             } else {
                 self.volatile.remove(&c);
@@ -579,7 +581,7 @@ impl Engine {
             CellContent::Formula { ast, .. } => {
                 self.graph
                     .set_formula(c, ast, &Names(&self.sheets), c.sheet);
-                if is_volatile(ast) {
+                if is_volatile(ast, &self.registry) {
                     self.volatile.insert(c);
                 } else {
                     self.volatile.remove(&c);
@@ -852,7 +854,7 @@ impl Engine {
             };
             self.graph
                 .set_formula(c, ast, &Names(&self.sheets), c.sheet);
-            if is_volatile(ast) {
+            if is_volatile(ast, &self.registry) {
                 self.volatile.insert(c);
             }
         }
@@ -936,7 +938,39 @@ impl Engine {
 
     fn run(&mut self, schedule: crate::graph::Schedule) -> Recalc {
         let mut changed = Vec::new();
-        for c in schedule.order {
+        let cycle = schedule.cycle.clone();
+        let mut pass = self.eval_schedule(&schedule, &mut changed);
+        // Volatile cells that read other cells dynamically (`INDIRECT`,
+        // `OFFSET`) have no dependency edges to them, so the schedule may
+        // have evaluated them before a cell they read was recalculated.
+        // While a cell changed after the first volatile cell was
+        // evaluated, evaluate the volatile cells and their dependents again.
+        for _ in 0..3 {
+            let (Some(first_volatile), Some(last_change)) = pass else {
+                break;
+            };
+            if last_change <= first_volatile {
+                break;
+            }
+            let seeds: Vec<CellCoord> = self.volatile.iter().copied().collect();
+            let again = self.graph.recalc_schedule(&seeds);
+            pass = self.eval_schedule(&again, &mut changed);
+        }
+        changed.sort_unstable();
+        changed.dedup();
+        Recalc { changed, cycle }
+    }
+
+    /// Evaluates the cells of `schedule` in order, appending the cells
+    /// whose value changed to `changed`. Returns the position of the first
+    /// volatile cell and of the last changed cell within the schedule.
+    fn eval_schedule(
+        &mut self,
+        schedule: &crate::graph::Schedule,
+        changed: &mut Vec<CellCoord>,
+    ) -> (Option<usize>, Option<usize>) {
+        let (mut first_volatile, mut last_change) = (None, None);
+        for (i, &c) in schedule.order.iter().enumerate() {
             let new = if schedule.cyclic.contains(&c) {
                 Value::Error(ErrorKind::Num)
             } else {
@@ -947,17 +981,17 @@ impl Engine {
                 ctx.now = self.now;
                 evaluate(ast, &ctx).into_scalar()
             };
+            if first_volatile.is_none() && self.volatile.contains(&c) {
+                first_volatile = Some(i);
+            }
             let values = &mut self.sheets[c.sheet.0 as usize].values;
             let old = values.insert((c.row, c.col), new.clone());
             if !old.is_some_and(|o| same_value(&o, &new)) {
                 changed.push(c);
+                last_change = Some(i);
             }
         }
-        changed.sort_unstable();
-        Recalc {
-            changed,
-            cycle: schedule.cycle,
-        }
+        (first_volatile, last_change)
     }
 }
 
@@ -1006,10 +1040,14 @@ mod tests {
 
     #[test]
     fn volatile_detection() {
-        let p = |s: &str| is_volatile(&parse(s).unwrap());
+        let p = |s: &str| is_volatile(&parse(s).unwrap(), &FunctionRegistry::with_builtins());
         assert!(p("=today()"));
         assert!(p("=1+IF(TRUE,{1},NOW())"));
         assert!(!p("=SUM(A1:A3)"));
+        assert!(p("=RAND()"));
+        assert!(p("=SUM(INDIRECT(\"A1\"))"));
+        assert!(p("=OFFSET(A1,1,1)"));
+        assert!(!p("=ROW(A1)"));
     }
 
     #[test]

@@ -2,8 +2,9 @@
 
 use std::cmp::Ordering;
 
-use crate::ast::ErrorKind;
-use crate::functions::RangeArg;
+use crate::ast::{ErrorKind, Expr};
+use crate::eval::CellCoord;
+use crate::functions::{CallContext, RangeArg};
 use crate::value::{parse_number_text, round_15, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,6 +187,25 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
     pat[p..].iter().all(|x| matches!(x, P::Star))
 }
 
+/// Value at offset `(r, c)` of `arg`; a `Range` is extended past its own
+/// bounds, an array yields `None` outside.
+pub(crate) fn at(arg: &RangeArg, r: usize, c: usize) -> Option<Value> {
+    match arg {
+        RangeArg::Range { range, provider } => {
+            let row = range.r0.checked_add(u32::try_from(r).ok()?)?;
+            let col = range.c0.checked_add(u32::try_from(c).ok()?)?;
+            (row <= crate::ast::MAX_ROW && col <= crate::ast::MAX_COL).then(|| {
+                provider.value(CellCoord {
+                    sheet: range.sheet,
+                    row,
+                    col,
+                })
+            })
+        }
+        RangeArg::Array(_) => arg.get(r, c),
+    }
+}
+
 /// Every cell of the argument as `(row, col, value)` with 0-based offsets
 /// from its top-left corner; whole-column/row ranges are clipped to the
 /// used range.
@@ -217,6 +237,42 @@ pub fn cells(arg: &RangeArg) -> Vec<(usize, usize, Value)> {
         }
     }
     out
+}
+
+/// Offsets `(row, col)` of the cells that satisfy every `(range, criteria)`
+/// pair of `pairs` (the argument list of `SUMIFS`/`COUNTIFS` and friends
+/// after the optional value range). All ranges must have the shape of
+/// `shape` (`#VALUE!` otherwise); the pair count must be even and non-zero.
+pub(crate) fn matching_offsets(
+    ctx: &CallContext,
+    shape: &RangeArg,
+    pairs: &[Expr],
+) -> Result<Vec<(usize, usize)>, ErrorKind> {
+    if pairs.is_empty() || pairs.len() % 2 != 0 {
+        return Err(ErrorKind::Value);
+    }
+    let mut ranges = Vec::new();
+    for p in pairs.chunks(2) {
+        let r = ctx.range(&p[0])?;
+        if r.rows() != shape.rows() || r.cols() != shape.cols() {
+            return Err(ErrorKind::Value);
+        }
+        let crit = Criteria::parse(&ctx.scalar(&p[1]))?;
+        ranges.push((r, crit));
+    }
+    let mut out = Vec::new();
+    for (r, c, v) in cells(&ranges[0].0) {
+        if !ranges[0].1.matches(&v) {
+            continue;
+        }
+        if ranges[1..]
+            .iter()
+            .all(|(rg, cr)| cr.matches(&at(rg, r, c).unwrap_or(Value::Empty)))
+        {
+            out.push((r, c));
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
