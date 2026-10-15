@@ -22,4 +22,15 @@ margins: Margins,
 /**
  * Orientation.
  */
-orientation: Orientation, };
+orientation: Orientation, 
+/**
+ * Plain text of the default page header (docx `w:hdr` of type
+ * `default`): paragraphs separated by `\n`, the current page number
+ * as the field placeholder [`PAGE_FIELD`]. `None` = no header.
+ */
+headerText?: string, 
+/**
+ * Plain text of the default page footer, like
+ * [`header_text`](Self::header_text).
+ */
+footerText?: string, };

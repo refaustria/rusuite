@@ -70,6 +70,26 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
     if numbering_xml.is_some() {
         rels.add(rel("numbering"), "numbering.xml");
     }
+    // Default header/footer parts (plain text, `{PAGE}` as a field).
+    let mut header_parts = Vec::new();
+    let mut header_refs = Vec::new();
+    for (text, footer) in [
+        (&doc.page.header_text, false),
+        (&doc.page.footer_text, true),
+    ] {
+        let Some(text) = text.as_deref().filter(|t| !t.is_empty()) else {
+            continue;
+        };
+        let (kind, file, style, ct) = if footer {
+            ("footer", "footer1.xml", "Footer", crate::headers::CT_FOOTER)
+        } else {
+            ("header", "header1.xml", "Header", crate::headers::CT_HEADER)
+        };
+        let id = rels.add(rel(kind), file).id.clone();
+        let style = doc.styles.get(style).map(|_| style);
+        header_parts.push((file, ct, crate::headers::write_part(text, footer, style)));
+        header_refs.push((footer, id));
+    }
 
     let mut w = DocWriter {
         x: XmlOut::new(),
@@ -79,6 +99,7 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
         media: HashMap::new(),
         media_parts: Vec::new(),
         next_docpr: 1,
+        header_refs,
     };
     w.document()?;
     let DocWriter {
@@ -110,6 +131,9 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
     );
     if let Some(xml) = numbering_xml {
         pkg.insert_part(pn("/word/numbering.xml")?, CT_NUMBERING, xml);
+    }
+    for (file, content_type, data) in header_parts {
+        pkg.insert_part(PartName::new(format!("/word/{file}"))?, content_type, data);
     }
     for (name, content_type, data) in media_parts {
         pkg.insert_part(PartName::new(format!("/word/{name}"))?, content_type, data);
@@ -150,6 +174,8 @@ struct DocWriter<'a> {
     /// (`media/imageN.ext`, content type, bytes).
     media_parts: Vec<(String, String, Vec<u8>)>,
     next_docpr: u32,
+    /// (`is footer`, relationship id) of the default header/footer parts.
+    header_refs: Vec<(bool, String)>,
 }
 
 impl DocWriter<'_> {
@@ -429,6 +455,14 @@ impl DocWriter<'_> {
         let p = &self.doc.page;
         let x = &mut self.x;
         x.start("w:sectPr", &[]);
+        for (footer, id) in &self.header_refs {
+            let name = if *footer {
+                "w:footerReference"
+            } else {
+                "w:headerReference"
+            };
+            x.empty(name, &[("w:type", "default"), ("r:id", id)]);
+        }
         let (w, h) = (p.width.0.to_string(), p.height.0.to_string());
         let mut size = vec![("w:w", w.as_str()), ("w:h", h.as_str())];
         if p.orientation == Orientation::Landscape {
@@ -626,6 +660,34 @@ mod tests {
                 _ => unreachable!(),
             }
         );
+    }
+
+    #[test]
+    fn header_and_footer_roundtrip() {
+        let mut doc = Document::new();
+        doc.page.header_text = Some("Quarterly report\tDraft".into());
+        doc.page.footer_text = Some("Page {PAGE}".into());
+        let bytes = write(&doc).unwrap();
+        let pkg = fmt_ooxml::Package::open(Cursor::new(bytes.as_slice())).unwrap();
+        let main = PartName::new("/word/document.xml").unwrap();
+        let xml = String::from_utf8(pkg.part(&main).unwrap().data.clone()).unwrap();
+        let sect = &xml[xml.find("<w:sectPr>").unwrap()..];
+        assert!(sect.starts_with(r#"<w:sectPr><w:headerReference w:type="default" r:id="#));
+        assert!(sect.contains("<w:footerReference"));
+        assert!(pkg
+            .part(&PartName::new("/word/footer1.xml").unwrap())
+            .is_some_and(|p| p.content_type == crate::headers::CT_FOOTER));
+        let out = crate::read_with_context(&bytes).unwrap();
+        assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+        assert_eq!(out.document.page, doc.page);
+
+        // Removing them removes the parts.
+        doc.page.header_text = None;
+        doc.page.footer_text = Some(String::new());
+        let bytes = write(&doc).unwrap();
+        let back = crate::read(&bytes).unwrap();
+        assert_eq!((back.page.header_text, back.page.footer_text), (None, None));
+        assert!(!String::from_utf8_lossy(&bytes).contains("header1.xml"));
     }
 
     #[test]

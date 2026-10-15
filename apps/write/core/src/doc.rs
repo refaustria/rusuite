@@ -8,8 +8,8 @@ use core_model::Color;
 use model_text::media::{base64_decode, base64_encode};
 use model_text::{
     Block, BorderSide, BorderStyle, CellProperties, Document, Inline, InlineImage, Media, NodeId,
-    NumberingDef, NumberingRef, Paragraph, ParagraphProperties, Run, StyleKind, Table,
-    TableBorders, TableCell, TableProperties, TableRow, Twips,
+    NumberingDef, NumberingRef, Paragraph, ParagraphProperties, Run, RunProperties, StyleKind,
+    Table, TableBorders, TableCell, TableProperties, TableRow, Twips,
 };
 
 use crate::command::{ListKind, NewBlock, NewCell, NewParagraph, NewRow, NewTable, WriteCommand};
@@ -701,7 +701,11 @@ impl WriteDocument {
                         let old = cell.props;
                         let new = CellProperties {
                             width: patch.width.or(old.width),
-                            shading: patch.shading.or(old.shading),
+                            // `auto` = no fill (removes the shading).
+                            shading: match patch.shading {
+                                Some(Color::Auto) => None,
+                                p => p.or(old.shading),
+                            },
                             borders: merge_borders(old.borders, patch.borders),
                             vertical_align: patch.vertical_align.or(old.vertical_align),
                         };
@@ -745,8 +749,8 @@ impl WriteDocument {
                 })
             }
             C::SetPage { patch } => {
-                let old = self.doc.page;
-                let mut page = old;
+                let old = self.doc.page.clone();
+                let mut page = old.clone();
                 if let Some(o) = patch.orientation {
                     page = page.with_orientation(o);
                 }
@@ -760,6 +764,18 @@ impl WriteDocument {
                     pm.left = m.left.unwrap_or(pm.left);
                     pm.header = m.header.unwrap_or(pm.header);
                     pm.footer = m.footer.unwrap_or(pm.footer);
+                }
+                if let Some(t) = &patch.header_text {
+                    page.header_text = Some(t.clone()).filter(|t| !t.is_empty());
+                }
+                if let Some(t) = &patch.footer_text {
+                    page.footer_text = Some(t.clone()).filter(|t| !t.is_empty());
+                }
+                if [&page.header_text, &page.footer_text]
+                    .iter()
+                    .any(|t| t.as_deref().is_some_and(|t| t.contains('\r')))
+                {
+                    return Err(invalid("header/footer text must not contain \\r"));
                 }
                 let m = page.margins;
                 if page.width.0 <= 0
@@ -784,7 +800,83 @@ impl WriteDocument {
                             header: Some(old.margins.header),
                             footer: Some(old.margins.footer),
                         }),
+                        header_text: Some(old.header_text.unwrap_or_default()),
+                        footer_text: Some(old.footer_text.unwrap_or_default()),
                     },
+                })
+            }
+            C::SetImageSize {
+                block,
+                offset,
+                width,
+                height,
+            } => {
+                if width.0 <= 0 || height.0 <= 0 {
+                    return Err(invalid("image size must be positive"));
+                }
+                let (w, h) = (*width, *height);
+                self.edit_image(*block, *offset, ch, |img| {
+                    img.width = w;
+                    img.height = h;
+                })
+            }
+            C::SetImageAlt { block, offset, alt } => {
+                let alt = alt.clone().filter(|a| !a.is_empty());
+                self.edit_image(*block, *offset, ch, |img| img.alt = alt)
+            }
+            C::SetRowProps {
+                table,
+                rows,
+                header,
+                height,
+            } => self.edit_table(*table, ch, |t| {
+                for &r in rows {
+                    let row = t
+                        .rows
+                        .get_mut(r as usize)
+                        .ok_or_else(|| invalid(format!("row {r} out of range")))?;
+                    if let Some(hd) = header {
+                        row.props.header = *hd;
+                    }
+                    if let Some(h) = height {
+                        row.props.height = (h.value.0 > 0).then_some(*h);
+                    }
+                }
+                Ok(())
+            }),
+            C::ClearFormatting {
+                block,
+                from,
+                to,
+                paragraph,
+            } => {
+                let (f, t) = self.range(*block, *from, *to)?;
+                let p = self.para(*block)?;
+                let old_inlines = slice(p, f, t);
+                let old_props = p.props.clone();
+                let p = self.para_mut(*block)?;
+                for_each_run_in(p, f, t, |props| *props = RunProperties::default());
+                if *paragraph {
+                    p.props = ParagraphProperties::default();
+                }
+                ch.block(*block);
+                let restore = C::RestoreInlines {
+                    block: *block,
+                    from: *from,
+                    to: *to,
+                    inlines: old_inlines,
+                };
+                Ok(if *paragraph {
+                    C::Compound {
+                        commands: vec![
+                            restore,
+                            C::RestoreParagraphProps {
+                                items: vec![(*block, old_props)],
+                            },
+                        ],
+                    }
+                } else {
+                    restore
                 })
             }
             C::FindReplace {
@@ -1171,6 +1263,34 @@ impl WriteDocument {
         self.insert_blocks(after, parent, &[table], ch)
     }
 
+    /// Edits the inline image at position `offset` of paragraph `block`;
+    /// the inverse restores the old image.
+    fn edit_image(
+        &mut self,
+        block: NodeId,
+        offset: u32,
+        ch: &mut Changes,
+        f: impl FnOnce(&mut InlineImage),
+    ) -> R<C> {
+        let (at, _) = self.range(block, offset, offset)?;
+        let p = self.para(block)?;
+        if at >= p.len() {
+            return Err(invalid(format!(
+                "no image at {offset} in block {}",
+                block.0
+            )));
+        }
+        let mut found = slice(p, at, at + 1);
+        let Some(Inline::Image(img)) = found.first_mut() else {
+            return Err(invalid(format!(
+                "no image at {offset} in block {}",
+                block.0
+            )));
+        };
+        f(img);
+        self.restore_inlines(block, offset, offset + 1, found, ch)
+    }
+
     /// Edits a table in place; the inverse restores the whole table.
     fn edit_table(
         &mut self,
@@ -1442,7 +1562,7 @@ impl WriteDocument {
             id_map: ch.id_map,
             styles: ch.styles.then(|| self.doc.styles.clone()),
             numbering: ch.numbering.then(|| self.doc.numbering.clone()),
-            page: ch.page.then_some(self.doc.page),
+            page: ch.page.then(|| self.doc.page.clone()),
             info: ch.info,
         }
     }

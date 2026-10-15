@@ -63,7 +63,7 @@ impl Default for Margins {
 
 /// Page setup. `width`/`height` are the actual page dimensions (already
 /// swapped for landscape).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(
     feature = "ts",
@@ -81,7 +81,22 @@ pub struct PageSetup {
     pub margins: Margins,
     /// Orientation.
     pub orientation: Orientation,
+    /// Plain text of the default page header (docx `w:hdr` of type
+    /// `default`): paragraphs separated by `\n`, the current page number
+    /// as the field placeholder [`PAGE_FIELD`]. `None` = no header.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub header_text: Option<String>,
+    /// Plain text of the default page footer, like
+    /// [`header_text`](Self::header_text).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub footer_text: Option<String>,
 }
+
+/// Placeholder for the page number field (docx `PAGE`) in
+/// [`PageSetup::header_text`] and [`PageSetup::footer_text`].
+pub const PAGE_FIELD: &str = "{PAGE}";
 
 impl PageSetup {
     /// A4 portrait (210 × 297 mm = 11906 × 16838 twips), Word's margins.
@@ -91,6 +106,8 @@ impl PageSetup {
             height: Twips(16838),
             margins: Margins::default(),
             orientation: Orientation::Portrait,
+            header_text: None,
+            footer_text: None,
         }
     }
 
@@ -101,6 +118,8 @@ impl PageSetup {
             height: Twips(15840),
             margins: Margins::default(),
             orientation: Orientation::Portrait,
+            header_text: None,
+            footer_text: None,
         }
     }
 
@@ -138,10 +157,26 @@ mod tests {
         assert_eq!(a4.margins.header, Twips(708));
         let l = PageSetup::letter().with_orientation(Orientation::Landscape);
         assert_eq!((l.width, l.height), (Twips(15840), Twips(12240)));
-        assert_eq!(l.with_orientation(Orientation::Landscape), l);
+        assert_eq!(l.clone().with_orientation(Orientation::Landscape), l);
         assert_eq!(
             l.with_orientation(Orientation::Portrait),
             PageSetup::letter()
         );
+    }
+
+    #[test]
+    fn header_footer_are_optional_in_json() {
+        let a4 = PageSetup::a4();
+        let json = serde_json::to_value(&a4).unwrap();
+        assert!(json.get("headerText").is_none());
+        let with = PageSetup {
+            header_text: Some(format!("Report – page {PAGE_FIELD}")),
+            footer_text: Some("Confidential".into()),
+            ..a4
+        };
+        let json = serde_json::to_string(&with).unwrap();
+        assert!(json.contains(r#""headerText":"Report – page {PAGE}""#));
+        let back: PageSetup = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, with);
     }
 }

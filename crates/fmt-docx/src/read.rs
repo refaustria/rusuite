@@ -141,10 +141,39 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         reason: "no w:body".into(),
     })?;
 
-    let page = body
+    let (mut page, refs) = body
         .child("sectPr")
         .map(|s| read_section(s, &mut w))
         .unwrap_or_default();
+    for (rid, footer) in [(refs.header, false), (refs.footer, true)] {
+        let Some(rid) = rid else { continue };
+        let what = if footer { "footer" } else { "header" };
+        let part = pkg
+            .relationships(&main)
+            .and_then(|r| r.get(&rid))
+            .filter(|r| r.target_mode == TargetMode::Internal)
+            .and_then(|r| main.resolve(&r.target).ok());
+        let Some(part) = part else {
+            w.add(format!("{what} with dangling relationship {rid} dropped"));
+            continue;
+        };
+        let Some(data) = pkg.part(&part).map(|p| p.data.as_slice()) else {
+            w.add(format!("{what} part {part} missing; dropped"));
+            continue;
+        };
+        let root = parse(data, part.as_str())?;
+        let text = crate::headers::read_text(&root, what, &mut w);
+        if pkg.relationships(&part).is_some_and(|r| !r.is_empty()) {
+            w.add(format!("{what}: pictures and links dropped"));
+        }
+        consumed.insert(part);
+        let slot = if footer {
+            &mut page.footer_text
+        } else {
+            &mut page.header_text
+        };
+        *slot = Some(text);
+    }
     let mut doc = Document::empty(styles, page);
     if let Some(n) = numbering {
         doc.numbering = n.numbering;
@@ -175,9 +204,17 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     })
 }
 
-/// `w:sectPr` → page setup.
-fn read_section(s: &El, w: &mut Warnings) -> PageSetup {
+/// Relationship ids of the default header and footer of a section.
+#[derive(Debug, Default)]
+struct HeaderRefs {
+    header: Option<String>,
+    footer: Option<String>,
+}
+
+/// `w:sectPr` → page setup and the default header/footer references.
+fn read_section(s: &El, w: &mut Warnings) -> (PageSetup, HeaderRefs) {
     let mut page = PageSetup::a4();
+    let mut refs = HeaderRefs::default();
     let tw = |el: &El, a: &str| el.attr(a).and_then(parse_twips).map(Twips);
     for el in s.elements() {
         match el.name.as_str() {
@@ -212,7 +249,19 @@ fn read_section(s: &El, w: &mut Warnings) -> PageSetup {
                 }
             }
             "headerReference" | "footerReference" => {
-                w.add("section: headers and footers dropped");
+                let footer = el.name == "footerReference";
+                match (el.attr("type").unwrap_or("default"), el.attr("id")) {
+                    ("default", Some(id)) => {
+                        let slot = if footer {
+                            &mut refs.footer
+                        } else {
+                            &mut refs.header
+                        };
+                        *slot = Some(id.to_owned());
+                    }
+                    ("default", None) => {}
+                    _ => w.add("section: first-page and even-page headers and footers dropped"),
+                }
             }
             "cols" => {
                 if el.attr("num").and_then(parse_u32).is_some_and(|n| n > 1) {
@@ -226,7 +275,7 @@ fn read_section(s: &El, w: &mut Warnings) -> PageSetup {
             _ => {}
         }
     }
-    page
+    (page, refs)
 }
 
 struct BodyReader<'a> {

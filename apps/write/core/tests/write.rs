@@ -1217,3 +1217,414 @@ fn request_types_roundtrip_through_json() {
         serde_json::to_value(&block).unwrap()
     );
 }
+
+// ----- P6-4: editing ergonomics ---------------------------------------------------
+
+fn image_at(h: &WriteHost, block: u64, at: usize) -> InlineImage {
+    let p = para(h, block);
+    let mut pos = 0;
+    for i in &p.inlines {
+        let len = match i {
+            Inline::Run(r) => r.text.chars().count(),
+            _ => 1,
+        };
+        if pos == at {
+            if let Inline::Image(img) = i {
+                return img.clone();
+            }
+        }
+        pos += len;
+    }
+    panic!("no image at {at}")
+}
+
+#[test]
+fn set_image_size_and_alt() {
+    let mut h = host(&["aé😀b"]);
+    image_para(&mut h);
+    let p = apply(
+        &mut h,
+        C::SetImageSize {
+            block: id(1),
+            offset: 2,
+            width: Emu(190_500),
+            height: Emu(95_250),
+        },
+    );
+    assert_eq!(p.replaced.len(), 1);
+    let img = image_at(&h, 1, 2);
+    assert_eq!((img.width, img.height), (Emu(190_500), Emu(95_250)));
+    assert_eq!(img.alt.as_deref(), Some("dot"));
+    assert_eq!(text(&h, 1), "aé\u{FFFC}😀b\u{000B}c");
+    apply(
+        &mut h,
+        C::SetImageAlt {
+            block: id(1),
+            offset: 2,
+            alt: Some("A red dot".into()),
+        },
+    );
+    assert_eq!(image_at(&h, 1, 2).alt.as_deref(), Some("A red dot"));
+    apply(
+        &mut h,
+        C::SetImageAlt {
+            block: id(1),
+            offset: 2,
+            alt: Some(String::new()),
+        },
+    );
+    assert_eq!(image_at(&h, 1, 2).alt, None);
+}
+
+#[test]
+fn set_image_size_rejects_text_and_bad_sizes() {
+    let mut h = host(&["aé😀b"]);
+    image_para(&mut h);
+    let size = |offset, w| C::SetImageSize {
+        block: id(1),
+        offset,
+        width: Emu(w),
+        height: Emu(10),
+    };
+    assert_eq!(err_code(&mut h, size(1, 10)), "invalid_command");
+    assert_eq!(err_code(&mut h, size(2, 0)), "invalid_command");
+    assert_eq!(err_code(&mut h, size(7, 10)), "invalid_command");
+    assert_eq!(err_code(&mut h, size(9, 10)), "bad_offset");
+}
+
+fn table_host() -> (WriteHost, NodeId) {
+    let mut h = host(&["a"]);
+    apply(
+        &mut h,
+        C::InsertTable {
+            after: Some(id(1)),
+            parent: None,
+            rows: 2,
+            cols: 2,
+            new_ids: vec![],
+        },
+    );
+    let table = h.doc().document().body[1].id();
+    (h, table)
+}
+
+fn table_of(h: &WriteHost, t: NodeId) -> model_text::Table {
+    h.doc()
+        .document()
+        .find_block(t)
+        .unwrap()
+        .as_table()
+        .unwrap()
+        .clone()
+}
+
+#[test]
+fn set_row_props_header_and_height() {
+    let (mut h, t) = table_host();
+    let p = apply(
+        &mut h,
+        C::SetRowProps {
+            table: t,
+            rows: vec![0],
+            header: Some(true),
+            height: Some(model_text::RowHeight {
+                value: Twips(720),
+                rule: model_text::HeightRule::AtLeast,
+            }),
+        },
+    );
+    assert_eq!(p.replaced.len(), 1);
+    let tb = table_of(&h, t);
+    assert!(tb.rows[0].props.header);
+    assert_eq!(tb.rows[0].props.height.unwrap().value, Twips(720));
+    assert!(!tb.rows[1].props.header);
+    // A zero height means automatic; header untouched.
+    apply(
+        &mut h,
+        C::SetRowProps {
+            table: t,
+            rows: vec![0, 1],
+            header: None,
+            height: Some(model_text::RowHeight {
+                value: Twips(0),
+                rule: model_text::HeightRule::Exact,
+            }),
+        },
+    );
+    let tb = table_of(&h, t);
+    assert_eq!(tb.rows[0].props.height, None);
+    assert!(tb.rows[0].props.header);
+    assert_eq!(
+        err_code(
+            &mut h,
+            C::SetRowProps {
+                table: t,
+                rows: vec![5],
+                header: Some(false),
+                height: None
+            }
+        ),
+        "invalid_command"
+    );
+}
+
+#[test]
+fn row_and_column_ops_like_word() {
+    let (mut h, t) = table_host();
+    // Insert above row 0, below row 0, left of column 0, right of column 1.
+    apply(
+        &mut h,
+        C::InsertTableRow {
+            table: t,
+            at: 0,
+            new_ids: vec![],
+        },
+    );
+    apply(
+        &mut h,
+        C::InsertTableRow {
+            table: t,
+            at: 1,
+            new_ids: vec![],
+        },
+    );
+    apply(
+        &mut h,
+        C::InsertTableCol {
+            table: t,
+            at: 0,
+            new_ids: vec![],
+        },
+    );
+    apply(
+        &mut h,
+        C::InsertTableCol {
+            table: t,
+            at: 3,
+            new_ids: vec![],
+        },
+    );
+    let tb = table_of(&h, t);
+    assert_eq!(tb.rows.len(), 4);
+    assert!(tb.rows.iter().all(|r| r.cells.len() == 4));
+    assert_eq!(tb.props.col_widths.len(), 4);
+    // Delete the whole table.
+    let p = apply(&mut h, C::DeleteBlocks { ids: vec![t] });
+    assert_eq!(p.deleted, vec![t]);
+    assert!(h.doc().document().find_block(t).is_none());
+}
+
+#[test]
+fn column_widths_resize() {
+    let (mut h, t) = table_host();
+    apply(
+        &mut h,
+        C::SetTableProps {
+            table: t,
+            patch: model_text::TableProperties {
+                col_widths: vec![Twips(3000), Twips(6026)],
+                ..Default::default()
+            },
+        },
+    );
+    assert_eq!(
+        table_of(&h, t).props.col_widths,
+        vec![Twips(3000), Twips(6026)]
+    );
+}
+
+#[test]
+fn cell_shading_auto_removes_the_fill() {
+    let (mut h, t) = table_host();
+    let cell = table_of(&h, t).rows[0].cells[0].id;
+    let fill = CellProperties {
+        shading: Some(core_model::Color::Rgb(core_model::Rgb::new(255, 255, 0))),
+        ..Default::default()
+    };
+    apply(
+        &mut h,
+        C::SetCellProps {
+            cells: vec![cell],
+            patch: fill,
+        },
+    );
+    assert!(table_of(&h, t).rows[0].cells[0].props.shading.is_some());
+    let none = CellProperties {
+        shading: Some(core_model::Color::Auto),
+        ..Default::default()
+    };
+    apply(
+        &mut h,
+        C::SetCellProps {
+            cells: vec![cell],
+            patch: none,
+        },
+    );
+    assert_eq!(table_of(&h, t).rows[0].cells[0].props.shading, None);
+}
+
+#[test]
+fn table_borders_none_and_outline() {
+    use model_text::{BorderSide, BorderStyle, TableBorders};
+    let (mut h, t) = table_host();
+    let none = BorderSide {
+        style: BorderStyle::None,
+        width: Twips(0),
+        color: core_model::Color::Auto,
+    };
+    apply(
+        &mut h,
+        C::SetTableProps {
+            table: t,
+            patch: model_text::TableProperties {
+                borders: Some(TableBorders {
+                    inside_h: Some(none),
+                    inside_v: Some(none),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        },
+    );
+    let b = table_of(&h, t).props.borders.unwrap();
+    assert_eq!(b.top.unwrap().style, BorderStyle::Single);
+    assert_eq!(b.inside_h.unwrap().style, BorderStyle::None);
+}
+
+#[test]
+fn clear_formatting_runs_and_paragraph() {
+    let mut h = host(&["plain|bold"]);
+    apply(
+        &mut h,
+        C::SetParagraphProps {
+            blocks: vec![id(1)],
+            patch: ParagraphProperties {
+                alignment: Some(model_text::Alignment::Center),
+                ..Default::default()
+            },
+        },
+    );
+    apply(
+        &mut h,
+        C::SetStyle {
+            blocks: vec![id(1)],
+            style: "Heading1".into(),
+        },
+    );
+    // Character formatting only (Ctrl+Space) of "ld".
+    apply(
+        &mut h,
+        C::ClearFormatting {
+            block: id(1),
+            from: 7,
+            to: 9,
+            paragraph: false,
+        },
+    );
+    let p = para(&h, 1);
+    assert_eq!(p.text(), "plainbold");
+    assert_eq!(p.inlines.len(), 3);
+    assert_eq!(p.props.style.as_deref(), Some("Heading1"));
+    // Clear all formatting.
+    apply(
+        &mut h,
+        C::ClearFormatting {
+            block: id(1),
+            from: 0,
+            to: 9,
+            paragraph: true,
+        },
+    );
+    let p = para(&h, 1);
+    assert_eq!(p.inlines, vec![Inline::Run(Run::new("plainbold"))]);
+    assert!(p.props.is_empty());
+}
+
+#[test]
+fn header_footer_via_set_page() {
+    let mut h = host(&["a"]);
+    let p = apply(
+        &mut h,
+        C::SetPage {
+            patch: PageSetupPatch {
+                header_text: Some("Report".into()),
+                footer_text: Some("Page {PAGE}".into()),
+                ..Default::default()
+            },
+        },
+    );
+    let page = p.page.unwrap();
+    assert_eq!(page.header_text.as_deref(), Some("Report"));
+    assert_eq!(page.footer_text.as_deref(), Some("Page {PAGE}"));
+    // Saved and reopened.
+    let bytes = h.doc().save_docx().unwrap();
+    let (back, warnings) = WriteDocument::open_docx(&bytes, "h.docx").unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(
+        back.document().page.footer_text.as_deref(),
+        Some("Page {PAGE}")
+    );
+    // An empty string removes; other fields stay.
+    apply(
+        &mut h,
+        C::SetPage {
+            patch: PageSetupPatch {
+                header_text: Some(String::new()),
+                ..Default::default()
+            },
+        },
+    );
+    let page = &h.doc().document().page;
+    assert_eq!(page.header_text, None);
+    assert_eq!(page.footer_text.as_deref(), Some("Page {PAGE}"));
+}
+
+#[test]
+fn letter_landscape_with_narrow_margins() {
+    let mut h = host(&["a"]);
+    apply(
+        &mut h,
+        C::SetPage {
+            patch: PageSetupPatch {
+                width: Some(Twips(12240)),
+                height: Some(Twips(15840)),
+                ..Default::default()
+            },
+        },
+    );
+    let p = apply(
+        &mut h,
+        C::SetPage {
+            patch: PageSetupPatch {
+                orientation: Some(Orientation::Landscape),
+                margins: Some(write_core::MarginsPatch {
+                    top: Some(Twips(720)),
+                    right: Some(Twips(720)),
+                    bottom: Some(Twips(720)),
+                    left: Some(Twips(720)),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        },
+    );
+    let page = p.page.unwrap();
+    assert_eq!((page.width, page.height), (Twips(15840), Twips(12240)));
+    assert_eq!(page.content_width(), Twips(14400));
+}
+
+#[test]
+fn new_commands_roundtrip_through_json() {
+    let cmds = vec![
+        json!({"type": "setImageSize", "block": 1, "offset": 2, "width": 100, "height": 50}),
+        json!({"type": "setImageAlt", "block": 1, "offset": 2, "alt": null}),
+        json!({"type": "setRowProps", "table": 3, "rows": [0], "header": true}),
+        json!({"type": "clearFormatting", "block": 1, "from": 0, "to": 3}),
+        json!({"type": "setPage", "patch": {"headerText": "x"}}),
+    ];
+    for c in cmds {
+        let cmd: C = serde_json::from_value(c.clone()).unwrap();
+        let back = serde_json::to_value(&cmd).unwrap();
+        assert_eq!(serde_json::from_value::<C>(back).unwrap(), cmd, "{c}");
+    }
+}
