@@ -10,5 +10,9 @@ repository.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+serde_json.workspace = true
+insta = { workspace = true, features = ["json"] }
+
 [lints]
 workspace = true
