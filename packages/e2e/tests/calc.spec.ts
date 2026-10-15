@@ -1,7 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { downloadBuffer, fileCommand, interceptPrint, openViaBackstage, printCount, saveViaBackstage, testdata, trackErrors } from "../support/common";
+import { downloadBuffer, fileCommand, interceptPrint, openPrint, openViaBackstage, previewPages, previewPdf, printCount, saveViaBackstage, testdata, trackErrors } from "../support/common";
 import { Grid, openCalc } from "../support/calc";
 import { zipText } from "../support/zip";
+
+async function previewPagesAfterReopen(page: import("@playwright/test").Page) {
+  await openPrint(page);
+  return previewPages(page);
+}
 
 test.describe("Calc", () => {
   test("typing a formula evaluates it", async ({ page }) => {
@@ -212,17 +217,34 @@ test.describe("Calc", () => {
     await expect(page.getByTestId("grid")).toBeVisible();
   });
 
-  test("Export PDF opens the print view and calls window.print", async ({ page }) => {
+  test("File › Print: 120 rows preview as 3 pages, a page range, Print and Export PDF call window.print", async ({ page }) => {
     await interceptPrint(page);
     await openCalc(page);
     const grid = new Grid(page);
-    await grid.type(0, 0, "hello");
+    await grid.click(0, 0);
+    for (let i = 1; i <= 120; i++) {
+      await page.keyboard.type(`row ${i}`);
+      await page.keyboard.press("Enter");
+    }
+    await expect(page.getByTestId("cell-address")).toHaveText("A121");
+    await page.keyboard.press("Control+p");
+    await expect(page.getByTestId("print-panel")).toBeVisible();
+    await expect(page.getByTestId("print-page-count")).toHaveText("Page 1 of 3");
+    expect(await previewPdf(page, "calc-120-rows")).toBe(3);
+    await page.getByLabel("Page range").fill("2-2");
+    await expect(page.getByTestId("print-page-count")).toHaveText("Page 1 of 1");
+    expect(await previewPdf(page, "calc-page-2")).toBe(1);
+    await page.getByRole("radio", { name: "All pages" }).check();
+    await page.getByLabel("Scaling").selectOption("fitSheet");
+    await expect(page.getByTestId("print-page-count")).toHaveText("Page 1 of 1");
+    await page.getByLabel("Scaling").selectOption("actual");
+    await expect(page.getByTestId("print-page-count")).toHaveText("Page 1 of 3");
+    await page.getByTestId("print-button").click();
+    await expect.poll(() => printCount(page)).toBe(1);
+    await page.keyboard.press("Escape");
     await fileCommand(page, /^Export PDF/);
-    const setup = page.getByRole("dialog").first();
-    await expect(setup).toBeVisible();
-    await setup.getByRole("button", { name: /Export|Print|OK/ }).last().click();
-    await expect(page.getByTestId("print-view")).toBeVisible();
-    await expect.poll(() => printCount(page)).toBeGreaterThan(0);
+    await expect.poll(() => printCount(page)).toBe(2);
+    expect(await previewPagesAfterReopen(page)).toBe(3);
   });
 
   test("deleting a sheet with data asks first; references become #REF! and undo brings it back", async ({ page }) => {

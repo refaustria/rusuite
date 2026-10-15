@@ -29,7 +29,9 @@ publishing (`E2E_BASE_URL` overrides the URL).
 - Calc's grid is a canvas: cells are addressed by pixel geometry (`Grid` in `support/calc.ts`), inputs are read from the formula
   bar, displayed values by copy + paste-values into a scratch cell, number formats and results by saving and unzipping.
 - No fixed sleeps beyond 400 ms; wait with `expect`/`expect.poll`. Downloads are parsed in Node (`support/zip.ts`).
-- Export PDF is asserted through a stubbed `window.print` (`interceptPrint`).
+- Printing is asserted through a stubbed `window.print` (`interceptPrint`); the File › Print page count is read from
+  `print-page-count`, and `previewPdf(page, name)` renders the preview's `srcdoc` with headless `page.pdf()` (saved to
+  `PRINT_PDF_DIR`, default `test-results/print-pdfs`) and returns the PDF's page count.
 
 ## Desktop shells (real windows)
 

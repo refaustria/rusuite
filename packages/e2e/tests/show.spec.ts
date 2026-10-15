@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { interceptPrint, openViaBackstage, printCount, saveViaBackstage, testdata, trackErrors, fileCommand } from "../support/common";
+import { interceptPrint, openPrint, previewPages, previewPdf, openViaBackstage, printCount, saveViaBackstage, testdata, trackErrors, fileCommand } from "../support/common";
 import { unzip, zipText } from "../support/zip";
 
 const DECK = testdata("pptx/provisional-25-pitch-deck.pptx");
@@ -187,11 +187,25 @@ test.describe("Show", () => {
     await expect(page.getByTestId("thumbnail")).toHaveCount(6);
   });
 
-  test("Export PDF renders the print view and calls window.print", async ({ page }) => {
+  test("File › Print: full pages and handouts (6 per page → 1 page); Print and Export PDF call window.print", async ({ page }) => {
     await interceptPrint(page);
     await openDeck(page);
+    await openPrint(page);
+    await expect(page.getByTestId("print-page-count")).toHaveText("Page 1 of 6");
+    expect(await previewPdf(page, "show-full-pages")).toBe(6);
+    await page.getByLabel("Print layout").selectOption("handout6");
+    await expect(page.getByTestId("print-page-count")).toHaveText("Page 1 of 1");
+    expect(await previewPdf(page, "show-handouts-6")).toBe(1);
+    await page.getByLabel("Print layout").selectOption("notes");
+    await expect(page.getByTestId("print-page-count")).toHaveText("Page 1 of 6");
+    await page.getByLabel("Print layout").selectOption("handout3");
+    await expect(page.getByTestId("print-page-count")).toHaveText("Page 1 of 2");
+    expect(await previewPages(page)).toBe(2);
+    await page.getByTestId("print-button").click();
+    await expect.poll(() => printCount(page)).toBe(1);
+    await page.keyboard.press("Escape");
     await fileCommand(page, /^Export PDF/);
-    await expect.poll(() => printCount(page)).toBeGreaterThan(0);
+    await expect.poll(() => printCount(page)).toBe(2);
   });
 
   // The print view replaces the editor; the remounted canvas area must be measured again (P7-2).

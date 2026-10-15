@@ -273,11 +273,11 @@ describe("Calc shortcuts", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("Ctrl+P opens the Export PDF dialog", async () => {
+  it("Ctrl+P opens File › Print", async () => {
     const { grid } = await setup();
     const e = new KeyboardEvent("keydown", { key: "p", ctrlKey: true, bubbles: true, cancelable: true });
     grid.dispatchEvent(e);
     expect(e.defaultPrevented).toBe(true);
-    expect(await screen.findByRole("dialog", { name: "Export PDF" })).toBeTruthy();
+    expect(await screen.findByTestId("print-panel")).toBeTruthy();
   });
 });

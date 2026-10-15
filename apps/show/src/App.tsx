@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AutosaveStatus, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, printAndWait, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { applyPageRange, AutosaveStatus, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
 import { EditorStage } from "./canvas/Stage";
-import { PrintView } from "./print/PrintView";
+import { DEFAULT_SHOW_PRINT, type ShowPrintOptions } from "./print/showPrintDoc";
+import { buildShowDoc, printShow, ShowPrintPage } from "./print/ShowPrintPage";
 import { SlideShow } from "./present/SlideShow";
 import { launchAudience, type AudienceLink } from "./present/sync";
 import { SlideList } from "./sidebar/SlideList";
@@ -15,8 +16,7 @@ import { NotesPane } from "./ui/NotesPane";
 import { ShowDialogs } from "./ui/ShowDialogs";
 import { Toasts } from "./ui/Toasts";
 
-/** Observes an element's client size. A callback ref, so a remounted element (e.g. after the print view replaced the
- *  editor) is measured and observed again. */
+/** Observes an element's client size. A callback ref, so a remounted element is measured and observed again. */
 function useElementSize<T extends HTMLElement>() {
   const [size, setSize] = useState({ width: 0, height: 0 });
   const observer = useRef<ResizeObserver | null>(null);
@@ -93,7 +93,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     [backend, store],
   );
   const [presenting, setPresenting] = useState<{ mode: "single" | "presenter"; link?: AudienceLink } | null>(null);
-  const [printing, setPrinting] = useState(false);
+  const [printOptions, setPrintOptions] = useState<ShowPrintOptions>(DEFAULT_SHOW_PRINT);
   const [zoom, setZoom] = useState<ShowZoom>("fit");
   const [canvasRef, size] = useElementSize<HTMLDivElement>();
   const pres = useShow(store, (s) => s.pres);
@@ -131,15 +131,14 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     },
     [store],
   );
+  // File › Export PDF…: the Print pipeline with the current settings, straight to the system dialog ("Save as PDF").
   const exportPdf = useCallback(() => {
-    void store.commitEdit();
-    setPrinting(true);
-  }, [store]);
-  const printReady = useCallback(() => {
-    void printAndWait(backend)
-      .catch((e) => store.pushError(e))
-      .finally(() => setPrinting(false));
-  }, [backend, store]);
+    void (async () => {
+      await store.commitEdit();
+      const doc = await buildShowDoc(store, printOptions);
+      await printShow(store, backend, applyPageRange(doc, printOptions.range));
+    })().catch((e) => store.pushError(e));
+  }, [backend, store, printOptions]);
   const presentFrom = useCallback(
     (fromStart: boolean) => {
       const first = store.getState().pres?.slides[0]?.id;
@@ -160,12 +159,14 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       ? { width: Math.max(0, size.width - 32), height: Math.max(0, size.height - 32) }
       : { width: slidePx(pres.slideSize).width * zoom, height: slidePx(pres.slideSize).height * zoom };
 
-  if (printing && pres) return <PrintView deck={pres} slides={pres.slides} media={store.media} onReady={printReady} />;
-
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
       <RecoveryBanner session={session} />
-      <ShowRibbon store={store} session={session} onPresent={presentFrom} onPresenterView={presenterView} onExportPdf={exportPdf} zoom={zoom} onZoom={setZoom} />
+      <ShowRibbon store={store} session={session} onPresent={presentFrom} onPresenterView={presenterView} onExportPdf={exportPdf}
+        print={<ShowPrintPage store={store} backend={backend} options={printOptions} onChange={setPrintOptions} />}
+        zoom={zoom}
+        onZoom={setZoom}
+      />
       <div className="flex min-h-0 flex-1">
         <SlideList store={store} />
         <div className="flex min-w-0 flex-1 flex-col">
@@ -184,7 +185,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       <StatusBar store={store} backend={backend} session={session} zoom={zoom} />
       <Toasts store={store} />
       <ShowDialogs store={store} />
-      <ShortcutLayer store={store} guard={guard} enabled={!presenting} onPresent={presentFrom} onPresenterView={presenterView} onExportPdf={exportPdf} />
+      <ShortcutLayer store={store} guard={guard} enabled={!presenting} onPresent={presentFrom} onPresenterView={presenterView} />
       <ConfirmDiscard guard={guard} />
       {presenting && pres && <SlideShow store={store} mode={presenting.mode} link={presenting.link} onEnd={exit} />}
     </main>

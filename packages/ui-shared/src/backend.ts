@@ -88,9 +88,11 @@ export interface Backend<Req = unknown, Body = unknown> {
    */
   readonly storage?: DocStorage;
   /**
-   * Opens the system print dialog for the current page (the user picks
-   * "Save as PDF"). `@tauri-apps/api` 2.12 has no webview `print()`, so both
-   * shells use `window.print()`, which the desktop webviews support.
+   * Opens the system print dialog for the current page (the user picks a
+   * printer or "Save as PDF"). Web: `window.print()`. Desktop: the shell's
+   * `print_webview` command (`WebviewWindow::print`: the native WebKitGTK /
+   * WKWebView print operation, `window.print()` in WebView2), falling back
+   * to `window.print()` if the command fails.
    */
   print(): Promise<void>;
 }
@@ -175,7 +177,11 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
   }
 
   async print(): Promise<void> {
-    window.print();
+    try {
+      await invoke("print_webview");
+    } catch {
+      window.print();
+    }
   }
 }
 

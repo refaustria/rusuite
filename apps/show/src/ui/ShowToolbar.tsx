@@ -134,11 +134,13 @@ export interface ShowRibbonProps {
   /** Starts the presenter view (Alt+F5). */
   onPresenterView: () => void;
   onExportPdf: () => void;
+  /** File › Print page (settings and preview). */
+  print?: ReactNode;
   zoom: ShowZoom;
   onZoom: (zoom: ShowZoom) => void;
 }
 
-export function ShowRibbon({ store, session, onPresent, onPresenterView, onExportPdf, zoom, onZoom }: ShowRibbonProps) {
+export function ShowRibbon({ store, session, onPresent, onPresenterView, onExportPdf, print, zoom, onZoom }: ShowRibbonProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const state = useShow(store, (s) => s);
   const fmt = useMemo(() => formattingOf(state), [state]);
@@ -586,6 +588,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
           onSave: () => void store.save(),
           onSaveAs: () => triggerShortcut("Mod+Shift+S"),
           onExportPdf,
+          print,
           onCloseDocument: () => triggerShortcut("Mod+N"),
           fileDisabledReason: fileOff,
           exportDisabled: !hasSlide,

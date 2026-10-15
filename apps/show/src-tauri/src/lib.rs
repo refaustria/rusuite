@@ -309,6 +309,16 @@ fn recovery_remove(id: String, state: tauri::State<'_, SessionState>) -> Result<
     Ok(state.session().recovery_remove(&id)?)
 }
 
+/// Opens the webview's native print dialog (File › Print, P7-9):
+/// WebKitGTK's print operation on Linux (the command runs on the main
+/// thread, so it returns once the dialog is closed), `NSPrintOperation` on
+/// macOS, `window.print()` in WebView2. The page shows only the print view
+/// under `@media print`.
+#[tauri::command]
+fn print_webview(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.print().map_err(|e| e.to_string())
+}
+
 /// Health check: `"Rusuite Show <version>"`.
 #[tauri::command]
 fn ping() -> String {
@@ -457,7 +467,8 @@ pub fn run() {
             recovery_get,
             recovery_put,
             recovery_remove,
-            set_close_guard
+            set_close_guard,
+            print_webview
         ])
         .run(tauri::generate_context!())
         .expect("error while running Rusuite Show");

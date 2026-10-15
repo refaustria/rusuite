@@ -56,3 +56,38 @@ export async function interceptPrint(page: Page) {
   });
 }
 export const printCount = (page: Page) => page.evaluate(() => (window as unknown as { __prints: number }).__prints);
+
+/** File › Print (the backstage Print page); waits for the preview's page count. */
+export async function openPrint(page: Page) {
+  await page.getByRole("tab", { name: "File", exact: true }).click();
+  await page.getByTestId("backstage").getByRole("button", { name: "Print", exact: true }).first().click();
+  await expect(page.getByTestId("print-panel")).toBeVisible();
+  await expect(page.getByTestId("print-page-count")).toHaveText(/^Page 1 of \d+$/);
+}
+
+/** Total pages shown by the print preview. */
+export async function previewPages(page: Page): Promise<number> {
+  const text = (await page.getByTestId("print-page-count").textContent()) ?? "";
+  return Number(/of (\d+)/.exec(text)?.[1] ?? 0);
+}
+
+/**
+ * Renders the preview's document (its `srcdoc`) with headless Chromium's
+ * `page.pdf()` at its own `@page` size, saves it (`PRINT_PDF_DIR`, default
+ * `test-results/print-pdfs`) and returns its page count.
+ */
+export async function previewPdf(page: Page, name: string): Promise<number> {
+  const html = await page.getByTestId("print-preview").getAttribute("srcdoc");
+  expect(html).toBeTruthy();
+  const pdfPage = await page.context().newPage();
+  try {
+    await pdfPage.setContent(html!, { waitUntil: "load" });
+    const pdf = await pdfPage.pdf({ preferCSSPageSize: true, printBackground: true });
+    const dir = process.env.PRINT_PDF_DIR ?? path.resolve(here, "../test-results/print-pdfs");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${name}.pdf`), pdf);
+    return (pdf.toString("latin1").match(/\/Type\s*\/Page(?!s)/g) ?? []).length;
+  } finally {
+    await pdfPage.close();
+  }
+}

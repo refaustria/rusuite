@@ -4,7 +4,7 @@
 // in-cell editor keys (Enter/Tab/Esc/Alt+Enter) live in the components.
 
 import { useMemo, useState } from "react";
-import { Dialog, PromptDialog, ShortcutHelp, useShortcuts, withExtension, type HelpRow, type ShortcutMap, type UnsavedGuard } from "@rusuite/ui-shared";
+import { Dialog, openBackstage, PromptDialog, ShortcutHelp, useShortcuts, withExtension, type HelpRow, type ShortcutMap, type UnsavedGuard } from "@rusuite/ui-shared";
 import { colSelection, isWholeCols, isWholeRows, normalize, rowSelection } from "./grid/Selection";
 import { calcActions } from "./calcActions";
 import { CalcDialogs } from "./CalcDialogs";
@@ -59,7 +59,7 @@ function StructureDialog({ kind, onClose, store }: { kind: "insert" | "delete" |
   );
 }
 
-export function ShortcutLayer({ store, guard, onExportPdf }: { store: CalcStore; guard: UnsavedGuard; onExportPdf: () => void }) {
+export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: UnsavedGuard }) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   const [structure, setStructure] = useState<"insert" | "delete" | null>(null);
@@ -86,7 +86,15 @@ export function ShortcutLayer({ store, guard, onExportPdf }: { store: CalcStore;
         inField: true,
         run: () => (store.api.backend.kind === "tauri" ? void store.saveFile(undefined, true) : setSaveAsOpen(true)),
       },
-      "Mod+P": { label: "Export PDF…", group: File, inField: true, run: () => onExportPdf() },
+      "Mod+P": {
+        label: "Print (File › Print: settings and preview)",
+        group: File,
+        inField: true,
+        run: () => {
+          store.cancelEdit();
+          openBackstage("print");
+        },
+      },
       "Mod+/": { label: "Keyboard shortcuts", inField: true, run: () => setHelpOpen(true) },
       "Mod+Z": { label: "Undo", group: "Edit", when: inGrid, run: () => void store.undo() },
       "Mod+Y": { label: "Redo", group: "Edit", when: inGrid, run: () => void store.redo() },
@@ -125,7 +133,7 @@ export function ShortcutLayer({ store, guard, onExportPdf }: { store: CalcStore;
       "Mod+Plus": { label: "Insert rows / columns", group: grid, when: inGrid, run: structural("insert") },
       "Mod+Minus": { label: "Delete rows / columns", group: grid, when: inGrid, run: structural("delete") },
     };
-  }, [store, guard, onExportPdf]);
+  }, [store, guard]);
 
   useShortcuts(map);
 

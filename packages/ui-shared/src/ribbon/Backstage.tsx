@@ -1,6 +1,6 @@
 // The File tab's backstage view: a full-pane overlay with the file
-// commands on the left and the recent files on the right. Esc (or Back)
-// returns to the document.
+// commands on the left and a page on the right: Home (the recent files) or
+// Print (options and preview, P7-9). Esc (or Back) returns to the document.
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { FOCUS_RING } from "../Popover";
@@ -16,21 +16,30 @@ export interface BackstageActions {
   onOpen?: () => void;
   onSave?: () => void;
   onSaveAs?: () => void;
+  /** "Export PDF…": prints the document with the current print settings (the user picks "Save as PDF"). */
   onExportPdf?: () => void;
+  /** The Print page (Ctrl+P): print settings and preview, rendered while the page is shown. */
+  print?: ReactNode;
   /** "Close": close the document (apps start a blank one, asking before discarding changes). */
   onCloseDocument?: () => void;
   /** Recent files (and their re-opening) come from the session. */
   session?: AnySession;
   /** When set, Open/Save/Save As/recent files are disabled and this is shown as the reason. */
   fileDisabledReason?: string;
-  /** Export PDF disabled (e.g. no slides). */
+  /** Print and Export PDF disabled (e.g. no slides). */
   exportDisabled?: boolean;
   /** Extra content under the recent list (e.g. document info). */
   info?: ReactNode;
 }
 
+/** The backstage pages: Home (recent files) and Print. */
+export type BackstagePage = "home" | "print";
+
 export interface BackstageProps extends BackstageActions {
   open: boolean;
+  /** The shown page (default Home); Print falls back to Home without a `print` page. */
+  page?: BackstagePage;
+  onPage?: (page: BackstagePage) => void;
   onClose: () => void;
   appName: string;
   documentTitle?: string;
@@ -86,8 +95,9 @@ function RecentFiles({ session, disabled, pick }: { session: AnySession; disable
 /** Full-pane File view (Office "backstage"). */
 export function Backstage({
   open, onClose, appName, documentTitle, accent = "var(--ui-focus)", onNew, onOpen, onSave, onSaveAs, onExportPdf, onCloseDocument,
-  session, fileDisabledReason, exportDisabled, info,
+  session, fileDisabledReason, exportDisabled, info, print, page: pageProp = "home", onPage,
 }: BackstageProps) {
+  const page: BackstagePage = pageProp === "print" && print && !exportDisabled ? "print" : "home";
   const ref = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -95,11 +105,16 @@ export function Backstage({
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
-    ref.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+    const root = ref.current;
+    (root?.querySelector<HTMLElement>("[data-autofocus]:not([disabled])") ?? root?.querySelector<HTMLElement>(FOCUSABLE))?.focus();
     return () => {
       if (previous && previous.isConnected && previous.closest('[role="tab"]') === null) previous.focus?.();
     };
   }, [open]);
+  // Switching to Print (e.g. Ctrl+P while the backstage is open) moves the focus to the page.
+  useEffect(() => {
+    if (open && page === "print") ref.current?.querySelector<HTMLElement>('[data-testid="print-panel"] :is(button, input, select):not([disabled])')?.focus();
+  }, [open, page]);
 
   if (!open) return null;
 
@@ -164,11 +179,39 @@ export function Backstage({
           <RibbonIcon name="back" size={24} />
         </button>
         <ul className="flex flex-col">
+          {print && (
+            <li key="home">
+              <button
+                type="button"
+                aria-current={page === "home" ? "page" : undefined}
+                className={`flex w-full items-center gap-3 px-5 py-2 text-left text-sm hover:bg-white/15 ${page === "home" ? "bg-white/20 font-semibold" : ""} ${FOCUS_RING}`}
+                onClick={() => onPage?.("home")}
+              >
+                <RibbonIcon name="home" size={18} />
+                Home
+              </button>
+            </li>
+          )}
           {item("new", "New", "new", onNew, "Mod+N")}
           {item("open", "Open…", "open", onOpen, "Mod+O", fileOff)}
           {item("save", "Save", "save", onSave, "Mod+S", fileOff)}
           {item("saveAs", "Save As…", "saveAs", onSaveAs, "Mod+Shift+S", fileOff)}
-          {item("export", "Export PDF…", "pdf", onExportPdf, "Mod+P", !!exportDisabled)}
+          {print && (
+            <li key="print">
+              <button
+                type="button"
+                disabled={!!exportDisabled}
+                aria-current={page === "print" ? "page" : undefined}
+                title={`Print (${formatCombo("Mod+P")})`}
+                className={`flex w-full items-center gap-3 px-5 py-2 text-left text-sm hover:bg-white/15 disabled:opacity-50 ${page === "print" ? "bg-white/20 font-semibold" : ""} ${FOCUS_RING}`}
+                onClick={() => onPage?.("print")}
+              >
+                <RibbonIcon name="print" size={18} />
+                Print
+              </button>
+            </li>
+          )}
+          {item("export", "Export PDF…", "pdf", onExportPdf, print ? undefined : "Mod+P", !!exportDisabled)}
         </ul>
         <ul className="mt-auto flex flex-col border-t border-white/20 pt-2">{item("close", "Close", "close", onCloseDocument)}</ul>
       </nav>
@@ -182,8 +225,14 @@ export function Backstage({
             </p>
           )}
         </header>
-        {session && <RecentFiles session={session} disabled={fileOff} pick={pick} />}
-        {info}
+        {page === "print" ? (
+          print
+        ) : (
+          <>
+            {session && <RecentFiles session={session} disabled={fileOff} pick={pick} />}
+            {info}
+          </>
+        )}
       </div>
     </div>
   );

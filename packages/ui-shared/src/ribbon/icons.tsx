@@ -10,7 +10,7 @@ export type RibbonIconName =
   | "table" | "image" | "pageBreak" | "lineBreak" | "pageSize" | "orientation" | "margins" | "lineSpacing"
   | "newSlide" | "duplicate" | "trash" | "rect" | "roundRect" | "ellipse" | "line" | "textBox" | "arrange" | "shapes"
   | "present" | "presentCurrent"
-  | "new" | "open" | "save" | "saveAs" | "pdf" | "close" | "back" | "recent"
+  | "new" | "open" | "save" | "saveAs" | "pdf" | "print" | "home" | "close" | "back" | "recent"
   | "alignJustify" | "chevronDown" | "chevronUp";
 
 const P = (d: string) => <path d={d} />;
@@ -67,6 +67,8 @@ const PATHS: Record<RibbonIconName, ReactNode> = {
   save: <><path d="M3.5 3.5h10l3 3v10h-13z" /><path d="M6.5 3.5v4h6v-4M6 16.5v-5h8v5" /></>,
   saveAs: <><path d="M3.5 3.5h10l3 3v4M3.5 3.5v13h6" /><path d="M6.5 3.5v4h6v-4" /><path d="M11 17l1-3 4.5-4.5 2 2L14 16z" /></>,
   pdf: <>{page}<path d="M7 11.5h1.2a1 1 0 000-2H7v4M10.5 9.5v4h.8a1.5 2 0 000-4z" /></>,
+  print: <><path d="M6 8V3h8v5M6 14H4a1 1 0 01-1-1V9a1 1 0 011-1h12a1 1 0 011 1v4a1 1 0 01-1 1h-2" /><path d="M6 11h8v6H6z" /></>,
+  home: P("M3 10l7-6 7 6M5 8.5V16h4v-4h2v4h4V8.5"),
   close: P("M5 5l10 10M15 5L5 15"),
   back: <><circle cx="10" cy="10" r="7.5" /><path d="M10.5 6.5L7 10l3.5 3.5M7 10h6.5" /></>,
   recent: <><circle cx="10" cy="10" r="7" /><path d="M10 6v4l2.5 2.5" /></>,

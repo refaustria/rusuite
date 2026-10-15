@@ -13,7 +13,7 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
 | Export | Use |
 | --- | --- |
 | `Ribbon` | `tabs: RibbonTab[]` (`{ id, label, groups: { label, items }[], toolbarLabel? }`); empty groups and tabs without groups are omitted. Active tab controlled (`activeTab`/`onTabChange`) or not (`defaultTab`); collapse likewise (`collapsed`/`defaultCollapsed`/`onCollapsedChange`). `backstage` adds the File tab; `accent` colors it. |
-| `Backstage` | Full-pane File view: New, Open…, Save, Save As…, Export PDF…, Close and the session's recent files (re-opened through `DocumentSession.openRecent`). Commands without a handler are not shown; `fileDisabledReason` disables the file commands with a note. Esc / Back returns. |
+| `Backstage` | Full-pane File view: Home, New, Open…, Save, Save As…, Print, Export PDF…, Close; the Home page lists the session's recent files (re-opened through `DocumentSession.openRecent`), the Print page shows `print` (see Printing). Commands without a handler are not shown; `fileDisabledReason` disables the file commands with a note. Esc / Back returns. `openBackstage(page)` opens it from anywhere (Ctrl+P). |
 | `RibbonButton` | Large (24 px icon over the label) or small (icon, optional label); `pressed` makes it a toggle (`aria-pressed`); tooltip = label + formatted `shortcut`. |
 | `RibbonSplitButton`, `RibbonMenuButton` | Main action + arrow, or a button that only opens; the popup is a keyboard menu (`RibbonMenuItem[]`, with separators/section labels and radio items) or any panel. |
 | `RibbonGallery`, `RibbonTableSizePicker` | Grid of choices with previews (inline in a group, or as a dropdown), arrow-key navigation; rows × columns picker. |
@@ -95,6 +95,41 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
 - If the window cannot be opened (popup blocked), the show runs in the main window with a speaker notes overlay and a
   Notes toggle in the corner.
 
+## Printing (P7-9)
+
+**File › Print** (Ctrl+P) is the Office print page: on the left the **Print** button, a note that copies, printer and
+two-sided printing are chosen in the system print dialog (where "Save as PDF" makes a PDF), and the settings; on the right
+the **preview** with page navigation and the page count. **File › Export PDF…** is a secondary entry: the same pipeline with
+the current settings, straight to the system dialog (desktop and browser alike: pick "Save as PDF" there).
+
+- **Pipeline** (`packages/ui-shared/src/print.ts`): each app builds a `PrintDoc` – one HTML string per page, every page laid
+  out on the whole sheet (margins are padding; `@page { size: W H; margin: 0 }`), so the preview's page count is the printed
+  one. The preview shows it in an `<iframe srcdoc>` (`print/PrintPreview.tsx`, sandboxed without scripts); printing mounts
+  it as `#rusuite-print-root`, the only visible element under `@media print`, then calls `Backend.print()`
+  (`printDocument`). Page ranges (`All` / `1-3,5`, `7-`, `-2`) drop the pages outside the range (`parsePageRange`,
+  `applyPageRange`). The settings component is `PrintPanel` with `PrintSelect`/`PrintCheck`/`PrintNumber`/`PrintText`,
+  the document is built by `usePrintDoc(build)` (debounced, stale builds dropped).
+- **Calc** (`apps/calc/src/print`): active sheet / entire workbook (every sheet from a new page, `&P`/`&N` over the whole
+  printout) / selection; orientation, paper A4/Letter/Legal/A3, Excel margin presets, scaling (100 %, custom %, fit sheet on
+  one page, fit all columns, fit all rows); wide sheets paginate into page columns, ordered down, then over; gridlines, row
+  and column headings, rows to repeat at the top; header and footer as left/center/right slots with `&P &N &D &T &A &F`.
+- **Write** (`apps/write/src/print`): the editor's top-level blocks cloned onto pages, measured at the printed text width and
+  packed with the print layout's `computeBreaks` – with the document's own page setup at 100 % the pages are the editor's
+  pages; overrides for paper, orientation, margins and a content scale; headers/footers with `{PAGE}` on every page.
+- **Show** (`apps/show/src/print`): slide pictures from the editor's `SlideView` on off-screen Konva stages (cached per
+  slide); layouts full-page slides (paper "Slide size" or a paper size), notes pages (slide + speaker notes), handouts with
+  2/3/4/6 numbered, framed slides per page (3: with note lines); frame slides, scale to fit (or a percentage), print hidden
+  slides.
+
+**Desktop** (`print_webview` in each `src-tauri/src/lib.rs`, used by `TauriBackend.print()`, falling back to
+`window.print()`): `tauri::WebviewWindow::print()` exists in Tauri 2.12 (desktop only; its doc comment says "only supported
+on macOS", but wry implements all three):
+- **Linux (WebKitGTK)**: `webkit2gtk::PrintOperation::run_dialog` – the GTK print dialog (printers, "Print to File" as PDF/PS,
+  copies, page setup). The command is synchronous, so it runs on the main thread and returns when the dialog closes; WebKitGTK
+  does not reliably fire `afterprint`, so the print root stays mounted for 60 s (`DESKTOP_PRINT_KEEP_MS`) or until the next
+  print, in case the pages are rendered after the dialog returned.
+- **macOS (WKWebView)**: `NSPrintOperation` (macOS 11+) with the system print panel, whose PDF menu saves a PDF.
+- **Windows (WebView2)**: wry evaluates `window.print()` – Chromium's print preview dialog with "Save as PDF".
 ## Logos and the portal (P7-10)
 
 One family in `apps/portal/logos/` (hand-written SVG, 1024 viewBox): a full-bleed rounded tile (`rx` 225 = 22 %) in the app's

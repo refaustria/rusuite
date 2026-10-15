@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AutosaveStatus, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { AutosaveStatus, applyPageRange, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { CalcApi, type CalcBackend } from "./backend/calcApi";
 import { installDevTools, perfOverlayEnabled, pickBackend } from "./dev/devTools";
 import { FormulaBar } from "./FormulaBar";
 import { GridCanvas } from "./grid/GridCanvas";
-import { ExportPdf, type ExportStage } from "./print/ExportPdf";
+import { buildCalcPrintDoc } from "./print/calcPrintDoc";
+import { CalcPrintPage, printCalc } from "./print/CalcPrintPage";
+import { DEFAULT_CALC_PRINT, type CalcPrintOptions } from "./print/layout";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { SheetTabs } from "./SheetTabs";
 import { CalcStore, useCalc } from "./state/store";
@@ -56,12 +58,15 @@ export default function App({ backend }: { backend: CalcBackend }) {
       }),
     [session, store],
   );
-  const [exportStage, setExportStage] = useState<ExportStage>("idle");
+  const [printOptions, setPrintOptions] = useState<CalcPrintOptions>(DEFAULT_CALC_PRINT);
   const [view, setView] = useState<CalcView>(DEFAULT_CALC_VIEW);
-  const openExport = useCallback(() => {
+  // File › Export PDF…: the Print pipeline with the current settings, straight to the system dialog ("Save as PDF").
+  const exportPdf = useCallback(() => {
     store.cancelEdit();
-    setExportStage("setup");
-  }, [store]);
+    void buildCalcPrintDoc(store, printOptions)
+      .then((doc) => printCalc(store, applyPageRange(doc, printOptions.range)))
+      .catch((e) => store.pushError(e));
+  }, [store, printOptions]);
   useEffect(() => {
     installDevTools(store);
     void store.init();
@@ -88,17 +93,20 @@ export default function App({ backend }: { backend: CalcBackend }) {
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
       <RecoveryBanner session={session} />
-      <CalcRibbon store={store} session={session} onExportPdf={openExport} view={view} onViewChange={setView} />
-      {/* The Export PDF flow (setup dialog, print view); its own button is replaced by File › Export PDF… */}
-      <div className="contents [&>button]:hidden">
-        <ExportPdf store={store} stage={exportStage} onStage={setExportStage} />
-      </div>
+      <CalcRibbon
+        store={store}
+        session={session}
+        onExportPdf={exportPdf}
+        print={<CalcPrintPage store={store} options={printOptions} onChange={setPrintOptions} />}
+        view={view}
+        onViewChange={setView}
+      />
       {view.formulaBar && <FormulaBar store={store} />}
       <GridCanvas store={store} showPerf={perfOverlayEnabled()} zoom={view.zoom} gridlines={view.gridlines} />
       <SheetTabs store={store} />
       <StatusBar store={store} session={session} zoom={view.zoom} />
       <Toasts store={store} />
-      <ShortcutLayer store={store} guard={guard} onExportPdf={openExport} />
+      <ShortcutLayer store={store} guard={guard} />
       <ConfirmDiscard guard={guard} />
     </main>
   );

@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
-import { AutosaveStatus, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
-import { writePrintCss } from "./print/printCss";
+import { applyPageRange, AutosaveStatus, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { buildWritePrintDoc, DEFAULT_WRITE_PRINT, type WritePrintOptions } from "./print/writePrintDoc";
+import { printWrite, WritePrintPage } from "./print/WritePrintPage";
 import { WriteApi, type WriteBackend } from "./backend";
 import { writeExtensions } from "./sync/schema";
 import { SyncController, SyncExtension, type SyncState } from "./sync/SyncPlugin";
@@ -178,7 +179,18 @@ export default function App({ backend }: { backend: WriteBackend }) {
     [backend, ctl],
   );
 
-  const exportPdf = useCallback(() => void backend.print().catch((e) => ctl.pushError(e)), [backend, ctl]);
+  const [printOptions, setPrintOptions] = useState<WritePrintOptions>(DEFAULT_WRITE_PRINT);
+  const pushError = useCallback((e: unknown) => ctl.pushError(e), [ctl]);
+  // File › Export PDF…: the Print pipeline with the current settings, straight to the system dialog ("Save as PDF").
+  const exportPdf = useCallback(() => {
+    if (!editor) return;
+    try {
+      const doc = buildWritePrintDoc(editor.view.dom as HTMLElement, ctl.page, printOptions);
+      void printWrite(backend, applyPageRange(doc, printOptions.range), pushError);
+    } catch (e) {
+      pushError(e);
+    }
+  }, [editor, ctl, backend, printOptions, pushError]);
 
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
@@ -196,11 +208,11 @@ export default function App({ backend }: { backend: WriteBackend }) {
           onFind={chrome.onFind}
           onReplace={chrome.onReplace}
           onExportPdf={exportPdf}
+          print={<WritePrintPage editor={editor} page={page} backend={backend} options={printOptions} onChange={setPrintOptions} onError={pushError} />}
           zoom={zoom}
           onZoom={setZoom}
         />
       )}
-      <style>{`${writePrintCss(page)}\n@media print { .write-zoom { zoom: 1 !important; } }`}</style>
       <div className="write-scroll min-h-0 flex-1 overflow-auto bg-ui-panel p-6">
         <div className="write-zoom" data-testid="write-zoom" style={zoom !== 1 ? { zoom } : undefined}>
           <PageFrame page={page} view={chrome.view} pages={chrome.pages} onEditHeaderFooter={chrome.onEditHeaderFooter}>
@@ -213,7 +225,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
       <WriteDialogs ui={features.ui} ctl={ctl} editor={editor} />
       <EditorContextMenu editor={editor} ctl={ctl} features={features} />
       <Toasts ctl={ctl} />
-      <ShortcutLayer editor={editor} ctl={ctl} onNew={newDocument} onOpen={() => void open()} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={chrome.onFind} onReplace={chrome.onReplace} features={features} onExportPdf={exportPdf} />
+      <ShortcutLayer editor={editor} ctl={ctl} onNew={newDocument} onOpen={() => void open()} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={chrome.onFind} onReplace={chrome.onReplace} features={features} />
       <ConfirmDiscard guard={guard} />
     </main>
   );
