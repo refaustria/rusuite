@@ -60,7 +60,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 | P3-8 | Milestone verification | PM | done on server; Word check pending owner | – | see milestone section |
 | P4-1 | `model-show` + move `MediaStore` to core-model; ADR 0008 | Opus | in progress | `p4/model-show` | brief docs/tasks/P4-1-model-show.md |
 | P4-3 | Show app scaffold (Tauri + WASM + Konva), deployed at /show/ | Sonnet | in progress | `p4/show-scaffold` | brief docs/tasks/P4-3-show-scaffold.md |
-| P4-6 | 25 provisional reference .pptx files + manifest | Sonnet | in progress | `p4/pptx-testdata` | brief docs/tasks/P4-6-pptx-reference-files.md |
+| P4-6 | 25 provisional reference .pptx files + manifest | Sonnet | done (merged) | – | verified: 25 decks + manifest, 26/26 harness PASS; LibreOffice export quirks documented (title ph type, bare body ph, lines as p:sp, txBox rects) |
 | P4-2 | `fmt-pptx` read/write | Opus | todo | `p4/fmt-pptx` | after P4-1 + P4-6 |
 | P4-4 | `show-core` commands/patches/dispatch | Opus | todo | `p4/show-core` | after P4-1 |
 | P4-5 | Show UI: Konva object model, selection/transform, text editing, sidebar, presentation mode | Opus | todo | `p4/show-ui` | after P4-4 |
