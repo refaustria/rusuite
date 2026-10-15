@@ -16,7 +16,7 @@ import { Extension } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
-import { base64ToBytes } from "@rusuite/ui-shared";
+import { base64ToBytes, savedName, type SaveResult } from "@rusuite/ui-shared";
 import { WriteApiError, type EditRequest, type PatchEnvelope, type WriteApi } from "../backend";
 import type { Block } from "../generated/Block";
 import type { Document } from "../generated/Document";
@@ -416,16 +416,18 @@ export class SyncController {
 
   /**
    * Saves as `.docx`: `SaveDocx`, then `save(name, bytes)` (the shell's
-   * file dialog / download); only when that succeeds, `MarkSaved`. `asName`
-   * (Save As) replaces the suggested name.
+   * file / file dialog / download); only when that succeeds, `MarkSaved`
+   * under the name actually written. `asName` (Save As) replaces the
+   * suggested name.
    */
-  async saveDocx(save: (suggestedName: string, bytesBase64: string) => Promise<boolean>, asName?: string): Promise<boolean> {
+  async saveDocx(save: (suggestedName: string, bytesBase64: string) => Promise<SaveResult>, asName?: string): Promise<boolean> {
     await this.idle();
     try {
       const file = await this.api.saveDocx();
-      const name = asName ?? file.suggestedName;
-      if (!(await save(name, file.bytesBase64))) return false;
-      const st = await this.api.markSaved(name);
+      const suggested = asName ?? file.suggestedName;
+      const result = await save(suggested, file.bytesBase64);
+      if (!result) return false;
+      const st = await this.api.markSaved(savedName(result, suggested));
       this.set({ dirty: st.dirty, name: st.name, revision: Math.max(this.state.revision, st.revision) });
       return true;
     } catch (e) {

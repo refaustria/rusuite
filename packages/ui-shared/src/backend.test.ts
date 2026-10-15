@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const setTitle = vi.fn(async (_title: string) => {});
 
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async (cmd: string, args?: Record<string, string>) => {
+  invoke: vi.fn(async (cmd: string, args?: Record<string, string | boolean>) => {
     switch (cmd) {
       case "ping":
         return "tauri-pong";
@@ -11,8 +11,9 @@ vi.mock("@tauri-apps/api/core", () => ({
         return JSON.stringify({ ok: { echo: args?.request } });
       case "open_file_dialog":
         return { path: "/tmp/a.xlsx", name: "a.xlsx", bytesBase64: "UEs=" };
-      case "save_file_dialog":
-        return args?.suggestedName === "cancel.xlsx" ? null : "/tmp/out.xlsx";
+      case "save_file":
+        // The shell writes the document's file, or the file picked in the dialog.
+        return args?.suggestedName === "cancel.xlsx" ? null : { path: "/tmp/picked.xlsx", name: "picked.xlsx" };
       case "recent_list":
         return [{ name: "a.xlsx", path: "/tmp/a.xlsx", blobId: null, openedAt: 1 }];
       case "recent_open":
@@ -41,6 +42,7 @@ import {
   bytesToBase64,
   createBackend,
   isTauri,
+  savedName,
   type Response,
   type WasmModule,
 } from "./backend";
@@ -181,12 +183,14 @@ describe("TauriBackend", () => {
     const b = new TauriBackend();
     expect(await b.openFile()).toEqual({ name: "a.xlsx", bytesBase64: "UEs=" });
     expect(invoke).toHaveBeenCalledWith("open_file_dialog");
-    expect(await b.saveFile("out.xlsx", "UEs=")).toBe(true);
-    expect(invoke).toHaveBeenCalledWith("save_file_dialog", {
-      suggestedName: "out.xlsx",
-      bytesBase64: "UEs=",
-    });
+    const saved = await b.saveFile("out.xlsx", "UEs=");
+    expect(saved).toEqual({ name: "picked.xlsx", path: "/tmp/picked.xlsx" });
+    expect(savedName(saved, "out.xlsx")).toBe("picked.xlsx");
+    expect(invoke).toHaveBeenCalledWith("save_file", { suggestedName: "out.xlsx", bytesBase64: "UEs=", saveAs: false });
+    await b.saveFile("out.xlsx", "UEs=", { saveAs: true });
+    expect(invoke).toHaveBeenLastCalledWith("save_file", { suggestedName: "out.xlsx", bytesBase64: "UEs=", saveAs: true });
     expect(await b.saveFile("cancel.xlsx", "UEs=")).toBe(false);
+    expect(savedName(true, "out.xlsx")).toBe("out.xlsx");
   });
 
   it("sets the window title", async () => {

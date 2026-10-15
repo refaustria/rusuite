@@ -5,7 +5,7 @@
 // functions, + - * / & and SUM/AVERAGE/MIN/MAX/COUNT. The real engine
 // lives in Rust (ADR 0001); nothing here is used in production builds.
 
-import type { Backend, Color, OpenedFile } from "@rusuite/ui-shared";
+import type { Backend, Color, OpenedFile, SaveOptions, SaveResult } from "@rusuite/ui-shared";
 import type { CalcCommand } from "../generated/CalcCommand";
 import type { CalcPatch } from "../generated/CalcPatch";
 import type { CellKind } from "../generated/CellKind";
@@ -864,12 +864,15 @@ class Parser {
 
 /** A `Backend` over [`FakeCalcCore`]; file dialogs are scripted for tests. */
 export class FakeBackend implements Backend<Request, ResponseBody> {
-  readonly kind = "wasm" as const;
+  /** `"tauri"` makes the app behave as on the desktop. */
+  kind: "tauri" | "wasm" = "wasm";
   /** What `openFile` returns next (`null` = cancelled). */
   nextOpen: OpenedFile | null = null;
-  /** What `saveFile` returns (`false` = cancelled). */
-  saveResult = true;
+  /** What `saveFile` returns (`false` = cancelled; a `SavedFile` = the desktop's chosen file). */
+  saveResult: SaveResult = true;
   saved: { name: string; bytesBase64: string }[] = [];
+  /** The options of every `saveFile` call. */
+  saveOptions: SaveOptions[] = [];
   title = "";
 
   constructor(readonly core: FakeCalcCore = new FakeCalcCore()) {}
@@ -888,7 +891,8 @@ export class FakeBackend implements Backend<Request, ResponseBody> {
     return this.nextOpen;
   }
 
-  async saveFile(name: string, bytesBase64: string): Promise<boolean> {
+  async saveFile(name: string, bytesBase64: string, options: SaveOptions = {}): Promise<SaveResult> {
+    this.saveOptions.push(options);
     if (this.saveResult) this.saved.push({ name, bytesBase64 });
     return this.saveResult;
   }

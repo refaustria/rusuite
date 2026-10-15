@@ -42,6 +42,15 @@ sudo apt-get install -y libayatana-appindicator3-dev librsvg2-dev libssl-dev pat
 ```
 (`xvfb` was already present here.) The Tauri CLI comes from the npm package `@tauri-apps/cli` (prebuilt binary, no `cargo install`). Build with `pnpm --filter calc tauri build --no-bundle`; smoke test with `timeout 15 xvfb-run -a target/release/app-calc` (expect exit 124, no panic). Icons were generated from a 1024x1024 ImageMagick PNG via `pnpm --filter calc tauri icon`; only desktop icons are committed.
 
+## Desktop smoke test (P7-7)
+`scripts/desktop-smoke.sh` drives the release binaries through WebDriver:
+```
+sudo apt-get install -y webkit2gtk-driver        # WebKitWebDriver 2.54.0 (Debian 13)
+cargo install tauri-driver --version 2.1.0 --locked
+```
+`tauri-driver` (2.1.0, released 2026-09-26) lands in `~/.cargo/bin`. `xvfb-run` and `dbus-run-session` were already present;
+without a D-Bus session every WebKit start waits ~30 s for the accessibility bus.
+
 ## Web (WASM) target
 Needed for `pnpm --filter calc build:web` / `dev:web` (ADR 0005):
 ```

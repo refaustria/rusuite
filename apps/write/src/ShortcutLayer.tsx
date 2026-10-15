@@ -34,7 +34,8 @@ export interface WriteShortcutProps {
   onNew: () => void;
   onOpen: () => void;
   onSave: () => void;
-  onSaveAs: (name: string) => void;
+  /** Save As under `name` (web: from the name prompt); without one the desktop's save dialog asks. */
+  onSaveAs: (name?: string) => void;
   onFind: () => void;
   /** Ctrl+H (default: `onFind`). */
   onReplace?: () => void;
@@ -86,7 +87,13 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
       "Mod+N": { label: "New document", group: File, inField: true, run: () => onNew() },
       "Mod+O": { label: "Open", group: File, inField: true, run: () => void onOpen() },
       "Mod+S": { label: "Save", group: File, inField: true, run: () => void onSave() },
-      "Mod+Shift+S": { label: "Save as", group: File, inField: true, run: () => setSaveAsOpen(true) },
+      // Desktop: the native save dialog is the Save As; web: name the download first.
+      "Mod+Shift+S": {
+        label: "Save as",
+        group: File,
+        inField: true,
+        run: () => (ctl.api.backend.kind === "tauri" ? onSaveAs() : setSaveAsOpen(true)),
+      },
       "Mod+P": { label: "Export PDF…", group: File, inField: true, run: () => onExportPdf() },
       "Mod+/": { label: "Keyboard shortcuts", inField: true, run: () => setHelpOpen(true) },
       "Mod+F": { label: "Find and replace", group: "Edit", inField: true, run: () => onFind() },
@@ -126,7 +133,7 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
       },
       ...headings,
     };
-  }, [editor, ctl, onNew, onOpen, onSave, onFind, onReplace, features, onExportPdf]);
+  }, [editor, ctl, onNew, onOpen, onSave, onSaveAs, onFind, onReplace, features, onExportPdf]);
 
   useShortcuts(map);
 

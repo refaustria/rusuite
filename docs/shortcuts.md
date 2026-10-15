@@ -15,7 +15,9 @@
 | Mod+N | New document (asks before discarding unsaved changes) |
 | Mod+O | Open |
 | Mod+S | Save |
-| Mod+Shift+S | Save as (asks for a file name) |
+| Mod+S on the desktop | Saves to the document's file without asking (untitled: the save dialog) |
+| Mod+Shift+S | Save as (web: asks for a file name; desktop: the native save dialog) |
+| Enter, Tab, Esc in "Save changes to …?" | The question before New, Open, a recent file, Restore, Close or closing the window with unsaved changes: Enter = Save (focused first), Tab moves to Don't save / Cancel, Esc = Cancel |
 | Mod+P | Export PDF… |
 | Mod+Z, Mod+Y, Mod+Shift+Z | Undo, redo, redo |
 | Mod+B, Mod+I, Mod+U | Bold, italic, underline |

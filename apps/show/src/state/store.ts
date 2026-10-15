@@ -782,14 +782,20 @@ export class ShowStore {
     }
   }
 
-  /** Saves as `.pptx`; `asName` (Save As) replaces the suggested file name. */
+  /**
+   * Saves as `.pptx` (desktop: to the presentation's file, or through the
+   * save dialog; web: a download); `asName` (Save As) replaces the
+   * suggested file name and makes the desktop ask even when the
+   * presentation has a file. The name becomes the file actually written.
+   */
   async save(asName?: string): Promise<void> {
     try {
       if (this.state.editing) await this.commitEdit();
       const saved = await this.enqueue(() => this.api.savePptx());
-      const ok = await this.api.backend.saveFile(asName ?? saved.suggestedName, saved.bytesBase64);
-      if (!ok) return;
-      const st = await this.enqueue(() => this.api.markSaved(asName ?? (this.state.name === null ? saved.suggestedName : undefined)));
+      const result = await this.api.backend.saveFile(asName ?? saved.suggestedName, saved.bytesBase64, { saveAs: asName !== undefined });
+      if (!result) return;
+      const name = typeof result === "object" ? result.name : asName;
+      const st = await this.enqueue(() => this.api.markSaved(name ?? (this.state.name === null ? saved.suggestedName : undefined)));
       this.set({ dirty: st.dirty, name: st.name, revision: Math.max(this.state.revision, st.revision) });
     } catch (e) {
       this.pushError(e);
