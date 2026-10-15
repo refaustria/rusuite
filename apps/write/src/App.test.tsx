@@ -1,30 +1,94 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ setTitle: vi.fn() }) }));
 
-import App from "./App";
-import { pingCore } from "./backend";
-import { FakeBackend } from "./fakeBackend";
+import { bytesToBase64 } from "@rusuite/ui-shared";
+import App, { countWords } from "./App";
+import { FakeWriteBackend } from "./test/fakeWriteBackend";
+import { makeDoc, para } from "./test/fixtures";
 
 afterEach(cleanup);
 
-describe("Write", () => {
-  it("mounts the editor with the placeholder document and a status bar", async () => {
-    const backend = new FakeBackend();
-    render(<App backend={backend} />);
-    const editor = await screen.findByTestId("editor");
-    expect(editor.querySelector("h1")?.textContent).toBe("Welcome to Rusuite Write");
-    expect(editor.querySelectorAll("ul li").length).toBe(2);
+const b64 = (v: unknown) => bytesToBase64(new TextEncoder().encode(JSON.stringify(v)));
+
+async function mount() {
+  const backend = new FakeWriteBackend();
+  const setTitle = vi.spyOn(backend, "setTitle");
+  render(<App backend={backend} />);
+  const editor = await screen.findByTestId("editor");
+  await waitFor(() => expect(backend.log.some((r) => r.type === "newDocument")).toBe(true));
+  return { backend, editor, setTitle };
+}
+
+describe("Write app", () => {
+  it("mounts toolbar, editor and status bar on a new document", async () => {
+    const { editor, setTitle } = await mount();
+    expect(editor.querySelectorAll("p").length).toBe(1);
     expect(screen.getByRole("toolbar", { name: "Formatting" })).toBeTruthy();
-    expect(screen.getByTestId("backend-kind").textContent).toBe("wasm");
-    await waitFor(() => expect(screen.getByTestId("ping").textContent).toBe("Rusuite Write fake"));
+    expect(screen.getByRole("combobox", { name: "Paragraph style" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Bulleted list" })).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Number" })).toBeNull();
+    expect(screen.getByTestId("doc-name").textContent).toBe("Untitled");
+    expect(screen.getByTestId("dirty").textContent).toBe("Saved");
+    expect(screen.getByTestId("words").textContent).toBe("0 words");
+    await waitFor(() => expect(setTitle).toHaveBeenLastCalledWith("Untitled – Rusuite Write"));
   });
 
-  it("pingCore sends {type:ping} and recognises pong", async () => {
-    const backend = new FakeBackend();
-    expect(await pingCore(backend)).toBe(true);
-    expect(backend.log).toEqual([{ type: "ping" }]);
+  it("Open loads a docx through openDocx and shows the reader warnings", async () => {
+    const { backend, editor } = await mount();
+    const doc = makeDoc([para(1, "Opened", { style: "Heading1" }), para(2, "two words")]);
+    vi.spyOn(backend, "openFile").mockResolvedValue({ name: "r.docx", bytesBase64: b64(doc) });
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    await waitFor(() => expect(editor.querySelector("h1")?.textContent).toBe("Opened"));
+    expect(screen.getByTestId("doc-name").textContent).toBe("r.docx");
+    expect(screen.getByTestId("warnings").textContent).toContain("1 warning");
+    expect(screen.getByTestId("words").textContent).toBe("3 words");
+  });
+
+  it("Save writes the file and marks it saved only when the shell confirms", async () => {
+    const { backend, setTitle } = await mount();
+    const saveFile = vi.spyOn(backend, "saveFile").mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await act(async () => {
+      await backend.dispatch({ type: "apply", command: { type: "insertText", block: 1, offset: 0, text: "x" } });
+    });
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    await waitFor(() => expect(saveFile).toHaveBeenCalledTimes(1));
+    expect(backend.log.some((r) => r.type === "markSaved")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(backend.log.some((r) => r.type === "markSaved")).toBe(true));
+    expect(saveFile).toHaveBeenLastCalledWith("Untitled.docx", expect.any(String));
+    await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("Untitled.docx"));
+    await waitFor(() => expect(setTitle).toHaveBeenLastCalledWith("Untitled.docx – Rusuite Write"));
+  });
+
+  it("Find and replace runs the Rust command and reports the count", async () => {
+    const { backend, editor } = await mount();
+    vi.spyOn(backend, "openFile").mockResolvedValue({
+      name: "f.docx",
+      bytesBase64: b64(makeDoc([para(1, "red fish red")])),
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    await waitFor(() => expect(editor.textContent).toBe("red fish red"));
+    fireEvent.click(screen.getByRole("button", { name: "Find and replace" }));
+    fireEvent.change(screen.getByLabelText("Find"), { target: { value: "red" } });
+    fireEvent.change(screen.getByLabelText("Replace with"), { target: { value: "blue" } });
+    fireEvent.click(screen.getByRole("button", { name: "Replace all" }));
+    await waitFor(() => expect(editor.textContent).toBe("blue fish blue"));
+    expect(screen.getByRole("status").textContent).toBe("2 replacements");
+  });
+
+  it("errors from the core show up as toasts", async () => {
+    const { backend } = await mount();
+    vi.spyOn(backend, "openFile").mockResolvedValue({ name: "bad.docx", bytesBase64: btoa("not json") });
+    vi.spyOn(backend, "dispatch").mockResolvedValueOnce({ err: { code: "bad_docx", message: "not a docx" } } as never);
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("bad_docx");
+  });
+
+  it("countWords", () => {
+    expect(countWords("  one two\tthree ")).toBe(3);
+    expect(countWords("")).toBe(0);
   });
 });

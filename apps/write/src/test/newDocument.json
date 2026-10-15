@@ -1,0 +1,256 @@
+{
+ "body": [
+  {
+   "kind": "paragraph",
+   "value": {
+    "id": 1,
+    "inlines": []
+   }
+  }
+ ],
+ "styles": {
+  "defaults": {
+   "run": {
+    "font": {
+     "kind": "theme",
+     "value": "minorLatin"
+    },
+    "size": 1100
+   },
+   "paragraph": {
+    "spacing": {
+     "after": 160,
+     "line": {
+      "kind": "multiple",
+      "value": 1.0791666666666666
+     }
+    }
+   }
+  },
+  "styles": [
+   {
+    "id": "Normal",
+    "name": "Normal",
+    "kind": "paragraph",
+    "isDefault": true
+   },
+   {
+    "id": "Title",
+    "name": "Title",
+    "kind": "paragraph",
+    "basedOn": "Normal",
+    "next": "Normal",
+    "paragraph": {
+     "spacing": {
+      "after": 0,
+      "line": {
+       "kind": "multiple",
+       "value": 1.0
+      }
+     }
+    },
+    "run": {
+     "font": {
+      "kind": "theme",
+      "value": "majorLatin"
+     },
+     "size": 2800
+    }
+   },
+   {
+    "id": "Heading1",
+    "name": "heading 1",
+    "kind": "paragraph",
+    "basedOn": "Normal",
+    "next": "Normal",
+    "paragraph": {
+     "spacing": {
+      "before": 240,
+      "after": 0
+     },
+     "keepNext": true
+    },
+    "run": {
+     "font": {
+      "kind": "theme",
+      "value": "majorLatin"
+     },
+     "size": 1600,
+     "color": {
+      "kind": "theme",
+      "value": {
+       "slot": "accent1",
+       "tint": -0.25
+      }
+     }
+    }
+   },
+   {
+    "id": "Heading2",
+    "name": "heading 2",
+    "kind": "paragraph",
+    "basedOn": "Normal",
+    "next": "Normal",
+    "paragraph": {
+     "spacing": {
+      "before": 40,
+      "after": 0
+     },
+     "keepNext": true
+    },
+    "run": {
+     "font": {
+      "kind": "theme",
+      "value": "majorLatin"
+     },
+     "size": 1300,
+     "color": {
+      "kind": "theme",
+      "value": {
+       "slot": "accent1",
+       "tint": -0.25
+      }
+     }
+    }
+   },
+   {
+    "id": "Heading3",
+    "name": "heading 3",
+    "kind": "paragraph",
+    "basedOn": "Normal",
+    "next": "Normal",
+    "paragraph": {
+     "spacing": {
+      "before": 40,
+      "after": 0
+     },
+     "keepNext": true
+    },
+    "run": {
+     "font": {
+      "kind": "theme",
+      "value": "majorLatin"
+     },
+     "size": 1200,
+     "color": {
+      "kind": "theme",
+      "value": {
+       "slot": "accent1",
+       "tint": -0.5
+      }
+     }
+    }
+   },
+   {
+    "id": "Heading4",
+    "name": "heading 4",
+    "kind": "paragraph",
+    "basedOn": "Normal",
+    "next": "Normal",
+    "paragraph": {
+     "spacing": {
+      "before": 40,
+      "after": 0
+     },
+     "keepNext": true
+    },
+    "run": {
+     "font": {
+      "kind": "theme",
+      "value": "majorLatin"
+     },
+     "italic": true,
+     "color": {
+      "kind": "theme",
+      "value": {
+       "slot": "accent1",
+       "tint": -0.25
+      }
+     }
+    }
+   },
+   {
+    "id": "Heading5",
+    "name": "heading 5",
+    "kind": "paragraph",
+    "basedOn": "Normal",
+    "next": "Normal",
+    "paragraph": {
+     "spacing": {
+      "before": 40,
+      "after": 0
+     },
+     "keepNext": true
+    },
+    "run": {
+     "font": {
+      "kind": "theme",
+      "value": "majorLatin"
+     },
+     "color": {
+      "kind": "theme",
+      "value": {
+       "slot": "accent1",
+       "tint": -0.25
+      }
+     }
+    }
+   },
+   {
+    "id": "Heading6",
+    "name": "heading 6",
+    "kind": "paragraph",
+    "basedOn": "Normal",
+    "next": "Normal",
+    "paragraph": {
+     "spacing": {
+      "before": 40,
+      "after": 0
+     },
+     "keepNext": true
+    },
+    "run": {
+     "font": {
+      "kind": "theme",
+      "value": "majorLatin"
+     },
+     "color": {
+      "kind": "theme",
+      "value": {
+       "slot": "accent1",
+       "tint": -0.5
+      }
+     }
+    }
+   },
+   {
+    "id": "ListParagraph",
+    "name": "List Paragraph",
+    "kind": "paragraph",
+    "basedOn": "Normal",
+    "paragraph": {
+     "indent": {
+      "left": 720
+     }
+    }
+   }
+  ]
+ },
+ "numbering": {
+  "defs": []
+ },
+ "page": {
+  "width": 11906,
+  "height": 16838,
+  "margins": {
+   "top": 1440,
+   "right": 1440,
+   "bottom": 1440,
+   "left": 1440,
+   "header": 708,
+   "footer": 708
+  },
+  "orientation": "portrait"
+ },
+ "media": []
+}
