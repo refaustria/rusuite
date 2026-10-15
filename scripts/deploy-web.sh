@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Build the Calc, Write and Show web targets and publish it to /var/www/resuite (ADR 0005).
-# Usage: scripts/deploy-web.sh [--no-build]
+# Usage: scripts/deploy-web.sh [--no-build] [--e2e]
+#   --e2e  after publishing, run the Playwright smoke suite (packages/e2e) against the live site
+#          (base URL from E2E_BASE_URL, default <scheme>://$DEPLOY_HOST).
 set -euo pipefail
 
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -8,11 +10,14 @@ HOST="${DEPLOY_HOST:-resuite.inceptum.at}"
 TARGET="${DEPLOY_ROOT:-/var/www/resuite}"
 
 build=1
-case "${1:-}" in
-  "") ;;
-  --no-build) build=0 ;;
-  *) echo "usage: $0 [--no-build]" >&2; exit 2 ;;
-esac
+e2e=0
+for arg in "$@"; do
+  case "$arg" in
+    --no-build) build=0 ;;
+    --e2e) e2e=1 ;;
+    *) echo "usage: $0 [--no-build] [--e2e]" >&2; exit 2 ;;
+  esac
+done
 
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 commit="$(git rev-parse --short HEAD)"
@@ -56,3 +61,10 @@ for app in "${apps[@]}"; do
     echo "error: no .wasm in $dist/assets" >&2; exit 1
   fi
 done
+
+if [ "$e2e" = 1 ]; then
+  base="${E2E_BASE_URL:-$scheme://$HOST}"
+  echo "e2e smoke against $base"
+  pnpm --filter e2e exec playwright install chromium
+  BASE_URL="$base" pnpm e2e
+fi

@@ -256,7 +256,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   const m = marquee ? rectFromPoints(marquee.x0, marquee.y0, marquee.x1, marquee.y1) : null;
 
   return (
-    <div className="relative" style={{ width: size.width * scale, height: size.height * scale }} data-testid="editor-stage">
+    <div className="relative" style={{ width: size.width * scale, height: size.height * scale }} data-testid="editor-stage" data-guides={guides.v.length + guides.h.length}>
       <Stage
         ref={stageRef}
         width={size.width * scale}
