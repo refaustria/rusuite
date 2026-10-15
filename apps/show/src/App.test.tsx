@@ -1,94 +1,109 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ setTitle: vi.fn() }) }));
-// react-konva needs a real <canvas> (native `canvas` package under jsdom);
-// replace its components with plain elements that record their props.
-vi.mock("react-konva", async () => {
-  const React = await import("react");
-  const el = (kind: string) =>
-    React.forwardRef<unknown, Record<string, unknown>>(function Mock(props, _ref) {
-      const { children, text, width, height, draggable } = props as {
-        children?: React.ReactNode;
-        text?: string;
-        width?: number;
-        height?: number;
-        draggable?: boolean;
-      };
-      return React.createElement(
-        "div",
-        { "data-konva": kind, "data-width": width, "data-height": height, "data-draggable": String(!!draggable) },
-        text,
-        children as React.ReactNode,
-      );
-    });
-  return {
-    Stage: el("Stage"),
-    Layer: el("Layer"),
-    Rect: el("Rect"),
-    Ellipse: el("Ellipse"),
-    Text: el("Text"),
-    Transformer: el("Transformer"),
-  };
-});
+vi.mock("react-konva", () => import("./test/konvaMock"));
 
 import App from "./App";
-import { fitScale } from "./SlideStage";
-import { pingCore } from "./backend";
-import { FakeBackend } from "./fakeBackend";
+import { ShowApi } from "./api";
+import { ShowStore } from "./state/store";
+import { FakeBackend } from "./test/fakeBackend";
 
 afterEach(cleanup);
 
-const kinds = (root: ParentNode) => [...root.querySelectorAll("[data-konva]")].map((n) => n.getAttribute("data-konva"));
+// jsdom has no layout: give the canvas area a size so the editor stage renders.
+Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1312 });
+Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 752 });
 
-describe("Show", () => {
-  it("mounts the stage with the placeholder slide, three thumbnails and a status bar", async () => {
-    render(<App backend={new FakeBackend()} />);
-    expect(screen.getAllByTestId("thumbnail").length).toBe(3);
-    const host = screen.getByTestId("stage-host");
-    // jsdom has no layout, so the stage is not sized yet; scaling is covered by fitScale.
-    expect(host).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Present" })).toBeTruthy();
-    expect(screen.getByTestId("backend-kind").textContent).toBe("wasm");
-    await waitFor(() => expect(screen.getByTestId("ping").textContent).toBe("Rusuite Show fake"));
-    expect(fitScale(1280, 720)).toBe(1);
-    expect(fitScale(640, 720)).toBe(0.5);
-    expect(fitScale(0, 100)).toBe(0);
-  });
+async function mount() {
+  const backend = new FakeBackend();
+  const store = new ShowStore(new ShowApi(backend));
+  render(<App backend={backend} store={store} />);
+  await waitFor(() => expect(screen.getAllByTestId("thumbnail")).toHaveLength(3));
+  return { backend, store };
+}
 
-  it("Present shows a fullscreen stage; arrows navigate and Esc exits", async () => {
-    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
-    HTMLElement.prototype.requestFullscreen = requestFullscreen;
-    Object.defineProperty(window, "innerWidth", { value: 1920, configurable: true });
-    Object.defineProperty(window, "innerHeight", { value: 1080, configurable: true });
-    render(<App backend={new FakeBackend()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Present" }));
-    const presenter = screen.getByTestId("presenter");
-    expect(requestFullscreen).toHaveBeenCalled();
-    expect(kinds(presenter)).toEqual(["Stage", "Layer", "Rect", "Text", "Rect", "Ellipse", "Transformer"]);
-    const stage = presenter.querySelector('[data-konva="Stage"]')!;
-    expect(stage.getAttribute("data-width")).toBe("1920");
-    expect(stage.getAttribute("data-height")).toBe("1080");
-    expect(presenter.querySelector('[data-konva="Ellipse"]')!.getAttribute("data-draggable")).toBe("false");
-    expect(presenter.textContent).toContain("Welcome to Rusuite Show");
-    fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(presenter.textContent).toContain("Slide two");
-    fireEvent.keyDown(window, { key: "ArrowRight" });
-    fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(presenter.textContent).toContain("Slide three");
-    fireEvent.keyDown(window, { key: "ArrowLeft" });
-    expect(presenter.textContent).toContain("Slide two");
-    act(() => {
-      fireEvent.keyDown(window, { key: "Escape" });
-    });
-    expect(screen.queryByTestId("presenter")).toBeNull();
+const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
+
+describe("Show app", () => {
+  it("renders thumbnails from the model, the status bar and disabled file buttons", async () => {
+    const { store } = await mount();
+    expect(screen.getByTestId("slide-count").textContent).toBe("Slide 1 of 3");
+    expect(screen.getByTestId("dirty").textContent).toBe("Saved");
+    expect(screen.getByTestId("doc-name").textContent).toBe("Untitled");
+    const thumbs = screen.getAllByTestId("thumbnail");
+    expect(thumbs[2]!.querySelector('[data-konva="Ellipse"]')).not.toBeNull();
+    expect(thumbs[0]!.textContent).toContain("Rusuite"); // wrapped: one Text node per line
+    await flush();
+    const open = screen.getByRole("button", { name: "Open" }) as HTMLButtonElement;
+    expect(open.disabled).toBe(true);
+    expect(open.title).toMatch(/P4-7/);
+    fireEvent.click(thumbs[1]!);
+    expect(store.getState().current).toBe(4);
     expect(screen.getByTestId("slide-count").textContent).toBe("Slide 2 of 3");
   });
 
-  it("pingCore sends {type:ping} and recognises pong", async () => {
-    const backend = new FakeBackend();
-    expect(await pingCore(backend)).toBe(true);
-    expect(backend.log).toEqual([{ type: "ping" }]);
+  it("keyboard shortcuts send commands; Delete removes the selection", async () => {
+    const { backend, store } = await mount();
+    fireEvent.click(screen.getAllByTestId("thumbnail")[2]!);
+    act(() => store.select([9]));
+    fireEvent.keyDown(window, { key: "ArrowUp" });
+    await flush();
+    fireEvent.keyDown(window, { key: "Delete" });
+    await flush();
+    expect(backend.commands.map((c) => c.type)).toEqual(["setTransform", "deleteShapes"]);
+    expect(screen.getByTestId("dirty").textContent).toBe("Modified");
+    const stage = screen.getByTestId("editor-stage");
+    expect(stage.querySelector('[data-shape-id="9"]')).toBeNull();
+    expect(stage.querySelector('[data-shape-id="8"]')!.getAttribute("data-draggable")).toBe("true");
+  });
+
+  it("edits text in the overlay and commits on blur", async () => {
+    const { backend, store } = await mount();
+    act(() => store.startEdit(3));
+    const ta = screen.getByTestId("text-overlay") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "A subtitle\nsecond line" } });
+    fireEvent.blur(ta);
+    await flush();
+    expect(backend.commands[0]).toMatchObject({
+      type: "setTextBody",
+      shape: 3,
+      body: { paragraphs: [{ runs: [{ text: "A subtitle" }] }, { runs: [{ text: "second line" }] }] },
+    });
+    expect(screen.queryByTestId("text-overlay")).toBeNull();
+    expect(screen.getByTestId("editor-stage").textContent).toContain("second line");
+  });
+
+  it("toolbar: bold applies SetRunProps, insert adds shapes, undo goes through the core", async () => {
+    const { backend, store } = await mount();
+    act(() => store.select([2]));
+    fireEvent.click(screen.getByRole("button", { name: "Bold" }));
+    await flush();
+    expect(backend.commands[0]).toEqual({ type: "setRunProps", shape: 2, paragraph: 0, from: 0, to: 23, patch: { bold: true } });
+    fireEvent.click(screen.getByRole("button", { name: "Insert ellipse" }));
+    await flush();
+    expect(backend.commands[1]).toMatchObject({ type: "addShape", slide: 1, shape: { kind: { value: { geometry: "ellipse" } } } });
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await flush();
+    expect(backend.log[backend.log.length - 1]!.type).toBe("undo");
+  });
+
+  it("adds slides from the + menu and presents from the current slide", async () => {
+    HTMLElement.prototype.requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    const { backend } = await mount();
+    const list = screen.getByTestId("slide-list");
+    fireEvent.click(within(list).getByRole("button", { name: "New slide" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Blank" }));
+    await flush();
+    expect(backend.commands[0]).toEqual({ type: "addSlide", after: 1, layout: "blank" });
+    expect(screen.getAllByTestId("thumbnail")).toHaveLength(4);
+    expect(screen.getByTestId("slide-count").textContent).toBe("Slide 2 of 4");
+    fireEvent.click(screen.getByRole("button", { name: "Present" }));
+    expect(screen.getByTestId("presenter-counter").textContent).toBe("2 / 4");
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("presenter")).toBeNull();
+    expect(screen.getByTestId("slide-count").textContent).toBe("Slide 3 of 4");
   });
 });
