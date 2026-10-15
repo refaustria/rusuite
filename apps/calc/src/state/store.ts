@@ -8,6 +8,10 @@ import { useSyncExternalStore } from "react";
 import type { CellStylePatch } from "@rusuite/ui-shared";
 import { CalcApiError, type CalcApi, type PatchEnvelope } from "../backend/calcApi";
 import type { CalcCommand } from "../generated/CalcCommand";
+import type { FillMode } from "../generated/FillMode";
+import type { FoundCell } from "../generated/FoundCell";
+import type { PasteMode } from "../generated/PasteMode";
+import type { Rect } from "../generated/Rect";
 import type { CalcPatch } from "../generated/CalcPatch";
 import type { CellStyle } from "../generated/CellStyle";
 import type { CellView } from "../generated/CellView";
@@ -16,10 +20,14 @@ import type { RegionSnapshot } from "../generated/RegionSnapshot";
 import type { RowView } from "../generated/RowView";
 import type { SheetFormat } from "../generated/SheetFormat";
 import type { WorkbookInfo } from "../generated/WorkbookInfo";
-import { AxisGeometry, colGeometry, DEFAULT_FORMAT, rowGeometry } from "../grid/geometry";
+import { AxisGeometry, colGeometry, DEFAULT_FORMAT, rowGeometry, rowHeightPx } from "../grid/geometry";
+import { CELL_PADDING } from "../grid/render";
+import { approxMeasure, lineHeightPx, wrapLines, type Measure } from "../grid/textLayout";
 import { sheetPrefix } from "../grid/address";
 import { cellSelection, LAST_COL, LAST_ROW, normalize, type Cell, type NavContext, type Range, type Selection } from "../grid/Selection";
-import { styleAt } from "../grid/style";
+import { fontCss, styleAt } from "../grid/style";
+import { captureClip, fillDownEnd, pasteTarget, tsvClip, type Clip } from "./clipboard";
+import { findStep, replaceInInput, type FindOptions } from "./find";
 import { activeArg, applyFunction, FUNCTIONS, functionInfo, matchFunctions, signatureArgs, type FunctionInfo } from "../formula/functions";
 import { callAt, functionPrefix, pointSpan, replaceSpan } from "../formula/point";
 import { colorRefs, cycleAnchor, rangeText, type ColoredRef } from "../formula/refs";
@@ -94,6 +102,13 @@ export interface Toast {
   message: string;
 }
 
+/** The dialogs Calc opens from shortcuts, menus and (later) the ribbon. */
+export type CalcDialog =
+  | { kind: "numberFormat" }
+  | { kind: "find"; replace: boolean }
+  | { kind: "rowHeight" }
+  | { kind: "colWidth" };
+
 export interface CalcState {
   info: WorkbookInfo | null;
   /** `SheetInfo.id` of the visible sheet. */
@@ -113,6 +128,9 @@ export interface CalcState {
   /** Bumped on every cache change (the canvas redraws on it). */
   version: number;
   toasts: Toast[];
+  /** The copied/cut range shown with marching ants (`null`: none). */
+  clipMark: { sheet: number; range: Range; cut: boolean } | null;
+  dialog: CalcDialog | null;
 }
 
 export function emptyCache(): SheetCache {
@@ -170,11 +188,14 @@ export function clipRange(r: Range, cache: SheetCache): Range {
   return { r0: r.r0, c0: r.c0, r1, c1 };
 }
 
-/** Parses TSV (Excel's clipboard format) into rows of cells. */
-export function parseTsv(text: string): string[][] {
-  const lines = text.replace(/\r\n?/g, "\n").split("\n");
-  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
-  return lines.map((l) => l.split("\t"));
+export { parseTsv } from "./clipboard";
+
+const sameText = (a: string, b: string) => a.replace(/\r\n?/g, "\n").replace(/\n$/, "") === b.replace(/\r\n?/g, "\n").replace(/\n$/, "");
+
+/** Effective style id of a cell from the cache (cell → row → column → default). */
+function styleIdIn(cache: SheetCache, row: number, col: number): number {
+  const cell = cache.cells.get(row)?.get(col);
+  return cell ? cell.style : (cache.rows.get(row)?.style ?? cache.cols.get(col)?.style ?? 0);
 }
 
 export class CalcStore {
@@ -192,6 +213,8 @@ export class CalcStore {
     warnings: [],
     version: 0,
     toasts: [],
+    clipMark: null,
+    dialog: null,
   };
   private listeners = new Set<() => void>();
   private caches = new Map<number, SheetCache>();
@@ -202,8 +225,14 @@ export class CalcStore {
   private toastSeq = 0;
   /** Moves the keyboard focus back to the grid (set by the grid component). */
   focusGrid: () => void = () => {};
-  /** Internal clipboard (TSV), used when the system clipboard is unavailable. */
+  /** Internal clipboard (TSV of the last copy), used when the system clipboard is unavailable. */
   clipboard = "";
+  /** The last copied/cut block (inputs, style ids, source range). */
+  private clip: Clip | null = null;
+  /** Rows whose height was set by wrap auto-fit (they shrink back on their own). */
+  private autoRows = new Set<string>();
+  /** Text measurement (the grid installs the canvas; the default estimates). */
+  measure: Measure = approxMeasure;
 
   constructor(readonly api: CalcApi) {}
 
@@ -302,6 +331,9 @@ export class CalcStore {
   // --- backend → cache --------------------------------------------------
 
   private setInfo(info: WorkbookInfo): void {
+    this.clip = null;
+    this.autoRows.clear();
+    this.state = { ...this.state, clipMark: null };
     this.caches.clear();
     this.geo.clear();
     this.inflight.clear();
@@ -587,7 +619,10 @@ export class CalcStore {
     const mode = text === null || origin === "bar" ? "edit" : "enter";
     const value = text ?? this.activeCell()?.input ?? "";
     const { anchor } = this.state.selection;
+    // Editing ends copy mode (the marching ants), as in Excel.
+    this.clip = null;
     this.set({
+      clipMark: null,
       edit: {
         text: value, origin, mode, selStart: value.length, selEnd: value.length,
         sheet: this.state.activeSheet, cell: { ...anchor },
@@ -802,10 +837,21 @@ export class CalcStore {
     if (sheet !== this.state.activeSheet) this.showSheet(sheet, next, null);
     else this.set({ edit: null, selection: next });
     if (edit.text === before) return Promise.resolve(true);
-    const command: CalcCommand =
+    const write: CalcCommand =
       edit.text === ""
         ? { type: "clearRange", sheet, r0: row, c0: col, r1: row, c1: col }
         : { type: "setInput", sheet, row, col, input: edit.text };
+    const extra: CalcCommand[] = [];
+    const cache = this.cache(sheet);
+    let wrap = !!styleAt(this.styles(), styleIdIn(cache, row, col)).alignment?.wrapText;
+    if (edit.text.includes("\n") && !wrap) {
+      // A line break turns wrap text on (Excel).
+      wrap = true;
+      extra.push({ type: "applyStyle", sheet, r0: row, c0: col, r1: row, c1: col, patch: { alignment: { wrapText: true } } });
+    }
+    const text = isFormula(edit.text) ? null : edit.text;
+    extra.push(...this.rowFitCommands(sheet, [row], (c) => (c === col ? { text: text ?? undefined, wrap } : undefined), [col]));
+    const command: CalcCommand = extra.length === 0 ? write : { type: "compound", commands: [write, ...extra] };
     return this.api.apply(command).then(
       (env) => {
         this.applyEnvelope(env);
@@ -844,7 +890,68 @@ export class CalcStore {
 
   applyStyle(patch: CellStylePatch): Promise<void> {
     const r = this.selectionRange();
-    return this.apply({ type: "applyStyle", sheet: this.state.activeSheet, ...r, patch });
+    const sheet = this.state.activeSheet;
+    const command: CalcCommand = { type: "applyStyle", sheet, ...r, patch };
+    const wrap = patch.alignment?.wrapText;
+    if (wrap === undefined || wrap === null || r.r1 - r.r0 > 500) return this.apply(command);
+    // Wrap text on/off: rows without an explicit height follow (Excel).
+    const rows: number[] = [];
+    for (let row = r.r0; row <= r.r1; row++) rows.push(row);
+    const fit = this.rowFitCommands(sheet, rows, (c) => (c >= r.c0 && c <= r.c1 ? { wrap } : undefined));
+    return this.apply(fit.length === 0 ? command : { type: "compound", commands: [command, ...fit] });
+  }
+
+  /** Toggles wrap text on the selection (from the active cell's state). */
+  toggleWrap(): Promise<void> {
+    return this.applyStyle({ alignment: { wrapText: !this.activeStyle().alignment?.wrapText } });
+  }
+
+  /**
+   * `setRowHeight` commands that fit `rows` to their wrapped text, for
+   * rows without an explicit height (or auto-fitted before): a row grows
+   * to its tallest wrapped cell and returns to the default when nothing
+   * needs more. `override(col)` replaces a cell's text / wrap flag (the
+   * edit being committed, a style being applied). Measures cached cells only.
+   */
+  private rowFitCommands(
+    sheet: number, rows: number[], override: (col: number) => { text?: string; wrap?: boolean } | undefined, extraCols: number[] = [],
+  ): CalcCommand[] {
+    const cache = this.cache(sheet);
+    const geo = this.geometry(sheet);
+    const styles = this.styles();
+    const def = rowHeightPx(cache.format.defaultRowHeight);
+    const out: CalcCommand[] = [];
+    for (const row of rows) {
+      const view = cache.rows.get(row);
+      const key = `${sheet}:${row}`;
+      if (view?.hidden || (view && view.height !== null && !this.autoRows.has(key))) continue;
+      const cols = new Set(cache.cells.get(row)?.keys() ?? []);
+      for (const c of extraCols) cols.add(c);
+      let need = 0;
+      for (const col of cols) {
+        const o = override(col);
+        const cell = cache.cells.get(row)?.get(col);
+        const style = styleAt(styles, styleIdIn(cache, row, col));
+        const text = o?.text ?? cell?.display ?? "";
+        const wrap = o?.wrap ?? !!style.alignment?.wrapText;
+        if (!wrap || text === "") continue;
+        const font = fontCss(style);
+        const lines = wrapLines(text, geo.col.size(col) - 2 * CELL_PADDING, font, this.measure).length;
+        need = Math.max(need, lines * lineHeightPx(font));
+      }
+      if (need <= def) {
+        if (view && view.height !== null) {
+          this.autoRows.delete(key);
+          out.push({ type: "setRowHeight", sheet, row, height: null });
+        }
+        continue;
+      }
+      const height = Math.round(((need * 72) / 96) * 100) / 100;
+      if (view?.height === height) continue;
+      this.autoRows.add(key);
+      out.push({ type: "setRowHeight", sheet, row, height });
+    }
+    return out;
   }
 
   /** Ctrl+B / I / U: toggles based on the active cell's style. */
@@ -857,50 +964,274 @@ export class CalcStore {
     return this.applyStyle({ font: { [prop]: !font[prop] } });
   }
 
-  /** The selected inputs as TSV (also kept as the internal clipboard). */
-  copy(): string {
-    const cache = this.cache(this.state.activeSheet);
+  // --- clipboard ------------------------------------------------------------
+
+  /**
+   * Copies (or, `cut`, cuts) the selection into the internal clipboard
+   * and marks it with marching ants; returns its TSV for the system
+   * clipboard. Whole rows/columns are clipped to the used range. A cut
+   * changes nothing until the paste.
+   */
+  copy(cut = false): string {
+    const sheet = this.state.activeSheet;
+    const cache = this.cache(sheet);
     const r = normalize(this.state.selection);
-    const { lastRow, lastCol } = usedExtent(cache);
-    const r1 = Math.min(r.r1, Math.max(r.r0, lastRow));
-    const c1 = Math.min(r.c1, Math.max(r.c0, lastCol));
-    const lines: string[] = [];
-    for (let row = r.r0; row <= r1; row++) {
-      const cells: string[] = [];
-      for (let col = r.c0; col <= c1; col++) cells.push(cache.cells.get(row)?.get(col)?.input ?? "");
-      lines.push(cells.join("\t"));
-    }
-    this.clipboard = lines.join("\n");
-    return this.clipboard;
+    const { lastRow, lastCol } = this.usedExtent(sheet);
+    const range = { r0: r.r0, c0: r.c0, r1: Math.min(r.r1, Math.max(r.r0, lastRow)), c1: Math.min(r.c1, Math.max(r.c0, lastCol)) };
+    this.clip = captureClip(cache.cells, sheet, range, cut);
+    this.clipboard = this.clip.tsv;
+    this.set({ clipMark: { sheet, range, cut } });
+    return this.clip.tsv;
+  }
+
+  /** Esc: ends copy mode (and cancels a pending cut). */
+  clearClip(): void {
+    this.clip = null;
+    this.clipboard = "";
+    if (this.state.clipMark) this.set({ clipMark: null });
+  }
+
+  /** Whether a paste from the internal clipboard is possible. */
+  hasClip(): boolean {
+    return this.clip !== null;
   }
 
   /**
-   * Writes TSV at the active cell: one `setInput` per cell (`clearRange`
-   * for empty ones) sent as one `compound`, so a paste is one undo step.
-   * Formulas are pasted verbatim (no reference adjustment yet).
+   * Pastes at the selection's top-left, as one `pasteRange` (one undo
+   * step). Our own copy (no `text`, or `text` equal to its TSV) pastes
+   * inputs and formats with references shifted, repeated over a
+   * selection that is a multiple of the block; a cut moves the cells and
+   * ends copy mode. Other `text` is TSV from another program: plain
+   * inputs, destination formats kept.
    */
-  paste(text: string = this.clipboard): Promise<void> {
-    const rows = parseTsv(text);
+  paste(text?: string, mode: PasteMode = "all"): Promise<void> {
     const sheet = this.state.activeSheet;
-    const { row: top, col: left } = this.state.selection.anchor;
-    const commands: CalcCommand[] = [];
-    rows.forEach((cells, i) =>
-      cells.forEach((input, j) => {
-        const row = top + i;
-        const col = left + j;
-        commands.push(
-          input === "" ? { type: "clearRange", sheet, r0: row, c0: col, r1: row, c1: col } : { type: "setInput", sheet, row, col, input },
-        );
+    const sel = normalize(this.state.selection);
+    const clip = this.clip;
+    let command: CalcCommand;
+    let rows: number;
+    let cols: number;
+    let at: { r0: number; c0: number; repeatRows: number; repeatCols: number };
+    if (clip && (text === undefined || sameText(text, clip.tsv))) {
+      rows = clip.range.r1 - clip.range.r0 + 1;
+      cols = clip.range.c1 - clip.range.c0 + 1;
+      at = clip.cut ? { r0: sel.r0, c0: sel.c0, repeatRows: 1, repeatCols: 1 } : pasteTarget(sel, rows, cols);
+      command = {
+        type: "pasteRange", sheet, r0: at.r0, c0: at.c0, src: { sheet: clip.sheet, ...clip.range },
+        cells: clip.cells, mode: clip.cut ? "all" : mode, cut: clip.cut, repeatRows: at.repeatRows, repeatCols: at.repeatCols,
+      };
+      if (clip.cut) {
+        this.clip = null;
+        this.set({ clipMark: null });
+      }
+    } else {
+      if (!text) return Promise.resolve();
+      const block = tsvClip(text);
+      ({ rows, cols } = block);
+      at = pasteTarget(sel, rows, cols);
+      if (at.r0 + rows * at.repeatRows - 1 > LAST_ROW || at.c0 + cols * at.repeatCols - 1 > LAST_COL) {
+        this.pushError(new Error("The pasted data does not fit on the sheet"));
+        return Promise.resolve();
+      }
+      command = {
+        type: "pasteRange", sheet, r0: at.r0, c0: at.c0,
+        src: { sheet, r0: at.r0, c0: at.c0, r1: at.r0 + rows - 1, c1: at.c0 + cols - 1 },
+        cells: block.cells, mode: "all", cut: false, repeatRows: at.repeatRows, repeatCols: at.repeatCols,
+      };
+    }
+    const r1 = Math.min(LAST_ROW, at.r0 + rows * at.repeatRows - 1);
+    const c1 = Math.min(LAST_COL, at.c0 + cols * at.repeatCols - 1);
+    this.set({ selection: { anchor: { row: at.r0, col: at.c0 }, focus: { row: r1, col: c1 } } });
+    return this.apply(command);
+  }
+
+  // --- fill handle ----------------------------------------------------------
+
+  /** Fill-handle drag: fills `dst` from the selection (`alternate`: Ctrl held) and selects both. */
+  fill(dst: Rect, mode: FillMode = "auto"): Promise<void> {
+    const src = normalize(this.state.selection);
+    const sheet = this.state.activeSheet;
+    const r = { r0: Math.min(src.r0, dst.r0), c0: Math.min(src.c0, dst.c0), r1: Math.max(src.r1, dst.r1), c1: Math.max(src.c1, dst.c1) };
+    this.select(normalizeAround(this.state.selection.anchor, r));
+    return this.apply({ type: "fillRange", sheet, src, dst, mode });
+  }
+
+  /** Double-click on the fill handle: fills down to the end of the neighbouring column's data. */
+  fillToData(mode: FillMode = "auto"): Promise<void> {
+    const src = normalize(this.state.selection);
+    const cache = this.cache(this.state.activeSheet);
+    const isFilled = (r: number, c: number) => (cache.cells.get(r)?.get(c)?.input ?? "") !== "";
+    const end = fillDownEnd(src, isFilled, this.usedExtent(this.state.activeSheet).lastRow);
+    if (end === null || end <= src.r1) return Promise.resolve();
+    return this.fill({ r0: src.r1 + 1, c0: src.c0, r1: end, c1: src.c1 }, mode);
+  }
+
+  // --- dialogs, find & replace ---------------------------------------------
+
+  openDialog(dialog: CalcDialog): void {
+    if (this.state.edit) void this.commitEdit(0, 0);
+    if (this.state.edit) return;
+    this.set({ dialog });
+  }
+
+  closeDialog(): void {
+    if (this.state.dialog) this.set({ dialog: null });
+  }
+
+  /** The core's number formatting of `value` with `code` (Format Cells preview). */
+  formatPreview(value: number, code: string): Promise<string> {
+    return this.api.formatPreview(value, code);
+  }
+
+  private findCells(o: FindOptions): Promise<FoundCell[]> {
+    return this.api.findCells(o.allSheets ? null : this.state.activeSheet, o.query, o.matchCase, o.wholeCell);
+  }
+
+  private goTo(c: FoundCell): void {
+    if (c.sheet !== this.state.activeSheet) this.setActiveSheet(c.sheet);
+    if (this.state.activeSheet === c.sheet) this.select(cellSelection(c.row, c.col));
+  }
+
+  /** Find next / previous from the active cell (wrapping); selects the match. `null`: nothing found. */
+  async findNext(o: FindOptions, backwards = false): Promise<FoundCell | null> {
+    let found: FoundCell[] = [];
+    await this.guard(async () => {
+      found = await this.findCells(o);
+    });
+    const order = (this.state.info?.sheets ?? []).map((s) => s.id);
+    const { anchor } = this.state.selection;
+    const next = findStep(found, order, { sheet: this.state.activeSheet, row: anchor.row, col: anchor.col }, backwards);
+    if (next) this.goTo(next);
+    return next;
+  }
+
+  /** Replace: replaces in the active cell when it matches, then finds the next match. */
+  async replaceNext(o: FindOptions, replacement: string): Promise<FoundCell | null> {
+    let found: FoundCell[] = [];
+    await this.guard(async () => {
+      found = await this.findCells(o);
+    });
+    const { anchor } = this.state.selection;
+    const here = found.find((c) => c.sheet === this.state.activeSheet && c.row === anchor.row && c.col === anchor.col);
+    const next = here && replaceInInput(here.input, o.query, replacement, o.matchCase, o.wholeCell);
+    if (here && next !== null && next !== undefined) {
+      await this.apply({ type: "setInput", sheet: here.sheet, row: here.row, col: here.col, input: next });
+    }
+    return this.findNext(o);
+  }
+
+  /** Replace all: every matching input rewritten in one `compound`; resolves to the count. */
+  async replaceAll(o: FindOptions, replacement: string): Promise<number> {
+    let commands: CalcCommand[] = [];
+    await this.guard(async () => {
+      const found = await this.findCells(o);
+      commands = found.flatMap((c) => {
+        const input = replaceInInput(c.input, o.query, replacement, o.matchCase, o.wholeCell);
+        return input === null || input === c.input ? [] : [{ type: "setInput" as const, sheet: c.sheet, row: c.row, col: c.col, input }];
+      });
+    });
+    if (commands.length > 0) await this.apply(commands.length === 1 ? commands[0]! : { type: "compound", commands });
+    return commands.length;
+  }
+
+  // --- rows and columns -------------------------------------------------------
+
+  /** Selected columns (`c0..c1`) or rows of the selection. */
+  private span(axis: "rows" | "cols"): number[] {
+    const r = normalize(this.state.selection);
+    const [a, b] = axis === "rows" ? [r.r0, r.r1] : [r.c0, r.c1];
+    const out: number[] = [];
+    for (let i = a; i <= Math.min(b, a + 999); i++) out.push(i);
+    return out;
+  }
+
+  private applyAll(commands: CalcCommand[]): Promise<void> {
+    if (commands.length === 0) return Promise.resolve();
+    return this.apply(commands.length === 1 ? commands[0]! : { type: "compound", commands });
+  }
+
+  /** Hides (or shows) the selected rows/columns. Unhide shows the hidden ones inside the selection. */
+  setHidden(axis: "rows" | "cols", hidden: boolean): Promise<void> {
+    const sheet = this.state.activeSheet;
+    const cache = this.cache(sheet);
+    const idx = this.span(axis).filter((i) => hidden || (axis === "rows" ? cache.rows.get(i)?.hidden : cache.cols.get(i)?.hidden));
+    return this.applyAll(
+      idx.map((i): CalcCommand => (axis === "rows" ? { type: "setRowHidden", sheet, row: i, hidden } : { type: "setColHidden", sheet, col: i, hidden })),
+    );
+  }
+
+  /** Row height (points) / column width (characters) of the selected rows/columns; `null` = default. */
+  setSize(axis: "rows" | "cols", size: number | null): Promise<void> {
+    const sheet = this.state.activeSheet;
+    return this.applyAll(
+      this.span(axis).map((i): CalcCommand => {
+        if (axis === "rows") {
+          this.autoRows.delete(`${sheet}:${i}`);
+          return { type: "setRowHeight", sheet, row: i, height: size };
+        }
+        return { type: "setColWidth", sheet, col: i, width: size };
       }),
     );
-    if (commands.length === 0) return Promise.resolve();
-    const width = Math.max(...rows.map((r) => r.length));
-    this.set({ selection: { anchor: { row: top, col: left }, focus: { row: top + rows.length - 1, col: left + width - 1 } } });
-    return this.apply(commands.length === 1 ? commands[0] : { type: "compound", commands });
+  }
+
+  /** Current height (pt) of the active row / width (chars) of the active column. */
+  currentSize(axis: "rows" | "cols"): number {
+    const cache = this.cache(this.state.activeSheet);
+    const { anchor } = this.state.selection;
+    return axis === "rows"
+      ? (cache.rows.get(anchor.row)?.height ?? cache.format.defaultRowHeight)
+      : (cache.cols.get(anchor.col)?.width ?? cache.format.defaultColWidth);
+  }
+
+  /**
+   * Column autofit: the widest displayed text of each column among the
+   * cached cells (loaded blocks only), or the default width when the
+   * column is empty. One undo step.
+   */
+  autofitCols(cols: number[]): Promise<void> {
+    const sheet = this.state.activeSheet;
+    const cache = this.cache(sheet);
+    const widest = new Map<number, number>(cols.map((c) => [c, 0]));
+    for (const row of cache.cells.values()) {
+      for (const [c, cell] of row) {
+        if (!widest.has(c) || cell.display === "") continue;
+        const style = styleAt(this.styles(), cell.style);
+        if (style.alignment?.wrapText) continue;
+        const w = this.measure(cell.display.replace(/\n/g, " "), fontCss(style));
+        if (w > widest.get(c)!) widest.set(c, w);
+      }
+    }
+    return this.applyAll(
+      [...widest].map(([col, w]): CalcCommand => ({
+        type: "setColWidth", sheet, col, width: w === 0 ? null : pxToChars(Math.ceil(w + 2 * CELL_PADDING + 3)),
+      })),
+    );
+  }
+
+  /** Autofit every column that has cached content. */
+  autofitAllCols(): Promise<void> {
+    const cols = new Set<number>();
+    for (const row of this.cache(this.state.activeSheet).cells.values()) for (const [c, cell] of row) if (cell.display !== "") cols.add(c);
+    return this.autofitCols([...cols].sort((a, b) => a - b));
+  }
+
+  /** Row autofit (double-click on a row boundary): tallest font, wrapped text included. */
+  autofitRow(row: number): Promise<void> {
+    const sheet = this.state.activeSheet;
+    this.autoRows.add(`${sheet}:${row}`);
+    const fit = this.rowFitCommands(sheet, [row], () => undefined);
+    if (fit.length > 0) return this.applyAll(fit);
+    const cache = this.cache(sheet);
+    let tallest = 0;
+    for (const cell of cache.cells.get(row)?.values() ?? []) {
+      if (cell.display) tallest = Math.max(tallest, lineHeightPx(fontCss(styleAt(this.styles(), cell.style))));
+    }
+    const def = rowHeightPx(cache.format.defaultRowHeight);
+    return this.setRowHeight(row, tallest === 0 || tallest <= def ? null : tallest);
   }
 
   setColWidth(col: number, widthPx: number | null): Promise<void> {
-    const width = widthPx === null ? null : Math.max(0, Math.round(((widthPx - 5) / 7) * 100) / 100);
+    const width = widthPx === null ? null : pxToChars(widthPx);
     return this.apply({ type: "setColWidth", sheet: this.state.activeSheet, col, width });
   }
 
@@ -925,6 +1256,17 @@ export class CalcStore {
     if (!name.trim() || name === current) return Promise.resolve();
     return this.apply({ type: "renameSheet", sheet, name: name.trim() });
   }
+}
+
+/** Column width px → Excel character units. */
+export function pxToChars(px: number): number {
+  return Math.max(0, Math.round(((px - 5) / 7) * 100) / 100);
+}
+
+/** A selection covering `r` with `anchor` kept as the active cell. */
+function normalizeAround(anchor: Cell, r: Range): Selection {
+  const focus = { row: anchor.row === r.r0 ? r.r1 : r.r0, col: anchor.col === r.c0 ? r.c1 : r.c0 };
+  return { anchor: { ...anchor }, focus };
 }
 
 /** Subscribes a component to a slice of the store. */

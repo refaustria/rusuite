@@ -29,7 +29,7 @@
 | Mod+Shift+Arrow | Extend the selection to the edge of the data |
 | F2 | Edit the active cell (edit mode); inside the editor: switch between edit and enter mode |
 | Delete, Backspace | Clear the selection |
-| Alt+Enter | Line break in the cell editor (stored as `\n`; cells do not wrap yet) |
+| Alt+Enter | Line break in the cell editor (stored as `\n`; committing turns wrap text on and grows the row) |
 | Enter, Tab (Shift: reverse) | Commit the edit and move down / right |
 | Esc | Cancel the edit (first closes the function list) |
 | Arrows | Enter mode (editing started by typing): point at cells in a formula, otherwise commit and move. Edit mode (F2, double-click, formula bar): move the caret |
@@ -38,9 +38,19 @@
 | ArrowUp/ArrowDown, Tab/Enter | Function list: choose, accept (`SUM(`) |
 | Mod+Space, Shift+Space | Select the column(s), the row(s) |
 | Mod+Plus, Mod+Minus | Insert, delete rows or columns (dialog unless whole rows/columns are selected) |
-| Mod+1 | Format cells: focus the formatting toolbar |
+| Mod+1 | Format cells: number format dialog (General, Number, Currency, Percentage, Date, Time, Text, Custom) with a live preview |
+| Mod+C, Mod+X | Copy, cut: the range gets a marching-ants outline; a cut moves the cells on the next paste |
+| Mod+V | Paste at the selection's top-left (relative references shift; the block repeats over a selection that is a multiple of it). Text from other programs is pasted as plain values (TSV) |
+| Mod+Shift+V | Paste values only (formulas paste their current values; destination formats kept) |
+| Esc | Leave copy / cut mode (the marching ants disappear) |
+| Mod+F, Mod+H | Find, find and replace (sheet or workbook, match case, entire cell; inputs and displayed values are searched) |
 
-Find is not offered in Calc yet.
+### Mouse
+
+- **Fill handle** (the small square at the selection's bottom-right): drag down, up, right or left to fill. One cell is copied (relative references shift); two or more numbers continue their linear trend (1, 2 → 3, 4, …); a date steps by a day; text ending in a number counts up (`Item1` → `Item2`). Hold Ctrl while releasing to swap series and copy. Double-click the handle to fill down to the end of the neighbouring column's data.
+- **Right-click** cells, row headers, column headers or sheet tabs for a context menu (cut/copy/paste/paste values, insert/delete rows and columns, clear contents, format cells, row height / column width, hide/unhide, autofit column width, rename sheet). The menu is keyboard navigable (arrows, Home/End, Enter, Esc).
+- Double-click a column boundary to autofit the column, a row boundary to autofit the row. Autofit measures the cells loaded in the view cache (the visible area plus prefetched blocks), not the whole sheet.
+- Cut/paste moves the cells and their formulas keep their text; formulas elsewhere that refer to the moved cells are not adjusted yet.
 
 ### Formula editing (point mode)
 

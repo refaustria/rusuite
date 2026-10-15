@@ -321,6 +321,69 @@ export class FakeCalcCore {
         const inv = inverses.every((x) => x !== null) ? ({ type: "compound", commands: (inverses as CalcCommand[]).reverse() } as CalcCommand) : null;
         return [patch, inv];
       }
+      case "pasteRange": {
+        // Expanded into restoreCells (formulas shifted with a toy regex).
+        const s = this.sheet(cmd.sheet);
+        const h = cmd.src.r1 - cmd.src.r0 + 1;
+        const w = cmd.src.c1 - cmd.src.c0 + 1;
+        const writes = new Map<string, [number, number, string, number]>();
+        const put = (sh: number, r: number, c: number, input: string, style: number) => writes.set(`${sh}:${r},${c}`, [r, c, input, style]);
+        if (cmd.cut) {
+          const from = this.sheet(cmd.src.sheet);
+          for (let r = cmd.src.r0; r <= cmd.src.r1; r++) for (let c = cmd.src.c0; c <= cmd.src.c1; c++) if (this.cell(from, r, c)) put(from.id, r, c, "", 0);
+        }
+        for (let ti = 0; ti < cmd.repeatRows; ti++) {
+          for (let tj = 0; tj < cmd.repeatCols; tj++) {
+            for (let dr = 0; dr < h; dr++) {
+              for (let dc = 0; dc < w; dc++) {
+                const r = cmd.r0 + ti * h + dr;
+                const c = cmd.c0 + tj * w + dc;
+                const clip = cmd.cells.find((x) => x.dr === dr && x.dc === dc);
+                const old = this.cell(s, r, c);
+                if (!clip && !old) continue;
+                const input = clip ? (cmd.cut ? clip.input : shiftRefs(clip.input, r - cmd.src.r0 - dr, c - cmd.src.c0 - dc)) : "";
+                const style = clip?.style ?? (clip ? (old?.style ?? 0) : 0);
+                if (cmd.mode === "formatsOnly") put(s.id, r, c, old?.input ?? "", style);
+                else if (cmd.mode === "valuesOnly") put(s.id, r, c, input, old?.style ?? 0);
+                else put(s.id, r, c, input, style);
+              }
+            }
+          }
+        }
+        const bySheet = new Map<number, [number, number, string, number][]>();
+        for (const [key, v] of writes) {
+          const sh = Number(key.split(":")[0]);
+          if (!bySheet.has(sh)) bySheet.set(sh, []);
+          bySheet.get(sh)!.push(v);
+        }
+        const cmds: CalcCommand[] = [...bySheet].map(([sheet, cells]) => ({ type: "restoreCells", sheet, cells }));
+        return this.exec({ type: "compound", commands: cmds });
+      }
+      case "fillRange": {
+        // Copy with shifted formulas; all-number lines continue linearly.
+        const s = this.sheet(cmd.sheet);
+        const vertical = cmd.src.c0 === cmd.dst.c0 && cmd.src.c1 === cmd.dst.c1;
+        const n = vertical ? cmd.src.r1 - cmd.src.r0 + 1 : cmd.src.c1 - cmd.src.c0 + 1;
+        const origin = vertical ? cmd.src.r0 : cmd.src.c0;
+        const cells: [number, number, string, number][] = [];
+        const [l0, l1] = vertical ? [cmd.src.c0, cmd.src.c1] : [cmd.src.r0, cmd.src.r1];
+        const [p0, p1] = vertical ? [cmd.dst.r0, cmd.dst.r1] : [cmd.dst.c0, cmd.dst.c1];
+        for (let line = l0; line <= l1; line++) {
+          const at = (pos: number): [number, number] => (vertical ? [pos, line] : [line, pos]);
+          const src = Array.from({ length: n }, (_, p) => this.cell(s, ...at(origin + p)));
+          const nums = src.map((x) => (x && x.input !== "" && Number.isFinite(Number(x.input)) ? Number(x.input) : NaN));
+          const linear = n > 1 && nums.every((x) => !Number.isNaN(x)) && cmd.mode !== "copy" && cmd.mode !== "alternate";
+          const step = linear ? (nums[n - 1] - nums[0]) / (n - 1) : 0;
+          for (let pos = p0; pos <= p1; pos++) {
+            const k = pos - origin;
+            const p = ((k % n) + n) % n;
+            const from = src[p];
+            const input = linear ? String(nums[0] + step * k) : shiftRefs(from?.input ?? "", vertical ? k - p : 0, vertical ? 0 : k - p);
+            cells.push([...at(pos), input, from?.style ?? 0]);
+          }
+        }
+        return this.exec({ type: "restoreCells", sheet: cmd.sheet, cells });
+      }
       case "insertRows":
       case "deleteRows":
       case "insertCols":
@@ -479,6 +542,32 @@ export class FakeCalcCore {
           this.savedRevision = -1;
           return this.infoResponse();
         }
+        case "findCells": {
+          const q = req.matchCase ? req.query : req.query.toLowerCase();
+          const hit = (t: string) => {
+            const x = req.matchCase ? t : t.toLowerCase();
+            return q !== "" && (req.wholeCell ? x === q : x.includes(q));
+          };
+          const sheets = req.sheet === null ? this.sheets : [this.sheet(req.sheet)];
+          const cells = sheets.flatMap((sh) =>
+            [...sh.cells.keys()].sort((a, b) => a - b).flatMap((r) =>
+              [...sh.cells.get(r)!.keys()].sort((a, b) => a - b).flatMap((c) => {
+                const v = this.view(sh, r, c);
+                return v.input !== "" && (hit(v.input) || hit(v.display)) ? [{ sheet: sh.id, row: r, col: c, input: v.input, display: v.display }] : [];
+              }),
+            ),
+          );
+          return { ok: { type: "found", cells } };
+        }
+        case "formatPreview": {
+          const dec = /^[#,]*0(?:\.(0+))?%?$/.exec(req.code.replace(/[^#0.,%]/g, ""));
+          let text = formatNumber(req.value);
+          if (dec && req.code !== "General") {
+            const pct = req.code.includes("%");
+            text = (pct ? req.value * 100 : req.value).toFixed(dec[1]?.length ?? 0) + (pct ? "%" : "");
+          }
+          return { ok: { type: "formatted", text } };
+        }
         case "loadSnapshotJson":
         case "saveSnapshotJson":
           throw new Fail("internal", "not supported by the fake backend");
@@ -490,6 +579,29 @@ export class FakeCalcCore {
       return { err: { code: "internal", message: String(e) } };
     }
   }
+}
+
+/** Toy reference shifter for the fake's paste/fill (A1 refs outside strings; `$` parts stay). */
+export function shiftRefs(input: string, dRow: number, dCol: number): string {
+  if (!input.startsWith("=") || (dRow === 0 && dCol === 0)) return input;
+  const colNum = (s: string) => [...s].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+  const colStr = (n: number) => {
+    let s = "";
+    for (n += 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+    return s;
+  };
+  return input
+    .split(/("[^"]*")/)
+    .map((part, i) =>
+      i % 2 === 1
+        ? part
+        : part.replace(/(\$?)([A-Z]{1,3})(\$?)(\d+)/g, (_m, ca: string, col: string, ra: string, row: string) => {
+            const c = ca ? colNum(col) : colNum(col) + dCol;
+            const r = ra ? Number(row) : Number(row) + dRow;
+            return c < 0 || r < 1 ? "#REF!" : `${ca}${colStr(c)}${ra}${r}`;
+          }),
+    )
+    .join("");
 }
 
 function mergePatch(into: CalcPatch, p: CalcPatch): void {

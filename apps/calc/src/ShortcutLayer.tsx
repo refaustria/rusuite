@@ -6,6 +6,8 @@
 import { useMemo, useState } from "react";
 import { Dialog, PromptDialog, ShortcutHelp, useShortcuts, withExtension, type HelpRow, type ShortcutMap } from "@rusuite/ui-shared";
 import { colSelection, isWholeCols, isWholeRows, normalize, rowSelection } from "./grid/Selection";
+import { calcActions } from "./calcActions";
+import { CalcDialogs } from "./CalcDialogs";
 import type { CalcStore } from "./state/store";
 
 const inGrid = (e: KeyboardEvent) => (e.target as HTMLElement | null)?.hasAttribute?.("data-calc-grid") ?? false;
@@ -15,7 +17,11 @@ export const NATIVE_ROWS: HelpRow[] = [
   { combo: "Mod+ArrowRight", label: "Jump to the edge of the data (any arrow)", group: "Navigation" },
   { combo: "Mod+Shift+ArrowRight", label: "Extend the selection to the edge of the data", group: "Navigation" },
   { combo: "Mod+A", label: "Select all", group: "Navigation" },
-  { combo: "Alt+Enter", label: "Line break in the cell editor", group: "Editing" },
+  { combo: "Alt+Enter", label: "Line break in the cell editor (turns wrap text on)", group: "Editing" },
+  { combo: "Mod+C", label: "Copy (marching ants until Esc or an edit)", group: "Edit" },
+  { combo: "Mod+X", label: "Cut: the paste moves the cells", group: "Edit" },
+  { combo: "Mod+V", label: "Paste (formulas shift; repeats over a multiple selection)", group: "Edit" },
+  { combo: "Escape", label: "Cancel copy / cut mode", group: "Edit" },
 ];
 
 function discard(store: CalcStore): boolean {
@@ -66,6 +72,7 @@ export function ShortcutLayer({ store, onExportPdf }: { store: CalcStore; onExpo
   const map = useMemo<ShortcutMap>(() => {
     const File = "File";
     const grid = "Grid";
+    const actions = calcActions(store);
     /** Insert/delete: whole-row or whole-column selections skip the dialog. */
     const structural = (kind: "insert" | "delete") => () => {
       const r = normalize(store.getState().selection);
@@ -86,15 +93,10 @@ export function ShortcutLayer({ store, onExportPdf }: { store: CalcStore; onExpo
       "Mod+B": { label: "Bold", group: "Format", when: inGrid, run: () => void store.toggleFont("bold") },
       "Mod+I": { label: "Italic", group: "Format", when: inGrid, run: () => void store.toggleFont("italic") },
       "Mod+U": { label: "Underline", group: "Format", when: inGrid, run: () => void store.toggleFont("underline") },
-      "Mod+1": {
-        label: "Format cells (focus the formatting toolbar)",
-        group: "Format",
-        run: () => {
-          const target = document.querySelector<HTMLElement>('[role="toolbar"] button:not([disabled]), [role="toolbar"] select:not([disabled])');
-          if (!target) return false;
-          target.focus();
-        },
-      },
+      "Mod+1": { label: "Format cells (number format)", group: "Format", when: inGrid, run: () => actions.formatCells() },
+      "Mod+F": { label: "Find", group: "Edit", when: inGrid, run: () => actions.find() },
+      "Mod+H": { label: "Find and replace", group: "Edit", when: inGrid, run: () => actions.replace() },
+      "Mod+Shift+V": { label: "Paste values only", group: "Edit", when: inGrid, run: () => void actions.pasteValues() },
       F2: { label: "Edit cell", group: "Edit", when: inGrid, run: () => store.beginEdit(null) },
       Delete: { label: "Clear cells", group: "Edit", when: inGrid, run: () => void store.clearSelection() },
       Backspace: { label: "Clear cells", group: "Edit", when: inGrid, run: () => void store.clearSelection() },
@@ -139,6 +141,7 @@ export function ShortcutLayer({ store, onExportPdf }: { store: CalcStore; onExpo
         }}
       />
       <StructureDialog kind={structure} store={store} onClose={() => setStructure(null)} />
+      <CalcDialogs store={store} />
     </>
   );
 }

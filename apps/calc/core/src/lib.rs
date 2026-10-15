@@ -27,14 +27,16 @@ mod command;
 mod dispatch;
 mod display;
 mod doc;
+mod fill;
 mod patch;
 pub mod wire;
 
-pub use command::CalcCommand;
+pub use command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect};
 pub use dispatch::{dispatch, CalcHost, Request, Response, ResponseBody};
 pub use display::{display_value, UNDISPLAYABLE};
 pub use doc::{CalcDocument, CalcError};
+pub use fill::{plan as fill_plan, shift_input, FillItem, FillPlan};
 pub use patch::{
-    CalcPatch, CellKind, CellView, ColView, RegionSnapshot, RowView, SheetCells, SheetCols,
-    SheetInfo, SheetRows, StructuralChange, StructuralKind, WorkbookInfo,
+    CalcPatch, CellKind, CellView, ColView, FoundCell, RegionSnapshot, RowView, SheetCells,
+    SheetCols, SheetInfo, SheetRows, StructuralChange, StructuralKind, WorkbookInfo,
 };
