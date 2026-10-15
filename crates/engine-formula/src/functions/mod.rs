@@ -7,7 +7,9 @@
 use std::collections::HashMap;
 
 use crate::ast::{ErrorKind, Expr};
-use crate::eval::{eval_operand, scalar, CellCoord, CellProvider, EvalContext, Operand, RangeRef};
+use crate::eval::{
+    eval_array, eval_operand, scalar, CellCoord, CellProvider, EvalContext, Operand, RangeRef,
+};
 use crate::value::{to_bool, to_number, to_text, Array, Value};
 
 pub mod datetime;
@@ -167,10 +169,12 @@ impl<'c, 'a> CallContext<'c, 'a> {
         to_bool(&self.scalar(e))
     }
 
-    /// Evaluates an argument that should be a range or array. A scalar is
-    /// treated as a 1x1 array; an error value is returned as `Err`.
+    /// Evaluates an argument that should be a range or array, in array mode
+    /// (see [`eval_array`]: operators apply element-wise, so
+    /// `(A1:A3>1)*B1:B3` is an array). A scalar is treated as a 1x1 array; an
+    /// error value is returned as `Err`.
     pub fn range(&self, e: &Expr) -> Result<RangeArg<'a>, ErrorKind> {
-        match self.eval(e) {
+        match eval_array(e, self.ctx) {
             Operand::Range(r) => Ok(RangeArg::Range {
                 range: r,
                 provider: self.ctx.provider,
