@@ -808,6 +808,7 @@ impl Workbook {
                 ..st
             })
         });
+        self.shift_rules(sheet, op);
         Ok(recalc)
     }
 

@@ -36,6 +36,14 @@ pub trait CellProvider {
         let _ = c;
         false
     }
+    /// `(rows, cols)` of the range `c#` designates: the spill range of the
+    /// formula in `c` (`(1, 1)` for a formula with a single value), `None`
+    /// when `c` holds no formula or its array is blocked (`#SPILL!`). The
+    /// default: no spills.
+    fn spill_extent(&self, c: CellCoord) -> Option<(u32, u32)> {
+        let _ = c;
+        None
+    }
 }
 
 /// The visibility of a row as `SUBTOTAL` sees it.
@@ -133,6 +141,29 @@ pub fn evaluate(expr: &Expr, ctx: &EvalContext) -> Value {
     }
 }
 
+/// Evaluates a cell formula with dynamic-array semantics (Excel 365): the
+/// top level is evaluated in array mode (see [`eval_array`]), so a range or
+/// an array result is returned as `Value::Array` for the host to spill.
+/// A one-cell result is returned as a scalar; `Empty` (also inside an
+/// array) becomes `Number(0)`. Whole-column/row ranges are clipped to the
+/// used range.
+pub fn evaluate_formula(expr: &Expr, ctx: &EvalContext) -> Value {
+    let zero = |v: Value| match v {
+        Value::Empty => Value::Number(0.0),
+        v => v,
+    };
+    let v = match eval_array(expr, ctx) {
+        Operand::Range(r) => range_value(r, ctx),
+        Operand::Scalar(v) => v,
+    };
+    match v {
+        Value::Array(a) if a.rows() * a.cols() == 1 => zero(a.top_left()),
+        Value::Array(a) if a.rows() == 0 || a.cols() == 0 => Value::Error(ErrorKind::Calc),
+        Value::Array(a) => Value::Array(a.map(zero)),
+        v => zero(v),
+    }
+}
+
 /// Evaluates an expression without dereferencing references.
 pub fn eval_operand(expr: &Expr, ctx: &EvalContext) -> Operand {
     match expr {
@@ -158,6 +189,14 @@ pub fn eval_operand(expr: &Expr, ctx: &EvalContext) -> Operand {
             })
         }
         Expr::Call { name, args } => Operand::Scalar(call(name, args, ctx)),
+        Expr::Unary {
+            op: UnaryOp::ImplicitIntersection,
+            expr,
+        } => Operand::Scalar(eval_scalar(expr, ctx)),
+        Expr::Unary {
+            op: UnaryOp::SpillRange,
+            expr,
+        } => spill_range(eval_ref(expr, ctx), ctx),
         Expr::Unary { op, expr } => Operand::Scalar(apply_unary(*op, eval_scalar(expr, ctx))),
         Expr::Binary {
             op: BinaryOp::Range,
@@ -199,7 +238,7 @@ pub fn scalar(op: Operand, ctx: &EvalContext) -> Value {
 /// scalar.
 pub fn eval_array(expr: &Expr, ctx: &EvalContext) -> Operand {
     match expr {
-        Expr::Unary { op, expr } => {
+        Expr::Unary { op, expr } if op.is_arithmetic() => {
             let v = materialize(eval_array(expr, ctx), ctx);
             Operand::Scalar(match v {
                 Value::Array(a) => Value::Array(a.map(|x| apply_unary(*op, x))),
@@ -394,6 +433,30 @@ fn finish(v: Value) -> Value {
     }
 }
 
+/// The spilled-range operator: `c#` for a one-cell reference `c` is the
+/// range its formula spills into (`#REF!` otherwise).
+fn spill_range(op: Operand, ctx: &EvalContext) -> Operand {
+    match op {
+        Operand::Range(r) if r.is_single_cell() => {
+            let anchor = CellCoord {
+                sheet: r.sheet,
+                row: r.r0,
+                col: r.c0,
+            };
+            match ctx.provider.spill_extent(anchor) {
+                Some((rows, cols)) if rows > 0 && cols > 0 => Operand::Range(RangeRef {
+                    r1: r.r0.saturating_add(rows - 1).min(MAX_ROW),
+                    c1: r.c0.saturating_add(cols - 1).min(MAX_COL),
+                    ..r
+                }),
+                _ => Operand::Scalar(Value::Error(ErrorKind::Ref)),
+            }
+        }
+        Operand::Scalar(Value::Error(e)) => Operand::Scalar(Value::Error(e)),
+        _ => Operand::Scalar(Value::Error(ErrorKind::Ref)),
+    }
+}
+
 fn range_op(l: Operand, r: Operand) -> Operand {
     match (l, r) {
         (Operand::Range(a), Operand::Range(b)) if a.sheet == b.sheet => Operand::Range(a.union(&b)),
@@ -410,6 +473,8 @@ fn apply_unary(op: UnaryOp, v: Value) -> Value {
         UnaryOp::Plus => v,
         UnaryOp::Neg => Value::from_result(to_number(&v).map(|n| -n)),
         UnaryOp::Percent => Value::from_result(to_number(&v).map(|n| n / 100.0)),
+        // Not element-wise: handled in `eval_operand`.
+        UnaryOp::ImplicitIntersection | UnaryOp::SpillRange => v.into_scalar(),
     }
 }
 

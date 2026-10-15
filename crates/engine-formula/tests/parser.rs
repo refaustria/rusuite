@@ -38,6 +38,9 @@ fn error_cases() {
         ("=Sheet1!A1:Sheet2!B2", 11),
         ("=$", 1),
         ("=1@2", 2),
+        ("=@", 2),
+        ("=#", 1),
+        ("=A1##", 4),
         ("=#BOGUS!", 1),
     ];
     for (input, pos) in cases {
@@ -74,6 +77,30 @@ fn snapshots() {
         "array_range",
         parse("={1,-2;TRUE,#N/A}&A1:INDEX(B:B,2)").unwrap()
     );
+}
+
+#[test]
+fn spill_and_intersection_operators() {
+    use engine_formula::ast::UnaryOp;
+    let Expr::Unary { op, expr } = parse("=A1#").unwrap() else {
+        panic!("unary expected");
+    };
+    assert_eq!(op, UnaryOp::SpillRange);
+    assert_eq!(expr.to_string(), "A1");
+    // `@` covers the whole range: `@A1:B2` is `@(A1:B2)`.
+    let Expr::Unary { op, expr } = parse("=@A1:B2").unwrap() else {
+        panic!("unary expected");
+    };
+    assert_eq!(op, UnaryOp::ImplicitIntersection);
+    assert_eq!(expr.to_string(), "A1:B2");
+    // References inside are found (and adjusted) as usual.
+    let refs: Vec<String> = parse("=SUM(A1#)+@B1:B3")
+        .unwrap()
+        .references()
+        .iter()
+        .map(|r| r.to_string())
+        .collect();
+    assert_eq!(refs, ["A1", "B1:B3"]);
 }
 
 #[test]

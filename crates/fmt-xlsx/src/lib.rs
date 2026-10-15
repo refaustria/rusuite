@@ -4,7 +4,8 @@
 //!
 //! The supported subset (values, formulas, cell styles, column/row
 //! dimensions, sheet defaults, sheet views with frozen panes, hidden
-//! sheets, merged cells) and everything that is dropped are listed in
+//! sheets, merged cells, AutoFilter, conditional formatting, data
+//! validation) and everything that is dropped are listed in
 //! `docs/ooxml-subset.md`.
 //!
 //! ```
@@ -26,6 +27,8 @@
 //! the `*_path` helpers exist on native targets only.
 
 pub mod a1;
+mod condfmt;
+mod dynarray;
 mod read;
 mod styles;
 mod theme;
@@ -38,7 +41,7 @@ use serde::{Deserialize, Serialize};
 
 pub use read::{read, read_with_context, read_with_warnings, ReadOutput};
 pub use write::{write, write_with_context};
-pub use xlfn::{add_xlfn_prefixes, strip_xlfn_prefixes, XLFN_FUNCTIONS};
+pub use xlfn::{add_xlfn_prefixes, strip_xlfn_prefixes, XLFN_FUNCTIONS, XLWS_FUNCTIONS};
 
 /// Result alias of this crate.
 pub type Result<T> = std::result::Result<T, Error>;

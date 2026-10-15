@@ -134,6 +134,32 @@ impl RawColor {
     }
 }
 
+impl RawColor {
+    fn from_dom(el: &fmt_ooxml::xml::El) -> Self {
+        let num = |n: &str| el.attr(n).and_then(|v| v.trim().parse().ok());
+        RawColor {
+            auto: el
+                .attr("auto")
+                .and_then(fmt_ooxml::xml::parse_bool)
+                .unwrap_or(false),
+            rgb: el.attr("rgb").map(str::to_owned),
+            indexed: num("indexed"),
+            theme: num("theme"),
+            tint: el
+                .attr("tint")
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(0.0),
+        }
+    }
+}
+
+/// A `CT_Color` DOM element outside the styles part (conditional
+/// formatting colours), resolved against the default indexed palette.
+pub(crate) fn color_of_dom(el: &fmt_ooxml::xml::El) -> Option<Color> {
+    let palette: Vec<Rgb> = INDEXED_PALETTE.iter().map(|&v| rgb_of(v)).collect();
+    RawColor::from_dom(el).resolve(&palette)
+}
+
 /// A `CT_Color` element outside the styles part (e.g. `sheetPr/tabColor`),
 /// resolved against the default indexed palette.
 pub(crate) fn color_of_el(el: &BytesStart<'_>) -> Option<Color> {
@@ -187,6 +213,8 @@ pub struct ParsedStyles {
     pub xfs: Vec<CellStyle>,
     /// Font 0, normalized.
     pub default_font: RunProperties,
+    /// The differential formats of `<dxfs>` (conditional formatting).
+    pub dxfs: Vec<model_sheet::DxfStyle>,
 }
 
 fn underline_of(v: Option<&str>) -> Underline {
@@ -252,6 +280,7 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
     let mut xfs: Vec<RawXf> = Vec::new();
     let mut palette: Option<Vec<Rgb>> = None;
     let mut side: Option<usize> = None;
+    let mut dxfs: Option<fmt_ooxml::xml::El> = None;
     loop {
         let ev = reader.read_event().map_err(xml_err(part))?;
         let (el, is_empty) = match &ev {
@@ -279,6 +308,12 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
             (Section::Other, b"borders") => section = Section::Borders,
             (Section::Other, b"cellXfs") => section = Section::CellXfs,
             (Section::Other, b"colors") => section = Section::Colors,
+            // Kept for after the palette is known (it comes last).
+            (Section::Other, b"dxfs") if !is_empty => {
+                let span = reader.read_to_end(el.name()).map_err(xml_err(part))?;
+                let inner = &xml[span.start as usize..span.end as usize];
+                dxfs = Some(crate::condfmt::subtree(el, inner, part)?);
+            }
             // Skipped wholesale (their children reuse font/fill/border names).
             (
                 Section::Other,
@@ -469,7 +504,14 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
             "number format id {id} is not defined (locale-dependent built-in); read as General"
         ));
     }
-    Ok(ParsedStyles { xfs, default_font })
+    let dxfs = dxfs.map_or_else(Vec::new, |el| {
+        crate::condfmt::parse_dxfs(&el, &|c| RawColor::from_dom(c).resolve(&palette))
+    });
+    Ok(ParsedStyles {
+        xfs,
+        default_font,
+        dxfs,
+    })
 }
 
 // --- writing ---------------------------------------------------------------
@@ -649,7 +691,18 @@ fn valign_name(v: VAlign) -> &'static str {
 }
 
 /// Generates `styles.xml` with one `<xf>` per style of `table`, in id order.
+#[cfg(test)]
 pub fn write_styles(table: &StyleTable, default_font: &RunProperties) -> Vec<u8> {
+    write_styles_with_dxfs(table, default_font, &[])
+}
+
+/// [`write_styles`] plus the differential formats of conditional
+/// formatting (`dxfId` = index into `dxfs`).
+pub fn write_styles_with_dxfs(
+    table: &StyleTable,
+    default_font: &RunProperties,
+    dxfs: &[model_sheet::DxfStyle],
+) -> Vec<u8> {
     let default_font = normalize_font(default_font.clone());
     let mut fonts = Pool::new(vec![font_xml(&default_font)]);
     let mut fills = Pool::new(vec![fill_xml(None), gray125_xml()]);
@@ -778,7 +831,7 @@ pub fn write_styles(table: &StyleTable, default_font: &RunProperties) -> Vec<u8>
         &[("name", "Normal"), ("xfId", "0"), ("builtinId", "0")],
     );
     x.end("cellStyles");
-    x.empty("dxfs", &[("count", "0")]);
+    crate::condfmt::write_dxfs(&mut x, dxfs);
     x.empty(
         "tableStyles",
         &[

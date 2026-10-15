@@ -16,6 +16,7 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
 use crate::a1::{cell_name, parse_cell, parse_range};
+use crate::dynarray::{from_file_ast, legacy_intersection, METADATA_REL};
 use crate::styles::parse_styles;
 use crate::xlfn::strip_xlfn_prefixes;
 use crate::xml::{
@@ -86,13 +87,20 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     // Styles.
     let mut wb = Workbook::new();
     let mut xf_ids: Vec<StyleId> = Vec::new();
+    let mut dxfs: Vec<model_sheet::DxfStyle> = Vec::new();
     if let Some(styles) = pkg.related_part(&main, rel::STYLES) {
         let parsed = parse_styles(part_data(&styles)?, styles.as_str(), &mut |w| {
             warnings.push(w)
         })?;
         xf_ids = parsed.xfs.iter().map(|s| wb.intern_style(s)).collect();
         context.default_font = Some(parsed.default_font);
+        dxfs = parsed.dxfs;
         consumed.insert(styles);
+    }
+
+    // Dynamic array metadata: every `t="array"` formula spills anyway.
+    if let Some(part) = pkg.related_part(&main, METADATA_REL) {
+        consumed.insert(part);
     }
 
     // Shared strings.
@@ -146,9 +154,11 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
                 sheet: *id,
                 sheet_name: name,
                 xf_ids: &xf_ids,
+                dxfs: &dxfs,
                 sst: &sst,
                 warnings: &mut warnings,
                 shared: HashMap::new(),
+                arrays: Vec::new(),
             };
             loader.load(part_data(part)?, part.as_str())?;
         }
@@ -305,6 +315,8 @@ enum Capture {
 struct FormulaBuf {
     kind: String,
     si: Option<u32>,
+    /// `ref` of an array formula (its spill range).
+    range: Option<String>,
     text: String,
 }
 
@@ -321,8 +333,6 @@ struct CellBuf {
 
 /// Elements we drop, with the wording used in the warning.
 const DROPPED: &[(&[u8], &str)] = &[
-    (b"conditionalFormatting", "conditional formatting"),
-    (b"dataValidations", "data validation"),
     (b"hyperlinks", "hyperlinks"),
     (b"drawing", "drawings/charts"),
     (b"legacyDrawing", "comments/legacy drawings"),
@@ -338,10 +348,15 @@ struct SheetLoader<'a> {
     sheet: SheetId,
     sheet_name: &'a str,
     xf_ids: &'a [StyleId],
+    /// Differential formats of `styles.xml` (conditional formatting).
+    dxfs: &'a [model_sheet::DxfStyle],
     sst: &'a [String],
     warnings: &'a mut Vec<String>,
     /// Shared formula index → (master AST, master row, master col).
     shared: HashMap<u32, (Expr, u32, u32)>,
+    /// `(r0, c0, r1, c1)` of the array formulas read so far: their other
+    /// cells hold the spilled values, which are not loaded.
+    arrays: Vec<(u32, u32, u32, u32)>,
 }
 
 impl SheetLoader<'_> {
@@ -371,6 +386,8 @@ impl SheetLoader<'_> {
         // (only the first view is read).
         let mut view_state = 0u8;
         let mut filter = FilterReader::default();
+        // `<conditionalFormatting>`, `<dataValidations>`, `<extLst>`.
+        let mut rules: Vec<fmt_ooxml::xml::El> = Vec::new();
         loop {
             let ev = reader.read_event().map_err(xml_err(part))?;
             match ev {
@@ -422,6 +439,7 @@ impl SheetLoader<'_> {
                                 kind: attr(el, "t")
                                     .map_or_else(|| "normal".into(), |t| t.into_owned()),
                                 si: attr_parse(el, "si"),
+                                range: attr(el, "ref").map(|r| r.into_owned()),
                                 text: String::new(),
                             };
                             cell.as_mut().expect("checked").f = Some(f);
@@ -469,6 +487,13 @@ impl SheetLoader<'_> {
                             }
                         }
                         name if filter.start(name, el, empty) => {}
+                        b"conditionalFormatting" | b"dataValidations" | b"extLst" => {
+                            if !empty {
+                                let span = reader.read_to_end(el.name()).map_err(xml_err(part))?;
+                                let inner = &xml[span.start as usize..span.end as usize];
+                                rules.push(crate::condfmt::subtree(el, inner, part)?);
+                            }
+                        }
                         name => {
                             if let Some((_, what)) = DROPPED.iter().find(|(n, _)| *n == name) {
                                 dropped.insert(what);
@@ -540,6 +565,9 @@ impl SheetLoader<'_> {
         }
         for what in dropped {
             self.warn(format!("{what} dropped"));
+        }
+        for w in crate::condfmt::load(self.wb, self.sheet, &rules, self.dxfs)? {
+            self.warn(w);
         }
         self.finish_filter(filter)
     }
@@ -662,9 +690,6 @@ impl SheetLoader<'_> {
                 ));
                 return None;
             }
-            "array" => self.warn(format!(
-                "{at}: array formula loaded as a plain formula of its top-left cell"
-            )),
             _ => {}
         }
         if f.text.trim().is_empty() {
@@ -672,7 +697,26 @@ impl SheetLoader<'_> {
         }
         let input = format!("={}", strip_xlfn_prefixes(&f.text));
         match engine_formula::parse(&input) {
-            Ok(ast) => {
+            Ok(parsed) => {
+                // `ANCHORARRAY`/`SINGLE` → `#`/`@`; plain (legacy) formulas
+                // intersect implicitly where Excel 2019 did. Array formulas
+                // (dynamic or CSE) spill over their `ref`.
+                let mut ast = from_file_ast(&parsed);
+                if f.kind == "array" {
+                    let (r0, c0, r1, c1) = f
+                        .range
+                        .as_deref()
+                        .and_then(parse_range)
+                        .unwrap_or((cell.row, cell.col, cell.row, cell.col));
+                    self.arrays.push((r0, c0, r1, c1));
+                } else {
+                    ast = legacy_intersection(&ast);
+                }
+                let input = if ast == parsed {
+                    input
+                } else {
+                    format!("={ast}")
+                };
                 if f.kind == "shared" {
                     if let Some(si) = f.si {
                         self.shared.insert(si, (ast.clone(), cell.row, cell.col));
@@ -736,8 +780,16 @@ impl SheetLoader<'_> {
         if !style.is_default() {
             self.wb.set_style(c, style)?;
         }
-        let content = match self.formula_of(&cell) {
+        let formula = self.formula_of(&cell);
+        let spilled = self.arrays.iter().any(|&(r0, c0, r1, c1)| {
+            (r0..=r1).contains(&cell.row)
+                && (c0..=c1).contains(&cell.col)
+                && (cell.row, cell.col) != (r0, c0)
+        });
+        let content = match formula {
             Some((text, ast)) => Some(CellContent::Formula { text, ast }),
+            // The cached value of a cell an array formula spills into.
+            None if spilled => None,
             None => self.constant_of(&cell).map(CellContent::Value),
         };
         if let Some(content) = content {

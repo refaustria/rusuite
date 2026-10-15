@@ -4,9 +4,11 @@
 use engine_formula::{CellContent, CellCoord, ErrorKind, RangeRef, SheetId, Value};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::condfmt::CfRule;
 use crate::sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView};
 use crate::sortfilter::{AutoFilter, SortState};
 use crate::style::{CellStyle, StyleId, StyleTable};
+use crate::validation::DataValidation;
 use crate::workbook::Workbook;
 use crate::Error;
 
@@ -52,6 +54,11 @@ pub struct SheetSnapshot {
     /// The last sort.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_state: Option<SortState>,
+    /// Conditional formatting rules in priority order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditional_formats: Vec<CfRule>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub validations: Vec<DataValidation>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -92,10 +99,11 @@ pub struct RowSnapshot {
     pub info: RowInfo,
 }
 
-/// The input text that makes [`Workbook::set_input`] reproduce `content`.
+/// The input text that makes [`Workbook::set_input`] reproduce `content`
+/// (`""` for a spilled cell: the engine recreates it from its anchor).
 pub fn content_to_input(content: &CellContent) -> String {
     match content {
-        CellContent::Empty => String::new(),
+        CellContent::Empty | CellContent::Spilled { .. } => String::new(),
         CellContent::Formula { text, .. } => text.clone(),
         CellContent::Value(v) => match v {
             // `f64` Display is the shortest exact round-trip form.
@@ -169,6 +177,8 @@ impl Workbook {
             merges: self.merges(id).to_vec(),
             auto_filter: self.auto_filter(id).cloned(),
             sort_state: self.sort_state(id).cloned(),
+            conditional_formats: self.cf_rules(id).to_vec(),
+            validations: self.validations(id).to_vec(),
         }
     }
 
@@ -212,6 +222,8 @@ impl Workbook {
                 wb.set_merges(id, sheet.merges.clone())?;
                 wb.set_auto_filter(id, sheet.auto_filter.clone())?;
                 wb.set_sort_state(id, sheet.sort_state.clone())?;
+                wb.set_cf_rules(id, sheet.conditional_formats.clone())?;
+                wb.set_validations(id, sheet.validations.clone())?;
                 for col in &sheet.cols {
                     let info = ColInfo {
                         style: map_opt(col.info.style)?,
