@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { interceptPrint, openViaBackstage, printCount, saveViaBackstage, testdata, trackErrors, fileCommand } from "../support/common";
+import { interceptPrint, openPrint, previewPdf, openViaBackstage, printCount, saveViaBackstage, testdata, trackErrors, fileCommand } from "../support/common";
 import { zipText, unzip } from "../support/zip";
 
 const REPORT = testdata("docx/provisional-47-report.docx");
@@ -120,6 +120,29 @@ test.describe("Write", () => {
     await expect(page.getByTestId("dirty")).toHaveText("Modified");
     await page.keyboard.press("Control+Alt+1");
     await expect(editor(page).locator("h1")).toHaveText("Hello world");
+  });
+
+  test("File › Print: preview pages match the print layout; a page range; Print calls window.print", async ({ page }) => {
+    await interceptPrint(page);
+    await openWrite(page);
+    await editor(page).click();
+    await editor(page).evaluate((el) => el.focus());
+    for (let i = 0; i < 60; i++) {
+      await page.keyboard.insertText(`Paragraph ${i + 1}: the quick brown fox jumps over the lazy dog, again and again.`);
+      await page.keyboard.press("Enter");
+    }
+    await expect(page.locator(".page-gap").first()).toBeVisible();
+    const editorPages = (await page.locator(".page-gap").count()) + 1;
+    await page.keyboard.press("Control+p");
+    await expect(page.getByTestId("print-panel")).toBeVisible();
+    await expect(page.getByTestId("print-page-count")).toHaveText(`Page 1 of ${editorPages}`);
+    expect(await previewPdf(page, "write-all")).toBe(editorPages);
+    await page.getByLabel("Page range").fill("2");
+    await expect(page.getByTestId("print-page-count")).toHaveText("Page 1 of 1");
+    expect(await previewPdf(page, "write-page-2")).toBe(1);
+    expect(await page.getByTestId("print-preview").getAttribute("srcdoc")).toContain("Paragraph ");
+    await page.getByTestId("print-button").click();
+    await expect.poll(() => printCount(page)).toBe(1);
   });
 
   test("Export PDF goes through window.print", async ({ page }) => {

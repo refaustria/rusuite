@@ -174,6 +174,7 @@ export const PREVIEW_SCREEN_CSS = `@media screen {
 export function printDocHtml(doc: PrintDoc, opts: { preview?: boolean } = {}): string {
   return `<!doctype html><html><head><meta charset="utf-8">${doc.head ?? ""}<style>
 html, body { margin: 0; padding: 0; background: #fff; }
+@media print { html, body { height: auto !important; overflow: visible !important; } }
 ${doc.css}
 ${printDocCss(doc)}
 ${opts.preview ? PREVIEW_SCREEN_CSS : ""}

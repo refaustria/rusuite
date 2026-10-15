@@ -113,7 +113,7 @@ export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, 
   const blocked = disabledReason ?? (error ? error : rangeError ? rangeError : !shown || shown.pages.length === 0 ? (busy ? "Preparing…" : "Nothing to print") : undefined);
 
   const print = async () => {
-    if (!shown || blocked) return;
+    if (!shown || blocked || printing) return;
     setPrinting(true);
     try {
       await onPrint(shown);
@@ -130,7 +130,8 @@ export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, 
             type="button"
             data-autofocus
             data-testid="print-button"
-            disabled={!!blocked || printing}
+            disabled={!!blocked}
+            aria-busy={printing || undefined}
             title={blocked ?? "Print (opens the system print dialog)"}
             className={`flex h-16 w-20 flex-col items-center justify-center gap-1 rounded border border-ui-border bg-ui-panel text-sm hover:bg-ui-hover disabled:opacity-50 ${FOCUS_RING}`}
             onClick={() => void print()}
