@@ -1,0 +1,232 @@
+---
+source: apps/write/core/tests/write.rs
+expression: p
+---
+{
+  "replaced": [],
+  "inserted": [
+    {
+      "after": 1,
+      "parent": null,
+      "block": {
+        "kind": "table",
+        "value": {
+          "id": 2,
+          "props": {
+            "colWidths": [
+              3008,
+              3008,
+              3008
+            ],
+            "borders": {
+              "top": {
+                "style": "single",
+                "width": 10,
+                "color": {
+                  "kind": "auto"
+                }
+              },
+              "left": {
+                "style": "single",
+                "width": 10,
+                "color": {
+                  "kind": "auto"
+                }
+              },
+              "bottom": {
+                "style": "single",
+                "width": 10,
+                "color": {
+                  "kind": "auto"
+                }
+              },
+              "right": {
+                "style": "single",
+                "width": 10,
+                "color": {
+                  "kind": "auto"
+                }
+              },
+              "insideH": {
+                "style": "single",
+                "width": 10,
+                "color": {
+                  "kind": "auto"
+                }
+              },
+              "insideV": {
+                "style": "single",
+                "width": 10,
+                "color": {
+                  "kind": "auto"
+                }
+              }
+            }
+          },
+          "rows": [
+            {
+              "id": 3,
+              "cells": [
+                {
+                  "id": 4,
+                  "blocks": [
+                    {
+                      "kind": "paragraph",
+                      "value": {
+                        "id": 5,
+                        "inlines": []
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": 6,
+                  "blocks": [
+                    {
+                      "kind": "paragraph",
+                      "value": {
+                        "id": 7,
+                        "inlines": []
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": 8,
+                  "blocks": [
+                    {
+                      "kind": "paragraph",
+                      "value": {
+                        "id": 9,
+                        "inlines": []
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": 10,
+              "cells": [
+                {
+                  "id": 11,
+                  "blocks": [
+                    {
+                      "kind": "paragraph",
+                      "value": {
+                        "id": 12,
+                        "inlines": []
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": 13,
+                  "blocks": [
+                    {
+                      "kind": "paragraph",
+                      "value": {
+                        "id": 14,
+                        "inlines": []
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": 15,
+                  "blocks": [
+                    {
+                      "kind": "paragraph",
+                      "value": {
+                        "id": 16,
+                        "inlines": []
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "after": 2,
+      "parent": null,
+      "block": {
+        "kind": "paragraph",
+        "value": {
+          "id": 17,
+          "inlines": []
+        }
+      }
+    }
+  ],
+  "deleted": [],
+  "idMap": [
+    [
+      -1,
+      2
+    ],
+    [
+      -2,
+      3
+    ],
+    [
+      -4,
+      4
+    ],
+    [
+      -100,
+      5
+    ],
+    [
+      -5,
+      6
+    ],
+    [
+      -101,
+      7
+    ],
+    [
+      -6,
+      8
+    ],
+    [
+      -102,
+      9
+    ],
+    [
+      -3,
+      10
+    ],
+    [
+      -7,
+      11
+    ],
+    [
+      -103,
+      12
+    ],
+    [
+      -8,
+      13
+    ],
+    [
+      -104,
+      14
+    ],
+    [
+      -9,
+      15
+    ],
+    [
+      -105,
+      16
+    ]
+  ],
+  "styles": null,
+  "numbering": null,
+  "page": null,
+  "info": null
+}

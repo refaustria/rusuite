@@ -2063,11 +2063,13 @@ dependencies = [
 name = "model-text"
 version = "0.1.0"
 dependencies = [
+ "app-common",
  "core-model",
  "insta",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "ts-rs",
 ]
 
 [[package]]
@@ -4740,7 +4742,14 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 name = "write-core"
 version = "0.1.0"
 dependencies = [
+ "app-common",
+ "core-model",
+ "insta",
+ "model-text",
+ "serde",
  "serde_json",
+ "thiserror 2.0.21",
+ "ts-rs",
 ]
 
 [[package]]

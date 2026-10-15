@@ -13,7 +13,12 @@ use crate::props::{CellProperties, ParagraphProperties, RowProperties, TableProp
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize,
 )]
 #[serde(transparent)]
-pub struct NodeId(pub u64);
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct NodeId(#[cfg_attr(feature = "ts", ts(type = "number"))] pub u64);
 
 /// A block: paragraph or table.
 ///
@@ -21,6 +26,11 @@ pub struct NodeId(pub u64);
 /// `{"kind":"table","value":{…}}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub enum Block {
     /// A paragraph (also headings and list items).
     Paragraph(Paragraph),
@@ -57,6 +67,11 @@ impl Block {
 /// A paragraph: a sequence of inlines with paragraph formatting.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct Paragraph {
     /// Node id.
     pub id: NodeId,
@@ -96,6 +111,31 @@ impl Paragraph {
         out
     }
 
+    /// Number of positions in the paragraph: characters (Unicode scalar
+    /// values) of the runs plus one per image or break, i.e. the char
+    /// length of [`Paragraph::text`]. Offsets into a paragraph (ADR 0007)
+    /// range over `0..=len()`.
+    pub fn len(&self) -> usize {
+        self.inlines
+            .iter()
+            .map(|i| match i {
+                Inline::Run(run) => run.text.chars().count(),
+                Inline::Image(_) | Inline::Break(_) => 1,
+            })
+            .sum()
+    }
+
+    /// Whether the paragraph has no content.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Merges adjacent runs with equal formatting and drops empty runs
+    /// (the paragraph part of [`crate::Document::normalize`]).
+    pub fn normalize(&mut self) {
+        crate::document::merge_runs(&mut self.inlines);
+    }
+
     pub(crate) fn push_text(&self, out: &mut String) {
         for inline in &self.inlines {
             match inline {
@@ -111,6 +151,11 @@ impl Paragraph {
 /// A table (no merged cells in the MVP).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct Table {
     /// Node id.
     pub id: NodeId,
@@ -124,6 +169,11 @@ pub struct Table {
 /// A table row.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct TableRow {
     /// Node id.
     pub id: NodeId,
@@ -138,6 +188,11 @@ pub struct TableRow {
 /// paragraph ([`crate::Document::normalize`] restores this invariant).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct TableCell {
     /// Node id.
     pub id: NodeId,

@@ -6,6 +6,11 @@ use serde::{Deserialize, Serialize};
 /// Page orientation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub enum Orientation {
     /// Taller than wide.
     Portrait,
@@ -16,18 +21,29 @@ pub enum Orientation {
 /// Page margins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct Margins {
     /// Top margin.
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
     pub top: Twips,
     /// Right margin.
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
     pub right: Twips,
     /// Bottom margin.
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
     pub bottom: Twips,
     /// Left margin.
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
     pub left: Twips,
     /// Distance from the page top to the header.
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
     pub header: Twips,
     /// Distance from the page bottom to the footer.
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
     pub footer: Twips,
 }
 
@@ -49,10 +65,17 @@ impl Default for Margins {
 /// swapped for landscape).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
 pub struct PageSetup {
     /// Page width.
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
     pub width: Twips,
     /// Page height.
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
     pub height: Twips,
     /// Margins.
     pub margins: Margins,

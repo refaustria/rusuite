@@ -357,3 +357,30 @@ fn resolve_layers_defaults_style_numbering_direct() {
     let rp = doc.resolve_run_props(&unknown, &Run::new("x"));
     assert_eq!(rp.size, Some(FontSize::from_pt(11.0)));
 }
+
+#[test]
+fn paragraph_len_normalize_and_reserved_ids() {
+    let mut doc = Document::new();
+    let mut p = Paragraph::new(doc.alloc_id());
+    p.inlines = vec![
+        Inline::Run(Run::new("é😀")),
+        Inline::Run(Run::new("")),
+        Inline::Run(Run::new("a")),
+        Inline::Break(BreakKind::Line),
+    ];
+    assert_eq!(p.len(), 4);
+    assert!(!p.is_empty());
+    p.normalize();
+    assert_eq!(
+        p.inlines,
+        vec![
+            Inline::Run(Run::new("é😀a")),
+            Inline::Break(BreakKind::Line)
+        ]
+    );
+    assert!(Paragraph::new(NodeId(9)).is_empty());
+    doc.reserve_id(NodeId(41));
+    assert_eq!(doc.alloc_id(), NodeId(42));
+    doc.reserve_id(NodeId(5));
+    assert_eq!(doc.alloc_id(), NodeId(43));
+}
