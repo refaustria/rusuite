@@ -21,6 +21,7 @@ export function useWriteChrome(features: WriteFeatures, editor: Editor | null) {
   const pages = useSyncExternalStore(ui.subscribe, () => ui.getState().pages);
   const spellcheck = useSyncExternalStore(ui.subscribe, () => ui.getState().spellcheck);
   const frame = useSyncExternalStore(ui.subscribe, () => ui.getState().frame);
+  const ruler = useSyncExternalStore(ui.subscribe, () => ui.getState().ruler);
   useEffect(() => {
     if (editor && !editor.isDestroyed && editor.view?.dom) editor.view.dispatch(editor.state.tr.setMeta("addToHistory", false));
   }, [editor, spellcheck]);
@@ -28,6 +29,7 @@ export function useWriteChrome(features: WriteFeatures, editor: Editor | null) {
     view,
     pages,
     frame,
+    ruler,
     onFind: useCallback(() => ui.openFind(false), [ui]),
     onReplace: useCallback(() => ui.openFind(true), [ui]),
     onEditHeaderFooter: useCallback((which: "header" | "footer") => ui.openDialog("headerFooter", which), [ui]),

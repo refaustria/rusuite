@@ -8,7 +8,7 @@ import { NodeSelection } from "@tiptap/pm/state";
 import { ContextMenu, type ContextMenuItem } from "@rusuite/ui-shared";
 import { clearFormatting } from "../features/formatting";
 import { resetImageSize, selectedImage } from "../features/images";
-import { deleteCols, deleteRows, deleteTable, insertCol, insertRow, tableContext } from "../features/tables";
+import { deleteCols, deleteRows, deleteTable, insertCol, insertRow, mergeCellsCommand, tableContext } from "../features/tables";
 import type { WriteFeatures } from "../features/WriteFeatures";
 import { numberedAtCaret } from "../features/structureCommands";
 import type { SyncController } from "../sync/SyncPlugin";
@@ -64,7 +64,11 @@ export function contextItems(editor: Editor, ctl: SyncController, features: Writ
       { id: "delete-col", label: tc.colIndices.length > 1 ? t("write.deleteCols") : t("write.deleteCol"), onSelect: run(deleteCols(tc)) },
       { id: "delete-table", label: t("write.deleteTable"), onSelect: run(deleteTable(tc)) },
       sep,
+      ...(mergeCellsCommand(tc) ? [{ id: "merge-cells", label: t("write.mergeCells"), onSelect: run(mergeCellsCommand(tc)!) }] : []),
+      { id: "split-cells", label: t("write.splitCellsDots"), onSelect: () => features.ui.openDialog("splitCells") },
+      sep,
       { id: "row-height", label: t("write.rowHeightDots"), onSelect: () => features.ui.openDialog("rowHeight") },
+      { id: "table-props", label: t("write.tablePropertiesDots"), onSelect: () => features.ui.openDialog("tableProps") },
     );
   }
   const numbered = numberedAtCaret(editor);

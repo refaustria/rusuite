@@ -15,14 +15,21 @@ import { layoutFieldContext, refreshStructure, structurePlugin, updateFieldsComm
 import { insertNote } from "./structureCommands";
 import { getLocale } from "@rusuite/ui-shared";
 import { caretToCell, inLastCell, tableContext } from "./tables";
+import { paragraphBoxPlugin } from "./paragraphBox";
+import { refreshTables, tableRenderPlugin } from "./tableRender";
+import { refreshTabs, tabStopsPlugin } from "./tabStops";
 import type { SyncController } from "../sync/SyncPlugin";
 
 export type WriteView = "print" | "draft";
-export type WriteDialog = "rowHeight" | "altText" | "pageSetup" | "headerFooter" | "paragraph" | "pageNumbers" | null;
+export type WriteDialog =
+  | "rowHeight" | "altText" | "pageSetup" | "headerFooter" | "paragraph" | "pageNumbers"
+  | "splitCells" | "cellMargins" | "tableProps" | "bordersShading" | "tabs" | null;
 
 export interface WriteUiState {
   view: WriteView;
   spellcheck: boolean;
+  /** View › Ruler. */
+  ruler: boolean;
   find: { open: boolean; replace: boolean; seed: number };
   dialog: WriteDialog;
   /** Which field the header/footer dialog focuses. */
@@ -37,6 +44,7 @@ export class WriteUi {
   private state: WriteUiState = {
     view: "print",
     spellcheck: true,
+    ruler: true,
     find: { open: false, replace: false, seed: 0 },
     dialog: null,
     headerFooterFocus: "header",
@@ -155,6 +163,9 @@ export class WriteFeatures {
         const editor = this.editor as Editor;
         return [
           findPlugin(),
+          tableRenderPlugin(() => ctl.styles),
+          paragraphBoxPlugin(),
+          tabStopsPlugin(() => ctl.styles),
           columnResizePlugin(ctl),
           paginationPlugin({
             enabled: () => ui.getState().view === "print",
@@ -207,9 +218,15 @@ export class WriteFeatures {
               // Lay the pages out again when the page setup or the view mode changes.
               let page = ctl.page;
               let sections = ctl.sections;
+              let styles = ctl.styles;
               let name = ctl.getState().name;
               let mode = ui.getState().view;
               const offCtl = ctl.subscribe(() => {
+                if (ctl.styles !== styles) {
+                  styles = ctl.styles;
+                  refreshTables(view);
+                  refreshTabs(view);
+                }
                 if (ctl.page !== page || ctl.sections !== sections) {
                   page = ctl.page;
                   sections = ctl.sections;
