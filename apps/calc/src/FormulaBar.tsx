@@ -36,13 +36,16 @@ export function FormulaBar({ store }: { store: CalcStore }) {
   // A merged cell is addressed by its top-left cell, as in Excel's name box.
   const single = isSingleCell(r, store.merges());
   const address = single ? `${prefix}${cellAddress(row, col)}` : `${prefix}${cellAddress(r.r0, r.c0)}:${cellAddress(r.r1, r.c1)}`;
-  const value = edit ? edit.text : (store.activeCell()?.input ?? "");
+  // A spilled cell shows its array formula greyed and read-only (Excel); typing into the cell still replaces it.
+  const ghost = edit ? null : store.ghostFormula();
+  const value = edit ? edit.text : (ghost?.input ?? store.activeCell()?.input ?? "");
   const refs = edit && isFormula(edit.text) ? store.editRefs() : [];
   const colored = refs.length > 0;
   // The in-cell editor is hidden while pointing on another sheet: the bar then shows the popups.
   const popups = !!edit && (origin === "bar" || edit.sheet !== activeSheet);
 
   const onFocus = () => {
+    if (ghost) return;
     if (store.getState().edit) store.setEditOrigin("bar");
     else store.beginEdit(null, "bar");
   };
@@ -86,8 +89,12 @@ export function FormulaBar({ store }: { store: CalcStore }) {
           spellCheck={false}
           autoComplete="off"
           className={`relative w-full rounded border border-ui-border px-2 py-0.5 font-mono outline-none focus:border-ui-focus ${
-            colored ? "bg-transparent text-transparent" : "bg-ui-bg"
+            colored ? "bg-transparent text-transparent" : ghost ? "bg-ui-bg text-ui-muted" : "bg-ui-bg"
           }`}
+          readOnly={!!ghost}
+          aria-readonly={ghost ? true : undefined}
+          title={ghost ? t("calc.spill.ghost", { cell: cellAddress(ghost.anchor.row, ghost.anchor.col) }) : undefined}
+          data-spilled={ghost ? "" : undefined}
           style={colored ? { caretColor: "var(--ui-fg)" } : undefined}
           value={value}
           onFocus={onFocus}

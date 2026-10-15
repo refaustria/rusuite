@@ -7,7 +7,11 @@ export type TokKind =
   | "number" | "string" | "ident" | "error" | "sheet"
   | "bang" | "colon" | "comma" | "semicolon" | "lparen" | "rparen" | "lbrace" | "rbrace" | "dollar"
   | "plus" | "minus" | "star" | "slash" | "caret" | "amp"
-  | "eq" | "ne" | "lt" | "le" | "gt" | "ge" | "percent";
+  | "eq" | "ne" | "lt" | "le" | "gt" | "ge" | "percent"
+  /** `@` (implicit intersection). */
+  | "at"
+  /** `#` that does not start an error literal: the spilled-range operator (`A1#`). */
+  | "hash";
 
 export interface Tok {
   kind: TokKind;
@@ -29,12 +33,12 @@ export interface Lexed {
 }
 
 /** Excel error literals, as in `ErrorKind::ALL`. */
-export const ERROR_LITERALS = ["#NULL!", "#DIV/0!", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#N/A"];
+export const ERROR_LITERALS = ["#NULL!", "#DIV/0!", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#N/A", "#SPILL!", "#CALC!"];
 
 const SIMPLE: Record<string, TokKind> = {
   "!": "bang", ":": "colon", ",": "comma", ";": "semicolon", "(": "lparen", ")": "rparen",
   "{": "lbrace", "}": "rbrace", "$": "dollar", "+": "plus", "-": "minus", "*": "star", "/": "slash",
-  "^": "caret", "&": "amp", "%": "percent", "=": "eq",
+  "^": "caret", "&": "amp", "%": "percent", "=": "eq", "@": "at",
 };
 
 export const isIdentStart = (c: string) => /^[\p{L}_]$/u.test(c);
@@ -115,8 +119,9 @@ export function tokenize(text: string): Lexed {
     } else if (c === "#") {
       const rest = text.slice(start).toUpperCase();
       const lit = ERROR_LITERALS.find((e) => rest.startsWith(e));
-      if (!lit) return { tokens, error: { pos: start, message: "unknown error literal" } };
-      push("error", start, start + lit.length);
+      // Not an error literal: the spilled-range operator.
+      if (lit) push("error", start, start + lit.length);
+      else push("hash", start, start + 1);
     } else if (isDigit(c) || (c === "." && isDigit(next))) {
       let j = start;
       while (isDigit(text[j])) j++;

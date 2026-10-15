@@ -1,5 +1,6 @@
 {
   "calc.addSheet": "Add sheet",
+  "calc.arrayPart": "You can't change part of an array.",
   "calc.autofitColWidth": "AutoFit column width",
   "calc.autofitColWidth2": "Autofit column width",
   "calc.cat.currency": "Currency",
@@ -231,6 +232,10 @@
   "calc.sortAsc": "Sort A to Z",
   "calc.sortDesc": "Sort Z to A",
   "calc.sortFilter": "Sort & Filter",
+  "calc.spill.error": "Spill error",
+  "calc.spill.ghost": "Spilled from {cell}: edit the formula there",
+  "calc.spill.notBlank": "Spill range isn't blank",
+  "calc.spill.selectObstructing": "Select obstructing cells",
   "calc.status.revision": "Revision {revision}",
   "calc.status.warnings": "{count} warnings: {list}",
   "calc.tab.data": "Data",
