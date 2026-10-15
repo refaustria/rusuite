@@ -32,3 +32,18 @@ body,
 .tiptap-content img.inline-image { display: inline; vertical-align: baseline; }
 .tiptap-content img.inline-image.missing { outline: 1px dashed #c00; }
 .tiptap-content .ProseMirror-selectednode { outline: 2px solid #4472c4; }
+
+/* Long documents (P5-4): off-screen top-level blocks skip style, layout,
+   paint and the browser's per-keystroke text extraction; their last
+   rendered height is remembered. Paint containment would clip hanging
+   indents and wide images, hence the clip margin; engines without
+   overflow-clip-margin keep the plain rendering. Not for print. */
+@media screen {
+  @supports (content-visibility: auto) and (overflow-clip-margin: 1px) {
+    .tiptap-content > * {
+      content-visibility: auto;
+      contain-intrinsic-size: auto 3em;
+      overflow-clip-margin: 4in;
+    }
+  }
+}
