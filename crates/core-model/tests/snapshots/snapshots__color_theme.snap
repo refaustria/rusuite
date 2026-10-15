@@ -1,0 +1,11 @@
+---
+source: crates/core-model/tests/snapshots.rs
+expression: "Color::Theme { slot: ThemeColorSlot::FollowedHyperlink, tint: 0.4, }"
+---
+{
+  "kind": "theme",
+  "value": {
+    "slot": "followedHyperlink",
+    "tint": 0.4
+  }
+}

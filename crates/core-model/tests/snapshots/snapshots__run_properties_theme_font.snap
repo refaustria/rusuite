@@ -1,0 +1,10 @@
+---
+source: crates/core-model/tests/snapshots.rs
+expression: props
+---
+{
+  "font": {
+    "kind": "theme",
+    "value": "minorLatin"
+  }
+}

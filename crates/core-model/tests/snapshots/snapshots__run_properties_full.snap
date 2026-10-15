@@ -1,0 +1,27 @@
+---
+source: crates/core-model/tests/snapshots.rs
+expression: props
+---
+{
+  "font": {
+    "kind": "named",
+    "value": "Arial"
+  },
+  "size": 1050,
+  "bold": true,
+  "italic": false,
+  "underline": "double",
+  "strike": true,
+  "color": {
+    "kind": "theme",
+    "value": {
+      "slot": "accent1",
+      "tint": -0.25
+    }
+  },
+  "highlight": {
+    "kind": "rgb",
+    "value": "FFFF00"
+  },
+  "verticalAlign": "superscript"
+}

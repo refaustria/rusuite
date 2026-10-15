@@ -1,0 +1,33 @@
+---
+source: crates/core-model/tests/snapshots.rs
+expression: theme
+---
+{
+  "name": "Office",
+  "colors": {
+    "name": "Office",
+    "colors": [
+      "000000",
+      "FFFFFF",
+      "44546A",
+      "E7E6E6",
+      "4472C4",
+      "ED7D31",
+      "A5A5A5",
+      "FFC000",
+      "5B9BD5",
+      "70AD47",
+      "0563C1",
+      "954F72"
+    ]
+  },
+  "fonts": {
+    "name": "Office",
+    "majorLatin": "Calibri Light",
+    "minorLatin": "Calibri",
+    "majorEastAsian": "",
+    "minorEastAsian": "",
+    "majorComplexScript": "",
+    "minorComplexScript": ""
+  }
+}

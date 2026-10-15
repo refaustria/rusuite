@@ -1,0 +1,8 @@
+---
+source: crates/core-model/tests/snapshots.rs
+expression: "Color::Rgb(Rgb::new(0x44, 0x72, 0xC4))"
+---
+{
+  "kind": "rgb",
+  "value": "4472C4"
+}
