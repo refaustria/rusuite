@@ -87,10 +87,14 @@ dependencies = [
 name = "app-show"
 version = "0.1.0"
 dependencies = [
+ "core-model",
+ "serde",
+ "serde_json",
  "show-core",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3223,6 +3227,7 @@ version = "0.1.0"
 dependencies = [
  "app-common",
  "core-model",
+ "fmt-pptx",
  "model-show",
  "serde",
  "serde_json",

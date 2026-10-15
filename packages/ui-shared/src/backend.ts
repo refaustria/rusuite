@@ -71,6 +71,10 @@ export const XLSX_MIME =
 export const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
+/** MIME type of `.pptx` files. */
+export const PPTX_MIME =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
 /** File types of the web shell (default: `.xlsx`, as Calc). */
 export interface WasmFileOptions {
   /** `accept` of the file input. */

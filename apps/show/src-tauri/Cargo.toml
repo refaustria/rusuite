@@ -22,4 +22,10 @@ tauri-build = { version = "=2.7.0", features = [] }
 tauri = { version = "=2.12.0", features = [] }
 tauri-plugin-dialog = "=2.8.0"
 show-core = { path = "../core" }
+core-model = { path = "../../../crates/core-model" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
 

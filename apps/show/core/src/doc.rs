@@ -49,6 +49,12 @@ pub enum ShowError {
     /// A loaded presentation violates the model's invariants.
     #[error("invalid presentation: {0}")]
     InvalidDocument(String),
+    /// The bytes are not a readable `.pptx` file.
+    #[error("cannot read .pptx: {0}")]
+    ReadPptx(String),
+    /// Writing the `.pptx` file failed.
+    #[error("cannot write .pptx: {0}")]
+    WritePptx(String),
 }
 
 impl ShowError {
@@ -62,6 +68,8 @@ impl ShowError {
             ShowError::Invalid(_) => "invalid_command",
             ShowError::BadRequest(_) => "bad_request",
             ShowError::InvalidDocument(_) => "invalid_document",
+            ShowError::ReadPptx(_) => "invalid_file",
+            ShowError::WritePptx(_) => "internal",
         }
     }
 }
@@ -87,6 +95,9 @@ const EMU_PER_PX: i64 = 9_525;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShowDocument {
     pres: Presentation,
+    /// File-level `.pptx` data (the raw theme part) kept from
+    /// [`open_pptx`](Self::open_pptx) for [`save_pptx`](Self::save_pptx).
+    pub pptx_context: Option<fmt_pptx::PptxContext>,
     /// The file name the presentation was opened from (no directory).
     pub source_name: Option<String>,
 }
@@ -302,6 +313,7 @@ impl ShowDocument {
     fn from_valid(pres: Presentation) -> Self {
         ShowDocument {
             pres,
+            pptx_context: None,
             source_name: None,
         }
     }
@@ -329,6 +341,41 @@ impl ShowDocument {
         }
         pres.normalize();
         Ok(Self::from_valid(pres))
+    }
+
+    /// Reads a `.pptx` file; `name` is the file name shown to the user.
+    /// Returns the presentation and the reader's warnings about content
+    /// that was dropped or approximated. The file's
+    /// [`fmt_pptx::PptxContext`] is kept for [`save_pptx`](Self::save_pptx).
+    pub fn open_pptx(bytes: &[u8], name: &str) -> R<(Self, Vec<String>)> {
+        let out =
+            fmt_pptx::read_with_context(bytes).map_err(|e| ShowError::ReadPptx(e.to_string()))?;
+        let mut doc = Self::from_presentation(out.presentation)?;
+        doc.pptx_context = Some(out.context);
+        doc.source_name = Some(name.to_owned());
+        Ok((doc, out.warnings))
+    }
+
+    /// Writes the presentation as `.pptx`, with the file-level data it was
+    /// opened with (if any).
+    pub fn save_pptx(&self) -> R<Vec<u8>> {
+        let default_ctx = fmt_pptx::PptxContext::default();
+        let ctx = self.pptx_context.as_ref().unwrap_or(&default_ctx);
+        fmt_pptx::write_with_context(&self.pres, ctx)
+            .map_err(|e| ShowError::WritePptx(e.to_string()))
+    }
+
+    /// The file name to offer when saving: the source name with a `.pptx`
+    /// extension, else `Untitled.pptx`.
+    pub fn suggested_name(&self) -> String {
+        match self.source_name.as_deref() {
+            None | Some("") => "Untitled.pptx".to_owned(),
+            Some(n) if n.to_ascii_lowercase().ends_with(".pptx") => n.to_owned(),
+            Some(n) => {
+                let stem = n.rsplit_once('.').map_or(n, |(stem, _)| stem);
+                format!("{stem}.pptx")
+            }
+        }
     }
 
     /// The presentation.
@@ -1075,5 +1122,38 @@ impl AppDocument for ShowDocument {
             patch,
             inverse: Some(inverse),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suggested_names() {
+        let named = |n: &str| ShowDocument {
+            source_name: Some(n.into()),
+            ..ShowDocument::new()
+        };
+        assert_eq!(ShowDocument::new().suggested_name(), "Untitled.pptx");
+        assert_eq!(named("a.pptx").suggested_name(), "a.pptx");
+        assert_eq!(named("b.PPTX").suggested_name(), "b.PPTX");
+        assert_eq!(named("c.ppt").suggested_name(), "c.pptx");
+        assert_eq!(named("d").suggested_name(), "d.pptx");
+    }
+
+    #[test]
+    fn open_rejects_garbage() {
+        let err = ShowDocument::open_pptx(b"not a zip", "x.pptx").unwrap_err();
+        assert_eq!(err.code(), "invalid_file");
+    }
+
+    #[test]
+    fn new_presentation_saves_and_reopens() {
+        let bytes = ShowDocument::new().save_pptx().unwrap();
+        let (doc, _) = ShowDocument::open_pptx(&bytes, "n.pptx").unwrap();
+        assert_eq!(doc.source_name.as_deref(), Some("n.pptx"));
+        assert!(doc.pptx_context.is_some());
+        assert_eq!(doc.presentation().slides.len(), 1);
     }
 }

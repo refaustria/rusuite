@@ -11,6 +11,7 @@ publish = false
 [dependencies]
 app-common = { path = "../../../crates/app-common" }
 core-model = { path = "../../../crates/core-model" }
+fmt-pptx = { path = "../../../crates/fmt-pptx" }
 model-show = { path = "../../../crates/model-show", features = ["ts"] }
 serde.workspace = true
 serde_json.workspace = true
