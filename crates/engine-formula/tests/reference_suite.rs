@@ -353,3 +353,14 @@ fn reference_suite() {
     println!("reference_suite: {total}");
     assert_eq!(total.failed, 0, "{} failing reference cases", total.failed);
 }
+
+#[test]
+fn documented_and_registered_functions_agree() {
+    let reg = FunctionRegistry::with_builtins();
+    let known: Vec<String> = reg.names().iter().map(|n| n.to_string()).collect();
+    let mut listed = listed_functions();
+    listed.sort();
+    // Every function in docs/functions.md is implemented and vice versa.
+    assert_eq!(listed, known, "docs/functions.md and the registry differ");
+    assert!(known.len() >= 200, "{} functions", known.len());
+}

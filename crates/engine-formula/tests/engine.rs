@@ -220,6 +220,34 @@ fn volatile_functions() {
     assert_eq!(set(&mut e, c("Z99"), "x"), vec![]);
 }
 
+#[test]
+fn volatile_flag_comes_from_the_function() {
+    let mut e = Engine::new();
+    set(&mut e, c("A1"), "5");
+    // RAND changes on every recalculation.
+    set(&mut e, c("B1"), "=RAND()");
+    let first = e.value(c("B1"));
+    let r = e.set_input(c("Z99"), "unrelated").unwrap();
+    assert_eq!(r.changed, cells(&["B1"]));
+    assert_ne!(e.value(c("B1")), first);
+    // INDIRECT depends on a cell the dependency graph cannot see.
+    set(&mut e, c("C1"), "=INDIRECT(\"A\"&1)*2");
+    assert_eq!(e.value(c("C1")), n(10.0));
+    let changed = set(&mut e, c("A1"), "7");
+    assert!(changed.contains(&c("C1")), "{changed:?}");
+    assert_eq!(e.value(c("C1")), n(14.0));
+    // OFFSET too, including through a non-volatile wrapper.
+    set(&mut e, c("D1"), "=SUM(OFFSET(A1,0,0,1,1),1)");
+    assert_eq!(e.value(c("D1")), n(8.0));
+    set(&mut e, c("A1"), "1");
+    assert_eq!(e.value(c("D1")), n(2.0));
+    // Clearing the volatile formulas stops the re-evaluation.
+    for cell in ["B1", "C1", "D1"] {
+        set(&mut e, c(cell), "");
+    }
+    assert_eq!(set(&mut e, c("Z99"), "x"), vec![]);
+}
+
 /// A deterministic mix of constants and formulas on two sheets, written
 /// in a scrambled order.
 fn load(e: &mut Engine) {
@@ -470,4 +498,24 @@ fn structural_errors_and_batches() {
     set(&mut e, c("A2"), "4");
     assert_eq!(e.end_batch().changed, cells(&["B2"]));
     assert_eq!(e.value(c("B2")), n(4.0));
+}
+
+#[test]
+fn indirect_reads_formula_targets_after_they_are_recalculated() {
+    let mut e = Engine::new();
+    // The volatile reader is created first and sits "before" its target.
+    set(&mut e, c("C1"), "=INDIRECT(\"A1\")");
+    set(&mut e, c("A1"), "=A2+1");
+    set(&mut e, c("A2"), "1");
+    assert_eq!(e.value(c("C1")), n(2.0));
+    set(&mut e, c("A2"), "10");
+    assert_eq!(e.value(c("A1")), n(11.0));
+    assert_eq!(e.value(c("C1")), n(11.0));
+    // And the other way round (reader sorts before its target).
+    set(&mut e, c("A5"), "=INDIRECT(\"Z5\")");
+    set(&mut e, c("Z5"), "=Z6+1");
+    set(&mut e, c("Z6"), "1");
+    assert_eq!(e.value(c("A5")), n(2.0));
+    set(&mut e, c("Z6"), "10");
+    assert_eq!(e.value(c("A5")), n(11.0));
 }

@@ -3,6 +3,7 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import App from "../App";
+import { FUNCTIONS } from "../formula/functions";
 import { FakeBackend, FakeCalcCore } from "../dev/fakeBackend";
 import type { Request } from "../generated/Request";
 import { colGeometry, DEFAULT_FORMAT, rowGeometry } from "./geometry";
@@ -199,8 +200,8 @@ describe("formula bar parity, colours and autocomplete", () => {
     await setup();
     fireEvent.click(screen.getByRole("button", { name: "Insert function" }));
     expect(bar().value).toBe("=");
-    expect(functionOptions()).toHaveLength(62);
+    expect(functionOptions()).toHaveLength(FUNCTIONS.length);
     fireEvent.click(functionOptions()[1]);
-    expect(bar().value).toBe("=AND(");
+    expect(bar().value).toBe(`=${FUNCTIONS[1].name}(`);
   });
 });

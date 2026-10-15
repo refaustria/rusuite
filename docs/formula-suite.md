@@ -43,11 +43,11 @@ bash scripts/gen-formula-suite.sh --verify   # checks, no soffice needed
 How generation works: the helper writes `Data` (fixture + suite) and `Other` as a minimal xlsx with
 formulas and no cached values, LibreOffice converts it (`--convert-to xlsx`), which recalculates every
 cell, and the helper reads the cached `<v>` of each result from the converted file. Functions that
-Excel stores with a prefix (`CONCAT`, `DAYS` -> `_xlfn.`) are written that way. The xlsx is rewritten
+Excel stores with a prefix (`CONCAT`, `DAYS`, `IFS`, `XLOOKUP`, `STDEV.S`, ... -> `_xlfn.`, see `FUTURE_NAMES` in `formulas.py`) are written that way. The xlsx is rewritten
 on every run (it embeds timestamps and the volatile `TODAY`/`NOW` values); only the TSVs are byte-stable.
-`verify` checks: all 62 functions of `functions.md` appear in at least 4 cases, every TSV row has 4
+`verify` checks: every function of `functions.md` appears in at least 4 cases, every TSV row has 4
 columns and a valid type/value, formulas in the TSVs are byte-identical to `formulas.tsv`,
-`fixture.tsv` equals its source, and prints the case count per family (>= 350 required).
+`fixture.tsv` equals its source, and prints the case count per family (>= 350 required). Statistical and financial functions have no family of their own: their cases live in `math.tsv`.
 
 Deviation from the original brief: the workbook is generated as xlsx directly instead of flat ODS.
 Writing formulas in Excel syntax into the xlsx keeps the suite text exactly as Excel will see it and
@@ -141,3 +141,9 @@ Not asserted either way (the LibreOffice value is kept as is): `TEXT` locale-dep
 | errors | `=H1+H2` | LibreOffice returns the right-hand error for cell references; Excel is believed to return the left-hand one | `#DIV/0!` |
 | errors | `=SQRT(-1)+1` | LibreOffice reports #VALUE! on xlsx export | `#NUM!` |
 | errors | `=Nope!A1` | LibreOffice reports #NAME? for an unknown sheet | `#REF!` |
+
+Phase 8 (task P8-1) added the cases for the second function wave (about 700 rows, mostly in `math` and `lookup`). Besides the
+rows of the table above, many carry `DIFF:` notes with an `[excel=...]` value; the common reasons are that LibreOffice
+exports `#NUM!`, `#DIV/0!` or `#REF!` results of these functions as `#VALUE!`, that it accepts arguments Excel rejects
+(`SYD` with `per` beyond the life, `EFFECT` with a zero rate, negative serials in `HOUR`) and that `CHAR`/`CODE` depend on
+the system code page. Read the `# NOTE:` lines in `testdata/formulas/*.tsv` for the full list.

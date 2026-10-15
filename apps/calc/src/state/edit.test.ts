@@ -3,6 +3,7 @@ import type { Backend } from "@rusuite/ui-shared";
 import { CalcApi } from "../backend/calcApi";
 import { FakeBackend, FakeCalcCore } from "../dev/fakeBackend";
 import type { Request } from "../generated/Request";
+import { FUNCTIONS } from "../formula/functions";
 import { CalcStore } from "./store";
 
 async function readyStore(core = new FakeCalcCore()) {
@@ -159,11 +160,11 @@ describe("edit session: functions", () => {
     const { store } = await readyStore();
     store.beginEdit("=su");
     const c = store.completion();
-    expect(c?.items.map((f) => f.name)).toEqual(["SUBSTITUTE", "SUM", "SUMIF", "SUMPRODUCT"]);
+    expect(c?.items.map((f) => f.name)).toEqual(FUNCTIONS.map((x) => x.name).filter((n) => n.startsWith("SU")));
     store.moveCompletion(1);
     expect(store.completion()?.index).toBe(1);
     store.moveCompletion(-2);
-    expect(store.completion()?.index).toBe(3);
+    expect(store.completion()?.index).toBe((c?.items.length ?? 0) - 1);
     store.moveCompletion(2);
     expect(store.acceptCompletion()).toBe(true);
     expect(text(store)).toBe("=SUM(");
@@ -179,14 +180,14 @@ describe("edit session: functions", () => {
     store.dismissCompletion();
     expect(store.completion()).toBeNull();
     store.setEditText("=cou");
-    expect(store.completion()?.items.map((f) => f.name)).toEqual(["COUNT", "COUNTA", "COUNTIF"]);
+    expect(store.completion()?.items.map((f) => f.name)).toEqual(FUNCTIONS.map((x) => x.name).filter((n) => n.startsWith("COU")));
   });
 
   it("fx starts a formula in an empty cell and lists all functions", async () => {
     const { store } = await readyStore();
     store.openFunctionList();
     expect(store.getState().edit).toMatchObject({ text: "=", origin: "bar" });
-    expect(store.completion()?.items).toHaveLength(62);
+    expect(store.completion()?.items).toHaveLength(FUNCTIONS.length);
     store.acceptCompletion(0);
     expect(text(store)).toBe("=ABS(");
   });

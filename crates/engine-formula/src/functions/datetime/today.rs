@@ -8,6 +8,10 @@ use crate::value::Value;
 pub struct Today;
 
 impl Function for Today {
+    fn is_volatile(&self) -> bool {
+        true
+    }
+
     fn name(&self) -> &'static str {
         "TODAY"
     }

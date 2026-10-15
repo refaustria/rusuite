@@ -199,7 +199,7 @@ pub fn eval_array(expr: &Expr, ctx: &EvalContext) -> Operand {
 /// Turns a range operand into an array of its cell values (`Empty` cells
 /// stay `Empty`); scalars are returned unchanged. Whole-column/row ranges
 /// are clipped to the used range, keeping at least one row/column.
-fn materialize(op: Operand, ctx: &EvalContext) -> Value {
+pub(crate) fn materialize(op: Operand, ctx: &EvalContext) -> Value {
     let r = match op {
         Operand::Scalar(v) => return v,
         Operand::Range(r) => r,
@@ -229,6 +229,22 @@ fn materialize(op: Operand, ctx: &EvalContext) -> Value {
     let rows = (r1 - r.r0 + 1) as usize;
     let cols = (c1 - r.c0 + 1) as usize;
     Value::Array(Array::new(rows, cols, data).expect("rows * cols cells"))
+}
+
+/// The value of a range as a function result: the cell value for a single
+/// cell, otherwise an array of the cell values (see `materialize`).
+pub(crate) fn range_value(r: RangeRef, ctx: &EvalContext) -> Value {
+    if r.is_single_cell() {
+        ctx.provider
+            .value(CellCoord {
+                sheet: r.sheet,
+                row: r.r0,
+                col: r.c0,
+            })
+            .into_scalar()
+    } else {
+        materialize(Operand::Range(r), ctx)
+    }
 }
 
 /// A value as an array (a scalar becomes 1x1).

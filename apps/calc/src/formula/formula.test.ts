@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { activeArg, applyFunction, matchFunctions, signatureArgs, FUNCTIONS } from "./functions";
 import { callAt, functionPrefix, pointSpan, replaceSpan } from "./point";
@@ -103,13 +105,18 @@ describe("point mode detection", () => {
 
 describe("function autocomplete and signatures", () => {
   it("ships the documented functions", () => {
-    expect(FUNCTIONS).toHaveLength(62);
+    expect(FUNCTIONS.length).toBeGreaterThanOrEqual(200);
+    const doc = readFileSync(resolve(__dirname, "../../../../docs/functions.md"), "utf8");
+    const documented = [...doc.matchAll(/^\| `([A-Z][A-Z0-9.]*)` \| `/gm)].map((m) => m[1]);
+    expect(documented.length).toBe(FUNCTIONS.length);
+    const names = new Set(FUNCTIONS.map((f) => f.name));
+    expect(documented.filter((n) => !names.has(n))).toEqual([]);
     expect(FUNCTIONS.find((f) => f.name === "SUM")?.signature).toBe("SUM(number1, [number2], ...)");
   });
 
   it("lists the functions matching the typed prefix at a function position", () => {
     expect(functionPrefix("=1+co", 5)).toEqual({ start: 3, end: 5, prefix: "co" });
-    expect(matchFunctions("co").map((f) => f.name)).toEqual(["COLUMN", "CONCAT", "CONCATENATE", "COUNT", "COUNTA", "COUNTIF"]);
+    expect(matchFunctions("co").map((f) => f.name)).toEqual(FUNCTIONS.map((x) => x.name).filter((n) => n.startsWith("CO")));
     expect(matchFunctions("A1")).toEqual([]);
     expect(functionPrefix("=SUM(", 5)).toBeNull();
     expect(functionPrefix("=A1 SU", 6)).toBeNull();
