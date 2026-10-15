@@ -8,7 +8,7 @@ _Maintained by the PM agent. Read at the start of every session; update after ev
 - Checks on main: fmt/clippy/rustdoc clean; `cargo test --workspace` 466 passed; `pnpm test` 29 + 45 passed; wasm `cargo check` for 8 crates OK.
 - Harness with the `fmt-xlsx` writer: `testdata/xlsx` 2/2 PASS (LibreOffice opens our output).
 - **End-to-end in the browser against https://resuite.inceptum.at/calc/ (headless Chromium):** typed `=SUM(1,2,3)*2` → 12; opened `provisional-basic.xlsx` via the file picker (sheets Data/Summary, styles rendered); edited Qty B2 → 99; Save downloaded a 5 KB `.xlsx`; that file has B2=99 with recalculated cached values (D2 247.5, D7 698.37); LibreOffice headless converts it (values correct); harness PASS with 11/11 identical parts through our writer. No console errors. Screenshots in the PM scratchpad (`e2e/live-*.png`).
-- Desktop: `pnpm --filter calc tauri build --no-bundle` + xvfb run (see below).
+- Desktop: `pnpm --filter calc tauri build --no-bundle` OK (1m22s, release binary); runs under Xvfb for 25 s with no panic; a visual check needs a real desktop session (Xvfb screenshots came out blank without a window manager) – owner, when convenient: `pnpm --filter calc tauri dev`.
 - **Not verifiable here:** "created in Excel … reopen it in Excel" – the test file is LibreOffice-made (PROVISIONAL) and Excel is not available on Linux. Owner: please open https://resuite.inceptum.at/calc/, load one of your own `.xlsx` files, edit, Save, and open the download in Excel; report any repair dialog.
 
 
