@@ -16,6 +16,7 @@
 //! # Ok::<(), fmt_ooxml::Error>(())
 //! ```
 
+pub mod chart;
 pub mod content_types;
 mod error;
 mod package;
