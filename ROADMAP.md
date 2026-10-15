@@ -45,6 +45,15 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Named ranges (`Expr::Name`) and functions returning references (`A1:INDEX(...)`, OFFSET) need an `Operand`-returning function entry point.
 - Re-export `eval_array` from lib.rs if the façade or Calc needs it.
 
+## engine-formula (Engine façade → Phase 2 needs)
+- Reference shifting on row/column insert/delete; copy/paste reference adjustment; sheet delete; formula-text rewrite on sheet rename (AST already updated – print it back).
+- `Recalc`-returning variants of `add_sheet`/`rename_sheet` for the IPC diff; undo-friendly batch commands.
+- Sheet-name validation (empty, 31 chars, forbidden characters) – needs a new `EngineError` variant.
+- Input parsing for dates/times (`1/2/2026`, `12:30`) and formulas starting with `+`/`-`.
+- Functions declare volatility themselves (RAND, OFFSET, INDIRECT later) instead of the engine's NOW/TODAY name list; optional iterative-calculation mode for cycles.
+- `parse_date_text`: two-digit years, month names (`15-Jan-2024`); suite cases for `1900-02-29` and time-only VALUE.
+- Share one wildcard matcher between `math/criteria.rs` and `lookup/util.rs`.
+
 ## engine-formula (reference suite)
 - Host-cell cases (`ROW()`, `COLUMN()` without args), implicit-intersection and spill cases once the evaluator exists.
 - Second locale pass for `TEXT`/`VALUE`; cases for SUMIFS/COUNTIFS/XLOOKUP if they ever enter scope.
