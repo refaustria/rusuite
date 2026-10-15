@@ -13,6 +13,7 @@ members = [
     "crates/app-common",
     "apps/calc/src-tauri",
     "apps/calc/core",
+    "apps/calc/src-wasm",
 ]
 
 [workspace.package]
