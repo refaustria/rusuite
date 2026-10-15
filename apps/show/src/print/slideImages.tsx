@@ -8,6 +8,7 @@ import { Layer, Stage } from "react-konva";
 import type Konva from "konva";
 import type { Slide } from "../generated/Slide";
 import { slidePx } from "../geometry";
+import { pathCache, slideQueries } from "../shapes/paths";
 import { SlideView, preloadImages, type DeckContext } from "../canvas/SlideView";
 
 /** Rendering quality of the printed slides (device pixels per slide px). */
@@ -22,6 +23,8 @@ export async function renderSlideImages(deck: DeckContext, slides: readonly Slid
   const missing = slides.filter((s) => cache.get(s)?.deck !== deck);
   if (missing.length) {
     await preloadImages([...media.values()]);
+    // the shapes' outlines from the core first, so the pictures show them (not the fallbacks)
+    await pathCache.ensure(slideQueries(missing));
     const px = slidePx(deck.slideSize);
     const host = document.createElement("div");
     host.setAttribute("aria-hidden", "true");

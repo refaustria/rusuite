@@ -6,10 +6,10 @@
 // `Text` node per styled fragment (unflipped, like PowerPoint).
 
 import { memo, useEffect, useMemo, useState } from "react";
-import { Ellipse, Group, Image as KImage, Line as KLine, Rect, Text } from "react-konva";
+import { Ellipse, Group, Image as KImage, Line as KLine, Path, Rect, Text } from "react-konva";
 import type Konva from "konva";
 import type { ThemePalette } from "@rusuite/ui-shared";
-import type { RunProperties } from "../../../../packages/ui-shared/src/generated/RunProperties";
+import type { Connector } from "../generated/Connector";
 import type { Layout } from "../generated/Layout";
 import type { NodeId } from "../generated/NodeId";
 import type { PlaceholderDef } from "../generated/PlaceholderDef";
@@ -17,11 +17,19 @@ import type { Shape } from "../generated/Shape";
 import type { Slide } from "../generated/Slide";
 import type { SlideSize } from "../generated/SlideSize";
 import type { TextBody } from "../generated/TextBody";
+import type { Table } from "../generated/Table";
 import type { Theme } from "../generated/Theme";
-import { boxAttrs, emuToPx, PX_PER_PT, slidePx } from "../geometry";
-import { bodyText, css, effectiveParagraph, effectiveRun, fillCss, fontFamily, themePalette } from "../model";
-import { layoutText, measureText, type RunStyle } from "../text/layout";
+import { boxAttrs, emuToPx, EMU_PER_PX, slidePx } from "../geometry";
+import { bodyText, css, effectiveParagraph, fillCss, themePalette } from "../model";
+import { arrowHead, endDirections } from "../shapes/connectors";
+import { pathCache, pathPoints, pathQueryOf, svgPath, usePathVersion } from "../shapes/paths";
+import { textRect } from "../shapes/presets";
+import { effectiveBorders, effectiveFill } from "../shapes/tables";
+import { layoutText, measureText } from "../text/layout";
+import { runStyleFor, tableLayout } from "./tableLayout";
 import { useT } from "../i18n";
+
+export { runStyleFor };
 
 /** What a slide needs from the presentation besides the slide itself. */
 export interface DeckContext {
@@ -41,6 +49,10 @@ export interface SlideViewProps {
   interactive?: boolean;
   /** Text of this shape is hidden (it is being edited in the overlay). */
   hiddenText?: NodeId | null;
+  /** With `hiddenText` a table: only this cell's text is hidden. */
+  hiddenCell?: { row: number; col: number } | null;
+  /** Shapes drawn instead of the slide's (live previews of adjust-handle drags). */
+  overrides?: ReadonlyMap<NodeId, Shape>;
   /** Shows "Click to add …" in empty placeholders (editor only). */
   prompts?: boolean;
   /** Called when a top-level shape was dragged (editor only). */
@@ -58,6 +70,7 @@ interface Ctx {
   media: ReadonlyMap<number, string>;
   interactive: boolean;
   hiddenText: NodeId | null;
+  hiddenCell: { row: number; col: number } | null;
   prompts: boolean;
   onShapeDragEnd?: (node: Konva.Node) => void;
   onShapeDragStart?: (node: Konva.Node) => void;
@@ -117,25 +130,6 @@ export function preloadImages(urls: readonly string[]): Promise<void> {
   ).then(() => undefined);
 }
 
-/** Resolves run formatting to a concrete style. */
-export function runStyleFor(def: PlaceholderDef | undefined, theme: Theme, palette: ThemePalette) {
-  return (props: RunProperties | undefined): RunStyle => {
-    const r = effectiveRun(def, props);
-    const ul = r.underline;
-    return {
-      fontFamily: fontFamily(r.font, theme),
-      sizePx: ((r.size ?? 1800) / 100) * PX_PER_PT,
-      bold: !!r.bold,
-      italic: !!r.italic,
-      underline: !!ul && ul !== "none",
-      strike: !!r.strike,
-      color: css(r.color, palette) ?? css({ kind: "theme", value: { slot: "dark1", tint: 0 } }, palette) ?? "#000000",
-      highlight: css(r.highlight, palette),
-      verticalAlign: r.verticalAlign === "superscript" || r.verticalAlign === "subscript" ? r.verticalAlign : undefined,
-    };
-  };
-}
-
 function placeholderOf(ctx: Ctx, shape: Shape): PlaceholderDef | undefined {
   if (!shape.placeholder) return undefined;
   const layout = ctx.deck.layouts.find((l) => l.kind === ctx.slide.layout);
@@ -161,12 +155,16 @@ function TextNodes({ body, shape, w, h, ctx }: { body: TextBody; shape: Shape; w
     });
   }, [body, w, h, def, ctx.deck.theme, ctx.palette, prompt]);
   if (empty && !prompt) return null;
+  return <Fragments fragments={layout.fragments} opacity={prompt ? 0.45 : 1} />;
+}
+
+function Fragments({ fragments, opacity = 1, x = 0, y = 0 }: { fragments: ReturnType<typeof layoutText>["fragments"]; opacity?: number; x?: number; y?: number }) {
   return (
-    <Group listening={false} opacity={prompt ? 0.45 : 1}>
-      {layout.fragments.map((f, i) =>
+    <Group listening={false} opacity={opacity} x={x} y={y}>
+      {fragments.map((f, i) =>
         f.highlight ? <Rect key={`h${i}`} x={f.x} y={f.y} width={f.width} height={f.fontSize} fill={f.highlight} /> : null,
       )}
-      {layout.fragments.map((f, i) => (
+      {fragments.map((f, i) => (
         <Text
           key={i}
           x={f.x}
@@ -194,51 +192,146 @@ function Picture({ media, w, h, stroke }: { media: string | undefined; w: number
   );
 }
 
-function Geometry({ shape, w, h, ctx }: { shape: Shape; w: number; h: number; ctx: Ctx }) {
-  const fill = fillCss(shape.fill, ctx.palette);
-  const strokeColor = fillCss(shape.line.fill, ctx.palette);
+/** Konva stroke attributes of a shape's outline (`{}` without one). */
+function strokeOf(shape: Shape, palette: ThemePalette) {
+  const color = fillCss(shape.line.fill, palette);
   const sw = Math.max(0.5, emuToPx(shape.line.width));
-  const stroke = strokeColor
-    ? {
-        stroke: strokeColor,
-        strokeWidth: sw,
-        dash: shape.line.dash === "dash" ? [sw * 4, sw * 3] : shape.line.dash === "dot" ? [sw, sw] : undefined,
-      }
+  const attrs = color
+    ? { stroke: color, strokeWidth: sw, dash: shape.line.dash === "dash" ? [sw * 4, sw * 3] : shape.line.dash === "dot" ? [sw, sw] : undefined }
     : {};
-  const k = shape.kind;
-  if (k.kind === "picture") return <Picture media={ctx.media.get(k.value.media)} w={w} h={h} stroke={stroke} />;
-  if (k.kind !== "auto") return null;
-  // Shapes without fill still take clicks on their box (text boxes).
+  return { color, sw, attrs };
+}
+
+/** Simple outlines drawn until the core's path arrives (and when it cannot be had). */
+function Fallback({ geometry, w, h, fill, stroke, sw, strokeColor }: { geometry: string; w: number; h: number; fill: string | undefined; stroke: Record<string, unknown>; sw: number; strokeColor: string | undefined }) {
   const hit = fill ? {} : { fill: "rgba(0,0,0,0)" };
-  switch (k.value.geometry) {
+  switch (geometry) {
     case "ellipse":
+    case "flowChartConnector":
       return <Ellipse x={w / 2} y={h / 2} radiusX={w / 2} radiusY={h / 2} fill={fill} {...hit} {...stroke} />;
     case "line":
-      return (
-        <KLine
-          points={[0, 0, w, h]}
-          {...stroke}
-          stroke={strokeColor ?? "#000000"}
-          strokeWidth={sw}
-          hitStrokeWidth={Math.max(10, sw)}
-        />
-      );
+      return <KLine points={[0, 0, w, h]} {...stroke} stroke={strokeColor ?? "#000000"} strokeWidth={sw} hitStrokeWidth={Math.max(10, sw)} />;
     case "roundRect":
       return <Rect width={w} height={h} cornerRadius={Math.min(w, h) / 6} fill={fill} {...hit} {...stroke} />;
-    case "rect":
+    default:
       return <Rect width={w} height={h} fill={fill} {...hit} {...stroke} />;
   }
+}
+
+/** An auto shape: its preset's paths from the core (fill / stroke per sub-path). */
+function PresetGeometry({ shape, w, h, ctx }: { shape: Shape; w: number; h: number; ctx: Ctx }) {
+  usePathVersion();
+  const fill = fillCss(shape.fill, ctx.palette);
+  const s = strokeOf(shape, ctx.palette);
+  const q = pathQueryOf(shape);
+  const paths = q ? pathCache.get(q) : null;
+  const geometry = shape.kind.kind === "auto" && typeof shape.kind.value.geometry === "string" ? shape.kind.value.geometry : "rect";
+  if (!paths || !paths.paths.length) return <Fallback geometry={geometry} w={w} h={h} fill={fill} stroke={s.attrs} sw={s.sw} strokeColor={s.color} />;
+  const lineOnly = paths.paths.every((p) => !p.fill);
+  return (
+    <>
+      {paths.paths.map((p, i) => (
+        <Path
+          key={i}
+          name="geometry"
+          data={svgPath(p.commands)}
+          fill={p.fill ? (fill ?? "rgba(0,0,0,0)") : undefined}
+          {...(p.stroke ? s.attrs : {})}
+          {...(lineOnly ? { stroke: s.color ?? "#000000", strokeWidth: s.sw, hitStrokeWidth: Math.max(10, s.sw) } : {})}
+        />
+      ))}
+    </>
+  );
+}
+
+/** A connector: its route from the core, drawn with the outline, and the arrowheads. */
+function ConnectorGeometry({ shape, c, ctx }: { shape: Shape; c: Connector; ctx: Ctx }) {
+  usePathVersion();
+  const s = strokeOf(shape, ctx.palette);
+  const q = pathQueryOf(shape)!;
+  const t = shape.transform;
+  const commands = pathCache.get(q)?.paths[0]?.commands ?? [
+    { kind: "moveTo" as const, x: 0, y: 0 },
+    { kind: "lineTo" as const, x: t.w, y: t.h },
+  ];
+  const color = s.color ?? "#000000";
+  const pts = pathPoints(commands).map((p) => ({ x: p.x / EMU_PER_PX, y: p.y / EMU_PER_PX }));
+  const dirs = endDirections(pts);
+  const heads = dirs
+    ? [
+        c.head ? arrowHead(c.head, pts[0]!, dirs.start, s.sw) : null,
+        c.tail ? arrowHead(c.tail, pts[pts.length - 1]!, dirs.end, s.sw) : null,
+      ]
+    : [];
+  return (
+    <>
+      <Path name="geometry" data={svgPath(commands)} stroke={color} strokeWidth={s.sw} dash={s.attrs.dash} hitStrokeWidth={Math.max(10, s.sw)} />
+      {heads.map((a, i) =>
+        !a ? null : a.kind === "oval" ? (
+          <Ellipse key={i} x={a.points[0]} y={a.points[1]} radiusX={a.rx!} radiusY={a.ry!} fill={color} listening={false} />
+        ) : (
+          <KLine key={i} points={a.points} closed={a.kind === "polygon"} fill={a.kind === "polygon" ? color : undefined} stroke={color} strokeWidth={a.kind === "polyline" ? s.sw : s.sw / 2} listening={false} />
+        ),
+      )}
+    </>
+  );
+}
+
+/** A table: cell fills, cell text, then the borders over them. */
+function TableGeometry({ shape, table, ctx }: { shape: Shape; table: Table; ctx: Ctx }) {
+  const lay = useMemo(() => tableLayout(table, ctx.deck.theme, ctx.palette), [table, ctx.deck.theme, ctx.palette]);
+  const hideCell = ctx.hiddenText === shape.id ? ctx.hiddenCell : null;
+  const width = lay.colX[lay.colX.length - 1]!;
+  const height = lay.rowY[lay.rowY.length - 1]!;
+  const lines: { key: string; points: number[]; color: string; width: number }[] = [];
+  for (const c of lay.cells) {
+    const b = effectiveBorders(table, c.row, c.col);
+    const add = (side: string, l: typeof b.left, points: number[]) => {
+      const color = l ? css(l.color, ctx.palette) : undefined;
+      if (l && color) lines.push({ key: `${c.row}-${c.col}-${side}`, points, color, width: Math.max(0.5, emuToPx(l.width)) });
+    };
+    add("t", b.top, [c.x, c.y, c.x + c.w, c.y]);
+    add("b", b.bottom, [c.x, c.y + c.h, c.x + c.w, c.y + c.h]);
+    add("l", b.left, [c.x, c.y, c.x, c.y + c.h]);
+    add("r", b.right, [c.x + c.w, c.y, c.x + c.w, c.y + c.h]);
+  }
+  return (
+    <>
+      <Rect name="table-hit" width={width} height={height} fill="rgba(0,0,0,0)" />
+      {lay.cells.map((c) => {
+        const fill = css(effectiveFill(table, c.row, c.col), ctx.palette);
+        return fill ? <Rect key={`f${c.row}-${c.col}`} name="table-cell" x={c.x} y={c.y} width={c.w} height={c.h} fill={fill} listening={false} /> : null;
+      })}
+      {lay.cells.map((c) =>
+        hideCell && hideCell.row === c.row && hideCell.col === c.col ? null : <Fragments key={`t${c.row}-${c.col}`} fragments={c.text.fragments} x={c.x} y={c.y} />,
+      )}
+      {lines.map((l) => (
+        <KLine key={l.key} points={l.points} stroke={l.color} strokeWidth={l.width} listening={false} />
+      ))}
+    </>
+  );
+}
+
+function Geometry({ shape, w, h, ctx }: { shape: Shape; w: number; h: number; ctx: Ctx }) {
+  const k = shape.kind;
+  if (k.kind === "picture") return <Picture media={ctx.media.get(k.value.media)} w={w} h={h} stroke={strokeOf(shape, ctx.palette).attrs} />;
+  if (k.kind === "connector") return <ConnectorGeometry shape={shape} c={k.value} ctx={ctx} />;
+  if (k.kind === "table") return <TableGeometry shape={shape} table={k.value} ctx={ctx} />;
+  if (k.kind !== "auto") return null;
+  return <PresetGeometry shape={shape} w={w} h={h} ctx={ctx} />;
 }
 
 function ShapeNode({ shape, ctx, top }: { shape: Shape; ctx: Ctx; top: boolean }) {
   const a = boxAttrs(shape.transform);
   const t = shape.transform;
   const text = shape.kind.kind === "auto" ? shape.kind.value.text : null;
+  const tr = shape.kind.kind === "auto" && text ? textRect(shape.kind.value.geometry, a.width, a.height) : null;
   return (
     <Group
       id={top ? `shape-${shape.id}` : undefined}
       name={top ? "shape" : "child"}
       shapeId={shape.id}
+      shapeKind={shape.kind.kind}
       x={a.x}
       y={a.y}
       offsetX={a.offsetX}
@@ -262,29 +355,35 @@ function ShapeNode({ shape, ctx, top }: { shape: Shape; ctx: Ctx; top: boolean }
             <ShapeNode key={c.id} shape={c} ctx={ctx} top={false} />
           ))}
         </Group>
+      ) : shape.kind.kind === "table" ? (
+        <Geometry shape={shape} w={a.width} h={a.height} ctx={ctx} />
       ) : (
         <Group x={a.width / 2} y={a.height / 2} offsetX={a.width / 2} offsetY={a.height / 2} scaleX={t.flipH ? -1 : 1} scaleY={t.flipV ? -1 : 1}>
           <Geometry shape={shape} w={a.width} h={a.height} ctx={ctx} />
         </Group>
       )}
-      {text && ctx.hiddenText !== shape.id && <TextNodes body={text} shape={shape} w={a.width} h={a.height} ctx={ctx} />}
+      {text && tr && ctx.hiddenText !== shape.id && (
+        <Group x={tr.x} y={tr.y}>
+          <TextNodes body={text} shape={shape} w={tr.w} h={tr.h} ctx={ctx} />
+        </Group>
+      )}
     </Group>
   );
 }
 
 /** The slide's background and shapes, in slide px (the parent `Stage` scales). */
 export const SlideView = memo(function SlideView({
-  deck, slide, media, interactive = false, hiddenText = null, prompts = false, onShapeDragEnd, onShapeDragStart, shapeDragBound,
+  deck, slide, media, interactive = false, hiddenText = null, hiddenCell = null, overrides, prompts = false, onShapeDragEnd, onShapeDragStart, shapeDragBound,
 }: SlideViewProps) {
   const palette = useMemo(() => themePalette(deck.theme), [deck.theme]);
   const size = slidePx(deck.slideSize);
-  const ctx: Ctx = { deck, slide, palette, media, interactive, hiddenText, prompts, onShapeDragEnd, onShapeDragStart, shapeDragBound };
+  const ctx: Ctx = { deck, slide, palette, media, interactive, hiddenText, hiddenCell, prompts, onShapeDragEnd, onShapeDragStart, shapeDragBound };
   const bg = fillCss(slide.background ?? null, palette) ?? "#ffffff";
   return (
     <>
       <Rect name="slide-background" x={0} y={0} width={size.width} height={size.height} fill={bg} />
       {slide.shapes.map((s) => (
-        <ShapeNode key={s.id} shape={s} ctx={ctx} top />
+        <ShapeNode key={s.id} shape={overrides?.get(s.id) ?? s} ctx={ctx} top />
       ))}
     </>
   );

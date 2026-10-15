@@ -147,6 +147,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     }
 
     wb.begin_batch();
+    let mut drawings: Vec<(SheetId, String, PartName)> = Vec::new();
     let loaded = (|| -> Result<()> {
         for (id, name, part) in &sheets {
             let mut loader = SheetLoader {
@@ -159,13 +160,33 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
                 warnings: &mut warnings,
                 shared: HashMap::new(),
                 arrays: Vec::new(),
+                drawing: None,
             };
             loader.load(part_data(part)?, part.as_str())?;
+            if let Some(rid) = loader.drawing.take() {
+                let target = pkg
+                    .relationships(part)
+                    .and_then(|r| r.get(&rid))
+                    .filter(|r| r.target_mode == TargetMode::Internal && r.rel_type == rel::DRAWING)
+                    .map(|r| part.resolve(&r.target))
+                    .transpose()?;
+                match target {
+                    Some(d) => drawings.push((*id, name.clone(), d)),
+                    None => warnings.push(format!("sheet {name:?}: drawing {rid} is missing")),
+                }
+            }
         }
         Ok(())
     })();
     wb.end_batch();
     loaded?;
+
+    // Charts last: their references need every sheet.
+    for (id, name, part) in &drawings {
+        for w in crate::drawing::load(&pkg, &mut wb, *id, part, &mut consumed)? {
+            warnings.push(format!("sheet {name:?}: {w}"));
+        }
+    }
 
     // Visibility last: hiding needs another visible sheet.
     for &(id, is_hidden, very) in &hidden {
@@ -334,7 +355,6 @@ struct CellBuf {
 /// Elements we drop, with the wording used in the warning.
 const DROPPED: &[(&[u8], &str)] = &[
     (b"hyperlinks", "hyperlinks"),
-    (b"drawing", "drawings/charts"),
     (b"legacyDrawing", "comments/legacy drawings"),
     (b"tableParts", "tables"),
     (b"sheetProtection", "sheet protection"),
@@ -357,6 +377,8 @@ struct SheetLoader<'a> {
     /// `(r0, c0, r1, c1)` of the array formulas read so far: their other
     /// cells hold the spilled values, which are not loaded.
     arrays: Vec<(u32, u32, u32, u32)>,
+    /// `r:id` of the sheet's `<drawing>`.
+    drawing: Option<String>,
 }
 
 impl SheetLoader<'_> {
@@ -487,6 +509,7 @@ impl SheetLoader<'_> {
                             }
                         }
                         name if filter.start(name, el, empty) => {}
+                        b"drawing" => self.drawing = attr(el, "id").map(|r| r.into_owned()),
                         b"conditionalFormatting" | b"dataValidations" | b"extLst" => {
                             if !empty {
                                 let span = reader.read_to_end(el.name()).map_err(xml_err(part))?;

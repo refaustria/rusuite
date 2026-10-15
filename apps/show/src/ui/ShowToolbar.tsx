@@ -10,7 +10,7 @@ import { LAYOUT_LABELS } from "../canvas/menus";
 import {
   ColorPicker, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
   RibbonRow, RibbonSplitButton, RibbonStack, StyleToggles, bytesToBase64, formatCombo, triggerShortcut, languageRibbonGroup, withLabel,
-  type AnySession, type CellStylePatch, type CellStyleView, type FormatControlProps, type RibbonGalleryItem, type RibbonMenuItem,
+  type AnySession, type CellStylePatch, type CellStyleView, type FormatControlProps, type RibbonMenuItem,
   type RibbonTab,
 } from "@rusuite/ui-shared";
 import type { RunProperties } from "../../../../packages/ui-shared/src/generated/RunProperties";
@@ -20,7 +20,9 @@ import type { LayoutKind } from "../generated/LayoutKind";
 import type { Shape } from "../generated/Shape";
 import type { ZOp } from "../generated/ZOp";
 import { charLen, effectiveParagraph, effectiveRun, findShape, placeholderDef, textOf, themePalette } from "../model";
-import { LINE_SPACINGS, lineSpacingOf, newShape, textPos, type InsertKind } from "../state/commands";
+import { LINE_SPACINGS, lineSpacingOf, textPos } from "../state/commands";
+import { QUICK_SHAPES, shapeItems } from "./ShapeGallery";
+import { shapeFormatGroups, shapesMenu, tableDesignTab, tableLayoutTab, tableMenu } from "./ShapeTabs";
 import { useShow, type ShowState, type ShowStore } from "../state/store";
 import { useT } from "../i18n";
 import { animationsTab, transitionsTab } from "./AnimTabs";
@@ -92,17 +94,6 @@ export const LAYOUTS: { id: LayoutKind; readonly label: string; preview: ReactNo
   }, "show.layout.titleContent"),
   withLabel({ id: "blank" as LayoutKind, preview: <Thumb>{null}</Thumb> }, "show.layout.blank"),
 ];
-
-export type ShapeChoice = InsertKind | "roundRect";
-
-export const SHAPES: { id: ShapeChoice; readonly label: string; icon: "rect" | "roundRect" | "ellipse" | "line" | "textBox" }[] = [
-  withLabel({ id: "rect" as ShapeChoice, icon: "rect" as const }, "show.shape.rect"),
-  withLabel({ id: "roundRect" as ShapeChoice, icon: "roundRect" as const }, "show.shape.roundRect"),
-  withLabel({ id: "ellipse" as ShapeChoice, icon: "ellipse" as const }, "show.shape.ellipse"),
-  withLabel({ id: "line" as ShapeChoice, icon: "line" as const }, "show.shape.line"),
-  withLabel({ id: "textBox" as ShapeChoice, icon: "textBox" as const }, "show.shape.textBox"),
-];
-const shapeItems = (): RibbonGalleryItem[] => SHAPES.map((s) => ({ id: s.id, label: s.label, preview: <RibbonIcon name={s.icon} /> }));
 
 const ORDER: { value: ZOp; readonly label: string; shortcut: string }[] = [
   withLabel({ value: "bringToFront" as ZOp, shortcut: "Mod+Shift+]" }, "show.order.bringToFront"),
@@ -177,16 +168,6 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
     <RibbonButton label={label} icon={icon} pressed={fmt?.para.alignment === a} disabled={!fmt?.hasText} onClick={() => void store.setAlignment(a)} />
   );
 
-  const insertShape = async (kind: ShapeChoice) => {
-    if (kind !== "roundRect") return store.insert(kind);
-    const { pres, current } = store.getState();
-    if (!pres || current === null) return;
-    if (store.getState().editing) await store.commitEdit();
-    const shape = newShape("rect", pres.slideSize, store.temp());
-    if (shape.kind.kind === "auto") shape.kind.value.geometry = "roundRect";
-    store.select([shape.id]);
-    await store.run({ type: "addShape", slide: current, shape });
-  };
   const insertImage = async (file: File) => {
     const bytesBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
     await store.insertPicture(file.type || "image/png", bytesBase64);
@@ -225,18 +206,22 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
       )}
     />
   );
+  const quickKeyboard = { current: false };
   const shapesGallery = (
-    <RibbonGallery
-      label={t("show.shapes")}
-      items={shapeItems()}
-      columns={3}
-      hideLabels
-      itemClassName="h-6 w-7"
-      disabled={!hasSlide}
-      onSelect={(id) => void insertShape(id as ShapeChoice)}
-    />
+    <div className="flex items-start gap-0.5" onClickCapture={(e) => (quickKeyboard.current = e.detail === 0)}>
+      <RibbonGallery
+        label={t("show.shapes")}
+        items={shapeItems(QUICK_SHAPES, t)}
+        columns={6}
+        hideLabels
+        itemClassName="h-6 w-7"
+        disabled={!hasSlide}
+        selected={undefined}
+        onSelect={(id) => (quickKeyboard.current ? void store.insertChoice(id) : store.setDrawMode(id))}
+      />
+      <RibbonMenuButton label={t("show.moreShapes")} icon="chevronDown" disabled={!hasSlide} menu={shapesMenu(store, state)} />
+    </div>
   );
-
   const arrange: RibbonMenuItem[] = [
     { separator: true, label: t("show.order") },
     ...ORDER.map((o) => ({ id: o.value, label: o.label, shortcut: o.shortcut, disabled: selCount === 0, onSelect: () => void store.zOrder(o.value) })),
@@ -405,6 +390,10 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
     groups: [
       { label: t("show.slides"), items: newSlide("large") },
       {
+        label: t("show.tables"),
+        items: <RibbonMenuButton label={t("show.table")} icon="table" size="large" disabled={!hasSlide} menu={tableMenu(store, t)} />,
+      },
+      {
         label: t("show.images"),
         items: (
           <>
@@ -429,33 +418,12 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         items: (
           // A menu button around an inline gallery in a `w-max` box: the popup is anchored to the narrow trigger, so
           // the gallery's auto-sized columns would otherwise shrink and its buttons overlap.
-          <RibbonMenuButton
-            label={t("show.shapes")}
-            icon="shapes"
-            size="large"
-            disabled={!hasSlide}
-            menu={(close) => (
-              <div className="w-max">
-                <RibbonGallery
-                  label={t("show.shapes")}
-                  items={shapeItems()}
-                  columns={5}
-                  hideLabels
-                  itemClassName="h-8 w-8"
-                  autoFocus
-                  onSelect={(id) => {
-                    close();
-                    void insertShape(id as ShapeChoice);
-                  }}
-                />
-              </div>
-            )}
-          />
+          <RibbonMenuButton label={t("show.shapes")} icon="shapes" size="large" disabled={!hasSlide} menu={shapesMenu(store, state)} />
         ),
       },
       {
         label: t("show.text"),
-        items: <RibbonButton label={t("show.shape.textBox")} icon="textBox" size="large" disabled={!hasSlide} onClick={() => void insertShape("textBox")} />,
+        items: <RibbonButton label={t("show.shape.textBox")} icon="textBox" size="large" disabled={!hasSlide} onClick={() => void store.insertChoice("textBox")} />,
       },
     ],
   };
@@ -508,9 +476,12 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
           </RibbonStack>
         ),
       },
-      { label: t("show.arrange"), items: <RibbonMenuButton label={t("show.arrange")} icon="arrange" size="large" menu={arrange} /> },
+      ...shapeFormatGroups(store, state, palette, t, arrange),
     ],
   };
+  const tableDesign = tableDesignTab(store, palette, t);
+  const tableLayout = tableLayoutTab(store, t);
+  const contextual = tableDesign && tableLayout ? [tableDesign, tableLayout] : selCount > 0 ? [shapeFormat] : [];
 
   const view: RibbonTab = {
     id: "view",
@@ -572,7 +543,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         appName="Rusuite Show"
         documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
         accent="#c2410c"
-        tabs={selCount > 0 ? [home, insert, design, transitions, animations, view, shapeFormat] : [home, insert, design, transitions, animations, view]}
+        tabs={[home, insert, design, transitions, animations, view, ...contextual]}
         onTabChange={(id) => store.setRibbonTab(id)}
         rightSlot={
           <button

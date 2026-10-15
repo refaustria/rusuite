@@ -7,6 +7,7 @@ import { t } from "../i18n";
 import type { LayoutKind } from "../generated/LayoutKind";
 import type { NodeId } from "../generated/NodeId";
 import type { ShowStore } from "../state/store";
+import { singleCell, splitCommand } from "../shapes/tables";
 
 export const LAYOUT_LABELS: { id: LayoutKind; readonly label: string }[] = [
   withLabel({ id: "title" as LayoutKind }, "show.layout.title"),
@@ -94,5 +95,29 @@ export function thumbnailMenu(store: ShowStore, id: NodeId): ContextMenuItem[] {
     })),
     { separator: true },
     { id: "hide", label: slide?.hidden ? t("show.showSlide") : t("show.hideSlide"), onSelect: () => void store.toggleHidden([id]) },
+  ];
+}
+
+/** Right-click inside a selected table: the Layout tab's row, column and cell commands. */
+export function tableMenu(store: ShowStore): ContextMenuItem[] {
+  const table = store.selectedTable();
+  const range = store.cellRange();
+  const multi = !!table && !!range && !singleCell(table.table, range);
+  const merged = !!table && !!range && splitCommand(table.shape.id, table.table, range.r0, range.c0) !== null;
+  const tr = t;
+  return [
+    { id: "insertAbove", label: tr("show.table.insertAbove"), disabled: !table, onSelect: () => void store.insertRows(false) },
+    { id: "insertBelow", label: tr("show.table.insertBelow"), disabled: !table, onSelect: () => void store.insertRows(true) },
+    { id: "insertLeft", label: tr("show.table.insertLeft"), disabled: !table, onSelect: () => void store.insertCols(false) },
+    { id: "insertRight", label: tr("show.table.insertRight"), disabled: !table, onSelect: () => void store.insertCols(true) },
+    { separator: true },
+    { id: "deleteRows", label: tr("show.table.deleteRows"), disabled: !table, onSelect: () => void store.deleteRows() },
+    { id: "deleteCols", label: tr("show.table.deleteCols"), disabled: !table, onSelect: () => void store.deleteCols() },
+    { id: "deleteTable", label: tr("show.table.deleteTable"), disabled: !table, onSelect: () => void store.deleteTable() },
+    { separator: true },
+    { id: "merge", label: tr("show.table.merge"), disabled: !multi, onSelect: () => void store.mergeCells() },
+    { id: "split", label: tr("show.table.split"), disabled: !merged, onSelect: () => void store.splitCell() },
+    { separator: true },
+    { id: "format", label: tr("show.formatShapeDots"), disabled: !table, onSelect: () => store.openDialog({ kind: "format" }) },
   ];
 }

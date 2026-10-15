@@ -171,13 +171,15 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   Table Layout in a table, Picture Format on a picture (P8-17).
 - **Show**: Home (Undo; Clipboard: shapes/slides clipboard + Duplicate; Slides: New slide ▾ layouts, Layout ▾, Duplicate,
   Delete, Hide slide; Font + grow/shrink; Paragraph + line spacing ▾; Drawing: shapes gallery, Arrange ▾
-  order/align/distribute/group, fill and outline), Insert (New slide, Picture, Shapes ▾, Text box), Design (Background
+  order/align/distribute/group, fill and outline), Insert (New slide, Table ▾ picker 10 × 8 + Insert table…, Picture,
+  Shapes ▾ grouped library, Text box), Design (Background
   colour, Apply to all, Reset), Transitions (Preview; gallery None/Fade/Push/Wipe/Cover/Split/Cut/Zoom + Effect Options ▾;
   Timing: Duration, Apply to all, Advance slide On mouse click / After mm:ss), Animations (Preview; Animation styles ▾ grouped
   Entrance/Emphasis/Exit + None, Effect Options ▾; Add animation ▾, Animation pane; Timing: Start, Duration, Delay, Move
   earlier/later), View (Notes pane, present from beginning/current, Presenter view, zoom Fit/50–200 %, shortcuts help),
-  contextual Shape Format while shapes are selected (Format shape…, Alt text…, Change picture…/Reset size, Arrange ▾);
-  Present in the strip. Right-click menus on shapes, on the slide and on thumbnails (`apps/show/src/canvas/menus.ts`).
+  contextual Shape Format while shapes are selected (Format shape…, Alt text…, Change picture…/Reset size; Insert shapes:
+  Shapes ▾, Change shape ▾; Shape styles ▾, fill, outline, Arrows ▾, Connector type ▾ + Reroute; Arrange ▾, Rotate ▾), or
+  Table Design + Layout while one table is selected; Present in the strip. Right-click menus on shapes, on the slide and on thumbnails (`apps/show/src/canvas/menus.ts`).
 
 Each app keeps its status bar; Calc and Show also show the zoom there, all three the last autosave.
 
@@ -230,6 +232,42 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   sends `hello`, its keys/clicks as `action`, and `bye` when closed (which ends the show); `end` closes it.
 - If the window cannot be opened (popup blocked), the show runs in the main window with a speaker notes overlay and a
   Notes toggle in the corner.
+
+## Show: shape library, connectors and tables (P8-16)
+
+- **Outlines** (`apps/show/src/shapes/paths.ts`): every auto shape and connector is drawn from the core's `shapePaths`
+  (one Konva `Path` per sub-path with its fill / stroke flags). One process-wide cache keyed by geometry + box size +
+  adjust values, so a patch that changes any of them makes a new entry (LRU, 5000 entries); missing outlines are fetched
+  in one batch per tick and the renderers re-render when they arrive (a rectangle / ellipse fallback meanwhile). The editor,
+  thumbnails, presenter and print use the same cache (print awaits `ensure`); the audience window gets the slides'
+  entries with the `deck` message. Text inside non-rectangular presets uses an approximate text rectangle
+  (`shapes/presets.ts` `textRect`: inscribed rectangle for ellipses, middle half for diamonds, lower middle for triangles …).
+- **Insert › Shapes** (`ui/ShapeGallery.tsx`): Recently used (kept in `localStorage`), Lines (straight / elbow / curved
+  connectors with and without arrowheads), Rectangles, Basic shapes, Block arrows, Flowchart, Stars and banners, Callouts;
+  icons from the same outlines. A pointer click arms drawing (`ShowState.drawMode`, crosshair, `data-draw-mode` on the
+  stage): drag a box (Shift: square) or click for the default 1-inch size at the click; Esc or a right-click cancels.
+  Enter / Space on an item inserts it centred at once. Home › Drawing has a compact gallery plus More shapes ▾.
+- **Adjust handles** (`shapes/handles.ts`, `canvas/EditHandles.tsx`): yellow diamonds for the presets' `a:ahXY` handles
+  (linear in the adjust value along one axis; callout tails on both), live preview while dragging, one `SetGeometry` on
+  release (all adjust values of the shape).
+- **Connectors** (`shapes/connectors.ts`): drawing or dragging an end over a shape shows its connection sites (grey, red
+  when within 12 px); releasing on one glues it (`AddShape` with `start`/`end`, or `SetTransform` + `SetConnector`: the
+  core lets go of ends whose shape did not move and re-glues them from the patch, then reroutes). End handles are green
+  when glued. An elbow with two turns has a middle handle (`adj1`). Shape Format › Arrows (9 presets + Small / Medium /
+  Large), Connector type (Straight / Elbow / Curved) and Reroute connectors (each glued end to the site nearest to the
+  other end). Duplicating / pasting keeps a connector glued only to shapes copied with it.
+- **Tables** (`shapes/tables.ts`, `canvas/tableLayout.ts`, `canvas/TableOverlay.tsx`): drawn on the canvas (fills, text,
+  borders; rows grow with their text), with the six built-in styles Medium Style 2 – Accent 1…6 computed like the core's
+  `Table::style_cell` (unknown style ids draw no style formatting). While one table is selected a DOM layer (pointer
+  events, inset 5 px so the Transformer handles and the frame for moving stay reachable) takes clicks (edit the cell in
+  the text overlay), drags across cells (cell selection, highlighted) and drags on column / row borders (`SetTableGrid`;
+  neighbouring columns share the change, rows grow); right-click opens the table menu. In a cell Tab / Shift+Tab and the
+  arrows at the text's edges move between cells (Tab in the last cell adds a row), Enter makes a new paragraph; the text is
+  committed with `SetTableCellText`. Table Design: style options (header / total row, banded rows / columns, first / last
+  column → `SetTableStyle`), table styles gallery + Clear table, Shading and Borders (all, outside, inside, none, each
+  side; explicit lines in `SetTableCellProps`) for the cell selection (else the edited cell, else the whole table).
+  Layout: Delete ▾ rows / columns / table, Insert above / below / left / right (as many as selected), Merge / Split cells,
+  Distribute rows / columns, horizontal and vertical alignment, Cell margins ▾ (Normal / None / Narrow / Wide).
 
 ## Show: transitions and animations (P8-8)
 

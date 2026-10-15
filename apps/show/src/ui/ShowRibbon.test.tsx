@@ -106,7 +106,7 @@ describe("Show ribbon", () => {
     fireEvent.click(screen.getByRole("button", { name: "Shapes" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "Shapes" })).getByRole("button", { name: "Line" }));
     await flush();
-    expect(backend.commands[backend.commands.length - 1]).toMatchObject({ type: "addShape", shape: { kind: { value: { geometry: "line" } } } });
+    expect(backend.commands[backend.commands.length - 1]).toMatchObject({ type: "addShape", shape: { kind: { kind: "connector", value: { kind: "straight" } } } });
   });
 
   it("View: zoom and present from the beginning", async () => {

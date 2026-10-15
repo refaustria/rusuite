@@ -181,6 +181,8 @@ pub(crate) struct SheetData {
     pub conditional_formats: Vec<crate::condfmt::CfRule>,
     /// Data validations with pairwise disjoint ranges.
     pub validations: Vec<crate::validation::DataValidation>,
+    /// Charts, back to front.
+    pub charts: Vec<crate::chart::ChartObject>,
 }
 
 impl SheetData {

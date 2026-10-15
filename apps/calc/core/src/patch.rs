@@ -3,7 +3,7 @@
 
 use app_common::Revision;
 use model_sheet::{
-    AutoFilter, CellStyle, CfResult, DataValidation, SheetFormat, SheetView, SortState,
+    AutoFilter, CellStyle, CfResult, ChartObject, DataValidation, SheetFormat, SheetView, SortState,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -230,6 +230,14 @@ pub struct CalcPatch {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<u32>>")]
     pub cf_sheets: Vec<u32>,
+    /// Sheets whose charts may have changed: a chart command, a cell
+    /// change a chart on that sheet references, or a structural, sheet
+    /// list or row/column visibility change on a workbook with charts.
+    /// The UI refetches `sheetCharts` (or the region snapshot) and the
+    /// `chartData` of the charts it shows; absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<u32>>")]
+    pub chart_sheets: Vec<u32>,
 }
 
 /// Merges `other` into `list`, replacing entries with the same key.
@@ -260,6 +268,11 @@ impl app_common::Patch for CalcPatch {
         for s in other.cf_sheets {
             if !self.cf_sheets.contains(&s) {
                 self.cf_sheets.push(s);
+            }
+        }
+        for s in other.chart_sheets {
+            if !self.chart_sheets.contains(&s) {
+                self.chart_sheets.push(s);
             }
         }
         // A structural change invalidates earlier cell/row/col entries of
@@ -325,6 +338,11 @@ pub struct RegionSnapshot {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<crate::wire_cf::DataValidation>>")]
     pub validations: Vec<DataValidation>,
+    /// Every chart of the sheet (not only those over the region), back to
+    /// front; absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<crate::wire_chart::ChartObject>>")]
+    pub charts: Vec<ChartObject>,
 }
 
 /// The conditional formatting of one cell of a [`RegionSnapshot`].

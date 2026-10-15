@@ -106,6 +106,27 @@ pub enum Request {
     /// The conditional formatting rules (priority order) and the data
     /// validations of `sheet` (for the manage dialogs) → `sheetRules`.
     SheetRules { sheet: u32 },
+    /// The charts of `sheet`, back to front → `charts`.
+    SheetCharts { sheet: u32 },
+    /// The data of chart `id` on `sheet` as the renderer draws it →
+    /// `chartData`.
+    ChartData { sheet: u32, id: u32 },
+    /// The data of a chart not on the sheet (dialog previews; references
+    /// without a sheet resolve on `sheet`) → `chartData`.
+    PreviewChartData {
+        sheet: u32,
+        #[ts(as = "crate::wire_chart::Chart")]
+        chart: Box<core_model::chart::Chart>,
+    },
+    /// Excel's recommended chart for the selection (a single cell: its
+    /// current region) → `recommendedChart` (`null` without numbers).
+    RecommendedChart {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+    },
 }
 
 /// The successful part of a [`Response`].
@@ -188,6 +209,21 @@ pub enum ResponseBody {
     ListValues {
         values: Vec<String>,
     },
+    /// The reply to `sheetCharts`.
+    Charts {
+        #[ts(as = "Vec<crate::wire_chart::ChartObject>")]
+        charts: Vec<model_sheet::ChartObject>,
+    },
+    /// The reply to `chartData` and `previewChartData`.
+    ChartData {
+        #[ts(as = "crate::wire_chart::ResolvedChart")]
+        data: core_model::chart::ResolvedChart,
+    },
+    /// The reply to `recommendedChart`.
+    RecommendedChart {
+        #[ts(as = "Option<crate::wire_chart::Chart>")]
+        chart: Option<Box<core_model::chart::Chart>>,
+    },
     /// The reply to `sheetRules`.
     SheetRules {
         #[ts(as = "Vec<crate::wire_cf::CfRule>")]
@@ -202,6 +238,8 @@ pub enum ResponseBody {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "apps/calc/src/generated/")]
+// One short-lived value per request: its size does not matter.
+#[allow(clippy::large_enum_variant)]
 pub enum Response {
     Ok(ResponseBody),
     Err(DispatchError),
@@ -335,6 +373,27 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
             let (rules, validations) = host.doc().sheet_rules(sheet)?;
             ResponseBody::SheetRules { rules, validations }
         }
+        Request::SheetCharts { sheet } => ResponseBody::Charts {
+            charts: host.doc().sheet_charts(sheet)?,
+        },
+        Request::ChartData { sheet, id } => ResponseBody::ChartData {
+            data: host.doc().chart_data(sheet, id)?,
+        },
+        Request::PreviewChartData { sheet, chart } => ResponseBody::ChartData {
+            data: host.doc().preview_chart_data(sheet, &chart)?,
+        },
+        Request::RecommendedChart {
+            sheet,
+            r0,
+            c0,
+            r1,
+            c1,
+        } => ResponseBody::RecommendedChart {
+            chart: host
+                .doc()
+                .recommended_chart(sheet, r0, c0, r1, c1)?
+                .map(Box::new),
+        },
         Request::UsedRange { sheet } => ResponseBody::UsedRange {
             last: host.doc().used_range(sheet)?,
         },

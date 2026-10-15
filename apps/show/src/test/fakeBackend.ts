@@ -5,6 +5,9 @@ import type { OpenedFile } from "@rusuite/ui-shared";
 import type { Envelope } from "../../../../packages/ui-shared/src/generated/Envelope";
 import type { ShowBackend } from "../backend";
 import type { NodeId } from "../generated/NodeId";
+import type { PathCmd } from "../generated/PathCmd";
+import type { PathQuery } from "../generated/PathQuery";
+import type { ShapePaths } from "../generated/ShapePaths";
 import type { Presentation } from "../generated/Presentation";
 import type { Request } from "../generated/Request";
 import type { Shape } from "../generated/Shape";
@@ -14,6 +17,24 @@ import type { Slide } from "../generated/Slide";
 import { findShape } from "../model";
 import { applyAnimationPatch } from "../anim/effects";
 import { fixture } from "./fixture";
+
+/** Outlines like the core's for tests: a box (filled presets) or a line (connectors, `line`), rectangle sites. */
+export function fakePaths(q: PathQuery): ShapePaths {
+  const { w, h } = q;
+  const line = q.kind.kind === "connector" || q.kind.value === "line";
+  const commands: PathCmd[] = line
+    ? [{ kind: "moveTo", x: 0, y: 0 }, { kind: "lineTo", x: w, y: h }]
+    : [{ kind: "moveTo", x: 0, y: 0 }, { kind: "lineTo", x: w, y: 0 }, { kind: "lineTo", x: w, y: h }, { kind: "lineTo", x: 0, y: h }, { kind: "close" }];
+  return {
+    paths: [{ fill: !line, stroke: true, commands }],
+    sites: q.kind.kind === "connector" ? [] : [
+      { x: w / 2, y: 0, angleDeg: 270 },
+      { x: 0, y: h / 2, angleDeg: 180 },
+      { x: w / 2, y: h, angleDeg: 90 },
+      { x: w, y: h / 2, angleDeg: 0 },
+    ],
+  };
+}
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
@@ -249,6 +270,90 @@ export class FakeBackend implements ShowBackend {
         touched.add(s);
         return;
       }
+      case "insertTable": {
+        const s = this.slideOf(c.slide);
+        const t = c.transform ?? { x: 914400, y: 914400, w: 6096000, h: 370840 * c.rows };
+        const cell = () => ({ text: { props: { anchor: "top" as const, wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" as const }, paragraphs: [{ runs: [] }] } });
+        s.shapes.push({
+          id: this.real(c.newId, idMap), name: "Table", transform: t,
+          kind: {
+            kind: "table",
+            value: {
+              rows: Array.from({ length: c.rows }, () => ({ height: Math.round(t.h / c.rows) })),
+              cols: Array.from({ length: c.cols }, () => ({ width: Math.round(t.w / c.cols) })),
+              cells: Array.from({ length: c.rows }, () => Array.from({ length: c.cols }, cell)),
+              styleId: "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}",
+              look: { firstRow: true, bandRows: true },
+            },
+          },
+          fill: { kind: "none" }, line: { fill: { kind: "none" }, width: 12700, dash: "solid" },
+        });
+        touched.add(s);
+        return;
+      }
+      case "setTableCellText":
+      case "mergeTableCells":
+      case "splitTableCell":
+      case "setTableStyle":
+      case "setTableCellProps":
+      case "insertTableRow":
+      case "setTableGrid": {
+        const s = this.slideOf(c.shape);
+        const sh = findShape(s.shapes, c.shape)!.shape;
+        if (sh.kind.kind !== "table") throw new Error("not a table");
+        const t = sh.kind.value;
+        if (c.type === "setTableCellText") t.cells[c.row]![c.col]!.text = c.body;
+        else if (c.type === "mergeTableCells") {
+          for (let r = c.row; r < c.row + c.rowSpan; r++) for (let k = c.col; k < c.col + c.colSpan; k++) if (r !== c.row || k !== c.col) t.cells[r]![k]!.covered = true;
+          Object.assign(t.cells[c.row]![c.col]!, { rowSpan: c.rowSpan, colSpan: c.colSpan });
+        } else if (c.type === "splitTableCell") {
+          const a = t.cells[c.row]![c.col]!;
+          for (let r = c.row; r < c.row + (a.rowSpan ?? 1); r++) for (let k = c.col; k < c.col + (a.colSpan ?? 1); k++) t.cells[r]![k]!.covered = false;
+          delete a.rowSpan;
+          delete a.colSpan;
+        } else if (c.type === "setTableStyle") {
+          t.styleId = c.styleId ?? undefined;
+          t.look = c.look;
+        } else if (c.type === "setTableCellProps") {
+          for (let r = c.row; r < c.row + (c.rowSpan ?? 1); r++)
+            for (let k = c.col; k < c.col + (c.colSpan ?? 1); k++) {
+              const cell = t.cells[r]![k]!;
+              if (c.patch.fill !== undefined) cell.fill = c.patch.fill ?? undefined;
+            }
+        } else if (c.type === "insertTableRow") {
+          t.rows.splice(c.index, 0, { ...t.rows[0]! });
+          t.cells.splice(c.index, 0, clone(t.cells[0]!).map((x) => ({ text: { ...x.text, paragraphs: [{ runs: [] }] } })));
+        } else {
+          if (c.colWidths) t.cols = c.colWidths.map((width) => ({ width }));
+          if (c.rowHeights) t.rows = c.rowHeights.map((height) => ({ height }));
+        }
+        touched.add(s);
+        return;
+      }
+      case "setGeometry":
+        for (const id of c.shapes) {
+          const s = this.slideOf(id);
+          const sh = findShape(s.shapes, id)!.shape;
+          if (sh.kind.kind === "auto") {
+            if (c.geometry !== undefined) sh.kind.value.geometry = c.geometry;
+            if (c.adjust !== undefined) sh.kind.value.adjust = c.adjust;
+          }
+          touched.add(s);
+        }
+        return;
+      case "setConnector": {
+        const s = this.slideOf(c.shape);
+        const sh = findShape(s.shapes, c.shape)!.shape;
+        if (sh.kind.kind === "connector") {
+          const v = sh.kind.value as unknown as Record<string, unknown>;
+          for (const [k, x] of Object.entries(c.patch)) {
+            if (x === null) delete v[k];
+            else v[k] = x;
+          }
+        }
+        touched.add(s);
+        return;
+      }
       default:
         for (const id of "shapes" in c && Array.isArray(c.shapes) ? (c.shapes as unknown[]) : []) {
           if (typeof id === "number") touched.add(this.slideOf(id));
@@ -291,6 +396,8 @@ export class FakeBackend implements ShowBackend {
         this.dirty = false;
         if (request.name) this.name = request.name;
         return ok({ type: "documentState", dirty: false, revision: this.revision, name: this.name });
+      case "shapePaths":
+        return ok({ type: "shapePaths", shapes: request.queries.map((q) => fakePaths(q)) });
       case "getMedia": {
         const m = this.pres.media.find((x) => x.id === request.id);
         return m ? ok({ type: "media", contentType: m.contentType, bytesBase64: m.data }) : { err: { code: "unknown_media", message: "?" } };
