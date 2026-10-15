@@ -97,6 +97,9 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## Calc (Phase 6 leftovers)
 - Adjust references that point at cut-moved cells; Ctrl+D/Ctrl+R fill down/right; delete-sheet core command; month/weekday fill series; General integers too long should switch to `1.2E+12` instead of `####`; engine number formats lack `AM/PM` and `[h]` (TEXT and cell display).
 
+## Write (Phase 6 leftovers)
+- Split long tables/lists across pages and repeat header rows in print layout; rich-text headers/footers (first/odd/even); "Page X of Y" in the status bar; borders on selected cells + table style presets; incremental pagination for long documents (print layout disables the content-visibility fast path).
+
 ## Show (Phase 6 leftovers)
 - Presenter view (notes, next slide, timer); snap to equal spacing; Selection pane; Format Background pane (gradient/picture); formatted notes; paste-slide elsewhere as one undo step; Alt during drag can focus the ribbon.
 

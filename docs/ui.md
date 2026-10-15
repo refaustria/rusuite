@@ -4,6 +4,10 @@ All three apps use the same Office-style ribbon from `packages/ui-shared/src/rib
 document title on the left, **File** + the app's tabs, a right slot (Show: Present) and the collapse toggle, over the active
 tab's groups. Expanded it is ≤ 96 px tall (28 px strip + 64 px groups); collapsed it is the strip only.
 
+
+### Write additions (P6-4)
+Contextual **Table** tab (insert/delete rows and columns, shading, borders, header row, row height), contextual **Picture Format** tab (alt text, align, size, reset, delete), **Print layout** view with page gaps, greyed headers/footers (double-click to edit) and Draft view, non-modal find bar with highlighted matches, Paragraph dialog, format painter, highlight/font colour menus, View › Spelling.
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |
