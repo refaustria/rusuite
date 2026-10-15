@@ -2,10 +2,16 @@
 import type { Block } from "./Block";
 import type { CellProperties } from "./CellProperties";
 import type { NodeId } from "./NodeId";
+import type { VMerge } from "./VMerge";
 
 /**
  * A table cell. Holds at least one block, and its last block is a
  * paragraph ([`crate::Document::normalize`] restores this invariant).
+ *
+ * Merged cells follow docx: a horizontally merged cell spans
+ * `grid_span` grid columns; a vertically merged region is a
+ * [`VMerge::Restart`] cell followed, in the rows below at the same grid
+ * column and span, by [`VMerge::Continue`] cells (see [`Table`]).
  */
 export type TableCell = { 
 /**
@@ -16,6 +22,14 @@ id: NodeId,
  * Cell formatting.
  */
 props?: CellProperties, 
+/**
+ * Number of grid columns the cell spans (docx `w:gridSpan`, ≥ 1).
+ */
+gridSpan?: number, 
+/**
+ * Vertical merge state (docx `w:vMerge`).
+ */
+vMerge?: VMerge, 
 /**
  * Content.
  */

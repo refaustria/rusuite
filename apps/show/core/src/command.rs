@@ -13,9 +13,10 @@
 use core_model::media::MediaId;
 use core_model::RunProperties;
 use model_show::{
-    AlignMode, Alignment, Animation, AnimationKind, Axis, Bullet, Direction, Effect, Fill, Layout,
-    LayoutKind, Line, NodeId, PlaceholderKind, Preset, Shape, ShapeKind, Slide, SlideSize,
-    TextBody, TextSpacing, Transform, Transition, Trigger,
+    Adjust, AlignMode, Alignment, Anchor, Animation, AnimationKind, ArrowEnd, Axis, Bullet,
+    Connector, ConnectorKind, Direction, Effect, Fill, Insets, Layout, LayoutKind, Line, NodeId,
+    PlaceholderKind, Preset, Shape, ShapeKind, Slide, SlideSize, Table, TableLook, TextBody,
+    TextSpacing, Transform, Transition, Trigger,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
@@ -190,6 +191,151 @@ impl AnimationPatch {
                     a.direction = None;
                 }
             }
+        }
+    }
+}
+
+/// Cell properties to change for [`ShowCommand::SetTableCellProps`].
+/// Absent fields keep their value; `null` fill or border = as the table
+/// style draws it.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub struct TableCellPatch {
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<Fill>")]
+    pub fill: Option<Option<Fill>>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<Line>")]
+    pub left: Option<Option<Line>>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<Line>")]
+    pub right: Option<Option<Line>>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<Line>")]
+    pub top: Option<Option<Line>>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<Line>")]
+    pub bottom: Option<Option<Line>>,
+    /// Vertical alignment of the text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub anchor: Option<Anchor>,
+    /// Cell margins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub margins: Option<Insets>,
+}
+
+impl TableCellPatch {
+    /// Applies the patch to `cell`.
+    pub fn apply_to(&self, cell: &mut model_show::TableCell) {
+        if let Some(v) = self.fill {
+            cell.fill = v;
+        }
+        let b = &mut cell.borders;
+        for (patch, slot) in [
+            (self.left, &mut b.left),
+            (self.right, &mut b.right),
+            (self.top, &mut b.top),
+            (self.bottom, &mut b.bottom),
+        ] {
+            if let Some(v) = patch {
+                *slot = v;
+            }
+        }
+        if let Some(a) = self.anchor {
+            cell.text.props.anchor = a;
+        }
+        if let Some(m) = self.margins {
+            cell.text.props.insets = m;
+        }
+    }
+}
+
+/// Connector properties to change for [`ShowCommand::SetConnector`].
+/// Absent fields keep their value; `start`/`end` `null` detaches the end.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub struct ConnectorPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kind: Option<ConnectorKind>,
+    /// Turns of an elbow or curved connector (1–4); rerouting may change
+    /// it again when the connector is glued at both ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub bends: Option<u8>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<model_show::Attach>")]
+    pub start: Option<Option<model_show::Attach>>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<model_show::Attach>")]
+    pub end: Option<Option<model_show::Attach>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub head: Option<ArrowEnd>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tail: Option<ArrowEnd>,
+    /// Adjust values (`adj1`: where an elbow's middle segment runs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<std::collections::HashMap<String, f64>>")]
+    pub adjust: Option<Adjust>,
+}
+
+impl ConnectorPatch {
+    /// Applies the patch to `c`.
+    pub fn apply_to(&self, c: &mut Connector) {
+        if let Some(k) = self.kind {
+            c.kind = k;
+        }
+        if let Some(b) = self.bends {
+            c.bends = b.clamp(1, 4);
+        }
+        if let Some(a) = self.start {
+            c.start = a;
+        }
+        if let Some(a) = self.end {
+            c.end = a;
+        }
+        if let Some(h) = self.head {
+            c.head = h;
+        }
+        if let Some(t) = self.tail {
+            c.tail = t;
+        }
+        if let Some(a) = &self.adjust {
+            c.adjust.clone_from(a);
         }
     }
 }
@@ -387,6 +533,97 @@ pub enum ShowCommand {
     RemoveAnimation { id: NodeId },
     /// Moves an animation to position `index` of its slide's play order.
     ReorderAnimation { id: NodeId, index: u32 },
+    /// Changes the geometry of auto shapes: the preset (absent =
+    /// unchanged) and/or its adjust values (absent = unchanged; `{}` =
+    /// the preset's defaults). Changing the preset without `adjust`
+    /// resets the adjust values.
+    SetGeometry {
+        shapes: Vec<NodeId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        geometry: Option<Preset>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, as = "Option<std::collections::HashMap<String, f64>>")]
+        adjust: Option<Adjust>,
+    },
+    /// Changes a connector: kind, attachments (to shapes on its slide;
+    /// attached ends move onto their sites), arrowheads, adjust values.
+    SetConnector {
+        shape: NodeId,
+        patch: ConnectorPatch,
+    },
+    /// Adds a `rows` × `cols` table (PowerPoint's default style, header
+    /// row and banded rows) on top of the slide. `transform` absent = two
+    /// thirds of the slide wide, 0.4" per row, centered.
+    InsertTable {
+        slide: NodeId,
+        rows: u32,
+        cols: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        transform: Option<Transform>,
+        #[ts(type = "number")]
+        new_id: i64,
+    },
+    /// Replaces the text of a table cell (covered cells cannot hold text).
+    SetTableCellText {
+        shape: NodeId,
+        row: u32,
+        col: u32,
+        body: TextBody,
+    },
+    /// Inserts an empty row at `index` (`0..=rows`) formatted like the
+    /// row above it; the table grows by the row's height.
+    InsertTableRow { shape: NodeId, index: u32 },
+    /// Inserts an empty column at `index` (`0..=cols`) as wide as the one
+    /// left of it; the table grows by its width.
+    InsertTableCol { shape: NodeId, index: u32 },
+    /// Deletes row `index` (not the last one); the table shrinks.
+    DeleteTableRow { shape: NodeId, index: u32 },
+    /// Deletes column `index` (not the last one); the table shrinks.
+    DeleteTableCol { shape: NodeId, index: u32 },
+    /// Merges the `rowSpan` × `colSpan` cells at `row`, `col` (texts are
+    /// joined into the top-left cell).
+    MergeTableCells {
+        shape: NodeId,
+        row: u32,
+        col: u32,
+        row_span: u32,
+        col_span: u32,
+    },
+    /// Splits the merged cell anchored at `row`, `col` into single cells.
+    SplitTableCell { shape: NodeId, row: u32, col: u32 },
+    /// Changes fill, borders, alignment or margins of the cells in the
+    /// `rowSpan` × `colSpan` range at `row`, `col` (default 1 × 1).
+    SetTableCellProps {
+        shape: NodeId,
+        row: u32,
+        col: u32,
+        #[serde(default = "one", skip_serializing_if = "is_one")]
+        #[ts(optional, as = "Option<u32>")]
+        row_span: u32,
+        #[serde(default = "one", skip_serializing_if = "is_one")]
+        #[ts(optional, as = "Option<u32>")]
+        col_span: u32,
+        patch: TableCellPatch,
+    },
+    /// Sets the table style (`null` = no style) and its options.
+    SetTableStyle {
+        shape: NodeId,
+        #[serde(default)]
+        style_id: Option<String>,
+        look: TableLook,
+    },
+    /// Sets column widths and/or row heights (absent = unchanged; lengths
+    /// must match the grid); the table's box follows their sums.
+    SetTableGrid {
+        shape: NodeId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, as = "Option<Vec<f64>>")]
+        col_widths: Option<Vec<model_show::Emu>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, as = "Option<Vec<f64>>")]
+        row_heights: Option<Vec<model_show::Emu>>,
+    },
     /// Applies the commands in order as one undo step; all or nothing.
     Compound { commands: Vec<ShowCommand> },
     /// *Internal.* Inserts slides at the given indices (ascending).
@@ -412,9 +649,53 @@ pub enum ShowCommand {
     },
 }
 
+fn one() -> u32 {
+    1
+}
+
+fn two() -> u8 {
+    2
+}
+
+fn is_two(v: &u8) -> bool {
+    *v == 2
+}
+
+impl Default for NewConnector {
+    fn default() -> Self {
+        NewConnector::from(&Connector::default())
+    }
+}
+
+impl From<&Connector> for NewConnector {
+    /// The same connector with its real attachment ids.
+    fn from(c: &Connector) -> Self {
+        let attach = |a: &Option<model_show::Attach>| {
+            a.map(|a| NewAttach {
+                shape: i64::try_from(a.shape.0).unwrap_or(i64::MAX),
+                site: a.site,
+            })
+        };
+        NewConnector {
+            kind: c.kind,
+            bends: c.bends,
+            start: attach(&c.start),
+            end: attach(&c.end),
+            head: c.head,
+            tail: c.tail,
+            adjust: c.adjust.clone(),
+        }
+    }
+}
+
+fn is_one(v: &u32) -> bool {
+    *v == 1
+}
+
 /// A shape sent by the UI: the JSON shape of [`Shape`], but ids (also of
-/// group children) may be temporary negative numbers. TypeScript sees it
-/// as `Shape`.
+/// group children and of the shapes a connector is attached to) may be
+/// temporary negative numbers of shapes created earlier in the same
+/// command. TypeScript sees it as `Shape`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewShape {
@@ -440,13 +721,49 @@ pub enum NewShapeKind {
     #[serde(rename_all = "camelCase")]
     Auto {
         geometry: Preset,
+        #[serde(default, skip_serializing_if = "Adjust::is_empty")]
+        adjust: Adjust,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<TextBody>,
     },
     #[serde(rename_all = "camelCase")]
-    Picture { media: MediaId },
+    Picture {
+        media: MediaId,
+    },
     #[serde(rename_all = "camelCase")]
-    Group { children: Vec<NewShape> },
+    Group {
+        children: Vec<NewShape>,
+    },
+    Connector(NewConnector),
+    Table(Table),
+}
+
+/// An attachment whose shape id may be temporary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewAttach {
+    pub shape: i64,
+    pub site: u32,
+}
+
+/// [`Connector`] with [`NewAttach`]es.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewConnector {
+    #[serde(default)]
+    pub kind: ConnectorKind,
+    #[serde(default = "two", skip_serializing_if = "is_two")]
+    pub bends: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<NewAttach>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<NewAttach>,
+    #[serde(default, skip_serializing_if = "ArrowEnd::is_none")]
+    pub head: ArrowEnd,
+    #[serde(default, skip_serializing_if = "ArrowEnd::is_none")]
+    pub tail: ArrowEnd,
+    #[serde(default, skip_serializing_if = "Adjust::is_empty")]
+    pub adjust: Adjust,
 }
 
 impl From<&Shape> for NewShape {
@@ -457,14 +774,21 @@ impl From<&Shape> for NewShape {
             name: s.name.clone(),
             transform: s.transform,
             kind: match &s.kind {
-                ShapeKind::Auto { geometry, text } => NewShapeKind::Auto {
-                    geometry: *geometry,
+                ShapeKind::Auto {
+                    geometry,
+                    adjust,
+                    text,
+                } => NewShapeKind::Auto {
+                    geometry: geometry.clone(),
+                    adjust: adjust.clone(),
                     text: text.clone(),
                 },
                 ShapeKind::Picture { media } => NewShapeKind::Picture { media: *media },
                 ShapeKind::Group { children } => NewShapeKind::Group {
                     children: children.iter().map(NewShape::from).collect(),
                 },
+                ShapeKind::Connector(c) => NewShapeKind::Connector(NewConnector::from(c)),
+                ShapeKind::Table(t) => NewShapeKind::Table(t.clone()),
             },
             fill: s.fill,
             line: s.line,

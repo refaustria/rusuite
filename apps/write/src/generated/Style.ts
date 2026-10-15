@@ -2,6 +2,7 @@
 import type { RunProperties } from "../../../../packages/ui-shared/src/generated/RunProperties";
 import type { ParagraphProperties } from "./ParagraphProperties";
 import type { StyleKind } from "./StyleKind";
+import type { TableStyle } from "./TableStyle";
 
 /**
  * A named style (docx `w:style`).
@@ -38,4 +39,8 @@ run?: RunProperties,
 /**
  * Whether this is the default style of its kind.
  */
-isDefault?: boolean, };
+isDefault?: boolean, 
+/**
+ * Table formatting of a table style.
+ */
+table?: TableStyle, };

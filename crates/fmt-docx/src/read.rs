@@ -8,17 +8,25 @@ use core_model::{RunProperties, VerticalAlign};
 use fmt_ooxml::theme::parse_theme;
 use fmt_ooxml::{Package, PartName, TargetMode};
 use model_text::{
+    Anchor, HAlign, HPos, HRelative, Insets, Placement, VAlignPos, VPos, VRelative, WrapKind,
+    WrapSide,
+};
+use model_text::{
     Block, BreakKind, CellProperties, Document, Field, FieldKind, HeightRule, Inline, InlineImage,
     MediaId, Note, NoteKind, NoteRef, PageSetup, Paragraph, RowHeight, RowProperties, Run, Section,
-    SectionId, StyleSheet, Table, TableCell, TableProperties, TableRow, Toc, VAlign,
+    SectionId, StyleSheet, Table, TableCell, TableLayout, TableProperties, TableRow, TableWidth,
+    Toc, VAlign, VMerge,
 };
 
 use crate::numbering::read_numbering;
-use crate::props::{read_borders, read_cell_margins, read_ppr, read_rpr, read_shading, read_width};
+use crate::props::{
+    read_borders, read_cell_margins, read_ppr, read_rpr, read_shading, read_table_jc,
+    read_tbl_look, read_width,
+};
 use crate::sections::{read_sect_pr, HeaderRef};
 use crate::styles::read_styles;
 use crate::toc;
-use crate::xml::{parse, parse_twips, parse_u32, toggle, xml_error, El, Node};
+use crate::xml::{parse, parse_bool, parse_twips, parse_u32, toggle, xml_error, El, Node};
 use crate::{DocxContext, Error, Result, Warnings};
 
 /// Everything [`read_with_context`] returns.
@@ -824,13 +832,9 @@ impl BodyReader<'_> {
     }
 
     fn read_drawing(&mut self, d: &El) -> Option<InlineImage> {
-        let shape = match (d.child("inline"), d.child("anchor")) {
-            (Some(i), _) => i,
-            (None, Some(a)) => {
-                self.w
-                    .add("floating image read as inline image at its anchor");
-                a
-            }
+        let (shape, floating) = match (d.child("inline"), d.child("anchor")) {
+            (Some(i), _) => (i, false),
+            (None, Some(a)) => (a, true),
             _ => return None,
         };
         let data = shape.find("graphicData");
@@ -891,6 +895,7 @@ impl BodyReader<'_> {
             height: emu("cy"),
             alt: attr("descr"),
             name: attr("name"),
+            anchor: floating.then(|| read_anchor(shape, self.w)),
         })
     }
 
@@ -911,6 +916,7 @@ impl BodyReader<'_> {
                 .collect();
         }
         self.collect_rows(t, &mut table.rows);
+        drop_grid_widths(&mut table);
         table
     }
 
@@ -933,18 +939,7 @@ impl BodyReader<'_> {
     }
 
     fn read_tbl_pr(&mut self, pr: &El) -> TableProperties {
-        let mut p = TableProperties::default();
-        for el in pr.elements() {
-            match el.name.as_str() {
-                "tblW" => p.width = read_width(el),
-                "tblBorders" => p.borders = read_borders(el, "table", self.w),
-                "tblCellMar" => p.cell_margins = read_cell_margins(el),
-                "tblLook" | "tblStyleRowBandSize" | "tblStyleColBandSize" | "tblPrChange" => {}
-                "jc" if matches!(el.val(), Some("left" | "start")) => {}
-                _ => self.w.add(format!("table property {} dropped", el.qname())),
-            }
-        }
-        p
+        read_tbl_pr(pr, "table", self.w)
     }
 
     fn read_row(&mut self, tr: &El) -> TableRow {
@@ -971,6 +966,7 @@ impl BodyReader<'_> {
                         };
                     }
                     "tblHeader" => row.props.header = toggle(el),
+                    "cantSplit" => row.props.cant_split = toggle(el),
                     "cnfStyle" | "trPrChange" => {}
                     _ => self
                         .w
@@ -1002,41 +998,243 @@ impl BodyReader<'_> {
 
     fn read_cell(&mut self, tc: &El) -> TableCell {
         let id = self.doc.alloc_id();
-        let mut props = CellProperties::default();
+        let mut cell = TableCell::new(id, CellProperties::default(), Vec::new());
         if let Some(pr) = tc.child("tcPr") {
+            cell.props = read_tc_pr(pr, "table cell", self.w);
             for el in pr.elements() {
                 match el.name.as_str() {
-                    "tcW" => props.width = read_width(el),
-                    "shd" => props.shading = read_shading(el),
-                    "tcBorders" => props.borders = read_borders(el, "table cell", self.w),
-                    "vAlign" => {
-                        props.vertical_align = match el.val() {
-                            Some("top") => Some(VAlign::Top),
-                            Some("center") | Some("both") => Some(VAlign::Center),
-                            Some("bottom") => Some(VAlign::Bottom),
-                            _ => None,
-                        }
-                    }
                     "gridSpan" => {
-                        if el.val().and_then(parse_u32).is_some_and(|n| n > 1) {
-                            self.w.add("merged cells (gridSpan) read as separate cells");
-                        }
+                        cell.grid_span = el
+                            .val()
+                            .and_then(parse_u32)
+                            .map_or(1, |n| n.clamp(1, 63) as u16);
                     }
-                    "vMerge" | "hMerge" => {
-                        self.w.add("merged cells (vMerge) read as separate cells")
+                    "vMerge" => {
+                        cell.v_merge = Some(match el.val() {
+                            Some("restart") => VMerge::Restart,
+                            _ => VMerge::Continue,
+                        });
                     }
-                    "cnfStyle" | "hideMark" | "tcPrChange" => {}
-                    _ => self
+                    "hMerge" => self
                         .w
-                        .add(format!("table cell property {} dropped", el.qname())),
+                        .add("legacy horizontal merges (hMerge) read as separate cells"),
+                    _ => {}
                 }
             }
         }
         self.depth += 1;
-        let blocks = self.read_blocks(tc);
+        cell.blocks = self.read_blocks(tc);
         self.depth -= 1;
-        TableCell { id, props, blocks }
+        cell
     }
+}
+
+/// Clears cell widths that just repeat the grid (the writer derives
+/// them from the grid, so a changed grid is not contradicted by stale
+/// cell widths).
+fn drop_grid_widths(t: &mut Table) {
+    let grid = &t.props.col_widths;
+    if grid.is_empty() {
+        return;
+    }
+    for row in &mut t.rows {
+        let mut col = 0;
+        for cell in &mut row.cells {
+            let span = cell.span();
+            if let (Some(TableWidth::Twips(w)), Some(ws)) =
+                (cell.props.width, grid.get(col..col + span))
+            {
+                if ws.iter().map(|g| g.0).sum::<i32>() == w.0 {
+                    cell.props.width = None;
+                }
+            }
+            col += span;
+        }
+    }
+}
+
+/// `w:tblPr` (of a table or a table style) → table properties.
+pub(crate) fn read_tbl_pr(pr: &El, ctx: &str, w: &mut Warnings) -> TableProperties {
+    let mut p = TableProperties::default();
+    for el in pr.elements() {
+        match el.name.as_str() {
+            "tblW" => p.width = read_width(el),
+            "tblBorders" => p.borders = read_borders(el, ctx, w),
+            "tblCellMar" => p.cell_margins = read_cell_margins(el),
+            "tblStyle" => p.style = el.val().map(str::to_owned),
+            "tblLook" => p.look = Some(read_tbl_look(el)),
+            "jc" => {
+                p.alignment = el.val().and_then(read_table_jc);
+                if p.alignment.is_none() {
+                    w.add(format!("{ctx}: table alignment dropped"));
+                }
+            }
+            "tblInd" => {
+                p.indent = match read_width(el) {
+                    Some(TableWidth::Twips(t)) => Some(t),
+                    _ => None,
+                }
+            }
+            "tblLayout" => {
+                p.layout = Some(match el.attr("type") {
+                    Some("fixed") => TableLayout::Fixed,
+                    _ => TableLayout::Autofit,
+                })
+            }
+            "tblStyleRowBandSize" | "tblStyleColBandSize" | "tblPrChange" => {}
+            _ => w.add(format!("{ctx}: table property {} dropped", el.qname())),
+        }
+    }
+    p
+}
+
+/// `w:tcPr` (of a cell or a table style) → cell properties (merge marks
+/// are read by the caller).
+pub(crate) fn read_tc_pr(pr: &El, ctx: &str, w: &mut Warnings) -> CellProperties {
+    let mut props = CellProperties::default();
+    for el in pr.elements() {
+        match el.name.as_str() {
+            "tcW" => props.width = read_width(el),
+            "shd" => props.shading = read_shading(el),
+            "tcBorders" => props.borders = read_borders(el, ctx, w),
+            "tcMar" => props.margins = read_cell_margins(el),
+            "vAlign" => {
+                props.vertical_align = match el.val() {
+                    Some("top") => Some(VAlign::Top),
+                    Some("center") | Some("both") => Some(VAlign::Center),
+                    Some("bottom") => Some(VAlign::Bottom),
+                    _ => None,
+                }
+            }
+            "gridSpan" | "vMerge" | "hMerge" | "cnfStyle" | "hideMark" | "tcPrChange" => {}
+            _ => w.add(format!("{ctx}: table cell property {} dropped", el.qname())),
+        }
+    }
+    props
+}
+
+/// `wp:anchor` → floating placement.
+fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
+    let emu_attr = |name: &str| {
+        a.attr(name)
+            .and_then(|v| v.trim().parse::<i64>().ok())
+            .map_or(Emu(0), |v| Emu(v.max(0)))
+    };
+    let flag = |name: &str| a.attr(name).and_then(parse_bool).unwrap_or(false);
+    let offset = |el: &El| {
+        el.child("posOffset")
+            .and_then(|o| o.text().trim().parse::<i64>().ok())
+            .map(Emu)
+    };
+    let mut anchor = Anchor::new(WrapKind::InFront);
+    anchor.distance = Insets {
+        top: emu_attr("distT"),
+        bottom: emu_attr("distB"),
+        left: emu_attr("distL"),
+        right: emu_attr("distR"),
+    };
+    anchor.allow_overlap = flag("allowOverlap");
+    if flag("simplePos") {
+        w.add("floating image: simple positioning read as offset from the page");
+        let sp = a.child("simplePos");
+        let at = |n: &str| {
+            sp.and_then(|e| e.attr(n))
+                .and_then(|v| v.trim().parse::<i64>().ok())
+                .map_or(Emu(0), Emu)
+        };
+        anchor.h = HPos {
+            relative_to: HRelative::Page,
+            place: Placement::Offset(at("x")),
+        };
+        anchor.v = VPos {
+            relative_to: VRelative::Page,
+            place: Placement::Offset(at("y")),
+        };
+    } else {
+        if let Some(h) = a.child("positionH") {
+            let rel = match h.attr("relativeFrom").unwrap_or("column") {
+                "margin" => HRelative::Margin,
+                "page" | "leftMargin" => HRelative::Page,
+                "column" => HRelative::Column,
+                "character" => HRelative::Character,
+                other => {
+                    w.add(format!(
+                        "floating image: horizontal position relative to {other} read as relative to the margin"
+                    ));
+                    HRelative::Margin
+                }
+            };
+            let place = match h.child("align").map(El::text) {
+                Some(al) => Placement::Align(match al.trim() {
+                    "center" => HAlign::Center,
+                    "right" | "outside" => HAlign::Right,
+                    _ => HAlign::Left,
+                }),
+                None => Placement::Offset(offset(h).unwrap_or(Emu(0))),
+            };
+            anchor.h = HPos {
+                relative_to: rel,
+                place,
+            };
+        }
+        if let Some(v) = a.child("positionV") {
+            let rel = match v.attr("relativeFrom").unwrap_or("paragraph") {
+                "margin" => VRelative::Margin,
+                "page" | "topMargin" => VRelative::Page,
+                "paragraph" => VRelative::Paragraph,
+                "line" => VRelative::Line,
+                other => {
+                    w.add(format!(
+                        "floating image: vertical position relative to {other} read as relative to the margin"
+                    ));
+                    VRelative::Margin
+                }
+            };
+            let place = match v.child("align").map(El::text) {
+                Some(al) => Placement::Align(match al.trim() {
+                    "center" => VAlignPos::Center,
+                    "bottom" | "outside" => VAlignPos::Bottom,
+                    _ => VAlignPos::Top,
+                }),
+                None => Placement::Offset(offset(v).unwrap_or(Emu(0))),
+            };
+            anchor.v = VPos {
+                relative_to: rel,
+                place,
+            };
+        }
+    }
+    let side = |el: &El| match el.attr("wrapText").unwrap_or("bothSides") {
+        "left" => WrapSide::Left,
+        "right" => WrapSide::Right,
+        "largest" => WrapSide::Largest,
+        _ => WrapSide::Both,
+    };
+    let behind = flag("behindDoc");
+    anchor.wrap = if behind {
+        WrapKind::Behind
+    } else {
+        WrapKind::InFront
+    };
+    for el in a.elements() {
+        match el.name.as_str() {
+            "wrapSquare" => {
+                anchor.wrap = WrapKind::Square;
+                anchor.wrap_side = side(el);
+            }
+            "wrapTight" | "wrapThrough" => {
+                anchor.wrap = WrapKind::Tight;
+                anchor.wrap_side = side(el);
+            }
+            "wrapTopAndBottom" => anchor.wrap = WrapKind::TopAndBottom,
+            "wrapNone" => {}
+            _ => {}
+        }
+    }
+    if behind && anchor.wrap != WrapKind::Behind {
+        w.add("floating image: behind-text flag on a wrapping image dropped");
+    }
+    anchor
 }
 
 /// Warning for fields that are not modelled.

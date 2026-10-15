@@ -340,5 +340,42 @@
    "animation:exit:flyIn",
    "animation:exit:appear"
   ]
+ },
+ {
+  "file": "provisional-28-flowchart.pptx",
+  "topic": "Flowchart shapes joined by glued connectors with arrowheads; a few other presets",
+  "features": [
+   "slides:2",
+   "layout:blank",
+   "size:16x9",
+   "fill:solid",
+   "text:anchor:middle",
+   "shape:flowChartTerminator:count=2",
+   "text:align:center",
+   "shape:flowChartInputOutput:count=1",
+   "shape:flowChartDecision:count=1",
+   "shape:flowChartProcess:count=1",
+   "shape:flowChartDocument:count=1",
+   "connector:straight",
+   "connector:attached",
+   "line:arrow",
+   "connector:elbow",
+   "connector:curved",
+   "shape:flowChartConnector:count=1",
+   "shape:star5:count=1",
+   "shape:hexagon:count=1",
+   "shape:wedgeRectCallout:count=1"
+  ]
+ },
+ {
+  "file": "provisional-29-table.pptx",
+  "topic": "Table with a header row, banded rows, merged cells and a filled cell",
+  "features": [
+   "slides:2",
+   "layout:blank",
+   "size:16x9",
+   "table",
+   "table:merged"
+  ]
  }
 ]

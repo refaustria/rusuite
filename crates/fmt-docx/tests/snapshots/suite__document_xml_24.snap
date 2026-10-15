@@ -8,6 +8,9 @@ expression: pretty_document_xml(&bytes)
   <w:tbl>
    <w:tblPr>
     <w:tblW w:w="9071" w:type="dxa"/>
+    <w:jc w:val="left"/>
+    <w:tblInd w:w="-5" w:type="dxa"/>
+    <w:tblLayout w:type="fixed"/>
     <w:tblCellMar>
      <w:top w:w="57" w:type="dxa"/>
      <w:left w:w="57" w:type="dxa"/>

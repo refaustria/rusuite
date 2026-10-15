@@ -9,7 +9,8 @@ use core_model::{
 };
 use model_text::{
     Alignment, BorderSide, BorderStyle, CellMargins, Indent, LineSpacing, NumberingRef,
-    ParagraphProperties, Spacing, TableBorders, TableWidth,
+    ParagraphBorders, ParagraphProperties, Spacing, TabKind, TabLeader, TabStop, TableAlignment,
+    TableBorders, TableLook, TableWidth,
 };
 
 use crate::xml::{parse_twips, parse_u32, toggle, El, WriteVal, XmlOut};
@@ -620,7 +621,9 @@ pub(crate) fn read_ppr(ppr: &El, ctx: &str, w: &mut Warnings) -> ParagraphProper
                     w.add(format!("{ctx}: right-to-left paragraph direction dropped"));
                 }
             }
-            "tabs" => w.add(format!("{ctx}: custom tab stops dropped")),
+            "tabs" => p.tabs = read_tabs(el, ctx, w),
+            "pBdr" => p.borders = read_pbdr(el, ctx, w),
+            "shd" => p.shading = read_shading(el),
             // Section breaks are read by the body reader.
             "sectPr" => {}
             name if SILENT_PPR.contains(&name) => {}
@@ -679,6 +682,13 @@ pub(crate) fn write_ppr_sect(
         x.val("w:numId", &n.num_id.to_string());
         x.end("w:numPr");
     }
+    if let Some(b) = &p.borders {
+        write_pbdr(x, b, scheme);
+    }
+    if let Some(c) = &p.shading {
+        write_shading(x, c, scheme);
+    }
+    write_tabs(x, &p.tabs);
     if let Some(s) = &p.spacing {
         write_spacing(x, s);
     }
@@ -754,6 +764,113 @@ pub(crate) fn write_indent(x: &mut XmlOut, i: &Indent) {
     x.empty("w:ind", &attrs_ref(&attrs));
 }
 
+/// `w:pBdr` → paragraph borders.
+fn read_pbdr(el: &El, ctx: &str, w: &mut Warnings) -> Option<ParagraphBorders> {
+    let mut b = ParagraphBorders::default();
+    for side in el.elements() {
+        let slot = match side.name.as_str() {
+            "top" => &mut b.top,
+            "left" | "start" => &mut b.left,
+            "bottom" => &mut b.bottom,
+            "right" | "end" => &mut b.right,
+            "between" => &mut b.between,
+            _ => {
+                w.add(format!("{ctx}: paragraph border {} dropped", side.qname()));
+                continue;
+            }
+        };
+        *slot = Some(read_border_side(side, ctx, w));
+    }
+    (!b.is_empty()).then_some(b)
+}
+
+fn write_pbdr(x: &mut XmlOut, b: &ParagraphBorders, scheme: &ColorScheme) {
+    let sides = [
+        ("w:top", b.top),
+        ("w:left", b.left),
+        ("w:bottom", b.bottom),
+        ("w:right", b.right),
+        ("w:between", b.between),
+    ];
+    write_sides(x, "w:pBdr", &sides, scheme);
+}
+
+/// `w:tabs` → tab stops (sorted by position).
+fn read_tabs(el: &El, ctx: &str, w: &mut Warnings) -> Vec<TabStop> {
+    let mut out: Vec<TabStop> = Vec::new();
+    for t in el.elements().filter(|t| t.name == "tab") {
+        let Some(pos) = t.attr("pos").and_then(parse_twips) else {
+            continue;
+        };
+        let kind = match t.val().unwrap_or("left") {
+            "left" | "start" => TabKind::Left,
+            "center" => TabKind::Center,
+            "right" | "end" => TabKind::Right,
+            "decimal" => TabKind::Decimal,
+            "bar" => TabKind::Bar,
+            "clear" => TabKind::Clear,
+            other => {
+                w.add(format!("{ctx}: tab stop kind {other:?} read as left"));
+                TabKind::Left
+            }
+        };
+        let leader = match t.attr("leader").unwrap_or("none") {
+            "dot" => TabLeader::Dot,
+            "hyphen" => TabLeader::Hyphen,
+            "underscore" => TabLeader::Underscore,
+            "heavy" => {
+                w.add(format!("{ctx}: heavy tab leader read as underscore"));
+                TabLeader::Underscore
+            }
+            "middleDot" => {
+                w.add(format!("{ctx}: middle-dot tab leader read as dots"));
+                TabLeader::Dot
+            }
+            _ => TabLeader::None,
+        };
+        model_text::props::merge_tabs(
+            &mut out,
+            &[TabStop {
+                pos: Twips(pos),
+                kind,
+                leader,
+            }],
+        );
+    }
+    out
+}
+
+fn write_tabs(x: &mut XmlOut, tabs: &[TabStop]) {
+    if tabs.is_empty() {
+        return;
+    }
+    x.start("w:tabs", &[]);
+    for t in tabs {
+        let kind = match t.kind {
+            TabKind::Left => "left",
+            TabKind::Center => "center",
+            TabKind::Right => "right",
+            TabKind::Decimal => "decimal",
+            TabKind::Bar => "bar",
+            TabKind::Clear => "clear",
+        };
+        let pos = t.pos.0.to_string();
+        let mut attrs = vec![("w:val", kind)];
+        let leader = match t.leader {
+            TabLeader::None => None,
+            TabLeader::Dot => Some("dot"),
+            TabLeader::Hyphen => Some("hyphen"),
+            TabLeader::Underscore => Some("underscore"),
+        };
+        if let Some(l) = leader {
+            attrs.push(("w:leader", l));
+        }
+        attrs.push(("w:pos", &pos));
+        x.empty("w:tab", &attrs);
+    }
+    x.end("w:tabs");
+}
+
 /// `w:ind` of a numbering level or style (no warnings context needed).
 pub(crate) fn read_indent_quiet(el: &El) -> Option<Indent> {
     read_indent(el, "", &mut Warnings::default())
@@ -822,6 +939,11 @@ fn read_border_side(el: &El, ctx: &str, w: &mut Warnings) -> BorderSide {
         style: border_style(el.val().unwrap_or("single"), ctx, w),
         width: BorderSide::width_from_eighths(el.attr("sz").and_then(parse_u32).unwrap_or(0)),
         color: read_color(el, &BORDER_COLOR).unwrap_or(Color::Auto),
+        space: el
+            .attr("space")
+            .and_then(parse_u32)
+            .filter(|&v| v > 0)
+            .map(|v| v.min(31) as u8),
     }
 }
 
@@ -855,6 +977,16 @@ pub(crate) fn write_borders(x: &mut XmlOut, name: &str, b: &TableBorders, scheme
         ("w:insideH", b.inside_h),
         ("w:insideV", b.inside_v),
     ];
+    write_sides(x, name, &sides, scheme);
+}
+
+/// Writes `<name>` with one element per set side (nothing if none is set).
+fn write_sides(
+    x: &mut XmlOut,
+    name: &str,
+    sides: &[(&str, Option<BorderSide>)],
+    scheme: &ColorScheme,
+) {
     if sides.iter().all(|(_, s)| s.is_none()) {
         return;
     }
@@ -864,7 +996,7 @@ pub(crate) fn write_borders(x: &mut XmlOut, name: &str, b: &TableBorders, scheme
         let mut attrs = vec![
             ("w:val", border_style_name(s.style).to_owned()),
             ("w:sz", s.width_eighths().to_string()),
-            ("w:space", "0".to_owned()),
+            ("w:space", s.space.unwrap_or(0).to_string()),
         ];
         attrs.extend(prefixed(color_attrs(&s.color, scheme, &BORDER_COLOR)));
         x.empty(n, &attrs_ref(&attrs));
@@ -892,6 +1024,81 @@ pub(crate) fn read_cell_margins(el: &El) -> Option<CellMargins> {
 }
 
 pub(crate) fn write_cell_margins(x: &mut XmlOut, m: &CellMargins) {
+    write_margins_as(x, "w:tblCellMar", m);
+}
+
+/// `w:jc` of a table → alignment.
+pub(crate) fn read_table_jc(v: &str) -> Option<TableAlignment> {
+    match v {
+        "left" | "start" => Some(TableAlignment::Left),
+        "center" => Some(TableAlignment::Center),
+        "right" | "end" => Some(TableAlignment::Right),
+        _ => None,
+    }
+}
+
+pub(crate) fn table_jc_name(a: TableAlignment) -> &'static str {
+    match a {
+        TableAlignment::Left => "left",
+        TableAlignment::Center => "center",
+        TableAlignment::Right => "right",
+    }
+}
+
+/// `w:tblLook`: the explicit attributes, else the `w:val` bit mask.
+pub(crate) fn read_tbl_look(el: &El) -> TableLook {
+    let mask = el
+        .val()
+        .and_then(|v| u32::from_str_radix(v.trim(), 16).ok())
+        .unwrap_or(0);
+    let flag = |name: &str, bit: u32| {
+        el.attr(name)
+            .and_then(crate::xml::parse_bool)
+            .unwrap_or(mask & bit != 0)
+    };
+    TableLook {
+        first_row: flag("firstRow", 0x0020),
+        last_row: flag("lastRow", 0x0040),
+        first_col: flag("firstColumn", 0x0080),
+        last_col: flag("lastColumn", 0x0100),
+        banded_rows: !flag("noHBand", 0x0200),
+        banded_cols: !flag("noVBand", 0x0400),
+    }
+}
+
+/// Writes `w:tblLook` as Word does (mask plus attributes).
+pub(crate) fn write_tbl_look(x: &mut XmlOut, l: &TableLook) {
+    let mut mask = 0u32;
+    for (on, bit) in [
+        (l.first_row, 0x0020),
+        (l.last_row, 0x0040),
+        (l.first_col, 0x0080),
+        (l.last_col, 0x0100),
+        (!l.banded_rows, 0x0200),
+        (!l.banded_cols, 0x0400),
+    ] {
+        if on {
+            mask |= bit;
+        }
+    }
+    let b = |v: bool| if v { "1" } else { "0" };
+    let val = format!("{mask:04X}");
+    x.empty(
+        "w:tblLook",
+        &[
+            ("w:val", val.as_str()),
+            ("w:firstRow", b(l.first_row)),
+            ("w:lastRow", b(l.last_row)),
+            ("w:firstColumn", b(l.first_col)),
+            ("w:lastColumn", b(l.last_col)),
+            ("w:noHBand", b(!l.banded_rows)),
+            ("w:noVBand", b(!l.banded_cols)),
+        ],
+    );
+}
+
+/// `w:tcMar` / `w:tblCellMar` element name for writing.
+pub(crate) fn write_margins_as(x: &mut XmlOut, name: &str, m: &CellMargins) {
     let sides = [
         ("w:top", m.top),
         ("w:left", m.left),
@@ -901,13 +1108,13 @@ pub(crate) fn write_cell_margins(x: &mut XmlOut, m: &CellMargins) {
     if sides.iter().all(|(_, s)| s.is_none()) {
         return;
     }
-    x.start("w:tblCellMar", &[]);
+    x.start(name, &[]);
     for (n, v) in sides {
         if let Some(t) = v {
             write_width(x, n, TableWidth::Twips(t));
         }
     }
-    x.end("w:tblCellMar");
+    x.end(name);
 }
 
 /// `w:shd` of a cell → background color (`auto` / missing fill → `None`).
@@ -934,6 +1141,7 @@ pub(crate) fn write_shading(x: &mut XmlOut, c: &Color, scheme: &ColorScheme) {
 mod tests {
     use super::*;
     use crate::xml::parse;
+    use model_text::{TabKind, TabLeader};
 
     fn el(xml: &str) -> El {
         parse(xml.as_bytes(), "test").unwrap()
@@ -1138,8 +1346,57 @@ mod tests {
             "t",
             &mut w,
         );
-        assert_eq!(w.into_vec().len(), 3);
+        assert_eq!(w.into_vec().len(), 1);
         assert_eq!(rtl.alignment, Some(Alignment::Right), "mirrored");
+    }
+
+    #[test]
+    fn paragraph_borders_shading_tabs() {
+        let xml = r#"<w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="1" w:color="auto"/>
+            <w:bottom w:val="double" w:sz="6" w:space="1" w:color="FF0000"/>
+            <w:between w:val="single" w:sz="4" w:space="1" w:color="auto"/></w:pBdr>
+            <w:shd w:val="clear" w:color="auto" w:fill="D9E2F3" w:themeFill="accent1" w:themeFillTint="33"/>
+            <w:tabs><w:tab w:val="right" w:leader="dot" w:pos="9026"/><w:tab w:val="center" w:pos="4513"/>
+            <w:tab w:val="clear" w:pos="720"/><w:tab w:val="decimal" w:leader="middleDot" w:pos="6000"/></w:tabs></w:pPr>"#;
+        let mut w = Warnings::default();
+        let p = read_ppr(&el(xml), "t", &mut w);
+        assert_eq!(w.into_vec().len(), 1, "middleDot approximated");
+        let b = p.borders.unwrap();
+        assert_eq!(b.top.unwrap().space, Some(1));
+        assert_eq!(b.bottom.unwrap().style, BorderStyle::Double);
+        assert!(b.between.is_some() && b.left.is_none());
+        assert_eq!(
+            p.shading,
+            Some(Color::Theme {
+                slot: ThemeColorSlot::Accent1,
+                tint: 0.8
+            })
+        );
+        let tabs: Vec<(i32, TabKind, TabLeader)> =
+            p.tabs.iter().map(|t| (t.pos.0, t.kind, t.leader)).collect();
+        assert_eq!(
+            tabs,
+            [
+                (720, TabKind::Clear, TabLeader::None),
+                (4513, TabKind::Center, TabLeader::None),
+                (6000, TabKind::Decimal, TabLeader::Dot),
+                (9026, TabKind::Right, TabLeader::Dot),
+            ]
+        );
+        let out = out(|x| write_ppr(x, &p, &ColorScheme::default()));
+        assert!(
+            out.starts_with(
+                r#"<w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="1" w:color="auto"/>"#
+            ),
+            "{out}"
+        );
+        assert!(out.contains(
+            r#"</w:pBdr><w:shd w:val="clear" w:color="auto" w:fill="DAE3F3" w:themeFill="accent1" w:themeFillTint="33"/><w:tabs><w:tab w:val="clear" w:pos="720"/>"#
+        ), "{out}");
+        assert!(out.contains(r#"<w:tab w:val="right" w:leader="dot" w:pos="9026"/></w:tabs>"#));
+        let mut w = Warnings::default();
+        assert_eq!(read_ppr(&el(&out), "t", &mut w), p);
+        assert!(w.into_vec().is_empty());
     }
 
     #[test]

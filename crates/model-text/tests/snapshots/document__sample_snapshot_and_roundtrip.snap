@@ -643,6 +643,1161 @@ expression: "serde_json::to_value(&doc).unwrap()"
             "left": 720
           }
         }
+      },
+      {
+        "id": "TableNormal",
+        "isDefault": true,
+        "kind": "table",
+        "name": "Normal Table",
+        "table": {
+          "table": {
+            "cellMargins": {
+              "bottom": 0,
+              "left": 108,
+              "right": 108,
+              "top": 0
+            },
+            "indent": 0
+          }
+        }
+      },
+      {
+        "basedOn": "TableNormal",
+        "id": "TableGrid",
+        "kind": "table",
+        "name": "Table Grid",
+        "paragraph": {
+          "spacing": {
+            "after": 0,
+            "line": {
+              "kind": "multiple",
+              "value": 1.0
+            }
+          }
+        },
+        "table": {
+          "table": {
+            "borders": {
+              "bottom": {
+                "color": {
+                  "kind": "auto"
+                },
+                "style": "single",
+                "width": 10
+              },
+              "insideH": {
+                "color": {
+                  "kind": "auto"
+                },
+                "style": "single",
+                "width": 10
+              },
+              "insideV": {
+                "color": {
+                  "kind": "auto"
+                },
+                "style": "single",
+                "width": 10
+              },
+              "left": {
+                "color": {
+                  "kind": "auto"
+                },
+                "style": "single",
+                "width": 10
+              },
+              "right": {
+                "color": {
+                  "kind": "auto"
+                },
+                "style": "single",
+                "width": 10
+              },
+              "top": {
+                "color": {
+                  "kind": "auto"
+                },
+                "style": "single",
+                "width": 10
+              }
+            }
+          }
+        }
+      },
+      {
+        "basedOn": "TableNormal",
+        "id": "PlainTable1",
+        "kind": "table",
+        "name": "Plain Table 1",
+        "paragraph": {
+          "spacing": {
+            "after": 0,
+            "line": {
+              "kind": "multiple",
+              "value": 1.0
+            }
+          }
+        },
+        "table": {
+          "colBandSize": 1,
+          "conditional": [
+            {
+              "kind": "firstRow",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "cell": {
+                "borders": {
+                  "top": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "light1",
+                        "tint": -0.25
+                      }
+                    },
+                    "style": "double",
+                    "width": 10
+                  }
+                }
+              },
+              "kind": "lastRow",
+              "paragraph": {
+                "spacing": {
+                  "after": 0,
+                  "before": 0,
+                  "line": {
+                    "kind": "multiple",
+                    "value": 1.0
+                  }
+                }
+              },
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "kind": "firstCol",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "kind": "lastCol",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "cell": {
+                "shading": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "light1",
+                    "tint": -0.05
+                  }
+                }
+              },
+              "kind": "band1Vert"
+            },
+            {
+              "cell": {
+                "shading": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "light1",
+                    "tint": -0.05
+                  }
+                }
+              },
+              "kind": "band1Horz"
+            }
+          ],
+          "rowBandSize": 1,
+          "table": {
+            "borders": {
+              "bottom": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "light1",
+                    "tint": -0.25
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "insideH": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "light1",
+                    "tint": -0.25
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "insideV": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "light1",
+                    "tint": -0.25
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "left": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "light1",
+                    "tint": -0.25
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "right": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "light1",
+                    "tint": -0.25
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "top": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "light1",
+                    "tint": -0.25
+                  }
+                },
+                "style": "single",
+                "width": 10
+              }
+            }
+          }
+        }
+      },
+      {
+        "basedOn": "TableNormal",
+        "id": "ListTable3",
+        "kind": "table",
+        "name": "List Table 3",
+        "paragraph": {
+          "spacing": {
+            "after": 0,
+            "line": {
+              "kind": "multiple",
+              "value": 1.0
+            }
+          }
+        },
+        "table": {
+          "colBandSize": 1,
+          "conditional": [
+            {
+              "cell": {
+                "shading": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "dark1",
+                    "tint": 0.0
+                  }
+                }
+              },
+              "kind": "firstRow",
+              "run": {
+                "bold": true,
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "light1",
+                    "tint": 0.0
+                  }
+                }
+              }
+            },
+            {
+              "cell": {
+                "borders": {
+                  "top": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "dark1",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "double",
+                    "width": 10
+                  }
+                }
+              },
+              "kind": "lastRow",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "kind": "firstCol",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "cell": {
+                "borders": {
+                  "left": {
+                    "color": {
+                      "kind": "auto"
+                    },
+                    "style": "none",
+                    "width": 0
+                  }
+                }
+              },
+              "kind": "lastCol",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "cell": {
+                "borders": {
+                  "left": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "dark1",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  },
+                  "right": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "dark1",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  }
+                }
+              },
+              "kind": "band1Vert"
+            },
+            {
+              "cell": {
+                "borders": {
+                  "bottom": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "dark1",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  },
+                  "top": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "dark1",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  }
+                }
+              },
+              "kind": "band1Horz"
+            },
+            {
+              "cell": {
+                "borders": {
+                  "left": {
+                    "color": {
+                      "kind": "auto"
+                    },
+                    "style": "none",
+                    "width": 0
+                  }
+                }
+              },
+              "kind": "neCell"
+            },
+            {
+              "cell": {
+                "borders": {
+                  "right": {
+                    "color": {
+                      "kind": "auto"
+                    },
+                    "style": "none",
+                    "width": 0
+                  }
+                }
+              },
+              "kind": "nwCell"
+            }
+          ],
+          "rowBandSize": 1,
+          "table": {
+            "borders": {
+              "bottom": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "dark1",
+                    "tint": 0.0
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "left": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "dark1",
+                    "tint": 0.0
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "right": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "dark1",
+                    "tint": 0.0
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "top": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "dark1",
+                    "tint": 0.0
+                  }
+                },
+                "style": "single",
+                "width": 10
+              }
+            }
+          }
+        }
+      },
+      {
+        "basedOn": "TableNormal",
+        "id": "GridTable4-Accent1",
+        "kind": "table",
+        "name": "Grid Table 4 Accent 1",
+        "paragraph": {
+          "spacing": {
+            "after": 0,
+            "line": {
+              "kind": "multiple",
+              "value": 1.0
+            }
+          }
+        },
+        "table": {
+          "colBandSize": 1,
+          "conditional": [
+            {
+              "cell": {
+                "borders": {
+                  "bottom": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent1",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  },
+                  "insideH": {
+                    "color": {
+                      "kind": "auto"
+                    },
+                    "style": "none",
+                    "width": 0
+                  },
+                  "insideV": {
+                    "color": {
+                      "kind": "auto"
+                    },
+                    "style": "none",
+                    "width": 0
+                  },
+                  "left": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent1",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  },
+                  "right": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent1",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  },
+                  "top": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent1",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  }
+                },
+                "shading": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent1",
+                    "tint": 0.0
+                  }
+                }
+              },
+              "kind": "firstRow",
+              "run": {
+                "bold": true,
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "light1",
+                    "tint": 0.0
+                  }
+                }
+              }
+            },
+            {
+              "cell": {
+                "borders": {
+                  "top": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent1",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "double",
+                    "width": 10
+                  }
+                }
+              },
+              "kind": "lastRow",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "kind": "firstCol",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "kind": "lastCol",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "cell": {
+                "shading": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent1",
+                    "tint": 0.8
+                  }
+                }
+              },
+              "kind": "band1Vert"
+            },
+            {
+              "cell": {
+                "shading": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent1",
+                    "tint": 0.8
+                  }
+                }
+              },
+              "kind": "band1Horz"
+            }
+          ],
+          "rowBandSize": 1,
+          "table": {
+            "borders": {
+              "bottom": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent1",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "insideH": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent1",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "insideV": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent1",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "left": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent1",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "right": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent1",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "top": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent1",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              }
+            }
+          }
+        }
+      },
+      {
+        "basedOn": "TableNormal",
+        "id": "GridTable4-Accent2",
+        "kind": "table",
+        "name": "Grid Table 4 Accent 2",
+        "paragraph": {
+          "spacing": {
+            "after": 0,
+            "line": {
+              "kind": "multiple",
+              "value": 1.0
+            }
+          }
+        },
+        "table": {
+          "colBandSize": 1,
+          "conditional": [
+            {
+              "cell": {
+                "borders": {
+                  "bottom": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent2",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  },
+                  "insideH": {
+                    "color": {
+                      "kind": "auto"
+                    },
+                    "style": "none",
+                    "width": 0
+                  },
+                  "insideV": {
+                    "color": {
+                      "kind": "auto"
+                    },
+                    "style": "none",
+                    "width": 0
+                  },
+                  "left": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent2",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  },
+                  "right": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent2",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  },
+                  "top": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent2",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  }
+                },
+                "shading": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent2",
+                    "tint": 0.0
+                  }
+                }
+              },
+              "kind": "firstRow",
+              "run": {
+                "bold": true,
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "light1",
+                    "tint": 0.0
+                  }
+                }
+              }
+            },
+            {
+              "cell": {
+                "borders": {
+                  "top": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent2",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "double",
+                    "width": 10
+                  }
+                }
+              },
+              "kind": "lastRow",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "kind": "firstCol",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "kind": "lastCol",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "cell": {
+                "shading": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent2",
+                    "tint": 0.8
+                  }
+                }
+              },
+              "kind": "band1Vert"
+            },
+            {
+              "cell": {
+                "shading": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent2",
+                    "tint": 0.8
+                  }
+                }
+              },
+              "kind": "band1Horz"
+            }
+          ],
+          "rowBandSize": 1,
+          "table": {
+            "borders": {
+              "bottom": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent2",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "insideH": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent2",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "insideV": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent2",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "left": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent2",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "right": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent2",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "top": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent2",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              }
+            }
+          }
+        }
+      },
+      {
+        "basedOn": "TableNormal",
+        "id": "GridTable4-Accent3",
+        "kind": "table",
+        "name": "Grid Table 4 Accent 3",
+        "paragraph": {
+          "spacing": {
+            "after": 0,
+            "line": {
+              "kind": "multiple",
+              "value": 1.0
+            }
+          }
+        },
+        "table": {
+          "colBandSize": 1,
+          "conditional": [
+            {
+              "cell": {
+                "borders": {
+                  "bottom": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent3",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  },
+                  "insideH": {
+                    "color": {
+                      "kind": "auto"
+                    },
+                    "style": "none",
+                    "width": 0
+                  },
+                  "insideV": {
+                    "color": {
+                      "kind": "auto"
+                    },
+                    "style": "none",
+                    "width": 0
+                  },
+                  "left": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent3",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  },
+                  "right": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent3",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  },
+                  "top": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent3",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "single",
+                    "width": 10
+                  }
+                },
+                "shading": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent3",
+                    "tint": 0.0
+                  }
+                }
+              },
+              "kind": "firstRow",
+              "run": {
+                "bold": true,
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "light1",
+                    "tint": 0.0
+                  }
+                }
+              }
+            },
+            {
+              "cell": {
+                "borders": {
+                  "top": {
+                    "color": {
+                      "kind": "theme",
+                      "value": {
+                        "slot": "accent3",
+                        "tint": 0.0
+                      }
+                    },
+                    "style": "double",
+                    "width": 10
+                  }
+                }
+              },
+              "kind": "lastRow",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "kind": "firstCol",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "kind": "lastCol",
+              "run": {
+                "bold": true
+              }
+            },
+            {
+              "cell": {
+                "shading": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent3",
+                    "tint": 0.8
+                  }
+                }
+              },
+              "kind": "band1Vert"
+            },
+            {
+              "cell": {
+                "shading": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent3",
+                    "tint": 0.8
+                  }
+                }
+              },
+              "kind": "band1Horz"
+            }
+          ],
+          "rowBandSize": 1,
+          "table": {
+            "borders": {
+              "bottom": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent3",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "insideH": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent3",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "insideV": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent3",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "left": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent3",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "right": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent3",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              },
+              "top": {
+                "color": {
+                  "kind": "theme",
+                  "value": {
+                    "slot": "accent3",
+                    "tint": 0.4
+                  }
+                },
+                "style": "single",
+                "width": 10
+              }
+            }
+          }
+        }
       }
     ]
   }

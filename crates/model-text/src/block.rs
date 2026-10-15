@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::inline::{Inline, Run};
-use crate::props::{CellProperties, ParagraphProperties, RowProperties, TableProperties};
+use crate::props::{CellProperties, ParagraphProperties, RowProperties, TableProperties, VMerge};
 
 /// Document-unique id of a paragraph, table, row or cell.
 ///
@@ -186,7 +186,10 @@ impl Paragraph {
     }
 }
 
-/// A table (no merged cells in the MVP).
+/// A table. Rows hold cells left to right; with merged cells
+/// ([`TableCell::grid_span`], [`TableCell::v_merge`]) every row should
+/// cover the same number of grid columns (see [`Table::merge_cells`],
+/// [`Table::split_cell`] and the other helpers in `crate::table`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(
@@ -224,6 +227,11 @@ pub struct TableRow {
 
 /// A table cell. Holds at least one block, and its last block is a
 /// paragraph ([`crate::Document::normalize`] restores this invariant).
+///
+/// Merged cells follow docx: a horizontally merged cell spans
+/// `grid_span` grid columns; a vertically merged region is a
+/// [`VMerge::Restart`] cell followed, in the rows below at the same grid
+/// column and span, by [`VMerge::Continue`] cells (see [`Table`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(
@@ -237,8 +245,41 @@ pub struct TableCell {
     /// Cell formatting.
     #[serde(default, skip_serializing_if = "CellProperties::is_empty")]
     pub props: CellProperties,
+    /// Number of grid columns the cell spans (docx `w:gridSpan`, ≥ 1).
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub grid_span: u16,
+    /// Vertical merge state (docx `w:vMerge`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub v_merge: Option<VMerge>,
     /// Content.
     pub blocks: Vec<Block>,
+}
+
+fn one() -> u16 {
+    1
+}
+
+fn is_one(v: &u16) -> bool {
+    *v == 1
+}
+
+impl TableCell {
+    /// A cell spanning one column, not merged.
+    pub fn new(id: NodeId, props: CellProperties, blocks: Vec<Block>) -> Self {
+        Self {
+            id,
+            props,
+            grid_span: 1,
+            v_merge: None,
+            blocks,
+        }
+    }
+
+    /// The span, at least 1.
+    pub fn span(&self) -> usize {
+        usize::from(self.grid_span.max(1))
+    }
 }
 
 /// One entry of a [`Toc`].
