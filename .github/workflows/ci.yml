@@ -54,3 +54,40 @@ jobs:
       - run: pnpm --filter write build:web
       - run: pnpm --filter show build
       - run: pnpm --filter show build:web
+      - name: Pack the web builds for the e2e job
+        run: tar czf dist-web.tgz apps/calc/dist-web apps/write/dist-web apps/show/dist-web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-web
+          path: dist-web.tgz
+          retention-days: 3
+
+  e2e:
+    needs: frontend
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-web
+      - run: tar xzf dist-web.tgz
+      - run: pnpm --filter e2e exec playwright install --with-deps chromium
+      - run: pnpm e2e
+      - name: Upload failure screenshots and traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failures
+          path: |
+            packages/e2e/test-results
+            packages/e2e/playwright-report
+          retention-days: 7

@@ -1,0 +1,192 @@
+import { expect, test } from "@playwright/test";
+import { downloadBuffer, fileCommand, interceptPrint, openViaBackstage, printCount, saveViaBackstage, testdata, trackErrors } from "../support/common";
+import { Grid, openCalc } from "../support/calc";
+import { zipText } from "../support/zip";
+
+test.describe("Calc", () => {
+  test("typing a formula evaluates it", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "=SUM(1,2,3)*2");
+    expect(await grid.input(0, 0)).toBe("=SUM(1,2,3)*2");
+    expect(await grid.display(0, 0)).toBe("12");
+    await expect(page.getByTestId("status-bar")).toContainText("Modified");
+    errors.expectNone();
+  });
+
+  test("point mode: dragging over A1:A3 inserts the range", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    for (const [i, v] of ["1", "2", "3"].entries()) await grid.type(i, 0, v);
+    await grid.click(0, 2);
+    await page.keyboard.type("=SUM(");
+    const from = await grid.pos(0, 0);
+    const to = await grid.pos(2, 0);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x, (from.y + to.y) / 2, { steps: 3 });
+    await page.mouse.move(to.x, to.y, { steps: 3 });
+    await page.mouse.up();
+    await expect(page.getByTestId("cell-editor")).toHaveValue("=SUM(A1:A3");
+    await page.keyboard.type(")");
+    await expect(page.getByTestId("cell-editor")).toHaveValue("=SUM(A1:A3)");
+    await page.keyboard.press("Enter");
+    expect(await grid.input(0, 2)).toBe("=SUM(A1:A3)");
+    expect(await grid.display(0, 2)).toBe("6");
+  });
+
+  test("an incomplete formula is not committed: text kept, inline error shown", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.click(0, 3);
+    await page.keyboard.type("=A1+");
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("formula-error")).toBeVisible();
+    await expect(page.getByTestId("cell-editor")).toHaveValue("=A1+");
+    // Esc discards it.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("cell-editor")).toHaveCount(0);
+    expect(await grid.input(0, 3)).toBe("");
+  });
+
+  test("open an xlsx, edit a cell, save, and the download contains the edit", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    await openViaBackstage(page, testdata("xlsx/provisional-basic.xlsx"));
+    const sheets = page.getByRole("tablist", { name: "Sheets" });
+    await expect(sheets.getByRole("tab", { name: "Data" })).toBeVisible();
+    await expect(sheets.getByRole("tab", { name: "Summary" })).toBeVisible();
+    const grid = new Grid(page);
+    await grid.type(1, 1, "99");
+    await expect(page.getByTestId("status-bar")).toContainText("Modified");
+    const xlsx = await saveViaBackstage(page);
+    const sheet1 = zipText(xlsx, "xl/worksheets/sheet1.xml");
+    expect(sheet1).toMatch(/<c r="B2"[^>]*><v>99<\/v>/);
+    expect(zipText(xlsx, "xl/workbook.xml")).toContain('name="Summary"');
+    await expect(page.getByTestId("status-bar")).toContainText("Saved");
+    errors.expectNone();
+  });
+
+  test("switching sheets shows the other sheet's cells", async ({ page }) => {
+    await openCalc(page);
+    await openViaBackstage(page, testdata("xlsx/provisional-basic.xlsx"));
+    const grid = new Grid(page);
+    const dataA1 = await grid.input(0, 0);
+    await page.getByRole("tablist", { name: "Sheets" }).getByRole("tab", { name: "Summary" }).click();
+    await expect(page.getByRole("tab", { name: "Summary" })).toHaveAttribute("aria-selected", "true");
+    expect(await grid.input(0, 0)).not.toBe(dataA1);
+  });
+
+  test("fill handle continues the series 1, 2", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "1");
+    await grid.type(1, 0, "2");
+    await grid.click(0, 0);
+    await grid.click(1, 0, { shift: true });
+    const box = (await page.getByTestId("grid").boundingBox())!;
+    // Bottom-right corner of A1:A2.
+    const hx = box.x + 46 + 64 - 1;
+    const hy = box.y + 22 + 20 * 2 - 1;
+    await page.mouse.move(hx, hy);
+    await page.mouse.down();
+    const end = await grid.pos(5, 0);
+    await page.mouse.move(hx, hy + 30, { steps: 4 });
+    await page.mouse.move(end.x, end.y, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(() => grid.display(5, 0)).toBe("6");
+    expect(await grid.display(2, 0)).toBe("3");
+    expect(await grid.display(4, 0)).toBe("5");
+  });
+
+  test("Ctrl+1 opens Format cells and applies the 0.00 number format", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "3.14159");
+    await grid.click(0, 0);
+    await page.keyboard.press("Control+1");
+    const dlg = page.getByRole("dialog", { name: "Format cells" });
+    await dlg.getByRole("option", { name: "Number" }).click();
+    await expect(page.getByTestId("format-preview")).toContainText("3.14");
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(dlg).toHaveCount(0);
+    // The value is untouched, the saved workbook carries the format.
+    expect(await grid.input(0, 0)).toBe("3.14159");
+    const xlsx = await saveViaBackstage(page);
+    expect(zipText(xlsx, "xl/styles.xml")).toMatch(/<xf numFmtId="2"[^>]*applyNumberFormat="1"/);
+    expect(zipText(xlsx, "xl/worksheets/sheet1.xml")).toMatch(/<c r="A1" s="[1-9]\d*"[^>]*><v>3\.14159<\/v>/);
+  });
+
+  test("find and replace over the sheet", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 7, "apple");
+    await grid.type(1, 7, "apple pie");
+    await grid.type(2, 7, "banana");
+    await grid.click(0, 0);
+    await page.keyboard.press("Control+f");
+    const find = page.getByRole("dialog", { name: "Find" });
+    await find.getByLabel("Find what").fill("pie");
+    await find.getByLabel("Find what").press("Enter");
+    await expect(page.getByTestId("cell-address")).toHaveText("H2");
+    await find.getByRole("button", { name: "Replace…" }).click();
+    const rep = page.getByRole("dialog", { name: "Find and replace" });
+    await rep.getByLabel("Find what").fill("apple");
+    await rep.getByLabel("Replace with").fill("pear");
+    await rep.getByRole("button", { name: "Replace all" }).click();
+    await expect(rep.getByRole("status")).toContainText("2");
+    await rep.getByRole("button", { name: "Close" }).click();
+    expect(await grid.input(0, 7)).toBe("pear");
+    expect(await grid.input(1, 7)).toBe("pear pie");
+    expect(await grid.input(2, 7)).toBe("banana");
+  });
+
+  test("ribbon tabs switch by click and by keyboard (Alt, arrows, Enter)", async ({ page }) => {
+    await openCalc(page);
+    const tabs = page.getByLabel("Ribbon tabs");
+    await expect(tabs.getByRole("tab", { name: "Home" })).toHaveAttribute("aria-selected", "true");
+    await tabs.getByRole("tab", { name: "View" }).click();
+    await expect(tabs.getByRole("tab", { name: "View" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("combobox", { name: "Zoom" })).toBeVisible();
+    await tabs.getByRole("tab", { name: "Home" }).click();
+    await page.getByTestId("grid").focus();
+    await page.keyboard.press("Alt");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Enter");
+    await expect(tabs.getByRole("tab", { name: "Insert" })).toHaveAttribute("aria-selected", "true");
+    // Ctrl+F1 collapses the ribbon to the tab strip and back.
+    const panel = page.getByTestId("ribbon");
+    const full = (await panel.boundingBox())!.height;
+    await page.keyboard.press("Control+F1");
+    await expect.poll(async () => (await panel.boundingBox())!.height).toBeLessThan(full - 40);
+    await page.keyboard.press("Control+F1");
+    await expect.poll(async () => (await panel.boundingBox())!.height).toBeGreaterThan(full - 5);
+  });
+
+  test("backstage: keyboard navigation and Esc returns to the sheet", async ({ page }) => {
+    await openCalc(page);
+    await page.keyboard.press("Alt");
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("Enter");
+    const backstage = page.getByTestId("backstage");
+    await expect(backstage).toBeVisible();
+    await expect(backstage.getByRole("button", { name: /^Open/ })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(backstage).toHaveCount(0);
+    await expect(page.getByTestId("grid")).toBeVisible();
+  });
+
+  test("Export PDF opens the print view and calls window.print", async ({ page }) => {
+    await interceptPrint(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "hello");
+    await fileCommand(page, /^Export PDF/);
+    const setup = page.getByRole("dialog").first();
+    await expect(setup).toBeVisible();
+    await setup.getByRole("button", { name: /Export|Print|OK/ }).last().click();
+    await expect(page.getByTestId("print-view")).toBeVisible();
+    await expect.poll(() => printCount(page)).toBeGreaterThan(0);
+  });
+});

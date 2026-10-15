@@ -4,6 +4,7 @@
   "packageManager": "pnpm@12.11.2",
   "scripts": {
     "test": "pnpm -r --if-present test",
-    "lint": "pnpm -r --if-present lint"
+    "lint": "pnpm -r --if-present lint",
+    "e2e": "pnpm --filter e2e e2e"
   }
 }

@@ -1,0 +1,37 @@
+# End-to-end tests
+
+`packages/e2e` is a Playwright suite (Chromium only, `@playwright/test` pinned in its `package.json`) that drives the three
+real web builds, including the wasm cores: Calc, Write, Show and a few cross-app flows (shortcut help, crash recovery).
+Specs live in `packages/e2e/tests`, helpers in `packages/e2e/support` (grid geometry for Calc's canvas, a 40-line zip reader
+used to inspect downloaded xlsx/docx/pptx files, `window.print` interception). Test files come from `testdata/`.
+
+## Running locally
+
+```
+pnpm --filter calc build:web && pnpm --filter write build:web && pnpm --filter show build:web   # once, and after app changes
+pnpm e2e                                                                                         # starts packages/e2e/serve.mjs
+```
+
+`serve.mjs` serves each `apps/<app>/dist-web` under `/calc/`, `/write/`, `/show/` on `127.0.0.1:4173` (`E2E_PORT` changes it).
+The first run needs a browser: `pnpm --filter e2e exec playwright install chromium`. Single spec: `pnpm e2e calc`; headed:
+`pnpm e2e --headed`; failure traces: `pnpm --filter e2e exec playwright show-trace test-results/<test>/trace.zip`.
+
+## Against the live site
+
+`BASE_URL=https://resuite.inceptum.at pnpm e2e` skips the local server. `scripts/deploy-web.sh --e2e` runs exactly that after
+publishing (`E2E_BASE_URL` overrides the URL).
+
+## Conventions
+
+- Production builds expose no store globals, so tests use the UI only: selectors are roles/labels and the existing
+  `data-testid`s (`grid`, `cell-address`, `backstage`, `editor-stage`, `slide-count`, ...). `editor-stage` also carries
+  `data-guides` (the number of snap guides currently drawn).
+- Calc's grid is a canvas: cells are addressed by pixel geometry (`Grid` in `support/calc.ts`), inputs are read from the formula
+  bar, displayed values by copy + paste-values into a scratch cell, number formats and results by saving and unzipping.
+- No fixed sleeps beyond 400 ms; wait with `expect`/`expect.poll`. Downloads are parsed in Node (`support/zip.ts`).
+- Export PDF is asserted through a stubbed `window.print` (`interceptPrint`).
+
+## CI
+
+The `frontend` job packs the three `dist-web` directories as an artifact; the `e2e` job (needs `frontend`) installs Chromium,
+runs `pnpm e2e` with 2 workers and one retry, and uploads `test-results` (screenshots, traces) and the HTML report on failure.
