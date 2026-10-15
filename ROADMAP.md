@@ -100,6 +100,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Store the pane top-left cell (freeze while scrolled like Excel); grid mouse handlers → pointer events; Ctrl+PageUp/Down skipping hidden sheets; unhide several sheets; sort by colour/custom lists, colour/date-group filters, AutoFilter range growth, left-to-right sort, AGGREGATE, "sort warning" for adjacent data; hidden-by-hand rows inside a filtered range read back as filtered (xlsx cannot distinguish).
 
 ## Show parity follow-ups
+- Show UI: core should return each preset's text rectangle and adjust-handle positions in `shapePaths` (UI approximates them, esp. stars/arrows); more table style families (Light/Themed/Dark); split-cell dialog (rows×cols); Format Shape pane sections for arrows and table cells; freeform/scribble tool; keyboard adjust handles; table border grips are 10 px (touch guideline 32 px).
 - Show: write `tableStyles.xml` instead of explicit cell fills; PowerPoint's 3–4-turn connector detour routing; more presets (bent/U-turn arrows, ribbons, remaining callouts); PowerPoint site lists for the remaining presets; split a single table cell into a grid.
 - Effect Options for sorter-selected slides; transitions when going back/jumping; badges for grouped shapes; emphasis auto-reverse; Animation Painter; Konva-rendered transitions in PDF export; Float In / Split effects; per-paragraph builds; p14 transitions.
 
