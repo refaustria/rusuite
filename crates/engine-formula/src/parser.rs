@@ -1,0 +1,685 @@
+//! Hand-written Pratt parser producing [`Expr`].
+//!
+//! Precedence, low to high: comparison < `&` < `+ -` < `* /` < `^` (left
+//! associative) < prefix `- +` < postfix `%` < `:` (reference operator).
+
+use thiserror::Error;
+
+use crate::ast::{
+    letters_to_col, parse_row, BinaryOp, CellRef, Expr, RangeKind, Reference, UnaryOp, MAX_COL,
+};
+use crate::lexer::{tokenize, Token, TokenKind};
+
+/// A lexing or parsing failure at byte offset `pos` of the input.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("{message} at position {pos}")]
+pub struct ParseError {
+    pub pos: usize,
+    pub message: String,
+}
+
+impl ParseError {
+    pub fn new(pos: usize, message: impl Into<String>) -> Self {
+        ParseError {
+            pos,
+            message: message.into(),
+        }
+    }
+}
+
+/// Parses a formula (with or without the leading `=`). Error positions are
+/// byte offsets into `formula` as given.
+pub fn parse(formula: &str) -> Result<Expr, ParseError> {
+    let (body, offset) = match formula.strip_prefix('=') {
+        Some(rest) => (rest, 1),
+        None => (formula, 0),
+    };
+    parse_body(body).map_err(|mut e| {
+        e.pos += offset;
+        e
+    })
+}
+
+fn parse_body(src: &str) -> Result<Expr, ParseError> {
+    let tokens = tokenize(src)?;
+    if tokens.is_empty() {
+        return Err(ParseError::new(0, "empty formula"));
+    }
+    let mut p = Parser {
+        src,
+        tokens,
+        pos: 0,
+    };
+    let expr = p.expr(0)?;
+    if let Some(t) = p.tokens.get(p.pos) {
+        return Err(ParseError::new(
+            t.span.start,
+            format!("unexpected {} after expression", describe(&t.kind)),
+        ));
+    }
+    Ok(expr)
+}
+
+// Binding powers.
+const BP_PREFIX: u8 = 11;
+const BP_PERCENT: u8 = 13;
+
+fn infix(kind: &TokenKind) -> Option<(BinaryOp, u8, u8)> {
+    let op = match kind {
+        TokenKind::Eq => BinaryOp::Eq,
+        TokenKind::Ne => BinaryOp::Ne,
+        TokenKind::Lt => BinaryOp::Lt,
+        TokenKind::Le => BinaryOp::Le,
+        TokenKind::Gt => BinaryOp::Gt,
+        TokenKind::Ge => BinaryOp::Ge,
+        TokenKind::Amp => BinaryOp::Concat,
+        TokenKind::Plus => BinaryOp::Add,
+        TokenKind::Minus => BinaryOp::Sub,
+        TokenKind::Star => BinaryOp::Mul,
+        TokenKind::Slash => BinaryOp::Div,
+        TokenKind::Caret => BinaryOp::Pow,
+        TokenKind::Colon => BinaryOp::Range,
+        _ => return None,
+    };
+    let lbp = match op {
+        BinaryOp::Concat => 3,
+        BinaryOp::Add | BinaryOp::Sub => 5,
+        BinaryOp::Mul | BinaryOp::Div => 7,
+        BinaryOp::Pow => 9,
+        BinaryOp::Range => 15,
+        _ => 1, // comparisons
+    };
+    // All left-associative (including `^`, as in Excel).
+    Some((op, lbp, lbp + 1))
+}
+
+fn describe(kind: &TokenKind) -> String {
+    match kind {
+        TokenKind::Number(n) => format!("number `{n}`"),
+        TokenKind::String(_) => "string".into(),
+        TokenKind::Ident(s) => format!("identifier `{s}`"),
+        TokenKind::Error(e) => format!("error literal `{e}`"),
+        TokenKind::SheetName(s) => format!("sheet name `{s}`"),
+        other => {
+            let s = match other {
+                TokenKind::Bang => "!",
+                TokenKind::Colon => ":",
+                TokenKind::Comma => ",",
+                TokenKind::Semicolon => ";",
+                TokenKind::LParen => "(",
+                TokenKind::RParen => ")",
+                TokenKind::LBrace => "{",
+                TokenKind::RBrace => "}",
+                TokenKind::Dollar => "$",
+                TokenKind::Plus => "+",
+                TokenKind::Minus => "-",
+                TokenKind::Star => "*",
+                TokenKind::Slash => "/",
+                TokenKind::Caret => "^",
+                TokenKind::Amp => "&",
+                TokenKind::Eq => "=",
+                TokenKind::Ne => "<>",
+                TokenKind::Lt => "<",
+                TokenKind::Le => "<=",
+                TokenKind::Gt => ">",
+                TokenKind::Ge => ">=",
+                TokenKind::Percent => "%",
+                _ => unreachable!("handled above"),
+            };
+            format!("`{s}`")
+        }
+    }
+}
+
+/// One side of a reference: a cell, a column or a row. Columns and rows are
+/// kept as text until they are known to be part of `A:C` / `2:4`.
+enum Atom<'a> {
+    Cell(CellRef),
+    Col { letters: &'a str, abs: bool },
+    Row { digits: &'a str, abs: bool },
+}
+
+struct Parser<'a> {
+    src: &'a str,
+    tokens: Vec<Token>,
+    pos: usize,
+}
+
+impl<'a> Parser<'a> {
+    fn peek(&self) -> Option<&TokenKind> {
+        self.tokens.get(self.pos).map(|t| &t.kind)
+    }
+
+    fn peek_at(&self, i: usize) -> Option<&TokenKind> {
+        self.tokens.get(i).map(|t| &t.kind)
+    }
+
+    /// Byte offset of the current token, or end of input.
+    fn here(&self) -> usize {
+        self.tokens
+            .get(self.pos)
+            .map_or(self.src.len(), |t| t.span.start)
+    }
+
+    fn adjacent(&self, i: usize) -> bool {
+        i > 0 && i < self.tokens.len() && self.tokens[i - 1].span.end == self.tokens[i].span.start
+    }
+
+    fn text(&self, i: usize) -> &'a str {
+        let s = self.tokens[i].span;
+        &self.src[s.start..s.end]
+    }
+
+    fn unexpected(&self) -> ParseError {
+        match self.tokens.get(self.pos) {
+            Some(t) => ParseError::new(t.span.start, format!("unexpected {}", describe(&t.kind))),
+            None => ParseError::new(self.src.len(), "unexpected end of formula"),
+        }
+    }
+
+    fn expect(&mut self, kind: &TokenKind, what: &str) -> Result<(), ParseError> {
+        if self.peek() == Some(kind) {
+            self.pos += 1;
+            Ok(())
+        } else {
+            let mut e = self.unexpected();
+            e.message = format!(
+                "expected {what}, found {}",
+                e.message.trim_start_matches("unexpected ")
+            );
+            Err(e)
+        }
+    }
+
+    fn expr(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
+        let mut lhs = self.prefix()?;
+        while let Some(kind) = self.peek() {
+            if *kind == TokenKind::Percent {
+                if BP_PERCENT < min_bp {
+                    break;
+                }
+                self.pos += 1;
+                lhs = Expr::Unary {
+                    op: UnaryOp::Percent,
+                    expr: Box::new(lhs),
+                };
+                continue;
+            }
+            let Some((op, lbp, rbp)) = infix(kind) else {
+                break;
+            };
+            if lbp < min_bp {
+                break;
+            }
+            self.pos += 1;
+            let rhs = self.expr(rbp)?;
+            lhs = Expr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
+        }
+        Ok(lhs)
+    }
+
+    fn prefix(&mut self) -> Result<Expr, ParseError> {
+        let op = match self.peek() {
+            Some(TokenKind::Minus) => UnaryOp::Neg,
+            Some(TokenKind::Plus) => UnaryOp::Plus,
+            _ => return self.primary(),
+        };
+        self.pos += 1;
+        let expr = self.expr(BP_PREFIX)?;
+        Ok(Expr::Unary {
+            op,
+            expr: Box::new(expr),
+        })
+    }
+
+    fn primary(&mut self) -> Result<Expr, ParseError> {
+        let Some(kind) = self.peek().cloned() else {
+            return Err(self.unexpected());
+        };
+        match kind {
+            TokenKind::String(s) => {
+                self.pos += 1;
+                Ok(Expr::Text(s))
+            }
+            TokenKind::Error(e) => {
+                self.pos += 1;
+                Ok(Expr::Error(e))
+            }
+            TokenKind::LParen => {
+                self.pos += 1;
+                let e = self.expr(0)?;
+                self.expect(&TokenKind::RParen, "`)`")?;
+                Ok(e)
+            }
+            TokenKind::LBrace => self.array(),
+            TokenKind::SheetName(sheet) => {
+                self.pos += 1;
+                self.expect(&TokenKind::Bang, "`!`")?;
+                match self.reference(Some(sheet))? {
+                    Some(e) => Ok(e),
+                    None => Err(ParseError::new(
+                        self.here(),
+                        "expected a cell, column or row reference after sheet name",
+                    )),
+                }
+            }
+            TokenKind::Ident(name) if self.peek_at(self.pos + 1) == Some(&TokenKind::LParen) => {
+                self.pos += 2;
+                self.call(name.to_ascii_uppercase())
+            }
+            TokenKind::Ident(_) | TokenKind::Number(_) | TokenKind::Dollar => {
+                if let Some(e) = self.reference(None)? {
+                    return Ok(e);
+                }
+                match kind {
+                    TokenKind::Number(n) => {
+                        self.pos += 1;
+                        Ok(Expr::Number(n))
+                    }
+                    TokenKind::Ident(name) => {
+                        self.pos += 1;
+                        if name.eq_ignore_ascii_case("TRUE") {
+                            Ok(Expr::Bool(true))
+                        } else if name.eq_ignore_ascii_case("FALSE") {
+                            Ok(Expr::Bool(false))
+                        } else {
+                            Ok(Expr::Name(name))
+                        }
+                    }
+                    _ => Err(ParseError::new(
+                        self.here(),
+                        "expected a reference after `$`",
+                    )),
+                }
+            }
+            _ => Err(self.unexpected()),
+        }
+    }
+
+    /// Function call; the name and `(` are already consumed.
+    fn call(&mut self, name: String) -> Result<Expr, ParseError> {
+        let mut args = Vec::new();
+        if self.peek() == Some(&TokenKind::RParen) {
+            self.pos += 1;
+            return Ok(Expr::Call { name, args });
+        }
+        loop {
+            match self.peek() {
+                Some(TokenKind::Comma | TokenKind::RParen) => args.push(Expr::Missing),
+                _ => args.push(self.expr(0)?),
+            }
+            match self.peek() {
+                Some(TokenKind::Comma) => self.pos += 1,
+                Some(TokenKind::RParen) => {
+                    self.pos += 1;
+                    return Ok(Expr::Call { name, args });
+                }
+                _ => {
+                    let mut e = self.unexpected();
+                    e.message = format!(
+                        "expected `,` or `)` in call to {name}, found {}",
+                        e.message.trim_start_matches("unexpected ")
+                    );
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    /// Array constant `{1,2;3,4}`; the current token is `{`.
+    fn array(&mut self) -> Result<Expr, ParseError> {
+        let start = self.here();
+        self.pos += 1;
+        let mut rows: Vec<Vec<Expr>> = vec![Vec::new()];
+        loop {
+            let el = self.array_element()?;
+            rows.last_mut().expect("non-empty").push(el);
+            match self.peek() {
+                Some(TokenKind::Comma) => self.pos += 1,
+                Some(TokenKind::Semicolon) => {
+                    self.pos += 1;
+                    rows.push(Vec::new());
+                }
+                Some(TokenKind::RBrace) => {
+                    self.pos += 1;
+                    break;
+                }
+                _ => {
+                    let mut e = self.unexpected();
+                    e.message = format!(
+                        "expected `,`, `;` or `}}` in array, found {}",
+                        e.message.trim_start_matches("unexpected ")
+                    );
+                    return Err(e);
+                }
+            }
+        }
+        if rows.iter().any(|r| r.len() != rows[0].len()) {
+            return Err(ParseError::new(start, "array rows have different lengths"));
+        }
+        Ok(Expr::Array(rows))
+    }
+
+    /// Array element: number (optionally signed; the sign is folded),
+    /// string, boolean or error literal.
+    fn array_element(&mut self) -> Result<Expr, ParseError> {
+        let sign = match self.peek() {
+            Some(TokenKind::Minus) => {
+                self.pos += 1;
+                Some(-1.0)
+            }
+            Some(TokenKind::Plus) => {
+                self.pos += 1;
+                Some(1.0)
+            }
+            _ => None,
+        };
+        let el = match (self.peek(), sign) {
+            (Some(TokenKind::Number(n)), _) => Expr::Number(n * sign.unwrap_or(1.0)),
+            (Some(TokenKind::String(s)), None) => Expr::Text(s.clone()),
+            (Some(TokenKind::Error(e)), None) => Expr::Error(*e),
+            (Some(TokenKind::Ident(s)), None) if s.eq_ignore_ascii_case("TRUE") => Expr::Bool(true),
+            (Some(TokenKind::Ident(s)), None) if s.eq_ignore_ascii_case("FALSE") => {
+                Expr::Bool(false)
+            }
+            _ => {
+                return Err(ParseError::new(
+                    self.here(),
+                    "array elements must be numbers, strings, booleans or error literals",
+                ))
+            }
+        };
+        self.pos += 1;
+        Ok(el)
+    }
+
+    /// Tries to read a cell/column/row atom starting at token `i`
+    /// (optionally `$`-prefixed). Returns the atom and the next token index.
+    fn atom(&self, i: usize) -> Result<Option<(Atom<'a>, usize)>, ParseError> {
+        let mut j = i;
+        let first_abs = self.peek_at(j) == Some(&TokenKind::Dollar);
+        if first_abs {
+            j += 1;
+            if !self.adjacent(j) {
+                return Ok(None);
+            }
+        }
+        match self.peek_at(j) {
+            Some(TokenKind::Ident(_)) => {
+                let text = self.text(j);
+                let pos = self.tokens[j].span.start;
+                let n_letters = text.bytes().take_while(u8::is_ascii_alphabetic).count();
+                let (letters, rest) = text.split_at(n_letters);
+                if letters.is_empty() || letters.len() > 3 {
+                    return Ok(None);
+                }
+                if rest.is_empty() {
+                    // `A$1` or a bare column `A`.
+                    if self.peek_at(j + 1) == Some(&TokenKind::Dollar)
+                        && self.adjacent(j + 1)
+                        && matches!(self.peek_at(j + 2), Some(TokenKind::Number(_)))
+                        && self.adjacent(j + 2)
+                        && self.text(j + 2).bytes().all(|b| b.is_ascii_digit())
+                    {
+                        let cell = self.cell(letters, self.text(j + 2), first_abs, true, pos)?;
+                        return Ok(Some((Atom::Cell(cell), j + 3)));
+                    }
+                    if self.peek_at(j + 1) == Some(&TokenKind::LParen) {
+                        return Ok(None);
+                    }
+                    return Ok(Some((
+                        Atom::Col {
+                            letters,
+                            abs: first_abs,
+                        },
+                        j + 1,
+                    )));
+                }
+                if !rest.bytes().all(|b| b.is_ascii_digit())
+                    || self.peek_at(j + 1) == Some(&TokenKind::LParen)
+                {
+                    return Ok(None);
+                }
+                let cell = self.cell(letters, rest, first_abs, false, pos)?;
+                Ok(Some((Atom::Cell(cell), j + 1)))
+            }
+            Some(TokenKind::Number(_)) if self.text(j).bytes().all(|b| b.is_ascii_digit()) => {
+                Ok(Some((
+                    Atom::Row {
+                        digits: self.text(j),
+                        abs: first_abs,
+                    },
+                    j + 1,
+                )))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn cell(
+        &self,
+        letters: &str,
+        digits: &str,
+        col_abs: bool,
+        row_abs: bool,
+        pos: usize,
+    ) -> Result<CellRef, ParseError> {
+        let col = letters_to_col(letters)
+            .filter(|&c| c <= MAX_COL)
+            .ok_or_else(|| ParseError::new(pos, format!("column `{letters}` out of range")))?;
+        let row = parse_row(digits)
+            .ok_or_else(|| ParseError::new(pos, format!("row `{digits}` out of range")))?;
+        Ok(CellRef {
+            col,
+            row,
+            col_abs,
+            row_abs,
+        })
+    }
+
+    /// After `:` at token `i`, finds the second atom, accepting a repeated
+    /// sheet prefix (`Sheet1!A1:Sheet1!B2`). Returns `None` if the right
+    /// side is not a plain atom.
+    fn second_atom(
+        &self,
+        i: usize,
+        sheet: &Option<String>,
+    ) -> Result<Option<(Atom<'a>, usize)>, ParseError> {
+        let mut j = i;
+        if let Some(TokenKind::SheetName(s2)) = self.peek_at(j) {
+            match sheet {
+                Some(s1) if s1.eq_ignore_ascii_case(s2) => {}
+                Some(_) => {
+                    return Err(ParseError::new(
+                        self.tokens[j].span.start,
+                        "ranges spanning different sheets are not supported",
+                    ))
+                }
+                None => return Ok(None),
+            }
+            if self.peek_at(j + 1) != Some(&TokenKind::Bang) {
+                return Ok(None);
+            }
+            j += 2;
+        }
+        self.atom(j)
+    }
+
+    /// Parses a reference at the current position. Returns `Ok(None)` (and
+    /// consumes nothing) if the tokens do not form a reference and no sheet
+    /// prefix was given.
+    fn reference(&mut self, sheet: Option<String>) -> Result<Option<Expr>, ParseError> {
+        let start = self.here();
+        let Some((first, next)) = self.atom(self.pos)? else {
+            return Ok(None);
+        };
+        let colon = self.peek_at(next) == Some(&TokenKind::Colon);
+        let second = if colon {
+            self.second_atom(next + 1, &sheet)?
+        } else {
+            None
+        };
+        let (kind, end) = match (first, second) {
+            (Atom::Cell(a), Some((Atom::Cell(b), end))) => (RangeKind::area(a, b), end),
+            (Atom::Cell(a), _) => (RangeKind::Cell(a), next),
+            (
+                Atom::Col {
+                    letters: l1,
+                    abs: a1,
+                },
+                Some((
+                    Atom::Col {
+                        letters: l2,
+                        abs: a2,
+                    },
+                    end,
+                )),
+            ) => {
+                let col = |l: &str, i: usize| {
+                    letters_to_col(l).filter(|&c| c <= MAX_COL).ok_or_else(|| {
+                        ParseError::new(
+                            self.tokens[i].span.start,
+                            format!("column `{l}` out of range"),
+                        )
+                    })
+                };
+                let c1 = col(l1, self.pos)?;
+                let c2 = col(l2, end - 1)?;
+                (
+                    RangeKind::Cols {
+                        start: c1.min(c2),
+                        end: c1.max(c2),
+                        abs: a1 && a2,
+                    },
+                    end,
+                )
+            }
+            (
+                Atom::Row {
+                    digits: d1,
+                    abs: a1,
+                },
+                Some((
+                    Atom::Row {
+                        digits: d2,
+                        abs: a2,
+                    },
+                    end,
+                )),
+            ) => {
+                let row = |d: &str, i: usize| {
+                    parse_row(d).ok_or_else(|| {
+                        ParseError::new(
+                            self.tokens[i].span.start,
+                            format!("row `{d}` out of range"),
+                        )
+                    })
+                };
+                let r1 = row(d1, self.pos)?;
+                let r2 = row(d2, end - 1)?;
+                (
+                    RangeKind::Rows {
+                        start: r1.min(r2),
+                        end: r1.max(r2),
+                        abs: a1 && a2,
+                    },
+                    end,
+                )
+            }
+            // A column or row on its own is not a reference.
+            _ => {
+                return if sheet.is_some() {
+                    Err(ParseError::new(
+                        start,
+                        "expected a cell, column or row reference",
+                    ))
+                } else {
+                    Ok(None)
+                };
+            }
+        };
+        self.pos = end;
+        Ok(Some(Expr::Reference(Reference { sheet, kind })))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cell(s: &str) -> Expr {
+        Expr::Reference(Reference {
+            sheet: None,
+            kind: RangeKind::Cell(CellRef::parse(s).unwrap()),
+        })
+    }
+
+    #[test]
+    fn precedence_structure() {
+        // -2^2 = (-2)^2
+        assert_eq!(
+            parse("=-2^2").unwrap(),
+            Expr::Binary {
+                op: BinaryOp::Pow,
+                lhs: Box::new(Expr::Unary {
+                    op: UnaryOp::Neg,
+                    expr: Box::new(Expr::Number(2.0))
+                }),
+                rhs: Box::new(Expr::Number(2.0)),
+            }
+        );
+        // 2^3^2 = (2^3)^2
+        let Expr::Binary { op, lhs, .. } = parse("2^3^2").unwrap() else {
+            panic!()
+        };
+        assert_eq!(op, BinaryOp::Pow);
+        assert!(matches!(
+            *lhs,
+            Expr::Binary {
+                op: BinaryOp::Pow,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn mixed_absolute_cells() {
+        assert_eq!(parse("A$1").unwrap(), cell("A$1"));
+        assert_eq!(parse("$A1").unwrap(), cell("$A1"));
+        assert_eq!(parse("$a$1").unwrap(), cell("$A$1"));
+    }
+
+    #[test]
+    fn functions_that_look_like_cells() {
+        assert_eq!(
+            parse("LOG10(100)").unwrap(),
+            Expr::Call {
+                name: "LOG10".into(),
+                args: vec![Expr::Number(100.0)]
+            }
+        );
+        assert_eq!(
+            parse("true()").unwrap(),
+            Expr::Call {
+                name: "TRUE".into(),
+                args: vec![]
+            }
+        );
+    }
+
+    #[test]
+    fn long_letter_idents_are_names() {
+        assert_eq!(parse("ABCD1").unwrap(), Expr::Name("ABCD1".into()));
+        assert_eq!(parse("abc").unwrap(), Expr::Name("abc".into()));
+    }
+
+    #[test]
+    fn error_display() {
+        let e = parse("=1+").unwrap_err();
+        assert_eq!(e.to_string(), "unexpected end of formula at position 3");
+    }
+}

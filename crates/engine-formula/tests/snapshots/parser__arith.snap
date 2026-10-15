@@ -1,0 +1,41 @@
+---
+source: crates/engine-formula/tests/parser.rs
+expression: "parse(\"=-2^2+A1%*3\").unwrap()"
+---
+Binary {
+    op: Add,
+    lhs: Binary {
+        op: Pow,
+        lhs: Unary {
+            op: Neg,
+            expr: Number(
+                2.0,
+            ),
+        },
+        rhs: Number(
+            2.0,
+        ),
+    },
+    rhs: Binary {
+        op: Mul,
+        lhs: Unary {
+            op: Percent,
+            expr: Reference(
+                Reference {
+                    sheet: None,
+                    kind: Cell(
+                        CellRef {
+                            col: 0,
+                            row: 0,
+                            col_abs: false,
+                            row_abs: false,
+                        },
+                    ),
+                },
+            ),
+        },
+        rhs: Number(
+            3.0,
+        ),
+    },
+}

@@ -1,0 +1,55 @@
+---
+source: crates/engine-formula/tests/parser.rs
+expression: "parse(\"=SUM(A1:B2, Sheet2!$C$3, IF(x,,\\\"y\\\"))\").unwrap()"
+---
+Call {
+    name: "SUM",
+    args: [
+        Reference(
+            Reference {
+                sheet: None,
+                kind: Area(
+                    CellRef {
+                        col: 0,
+                        row: 0,
+                        col_abs: false,
+                        row_abs: false,
+                    },
+                    CellRef {
+                        col: 1,
+                        row: 1,
+                        col_abs: false,
+                        row_abs: false,
+                    },
+                ),
+            },
+        ),
+        Reference(
+            Reference {
+                sheet: Some(
+                    "Sheet2",
+                ),
+                kind: Cell(
+                    CellRef {
+                        col: 2,
+                        row: 2,
+                        col_abs: true,
+                        row_abs: true,
+                    },
+                ),
+            },
+        ),
+        Call {
+            name: "IF",
+            args: [
+                Name(
+                    "x",
+                ),
+                Missing,
+                Text(
+                    "y",
+                ),
+            ],
+        },
+    ],
+}

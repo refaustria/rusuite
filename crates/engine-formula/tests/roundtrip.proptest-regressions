@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc cdbf88d4e29cf53c8d5d0723f55dd12238051905ff4ac6a58e1c897bd12dab25 # shrinks to ast = Binary { op: Add, lhs: Number(0.0), rhs: Unary { op: Neg, expr: Name("Pi2") } }
