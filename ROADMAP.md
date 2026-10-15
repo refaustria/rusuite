@@ -18,6 +18,12 @@ Captured here, **not implemented** unless essential to the current phase. README
 - proptest: Rgb → hex → Rgb roundtrip.
 - TS type generation (ts-rs vs specta, ADR 0002) must handle the `kind`/`value` enum shape.
 
+## fmt-ooxml
+- Lenient open mode (fallback content type `application/octet-stream`, keep unparseable `.rels` raw) for real-world files.
+- Preserve each part's original compression method; percent-decode relationship targets.
+- Part index (HashMap) if packages with thousands of parts become slow.
+- `PartName` helper to allocate the next free `/word/media/imageN.png`-style name.
+
 ## Formats
 - Compare rewritten files against Open XML SDK validator (Windows/.NET) in addition to LibreOffice – gives real "would Office repair this" signal.
 

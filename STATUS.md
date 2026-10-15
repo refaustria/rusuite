@@ -2,18 +2,31 @@
 
 _Maintained by the PM agent. Read at the start of every session; update after every task._
 
-## Current phase: Phase 0 – Foundation
+## Current phase: Phase 1 – Formula Engine (Phase 0 complete)
 
-Milestone: workspace + CI green, `fmt-ooxml` opens/writes OOXML packages, `core-model` has run formatting / colors / fonts / theme colors, roundtrip harness runs against LibreOffice headless, first ADRs written.
+### Phase 0 milestone – VERIFIED 2026-10-15 on main 6f474a3
+- `cargo fmt --all --check` OK; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace` 61 passed / 0 failed; `pnpm test` 1 passed.
+- `scripts/roundtrip.sh testdata` with the real rewriter (`fmt-ooxml` example): 5/5 PASS, 0 LibreOffice warnings. Only regenerated parts differ (`[Content_Types].xml`, `*.rels`): cosmetic (`standalone="yes"`, redundant Override entries dropped).
+- ADRs 0001–0003 in docs/adr/. Nothing pushed to origin (owner has not asked for pushes).
+
+### Phase 1 plan (README: lexer/parser, dependency graph, evaluator + types, function registry, reference test suite, parser proptests)
+Decision pending owner (see open questions): evaluation-semantics spec written by PM in the P1-2 brief and implemented by Opus, instead of a Fable agent.
 
 ## Task board
 
 | ID | Task | Model | State | Branch | Notes |
 |---|---|---|---|---|---|
+| P1-1 | `engine-formula` lexer + Pratt parser + AST + printer; A1/absolute/range/cross-sheet refs, operators incl. `&` `%` `^`, arrays, errors, names; proptest AST→text→AST roundtrip | Opus | todo | `p1/parser` | en-US syntax only (comma arg separator, dot decimal) |
+| P1-2 | Value type system + evaluator: Number/Text/Bool/Error/Array/Reference, coercion rules, error propagation, `CellProvider` trait, implicit intersection, range→array | Opus | todo | `p1/eval` | PM writes semantics spec in brief; depends on P1-1 |
+| P1-3 | Dependency graph + incremental recalc + circular detection (`#CIRC` → Excel reports 0 with warning; we return `Error::Circular`) | Opus | todo | `p1/depgraph` | depends on P1-1 (reference extraction) |
+| P1-4 | Function registry pattern (one function per file, arg spec, lazy args for IF) + `docs/functions.md` with the ~60-function list | Opus | todo | `p1/registry` | depends on P1-2 |
+| P1-5a/b/c/d | Function batches: math+stats / logical+info / text / lookup+date | Sonnet ×3 parallel | todo | `p1/fn-*` | each batch: tests with reference values from `testdata/formulas/` |
+| P1-6 | Reference test suite format (`testdata/formulas/*.tsv`: formula, expected, note) + runner test; provisional values computed with LibreOffice headless, marked provisional | Sonnet | todo | `p1/testsuite` | need Excel-computed values from owner |
+| P1-7 | `examples/repl.rs` as in README | Sonnet | todo | `p1/repl` | |
 | P0-1 | Workspace scaffold: Cargo workspace (all crates as stubs), pnpm workspace, fmt/clippy config, `pnpm test` placeholder, CI workflow, .gitignore, LICENSE | Sonnet | done (merged f07e101) | – | verified: fmt/clippy/test/pnpm test all green |
-| P0-2 | `fmt-ooxml`: open ZIP package, parse `[Content_Types].xml` + `_rels`, generic XML helpers, write package back byte-stable | Opus | in progress | `p0/fmt-ooxml` | worktree rusuite-wt/p0-fmt-ooxml; testdata glob test tolerates empty dir until P0-5 merges |
+| P0-2 | `fmt-ooxml`: open ZIP package, parse `[Content_Types].xml` + `_rels`, generic XML helpers, write package back byte-stable | Opus | done (merged 6f474a3) | – | verified: 27 tests + testdata roundtrip over 5 files; harness 5/5 PASS with real rewriter |
 | P0-3 | `core-model`: run formatting, colors (RGB/theme/auto), font definitions, theme colors, serde derive | Opus | done (merged ab330bb) | – | verified: 18 unit + 6 snapshot tests; brief's black-tint refs corrected by agent (Excel 'Black, Lighter N%' = 0D0D0D/262626/404040/595959/808080) |
-| P0-4 | Roundtrip harness: `scripts/roundtrip.sh` + `xtask roundtrip` – read → write → open in headless LibreOffice → count errors/warnings; reports per file | Sonnet | done (merged 42b68e2) | – | verified: 5/5 PASS in `--identity` mode, shellcheck clean; must re-run with real rewriter after P0-2 |
+| P0-4 | Roundtrip harness: `scripts/roundtrip.sh` + `xtask roundtrip` – read → write → open in headless LibreOffice → count errors/warnings; reports per file | Sonnet | done (merged 42b68e2) | – | verified: 5/5 PASS with real rewriter after P0-2 merge |
 | P0-5 | Provisional reference files in `testdata/{docx,xlsx,pptx}` generated with LibreOffice headless | Sonnet | done (merged 42b68e2) | – | 5 PROVISIONAL files from LibreOffice 25.2 (see testdata/README.md); need real-Office files from owner |
 | P0-6 | ADRs: 0001 Rust owns the document model, 0002 IPC strategy, 0003 workspace/crate layout | PM | done (28000c6) | – | 0001 model ownership, 0002 IPC, 0003 crate layout |
 | P0-7 | `docs/setup.md` – what was installed on the dev server | PM | done (28000c6) | – | |
@@ -24,6 +37,7 @@ Milestone: workspace + CI green, `fmt-ooxml` opens/writes OOXML packages, `core-
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+6. 2026-10-15: Phase 0 milestone verified and closed. Phase 1 begins; P1-1 (parser) starts first, P1-6 (test suite format) in parallel since it does not depend on the parser.
 5. 2026-10-15: Agents work in `git worktree`s under `/home/bojan/rusuite-wt/<branch>` so parallel tasks never share a checkout. Task briefs are committed under `docs/tasks/` (copied from the PM scratchpad) so they survive context loss.
 1. 2026-10-15: Git identity for commits set locally to `Bojan <bojan@referee.at>` (previous commits were by `refaustria`). Change with `git config user.*` if wrong.
 2. 2026-10-15: Phase 0 split into 7 tasks; P0-1 runs first, then P0-2/3/4 in parallel.
@@ -31,6 +45,8 @@ Milestone: workspace + CI green, `fmt-ooxml` opens/writes OOXML packages, `core-
 4. 2026-10-15: Roundtrip harness verification = LibreOffice headless `--convert-to` of the rewritten file succeeds and the output is non-empty, plus a structural diff of the ZIP part list and XML against the original. (LibreOffice has no "repair dialog" counter in headless mode; a failed/empty conversion is the proxy.)
 
 ## Open questions for the owner
+- **Phase 1 model choice:** the owner's instructions list "the formula engine's evaluation semantics" as a Fable-tier decision. My plan: I write the semantics spec (coercions, error propagation, array/range handling, empty-cell rules) into the P1-2 brief and have Opus implement it. If you prefer a Fable agent for P1-2, say so; otherwise I proceed with the plan.
+- **Excel reference values for formulas:** `testdata/formulas/` needs expected results computed in real Excel. I will seed provisional values from LibreOffice Calc; please run the generated `.xlsx` through Excel when you can (I will produce one file with all test formulas in a column, so Excel's recalculated values can be exported).
 - Reference files: `testdata/` is empty. I am generating PROVISIONAL files with LibreOffice. Please provide real-Office files when you can: a small `.docx` (headings, bold/italic runs, list, table, image), a `.xlsx` (2 sheets, numbers/text/dates, a few formulas, styled cells), a `.pptx` (3 slides, title/content layouts, shapes, image).
 - Git identity (see decision 1).
 
