@@ -1,0 +1,10 @@
+# Task P7-2 – Show bugs from the e2e suite + Calc leftovers
+
+Branch `p7/fixes-1`, worktree `/home/bojan/rusuite-wt/p7-fixes-1`. Scope: `apps/show/src/**`, `apps/calc/src/**`, `apps/calc/core/src/**`, `crates/engine-formula/src/functions/text/numfmt.rs` (+ tests), `packages/e2e/tests/**` (un-fixme + new tests), `docs/shortcuts.md`. Up to 3 commits.
+1. **Show: editor blank after Export PDF** (`packages/e2e` test marked `test.fixme`): `useElementSize` in `apps/show/src/App.tsx` measures once; make it observe with `ResizeObserver` (and re-measure on remount) so the stage comes back; un-fixme the test.
+2. **Show: Insert › Shapes gallery buttons overlap** (32 px buttons ~7.5 px apart): fix the gallery layout in the Show ribbon config / `RibbonGallery` usage so a real click hits the right shape; change the e2e workaround (`dispatchEvent("click")`) back to a real click.
+3. **Calc: references to cut-moved cells** – when a cut range is pasted, formulas elsewhere that reference cells inside the source range must follow (Excel). Implement in calc-core `PasteRange { cut: true }` via `engine_formula::transform`: add `adjust_references_for_move(expr, host_sheet, src_rect, dst_offset, sheet names)` (new pure function in `transform.rs`, tests) and rewrite all formulas in the workbook referencing the moved cells (and their text). Undo restores the original texts.
+4. **Calc: Ctrl+D / Ctrl+R** fill down/right over the selection using `FillRange { mode: copy }` from the first row/column; add to the shortcut map and help.
+5. **Engine number formats: `AM/PM` and `[h]`** in `numfmt.rs` (`h:mm AM/PM`, `hh:mm:ss am/pm`, `[h]:mm:ss` elapsed hours, `[mm]:ss`), with tests; re-enable those formats in the Calc Format Cells dialog's Time category.
+6. **Calc: long General integers** – when a General number does not fit, switch to Excel's scientific form (`1.2E+12`) before falling back to `####` (frontend `textLayout.ts`), with tests.
+Acceptance: all suites green (`pnpm test`, `pnpm e2e` locally with ≥ 2 new e2e tests: Show export-PDF comes back; Calc Ctrl+D), cargo checks, harnesses unchanged.
