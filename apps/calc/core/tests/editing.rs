@@ -388,7 +388,8 @@ fn cut_onto_an_overlapping_range() {
     .unwrap();
     let col: Vec<String> = (0..4).map(|r| input(&h, 0, r, 0)).collect();
     assert_eq!(col, ["", "1", "2", "3"]);
-    assert_eq!(display(&h, 0, 0, 1), "0"); // B1 = A1*10 (not adjusted)
+    assert_eq!(input(&h, 0, 0, 1), "=A2*10"); // B1 follows the moved A1
+    assert_eq!(display(&h, 0, 0, 1), "10");
 }
 
 #[test]
@@ -411,6 +412,61 @@ fn cut_to_another_sheet_undoes_both_sheets() {
     h.undo().unwrap();
     assert_eq!(input(&h, 1, 0, 0), "");
     assert_eq!(input(&h, 0, 0, 0), "1");
+}
+
+#[test]
+fn cut_moves_references_to_the_moved_cells() {
+    let mut h = numbers();
+    set(&mut h, 0, 0, 2, "=SUM(A1:A2)+A3"); // C1
+    set(&mut h, 1, 0, 0, "=Sheet1!A2*2"); // Sheet2!A1
+    set(&mut h, 0, 5, 0, "=A1"); // A6
+                                 // Move A1:A2 to D10:D11.
+    let cells = vec![clip(0, 0, "1", Some(0)), clip(1, 0, "2", Some(0))];
+    h.apply(paste(
+        0,
+        9,
+        3,
+        src(0, 0, 0, 1, 0),
+        cells,
+        PasteMode::All,
+        true,
+        (1, 1),
+    ))
+    .unwrap();
+    assert_eq!(input(&h, 0, 0, 1), "=D10*10");
+    assert_eq!(input(&h, 0, 0, 2), "=SUM(D10:D11)+A3");
+    assert_eq!(display(&h, 0, 0, 2), "6");
+    assert_eq!(input(&h, 1, 0, 0), "=Sheet1!D11*2");
+    assert_eq!(display(&h, 1, 0, 0), "4");
+    assert_eq!(input(&h, 0, 5, 0), "=D10");
+    h.undo().unwrap();
+    assert_eq!(input(&h, 0, 0, 1), "=A1*10");
+    assert_eq!(input(&h, 0, 0, 2), "=SUM(A1:A2)+A3");
+    assert_eq!(input(&h, 1, 0, 0), "=Sheet1!A2*2");
+    assert_eq!(input(&h, 0, 5, 0), "=A1");
+    assert_eq!(input(&h, 0, 0, 0), "1");
+    h.redo().unwrap();
+    assert_eq!(input(&h, 0, 0, 2), "=SUM(D10:D11)+A3");
+}
+
+#[test]
+fn cut_formulas_to_another_sheet_keep_their_targets() {
+    let mut h = numbers();
+    // Move A1:B1 (1, =A1*10) to Sheet2!C3:D3; A2*1 elsewhere stays.
+    let cells = vec![clip(0, 0, "1", Some(0)), clip(0, 1, "=A1*10+A2", Some(0))];
+    h.apply(paste(
+        1,
+        2,
+        2,
+        src(0, 0, 0, 0, 1),
+        cells,
+        PasteMode::All,
+        true,
+        (1, 1),
+    ))
+    .unwrap();
+    assert_eq!(input(&h, 1, 2, 3), "=C3*10+Sheet1!A2");
+    assert_eq!(display(&h, 1, 2, 3), "12");
 }
 
 #[test]

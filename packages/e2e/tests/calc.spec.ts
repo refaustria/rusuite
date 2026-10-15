@@ -68,6 +68,41 @@ test.describe("Calc", () => {
     errors.expectNone();
   });
 
+  test("Ctrl+D fills the selection down from its first row, Ctrl+R right from its first column", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "5");
+    await grid.type(0, 1, "=A1*2");
+    await grid.click(0, 0);
+    await grid.click(3, 1, { shift: true });
+    await expect(page.getByTestId("cell-address")).toHaveText("A1:B4");
+    await page.keyboard.press("Control+d");
+    expect(await grid.input(3, 1)).toBe("=A4*2");
+    expect(await grid.display(3, 1)).toBe("10");
+    expect(await grid.input(3, 0)).toBe("5");
+    await grid.click(0, 1);
+    await grid.click(0, 2, { shift: true });
+    await page.keyboard.press("Control+r");
+    expect(await grid.input(0, 2)).toBe("=B1*2");
+    expect(await grid.display(0, 2)).toBe("20");
+    errors.expectNone();
+  });
+
+  test("cut and paste: formulas referring to the moved cells follow them", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "7");
+    await grid.type(0, 2, "=A1+1");
+    await grid.click(0, 0);
+    await page.keyboard.press("Control+x");
+    await grid.click(4, 4);
+    await page.keyboard.press("Control+v");
+    expect(await grid.input(4, 4)).toBe("7");
+    expect(await grid.input(0, 2)).toBe("=E5+1");
+    expect(await grid.display(0, 2)).toBe("8");
+  });
+
   test("switching sheets shows the other sheet's cells", async ({ page }) => {
     await openCalc(page);
     await openViaBackstage(page, testdata("xlsx/provisional-basic.xlsx"));

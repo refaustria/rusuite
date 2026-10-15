@@ -205,17 +205,19 @@ export function ShowRibbon({ store, session, onPresent, onExportPdf, zoom, onZoo
       onClick={() => addSlide("titleContent")}
       menuLabel="Slide layouts"
       menu={(close) => (
-        <RibbonGallery
-          label="Slide layouts"
-          items={LAYOUT_ITEMS}
-          columns={3}
-          itemClassName="h-16 w-24 p-1"
-          autoFocus
-          onSelect={(id) => {
-            close();
-            addSlide(id);
-          }}
-        />
+        <div className="w-max">
+          <RibbonGallery
+            label="Slide layouts"
+            items={LAYOUT_ITEMS}
+            columns={3}
+            itemClassName="h-16 w-24 p-1"
+            autoFocus
+            onSelect={(id) => {
+              close();
+              addSlide(id);
+            }}
+          />
+        </div>
       )}
     />
   );
@@ -421,16 +423,29 @@ export function ShowRibbon({ store, session, onPresent, onExportPdf, zoom, onZoo
       {
         label: "Illustrations",
         items: (
-          <RibbonGallery
+          // A menu button around an inline gallery in a `w-max` box: the popup is anchored to the narrow trigger, so
+          // the gallery's auto-sized columns would otherwise shrink and its buttons overlap.
+          <RibbonMenuButton
             label="Shapes"
-            variant="dropdown"
             icon="shapes"
-            items={SHAPE_ITEMS}
-            columns={5}
-            hideLabels
-            itemClassName="h-8 w-8"
+            size="large"
             disabled={!hasSlide}
-            onSelect={(id) => void insertShape(id as ShapeChoice)}
+            menu={(close) => (
+              <div className="w-max">
+                <RibbonGallery
+                  label="Shapes"
+                  items={SHAPE_ITEMS}
+                  columns={5}
+                  hideLabels
+                  itemClassName="h-8 w-8"
+                  autoFocus
+                  onSelect={(id) => {
+                    close();
+                    void insertShape(id as ShapeChoice);
+                  }}
+                />
+              </div>
+            )}
           />
         ),
       },

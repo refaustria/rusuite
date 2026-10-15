@@ -50,6 +50,10 @@ export function calcActions(store: CalcStore) {
     deleteRows: () => store.structure("delete", "rows"),
     deleteCols: () => store.structure("delete", "cols"),
     clearContents: () => store.clearSelection(),
+    /** Ctrl+D: copy the first row of the selection down. */
+    fillDown: () => store.fillCopy("down"),
+    /** Ctrl+R: copy the first column of the selection right. */
+    fillRight: () => store.fillCopy("right"),
     /** Ctrl+1: Format Cells (number format). */
     formatCells: () => store.openDialog({ kind: "numberFormat" }),
     find: () => store.openDialog({ kind: "find", replace: false }),

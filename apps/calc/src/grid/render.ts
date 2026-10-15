@@ -188,7 +188,8 @@ export function computeRenderOps(
       let text = cell.display.includes("\n") ? cell.display.replace(/\n/g, " ") : cell.display;
       if (cell.kind === "number") {
         if (c < vis.c0 || c > vis.c1) continue;
-        text = fitNumber(text, avail, t.font, measure);
+        const code = style.numberFormat;
+        text = fitNumber(text, avail, t.font, measure, !code || code.trim().toLowerCase() === "general");
         texts.push({ ...base, text, clipX: x, clipW: w });
         continue;
       }

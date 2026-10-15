@@ -116,7 +116,8 @@ pub enum CalcCommand {
     /// (relative parts move, `$` parts stay), except for a `cut`, which
     /// moves the cells: formulas keep their text and the source cells not
     /// overwritten are cleared (contents and formats). References to the
-    /// moved cells elsewhere are not adjusted (yet).
+    /// moved cells, in the moved formulas and anywhere in the workbook,
+    /// follow them (undo restores the original formula texts).
     PasteRange {
         sheet: u32,
         r0: u32,

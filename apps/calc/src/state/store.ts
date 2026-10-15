@@ -1056,6 +1056,28 @@ export class CalcStore {
     return this.apply({ type: "fillRange", sheet, src, dst, mode });
   }
 
+  /**
+   * Ctrl+D / Ctrl+R: copies the selection's first row down (`"down"`) or its first column right (`"right"`) over the
+   * rest of it; a single row (column) is filled from the row above (column to the left), as in Excel. The selection
+   * stays.
+   */
+  fillCopy(direction: "down" | "right"): Promise<void> {
+    const sheet = this.state.activeSheet;
+    const r = clipRange(normalize(this.state.selection), this.cache(sheet));
+    let src: Rect;
+    let dst: Rect;
+    if (direction === "down") {
+      if (r.r0 === r.r1 && r.r0 === 0) return Promise.resolve();
+      src = r.r0 === r.r1 ? { ...r, r0: r.r0 - 1, r1: r.r0 - 1 } : { ...r, r1: r.r0 };
+      dst = r.r0 === r.r1 ? r : { ...r, r0: r.r0 + 1 };
+    } else {
+      if (r.c0 === r.c1 && r.c0 === 0) return Promise.resolve();
+      src = r.c0 === r.c1 ? { ...r, c0: r.c0 - 1, c1: r.c0 - 1 } : { ...r, c1: r.c0 };
+      dst = r.c0 === r.c1 ? r : { ...r, c0: r.c0 + 1 };
+    }
+    return this.apply({ type: "fillRange", sheet, src, dst, mode: "copy" });
+  }
+
   /** Double-click on the fill handle: fills down to the end of the neighbouring column's data. */
   fillToData(mode: FillMode = "auto"): Promise<void> {
     const src = normalize(this.state.selection);

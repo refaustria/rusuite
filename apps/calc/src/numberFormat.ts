@@ -20,8 +20,8 @@ export const SYMBOLS: CurrencySymbol[] = ["€", "$", "£"];
 
 /** Date formats offered (the engine's format support decides the list). */
 export const DATE_CODES = ["yyyy-mm-dd", "dd.mm.yyyy", "m/d/yyyy", "d-mmm-yy", "mmmm d, yyyy"];
-/** Time formats offered (AM/PM and `[h]` are not supported by the engine yet). */
-export const TIME_CODES = ["h:mm", "h:mm:ss", "hh:mm:ss", "mm:ss"];
+/** Time formats offered (12-hour clock and elapsed time included). */
+export const TIME_CODES = ["h:mm", "h:mm:ss", "hh:mm:ss", "mm:ss", "h:mm AM/PM", "h:mm:ss AM/PM", "[h]:mm:ss", "[mm]:ss"];
 
 export interface FormatChoice {
   category: FormatCategory;
