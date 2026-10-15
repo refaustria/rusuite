@@ -11,6 +11,7 @@ use model_show::{
     Presentation, Preset, Shape, ShapeKind, Slide, SlideSize, TextBody, Transform,
 };
 
+use crate::anim::{read_slide_transition, read_timing};
 use crate::drawing::{
     read_color, read_fill, read_line, read_text_body, read_xfrm, Space, Xfrm, STYLE_LINE_WIDTHS,
 };
@@ -411,21 +412,30 @@ impl Reader<'_> {
             layout,
             info: &info,
         };
+        // Shapes come back carrying their `p:cNvPr/@id`; map those to the
+        // node ids we assign (for animation targets).
+        let mut spids = HashMap::new();
         if let Some(tree) = tree {
             let mut shapes = self.read_tree(tree, Space::SLIDE, &ctx);
             for s in &mut shapes {
-                self.p.assign_ids(s);
+                assign_ids(self.p, s, &mut spids);
             }
             slide.shapes = shapes;
         }
-        for el in root.elements() {
-            match el.name.as_str() {
-                "transition" => self.w.add("slide transitions dropped"),
-                "timing" => self.w.add("animations dropped"),
-                "AlternateContent" if el.find("transition").is_some() => {
-                    self.w.add("slide transitions dropped");
-                }
-                _ => {}
+        slide.transition = read_slide_transition(&root, self.w);
+        let timing = root.child("timing").or_else(|| {
+            root.elements()
+                .filter(|e| e.name == "AlternateContent")
+                .find_map(|e| {
+                    e.child("Fallback")
+                        .or_else(|| e.child("Choice"))
+                        .and_then(|b| b.child("timing"))
+                })
+        });
+        if let Some(timing) = timing {
+            slide.animations = read_timing(timing, &spids, self.w);
+            for a in &mut slide.animations {
+                a.id = self.p.alloc_id();
             }
         }
         self.p.slides.push(slide);
@@ -613,7 +623,7 @@ impl Reader<'_> {
             text = None;
         }
         Some(Shape {
-            id: NodeId(0),
+            id: file_id(el),
             alt: alt_of(el),
             name,
             transform,
@@ -679,7 +689,7 @@ impl Reader<'_> {
             .unwrap_or(Fill::None);
         let line = read_line(sp_pr.and_then(|s| s.child("ln")), style.line, self.w);
         Some(Shape {
-            id: NodeId(0),
+            id: file_id(el),
             alt: alt_of(el),
             name,
             transform: space.map(&read_xfrm(xfrm)),
@@ -754,7 +764,7 @@ impl Reader<'_> {
         let style = read_style(el.child("style"), self.w);
         let line = read_line(sp_pr.and_then(|s| s.child("ln")), style.line, self.w);
         Some(Shape {
-            id: NodeId(0),
+            id: file_id(el),
             alt: alt_of(el),
             name,
             transform,
@@ -781,7 +791,7 @@ impl Reader<'_> {
         let inner = Space::child_space(&transform, &xf);
         let children = self.read_tree(el, inner, ctx);
         Some(Shape {
-            id: NodeId(0),
+            id: file_id(el),
             alt: alt_of(el),
             name,
             transform,
@@ -790,6 +800,36 @@ impl Reader<'_> {
             line: Line::default(),
             placeholder: None,
         })
+    }
+}
+
+/// `p:cNvPr/@id` of a shape element as a provisional node id (0 if
+/// missing); [`assign_ids`] replaces it.
+fn file_id(shape: &El) -> NodeId {
+    let id = shape
+        .elements()
+        .find(|e| e.name.starts_with("nv"))
+        .and_then(|nv| nv.child("cNvPr"))
+        .and_then(|c| c.attr("id"))
+        .and_then(parse_u32)
+        .unwrap_or(0);
+    NodeId(u64::from(id))
+}
+
+/// Gives `shape` and its descendants fresh ids (like
+/// [`Presentation::assign_ids`]), recording file shape id → node id (the
+/// first shape wins when a file repeats an id).
+fn assign_ids(p: &mut Presentation, shape: &mut Shape, map: &mut HashMap<u32, NodeId>) {
+    let file = u32::try_from(shape.id.0).unwrap_or(0);
+    shape.id = p.alloc_id();
+    shape.fill_default_name();
+    if file != 0 {
+        map.entry(file).or_insert(shape.id);
+    }
+    if let ShapeKind::Group { children } = &mut shape.kind {
+        for c in children {
+            assign_ids(p, c, map);
+        }
     }
 }
 

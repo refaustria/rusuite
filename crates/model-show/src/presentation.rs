@@ -5,6 +5,7 @@ use core_model::units::Emu;
 use core_model::Theme;
 use serde::{Deserialize, Serialize};
 
+use crate::anim::Animation;
 use crate::layout::{Layout, LayoutKind};
 use crate::shape::{Shape, ShapeKind};
 use crate::slide::{find_in, Slide};
@@ -140,13 +141,23 @@ impl Presentation {
     }
 
     /// Inserts a deep copy of slide `id` right after it, with fresh ids for
-    /// the slide and all its shapes. Returns the copy's id.
+    /// the slide, all its shapes and its animations (which target the
+    /// copied shapes). Returns the copy's id.
     pub fn duplicate_slide(&mut self, id: NodeId) -> Result<NodeId> {
         let index = self.slide_index(id).ok_or(Error::UnknownSlide(id))?;
         let mut copy = self.slides[index].clone();
         copy.id = self.alloc_id();
+        let old = shape_ids(&copy.shapes);
         for shape in &mut copy.shapes {
             self.assign_ids(shape);
+        }
+        let map: std::collections::HashMap<NodeId, NodeId> =
+            old.into_iter().zip(shape_ids(&copy.shapes)).collect();
+        for a in &mut copy.animations {
+            a.id = self.alloc_id();
+            if let Some(&new) = map.get(&a.shape) {
+                a.shape = new;
+            }
         }
         let new_id = copy.id;
         self.slides.insert(index + 1, copy);
@@ -189,6 +200,22 @@ impl Presentation {
     /// Mutable access to the slide with id `id`.
     pub fn slide_mut(&mut self, id: NodeId) -> Option<&mut Slide> {
         self.slides.iter_mut().find(|s| s.id == id)
+    }
+
+    /// The animation with id `id` and its slide.
+    pub fn find_animation(&self, id: NodeId) -> Option<(&Slide, &Animation)> {
+        self.slides.iter().find_map(|slide| {
+            slide
+                .animations
+                .iter()
+                .find(|a| a.id == id)
+                .map(|a| (slide, a))
+        })
+    }
+
+    /// Checks every slide ([`Slide::validate`]).
+    pub fn validate(&self) -> Result<()> {
+        self.slides.iter().try_for_each(Slide::validate)
     }
 
     /// The shape with id `id` (searching inside groups) and its slide.
@@ -267,7 +294,105 @@ impl Presentation {
         for slide in &self.slides {
             max = max.max(slide.id.0);
             walk(&slide.shapes, &mut max);
+            for a in &slide.animations {
+                max = max.max(a.id.0);
+            }
         }
         max
+    }
+}
+
+/// Ids of `shapes` and their descendants, depth-first (a group before its
+/// children).
+pub(crate) fn shape_ids(shapes: &[Shape]) -> Vec<NodeId> {
+    fn walk(shapes: &[Shape], out: &mut Vec<NodeId>) {
+        for s in shapes {
+            out.push(s.id);
+            walk(s.children(), out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(shapes, &mut out);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::anim::{AnimationKind, Effect, Transition, TransitionKind};
+    use crate::shape::{Preset, Transform};
+
+    #[test]
+    fn duplicate_slide_remaps_animations() {
+        let mut p = Presentation::empty(SlideSize::widescreen());
+        let s = p.add_slide(LayoutKind::Blank);
+        let a = p
+            .add_shape(s, Shape::auto(Preset::Rect, Transform::default()))
+            .unwrap();
+        let g = p
+            .add_shape(
+                s,
+                Shape::group(vec![Shape::auto(Preset::Ellipse, Transform::default())]),
+            )
+            .unwrap();
+        let child = p.slide(s).unwrap().shapes[1].children()[0].id;
+        let mut anim = Animation::new(a, AnimationKind::Entrance, Effect::Fade);
+        anim.id = p.alloc_id();
+        let mut anim2 = Animation::new(child, AnimationKind::Emphasis, Effect::Spin);
+        anim2.id = p.alloc_id();
+        {
+            let slide = p.slide_mut(s).unwrap();
+            slide.animations = vec![anim, anim2];
+            slide.transition = Some(Transition::new(TransitionKind::Fade));
+        }
+        p.validate().unwrap();
+        let copy = p.duplicate_slide(s).unwrap();
+        p.validate().unwrap();
+        let c = p.slide(copy).unwrap();
+        assert_eq!(c.transition, Some(Transition::new(TransitionKind::Fade)));
+        assert_eq!(c.animations[0].shape, c.shapes[0].id);
+        assert_eq!(c.animations[1].shape, c.shapes[1].children()[0].id);
+        assert_ne!(c.animations[0].id, anim.id);
+        assert_ne!(c.shapes[1].id, g);
+        assert_eq!(p.find_animation(c.animations[1].id).unwrap().0.id, copy);
+        // ids survive a snapshot round trip and the counter skips them
+        let max = c.animations[1].id;
+        let mut back = Presentation::from_json(&p.to_json().unwrap()).unwrap();
+        assert_eq!(back, p);
+        assert!(back.alloc_id() > max);
+    }
+
+    #[test]
+    fn validation_and_pruning() {
+        let mut p = Presentation::empty(SlideSize::widescreen());
+        let s = p.add_slide(LayoutKind::Blank);
+        let a = p
+            .add_shape(s, Shape::auto(Preset::Rect, Transform::default()))
+            .unwrap();
+        let mut anim = Animation::new(a, AnimationKind::Exit, Effect::FlyIn);
+        anim.id = p.alloc_id();
+        let slide = p.slide_mut(s).unwrap();
+        slide.animations.push(anim);
+        assert!(slide.validate().is_ok());
+        slide.animations.push(anim);
+        assert!(matches!(slide.validate(), Err(Error::InvalidSlide { .. })));
+        slide.animations[1].id = NodeId(99);
+        slide.animations[1].shape = NodeId(98);
+        let err = slide.validate().unwrap_err().to_string();
+        assert!(err.contains("not on the slide"), "{err}");
+        slide.animations[1].shape = a;
+        slide.animations[1].effect = Effect::GrowShrink;
+        assert!(slide.validate().is_err());
+        slide.animations[1].effect = Effect::Fade;
+        assert!(slide.validate().is_ok());
+        let mut t = Transition::new(TransitionKind::Fade);
+        t.direction = Some(crate::anim::Direction::Up);
+        slide.transition = Some(t);
+        assert!(slide.validate().is_err());
+        slide.transition = None;
+        assert_eq!(slide.prune_animations(), 0);
+        slide.shapes.clear();
+        assert_eq!(slide.prune_animations(), 2);
+        assert!(slide.animations.is_empty());
     }
 }

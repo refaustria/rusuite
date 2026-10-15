@@ -1,4 +1,4 @@
-"""Generator for the PROVISIONAL pptx reference suite (25 decks).
+"""Generator for the PROVISIONAL pptx reference suite (27 decks).
 
 Emits one flat ODP (.fodp) per topic plus manifest.json. Conversion to .pptx is done by
 scripts/gen-pptx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
@@ -22,6 +22,8 @@ NS = (
     'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" '
     'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" '
     'xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0" '
+    'xmlns:smil="urn:oasis:names:tc:opendocument:xmlns:smil-compatible:1.0" '
+    'xmlns:anim="urn:oasis:names:tc:opendocument:xmlns:animation:1.0" '
     'office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.presentation"'
 )
 SIZES = {"16x9": (28.0, 15.75), "4x3": (25.4, 19.05)}
@@ -43,6 +45,7 @@ class Deck:
         self.styles = {}
         self.names = {}
         self.slides = []  # list of (xml-list, bgstyle)
+        self.anims = []  # per slide: list of (node-type, duration s, effect xml)
         self.cur = None
         self.layouts = []
         self.counts = {}
@@ -70,14 +73,120 @@ class Deck:
         return self.names[key]
 
     # ---- slides ----
-    def slide(self, layout, bg=None):
+    # ODF transition (smil type, subtype, extra) per manifest name; LibreOffice exports them as
+    # p:fade, p:push dir="l", p:wipe dir="r", p:cover dir="l", p:split orient="vert" dir="in".
+    TRANSITIONS = {
+        "fade": ("fade", "crossfade", ""),
+        "push": ("pushWipe", "fromRight", ""),
+        "wipe": ("barWipe", "leftToRight", ""),
+        "cover": ("slideWipe", "fromRight", ""),
+        "split": ("barnDoorWipe", "vertical", ' smil:direction="reverse"'),
+    }
+
+    def slide(self, layout, bg=None, transition=None, advance=None):
+        """transition: key of TRANSITIONS; advance: seconds until the slide advances by itself."""
         self.cur = []
         st = None
+        a = []
         if bg:
-            st = self.style("drawing-page", f'<style:drawing-page-properties draw:fill="solid" draw:fill-color="#{bg}"/>', "dp")
+            a.append(f'draw:fill="solid" draw:fill-color="#{bg}"')
             self.feat("background:solid")
+        if transition:
+            typ, sub, extra = self.TRANSITIONS[transition]
+            a.append(f'smil:type="{typ}" smil:subtype="{sub}"{extra}')
+            self.feat(f"transition:{transition}")
+        if advance:
+            a.append(f'presentation:transition-type="automatic" presentation:duration="PT{advance}S"')
+            self.feat("transition:advance")
+        if a:
+            st = self.style("drawing-page", f'<style:drawing-page-properties {" ".join(a)}/>', "dp")
         self.slides.append((self.cur, st))
+        self.anims.append([])
         self.layouts.append(layout)
+
+    # ---- animations (LibreOffice presets, see effects.xml; exported as PowerPoint presets) ----
+    FLY = {"bottom": ("x;x", "1+height/2;y"), "top": ("x;x", "0-height/2;y"),
+           "left": ("0-width/2;x", "y;y"), "right": ("1+width/2;x", "y;y")}
+    WIPE = {"bottom": ("topToBottom", True), "top": ("topToBottom", False),
+            "left": ("leftToRight", False), "right": ("leftToRight", True)}
+
+    def animate(self, target, cls, effect, trigger="on-click", side="bottom", dur=0.5):
+        """Appends an effect on shape `target` (a draw:id) to the current slide's main sequence.
+        cls: entrance|emphasis|exit; effect: appear|fade|flyIn|wipe|zoom|spin|growShrink."""
+        t = f'smil:targetElement="{target}"'
+
+        def vis(to, begin="0s"):
+            return (f'<anim:set smil:begin="{begin}" smil:dur="0.001s" smil:fill="hold" {t} '
+                    f'smil:attributeName="visibility" smil:to="{to}"/>')
+
+        def an(attr, values):
+            return (f'<anim:animate smil:dur="{dur}s" smil:fill="hold" {t} smil:attributeName="{attr}" '
+                    f'smil:values="{values}" smil:keyTimes="0;1"/>')
+
+        def tf(typ, sub, extra=""):
+            return f'<anim:transitionFilter smil:dur="{dur}s" {t} smil:type="{typ}" smil:subtype="{sub}"{extra}/>'
+
+        out = ' smil:mode="out"'
+        hide = vis("hidden", f"{dur - 0.001:.3f}s")
+        sub = None
+        if cls == "entrance":
+            body = {
+                "appear": lambda: ("ooo-entrance-appear", vis("visible")),
+                "fade": lambda: ("ooo-entrance-fade-in", vis("visible") + tf("fade", "crossfade")),
+                "flyIn": lambda: ("ooo-entrance-fly-in", vis("visible") + an("x", self.FLY[side][0]) + an("y", self.FLY[side][1])),
+                "wipe": lambda: ("ooo-entrance-wipe", vis("visible") + tf("barWipe", self.WIPE[side][0], ' smil:direction="reverse"' if self.WIPE[side][1] else "")),
+                "zoom": lambda: ("ooo-entrance-fade-in-and-zoom", vis("visible") + an("width", "0;width") + an("height", "0;height") + tf("fade", "crossfade")),
+            }[effect]
+            if effect in ("flyIn", "wipe"):
+                sub = f"from-{side}"
+        elif cls == "exit":
+            back = lambda v: ";".join(reversed(v.split(";")))  # noqa: E731
+            body = {
+                "appear": lambda: ("ooo-exit-disappear", vis("hidden")),
+                "fade": lambda: ("ooo-exit-fade-out", tf("fade", "crossfade", out) + hide),
+                "flyIn": lambda: ("ooo-exit-fly-out", an("x", back(self.FLY[side][0])) + an("y", back(self.FLY[side][1])) + hide),
+                "wipe": lambda: ("ooo-exit-wipe", tf("barWipe", self.WIPE[side][0], out + (' smil:direction="reverse"' if self.WIPE[side][1] else "")) + hide),
+                "zoom": lambda: ("ooo-exit-fade-out-and-zoom", an("width", "width;0") + an("height", "height;0") + tf("fade", "crossfade", out) + hide),
+            }[effect]
+            if effect == "flyIn":
+                sub = f"to-{side}"
+            elif effect == "wipe":
+                sub = f"from-{side}"
+        else:
+            body = {
+                "spin": lambda: ("ooo-emphasis-spin", f'<anim:animateTransform smil:dur="{dur}s" smil:fill="hold" {t} smil:by="360" svg:type="rotate"/>'),
+                "growShrink": lambda: ("ooo-emphasis-grow-and-shrink", f'<anim:animateTransform smil:dur="{dur}s" smil:fill="hold" {t} smil:by="1.5,1.5" svg:type="scale"/>'),
+            }[effect]
+        pid, inner = body()
+        st = f' presentation:preset-sub-type="{sub}"' if sub else ""
+        xml = (f'<anim:par smil:begin="0s" smil:fill="hold" presentation:node-type="{trigger}" '
+               f'presentation:preset-class="{cls}" presentation:preset-id="{pid}"{st}>{inner}</anim:par>')
+        self.anims[-1].append((trigger, dur, xml))
+        self.feat(f"animation:{cls}:{effect}")
+
+    def timing(self, anims):
+        """The main sequence: click groups -> after-previous groups -> effects."""
+        if not anims:
+            return ""
+        groups = []
+        for trig, dur, xml in anims:
+            if trig == "on-click" or not groups:
+                groups.append([[(dur, xml)]])
+            elif trig == "after-previous":
+                groups[-1].append([(dur, xml)])
+            else:
+                groups[-1][-1].append((dur, xml))
+        out = ""
+        for g in groups:
+            out += '<anim:par smil:begin="indefinite" smil:fill="hold">'
+            begin = 0.0
+            for i, sub in enumerate(g):
+                if i:
+                    begin += max(d for d, _ in g[i - 1])
+                out += f'<anim:par smil:begin="{begin:g}s" smil:fill="hold">' + "".join(x for _, x in sub) + "</anim:par>"
+            out += "</anim:par>"
+        return ('<anim:par presentation:node-type="timing-root"><anim:seq presentation:node-type="main-sequence">'
+                + out + "</anim:seq></anim:par>")
 
     def add(self, xml):
         self.cur.append(xml)
@@ -133,15 +242,19 @@ class Deck:
         return self.style("graphic", f'<style:graphic-properties {" ".join(a)} {extra or "draw:auto-grow-height=" + chr(34) + "false" + chr(34) + " draw:auto-grow-width=" + chr(34) + "false" + chr(34)}/>', "G")
 
     # ---- placeholders ----
-    def title(self, text, x=2.0, y=1.0, w=None, h=2.5, cls="title"):
+    @staticmethod
+    def ident(i):
+        return f' draw:id="{i}" xml:id="{i}"' if i else ""
+
+    def title(self, text, x=2.0, y=1.0, w=None, h=2.5, cls="title", ident=None):
         w = w or self.w - 4
         size = 40 if cls == "title" else 36
-        self.add(f'<draw:frame presentation:style-name="pres-title" presentation:class="{cls}" '
+        self.add(f'<draw:frame{self.ident(ident)} presentation:style-name="pres-title" presentation:class="{cls}" '
                  f'svg:x="{x}cm" svg:y="{y}cm" svg:width="{w}cm" svg:height="{h}cm">'
                  f"<draw:text-box>{self.para(text)}</draw:text-box></draw:frame>")
 
-    def subtitle(self, text, y=8.0):
-        self.add(f'<draw:frame presentation:style-name="pres-sub" presentation:class="subtitle" '
+    def subtitle(self, text, y=8.0, ident=None):
+        self.add(f'<draw:frame{self.ident(ident)} presentation:style-name="pres-sub" presentation:class="subtitle" '
                  f'svg:x="2cm" svg:y="{y}cm" svg:width="{self.w - 4}cm" svg:height="2cm">'
                  f"<draw:text-box>{self.para(text)}</draw:text-box></draw:frame>")
 
@@ -194,7 +307,7 @@ class Deck:
     }
 
     def shape(self, kind, x, y, w, h, text=None, fill=None, line=None, lw=None, dash=False, anchor=None,
-              rot=None, flip=False, align=None, content=None, tag=True):
+              rot=None, flip=False, align=None, content=None, tag=True, ident=None):
         gtype, path, _ = self.GEOM[kind]
         st = self.gstyle(fill, line, lw, dash, anchor)
         mir = ' draw:mirror-horizontal="true"' if flip else ""
@@ -205,7 +318,7 @@ class Deck:
             self.count(kind)
         if content is None:
             content = self.para(text, align) if text is not None else ""
-        return (f'<draw:custom-shape draw:style-name="{st}" {self.xform(x, y, w, h, rot)}>{content}'
+        return (f'<draw:custom-shape{self.ident(ident)} draw:style-name="{st}" {self.xform(x, y, w, h, rot)}>{content}'
                 f'<draw:enhanced-geometry draw:type="{gtype}" svg:viewBox="0 0 21600 21600" '
                 f'draw:enhanced-path="{path}"{mir}/></draw:custom-shape>')
 
@@ -244,7 +357,7 @@ class Deck:
         for i, (els, bgst) in enumerate(self.slides, 1):
             st = bgst or "dp0"
             pages.append(f'<draw:page draw:name="Slide{i}" draw:style-name="{st}" draw:master-page-name="Default">'
-                         + "".join(els) + "</draw:page>")
+                         + "".join(els) + self.timing(self.anims[i - 1]) + "</draw:page>")
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <office:document {NS}>
 <office:styles>
@@ -497,7 +610,35 @@ def d25():
     return d
 
 
-TOPICS = [globals()[f"d{n:02d}"] for n in range(1, 26)]
+def d26():
+    d = Deck(26, "transitions", "Slide transitions: fade, push, wipe, cover, split; one slide advances by itself")
+    for i, (tr, label) in enumerate([("fade", "Fade"), ("push", "Push"), ("wipe", "Wipe"), ("cover", "Cover"),
+                                     ("split", "Split")]):
+        d.slide("blank", transition=tr, advance=3 if tr == "wipe" else None)
+        d.add_shape("rect", 4, 3, 20, 9, text=label, fill=[BLUE, RED, GREEN, YELLOW, GREY][i])
+    return d
+
+
+def d27():
+    d = Deck(27, "animations", "Entrance, emphasis and exit animations on click, with and after previous")
+    d.slide("title"); d.title("Animated Title", y=4, ident="t1"); d.subtitle("Subtitle fades in", ident="t2")
+    d.animate("t1", "entrance", "flyIn", side="bottom")
+    d.animate("t2", "entrance", "fade", trigger="with-previous", dur=1.0)
+    d.slide("blank")
+    for i, (k, label) in enumerate([("rect", "Wipe"), ("ellipse", "Zoom"), ("roundRect", "Appear"), ("rect", "Fly")]):
+        d.add_shape(k, 1 + i * 6.8, 4, 5.8, 5, text=label, fill=[BLUE, RED, GREEN, YELLOW][i], ident=f"s{i + 1}")
+    d.animate("s1", "entrance", "wipe", side="left")
+    d.animate("s2", "entrance", "zoom", trigger="after-previous")
+    d.animate("s3", "entrance", "appear")
+    d.animate("s1", "emphasis", "spin", dur=2.0)
+    d.animate("s2", "emphasis", "growShrink", trigger="after-previous", dur=2.0)
+    d.animate("s3", "exit", "fade")
+    d.animate("s4", "exit", "flyIn", trigger="with-previous", side="right")
+    d.animate("s2", "exit", "appear")
+    return d
+
+
+TOPICS = [globals()[f"d{n:02d}"] for n in range(1, 28)]
 
 
 def emit(outdir, pngdir):
@@ -599,6 +740,17 @@ def check(manifest_path, pptxdir):
                 errs.append("flipH not found")
             elif ft == "background:solid" and "<p:bg>" not in xml:
                 errs.append("p:bg not found")
+            elif ft == "transition:advance" and " advTm=" not in xml:
+                errs.append("advTm not found")
+            elif ft.startswith("transition:") and ft != "transition:advance" and f"<p:{ft.split(':')[1]}" not in xml:
+                errs.append(f"{ft} not found")
+            elif ft.startswith("animation:"):
+                _, cls, eff = ft.split(":")
+                c = {"entrance": "entr", "emphasis": "emph", "exit": "exit"}[cls]
+                ids = {"appear": "1", "fade": "10", "flyIn": "2", "wipe": "22", "zoom": "(?:53|23)",
+                       "spin": "8", "growShrink": "6"}[eff]
+                if not re.search(rf'presetClass="{c}" presetID="{ids}"|presetID="{ids}" presetClass="{c}"', xml):
+                    errs.append(f"{ft} not found")
         if errs:
             fails += 1
             print(f"FAIL {e['file']}: " + "; ".join(errs))

@@ -13,8 +13,9 @@
 use core_model::media::MediaId;
 use core_model::RunProperties;
 use model_show::{
-    AlignMode, Alignment, Axis, Bullet, Fill, Layout, LayoutKind, Line, NodeId, PlaceholderKind,
-    Preset, Shape, ShapeKind, Slide, SlideSize, TextBody, TextSpacing, Transform,
+    AlignMode, Alignment, Animation, AnimationKind, Axis, Bullet, Direction, Effect, Fill, Layout,
+    LayoutKind, Line, NodeId, PlaceholderKind, Preset, Shape, ShapeKind, Slide, SlideSize,
+    TextBody, TextSpacing, Transform, Transition, Trigger,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
@@ -125,6 +126,70 @@ impl TextParagraphPatch {
         }
         if let Some(v) = self.line_spacing {
             props.line_spacing = v;
+        }
+    }
+}
+
+/// Animation properties to change for [`ShowCommand::UpdateAnimation`].
+/// Absent fields keep their value; `direction: null` resets to the
+/// effect's default. When the effect changes and the old direction does
+/// not fit the new effect (and no direction is given), it is reset.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub struct AnimationPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kind: Option<AnimationKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub effect: Option<Effect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub trigger: Option<Trigger>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub duration_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub delay_ms: Option<u32>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<Direction>")]
+    pub direction: Option<Option<Direction>>,
+}
+
+impl AnimationPatch {
+    /// Applies the patch to `a` (see the type docs for the direction
+    /// rule); the result still has to be validated.
+    pub fn apply_to(&self, a: &mut Animation) {
+        if let Some(v) = self.kind {
+            a.kind = v;
+        }
+        if let Some(v) = self.effect {
+            a.effect = v;
+        }
+        if let Some(v) = self.trigger {
+            a.trigger = v;
+        }
+        if let Some(v) = self.duration_ms {
+            a.duration_ms = v;
+        }
+        if let Some(v) = self.delay_ms {
+            a.delay_ms = v;
+        }
+        match self.direction {
+            Some(d) => a.direction = d,
+            None => {
+                if a.direction
+                    .is_some_and(|d| !a.effect.directions().contains(&d))
+                {
+                    a.direction = None;
+                }
+            }
         }
     }
 }
@@ -293,6 +358,35 @@ pub enum ShowCommand {
     /// Gives pictures their natural size (96 dpi, scaled down to fit the
     /// slide), keeping the top-left corner.
     ResetPictureSize { shapes: Vec<NodeId> },
+    /// Sets (or, with `null`, removes) the transition of slides. A
+    /// transition without effect that only advances on click is stored as
+    /// none.
+    SetTransition {
+        slides: Vec<NodeId>,
+        #[serde(default)]
+        transition: Option<Transition>,
+    },
+    /// Gives every slide the transition of slide `from` (PowerPoint's
+    /// "Apply To All"; none when `from` has none).
+    ApplyTransitionToAll { from: NodeId },
+    /// Inserts `animation` into the play order of `slide` at `index`
+    /// (absent = last). Its shape must be on the slide; `animation.id` is
+    /// ignored (send 0) – the animation gets `newId` (temporary negative
+    /// or an unused id).
+    AddAnimation {
+        slide: NodeId,
+        animation: Animation,
+        #[ts(type = "number")]
+        new_id: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<u32>,
+    },
+    /// Changes properties of an animation.
+    UpdateAnimation { id: NodeId, patch: AnimationPatch },
+    /// Removes an animation.
+    RemoveAnimation { id: NodeId },
+    /// Moves an animation to position `index` of its slide's play order.
+    ReorderAnimation { id: NodeId, index: u32 },
     /// Applies the commands in order as one undo step; all or nothing.
     Compound { commands: Vec<ShowCommand> },
     /// *Internal.* Inserts slides at the given indices (ascending).

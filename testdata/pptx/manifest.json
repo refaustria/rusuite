@@ -299,5 +299,46 @@
    "shape:ellipse:count=2",
    "shape:line:count=1"
   ]
+ },
+ {
+  "file": "provisional-26-transitions.pptx",
+  "topic": "Slide transitions: fade, push, wipe, cover, split; one slide advances by itself",
+  "features": [
+   "slides:5",
+   "layout:blank",
+   "size:16x9",
+   "transition:fade",
+   "fill:solid",
+   "shape:rect:count=5",
+   "transition:push",
+   "transition:wipe",
+   "transition:advance",
+   "transition:cover",
+   "transition:split"
+  ]
+ },
+ {
+  "file": "provisional-27-animations.pptx",
+  "topic": "Entrance, emphasis and exit animations on click, with and after previous",
+  "features": [
+   "slides:2",
+   "layout:title",
+   "layout:blank",
+   "size:16x9",
+   "animation:entrance:flyIn",
+   "animation:entrance:fade",
+   "fill:solid",
+   "shape:rect:count=2",
+   "shape:ellipse:count=1",
+   "shape:roundRect:count=1",
+   "animation:entrance:wipe",
+   "animation:entrance:zoom",
+   "animation:entrance:appear",
+   "animation:emphasis:spin",
+   "animation:emphasis:growShrink",
+   "animation:exit:fade",
+   "animation:exit:flyIn",
+   "animation:exit:appear"
+  ]
  }
 ]
