@@ -34,3 +34,10 @@ Verify with `soffice --headless --convert-to pdf --outdir /tmp some.docx`. The h
 sudo apt-get install -y libxml2-utils shellcheck
 ```
 `xmllint` normalizes XML for the structural diff in `scripts/roundtrip.sh`; `shellcheck` lints the scripts. ImageMagick (`convert`) was already present and is used by `scripts/gen-testdata.sh` for the test PNG.
+
+## Tauri app scaffold (P2-3)
+Additional apt packages for building `apps/calc` (Tauri 2) and smoke-testing it headless:
+```
+sudo apt-get install -y libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf xvfb
+```
+(`xvfb` was already present here.) The Tauri CLI comes from the npm package `@tauri-apps/cli` (prebuilt binary, no `cargo install`). Build with `pnpm --filter calc tauri build --no-bundle`; smoke test with `timeout 15 xvfb-run -a target/release/app-calc` (expect exit 124, no panic). Icons were generated from a 1024x1024 ImageMagick PNG via `pnpm --filter calc tauri icon`; only desktop icons are committed.
