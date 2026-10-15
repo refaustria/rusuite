@@ -1,12 +1,13 @@
 //! `VALUE(text)`.
 
 use crate::ast::{ErrorKind, Expr};
+use crate::functions::datetime::serial::parse_date_text;
 use crate::functions::{Arity, CallContext, Function};
 use crate::value::{parse_number_text, Value};
 
 /// Parses a number from text: everything the `+` operator accepts, plus
-/// ISO dates (`yyyy-mm-dd`, optionally followed by a time) and times
-/// (`hh:mm[:ss]`). Numbers pass through, `Empty` is 0, booleans and
+/// the dates, date-times and times of `parse_date_text` (see its grammar).
+/// Numbers pass through, `Empty` is 0, booleans and
 /// non-numeric text are `#VALUE!`.
 pub struct ValueFn;
 
@@ -35,88 +36,7 @@ impl Function for ValueFn {
 }
 
 fn parse_value_text(s: &str) -> Option<f64> {
-    if let Some(n) = parse_number_text(s) {
-        return Some(n);
-    }
-    let s = s.trim_matches(|c: char| c.is_ascii_whitespace());
-    // Date, optionally followed by a time.
-    if let Some((d, t)) = s.split_once([' ', 'T']) {
-        return Some(parse_date(d.trim())? + parse_time(t.trim())?);
-    }
-    parse_date(s).or_else(|| parse_time(s))
-}
-
-fn digits(s: &str, min: usize, max: usize) -> Option<u32> {
-    if s.len() < min || s.len() > max || !s.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    s.parse().ok()
-}
-
-/// `yyyy-mm-dd` to an Excel serial (1900 date system, with the 1900 leap
-/// year quirk). Duplicated from the datetime batch on purpose.
-fn parse_date(s: &str) -> Option<f64> {
-    let mut it = s.split('-');
-    let y = digits(it.next()?, 4, 4)?;
-    let m = digits(it.next()?, 1, 2)?;
-    let d = digits(it.next()?, 1, 2)?;
-    if it.next().is_some() || !(1900..=9999).contains(&y) || !(1..=12).contains(&m) || d < 1 {
-        return None;
-    }
-    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
-    let dim = match m {
-        2 if leap => 29,
-        2 => 28,
-        4 | 6 | 9 | 11 => 30,
-        _ => 31,
-    };
-    // Excel believes 1900 was a leap year.
-    if d > dim && !(y == 1900 && m == 2 && d == 29) {
-        return None;
-    }
-    let days =
-        days_from_civil(i64::from(y), i64::from(m), i64::from(d)) - days_from_civil(1899, 12, 30);
-    let serial = if days < 61 { days - 1 } else { days };
-    Some(serial as f64)
-}
-
-/// Days since 1970-01-01 (proleptic Gregorian).
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let mp = (m + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146097 + doe - 719468
-}
-
-/// `hh:mm[:ss]` to a fraction of a day.
-fn parse_time(s: &str) -> Option<f64> {
-    let mut it = s.split(':');
-    let h = digits(it.next()?, 1, 2)?;
-    let m = digits(it.next()?, 1, 2)?;
-    let sec = match it.next() {
-        Some(x) => {
-            // Optional fractional seconds.
-            let (whole, frac) = x.split_once('.').unwrap_or((x, ""));
-            let w = digits(whole, 1, 2)?;
-            let f = if frac.is_empty() {
-                0.0
-            } else {
-                format!("0.{frac}")
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|_| frac.bytes().all(|b| b.is_ascii_digit()))?
-            };
-            f64::from(w) + f
-        }
-        None => 0.0,
-    };
-    if it.next().is_some() || h > 23 || m > 59 || sec >= 60.0 {
-        return None;
-    }
-    Some((f64::from(h) * 3600.0 + f64::from(m) * 60.0 + sec) / 86400.0)
+    parse_number_text(s).or_else(|| parse_date_text(s))
 }
 
 #[cfg(test)]

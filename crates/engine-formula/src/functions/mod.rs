@@ -7,12 +7,15 @@
 use std::collections::HashMap;
 
 use crate::ast::{ErrorKind, Expr};
-use crate::eval::{eval_operand, scalar, CellCoord, CellProvider, EvalContext, Operand, RangeRef};
+use crate::eval::{
+    eval_array, eval_operand, scalar, CellCoord, CellProvider, EvalContext, Operand, RangeRef,
+};
 use crate::value::{to_bool, to_number, to_text, Array, Value};
 
 pub mod datetime;
 pub mod info;
 pub mod logical;
+pub mod lookup;
 pub mod math;
 pub mod text;
 
@@ -79,11 +82,12 @@ impl FunctionRegistry {
     /// A registry with every built-in function.
     pub fn with_builtins() -> Self {
         let mut r = Self::new();
-        r.register(Box::new(math::sum::Sum));
+        math::register(&mut r);
         logical::register(&mut r);
         text::register(&mut r);
         info::register(&mut r);
         datetime::register(&mut r);
+        lookup::register(&mut r);
         r
     }
 
@@ -167,10 +171,12 @@ impl<'c, 'a> CallContext<'c, 'a> {
         to_bool(&self.scalar(e))
     }
 
-    /// Evaluates an argument that should be a range or array. A scalar is
-    /// treated as a 1x1 array; an error value is returned as `Err`.
+    /// Evaluates an argument that should be a range or array, in array mode
+    /// (see [`eval_array`]: operators apply element-wise, so
+    /// `(A1:A3>1)*B1:B3` is an array). A scalar is treated as a 1x1 array; an
+    /// error value is returned as `Err`.
     pub fn range(&self, e: &Expr) -> Result<RangeArg<'a>, ErrorKind> {
-        match self.eval(e) {
+        match eval_array(e, self.ctx) {
             Operand::Range(r) => Ok(RangeArg::Range {
                 range: r,
                 provider: self.ctx.provider,
@@ -419,7 +425,7 @@ mod tests {
         assert!(names.windows(2).all(|w| w[0] < w[1]));
         assert_eq!(r.get("sum").map(|f| f.name()), Some("SUM"));
         assert_eq!(r.get("Iserror").map(|f| f.name()), Some("ISERROR"));
-        assert!(r.get("VLOOKUP").is_none());
+        assert!(r.get("NOSUCHFN").is_none());
         assert!(FunctionRegistry::new().names().is_empty());
     }
 

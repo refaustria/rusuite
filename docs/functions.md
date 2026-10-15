@@ -16,26 +16,26 @@ General rules that apply to every function below:
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
-| `SUM` | `SUM(number1, [number2], ...)` | Sum of numbers | Text/bools in references ignored; `SUM("3",4)` = 7; no numbers = 0 | planned |
-| `AVERAGE` | `AVERAGE(number1, ...)` | Arithmetic mean | `#DIV/0!` if no numeric values; empty cells not counted | planned |
-| `MIN` | `MIN(number1, ...)` | Smallest number | No numbers = 0; text literal that is not numeric = `#VALUE!` | planned |
-| `MAX` | `MAX(number1, ...)` | Largest number | No numbers = 0; text literal that is not numeric = `#VALUE!` | planned |
-| `COUNT` | `COUNT(value1, ...)` | Count of numeric values | Errors in references not counted and not propagated; `COUNT(TRUE)` literal = 1; numeric text literal counts | planned |
-| `COUNTA` | `COUNTA(value1, ...)` | Count of non-empty values | Counts `""` constants, errors and bools; empty cells not counted | planned |
-| `ROUND` | `ROUND(number, digits)` | Round half away from zero | Negative digits round left of the decimal point; text number coerced | planned |
-| `ROUNDUP` | `ROUNDUP(number, digits)` | Round away from zero | Negative numbers go more negative | planned |
-| `ROUNDDOWN` | `ROUNDDOWN(number, digits)` | Round towards zero | Negative numbers go towards zero | planned |
-| `INT` | `INT(number)` | Floor to integer | `INT(-2.1)` = -3 | planned |
-| `MOD` | `MOD(number, divisor)` | Remainder, sign of divisor | Divisor 0 = `#DIV/0!`; `MOD(-10,3)` = 2 | planned |
-| `ABS` | `ABS(number)` | Absolute value | Numeric text coerced; non-numeric text `#VALUE!` | planned |
-| `SQRT` | `SQRT(number)` | Square root | Negative = `#NUM!` | planned |
-| `POWER` | `POWER(number, power)` | `number^power` | `POWER(0,0)` = `#NUM!`; `POWER(0,-1)` = `#DIV/0!`; negative base with fractional exponent = `#NUM!` | planned |
-| `PI` | `PI()` | 3.14159265358979 | Takes no arguments | planned |
-| `PRODUCT` | `PRODUCT(number1, ...)` | Product of numbers | No numbers = 0; bools in references ignored | planned |
-| `SUMIF` | `SUMIF(range, criteria, [sum_range])` | Sum of cells matching criteria | Criteria like `">3"`, `"<>x"`, wildcards `*` `?`; case-insensitive; error in criteria expression propagates | planned |
-| `COUNTIF` | `COUNTIF(range, criteria)` | Count of cells matching criteria | `""` criterion counts empty and empty-string cells; numeric criterion also matches numeric text | planned |
-| `SUMPRODUCT` | `SUMPRODUCT(array1, [array2], ...)` | Sum of element-wise products | Non-numeric entries count as 0; size mismatch `#VALUE!`; accepts array expressions | planned |
-| `CEILING` | `CEILING(number, significance)` | Round up to a multiple | Significance 0 = 0; positive number with negative significance = `#NUM!`; negative number rounds towards zero when significance is positive | planned |
+| `SUM` | `SUM(number1, [number2], ...)` | Sum of numbers | Text/bools in references ignored; `SUM("3",4)` = 7; no numbers = 0 | implemented |
+| `AVERAGE` | `AVERAGE(number1, ...)` | Arithmetic mean | `#DIV/0!` if no numeric values; empty cells not counted | implemented |
+| `MIN` | `MIN(number1, ...)` | Smallest number | No numbers = 0; text literal that is not numeric = `#VALUE!` | implemented |
+| `MAX` | `MAX(number1, ...)` | Largest number | No numbers = 0; text literal that is not numeric = `#VALUE!` | implemented |
+| `COUNT` | `COUNT(value1, ...)` | Count of numeric values | Errors in references not counted and not propagated; `COUNT(TRUE)` literal = 1; numeric text literal counts | implemented |
+| `COUNTA` | `COUNTA(value1, ...)` | Count of non-empty values | Counts `""` constants, errors and bools; empty cells not counted | implemented |
+| `ROUND` | `ROUND(number, digits)` | Round half away from zero | Negative digits round left of the decimal point; text number coerced | implemented |
+| `ROUNDUP` | `ROUNDUP(number, digits)` | Round away from zero | Negative numbers go more negative | implemented |
+| `ROUNDDOWN` | `ROUNDDOWN(number, digits)` | Round towards zero | Negative numbers go towards zero | implemented |
+| `INT` | `INT(number)` | Floor to integer | `INT(-2.1)` = -3 | implemented |
+| `MOD` | `MOD(number, divisor)` | Remainder, sign of divisor | Divisor 0 = `#DIV/0!`; `MOD(-10,3)` = 2 | implemented |
+| `ABS` | `ABS(number)` | Absolute value | Numeric text coerced; non-numeric text `#VALUE!` | implemented |
+| `SQRT` | `SQRT(number)` | Square root | Negative = `#NUM!` | implemented |
+| `POWER` | `POWER(number, power)` | `number^power` | `POWER(0,0)` = `#NUM!`; `POWER(0,-1)` = `#DIV/0!`; negative base with fractional exponent = `#NUM!` | implemented |
+| `PI` | `PI()` | 3.14159265358979 | Takes no arguments | implemented |
+| `PRODUCT` | `PRODUCT(number1, ...)` | Product of numbers | No numbers = 0; bools in references ignored | implemented |
+| `SUMIF` | `SUMIF(range, criteria, [sum_range])` | Sum of cells matching criteria | Criteria like `">3"`, `"<>x"`, wildcards `*` `?`; case-insensitive; error in criteria expression propagates | implemented |
+| `COUNTIF` | `COUNTIF(range, criteria)` | Count of cells matching criteria | `""` criterion counts empty and empty-string cells; numeric criterion also matches numeric text | implemented |
+| `SUMPRODUCT` | `SUMPRODUCT(array1, [array2], ...)` | Sum of element-wise products | Non-numeric entries count as 0; size mismatch `#VALUE!`; accepts array expressions | implemented |
+| `CEILING` | `CEILING(number, significance)` | Round up to a multiple | Significance 0 = 0; positive number with negative significance = `#NUM!`; negative number rounds towards zero when significance is positive | implemented |
 
 ## Logical (7)
 
@@ -83,13 +83,13 @@ General rules that apply to every function below:
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
-| `VLOOKUP` | `VLOOKUP(value, table, col, [approx=TRUE])` | Search first column | Default approximate (sorted) match; exact match supports wildcards and is case-insensitive; col < 1 `#VALUE!`; col > width `#REF!`; no match `#N/A` | planned |
-| `HLOOKUP` | `HLOOKUP(value, table, row, [approx=TRUE])` | Search first row | Mirror of `VLOOKUP` | planned |
-| `INDEX` | `INDEX(range, row, [col])` | Element of a range | Out of range `#REF!`; negative `#VALUE!`; one-dimensional ranges accept a single index; empty cell yields 0 | planned |
-| `MATCH` | `MATCH(value, range, [type=1])` | Position in a range | Type 0 exact (wildcards), 1 largest <=, -1 smallest >=; no match `#N/A` | planned |
-| `CHOOSE` | `CHOOSE(index, value1, ...)` | Pick by index | Index truncated; out of range `#VALUE!`; lazy | planned |
-| `ROW` | `ROW([reference])` | Row number of a reference | Errors in the referenced cell are not propagated; no-argument form is the host cell | planned |
-| `COLUMN` | `COLUMN([reference])` | Column number of a reference | `COLUMN(XFD1)` = 16384 | planned |
+| `VLOOKUP` | `VLOOKUP(value, table, col, [approx=TRUE])` | Search first column | Default approximate (sorted) match; exact match supports wildcards and is case-insensitive; col < 1 `#VALUE!`; col > width `#REF!`; no match `#N/A` | implemented |
+| `HLOOKUP` | `HLOOKUP(value, table, row, [approx=TRUE])` | Search first row | Mirror of `VLOOKUP` | implemented |
+| `INDEX` | `INDEX(range, row, [col])` | Element of a range | Out of range `#REF!`; negative `#VALUE!`; one-dimensional ranges accept a single index; empty cell yields 0 | implemented |
+| `MATCH` | `MATCH(value, range, [type=1])` | Position in a range | Type 0 exact (wildcards), 1 largest <=, -1 smallest >=; no match `#N/A` | implemented |
+| `CHOOSE` | `CHOOSE(index, value1, ...)` | Pick by index | Index truncated; out of range `#VALUE!`; lazy | implemented |
+| `ROW` | `ROW([reference])` | Row number of a reference | Errors in the referenced cell are not propagated; no-argument form is the host cell | implemented |
+| `COLUMN` | `COLUMN([reference])` | Column number of a reference | `COLUMN(XFD1)` = 16384 | implemented |
 
 ## Date / time (8)
 

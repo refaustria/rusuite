@@ -37,6 +37,14 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Façade needs: volatile cells (NOW/RAND) always recalculated, re-resolving `Precedent::Unresolved` on sheet add/rename, coordinate shifting on row/col insert/delete, partial order alongside a reported cycle.
 - Dynamic references (`A1:INDEX(...)`, INDIRECT/OFFSET) are not tracked by the graph – treat as volatile when they arrive.
 
+## engine-formula (evaluator / functions)
+- Lift functions over arrays in array mode (`LEN(A1:A3)` → array); size cap or lazy materialization for whole-column operands in array mode (currently materialized in full, clipped to used range, min 1×1).
+- `COUNT(1,)`: Excel counts the omitted argument (returns 2); we return 1 – decide when Calc UI arrives.
+- TEXT number formats not yet supported: `?` placeholders, `E+` exponent, fractions, AM/PM, elapsed `[h]`, conditions/colours/locale tags, fractional seconds.
+- Deferred date functions reuse `datetime/serial.rs`: EDATE, EOMONTH, NETWORKDAYS, DATEDIF, DATEVALUE/TIMEVALUE.
+- Named ranges (`Expr::Name`) and functions returning references (`A1:INDEX(...)`, OFFSET) need an `Operand`-returning function entry point.
+- Re-export `eval_array` from lib.rs if the façade or Calc needs it.
+
 ## engine-formula (reference suite)
 - Host-cell cases (`ROW()`, `COLUMN()` without args), implicit-intersection and spill cases once the evaluator exists.
 - Second locale pass for `TEXT`/`VALUE`; cases for SUMIFS/COUNTIFS/XLOOKUP if they ever enter scope.
