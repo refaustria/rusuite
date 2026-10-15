@@ -1,6 +1,6 @@
 # Rusuite
 
-> A stripped-down but fully working office suite with a Rust backend and a web frontend via Tauri. Three apps: **Rusuite Write** (documents), **Rusuite Calc** (spreadsheets), **Rusuite Show** (presentations). Not an MS Office replacement, but a cleanly architected minimum that can read and write real `.docx`, `.xlsx` and `.pptx` files.
+> A stripped-down but fully working office suite with a Rust backend and a web frontend via Tauri – and the same apps running in the browser via WebAssembly. Three apps: **Rusuite Write** (documents), **Rusuite Calc** (spreadsheets), **Rusuite Show** (presentations). Not an MS Office replacement, but a cleanly architected minimum that can read and write real `.docx`, `.xlsx` and `.pptx` files.
 
 **Status:** 🚧 Early development – nothing here is production-ready.
 
@@ -13,6 +13,7 @@
 - Read and write OOXML (`.docx`, `.xlsx`, `.pptx`) for a clearly defined subset of features
 - Files we write must open in Microsoft Office and LibreOffice without a repair dialog
 - Cross-platform (Windows, macOS, Linux) from a single codebase
+- Also runs as a web app: the same Rust core compiled to WebAssembly, served as static files (see ADR 0005)
 - Small binaries, fast startup, low memory footprint
 
 ### Non-Goals (deliberately excluded)
@@ -71,7 +72,8 @@ If a feature isn't on the list, it isn't in. Scope discipline is the only reason
 
 | Area | Choice | Rationale |
 |---|---|---|
-| App shell | [Tauri 2](https://tauri.app) | Rust backend, system webview, small binaries |
+| App shell (desktop) | [Tauri 2](https://tauri.app) | Rust backend, system webview, small binaries |
+| App shell (web) | `wasm-bindgen` + `wasm-pack`, static hosting | Same Rust core in the browser, no server state |
 | Backend | Rust (stable), Cargo workspace | – |
 | XML | `quick-xml` + `serde` | Fast, streaming, no DOM needed |
 | ZIP | `zip` | OOXML is ZIP + XML |
@@ -107,7 +109,7 @@ rusuite/
 │   └── app-common/            # Undo/redo, document state, IPC types
 ├── apps/
 │   ├── write/                 # Tauri app: src-tauri/ (Rust) + src/ (TS)
-│   ├── calc/
+│   ├── calc/                  # core/ (calc-core, transport-agnostic) + src-tauri/ + src-wasm/ + src/ (TS)
 │   └── show/
 ├── packages/
 │   └── ui-shared/             # Ribbon, dialogs, color picker, font picker
@@ -227,7 +229,8 @@ cargo build
 
 ### Run a single app
 ```bash
-pnpm --filter calc tauri dev
+pnpm --filter calc tauri dev      # desktop (Tauri)
+pnpm --filter calc dev:web       # browser (WASM) – requires `rustup target add wasm32-unknown-unknown` and wasm-pack
 pnpm --filter write tauri dev
 pnpm --filter show tauri dev
 ```

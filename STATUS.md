@@ -2,7 +2,9 @@
 
 _Maintained by the PM agent. Read at the start of every session; update after every task._
 
-## Current phase: Phase 2 – Calc (Phases 0 and 1 complete)
+## Current phase: Phase 2 – Calc (Phases 0 and 1 complete) + web target (owner decision 2026-10-15)
+
+**Scope change by owner (2026-10-15):** Rusuite must also run as a web app. Decisions: WASM in the browser (no server state), built now alongside Calc with a transport abstraction, deployed continuously from main to `https://resuite.inceptum.at/calc/`. Recorded in ADR 0005 and README; tasks P2-W2 (wasm scaffold + `Backend` abstraction), P2-W3 (nginx vhost + deploy script).
 
 ### Phase 1 milestone – VERIFIED 2026-10-15 on main d27be64
 - `cargo fmt --check` OK · `cargo clippy --workspace --all-targets -D warnings` clean · `cargo test --workspace` 338 passed / 0 failed · `RUSTDOCFLAGS=-D warnings cargo doc` clean · `pnpm test` 1 passed.
@@ -26,16 +28,17 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 
 | ID | Task | Model | State | Branch | Notes |
 |---|---|---|---|---|---|
-| P2-1 | `model-sheet`: Workbook wrapping `engine_formula::Engine` for contents/values + StyleTable (font/fill/border/alignment/number format), column/row dimensions, sheet metadata; serde; ADR 0004 | Opus | in progress | `p2/model-sheet` | brief docs/tasks/P2-1-model-sheet.md; ADR 0004 written |
-| P2-3 | Tauri 2 Calc app scaffold: `apps/calc` (Vite+React+Tailwind+Tauri), crate `app-calc` in workspace, `pnpm --filter calc tauri dev` runs, CI builds it | Sonnet | in progress | `p2/calc-scaffold` | brief docs/tasks/P2-3-calc-scaffold.md |
+| P2-1 | `model-sheet`: Workbook wrapping `engine_formula::Engine` for contents/values + StyleTable (font/fill/border/alignment/number format), column/row dimensions, sheet metadata; serde; ADR 0004 | Opus | done (merged a112e4b) | – | verified: 15 tests, snapshot DTO, style interning; follow-up fixed a rustdoc link |
+| P2-3 | Tauri 2 Calc app scaffold: `apps/calc` (Vite+React+Tailwind+Tauri), crate `app-calc` in workspace, `pnpm --filter calc tauri dev` runs, CI builds it | Sonnet | done (merged 1e8d201) | – | verified: tests, vite build, release binary 10.6 MiB runs under xvfb; tauri 2.12 / vite 6 / react 18 / tailwind 4 / vitest 3 |
 | P2-1b | `engine-formula`: `transform.rs` (Excel reference adjustment for insert/delete rows/cols, copy/paste offset) + `Engine::insert_rows/delete_rows/insert_cols/delete_cols/cells` | Opus | done (merged) | – | verified: ~70 transform table cases, 4 engine tests; incremental graph update; `StructuralOp::map_cell` for model-sheet to move styles |
-| P2-1c | `model-sheet` row/col insert/delete (styles + dims) calling the engine ops | Sonnet | todo | `p2/model-sheet-structural` | after P2-1 + P2-1b |
-| P2-2 | `fmt-xlsx` read/write: workbook, sheets, sharedStrings, styles (fonts/fills/borders/numFmts/cellXfs), cells (v/f/t/s, inlineStr), cols/rows; roundtrip tests vs testdata/xlsx | Opus | todo | `p2/fmt-xlsx` | after P2-1 |
-| P2-4 | `app-common`: command pattern, undo/redo stack, document state, IPC envelope types per ADR 0002, TS type generation choice (ADR) | Opus | todo | `p2/app-common` | after P2-1 |
+| P2-2 | `fmt-xlsx` read/write (bytes API, wasm-compatible) + `examples/rewrite.rs` + docs/ooxml-subset.md | Opus | in progress | `p2/fmt-xlsx` | brief docs/tasks/P2-2-fmt-xlsx.md |
+| P2-4 | `app-common` Host/undo-redo + `calc-core` (commands, patches, snapshots, JSON `dispatch`) + P2-1c model-sheet structural ops + ts-rs TS generation | Opus | in progress | `p2/app-common` | brief docs/tasks/P2-4-app-common-calc-core.md |
+| P2-W2 | Web scaffold: `app-calc-wasm` crate, wasm-pack build, Vite web mode (`/calc/`), `ui-shared` `Backend` abstraction (Tauri/WASM), CI wasm checks | Sonnet | in progress | `p2/web-scaffold` | brief docs/tasks/P2-W2-web-scaffold.md |
+| P2-W3 | nginx vhost resuite.inceptum.at + TLS + `scripts/deploy-web.sh`; first deploy | Sonnet | todo | `p2/deploy-web` | after P2-W2 |
 | P2-5 | calc-ui canvas grid: virtualization (100k+ cells), selection, in-cell editing, formula bar, column/row headers, resize | Opus | todo | `p2/grid` | after P2-3 + P2-4 |
 | P2-6 | `ui-shared`: formatting toolbar (bold/italic/underline, font, size, colors, alignment, number format, borders) | Sonnet | todo | `p2/toolbar` | after P2-3 |
-| P2-7 | Wiring: Tauri commands open/save/apply/snapshot/undo/redo; events; frontend store | Opus | todo | `p2/wiring` | after P2-2/4/5/6 |
-| P2-8 | Milestone verification: open testdata xlsx → edit → save → harness + LibreOffice; owner verifies in Excel | PM | todo | – | |
+| P2-7 | Wiring: both shells call `calc_core::dispatch`; open/save (Tauri dialogs / browser file APIs) via fmt-xlsx; frontend store | Opus | todo | `p2/wiring` | after P2-2/4/5/6/W2 |
+| P2-8 | Milestone verification: open testdata xlsx → edit → save → harness + LibreOffice; owner verifies in Excel; web build live at resuite.inceptum.at/calc | PM | todo | – | |
 | P1-1 | `engine-formula` lexer + Pratt parser + AST + printer; A1/absolute/range/cross-sheet refs, operators incl. `&` `%` `^`, arrays, errors, names; proptest AST→text→AST roundtrip | Opus | done (merged b0b70a6) | – | en-US syntax only (comma arg separator, dot decimal) |
 | P1-2 | Value type system + evaluator: Number/Text/Bool/Error/Array/Reference, coercion rules, error propagation, `CellProvider` trait, implicit intersection, range→array | Opus | done (merged 6b602bb) | – | verified: 52 unit tests; suite runner 232 passed / 0 failed / 630 skipped-unimplemented; deviations: numbers compared at 15 sig digits (Excel-like), `0^-1`→#NUM! (Excel #DIV/0!) |
 | P1-3 | Dependency graph + incremental recalc + circular detection (`#CIRC` → Excel reports 0 with warning; we return `Error::Circular`) | Opus | done (merged) | – | verified: 12 integration + 4 unit tests; 100k-cell chain ordered in <1 s debug |
@@ -60,10 +63,11 @@ Decision pending owner (see open questions): evaluation-semantics spec written b
 
 ## Environment (dev server)
 - Debian 13, 16 cores, 30 GB RAM
-- Installed this session: rustup (stable 1.99, clippy, rustfmt), pnpm 12 (via npm -g), LibreOffice headless, libxml2-utils, shellcheck (apt). Details in `docs/setup.md`.
+- Installed this session: rustup (stable 1.99, clippy, rustfmt), pnpm 12 (via npm -g), LibreOffice headless, libxml2-utils, shellcheck, xvfb (apt). Server is 77.244.242.34; nginx 1.26 + certbot 4 already serve other vhosts (erp/gitai/url.inceptum.at, …) – do not disturb them. Details in `docs/setup.md`.
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+12. 2026-10-15: Owner added the web target (WASM, now, deploy from main). ADR 0005: one `<app>-core` crate + two shells (`src-tauri`, `src-wasm`), JSON `dispatch` over both transports, ts-rs for TS types, `Backend` abstraction in ui-shared, static hosting on nginx.
 11. 2026-10-15: Phase 1 closed. Phase 2 design: `model-sheet::Workbook` wraps `engine_formula::Engine` (single storage of cell contents/values) and adds styles + dimensions; no duplicate cell store. ADR 0004 to be written with P2-1.
 10. 2026-10-15: `Engine` typing rules follow Excel input parsing (`1,000`, `$5`, `50%` become numbers; surrounding whitespace keeps text). Sheet add/rename recalc internally without returning a `Recalc` – to be revisited for IPC in Phase 2.
 9. 2026-10-15: Array-mode evaluation (Excel legacy array semantics with broadcasting) applies only to arguments requested via `CallContext::range`; scalar positions keep implicit intersection. Functions are not lifted over arrays in MVP. `0^negative` → #DIV/0! (Excel) replaces the earlier #NUM!.
