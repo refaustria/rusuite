@@ -8,7 +8,9 @@
 //!   (whole slides), each command returning its exact inverse for
 //!   undo/redo.
 //! * [`dispatch_with`] is the single JSON entry point: a [`Request`] in, a
-//!   [`Response`] out, against the shell's [`ShowHost`].
+//!   [`Response`] out, against the shell's [`ShowHost`]. `.pptx` files
+//!   cross it as standard base64 (`openPptx` / `savePptx`, ADR 0002 file-IO
+//!   amendments).
 //! * TypeScript definitions of every wire type (including the
 //!   `model-show` types, derived behind its `ts` feature) are generated
 //!   with `ts-rs` into `apps/show/src/generated/` by `cargo test`.
@@ -34,6 +36,6 @@ mod patch;
 mod text;
 
 pub use command::{AlignTarget, NewShape, NewShapeKind, ShowCommand, TextParagraphPatch, ZOp};
-pub use dispatch::{dispatch, dispatch_with, Request, Response, ResponseBody, ShowHost};
+pub use dispatch::{dispatch_with, Request, Response, ResponseBody, ShowHost};
 pub use doc::{ShowDocument, ShowError};
 pub use patch::ShowPatch;

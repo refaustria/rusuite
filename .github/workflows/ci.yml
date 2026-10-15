@@ -21,15 +21,15 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
-      - run: cargo check --target wasm32-unknown-unknown -p core-model -p engine-formula -p model-sheet -p fmt-ooxml -p app-common -p app-calc-wasm -p write-core -p app-write-wasm -p show-core -p app-show-wasm
+      - run: cargo check --target wasm32-unknown-unknown -p core-model -p engine-formula -p model-sheet -p fmt-ooxml -p app-common -p app-calc-wasm -p write-core -p app-write-wasm -p fmt-pptx -p show-core -p app-show-wasm
       - run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
       - name: Generated TypeScript types are up to date
         run: |
-          cargo test -p app-common -p calc-core
-          git diff --exit-code -- apps/calc/src/generated packages/ui-shared/src/generated
-          test -z "$(git status --porcelain -- apps/calc/src/generated packages/ui-shared/src/generated)"
+          cargo test -p app-common -p calc-core -p show-core
+          git diff --exit-code -- apps/calc/src/generated apps/show/src/generated packages/ui-shared/src/generated
+          test -z "$(git status --porcelain -- apps/calc/src/generated apps/show/src/generated packages/ui-shared/src/generated)"
 
   frontend:
     runs-on: ubuntu-latest

@@ -2,10 +2,9 @@
 //! [`dispatch_with`]`(host, request_json) -> response_json`.
 
 use app_common::{DispatchError, Envelope, Host, Revision};
-use core_model::media::{base64_encode, MediaId};
+use core_model::media::{base64_decode, base64_encode, MediaId};
 use model_show::Presentation;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use ts_rs::TS;
 
 use crate::command::ShowCommand;
@@ -45,6 +44,12 @@ pub enum Request {
         #[ts(as = "model_show::ts::MediaId")]
         id: MediaId,
     },
+    /// Replaces the presentation by a `.pptx` file (standard base64 of its
+    /// bytes; `name` is the file name shown to the user) → `opened`.
+    OpenPptx { bytes_base64: String, name: String },
+    /// Writes the presentation as `.pptx` → `saved`. Does NOT mark it
+    /// saved: the shell sends `markSaved` once the file was really written.
+    SavePptx,
     /// → `documentState`.
     DocumentState,
     /// Marks the current state as saved (after the shell wrote the file);
@@ -71,6 +76,20 @@ pub enum ResponseBody {
     Presentation {
         presentation: Box<Presentation>,
         envelope: Box<Envelope<ShowPatch>>,
+    },
+    /// The reply to `openPptx`: the whole new presentation, the reader's
+    /// warnings (dropped or approximated content) and the host state
+    /// (empty patch, new revision, clean, no undo).
+    Opened {
+        presentation: Box<Presentation>,
+        warnings: Vec<String>,
+        envelope: Box<Envelope<ShowPatch>>,
+    },
+    /// The reply to `savePptx`: the file (standard base64) and the file
+    /// name to offer.
+    Saved {
+        bytes_base64: String,
+        suggested_name: String,
     },
     /// An image: MIME type and standard base64 of the bytes.
     Media {
@@ -140,6 +159,24 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
                 bytes_base64: base64_encode(&media.data),
             }
         }
+        Request::OpenPptx { bytes_base64, name } => {
+            let bytes = base64_decode(&bytes_base64)
+                .map_err(|e| DispatchError::new("bad_request", format!("invalid base64: {e}")))?;
+            let (doc, warnings) = ShowDocument::open_pptx(&bytes, &name)?;
+            host.replace(doc);
+            ResponseBody::Opened {
+                presentation: Box::new(host.doc().presentation().clone()),
+                warnings,
+                envelope: Box::new(host.envelope(ShowPatch::default())),
+            }
+        }
+        Request::SavePptx => {
+            let bytes = host.doc().save_pptx()?;
+            ResponseBody::Saved {
+                bytes_base64: base64_encode(&bytes),
+                suggested_name: host.doc().suggested_name(),
+            }
+        }
         Request::DocumentState => state(host),
         Request::MarkSaved { name } => {
             if let Some(name) = name {
@@ -166,38 +203,4 @@ pub fn dispatch_with(host: &mut ShowHost, request_json: &str) -> String {
         let message = serde_json::to_string(&e.to_string()).unwrap_or_else(|_| "\"\"".into());
         format!(r#"{{"err":{{"code":"internal","message":{message}}}}}"#)
     })
-}
-
-/// Transitional ping-only entry point of the P4-3 scaffold, still called
-/// by the shells until they are wired to [`dispatch_with`]. Answers
-/// `{"type":"ping"}` with `{"ok":{"type":"pong"}}`; everything else is
-/// `{"err":{"code":"unknown_request",…}}`.
-#[must_use]
-pub fn dispatch(request: &str) -> String {
-    let kind = serde_json::from_str::<Value>(request)
-        .ok()
-        .and_then(|v| v.get("type").and_then(Value::as_str).map(str::to_owned));
-    let reply = match kind.as_deref() {
-        Some("ping") => json!({"ok": {"type": "pong"}}),
-        _ => json!({"err": {"code": "unknown_request", "message": "unknown or malformed request"}}),
-    };
-    reply.to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ping_is_answered() {
-        assert_eq!(dispatch(r#"{"type":"ping"}"#), r#"{"ok":{"type":"pong"}}"#);
-    }
-
-    #[test]
-    fn everything_else_is_unknown_request() {
-        for req in [r#"{"type":"nope"}"#, "not json", "{}"] {
-            let v: Value = serde_json::from_str(&dispatch(req)).unwrap();
-            assert_eq!(v["err"]["code"], "unknown_request");
-        }
-    }
 }
