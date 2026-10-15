@@ -211,6 +211,9 @@ The order is deliberate: first what can be tested without a UI, then what produc
 
 ---
 
+## Downloads
+Pre-built (unsigned) installers for Windows, macOS and Linux are published on [GitHub Releases](https://github.com/refaustria/rusuite/releases); see [docs/release.md](docs/release.md).
+
 ## Development
 
 ### Prerequisites
