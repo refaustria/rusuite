@@ -1,0 +1,5 @@
+# ts-rs: `#[ts(export_to = "...")]` paths are relative to the repository
+# root, so that every crate exports shared types (and the dependencies
+# it pulls in) to the same place (ADR 0005 §3).
+[env]
+TS_RS_EXPORT_DIR = { value = ".", relative = true }
