@@ -1,16 +1,36 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const setTitle = vi.fn(async (_title: string) => {});
+
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async (cmd: string, args?: { request: string }) =>
-    cmd === "ping" ? "tauri-pong" : JSON.stringify({ ok: { echo: args?.request } }),
-  ),
+  invoke: vi.fn(async (cmd: string, args?: Record<string, string>) => {
+    switch (cmd) {
+      case "ping":
+        return "tauri-pong";
+      case "dispatch":
+        return JSON.stringify({ ok: { echo: args?.request } });
+      case "open_file_dialog":
+        return { path: "/tmp/a.xlsx", name: "a.xlsx", bytesBase64: "UEs=" };
+      case "save_file_dialog":
+        return args?.suggestedName === "cancel.xlsx" ? null : "/tmp/out.xlsx";
+      default:
+        throw new Error(`unknown command ${cmd}`);
+    }
+  }),
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ setTitle }),
 }));
 
 import {
   TauriBackend,
   WasmBackend,
+  base64ToBytes,
+  bytesToBase64,
   createBackend,
   isTauri,
+  type Response,
   type WasmModule,
 } from "./backend";
 import { invoke } from "@tauri-apps/api/core";
@@ -20,10 +40,23 @@ const fake: WasmModule = {
   dispatch: (json) => JSON.stringify({ ok: { got: JSON.parse(json) } }),
 };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe("base64", () => {
+  it("roundtrips all byte values and large inputs", () => {
+    const all = Uint8Array.from({ length: 256 }, (_, i) => i);
+    expect(base64ToBytes(bytesToBase64(all))).toEqual(all);
+    expect(bytesToBase64(new TextEncoder().encode("PK\u0003"))).toBe("UEsD");
+    const big = new Uint8Array(40_000).map((_, i) => (i * 7) % 256);
+    expect(base64ToBytes(bytesToBase64(big))).toEqual(big);
+  });
+});
 
 describe("isTauri", () => {
-  it("is false without window", () => {
+  it("is false in a plain browser", () => {
     expect(isTauri()).toBe(false);
   });
   it("detects __TAURI_INTERNALS__", () => {
@@ -36,12 +69,69 @@ describe("isTauri", () => {
 
 describe("WasmBackend", () => {
   it("pings and roundtrips JSON", async () => {
-    const b = new WasmBackend(fake);
+    const b = new WasmBackend<{ type: string }, { got: unknown }>(fake);
     expect(b.kind).toBe("wasm");
     expect(await b.ping()).toBe("wasm-pong");
-    expect(await b.dispatch({ type: "ping" })).toEqual({
-      ok: { got: { type: "ping" } },
+    const r: Response<{ got: unknown }> = await b.dispatch({ type: "info" });
+    expect(r).toEqual({ ok: { got: { type: "info" } } });
+  });
+
+  it("sets the document title", async () => {
+    await new WasmBackend(fake).setTitle("a.xlsx • – Rusuite Calc");
+    expect(document.title).toBe("a.xlsx • – Rusuite Calc");
+  });
+
+  it("opens a file through a hidden input", async () => {
+    let picked: HTMLInputElement | undefined;
+    vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(function (
+      this: HTMLInputElement,
+    ) {
+      picked = this;
     });
+    const pending = new WasmBackend(fake).openFile();
+    expect(picked?.type).toBe("file");
+    expect(picked?.accept).toContain(".xlsx");
+    expect(picked?.isConnected).toBe(true);
+    const file = new File([new Uint8Array([0x50, 0x4b, 3, 4])], "book.xlsx");
+    Object.defineProperty(picked, "files", { value: [file] });
+    picked!.dispatchEvent(new Event("change"));
+    expect(await pending).toEqual({ name: "book.xlsx", bytesBase64: "UEsDBA==" });
+    expect(picked?.isConnected).toBe(false);
+  });
+
+  it("resolves null when the picker is cancelled", async () => {
+    let picked: HTMLInputElement | undefined;
+    vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(function (
+      this: HTMLInputElement,
+    ) {
+      picked = this;
+    });
+    const pending = new WasmBackend(fake).openFile();
+    picked!.dispatchEvent(new Event("cancel"));
+    expect(await pending).toBeNull();
+    expect(picked?.isConnected).toBe(false);
+  });
+
+  it("saves a file as a download", async () => {
+    const createObjectURL = vi.fn((_: Blob) => "blob:test");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL }));
+    let clicked: HTMLAnchorElement | undefined;
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      clicked = this;
+    });
+    expect(await new WasmBackend(fake).saveFile("out.xlsx", "UEsDBA==")).toBe(true);
+    expect(clicked?.download).toBe("out.xlsx");
+    expect(clicked?.href).toBe("blob:test");
+    const blob = createObjectURL.mock.calls[0][0];
+    expect(blob.type).toContain("spreadsheetml");
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(
+      new Uint8Array([0x50, 0x4b, 3, 4]),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:test");
   });
 });
 
@@ -50,9 +140,26 @@ describe("TauriBackend", () => {
     const b = new TauriBackend();
     expect(b.kind).toBe("tauri");
     expect(await b.ping()).toBe("tauri-pong");
-    const r = await b.dispatch<{ ok: { echo: string } }>({ type: "ping" });
-    expect(r.ok.echo).toBe('{"type":"ping"}');
-    expect(invoke).toHaveBeenCalledWith("dispatch", { request: '{"type":"ping"}' });
+    const r = await b.dispatch<{ echo: string }>({ type: "info" });
+    expect(r).toEqual({ ok: { echo: '{"type":"info"}' } });
+    expect(invoke).toHaveBeenCalledWith("dispatch", { request: '{"type":"info"}' });
+  });
+
+  it("opens and saves through the native dialogs", async () => {
+    const b = new TauriBackend();
+    expect(await b.openFile()).toEqual({ name: "a.xlsx", bytesBase64: "UEs=" });
+    expect(invoke).toHaveBeenCalledWith("open_file_dialog");
+    expect(await b.saveFile("out.xlsx", "UEs=")).toBe(true);
+    expect(invoke).toHaveBeenCalledWith("save_file_dialog", {
+      suggestedName: "out.xlsx",
+      bytesBase64: "UEs=",
+    });
+    expect(await b.saveFile("cancel.xlsx", "UEs=")).toBe(false);
+  });
+
+  it("sets the window title", async () => {
+    await new TauriBackend().setTitle("x – Rusuite Calc");
+    expect(setTitle).toHaveBeenCalledWith("x – Rusuite Calc");
   });
 });
 

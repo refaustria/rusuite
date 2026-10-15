@@ -1,7 +1,8 @@
 //! The JSON entry point both shells call (ADR 0005 §3):
 //! [`dispatch`]`(host, request_json) -> response_json`.
 
-use app_common::{DispatchError, Envelope, Host};
+use app_common::{DispatchError, Envelope, Host, Revision};
+use base64::Engine as _;
 use model_sheet::{Workbook, WorkbookSnapshot};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -47,6 +48,16 @@ pub enum Request {
     /// → `snapshotJson` with the whole workbook as `WorkbookSnapshot`
     /// JSON (does not mark the document saved).
     SaveSnapshotJson,
+    /// Replaces the document by an `.xlsx` file (standard base64 of its
+    /// bytes; `name` is the file name shown to the user) → `opened`.
+    OpenXlsx { bytes_base64: String, name: String },
+    /// Writes the document as `.xlsx` → `saved`, and marks it saved.
+    SaveXlsx,
+    /// Marks the current state as saved (after the shell wrote the
+    /// file) → `documentState`.
+    MarkSaved,
+    /// → `documentState`.
+    DocumentState,
 }
 
 /// The successful part of a [`Response`].
@@ -58,10 +69,39 @@ pub enum Request {
 )]
 #[ts(export, export_to = "apps/calc/src/generated/")]
 pub enum ResponseBody {
-    Patch { envelope: Envelope<CalcPatch> },
-    Snapshot { snapshot: RegionSnapshot },
-    Info { info: WorkbookInfo },
-    SnapshotJson { json: String },
+    Patch {
+        envelope: Envelope<CalcPatch>,
+    },
+    Snapshot {
+        snapshot: RegionSnapshot,
+    },
+    Info {
+        info: WorkbookInfo,
+    },
+    SnapshotJson {
+        json: String,
+    },
+    /// The reply to `openXlsx`: the new workbook, the reader's warnings
+    /// (dropped or approximated content) and the host state (empty patch,
+    /// new revision, clean).
+    Opened {
+        info: WorkbookInfo,
+        warnings: Vec<String>,
+        envelope: Box<Envelope<CalcPatch>>,
+    },
+    /// The reply to `saveXlsx`: the file (standard base64) and the file
+    /// name to offer.
+    Saved {
+        bytes_base64: String,
+        suggested_name: String,
+    },
+    /// Host state for the title bar: dirty flag, revision and the file
+    /// name (`null` for a new document).
+    DocumentState {
+        dirty: bool,
+        revision: Revision,
+        name: Option<String>,
+    },
 }
 
 /// The reply: `{"ok":{"type":"patch",...}}` or
@@ -78,11 +118,17 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
     let patch = |env: Option<Envelope<CalcPatch>>, host: &CalcHost| ResponseBody::Patch {
         envelope: env.unwrap_or_else(|| host.envelope(CalcPatch::default())),
     };
+    let workbook_info = |host: &CalcHost| WorkbookInfo {
+        revision: host.revision(),
+        ..host.doc().info()
+    };
     let info = |host: &CalcHost| ResponseBody::Info {
-        info: WorkbookInfo {
-            revision: host.revision(),
-            ..host.doc().info()
-        },
+        info: workbook_info(host),
+    };
+    let state = |host: &CalcHost| ResponseBody::DocumentState {
+        dirty: host.is_dirty(),
+        revision: host.revision(),
+        name: host.doc().source_name.clone(),
     };
     Ok(match request {
         Request::Apply { command } => {
@@ -123,6 +169,31 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
             json: serde_json::to_string(&host.doc().workbook().to_snapshot())
                 .map_err(|e| DispatchError::new("internal", e.to_string()))?,
         },
+        Request::OpenXlsx { bytes_base64, name } => {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(bytes_base64.as_bytes())
+                .map_err(|e| DispatchError::new("bad_request", format!("invalid base64: {e}")))?;
+            let (doc, warnings) = CalcDocument::open_xlsx(&bytes, &name)?;
+            host.replace(doc);
+            ResponseBody::Opened {
+                info: workbook_info(host),
+                warnings,
+                envelope: Box::new(host.envelope(CalcPatch::default())),
+            }
+        }
+        Request::SaveXlsx => {
+            let bytes = host.doc().save_xlsx()?;
+            host.mark_saved();
+            ResponseBody::Saved {
+                bytes_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+                suggested_name: host.doc().suggested_name(),
+            }
+        }
+        Request::MarkSaved => {
+            host.mark_saved();
+            state(host)
+        }
+        Request::DocumentState => state(host),
     })
 }
 
