@@ -95,6 +95,30 @@ pub fn is_date_format(code: &str) -> bool {
     false
 }
 
+/// Shown when a number cannot be rendered with its format (e.g. a
+/// negative date), as Excel does.
+pub const UNDISPLAYABLE: &str = "#####";
+
+/// Formats a cell value as the grid shows it: numbers with
+/// `number_format` (`None` or `General` → Excel's General format),
+/// booleans as `TRUE`/`FALSE`, errors as `#…`, text as is, empty as `""`.
+pub fn display_value(value: &engine_formula::Value, number_format: Option<&str>) -> String {
+    use engine_formula::Value;
+    match value {
+        Value::Empty => String::new(),
+        Value::Number(n) => match number_format {
+            Some(code) if !code.trim().eq_ignore_ascii_case("general") => {
+                engine_formula::format_number(*n, code).unwrap_or_else(|| UNDISPLAYABLE.into())
+            }
+            _ => engine_formula::value::format_general(*n),
+        },
+        Value::Text(t) => t.clone(),
+        Value::Bool(b) => if *b { "TRUE" } else { "FALSE" }.to_string(),
+        Value::Error(e) => e.to_string(),
+        Value::Array(_) => display_value(&value.clone().into_scalar(), number_format),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

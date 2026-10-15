@@ -54,7 +54,7 @@ pub use ast::{ErrorKind, Expr};
 pub use engine::{CellContent, Engine, EngineError, Recalc};
 pub use eval::{
     default_now, evaluate, set_default_clock, system_now, CellCoord, CellProvider, EvalContext,
-    Operand, RangeRef, SheetId,
+    Operand, RangeRef, RowHidden, SheetId,
 };
 pub use functions::{Arity, CallContext, Function, FunctionRegistry};
 pub use graph::Cycle;

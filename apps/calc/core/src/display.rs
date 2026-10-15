@@ -2,13 +2,12 @@
 
 use engine_formula::Value;
 
-/// Shown when a number cannot be rendered with its format (e.g. a
-/// negative date), as Excel does.
-pub const UNDISPLAYABLE: &str = "#####";
+pub use model_sheet::numfmt::UNDISPLAYABLE;
 
 /// Formats a cell value for the grid: numbers with `number_format`
 /// (`None` or `General` → Excel's General format), booleans as
-/// `TRUE`/`FALSE`, errors as `#…`, text as is, empty as `""`.
+/// `TRUE`/`FALSE`, errors as `#…`, text as is, empty as `""`
+/// (see [`model_sheet::numfmt::display_value`]).
 ///
 /// ```
 /// use calc_core::display_value;
@@ -19,19 +18,7 @@ pub const UNDISPLAYABLE: &str = "#####";
 /// assert_eq!(display_value(&Value::Number(0.1 + 0.2), None), "0.3");
 /// ```
 pub fn display_value(value: &Value, number_format: Option<&str>) -> String {
-    match value {
-        Value::Empty => String::new(),
-        Value::Number(n) => match number_format {
-            Some(code) if !code.trim().eq_ignore_ascii_case("general") => {
-                engine_formula::format_number(*n, code).unwrap_or_else(|| UNDISPLAYABLE.into())
-            }
-            _ => engine_formula::value::format_general(*n),
-        },
-        Value::Text(t) => t.clone(),
-        Value::Bool(b) => if *b { "TRUE" } else { "FALSE" }.to_string(),
-        Value::Error(e) => e.to_string(),
-        Value::Array(_) => display_value(&value.clone().into_scalar(), number_format),
-    }
+    model_sheet::numfmt::display_value(value, number_format)
 }
 
 #[cfg(test)]

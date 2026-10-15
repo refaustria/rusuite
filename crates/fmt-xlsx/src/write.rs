@@ -8,7 +8,9 @@ use engine_formula::ast::{MAX_COL, MAX_ROW};
 use engine_formula::{CellContent, CellCoord, RangeRef, SheetId, Value};
 use fmt_ooxml::theme::office_theme_xml;
 use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
-use model_sheet::{ColInfo, SheetView, Workbook};
+use model_sheet::{
+    AutoFilter, ColInfo, DynamicFilter, Filter, FilterOp, SheetView, SortState, Workbook,
+};
 
 use crate::a1::{cell_name, range_name};
 use crate::styles::{builtin_default_font, color_el, write_styles, MAIN_NS};
@@ -153,6 +155,35 @@ fn workbook_xml(wb: &Workbook, sheets: &[(SheetId, String)], active: usize) -> V
         x.empty("sheet", &a);
     }
     x.end("sheets");
+    // Excel names every AutoFilter range `_xlnm._FilterDatabase`.
+    let filters: Vec<(usize, String)> = sheets
+        .iter()
+        .enumerate()
+        .filter_map(|(i, (id, name))| {
+            let af = wb.auto_filter(*id)?;
+            let quoted = name.replace('\'', "''");
+            Some((
+                i,
+                format!("'{quoted}'!{}", abs_range(af.r0, af.c0, af.r1, af.c1)),
+            ))
+        })
+        .collect();
+    if !filters.is_empty() {
+        x.start("definedNames", &[]);
+        for (i, target) in &filters {
+            let local = i.to_string();
+            x.text_el(
+                "definedName",
+                &[
+                    ("name", "_xlnm._FilterDatabase"),
+                    ("localSheetId", &local),
+                    ("hidden", "1"),
+                ],
+                target,
+            );
+        }
+        x.end("definedNames");
+    }
     x.empty("calcPr", &[("fullCalcOnLoad", "1")]);
     x.end("workbook");
     x.finish()
@@ -208,10 +239,20 @@ fn sheet_xml(wb: &Workbook, id: SheetId, selected: bool, sst: &mut SharedStrings
     let format = wb.sheet_format(id);
     let mut x = XmlOut::new();
     x.start("worksheet", &[("xmlns", MAIN_NS), ("xmlns:r", rel::NS)]);
-    if let Some(color) = wb.tab_color(id) {
-        x.start("sheetPr", &[]);
-        color_el(&mut x, "tabColor", color);
-        x.end("sheetPr");
+    let filter_mode = wb.auto_filter(id).is_some_and(|af| !af.columns.is_empty());
+    let pr: &[(&str, &str)] = if filter_mode {
+        &[("filterMode", "1")]
+    } else {
+        &[]
+    };
+    match wb.tab_color(id) {
+        Some(color) => {
+            x.start("sheetPr", pr);
+            color_el(&mut x, "tabColor", color);
+            x.end("sheetPr");
+        }
+        None if filter_mode => x.empty("sheetPr", pr),
+        None => {}
     }
     let dim = wb
         .used_range(id)
@@ -299,6 +340,12 @@ fn sheet_xml(wb: &Workbook, id: SheetId, selected: bool, sst: &mut SharedStrings
         }
     }
     x.end("sheetData");
+    if let Some(af) = wb.auto_filter(id) {
+        auto_filter_xml(&mut x, af);
+    }
+    if let Some(st) = wb.sort_state(id) {
+        sort_state_xml(&mut x, st);
+    }
     let merges = wb.merges(id);
     if !merges.is_empty() {
         x.start("mergeCells", &[("count", &merges.len().to_string())]);
@@ -320,6 +367,127 @@ fn sheet_xml(wb: &Workbook, id: SheetId, selected: bool, sst: &mut SharedStrings
     );
     x.end("worksheet");
     x.finish()
+}
+
+/// `$A$1:$B$2` (absolute, as in defined names).
+fn abs_range(r0: u32, c0: u32, r1: u32, c1: u32) -> String {
+    let cell = |r: u32, c: u32| format!("${}${}", engine_formula::ast::col_to_letters(c), r + 1);
+    format!("{}:{}", cell(r0, c0), cell(r1, c1))
+}
+
+/// `<autoFilter>` with one `<filterColumn>` per filtered column (`colId`
+/// relative to the range). Text conditions of the contains family are
+/// stored as `equal`/`notEqual` wildcard patterns, as Excel does.
+fn auto_filter_xml(x: &mut XmlOut, af: &AutoFilter) {
+    let r = range_name(af.r0, af.c0, af.r1, af.c1);
+    if af.columns.is_empty() {
+        x.empty("autoFilter", &[("ref", &r)]);
+        return;
+    }
+    x.start("autoFilter", &[("ref", &r)]);
+    for fc in &af.columns {
+        let id = (fc.col - af.c0).to_string();
+        x.start("filterColumn", &[("colId", &id)]);
+        match &fc.filter {
+            Filter::Values { values } => {
+                let blank = values.iter().any(String::is_empty);
+                let a: &[(&str, &str)] = if blank { &[("blank", "1")] } else { &[] };
+                let vals: Vec<&String> = values.iter().filter(|v| !v.is_empty()).collect();
+                if vals.is_empty() {
+                    x.empty("filters", a);
+                } else {
+                    x.start("filters", a);
+                    for v in vals {
+                        x.empty("filter", &[("val", &encode_x_escapes(v))]);
+                    }
+                    x.end("filters");
+                }
+            }
+            Filter::Custom { criteria, and } => {
+                let a: &[(&str, &str)] = if *and { &[("and", "1")] } else { &[] };
+                x.start("customFilters", a);
+                for c in criteria {
+                    let esc = || {
+                        c.value
+                            .chars()
+                            .flat_map(|ch| match ch {
+                                '*' | '?' | '~' => vec!['~', ch],
+                                _ => vec![ch],
+                            })
+                            .collect::<String>()
+                    };
+                    let (op, val) = match c.op {
+                        FilterOp::Eq => ("equal", c.value.clone()),
+                        FilterOp::Ne => ("notEqual", c.value.clone()),
+                        FilterOp::Gt => ("greaterThan", c.value.clone()),
+                        FilterOp::Ge => ("greaterThanOrEqual", c.value.clone()),
+                        FilterOp::Lt => ("lessThan", c.value.clone()),
+                        FilterOp::Le => ("lessThanOrEqual", c.value.clone()),
+                        FilterOp::Contains => ("equal", format!("*{}*", esc())),
+                        FilterOp::NotContains => ("notEqual", format!("*{}*", esc())),
+                        FilterOp::BeginsWith => ("equal", format!("{}*", esc())),
+                        FilterOp::EndsWith => ("equal", format!("*{}", esc())),
+                    };
+                    let val = encode_x_escapes(&val);
+                    let mut a: Vec<(&str, &str)> = Vec::new();
+                    if op != "equal" {
+                        a.push(("operator", op));
+                    }
+                    a.push(("val", &val));
+                    x.empty("customFilter", &a);
+                }
+                x.end("customFilters");
+            }
+            Filter::Top10 {
+                top,
+                percent,
+                value,
+            } => {
+                let v = fmt_num(*value);
+                let mut a: Vec<(&str, &str)> = Vec::new();
+                if !top {
+                    a.push(("top", "0"));
+                }
+                if *percent {
+                    a.push(("percent", "1"));
+                }
+                a.push(("val", &v));
+                x.empty("top10", &a);
+            }
+            Filter::Dynamic { filter } => {
+                let t = match filter {
+                    DynamicFilter::AboveAverage => "aboveAverage",
+                    DynamicFilter::BelowAverage => "belowAverage",
+                    DynamicFilter::Today => "today",
+                    DynamicFilter::Yesterday => "yesterday",
+                    DynamicFilter::Tomorrow => "tomorrow",
+                };
+                x.empty("dynamicFilter", &[("type", t)]);
+            }
+        }
+        x.end("filterColumn");
+    }
+    x.end("autoFilter");
+}
+
+/// `<sortState>` with one `<sortCondition>` per key.
+fn sort_state_xml(x: &mut XmlOut, st: &SortState) {
+    let r = range_name(st.r0, st.c0, st.r1, st.c1);
+    let mut a: Vec<(&str, &str)> = vec![("ref", &r)];
+    if st.case_sensitive {
+        a.push(("caseSensitive", "1"));
+    }
+    x.start("sortState", &a);
+    for k in &st.keys {
+        let col = range_name(st.r0, k.col, st.r1, k.col);
+        let mut a: Vec<(&str, &str)> = Vec::new();
+        if !k.ascending {
+            a.push(("descending", "1"));
+        }
+        a.push(("ref", &col));
+        x.empty("sortCondition", &a);
+    }
+    x.end("sortState");
 }
 
 /// `<sheetViews>` with one `<sheetView>`: non-default gridlines, headings

@@ -6,6 +6,8 @@
 
 use std::cmp::Ordering;
 
+use serde::{Deserialize, Serialize};
+
 use crate::ast::{BinaryOp, ErrorKind, Expr, RangeKind, Reference, UnaryOp, MAX_COL, MAX_ROW};
 use crate::functions::{CallContext, FunctionRegistry};
 use crate::value::{compare, to_number, to_text, Array, Value};
@@ -21,6 +23,30 @@ pub trait CellProvider {
     /// `(max_row, max_col)` (0-based, inclusive) of the used area, `None` if
     /// the sheet is empty. Used to clip whole-column/row references.
     fn used_range(&self, sheet: SheetId) -> Option<(u32, u32)>;
+    /// Whether row `row` of `sheet` is hidden, and why (read by
+    /// `SUBTOTAL`). The default: every row is visible.
+    fn row_hidden(&self, sheet: SheetId, row: u32) -> RowHidden {
+        let _ = (sheet, row);
+        RowHidden::Visible
+    }
+    /// Whether `c` holds a formula calling a function that reads row
+    /// visibility (`SUBTOTAL`): such cells are skipped by `SUBTOTAL` to
+    /// avoid double counting. The default: none.
+    fn is_subtotal_cell(&self, c: CellCoord) -> bool {
+        let _ = c;
+        false
+    }
+}
+
+/// The visibility of a row as `SUBTOTAL` sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum RowHidden {
+    #[default]
+    Visible,
+    /// Hidden by the user (ignored by `SUBTOTAL(101..111)` only).
+    Manual,
+    /// Hidden by an AutoFilter (ignored by every `SUBTOTAL`).
+    Filtered,
 }
 
 /// Everything an evaluation needs.

@@ -6,8 +6,9 @@ use app_common::{Applied, DispatchError, Document, Patch, Revision};
 use engine_formula::ast::{MAX_COL, MAX_ROW};
 use engine_formula::{CellContent, CellRect, Cycle, MoveContext, StructuralOp, Value};
 use model_sheet::{
-    content_to_input, CellCoord, CellRange, ColInfo, EngineError, MergeRect, Recalc, RowInfo,
-    SheetId, StyleId, Workbook, MAX_PATCH_CELLS,
+    content_to_input, AutoFilter, CellCoord, CellRange, ColInfo, EngineError, FilterChange,
+    FilterValue, MergeRect, Recalc, RowInfo, SheetId, SortKey, SortKind, SortSpec, StyleId,
+    Workbook, MAX_PATCH_CELLS,
 };
 
 use crate::command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect, SheetViewPatch};
@@ -67,6 +68,8 @@ impl CalcError {
             CalcError::Model(M::InvalidMerge) => "invalid_merge",
             CalcError::Model(M::MergeOverlap) => "merge_overlap",
             CalcError::Model(M::InvalidSheetView(_)) => "invalid_view",
+            CalcError::Model(M::CannotSortMerged) => "cannot_sort_merged",
+            CalcError::Model(M::NoAutoFilter) => "no_auto_filter",
             CalcError::ReadXlsx(_) => "invalid_file",
             CalcError::WriteXlsx(_) => "internal",
         }
@@ -139,6 +142,7 @@ fn row_view(row: u32, info: RowInfo) -> RowView {
         height: info.height,
         hidden: info.hidden,
         style: info.style.map(|s| s.0),
+        filtered: info.filtered,
     }
 }
 
@@ -233,6 +237,8 @@ impl CalcDocument {
                 hidden: self.workbook.is_sheet_hidden(id),
                 very_hidden: self.workbook.is_sheet_very_hidden(id),
                 view: self.workbook.sheet_view(id),
+                auto_filter: self.workbook.auto_filter(id).cloned(),
+                sort_state: self.workbook.sort_state(id).cloned(),
             })
             .collect()
     }
@@ -523,6 +529,13 @@ impl CalcDocument {
             inverse.push(C::RestoreMerges {
                 sheet,
                 merges: self.merge_rects(s),
+            });
+        }
+        if wb.auto_filter(s).is_some() || wb.sort_state(s).is_some() {
+            inverse.push(C::RestoreFilterState {
+                sheet,
+                auto_filter: wb.auto_filter(s).cloned(),
+                sort_state: wb.sort_state(s).cloned(),
             });
         }
         if wb.is_sheet_hidden(s) {
@@ -999,6 +1012,74 @@ impl CalcDocument {
                 dst,
                 mode,
             } => self.fill_range(sheet, src, dst, mode),
+            &C::SortRange {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                ref keys,
+                has_header,
+                case_sensitive,
+            } => {
+                let range = self.range(sheet, r0, c0, r1, c1)?;
+                let spec = SortSpec {
+                    keys: keys.clone(),
+                    has_header,
+                    case_sensitive,
+                };
+                self.sort(range, &spec)
+            }
+            &C::SortSheetByColumn {
+                sheet,
+                row,
+                col,
+                ascending,
+            } => self.sort_by_column(sheet, row, col, ascending),
+            &C::SetAutoFilter { sheet, range } => self.set_auto_filter(sheet, range),
+            &C::SetFilterColumn {
+                sheet,
+                col,
+                ref filter,
+            } => {
+                let filter = filter.clone();
+                self.filter_op(sheet, move |wb, s| {
+                    wb.set_filter_column(s, col, filter)?;
+                    wb.apply_auto_filter(s)
+                })
+            }
+            &C::ClearFilters { sheet } => self.filter_op(sheet, |wb, s| {
+                let mut af = wb
+                    .auto_filter(s)
+                    .cloned()
+                    .ok_or(model_sheet::Error::NoAutoFilter)?;
+                af.columns.clear();
+                wb.set_auto_filter(s, Some(af))?;
+                wb.apply_auto_filter(s)
+            }),
+            &C::ReapplyFilter { sheet } => self.filter_op(sheet, |wb, s| wb.apply_auto_filter(s)),
+            C::RestoreFilterState {
+                sheet,
+                auto_filter,
+                sort_state,
+            } => {
+                let s = self.sheet(*sheet)?;
+                let wb = &self.workbook;
+                let inverse = C::RestoreFilterState {
+                    sheet: *sheet,
+                    auto_filter: wb.auto_filter(s).cloned(),
+                    sort_state: wb.sort_state(s).cloned(),
+                };
+                self.workbook.set_auto_filter(s, auto_filter.clone())?;
+                if let Err(e) = self.workbook.set_sort_state(s, sort_state.clone()) {
+                    let _ = self.apply_cmd(&inverse);
+                    return Err(e.into());
+                }
+                Ok(Applied {
+                    patch: self.sheets_only_patch(),
+                    inverse: Some(inverse),
+                })
+            }
             C::Compound { commands } => {
                 let mut patch = CalcPatch::default();
                 let mut inverses = Vec::with_capacity(commands.len());
@@ -1333,6 +1414,192 @@ impl CalcDocument {
         self.write_cells(writes)
     }
 
+    /// The inverse of a change of the AutoFilter / sort state of `s`.
+    fn filter_state_inverse(&self, s: SheetId) -> CalcCommand {
+        CalcCommand::RestoreFilterState {
+            sheet: s.0,
+            auto_filter: self.workbook.auto_filter(s).cloned(),
+            sort_state: self.workbook.sort_state(s).cloned(),
+        }
+    }
+
+    /// Runs a filter operation `f` on sheet `sheet`. The inverse restores
+    /// the rows it showed or hid and the previous AutoFilter; the patch
+    /// lists those rows, the sheet list and the changed `SUBTOTAL`s.
+    fn filter_op(
+        &mut self,
+        sheet: u32,
+        f: impl FnOnce(&mut Workbook, SheetId) -> Result<FilterChange, model_sheet::Error>,
+    ) -> Result<CalcApplied> {
+        let s = self.sheet(sheet)?;
+        let state = self.filter_state_inverse(s);
+        let rows_before: HashMap<u32, RowInfo> = self.workbook.rows(s).collect();
+        let change = match f(&mut self.workbook, s) {
+            Ok(change) => change,
+            Err(e) => {
+                let _ = self.apply_cmd(&state);
+                return Err(e.into());
+            }
+        };
+        let prev: Vec<RowView> = change
+            .rows
+            .iter()
+            .map(|&r| row_view(r, rows_before.get(&r).copied().unwrap_or_default()))
+            .collect();
+        let mut inverse = Vec::new();
+        if !prev.is_empty() {
+            inverse.push(CalcCommand::RestoreRows { sheet, rows: prev });
+        }
+        inverse.push(state);
+        let rows = change
+            .rows
+            .iter()
+            .map(|&r| row_view(r, self.workbook.row_info(s, r)))
+            .collect();
+        let mut patch = self.content_patch([], &change.recalc);
+        patch.rows = vec![SheetRows { sheet, rows }];
+        patch.sheets = Some(self.sheet_infos());
+        Ok(Applied {
+            patch,
+            inverse: Some(CalcCommand::Compound { commands: inverse }),
+        })
+    }
+
+    /// [`CalcCommand::SetAutoFilter`].
+    fn set_auto_filter(&mut self, sheet: u32, range: Option<Rect>) -> Result<CalcApplied> {
+        let s = self.sheet(sheet)?;
+        let new = match range {
+            None => None,
+            Some(r) => {
+                let range = self.range(sheet, r.r0, r.c0, r.r1, r.c1)?;
+                let range = if range.rows() == 1 && range.cols() == 1 {
+                    self.workbook.current_region(s, r.r0, r.c0)
+                } else {
+                    range
+                };
+                Some(AutoFilter::new(range.r0, range.c0, range.r1, range.c1))
+            }
+        };
+        self.filter_op(sheet, move |wb, s| {
+            let shown = match wb.auto_filter(s) {
+                Some(old) => {
+                    let (r0, r1) = (old.r0, old.r1);
+                    wb.show_filtered_rows(s, r0, r1)?
+                }
+                None => FilterChange::default(),
+            };
+            wb.set_auto_filter(s, new)?;
+            Ok(shown)
+        })
+    }
+
+    /// [`CalcCommand::SortRange`] on a validated range. The inverse puts
+    /// back every cell of the range that changed and the sort state.
+    fn sort(&mut self, range: CellRange, spec: &SortSpec) -> Result<CalcApplied> {
+        let s = range.sheet;
+        let state = self.filter_state_inverse(s);
+        let before: BTreeMap<(u32, u32), (String, u32)> = self
+            .workbook
+            .cells_in(range)
+            .map(|(c, content, style)| ((c.row, c.col), (content_to_input(content), style.0)))
+            .collect();
+        let recalc = self.workbook.sort_range(range, spec)?;
+        let after: BTreeSet<(u32, u32)> = self
+            .workbook
+            .cells_in(range)
+            .map(|(c, _, _)| (c.row, c.col))
+            .collect();
+        let mut cells = Vec::new();
+        let mut touched = Vec::new();
+        for pos in after
+            .iter()
+            .chain(before.keys().filter(|p| !after.contains(p)))
+        {
+            let c = CellCoord::new(s, pos.0, pos.1);
+            let old = before.get(pos).cloned().unwrap_or_default();
+            let now = (
+                content_to_input(self.workbook.content(c)),
+                self.workbook.cell_style_id(c).0,
+            );
+            if old != now {
+                cells.push((pos.0, pos.1, old.0, old.1));
+                touched.push(c);
+            }
+        }
+        let mut patch = self.content_patch(touched, &recalc);
+        patch.sheets = Some(self.sheet_infos());
+        let mut inverse = Vec::new();
+        if !cells.is_empty() {
+            inverse.push(CalcCommand::RestoreCells { sheet: s.0, cells });
+        }
+        inverse.push(state);
+        Ok(Applied {
+            patch,
+            inverse: Some(CalcCommand::Compound { commands: inverse }),
+        })
+    }
+
+    /// [`CalcCommand::SortSheetByColumn`].
+    fn sort_by_column(
+        &mut self,
+        sheet: u32,
+        row: u32,
+        col: u32,
+        ascending: bool,
+    ) -> Result<CalcApplied> {
+        let s = self.sheet(sheet)?;
+        let wb = &self.workbook;
+        let (range, has_header) = match wb.auto_filter(s) {
+            Some(af) if (af.r0..=af.r1).contains(&row) && af.contains_col(col) => {
+                (CellRange::new(s, af.r0, af.c0, af.r1, af.c1), true)
+            }
+            _ => {
+                if row > MAX_ROW || col > MAX_COL {
+                    return Err(CalcError::InvalidRange);
+                }
+                let region = wb.current_region(s, row, col);
+                (region, self.looks_like_header(region, col))
+            }
+        };
+        let spec = SortSpec {
+            keys: vec![SortKey {
+                col,
+                ascending,
+                kind: SortKind::Auto,
+            }],
+            has_header,
+            case_sensitive: false,
+        };
+        self.sort(range, &spec)
+    }
+
+    /// Excel's header guess: the first row holds only text (and blanks)
+    /// and some cell below it is not text, or the key column's first two
+    /// cells are formatted differently.
+    fn looks_like_header(&self, range: CellRange, key: u32) -> bool {
+        if range.rows() < 2 {
+            return false;
+        }
+        let wb = &self.workbook;
+        let at = |r, c| CellCoord::new(range.sheet, r, c);
+        let first: Vec<Value> = (range.c0..=range.c1)
+            .map(|c| wb.value(at(range.r0, c)))
+            .collect();
+        let text_only = first
+            .iter()
+            .all(|v| matches!(v, Value::Text(_) | Value::Empty));
+        if !text_only || !first.iter().any(|v| matches!(v, Value::Text(_))) {
+            return false;
+        }
+        (range.c0..=range.c1).any(|c| !matches!(wb.value(at(range.r0 + 1, c)), Value::Text(_)))
+            || wb.style_id(at(range.r0, key)) != wb.style_id(at(range.r0 + 1, key))
+    }
+
+    /// The `filterValues` request.
+    pub fn filter_values(&self, sheet: u32, col: u32) -> Result<Vec<FilterValue>> {
+        Ok(self.workbook.filter_values(self.sheet(sheet)?, col)?)
+    }
+
     /// Cells whose input or displayed value contains `query` (or equals
     /// it with `whole_cell`), on `sheet` or on every sheet, in sheet
     /// order then row-major order. Only cells with content are searched.
@@ -1484,14 +1751,19 @@ impl CalcDocument {
                     height: v.height,
                     hidden: v.hidden,
                     style: v.style.map(StyleId),
+                    filtered: v.filtered,
                 };
-                wb.set_row_info(s, v.row, info)
+                wb.set_row_info(s, v.row, info).map(drop)
             })
         };
-        if let Err(e) = set(wb, rows) {
+        // A batch: hiding rows re-evaluates `SUBTOTAL`s once.
+        wb.begin_batch();
+        let result = set(wb, rows);
+        if result.is_err() {
             let _ = set(wb, &prev);
-            return Err(e.into());
         }
+        let recalc = wb.end_batch();
+        result?;
         let rows = rows
             .iter()
             .map(|v| row_view(v.row, self.workbook.row_info(s, v.row)))
@@ -1499,7 +1771,7 @@ impl CalcDocument {
         Ok(Applied {
             patch: CalcPatch {
                 rows: vec![SheetRows { sheet, rows }],
-                ..Default::default()
+                ..self.content_patch([], &recalc)
             },
             inverse: Some(CalcCommand::RestoreRows { sheet, rows: prev }),
         })
@@ -1522,6 +1794,7 @@ impl CalcDocument {
         let wb = &self.workbook;
         let merges_before = wb.merges(s).to_vec();
         let view_before = wb.sheet_view(s);
+        let filter_before = (wb.auto_filter(s).cloned(), wb.sort_state(s).cloned());
 
         // What a delete destroys.
         let mut span_cells = Vec::new();
@@ -1638,6 +1911,17 @@ impl CalcDocument {
             inverse.push(C::SetSheetView {
                 sheet,
                 patch: SheetViewPatch::full(view_before),
+            });
+            extra.sheets = Some(self.sheet_infos());
+        }
+        let wb = &self.workbook;
+        if (wb.auto_filter(s), wb.sort_state(s))
+            != (filter_before.0.as_ref(), filter_before.1.as_ref())
+        {
+            inverse.push(C::RestoreFilterState {
+                sheet,
+                auto_filter: filter_before.0,
+                sort_state: filter_before.1,
             });
             extra.sheets = Some(self.sheet_infos());
         }

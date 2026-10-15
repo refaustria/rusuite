@@ -188,6 +188,7 @@ describe("formula bar parity, colours and autocomplete", () => {
     const options = functionOptions().map((o) => o.textContent);
     expect(options[0]).toMatch(/^SUBSTITUTE/);
     fireEvent.keyDown(editor(), { key: "ArrowDown" });
+    fireEvent.keyDown(editor(), { key: "ArrowDown" }); // past SUBTOTAL
     fireEvent.keyDown(editor(), { key: "Tab" });
     expect(editor().value).toBe("=SUM(");
     expect(screen.queryByRole("listbox", { name: "Functions" })).toBeNull();

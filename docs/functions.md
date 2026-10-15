@@ -1,7 +1,7 @@
 # Function list
 
-The 213 functions the formula evaluator implements (the 62 MVP functions of Phase 1 plus the Phase 8
-library growth, task P8-1). Behaviour is Microsoft Excel's; the reference cases live in
+The 214 functions the formula evaluator implements (the 62 MVP functions of Phase 1 plus the Phase 8
+library growth, tasks P8-1 and P8-4). Behaviour is Microsoft Excel's; the reference cases live in
 `testdata/formulas/*.tsv` (see [formula-suite.md](formula-suite.md)).
 Status `planned` means no implementation exists yet.
 
@@ -13,7 +13,7 @@ General rules that apply to every function below:
 - An empty cell is 0 in arithmetic, `""` in text contexts, and is skipped by aggregating functions.
 - Dates are serial numbers (1900 system, serial 1 = 1900-01-01, the non-existent 1900-02-29 is serial 60).
 
-## Math (65)
+## Math (66)
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
@@ -82,6 +82,7 @@ General rules that apply to every function below:
 | `AVERAGEIFS` | `AVERAGEIFS(average_range, criteria_range1, criteria1, ...)` | Mean where all criteria hold | Ranges must have the same shape (`#VALUE!`); no numeric match `#DIV/0!` | implemented |
 | `MAXIFS` | `MAXIFS(max_range, criteria_range1, criteria1, ...)` | Largest matching number | Stored as `_xlfn.MAXIFS`; no match = 0; ranges must have the same shape (`#VALUE!`) | implemented |
 | `MINIFS` | `MINIFS(min_range, criteria_range1, criteria1, ...)` | Smallest matching number | Stored as `_xlfn.MINIFS`; no match = 0; ranges must have the same shape (`#VALUE!`) | implemented |
+| `SUBTOTAL` | `SUBTOTAL(function_num, ref1, [ref2], ...)` | AVERAGE/COUNT/COUNTA/MAX/MIN/PRODUCT/STDEV/STDEVP/SUM/VAR/VARP (1-11) of the references | Rows hidden by an AutoFilter are always skipped, 101-111 also skip rows hidden by hand; hidden columns count; cells holding a `SUBTOTAL` are skipped; arguments must be references (`#VALUE!`); function number outside 1-11/101-111 `#VALUE!` | implemented |
 
 ## Logical (11)
 
@@ -271,7 +272,7 @@ General rules that apply to every function below:
 Not implemented yet:
 
 - Dynamic arrays and spilling: SORT, FILTER, UNIQUE, SEQUENCE, SORTBY, the `@` operator and `#SPILL!` (task P8-6). Until then, functions that return arrays (`TRANSPOSE`, `TREND`, `XLOOKUP` with a multi-cell return range) show their top-left element in the formula cell and work inside other functions (`SUM(TRANSPOSE(..))`, `INDEX(TREND(..),2)`).
-- Further families from the Excel catalogue: other financial functions (XNPV, XIRR, CUMIPMT, CUMPRINC, PRICE, YIELD, ...), the database functions (DSUM, ...), engineering and base conversion (DEC2BIN, ...), information functions (INFO, SHEET), AGGREGATE and SUBTOTAL, statistical distributions, regression with several variables (LINEST, multi-variable TREND), text functions TEXTBEFORE/TEXTAFTER/TEXTSPLIT, LET/LAMBDA, DAYS360, and the legacy double-byte text functions.
+- Further families from the Excel catalogue: other financial functions (XNPV, XIRR, CUMIPMT, CUMPRINC, PRICE, YIELD, ...), the database functions (DSUM, ...), engineering and base conversion (DEC2BIN, ...), information functions (INFO, SHEET), AGGREGATE, statistical distributions, regression with several variables (LINEST, multi-variable TREND), text functions TEXTBEFORE/TEXTAFTER/TEXTSPLIT, LET/LAMBDA, DAYS360, and the legacy double-byte text functions.
 
 Divergences from Excel that are decided (and tested with `[excel=...]` notes in the suite where LibreOffice differs):
 

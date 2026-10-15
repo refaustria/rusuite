@@ -87,6 +87,9 @@ pub enum Request {
     FormatPreview { value: f64, code: String },
     /// The last used cell of `sheet` (content or own style) → `usedRange`.
     UsedRange { sheet: u32 },
+    /// The value list of AutoFilter column `col` (absolute) for its
+    /// dropdown → `filterValues`.
+    FilterValues { sheet: u32, col: u32 },
 }
 
 /// The successful part of a [`Response`].
@@ -151,6 +154,13 @@ pub enum ResponseBody {
     /// `null` for an empty sheet.
     UsedRange {
         last: Option<(u32, u32)>,
+    },
+    /// The reply to `filterValues`: distinct displayed values with their
+    /// row counts, ordered like an ascending sort, blanks (`""`) last.
+    /// Rows hidden by the other columns' filters are left out.
+    FilterValues {
+        #[ts(as = "Vec<crate::wire::FilterValue>")]
+        values: Vec<model_sheet::FilterValue>,
     },
 }
 
@@ -273,6 +283,9 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
             cells: host
                 .doc()
                 .find_cells(sheet, &query, match_case, whole_cell)?,
+        },
+        Request::FilterValues { sheet, col } => ResponseBody::FilterValues {
+            values: host.doc().filter_values(sheet, col)?,
         },
         Request::UsedRange { sheet } => ResponseBody::UsedRange {
             last: host.doc().used_range(sheet)?,
