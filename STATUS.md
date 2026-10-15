@@ -87,6 +87,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+14. 2026-10-15: ADR 0007 fixes the Tiptap↔Rust sync: optimistic ProseMirror apply + authoritative block-level `WritePatch`, block ids in the PM schema with temp-id mapping, fine-grained commands plus `ReplaceBlocks` fallback, lists mapped in TS between nested PM lists and docx numbering, undo/find-replace in Rust, full-document snapshot on load (no regions in Write for MVP).
 13. 2026-10-15: Phase 2 milestone declared reached on the server; the Excel reopen check is delegated to the owner (no Excel here). Phase 3 (Write) planning starts; Phase 2 leftovers (used range in snapshots, async Tauri dispatch, paste reference adjustment, text overflow) go to ROADMAP and are scheduled only if they block Phase 3/5.
 12. 2026-10-15: Owner added the web target (WASM, now, deploy from main). ADR 0005: one `<app>-core` crate + two shells (`src-tauri`, `src-wasm`), JSON `dispatch` over both transports, ts-rs for TS types, `Backend` abstraction in ui-shared, static hosting on nginx.
 11. 2026-10-15: Phase 1 closed. Phase 2 design: `model-sheet::Workbook` wraps `engine_formula::Engine` (single storage of cell contents/values) and adds styles + dimensions; no duplicate cell store. ADR 0004 to be written with P2-1.
