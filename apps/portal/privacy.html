@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title data-i18n="portal.privacy.title">Privacy – Rusuite</title>
+    <link rel="icon" href="logos/rusuite-mono.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="stripe" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="lang" role="group" data-i18n-aria-label="portal.language" aria-label="Language / Sprache">
+      <button type="button" data-lang="en" lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="de" lang="de" aria-pressed="false" title="Deutsch">DE</button>
+    </div>
+    <header class="hero">
+      <h1 data-i18n="portal.privacy">Privacy</h1>
+      <p class="lead" data-i18n="portal.privacy.lead">Rusuite keeps your documents on your own device. This page says what is stored where.</p>
+    </header>
+    <main class="prose">
+      <h2 data-i18n="portal.privacy.h.server">What this server stores</h2>
+      <p data-i18n-html="portal.privacy.server">Nothing about you or your documents. The server only hands out the static program files; it has no database, no upload and no account. The only request a page makes besides loading its own files is <code>/version.json</code> (the build number shown in the footer). The server's web log records ordinary requests (time, address, page) like any web server; documents are never part of them.</p>
+      <h2 data-i18n="portal.privacy.h.browser">What your browser stores</h2>
+      <p data-i18n="portal.privacy.browser">Calc, Write and Show keep autosave copies of unsaved changes and a list of recently used files (with a copy of each document) in this browser's own storage (IndexedDB), plus your language and settings (localStorage). This data is private to this browser profile on this device; it is not synced to other browsers or devices. In every app, File › Home › Privacy lets you remove these local copies, or stop keeping autosave copies. Clearing the site data in your browser settings removes everything as well.</p>
+      <h2 data-i18n="portal.privacy.h.desktop">Desktop apps</h2>
+      <p data-i18n="portal.privacy.desktop">The desktop builds keep the same data in the app's data folder of your user account and make no network connections of their own.</p>
+      <h2 data-i18n="portal.privacy.h.tracking">Tracking</h2>
+      <p data-i18n="portal.privacy.tracking">None. No cookies, no analytics, no advertising, no fonts or scripts from other sites. A Content Security Policy makes your browser refuse connections to any other host.</p>
+    </main>
+    <footer>
+      <p class="meta"><a href="/" data-i18n="portal.privacy.back">Back to Rusuite</a></p>
+    </footer>
+    <script src="i18n.js"></script>
+  </body>
+</html>

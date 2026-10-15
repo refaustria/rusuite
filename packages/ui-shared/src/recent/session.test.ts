@@ -222,3 +222,44 @@ describe("DocumentSession recent files", () => {
     expect(session.backend.storage).toBe(session.storage);
   });
 });
+
+describe("DocumentSession privacy (ADR 0009)", () => {
+  afterEach(() => localStorage.removeItem("rusuite.keepAutosave"));
+
+  it("with autosave copies off writes no recovery entry and keeps recent entries without content", async () => {
+    const { session, storage, edit } = setup();
+    await edit("a");
+    expect(await session.autosave()).toBe(true);
+    expect(storage.recovery.size).toBe(1);
+    await session.setKeepAutosave(false);
+    expect(storage.recovery.size).toBe(0);
+    expect(session.getState().keepAutosave).toBe(false);
+    await edit("b");
+    expect(await session.autosave(true)).toBe(false);
+    expect(storage.recovery.size).toBe(0);
+    await session.backend.dispatch({ type: "saveXlsx" });
+    await session.backend.dispatch({ type: "markSaved" });
+    await session.idle();
+    expect(session.getState().recent.map((r) => r.name)).toEqual(["Untitled.xlsx"]);
+    expect(storage.blobs.size).toBe(0);
+    await session.setKeepAutosave(true);
+    await edit("c");
+    expect(await session.autosave()).toBe(true);
+  });
+
+  it("clearLocalData removes recent entries, snapshots and recovery entries", async () => {
+    const { session, storage, edit } = setup();
+    await edit("a");
+    await session.autosave();
+    await session.backend.dispatch({ type: "saveXlsx" });
+    await session.backend.dispatch({ type: "markSaved" });
+    await edit("b");
+    await session.autosave();
+    await session.idle();
+    expect(storage.recent.length).toBe(1);
+    expect(storage.recovery.size).toBe(1);
+    await session.clearLocalData();
+    expect([storage.recent.length, storage.recovery.size, storage.blobs.size]).toEqual([0, 0, 0]);
+    expect(session.getState().recent).toEqual([]);
+  });
+});
