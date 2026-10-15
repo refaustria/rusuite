@@ -1,7 +1,7 @@
 # Function list
 
-The 214 functions the formula evaluator implements (the 62 MVP functions of Phase 1 plus the Phase 8
-library growth, tasks P8-1 and P8-4). Behaviour is Microsoft Excel's; the reference cases live in
+The 220 functions the formula evaluator implements (the 62 MVP functions of Phase 1 plus the Phase 8
+library growth, tasks P8-1, P8-4 and the dynamic array functions of P8-6). Behaviour is Microsoft Excel's; the reference cases live in
 `testdata/formulas/*.tsv` (see [formula-suite.md](formula-suite.md)).
 Status `planned` means no implementation exists yet.
 
@@ -12,6 +12,7 @@ General rules that apply to every function below:
 - Booleans and text inside a reference are ignored by the aggregating functions; booleans written as literal arguments count as 1/0.
 - An empty cell is 0 in arithmetic, `""` in text contexts, and is skipped by aggregating functions.
 - Dates are serial numbers (1900 system, serial 1 = 1900-01-01, the non-existent 1900-02-29 is serial 60).
+- Dynamic arrays (Excel 365): a cell formula whose result is an array (a function such as `SORT`, a range `=A1:A3`, an operator over ranges `=A1:A3*2`) *spills* into the cells below and to the right; blank elements show 0. A non-empty target cell (or the sheet edge) gives `#SPILL!` in the formula cell until it is cleared. `A1#` is the range the formula in A1 spills into (`#REF!` when A1 holds no formula or is `#SPILL!`); `@` forces one value (implicit intersection of a range with the formula's row/column, the top-left element of an array). Functions are not lifted over arrays in scalar arguments (`=LEN(A1:A3)` uses implicit intersection), and whole-column/row ranges are clipped to the used range.
 
 ## Math (66)
 
@@ -167,12 +168,25 @@ General rules that apply to every function below:
 | `COLUMNS` | `COLUMNS(array)` | Number of columns | Whole-row references count 16384 columns | implemented |
 | `LOOKUP` | `LOOKUP(value, lookup_vector, [result_vector])` | Approximate match in a sorted vector | Vector form needs ascending data; array form searches the first row (wide) or column (tall) and returns the last; smaller than the first item `#N/A` | implemented |
 | `XMATCH` | `XMATCH(value, lookup_array, [match_mode=0], [search_mode=1])` | Position of a value | Stored as `_xlfn.XMATCH`; match mode 0 exact (no wildcards), -1 or next smaller, 1 or next larger, 2 wildcards; search mode 1 or -1 scan direction, 2 or -2 binary search (evaluated as a scan); 2-D array `#VALUE!`; not found `#N/A` | implemented |
-| `XLOOKUP` | `XLOOKUP(value, lookup_array, return_array, [if_not_found], [match_mode], [search_mode])` | Value at a found position | Stored as `_xlfn.XLOOKUP`; modes as `XMATCH`; returns the matching row or column of `return_array` (an array when it has several cells, shown as its top-left value until spilling exists); returns a reference (`A1:XLOOKUP(..)` works); size mismatch `#VALUE!`; not found gives `if_not_found` (lazy) or `#N/A` | implemented |
+| `XLOOKUP` | `XLOOKUP(value, lookup_array, return_array, [if_not_found], [match_mode], [search_mode])` | Value at a found position | Stored as `_xlfn.XLOOKUP`; modes as `XMATCH`; returns the matching row or column of `return_array` (an array that spills when it has several cells); returns a reference (`A1:XLOOKUP(..)` works); size mismatch `#VALUE!`; not found gives `if_not_found` (lazy) or `#N/A` | implemented |
 | `INDIRECT` | `INDIRECT(ref_text, [a1=TRUE])` | Reference from text | Volatile; A1 or R1C1 (`a1` FALSE) text, optionally sheet-qualified; not a reference `#REF!`; usable as a reference (`SUM(INDIRECT("A1:A3"))`) | implemented |
 | `OFFSET` | `OFFSET(reference, rows, cols, [height], [width])` | Displaced reference | Volatile; result outside the sheet or non-positive size `#REF!`; non-reference first argument `#VALUE!`; usable as a reference | implemented |
 | `ADDRESS` | `ADDRESS(row, col, [abs=1], [a1=TRUE], [sheet])` | Cell address as text | `abs` 1 `$A$1`, 2 `A$1`, 3 `$A1`, 4 `A1`; R1C1 style when `a1` is FALSE; sheet names are quoted when needed; invalid row, column or `abs` `#VALUE!` | implemented |
-| `TRANSPOSE` | `TRANSPOSE(array)` | Swap rows and columns | Whole-column or row references are limited to the used range; a single cell shows the top-left element until spilling exists | implemented |
+| `TRANSPOSE` | `TRANSPOSE(array)` | Swap rows and columns | Whole-column or row references are limited to the used range; spills | implemented |
 | `HYPERLINK` | `HYPERLINK(link_location, [friendly_name])` | Cell showing a link | Returns `friendly_name` if given, else the location; the link itself is a UI feature | implemented |
+
+## Dynamic arrays (6)
+
+Results spill (see the general rules above). Inside other functions they work as arrays: `SUM(SEQUENCE(4))`, `INDEX(SORT(A1:A9),1)`.
+
+| Name | Signature | Semantics | Excel edge cases | Status |
+|------|-----------|-----------|------------------|--------|
+| `SORT` | `SORT(array, [sort_index=1], [sort_order=1], [by_col=FALSE])` | Sorted rows (or columns) | Stored as `_xlfn._xlws.SORT`; `sort_index`/`sort_order` may be arrays (several keys); order 1 ascending, -1 descending, else `#VALUE!`; index out of range `#VALUE!`; numbers < text (case-insensitive) < booleans < errors, blank cells last; stable | implemented |
+| `SORTBY` | `SORTBY(array, by_array1, [sort_order1], ...)` | Sort by other arrays | Stored as `_xlfn.SORTBY`; each `by_array` is one column as tall as `array` (or one row as wide, sorting columns); other shapes or mixed orientations `#VALUE!`; orders as `SORT` | implemented |
+| `FILTER` | `FILTER(array, include, [if_empty])` | Rows (or columns) where `include` is true | Stored as `_xlfn._xlws.FILTER`; `include` one column as tall as `array` or one row as wide; numbers non-zero are true, blanks false, text `#VALUE!`, errors propagate; no match `if_empty` or `#CALC!` | implemented |
+| `UNIQUE` | `UNIQUE(array, [by_col=FALSE], [exactly_once=FALSE])` | Distinct rows (or columns) | Stored as `_xlfn.UNIQUE`; first-occurrence order; text compares case-insensitively; `1` and `"1"` differ; empty result `#CALC!` | implemented |
+| `SEQUENCE` | `SEQUENCE(rows, [columns=1], [start=1], [step=1])` | Array of counting numbers | Stored as `_xlfn.SEQUENCE`; row by row; sizes truncated, negative `#VALUE!`, zero `#CALC!`; more than 16777216 cells `#NUM!` (engine limit) | implemented |
+| `RANDARRAY` | `RANDARRAY([rows=1], [columns=1], [min=0], [max=1], [integer=FALSE])` | Array of random numbers | Stored as `_xlfn.RANDARRAY`; volatile; `[min, max)`, or whole numbers in `[min, max]` with `integer`; `min > max` or fractional bounds with `integer` `#VALUE!`; sizes as `SEQUENCE` | implemented |
 
 ## Date / time (24)
 
@@ -271,7 +285,7 @@ General rules that apply to every function below:
 
 Not implemented yet:
 
-- Dynamic arrays and spilling: SORT, FILTER, UNIQUE, SEQUENCE, SORTBY, the `@` operator and `#SPILL!` (task P8-6). Until then, functions that return arrays (`TRANSPOSE`, `TREND`, `XLOOKUP` with a multi-cell return range) show their top-left element in the formula cell and work inside other functions (`SUM(TRANSPOSE(..))`, `INDEX(TREND(..),2)`).
+- Lifting scalar functions over arrays (`=LEN(A1:A3)` spilling three lengths), and the other Excel 365 array functions (`TAKE`, `DROP`, `CHOOSECOLS`, `VSTACK`, `TOCOL`, `MMULT`, ...).
 - Further families from the Excel catalogue: other financial functions (XNPV, XIRR, CUMIPMT, CUMPRINC, PRICE, YIELD, ...), the database functions (DSUM, ...), engineering and base conversion (DEC2BIN, ...), information functions (INFO, SHEET), AGGREGATE, statistical distributions, regression with several variables (LINEST, multi-variable TREND), text functions TEXTBEFORE/TEXTAFTER/TEXTSPLIT, LET/LAMBDA, DAYS360, and the legacy double-byte text functions.
 
 Divergences from Excel that are decided (and tested with `[excel=...]` notes in the suite where LibreOffice differs):

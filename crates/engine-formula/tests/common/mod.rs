@@ -72,4 +72,17 @@ pub const TABLE: &[(&str, &str)] = &[
     ("=(1+2)%", "(1+2)%"),
     ("=A1:B2%", "A1:B2%"),
     ("=1E+20", "1E+20"),
+    // Dynamic arrays: spilled-range and implicit-intersection operators.
+    ("=SUM(A1#)", "SUM(A1#)"),
+    ("=Sheet2!$B$3#*2", "Sheet2!$B$3#*2"),
+    ("=@A1:A10", "@A1:A10"),
+    ("=@A1:INDEX(B:B,2)+1", "@A1:INDEX(B:B,2)+1"),
+    ("=-@A1#", "-@A1#"),
+    ("=@(-A1)", "@(-A1)"),
+    ("=(@A1)%", "@A1%"),
+    ("=A1:(B1#)", "A1:(B1#)"),
+    ("=A1#:B5", "A1#:(B5)"),
+    ("=(A1:B2)#", "A1:B2#"),
+    ("=#REF!#", "#REF!#"),
+    ("=IFERROR(#SPILL!,#CALC!)", "IFERROR(#SPILL!,#CALC!)"),
 ];

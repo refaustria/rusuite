@@ -365,7 +365,9 @@ fn insert_and_delete_rows() {
             let shown = match content {
                 CellContent::Formula { text, .. } => text.clone(),
                 CellContent::Value(v) => format!("{v:?}"),
-                CellContent::Empty => unreachable!("cells() skips empty cells"),
+                CellContent::Empty | CellContent::Spilled { .. } => {
+                    unreachable!("cells() skips empty cells")
+                }
             };
             (cell, shown)
         })

@@ -1,7 +1,8 @@
 //! Hand-written Pratt parser producing [`Expr`].
 //!
 //! Precedence, low to high: comparison < `&` < `+ -` < `* /` < `^` (left
-//! associative) < prefix `- +` < postfix `%` < `:` (reference operator).
+//! associative) < prefix `- +` < postfix `%` < prefix `@` (implicit
+//! intersection) < `:` (reference operator) < postfix `#` (spilled range).
 
 use thiserror::Error;
 
@@ -63,6 +64,10 @@ fn parse_body(src: &str) -> Result<Expr, ParseError> {
 // Binding powers.
 const BP_PREFIX: u8 = 11;
 const BP_PERCENT: u8 = 13;
+/// `@` takes everything up to the reference operator: `@A1:B2` is
+/// `@(A1:B2)`.
+const BP_AT: u8 = 14;
+const BP_SPILL: u8 = 17;
 
 fn infix(kind: &TokenKind) -> Option<(BinaryOp, u8, u8)> {
     let op = match kind {
@@ -124,6 +129,8 @@ fn describe(kind: &TokenKind) -> String {
                 TokenKind::Gt => ">",
                 TokenKind::Ge => ">=",
                 TokenKind::Percent => "%",
+                TokenKind::At => "@",
+                TokenKind::Hash => "#",
                 _ => unreachable!("handled above"),
             };
             format!("`{s}`")
@@ -194,13 +201,29 @@ impl<'a> Parser<'a> {
     fn expr(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
         let mut lhs = self.prefix()?;
         while let Some(kind) = self.peek() {
-            if *kind == TokenKind::Percent {
-                if BP_PERCENT < min_bp {
+            let postfix = match kind {
+                TokenKind::Percent => Some((UnaryOp::Percent, BP_PERCENT)),
+                TokenKind::Hash => Some((UnaryOp::SpillRange, BP_SPILL)),
+                _ => None,
+            };
+            if let Some((op, bp)) = postfix {
+                if bp < min_bp {
                     break;
+                }
+                if op == UnaryOp::SpillRange
+                    && matches!(
+                        lhs,
+                        Expr::Unary {
+                            op: UnaryOp::SpillRange,
+                            ..
+                        }
+                    )
+                {
+                    return Err(self.unexpected());
                 }
                 self.pos += 1;
                 lhs = Expr::Unary {
-                    op: UnaryOp::Percent,
+                    op,
                     expr: Box::new(lhs),
                 };
                 continue;
@@ -223,13 +246,14 @@ impl<'a> Parser<'a> {
     }
 
     fn prefix(&mut self) -> Result<Expr, ParseError> {
-        let op = match self.peek() {
-            Some(TokenKind::Minus) => UnaryOp::Neg,
-            Some(TokenKind::Plus) => UnaryOp::Plus,
+        let (op, bp) = match self.peek() {
+            Some(TokenKind::Minus) => (UnaryOp::Neg, BP_PREFIX),
+            Some(TokenKind::Plus) => (UnaryOp::Plus, BP_PREFIX),
+            Some(TokenKind::At) => (UnaryOp::ImplicitIntersection, BP_AT),
             _ => return self.primary(),
         };
         self.pos += 1;
-        let expr = self.expr(BP_PREFIX)?;
+        let expr = self.expr(bp)?;
         Ok(Expr::Unary {
             op,
             expr: Box::new(expr),

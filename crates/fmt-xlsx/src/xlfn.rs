@@ -28,20 +28,28 @@ pub const XLFN_FUNCTIONS: &[&str] = &[
     "PERCENTRANK.INC",
     "QUARTILE.EXC",
     "QUARTILE.INC",
+    "RANDARRAY",
     "RANK.AVG",
     "RANK.EQ",
+    "SEQUENCE",
+    "SORTBY",
     "STDEV.P",
     "STDEV.S",
     "SWITCH",
     "TEXTJOIN",
     "UNICHAR",
     "UNICODE",
+    "UNIQUE",
     "VAR.P",
     "VAR.S",
     "XLOOKUP",
     "XMATCH",
     "XOR",
 ];
+
+/// Dynamic array functions Excel stores as `_xlfn._xlws.NAME` (every name
+/// must be a registered engine function).
+pub const XLWS_FUNCTIONS: &[&str] = &["FILTER", "SORT"];
 
 const PREFIXES: [&str; 2] = ["_xlfn.", "_xlws."];
 
@@ -116,11 +124,15 @@ pub fn strip_xlfn_prefixes(formula: &str) -> String {
     })
 }
 
-/// Adds the `_xlfn.` prefix to calls of the functions in [`XLFN_FUNCTIONS`].
+/// Adds the `_xlfn.` prefix to calls of the functions in [`XLFN_FUNCTIONS`]
+/// and `_xlfn._xlws.` to those in [`XLWS_FUNCTIONS`].
 pub fn add_xlfn_prefixes(formula: &str) -> String {
     rewrite_idents(formula, |out, ident, next| {
-        if next == Some('(') && XLFN_FUNCTIONS.iter().any(|f| f.eq_ignore_ascii_case(ident)) {
+        let listed = |list: &[&str]| list.iter().any(|f| f.eq_ignore_ascii_case(ident));
+        if next == Some('(') && listed(XLFN_FUNCTIONS) {
             out.push_str("_xlfn.");
+        } else if next == Some('(') && listed(XLWS_FUNCTIONS) {
+            out.push_str("_xlfn._xlws.");
         }
         out.push_str(ident);
     })
@@ -175,7 +187,7 @@ mod tests {
     #[test]
     fn every_listed_name_is_a_registered_function() {
         let reg = engine_formula::FunctionRegistry::with_builtins();
-        for f in XLFN_FUNCTIONS {
+        for f in XLFN_FUNCTIONS.iter().chain(XLWS_FUNCTIONS) {
             assert!(reg.get(f).is_some(), "{f} is not an engine function");
         }
         // NETWORKDAYS.INTL / WORKDAY.INTL are stored without a prefix.
@@ -197,9 +209,13 @@ mod tests {
             strip_xlfn_prefixes("_xlfn.XLOOKUP(1,A:A,B:B)"),
             "XLOOKUP(1,A:A,B:B)"
         );
-        for f in XLFN_FUNCTIONS {
+        for f in XLFN_FUNCTIONS.iter().chain(XLWS_FUNCTIONS) {
             let call = format!("{f}(A1)");
             assert_eq!(strip_xlfn_prefixes(&add_xlfn_prefixes(&call)), call);
         }
+        assert_eq!(
+            add_xlfn_prefixes("SORT(FILTER(A1:B9,A1:A9>1))+SORTBY(A1:A3,B1:B3)"),
+            "_xlfn._xlws.SORT(_xlfn._xlws.FILTER(A1:B9,A1:A9>1))+_xlfn.SORTBY(A1:A3,B1:B3)"
+        );
     }
 }

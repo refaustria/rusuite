@@ -51,10 +51,10 @@ pub mod transform;
 pub mod value;
 
 pub use ast::{ErrorKind, Expr};
-pub use engine::{CellContent, Engine, EngineError, Recalc};
+pub use engine::{CellContent, Engine, EngineError, Recalc, Spill};
 pub use eval::{
-    default_now, evaluate, set_default_clock, system_now, CellCoord, CellProvider, EvalContext,
-    Operand, RangeRef, RowHidden, SheetId,
+    default_now, evaluate, evaluate_formula, set_default_clock, system_now, CellCoord,
+    CellProvider, EvalContext, Operand, RangeRef, RowHidden, SheetId,
 };
 pub use functions::{Arity, CallContext, Function, FunctionRegistry};
 pub use graph::Cycle;
