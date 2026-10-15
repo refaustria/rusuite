@@ -240,25 +240,10 @@ pub(crate) fn index_numbers(
     Ok((row, col))
 }
 
-/// The reference designated by an argument of `ROW`/`COLUMN`. A direct
-/// `INDEX(range, ...)` call counts as a reference.
+/// The reference designated by an argument of `ROW`/`COLUMN` (evaluated
+/// in reference position, so `INDEX(range, ...)` counts as a reference).
 pub(crate) fn reference_arg(e: &Expr, ctx: &CallContext) -> Result<RangeRef, ErrorKind> {
-    if let Expr::Call { name, args } = e {
-        if name == "INDEX" && (2..=3).contains(&args.len()) {
-            if let Operand::Range(r) = ctx.eval(&args[0]) {
-                let (row, col) = index_numbers(args, ctx)?;
-                let s = select(r.rows() as usize, r.cols() as usize, row, col)?;
-                return Ok(RangeRef {
-                    sheet: r.sheet,
-                    r0: r.r0 + s.r0 as u32,
-                    c0: r.c0 + s.c0 as u32,
-                    r1: r.r0 + (s.r0 + s.nr - 1) as u32,
-                    c1: r.c0 + (s.c0 + s.nc - 1) as u32,
-                });
-            }
-        }
-    }
-    match ctx.eval(e) {
+    match ctx.eval_ref(e) {
         Operand::Range(r) => Ok(r),
         Operand::Scalar(Value::Error(k)) => Err(k),
         Operand::Scalar(_) => Err(ErrorKind::Value),

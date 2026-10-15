@@ -52,11 +52,16 @@ mod tests {
         assert_eq!(eval("=SUM(COLUMN(A1:C1))"), Value::Number(6.0));
         assert_eq!(eval("=COLUMN(XFD1)"), Value::Number(16384.0));
         assert_eq!(eval("=COLUMN(INDEX(A1:C3,1,3))"), Value::Number(3.0));
+        assert_eq!(eval("=COLUMN(INDEX(A1:H6,1,5))"), Value::Number(5.0));
     }
 
     #[test]
     fn not_references() {
         assert_eq!(eval("=COLUMN(1)"), Value::Error(ErrorKind::Value));
+        assert_eq!(
+            eval("=COLUMN(INDEX({1,2},2))"),
+            Value::Error(ErrorKind::Value)
+        );
         assert_eq!(eval("=COLUMN(\"A\")"), Value::Error(ErrorKind::Value));
         assert_eq!(
             eval("=COLUMN(INDEX(A1:C3,1,9))"),

@@ -1,7 +1,9 @@
 //! Runs the formula reference suite in `testdata/formulas/` (see
 //! `docs/formula-suite.md`) against the evaluator.
 //!
-//! Cases calling a function that is not registered are skipped. Rows marked
+//! Cases calling a function that `docs/functions.md` lists as planned or
+//! implemented but that is not registered are skipped; any other unknown
+//! name is evaluated (and yields `#NAME?`). Rows marked
 //! `DIFF:` (LibreOffice differs from Excel) are compared against their
 //! `[excel=...]` value, or skipped when they have none.
 
@@ -82,6 +84,34 @@ fn rows(text: &str) -> impl Iterator<Item = Vec<&str>> {
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
         .skip(1)
         .map(|l| l.split('\t').collect())
+}
+
+/// Function names from the family tables of `docs/functions.md` whose
+/// status is `planned` or `implemented` (the Deferred section is ignored).
+fn listed_functions() -> Vec<String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/functions.md");
+    let text = fs::read_to_string(path).expect("docs/functions.md");
+    let mut names = Vec::new();
+    for line in text.lines() {
+        if line.starts_with("## Deferred") {
+            break;
+        }
+        let cells: Vec<&str> = line
+            .trim()
+            .trim_matches('|')
+            .split('|')
+            .map(str::trim)
+            .collect();
+        if !line.trim_start().starts_with('|') || cells.len() < 2 {
+            continue;
+        }
+        let status = cells[cells.len() - 1];
+        if status == "planned" || status == "implemented" {
+            names.push(cells[0].trim_matches('`').to_ascii_uppercase());
+        }
+    }
+    assert!(names.len() >= 60, "too few functions parsed: {names:?}");
+    names
 }
 
 fn ctx_at<'a>(fx: &'a Fixture, reg: &'a FunctionRegistry, row: u32) -> EvalContext<'a> {
@@ -250,6 +280,7 @@ impl fmt::Display for Counts {
 fn reference_suite() {
     let reg = FunctionRegistry::with_builtins();
     let known = reg.names();
+    let listed = listed_functions();
     let fx = load_fixture(&reg);
 
     let mut files: Vec<PathBuf> = fs::read_dir(suite_dir())
@@ -281,7 +312,11 @@ fn reference_suite() {
             };
             let mut calls = Vec::new();
             called_functions(&ast, &mut calls);
-            if calls.iter().any(|n| !known.contains(n)) {
+            let unimplemented = |n: &&str| {
+                let n = n.to_ascii_uppercase();
+                listed.contains(&n) && !known.contains(&n.as_str())
+            };
+            if calls.iter().any(unimplemented) {
                 c.skipped_unimplemented += 1;
                 continue;
             }

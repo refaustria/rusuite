@@ -52,11 +52,14 @@ mod tests {
         assert_eq!(eval("=SUM(ROW(B2:B4))"), Value::Number(9.0));
         assert_eq!(eval("=ROW(B2:B4)"), Value::Number(2.0));
         assert_eq!(eval("=ROW(INDEX(A1:A3,3))"), Value::Number(3.0));
+        assert_eq!(eval("=ROW(INDEX(A1:A6,3))"), Value::Number(3.0));
+        assert_eq!(eval("=SUM(ROW(INDEX(A1:C6,0,1)))"), Value::Number(21.0));
     }
 
     #[test]
     fn not_references() {
         assert_eq!(eval("=ROW(1)"), Value::Error(ErrorKind::Value));
+        assert_eq!(eval("=ROW(INDEX({1,2},1))"), Value::Error(ErrorKind::Value));
         assert_eq!(eval("=ROW(\"A1\")"), Value::Error(ErrorKind::Value));
         assert_eq!(eval("=ROW(INDEX(A1:A3,9))"), Value::Error(ErrorKind::Ref));
     }

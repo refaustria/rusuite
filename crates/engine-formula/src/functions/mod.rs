@@ -8,7 +8,8 @@ use std::collections::HashMap;
 
 use crate::ast::{ErrorKind, Expr};
 use crate::eval::{
-    eval_array, eval_operand, scalar, CellCoord, CellProvider, EvalContext, Operand, RangeRef,
+    eval_array, eval_operand, eval_ref, scalar, CellCoord, CellProvider, EvalContext, Operand,
+    RangeRef,
 };
 use crate::value::{to_bool, to_number, to_text, Array, Value};
 
@@ -65,6 +66,15 @@ pub trait Function: Send + Sync {
     /// such as `IF` can short-circuit; use the [`CallContext`] helpers to
     /// evaluate them.
     fn call(&self, args: &[Expr], ctx: &mut CallContext) -> Value;
+    /// The result as a reference, for functions that can return one (such
+    /// as `INDEX`), used where a reference is expected (see
+    /// [`CallContext::eval_ref`]). Returns `Some(Operand::Range(..))` for a
+    /// reference, `Some(Operand::Scalar(error))` for an error, and `None`
+    /// to fall back to [`Function::call`]. The default is `None`.
+    fn call_ref(&self, args: &[Expr], ctx: &mut CallContext) -> Option<Operand> {
+        let _ = (args, ctx);
+        None
+    }
 }
 
 /// Case-insensitive map from function name to implementation.
@@ -150,6 +160,14 @@ impl<'c, 'a> CallContext<'c, 'a> {
     /// Evaluates an argument without dereferencing references.
     pub fn eval(&self, e: &Expr) -> Operand {
         eval_operand(e, self.ctx)
+    }
+
+    /// Evaluates an argument in reference position: a reference stays a
+    /// range, a call to a function that yields a reference (see
+    /// [`Function::call_ref`]) becomes that range, anything else is
+    /// evaluated as by [`CallContext::eval`].
+    pub fn eval_ref(&self, e: &Expr) -> Operand {
+        eval_ref(e, self.ctx)
     }
 
     /// Evaluates an argument to a scalar (dereferenced, implicitly
