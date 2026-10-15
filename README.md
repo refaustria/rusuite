@@ -1,8 +1,15 @@
 # Rusuite
 
+<p>
+  <img src="apps/portal/logos/rusuite.svg" width="56" height="56" alt="Rusuite logo" />&nbsp;
+  <img src="apps/portal/logos/calc.svg" width="56" height="56" alt="Rusuite Calc logo" />
+  <img src="apps/portal/logos/write.svg" width="56" height="56" alt="Rusuite Write logo" />
+  <img src="apps/portal/logos/show.svg" width="56" height="56" alt="Rusuite Show logo" />
+</p>
+
 > A stripped-down but fully working office suite with a Rust backend and a web frontend via Tauri – and the same apps running in the browser via WebAssembly. Three apps: **Rusuite Write** (documents), **Rusuite Calc** (spreadsheets), **Rusuite Show** (presentations). Not an MS Office replacement, but a cleanly architected minimum that can read and write real `.docx`, `.xlsx` and `.pptx` files.
 
-**Status:** Alpha – all three apps run on desktop (Tauri) and in the browser (WASM); see [Downloads](#downloads).
+**Status:** Alpha – all three apps run on desktop (Tauri) and in the browser (WASM) at <https://resuite.inceptum.at/>; see [Downloads](#downloads).
 
 **What works today**
 - **Calc:** formulas with an Excel-compatible engine (recalc, cell references by pointing, fill, copy/cut/paste with reference adjustment), cell styles and number formats, row/column operations, `.xlsx` open/save.
@@ -117,7 +124,8 @@ rusuite/
 ├── apps/
 │   ├── write/                 # Tauri app: src-tauri/ (Rust) + src/ (TS)
 │   ├── calc/                  # core/ (calc-core, transport-agnostic) + src-tauri/ + src-wasm/ + src/ (TS)
-│   └── show/
+│   ├── show/
+│   └── portal/                # Static landing page at / + the logo set (logos/*.svg, *.png)
 ├── packages/
 │   └── ui-shared/             # Ribbon, dialogs, color picker, font picker
 ├── testdata/

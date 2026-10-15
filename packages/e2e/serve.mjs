@@ -1,4 +1,5 @@
-// Tiny static server: apps/<app>/dist-web served under /<app>/ (calc, write, show).
+// Tiny static server: apps/<app>/dist-web served under /<app>/ (calc, write, show), apps/portal at /
+// and a stub /version.json (the deploy script writes the real one).
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -23,16 +24,18 @@ http
   .createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
     const [, app, ...rest] = decodeURIComponent(url.pathname).split("/");
-    if (!["calc", "write", "show"].includes(app)) {
-      res.writeHead(app === "" ? 200 : 404).end(app === "" ? "ok" : "not found");
+    if (app === "version.json" && rest.length === 0) {
+      res.writeHead(200, { "content-type": types[".json"] });
+      res.end(JSON.stringify({ commit: "local", builtAt: new Date().toISOString() }));
       return;
     }
-    const dist = path.join(root, app, "dist-web");
-    let file = path.join(dist, ...rest.filter((p) => p && p !== ".."));
+    const isApp = ["calc", "write", "show"].includes(app);
+    const dist = isApp ? path.join(root, app, "dist-web") : path.join(root, "portal");
+    let file = path.join(dist, ...(isApp ? rest : [app, ...rest]).filter((p) => p && p !== ".."));
     if (!file.startsWith(dist)) return void res.writeHead(403).end();
     if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, "index.html");
     if (!fs.existsSync(file)) return void res.writeHead(404).end("not found");
     res.writeHead(200, { "content-type": types[path.extname(file)] ?? "application/octet-stream" });
     fs.createReadStream(file).pipe(res);
   })
-  .listen(port, "127.0.0.1", () => console.log(`e2e server on http://127.0.0.1:${port}/ (calc, write, show)`));
+  .listen(port, "127.0.0.1", () => console.log(`e2e server on http://127.0.0.1:${port}/ (portal, calc, write, show)`));

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build the Calc, Write and Show web targets and publish it to /var/www/resuite (ADR 0005).
+# Build the Calc, Write and Show web targets and publish them, plus the portal (apps/portal) at the root,
+# to /var/www/resuite (ADR 0005).
 # Usage: scripts/deploy-web.sh [--no-build] [--e2e]
 #   --e2e  after publishing, run the Playwright smoke suite (packages/e2e) against the live site
 #          (base URL from E2E_BASE_URL, default <scheme>://$DEPLOY_HOST).
@@ -37,6 +38,11 @@ for app in "${apps[@]}"; do
   mkdir -p "$TARGET/$app"
   rsync -a --delete "apps/$app/dist-web/" "$TARGET/$app/"
 done
+# Portal: static files, no build step. No --delete at the root (it holds the app folders).
+[ -f apps/portal/index.html ] || { echo "missing apps/portal/index.html" >&2; exit 1; }
+mkdir -p "$TARGET/logos"
+rsync -a apps/portal/index.html apps/portal/styles.css "$TARGET/"
+rsync -a --delete apps/portal/logos/ "$TARGET/logos/"
 printf '{"commit":"%s","builtAt":"%s"}\n' "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TARGET/version.json"
 
 scheme=https
@@ -44,6 +50,12 @@ if ! curl -fsS -o /dev/null "https://$HOST/calc/" 2>/dev/null; then
   scheme=http
   echo "warning: https not available, falling back to http" >&2
 fi
+
+root="$(curl -fsS -o /dev/null -w '%{http_code} %{content_type}' "$scheme://$HOST/")"
+case "$root" in
+  "200 text/html"*) echo "ok: $scheme://$HOST/ portal ($root)" ;;
+  *) echo "error: $scheme://$HOST/ answered '$root' (expected 200 text/html)" >&2; exit 1 ;;
+esac
 
 for app in "${apps[@]}"; do
   dist="apps/$app/dist-web"

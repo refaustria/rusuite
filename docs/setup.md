@@ -35,6 +35,12 @@ sudo apt-get install -y libxml2-utils shellcheck
 ```
 `xmllint` normalizes XML for the structural diff in `scripts/roundtrip.sh`; `shellcheck` lints the scripts. ImageMagick (`convert`) was already present and is used by `scripts/gen-testdata.sh` for the test PNG.
 
+## Logo exports (P7-10)
+```
+sudo apt-get install -y librsvg2-bin    # rsvg-convert 2.60.0 (Debian 13)
+```
+`rsvg-convert -w 1024 -h 1024 apps/portal/logos/<app>.svg -o apps/portal/logos/<app>.png` renders the logo PNGs; the desktop icons come from them via `pnpm --filter <app> tauri icon ../portal/logos/<app>.png` (delete the generated `android/` and `ios/` folders, only desktop icons are committed).
+
 ## Tauri app scaffold (P2-3)
 Additional apt packages for building `apps/calc` (Tauri 2) and smoke-testing it headless:
 ```

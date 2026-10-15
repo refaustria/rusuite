@@ -94,3 +94,25 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   sends `hello`, its keys/clicks as `action`, and `bye` when closed (which ends the show); `end` closes it.
 - If the window cannot be opened (popup blocked), the show runs in the main window with a speaker notes overlay and a
   Notes toggle in the corner.
+
+## Logos and the portal (P7-10)
+
+One family in `apps/portal/logos/` (hand-written SVG, 1024 viewBox): a full-bleed rounded tile (`rx` 225 = 22 %) in the app's
+dark tone, a glyph inside the 512 px live area (256–768) built from rounded rects (`rx` 40, 96–112 px bars), the app's light
+tone for the glyph and white for its one "active" element.
+
+| Logo | Tile / light tone | Glyph |
+| --- | --- | --- |
+| `calc.svg` | `#1E7A46` / `#2DA866` | 2×2 cells, the selected cell white |
+| `write.svg` | `#1F4E9A` / `#3B7DD8` | three text lines, the short heading line white |
+| `show.svg` | `#C2410C` / `#F0763A` | 16:9 slide on a stand, white play triangle |
+| `rusuite.svg` | `#1E293B` | three slanted bars in the three light tones |
+
+`<name>-mono.svg` replaces the light tone with white at 55 % opacity (one hue plus white); they are the favicons (inlined as
+data URIs in `apps/*/index.html`, `logos/rusuite-mono.svg` for the portal). `<name>.png` are 1024 px exports
+(`rsvg-convert`, see docs/setup.md), the source of the Tauri icons in `apps/*/src-tauri/icons/`.
+
+The portal (`apps/portal/index.html` + `styles.css`, no build step, ~12 KB with the SVGs) is the site root: header with the
+mark and the one-line pitch, a card per app (logo, name, one sentence, "Open … in browser" in the app colour, "Desktop
+downloads" → GitHub releases), footer with the alpha note, the repo link and the build from `/version.json`. Light/dark via
+`prefers-color-scheme`, system fonts, no external requests.
