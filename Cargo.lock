@@ -941,7 +941,14 @@ dependencies = [
 name = "fmt-xlsx"
 version = "0.1.0"
 dependencies = [
+ "core-model",
+ "engine-formula",
+ "fmt-ooxml",
+ "insta",
+ "model-sheet",
+ "quick-xml",
  "serde",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
