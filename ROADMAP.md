@@ -52,6 +52,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Input parsing for dates/times (`1/2/2026`, `12:30`) and formulas starting with `+`/`-`.
 - Functions declare volatility themselves (RAND, OFFSET, INDIRECT later) instead of the engine's NOW/TODAY name list; optional iterative-calculation mode for cycles.
 - `parse_date_text`: two-digit years, month names (`15-Jan-2024`); suite cases for `1900-02-29` and time-only VALUE.
+- `Engine::apply_structural(sheet, StructuralOp)` convenience; rename_sheet should regenerate formula text like structural ops do; partial-range shift (insert cells, shift down/right) and cut/paste need a rectangle-limited `adjust_references`; `Sheet1!#REF!` cannot be represented in the AST (prints plain `#REF!`).
 - `Engine::cells()` iterator and `Engine::eval_formula(text, sheet)` (no scratch cell) – wanted by the REPL and later by the UI formula bar.
 - `CHOOSE`/`IF` as reference-returning (`call_ref`) like Excel; OFFSET/INDIRECT plug into `call_ref`; runner warning for registered functions missing from docs/functions.md.
 - Share one wildcard matcher between `math/criteria.rs` and `lookup/util.rs`.

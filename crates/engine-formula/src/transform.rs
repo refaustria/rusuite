@@ -1,0 +1,351 @@
+//! Pure AST rewriting for structural edits and copy/paste.
+//!
+//! * [`adjust_references`] applies Excel's rules for inserting/deleting
+//!   rows or columns to every reference of a formula.
+//! * [`offset_relative`] moves the relative parts of every reference, as
+//!   when a formula is copied to another cell.
+//!
+//! Both functions return a new [`Expr`]; a reference that cannot survive
+//! the edit becomes `Expr::Error(ErrorKind::Ref)` (printed `#REF!`).
+//!
+//! ```
+//! use engine_formula::{adjust_references, parse, AdjustContext, StructuralOp};
+//!
+//! let f = parse("=SUM(A2:A5)+B9").unwrap();
+//! let ctx = AdjustContext {
+//!     host_sheet: "Sheet1",
+//!     target_sheet: "Sheet1",
+//!     op: StructuralOp::InsertRows { at: 3, count: 2 },
+//! };
+//! assert_eq!(adjust_references(&f, &ctx).to_string(), "SUM(A2:A7)+B11");
+//! ```
+
+use serde::{Deserialize, Serialize};
+
+use crate::ast::{CellRef, ErrorKind, Expr, RangeKind, Reference, MAX_COL, MAX_ROW};
+
+/// Inserting or deleting whole rows/columns of one sheet. `at` is 0-based;
+/// an insert puts `count` new rows/columns *before* row/column `at`, a
+/// delete removes `at..at + count`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum StructuralOp {
+    InsertRows { at: u32, count: u32 },
+    DeleteRows { at: u32, count: u32 },
+    InsertCols { at: u32, count: u32 },
+    DeleteCols { at: u32, count: u32 },
+}
+
+impl StructuralOp {
+    /// True for row operations, false for column operations.
+    pub fn is_rows(self) -> bool {
+        matches!(
+            self,
+            StructuralOp::InsertRows { .. } | StructuralOp::DeleteRows { .. }
+        )
+    }
+
+    /// True for inserts, false for deletes.
+    pub fn is_insert(self) -> bool {
+        matches!(
+            self,
+            StructuralOp::InsertRows { .. } | StructuralOp::InsertCols { .. }
+        )
+    }
+
+    /// `(at, count)` of the operation.
+    pub fn span(self) -> (u32, u32) {
+        match self {
+            StructuralOp::InsertRows { at, count }
+            | StructuralOp::DeleteRows { at, count }
+            | StructuralOp::InsertCols { at, count }
+            | StructuralOp::DeleteCols { at, count } => (at, count),
+        }
+    }
+
+    /// Largest valid index on the operation's axis.
+    pub fn max_index(self) -> u32 {
+        if self.is_rows() {
+            MAX_ROW
+        } else {
+            MAX_COL
+        }
+    }
+
+    /// New position of index `p` on the operation's axis: `None` if it is
+    /// deleted or pushed past the end of the sheet.
+    pub fn map_index(self, p: u32) -> Option<u32> {
+        let (at, count) = self.span();
+        if self.is_insert() {
+            if p < at {
+                return Some(p);
+            }
+            let q = u64::from(p) + u64::from(count);
+            (q <= u64::from(self.max_index())).then_some(q as u32)
+        } else if p < at {
+            Some(p)
+        } else if u64::from(p) < u64::from(at) + u64::from(count) {
+            None
+        } else {
+            Some(p - count)
+        }
+    }
+
+    /// New bounds of the inclusive interval `lo..=hi` (`lo <= hi`) on the
+    /// operation's axis, following Excel: an insert strictly inside the
+    /// interval (or before its last element) grows it; a delete clips the
+    /// deleted part out. `None` when nothing is left (the delete covers
+    /// the whole interval, or an insert pushes it past the sheet end). An
+    /// end pushed past the sheet end is clamped to the last index.
+    pub fn map_interval(self, lo: u32, hi: u32) -> Option<(u32, u32)> {
+        let (at, count) = self.span();
+        let max = u64::from(self.max_index());
+        if self.is_insert() {
+            let grow = |v: u32| (u64::from(v) + u64::from(count)).min(max) as u32;
+            if at <= lo {
+                let start = u64::from(lo) + u64::from(count);
+                (start <= max).then(|| (start as u32, grow(hi)))
+            } else if at <= hi {
+                Some((lo, grow(hi)))
+            } else {
+                Some((lo, hi))
+            }
+        } else {
+            let end = u64::from(at) + u64::from(count); // exclusive
+            if lo >= at && u64::from(hi) < end {
+                return None;
+            }
+            let new_lo = if lo < at {
+                lo
+            } else if u64::from(lo) >= end {
+                lo - count
+            } else {
+                at
+            };
+            let new_hi = if hi < at {
+                hi
+            } else if u64::from(hi) >= end {
+                hi - count
+            } else {
+                at - 1
+            };
+            Some((new_lo, new_hi))
+        }
+    }
+
+    /// New `(row, col)` of a cell: `None` if it is deleted or pushed past
+    /// the end of the sheet.
+    pub fn map_cell(self, row: u32, col: u32) -> Option<(u32, u32)> {
+        if self.is_rows() {
+            Some((self.map_index(row)?, col))
+        } else {
+            Some((row, self.map_index(col)?))
+        }
+    }
+}
+
+/// Where a structural edit happens, as seen from one formula.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdjustContext<'a> {
+    /// Sheet the formula lives on (resolves references without a prefix).
+    pub host_sheet: &'a str,
+    /// Sheet whose rows/columns are inserted or deleted.
+    pub target_sheet: &'a str,
+    pub op: StructuralOp,
+}
+
+/// Case-insensitive (Unicode lowercase) sheet name comparison, as used by
+/// the engine.
+fn same_sheet(a: &str, b: &str) -> bool {
+    a.chars()
+        .flat_map(char::to_lowercase)
+        .eq(b.chars().flat_map(char::to_lowercase))
+}
+
+/// Rebuilds `expr` with every reference passed through `f`; `None`
+/// replaces the reference by `#REF!`.
+fn map_refs(expr: &Expr, f: &dyn Fn(&Reference) -> Option<RangeKind>) -> Expr {
+    match expr {
+        Expr::Reference(r) => match f(r) {
+            Some(kind) => Expr::Reference(Reference {
+                sheet: r.sheet.clone(),
+                kind,
+            }),
+            None => Expr::Error(ErrorKind::Ref),
+        },
+        Expr::Call { name, args } => Expr::Call {
+            name: name.clone(),
+            args: args.iter().map(|a| map_refs(a, f)).collect(),
+        },
+        Expr::Unary { op, expr } => Expr::Unary {
+            op: *op,
+            expr: Box::new(map_refs(expr, f)),
+        },
+        Expr::Binary { op, lhs, rhs } => Expr::Binary {
+            op: *op,
+            lhs: Box::new(map_refs(lhs, f)),
+            rhs: Box::new(map_refs(rhs, f)),
+        },
+        Expr::Array(rows) => Expr::Array(
+            rows.iter()
+                .map(|row| row.iter().map(|e| map_refs(e, f)).collect())
+                .collect(),
+        ),
+        Expr::Number(_)
+        | Expr::Text(_)
+        | Expr::Bool(_)
+        | Expr::Error(_)
+        | Expr::Name(_)
+        | Expr::Missing => expr.clone(),
+    }
+}
+
+/// Rewrites the references of a formula living on `ctx.host_sheet` for a
+/// row/column insert or delete on `ctx.target_sheet` (Excel rules).
+///
+/// A reference is affected only if it points at the target sheet (explicit
+/// prefix equal case-insensitively, or no prefix and host == target).
+/// Absolute (`$`) flags do not matter and are kept.
+///
+/// * Insert: indices `>= at` move by `count`; an area/whole-row/whole-column
+///   range grows when the insert lands after its first and at or before
+///   its last index. Single cells pushed past the sheet end become
+///   `#REF!`; range ends are clamped to the last row/column.
+/// * Delete: cells inside the deleted span become `#REF!`, later ones move
+///   back; ranges shrink by the deleted part and become `#REF!` only when
+///   fully covered.
+/// * Row operations leave whole-column references (`A:A`) unchanged and
+///   column operations leave whole-row references (`1:1`) unchanged.
+pub fn adjust_references(expr: &Expr, ctx: &AdjustContext) -> Expr {
+    let op = ctx.op;
+    let rows = op.is_rows();
+    map_refs(expr, &|r: &Reference| {
+        let affected = match &r.sheet {
+            Some(name) => same_sheet(name, ctx.target_sheet),
+            None => same_sheet(ctx.host_sheet, ctx.target_sheet),
+        };
+        if !affected {
+            return Some(r.kind);
+        }
+        match r.kind {
+            RangeKind::Cell(mut c) => {
+                if rows {
+                    c.row = op.map_index(c.row)?;
+                } else {
+                    c.col = op.map_index(c.col)?;
+                }
+                Some(RangeKind::Cell(c))
+            }
+            RangeKind::Area(a, b) => {
+                let RangeKind::Area(mut a, mut b) = RangeKind::area(a, b) else {
+                    unreachable!("RangeKind::area builds an area")
+                };
+                if rows {
+                    (a.row, b.row) = op.map_interval(a.row, b.row)?;
+                } else {
+                    (a.col, b.col) = op.map_interval(a.col, b.col)?;
+                }
+                Some(RangeKind::area(a, b))
+            }
+            RangeKind::Rows { start, end, abs } if rows => {
+                let (start, end) = op.map_interval(start.min(end), start.max(end))?;
+                Some(RangeKind::Rows { start, end, abs })
+            }
+            RangeKind::Cols { start, end, abs } if !rows => {
+                let (start, end) = op.map_interval(start.min(end), start.max(end))?;
+                Some(RangeKind::Cols { start, end, abs })
+            }
+            kind @ (RangeKind::Rows { .. } | RangeKind::Cols { .. }) => Some(kind),
+        }
+    })
+}
+
+/// Moves `v` by `d` unless anchored; `None` outside `0..=max`.
+fn shift(v: u32, d: i64, abs: bool, max: u32) -> Option<u32> {
+    if abs {
+        return Some(v);
+    }
+    let n = i64::from(v) + d;
+    (0..=i64::from(max)).contains(&n).then_some(n as u32)
+}
+
+fn shift_cell(c: CellRef, d_row: i64, d_col: i64) -> Option<CellRef> {
+    Some(CellRef {
+        row: shift(c.row, d_row, c.row_abs, MAX_ROW)?,
+        col: shift(c.col, d_col, c.col_abs, MAX_COL)?,
+        ..c
+    })
+}
+
+/// Rewrites a formula for copy/paste by `(d_row, d_col)`: relative row and
+/// column parts move by the delta, `$`-anchored parts stay. Whole-column
+/// references move only horizontally, whole-row references only
+/// vertically. A reference leaving the sheet becomes `#REF!`. Sheet
+/// prefixes are untouched.
+pub fn offset_relative(expr: &Expr, d_row: i64, d_col: i64) -> Expr {
+    map_refs(expr, &|r: &Reference| match r.kind {
+        RangeKind::Cell(c) => Some(RangeKind::Cell(shift_cell(c, d_row, d_col)?)),
+        RangeKind::Area(a, b) => Some(RangeKind::area(
+            shift_cell(a, d_row, d_col)?,
+            shift_cell(b, d_row, d_col)?,
+        )),
+        RangeKind::Cols { start, end, abs } => {
+            let (s, e) = (
+                shift(start, d_col, abs, MAX_COL)?,
+                shift(end, d_col, abs, MAX_COL)?,
+            );
+            Some(RangeKind::Cols {
+                start: s.min(e),
+                end: s.max(e),
+                abs,
+            })
+        }
+        RangeKind::Rows { start, end, abs } => {
+            let (s, e) = (
+                shift(start, d_row, abs, MAX_ROW)?,
+                shift(end, d_row, abs, MAX_ROW)?,
+            );
+            Some(RangeKind::Rows {
+                start: s.min(e),
+                end: s.max(e),
+                abs,
+            })
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const INS: StructuralOp = StructuralOp::InsertRows { at: 3, count: 2 };
+    const DEL: StructuralOp = StructuralOp::DeleteRows { at: 3, count: 2 };
+
+    #[test]
+    fn index_mapping() {
+        assert_eq!(INS.map_index(2), Some(2));
+        assert_eq!(INS.map_index(3), Some(5));
+        assert_eq!(INS.map_index(MAX_ROW - 1), None);
+        assert_eq!(DEL.map_index(2), Some(2));
+        assert_eq!(DEL.map_index(3), None);
+        assert_eq!(DEL.map_index(4), None);
+        assert_eq!(DEL.map_index(5), Some(3));
+        let cols = StructuralOp::InsertCols { at: 0, count: 1 };
+        assert_eq!(cols.map_cell(7, 2), Some((7, 3)));
+        assert_eq!(cols.map_cell(0, MAX_COL), None);
+    }
+
+    #[test]
+    fn interval_mapping() {
+        assert_eq!(INS.map_interval(0, 2), Some((0, 2)));
+        assert_eq!(INS.map_interval(0, 3), Some((0, 5)));
+        assert_eq!(INS.map_interval(3, 4), Some((5, 6)));
+        assert_eq!(INS.map_interval(0, MAX_ROW), Some((0, MAX_ROW)));
+        assert_eq!(INS.map_interval(MAX_ROW, MAX_ROW), None);
+        assert_eq!(DEL.map_interval(0, 2), Some((0, 2)));
+        assert_eq!(DEL.map_interval(0, 3), Some((0, 2)));
+        assert_eq!(DEL.map_interval(4, 9), Some((3, 7)));
+        assert_eq!(DEL.map_interval(1, 9), Some((1, 7)));
+        assert_eq!(DEL.map_interval(3, 4), None);
+        assert_eq!(DEL.map_interval(5, 6), Some((3, 4)));
+    }
+}
