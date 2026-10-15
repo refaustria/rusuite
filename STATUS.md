@@ -8,7 +8,7 @@ _Maintained by the PM agent. Read at the start of every session; update after ev
 - Checks on main: fmt/clippy/rustdoc clean; `cargo test --workspace` 466 passed; `pnpm test` 29 + 45 passed; wasm `cargo check` for 8 crates OK.
 - Harness with the `fmt-xlsx` writer: `testdata/xlsx` 2/2 PASS (LibreOffice opens our output).
 - **End-to-end in the browser against https://resuite.inceptum.at/calc/ (headless Chromium):** typed `=SUM(1,2,3)*2` → 12; opened `provisional-basic.xlsx` via the file picker (sheets Data/Summary, styles rendered); edited Qty B2 → 99; Save downloaded a 5 KB `.xlsx`; that file has B2=99 with recalculated cached values (D2 247.5, D7 698.37); LibreOffice headless converts it (values correct); harness PASS with 11/11 identical parts through our writer. No console errors. Screenshots in the PM scratchpad (`e2e/live-*.png`).
-- Desktop: `pnpm --filter calc tauri build --no-bundle` + xvfb run (see below).
+- Desktop: `pnpm --filter calc tauri build --no-bundle` OK (1m22s, release binary); runs under Xvfb for 25 s with no panic; a visual check needs a real desktop session (Xvfb screenshots came out blank without a window manager) – owner, when convenient: `pnpm --filter calc tauri dev`.
 - **Not verifiable here:** "created in Excel … reopen it in Excel" – the test file is LibreOffice-made (PROVISIONAL) and Excel is not available on Linux. Owner: please open https://resuite.inceptum.at/calc/, load one of your own `.xlsx` files, edit, Save, and open the download in Excel; report any repair dialog.
 
 
@@ -41,7 +41,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 |---|---|---|---|---|---|
 | P3-1 | `model-text` document model + `core_model::units`; ADR 0006 | Opus | in progress | `p3/model-text` | brief docs/tasks/P3-1-model-text.md |
 | P3-3 | Write app scaffold: `apps/write` core/src-tauri/src-wasm/Tiptap UI, deployed at /write/ | Sonnet | in progress | `p3/write-scaffold` | brief docs/tasks/P3-3-write-scaffold.md |
-| P3-6 | 50 provisional reference .docx files + manifest + docs/docx-suite.md | Sonnet | in progress | `p3/docx-testdata` | brief docs/tasks/P3-6-docx-reference-files.md |
+| P3-6 | 50 provisional reference .docx files + manifest + docs/docx-suite.md | Sonnet | done (merged) | – | verified: 50 files + manifest, 52/52 harness PASS, structural spot-checks OK; LibreOffice writes highlights as `w:shd` (reader must accept both) |
 | P3-2 | `fmt-docx` read/write ↔ model-text (document/styles/numbering/media/sectPr) + roundtrip tests over the manifest | Opus | todo | `p3/fmt-docx` | after P3-1 + P3-6 |
 | P3-4 | `write-core`: commands/patches, Tiptap↔Rust sync protocol (ADR 0007), find/replace, undo | Opus | todo | `p3/write-core` | after P3-1 |
 | P3-5 | Write UI: Tiptap schema mapping, transaction → command sync, toolbar from ui-shared | Opus | todo | `p3/write-ui` | after P3-4 |
@@ -87,6 +87,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+14. 2026-10-15: ADR 0007 fixes the Tiptap↔Rust sync: optimistic ProseMirror apply + authoritative block-level `WritePatch`, block ids in the PM schema with temp-id mapping, fine-grained commands plus `ReplaceBlocks` fallback, lists mapped in TS between nested PM lists and docx numbering, undo/find-replace in Rust, full-document snapshot on load (no regions in Write for MVP).
 13. 2026-10-15: Phase 2 milestone declared reached on the server; the Excel reopen check is delegated to the owner (no Excel here). Phase 3 (Write) planning starts; Phase 2 leftovers (used range in snapshots, async Tauri dispatch, paste reference adjustment, text overflow) go to ROADMAP and are scheduled only if they block Phase 3/5.
 12. 2026-10-15: Owner added the web target (WASM, now, deploy from main). ADR 0005: one `<app>-core` crate + two shells (`src-tauri`, `src-wasm`), JSON `dispatch` over both transports, ts-rs for TS types, `Backend` abstraction in ui-shared, static hosting on nginx.
 11. 2026-10-15: Phase 1 closed. Phase 2 design: `model-sheet::Workbook` wraps `engine_formula::Engine` (single storage of cell contents/values) and adds styles + dimensions; no duplicate cell store. ADR 0004 to be written with P2-1.
