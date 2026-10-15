@@ -7,6 +7,7 @@ import type { RunProperties } from "../../../../packages/ui-shared/src/generated
 import type { Block } from "../generated/Block";
 import type { Indent } from "../generated/Indent";
 import type { Inline } from "../generated/Inline";
+import type { Note } from "../generated/Note";
 import type { Paragraph } from "../generated/Paragraph";
 import type { ParagraphProperties } from "../generated/ParagraphProperties";
 import type { Spacing } from "../generated/Spacing";
@@ -78,6 +79,10 @@ export function canonBlock(block: Block): Block {
     const p = block.value;
     return canonValue({ kind: "paragraph", value: { id: p.id, props: p.props, inlines: mergeRuns(p.inlines ?? []) } }) as Block;
   }
+  if (block.kind === "toc") {
+    const { id, fromLevel, toLevel, title, entries } = block.value;
+    return canonValue({ kind: "toc", value: { id, fromLevel, toLevel, title, entries } }) as Block;
+  }
   const t = block.value;
   return canonValue({
     kind: "table",
@@ -91,6 +96,23 @@ export function canonBlock(block: Block): Block {
       })),
     },
   }) as Block;
+}
+
+/** Canonical form of a note. */
+export function canonNote(note: Note): Note {
+  return { id: note.id, kind: note.kind, blocks: (note.blocks ?? []).map(canonBlock) };
+}
+
+/** Note ids referenced in `blocks` (cells included). */
+export function noteRefIds(blocks: Iterable<Block>): Set<number> {
+  const out = new Set<number>();
+  for (const b of blocks) {
+    for (const x of walkBlocks([b])) {
+      if (x.kind !== "paragraph") continue;
+      for (const i of x.value.inlines ?? []) if (i.kind === "noteRef") out.add(i.value.id);
+    }
+  }
+  return out;
 }
 
 /** Structural equality of blocks (ADR 0007 §1). */

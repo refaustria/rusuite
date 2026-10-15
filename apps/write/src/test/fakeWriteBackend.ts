@@ -17,7 +17,7 @@ import type { ResponseBody } from "../generated/ResponseBody";
 import type { WriteCommand } from "../generated/WriteCommand";
 import type { WritePatch } from "../generated/WritePatch";
 import {
-  applyParagraphPatch, applyRunPatch, blockKey, inlineLength, mergeRuns, paragraphLength, walkBlocks,
+  applyParagraphPatch, applyRunPatch, blockKey, inlineLength, mergeRuns, paragraphLength, stableStringify, walkBlocks,
 } from "../sync/model";
 import template from "./newDocument.json";
 import { numberingDef } from "./fixtures";
@@ -137,7 +137,7 @@ export class FakeWriteBackend implements WriteBackend {
     this.redoStack = [];
     this.revision++;
     this.savedRevision = this.revision;
-    return { type: "document" as const, doc: structuredClone(this.doc), envelope: this.envelope(this.emptyPatch()) };
+    return { type: "document" as const, doc: this.sendable(), envelope: this.envelope(this.emptyPatch()) };
   }
 
   private handle(request: Request): ResponseBody {
@@ -159,7 +159,7 @@ export class FakeWriteBackend implements WriteBackend {
         return { type: "saved", bytesBase64: bytesToBase64(new TextEncoder().encode(JSON.stringify(this.doc))), suggestedName: `${base}.docx` };
       }
       case "getDocument":
-        return { type: "document", doc: structuredClone(this.doc), envelope: this.envelope(this.emptyPatch()) };
+        return { type: "document", doc: this.sendable(), envelope: this.envelope(this.emptyPatch()) };
       case "getMedia": {
         const m = this.doc.media.find((x) => x.id === request.id);
         if (!m) throw new Fail("unknown_media", `unknown media ${request.id}`);
@@ -243,16 +243,28 @@ export class FakeWriteBackend implements WriteBackend {
   private diff(before: Document, after: Document, idMap: [number, number][]): WritePatch {
     const patch = this.emptyPatch();
     patch.idMap = idMap;
+    const oldLabels = listLabels(before);
+    const newLabels = listLabels(after);
+    const labelsOf = (b: Block) => stableStringify([...walkBlocks([b])].map((x) => newLabels.get(x.value.id) ?? null));
+    const oldLabelsOf = (b: Block) => stableStringify([...walkBlocks([b])].map((x) => oldLabels.get(x.value.id) ?? null));
     const oldIds = new Map(before.body.map((b) => [b.value.id, b]));
     const newIds = new Set(after.body.map((b) => b.value.id));
     for (const b of before.body) if (!newIds.has(b.value.id)) patch.deleted.push(b.value.id);
     after.body.forEach((b, i) => {
       const old = oldIds.get(b.value.id);
-      if (!old) patch.inserted.push({ after: i > 0 ? after.body[i - 1]!.value.id : null, parent: null, block: structuredClone(b) });
-      else if (blockKey(old) !== blockKey(b)) patch.replaced.push(structuredClone(b));
+      if (!old) patch.inserted.push({ after: i > 0 ? after.body[i - 1]!.value.id : null, parent: null, block: withLabels(b, newLabels) });
+      else if (blockKey(old) !== blockKey(b) || oldLabelsOf(old) !== labelsOf(b)) patch.replaced.push(withLabels(b, newLabels));
     });
     if (JSON.stringify(before.numbering) !== JSON.stringify(after.numbering)) patch.numbering = structuredClone(after.numbering);
+    if (stableStringify(before.notes ?? []) !== stableStringify(after.notes ?? [])) patch.notes = structuredClone(after.notes ?? []);
+    if (stableStringify(before.sections ?? []) !== stableStringify(after.sections ?? [])) patch.sections = structuredClone(after.sections ?? []);
     return patch;
+  }
+
+  /** The document as sent to the UI (list labels filled in). */
+  private sendable(): Document {
+    const labels = listLabels(this.doc);
+    return { ...structuredClone(this.doc), body: this.doc.body.map((b) => withLabels(b, labels)) };
   }
 
   // ----- commands --------------------------------------------------------------
@@ -275,7 +287,10 @@ export class FakeWriteBackend implements WriteBackend {
       }
       return null;
     };
-    const f = search(this.doc.body);
+    const f =
+      search(this.doc.body) ??
+      (this.doc.notes ?? []).map((n) => search(n.blocks)).find((x) => x) ??
+      null;
     if (!f) throw new Fail("unknown_block", `unknown block ${id}`);
     return f;
   }
@@ -304,6 +319,7 @@ export class FakeWriteBackend implements WriteBackend {
       return id;
     };
     if (b.kind === "paragraph") return { kind: "paragraph", value: { ...b.value, id: res(b.value.id) } };
+    if (b.kind === "toc") return { kind: "toc", value: { ...b.value, id: res(b.value.id) } };
     return {
       kind: "table",
       value: {
@@ -641,9 +657,177 @@ export class FakeWriteBackend implements WriteBackend {
         for (const [k, v] of Object.entries(margins ?? {})) if (v != null) (page.margins as Record<string, number>)[k] = v;
         return null;
       }
+      case "insertField": {
+        const p = this.para(c.block);
+        this.range(p, c.offset, c.offset);
+        const [a, , z] = splitInlines(p.inlines, c.offset, c.offset);
+        p.inlines = [...a, { kind: "field", value: { kind: c.field, cached: c.cached ?? "" } }, ...z];
+        return null;
+      }
+      case "updateFields": {
+        for (const [block, offset] of c.values) {
+          const [, mid] = splitInlines(this.para(block).inlines, offset, offset + 1);
+          if (mid[0]?.kind !== "field") throw new Fail("invalid_command", `no field at ${offset} in block ${block}`);
+        }
+        for (const [block, offset, text] of c.values) {
+          const [, mid] = splitInlines(this.para(block).inlines, offset, offset + 1);
+          if (mid[0]?.kind === "field") mid[0].value.cached = text;
+        }
+        return null;
+      }
+      case "insertFootnote": {
+        const p = this.para(c.block);
+        this.range(p, c.offset, c.offset);
+        if (!this.doc.body.some((b) => b.value.id === c.block)) throw new Fail("invalid_command", "notes can only be referenced from the body");
+        const notes = (this.doc.notes ??= []);
+        const id = Math.max(0, ...notes.map((n) => n.id)) + 1;
+        const style = c.kind === "end" ? "EndnoteText" : "FootnoteText";
+        notes.push({ id, kind: c.kind, blocks: [para(this.alloc(), ` ${c.text}`, style)] });
+        const [a, , z] = splitInlines(p.inlines, c.offset, c.offset);
+        p.inlines = [...a, { kind: "noteRef", value: { id, kind: c.kind } }, ...z];
+        return null;
+      }
+      case "deleteFootnote": {
+        const notes = this.doc.notes ?? [];
+        if (!notes.some((n) => n.id === c.id)) throw new Fail("invalid_command", `unknown note ${c.id}`);
+        this.doc.notes = notes.filter((n) => n.id !== c.id);
+        for (const b of walkBlocks(this.doc.body)) {
+          if (b.kind === "paragraph") b.value.inlines = b.value.inlines.filter((i) => !(i.kind === "noteRef" && i.value.id === c.id));
+        }
+        return null;
+      }
+      case "replaceNote": {
+        const note = (this.doc.notes ?? []).find((n) => n.id === c.id);
+        if (!note) throw new Fail("invalid_command", `unknown note ${c.id}`);
+        const freed = new Set(walkAll(note.blocks));
+        const used = new Set([...this.allIds()].filter((x) => !freed.has(x)));
+        note.blocks = c.blocks.map((b) => this.resolveIds(b, idMap, used));
+        if (note.blocks[note.blocks.length - 1]?.kind !== "paragraph") note.blocks.push(para(this.alloc()));
+        return null;
+      }
+      case "insertToc": {
+        const at = c.after == null ? 0 : this.doc.body.findIndex((b) => b.value.id === c.after) + 1;
+        if (c.after != null && at === 0) throw new Fail("unknown_block", `unknown block ${c.after}`);
+        const from = c.fromLevel ?? 1;
+        const to = c.toLevel ?? 3;
+        const id = c.newId != null && c.newId < 0 ? this.alloc() : (c.newId ?? this.alloc());
+        if (c.newId != null && c.newId < 0) idMap.push([c.newId, id]);
+        const toc: Block = { kind: "toc", value: { id, fromLevel: from, toLevel: to, entries: this.tocEntries(from, to) } };
+        if (c.title) (toc.value as { title?: string }).title = c.title;
+        this.doc.body.splice(at, 0, toc);
+        return null;
+      }
+      case "updateToc": {
+        const b = this.doc.body.find((x) => x.value.id === c.id);
+        if (b?.kind !== "toc") throw new Fail("invalid_command", `block ${c.id} is not a table of contents`);
+        const pages = new Map(c.pages ?? []);
+        b.value.entries = this.tocEntries(b.value.fromLevel, b.value.toLevel).map((e) => (pages.has(e.target) ? { ...e, page: pages.get(e.target)! } : e));
+        return null;
+      }
+      case "restoreNumbering":
+        this.doc.numbering = structuredClone(c.numbering);
+        return null;
+      case "restartList":
+      case "continueList": {
+        const p = this.para(c.block);
+        const n = this.numberingOf(p);
+        if (!n) throw new Fail("invalid_command", `block ${c.block} is not numbered`);
+        const def = this.doc.numbering.defs.find((d) => d.id === n.numId)!;
+        const tail = this.doc.body.slice(this.doc.body.findIndex((b) => b.value.id === c.block)).filter(
+          (b): b is Extract<Block, { kind: "paragraph" }> => b.kind === "paragraph" && b.value.props?.numbering?.numId === n.numId,
+        );
+        let target: number;
+        if (c.type === "restartList") {
+          target = Math.max(0, ...this.doc.numbering.defs.map((d) => d.id)) + 1;
+          this.doc.numbering = { ...this.doc.numbering, defs: [...this.doc.numbering.defs, { ...structuredClone(def), id: target }] };
+        } else {
+          const idx = this.doc.body.findIndex((b) => b.value.id === c.block);
+          const prev = this.doc.body
+            .slice(0, idx)
+            .reverse()
+            .find((b) => b.kind === "paragraph" && b.value.props?.numbering && b.value.props.numbering.numId !== n.numId && b.value.props.numbering.numId !== 0);
+          if (!prev || prev.kind !== "paragraph") throw new Fail("invalid_command", "no previous list");
+          target = prev.value.props!.numbering!.numId;
+        }
+        for (const b of tail) b.value.props = { ...b.value.props, numbering: { numId: target, level: b.value.props!.numbering!.level } };
+        return null;
+      }
+      case "insertSectionBreak": {
+        const p = this.para(c.block);
+        if (!this.doc.body.some((b) => b.value.id === c.block)) throw new Fail("invalid_command", "not a body paragraph");
+        const sections = (this.doc.sections ??= [{ id: 1, page: structuredClone(this.doc.page), kind: "nextPage", columns: 1, titlePage: false }]);
+        const idx = this.doc.body.findIndex((b) => b.value.id === c.block);
+        // The section holding the paragraph: the first section whose end is at or after it.
+        const endIdx = (s: { id: number }) => this.doc.body.findIndex((b) => b.kind === "paragraph" && b.value.props?.sectionEnd === s.id);
+        let k = sections.findIndex((s) => {
+          const e = endIdx(s);
+          return e < 0 || e >= idx;
+        });
+        if (k < 0) k = sections.length - 1;
+        const cur = sections[k]!;
+        const id = Math.max(...sections.map((s) => s.id)) + 1;
+        // The new section ends at `block` (keeping the headers); the old one keeps its end, starts `kind` and inherits them.
+        sections.splice(k, 0, { ...structuredClone(cur), id });
+        delete cur.headers;
+        delete cur.footers;
+        cur.kind = c.kind;
+        p.props = { ...(p.props ?? {}), sectionEnd: id };
+        return null;
+      }
+      case "setSection": {
+        const sec = (this.doc.sections ?? []).find((x) => x.id === c.section);
+        if (!sec) throw new Fail("invalid_command", `unknown section ${c.section}`);
+        const { page, ...rest } = c.patch;
+        for (const [k, v] of Object.entries(rest)) if (v != null) (sec as Record<string, unknown>)[k] = v;
+        if (c.patch.pageNumberStart === 0) delete sec.pageNumberStart;
+        if (page) {
+          if (page.orientation && page.orientation !== sec.page.orientation) {
+            [sec.page.width, sec.page.height] = [sec.page.height, sec.page.width];
+            sec.page.orientation = page.orientation;
+          }
+          if (page.width != null) sec.page.width = page.width;
+          if (page.height != null) sec.page.height = page.height;
+          for (const [k, v] of Object.entries(page.margins ?? {})) if (v != null) (sec.page.margins as Record<string, number>)[k] = v;
+          const last = this.doc.sections![this.doc.sections!.length - 1]!;
+          if (last === sec) this.doc.page = { ...this.doc.page, width: sec.page.width, height: sec.page.height, orientation: sec.page.orientation, margins: { ...sec.page.margins } };
+        }
+        return null;
+      }
+      case "setHeaderFooter": {
+        const sec = (this.doc.sections ?? []).find((x) => x.id === c.section);
+        if (!sec) throw new Fail("invalid_command", `unknown section ${c.section}`);
+        const key = c.footer ? "footers" : "headers";
+        const set = { ...(sec[key] ?? {}) };
+        if (c.blocks) set[c.slot] = c.blocks.map((b) => this.resolveIds(b, idMap, new Set(this.allIds())));
+        else delete set[c.slot];
+        sec[key] = set;
+        return null;
+      }
       default:
         throw new Fail("invalid_command", `fake backend does not implement ${c.type}`);
     }
+  }
+
+  /** Every id in use (body, notes, headers and footers). */
+  private *allIds(): Generator<number> {
+    yield* walkAll(this.doc.body);
+    for (const n of this.doc.notes ?? []) yield* walkAll(n.blocks);
+    for (const sec of this.doc.sections ?? []) {
+      for (const set of [sec.headers, sec.footers]) for (const blocks of Object.values(set ?? {})) yield* walkAll(blocks ?? []);
+    }
+  }
+
+  /** Headings `from..=to` of the body as TOC entries. */
+  private tocEntries(from: number, to: number) {
+    const out: { text: string; level: number; target: number }[] = [];
+    for (const b of walkBlocks(this.doc.body)) {
+      if (b.kind !== "paragraph") continue;
+      const m = /^Heading([1-9])$/.exec(b.value.props?.style ?? "");
+      const level = m ? Number(m[1]) : 0;
+      const text = b.value.inlines.map((i) => (i.kind === "run" ? i.value.text : "")).join("").trim();
+      if (level >= from && level <= to && text) out.push({ text, level, target: b.value.id });
+    }
+    return out;
   }
 
   private table(id: number): Extract<Block, { kind: "table" }>["value"] {
@@ -666,6 +850,73 @@ export class FakeWriteBackend implements WriteBackend {
     }
     throw new Fail("unknown_block", `unknown cell ${cellId}`);
   }
+}
+
+const para = (id: number, text = "", style?: string): Block => ({
+  kind: "paragraph",
+  value: { id, ...(style ? { props: { style } } : {}), inlines: text ? [{ kind: "run", value: { text } }] : [] },
+});
+
+function formatNumber(n: number, kind: string): string {
+  const roman = (x: number) => {
+    const t: [number, string][] = [[1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"], [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]];
+    let out = "";
+    for (const [v, s] of t) while (x >= v) ((out += s), (x -= v));
+    return out;
+  };
+  const letter = (x: number) => String.fromCharCode(97 + ((x - 1) % 26)).repeat(Math.floor((x - 1) / 26) + 1);
+  switch (kind) {
+    case "lowerRoman": return roman(n);
+    case "upperRoman": return roman(n).toUpperCase();
+    case "lowerLetter": return letter(n);
+    case "upperLetter": return letter(n).toUpperCase();
+    case "bullet":
+    case "none": return "";
+    default: return String(n);
+  }
+}
+
+/** List labels like `Document::list_numbers` (direct numbering only, default restarts). */
+export function listLabels(doc: Document): Map<number, string> {
+  const out = new Map<number, string>();
+  const counters = new Map<number, number[]>();
+  for (const b of walkBlocks(doc.body)) {
+    if (b.kind !== "paragraph") continue;
+    const n = b.value.props?.numbering;
+    if (!n || n.numId === 0) continue;
+    const def = doc.numbering.defs.find((d) => d.id === n.numId);
+    const level = def?.levels[n.level];
+    if (!def || !level) continue;
+    const c = counters.get(n.numId) ?? Array(9).fill(0);
+    c[n.level] = c[n.level] === 0 ? level.start : c[n.level] + 1;
+    for (let k = n.level + 1; k < 9; k++) c[k] = 0;
+    counters.set(n.numId, c);
+    if (level.kind === "bullet") {
+      out.set(b.value.id, level.text);
+      continue;
+    }
+    out.set(
+      b.value.id,
+      level.text.replace(/%([1-9])/g, (_m, d: string) => {
+        const k = Number(d) - 1;
+        const lv = def.levels[k];
+        const v = c[k] || lv?.start || 1;
+        return formatNumber(v, level.legal ? "decimal" : (lv?.kind ?? "decimal"));
+      }),
+    );
+  }
+  return out;
+}
+
+function withLabels(b: Block, labels: Map<number, string>): Block {
+  const copy = structuredClone(b);
+  for (const x of walkBlocks([copy])) {
+    if (x.kind !== "paragraph") continue;
+    const l = labels.get(x.value.id);
+    if (l != null) x.value.listLabel = l;
+    else delete x.value.listLabel;
+  }
+  return copy;
 }
 
 /** Every node id (blocks, rows, cells). */

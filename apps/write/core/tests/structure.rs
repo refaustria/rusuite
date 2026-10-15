@@ -514,3 +514,40 @@ fn sections_and_headers() {
         "invalid_command"
     );
 }
+
+#[test]
+fn update_fields_sets_cached_results_and_undoes() {
+    let mut h = host(&["Page "]);
+    apply(
+        &mut h,
+        C::InsertField {
+            block: id(1),
+            offset: 5,
+            field: FieldKind::Page,
+            cached: Some("1".into()),
+        },
+    );
+    let patch = apply(
+        &mut h,
+        C::UpdateFields {
+            values: vec![(id(1), 5, "7".into())],
+        },
+    );
+    assert_eq!(patch.replaced.len(), 1);
+    let cached = |h: &WriteHost| match &doc(h).find_paragraph(id(1)).unwrap().inlines[1] {
+        Inline::Field(f) => f.cached.clone(),
+        other => panic!("not a field: {other:?}"),
+    };
+    assert_eq!(cached(&h), "7");
+    // not a field there: rejected, nothing changes
+    let code = err_code(
+        &mut h,
+        C::UpdateFields {
+            values: vec![(id(1), 5, "9".into()), (id(1), 0, "x".into())],
+        },
+    );
+    assert_eq!(code, "invalid_command");
+    assert_eq!(cached(&h), "7");
+    h.undo().unwrap().unwrap();
+    assert_eq!(cached(&h), "1");
+}

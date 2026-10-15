@@ -37,10 +37,6 @@ pub enum Block {
     /// A table.
     Table(Table),
     /// A table of contents generated from the headings.
-    ///
-    /// Not part of the generated TypeScript `Block` union yet (the editor
-    /// mapping learns it in the UI task); the TS type is exported as `Toc`.
-    #[cfg_attr(feature = "ts", ts(skip))]
     Toc(Toc),
 }
 
