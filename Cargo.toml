@@ -14,6 +14,9 @@ members = [
     "apps/calc/src-tauri",
     "apps/calc/core",
     "apps/calc/src-wasm",
+    "apps/write/core",
+    "apps/write/src-tauri",
+    "apps/write/src-wasm",
 ]
 
 [workspace.package]

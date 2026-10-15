@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@import "../../../packages/ui-shared/src/styles.css";
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.tiptap-content h1 { font-size: 2rem; font-weight: 700; margin: 0.6em 0 0.3em; }
+.tiptap-content h2 { font-size: 1.5rem; font-weight: 700; margin: 0.6em 0 0.3em; }
+.tiptap-content h3 { font-size: 1.2rem; font-weight: 700; margin: 0.6em 0 0.3em; }
+.tiptap-content p { margin: 0.4em 0; }
+.tiptap-content ul { list-style: disc; padding-left: 1.5rem; }
+.tiptap-content ol { list-style: decimal; padding-left: 1.5rem; }
