@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core-model",
+    "crates/fmt-ooxml",
+    "crates/fmt-docx",
+    "crates/fmt-xlsx",
+    "crates/fmt-pptx",
+    "crates/model-text",
+    "crates/model-sheet",
+    "crates/engine-formula",
+    "crates/model-show",
+    "crates/app-common",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+repository = "https://github.com/rusuite/rusuite"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+quick-xml = { version = "0.42", features = ["serialize"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
+thiserror = "2"
+insta = "1"
+proptest = "1"
+
+[workspace.lints.clippy]
+all = "warn"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

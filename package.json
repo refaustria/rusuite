@@ -1,0 +1,9 @@
+{
+  "name": "rusuite",
+  "private": true,
+  "packageManager": "pnpm@12.11.2",
+  "scripts": {
+    "test": "pnpm -r --if-present test",
+    "lint": "pnpm -r --if-present lint"
+  }
+}
