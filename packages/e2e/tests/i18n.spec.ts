@@ -35,6 +35,10 @@ test.describe("German UI", () => {
       await expect(backstage.getByRole("button", { name: /^Speichern(?! unter)/ })).toBeVisible();
       await expect(backstage.getByRole("button", { name: /^Speichern unter…/ })).toBeVisible();
       await expect(backstage.getByRole("heading", { name: "Zuletzt verwendet" })).toBeVisible();
+      // Informal German (P8-48): "du", never the formal "Sie"/"Ihre".
+      await expect(backstage.getByTestId("privacy-text")).toHaveText(/^Deine Dokumente bleiben auf diesem Gerät\..*bis du sie entfernst\.$/);
+      await expect(backstage).not.toContainText("Ihre Dokumente");
+      expect(await backstage.innerText()).not.toMatch(/\b(Sie|Ihnen|Ihre?[mnrs]?)\b/);
       await shot(page, `${app}-backstage-de`);
       // Shortcuts keep their keys; German shows Strg.
       await expect(backstage.getByRole("button", { name: /^Speichern(?! unter)/ })).toHaveAttribute("title", "Speichern (Strg+S)");
@@ -52,6 +56,9 @@ test.describe("German UI", () => {
       await expect(page.getByRole("img", { name: `Rusuite-${app}-Logo` })).toBeVisible();
     }
     await expect(page.getByText("Eine kleine Office-Suite mit Rust-Kern")).toBeVisible();
+    // Informal German (P8-48).
+    await expect(page.getByText(/deine Dateien bleiben auf deinem Rechner/)).toBeVisible();
+    expect(await page.locator("body").innerText()).not.toMatch(/\b(Sie|Ihnen|Ihre?[mnrs]?)\b/);
     await expect(page.getByTestId("version")).toHaveText(/^Build \S+ · \d{4}-\d{2}-\d{2}$/);
     await shot(page, "portal-de");
     errors.expectNone();

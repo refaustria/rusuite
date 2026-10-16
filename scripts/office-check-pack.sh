@@ -32,7 +32,7 @@ Rusuite $version – Office check pack
 Every file here was written by Rusuite. Open each one in Microsoft Excel, Word or PowerPoint (Windows or macOS):
 - no "We found a problem with some content" / repair dialog,
 - content, formatting, charts, pivots, comments, animations as in the source (testdata/ in the repository),
-- save it in Office and reopen it in Rusuite (https://resuite.inceptum.at/) without warnings.
+- save it in Office and reopen it in Rusuite (https://rusuit.es/) without warnings.
 Report problems with the file name and a screenshot.
 TXT
 (cd "$out" && rm -f "rusuite-office-check-$version.zip" && python3 -I -m zipfile -c "rusuite-office-check-$version.zip" "rusuite-office-check-$version")

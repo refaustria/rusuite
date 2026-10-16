@@ -96,12 +96,11 @@ jobs:
 
   # P8-41: start each built app once per OS with `--smoke` (window + ping/dispatch IPC round trip + title + version,
   # apps/*/src-tauri/src/smoke.rs). It runs the binaries the release jobs built (the same ones the bundles contain).
-  # continue-on-error stays true until a workflow_dispatch run has passed on all four runners (docs/release.md);
-  # then set it to false so a broken start blocks the release.
+  # Blocking since 2026-10-16: the workflow_dispatch test run 38911314761 passed on all four runners (docs/release.md).
   smoke:
     name: smoke / ${{ matrix.platform }}
     needs: release
-    continue-on-error: true
+    continue-on-error: false
     strategy:
       fail-fast: false
       matrix:

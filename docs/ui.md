@@ -1002,6 +1002,40 @@ Corrections from the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md))
   scroll; the tab strip scrolls instead of running under the right slot (Present) on narrow windows.
 - **Notes Page**: the slide picture's frame is drawn over the picture (all four edges visible).
 
+## Show pre-release fixes (P8-45)
+
+Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)):
+- **In-place text editor (S-01)** (`canvas/TextOverlay.tsx`, `canvas/richEditor.ts`, `text/editing.ts`): editing a shape's
+  or a table cell's text shows it as the slide draws it. The editor is a `contenteditable` over the shape's text rectangle,
+  at the slide's px size and scaled with the zoom (rotated with the shape, vertical text turned like the slide); its content
+  is rebuilt after every edit from the session's rich body laid out by the slide's own `layoutText` – one block per
+  paragraph (the layout's indent, hanging bullet or number from the master's level styles as CSS `::before`, spacing
+  before / after, line spacing, alignment), one span per run (font, size, bold, italic, underline, colour, highlight,
+  super / subscript, hyperlinks) and the shrink-on-overflow scale computed live, so the text does not move when editing
+  starts or ends (an empty bulleted paragraph shows its bullet while editing, like PowerPoint). Typing, Enter, Backspace /
+  Delete (also by word), paste (plain text, lines become paragraphs) and cut arrive as `beforeinput` / clipboard events and
+  splice the rich body: typed text takes the formatting of the run before the caret (a paragraph's first run at its start;
+  an empty paragraph keeps the formatting of the text it had), fields are never continued and links only inside them;
+  Enter's new paragraph keeps the level, bullet and alignment. IME composition is left to the browser and read back when it
+  ends. Tab / Shift+Tab change the level, Ctrl+Shift+> / < the font size, Ctrl+Z / Ctrl+Y undo and redo the typing of the
+  session; Ctrl+B / I / U / K go to the shortcut map as before. The session's body goes to the core as one `SetTextBody`
+  (ADR 0008; no ProseMirror). Not covered: tabs inside a paragraph (Tab always changes the level), Shift+Enter makes a new
+  paragraph (no line break), the slide number field shows its stored text while editing.
+- **Insert › Text box (S-14)** arms drawing like Shapes (the button stays pressed; a second click disarms it): a click on
+  the slide inserts a text box of the default size with its top-left at the click, a drag draws it; the editor opens in it.
+  Activated with Enter / Space it inserts at once in the slide centre (keyboard).
+- **Combo charts (S-10)**: the shared renderer (`packages/ui-shared/src/chart/layout.ts`) draws the series in Excel's /
+  PowerPoint's z-order – areas at the back, then bars / columns, then lines, then scatter – so Stacked Area – Clustered
+  Column shows its columns in front of the area (hit testing follows: a click on a column picks the column).
+- **Transition defaults (S-17)**: a transition chosen in the gallery starts with PowerPoint's Effect Options – Push From
+  Bottom (saved `dir="u"`), Split Vertical Out (`orient="vert"`), Zoom In (`dir="in"`); Wipe and Cover From Right (the
+  format's default). A transition read from a file without a direction keeps the format's default (`TransitionKind::
+  default_direction`).
+- **Picture › Color previews (S-18)**: duotone and sepia previews are exact (an SVG `feColorMatrix` equal to the pixel
+  pipeline), so each duotone shows its accent colour.
+- **Group names (S-19)**: a new group is named "Group N" with N one more than the largest number in the slide's shape
+  names (as PowerPoint), not after its id.
+
 ## Printing (P7-9)
 
 **File › Print** (Ctrl+P) is the Office print page: on the left the **Print** button, a note that copies, printer and
@@ -1064,7 +1098,7 @@ and stores the choice where the apps read it; since P8-47 the header shows the t
 
 ## Privacy (P7-12, ADR 0009)
 
-- nginx sends a `Content-Security-Policy` (`connect-src 'self'`, no third-party origins; `style-src 'unsafe-inline'` stays because React `style` props and the print preview `srcdoc` need it), `Referrer-Policy: no-referrer` and a minimal `Permissions-Policy`. The policy is defined once in `deploy/nginx/resuite.inceptum.at.conf`; the `$csp_connect` line is the single place for future provider origins (`docs/cloud-connectors-plan.md`). `packages/e2e/serve.mjs` reads the same policy, so the local e2e run enforces it too. Pages must not use inline scripts (the portal's version script is `version.js`).
+- nginx sends a `Content-Security-Policy` (`connect-src 'self'`, no third-party origins; `style-src 'unsafe-inline'` stays because React `style` props and the print preview `srcdoc` need it), `Referrer-Policy: no-referrer` and a minimal `Permissions-Policy`. The policy is defined once in `deploy/nginx/rusuit.es.conf`; the `$csp_connect` line is the single place for future provider origins (`docs/cloud-connectors-plan.md`). `packages/e2e/serve.mjs` reads the same policy, so the local e2e run enforces it too. Pages must not use inline scripts (the portal's version script is `version.js`).
 - `scripts/privacy-check.sh` (CI) rejects `fetch(`, `XMLHttpRequest`, `WebSocket`, `sendBeacon`, `EventSource`, `navigator.share` outside the portal's `version.js`/`i18n.js`, and HTTP clients in `apps/*/src-tauri/Cargo.toml`.
 - e2e `privacy.spec.ts` records all requests of each app while opening, editing, autosaving and saving and asserts they are the page's own static files; it also covers the Privacy entry (EN/DE; `PRIVACY_SHOTS=<dir>` saves screenshots).
 - The portal says it in one sentence and links `privacy.html`.
@@ -1097,7 +1131,7 @@ privacy-check allow-list, reachable only from the controller's `submit`).
   `instanceId` – a random v4 UUID made once in `localStorage` `rusuite.report.instance` (desktop: the webview's storage
   in the app data directory; never from hardware). The client gate (`rusuite.report.nextAllowedAt`) allows one report
   per hour; the relay enforces the same limit. URL: web `/api/report` (same origin, CSP unchanged); desktop
-  `REPORT_RELAY_URL` at build time (Vite `envPrefix`), default `https://resuite.inceptum.at/api/report`.
+  `REPORT_RELAY_URL` at build time (Vite `envPrefix`), default `https://rusuit.es/api/report`.
 - **Privacy**: nothing is sent before Submit (e2e `report.spec.ts` audits the requests); the payload has no document
   content (the relay also refuses unknown fields); File › Home › Privacy has the paragraph `privacy.report`; the portal's
   privacy page has a "Reporting a problem" section.

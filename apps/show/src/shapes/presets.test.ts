@@ -53,6 +53,7 @@ describe("shape library", () => {
   it("a click inserts the default size at the click (lines: 1 inch wide, flat)", () => {
     expect(clickBox(choiceOf("star5")!, 100, 200)).toEqual({ x: 100, y: 200, w: 914400, h: 914400, rotationDeg: 0 });
     expect(clickBox(choiceOf("line")!, 1, 2)).toMatchObject({ w: 914400, h: 0 });
+    expect(clickBox(choiceOf("textBox")!, 5, 6)).toEqual({ x: 5, y: 6, w: 2743200, h: 369332, rotationDeg: 0 });
   });
 
   it("recently used: newest first, no duplicates, bounded", () => {

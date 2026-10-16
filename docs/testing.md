@@ -25,7 +25,7 @@ The Open page lists "This device" first: `openViaBackstage` clicks it before the
 
 ## Against the live site
 
-`BASE_URL=https://resuite.inceptum.at pnpm e2e` skips the local server. `scripts/deploy-web.sh --e2e` runs exactly that after
+`BASE_URL=https://rusuit.es pnpm e2e` skips the local server. `scripts/deploy-web.sh --e2e` runs exactly that after
 publishing (`E2E_BASE_URL` overrides the URL).
 
 ## Conventions
@@ -92,7 +92,7 @@ the decks built in code). On Windows or macOS with Microsoft 365:
 - [ ] **Linux** (Ubuntu 22.04+): `.deb` via `sudo apt install ./…deb`, the `.AppImage` after `chmod +x`.
 - [ ] Desktop-only features once: Settings › AI with your own key (one action), a WebDAV connection (open + save).
 
-**Web** (<https://resuite.inceptum.at/> after the PM's deploy):
+**Web** (<https://rusuit.es/> after the PM's deploy):
 - [ ] **Chrome**, **Firefox** and **Safari** (macOS): open one reference file per app, edit, save (download), reopen;
   print preview; the language switch; File › Privacy › remove local copies. Firefox/Safari are not covered by the e2e
   suite (Chromium only).

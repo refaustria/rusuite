@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PictureProps } from "../generated/PictureProps";
-import { CORRECTION_STEPS, PICTURE_STYLES, SHADOW_PRESETS, cropSource, cssFilter, dragCrop, fullImageBox, needsPixels, processPixels, recolorPresets, stylePatch, transfer } from "./picture";
+import { CORRECTION_STEPS, PICTURE_STYLES, SHADOW_PRESETS, cropSource, cssFilter, dragCrop, fullImageBox, needsPixels, processPixels, recolorMatrix, recolorPresets, stylePatch, transfer } from "./picture";
 import { panCrop } from "../canvas/CropOverlay";
 
 const shadow = { color: { kind: "rgb", value: "000000" }, alpha: 0.4, blur: 50800, distance: 38100, directionDeg: 45 } as const;
@@ -69,5 +69,28 @@ describe("picture adjustments (docs/pptx-suite.md)", () => {
     expect(new Set(PICTURE_STYLES.map((s) => s.geometry)).size).toBeGreaterThanOrEqual(4);
     expect(stylePatch(PICTURE_STYLES.find((s) => s.id === "oval")!)).toEqual({ geometry: "ellipse", shadow: null });
     expect(SHADOW_PRESETS[0]!.shadow).toBeNull();
+  });
+
+  it("duotone / sepia previews use a colour matrix that matches the pixel pipeline (P8-45 S-18)", () => {
+    const apply = (m: string, [r, g, b]: number[]) => {
+      const v = m.split(" ").map(Number);
+      return [0, 1, 2].map((row) => Math.round(255 * (v[row * 5]! * (r! / 255) + v[row * 5 + 1]! * (g! / 255) + v[row * 5 + 2]! * (b! / 255) + v[row * 5 + 4]!)));
+    };
+    const accents = ["4472C4", "ED7D31", "A5A5A5", "FFC000", "5B9BD5", "70AD47"];
+    const recolors = [...recolorPresets(accents).filter((r) => r.accent).map((r) => r.recolor), { kind: "sepia" } as const];
+    expect(recolors).toHaveLength(7);
+    for (const rc of recolors) {
+      const m = recolorMatrix(rc)!;
+      expect(m.split(" ")).toHaveLength(20);
+      for (const pixel of [[0, 0, 0], [255, 255, 255], [200, 30, 90], [12, 180, 240]]) {
+        const d = [...pixel, 255];
+        processPixels(d, { recolor: rc });
+        apply(m, pixel).forEach((c, i) => expect(Math.abs(c - d[i]!)).toBeLessThanOrEqual(1));
+      }
+    }
+    // the previews differ by accent (no longer all sepia)
+    expect(new Set(recolors.map((r) => recolorMatrix(r))).size).toBe(7);
+    expect(recolorMatrix({ kind: "grayscale" })).toBeNull();
+    expect(recolorMatrix(undefined)).toBeNull();
   });
 });

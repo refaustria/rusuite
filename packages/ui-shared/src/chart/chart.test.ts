@@ -178,6 +178,33 @@ describe("layoutChart snapshots per kind", () => {
     expect(summary(scene)).toMatchSnapshot();
     expect(scene.axes.secondVal).toMatchObject({ min: 0, max: 1 });
   });
+  it("combo z-order is Excel's: areas behind columns, lines and then scatter in front (P8-45 S-10)", () => {
+    // series 0 = stacked area, series 1 = clustered column, series 2 = line: drawn area, column, line
+    const chart = chartOf({ type: "combo" }, 3);
+    chart.series[0] = { ...chart.series[0]!, kind: { type: "area", grouping: "stacked" } };
+    chart.series[1] = { ...chart.series[1]!, kind: { type: "bar", direction: "column", grouping: "clustered" } };
+    chart.series[2] = { ...chart.series[2]!, kind: { type: "line", grouping: "standard", markers: false } };
+    const data: ResolvedChart = { series: [DATA.series[0]!, { name: "Cols", categories: CATS, values: [5, 6, 7, 8] }, { name: "Line", categories: CATS, values: [3, 4, 5, 6] }] };
+    const scene = layoutChart(chart, data, W, H);
+    const at = (pred: (it: SceneItem) => boolean) => scene.items.findIndex(pred);
+    const area = at((it) => it.t === "path" && it.el?.type === "series" && it.el.series === 0);
+    const column = at((it) => it.t === "rect" && it.el?.type === "series" && it.el.series === 1);
+    const line = at((it) => it.el?.type === "series" && it.el.series === 2);
+    expect(area).toBeGreaterThanOrEqual(0);
+    expect(area).toBeLessThan(column);
+    expect(column).toBeLessThan(line);
+    // a click on a column inside the area picks the column (it is in front)
+    const bar = bars(scene, 1)[0]!;
+    expect(hitTestChart(scene, bar.x + bar.w / 2, bar.y + bar.h - 2)).toMatchObject({ type: "series", series: 1 });
+  });
+  it("lines are drawn before scatter series in a combo", () => {
+    const chart = chartOf({ type: "combo" }, 2);
+    chart.series[0] = { ...chart.series[0]!, kind: { type: "scatter", style: "lineMarker" } };
+    chart.series[1] = { ...chart.series[1]!, kind: { type: "line", grouping: "standard", markers: false } };
+    const scene = layoutChart(chart, DATA, W, H);
+    const first = (n: number) => scene.items.findIndex((it) => it.el?.type === "series" && it.el.series === n);
+    expect(first(1)).toBeLessThan(first(0));
+  });
   it("unsupported charts show the placeholder text only", () => {
     const scene = layoutChart(chartOf({ type: "unsupported", kind: "radarChart", xml: "<c:radarChart/>" }), { series: [] }, W, H, {
       labels: { unsupported: "Cannot show {kind}" },

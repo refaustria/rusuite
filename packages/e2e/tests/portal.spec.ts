@@ -59,6 +59,28 @@ test.describe("Portal", () => {
     errors.expectNone();
   });
 
+  test("P8-49: Coming soon section (EN, DE) and the footer link on the Downloads page", async ({ page }) => {
+    const errors = trackErrors(page);
+    await page.goto("./");
+    const soon = page.locator("#soon");
+    await expect(soon.getByRole("heading", { name: "Coming soon" })).toBeVisible();
+    await expect(soon.locator("li")).toHaveCount(7);
+    await expect(soon.locator("li").first()).toContainText("Android and iOS");
+    await expect(soon).toContainText("Slicers, sparklines, sheet protection and Flash Fill are planned.");
+    await expect(soon).toContainText("Your feedback shapes the order");
+    await page.getByRole("button", { name: "DE" }).click();
+    await expect(soon.getByRole("heading", { name: "Demnächst" })).toBeVisible();
+    await expect(soon).toContainText("Datenschnitte, Sparklines, Blattschutz und Blitzvorschau sind geplant.");
+    await expect(soon).toContainText("Dein Feedback bestimmt die Reihenfolge");
+    await page.getByRole("button", { name: "EN" }).click();
+    await page.goto("downloads.html");
+    await expect(page.getByRole("link", { name: "What's coming soon" })).toHaveAttribute("href", "./#soon");
+    await page.getByRole("button", { name: "DE" }).click();
+    await expect(page.getByRole("link", { name: "Was demnächst kommt" })).toBeVisible();
+    await page.getByRole("button", { name: "EN" }).click();
+    errors.expectNone();
+  });
+
   test("Open Calc in browser leads to the app", async ({ page }) => {
     await page.goto("./");
     await page.getByRole("link", { name: "Open Calc in browser" }).click();

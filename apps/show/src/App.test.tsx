@@ -10,6 +10,7 @@ import App from "./App";
 import { ShowApi } from "./api";
 import { ShowStore } from "./state/store";
 import { FakeBackend } from "./test/fakeBackend";
+import { replaceAll } from "./test/editor";
 
 afterEach(cleanup);
 
@@ -81,8 +82,8 @@ describe("Show app", () => {
   it("edits text in the overlay and commits on blur", async () => {
     const { backend, store } = await mount();
     act(() => store.startEdit(3));
-    const ta = screen.getByTestId("text-overlay") as HTMLTextAreaElement;
-    fireEvent.change(ta, { target: { value: "A subtitle\nsecond line" } });
+    const ta = screen.getByTestId("text-overlay");
+    replaceAll(ta, "A subtitle\nsecond line");
     fireEvent.blur(ta);
     await flush();
     expect(backend.commands[0]).toMatchObject({
