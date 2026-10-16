@@ -157,4 +157,36 @@ test.describe("Show pre-release fixes (P8-45)", () => {
     expect(slide2).toMatch(/<a:rPr[^>]*\bb="1"[^>]*\/?>(<[^>]*>)*<a:t>Tokyo 東<\/a:t>/);
     errors.expectNone();
   });
+
+  test("S-14: Insert › Text box arms drawing; a drag draws the box and the editor opens in it", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await page.getByRole("tab", { name: "Insert" }).click();
+    const button = page.getByRole("button", { name: "Text box" });
+    await button.click();
+    // nothing inserted yet: the tool is armed
+    await expect(stage(page)).toHaveAttribute("data-draw-mode", "textBox");
+    await expect(button).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("dirty")).toHaveText("Saved");
+    const s = await stageBox(page);
+    const a = { x: s.x + s.w * 0.1, y: s.y + s.h * 0.7 };
+    const b = { x: s.x + s.w * 0.5, y: s.y + s.h * 0.85 };
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move((a.x + b.x) / 2, (a.y + b.y) / 2, { steps: 4 });
+    await page.mouse.move(b.x, b.y, { steps: 4 });
+    await page.mouse.up();
+    await expect(stage(page)).not.toHaveAttribute("data-draw-mode", /.+/);
+    await expect(overlay(page)).toBeFocused();
+    await page.keyboard.type("Drawn box");
+    await page.keyboard.press("Escape");
+    const slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    const sp = slide1.match(/<p:sp>(?:(?!<\/p:sp>)[\s\S])*Drawn box[\s\S]*?<\/p:sp>/)?.[0] ?? "";
+    expect(sp).toContain('txBox="1"');
+    // the dragged size: 40 % × 15 % of a 16:9 slide (12192000 × 6858000 EMU)
+    const ext = /<a:ext cx="(\d+)" cy="(\d+)"/.exec(sp)!;
+    expect(Number(ext[1]) / 12192000).toBeCloseTo(0.4, 1);
+    expect(Number(ext[2]) / 6858000).toBeCloseTo(0.15, 1);
+    errors.expectNone();
+  });
 });

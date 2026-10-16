@@ -994,6 +994,9 @@ Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)
   session; Ctrl+B / I / U / K go to the shortcut map as before. The session's body goes to the core as one `SetTextBody`
   (ADR 0008; no ProseMirror). Not covered: tabs inside a paragraph (Tab always changes the level), Shift+Enter makes a new
   paragraph (no line break), the slide number field shows its stored text while editing.
+- **Insert › Text box (S-14)** arms drawing like Shapes (the button stays pressed; a second click disarms it): a click on
+  the slide inserts a text box of the default size with its top-left at the click, a drag draws it; the editor opens in it.
+  Activated with Enter / Space it inserts at once in the slide centre (keyboard).
 
 ## Printing (P7-9)
 

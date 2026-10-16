@@ -66,6 +66,11 @@ test.describe("Cross-app", () => {
     await page.getByTestId("editor-stage").waitFor();
     await page.getByRole("tab", { name: "Insert" }).click();
     await page.getByRole("button", { name: "Text box" }).click();
+    // Text box arms drawing (P8-45 S-14): a click on the slide inserts it
+    const stageBox = (await page.getByTestId("editor-stage").boundingBox())!;
+    await page.mouse.click(stageBox.x + stageBox.width * 0.2, stageBox.y + stageBox.height * 0.8);
+    await page.keyboard.type("Recovered");
+    await page.keyboard.press("Escape");
     await expect(page.getByTestId("dirty")).toHaveText("Modified");
     await hideTab(page);
     await page.reload();

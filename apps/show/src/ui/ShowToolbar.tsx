@@ -243,6 +243,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
     />
   );
   const quickKeyboard = { current: false };
+  const textBoxKeyboard = { current: false };
   const shapesGallery = (
     <div className="flex items-start gap-0.5" onClickCapture={(e) => (quickKeyboard.current = e.detail === 0)}>
       <RibbonGallery
@@ -503,7 +504,18 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         label: t("show.text"),
         items: (
           <>
-            <RibbonButton label={t("show.shape.textBox")} icon="textBox" size="large" disabled={!hasSlide} onClick={() => void store.insertChoice("textBox")} />
+            {/* a click arms drawing (click = default size, drag = the box, like Shapes); Enter / Space insert at once (P8-45 S-14) */}
+            <span className="contents" onClickCapture={(e) => (textBoxKeyboard.current = e.detail === 0)}>
+              <RibbonButton
+                label={t("show.shape.textBox")}
+                icon="textBox"
+                size="large"
+                disabled={!hasSlide}
+                pressed={state.drawMode === "textBox"}
+                tooltip={t("show.shape.textBoxTip")}
+                onClick={() => (textBoxKeyboard.current ? void store.insertChoice("textBox") : store.setDrawMode(state.drawMode === "textBox" ? null : "textBox"))}
+              />
+            </span>
             <RibbonButton label={t("show.hf.titleDots")} icon={DI.headerFooter} size="large" showLabel disabled={!hasSlide} onClick={() => store.openDialog({ kind: "headerFooter" })} />
             <RibbonStack>
               <RibbonButton label={t("show.hf.insertDate")} icon={DI.dateTime} showLabel disabled={!hasSlide} tooltip={t("show.hf.insertFieldTip")} onClick={() => void store.insertField({ kind: "dateTime", value: { format: 1 } })} />
