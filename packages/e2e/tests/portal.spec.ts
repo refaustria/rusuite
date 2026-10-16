@@ -49,11 +49,11 @@ test.describe("Portal", () => {
     await page.goto("privacy.html");
     await expect(page.getByText("rusuit.es", { exact: false }).first()).toBeVisible();
     await page.goto("./");
-    await page.getByRole("button", { name: "DE" }).click();
+    await page.getByRole("button", { name: "DE", exact: true }).click();
     await expect(page).toHaveTitle("rusuit.es – Rusuite: freie, quelloffene Office-Suite");
     await expect(page.locator(".statement")).toContainText("Rusuite ist kostenlos nutzbar und quelloffen (MIT-Lizenz) – und das bleibt so. Keine Konten, kein Tracking, keine Dokumente auf dem Server.");
     await expect(page.locator(".opensource").getByRole("heading", { name: "Quelloffen, kostenlos – und das bleibt so" })).toBeVisible();
-    await page.getByRole("button", { name: "EN" }).click();
+    await page.getByRole("button", { name: "EN", exact: true }).click();
     // Only the portal's own static files, as before.
     expect(requests.filter((u) => !/^\/(|index\.html|privacy\.html|downloads\.html|styles\.css|i18n\.js|version\.js|downloads\.js|version\.json|favicon\.ico|logos\/[\w.-]+|locales\/(en|de)\.json)$/.test(u))).toEqual([]);
     errors.expectNone();
@@ -68,16 +68,16 @@ test.describe("Portal", () => {
     await expect(soon.locator("li").first()).toContainText("Android and iOS");
     await expect(soon).toContainText("Slicers, sparklines, sheet protection and Flash Fill are planned.");
     await expect(soon).toContainText("Your feedback shapes the order");
-    await page.getByRole("button", { name: "DE" }).click();
+    await page.getByRole("button", { name: "DE", exact: true }).click();
     await expect(soon.getByRole("heading", { name: "Demnächst" })).toBeVisible();
     await expect(soon).toContainText("Datenschnitte, Sparklines, Blattschutz und Blitzvorschau sind geplant.");
     await expect(soon).toContainText("Dein Feedback bestimmt die Reihenfolge");
-    await page.getByRole("button", { name: "EN" }).click();
+    await page.getByRole("button", { name: "EN", exact: true }).click();
     await page.goto("downloads.html");
     await expect(page.getByRole("link", { name: "What's coming soon" })).toHaveAttribute("href", "./#soon");
-    await page.getByRole("button", { name: "DE" }).click();
+    await page.getByRole("button", { name: "DE", exact: true }).click();
     await expect(page.getByRole("link", { name: "Was demnächst kommt" })).toBeVisible();
-    await page.getByRole("button", { name: "EN" }).click();
+    await page.getByRole("button", { name: "EN", exact: true }).click();
     errors.expectNone();
   });
 
@@ -116,13 +116,27 @@ test.describe("Downloads page", () => {
     return fs.readFileSync(path.join(dir, "downloads.html"), "utf8");
   };
 
-  test("the portal header links to the downloads page; without a release it points to GitHub", async ({ page }) => {
+  test("the portal header links to the downloads page; a release lists the installers, without one it points to GitHub", async ({ page }) => {
     const errors = trackErrors(page);
     await page.goto("./");
     await page.getByRole("navigation").getByRole("link", { name: "Downloads" }).click();
     await expect(page).toHaveURL(/\/downloads\.html$/);
     await expect(page.getByRole("heading", { level: 1, name: "Desktop downloads" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "GitHub Releases" })).toHaveAttribute("href", /github\.com\/refaustria\/rusuite\/releases$/);
+    // Two states: the committed fallback (no release) and the page generated at deploy time from a release.
+    const release = (await page.getByTestId("downloads").getAttribute("data-release")) ?? "none";
+    if (release === "none") {
+      await expect(page.getByRole("link", { name: "GitHub Releases" })).toHaveAttribute("href", /github\.com\/refaustria\/rusuite\/releases$/);
+    } else {
+      expect(release).toMatch(/^v\d/);
+      await expect(page.locator("section.os")).toHaveCount(3);
+      for (const os of ["windows", "macos", "linux"]) {
+        const section = page.locator(`section[data-os="${os}"]`);
+        for (const app of ["calc", "write", "show"]) {
+          await expect(section.locator(`[data-app="${app}"] a.button`).first()).toHaveAttribute("href", /github\.com\/refaustria\/rusuite\/releases\/download\//);
+        }
+      }
+      await expect(page.locator('[data-steps="macos15"]')).toContainText("Open Anyway");
+    }
     await page.getByRole("button", { name: "DE", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Desktop-Downloads" })).toBeVisible();
     await page.getByRole("button", { name: "EN", exact: true }).click();
