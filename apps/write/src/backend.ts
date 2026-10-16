@@ -4,6 +4,7 @@
 import type { Backend } from "@rusuite/ui-shared";
 import type { Envelope } from "../../../packages/ui-shared/src/generated/Envelope";
 import type { Document } from "./generated/Document";
+import type { FindQuery } from "./generated/FindQuery";
 import type { Request } from "./generated/Request";
 import type { ResponseBody } from "./generated/ResponseBody";
 import type { WriteCommand } from "./generated/WriteCommand";
@@ -56,6 +57,8 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     media: { contentType: "string", bytesBase64: "string" },
     documentState: { dirty: "boolean", revision: "number" },
     recoverySnapshot: { json: "string", revision: "number", dirty: "boolean" },
+    blockIds: { ids: "array" },
+    findMatches: { matches: "array", revision: "number" },
   };
   for (const [field, kind] of Object.entries(shapes[expected])) {
     const value = body[field];
@@ -144,6 +147,16 @@ export class WriteApi {
   /** Replaces the document by a `recoverySnapshot` JSON (dirty; `name` = file name). */
   restoreRecovery(json: string, name: string | null): Promise<BodyOf<"document">> {
     return this.call({ type: "restoreRecovery", json, name: name ?? undefined }, "document");
+  }
+
+  /** The paragraphs using style `id` (Select All N Instances). */
+  blocksWithStyle(id: string): Promise<BodyOf<"blockIds">> {
+    return this.call({ type: "blocksWithStyle", id }, "blockIds");
+  }
+
+  /** Matches of a search with formatting / wildcards (body paragraphs). */
+  find(query: FindQuery): Promise<BodyOf<"findMatches">> {
+    return this.call({ type: "find", query }, "findMatches");
   }
 
   markSaved(name?: string): Promise<BodyOf<"documentState">> {

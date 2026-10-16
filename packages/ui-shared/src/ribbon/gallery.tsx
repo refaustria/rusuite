@@ -36,6 +36,8 @@ export interface RibbonGalleryProps {
   hideLabels?: boolean;
   /** Inline variant: focus the selected (else first) item on mount, e.g. inside a split button's panel. */
   autoFocus?: boolean;
+  /** Right-click (or the context-menu key) on an item, with the viewport point for a menu. */
+  onItemContextMenu?: (id: string, at: { x: number; y: number }) => void;
 }
 
 /** Arrow-key movement inside a grid of buttons (`cols` per row). */
@@ -55,7 +57,7 @@ function gridKeys(e: KeyboardEvent, root: HTMLElement | null, cols: number) {
 }
 
 function GalleryGrid({
-  label, items, selected, onPick, columns, itemClassName, hideLabels, disabled, autoFocus,
+  label, items, selected, onPick, columns, itemClassName, hideLabels, disabled, autoFocus, onItemContextMenu,
 }: {
   label: string;
   items: RibbonGalleryItem[];
@@ -66,6 +68,7 @@ function GalleryGrid({
   hideLabels?: boolean;
   disabled?: boolean;
   autoFocus?: boolean;
+  onItemContextMenu?: (id: string, at: { x: number; y: number }) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const first = items.findIndex((it) => it.id === selected);
@@ -91,6 +94,17 @@ function GalleryGrid({
           autoFocus={autoFocus && n === Math.max(0, first)}
           className={`flex flex-col items-center justify-center overflow-hidden rounded border border-transparent text-ui-fg hover:border-ui-border hover:bg-ui-hover disabled:opacity-40 aria-pressed:border-ui-focus aria-pressed:bg-ui-active ${FOCUS_RING} ${itemClassName}`}
           onClick={() => onPick(it.id)}
+          onContextMenu={
+            onItemContextMenu
+              ? (e) => {
+                  e.preventDefault();
+                  const r = e.currentTarget.getBoundingClientRect();
+                  // The context-menu key reports (0, 0): open at the item instead.
+                  const at = e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : { x: r.left, y: r.bottom };
+                  onItemContextMenu(it.id, at);
+                }
+              : undefined
+          }
         >
           {it.preview}
           {!hideLabels && <span className="max-w-full truncate text-[10px] leading-3">{it.label}</span>}
@@ -102,7 +116,7 @@ function GalleryGrid({
 
 /** A grid of choices (inline in the group, or in a dropdown). */
 export function RibbonGallery({
-  label, items, selected, onSelect, columns, variant = "inline", icon, size = "large", disabled, itemClassName, hideLabels, autoFocus,
+  label, items, selected, onSelect, columns, variant = "inline", icon, size = "large", disabled, itemClassName, hideLabels, autoFocus, onItemContextMenu,
 }: RibbonGalleryProps) {
   if (variant === "inline") {
     return (
@@ -116,6 +130,7 @@ export function RibbonGallery({
         hideLabels={hideLabels}
         disabled={disabled}
         autoFocus={autoFocus}
+        onItemContextMenu={onItemContextMenu}
       />
     );
   }
@@ -138,6 +153,7 @@ export function RibbonGallery({
           itemClassName={itemClassName ?? "h-20 w-24 p-1"}
           hideLabels={hideLabels}
           autoFocus
+          onItemContextMenu={onItemContextMenu}
         />
       )}
     />

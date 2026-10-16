@@ -75,9 +75,12 @@ fn read_defaults(el: &El, part: &str, w: &mut Warnings) -> Defaults {
 fn read_style(el: &El, part: &str, w: &mut Warnings) -> Option<Style> {
     let id = el.attr("styleId")?.to_owned();
     let kind = match el.attr("type").unwrap_or("paragraph") {
+        // A paragraph style with a `w:link` is a linked style.
+        "paragraph" if el.child("link").and_then(El::val).is_some() => StyleKind::Linked,
         "paragraph" => StyleKind::Paragraph,
         "character" => StyleKind::Character,
         "table" => StyleKind::Table,
+        "numbering" => StyleKind::Numbering,
         other => {
             w.add(format!("{part}: {other} style {id:?} dropped"));
             return None;
@@ -85,16 +88,25 @@ fn read_style(el: &El, part: &str, w: &mut Warnings) -> Option<Style> {
     };
     let ctx = format!("{part} (style {id})");
     let child_val = |name: &str| el.child(name).and_then(El::val).map(str::to_owned);
+    // On/off children: present = on unless `w:val` says otherwise.
+    let flag = |name: &str| {
+        el.child(name)
+            .is_some_and(|c| c.val().and_then(parse_bool).unwrap_or(true))
+    };
     let mut style = Style {
-        name: child_val("name").unwrap_or_else(|| id.clone()),
-        id,
-        kind,
         based_on: child_val("basedOn"),
         next: child_val("next"),
-        paragraph: ParagraphProperties::default(),
-        run: RunProperties::default(),
+        link: child_val("link"),
         is_default: el.attr("default").and_then(parse_bool).unwrap_or(false),
+        quick_format: flag("qFormat"),
+        priority: child_val("uiPriority").as_deref().and_then(parse_u32),
+        hidden: flag("hidden"),
+        semi_hidden: flag("semiHidden"),
+        unhide_when_used: flag("unhideWhenUsed"),
+        custom: el.attr("customStyle").and_then(parse_bool).unwrap_or(false),
+        auto_redefine: flag("autoRedefine"),
         table: None,
+        ..Style::new(&id, &child_val("name").unwrap_or_else(|| id.clone()), kind)
     };
     let mut table = TableStyle::default();
     for c in el.elements() {
@@ -109,6 +121,7 @@ fn read_style(el: &El, part: &str, w: &mut Warnings) -> Option<Style> {
                 }
             }
             "rPr" => style.run = read_rpr(c, &ctx, w),
+            "tblPr" if kind != StyleKind::Table => {}
             "tblPr" => {
                 table.table = read_tbl_pr(c, &ctx, w);
                 let band = |name: &str| {
@@ -184,16 +197,6 @@ fn read_conditional(el: &El, ctx: &str, w: &mut Warnings) -> Option<ConditionalF
     Some(f)
 }
 
-/// Styles that Word shows in its quick style gallery.
-fn is_quick_style(id: &str) -> bool {
-    matches!(
-        id,
-        "Normal" | "Title" | "Subtitle" | "Quote" | "ListParagraph"
-    ) || id
-        .strip_prefix("Heading")
-        .is_some_and(|n| n.len() == 1 && n.as_bytes()[0].is_ascii_digit())
-}
-
 /// Writes `styles.xml`: document defaults and all styles in order.
 pub(crate) fn write_styles(sheet: &StyleSheet, scheme: &ColorScheme) -> Vec<u8> {
     let mut x = XmlOut::new();
@@ -217,17 +220,16 @@ pub(crate) fn write_styles(sheet: &StyleSheet, scheme: &ColorScheme) -> Vec<u8> 
     x.end("w:pPrDefault");
     x.end("w:docDefaults");
     for s in &sheet.styles {
-        let kind = match s.kind {
-            StyleKind::Paragraph => "paragraph",
-            StyleKind::Character => "character",
-            StyleKind::Table => "table",
-        };
-        let mut attrs = vec![("w:type", kind)];
+        let mut attrs = vec![("w:type", s.kind.docx_type())];
         if s.is_default {
             attrs.push(("w:default", "1"));
         }
+        if s.custom {
+            attrs.push(("w:customStyle", "1"));
+        }
         attrs.push(("w:styleId", &s.id));
         x.start("w:style", &attrs);
+        // Word's (CT_Style) child order.
         x.val("w:name", &s.name);
         if let Some(b) = &s.based_on {
             x.val("w:basedOn", b);
@@ -235,8 +237,38 @@ pub(crate) fn write_styles(sheet: &StyleSheet, scheme: &ColorScheme) -> Vec<u8> 
         if let Some(n) = &s.next {
             x.val("w:next", n);
         }
-        if s.kind == StyleKind::Paragraph && is_quick_style(&s.id) {
+        if let Some(l) = &s.link {
+            x.val("w:link", l);
+        }
+        if s.auto_redefine {
+            x.empty("w:autoRedefine", &[]);
+        }
+        if s.hidden {
+            x.empty("w:hidden", &[]);
+        }
+        if let Some(p) = s.priority {
+            x.val("w:uiPriority", &p.to_string());
+        }
+        if s.semi_hidden {
+            x.empty("w:semiHidden", &[]);
+        }
+        if s.unhide_when_used {
+            x.empty("w:unhideWhenUsed", &[]);
+        }
+        if s.quick_format {
             x.empty("w:qFormat", &[]);
+        }
+        if s.kind == StyleKind::Numbering {
+            // Numbering styles carry only their list reference.
+            if let Some(n) = s.paragraph.numbering {
+                let p = ParagraphProperties {
+                    numbering: Some(n),
+                    ..Default::default()
+                };
+                write_ppr(&mut x, &p, scheme);
+            }
+            x.end("w:style");
+            continue;
         }
         if s.kind != StyleKind::Character {
             let mut p = s.paragraph.clone();
@@ -286,6 +318,9 @@ mod tests {
         let xml = write_styles(&sheet, &ColorScheme::default());
         let s = String::from_utf8(xml.clone()).unwrap();
         assert!(s.contains(r#"<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>"#), "{s}");
+        assert!(s.contains(r#"<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:link w:val="Heading1Char"/><w:uiPriority w:val="9"/><w:qFormat/><w:pPr>"#));
+        assert!(s.contains(r#"<w:style w:type="character" w:customStyle="1" w:styleId="Heading1Char"><w:name w:val="Heading 1 Char"/><w:basedOn w:val="DefaultParagraphFont"/><w:link w:val="Heading1"/><w:uiPriority w:val="9"/><w:rPr>"#));
+        assert!(s.contains(r#"<w:style w:type="numbering" w:default="1" w:styleId="NoList"><w:name w:val="No List"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/></w:style>"#));
         assert!(s.contains(r#"w:themeColor="accent1" w:themeShade="BF""#));
         let mut w = Warnings::default();
         let back = read_styles(&xml, "styles", &mut w).unwrap();
@@ -306,7 +341,7 @@ mod tests {
             <w:style w:type="table" w:styleId="T"><w:name w:val="T"/><w:tblPr/></w:style></w:styles>"#;
         let mut w = Warnings::default();
         let sheet = read_styles(xml, "styles", &mut w).unwrap();
-        assert_eq!(w.into_vec().len(), 1);
+        assert!(w.into_vec().is_empty());
         assert_eq!(sheet.defaults.run.size.unwrap().pt(), 11.0);
         assert!(sheet.defaults.paragraph.is_empty());
         let h1 = sheet.get("Heading1").unwrap();
@@ -315,6 +350,62 @@ mod tests {
         assert_eq!(h1.paragraph.numbering.unwrap().num_id, 1);
         assert_eq!(h1.run.bold, Some(true));
         assert_eq!(sheet.get("T").unwrap().kind, StyleKind::Table);
-        assert!(sheet.get("L").is_none());
+        assert_eq!(sheet.get("L").unwrap().kind, StyleKind::Numbering);
+        assert!(h1.quick_format);
+    }
+
+    const WORD_STYLES: &[u8] = br#"<w:styles xmlns:w="x"><w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val="24"/></w:rPr></w:rPrDefault>
+        <w:pPrDefault><w:pPr><w:spacing w:after="120"/></w:pPr></w:pPrDefault></w:docDefaults>
+        <w:latentStyles w:defLockedState="0" w:defUIPriority="99" w:count="376"><w:lsdException w:name="Normal" w:uiPriority="0" w:qFormat="1"/></w:latentStyles>
+        <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>
+        <w:style w:type="paragraph" w:customStyle="1" w:styleId="Memo"><w:name w:val="Memo"/><w:basedOn w:val="Normal"/><w:next w:val="MemoBody"/><w:link w:val="MemoChar"/><w:autoRedefine/><w:uiPriority w:val="5"/><w:qFormat/><w:rsid w:val="00AB12"/><w:pPr><w:jc w:val="center"/></w:pPr><w:rPr><w:b/></w:rPr></w:style>
+        <w:style w:type="paragraph" w:customStyle="1" w:styleId="MemoBody"><w:name w:val="Memo Body"/><w:basedOn w:val="Normal"/><w:hidden/><w:semiHidden w:val="0"/><w:unhideWhenUsed/></w:style>
+        <w:style w:type="character" w:customStyle="1" w:styleId="MemoChar"><w:name w:val="Memo Char"/><w:link w:val="Memo"/><w:semiHidden/><w:rPr><w:b/></w:rPr></w:style>
+        </w:styles>"#;
+
+    #[test]
+    fn reads_flags_links_and_ignores_latent_styles() {
+        let mut w = Warnings::default();
+        let sheet = read_styles(WORD_STYLES, "styles", &mut w).unwrap();
+        assert!(w.into_vec().is_empty());
+        assert_eq!(sheet.styles.len(), 4, "latent styles are not styles");
+        let memo = sheet.get("Memo").unwrap();
+        assert_eq!(memo.kind, StyleKind::Linked);
+        assert_eq!(memo.link.as_deref(), Some("MemoChar"));
+        assert_eq!(memo.next.as_deref(), Some("MemoBody"));
+        assert_eq!(memo.priority, Some(5));
+        assert!(memo.custom && memo.quick_format && memo.auto_redefine && !memo.hidden);
+        let body = sheet.get("MemoBody").unwrap();
+        assert_eq!(body.kind, StyleKind::Paragraph);
+        assert!(body.hidden && !body.semi_hidden && body.unhide_when_used && !body.quick_format);
+        let c = sheet.get("MemoChar").unwrap();
+        assert_eq!(c.kind, StyleKind::Character);
+        assert!(c.semi_hidden);
+        assert_eq!(
+            sheet.defaults.paragraph.spacing.unwrap().after,
+            Some(core_model::units::Twips(120))
+        );
+    }
+
+    #[test]
+    fn custom_styles_roundtrip_in_order() {
+        let mut w = Warnings::default();
+        let sheet = read_styles(WORD_STYLES, "styles", &mut w).unwrap();
+        let xml = write_styles(&sheet, &ColorScheme::default());
+        let s = String::from_utf8(xml.clone()).unwrap();
+        assert!(s.contains(r#"<w:style w:type="paragraph" w:customStyle="1" w:styleId="Memo"><w:name w:val="Memo"/><w:basedOn w:val="Normal"/><w:next w:val="MemoBody"/><w:link w:val="MemoChar"/><w:autoRedefine/><w:uiPriority w:val="5"/><w:qFormat/><w:pPr><w:jc w:val="center"/></w:pPr>"#), "{s}");
+        assert!(s.contains(r#"<w:name w:val="Memo Body"/><w:basedOn w:val="Normal"/><w:hidden/><w:unhideWhenUsed/>"#));
+        let order: Vec<&str> = sheet.styles.iter().map(|s| s.id.as_str()).collect();
+        let back = read_styles(&xml, "styles", &mut w).unwrap();
+        assert_eq!(back, sheet);
+        assert_eq!(
+            back.styles
+                .iter()
+                .map(|s| s.id.as_str())
+                .collect::<Vec<_>>(),
+            order
+        );
+        // stable: writing again gives the same bytes
+        assert_eq!(write_styles(&back, &ColorScheme::default()), xml);
     }
 }

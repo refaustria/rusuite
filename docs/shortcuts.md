@@ -18,7 +18,7 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Mod+O | Open |
 | Mod+S | Save |
 | Mod+S on the desktop | Saves to the document's file without asking (untitled: the save dialog) |
-| Mod+Shift+S | Save as (web: asks for a file name; desktop: the native save dialog) |
+| Mod+Shift+S | Save as (web: asks for a file name; desktop: the native save dialog). Write: F12, as in Word (Mod+Shift+S is Apply Styles there) |
 | Enter, Tab, Esc in "Save changes to …?" | The question before New, Open, a recent file, Restore, Close or closing the window with unsaved changes: Enter = Save (focused first), Tab moves to Don't save / Cancel, Esc = Cancel |
 | Mod+P | File › Print (settings and preview); PageUp/PageDown in the preview change the page |
 | Mod+Z, Mod+Y, Mod+Shift+Z | Undo, redo, redo |
@@ -93,6 +93,10 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Tab, Shift+Tab | In a table: next / previous cell; Tab in the last cell appends a row (formatted like the last one). In a list item Tab / Shift+Tab change the level; elsewhere Tab types a tab character (it goes to the next tab stop) |
 | Esc | Stops the format painter |
 | Mod+Alt+F, Mod+Alt+D | Insert footnote, insert endnote (the caret moves into the note) |
+| F12 | Save as (Word's key; web: asks for a file name, desktop: the native save dialog) |
+| Mod+Shift+S | Apply Styles box: type a style name (autocomplete from the document's styles), Enter applies it; an unknown name creates a style from the selection; Esc closes (bound in the editor too, so it is no longer strikethrough) |
+| Mod+Alt+Shift+S | Show / hide the Styles pane |
+| Mod+H › More | Find and Replace with formatting: Use wildcards, Format ▾ (Font…, Paragraph…, Style…, Highlight) for the Find and the Replace field, No Formatting |
 
 ### Mouse
 
@@ -106,6 +110,9 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 - **Notes**: double-click a footnote/endnote reference to jump to its note; double-click the note's number (or a footnote at the bottom of a page) to jump back / into the note.
 - **Table of contents**: click an entry to go to its heading.
 - **Right-click in a list**: Restart at 1, Continue numbering.
+- **Styles gallery** (Home › Styles): click applies the style (a character style to the selection or the word at the caret, a linked style to a partial selection as its character half); right-click (or the context-menu key) for Update *style* to Match Selection, Modify…, Select All *n* Instances, Rename…, Remove from Style Gallery.
+- **Styles pane**: click a style to apply it; the ▾ next to each style opens the same menu plus Delete…; right-click works too.
+- **Navigation pane** (View › Show › Navigation Pane): click a heading to go there.
 
 ## Show
 

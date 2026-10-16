@@ -83,6 +83,7 @@ fn table_host(rows: u32, cols: u32) -> (WriteHost, NodeId) {
             offset: 0,
             text,
             props: None,
+            style: None,
         })
         .unwrap();
     }

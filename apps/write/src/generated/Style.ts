@@ -25,9 +25,14 @@ kind: StyleKind,
  */
 basedOn?: string | null, 
 /**
- * Style of the paragraph created after this one.
+ * Style of the paragraph created after this one (`None` = the same).
  */
 next?: string | null, 
+/**
+ * The linked style: the character style of a linked paragraph style,
+ * or the paragraph style of such a character style (docx `w:link`).
+ */
+link?: string, 
 /**
  * Paragraph formatting of the style.
  */
@@ -43,4 +48,35 @@ isDefault?: boolean,
 /**
  * Table formatting of a table style.
  */
-table?: TableStyle, };
+table?: TableStyle, 
+/**
+ * Shown in the Styles gallery (docx `w:qFormat`).
+ */
+quickFormat?: boolean, 
+/**
+ * Sort priority in the style lists (docx `w:uiPriority`; `None` =
+ * last).
+ */
+priority?: number, 
+/**
+ * Never shown in the UI (docx `w:hidden`).
+ */
+hidden?: boolean, 
+/**
+ * Shown only in "All styles" lists (docx `w:semiHidden`).
+ */
+semiHidden?: boolean, 
+/**
+ * `semi_hidden` ends once the style is used (docx `w:unhideWhenUsed`).
+ */
+unhideWhenUsed?: boolean, 
+/**
+ * A user-defined style (docx `w:customStyle`); built-in styles
+ * cannot be deleted.
+ */
+custom?: boolean, 
+/**
+ * Word's "Automatically update" (docx `w:autoRedefine`; stored, not
+ * acted on).
+ */
+autoRedefine?: boolean, };

@@ -708,5 +708,18 @@
    "page:a4"
   ],
   "paragraphs": 9
+ },
+ {
+  "file": "provisional-58-styles-custom.docx",
+  "topic": "Custom paragraph, character and linked styles, next style, hidden and gallery flags",
+  "features": [
+   "style:custom-paragraph",
+   "style:custom-character",
+   "style:linked",
+   "style:next",
+   "style:hidden",
+   "page:a4"
+  ],
+  "paragraphs": 4
  }
 ]

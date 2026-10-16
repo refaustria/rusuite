@@ -68,8 +68,8 @@ describe("Write ribbon", () => {
     await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "setStyle", style: "Heading1" })));
     await waitFor(() => expect(within(gallery).getByRole("button", { name: "Heading 1" }).getAttribute("aria-pressed")).toBe("true"));
     fireEvent.click(screen.getByRole("button", { name: "More styles" }));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "More styles" })).getByRole("button", { name: "Heading 6" }));
-    await waitFor(() => expect(editor.querySelector("h6")).toBeTruthy());
+    fireEvent.click(within(screen.getByRole("dialog", { name: "More styles" })).getByRole("button", { name: "Title" }));
+    await waitFor(() => expect(editor.querySelector(".doc-title")).toBeTruthy());
   });
 
   it("line spacing menu sets the paragraph spacing", async () => {

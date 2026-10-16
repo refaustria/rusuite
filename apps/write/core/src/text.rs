@@ -37,7 +37,8 @@ fn split_at(inlines: &mut Vec<Inline>, offset: usize) -> usize {
                     .map_or(run.text.len(), |(b, _)| b);
                 let tail = run.text.split_off(byte);
                 let props = run.props.clone();
-                inlines.insert(i + 1, Inline::Run(Run::with_props(tail, props)));
+                let style = run.style.clone();
+                inlines.insert(i + 1, Inline::Run(Run::styled(tail, style, props)));
             }
             return i + 1;
         }
@@ -84,6 +85,23 @@ pub(crate) fn for_each_run_in(
     }
 }
 
+/// Calls `f` on every run in `from..to` (splitting runs at the
+/// boundaries).
+pub(crate) fn for_each_run_mut_in(
+    p: &mut Paragraph,
+    from: usize,
+    to: usize,
+    mut f: impl FnMut(&mut Run),
+) {
+    let start = split_at(&mut p.inlines, from);
+    let end = split_at(&mut p.inlines, to);
+    for inline in &mut p.inlines[start..end] {
+        if let Inline::Run(run) = inline {
+            f(run);
+        }
+    }
+}
+
 /// The run at position `offset` (the inline covering `offset..offset+1`),
 /// if it is a run.
 fn run_at(p: &Paragraph, offset: usize) -> Option<&Run> {
@@ -102,6 +120,13 @@ fn run_at(p: &Paragraph, offset: usize) -> Option<&Run> {
 /// character before `offset` (the nearest run before it if that is an
 /// image or break), else the first run, else none.
 pub(crate) fn inherited_props(p: &Paragraph, offset: usize) -> RunProperties {
+    inherited_run(p, offset).props
+}
+
+/// [`inherited_props`] with the character style: an empty run carrying
+/// the formatting of typed text at `offset`.
+pub(crate) fn inherited_run(p: &Paragraph, offset: usize) -> Run {
+    let template = |r: &Run| Run::styled("", r.style.clone(), r.props.clone());
     if offset > 0 {
         let mut pos = 0;
         let mut last_run: Option<&Run> = None;
@@ -117,22 +142,28 @@ pub(crate) fn inherited_props(p: &Paragraph, offset: usize) -> RunProperties {
             pos += inline_len(inline);
         }
         if let Some(run) = last_run {
-            return run.props.clone();
+            return template(run);
         }
     }
     p.inlines
         .iter()
         .find_map(Inline::as_run)
-        .map(|r| r.props.clone())
+        .map(template)
         .unwrap_or_default()
 }
 
 /// Formatting of the character at `offset` (for replacements): the run
 /// there, or [`inherited_props`] when it is an image or break.
+#[cfg(test)]
 pub(crate) fn props_at(p: &Paragraph, offset: usize) -> RunProperties {
+    run_format_at(p, offset).props
+}
+
+/// [`props_at`] with the character style (an empty run).
+pub(crate) fn run_format_at(p: &Paragraph, offset: usize) -> Run {
     match run_at(p, offset) {
-        Some(run) => run.props.clone(),
-        None => inherited_props(p, offset),
+        Some(run) => Run::styled("", run.style.clone(), run.props.clone()),
+        None => inherited_run(p, offset),
     }
 }
 

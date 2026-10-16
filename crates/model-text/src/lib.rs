@@ -53,7 +53,8 @@ pub use props::{
 pub use section::{HeaderFooterSet, HeaderSlot, Note, Section, SectionId, SectionKind};
 pub use snapshot::DocumentSnapshot;
 pub use style::{
-    ConditionalFormat, ConditionalKind, Defaults, Style, StyleKind, StyleSheet, TableStyle,
+    is_builtin_name, ConditionalFormat, ConditionalKind, Defaults, Style, StyleError, StyleKind,
+    StylePatch, StyleSheet, TableStyle,
 };
 
 /// Errors of the `model-text` crate.

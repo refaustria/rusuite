@@ -11,7 +11,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import {
-  ColorPicker, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
+  ColorPicker, ContextMenu, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
   RibbonRow, RibbonStack, RibbonTableSizePicker, StyleToggles, triggerShortcut, languageRibbonGroup, withLabel,
   type AnySession, type CellStylePatch, type CellStyleView, type FormatControlProps, type RibbonGalleryItem, type RibbonMenuItem, type RibbonTab,
 } from "@rusuite/ui-shared";
@@ -21,7 +21,7 @@ import type { PageSetup } from "../generated/PageSetup";
 import type { PageSetupPatch } from "../generated/PageSetupPatch";
 import type { Spacing } from "../generated/Spacing";
 import {
-  PARAGRAPH_STYLES, alignmentAt, cursorBlock, indent, runPropsAt, setAlignment, setParagraphStyle, setTextStyle, styleOf,
+  alignmentAt, cursorBlock, indent, runPropsAt, setAlignment, setTextStyle, styleOf,
 } from "../sync/editorCommands";
 import { clearFormatting, indentAt, setIndent, setSpacing, spacingAt, toggleScript } from "../features/formatting";
 import { insertImageFile, resetImageSize, selectedImage, setImageAttrs } from "../features/images";
@@ -43,6 +43,11 @@ import { TEXTBLOCK_TYPES } from "../sync/schema";
 import type { SyncController, SyncState } from "../sync/SyncPlugin";
 import { cm, fromCm, fromPt, pt } from "./dialogs";
 import { useThrottledEditorState } from "./useThrottledEditorState";
+import { styleMenuItems, useGallery } from "./stylesPane";
+import { previewStyle, styleLabel } from "../features/styleCss";
+import { applyStyle } from "../features/styleCommands";
+import { styleFromMarks } from "../sync/fromPM";
+import type { Style } from "../generated/Style";
 import { useT } from "../i18n";
 import { getLocale } from "@rusuite/ui-shared";
 
@@ -123,25 +128,10 @@ function lineSpacingAt(editor: Editor): number | null {
 
 // ----- style gallery ----------------------------------------------------------------
 
-const STYLE_PREVIEW: Record<string, string> = {
-  Normal: "text-xs",
-  Title: "text-sm font-light",
-  Heading1: "text-sm font-semibold text-blue-800 dark:text-blue-300",
-  Heading2: "text-xs font-semibold text-blue-800 dark:text-blue-300",
-  Heading3: "text-xs font-medium text-blue-900 dark:text-blue-200",
-  Heading4: "text-xs italic text-blue-800 dark:text-blue-300",
-  Heading5: "text-[11px] text-blue-800 dark:text-blue-300",
-  Heading6: "text-[11px] italic text-blue-900 dark:text-blue-200",
-};
-
-const styleItems = (): RibbonGalleryItem[] => PARAGRAPH_STYLES.map((s) => ({
-  id: s.id,
-  label: s.label,
-  preview: <span className={`leading-5 ${STYLE_PREVIEW[s.id] ?? "text-xs"}`}>AaBbCc</span>, // i18n-ignore: sample text
-}));
+const GALLERY_SAMPLE = "AaBbCc"; // i18n-ignore: sample text
 
 /** Styles shown inline; the rest are in "More styles". */
-const INLINE_STYLES = 5;
+const INLINE_STYLES = 6;
 
 // ----- small controls ------------------------------------------------------------------
 
@@ -273,6 +263,8 @@ function selectionInfo(e: Editor): { table: TableInfo | null; image: { node: PMN
 
 export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSave, onFind, onReplace, onExportPdf, print, zoom, onZoom }: WriteRibbonProps) {
   const t = useT();
+  const gallery = useGallery(editor, ctl);
+  const [styleMenu, setStyleMenu] = useState<{ at: { x: number; y: number }; style: Style } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const canUndo = useSync(ctl, (s) => s.canUndo);
   const canRedo = useSync(ctl, (s) => s.canRedo);
@@ -291,6 +283,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
           break;
         }
       }
+      const charStyle = styleFromMarks(e.state.storedMarks ?? $from.marks()) ?? null;
       const { table, image } = selectionInfo(e);
       const sec = currentSection(e.state, ctl.sections);
       const sp = spacingAt(e);
@@ -298,6 +291,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       return {
         props: runPropsAt(e),
         style,
+        charStyle,
         align: alignmentAt(e),
         line: lineSpacingAt(e),
         bullet: e.isActive("bulletList"),
@@ -323,6 +317,18 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       };
     },
   });
+  // The gallery marks the character style at the caret, else the paragraph style.
+  const charGallery = s.charStyle ? (gallery.sheet?.styles.find((x) => x.id === s.charStyle) ?? null) : null;
+  const currentStyle = charGallery?.link && gallery.styles.some((g) => g.id === charGallery.link) ? charGallery.link : (s.charStyle ?? s.style);
+  const galleryItems: RibbonGalleryItem[] = gallery.styles.map((st) => ({
+    id: st.id,
+    label: styleLabel(st),
+    preview: (
+      <span className="block max-w-full truncate px-0.5 leading-5" style={previewStyle(gallery.sheet, st, 12)}>
+        {GALLERY_SAMPLE}
+      </span>
+    ),
+  }));
   const value: CellStyleView = {
     font: { ...s.props, font: s.props.font ?? undefined, size: s.props.size ?? undefined } as CellStyleView["font"],
   };
@@ -429,8 +435,13 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
   const sectionBreak = (kind: SectionKind) => void insertSectionBreak(editor, ctl, kind);
 
   const pickStyle = (id: string) => {
-    editor.commands.focus();
-    setParagraphStyle(editor, id);
+    const st = features.ui.getState();
+    void applyStyle(editor, ctl, id, { linkedDisabled: st.linkedDisabled, instances: st.styleInstances });
+    if (st.styleInstances) features.ui.set({ styleInstances: null });
+  };
+  const onStyleMenu = (id: string, at: { x: number; y: number }) => {
+    const style = gallery.sheet?.styles.find((x) => x.id === id);
+    if (style) setStyleMenu({ at, style });
   };
   const para = (f: () => unknown) => () => {
     editor.commands.focus();
@@ -566,17 +577,73 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         label: t("write.styles"),
         items: (
           <>
-            <RibbonGallery label={t("write.paragraphStyles")} items={styleItems().slice(0, INLINE_STYLES)} selected={s.style} onSelect={pickStyle} />
             <RibbonGallery
-              label={t("write.moreStyles")}
-              variant="dropdown"
-              size="small"
-              icon="chevronDown"
-              items={styleItems()}
-              selected={s.style}
-              columns={4}
-              itemClassName="h-14 w-20 p-1"
+              label={t("write.paragraphStyles")}
+              items={galleryItems.slice(0, INLINE_STYLES)}
+              selected={currentStyle}
               onSelect={pickStyle}
+              itemClassName="h-12 w-16"
+              onItemContextMenu={onStyleMenu}
+            />
+            <RibbonStack>
+              <RibbonMenuButton
+                label={t("write.moreStyles")}
+                icon="chevronDown"
+                menu={(close) => (
+                  <div className="flex flex-col gap-1 p-1" data-testid="styles-gallery-more">
+                    <RibbonGallery
+                      label={t("write.moreStyles")}
+                      items={galleryItems}
+                      selected={currentStyle}
+                      columns={4}
+                      itemClassName="h-14 w-20 p-1"
+                      autoFocus
+                      onItemContextMenu={(id, at) => {
+                        close();
+                        onStyleMenu(id, at);
+                      }}
+                      onSelect={(id) => {
+                        close();
+                        pickStyle(id);
+                      }}
+                    />
+                    <div className="flex flex-col border-t border-ui-border pt-1 text-xs">
+                      {(
+                        [
+                          ["create", t("write.styles.createDots"), () => features.ui.set({ styleDialog: { mode: "create" } })],
+                          ["clear", t("write.clearAllFormatting"), () => void clearFormatting(editor, ctl, true)],
+                          ["apply", t("write.styles.applyStylesDots"), () => features.ui.set({ applyStyles: true })],
+                        ] as const
+                      ).map(([id, label, run]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className="min-h-8 rounded px-2 text-left hover:bg-ui-hover"
+                          onClick={() => {
+                            close();
+                            run();
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              />
+              <RibbonButton
+                label={t("write.styles.pane")}
+                icon="format"
+                shortcut="Mod+Alt+Shift+S"
+                pressed={ui.stylesPane}
+                onClick={() => features.ui.set({ stylesPane: !ui.stylesPane })}
+              />
+            </RibbonStack>
+            <ContextMenu
+              at={styleMenu?.at ?? null}
+              label={t("write.styles.styleMenu", { name: styleMenu ? styleLabel(styleMenu.style) : "" })}
+              items={styleMenu ? styleMenuItems({ editor, ctl, ui: features.ui, style: styleMenu.style, count: gallery.inUse.get(styleMenu.style.id) ?? 0, inPane: false }) : []}
+              onClose={() => setStyleMenu(null)}
             />
           </>
         ),
@@ -838,10 +905,16 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       {
         label: t("write.show"),
         items: (
-          <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
-            <input type="checkbox" checked={ui.ruler} onChange={() => features.ui.set({ ruler: !ui.ruler })} />
-            {t("write.ruler")}
-          </label>
+          <RibbonStack>
+            <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
+              <input type="checkbox" checked={ui.ruler} onChange={() => features.ui.set({ ruler: !ui.ruler })} />
+              {t("write.ruler")}
+            </label>
+            <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
+              <input type="checkbox" checked={ui.navigation} onChange={() => features.ui.set({ navigation: !ui.navigation })} />
+              {t("write.navigationPane")}
+            </label>
+          </RibbonStack>
         ),
       },
       {
@@ -945,7 +1018,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         onNew: () => triggerShortcut("Mod+N"),
         onOpen,
         onSave,
-        onSaveAs: () => triggerShortcut("Mod+Shift+S"),
+        onSaveAs: () => triggerShortcut("F12"),
+        saveAsShortcut: "F12",
         onExportPdf,
         print,
         onCloseDocument: () => triggerShortcut("Mod+N"),

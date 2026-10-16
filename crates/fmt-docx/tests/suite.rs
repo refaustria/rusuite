@@ -391,7 +391,43 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
         cm(m.bottom),
         cm(m.left)
     ));
+    style_features(doc, &mut out);
     out.into_iter().map(|f| canon(&f)).collect()
+}
+
+/// Named styles in use: custom paragraph / character styles, linked
+/// styles, a `next` style other than Normal, hidden styles.
+fn style_features(doc: &Document, out: &mut BTreeSet<String>) {
+    use model_text::StyleKind;
+    for p in doc.paragraphs() {
+        if let Some(s) = p.props.style.as_deref().and_then(|id| doc.styles.get(id)) {
+            if s.custom && s.kind.is_paragraph() {
+                out.insert("style:custom-paragraph".into());
+            }
+            if s.kind == StyleKind::Linked {
+                out.insert("style:linked".into());
+            }
+            if s.next
+                .as_deref()
+                .is_some_and(|n| n != "Normal" && n != s.id)
+            {
+                out.insert("style:next".into());
+            }
+            if s.hidden {
+                out.insert("style:hidden".into());
+            }
+        }
+        for r in p.inlines.iter().filter_map(Inline::as_run) {
+            if let Some(s) = r.style.as_deref().and_then(|id| doc.styles.get(id)) {
+                if s.kind == StyleKind::Character && s.link.is_none() {
+                    out.insert("style:custom-character".into());
+                }
+                if s.link.is_some() {
+                    out.insert("style:linked".into());
+                }
+            }
+        }
+    }
 }
 
 /// Lists labels, sections, headers/footers, fields, notes and tables of
@@ -1091,6 +1127,71 @@ fn paragraph_borders_shading_and_tabs() {
         assert!(xml.contains(needle), "{needle} missing in\n{xml}");
     }
     assert_same("57 (no context)", &doc, &reread(&doc));
+}
+
+// --- named styles (P8-21) ------------------------------------------------------
+
+#[test]
+fn custom_linked_and_hidden_styles() {
+    use model_text::StyleKind;
+    let out = read_out("provisional-58-styles-custom.docx");
+    assert_no_new_warnings(&out.warnings);
+    let doc = out.document;
+    let st = &doc.styles;
+    let heading = st.get("MemoHeading").unwrap();
+    assert_eq!(heading.kind, StyleKind::Linked);
+    assert_eq!(heading.name, "Memo Heading");
+    assert_eq!(heading.next.as_deref(), Some("MemoBody"));
+    assert_eq!(heading.link.as_deref(), Some("MemoHeadingChar"));
+    assert!(heading.custom && heading.quick_format);
+    assert_eq!(heading.priority, Some(5));
+    let body = st.get("MemoBody").unwrap();
+    assert!(!body.quick_format && !body.hidden);
+    let note = st.get("InternalNote").unwrap();
+    assert!(note.hidden && note.semi_hidden && note.unhide_when_used);
+    assert_eq!(st.get("KeyTerm").unwrap().kind, StyleKind::Character);
+    assert!(st.find_by_name("heading 1").is_some(), "built-ins kept");
+    // runs keep their character styles and resolve through them
+    let ps: Vec<&Paragraph> = doc.paragraphs().collect();
+    let runs: Vec<&model_text::Run> = ps[2].inlines.iter().filter_map(Inline::as_run).collect();
+    let styled: Vec<(&str, Option<&str>)> = runs
+        .iter()
+        .map(|r| (r.text.as_str(), r.style.as_deref()))
+        .collect();
+    assert_eq!(
+        styled,
+        [
+            ("A ", None),
+            ("key term", Some("KeyTerm")),
+            (" and a ", None),
+            ("linked run", Some("MemoHeadingChar")),
+            (" in Normal text.", None),
+        ]
+    );
+    let key = doc.resolve_run_props(ps[2], runs[1]);
+    assert_eq!(key.bold, Some(true));
+    assert_eq!(key.color, Some(Color::Rgb(Rgb::new(0xC0, 0, 0))));
+    assert_eq!(doc.blocks_with_style("KeyTerm"), [ps[2].id]);
+    // our output: the flags and w:rStyle as Word writes them
+    let bytes = fmt_docx::write(&doc).unwrap();
+    let pkg = Package::open(Cursor::new(bytes.as_slice())).unwrap();
+    let styles = String::from_utf8(
+        pkg.part(&PartName::new("/word/styles.xml").unwrap())
+            .unwrap()
+            .data
+            .clone(),
+    )
+    .unwrap();
+    for needle in [
+        r#"<w:style w:type="paragraph" w:customStyle="1" w:styleId="InternalNote"><w:name w:val="Internal Note"/><w:basedOn w:val="Normal"/><w:hidden/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/>"#,
+        r#"<w:next w:val="MemoBody"/><w:link w:val="MemoHeadingChar"/><w:uiPriority w:val="5"/><w:qFormat/>"#,
+    ] {
+        assert!(styles.contains(needle), "{needle} missing in\n{styles}");
+    }
+    assert!(!styles.contains("latentStyles"));
+    let xml = pretty_document_xml(&bytes);
+    assert!(xml.contains(r#"<w:rStyle w:val="KeyTerm"/>"#), "{xml}");
+    assert_same("58 (no context)", &doc, &reread(&doc));
 }
 
 #[test]
