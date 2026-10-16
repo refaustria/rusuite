@@ -189,6 +189,8 @@ export function paragraphCss(p: ParagraphProperties): string[] {
     else if (ind.hanging != null) css.push(`text-indent: -${px(ind.hanging)}`);
   }
   if (p.borders || p.shading) css.push(...paragraphBoxCss(p.borders, p.shading, p.indent));
+  // Layout › Hyphenation: "Don't hyphenate" paragraphs.
+  if (p.suppressAutoHyphens) css.push("hyphens: manual", "-webkit-hyphens: manual");
   return css;
 }
 

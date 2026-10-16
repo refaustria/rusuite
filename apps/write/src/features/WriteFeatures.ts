@@ -12,6 +12,10 @@ import { clearFormatting, FormatPainter, toggleScript } from "./formatting";
 import { imageFiles, insertImageFile } from "./images";
 import { paginationPlugin, remeasurePages } from "./pagination";
 import { layoutFieldContext, refreshStructure, structurePlugin, updateFieldsCommand, type FieldContext } from "./structure";
+import { linksPlugin } from "./links";
+import { selectsAll, updateFieldsCommand as updateSelectedFields } from "./references";
+import { paragraphStyleId, resolveParagraph } from "./styleCss";
+import type { Node as PMNode } from "@tiptap/pm/model";
 import { insertNote } from "./structureCommands";
 import { getLocale } from "@rusuite/ui-shared";
 import { caretToCell, inLastCell, tableContext } from "./tables";
@@ -28,7 +32,8 @@ import { t } from "../i18n";
 export type WriteView = "print" | "draft";
 export type WriteDialog =
   | "rowHeight" | "altText" | "pageSetup" | "headerFooter" | "paragraph" | "pageNumbers"
-  | "splitCells" | "cellMargins" | "tableProps" | "bordersShading" | "tabs" | "userName" | null;
+  | "splitCells" | "cellMargins" | "tableProps" | "bordersShading" | "tabs" | "userName"
+  | "link" | "bookmark" | "goTo" | "caption" | "crossRef" | "columns" | "symbol" | "dateTime" | null;
 
 /** Review › Comments: what the margin / pane shows. */
 export interface CommentsUiState {
@@ -83,6 +88,10 @@ export interface WriteUiState {
   comments: CommentsUiState;
   /** After the user name dialog: start the comment that asked for it. */
   userThen: "newComment" | null;
+  /** The Paragraph dialog's tab. */
+  paragraphTab: "indents" | "breaks";
+  /** The Symbol dialog's tab. */
+  symbolTab: "symbols" | "special";
 }
 
 /** Observable UI state shared by the ribbon, the dialogs and the editor plugins. */
@@ -107,6 +116,8 @@ export class WriteUi {
     frame: null,
     comments: { show: true, pane: false, filter: "all", active: null, hover: null, draft: null, editing: null },
     userThen: null,
+    paragraphTab: "indents",
+    symbolTab: "symbols",
   };
   private listeners = new Set<() => void>();
 
@@ -149,18 +160,37 @@ export class WriteFeatures {
   readonly fields: FieldContext;
 
   constructor(readonly ctl: SyncController) {
-    this.fields = layoutFieldContext(() => ctl.getState().name, () => getLocale());
+    this.fields = layoutFieldContext(() => ctl.getState().name, () => getLocale(), () => new Date(), () => ctl.properties);
     ctl.beforeSave = () => (this.editor && !this.editor.isDestroyed ? updateFieldsCommand(this.editor.state, this.fields) : null);
+    ctl.saveStats = () => ({ pages: this.ui.getState().view === "print" ? this.ui.getState().pages : undefined });
+  }
+
+  /** Update Field (F9): the selection's fields, all of them when everything is selected (Ctrl+A, F9). */
+  async updateFields(): Promise<void> {
+    const editor = this.editor;
+    if (!editor || editor.isDestroyed) return;
+    await this.ctl.idle();
+    await this.ctl.run(updateSelectedFields(editor.state, this.fields, selectsAll(editor.state)));
+  }
+
+  /** Keep with next / page break before of a paragraph: its style chain, then its direct formatting. */
+  flow(node: PMNode): { keepNext?: boolean | null; pageBreakBefore?: boolean | null } {
+    const sheet = this.ctl.styles;
+    const style = resolveParagraph(sheet, paragraphStyleId(sheet, node));
+    const direct = (node.attrs.extra ?? {}) as { keepNext?: boolean | null; pageBreakBefore?: boolean | null };
+    return { keepNext: direct.keepNext ?? style.keepNext, pageBreakBefore: direct.pageBreakBefore ?? style.pageBreakBefore };
   }
 
   /** Attributes of the editor element (spell check follows the View › Spelling toggle). */
   editorAttributes(): Record<string, string> {
-    const lang = typeof navigator !== "undefined" && navigator.language ? navigator.language : "en";
+    // Hyphenation (Layout › Hyphenation › Automatic) uses the UI language's patterns.
+    const lang = getLocale() || (typeof navigator !== "undefined" && navigator.language ? navigator.language : "en");
     return {
       "data-testid": "editor",
       class: "tiptap-content min-h-full outline-none",
       spellcheck: this.ui.getState().spellcheck ? "true" : "false",
       lang,
+      "data-hyphenate": this.ctl.settings.autoHyphenation ? "auto" : "none",
     };
   }
 
@@ -261,12 +291,30 @@ export class WriteFeatures {
             features.newComment();
             return true;
           },
+          // Word: Ctrl+K Insert Link, Ctrl+G / F5 Go To, F9 Update Field.
+          "Mod-k": () => {
+            ui.openDialog("link");
+            return true;
+          },
+          "Mod-g": () => {
+            ui.openDialog("goTo");
+            return true;
+          },
+          F5: () => {
+            ui.openDialog("goTo");
+            return true;
+          },
+          F9: () => {
+            void features.updateFields();
+            return true;
+          },
         };
       },
       addProseMirrorPlugins() {
         const editor = this.editor as Editor;
         return [
           findPlugin(),
+          linksPlugin(),
           tableRenderPlugin(() => ctl.styles),
           paragraphBoxPlugin(),
           tabStopsPlugin(() => ctl.styles),
@@ -277,6 +325,7 @@ export class WriteFeatures {
             sections: () => ctl.sections,
             onEditHeaderFooter: (which) => ui.openDialog("headerFooter", which),
             onPages: (pages) => ui.set({ pages }),
+            flow: (node) => features.flow(node),
             onLayout: (l) => {
               const f = ui.getState().frame;
               if (f?.firstHeader !== l.firstHeader || f?.lastFooter !== l.lastFooter) ui.set({ frame: { firstHeader: l.firstHeader, lastFooter: l.lastFooter } });
@@ -347,6 +396,8 @@ export class WriteFeatures {
               let mode = ui.getState().view;
               let comments = ctl.comments;
               let commentsUi = ui.getState().comments;
+              let settings = ctl.settings;
+              let properties = ctl.properties;
               const offCtl = ctl.subscribe(() => {
                 if (ctl.styles !== styles) {
                   styles = ctl.styles;
@@ -358,6 +409,16 @@ export class WriteFeatures {
                   page = ctl.page;
                   sections = ctl.sections;
                   remeasurePages(view);
+                  refreshStructure(view);
+                }
+                if (ctl.settings !== settings) {
+                  settings = ctl.settings;
+                  // Re-evaluates the editor attributes (hyphenation).
+                  view.dispatch(view.state.tr.setMeta("addToHistory", false));
+                  remeasurePages(view);
+                }
+                if (ctl.properties !== properties) {
+                  properties = ctl.properties;
                   refreshStructure(view);
                 }
                 if (ctl.getState().name !== name) {

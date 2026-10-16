@@ -20,6 +20,8 @@ import { TWIPS_PER_PX } from "../sync/schema";
 import type { SyncController } from "../sync/SyncPlugin";
 import { useThrottledEditorState } from "./useThrottledEditorState";
 import { useT } from "../i18n";
+import { rulerSegments, textWidth } from "../features/columns";
+import { currentSection } from "../features/structureCommands";
 
 const PX_PER_CM = 96 / 2.54;
 /** Height of the sticky ruler row (`h-7` band + `mb-1`), unzoomed. */
@@ -65,6 +67,8 @@ interface RulerInfo {
   indent: Indent;
   tabs: TabStop[];
   ids: number[];
+  /** The columns of a multi-column section: [start, end] px from the text's left edge (none otherwise). */
+  segments: [number, number][];
 }
 
 /** The caret paragraph's column, measured in the DOM (cells have their own), else the page margins. */
@@ -101,8 +105,16 @@ export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: Sy
       const nodes = selectedParagraphs(e.state);
       const first = nodes[0];
       const col = measureColumn(e, page);
+      const { $from } = e.state.selection;
+      let inColumns = false;
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type.name === "tableCell") break;
+        if ($from.node(d).type.name === "columns") inColumns = true;
+      }
+      const sec = inColumns ? currentSection(e.state, ctl.sections) : null;
       return {
         ...col,
+        segments: sec && (sec.columns?.count ?? 1) > 1 ? rulerSegments(sec.columns, textWidth(sec.page), TWIPS_PER_PX) : [],
         indent: ((first?.attrs.indent as Indent | null) ?? {}) as Indent,
         tabs: first ? tabsOf(ctl.styles, first) : [],
         ids: nodes.map((n) => n.attrs.id as number),
@@ -187,6 +199,17 @@ export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: Sy
         >
           <TabGlyph kind={kind} />
         </button>
+        {info.segments.map(([start, end], i) => (
+          <div key={`col${i}`} className="absolute inset-y-1 bg-white" style={{ left: g.left + start, width: end - start }} data-testid="ruler-segment" />
+        ))}
+        {info.segments.slice(1).map(([start], i) => (
+          <div
+            key={`gap${i}`}
+            className="absolute inset-y-1 z-[1] border-x border-gray-400 bg-ui-panel"
+            style={{ left: g.left + info.segments[i]![1], width: start - info.segments[i]![1] }}
+            data-testid="ruler-column-gap"
+          />
+        ))}
         <div className="absolute inset-y-1 bg-white" style={{ left: info.left, width: info.width }} data-testid="ruler-column">
           {Array.from({ length: cm * 4 + 1 }, (_, i) => (
             <span

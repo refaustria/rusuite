@@ -14,7 +14,7 @@ import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } 
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { SYNC_META } from "../sync/SyncPlugin";
-import { COMMENT_MARKS } from "../sync/schema";
+import { RANGE_MARKS } from "../sync/schema";
 import { pmRanges, rangeAt, type PmRange } from "./model";
 
 export interface CommentsView {
@@ -65,15 +65,21 @@ function decorations(doc: PMNode, ranges: PmRange[], v: CommentsView, color: Com
   return DecorationSet.create(doc, out);
 }
 
-/** Every marker of `doc`: id → positions of its start and end. */
-function markers(doc: PMNode): Map<number, { start?: number; end?: number }> {
-  const out = new Map<number, { start?: number; end?: number }>();
+/** Every comment and bookmark marker of `doc`: `"c:id"` / `"b:id"` → its start and end (position and node). */
+function markers(doc: PMNode): Map<string, { start?: number; end?: number; startNode?: PMNode; endNode?: PMNode }> {
+  const out = new Map<string, { start?: number; end?: number; startNode?: PMNode; endNode?: PMNode }>();
   doc.descendants((node, pos) => {
-    if (!COMMENT_MARKS.has(node.type.name)) return true;
-    const m = out.get(node.attrs.id) ?? {};
-    if (node.type.name === "commentStart") m.start ??= pos;
-    else m.end ??= pos;
-    out.set(node.attrs.id, m);
+    if (!RANGE_MARKS.has(node.type.name)) return true;
+    const key = `${node.type.name.startsWith("comment") ? "c" : "b"}:${node.attrs.id}`;
+    const m = out.get(key) ?? {};
+    if (node.type.name.endsWith("Start")) {
+      m.start ??= pos;
+      m.startNode ??= node;
+    } else {
+      m.end ??= pos;
+      m.endNode ??= node;
+    }
+    out.set(key, m);
     return false;
   });
   return out;
@@ -90,14 +96,14 @@ export function keepMarkers(trs: readonly Transaction[], before: EditorState, af
   const now = markers(after.doc);
   const mapping = new Mapping();
   for (const t of trs) mapping.appendMapping(t.mapping);
-  const inserts: { pos: number; start: boolean; id: number }[] = [];
-  for (const [id, m] of old) {
-    const n = now.get(id) ?? {};
+  const inserts: { pos: number; start: boolean; node: PMNode }[] = [];
+  for (const [key, m] of old) {
+    const n = now.get(key) ?? {};
     const lostStart = m.start !== undefined && n.start === undefined;
     const lostEnd = m.end !== undefined && n.end === undefined;
-    if (lostStart && lostEnd) continue; // the whole range went: so does the comment
-    if (lostStart) inserts.push({ pos: mapping.map(m.start!, 1), start: true, id });
-    if (lostEnd) inserts.push({ pos: mapping.map(m.end!, -1), start: false, id });
+    if (lostStart && lostEnd) continue; // the whole range went: so does the comment (bookmark)
+    if (lostStart) inserts.push({ pos: mapping.map(m.start!, 1), start: true, node: m.startNode! });
+    if (lostEnd) inserts.push({ pos: mapping.map(m.end!, -1), start: false, node: m.endNode! });
   }
   if (!inserts.length) return null;
   // Right to left; at one position starts first, so that ends end up before them.
@@ -108,7 +114,7 @@ export function keepMarkers(trs: readonly Transaction[], before: EditorState, af
     if (ins.pos < 0 || ins.pos > tr.doc.content.size) continue;
     const $p = tr.doc.resolve(ins.pos);
     if (!$p.parent.inlineContent) continue; // its paragraph is gone: Rust places it
-    tr.insert(ins.pos, schema.nodes[ins.start ? "commentStart" : "commentEnd"]!.create({ id: ins.id }));
+    tr.insert(ins.pos, schema.nodes[ins.node.type.name]!.create(ins.node.attrs));
   }
   if (!tr.docChanged) return null;
   return tr.setMeta("addToHistory", false);
@@ -120,7 +126,7 @@ function skipMarkers(doc: PMNode, pos: number, dir: 1 | -1): number {
   for (;;) {
     const $p = doc.resolve(p);
     const n = dir > 0 ? $p.nodeAfter : $p.nodeBefore;
-    if (!n || !COMMENT_MARKS.has(n.type.name)) return p;
+    if (!n || !RANGE_MARKS.has(n.type.name)) return p;
     p += dir;
   }
 }

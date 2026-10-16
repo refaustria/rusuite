@@ -148,3 +148,20 @@ body,
 .tiptap-content .comment-range { background: color-mix(in srgb, var(--comment-bg, #fde68a) 60%, transparent); border-radius: 1px; }
 .tiptap-content .comment-range-active { background: color-mix(in srgb, var(--comment-bg, #d97706) 40%, transparent); }
 .tiptap-content .comment-range-draft { background: #c7d7f2; }
+
+/* P8-27: links, bookmarks, column breaks, multi-column sections, hyphenation. */
+.tiptap-content a.doc-link { color: inherit; text-decoration: inherit; cursor: text; }
+.tiptap-content.ctrl-held a.doc-link, .tiptap-content a.doc-link:active { cursor: pointer; }
+.tiptap-content .bookmark-mark { display: inline; width: 0; overflow: hidden; }
+.tiptap-content.show-bookmarks .bookmark-start::before { content: "["; color: #888; }
+.tiptap-content.show-bookmarks .bookmark-end::before { content: "]"; color: #888; }
+.tiptap-content .column-break { display: block; break-after: column; height: 0; }
+.tiptap-content .column-break::after { content: ""; display: block; border-top: 1px dotted #c0c0c0; margin: 2pt 0; }
+.tiptap-content .section-columns { margin: 0; }
+.tiptap-content .section-columns > :first-child { margin-top: 0; }
+.tiptap-content[data-hyphenate="auto"] { hyphens: auto; -webkit-hyphens: auto; }
+.tiptap-content[data-hyphenate="auto"] [data-no-hyphens] { hyphens: manual; -webkit-hyphens: manual; }
+.tiptap-content .field[data-field="pageRef"], .tiptap-content .field[data-field="ref"], .tiptap-content .field[data-field="noteRef"], .tiptap-content .field[data-field="seq"] { background: transparent; }
+.tiptap-content:focus-within .field[data-field="pageRef"], .tiptap-content:focus-within .field[data-field="ref"], .tiptap-content:focus-within .field[data-field="noteRef"], .tiptap-content:focus-within .field[data-field="seq"] { background: #ececec; }
+/* An empty section-end paragraph of a multi-column section: its "Section break" line spans the columns. */
+.tiptap-content .section-columns > p[data-section-end]:has(> br.ProseMirror-trailingBreak:only-child) { column-span: all; }

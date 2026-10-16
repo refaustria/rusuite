@@ -1,6 +1,7 @@
 // The File tab's backstage view: a full-pane overlay with the file
-// commands on the left and a page on the right: Home (the recent files) or
-// Print (options and preview, P7-9). Esc (or Back) returns to the document.
+// commands on the left and a page on the right: Home (the recent files),
+// Info (the document's properties, when the app has them) or Print
+// (options and preview, P7-9). Esc (or Back) returns to the document.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FOCUS_RING } from "../Popover";
@@ -33,12 +34,14 @@ export interface BackstageActions {
   exportDisabled?: boolean;
   /** Extra content under the recent list (e.g. document info). */
   info?: ReactNode;
+  /** The Info page (document properties), rendered while the page is shown. */
+  infoPage?: ReactNode;
   /** The Save As shortcut shown (default `Mod+Shift+S`; Write uses Word's F12). */
   saveAsShortcut?: string;
 }
 
-/** The backstage pages: Home (recent files) and Print. */
-export type BackstagePage = "home" | "print";
+/** The backstage pages: Home (recent files), Info and Print. */
+export type BackstagePage = "home" | "info" | "print";
 
 export interface BackstageProps extends BackstageActions {
   open: boolean;
@@ -143,10 +146,10 @@ function PrivacySection({ session }: { session: AnySession }) {
 /** Full-pane File view (Office "backstage"). */
 export function Backstage({
   open, onClose, appName, documentTitle, accent = "var(--ui-focus)", onNew, onOpen, onSave, onSaveAs, onExportPdf, onCloseDocument, onOptions,
-  session, fileDisabledReason, exportDisabled, info, print, page: pageProp = "home", onPage, saveAsShortcut = "Mod+Shift+S",
+  session, fileDisabledReason, exportDisabled, info, infoPage, print, page: pageProp = "home", onPage, saveAsShortcut = "Mod+Shift+S",
 }: BackstageProps) {
   const t = useT();
-  const page: BackstagePage = pageProp === "print" && print && !exportDisabled ? "print" : "home";
+  const page: BackstagePage = pageProp === "print" && print && !exportDisabled ? "print" : pageProp === "info" && infoPage ? "info" : "home";
   const ref = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -228,7 +231,7 @@ export function Backstage({
           <RibbonIcon name="back" size={24} />
         </button>
         <ul className="flex flex-col">
-          {print && (
+          {(print || infoPage) && (
             <li key="home">
               <button
                 type="button"
@@ -238,6 +241,19 @@ export function Backstage({
               >
                 <RibbonIcon name="home" size={18} />
                 {t("backstage.home")}
+              </button>
+            </li>
+          )}
+          {infoPage && (
+            <li key="info">
+              <button
+                type="button"
+                aria-current={page === "info" ? "page" : undefined}
+                className={`flex w-full items-center gap-3 px-5 py-2 text-left text-sm hover:bg-white/15 ${page === "info" ? "bg-white/20 font-semibold" : ""} ${FOCUS_RING}`}
+                onClick={() => onPage?.("info")}
+              >
+                <RibbonIcon name="options" size={18} />
+                {t("backstage.info")}
               </button>
             </li>
           )}
@@ -280,6 +296,8 @@ export function Backstage({
         </header>
         {page === "print" ? (
           print
+        ) : page === "info" ? (
+          infoPage
         ) : (
           <>
             {session && <RecentFiles session={session} disabled={fileOff} pick={pick} />}
