@@ -103,6 +103,7 @@ function head(cat) {
     <meta name="color-scheme" content="light dark" />
     <title ${i18n(cat, "portal.dl.title")}</title>
     <link rel="icon" href="logos/rusuite-mono.svg" type="image/svg+xml" />
+    <link rel="canonical" href="https://rusuit.es/downloads.html" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body class="downloads">
@@ -138,6 +139,7 @@ const webLinks = (cat) => `<p class="sub" ${i18n(cat, "portal.dl.web", { html: t
 export function renderNone(cat = loadCatalog()) {
   return `${head(cat)}
     <header class="hero">
+      <a class="wordmark" href="./" aria-label="rusuit.es"><span class="wm-a">rusuit</span><span class="wm-b">.es</span></a>
       <h1 ${i18n(cat, "portal.dl.heading")}</h1>
       <p class="lead" ${i18n(cat, "portal.dl.none", { html: true })}</p>
       ${webLinks(cat)}
@@ -196,6 +198,7 @@ export function render(release, cat = loadCatalog()) {
 
   return `${head(cat)}
     <header class="hero">
+      <a class="wordmark" href="./" aria-label="rusuit.es"><span class="wm-a">rusuit</span><span class="wm-b">.es</span></a>
       <h1 ${i18n(cat, "portal.dl.heading")}</h1>
       <p class="lead" ${i18n(cat, "portal.dl.lead", { params: { tag } })}</p>
       <p class="sub">${prerelease ? `<span class="pill" ${i18n(cat, "portal.dl.prerelease")}</span> ` : ""}${date ? `<span data-date="${esc(date)}" ${i18n(cat, "portal.dl.released", { params: { date } })}</span>` : ""}</p>

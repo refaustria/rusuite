@@ -155,3 +155,16 @@ footer .note strong { color: var(--text); }
   .sums dl { grid-template-columns: 1fr; }
   .sums dd { margin-bottom: 6px; }
 }
+
+/* rusuit.es wordmark and the open-source statement (P8-47). System fonts only. */
+:root { --wm-a: #1f4e9a; --wm-b: #c2410c; }
+@media (prefers-color-scheme: dark) { :root { --wm-a: #8db4f0; --wm-b: #f0763a; } }
+.wordmark { display: inline-block; color: var(--wm-a); text-decoration: none; font-weight: 800; letter-spacing: -0.04em; font-family: ui-rounded, "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+.wordmark .wm-b { color: var(--wm-b); font-weight: 600; }
+.wordmark:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; border-radius: 6px; }
+a.wordmark { display: block; width: fit-content; margin: 0 auto 8px; font-size: 1.4rem; }
+.statement { margin: 20px auto 0; max-width: 52ch; font-size: 1.05rem; text-wrap: pretty; }
+.opensource { max-width: 70ch; margin: clamp(32px, 6vw, 56px) auto 0; padding: 20px 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+.opensource h2 { margin: 0 0 8px; font-size: 1.25rem; letter-spacing: -0.01em; }
+.opensource p { margin: 8px 0; }
+.opensource ul { margin: 8px 0; padding-left: 1.3em; }

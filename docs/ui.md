@@ -1033,7 +1033,7 @@ The portal (`apps/portal/index.html` + `styles.css`, no build step, ~12 KB with 
 mark and the one-line pitch, a card per app (logo, name, one sentence, "Open … in browser" in the app colour, "Desktop
 downloads" → GitHub releases), footer with the alpha note, the repo link and the build from `/version.json`. Light/dark via
 `prefers-color-scheme`, system fonts, no external requests. An **EN / DE** switch (top right, `apps/portal/i18n.js` + `apps/portal/locales/`) translates the page
-and stores the choice where the apps read it; a German browser gets German by default (P7-11).
+and stores the choice where the apps read it; since P8-47 the header shows the text wordmark "rusuit.es" (system fonts; "rusuit" in the Write blue, ".es" in the Show orange; h1 with accessible name "Rusuite"), the hero carries the free/open-source statement (MIT, no accounts, no tracking), an "Open source" section follows the cards, and every page has `<link rel="canonical" href="https://rusuit.es/…">`; a German browser gets German by default (P7-11).
 
 ## Privacy (P7-12, ADR 0009)
 
