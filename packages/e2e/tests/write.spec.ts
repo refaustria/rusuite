@@ -1009,4 +1009,150 @@ test.describe("Write pagination (P8-31)", () => {
     const pdf = await page.pdf({ preferCSSPageSize: true, printBackground: true });
     expect((pdf.toString("latin1").match(/\/Type\s*\/Page(?!s)/g) ?? []).length).toBe(editorPages);
   });
+
+});
+
+test.describe("Write drawings and character formatting (P8-34)", () => {
+
+  const main = (page: Page) => page.getByTestId("editor");
+  const P834 = process.env.SHOTS_DIR ?? "../../shots";
+
+  test("P8-34: a rounded rectangle with text saves as wps:wsp + txbxContent and stays editable after reopening", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openWrite(page);
+    await main(page).click();
+    await page.keyboard.type("Shape: ");
+    await page.getByRole("tab", { name: "Insert" }).click();
+    await page.getByRole("button", { name: "Shapes" }).click();
+    await page.getByRole("button", { name: "Rounded rectangle" }).first().click();
+    const shape = page.locator(".drawing-wrap[data-preset='roundRect']");
+    await expect(shape).toHaveCount(1);
+    await expect(page.getByRole("tab", { name: "Shape Format" })).toBeVisible();
+    await shape.dblclick();
+    await page.keyboard.type("Inside the shape");
+    await expect(shape.locator(".drawing-text")).toContainText("Inside the shape");
+    await page.screenshot({ path: `${P834}/P8-34-shape-text.png` });
+    const docx = await saveViaBackstage(page);
+    const xml = zipText(docx, "word/document.xml");
+    expect(xml).toContain("<wps:wsp>");
+    expect(xml).toContain('<a:prstGeom prst="roundRect">');
+    expect(xml).toMatch(/<w:txbxContent>(?:(?!<\/w:txbxContent>)[^])*Inside the shape/);
+    expect(xml).toContain("<mc:Fallback><w:pict><v:roundrect");
+    // Reopen the saved file: the text inside the shape can be edited again.
+    const file = `${test.info().outputPath("shape.docx")}`;
+    (await import("node:fs")).writeFileSync(file, docx);
+    await openViaBackstage(page, file);
+    const again = page.locator(".drawing-wrap[data-preset='roundRect']");
+    await expect(again.locator(".drawing-text")).toContainText("Inside the shape");
+    await again.locator(".drawing-text .ProseMirror").click();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" again");
+    await expect(again.locator(".drawing-text")).toContainText("Inside the shape again");
+    const xml2 = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml2).toMatch(/<w:txbxContent>(?:(?!<\/w:txbxContent>)[^])*Inside the shape again/);
+    errors.expectNone();
+  });
+
+  test("P8-34: a text box floats right with square wrapping", async ({ page }) => {
+    await openWrite(page);
+    await main(page).click();
+    await page.keyboard.type("Text flows around the box. ".repeat(12));
+    await page.keyboard.press("Control+Home");
+    await page.getByRole("tab", { name: "Insert" }).click();
+    await page.getByRole("button", { name: "Text Box" }).click();
+    await page.getByRole("menuitem", { name: "Simple Text Box" }).click();
+    const box = page.locator(".drawing-wrap[data-kind='textBox']");
+    await expect(box).toHaveCount(1);
+    await page.getByRole("tab", { name: "Shape Format" }).click();
+    await page.getByRole("button", { name: "Wrap Text" }).click();
+    await page.getByRole("menuitemradio", { name: "Square" }).click();
+    await page.getByRole("button", { name: "Position" }).click();
+    await page.getByRole("menuitemradio", { name: /Top Right/ }).click();
+    await expect(box).toHaveClass(/float-right/);
+    await box.locator(".drawing-text .ProseMirror").click();
+    await page.keyboard.type("Boxed");
+    await page.screenshot({ path: `${P834}/P8-34-text-box-right.png` });
+    // Print / PDF show the box as in the editor (no handles).
+    await openPrint(page);
+    const srcdoc = (await page.getByTestId("print-preview").getAttribute("srcdoc")) ?? "";
+    expect(srcdoc).toContain("drawing-wrap");
+    expect(srcdoc).toContain("Boxed");
+    expect(await previewPdf(page, "P8-34-text-box")).toBe(1);
+    await page.screenshot({ path: `${P834}/P8-34-print-preview.png` });
+    await page.keyboard.press("Escape");
+    const xml = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml).toContain('<wps:cNvSpPr txBox="1"/>');
+    expect(xml).toMatch(/<wp:anchor [^>]*>(?:(?!<\/wp:anchor>)[^])*<wp:align>right<\/wp:align>/);
+    expect(xml).toContain('<wp:wrapSquare wrapText="bothSides"/>');
+    expect(xml).toMatch(/<w:txbxContent>(?:(?!<\/w:txbxContent>)[^])*Boxed/);
+  });
+
+  test("P8-34: cropping a picture writes a:srcRect", async ({ page }) => {
+    await openWrite(page);
+    await openViaBackstage(page, testdata("docx/provisional-30-image-inline.docx"));
+    const img = main(page).locator(".inline-image-wrap").first();
+    await img.click();
+    await page.getByRole("tab", { name: "Picture Format" }).click();
+    await page.getByRole("button", { name: "Crop" }).click();
+    await expect(img).toHaveClass(/cropping/);
+    const handle = img.locator(".crop-handle-e");
+    const box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x - 20, box.y + box.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await page.screenshot({ path: `${P834}/P8-34-crop.png` });
+    await page.keyboard.press("Enter");
+    await expect(img).not.toHaveClass(/cropping/);
+    const xml = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml).toMatch(/<a:srcRect r="\d+"\/>/);
+  });
+
+  test("P8-34: small caps and 2 pt spacing from the Font dialog → w:smallCaps / w:spacing", async ({ page }) => {
+    await openWrite(page);
+    await main(page).click();
+    await page.keyboard.type("Small caps here");
+    await page.keyboard.press("Shift+Home");
+    await page.keyboard.press("Control+d");
+    const dialog = page.getByRole("dialog", { name: "Font" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("checkbox", { name: "Small caps" }).check();
+    await dialog.getByRole("tab", { name: "Advanced" }).click();
+    await dialog.getByRole("textbox", { name: /^Spacing/ }).fill("2");
+    await dialog.getByRole("button", { name: "OK" }).click();
+    const span = main(page).locator("span.text-style", { hasText: "Small caps here" });
+    await expect(span).toHaveCSS("font-variant-caps", "small-caps");
+    await page.screenshot({ path: `${P834}/P8-34-small-caps.png` });
+    const xml = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml).toMatch(/<w:smallCaps\/>(?:(?!<\/w:rPr>)[^])*<w:spacing w:val="40"\/>/);
+  });
+
+  test("P8-34: Change Case › UPPERCASE changes the letters and keeps the formatting", async ({ page }) => {
+    await openWrite(page);
+    await main(page).click();
+    await page.keyboard.type("make this loud");
+    await page.keyboard.press("Shift+Home");
+    await page.getByRole("button", { name: "Bold" }).click();
+    await page.getByRole("tab", { name: "Home" }).click();
+    await page.getByRole("button", { name: "Change Case" }).click();
+    await page.getByRole("menuitem", { name: "UPPERCASE" }).click();
+    await expect(main(page).locator("strong")).toHaveText("MAKE THIS LOUD");
+    const xml = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml).toMatch(/<w:b\/>(?:(?!<\/w:r>)[^])*MAKE THIS LOUD/);
+  });
+
+  test("P8-34: inserting a column into a merged table keeps the merge", async ({ page }) => {
+    await openWrite(page);
+    await openViaBackstage(page, testdata("docx/provisional-55-table-merged-cells.docx"));
+    const table = main(page).locator("table").first();
+    const header = table.locator("td[colspan='4']").first();
+    await expect(header).toBeVisible();
+    // A cell of the row below the header spanning four columns.
+    await table.locator("tr").nth(1).locator("td").first().click();
+    await page.getByRole("tab", { name: "Table Layout" }).click();
+    await page.getByRole("button", { name: "Insert right" }).click();
+    await expect(table.locator("td[colspan='5']")).toHaveCount(1);
+    const xml = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml).toContain('<w:gridSpan w:val="5"/>');
+  });
 });

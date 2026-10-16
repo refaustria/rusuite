@@ -79,6 +79,12 @@ editor DOM ──measure──▶ Flow (lines, rows, notes; natural px)  ──p
 - Decorations are rebuilt only when the spacers or pages changed; the page chrome renders only the visible pages ± 2.
 - Measured numbers: docs/perf.md ("Write – print layout pagination").
 
+## Shapes and text boxes (P8-34)
+An inline shape or text box is one box in its line (`.drawing-wrap`, measured like an inline picture: the paragraphs of
+its nested editor are not lines of the page). Floating drawings are skipped like floating pictures; the bottom of every
+floating picture or drawing of a paragraph extends its last line's `ink`, so the page's `contentEnd` (the white cover
+below the content) never hides a float that hangs below the text.
+
 ## Limits (approximations, documented in docs/ui.md)
 - Word's line breaking is not reproduced; lines are the browser's. Floating pictures wrap with CSS floats (one
   side); page/margin-relative vertical positions are resolved against the real page box of their anchor paragraph.

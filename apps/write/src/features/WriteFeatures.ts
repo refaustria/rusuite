@@ -30,12 +30,13 @@ import { commentsPlugin, refreshComments } from "../comments/plugin";
 import { draftFromSelection, type CommentDraft } from "../comments/commands";
 import { authorColor, type CommentFilter } from "../comments/model";
 import { t } from "../i18n";
+import { innerEditors } from "./drawings/innerEditors";
 
 export type WriteView = "print" | "draft";
 export type WriteDialog =
   | "rowHeight" | "altText" | "pageSetup" | "headerFooter" | "paragraph" | "pageNumbers"
   | "splitCells" | "cellMargins" | "tableProps" | "bordersShading" | "tabs" | "userName"
-  | "link" | "bookmark" | "goTo" | "caption" | "crossRef" | "columns" | "symbol" | "dateTime" | null;
+  | "link" | "bookmark" | "goTo" | "caption" | "crossRef" | "columns" | "symbol" | "dateTime" | "font" | null;
 
 /** Review › Comments: what the margin / pane shows. */
 export interface CommentsUiState {
@@ -80,6 +81,8 @@ export interface WriteUiState {
   spellcheck: boolean;
   /** View › Ruler. */
   ruler: boolean;
+  /** View › Hidden Text: hidden text (w:vanish) shown dotted. */
+  hiddenText: boolean;
   find: { open: boolean; replace: boolean; seed: number };
   dialog: WriteDialog;
   /** Which field the header/footer dialog focuses. */
@@ -115,6 +118,7 @@ export class WriteUi {
     styleInstances: null,
     spellcheck: true,
     ruler: true,
+    hiddenText: false,
     find: { open: false, replace: false, seed: 0 },
     dialog: null,
     headerFooterFocus: "header",
@@ -207,7 +211,7 @@ export class WriteFeatures {
     const lang = getLocale() || (typeof navigator !== "undefined" && navigator.language ? navigator.language : "en");
     return {
       "data-testid": "editor",
-      class: "tiptap-content min-h-full outline-none",
+      class: `tiptap-content min-h-full outline-none${this.ui.getState().hiddenText ? " show-hidden" : ""}`,
       spellcheck: this.ui.getState().spellcheck ? "true" : "false",
       lang,
       "data-hyphenate": this.ctl.settings.autoHyphenation ? "auto" : "none",
@@ -320,6 +324,11 @@ export class WriteFeatures {
             ui.openDialog("goTo");
             return true;
           },
+          // Word: Ctrl+D opens the Font dialog.
+          "Mod-d": () => {
+            ui.openDialog("font");
+            return true;
+          },
           F5: () => {
             ui.openDialog("goTo");
             return true;
@@ -400,9 +409,11 @@ export class WriteFeatures {
                 return true;
               },
               handleDOMEvents: {
-                mousedown: () => {
+                mousedown: (_view, e) => {
                   // A click in the text ends "Select All N Instances".
                   if (ui.getState().styleInstances) ui.set({ styleInstances: null });
+                  // A click outside a text box gives the caret back to the main editor.
+                  if (!(e.target as HTMLElement | null)?.closest?.(".drawing-text")) innerEditors.release();
                   return false;
                 },
                 mouseup: () => {
@@ -429,6 +440,7 @@ export class WriteFeatures {
               let comments = ctl.comments;
               let commentsUi = ui.getState().comments;
               let hide = ui.getState().hideWhiteSpace;
+              let hidden = ui.getState().hiddenText;
               let settings = ctl.settings;
               let properties = ctl.properties;
               const offCtl = ctl.subscribe(() => {
@@ -473,6 +485,12 @@ export class WriteFeatures {
                 }
                 if (ui.getState().hideWhiteSpace !== hide) {
                   hide = ui.getState().hideWhiteSpace;
+                  remeasurePages(view);
+                }
+                if (ui.getState().hiddenText !== hidden) {
+                  hidden = ui.getState().hiddenText;
+                  // Re-evaluates the editor attributes (the show-hidden class) and lays the pages out again.
+                  view.dispatch(view.state.tr.setMeta("addToHistory", false));
                   remeasurePages(view);
                 }
                 if (ui.getState().view !== mode) {

@@ -20,6 +20,10 @@ import type { RowProperties } from "../generated/RowProperties";
 import type { Spacing } from "../generated/Spacing";
 import type { TableProperties } from "../generated/TableProperties";
 import { imageNodeView } from "../features/imageView";
+import { drawingNodeView } from "../features/drawings/drawingView";
+import type { Block } from "../generated/Block";
+import type { Drawing } from "../generated/Drawing";
+import type { PictureFormat } from "../generated/PictureFormat";
 import { t } from "../i18n";
 
 /** Twips per CSS pixel (96 dpi). */
@@ -548,6 +552,10 @@ export const InlineImageNode = Node.create<ImageOptions>({
       name: { default: null },
       // Floating placement (`Anchor`), null = inline.
       anchor: { default: null, parseHTML: () => null, renderHTML: () => ({}) },
+      // Crop, border, outline shape, shadow, corrections (`PictureFormat`), null = none.
+      format: { default: null, parseHTML: () => null, renderHTML: () => ({}) },
+      // The picture's hyperlink (`Hyperlink`), null = none.
+      link: { default: null, parseHTML: () => null, renderHTML: () => ({}) },
     };
   },
   parseHTML() {
@@ -561,6 +569,7 @@ export const InlineImageNode = Node.create<ImageOptions>({
         alt: node.attrs.alt ?? "",
         width: Math.round(node.attrs.width / EMU_PER_PX),
         height: Math.round(node.attrs.height / EMU_PER_PX),
+        style: pictureFilterCss(node.attrs.format as PictureFormat | null),
       },
     ];
   },
@@ -568,6 +577,73 @@ export const InlineImageNode = Node.create<ImageOptions>({
     const resolve = this.options.resolveMedia;
     const page = this.options.page;
     return ({ node, view, getPos }) => imageNodeView(node, view, getPos, { emuPerPx: EMU_PER_PX, resolve, page });
+  },
+});
+
+/** CSS `filter` of a picture's corrections and colour (Word's Corrections / Color). */
+export function pictureFilterCss(f: PictureFormat | null | undefined): string {
+  if (!f) return "";
+  const parts: string[] = [];
+  const b = (f.brightness ?? 0) / 100000;
+  const c = (f.contrast ?? 0) / 100000;
+  if (b) parts.push(`brightness(${(1 + b).toFixed(3)})`);
+  if (c) parts.push(`contrast(${(c > 0 ? 1 / Math.max(0.01, 1 - c) : 1 + c).toFixed(3)})`);
+  switch (f.recolor) {
+    case "grayscale":
+      parts.push("grayscale(1)");
+      break;
+    case "sepia":
+      parts.push("sepia(1)");
+      break;
+    case "washout":
+      parts.push("brightness(1.7) contrast(0.3)");
+      break;
+    case "blackWhite":
+      parts.push("grayscale(1) contrast(100)");
+      break;
+    default:
+  }
+  return parts.length ? `filter: ${parts.join(" ")}` : "";
+}
+
+export interface DrawingNodeOptions {
+  /** Page geometry (CSS px) for floating positions. */
+  page: (() => { width: number; marginLeft: number; columnWidth: number } | null) | null;
+  /** The nested editor of a drawing's text (null: no node view text editing). */
+  inner: ((element: HTMLElement, blocks: Block[]) => import("@tiptap/core").Editor) | null;
+}
+
+/**
+ * A shape or text box (`Inline::Drawing`): an inline atom whose attr
+ * `value` is the model's `Drawing` (text blocks included). Rendered by the
+ * drawing node view (outline, nested text editor, handles).
+ */
+export const DrawingNode = Node.create<DrawingNodeOptions>({
+  name: "drawing",
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: true,
+  draggable: false,
+  addOptions() {
+    return { page: null, inner: null };
+  },
+  addAttributes() {
+    return { value: { default: null, parseHTML: () => null, renderHTML: () => ({}) } };
+  },
+  parseHTML() {
+    // Pasted HTML never creates drawings (their ids live in the document).
+    return [];
+  },
+  renderHTML({ node }) {
+    const d = node.attrs.value as Drawing | null;
+    const w = Math.round((d?.width ?? 0) / EMU_PER_PX);
+    const h = Math.round((d?.height ?? 0) / EMU_PER_PX);
+    return ["span", { class: "drawing-wrap", "data-preset": d?.preset ?? "", contenteditable: "false", style: `width: ${w}px; height: ${h}px` }];
+  },
+  addNodeView() {
+    const { page, inner } = this.options;
+    return ({ node, view, getPos }) => drawingNodeView(node, view, getPos, { page, inner });
   },
 });
 
@@ -638,9 +714,69 @@ export const TextStyle = Mark.create({
     if (color) css.push(`color: ${color}`);
     const hl = colorCss(mark.attrs.highlight);
     if (hl) css.push(`background-color: ${hl}`);
-    return ["span", { class: "text-style", style: css.join("; ") }, 0];
+    const fx = runEffectsCss(mark.attrs.extra as RunEffects | null);
+    css.push(...fx.css);
+    return ["span", { class: ["text-style", ...fx.classes].join(" "), style: css.join("; ") }, 0];
   },
 });
+
+/** The character effects carried in a `textStyle` mark's `extra`. */
+export interface RunEffects {
+  smallCaps?: boolean;
+  allCaps?: boolean;
+  doubleStrike?: boolean;
+  /** Twips. */
+  charSpacing?: number;
+  /** Percent. */
+  scale?: number;
+  /** Half-points. */
+  kerning?: number;
+  /** Half-points. */
+  position?: number;
+  outline?: boolean;
+  shadow?: boolean;
+  emboss?: boolean;
+  imprint?: boolean;
+  hidden?: boolean;
+  rtl?: boolean;
+}
+
+/**
+ * CSS of Word's character effects (approximations where CSS has none:
+ * the horizontal scale widens the letter spacing, emboss / engrave are
+ * light text with a shadow); hidden text gets the `hidden-text` class
+ * (shown dotted with View › Hidden Text).
+ */
+export function runEffectsCss(x: RunEffects | null | undefined): { css: string[]; classes: string[] } {
+  const css: string[] = [];
+  const classes: string[] = [];
+  if (!x) return { css, classes };
+  if (x.smallCaps) css.push("font-variant: small-caps");
+  if (x.allCaps) css.push("text-transform: uppercase");
+  let spacing = x.charSpacing ? x.charSpacing / 20 : 0;
+  if (x.scale && x.scale !== 100) {
+    // ~half a space per 100 % of widening (CSS cannot stretch glyphs without breaking lines).
+    css.push(`letter-spacing: calc(${spacing.toFixed(2)}pt + ${((x.scale - 100) / 100 * 0.45).toFixed(3)}em)`);
+    spacing = 0;
+  } else if (spacing) css.push(`letter-spacing: ${spacing.toFixed(2)}pt`);
+  if (x.kerning) css.push("font-kerning: normal");
+  if (x.position) css.push(`vertical-align: ${(x.position / 2).toFixed(1)}pt`);
+  if (x.doubleStrike) css.push("text-decoration-line: line-through", "text-decoration-style: double");
+  if (x.outline) css.push("-webkit-text-stroke: 0.04em currentColor", "-webkit-text-fill-color: transparent");
+  const shadows: string[] = [];
+  if (x.shadow) shadows.push("0.06em 0.06em 0.04em rgba(0, 0, 0, 0.45)");
+  if (x.emboss) {
+    css.push("-webkit-text-fill-color: #f2f2f2");
+    shadows.push("-0.04em -0.04em 0 rgba(0, 0, 0, 0.55)");
+  }
+  if (x.imprint) {
+    css.push("-webkit-text-fill-color: #f2f2f2");
+    shadows.push("0.04em 0.04em 0 rgba(0, 0, 0, 0.55)");
+  }
+  if (shadows.length) css.push(`text-shadow: ${shadows.join(", ")}`);
+  if (x.hidden) classes.push("hidden-text");
+  return { css, classes };
+}
 
 /** Renders paragraph properties as CSS on paragraph and heading nodes. */
 const ParagraphCss = Extension.create({
@@ -797,6 +933,8 @@ export interface WriteExtensionsOptions {
   resolveMedia?: (id: number) => Promise<string>;
   /** Page geometry for floating pictures (CSS px). */
   page?: () => { width: number; marginLeft: number; columnWidth: number } | null;
+  /** Creates the nested editor of a text box / shape text (the App passes one; tests and the schema none). */
+  innerEditor?: (element: HTMLElement, blocks: Block[]) => import("@tiptap/core").Editor;
 }
 
 /** All Tiptap extensions of the Write editor. */
@@ -819,6 +957,7 @@ export function writeExtensions(options: WriteExtensionsOptions = {}): Extension
     Title,
     PageBreak,
     InlineImageNode.configure({ resolveMedia: options.resolveMedia ?? null, page: options.page ?? null }),
+    DrawingNode.configure({ page: options.page ?? null, inner: options.innerEditor ?? null }),
     Superscript,
     Subscript,
     TextStyle,

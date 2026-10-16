@@ -80,11 +80,45 @@ export function mergeRuns(inlines: Inline[]): Inline[] {
   return out;
 }
 
-/** Canonical form of a block: merged runs, no nulls or serde defaults. */
+type DrawingValue = Extract<Inline, { kind: "drawing" }>["value"];
+
+/**
+ * A drawing without the values Rust leaves out of its JSON (kind shape,
+ * no rotation/flips/adjust, no fill, the default outline, Word's text
+ * insets, top alignment, no autofit, wrapping on), text blocks canonical.
+ */
+export function canonDrawing(d: DrawingValue): DrawingValue {
+  const out = { ...(canonValue(d) as DrawingValue) };
+  if (out.kind === "shape") delete out.kind;
+  if (!out.rotation) delete out.rotation;
+  if (!out.flipH) delete out.flipH;
+  if (!out.flipV) delete out.flipV;
+  if (out.adjust && !Object.keys(out.adjust).length) delete out.adjust;
+  if (out.fill?.kind === "none") delete out.fill;
+  if (out.line && out.line.fill.kind === "none" && out.line.width === 9525 && (out.line.dash ?? "solid") === "solid") delete out.line;
+  if (out.line?.dash === "solid") out.line = { fill: out.line.fill, width: out.line.width };
+  if (out.text) {
+    const t = { ...out.text, blocks: (out.text.blocks ?? []).map(canonBlock) };
+    const ins = t.insets;
+    if (ins && ins.top === 45720 && ins.bottom === 45720 && ins.left === 91440 && ins.right === 91440) delete t.insets;
+    if (t.verticalAlign === "top") delete t.verticalAlign;
+    if (t.autofit === "none") delete t.autofit;
+    if (t.wrap === true) delete t.wrap;
+    out.text = t;
+  }
+  return out;
+}
+
+/** A drawing inline in canonical form. */
+function canonInline(i: Inline): Inline {
+  return i.kind === "drawing" ? { kind: "drawing", value: canonDrawing(i.value) } : i;
+}
+
+/** Canonical form of a block: merged runs, no nulls or serde defaults (drawing text included). */
 export function canonBlock(block: Block): Block {
   if (block.kind === "paragraph") {
     const p = block.value;
-    return canonValue({ kind: "paragraph", value: { id: p.id, props: p.props, inlines: mergeRuns(p.inlines ?? []) } }) as Block;
+    return canonValue({ kind: "paragraph", value: { id: p.id, props: p.props, inlines: mergeRuns(p.inlines ?? []).map(canonInline) } }) as Block;
   }
   if (block.kind === "toc") {
     const { id, fromLevel, toLevel, title, entries, caption } = block.value;
@@ -157,6 +191,23 @@ export function paragraphLength(p: Paragraph): number {
   return (p.inlines ?? []).reduce((n, i) => n + inlineLength(i), 0);
 }
 
+/** The drawings of a paragraph's inlines. */
+export function drawingsOf(p: Paragraph): Extract<Inline, { kind: "drawing" }>["value"][] {
+  return (p.inlines ?? []).flatMap((i) => (i.kind === "drawing" ? [i.value] : []));
+}
+
+/** Every block, cells and the text of drawings included, in document order. */
+export function* walkAllBlocks(blocks: Block[]): Generator<Block> {
+  for (const b of blocks) {
+    yield b;
+    if (b.kind === "table") {
+      for (const row of b.value.rows) for (const cell of row.cells) yield* walkAllBlocks(cell.blocks);
+    } else if (b.kind === "paragraph") {
+      for (const d of drawingsOf(b.value)) yield* walkAllBlocks(d.text?.blocks ?? []);
+    }
+  }
+}
+
 /** Every block (recursively, cells included) in document order. */
 export function* walkBlocks(blocks: Block[]): Generator<Block> {
   for (const b of blocks) {
@@ -192,9 +243,13 @@ export function substituteBlock(blocks: Block[], id: number, next: Block): boole
 
 // ----- property merges mirroring Rust ---------------------------------------
 
-const RUN_TOGGLES = ["bold", "italic", "strike"] as const;
+/** Toggles whose `false` in `SetRunProps` removes the direct value (Rust's rule). */
+export const RUN_TOGGLES = [
+  "bold", "italic", "strike", "smallCaps", "allCaps", "doubleStrike", "outline", "shadow", "emboss", "imprint", "hidden",
+] as const;
 export const RUN_KEYS = [
   "font", "size", "bold", "italic", "underline", "strike", "color", "highlight", "verticalAlign",
+  "smallCaps", "allCaps", "doubleStrike", "charSpacing", "scale", "kerning", "position", "outline", "shadow", "emboss", "imprint", "hidden", "rtl",
 ] as const;
 
 /**

@@ -90,7 +90,7 @@ export interface MeasureContext {
   zoom: number;
 }
 
-const SKIP = ".page-spacer, .page-colbreak, .inline-image-wrap.floating, .notes-separator, .note-label, .note[data-note-kind='foot']";
+const SKIP = ".page-spacer, .page-colbreak, .inline-image-wrap.floating, .drawing-wrap.floating, .notes-separator, .note-label, .note[data-note-kind='foot']";
 
 interface RawRect {
   top: number;
@@ -163,11 +163,12 @@ function inlineRects(el: Element): { rects: RawRect[]; refs: Element[]; breaks: 
         continue;
       }
       if (e.matches("sup.note-ref")) refs.push(e);
-      if (e.matches("img, .inline-image-wrap, sup.note-ref, .tab-char, br") || !e.firstChild) {
+      // Pictures and inline shapes / text boxes are one box each (a text box's own paragraphs are not lines of the page).
+      if (e.matches("img, .inline-image-wrap, .drawing-wrap, sup.note-ref, .tab-char, br") || !e.firstChild) {
         if (e.tagName === "BR" && rects.length) continue;
         const r = e.getBoundingClientRect();
         if (r.height > 0) rects.push({ top: r.top, bottom: r.bottom, left: r.left, ref: { el: e } });
-        if (e.matches("img, .inline-image-wrap, br")) continue;
+        if (e.matches("img, .inline-image-wrap, .drawing-wrap, br")) continue;
       }
       walk(e);
     }
@@ -241,6 +242,12 @@ function textLines(el: HTMLElement, base: number, spacers: [number, number][], f
     ink: merged[k]!.bottom,
     at: k === 0 ? first : { kind: "inline", fn: lineStart(rects[merged[k]!.first]!, ctx) },
   }));
+  // Floating pictures, shapes and text boxes may hang below the text: the page cover must not hide them.
+  const last2 = lines[lines.length - 1]!;
+  el.querySelectorAll(".drawing-wrap.floating, .inline-image-wrap.floating").forEach((f) => {
+    const r = f.getBoundingClientRect();
+    if (r.height > 0) last2.ink = Math.max(last2.ink ?? last2.bottom, naturalY(r.bottom / z, base, spacers));
+  });
   for (const ref of refs) {
     if ((ref as HTMLElement).dataset.noteKind === "end") continue;
     const id = Number((ref as HTMLElement).dataset.noteId);

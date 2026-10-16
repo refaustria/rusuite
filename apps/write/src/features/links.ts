@@ -5,7 +5,7 @@
 // docs/mobile-plan.md).
 
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey, TextSelection, type EditorState } from "@tiptap/pm/state";
+import { NodeSelection, Plugin, PluginKey, TextSelection, type EditorState } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import type { Hyperlink } from "../generated/Hyperlink";
 import type { LinkTarget } from "../generated/LinkTarget";
@@ -80,10 +80,18 @@ export interface LinkDialogInit {
   link: Hyperlink | null;
   /** The selection spans paragraphs or non-text: the text cannot be edited. */
   textFixed: boolean;
+  /** A selected picture: the link goes on the picture (`SetImageLink` at `from`). */
+  picture?: boolean;
 }
 
 export function linkDialogInit(state: EditorState): LinkDialogInit | null {
   const { from, to, $from, $to } = state.selection;
+  // A selected picture gets the link itself (Word: Insert › Link on a picture).
+  const node = state.selection instanceof NodeSelection ? state.selection.node : null;
+  if (node?.type.name === "image" && $from.parent.isTextblock && $from.parent.attrs.id != null) {
+    const off = charOffsetOf($from.parent, $from.parentOffset);
+    return { block: $from.parent.attrs.id as number, from: off, to: off + 1, text: "", link: (node.attrs.link as Hyperlink | null) ?? null, textFixed: true, picture: true };
+  }
   const at = linkAt(state, from);
   if (at && (from === to || (from >= at.from && to <= at.to))) {
     return { block: at.block, from: at.fromOffset, to: at.toOffset, text: at.text, link: at.link, textFixed: false };
@@ -105,6 +113,7 @@ export function linkDialogInit(state: EditorState): LinkDialogInit | null {
 
 /** `SetHyperlink` for the dialog's result (the text only when it changed or nothing was selected). */
 export function hyperlinkCommand(init: LinkDialogInit, link: Hyperlink, text: string): WriteCommand {
+  if (init.picture) return { type: "setImageLink", block: init.block, offset: init.from, link };
   const shown = text.length ? text : addressOf(link.target);
   const cmd: WriteCommand = { type: "setHyperlink", block: init.block, from: init.from, to: init.to, link };
   if (!init.textFixed && (init.from === init.to || shown !== init.text)) cmd.text = shown;

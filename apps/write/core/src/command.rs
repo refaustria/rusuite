@@ -355,9 +355,10 @@ pub enum WriteCommand {
         text: String,
     },
     /// Merges `patch` into the formatting of `from..to`, splitting runs at
-    /// the boundaries. `false` for bold/italic/strike removes the direct
-    /// value unless the paragraph style turns it on (then it stays an
-    /// explicit `false`).
+    /// the boundaries. `false` for a toggle (bold, italic, strike, small
+    /// caps, all caps, double strike, outline, shadow, emboss, imprint,
+    /// hidden) removes the direct value unless the paragraph style turns it
+    /// on (then it stays an explicit `false`).
     SetRunProps {
         block: NodeId,
         from: u32,

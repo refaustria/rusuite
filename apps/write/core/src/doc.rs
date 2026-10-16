@@ -661,21 +661,42 @@ impl WriteDocument {
                 let clear = |patch: Option<bool>, base: Option<bool>| {
                     patch == Some(false) && base != Some(true)
                 };
-                let (cb, ci, cs) = (
-                    clear(patch.bold, base.bold),
-                    clear(patch.italic, base.italic),
-                    clear(patch.strike, base.strike),
+                macro_rules! toggles {
+                    ($($f:ident),*) => {
+                        ($(clear(patch.$f, base.$f),)*)
+                    };
+                }
+                let (cb, ci, cs, sc, ac, ds, ol, sh, em, im, hi) = toggles!(
+                    bold,
+                    italic,
+                    strike,
+                    small_caps,
+                    all_caps,
+                    double_strike,
+                    outline,
+                    shadow,
+                    emboss,
+                    imprint,
+                    hidden
                 );
                 for_each_run_in(self.para_mut(*block)?, f, t, |props| {
                     props.apply(patch);
-                    if cb {
-                        props.bold = None;
-                    }
-                    if ci {
-                        props.italic = None;
-                    }
-                    if cs {
-                        props.strike = None;
+                    for (on, slot) in [
+                        (cb, &mut props.bold),
+                        (ci, &mut props.italic),
+                        (cs, &mut props.strike),
+                        (sc, &mut props.small_caps),
+                        (ac, &mut props.all_caps),
+                        (ds, &mut props.double_strike),
+                        (ol, &mut props.outline),
+                        (sh, &mut props.shadow),
+                        (em, &mut props.emboss),
+                        (im, &mut props.imprint),
+                        (hi, &mut props.hidden),
+                    ] {
+                        if on {
+                            *slot = None;
+                        }
                     }
                 });
                 ch.block(*block);

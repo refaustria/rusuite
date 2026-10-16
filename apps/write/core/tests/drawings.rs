@@ -453,9 +453,7 @@ fn character_formatting_zoo_roundtrips() {
         outline: Some(true),
         shadow: Some(true),
         hidden: Some(true),
-        all_caps: Some(false),
         emboss: Some(true),
-        imprint: Some(false),
         rtl: Some(true),
         ..Default::default()
     };

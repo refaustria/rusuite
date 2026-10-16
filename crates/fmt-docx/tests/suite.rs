@@ -868,6 +868,8 @@ fn document_xml_snapshots() {
         ("30", "provisional-30-image-inline.docx"),
         ("35", "provisional-35-page-landscape.docx"),
         ("46", "provisional-46-all-run-properties.docx"),
+        ("61", "provisional-61-shapes-text-boxes.docx"),
+        ("62", "provisional-62-character-formatting.docx"),
     ] {
         let out = fmt_docx::read_with_context(&load(file)).unwrap();
         let bytes = fmt_docx::write_with_context(&out.document, &out.context).unwrap();
