@@ -1374,7 +1374,7 @@ impl Engine {
     /// Inserts `count` empty rows before row `at` (0-based) of `sheet`.
     ///
     /// Cells at or below `at` move down; every formula of the workbook is
-    /// rewritten with [`adjust_references`] (its text regenerated from the
+    /// rewritten with [`adjust_references`](crate::adjust_references) (its text regenerated from the
     /// new AST). [`Recalc::changed`] lists the vacated and the new
     /// positions of every moved cell, every formula whose text was
     /// rewritten (on any sheet) and every re-evaluated formula whose value
