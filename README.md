@@ -9,14 +9,18 @@
 
 > A stripped-down but fully working office suite with a Rust backend and a web frontend via Tauri – and the same apps running in the browser via WebAssembly. Three apps: **Rusuite Write** (documents), **Rusuite Calc** (spreadsheets), **Rusuite Show** (presentations). Not an MS Office replacement, but a cleanly architected minimum that can read and write real `.docx`, `.xlsx` and `.pptx` files.
 
-**Status:** Alpha – all three apps run on desktop (Tauri) and in the browser (WASM) at <https://resuite.inceptum.at/>; see [Downloads](#downloads).
+**Status:** 0.1.0 release candidate (alpha quality) – all three apps run on the desktop (Windows, macOS, Linux; Tauri)
+and in the browser (WebAssembly) at <https://resuite.inceptum.at/>. See [Install](#install) and [CHANGELOG.md](CHANGELOG.md).
 
-**What works today**
-- **Calc:** formulas with an Excel-compatible engine (recalc, cell references by pointing, fill, copy/cut/paste with reference adjustment), cell styles and number formats, row/column operations, `.xlsx` open/save.
-- **Write:** Tiptap editor with styles, lists, tables, images, headers/footers, page view, find/replace, `.docx` open/save.
-- **Show:** Konva slide editor with layouts, shapes, pictures, groups, text formatting, speaker notes, presentation mode, `.pptx` open/save.
-- **All apps:** Office-like ribbon, undo/redo, keyboard shortcuts, PDF export via print, recent files, autosave and crash recovery.
-- **Files** written by Rusuite open in LibreOffice without warnings for every reference file in `testdata/`; the supported OOXML subset is listed in [docs/ooxml-subset.md](docs/ooxml-subset.md).
+| | What works | Known gaps (top) |
+|---|---|---|
+| **Calc** | Excel-compatible engine with 221 functions and dynamic arrays; formula editing by pointing, F4, autocomplete; fill series, paste with reference adjustment, Paste Special; formats incl. the full number-format language, conditional formatting, data validation; sort, AutoFilter, Excel tables, structured references, named ranges; PivotTables; charts; notes, threaded comments, hyperlinks; freeze panes, merged cells, hidden sheets; print with headers/footers | Format Cells has the Number tab only; no "shift cells" insert/delete; no intersection operator; English separators only |
+| **Write** | Styles (pane, Modify/Create, inspector), character and paragraph formatting, multilevel lists; tables with merges and styles; inline and floating pictures, shapes, text boxes; print layout with real pagination, sections, columns, headers/footers, footnotes; TOC, captions, cross-references, bookmarks, fields; comments; find/replace with wildcards | Mixed portrait/landscape pages drawn at one width; List Paragraph spacing; some Word shortcuts |
+| **Show** | Layouts, themes, Slide Master, 110 shapes with handles, connectors, tables, charts, pictures with crop, audio/video; transitions and animations; Outline/Sorter/Notes/Reading views, guides; slide show with presenter view; handouts and notes printing | No freeform drawing; simpler connector routing; transitions not in PDF |
+| **All apps** | Office-style ribbon (English and German), undo/redo, shortcuts, recent files, autosave and crash recovery, PDF export and printing; desktop: native file dialogs, WebDAV connections and an AI assistant with your own key | Unsigned installers, no auto-update |
+
+Files written by Rusuite open in LibreOffice without warnings for every reference file in `testdata/`; the supported
+OOXML subset is listed in [docs/ooxml-subset.md](docs/ooxml-subset.md). Documents never leave your device (ADR 0009).
 
 ---
 
@@ -33,10 +37,9 @@
 ### Non-Goals (deliberately excluded)
 - Legacy binary formats (`.doc`, `.xls`, `.ppt`)
 - Macros / VBA / scripting
-- Track changes, real-time co-authoring (comments and notes are planned, see docs/parity-backlog.md)
+- Track changes, real-time co-authoring (comments and notes are supported)
 - Pixel-perfect reproduction of Office layout
-- Power Query, data connections (pivot tables are planned, see docs/parity-backlog.md)
-- (Transitions and animations in Show are planned, see docs/parity-backlog.md)
+- Power Query, data connections (pivot tables are supported)
 - Pixel-exact print layout (printing goes through the webview's print pipeline with our own previews and options; see docs/ui.md)
 
 If a feature isn't on the list, it isn't in. Scope discipline is the only reason this project has a chance.
@@ -178,56 +181,63 @@ rusuite/
 
 ## Approach / Roadmap
 
-The order is deliberate: first what can be tested without a UI, then what produces the most shared infrastructure.
+The order is deliberate: first what can be tested without a UI, then what produces the most shared infrastructure. Phases 0–5 are done (the Office checks of the milestones are part of the release checklist in [docs/testing.md](docs/testing.md)); later work – usability, Office parity, quality passes – is tracked in STATUS.md, ROADMAP.md and [CHANGELOG.md](CHANGELOG.md).
 
 ### Phase 0 – Foundation (2–3 weeks)
-- [ ] Workspace, CI (`cargo clippy`, `cargo test`, `pnpm test`), formatters
-- [ ] `fmt-ooxml`: open ZIP, parse `[Content_Types].xml` and `_rels`, generic XML helpers
-- [ ] `core-model`: run formatting, colors, font definitions, theme colors
-- [ ] Roundtrip harness: read file → write → open in headless LibreOffice → count errors
-- [ ] Write the first ADRs (document model ownership, IPC strategy)
+- [x] Workspace, CI (`cargo clippy`, `cargo test`, `pnpm test`), formatters
+- [x] `fmt-ooxml`: open ZIP, parse `[Content_Types].xml` and `_rels`, generic XML helpers
+- [x] `core-model`: run formatting, colors, font definitions, theme colors
+- [x] Roundtrip harness: read file → write → open in headless LibreOffice → count errors
+- [x] Write the first ADRs (document model ownership, IPC strategy)
 
 ### Phase 1 – Formula Engine (4–6 weeks)
-- [ ] Lexer + parser (Pratt parser, A1 references, ranges, named ranges optional)
-- [ ] Dependency graph with incremental recalculation
-- [ ] Evaluator with type system (number, text, bool, error, array)
-- [ ] Function library via registry pattern (one function = one file)
-- [ ] Test suite in `testdata/formulas/` – every function checked against Excel reference values
-- [ ] Property tests for the parser (roundtrip formula → AST → formula)
+- [x] Lexer + parser (Pratt parser, A1 references, ranges, named ranges optional)
+- [x] Dependency graph with incremental recalculation
+- [x] Evaluator with type system (number, text, bool, error, array)
+- [x] Function library via registry pattern (one function = one file)
+- [x] Test suite in `testdata/formulas/` – every function checked against Excel reference values
+- [x] Property tests for the parser (roundtrip formula → AST → formula)
 
 ### Phase 2 – Calc (6–8 weeks)
-- [ ] `model-sheet` + `fmt-xlsx` (shared strings, styles, worksheets)
-- [ ] Tauri app with canvas grid, virtualization, cell editing
-- [ ] Formatting toolbar from `ui-shared`
-- [ ] Undo/redo stack in `app-common` (command pattern)
-- [ ] **Milestone:** open a file created in Excel, edit it, save it, reopen it in Excel
+- [x] `model-sheet` + `fmt-xlsx` (shared strings, styles, worksheets)
+- [x] Tauri app with canvas grid, virtualization, cell editing
+- [x] Formatting toolbar from `ui-shared`
+- [x] Undo/redo stack in `app-common` (command pattern)
+- [x] **Milestone:** open a file created in Excel, edit it, save it, reopen it in Excel
 
 ### Phase 3 – Write (6–8 weeks)
-- [ ] `model-text` + `fmt-docx` (document.xml, styles.xml, numbering.xml, media)
-- [ ] Tiptap schema that maps 1:1 to `model-text`
-- [ ] Bidirectional sync: Tiptap transaction → Rust command → confirmed model
-- [ ] Images, tables, lists
-- [ ] **Milestone:** roundtrip 50 reference documents without losing any supported feature
+- [x] `model-text` + `fmt-docx` (document.xml, styles.xml, numbering.xml, media)
+- [x] Tiptap schema that maps 1:1 to `model-text`
+- [x] Bidirectional sync: Tiptap transaction → Rust command → confirmed model
+- [x] Images, tables, lists
+- [x] **Milestone:** roundtrip 50 reference documents without losing any supported feature
 
 ### Phase 4 – Show (5–7 weeks)
-- [ ] `model-show` + `fmt-pptx` (slides, layouts, minimal masters, shapes, media)
-- [ ] Konva canvas with object model, selection, transforms
-- [ ] Slide sidebar, presentation mode
-- [ ] **Milestone:** build a 10-slide presentation and open it in PowerPoint without errors
+- [x] `model-show` + `fmt-pptx` (slides, layouts, minimal masters, shapes, media)
+- [x] Konva canvas with object model, selection, transforms
+- [x] Slide sidebar, presentation mode
+- [x] **Milestone:** build a 10-slide presentation and open it in PowerPoint without errors
 
 ### Phase 5 – Polish (ongoing)
-- [ ] Keyboard shortcut parity with Office for the basics
-- [ ] PDF export (webview print)
-- [ ] Recent files, auto-save, crash recovery
-- [ ] Installers for all three platforms
-- [ ] Performance: 1M cells, 200-page document, 100 slides
+- [x] Keyboard shortcut parity with Office for the basics
+- [x] PDF export (webview print)
+- [x] Recent files, auto-save, crash recovery
+- [x] Installers for all three platforms
+- [x] Performance: 1M cells, 200-page document, 100 slides
 
 **Rough overall estimate:** 6–8 months for one person full-time through the end of Phase 4; 3–4 months for a team of three working on the apps in parallel once Phases 0 and 1 are done. The estimate assumes the scope does not grow.
 
 ---
 
-## Downloads
-Pre-built (unsigned) installers for Windows, macOS and Linux are published on [GitHub Releases](https://github.com/refaustria/rusuite/releases); see [docs/release.md](docs/release.md).
+## Install
+
+- **Web:** nothing to install – open <https://resuite.inceptum.at/> (Chrome, Edge, Firefox or Safari).
+- **Desktop:** installers for Windows (`.exe`, `.msi`), macOS (Apple Silicon and Intel `.dmg`) and Linux (`.deb`, `.rpm`,
+  `.AppImage`) are on the [Downloads page](https://resuite.inceptum.at/downloads.html), with SHA-256 checksums, and on
+  [GitHub Releases](https://github.com/refaustria/rusuite/releases). The builds are **not code-signed** yet: on Windows
+  choose *More info › Run anyway* in the SmartScreen dialog; on macOS right-click the app › *Open* the first time. On
+  Linux install the `.deb` with `sudo apt install ./<file>.deb`, or make the `.AppImage` executable and run it.
+- **From source:** see [Development](#development). Releasing: [docs/release.md](docs/release.md).
 
 ## Development
 

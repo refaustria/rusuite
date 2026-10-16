@@ -34,7 +34,7 @@
   }
 
   // Apple Silicon or Intel: only Chromium tells (a local API, no request); then the matching .dmg is the main button.
-  if (os === "macos" && navigator.userAgentData?.getHighEntropyValues) {
+  if (os === "macos" && !query && navigator.userAgentData?.getHighEntropyValues) {
     navigator.userAgentData
       .getHighEntropyValues(["architecture"])
       .then(({ architecture }) => {
