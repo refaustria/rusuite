@@ -606,7 +606,8 @@ test.describe("Show", () => {
     expect(chart).toMatch(/<c:externalData r:id="rId\d+">/);
     const xlsx = files.get("ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx")!;
     expect(xlsx.subarray(0, 2).toString()).toBe("PK");
-    expect(zipText(xlsx, "xl/sharedStrings.xml")).toContain("Series 1");
+    // the minimal workbook: inline strings in Sheet1 (P8-32)
+    expect(zipText(xlsx, "xl/worksheets/sheet1.xml")).toContain("Series 1");
     expect(files.get("ppt/slides/slide1.xml")!.toString()).toContain('uri="http://schemas.openxmlformats.org/drawingml/2006/chart"');
     errors.expectNone();
   });
@@ -874,8 +875,8 @@ test.describe("Show", () => {
     await expect(page.getByTestId("master-panel").getByRole("button", { name: "Opening" })).toBeVisible();
     await page.getByRole("button", { name: "Close Master View" }).click();
     await page.getByRole("tab", { name: "Home" }).click();
-    await page.getByRole("button", { name: "New Slide" }).last().click();
-    await expect(page.getByRole("button", { name: "Opening" }).first()).toBeVisible();
+    await page.getByRole("button", { name: "Slide layouts" }).first().click();
+    await expect(page.getByRole("group", { name: "Slide layouts" }).getByRole("button", { name: "Opening" })).toBeVisible();
     await page.keyboard.press("Escape");
     const layouts = [...unzip(await saveViaBackstage(page))].filter(([n]) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(n)).map(([, b]) => b.toString());
     expect(layouts.some((x) => x.includes('type="title"') && x.includes('<p:cSld name="Opening">'))).toBe(true);

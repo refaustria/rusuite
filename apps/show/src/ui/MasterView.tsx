@@ -55,8 +55,8 @@ export function slideMasterTab(store: ShowStore, state: ShowState, t: TFunction)
             <RibbonStack>
               <RibbonButton label={t("show.master.deleteLayout")} icon="trash" showLabel disabled={layout === null || inUse} tooltip={inUse ? t("show.master.inUse") : undefined} onClick={() => void store.deleteLayout()} />
               <RibbonButton label={t("show.master.duplicateLayout")} icon="duplicate" showLabel disabled={layout === null} onClick={() => void store.duplicateLayout()} />
-              <RibbonButton label={t("show.master.rename")} icon="format" showLabel disabled={layout === null} onClick={() => layout !== null && store.openDialog({ kind: "renameLayout", layout })} />
             </RibbonStack>
+            <RibbonButton label={t("show.master.rename")} icon="format" size="large" showLabel disabled={layout === null} onClick={() => layout !== null && store.openDialog({ kind: "renameLayout", layout })} />
           </>
         ),
       },
