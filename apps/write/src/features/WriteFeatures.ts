@@ -6,6 +6,7 @@
 
 import { Extension, type Editor } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
 import { columnResizePlugin } from "./columnResize";
 import { findPlugin } from "./find";
 import { clearFormatting, FormatPainter, toggleScript } from "./formatting";
@@ -20,11 +21,31 @@ import { refreshTables, tableRenderPlugin } from "./tableRender";
 import { refreshTabs, tabStopsPlugin } from "./tabStops";
 import { installStyleSheetCss } from "./styleCss";
 import type { SyncController } from "../sync/SyncPlugin";
+import { commentsPlugin, refreshComments } from "../comments/plugin";
+import { draftFromSelection, type CommentDraft } from "../comments/commands";
+import { authorColor, type CommentFilter } from "../comments/model";
+import { t } from "../i18n";
 
 export type WriteView = "print" | "draft";
 export type WriteDialog =
   | "rowHeight" | "altText" | "pageSetup" | "headerFooter" | "paragraph" | "pageNumbers"
-  | "splitCells" | "cellMargins" | "tableProps" | "bordersShading" | "tabs" | null;
+  | "splitCells" | "cellMargins" | "tableProps" | "bordersShading" | "tabs" | "userName" | null;
+
+/** Review › Comments: what the margin / pane shows. */
+export interface CommentsUiState {
+  /** Review › Show Comments: balloons (or the pane); off = margin indicators only. */
+  show: boolean;
+  /** Review › Comments Pane: the list instead of balloons at any width. */
+  pane: boolean;
+  filter: CommentFilter;
+  /** The selected comment (its thread is highlighted darker, its balloon aligned). */
+  active: number | null;
+  hover: number | null;
+  /** A comment being written (New Comment). */
+  draft: CommentDraft | null;
+  /** The comment whose text is being edited. */
+  editing: number | null;
+}
 
 /** The style dialog the UI shows: Modify Style (`id`), a new style (Styles pane › New Style), Create a Style (from the selection), Rename. */
 export type StyleDialog =
@@ -60,6 +81,9 @@ export interface WriteUiState {
   pages: number;
   /** Header of the first page and footer of the last page in print layout (from the sections). */
   frame: { firstHeader: string; lastFooter: string } | null;
+  comments: CommentsUiState;
+  /** After the user name dialog: start the comment that asked for it. */
+  userThen: "newComment" | null;
 }
 
 /** Observable UI state shared by the ribbon, the dialogs and the editor plugins. */
@@ -82,6 +106,8 @@ export class WriteUi {
     headerFooterFocus: "header",
     pages: 1,
     frame: null,
+    comments: { show: true, pane: false, filter: "all", active: null, hover: null, draft: null, editing: null },
+    userThen: null,
   };
   private listeners = new Set<() => void>();
 
@@ -108,9 +134,20 @@ export class WriteUi {
   openDialog(dialog: WriteDialog, headerFooterFocus: "header" | "footer" = "header"): void {
     this.set({ dialog, headerFooterFocus });
   }
+
+  setComments(partial: Partial<CommentsUiState>): void {
+    this.set({ comments: { ...this.state.comments, ...partial } });
+  }
 }
 
 const featuresKey = new PluginKey("rusuiteWriteFeatures");
+
+/** Reads a pending DOM selection change into the editor state now (ProseMirror otherwise waits for `selectionchange`). */
+export function syncDomSelection(view: EditorView): void {
+  const observer = (view as unknown as { domObserver?: { forceFlush?: () => void; flush?: () => void } }).domObserver;
+  observer?.forceFlush?.();
+  observer?.flush?.();
+}
 
 export class WriteFeatures {
   readonly ui = new WriteUi();
@@ -133,6 +170,26 @@ export class WriteFeatures {
       spellcheck: this.ui.getState().spellcheck ? "true" : "false",
       lang,
     };
+  }
+
+  /**
+   * Review › New Comment (Ctrl+Alt+M): a draft balloon on the selection
+   * (the word at the caret when nothing is selected). The first comment
+   * asks for the user name.
+   */
+  newComment(): void {
+    const editor = this.editor;
+    if (!editor || editor.isDestroyed) return;
+    if (!this.ctl.user) {
+      this.ui.set({ dialog: "userName", userThen: "newComment" });
+      return;
+    }
+    const draft = draftFromSelection(editor.state);
+    if (!draft) {
+      this.ctl.pushError(new Error(t("write.comments.notInBody")));
+      return;
+    }
+    this.ui.setComments({ draft, active: null, show: true, editing: null });
   }
 
   /** Appends a row after the last one and moves the caret into its first cell (Tab in the last cell). */
@@ -207,6 +264,11 @@ export class WriteFeatures {
             void insertNote(this.editor as Editor, ctl, "end");
             return true;
           },
+          // Word: Ctrl+Alt+M inserts a comment.
+          "Mod-Alt-m": () => {
+            features.newComment();
+            return true;
+          },
         };
       },
       addProseMirrorPlugins() {
@@ -230,10 +292,27 @@ export class WriteFeatures {
           }),
           // After the pagination: page fields read its layout.
           structurePlugin({ sections: () => ctl.sections, fields: features.fields }),
+          commentsPlugin({
+            color: (id) => {
+              const c = ctl.comments.find((x) => x.id === id);
+              return authorColor(c?.author ?? "");
+            },
+            onActivate: (id) => {
+              const cur = ui.getState().comments;
+              if (cur.active !== id && (id !== null || !cur.draft)) ui.setComments({ active: id });
+            },
+            view: () => {
+              const c = ui.getState().comments;
+              return { show: c.show, active: c.active, hover: c.hover, draft: c.draft ? { from: c.draft.from, to: c.draft.to } : null };
+            },
+          }),
           new Plugin({
             key: featuresKey,
             props: {
-              handleKeyDown(_view, e) {
+              handleKeyDown(view, e) {
+                // A selection the browser has just changed (Shift+Home, then Delete at once) may not have
+                // reached the editor state yet: take it over before Delete / Backspace / Enter act on it.
+                if (e.key === "Delete" || e.key === "Backspace" || e.key === "Enter") syncDomSelection(view);
                 // Word: Ctrl+= subscript, Ctrl+Shift+= superscript.
                 if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.code === "Equal" || e.key === "=" || e.key === "+")) {
                   e.preventDefault();
@@ -277,6 +356,8 @@ export class WriteFeatures {
               installStyleSheetCss(styles, view.dom.ownerDocument);
               let name = ctl.getState().name;
               let mode = ui.getState().view;
+              let comments = ctl.comments;
+              let commentsUi = ui.getState().comments;
               const offCtl = ctl.subscribe(() => {
                 if (ctl.styles !== styles) {
                   styles = ctl.styles;
@@ -294,8 +375,19 @@ export class WriteFeatures {
                   name = ctl.getState().name;
                   refreshStructure(view);
                 }
+                if (ctl.comments !== comments) {
+                  comments = ctl.comments;
+                  // A deleted comment cannot stay selected.
+                  const a = ui.getState().comments.active;
+                  if (a != null && !comments.some((c) => c.id === a)) ui.setComments({ active: null, editing: null });
+                  refreshComments(view);
+                }
               });
               const offUi = ui.subscribe(() => {
+                if (ui.getState().comments !== commentsUi) {
+                  commentsUi = ui.getState().comments;
+                  refreshComments(view);
+                }
                 if (ui.getState().view !== mode) {
                   mode = ui.getState().view;
                   if (mode === "draft") ui.set({ frame: null });

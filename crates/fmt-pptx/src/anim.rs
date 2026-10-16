@@ -14,7 +14,8 @@
 use std::collections::HashMap;
 
 use model_show::{
-    Animation, AnimationKind, Direction, Effect, NodeId, Transition, TransitionKind, Trigger,
+    Animation, AnimationKind, Direction, Effect, MediaClip, MediaKind, MediaStart, NodeId,
+    Transition, TransitionKind, Trigger,
 };
 
 use crate::xml::{parse_bool, parse_u32, El, XmlOut};
@@ -519,30 +520,89 @@ fn run_time(a: &Animation) -> u32 {
     a.delay_ms.saturating_add(d)
 }
 
-/// Writes `p:timing` for `anims` (in play order). Fails with the id of an
-/// animation whose shape was not written.
+/// A media shape on the slide being written (see [`write_timing`]).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MediaTarget<'a> {
+    /// `p:cNvPr/@id`.
+    pub spid: u32,
+    pub clip: &'a MediaClip,
+}
+
+/// One effect of the main sequence: an animation, or a media clip's
+/// "play" (`presetClass="mediacall"`).
+#[derive(Clone, Copy)]
+enum Eff<'a> {
+    Anim(&'a Animation),
+    Media(MediaTarget<'a>),
+}
+
+impl Eff<'_> {
+    fn trigger(&self) -> Trigger {
+        match self {
+            Eff::Anim(a) => a.trigger,
+            Eff::Media(m) if m.clip.start == MediaStart::Automatically => Trigger::AfterPrevious,
+            Eff::Media(_) => Trigger::OnClick,
+        }
+    }
+
+    fn run_time(&self) -> u32 {
+        match self {
+            Eff::Anim(a) => run_time(a),
+            Eff::Media(_) => 0,
+        }
+    }
+}
+
+/// Writes `p:timing` for `anims` (in play order) and the slide's media
+/// clips: "Automatically" clips play first when the slide appears, "In
+/// Click Sequence" ones get a click step after the animations; every clip
+/// gets its `p:video`/`p:audio` node (volume, mute, loop, hide while not
+/// playing). Fails with the id of an animation whose shape was not
+/// written.
 pub(crate) fn write_timing(
     x: &mut XmlOut,
     anims: &[Animation],
     targets: &HashMap<NodeId, Target>,
+    media: &[MediaTarget<'_>],
 ) -> Result<(), NodeId> {
     // click steps → "after previous" steps → effects
-    let mut groups: Vec<Vec<Vec<&Animation>>> = Vec::new();
+    let mut groups: Vec<Vec<Vec<Eff<'_>>>> = Vec::new();
     for a in anims {
         if !targets.contains_key(&a.shape) {
             return Err(a.id);
         }
         match (a.trigger, groups.last_mut()) {
-            (Trigger::OnClick, _) | (_, None) => groups.push(vec![vec![a]]),
-            (Trigger::AfterPrevious, Some(g)) => g.push(vec![a]),
+            (Trigger::OnClick, _) | (_, None) => groups.push(vec![vec![Eff::Anim(a)]]),
+            (Trigger::AfterPrevious, Some(g)) => g.push(vec![Eff::Anim(a)]),
             (Trigger::WithPrevious, Some(g)) => {
                 if let Some(sub) = g.last_mut() {
-                    sub.push(a);
+                    sub.push(Eff::Anim(a));
                 }
             }
         }
     }
-    let starts_on_load = anims.first().is_some_and(|a| a.trigger != Trigger::OnClick);
+    let auto: Vec<Vec<Eff<'_>>> = media
+        .iter()
+        .filter(|m| m.clip.start == MediaStart::Automatically)
+        .map(|m| vec![Eff::Media(*m)])
+        .collect();
+    if !auto.is_empty() {
+        match groups.first_mut() {
+            Some(g) if g[0][0].trigger() != Trigger::OnClick => {
+                g.splice(0..0, auto);
+            }
+            _ => groups.insert(0, auto),
+        }
+    }
+    for m in media
+        .iter()
+        .filter(|m| m.clip.start == MediaStart::InClickSequence)
+    {
+        groups.push(vec![vec![Eff::Media(*m)]]);
+    }
+    let starts_on_load = groups
+        .first()
+        .is_some_and(|g| g[0][0].trigger() != Trigger::OnClick);
 
     let mut t = TimingWriter { x, next_id: 1 };
     t.x.start("p:timing", &[]);
@@ -554,67 +614,60 @@ pub(crate) fn write_timing(
         ("nodeType", "tmRoot"),
     ]);
     t.x.start("p:childTnLst", &[]);
-    t.x.start("p:seq", &[("concurrent", "1"), ("nextAc", "seek")]);
-    t.ctn_start(&[("dur", "indefinite"), ("nodeType", "mainSeq")]);
-    t.x.start("p:childTnLst", &[]);
-    let mut grp_ids: HashMap<NodeId, u32> = HashMap::new();
     let mut builds: Vec<(u32, u32, bool)> = Vec::new();
-    for (gi, group) in groups.iter().enumerate() {
-        t.x.start("p:par", &[]);
-        t.ctn_start(&[("fill", "hold")]);
-        t.x.start("p:stCondLst", &[]);
-        t.x.empty("p:cond", &[("delay", "indefinite")]);
-        if gi == 0 && starts_on_load {
-            t.x.start("p:cond", &[("evt", "onBegin"), ("delay", "0")]);
-            t.x.empty("p:tn", &[("val", "2")]);
-            t.x.end("p:cond");
-        }
-        t.x.end("p:stCondLst");
+    if !groups.is_empty() {
+        t.x.start("p:seq", &[("concurrent", "1"), ("nextAc", "seek")]);
+        t.ctn_start(&[("dur", "indefinite"), ("nodeType", "mainSeq")]);
         t.x.start("p:childTnLst", &[]);
-        let mut start = 0u32;
-        for (si, sub) in group.iter().enumerate() {
-            if si > 0 {
-                start = start
-                    .saturating_add(group[si - 1].iter().map(|a| run_time(a)).max().unwrap_or(0));
-            }
+        let mut grp_ids: HashMap<u32, u32> = HashMap::new();
+        for (gi, group) in groups.iter().enumerate() {
             t.x.start("p:par", &[]);
             t.ctn_start(&[("fill", "hold")]);
-            t.cond_list(&start.to_string());
+            t.x.start("p:stCondLst", &[]);
+            t.x.empty("p:cond", &[("delay", "indefinite")]);
+            if gi == 0 && starts_on_load {
+                t.x.start("p:cond", &[("evt", "onBegin"), ("delay", "0")]);
+                t.x.empty("p:tn", &[("val", "2")]);
+                t.x.end("p:cond");
+            }
+            t.x.end("p:stCondLst");
             t.x.start("p:childTnLst", &[]);
-            for (ei, a) in sub.iter().enumerate() {
-                let target = targets[&a.shape];
-                let grp = grp_ids.entry(a.shape).or_insert(0);
-                let grp_id = *grp;
-                *grp += 1;
-                if target.text {
-                    builds.push((target.spid, grp_id, target.placeholder));
+            let mut start = 0u32;
+            for (si, sub) in group.iter().enumerate() {
+                if si > 0 {
+                    start = start
+                        .saturating_add(group[si - 1].iter().map(Eff::run_time).max().unwrap_or(0));
                 }
-                let node_type = match (si, ei, a.trigger) {
-                    (0, 0, Trigger::OnClick) => "clickEffect",
-                    (0, 0, Trigger::WithPrevious) => "withEffect",
-                    (_, 0, _) => "afterEffect",
-                    _ => "withEffect",
-                };
-                let (preset, subtype) = preset_of(a);
-                let class = match a.kind {
-                    AnimationKind::Entrance => "entr",
-                    AnimationKind::Emphasis => "emph",
-                    AnimationKind::Exit => "exit",
-                };
-                let (preset, subtype, grp_s) =
-                    (preset.to_string(), subtype.to_string(), grp_id.to_string());
                 t.x.start("p:par", &[]);
-                t.ctn_start(&[
-                    ("presetID", &preset),
-                    ("presetClass", class),
-                    ("presetSubtype", &subtype),
-                    ("fill", "hold"),
-                    ("grpId", &grp_s),
-                    ("nodeType", node_type),
-                ]);
-                t.cond_list(&a.delay_ms.to_string());
+                t.ctn_start(&[("fill", "hold")]);
+                t.cond_list(&start.to_string());
                 t.x.start("p:childTnLst", &[]);
-                t.behaviors(a, &target.spid.to_string());
+                for (ei, eff) in sub.iter().enumerate() {
+                    let node_type = match (si, ei, eff.trigger()) {
+                        (0, 0, Trigger::OnClick) => "clickEffect",
+                        (0, 0, Trigger::WithPrevious) => "withEffect",
+                        (_, 0, _) => "afterEffect",
+                        _ => "withEffect",
+                    };
+                    match eff {
+                        Eff::Anim(a) => {
+                            let target = targets[&a.shape];
+                            let grp = grp_ids.entry(target.spid).or_insert(0);
+                            let grp_id = *grp;
+                            *grp += 1;
+                            if target.text {
+                                builds.push((target.spid, grp_id, target.placeholder));
+                            }
+                            t.effect(a, target.spid, grp_id, node_type);
+                        }
+                        Eff::Media(m) => {
+                            let grp = grp_ids.entry(m.spid).or_insert(0);
+                            let grp_id = *grp;
+                            *grp += 1;
+                            t.media_call(m.spid, grp_id, node_type);
+                        }
+                    }
+                }
                 t.x.end("p:childTnLst");
                 t.x.end("p:cTn");
                 t.x.end("p:par");
@@ -625,20 +678,20 @@ pub(crate) fn write_timing(
         }
         t.x.end("p:childTnLst");
         t.x.end("p:cTn");
-        t.x.end("p:par");
+        for (list, evt) in [("p:prevCondLst", "onPrev"), ("p:nextCondLst", "onNext")] {
+            t.x.start(list, &[]);
+            t.x.start("p:cond", &[("evt", evt), ("delay", "0")]);
+            t.x.start("p:tgtEl", &[]);
+            t.x.empty("p:sldTgt", &[]);
+            t.x.end("p:tgtEl");
+            t.x.end("p:cond");
+            t.x.end(list);
+        }
+        t.x.end("p:seq");
     }
-    t.x.end("p:childTnLst");
-    t.x.end("p:cTn");
-    for (list, evt) in [("p:prevCondLst", "onPrev"), ("p:nextCondLst", "onNext")] {
-        t.x.start(list, &[]);
-        t.x.start("p:cond", &[("evt", evt), ("delay", "0")]);
-        t.x.start("p:tgtEl", &[]);
-        t.x.empty("p:sldTgt", &[]);
-        t.x.end("p:tgtEl");
-        t.x.end("p:cond");
-        t.x.end(list);
+    for m in media {
+        t.media_node(m);
     }
-    t.x.end("p:seq");
     t.x.end("p:childTnLst");
     t.x.end("p:cTn");
     t.x.end("p:par");
@@ -657,6 +710,178 @@ pub(crate) fn write_timing(
     }
     t.x.end("p:timing");
     Ok(())
+}
+
+impl TimingWriter<'_> {
+    /// One animation effect `p:par`.
+    fn effect(&mut self, a: &Animation, spid: u32, grp_id: u32, node_type: &str) {
+        let (preset, subtype) = preset_of(a);
+        let class = match a.kind {
+            AnimationKind::Entrance => "entr",
+            AnimationKind::Emphasis => "emph",
+            AnimationKind::Exit => "exit",
+        };
+        let (preset, subtype, grp_s) =
+            (preset.to_string(), subtype.to_string(), grp_id.to_string());
+        self.x.start("p:par", &[]);
+        self.ctn_start(&[
+            ("presetID", &preset),
+            ("presetClass", class),
+            ("presetSubtype", &subtype),
+            ("fill", "hold"),
+            ("grpId", &grp_s),
+            ("nodeType", node_type),
+        ]);
+        self.cond_list(&a.delay_ms.to_string());
+        self.x.start("p:childTnLst", &[]);
+        self.behaviors(a, &spid.to_string());
+        self.x.end("p:childTnLst");
+        self.x.end("p:cTn");
+        self.x.end("p:par");
+    }
+
+    /// A media "play" effect (`presetClass="mediacall"`, `p:cmd
+    /// playFrom(0.0)`).
+    fn media_call(&mut self, spid: u32, grp_id: u32, node_type: &str) {
+        let grp_s = grp_id.to_string();
+        self.x.start("p:par", &[]);
+        self.ctn_start(&[
+            ("presetID", "1"),
+            ("presetClass", "mediacall"),
+            ("presetSubtype", "0"),
+            ("fill", "hold"),
+            ("grpId", &grp_s),
+            ("nodeType", node_type),
+        ]);
+        self.cond_list("0");
+        self.x.start("p:childTnLst", &[]);
+        self.x
+            .start("p:cmd", &[("type", "call"), ("cmd", "playFrom(0.0)")]);
+        self.x.start("p:cBhvr", &[]);
+        self.ctn_empty(&[("dur", "1"), ("fill", "hold")]);
+        self.target(&spid.to_string());
+        self.x.end("p:cBhvr");
+        self.x.end("p:cmd");
+        self.x.end("p:childTnLst");
+        self.x.end("p:cTn");
+        self.x.end("p:par");
+    }
+
+    /// The clip's `p:video` / `p:audio` node.
+    fn media_node(&mut self, m: &MediaTarget<'_>) {
+        let el = match m.clip.kind {
+            MediaKind::Video => "p:video",
+            MediaKind::Audio => "p:audio",
+        };
+        let vol = m.clip.volume.min(100_000).to_string();
+        let mut attrs = vec![("vol", vol.as_str())];
+        if m.clip.muted {
+            attrs.push(("mute", "1"));
+        }
+        if m.clip.hide_when_not_playing {
+            attrs.push(("showWhenStopped", "0"));
+        }
+        self.x.start(el, &[]);
+        self.x.start("p:cMediaNode", &attrs);
+        let mut ctn = vec![("fill", "hold"), ("display", "0")];
+        if m.clip.loop_playback {
+            ctn.insert(0, ("repeatCount", "indefinite"));
+        }
+        self.ctn_start(&ctn);
+        self.x.start("p:stCondLst", &[]);
+        self.x.empty("p:cond", &[("delay", "indefinite")]);
+        self.x.end("p:stCondLst");
+        self.x.end("p:cTn");
+        self.target(&m.spid.to_string());
+        self.x.end("p:cMediaNode");
+        self.x.end(el);
+    }
+}
+
+/// Playback settings of one media shape found in `p:timing`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct MediaTiming {
+    pub start: Option<MediaStart>,
+    pub volume: Option<u32>,
+    pub muted: bool,
+    pub hide: bool,
+    pub looped: bool,
+}
+
+/// The media settings of `p:timing` by `spid`: the `p:video`/`p:audio`
+/// nodes (volume, mute, `showWhenStopped`, `repeatCount`) and the
+/// `mediacall` effects of the main sequence (in a group that starts on
+/// load → Automatically, else In Click Sequence; clips without one play
+/// when clicked).
+pub(crate) fn read_media_timing(timing: &El) -> HashMap<u32, MediaTiming> {
+    let mut out: HashMap<u32, MediaTiming> = HashMap::new();
+    let Some((_, roots)) = timing
+        .child("tnLst")
+        .and_then(|l| l.child("par"))
+        .and_then(ctn_children)
+    else {
+        return out;
+    };
+    for node in roots {
+        match node.name.as_str() {
+            "video" | "audio" => {
+                let Some(m) = node.child("cMediaNode") else {
+                    continue;
+                };
+                let Some(spid) = m
+                    .find("spTgt")
+                    .and_then(|t| t.attr("spid"))
+                    .and_then(parse_u32)
+                else {
+                    continue;
+                };
+                let e = out.entry(spid).or_default();
+                e.volume = m.attr("vol").and_then(parse_u32);
+                e.muted = m.attr("mute").and_then(parse_bool) == Some(true);
+                e.hide = m.attr("showWhenStopped").and_then(parse_bool) == Some(false);
+                e.looped = m
+                    .child("cTn")
+                    .and_then(|c| c.attr("repeatCount"))
+                    .is_some_and(|r| r == "indefinite");
+            }
+            "seq" => {
+                let Some((ctn, groups)) = ctn_children(node) else {
+                    continue;
+                };
+                if ctn.attr("nodeType") != Some("mainSeq") {
+                    continue;
+                }
+                for group in groups {
+                    let on_load = group.child("cTn").is_some_and(|c| {
+                        c.child("stCondLst")
+                            .is_some_and(|l| l.elements().any(|c| c.attr("evt") == Some("onBegin")))
+                    });
+                    let mut calls = Vec::new();
+                    descendants(group, "cTn", &mut calls);
+                    for c in calls {
+                        if c.attr("presetClass") != Some("mediacall") {
+                            continue;
+                        }
+                        let Some(spid) = c
+                            .find("spTgt")
+                            .and_then(|t| t.attr("spid"))
+                            .and_then(parse_u32)
+                        else {
+                            continue;
+                        };
+                        let click = c.attr("nodeType") == Some("clickEffect");
+                        out.entry(spid).or_default().start = Some(if on_load && !click {
+                            MediaStart::Automatically
+                        } else {
+                            MediaStart::InClickSequence
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 // --- animations: reading ----------------------------------------------------------------
@@ -707,6 +932,8 @@ fn read_effect(
             w.add("motion path animations dropped");
             return None;
         }
+        // media play/pause/stop: read by `read_media_timing`
+        "mediacall" => return None,
         _ => {
             w.add(format!("animations of class {class} dropped"));
             return None;
@@ -837,9 +1064,18 @@ pub(crate) fn read_timing(
         match ctn.attr("nodeType") {
             Some("mainSeq") => {}
             Some("interactiveSeq") => {
-                w.add("triggered animations dropped");
+                // a media clip's "When Clicked On" trigger is no animation
+                let mut kids = Vec::new();
+                descendants(seq, "cTn", &mut kids);
+                let classes: Vec<&str> =
+                    kids.iter().filter_map(|c| c.attr("presetClass")).collect();
+                let only_media = !classes.is_empty() && classes.iter().all(|c| *c == "mediacall");
+                if !only_media {
+                    w.add("triggered animations dropped");
+                }
                 continue;
             }
+            _ if matches!(seq.name.as_str(), "video" | "audio") => continue,
             _ => {
                 w.add("animation timing nodes outside the main sequence dropped");
                 continue;
@@ -1049,7 +1285,7 @@ mod tests {
         let mut anims = all_effects();
         // the first one may start with the slide
         anims[0].trigger = Trigger::AfterPrevious;
-        let xml = written(|x| write_timing(x, &anims, &targets).unwrap());
+        let xml = written(|x| write_timing(x, &anims, &targets, &[]).unwrap());
         assert!(xml.contains(r#"<p:cond evt="onBegin" delay="0"><p:tn val="2"/></p:cond>"#));
         assert!(xml.contains(r#"<p:bldP spid="2" grpId="0"/>"#));
         assert!(xml.contains(r#"<p:bldP spid="3" grpId="0" animBg="1"/>"#));
@@ -1074,7 +1310,7 @@ mod tests {
         let mut bad = anims[0];
         bad.shape = NodeId(77);
         assert_eq!(
-            write_timing(&mut XmlOut::fragment(), &[bad], &targets),
+            write_timing(&mut XmlOut::fragment(), &[bad], &targets, &[]),
             Err(bad.id)
         );
     }

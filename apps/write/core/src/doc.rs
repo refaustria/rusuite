@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use app_common::{Applied, DispatchError, Document as AppDocument};
 use core_model::Color;
 use model_text::media::{base64_decode, base64_encode};
+use model_text::{marker_of, Comment, CommentId};
 use model_text::{
     Anchor, Block, BorderSide, BorderStyle, CellProperties, Document, Field, Indent, Inline,
     InlineImage, LevelKind, LevelOverride, LineSpacing, Media, NodeId, Note, NoteKind, NoteRef,
@@ -15,14 +16,14 @@ use model_text::{
 };
 
 use crate::command::{
-    FindFormat, FindMatch, FindQuery, ListKind, NewBlock, NewCell, NewParagraph, NewRow, NewTable,
-    PageSetupPatch, SectionPatch, WriteCommand,
+    CommentPoint, FindFormat, FindMatch, FindQuery, ListKind, NewBlock, NewCell, NewParagraph,
+    NewRow, NewTable, PageSetupPatch, SectionPatch, WriteCommand,
 };
 use crate::find::{find_matches_where, stretches, Wildcard};
 use crate::patch::{InsertedBlock, WritePatch};
 use crate::text::{
     for_each_run_in, for_each_run_mut_in, inherited_props, inherited_run, inline_len, inlines_len,
-    replace_range, run_format_at, slice,
+    replace_keeping_markers, replace_range, run_format_at, slice,
 };
 use crate::tree::{
     all_ids, ancestors, collect_ids, container, container_mut, enclosing_table, find_cell,
@@ -117,6 +118,25 @@ pub struct WriteDocument {
     pub source_name: Option<String>,
     /// List labels as last reported (see [`Document::list_numbers`]).
     labels: HashMap<NodeId, String>,
+    /// The user comments are written as (`SetUser`; kept with the
+    /// document in memory only, never saved apart from the comments).
+    pub user: Option<User>,
+}
+
+/// The author of new comments: name and initials.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct User {
+    pub name: String,
+    pub initials: String,
+}
+
+/// Word's initials of `name`: the first letter of up to three words.
+pub fn initials_of(name: &str) -> String {
+    name.split_whitespace()
+        .filter_map(|w| w.chars().next())
+        .take(3)
+        .flat_map(char::to_uppercase)
+        .collect()
 }
 
 impl Default for WriteDocument {
@@ -144,6 +164,7 @@ struct Changes {
     page: bool,
     sections: bool,
     notes: bool,
+    comments: bool,
     info: Option<String>,
 }
 
@@ -318,6 +339,7 @@ impl WriteDocument {
             docx_context: None,
             source_name: None,
             labels: HashMap::new(),
+            user: None,
         }
     }
 
@@ -342,6 +364,7 @@ impl WriteDocument {
             docx_context: None,
             source_name: None,
             labels,
+            user: None,
         })
     }
 
@@ -518,7 +541,7 @@ impl WriteDocument {
                 })
             }
             C::DeleteText { block, from, to } => {
-                self.restore_inlines(*block, *from, *to, Vec::new(), ch)
+                self.restore_inlines(*block, *from, *to, Vec::new(), true, ch)
             }
             C::ReplaceText {
                 block,
@@ -542,14 +565,14 @@ impl WriteDocument {
                     run.text.clone_from(text);
                     vec![Inline::Run(run)]
                 };
-                self.restore_inlines(*block, *from, *to, new, ch)
+                self.restore_inlines(*block, *from, *to, new, true, ch)
             }
             C::RestoreInlines {
                 block,
                 from,
                 to,
                 inlines,
-            } => self.restore_inlines(*block, *from, *to, inlines.clone(), ch),
+            } => self.restore_inlines(*block, *from, *to, inlines.clone(), false, ch),
             C::SetRunProps {
                 block,
                 from,
@@ -1234,6 +1257,94 @@ impl WriteDocument {
                 old.reverse();
                 Ok(C::UpdateFields { values: old })
             }
+            C::AddComment {
+                start,
+                end,
+                text,
+                author,
+                initials,
+                date,
+            } => self.add_comment(*start, *end, text, author, initials, date, ch),
+            C::ReplyComment {
+                parent,
+                text,
+                author,
+                initials,
+                date,
+            } => {
+                self.comment_or_err(*parent)?;
+                let root = self.doc.thread_root(*parent);
+                let old = self.doc.comments.clone();
+                let resolved = self.doc.comment(root).is_some_and(|c| c.resolved);
+                let mut c = self.new_comment(text, author, initials, date);
+                c.parent = Some(root);
+                c.resolved = resolved;
+                // After the thread's last comment.
+                let at = self
+                    .doc
+                    .comments
+                    .iter()
+                    .rposition(|x| x.id == root || x.parent == Some(root))
+                    .map_or(self.doc.comments.len(), |i| i + 1);
+                self.doc.comments.insert(at, c);
+                ch.comments = true;
+                Ok(C::RestoreComments { comments: old })
+            }
+            C::EditComment { id, text } => {
+                let style = self
+                    .comment_or_err(*id)?
+                    .content
+                    .first()
+                    .and_then(Block::as_paragraph)
+                    .and_then(|p| p.props.style.clone())
+                    .or_else(|| self.doc.styles.get("CommentText").map(|s| s.id.clone()));
+                let old = self.doc.comments.clone();
+                let content = self.doc.comment_blocks(text, style.as_deref());
+                if let Some(c) = self.doc.comments.iter_mut().find(|c| c.id == *id) {
+                    c.content = content;
+                }
+                ch.comments = true;
+                Ok(C::RestoreComments { comments: old })
+            }
+            C::DeleteComment { id } => {
+                let c = self.comment_or_err(*id)?;
+                if c.is_reply() {
+                    let old = self.doc.comments.clone();
+                    self.doc.comments.retain(|c| c.id != *id);
+                    ch.comments = true;
+                    return Ok(C::RestoreComments { comments: old });
+                }
+                self.delete_threads(&[*id], ch)
+            }
+            C::DeleteAllComments { resolved_only } => {
+                let roots: Vec<CommentId> = self
+                    .doc
+                    .comments
+                    .iter()
+                    .filter(|c| !c.is_reply() && (!*resolved_only || c.resolved))
+                    .map(|c| c.id)
+                    .collect();
+                self.delete_threads(&roots, ch)
+            }
+            C::ResolveComment { id } | C::ReopenComment { id } => {
+                self.comment_or_err(*id)?;
+                let done = matches!(cmd, C::ResolveComment { .. });
+                let root = self.doc.thread_root(*id);
+                let old = self.doc.comments.clone();
+                for c in &mut self.doc.comments {
+                    if c.id == root || c.parent == Some(root) {
+                        c.resolved = done;
+                    }
+                }
+                ch.comments = true;
+                Ok(C::RestoreComments { comments: old })
+            }
+            C::RestoreComments { comments } => {
+                let old = std::mem::replace(&mut self.doc.comments, comments.clone());
+                self.reserve_all();
+                ch.comments = true;
+                Ok(C::RestoreComments { comments: old })
+            }
             C::Compound { commands } => {
                 let mut inverses = Vec::with_capacity(commands.len());
                 for cmd in commands {
@@ -1253,6 +1364,237 @@ impl WriteDocument {
                 Ok(C::Compound { commands: inverses })
             }
         }
+    }
+
+    // ----- comments ------------------------------------------------------
+
+    /// Sets the author of new comments (`SetUser`); empty initials are
+    /// derived from the name.
+    pub fn set_user(&mut self, name: &str, initials: Option<&str>) {
+        let name = name.trim();
+        self.user = (!name.is_empty()).then(|| User {
+            name: name.to_owned(),
+            initials: initials
+                .map(str::trim)
+                .filter(|i| !i.is_empty())
+                .map_or_else(|| initials_of(name), str::to_owned),
+        });
+    }
+
+    fn comment_or_err(&self, id: CommentId) -> R<&Comment> {
+        self.doc
+            .comment(id)
+            .ok_or_else(|| invalid(format!("unknown comment {}", id.0)))
+    }
+
+    /// A comment by the given or the current user, with `text` (style
+    /// `CommentText` when defined).
+    fn new_comment(
+        &mut self,
+        text: &str,
+        author: &Option<String>,
+        initials: &Option<String>,
+        date: &Option<String>,
+    ) -> Comment {
+        let author = author
+            .clone()
+            .filter(|a| !a.trim().is_empty())
+            .or_else(|| self.user.as_ref().map(|u| u.name.clone()))
+            .unwrap_or_else(|| "Author".to_owned());
+        let initials = initials
+            .clone()
+            .filter(|i| !i.trim().is_empty())
+            .or_else(|| {
+                self.user
+                    .as_ref()
+                    .filter(|u| u.name == author)
+                    .map(|u| u.initials.clone())
+            })
+            .unwrap_or_else(|| initials_of(&author));
+        let style = self.doc.styles.get("CommentText").map(|s| s.id.clone());
+        let id = self.doc.next_comment_id();
+        let mut c = Comment::new(&mut self.doc, id, author, text, style.as_deref());
+        c.initials = initials;
+        c.date = date.clone().filter(|d| !d.is_empty());
+        c
+    }
+
+    /// Word's comment text and reference styles, when missing.
+    fn ensure_comment_styles(&mut self) {
+        let normal = self.default_style();
+        self.ensure_style(Style {
+            id: "CommentText".into(),
+            name: "annotation text".into(),
+            kind: StyleKind::Paragraph,
+            based_on: normal.clone(),
+            next: None,
+            paragraph: ParagraphProperties {
+                spacing: Some(Spacing {
+                    line: Some(LineSpacing::Multiple(1.0)),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            run: RunProperties {
+                size: Some(core_model::FontSize::from_half_points(20)),
+                ..Default::default()
+            },
+            is_default: false,
+            table: None,
+            ..Style::new("", "", StyleKind::Paragraph)
+        });
+        self.ensure_style(Style {
+            id: "CommentReference".into(),
+            name: "annotation reference".into(),
+            kind: StyleKind::Character,
+            based_on: None,
+            next: None,
+            paragraph: ParagraphProperties::default(),
+            run: RunProperties {
+                size: Some(core_model::FontSize::from_half_points(16)),
+                ..Default::default()
+            },
+            is_default: false,
+            table: None,
+            ..Style::new("", "", StyleKind::Paragraph)
+        });
+    }
+
+    /// Index of body paragraph `id` in document order (cells included).
+    fn paragraph_order(&self, id: NodeId) -> R<usize> {
+        if position(&self.doc, id).is_none() {
+            self.para(id)?;
+            return Err(invalid("comments can only be added to the body"));
+        }
+        self.doc
+            .paragraphs()
+            .position(|p| p.id == id)
+            .ok_or_else(|| invalid(format!("block {} is not a paragraph", id.0)))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn add_comment(
+        &mut self,
+        start: CommentPoint,
+        end: CommentPoint,
+        text: &str,
+        author: &Option<String>,
+        initials: &Option<String>,
+        date: &Option<String>,
+        ch: &mut Changes,
+    ) -> R<C> {
+        let (s, _) = self.range(start.block, start.offset, start.offset)?;
+        let (e, _) = self.range(end.block, end.offset, end.offset)?;
+        let (os, oe) = (
+            self.paragraph_order(start.block)?,
+            self.paragraph_order(end.block)?,
+        );
+        if (os, s) > (oe, e) {
+            return Err(invalid("the comment's start is after its end"));
+        }
+        let old_comments = self.doc.comments.clone();
+        let old_styles = self.doc.styles.clone();
+        self.ensure_comment_styles();
+        let blocks: Vec<NodeId> = if start.block == end.block {
+            vec![start.block]
+        } else {
+            vec![start.block, end.block]
+        };
+        let old: Vec<(NodeId, Vec<Inline>)> = blocks
+            .iter()
+            .map(|&b| Ok((b, self.para(b)?.inlines.clone())))
+            .collect::<R<_>>()?;
+        let comment = self.new_comment(text, author, initials, date);
+        let id = comment.id;
+        replace_range(
+            self.para_mut(end.block)?,
+            e,
+            e,
+            vec![Inline::CommentEnd { id }],
+        );
+        replace_range(
+            self.para_mut(start.block)?,
+            s,
+            s,
+            vec![Inline::CommentStart { id }],
+        );
+        self.doc.comments.push(comment);
+        ch.comments = true;
+        let mut inverse = Vec::new();
+        for (b, inlines) in old {
+            ch.block(b);
+            let len = self.para(b)?.len();
+            inverse.push(C::RestoreInlines {
+                block: b,
+                from: 0,
+                to: to_u32(len),
+                inlines,
+            });
+        }
+        inverse.push(C::RestoreComments {
+            comments: old_comments,
+        });
+        Ok(self.with_styles(C::Compound { commands: inverse }, old_styles, ch))
+    }
+
+    /// Deletes the threads `roots` and their range markers.
+    fn delete_threads(&mut self, roots: &[CommentId], ch: &mut Changes) -> R<C> {
+        let old = self.doc.comments.clone();
+        let doomed: HashSet<CommentId> = roots.iter().copied().collect();
+        let is_doomed = |i: &Inline| marker_of(i).is_some_and(|(id, _)| doomed.contains(&id));
+        let mut with_marks: Vec<NodeId> = Vec::new();
+        for c in self.doc.containers() {
+            for p in model_text::document::paragraphs_in(c) {
+                if p.inlines.iter().any(is_doomed) {
+                    with_marks.push(p.id);
+                }
+            }
+        }
+        let mut inverse = Vec::new();
+        for pid in with_marks {
+            let p = self.para_mut(pid)?;
+            let before = p.inlines.clone();
+            p.inlines.retain(|i| !is_doomed(i));
+            let len = p.len();
+            ch.block(pid);
+            inverse.push(C::RestoreInlines {
+                block: pid,
+                from: 0,
+                to: to_u32(len),
+                inlines: before,
+            });
+        }
+        self.doc
+            .comments
+            .retain(|c| !doomed.contains(&c.parent.unwrap_or(c.id)));
+        ch.comments = true;
+        inverse.push(C::RestoreComments { comments: old });
+        Ok(C::Compound { commands: inverse })
+    }
+
+    /// Restores the comment invariants after a command
+    /// ([`Document::fix_comments`]); returns the inverse of the fix.
+    fn fix_comments(&mut self, ch: &mut Changes) -> Option<C> {
+        let fix = self.doc.fix_comments();
+        if fix.is_empty() {
+            return None;
+        }
+        let mut cmds = Vec::new();
+        for (pid, old) in fix.paragraphs {
+            let len = self.doc.find_paragraph(pid).map_or(0, Paragraph::len);
+            ch.block(pid);
+            cmds.push(C::RestoreInlines {
+                block: pid,
+                from: 0,
+                to: to_u32(len),
+                inlines: old,
+            });
+        }
+        if let Some(old) = fix.comments {
+            ch.comments = true;
+            cmds.push(C::RestoreComments { comments: old });
+        }
+        Some(C::Compound { commands: cmds })
     }
 
     /// Makes sure `alloc_id` never returns an id used anywhere (after
@@ -1780,13 +2122,15 @@ impl WriteDocument {
     }
 
     /// Replaces `from..to` of paragraph `block` by `inlines`; the inverse
-    /// restores the removed inlines.
+    /// restores the removed inlines. With `keep`, comment markers whose
+    /// partner is outside the range stay (see [`replace_keeping_markers`]).
     fn restore_inlines(
         &mut self,
         block: NodeId,
         from: u32,
         to: u32,
         inlines: Vec<Inline>,
+        keep: bool,
         ch: &mut Changes,
     ) -> R<WriteCommand> {
         let (f, t) = self.range(block, from, to)?;
@@ -1798,12 +2142,16 @@ impl WriteDocument {
             }
         }
         let n = inlines_len(&inlines);
-        let removed = replace_range(self.para_mut(block)?, f, t, inlines);
+        let (removed, kept) = if keep {
+            replace_keeping_markers(self.para_mut(block)?, f, t, inlines)
+        } else {
+            (replace_range(self.para_mut(block)?, f, t, inlines), 0)
+        };
         ch.block(block);
         Ok(C::RestoreInlines {
             block,
             from,
-            to: to_u32(f + n),
+            to: to_u32(f + n + kept),
             inlines: removed,
         })
     }
@@ -2166,7 +2514,7 @@ impl WriteDocument {
             )));
         };
         f(img);
-        self.restore_inlines(block, offset, offset + 1, found, ch)
+        self.restore_inlines(block, offset, offset + 1, found, false, ch)
     }
 
     /// Edits a table in place; the inverse restores the whole table.
@@ -2381,26 +2729,51 @@ impl WriteDocument {
         let pattern: Vec<char> = q.text.chars().collect();
         let mut hits = Vec::new();
         for p in self.doc.paragraphs() {
-            let text: Vec<char> = p.text().chars().collect();
-            let ok = match format {
-                Some(f) => self.format_mask(p, f, text.len()),
-                None => vec![true; text.len()],
+            let full: Vec<char> = p.text().chars().collect();
+            let ok_full = match format {
+                Some(f) => self.format_mask(p, f, full.len()),
+                None => vec![true; full.len()],
             };
+            let is_text_full: Vec<bool> = p
+                .inlines
+                .iter()
+                .flat_map(|i| std::iter::repeat(matches!(i, Inline::Run(_))).take(inline_len(i)))
+                .collect();
+            // Comment markers are invisible: matched across, never part of
+            // a match's text.
+            let marks = p.inlines.iter().any(Inline::is_comment_marker);
+            let idx: Vec<usize> = if marks {
+                p.inlines
+                    .iter()
+                    .flat_map(|i| std::iter::repeat(!i.is_comment_marker()).take(inline_len(i)))
+                    .enumerate()
+                    .filter_map(|(k, visible)| visible.then_some(k))
+                    .collect()
+            } else {
+                (0..full.len()).collect()
+            };
+            let text: Vec<char> = idx.iter().map(|&k| full[k]).collect();
+            let ok: Vec<bool> = idx.iter().map(|&k| ok_full[k]).collect();
+            let is_text: Vec<bool> = idx.iter().map(|&k| is_text_full[k]).collect();
             let accept = |s: usize, e: usize| ok[s..e].iter().all(|&b| b);
             let m = if let Some(w) = &wildcard {
                 w.find(&text, accept)
             } else if pattern.is_empty() {
                 // Formatting only: the stretches of text (no images) that have it.
-                let is_text: Vec<bool> = p
-                    .inlines
-                    .iter()
-                    .flat_map(|i| {
-                        std::iter::repeat(matches!(i, Inline::Run(_))).take(inline_len(i))
-                    })
-                    .collect();
                 stretches(text.len(), |i| ok[i] && is_text[i])
             } else {
                 find_matches_where(&text, &pattern, q.match_case, q.whole_word, accept)
+            };
+            let m: Vec<(usize, usize)> = if marks {
+                m.into_iter()
+                    .map(|(s, e)| {
+                        let start = idx.get(s).copied().unwrap_or(full.len());
+                        let end = if e > s { idx[e - 1] + 1 } else { start };
+                        (start, end)
+                    })
+                    .collect()
+            } else {
+                m
             };
             if !m.is_empty() {
                 hits.push((p.id, m));
@@ -2535,8 +2908,10 @@ impl WriteDocument {
                         run.text = replace.to_owned();
                         vec![Inline::Run(run)]
                     };
-                    replace_range(p, s, e, new);
-                    (s, s + replace.chars().count())
+                    let (_, kept) = replace_keeping_markers(p, s, e, new);
+                    // Kept ends come first: the new text starts after them.
+                    let lead = kept_ends_before(p, s, kept);
+                    (s + lead, s + lead + replace.chars().count())
                 };
                 if let Some(f) = rf {
                     para_style = self.apply_format(id, start, end, f)?.or(para_style);
@@ -2912,6 +3287,7 @@ impl WriteDocument {
             page: ch.page.then(|| self.doc.page.clone()),
             sections: sections.then(|| self.doc.sections.clone()),
             notes: notes.then(|| self.doc.notes.clone()),
+            comments: ch.comments.then(|| self.doc.comments.clone()),
             info: ch.info,
         }
     }
@@ -2952,9 +3328,107 @@ fn affects_labels(cmd: &WriteCommand) -> bool {
         | C::RestoreTableProps { .. }
         | C::SetRowProps { .. }
         | C::ApplyCharacterStyle { .. }
-        | C::RenameStyle { .. } => false,
+        | C::RenameStyle { .. }
+        | C::ReplyComment { .. }
+        | C::EditComment { .. }
+        | C::DeleteComment { .. }
+        | C::DeleteAllComments { .. }
+        | C::ResolveComment { .. }
+        | C::ReopenComment { .. }
+        | C::RestoreComments { .. } => false,
         _ => true,
     }
+}
+
+/// Whether `cmd` can remove, move or add comment markers (what the
+/// comment fix-up after a command must look at). Typing, formatting and
+/// most structure commands cannot.
+fn may_touch_markers(cmd: &WriteCommand) -> bool {
+    match cmd {
+        C::Compound { commands } => commands.iter().any(may_touch_markers),
+        C::InsertText { .. }
+        | C::SetRunProps { .. }
+        | C::SplitParagraph { .. }
+        | C::JoinWithPrevious { .. }
+        | C::SetParagraphProps { .. }
+        | C::RestoreParagraphProps { .. }
+        | C::SetStyle { .. }
+        | C::ApplyCharacterStyle { .. }
+        | C::ApplyList { .. }
+        | C::IndentList { .. }
+        | C::InsertImage { .. }
+        | C::SetImageSize { .. }
+        | C::SetImageAlt { .. }
+        | C::SetImageAnchor { .. }
+        | C::SetImageWrap { .. }
+        | C::InsertField { .. }
+        | C::UpdateFields { .. }
+        | C::UpdateToc { .. }
+        | C::SetPage { .. }
+        | C::SetCellProps { .. }
+        | C::RestoreCellProps { .. }
+        | C::SetTableProps { .. }
+        | C::RestoreTableProps { .. }
+        | C::SetRowProps { .. }
+        | C::AddStyle { .. }
+        | C::UpdateStyle { .. }
+        | C::RenameStyle { .. }
+        | C::SetDefaultStyle { .. }
+        | C::RestoreStyles { .. }
+        | C::RestoreNumbering { .. }
+        | C::RemoveMedia { .. }
+        | C::RestoreMedia { .. } => false,
+        _ => true,
+    }
+}
+
+/// Whether the inlines or blocks `cmd` carries contain comment markers
+/// (they may introduce markers into a document without comments).
+fn carries_markers(cmd: &WriteCommand) -> bool {
+    fn in_blocks(blocks: &[NewBlock]) -> bool {
+        blocks.iter().any(|b| match b {
+            NewBlock::Paragraph(p) => p.inlines.iter().any(Inline::is_comment_marker),
+            NewBlock::Table(t) => t
+                .rows
+                .iter()
+                .flat_map(|r| &r.cells)
+                .any(|c| in_blocks(&c.blocks)),
+            NewBlock::Toc(_) => false,
+        })
+    }
+    match cmd {
+        C::Compound { commands } => commands.iter().any(carries_markers),
+        C::RestoreInlines { inlines, .. } => inlines.iter().any(Inline::is_comment_marker),
+        C::InsertBlocks { blocks, .. }
+        | C::ReplaceBlocks { blocks, .. }
+        | C::ReplaceNote { blocks, .. } => in_blocks(blocks),
+        C::SetHeaderFooter {
+            blocks: Some(blocks),
+            ..
+        } => in_blocks(blocks),
+        C::RestoreNotes { .. } | C::RestoreSections { .. } => true,
+        _ => false,
+    }
+}
+
+/// The number of comment ends among the first `kept` markers at `at` in
+/// `p` (a replacement puts kept ends before the new text).
+fn kept_ends_before(p: &Paragraph, at: usize, kept: usize) -> usize {
+    if kept == 0 {
+        return 0;
+    }
+    let mut pos = 0;
+    let mut n = 0;
+    for inline in &p.inlines {
+        if pos >= at {
+            match inline {
+                Inline::CommentEnd { .. } if n < kept => n += 1,
+                _ => break,
+            }
+        }
+        pos += inline_len(inline);
+    }
+    n
 }
 
 /// Index in `p.inlines` of the field at char position `offset`.
@@ -3146,6 +3620,14 @@ impl AppDocument for WriteDocument {
             };
             ch.sections = true;
             ch.page = true;
+        }
+        // Comments follow their markers (a deleted range, a lone marker).
+        if may_touch_markers(cmd) && (!self.doc.comments.is_empty() || carries_markers(cmd)) {
+            if let Some(fix) = self.fix_comments(&mut ch) {
+                inverse = C::Compound {
+                    commands: vec![fix, inverse],
+                };
+            }
         }
         if affects_labels(cmd) {
             self.relabel(&mut ch);

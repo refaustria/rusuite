@@ -306,6 +306,11 @@ pub struct TextRun {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub field: Option<TextField>,
+    /// A hyperlink (`a:rPr/a:hlinkClick`; drawn underlined in the
+    /// theme's hyperlink colour).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub hyperlink: Option<crate::link::Hyperlink>,
 }
 
 impl TextRun {
@@ -315,6 +320,7 @@ impl TextRun {
             props: RunProperties::default(),
             text: text.into(),
             field: None,
+            hyperlink: None,
         }
     }
 
@@ -324,6 +330,7 @@ impl TextRun {
             props: RunProperties::default(),
             text: text.into(),
             field: Some(field),
+            hyperlink: None,
         }
     }
 }

@@ -1,5 +1,5 @@
-//! Paragraph content: text runs, inline images, breaks, fields and
-//! footnote/endnote references.
+//! Paragraph content: text runs, inline images, breaks, fields,
+//! footnote/endnote references and comment range markers.
 
 use core_model::units::Emu;
 use core_model::RunProperties;
@@ -10,9 +10,10 @@ use crate::media::MediaId;
 /// One piece of paragraph content.
 ///
 /// Serializes as `{"kind":"run","value":{…}}`, `{"kind":"image","value":{…}}`,
-/// `{"kind":"break","value":"line"}`, `{"kind":"field","value":{…}}` or
-/// `{"kind":"noteRef","value":{…}}`. Images, breaks, fields and note
-/// references occupy one position each.
+/// `{"kind":"break","value":"line"}`, `{"kind":"field","value":{…}}`,
+/// `{"kind":"noteRef","value":{…}}` or
+/// `{"kind":"commentStart","value":{"id":3}}`. Images, breaks, fields,
+/// note references and comment markers occupy one position each.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
 #[cfg_attr(
@@ -32,6 +33,18 @@ pub enum Inline {
     /// The reference mark of a footnote or endnote (the note's content
     /// lives in [`crate::Document::notes`]).
     NoteRef(NoteRef),
+    /// Where the range of comment `id` starts (docx `w:commentRangeStart`);
+    /// an invisible atom (see [`crate::comment`]).
+    CommentStart {
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: crate::comment::CommentId,
+    },
+    /// Where the range of comment `id` ends (docx `w:commentRangeEnd`
+    /// followed by the `w:commentReference` run).
+    CommentEnd {
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: crate::comment::CommentId,
+    },
 }
 
 impl Inline {
@@ -41,6 +54,14 @@ impl Inline {
             Inline::Run(run) => Some(run),
             _ => None,
         }
+    }
+
+    /// Whether this is a comment range marker.
+    pub fn is_comment_marker(&self) -> bool {
+        matches!(
+            self,
+            Inline::CommentStart { .. } | Inline::CommentEnd { .. }
+        )
     }
 }
 

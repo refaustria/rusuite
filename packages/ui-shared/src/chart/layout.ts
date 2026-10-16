@@ -47,6 +47,14 @@ export interface ChartLayoutOptions {
   labels?: Partial<ChartLabels>;
   /** Gallery icons: no texts, no title or legend, thin padding. */
   thumbnail?: boolean;
+  /**
+   * The chart area: fill and border colours (`null` = none; default: white
+   * with the Office 2013 border). Show passes no fill and no border (charts
+   * on slides are transparent).
+   */
+  area?: { fill: string | null; border: string | null };
+  /** Colour of titles, labels and the legend (default `#595959`, Office's tx1 +35 %). */
+  textColor?: string;
 }
 
 // --- constants (docs/charts.md, 100 % zoom, CSS px) --------------------------------------------
@@ -102,6 +110,7 @@ export const dashPattern = (dash: LineDash | undefined, width: number): number[]
 class Builder {
   items: SceneItem[] = [];
   hits: SceneHit[] = [];
+  textColor = TEXT_COLOR;
   push(item: SceneItem): void {
     this.items.push(item);
   }
@@ -141,7 +150,7 @@ class Builder {
   ): void {
     if (!text) return;
     const item: SceneItem = {
-      t: "text", x: r2(x), y: r2(y), text, size: r2(o.size), color: o.color ?? TEXT_COLOR, align: o.align ?? "left", baseline: o.baseline ?? "top",
+      t: "text", x: r2(x), y: r2(y), text, size: r2(o.size), color: o.color ?? this.textColor, align: o.align ?? "left", baseline: o.baseline ?? "top",
     };
     if (o.bold) item.bold = true;
     if (o.rotate) item.rotate = o.rotate;
@@ -340,7 +349,9 @@ export function layoutChart(chart: Chart, data: ResolvedChart, width: number, he
   };
   const w = Math.max(1, width);
   const h = Math.max(1, height);
-  b.rect(0.5, 0.5, w - 1, h - 1, { fill: "#FFFFFF", stroke: ctx.thumb ? undefined : BORDER_COLOR, lineWidth: 1 }, { type: "chartArea" });
+  if (options.textColor) b.textColor = options.textColor;
+  const area = options.area ?? { fill: "#FFFFFF", border: ctx.thumb ? null : BORDER_COLOR };
+  b.rect(0.5, 0.5, w - 1, h - 1, { fill: area.fill ?? undefined, stroke: area.border ?? undefined, lineWidth: 1 }, { type: "chartArea" });
   b.hit({ type: "chartArea" }, { kind: "rect", x: 0, y: 0, w, h });
   const scene = (plot: Box, titleText?: string): ChartScene => ({
     width: w, height: h, items: b.items, hits: b.hits, plot: { x: r2(plot.x), y: r2(plot.y), w: r2(plot.w), h: r2(plot.h) }, axes: ctx.axes,

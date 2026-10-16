@@ -1,6 +1,7 @@
 // Model-side helpers shared by the mapping layer (ADR 0006/0007): canonical
 // form for structural comparison, char-offset arithmetic (Unicode scalar
-// values; images and breaks count as one position) and property merges
+// values; images, breaks, fields, note references and comment markers
+// count as one position) and property merges
 // that mirror the Rust `apply` functions.
 
 import type { RunProperties } from "../../../../packages/ui-shared/src/generated/RunProperties";

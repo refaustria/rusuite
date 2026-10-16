@@ -6,9 +6,9 @@ const T = { x: 0, y: 0, w: 914400, h: 914400, rotationDeg: 0 };
 
 describe("shape library", () => {
   it("has PowerPoint's groups and every named preset once (39 with the line)", () => {
-    expect(SHAPE_GROUPS.map((g) => g.id)).toEqual(["lines", "rectangles", "basic", "arrows", "flowchart", "stars", "callouts"]);
-    expect(NAMED_PRESETS).toHaveLength(39);
-    expect(new Set(NAMED_PRESETS).size).toBe(39);
+    expect(SHAPE_GROUPS.map((g) => g.id)).toEqual(["lines", "rectangles", "basic", "arrows", "flowchart", "stars", "callouts", "actionButtons"]);
+    expect(NAMED_PRESETS).toHaveLength(51);
+    expect(new Set(NAMED_PRESETS).size).toBe(51);
     for (const g of SHAPE_GROUPS) for (const id of g.items) expect(choiceOf(id)).not.toBeNull();
     expect(choiceOf("nope")).toBeNull();
   });
@@ -65,5 +65,19 @@ describe("shape library", () => {
     expect(textRect("diamond", 100, 100)).toEqual({ x: 25, y: 25, w: 50, h: 50 });
     expect(textRect("triangle", 100, 100)).toEqual({ x: 25, y: 50, w: 50, h: 50 });
     expect(textRect({ custom: { paths: [] } } as Preset, 10, 10)).toEqual({ x: 0, y: 0, w: 10, h: 10 });
+  });
+});
+
+describe("action buttons", () => {
+  it("get PowerPoint's default actions when inserted", async () => {
+    const { defaultAction, isActionButton } = await import("./presets");
+    expect(defaultAction("actionButtonForwardNext")).toEqual({ target: { kind: "slide", value: { kind: "next" } } });
+    expect(defaultAction("actionButtonReturn")).toEqual({ target: { kind: "slide", value: { kind: "lastViewed" } } });
+    expect(defaultAction("actionButtonHelp")).toBeUndefined();
+    expect(isActionButton("actionButtonBlank")).toBe(true);
+    expect(isActionButton("rect")).toBe(false);
+    const s = choiceShape(choiceOf("actionButtonHome")!, { x: 0, y: 0, w: 10, h: 10, rotationDeg: 0 }, -1);
+    expect(s.clickAction).toEqual({ target: { kind: "slide", value: { kind: "first" } } });
+    expect(choiceShape(choiceOf("rect")!, { x: 0, y: 0, w: 10, h: 10, rotationDeg: 0 }, -1).clickAction).toBeUndefined();
   });
 });

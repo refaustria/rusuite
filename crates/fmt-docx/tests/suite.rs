@@ -342,7 +342,10 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                 Inline::Break(BreakKind::Line) => {
                     out.insert("break:line".into());
                 }
-                Inline::Field(_) | Inline::NoteRef(_) => {}
+                Inline::Field(_)
+                | Inline::NoteRef(_)
+                | Inline::CommentStart { .. }
+                | Inline::CommentEnd { .. } => {}
             }
         }
     }
@@ -392,7 +395,33 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
         cm(m.left)
     ));
     style_features(doc, &mut out);
+    comment_features(doc, &mut out);
     out.into_iter().map(|f| canon(&f)).collect()
+}
+
+/// Comments: count (replies included), distinct authors, replies,
+/// resolved threads, a range starting in a table cell.
+fn comment_features(doc: &Document, out: &mut BTreeSet<String>) {
+    if doc.comments.is_empty() {
+        return;
+    }
+    out.insert(format!("comment:count={}", doc.comments.len()));
+    let authors: BTreeSet<&str> = doc.comments.iter().map(|c| c.author.as_str()).collect();
+    out.insert(format!("comment:authors={}", authors.len()));
+    if doc.comments.iter().any(|c| c.parent.is_some()) {
+        out.insert("comment:reply".into());
+    }
+    if doc.comments.iter().any(|c| c.resolved) {
+        out.insert("comment:resolved".into());
+    }
+    let top: BTreeSet<NodeId> = doc.body.iter().map(Block::id).collect();
+    if doc
+        .comment_ranges()
+        .iter()
+        .any(|r| !top.contains(&r.start_block))
+    {
+        out.insert("comment:in-table".into());
+    }
 }
 
 /// Named styles in use: custom paragraph / character styles, linked
@@ -646,6 +675,7 @@ fn assert_same(name: &str, a: &Document, b: &Document) {
     assert_eq!(a.styles, b.styles, "{name}: styles");
     assert_eq!(a.sections, b.sections, "{name}: sections");
     assert_eq!(a.notes, b.notes, "{name}: notes");
+    assert_eq!(a.comments, b.comments, "{name}: comments");
     assert_eq!(a.numbering, b.numbering, "{name}: numbering");
     assert_eq!(a.page, b.page, "{name}: page");
     assert_eq!(a.media, b.media, "{name}: media");
@@ -1221,4 +1251,196 @@ fn built_in_table_styles_are_written_like_word() {
     // A table using a style keeps it, and the style resolves after reading.
     let back = fmt_docx::read(&bytes).unwrap();
     assert_eq!(back.styles, doc.styles);
+}
+
+// --- comments (P8-25) ------------------------------------------------------------
+
+#[test]
+fn comments_threads_and_ranges() {
+    let out = read_out("provisional-59-comments.docx");
+    assert_no_new_warnings(&out.warnings);
+    let doc = out.document;
+    type Row<'a> = (u32, &'a str, &'a str, Option<&'a str>, Option<u32>, bool);
+    let summary: Vec<Row> = doc
+        .comments
+        .iter()
+        .map(|c| {
+            (
+                c.id.0,
+                c.author.as_str(),
+                c.initials.as_str(),
+                c.date.as_deref(),
+                c.parent.map(|p| p.0),
+                c.resolved,
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (
+                0,
+                "Anna Berg",
+                "AB",
+                Some("2026-10-01T09:30:00Z"),
+                None,
+                false
+            ),
+            (
+                1,
+                "Ben Cole",
+                "BC",
+                Some("2026-10-02T10:00:00Z"),
+                None,
+                false
+            ),
+            (
+                2,
+                "Anna Berg",
+                "AB",
+                Some("2026-10-02T11:15:00Z"),
+                Some(1),
+                false
+            ),
+            (
+                3,
+                "Ben Cole",
+                "BC",
+                Some("2026-10-03T08:00:00Z"),
+                None,
+                true
+            ),
+            (
+                4,
+                "Anna Berg",
+                "AB",
+                Some("2026-10-04T14:45:00Z"),
+                None,
+                false
+            ),
+        ]
+    );
+    assert_eq!(
+        doc.comments[1].text(),
+        "This whole paragraph needs a source.\nSecond paragraph of the comment."
+    );
+    // The commented text of every thread (markers resolved to offsets).
+    let commented: Vec<(u32, String)> = doc
+        .comment_ranges()
+        .iter()
+        .map(|r| {
+            assert_eq!(r.start_block, r.end_block);
+            let p = doc.find_paragraph(r.start_block).unwrap();
+            let chars: Vec<char> = p.text().chars().collect();
+            let t: String = chars[r.start + 1..r.end].iter().collect();
+            (r.id.0, t.replace('\u{FEFF}', ""))
+        })
+        .collect();
+    assert_eq!(commented[0], (0, "quick brown".to_owned()));
+    assert!(
+        commented[1].1.starts_with("Reference documents"),
+        "{commented:?}"
+    );
+    assert_eq!(commented[2], (3, "resolved".to_owned()));
+    assert_eq!(commented[3], (4, "with a note".to_owned()));
+    assert_eq!(commented.len(), 4, "replies have no range of their own");
+
+    // Our output: Word's parts, markers for every thread member.
+    let bytes = fmt_docx::write(&doc).unwrap();
+    let pkg = Package::open(Cursor::new(bytes.as_slice())).unwrap();
+    let part = |n: &str| {
+        String::from_utf8(
+            pkg.part(&PartName::new(n).unwrap())
+                .unwrap_or_else(|| panic!("{n} missing"))
+                .data
+                .clone(),
+        )
+        .unwrap()
+    };
+    let main = pretty_document_xml(&bytes);
+    assert_eq!(main.matches("<w:commentRangeStart").count(), 5);
+    assert_eq!(main.matches("<w:commentRangeEnd").count(), 5);
+    assert_eq!(main.matches("<w:commentReference").count(), 5);
+    let comments = part("/word/comments.xml");
+    assert_eq!(comments.matches("<w:comment ").count(), 5);
+    assert!(comments.contains(
+        r#"<w:comment w:id="0" w:author="Anna Berg" w:date="2026-10-01T09:30:00Z" w:initials="AB">"#
+    ));
+    assert_eq!(comments.matches("<w:annotationRef/>").count(), 5);
+    let ext = part("/word/commentsExtended.xml");
+    assert!(
+        ext.contains(
+            r#"<w15:commentEx w15:paraId="10000002" w15:paraIdParent="10000001" w15:done="0"/>"#
+        ),
+        "{ext}"
+    );
+    assert!(
+        ext.contains(r#"<w15:commentEx w15:paraId="10000003" w15:done="1"/>"#),
+        "{ext}"
+    );
+    assert!(part("/word/commentsIds.xml")
+        .contains(r#"w16cid:paraId="10000004" w16cid:durableId="30000004""#));
+    assert!(
+        part("/word/commentsExtensible.xml").contains(r#"w16cex:dateUtc="2026-10-04T14:45:00Z""#)
+    );
+    let ct = &pkg
+        .part(&PartName::new("/word/commentsExtended.xml").unwrap())
+        .unwrap()
+        .content_type;
+    assert!(
+        ct.ends_with("wordprocessingml.commentsExtended+xml"),
+        "{ct}"
+    );
+    assert_same("59 (no context)", &doc, &reread(&doc));
+    insta::assert_snapshot!("document_xml_59", main);
+}
+
+#[test]
+fn comments_read_tolerantly() {
+    // Without commentsExtended every comment is a root; a comment without
+    // a range is anchored at its reference; markers between paragraphs
+    // open the next / close the previous paragraph.
+    let mut doc = Document::new();
+    doc.body.clear();
+    for t in ["one", "two"] {
+        let id = doc.alloc_id();
+        doc.body.push(Block::Paragraph(Paragraph::with_text(id, t)));
+    }
+    let id = doc.body[0].id();
+    let c = model_text::Comment::new(&mut doc, model_text::CommentId(7), "X", "c", None);
+    doc.comments.push(c);
+    if let Block::Paragraph(p) = &mut doc.body[0] {
+        let _ = id;
+        p.inlines.insert(
+            0,
+            Inline::CommentStart {
+                id: model_text::CommentId(7),
+            },
+        );
+        p.inlines.push(Inline::CommentEnd {
+            id: model_text::CommentId(7),
+        });
+    }
+    let bytes = fmt_docx::write(&doc).unwrap();
+    let mut pkg = Package::open(Cursor::new(bytes.as_slice())).unwrap();
+    let main = PartName::new("/word/document.xml").unwrap();
+    let xml = String::from_utf8(pkg.part(&main).unwrap().data.clone()).unwrap();
+    // Move the start between the paragraphs' boundary and drop the range end.
+    let xml = xml
+        .replacen(
+            r#"<w:p><w:commentRangeStart w:id="7"/>"#,
+            r#"<w:commentRangeStart w:id="7"/><w:p>"#,
+            1,
+        )
+        .replacen(r#"<w:commentRangeEnd w:id="7"/>"#, "", 1);
+    pkg.insert_part(main, fmt_ooxml::ct::DOCUMENT, xml.into_bytes());
+    pkg.remove_part(&PartName::new("/word/commentsExtended.xml").unwrap());
+    let bytes = pkg.write(Cursor::new(Vec::new())).unwrap().into_inner();
+    let out = fmt_docx::read_with_context(&bytes).unwrap();
+    let back = out.document;
+    assert_eq!(back.comments.len(), 1);
+    let r = back.comment_ranges();
+    // Start at 0 (from between the paragraphs), end at the reference.
+    assert_eq!((r[0].start, r[0].end), (0, 4));
+    assert_eq!(back.body[0].as_paragraph().unwrap().display_text(), "one");
 }

@@ -265,9 +265,10 @@ impl Shape {
             ShapeKind::Auto {
                 geometry, adjust, ..
             } => geometry.connection_sites(w, h, adjust),
-            ShapeKind::Picture { .. } | ShapeKind::Table(_) => {
-                crate::Preset::Rect.connection_sites(w, h, &Adjust::new())
-            }
+            ShapeKind::Picture { .. }
+            | ShapeKind::Table(_)
+            | ShapeKind::Chart(_)
+            | ShapeKind::Media(_) => crate::Preset::Rect.connection_sites(w, h, &Adjust::new()),
             ShapeKind::Group { .. } | ShapeKind::Connector(_) => Vec::new(),
         }
     }

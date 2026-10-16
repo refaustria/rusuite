@@ -3,7 +3,7 @@
 The chart model shared by Calc and Show, how Calc stores and resolves charts, and the rendering
 rules a chart renderer must follow so that Calc and Show draw the same chart the same way (and as
 close to Excel/PowerPoint as we can get without their layout engine). Backend: P8-18; renderer and
-Calc UI: P8-20 (see "Renderer" and "Calc UI" below); Show charts are a later task.
+Calc UI: P8-20 (see "Renderer" and "Calc UI" below); Show charts: P8-24 ("Show" below).
 
 | Layer | Where | What |
 |---|---|---|
@@ -14,6 +14,9 @@ Calc UI: P8-20 (see "Renderer" and "Calc UI" below); Show charts are a later tas
 | Calc wire | `calc-core` (`charts.rs`, `wire_chart.rs`) | commands, requests, patch `chartSheets`, TS types in `apps/calc/src/generated/` |
 | Renderer | `@rusuite/ui-shared` `chart/` | `layoutChart` → `ChartScene`, canvas/SVG painters, hit-testing (app-independent) |
 | Calc UI | `apps/calc/src/charts/` | charts on the grid, Insert › Charts, Chart Design / Format tabs, dialogs, Format pane, printing |
+| Show document | `model_show::chart` | `ChartShape { chart, data: ChartData, workbook }`: the chart plus its embedded data table |
+| pptx | `fmt-pptx` (`chart.rs`) | `p:graphicFrame` → `ppt/charts/chartN.xml` + `ppt/embeddings/*.xlsx` |
+| Show UI | `apps/show/src/charts/` | charts on the slide, Insert › Chart, Chart Design / Format tabs, Edit Data, Format pane |
 
 File-format details and losses: [ooxml-subset.md](ooxml-subset.md) (xlsx, "Charts").
 
@@ -333,3 +336,51 @@ resolve (Calc recomputes) and keeps unsupported chart types verbatim.
   intersect it as SVG at their place, cut at the page; the selection scope prints the charts that
   intersect the selection.
 - Unsupported charts are drawn as the placeholder and are read-only (dialogs and pane disabled).
+
+## Show (P8-24)
+
+A chart on a slide is `ShapeKind::Chart(ChartShape)`:
+
+- `chart`: the same `Chart` as Calc's. Its references point into the embedded sheet `Sheet1` the
+  way PowerPoint lays it out: series names in row 1 from column B (`Sheet1!$B$1`), categories in
+  column A from row 2 (`Sheet1!$A$2:$A$5`), the values of series *i* below its name
+  (`Sheet1!$B$2:$B$5`). `ChartShape::canonicalize` rewrites them (and drops reference caches)
+  whenever the data changes; references of charts read from files are kept as they are.
+- `data: ChartData { categories: [text], series: [{name, values: [number | null], formatCode?}] }`:
+  the literal table (there is no sheet). Series *i* of the chart shows table series *i* (by
+  position). Resolution (`ChartData::resolve`, ported to `apps/show/src/charts/data.ts` so the
+  editor, thumbnails, presenter, audience window and print draw synchronously): names from the
+  table (a literal series name wins, empty → `Series<n>`), categories as typed, numeric categories
+  become X values (scatter without them: 1, 2, …), the automatic title is the only series' name.
+- `workbook`: the file's embedded `.xlsx` (raw bytes in the media store), written back verbatim
+  while the data is unchanged; `None` → a workbook is generated with `fmt-xlsx` from the table on
+  save (so PowerPoint's Edit Data works). A file workbook identical to the generated one is not
+  kept. Editing the data drops it.
+
+Commands: `insertChart {slide, kind, transform?, newId}` (PowerPoint's sample: three series ×
+four categories "Category 1…4" / "Series 1…3" with 4.3/2.5/3.5/4.5, 2.4/4.4/1.8/2.8, 2/2/3/5;
+scatter: one series "Y-Values" at X 0.7/1.8/2.6; pie/doughnut: the first series, vary-coloured;
+title "Chart Title" for several series, legend at the bottom; combo is refused – the UI inserts a
+column chart and changes its type), `setChartData {shape, data}` (Edit Data, Switch Row/Column =
+the table transposed), `updateChart {shape, chart}` (every Chart Design / Format edit; the
+references are canonicalized again). Unsupported charts are read-only.
+
+Rendering on a slide: `layoutChart` with the presentation's theme colours, a transparent chart area
+(`area: {fill: null, border: null}`, written as `c:spPr` with `a:noFill`) and text in the theme's
+`tx1` tinted +0.35 (`textColor`), PowerPoint's look; painted with `drawChartScene` in a Konva
+`Shape` (editor, thumbnails, presenter, audience window; print snapshots the stage).
+
+Show UI (`apps/show/src/charts/`): Insert › Chart (type list, sub-type icons from the renderer, a
+live preview on the sample data); while one chart is selected Chart Design (Add Chart Element ▾ as
+one sectioned menu, Quick Layout ▾, Change Colors ▾, Chart Styles ▾, Switch Row/Column, Edit Data,
+Change Chart Type) and Format (series picker, Format pane, Reset to Match Style, Shape Fill / Shape
+Outline of that series). Edit Data is an in-app grid (row 1 series names, column A categories,
+values elsewhere; Add Series / Add Category, × removes a column or row, Switch Row/Column; empty
+rows/columns are dropped, text in value cells counts as blank). The Format pane offers Calc's
+options grouped by section (chart: title, legend, style, empty cells; the picked series: fill,
+line colour/width/dash, markers, smooth, secondary axis (combo), gap width/overlap, first slice
+angle, hole size, vary colours, linear trendline; value and category axes: bounds, units, number
+format, log scale, reverse, gridlines, hide; data labels: parts and position). `presets.ts` and
+`format.ts` are copies of Calc's pure modules on the shared model (Calc's own files are untouched;
+they can be switched to the shared copy later); the Calc pane itself is bound to Calc's store and
+element selection, so Show has its own smaller pane.

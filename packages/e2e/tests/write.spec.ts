@@ -463,3 +463,123 @@ test.describe("Write", () => {
     expect(zipText(docx, "word/document.xml")).not.toContain("Memo\"");
   });
 });
+
+// P8-25: comments (Review tab, balloons, docx parts).
+test.describe("Write comments", () => {
+  const COMMENTS = testdata("docx/provisional-59-comments.docx");
+
+  /** A new document with one paragraph, the caret inside "brave". */
+  async function typed(page: Page) {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Hello brave world");
+    await page.keyboard.press("Home");
+    for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowRight");
+  }
+
+  /** Ctrl+Alt+M, the user name on the first comment, the text, Ctrl+Enter. */
+  async function comment(page: Page, text: string) {
+    await page.keyboard.press("Control+Alt+m");
+    const dialog = page.getByRole("dialog", { name: "User Name" });
+    if (await dialog.isVisible().catch(() => false)) {
+      await dialog.getByTestId("user-name").fill("Anna Berg");
+      await dialog.getByTestId("user-ok").click();
+    }
+    const box = page.getByTestId("comment-draft-text");
+    await box.fill(text);
+    await box.press("Control+Enter");
+    await expect(page.getByTestId("comment-count")).toBeVisible();
+  }
+
+  test("a new comment → comments.xml and commentRangeStart in the saved file", async ({ page }) => {
+    const errors = trackErrors(page);
+    await typed(page);
+    await page.keyboard.press("Control+Alt+m");
+    await page.getByRole("dialog", { name: "User Name" }).getByTestId("user-name").fill("Anna Berg");
+    await page.getByTestId("user-ok").click();
+    await page.getByTestId("comment-draft-text").fill("Too bold?");
+    await page.getByTestId("comment-draft-text").press("Control+Enter");
+    const balloon = page.getByTestId("comments-margin").getByTestId("comment-thread");
+    await expect(balloon).toHaveCount(1);
+    await expect(balloon.getByTestId("comment-text")).toHaveText("Too bold?");
+    await expect(balloon.getByTestId("comment-author")).toHaveText("Anna Berg");
+    await expect(page.getByTestId("comment-count")).toHaveText("1 comment");
+    await expect(editor(page).locator(".comment-range")).toHaveText("brave");
+    await page.screenshot({ path: `${SHOTS}/comments-new.png` });
+    const docx = await saveViaBackstage(page);
+    const comments = zipText(docx, "word/comments.xml");
+    expect(comments).toContain('w:author="Anna Berg"');
+    expect(comments).toContain('w:initials="AB"');
+    expect(comments).toContain("Too bold?");
+    const xml = zipText(docx, "word/document.xml");
+    expect(xml).toContain('<w:commentRangeStart w:id="1"/>');
+    expect(xml).toMatch(/<w:commentRangeStart w:id="1"\/>(?:(?!<\/w:p>)[^])*brave(?:(?!<\/w:p>)[^])*<w:commentRangeEnd w:id="1"\/>/);
+    expect(xml).toContain('<w:commentReference w:id="1"/>');
+    errors.expectNone();
+  });
+
+  test("a reply → commentsExtended.xml links it with paraIdParent", async ({ page }) => {
+    await typed(page);
+    await comment(page, "Root comment");
+    const thread = page.getByTestId("comment-thread").first();
+    await thread.click();
+    const reply = thread.getByTestId("comment-reply-box");
+    await reply.fill("A reply");
+    await reply.press("Control+Enter");
+    await expect(thread.getByTestId("comment-reply")).toHaveCount(1);
+    await expect(page.getByTestId("comment-count")).toHaveText("2 comments");
+    await page.screenshot({ path: `${SHOTS}/comments-reply.png` });
+    const docx = await saveViaBackstage(page);
+    const ext = zipText(docx, "word/commentsExtended.xml");
+    expect(ext).toMatch(/<w15:commentEx w15:paraId="10000001" w15:paraIdParent="10000000" w15:done="0"\/>/);
+    expect(zipText(docx, "word/comments.xml")).toContain("A reply");
+  });
+
+  test("resolve → w15:done=\"1\"", async ({ page }) => {
+    await typed(page);
+    await comment(page, "Please fix");
+    const thread = page.getByTestId("comment-thread").first();
+    await thread.getByTestId("comment-resolve").click();
+    await expect(thread).toHaveAttribute("data-resolved", "true");
+    const docx = await saveViaBackstage(page);
+    expect(zipText(docx, "word/commentsExtended.xml")).toContain('w15:done="1"');
+  });
+
+  test("deleting the commented text deletes the comment", async ({ page }) => {
+    await typed(page);
+    await comment(page, "Soon gone");
+    await editor(page).locator("p").first().click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Shift+Home");
+    await page.keyboard.press("Delete");
+    await expect(page.getByTestId("comment-count")).toHaveCount(0);
+    await expect(page.getByTestId("comment-thread")).toHaveCount(0);
+    await page.keyboard.type("Fresh text");
+    const docx = await saveViaBackstage(page);
+    expect(zipText(docx, "word/document.xml")).not.toContain("commentRange");
+    expect(() => zipText(docx, "word/comments.xml")).toThrow();
+  });
+
+  test("the reference document shows one balloon per thread", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openWrite(page);
+    await openViaBackstage(page, COMMENTS);
+    const margin = page.getByTestId("comments-margin");
+    await expect(margin.getByTestId("comment-thread")).toHaveCount(4);
+    await expect(margin.getByTestId("comment-reply")).toHaveCount(1);
+    await expect(margin.locator('[data-resolved="true"]')).toHaveCount(1);
+    await expect(page.getByTestId("comment-count")).toHaveText("5 comments");
+    // Balloons do not overlap.
+    const boxes = await margin.locator("[data-balloon-id]").evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => [r.top, r.bottom]));
+    const sorted = boxes.sort((a, b) => a[0]! - b[0]!);
+    for (let i = 1; i < sorted.length; i++) expect(sorted[i]![0]!).toBeGreaterThanOrEqual(sorted[i - 1]![1]! - 0.5);
+    await margin.getByTestId("comment-thread").first().click();
+    await expect(page.getByTestId("comment-connector")).toBeVisible();
+    await page.screenshot({ path: `${SHOTS}/comments-reference.png` });
+    // Narrow window: the Comments pane replaces the balloons.
+    await page.setViewportSize({ width: 1100, height: 900 });
+    await expect(page.getByTestId("comments-pane").getByTestId("comment-thread")).toHaveCount(4);
+    await page.screenshot({ path: `${SHOTS}/comments-pane.png` });
+    errors.expectNone();
+  });
+});

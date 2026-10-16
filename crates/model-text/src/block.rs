@@ -122,9 +122,9 @@ impl Paragraph {
     }
 
     /// The paragraph's text: runs verbatim (tabs kept), images and fields
-    /// as U+FFFC, line breaks as U+000B, page breaks as U+000C and note
-    /// references as U+0002 (as Word's `Range.Text`). One char per
-    /// position (see [`Paragraph::len`]).
+    /// as U+FFFC, line breaks as U+000B, page breaks as U+000C, note
+    /// references as U+0002 (as Word's `Range.Text`) and comment markers
+    /// as U+FEFF. One char per position (see [`Paragraph::len`]).
     pub fn text(&self) -> String {
         let mut out = String::new();
         self.push_text(&mut out);
@@ -132,8 +132,8 @@ impl Paragraph {
     }
 
     /// Number of positions in the paragraph: characters (Unicode scalar
-    /// values) of the runs plus one per image, break, field or note
-    /// reference, i.e. the char length of [`Paragraph::text`]. Offsets into a paragraph (ADR 0007)
+    /// values) of the runs plus one per image, break, field, note
+    /// reference or comment marker, i.e. the char length of [`Paragraph::text`]. Offsets into a paragraph (ADR 0007)
     /// range over `0..=len()`.
     pub fn len(&self) -> usize {
         self.inlines
@@ -165,12 +165,14 @@ impl Paragraph {
                 Inline::Break(crate::BreakKind::Page) => out.push('\u{000C}'),
                 Inline::Field(_) => out.push('\u{FFFC}'),
                 Inline::NoteRef(_) => out.push('\u{0002}'),
+                Inline::CommentStart { .. } | Inline::CommentEnd { .. } => out.push('\u{FEFF}'),
             }
         }
     }
 
     /// The text a reader sees: runs (tabs kept), field results, line
-    /// breaks as spaces; images and note references omitted. Used for
+    /// breaks as spaces; images, note references and comment markers
+    /// omitted. Used for
     /// headings in a table of contents and the plain text of headers.
     pub fn display_text(&self) -> String {
         let mut out = String::new();
@@ -179,7 +181,10 @@ impl Paragraph {
                 Inline::Run(run) => out.push_str(&run.text),
                 Inline::Field(f) => out.push_str(&f.cached),
                 Inline::Break(_) => out.push(' '),
-                Inline::Image(_) | Inline::NoteRef(_) => {}
+                Inline::Image(_)
+                | Inline::NoteRef(_)
+                | Inline::CommentStart { .. }
+                | Inline::CommentEnd { .. } => {}
             }
         }
         out

@@ -54,7 +54,7 @@ describe("Insert › Shapes", () => {
     const { backend } = await mount();
     const lib = openShapes();
     expect(within(lib).getAllByRole("heading").map((h) => h.textContent)).toEqual([
-      "Lines", "Rectangles", "Basic shapes", "Block arrows", "Flowchart", "Stars and banners", "Callouts",
+      "Lines", "Rectangles", "Basic shapes", "Block arrows", "Flowchart", "Stars and banners", "Callouts", "Action Buttons",
     ]);
     fireEvent.click(within(within(lib).getByRole("group", { name: "Stars and banners" })).getByRole("button", { name: "Star: 5 points" }));
     await flush();

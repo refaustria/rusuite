@@ -317,3 +317,14 @@ describe("formatting", () => {
     expect(withPageNumber("p. {PAGE}")).toBe("p. {PAGE}");
   });
 });
+
+describe("syncDomSelection", () => {
+  it("flushes a pending DOM selection before editing keys (forceFlush, then flush)", async () => {
+    const { syncDomSelection } = await import("./WriteFeatures");
+    const calls: string[] = [];
+    const view = { domObserver: { forceFlush: () => calls.push("force"), flush: () => calls.push("flush") } };
+    syncDomSelection(view as never);
+    expect(calls).toEqual(["force", "flush"]);
+    expect(() => syncDomSelection({} as never)).not.toThrow();
+  });
+});

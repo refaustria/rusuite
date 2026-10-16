@@ -32,12 +32,14 @@ fn split_at(runs: &mut Vec<TextRun>, offset: usize) -> usize {
                 .map_or(run.text.len(), |(b, _)| b);
             let tail = run.text.split_off(byte);
             let props = run.props.clone();
+            let hyperlink = run.hyperlink.clone();
             runs.insert(
                 i + 1,
                 TextRun {
                     props,
                     text: tail,
                     field: None,
+                    hyperlink,
                 },
             );
             return i + 1;
@@ -62,6 +64,26 @@ pub(crate) fn set_run_props(p: &mut TextParagraph, from: usize, to: usize, patch
     merge_runs(&mut p.runs);
 }
 
+/// Sets (or removes) the hyperlink of positions `from..to` (valid,
+/// `from <= to <= len`), like [`set_run_props`]; fields in the range get
+/// it too.
+pub(crate) fn set_run_link(
+    p: &mut TextParagraph,
+    from: usize,
+    to: usize,
+    link: Option<&model_show::Hyperlink>,
+) {
+    if from >= to {
+        return;
+    }
+    let start = split_at(&mut p.runs, from);
+    let end = split_at(&mut p.runs, to);
+    for run in &mut p.runs[start..end] {
+        run.hyperlink = link.cloned();
+    }
+    merge_runs(&mut p.runs);
+}
+
 /// Drops empty runs (when there is text) and joins neighbours with equal
 /// formatting.
 fn merge_runs(runs: &mut Vec<TextRun>) {
@@ -73,6 +95,7 @@ fn merge_runs(runs: &mut Vec<TextRun>) {
         match out.last_mut() {
             Some(last)
                 if last.props == run.props
+                    && last.hyperlink == run.hyperlink
                     && !run.text.is_empty()
                     && last.field.is_none()
                     && run.field.is_none() =>

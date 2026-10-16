@@ -20,6 +20,8 @@ import { countDocWords, countWords } from "./wordCount";
 import { WriteRibbon } from "./ui/WriteToolbar";
 import { ApplyStylesBox, NavigationPane, StyleDialogsHost, StylesPane } from "./ui/stylesPane";
 import { t, useT } from "./i18n";
+import { CommentsFrame, CommentsPane, UserNameDialog } from "./comments/CommentsUi";
+import { loadUser } from "./comments/model";
 
 function useSync<T>(ctl: SyncController, select: (s: SyncState) => T): T {
   return useSyncExternalStore(ctl.subscribe, () => select(ctl.getState()));
@@ -93,12 +95,14 @@ function TitleSync({ ctl, backend, guard }: { ctl: SyncController; backend: Writ
 const StatusBar = memo(function StatusBar({ ctl, editor, backend, session }: { ctl: SyncController; editor: Editor; backend: WriteBackend; session: AnySession }) {
   const { revision, dirty, name, info, warnings } = useThrottledSync(ctl);
   const words = useWordCount(editor);
+  const comments = useSyncExternalStore(ctl.subscribe, () => ctl.comments.length);
   const t = useT();
   return (
     <div className="flex items-center gap-4 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted" data-testid="status-bar">
       <span data-testid="doc-name">{name ?? t("doc.untitled")}</span>
       <span data-testid="dirty">{dirty ? t("status.modified") : t("status.saved")}</span>
       <span data-testid="words">{t("write.status.words", { count: words })}</span>
+      {comments > 0 && <span data-testid="comment-count">{t("write.status.comments", { count: comments })}</span>}
       <span data-testid="revision">rev {revision}</span>
       <AutosaveStatus session={session} />
       {info && <span data-testid="info">{info}</span>}
@@ -143,11 +147,17 @@ export default function App({ backend }: { backend: WriteBackend }) {
   }, [editor, reserve]);
   // ctl.page is replaced before the state change that announces it.
   const page = useSync(ctl, () => ctl.page);
+  const comments = useSync(ctl, () => ctl.comments);
   // The frame (first page) uses the first section's page setup.
   const firstPage = useSync(ctl, () => ctl.sections[0]?.page ?? ctl.page);
 
   useEffect(() => {
-    if (editor) void ctl.newDocument();
+    if (!editor) return;
+    void ctl.newDocument().then(() => {
+      // The comment author remembered in this browser (ADR 0009: never leaves it).
+      const user = loadUser();
+      if (user && !ctl.user) void ctl.setUser(user.name, user.initials);
+    });
   }, [editor, ctl]);
 
   // Unsaved-changes question before New / Open / recent / Restore / Close and closing the window (P7-6).
@@ -209,7 +219,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
   const exportPdf = useCallback(() => {
     if (!editor) return;
     try {
-      const doc = buildWritePrintDoc(editor.view.dom as HTMLElement, ctl.page, printOptions);
+      const doc = buildWritePrintDoc(editor.view.dom as HTMLElement, ctl.page, printOptions, ctl.comments);
       void printWrite(backend, applyPageRange(doc, printOptions.range), pushError);
     } catch (e) {
       pushError(e);
@@ -232,7 +242,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
           onFind={chrome.onFind}
           onReplace={chrome.onReplace}
           onExportPdf={exportPdf}
-          print={<WritePrintPage editor={editor} page={page} backend={backend} options={printOptions} onChange={setPrintOptions} onError={pushError} />}
+          print={<WritePrintPage editor={editor} page={page} backend={backend} options={printOptions} onChange={setPrintOptions} onError={pushError} comments={comments} />}
           zoom={zoom}
           onZoom={setZoom}
         />
@@ -247,16 +257,20 @@ export default function App({ backend }: { backend: WriteBackend }) {
         >
           <div className="write-zoom" data-testid="write-zoom" style={zoom !== 1 ? { zoom } : undefined}>
             {editor && chrome.ruler && <Ruler editor={editor} ctl={ctl} features={features} page={firstPage} />}
-            <PageFrame page={firstPage} view={chrome.view} pages={chrome.pages} frame={chrome.frame} onEditHeaderFooter={chrome.onEditHeaderFooter}>
-              <EditorContent editor={editor} />
-            </PageFrame>
+            <CommentsFrame editor={editor} ctl={ctl} features={features} zoom={zoom}>
+              <PageFrame page={firstPage} view={chrome.view} pages={chrome.pages} frame={chrome.frame} onEditHeaderFooter={chrome.onEditHeaderFooter}>
+                <EditorContent editor={editor} />
+              </PageFrame>
+            </CommentsFrame>
           </div>
         </div>
         {editor && <StylesPane editor={editor} ctl={ctl} features={features} />}
+        {editor && <CommentsPane editor={editor} ctl={ctl} features={features} />}
       </div>
       {editor && <StatusBar ctl={ctl} editor={editor} backend={backend} session={session} />}
       <FindBar ctl={ctl} editor={editor} ui={features.ui} />
       <WriteDialogs ui={features.ui} ctl={ctl} editor={editor} />
+      <UserNameDialog ctl={ctl} features={features} />
       {editor && <StyleDialogsHost editor={editor} ctl={ctl} features={features} />}
       {editor && <ApplyStylesBox editor={editor} ctl={ctl} features={features} />}
       <EditorContextMenu editor={editor} ctl={ctl} features={features} />

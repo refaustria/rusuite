@@ -85,6 +85,8 @@ export function inlinesFromPM(node: PMNode): Inline[] {
       const value: Field = { kind: child.attrs.kind as FieldKind, cached: String(child.attrs.cached ?? "") };
       if (Object.keys(props).length) value.props = props;
       out.push({ kind: "field", value });
+    } else if (child.type.name === "commentStart" || child.type.name === "commentEnd") {
+      out.push({ kind: child.type.name, value: { id: child.attrs.id as number } });
     } else if (child.type.name === "noteRef") {
       const props = propsFromMarks(child.marks);
       const value: NoteRef = { id: child.attrs.id as number, kind: child.attrs.kind as NoteKind };

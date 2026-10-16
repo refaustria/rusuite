@@ -1,6 +1,6 @@
 // Right-click menu of the editor (Word's): clipboard, then picture
-// commands on an image, table commands inside a table, and paragraph /
-// formatting commands.
+// commands on an image, table commands inside a table, New Comment, and
+// paragraph / formatting commands.
 
 import { useEffect, useState } from "react";
 import type { Editor } from "@tiptap/react";
@@ -80,6 +80,8 @@ export function contextItems(editor: Editor, ctl: SyncController, features: Writ
     );
   }
   items.push(
+    sep,
+    { id: "new-comment", label: t("write.comments.new"), shortcut: "Ctrl+Alt+M", onSelect: () => features.newComment() },
     sep,
     { id: "paragraph", label: t("write.paragraphDots"), onSelect: () => features.ui.openDialog("paragraph") },
     { id: "clear", label: t("write.clearFormatting"), shortcut: "Ctrl+Space", onSelect: () => void clearFormatting(editor, ctl, false) },

@@ -17,6 +17,7 @@ use model_text::{
     StyleSheet, Table, TableCell, TableProperties, TableRow, Toc, TocEntry, Twips, VMerge,
     WrapKind,
 };
+use model_text::{Comment, CommentId};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -106,6 +107,16 @@ pub struct SectionPatch {
     pub page_number_format: Option<LevelKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<PageSetupPatch>,
+}
+
+/// A position for [`WriteCommand::AddComment`]: char offset `offset` of
+/// paragraph `block`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub struct CommentPoint {
+    pub block: NodeId,
+    pub offset: u32,
 }
 
 /// Formatting a find (or replace) is restricted to (Word's Find › Format):
@@ -609,6 +620,74 @@ pub enum WriteCommand {
         #[ts(type = "Array<[NodeId, number, string]>")]
         values: Vec<(NodeId, u32, String)>,
     },
+    /// Word's New Comment: a thread on the text from `start` to `end`
+    /// (body paragraphs, table cells included; `start` before or equal to
+    /// `end`; equal = a comment on a point). Marks the range with
+    /// `commentStart`/`commentEnd` inlines and adds the comment holding
+    /// `text` (one paragraph per line, style `CommentText`; it and
+    /// `CommentReference` are added with Word's definitions when missing).
+    /// `author`/`initials` default to the user set with `setUser` (else
+    /// "Author" and initials from the name); `date` is the UI's clock (ISO
+    /// 8601, the core has none). The new comment (the highest id) is in the
+    /// patch's `comments`.
+    AddComment {
+        start: CommentPoint,
+        end: CommentPoint,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        author: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        initials: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        date: Option<String>,
+    },
+    /// Adds a reply holding `text` to the thread of comment `parent`
+    /// (author, initials and date as in `addComment`).
+    ReplyComment {
+        #[ts(type = "number")]
+        parent: CommentId,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        author: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        initials: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        date: Option<String>,
+    },
+    /// Replaces the text of comment (or reply) `id`.
+    EditComment {
+        #[ts(type = "number")]
+        id: CommentId,
+        text: String,
+    },
+    /// Deletes comment `id`: a root deletes its whole thread and its range
+    /// markers, a reply only itself.
+    DeleteComment {
+        #[ts(type = "number")]
+        id: CommentId,
+    },
+    /// Deletes every thread (Delete All Comments in Document), or only the
+    /// resolved ones (`resolvedOnly`).
+    DeleteAllComments {
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        resolved_only: bool,
+    },
+    /// Marks the thread of comment `id` resolved.
+    ResolveComment {
+        #[ts(type = "number")]
+        id: CommentId,
+    },
+    /// Reopens the (resolved) thread of comment `id`.
+    ReopenComment {
+        #[ts(type = "number")]
+        id: CommentId,
+    },
     /// Applies the commands in order as one undo step; all or nothing.
     Compound { commands: Vec<WriteCommand> },
     /// *Internal.* Replaces positions `from..to` of `block` by `inlines`.
@@ -640,6 +719,8 @@ pub enum WriteCommand {
     },
     /// *Internal.* Replaces all notes.
     RestoreNotes { notes: Vec<Note> },
+    /// *Internal.* Replaces all comments.
+    RestoreComments { comments: Vec<Comment> },
     /// *Internal.* Replaces the style sheet.
     RestoreStyles { styles: StyleSheet },
     /// *Internal.* Replaces the sections and the page setup.

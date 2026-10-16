@@ -81,6 +81,17 @@ function positions(inlines: Inline[]): Pos[] {
   return out;
 }
 
+/** Keys of the comment markers of `ps` whose partner is not in `ps` (what a deletion of `ps` keeps). */
+function keptMarkers(ps: Pos[]): { ends: string[]; starts: string[] } {
+  const ids = (kind: string) => new Set(ps.flatMap((p) => (p.inline?.kind === kind ? [(p.inline.value as { id: number }).id] : [])));
+  const starts = ids("commentStart");
+  const ends = ids("commentEnd");
+  return {
+    ends: ps.filter((p) => p.inline?.kind === "commentEnd" && !starts.has((p.inline.value as { id: number }).id)).map((p) => p.key),
+    starts: ps.filter((p) => p.inline?.kind === "commentStart" && !ends.has((p.inline.value as { id: number }).id)).map((p) => p.key),
+  };
+}
+
 /** Splits text positions into segments of equal properties. */
 function segments(ps: Pos[]): { text: string; props: RunProperties; style: string }[] {
   const out: { text: string; props: RunProperties; style: string; key: string }[] = [];
@@ -142,6 +153,28 @@ function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): 
   if (!oldMid.length && !newMid.length) return null;
   const allText = (ps: Pos[]) => ps.every((p) => p.ch !== undefined);
   if (!newMid.length) return { type: "deleteText", block: id, from: pre, to: pre + oldMid.length };
+  // Comment markers kept by an edit (the comments plugin, like Rust's
+  // `DeleteText`/`ReplaceText`, keeps a lone marker: ends before the new
+  // text, starts after it): the text change alone.
+  const kept = keptMarkers(oldMid);
+  if (kept.ends.length + kept.starts.length > 0) {
+    const ke = kept.ends.length;
+    const ks = kept.starts.length;
+    const lead = newMid.slice(0, ke).map((p) => p.key);
+    const tail = newMid.slice(newMid.length - ks).map((p) => p.key);
+    const text = newMid.slice(ke, newMid.length - ks);
+    if (newMid.length >= ke + ks && stableStringify(lead) === stableStringify(kept.ends) && stableStringify(tail) === stableStringify(kept.starts) && allText(text)) {
+      const del: WriteCommand = { type: "deleteText", block: id, from: pre, to: pre + oldMid.length };
+      if (!text.length) return del;
+      const cmds: WriteCommand[] = [del];
+      let offset = pre + ke;
+      for (const sg of segments(text)) {
+        cmds.push(sg.style ? { type: "insertText", block: id, offset, text: sg.text, props: sg.props, style: sg.style } : { type: "insertText", block: id, offset, text: sg.text, props: sg.props });
+        offset += [...sg.text].length;
+      }
+      return { type: "compound", commands: cmds };
+    }
+  }
   if (oldMid.length === 1 && newMid.length === 1) {
     const img = imageCommand(id, pre, oldMid[0]!.inline, newMid[0]!.inline);
     if (img) return img;

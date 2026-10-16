@@ -10,14 +10,16 @@
 //! char offsets inside one paragraph: Unicode scalar values of the runs'
 //! text, `0..=len`.
 
-use core_model::media::MediaId;
+use core_model::chart::{Chart, ChartKind};
+use core_model::media::{MediaId, MediaStore};
 use core_model::{ColorScheme, FontScheme, RunProperties};
 use model_show::{
-    Adjust, AlignMode, Alignment, Anchor, Animation, AnimationKind, ArrowEnd, Axis, Background,
-    BodyProps, Bullet, Connector, ConnectorKind, Crop, Direction, Effect, Fill, HfDate, Insets,
-    Layout, LayoutKind, Line, NodeId, PictureProps, PlaceholderKind, Preset, Recolor, Section,
-    Shadow, Shape, ShapeKind, Slide, SlideMaster, SlideSize, Table, TableLook, TextBody,
-    TextSpacing, Theme, Transform, Transition, Trigger,
+    Action, Adjust, AlignMode, Alignment, Anchor, Animation, AnimationKind, ArrowEnd, Axis,
+    Background, BodyProps, Bullet, ChartData, ChartShape, Connector, ConnectorKind, Crop,
+    Direction, Effect, Fill, HfDate, Hyperlink, Insets, Layout, LayoutKind, Line, MediaClip,
+    MediaStart, NodeId, PictureProps, PlaceholderKind, Preset, Recolor, Section, Shadow, Shape,
+    ShapeKind, Slide, SlideMaster, SlideSize, Table, TableLook, TextBody, TextSpacing, Theme,
+    Transform, Transition, Trigger,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
@@ -481,6 +483,51 @@ impl PicturePatch {
     }
 }
 
+/// Playback settings to change for [`ShowCommand::SetMediaProps`]
+/// (absent = unchanged).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub struct MediaPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub start: Option<MediaStart>,
+    #[serde(default, rename = "loop", skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub loop_playback: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub hide_when_not_playing: Option<bool>,
+    /// `0..=100000` (1/1000 percent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub volume: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub muted: Option<bool>,
+}
+
+impl MediaPatch {
+    /// Applies the patch to `c`.
+    pub fn apply_to(&self, c: &mut MediaClip) {
+        if let Some(v) = self.start {
+            c.start = v;
+        }
+        if let Some(v) = self.loop_playback {
+            c.loop_playback = v;
+        }
+        if let Some(v) = self.hide_when_not_playing {
+            c.hide_when_not_playing = v;
+        }
+        if let Some(v) = self.volume {
+            c.volume = v.min(MediaClip::VOLUME_HIGH);
+        }
+        if let Some(v) = self.muted {
+            c.muted = v;
+        }
+    }
+}
+
 /// A presentation edit. JSON: `{"type":"setName","shape":7,"name":"Logo"}`.
 ///
 /// The variants after [`Compound`](Self::Compound) are **internal**: the
@@ -874,6 +921,99 @@ pub enum ShowCommand {
         #[serde(default)]
         size: bool,
     },
+    /// Inserts a chart of `kind` on PowerPoint's sample data (three
+    /// series × four categories; scatter: one series of three points;
+    /// pie/doughnut: the first series) with PowerPoint's default look.
+    /// `transform` absent = 2/3 of the slide, centered.
+    InsertChart {
+        slide: NodeId,
+        #[ts(type = "import(\"@rusuite/ui-shared\").ChartKindModel")]
+        kind: ChartKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        transform: Option<Transform>,
+        #[ts(type = "number")]
+        new_id: i64,
+    },
+    /// Replaces a chart's data (Edit Data, Switch Row/Column): the
+    /// chart's series follow the table (new ones with default
+    /// formatting); the file's embedded workbook is dropped (a new one is
+    /// written on save). Not for unsupported charts.
+    SetChartData { shape: NodeId, data: ChartData },
+    /// Replaces a chart's formatting and type (the same `Chart` model as
+    /// Calc's); its series references are reset to the data table. Not for
+    /// unsupported charts.
+    UpdateChart {
+        shape: NodeId,
+        #[ts(type = "import(\"@rusuite/ui-shared\").ChartModel")]
+        chart: Box<Chart>,
+    },
+    /// Sets (or, with `null`, removes) the hyperlink of chars
+    /// `from..to` of paragraph `paragraph`, splitting runs at the
+    /// boundaries (Insert › Link on selected text).
+    SetHyperlink {
+        shape: NodeId,
+        paragraph: u32,
+        from: u32,
+        to: u32,
+        #[serde(default)]
+        link: Option<Hyperlink>,
+    },
+    /// Sets (or, with `null`, removes) the mouse-click action of shapes
+    /// (Insert › Action; Insert › Link on a selected shape).
+    SetClickAction {
+        shapes: Vec<NodeId>,
+        #[serde(default)]
+        action: Option<Action>,
+    },
+    /// Adds an audio or video clip (bytes as standard base64; the kind
+    /// from the MIME type: `audio/*` → audio). `transform` absent =
+    /// video: half the slide width at 16:9, centered; audio: a 1.27 cm
+    /// square in the centre.
+    InsertMedia {
+        slide: NodeId,
+        content_type: String,
+        bytes_base64: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        transform: Option<Transform>,
+        #[ts(type = "number")]
+        new_id: i64,
+    },
+    /// Changes playback settings of audio/video shapes.
+    SetMediaProps {
+        shapes: Vec<NodeId>,
+        patch: MediaPatch,
+    },
+    /// Sets the poster frame of a clip from an image (bytes as standard
+    /// base64); without bytes the poster is reset (the placeholder).
+    SetMediaPoster {
+        shape: NodeId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_type: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bytes_base64: Option<String>,
+    },
+    /// Inserts slides of another presentation after slide `after`
+    /// (absent = first), as one undo step (Reuse Slides). `slides`,
+    /// `layouts` (the source layouts they use) and `media` (the source
+    /// media they reference) come from `peekPresentation`; every id is
+    /// renewed, media are added (identical ones shared). With
+    /// `keepSourceFormatting` each source layout becomes a custom layout
+    /// (`custom:<name>`, made unique); without, slides move to this
+    /// presentation's layout of the same kind (custom ones: inferred from
+    /// their placeholders), their placeholders re-mapped like
+    /// `setSlideLayout`. Links to slides that are not inserted are dropped.
+    InsertSlides {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<NodeId>,
+        slides: Vec<Slide>,
+        #[serde(default)]
+        layouts: Vec<Layout>,
+        #[serde(default)]
+        #[ts(as = "Vec<model_show::ts::MediaItem>")]
+        media: MediaStore,
+        #[serde(default)]
+        keep_source_formatting: bool,
+    },
     /// Applies the commands in order as one undo step; all or nothing.
     Compound { commands: Vec<ShowCommand> },
     /// *Internal.* Inserts slides at the given indices (ascending).
@@ -973,6 +1113,8 @@ pub struct NewShape {
     pub placeholder_idx: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub click_action: Option<Action>,
 }
 
 /// [`ShapeKind`] with [`NewShape`] children.
@@ -999,6 +1141,8 @@ pub enum NewShapeKind {
     },
     Connector(NewConnector),
     Table(Table),
+    Chart(Box<ChartShape>),
+    Media(MediaClip),
 }
 
 /// An attachment whose shape id may be temporary.
@@ -1055,12 +1199,15 @@ impl From<&Shape> for NewShape {
                 },
                 ShapeKind::Connector(c) => NewShapeKind::Connector(NewConnector::from(c)),
                 ShapeKind::Table(t) => NewShapeKind::Table(t.clone()),
+                ShapeKind::Chart(c) => NewShapeKind::Chart(c.clone()),
+                ShapeKind::Media(m) => NewShapeKind::Media(m.clone()),
             },
             fill: s.fill,
             line: s.line,
             placeholder: s.placeholder,
             placeholder_idx: s.placeholder_idx,
             alt: s.alt.clone(),
+            click_action: s.click_action.clone(),
         }
     }
 }

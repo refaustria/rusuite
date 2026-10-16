@@ -42,6 +42,7 @@ const SHAPES: Record<ResponseBody["type"], Record<string, string>> = {
   saved: { bytesBase64: "string", suggestedName: "string" },
   shapePaths: {},
   themes: {},
+  peeked: { presentation: "object" },
 };
 
 /** Checks the shape of a reply and returns its body of the expected type. */
@@ -154,6 +155,11 @@ export class ShowApi {
     const body = await this.call({ type: "getThemes" }, "themes");
     if (!Array.isArray(body.themes)) throw new ShowApiError("bad_response", "themes reply lacks themes");
     return body.themes;
+  }
+
+  /** Reads another `.pptx` without opening it (Reuse Slides). */
+  peekPresentation(bytesBase64: string): Promise<BodyOf<"peeked">> {
+    return this.call({ type: "peekPresentation", bytesBase64 }, "peeked");
   }
 
   /** The presentation as `.pptx`; does not mark it saved. */
