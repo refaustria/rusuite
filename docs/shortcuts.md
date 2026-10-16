@@ -105,6 +105,9 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Mod+Shift+S | Apply Styles box: type a style name (autocomplete from the document's styles), Enter applies it; an unknown name creates a style from the selection; Esc closes (bound in the editor too, so it is no longer strikethrough) |
 | Mod+Alt+Shift+S | Show / hide the Styles pane |
 | Mod+H › More | Find and Replace with formatting: Use wildcards, Format ▾ (Font…, Paragraph…, Style…, Highlight) for the Find and the Replace field, No Formatting |
+| Mod+K | Insert Hyperlink (on a link: edit it; Remove Link in the dialog) — bound in the editor |
+| Mod+G, F5 | Go To: a page (print layout), a bookmark or a heading — bound in the editor (F5 does not reload the page while the editor has the focus) |
+| F9 | Update Field: the fields of the selection (REF, PAGEREF, NOTEREF, SEQ, TITLE, AUTHOR computed by the core, page/date/time/file name by the UI); Mod+A then F9 updates every field |
 
 ### Mouse
 
@@ -118,6 +121,7 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 - **Headers and footers** are shown greyed in the page margins (print layout); double-click one to edit both in the Header and footer dialog (`{PAGE}` = page number).
 - **Notes**: double-click a footnote/endnote reference to jump to its note; double-click the note's number (or a footnote at the bottom of a page) to jump back / into the note.
 - **Table of contents**: click an entry to go to its heading.
+- **Links**: Ctrl+click (Cmd+click) follows a link — a place in the document scrolls there, a web or e-mail address opens in a new tab; the tooltip shows the ScreenTip and "Ctrl+Click to follow link". Right-click on a link: Edit Link…, Open Link, Remove Link; elsewhere Link…; on a field (or a selection): Update Field.
 - **Right-click in a list**: Restart at 1, Continue numbering.
 - **Styles gallery** (Home › Styles): click applies the style (a character style to the selection or the word at the caret, a linked style to a partial selection as its character half); right-click (or the context-menu key) for Update *style* to Match Selection, Modify…, Select All *n* Instances, Rename…, Remove from Style Gallery.
 - **Styles pane**: click a style to apply it; the ▾ next to each style opens the same menu plus Delete…; right-click works too.
@@ -132,7 +136,10 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Mod+G, Mod+Shift+G | Group, ungroup |
 | Mod+], Mod+[ | Bring forward, send backward |
 | Mod+Shift+], Mod+Shift+[ | Bring to front, send to back |
-| Arrows, Shift+Arrows | Nudge by 1 px, by 10 px |
+| Arrows, Shift+Arrows | Nudge by 1 px (with Snap objects to grid: by the grid step onto the grid), by 10 px |
+| Mod+Arrows | Nudge by 1 px, also while snapping to the grid |
+| Shift+F9 | Show / hide the gridlines |
+| Alt+F9 | Show / hide the drawing guides (the two centre guides when there are none) |
 | Delete, Backspace | Delete the selection |
 | Enter, F2 | Edit the text of the selected shape |
 | Escape | Deselect; cancels drawing a shape chosen in the Shapes gallery |
@@ -155,7 +162,11 @@ The same keys work in the full-window show (F5), in the presenter view and in it
 | number + Enter | Go to that slide (`5` Enter) |
 | B or `.`, W or `,` | Black / white screen (again or any step: back to the slide) |
 | S | Stop / restart the automatic advance (Transitions › After) |
-| Esc | End the show |
+| Mod+L, Mod+P, Mod+I, Mod+E, Mod+A | Laser pointer, pen, highlighter, eraser, arrow (again: back to the arrow) |
+| E, Mod+M | Erase all ink on the slide, show / hide ink |
+| G or − | See all slides (click one to go there) |
+| +, − | Zoom into the slide about the pointer, zoom out |
+| Esc | Leave zoom / See all slides / the pen first; else end the show |
 
 Hidden slides are skipped unless the show starts on one. The mouse pointer hides after 3 s without movement. With
 Transitions › On mouse click off, a click does not leave the slide (the keys still do).
@@ -177,9 +188,21 @@ Preview on the stage.
 | Enter (in a cell) | New paragraph |
 
 Mod+B/I/U also format the selected text inside the text overlay; there Tab / Shift+Tab change the list level of the
-selected paragraphs. While dragging or resizing, shapes snap to the slide and to other shapes (smart guides); hold Alt to
-move freely. Shift keeps the aspect ratio while resizing a shape (pictures keep it by default; Shift frees it). Arrow-key
-nudges never snap.
+selected paragraphs. While dragging or resizing, shapes snap to the slide and to other shapes (smart guides, equal
+spacing), to the drawing guides while they are shown and to the grid when Snap objects to grid is on; hold Alt to move
+freely. Shift keeps the aspect ratio while resizing a shape (pictures keep it by default; Shift frees it).
+
+### Views, guides and the Selection pane (P8-28)
+
+| Keys / mouse | Action |
+| --- | --- |
+| Click, Mod+click, Shift+click (Slide Sorter) | Select a slide, add / remove one, select a range |
+| Drag selected slides (Slide Sorter) | Move them before the slide under the pointer (also into another section) |
+| Delete, Mod+D, Mod+A, Enter (Slide Sorter) | Delete, duplicate, select all slides, open in Normal view (also double-click) |
+| Tab, Shift+Tab (Outline View) | Demote / promote the selected lines (a promoted body line becomes a slide) |
+| Drag a guide; Mod+drag; drag off the slide | Move it; copy it; delete it (right-click: add, delete, colour) |
+| Double-click / F2 (Selection pane) | Rename the shape |
+| PageUp, PageDown (Notes Page) | Previous / next slide |
 
 ### Pictures, master view and sections (P8-22)
 

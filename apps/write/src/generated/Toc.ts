@@ -27,4 +27,10 @@ title?: string,
 /**
  * The entries in document order.
  */
-entries: Array<TocEntry>, };
+entries: Array<TocEntry>, 
+/**
+ * A table of figures: the sequence identifier (`Figure`, `Table`)
+ * whose captions are listed instead of headings (docx `TOC \c
+ * "Figure"`); the levels are then ignored.
+ */
+caption?: string, };

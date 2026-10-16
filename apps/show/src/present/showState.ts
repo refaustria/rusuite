@@ -24,6 +24,8 @@ export interface ShowState {
   clickAdvance: boolean[];
   /** S stopped the automatic advance ("After" timings). */
   autoStopped: boolean;
+  /** Set Up Slide Show › Loop continuously until Esc: after the last slide the first comes again. */
+  loop?: boolean;
 }
 
 /** What the state machine needs to know about the slides of a show. */
@@ -76,7 +78,7 @@ export function reduceShow(s: ShowState, action: ShowAction): ShowState | "exit"
       if (s.step < stepsOf(s, s.index)) return { ...base, step: s.step + 1 };
       // "On mouse click" off: a click does not leave the slide (keys and the timer still do).
       if (action.via === "click" && s.clickAdvance[s.index] === false) return s;
-      if (s.index >= s.count - 1) return { ...base, ended: true };
+      if (s.index >= s.count - 1) return s.loop ? { ...base, index: 0, step: 0 } : { ...base, ended: true };
       return { ...base, index: s.index + 1, step: 0 };
     case "prev":
       if (s.blank !== "none") return { ...base, blank: "none" };
@@ -139,4 +141,14 @@ export function keyAction(key: string): ShowAction | null {
 /** A click or tap at `x` of a `width`-wide screen: right half next, left half previous. */
 export function clickAction(x: number, width: number): ShowAction {
   return x < width / 2 ? { type: "prev" } : { type: "next", via: "click" };
+}
+
+/**
+ * The slides a show runs through (Set Up Slide Show): `range` (1-based,
+ * inclusive; `null` = all), hidden slides skipped unless the show starts
+ * on one.
+ */
+export function showRange<T extends { id: number; hidden?: boolean }>(slides: readonly T[], current: number | null, range: { start: number; end: number } | null | undefined): T[] {
+  const inRange = range ? slides.slice(Math.max(0, range.start - 1), Math.max(0, range.end)) : slides;
+  return inRange.filter((s) => !s.hidden || s.id === current);
 }

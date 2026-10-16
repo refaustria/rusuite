@@ -29,7 +29,7 @@ afterEach(() => {
 const b64 = (v: unknown) => bytesToBase64(new TextEncoder().encode(JSON.stringify(v)));
 const tab = (name: string) => screen.getByRole("tab", { name });
 const A4 = { width: 11906, height: 16838, orientation: "portrait" as const, margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 708, footer: 708 } };
-const sectionsOf = (ids: number[]): Section[] => ids.map((id) => ({ id, page: structuredClone(A4), kind: "nextPage", columns: 1, titlePage: false }));
+const sectionsOf = (ids: number[]): Section[] => ids.map((id) => ({ id, page: structuredClone(A4), kind: "nextPage", titlePage: false }));
 
 async function mount(body: Block[] = [para(1, "hello world")], extra: Partial<Document> = {}) {
   const backend = new FakeWriteBackend();

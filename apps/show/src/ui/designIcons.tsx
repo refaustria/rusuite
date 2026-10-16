@@ -32,4 +32,18 @@ export const DI = {
   styles: <I><rect x="2.5" y="2.5" width="6.5" height="6.5" /><ellipse cx="14.25" cy="5.75" rx="3.25" ry="3.25" /><rect x="2.5" y="11" width="6.5" height="6.5" rx="2" /><path d="M11 11h6.5v6.5H11z" strokeWidth="2.2" /></I>,
   change: <I><rect x="2.5" y="4" width="11" height="9" rx="1" /><path d="M5 11l2.5-3 2 2 1.5-1.5 2.5 2.5M13 15.5h4.5M15.5 13.5l2 2-2 2" /></I>,
   placeholder: <I><rect x="2.5" y="3.5" width="15" height="13" rx="1" strokeDasharray="2 1.5" /></I>,
+  // P8-28: views, rulers, guides, selection, slide show
+  normalView: <I><rect x="2.5" y="3.5" width="15" height="13" rx="1" /><path d="M6 3.5v13M3.5 6h1.5M3.5 9h1.5M3.5 12h1.5" /></I>,
+  outlineView: <I><path d="M3 4.5h9M5 8h10M5 11.5h8M3 15h9" /></I>,
+  sorterView: <I><rect x="2.5" y="3" width="6.5" height="5" rx="0.5" /><rect x="11" y="3" width="6.5" height="5" rx="0.5" /><rect x="2.5" y="11" width="6.5" height="5" rx="0.5" /><rect x="11" y="11" width="6.5" height="5" rx="0.5" /></I>,
+  notesPageView: <I><rect x="4" y="2" width="12" height="16" rx="1" /><rect x="6" y="4" width="8" height="5.5" /><path d="M6 12.5h8M6 15h6" /></I>,
+  readingView: <I><path d="M2.5 5c2.5-1.5 5-1.5 7.5 0 2.5-1.5 5-1.5 7.5 0v10c-2.5-1.5-5-1.5-7.5 0-2.5-1.5-5-1.5-7.5 0zM10 5v10" /></I>,
+  ruler: <I><path d="M2.5 13.5l11-11 4 4-11 11z" /><path d="M6 10l1.5 1.5M8 8l1 1M10 6l1.5 1.5M12 4l1 1" /></I>,
+  guides: <I><rect x="2.5" y="3" width="15" height="14" rx="1" /><path d="M10 3v14M2.5 10h15" strokeDasharray="2 1.5" /></I>,
+  select: <I><path d="M4 3l9 6.5-4 .8 2.4 4.6-1.6.8-2.4-4.6L4 14z" /></I>,
+  selectionPane: <I><rect x="2.5" y="3" width="15" height="14" rx="1" /><path d="M5 7h6M5 10h6M5 13h6" /><circle cx="14" cy="7" r="0.8" fill="currentColor" /><circle cx="14" cy="10" r="0.8" fill="currentColor" /><circle cx="14" cy="13" r="0.8" fill="currentColor" /></I>,
+  setUpShow: <I><rect x="2.5" y="3" width="15" height="10" rx="1" /><path d="M10 13v3M6.5 17h7" /><circle cx="10" cy="8" r="2" /></I>,
+  rehearse: <I><circle cx="10" cy="11" r="6" /><path d="M10 7.5V11l2.5 1.5M8 2.5h4" /></I>,
+  hideSlide: <I><rect x="2.5" y="4" width="15" height="11" rx="1" strokeDasharray="2 1.5" /><path d="M4 16L16 3" /></I>,
+  regroup: <I><rect x="2.5" y="2.5" width="15" height="15" rx="1" strokeDasharray="2 1.5" /><rect x="5" y="5" width="5" height="5" /><circle cx="12.5" cy="12.5" r="2.5" /></I>,
 };

@@ -21,6 +21,7 @@ import { nextTempId, type SyncController } from "../sync/SyncPlugin";
 import { TEXTBLOCK_TYPES } from "../sync/schema";
 import { currentLayout } from "./pagination";
 import { goToNote } from "./structure";
+import { paragraphPages } from "./references";
 
 /** Whether the selection is inside the notes area. */
 export function inNotes(state: EditorState): boolean {
@@ -96,6 +97,17 @@ export async function insertToc(editor: Editor, ctl: SyncController, toLevel = 3
   return true;
 }
 
+/** References › Insert Table of Figures: the captions of `label` (Figure, Table, Equation), placed like a table of contents. */
+export async function insertTableOfFigures(editor: Editor, ctl: SyncController, label: string): Promise<boolean> {
+  await ctl.idle();
+  if (inNotes(editor.state)) return false;
+  const { before, current, atStart } = topBlockAtCaret(editor.state);
+  const after = atStart ? before : current;
+  await ctl.run({ type: "insertToc", after, fromLevel: 1, toLevel: 1, title: null, newId: nextTempId(), caption: label.replace(/\s+/g, "_") });
+  editor.commands.focus();
+  return true;
+}
+
 /** Page number per heading id from the print-layout pagination (empty in draft view). */
 export function headingPages(state: EditorState): [number, number][] {
   const layout = currentLayout(state);
@@ -125,7 +137,8 @@ export async function updateTocs(editor: Editor, ctl: SyncController): Promise<n
     if (n.type.name === "toc" && n.attrs.id > 0) ids.push(n.attrs.id);
   });
   if (!ids.length) return 0;
-  const pages = headingPages(editor.state);
+  // Headings and captions (tables of figures) alike.
+  const pages = paragraphPages(editor.state);
   const commands: WriteCommand[] = ids.map((id) => ({ type: "updateToc", id, pages }));
   await ctl.run(commands.length === 1 ? commands[0]! : { type: "compound", commands });
   editor.commands.focus();

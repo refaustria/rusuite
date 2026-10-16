@@ -26,6 +26,16 @@ import type { Slide } from "../generated/Slide";
 import type { TextBody } from "../generated/TextBody";
 import type { Transform } from "../generated/Transform";
 import type { ZOp } from "../generated/ZOp";
+import type { BodyProps } from "../generated/BodyProps";
+import type { GuideOrient } from "../generated/GuideOrient";
+import type { ShowSettings } from "../generated/ShowSettings";
+import type { ViewProps } from "../generated/ViewProps";
+import { dragGuide, newGuide, nudgeDelta } from "../canvas/guides";
+import { boundsPx, EMU_PER_PX, type Rect as BoxRect } from "../geometry";
+import { moveSlidesCommand, sorterSelect, type SorterDrop } from "../views/sorter";
+import { bodyWithLines, outlinePlan, outlineSlide } from "../views/outline";
+import { allCommand, hideCommand, moveToZ, renameCommand } from "../ui/selection";
+import { autofitProps, fitHeight, withScale } from "../text/autofit";
 import type { ChartData } from "../generated/ChartData";
 import type { ChartShape } from "../generated/ChartShape";
 import type { Hyperlink } from "../generated/Hyperlink";
@@ -154,7 +164,22 @@ export interface ShowState {
   /** The Reuse Slides pane and the presentation it shows. */
   reusePane: boolean;
   reuse: { name: string; pres: Presentation; warnings: string[] } | null;
+  /** View › Presentation Views (P8-28; the Slide Master view is `masterView`). */
+  view: PresentationView;
+  /** Slides selected in the Slide Sorter / the slide panel (the current one included). */
+  slideSel: NodeId[];
+  /** Home › Select › Selection Pane (right of the stage). */
+  selectionPane: boolean;
+  /** The Format Shape pane (right of the stage) on Size & Properties or Text Options. */
+  formatPane: "size" | "text" | null;
+  /** Arrange › Align: align to the slide or to the selected objects (two or more). */
+  alignTo: "slide" | "selection";
+  /** Aspect ratio locked in Size & Properties, per shape (session; pictures are locked by default). */
+  lockedAspect: Record<number, boolean>;
 }
+
+/** The presentation views of View › Presentation Views. */
+export type PresentationView = "normal" | "outline" | "sorter" | "notesPage" | "reading";
 
 /** Theme shape styles of Shape Format › Shape Styles: fill and outline per accent. */
 export type ShapeStyleChoice = { accent: number; kind: "fill" | "outline" | "light" };
@@ -172,7 +197,9 @@ export type ShowDialog =
   | { kind: "chartType" }
   | { kind: "editData" }
   | { kind: "link" }
-  | { kind: "action" };
+  | { kind: "action" }
+  | { kind: "gridGuides" }
+  | { kind: "setUpShow" };
 
 /** The internal clipboard: shapes (with the slide they came from) or slide ids. */
 type Clip = { kind: "shapes"; shapes: Shape[]; slide: NodeId | null; pastes: number } | { kind: "slides"; ids: NodeId[] };
@@ -195,6 +222,8 @@ export function applyPatch(pres: Presentation, patch: ShowPatch): Presentation {
   if (patch.master) out.master = patch.master;
   if (patch.layouts) out.layouts = patch.layouts;
   if (patch.sections) out.sections = patch.sections;
+  if (patch.view) out.view = patch.view;
+  if (patch.showSettings) out.showSettings = patch.showSettings;
   return out;
 }
 
@@ -240,7 +269,15 @@ export class ShowStore {
     chartSeries: 0,
     reusePane: false,
     reuse: null,
+    view: "normal",
+    slideSel: [],
+    selectionPane: false,
+    formatPane: null,
+    alignTo: "selection",
+    lockedAspect: {},
   };
+  /** The children of the last Ungroup (Regroup). */
+  private lastUngrouped: NodeId[] | null = null;
   private clip: Clip | null = null;
   /** The editor session Insert › Link was opened from (the editor closes when the dialog opens). */
   private linkEdit: EditSession | null = null;
@@ -330,6 +367,8 @@ export class ShowStore {
       crop: null,
       cellSel: null,
       ribbonTab: this.state.ribbonTab === "slideMaster" ? "home" : this.state.ribbonTab,
+      view: viewOfLast(pres.view?.lastView),
+      slideSel: pres.slides[0] ? [pres.slides[0].id] : [],
       ...extra,
     });
   }
@@ -371,9 +410,13 @@ export class ShowStore {
     let animSelection = s.animSelection === null ? null : (idMap.get(s.animSelection) ?? s.animSelection);
     if (animSelection !== null && !slide?.animations?.some((a) => a.id === animSelection)) animSelection = null;
     const crop = s.crop && top.has(s.crop.shape) ? s.crop : null;
+    const alive = new Set(pres.slides.map((x) => x.id));
+    let slideSel = mapIds(s.slideSel, idMap).filter((id) => alive.has(id));
+    if (current !== null && !slideSel.includes(current)) slideSel = [current];
     this.set({
       pres,
       current,
+      slideSel,
       selection,
       editing,
       cellSel,
@@ -467,9 +510,9 @@ export class ShowStore {
 
   // --- slides -----------------------------------------------------------------
 
-  selectSlide(id: NodeId): void {
+  selectSlide(id: NodeId, slideSel: NodeId[] = [id]): void {
     if (this.state.editing) void this.commitEdit();
-    this.set({ current: id, selection: [], editing: null, animSelection: null, preview: null });
+    this.set({ current: id, selection: [], editing: null, animSelection: null, preview: null, slideSel });
   }
 
   /** Runs a slide command and makes the slide it created current; returns its id. */
@@ -810,8 +853,17 @@ export class ShowStore {
     if (ids.length) await this.run({ type: "deleteShapes", ids });
   }
 
-  async nudge(dx: number, dy: number): Promise<void> {
-    await this.run(nudgeCommand(this.selectedShapes(), dx, dy));
+  /**
+   * Arrow keys: by 1 px (10 with Shift); with "Snap objects to grid" by the
+   * grid step onto the grid, unless `fine` (Ctrl) or Shift.
+   */
+  async nudge(dx: number, dy: number, o: { fine?: boolean; shift?: boolean } = {}): Promise<void> {
+    const shapes = this.selectedShapes();
+    const v = this.viewProps();
+    const grid = v.snapToGrid && !o.shift ? v.gridSpacing / EMU_PER_PX : 0;
+    const box = shapes.length ? boundsOf(shapes) : null;
+    const d = grid > 0 && !o.fine ? nudgeDelta({ dx: Math.sign(dx), dy: Math.sign(dy) }, box, { ctrl: false, shift: false, grid }) : { dx, dy };
+    await this.run(nudgeCommand(shapes, d.dx, d.dy));
   }
 
   async duplicateSelection(): Promise<void> {
@@ -836,7 +888,26 @@ export class ShowStore {
     if (!groups.length) return;
     const children = groups.flatMap((g) => (g.kind.kind === "group" ? g.kind.value.children.map((c) => c.id) : []));
     const res = await this.run(compound(groups.map((g) => ({ type: "ungroup", group: g.id }))));
-    if (res) this.select(children);
+    if (res) {
+      this.lastUngrouped = children;
+      this.select(children);
+    }
+  }
+
+  /** Regroup: groups the shapes of the last Ungroup again (those still on the slide). */
+  async regroup(): Promise<void> {
+    const top = new Set(this.currentSlide()?.shapes.map((s) => s.id) ?? []);
+    const ids = (this.lastUngrouped ?? []).filter((id) => top.has(id));
+    if (ids.length < 2) return;
+    this.lastUngrouped = null;
+    this.set({ selection: ids });
+    await this.group();
+  }
+
+  /** Whether Regroup has shapes to group. */
+  canRegroup(): boolean {
+    const top = new Set(this.currentSlide()?.shapes.map((s) => s.id) ?? []);
+    return (this.lastUngrouped ?? []).filter((id) => top.has(id)).length >= 2;
   }
 
   async zOrder(op: ZOp): Promise<void> {
@@ -845,7 +916,12 @@ export class ShowStore {
   }
 
   async align(mode: AlignMode): Promise<void> {
-    await this.run(alignCommand(this.state.selection, mode));
+    await this.run(alignCommand(this.state.selection, mode, this.state.alignTo));
+  }
+
+  /** Arrange › Align › Align to Slide / Align Selected Objects. */
+  setAlignTo(to: "slide" | "selection"): void {
+    this.set({ alignTo: to });
   }
 
   async distribute(axis: Axis): Promise<void> {
@@ -934,7 +1010,40 @@ export class ShowStore {
     const old = this.oldBody(e.shape);
     const shape = this.shape(e.shape);
     if (shape && textOf(shape) && bodyText(old) === e.text) return null;
-    return { type: "setTextBody", shape: e.shape, body: bodyFromText(e.text, old) };
+    let body = bodyFromText(e.text, old);
+    // Shrink text on overflow: the scale for the new text goes with it (P8-28)
+    const pres = this.state.pres;
+    const slide = this.currentSlide();
+    if (shape && pres && slide) {
+      const props = autofitProps(pres, slide, shape, body);
+      if (props) body = { ...body, props };
+      if (body.props.autofit === "resize" && findShape(slide.shapes, e.shape)?.top.id === e.shape) {
+        const h = fitHeight(pres, slide, shape, body);
+        if (h !== null && h > shape.transform.h) {
+          return { type: "compound", commands: [{ type: "setTextBody", shape: e.shape, body }, { type: "setTransform", shapes: [[shape.id, { ...shape.transform, h }]] }] };
+        }
+      }
+    }
+    return { type: "setTextBody", shape: e.shape, body };
+  }
+
+  /**
+   * A move / resize gesture's command plus the new shrink scale of resized
+   * shapes whose text shrinks on overflow (one undo step).
+   */
+  withAutofit(command: ShowCommand | null): ShowCommand | null {
+    const pres = this.state.pres;
+    const slide = this.currentSlide();
+    if (!command || command.type !== "setTransform" || !pres || !slide) return command;
+    const extra: ShowCommand[] = [];
+    for (const [id, t] of command.shapes) {
+      const shape = slide.shapes.find((s) => s.id === id);
+      const body = shape ? textOf(shape) : null;
+      if (!shape || !body || (t.w === shape.transform.w && t.h === shape.transform.h)) continue;
+      const props = autofitProps(pres, slide, shape, body, t);
+      if (props) extra.push({ type: "setBodyProps", shapes: [id], props });
+    }
+    return extra.length ? { type: "compound", commands: [command, ...extra] } : command;
   }
 
   /** Commits the overlay editor (blur / Esc / Ctrl+Enter) and closes it. */
@@ -1755,13 +1864,243 @@ export class ShowStore {
     if (last !== undefined) this.selectSlide(last);
   }
 
+  // --- views, guides, selection pane, text options, show setup (P8-28) ------------------
+
+  /** View › Presentation Views: switches the view (Normal, Outline, Slide Sorter, Notes Page, Reading). */
+  setView(view: PresentationView): void {
+    if (this.state.editing) void this.commitEdit();
+    if (this.state.masterView) this.closeMasterView();
+    const cur = this.state.current;
+    this.set({ view, slideSel: cur === null ? [] : this.state.slideSel.includes(cur) ? this.state.slideSel : [cur], crop: null, drawMode: null });
+  }
+
+  /** The presentation's view settings (defaults when it has none). */
+  viewProps(): ViewProps {
+    return this.state.pres?.view ?? DEFAULT_VIEW;
+  }
+
+  /** Changes view settings (`SetViewProps`; undoable like PowerPoint's guide moves). */
+  async updateView(patch: Partial<ViewProps>): Promise<void> {
+    const view = { ...this.viewProps(), ...patch };
+    if (JSON.stringify(view) === JSON.stringify(this.viewProps())) return;
+    await this.run({ type: "setViewProps", view });
+  }
+
+  /** View › Guides (Alt+F9): shows / hides the drawing guides; the two centre guides appear when there are none. */
+  async toggleGuides(on = !this.viewProps().showGuides): Promise<void> {
+    const v = this.viewProps();
+    const size = this.state.pres?.slideSize;
+    const guides = on && !v.guides.length && size ? [newGuide("vertical", size), newGuide("horizontal", size)] : v.guides;
+    await this.updateView({ showGuides: on, guides });
+  }
+
+  /** View › Gridlines (Shift+F9). */
+  async toggleGrid(on = !this.viewProps().showGrid): Promise<void> {
+    await this.updateView({ showGrid: on });
+  }
+
+  /** View › Ruler. */
+  async toggleRuler(on = !this.viewProps().showRuler): Promise<void> {
+    await this.updateView({ showRuler: on });
+  }
+
+  /** Adds a guide (through the slide centre unless `at` EMU is given) and shows the guides. */
+  async addGuide(orient: GuideOrient, at?: number): Promise<void> {
+    const size = this.state.pres?.slideSize;
+    if (!size) return;
+    await this.updateView({ guides: [...this.viewProps().guides, newGuide(orient, size, at)], showGuides: true });
+  }
+
+  /** The end of a guide drag: moved, Ctrl duplicates, off the slide deletes. */
+  async dropGuide(index: number, pos: number, ctrl: boolean): Promise<void> {
+    const size = this.state.pres?.slideSize;
+    if (!size) return;
+    await this.updateView({ guides: dragGuide(this.viewProps().guides, index, pos, size, ctrl).guides });
+  }
+
+  async deleteGuide(index: number): Promise<void> {
+    await this.updateView({ guides: this.viewProps().guides.filter((_, i) => i !== index) });
+  }
+
+  /** A guide's colour (`null` = the default grey). */
+  async setGuideColor(index: number, color: string | null): Promise<void> {
+    await this.updateView({
+      guides: this.viewProps().guides.map((g, i) => {
+        if (i !== index) return g;
+        const next = { ...g };
+        if (color) next.color = color.replace(/^#/, "").toUpperCase();
+        else delete next.color;
+        return next;
+      }),
+    });
+  }
+
+  /** Slide Show › Set Up Slide Show. */
+  async setShowSettings(settings: ShowSettings): Promise<void> {
+    const old = this.state.pres?.showSettings ?? DEFAULT_SHOW_SETTINGS;
+    if (JSON.stringify(old) === JSON.stringify(settings)) return;
+    await this.run({ type: "setShowSettings", settings });
+  }
+
+  /** Rehearse Timings accepted: each rehearsed slide advances after its recorded time (one undo step). */
+  async applyTimings(times: ReadonlyMap<NodeId, number>): Promise<void> {
+    const slides = this.state.pres?.slides ?? [];
+    const commands: ShowCommand[] = [];
+    for (const slide of slides) {
+      const ms = times.get(slide.id);
+      if (ms === undefined) continue;
+      const transition = changeTransition(slide.transition, { advanceAfterMs: Math.max(0, Math.round(ms / 1000) * 1000) });
+      commands.push({ type: "setTransition", slides: [slide.id], transition });
+    }
+    const settings = this.state.pres?.showSettings ?? DEFAULT_SHOW_SETTINGS;
+    if (!settings.useTimings) commands.push({ type: "setShowSettings", settings: { ...settings, useTimings: true } });
+    await this.run(compound(commands));
+  }
+
+  // ----- Outline View
+
+  /** Writes a slide's edited outline back: its placeholders, new slides for promoted lines, a demoted title joins the previous slide. */
+  async commitOutline(id: NodeId, text: string): Promise<void> {
+    const pres = this.state.pres;
+    if (!pres) return;
+    const plan = outlinePlan(pres, id, text);
+    const commands = [...plan.commands];
+    if (plan.deleteSlide !== null) commands.push({ type: "deleteSlides", ids: [plan.deleteSlide] });
+    await this.run(compound(commands));
+    let after = plan.newSlides?.after ?? null;
+    for (const ns of plan.newSlides?.slides ?? []) {
+      if (after === null) break;
+      this.set({ current: after });
+      const added = await this.runSlideCommand({ type: "addSlide", after, layout: "titleContent" });
+      if (added === undefined) break;
+      const slide = this.state.pres?.slides.find((x) => x.id === added);
+      if (slide) {
+        const o = outlineSlide(slide);
+        const cmds: ShowCommand[] = [];
+        if (o.titleShape !== null) cmds.push({ type: "setTextBody", shape: o.titleShape, body: bodyWithLines(textOf(slide.shapes.find((x) => x.id === o.titleShape)!), [{ level: 0, text: ns.title }]) });
+        if (o.bodyShape !== null && ns.body.length) cmds.push({ type: "setTextBody", shape: o.bodyShape, body: bodyWithLines(textOf(slide.shapes.find((x) => x.id === o.bodyShape)!), ns.body) });
+        await this.run(compound(cmds));
+      }
+      after = added;
+    }
+  }
+
+  // ----- Slide Sorter
+
+  /** A click on a thumbnail (sorter or panel): Ctrl toggles, Shift selects a range from the current slide. */
+  clickSlide(id: NodeId, mode: "replace" | "toggle" | "range"): void {
+    const order = this.state.pres?.slides.map((s) => s.id) ?? [];
+    const sel = sorterSelect(order, this.state.slideSel, id, mode, this.state.current);
+    const current = mode === "toggle" && !sel.includes(id) ? (sel[sel.length - 1] ?? id) : id;
+    if (mode === "range") {
+      this.set({ slideSel: sel });
+      return;
+    }
+    this.selectSlide(current, sel);
+  }
+
+  /** The sorter's selected slides in deck order. */
+  selectedSlides(): NodeId[] {
+    const sel = new Set(this.state.slideSel);
+    return this.state.pres?.slides.filter((s) => sel.has(s.id)).map((s) => s.id) ?? [];
+  }
+
+  /** Drops the sorter's selected slides (or `ids`) before slide `before` / into a section (one undo step). */
+  async moveSlidesTo(drop: SorterDrop, ids: NodeId[] = this.selectedSlides()): Promise<void> {
+    const pres = this.state.pres;
+    if (!pres) return;
+    await this.run(moveSlidesCommand(pres, ids, drop));
+  }
+
+  /** Duplicates the sorter's selected slides (each after itself). */
+  async duplicateSlides(ids: NodeId[] = this.selectedSlides()): Promise<void> {
+    for (const id of ids) await this.duplicateSlide(id);
+  }
+
+  // ----- Selection pane
+
+  toggleSelectionPane(open = !this.state.selectionPane): void {
+    this.set({ selectionPane: open });
+  }
+
+  /** Hides / shows shapes (Selection pane eye). Hidden shapes leave the selection. */
+  async setShapesHidden(ids: NodeId[], hidden: boolean): Promise<void> {
+    if (hidden) this.set({ selection: this.state.selection.filter((id) => !ids.includes(id)) });
+    await this.run(hideCommand(ids, hidden));
+  }
+
+  /** Show All / Hide All. */
+  async setAllHidden(hidden: boolean): Promise<void> {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    if (hidden) this.set({ selection: [] });
+    await this.run(allCommand(slide, hidden));
+  }
+
+  async renameShape(id: NodeId, name: string): Promise<void> {
+    const shape = this.shape(id);
+    if (shape) await this.run(renameCommand(shape, name));
+  }
+
+  /** Moves a top-level shape to z-index `to` (Selection pane drag / ▲▼). */
+  async moveShapeToZ(id: NodeId, to: number): Promise<void> {
+    const slide = this.currentSlide();
+    if (slide) await this.run(moveToZ(slide, id, to));
+  }
+
+  // ----- Format Shape pane: size & properties, text box
+
+  openFormatPane(page: "size" | "text" | null): void {
+    this.set({ formatPane: page });
+  }
+
+  /** Lock aspect ratio (Size & Properties): pictures default to locked. */
+  aspectLocked(shape: Shape): boolean {
+    return this.state.lockedAspect[shape.id] ?? shape.kind.kind === "picture";
+  }
+
+  setAspectLocked(ids: NodeId[], locked: boolean): void {
+    const next = { ...this.state.lockedAspect };
+    for (const id of ids) next[id] = locked;
+    this.set({ lockedAspect: next });
+  }
+
+  /** Text body properties of the selected (or edited) text shapes, merged per shape; the shrink scale is recomputed. */
+  async setBodyProps(change: Partial<BodyProps> | ((props: BodyProps) => Partial<BodyProps>)): Promise<void> {
+    const pres = this.state.pres;
+    const slide = this.currentSlide();
+    if (!pres || !slide) return;
+    if (this.state.editing) await this.commitEdit();
+    const shapes = this.selectedShapes().filter((s) => s.kind.kind === "auto" && s.kind.value.geometry !== "line");
+    const commands: ShowCommand[] = [];
+    for (const shape of shapes) {
+      const body: TextBody = textOf(shape) ?? { props: DEFAULT_BODY, paragraphs: [{ runs: [] }] };
+      const patch = typeof change === "function" ? change(body.props) : change;
+      let props: BodyProps = { ...body.props, ...patch };
+      if (patch.autofit && patch.autofit !== "shrink") {
+        delete props.fontScale;
+        delete props.lineReduction;
+      }
+      if (props.autofit === "shrink") props = autofitProps(pres, slide, shape, { ...body, props: { ...props, fontScale: undefined, lineReduction: undefined } }) ?? withScale(props, { fontScale: 1, lineReduction: 0 });
+      const extra: ShowCommand[] = [];
+      if (patch.autofit === "resize" && shape.kind.kind === "auto") {
+        // Resize shape to fit text: the box grows (or shrinks) to the text's height
+        const fit = fitHeight(pres, slide, shape, { ...body, props });
+        if (fit !== null && fit !== shape.transform.h) extra.push({ type: "setTransform", shapes: [[shape.id, { ...shape.transform, h: fit }]] });
+      }
+      if (JSON.stringify(props) !== JSON.stringify(body.props)) commands.push({ type: "setBodyProps", shapes: [shape.id], props });
+      commands.push(...extra);
+    }
+    await this.run(compound(commands));
+  }
+
   // --- keyboard -----------------------------------------------------------------
 
   /** Executes a shortcut of the slide editor. Returns false when it did nothing applicable. */
   shortcut(a: ShortcutAction): boolean {
     switch (a.kind) {
       case "delete": void this.deleteSelection(); break;
-      case "nudge": void this.nudge(a.dx, a.dy); break;
+      case "nudge": void this.nudge(a.dx, a.dy, { fine: a.fine, shift: a.shift }); break;
       case "duplicate": void this.duplicateSelection(); break;
       case "group": void this.group(); break;
       case "ungroup": void this.ungroup(); break;
@@ -1868,6 +2207,34 @@ export class ShowStore {
     } catch (e) {
       this.pushError(e);
     }
+  }
+}
+
+/** The union of the shapes' bounds (slide px). */
+function boundsOf(shapes: Shape[]): BoxRect {
+  const r = shapes.map((s) => boundsPx(s.transform));
+  const x = Math.min(...r.map((b) => b.x));
+  const y = Math.min(...r.map((b) => b.y));
+  return { x, y, width: Math.max(...r.map((b) => b.x + b.width)) - x, height: Math.max(...r.map((b) => b.y + b.height)) - y };
+}
+
+/** View settings of a presentation without any (`ViewProps::default`). */
+export const DEFAULT_VIEW: ViewProps = {
+  guides: [], gridSpacing: 76200, snapToGrid: false, snapToShapes: true, showGrid: false, showGuides: false, showRuler: false, lastView: "normal",
+};
+
+/** `ShowSettings::default`. */
+export const DEFAULT_SHOW_SETTINGS: ShowSettings = { loop: false, withoutNarration: false, withoutAnimation: false, useTimings: true };
+
+const DEFAULT_BODY: BodyProps = { anchor: "top", wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" };
+
+/** The view to open a file in (its `lastView`). */
+function viewOfLast(v: ViewProps["lastView"] | undefined): PresentationView {
+  switch (v) {
+    case "outline": return "outline";
+    case "slideSorter": return "sorter";
+    case "notesPage": return "notesPage";
+    default: return "normal";
   }
 }
 

@@ -3,4 +3,4 @@
 /**
  * Kind of a manual break.
  */
-export type BreakKind = "line" | "page";
+export type BreakKind = "line" | "page" | "column";

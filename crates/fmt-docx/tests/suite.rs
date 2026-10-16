@@ -30,7 +30,7 @@ fn files() -> Vec<PathBuf> {
         .filter(|p| p.extension().is_some_and(|e| e == "docx"))
         .collect();
     v.sort();
-    assert!(v.len() >= 59, "{v:?}");
+    assert!(v.len() >= 60, "{v:?}");
     v
 }
 
@@ -297,6 +297,16 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                     if run.text.contains('\t') {
                         out.insert("tab".into());
                     }
+                    if let Some(l) = &run.link {
+                        out.insert(
+                            match l.target {
+                                model_text::LinkTarget::Url(_) => "link:url",
+                                model_text::LinkTarget::Bookmark(_) => "link:bookmark",
+                                model_text::LinkTarget::Email { .. } => "link:email",
+                            }
+                            .into(),
+                        );
+                    }
                     if !run.text.is_ascii() {
                         out.insert("text:unicode".into());
                     }
@@ -342,10 +352,15 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                 Inline::Break(BreakKind::Line) => {
                     out.insert("break:line".into());
                 }
+                Inline::Break(BreakKind::Column) => {
+                    out.insert("break:column".into());
+                }
                 Inline::Field(_)
                 | Inline::NoteRef(_)
                 | Inline::CommentStart { .. }
-                | Inline::CommentEnd { .. } => {}
+                | Inline::CommentEnd { .. }
+                | Inline::BookmarkStart { .. }
+                | Inline::BookmarkEnd { .. } => {}
             }
         }
     }
@@ -485,22 +500,46 @@ fn structure_features(doc: &Document, out: &mut BTreeSet<String>) {
         if let Some(n) = s.page_number_start {
             out.insert(format!("page-number:start={n}"));
         }
+        if s.columns.count > 1 {
+            out.insert(format!("section:columns={}", s.columns.count));
+        }
+        if s.columns.separator {
+            out.insert("section:column-separator".into());
+        }
+    }
+    let visible = doc.bookmarks().iter().filter(|b| !b.hidden()).count();
+    if visible > 0 {
+        out.insert(format!("bookmark:count={visible}"));
+    }
+    for (key, v) in [
+        ("title", &doc.properties.title),
+        ("subject", &doc.properties.subject),
+        ("author", &doc.properties.author),
+        ("keywords", &doc.properties.keywords),
+    ] {
+        if v.is_some() {
+            out.insert(format!("props:{key}"));
+        }
     }
     for c in doc.containers() {
         for p in model_text::document::paragraphs_in(c) {
             for i in &p.inlines {
                 if let Inline::Field(f) = i {
-                    out.insert(
-                        match f.kind {
-                            FieldKind::Page => "field:page",
-                            FieldKind::NumPages => "field:numpages",
-                            FieldKind::Date { .. } => "field:date",
-                            FieldKind::Time { .. } => "field:time",
-                            FieldKind::FileName => "field:filename",
-                            FieldKind::Author => "field:author",
+                    out.insert(match f.kind {
+                        FieldKind::Page => "field:page".to_owned(),
+                        FieldKind::NumPages => "field:numpages".to_owned(),
+                        FieldKind::Date { .. } => "field:date".to_owned(),
+                        FieldKind::Time { .. } => "field:time".to_owned(),
+                        FieldKind::FileName => "field:filename".to_owned(),
+                        FieldKind::Author => "field:author".to_owned(),
+                        FieldKind::Title => "field:title".to_owned(),
+                        FieldKind::Ref { .. } => "field:ref".to_owned(),
+                        FieldKind::PageRef { .. } => "field:pageref".to_owned(),
+                        FieldKind::NoteRef { .. } => "field:noteref".to_owned(),
+                        FieldKind::Seq { ref identifier, .. } => {
+                            format!("field:seq={identifier}")
                         }
-                        .to_owned(),
-                    );
+                    });
                 }
             }
         }
@@ -679,6 +718,8 @@ fn assert_same(name: &str, a: &Document, b: &Document) {
     assert_eq!(a.numbering, b.numbering, "{name}: numbering");
     assert_eq!(a.page, b.page, "{name}: page");
     assert_eq!(a.media, b.media, "{name}: media");
+    assert_eq!(a.properties, b.properties, "{name}: properties");
+    assert_eq!(a.settings, b.settings, "{name}: settings");
     assert_eq!(a.body.len(), b.body.len(), "{name}: block count");
     for (i, (x, y)) in a.body.iter().zip(&b.body).enumerate() {
         assert_eq!(x, y, "{name}: block {i}");
@@ -1443,4 +1484,113 @@ fn comments_read_tolerantly() {
     // Start at 0 (from between the paragraphs), end at the reference.
     assert_eq!((r[0].start, r[0].end), (0, 4));
     assert_eq!(back.body[0].as_paragraph().unwrap().display_text(), "one");
+}
+
+#[test]
+fn links_bookmarks_cross_references_captions_columns_properties() {
+    let out = read_out("provisional-60-links-bookmarks-columns.docx");
+    assert_no_new_warnings(&out.warnings);
+    let doc = out.document;
+    // Hyperlinks: web, e-mail, a bookmark; the Hyperlink character style.
+    let links: Vec<(String, model_text::LinkTarget)> = doc
+        .paragraphs()
+        .flat_map(|p| p.inlines.iter())
+        .filter_map(Inline::as_run)
+        .filter_map(|r| Some((r.text.clone(), r.link.as_ref()?.target.clone())))
+        .collect();
+    assert_eq!(
+        links,
+        [
+            (
+                "the example site".to_owned(),
+                model_text::LinkTarget::Url("https://www.example.com/".into())
+            ),
+            (
+                "info@example.com".to_owned(),
+                model_text::LinkTarget::Email {
+                    address: "info@example.com".into(),
+                    subject: None
+                }
+            ),
+            (
+                "the summary".to_owned(),
+                model_text::LinkTarget::Bookmark("summary".into())
+            ),
+        ]
+    );
+    // Bookmarks and the cross-references to them.
+    let names: Vec<String> = doc.bookmarks().into_iter().map(|b| b.name).collect();
+    assert_eq!(names, ["results", "summary"]);
+    let results = doc.bookmark("results").unwrap();
+    assert_eq!(doc.bookmark_text(&results), "results");
+    let fields: Vec<(FieldKind, String)> = doc
+        .paragraphs()
+        .flat_map(|p| p.inlines.iter())
+        .filter_map(|i| match i {
+            Inline::Field(f) => Some((f.kind.clone(), f.cached.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        fields[0],
+        (
+            FieldKind::PageRef {
+                bookmark: "results".into(),
+                hyperlink: true
+            },
+            "1".into()
+        )
+    );
+    assert!(matches!(&fields[1].0, FieldKind::Ref { bookmark, .. } if bookmark == "results"));
+    // Captions: SEQ numbered per label; the computed values match the file.
+    assert_eq!(doc.captions("Figure").len(), 2);
+    assert_eq!(doc.captions("Table").len(), 1);
+    let computed =
+        doc.computed_fields(&std::collections::HashMap::from([(results.start_block, 1)]));
+    for (block, at, value) in &computed {
+        let p = doc.find_paragraph(*block).unwrap();
+        let mut pos = 0;
+        for i in &p.inlines {
+            if pos == *at {
+                if let Inline::Field(f) = i {
+                    assert_eq!(&f.cached, value, "{:?}", f.kind);
+                }
+            }
+            pos += match i {
+                Inline::Run(r) => r.text.chars().count(),
+                _ => 1,
+            };
+        }
+    }
+    // Columns: a two-column section with a column break, a three-column one
+    // with a separator line.
+    let cols: Vec<(u8, bool)> = doc
+        .sections
+        .iter()
+        .map(|s| (s.columns.count, s.columns.separator))
+        .collect();
+    assert_eq!(cols, [(1, false), (2, false), (3, true), (1, false)]);
+    assert!(doc.paragraphs().any(|p| p
+        .inlines
+        .contains(&Inline::Break(model_text::BreakKind::Column))));
+    // Document properties.
+    let p = &doc.properties;
+    assert_eq!(p.title.as_deref(), Some("Links and columns"));
+    assert_eq!(p.subject.as_deref(), Some("Reference suite"));
+    assert_eq!(p.author.as_deref(), Some("Anna Berg"));
+    assert_eq!(p.keywords.as_deref(), Some("links columns"));
+    // Our output keeps all of it.
+    let bytes = fmt_docx::write_with_context(&doc, &out.context).unwrap();
+    let main = pretty_document_xml(&bytes);
+    assert_eq!(main.matches("<w:hyperlink").count(), 3, "{main}");
+    assert!(main.contains(r#"<w:bookmarkStart w:id="0" w:name="results"/>"#));
+    assert!(main.contains(r#"w:instr=" PAGEREF results \h ""#));
+    assert!(
+        main.contains(r#"<w:cols w:space="226" w:num="3" w:sep="1"/>"#),
+        "{main}"
+    );
+    let back = fmt_docx::read_with_context(&bytes).unwrap();
+    assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+    assert_same("60", &doc, &back.document);
+    insta::assert_snapshot!("document_xml_60", main);
 }

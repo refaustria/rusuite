@@ -42,13 +42,28 @@ interface Snapshot {
 const markerOf = (i: Inline): { id: number; start: boolean } | null =>
   i.kind === "commentStart" ? { id: i.value.id, start: true } : i.kind === "commentEnd" ? { id: i.value.id, start: false } : null;
 
-/** `write_core`'s `replace_keeping_markers`: lone markers of `mid` stay (ends before `fresh`, starts after it). */
+/** A comment or bookmark marker: `"c:id"` / `"b:id"` and whether it is a start. */
+const rangeMarkerOf = (i: Inline): { key: string; start: boolean } | null => {
+  const c = markerOf(i);
+  if (c) return { key: `c:${c.id}`, start: c.start };
+  if (i.kind === "bookmarkStart") return { key: `b:${i.value.id}`, start: true };
+  if (i.kind === "bookmarkEnd") return { key: `b:${i.value.id}`, start: false };
+  return null;
+};
+
+/** `write_core`'s `replace_keeping_markers`: lone comment and bookmark markers of `mid` stay (ends before `fresh`, starts after it). */
 export function keepMarkers(mid: Inline[], fresh: Inline[]): Inline[] {
-  const ms = mid.map(markerOf).filter((m): m is { id: number; start: boolean } => !!m);
-  const starts = new Set(ms.filter((m) => m.start).map((m) => m.id));
-  const ends = new Set(ms.filter((m) => !m.start).map((m) => m.id));
-  const keptEnds = mid.filter((i) => i.kind === "commentEnd" && !starts.has(i.value.id));
-  const keptStarts = mid.filter((i) => i.kind === "commentStart" && !ends.has(i.value.id));
+  const ms = mid.map(rangeMarkerOf).filter((m): m is { key: string; start: boolean } => !!m);
+  const starts = new Set(ms.filter((m) => m.start).map((m) => m.key));
+  const ends = new Set(ms.filter((m) => !m.start).map((m) => m.key));
+  const keptEnds = mid.filter((i) => {
+    const m = rangeMarkerOf(i);
+    return m && !m.start && !starts.has(m.key);
+  });
+  const keptStarts = mid.filter((i) => {
+    const m = rangeMarkerOf(i);
+    return m && m.start && !ends.has(m.key);
+  });
   return [...keptEnds, ...fresh, ...keptStarts];
 }
 
@@ -186,6 +201,20 @@ export class FakeWriteBackend implements WriteBackend {
         return { type: "opened", doc: r.doc, warnings: ["fake reader: JSON instead of docx"], envelope: r.envelope };
       }
       case "saveDocx": {
+        if (request.modified || request.user || request.pages != null) {
+          const p = { ...(this.doc.properties ?? {}) };
+          if (request.modified) {
+            p.modified = request.modified;
+            p.created ??= request.modified;
+          }
+          if (request.user) {
+            p.lastModifiedBy = request.user;
+            p.author ??= request.user;
+          }
+          if (request.pages != null) p.pages = request.pages;
+          p.revision = (p.revision ?? 0) + 1;
+          this.doc.properties = p;
+        }
         const base = (this.name ?? "Untitled.docx").replace(/\.docx$/i, "");
         return { type: "saved", bytesBase64: bytesToBase64(new TextEncoder().encode(JSON.stringify(this.doc))), suggestedName: `${base}.docx` };
       }
@@ -310,6 +339,8 @@ export class FakeWriteBackend implements WriteBackend {
     if (stableStringify(before.sections ?? []) !== stableStringify(after.sections ?? [])) patch.sections = structuredClone(after.sections ?? []);
     if (stableStringify(before.styles) !== stableStringify(after.styles)) patch.styles = structuredClone(after.styles);
     if (stableStringify(before.comments ?? []) !== stableStringify(after.comments ?? [])) patch.comments = structuredClone(after.comments ?? []);
+    if (stableStringify(before.properties ?? {}) !== stableStringify(after.properties ?? {})) patch.properties = structuredClone(after.properties ?? {});
+    if (stableStringify(before.settings ?? {}) !== stableStringify(after.settings ?? {})) patch.settings = structuredClone(after.settings ?? {});
     return patch;
   }
 
@@ -466,6 +497,7 @@ export class FakeWriteBackend implements WriteBackend {
         const value: Run = Object.keys(props).length ? { props, text: c.text } : { text: c.text };
         const style = c.props ? c.style : inheritedStyle(p, c.offset);
         if (style) value.style = style;
+        if (c.link) value.link = c.link;
         p.inlines = mergeRuns([...a, { kind: "run", value }, ...z]);
         return null;
       }
@@ -878,6 +910,34 @@ export class FakeWriteBackend implements WriteBackend {
         return null;
       }
       case "updateFields": {
+        if (c.refresh) {
+          // Sequence numbers in document order (the rest stays: the fake does not compute references).
+          const counters = new Map<string, number>();
+          for (const b of walkBlocks(this.doc.body)) {
+            if (b.kind !== "paragraph") continue;
+            for (const i of b.value.inlines) {
+              if (i.kind !== "field" || i.value.kind.kind !== "seq") continue;
+              const k = i.value.kind.value.identifier.toLowerCase();
+              counters.set(k, (counters.get(k) ?? 0) + 1);
+              i.value.cached = String(counters.get(k));
+            }
+          }
+          for (const sec of [this.doc]) {
+            for (const b of walkBlocks(sec.body)) {
+              if (b.kind !== "paragraph") continue;
+              for (const i of b.value.inlines) {
+                if (i.kind !== "field") continue;
+                const k = i.value.kind;
+                if (k.kind === "title" && this.doc.properties?.title) i.value.cached = this.doc.properties.title;
+                if (k.kind === "pageRef") {
+                  const start = this.bookmarkStart(k.value.bookmark);
+                  const page = start == null ? undefined : c.refresh.pages.find(([id]) => id === start)?.[1];
+                  if (page != null) i.value.cached = String(page);
+                }
+              }
+            }
+          }
+        }
         for (const [block, offset] of c.values) {
           const [, mid] = splitInlines(this.para(block).inlines, offset, offset + 1);
           if (mid[0]?.kind !== "field") throw new Fail("invalid_command", `no field at ${offset} in block ${block}`);
@@ -918,6 +978,97 @@ export class FakeWriteBackend implements WriteBackend {
         if (note.blocks[note.blocks.length - 1]?.kind !== "paragraph") note.blocks.push(para(this.alloc()));
         return null;
       }
+      case "setHyperlink":
+      case "removeHyperlink": {
+        const p = this.para(c.block);
+        this.range(p, c.from, c.to);
+        const link = c.type === "setHyperlink" ? c.link : null;
+        let [a, mid, z] = splitInlines(p.inlines, c.from, c.to);
+        if (c.type === "setHyperlink" && c.text) {
+          const first = mid.find((i) => i.kind === "run");
+          mid = [{ kind: "run", value: { ...(first?.kind === "run" ? first.value : {}), text: c.text } }];
+        }
+        if (c.type === "setHyperlink" && !mid.length) throw new Fail("invalid_command", "nothing to link");
+        mid = mid.map((i) => {
+          if (i.kind !== "run") return i;
+          const v: Run = { ...i.value };
+          if (link) {
+            v.link = link;
+            v.style ??= "Hyperlink";
+          } else {
+            delete v.link;
+            if (v.style === "Hyperlink") delete v.style;
+          }
+          return { kind: "run", value: v };
+        });
+        p.inlines = mergeRuns([...a, ...mid, ...z]);
+        return null;
+      }
+      case "addBookmark": {
+        if (!/^[\p{L}_][\p{L}\p{N}_]{0,39}$/u.test(c.name)) throw new Fail("invalid_command", `invalid bookmark name "${c.name}"`);
+        this.removeBookmark(c.name);
+        const id = this.nextBookmarkId();
+        const e = this.para(c.end.block);
+        const [ea, , ez] = splitInlines(e.inlines, c.end.offset, c.end.offset);
+        e.inlines = [...ea, { kind: "bookmarkEnd", value: { id } }, ...ez];
+        const sp = this.para(c.start.block);
+        const [sa, , sz] = splitInlines(sp.inlines, c.start.offset, c.start.offset);
+        sp.inlines = [...sa, { kind: "bookmarkStart", value: { id, name: c.name } }, ...sz];
+        return null;
+      }
+      case "deleteBookmark":
+        if (!this.removeBookmark(c.name)) throw new Fail("invalid_command", `no bookmark "${c.name}"`);
+        return null;
+      case "insertCrossReference": {
+        const p = this.para(c.block);
+        this.range(p, c.offset, c.offset);
+        let name: string;
+        if (c.target.kind === "bookmark") name = c.target.value;
+        else if (c.target.kind === "paragraph" || c.target.kind === "captionLabel") {
+          const t = this.para(c.target.value);
+          name = `_Ref${String(100000000 + this.nextBookmarkId()).padStart(9, "0")}`;
+          const id = this.nextBookmarkId();
+          t.inlines = [{ kind: "bookmarkStart", value: { id, name } }, ...t.inlines, { kind: "bookmarkEnd", value: { id } }];
+        } else throw new Fail("invalid_command", "fake: notes are not supported");
+        const kind =
+          c.show === "page" ? ({ kind: "pageRef", value: { bookmark: name, hyperlink: c.hyperlink } } as const) : ({ kind: "ref", value: { bookmark: name, hyperlink: c.hyperlink } } as const);
+        const target = this.bookmarkText(name);
+        const cached = c.show === "page" ? String(c.page ?? 1) : target;
+        const shift = c.target.kind !== "bookmark" && c.target.value === c.block ? 1 : 0;
+        const [a, , z] = splitInlines(p.inlines, c.offset + shift, c.offset + shift);
+        p.inlines = [...a, { kind: "field", value: { kind, cached } }, ...z];
+        return null;
+      }
+      case "insertCaption": {
+        const { list, index } = this.find(c.anchor);
+        const id = c.newId != null && c.newId < 0 ? this.alloc() : (c.newId ?? this.alloc());
+        if (c.newId != null && c.newId < 0) idMap.push([c.newId, id]);
+        const identifier = c.label.trim().replace(/\s+/g, "_");
+        const inlines: Inline[] = [
+          { kind: "run", value: { text: `${c.label.trim()} ` } },
+          { kind: "field", value: { kind: { kind: "seq", value: { identifier } }, cached: "1" } },
+        ];
+        if (c.text) inlines.push({ kind: "run", value: { text: c.text } });
+        list.splice(index + (c.below ? 1 : 0), 0, { kind: "paragraph", value: { id, props: { style: "Caption" }, inlines } });
+        this.exec({ type: "updateFields", values: [], refresh: { pages: [] } }, idMap);
+        return null;
+      }
+      case "setProperties": {
+        const props = { ...(this.doc.properties ?? {}) } as Record<string, unknown>;
+        for (const [k, v] of Object.entries(c.patch)) {
+          if (v == null) continue;
+          if (typeof v === "string" && !v.trim()) delete props[k];
+          else props[k] = v;
+        }
+        this.doc.properties = props;
+        return null;
+      }
+      case "restoreProperties":
+        this.doc.properties = structuredClone(c.properties);
+        return null;
+      case "setSettings":
+        this.doc.settings = structuredClone(c.settings);
+        return null;
       case "insertToc": {
         const at = c.after == null ? 0 : this.doc.body.findIndex((b) => b.value.id === c.after) + 1;
         if (c.after != null && at === 0) throw new Fail("unknown_block", `unknown block ${c.after}`);
@@ -925,8 +1076,9 @@ export class FakeWriteBackend implements WriteBackend {
         const to = c.toLevel ?? 3;
         const id = c.newId != null && c.newId < 0 ? this.alloc() : (c.newId ?? this.alloc());
         if (c.newId != null && c.newId < 0) idMap.push([c.newId, id]);
-        const toc: Block = { kind: "toc", value: { id, fromLevel: from, toLevel: to, entries: this.tocEntries(from, to) } };
+        const toc: Block = { kind: "toc", value: { id, fromLevel: from, toLevel: to, entries: c.caption ? this.captionEntries(c.caption) : this.tocEntries(from, to) } };
         if (c.title) (toc.value as { title?: string }).title = c.title;
+        if (c.caption) (toc.value as { caption?: string }).caption = c.caption;
         this.doc.body.splice(at, 0, toc);
         return null;
       }
@@ -968,7 +1120,7 @@ export class FakeWriteBackend implements WriteBackend {
       case "insertSectionBreak": {
         const p = this.para(c.block);
         if (!this.doc.body.some((b) => b.value.id === c.block)) throw new Fail("invalid_command", "not a body paragraph");
-        const sections = (this.doc.sections ??= [{ id: 1, page: structuredClone(this.doc.page), kind: "nextPage", columns: 1, titlePage: false }]);
+        const sections = (this.doc.sections ??= [{ id: 1, page: structuredClone(this.doc.page), kind: "nextPage", titlePage: false }]);
         const idx = this.doc.body.findIndex((b) => b.value.id === c.block);
         // The section holding the paragraph: the first section whose end is at or after it.
         const endIdx = (s: { id: number }) => this.doc.body.findIndex((b) => b.kind === "paragraph" && b.value.props?.sectionEnd === s.id);
@@ -1129,6 +1281,68 @@ export class FakeWriteBackend implements WriteBackend {
     for (const sec of this.doc.sections ?? []) {
       for (const set of [sec.headers, sec.footers]) for (const blocks of Object.values(set ?? {})) yield* walkAll(blocks ?? []);
     }
+  }
+
+  /** Bookmark `name`'s start paragraph. */
+  private bookmarkStart(name: string): number | null {
+    for (const b of walkBlocks(this.doc.body)) {
+      if (b.kind !== "paragraph") continue;
+      if (b.value.inlines.some((i) => i.kind === "bookmarkStart" && i.value.name.toLowerCase() === name.toLowerCase())) return b.value.id;
+    }
+    return null;
+  }
+
+  /** The text between bookmark `name`'s markers (one paragraph). */
+  private bookmarkText(name: string): string {
+    for (const b of walkBlocks(this.doc.body)) {
+      if (b.kind !== "paragraph") continue;
+      let inside = false;
+      let out = "";
+      for (const i of b.value.inlines) {
+        if (i.kind === "bookmarkStart" && i.value.name.toLowerCase() === name.toLowerCase()) inside = true;
+        else if (inside && i.kind === "bookmarkEnd") return out.trim();
+        else if (inside && i.kind === "run") out += i.value.text;
+        else if (inside && i.kind === "field") out += i.value.cached;
+      }
+      if (inside) return out.trim();
+    }
+    return "Error! Reference source not found.";
+  }
+
+  private nextBookmarkId(): number {
+    let max = 0;
+    for (const b of walkBlocks(this.doc.body)) {
+      if (b.kind !== "paragraph") continue;
+      for (const i of b.value.inlines) if (i.kind === "bookmarkStart" || i.kind === "bookmarkEnd") max = Math.max(max, i.value.id);
+    }
+    return max + 1;
+  }
+
+  /** Removes bookmark `name`'s markers; whether there was one. */
+  private removeBookmark(name: string): boolean {
+    let id: number | null = null;
+    for (const b of walkBlocks(this.doc.body)) {
+      if (b.kind !== "paragraph") continue;
+      for (const i of b.value.inlines) if (i.kind === "bookmarkStart" && i.value.name.toLowerCase() === name.toLowerCase()) id = i.value.id;
+    }
+    if (id == null) return false;
+    for (const b of walkBlocks(this.doc.body)) {
+      if (b.kind !== "paragraph") continue;
+      b.value.inlines = b.value.inlines.filter((i) => !((i.kind === "bookmarkStart" || i.kind === "bookmarkEnd") && i.value.id === id));
+    }
+    return true;
+  }
+
+  /** Caption paragraphs of sequence `id` as table-of-figures entries. */
+  private captionEntries(id: string) {
+    const out: { text: string; level: number; target: number }[] = [];
+    for (const b of walkBlocks(this.doc.body)) {
+      if (b.kind !== "paragraph") continue;
+      if (!b.value.inlines.some((i) => i.kind === "field" && i.value.kind.kind === "seq" && i.value.kind.value.identifier.toLowerCase() === id.toLowerCase())) continue;
+      const text = b.value.inlines.map((i) => (i.kind === "run" ? i.value.text : i.kind === "field" ? i.value.cached : "")).join("").trim();
+      out.push({ text, level: 1, target: b.value.id });
+    }
+    return out;
   }
 
   /** Headings `from..=to` of the body as TOC entries. */

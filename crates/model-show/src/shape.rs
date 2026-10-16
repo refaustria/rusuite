@@ -284,6 +284,11 @@ pub struct Shape {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub click_action: Option<Action>,
+    /// Hidden on the slide (Selection pane eye; `p:cNvPr/@hidden`): not
+    /// drawn in the editor, the show or print, still saved.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
+    pub hidden: bool,
 }
 
 impl Shape {
@@ -299,6 +304,7 @@ impl Shape {
             placeholder_idx: None,
             alt: None,
             click_action: None,
+            hidden: false,
         }
     }
 

@@ -36,6 +36,7 @@ mod link;
 mod master;
 mod media;
 mod parts;
+mod props;
 mod read;
 mod table;
 mod theme;

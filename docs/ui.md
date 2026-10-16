@@ -133,11 +133,70 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
   keeps it at the edit (the range shrinks; ends before typed text, starts after it — as the core does); deleting the whole
   range deletes the comment; pasted text never carries comments.
 
+### Write links, references, columns, properties (P8-27)
+- **Hyperlinks**: a link is an attribute of its text runs (`Run.link`: web page, a place in this document = a bookmark,
+  e-mail with subject; ScreenTip) → the ProseMirror `link` mark (not inclusive: typing at a link's end does not extend it,
+  typing inside does; `InsertText { link }`). Insert › Link (Ctrl+K): Text to display (fixed for a selection over
+  paragraphs), Link to Web page or file / Place in this document (Top of the document, the headings, the bookmarks — a
+  heading gets a hidden `_Ref` bookmark) / E-mail address (address, subject), ScreenTip; on a link the dialog edits it and
+  offers Remove Link → `SetHyperlink` (`Hyperlink` character style) / `RemoveHyperlink`. Links render as anchors with
+  Word's tooltip ("Ctrl+Click to follow link"); Ctrl+click follows (internal: the caret goes to the bookmark; external: a
+  new tab through an anchor element, no `window.open`); right-click: Edit Link…, Open Link, Remove Link.
+- **Bookmarks**: zero-width markers like the comment markers (`BookmarkStart`/`BookmarkEnd`, invisible atoms; a lone
+  marker survives a partial deletion, deleting the whole range removes the bookmark). Insert › Bookmark: name (Word's
+  rules), the list sorted by name or location, Hidden bookmarks, Add (an existing name moves) / Delete / Go To.
+  Go To (Ctrl+G, F5): Page (print layout), Bookmark, Heading.
+- **Fields**: `REF`, `PAGEREF`, `NOTEREF`, `SEQ`, `TITLE`, `AUTHOR` join the field model. PAGEREF shows the live page of
+  its bookmark like PAGE (saved with the current value); REF / NOTEREF / SEQ keep their result until Update Fields (F9 on
+  the selection, Ctrl+A F9 all; References › Update Fields; right-click Update Field) → `UpdateFields { refresh: { pages,
+  blocks } }`: the core computes SEQ per label in document order, REF (bookmark text, or the list number with `\n`),
+  PAGEREF (from the UI's page per paragraph), NOTEREF, TITLE/AUTHOR (the properties); a missing bookmark gives Word's
+  "Error! Reference source not found.".
+- **Captions**: References › Insert Caption: the caption box shows "Figure 1" (the number it will get) and the text after it,
+  Label (Figure / Table / Equation, New Label…), Position (above / below the selected item: the caret's table, else its
+  paragraph) → `InsertCaption` (a `Caption` paragraph "Label N" + text with a `SEQ` field; every sequence is renumbered).
+  Insert Table of Figures ▾ (Figure, Table, Equation) → `InsertToc { caption }` (a TOC block over the captions, `TOC \h \z
+  \c "Figure"`). Cross-reference (Insert and References): Reference type (Numbered item, Heading, Bookmark, Footnote,
+  Endnote, the caption labels), Insert reference to (text / paragraph number / page; notes: number, formatted number, page;
+  captions: entire caption, only label and number, page), Insert as hyperlink, For which → `InsertCrossReference` (hidden
+  `_Ref` bookmarks created and reused by the core); the dialog stays open (Word).
+- **Columns**: `Section.columns` (count, spacing, equal width or per-column widths, line between) ↔ `w:cols`. Layout ›
+  Columns ▾ One / Two / Three / Left / Right (a narrow column of about a third and a wide one) acts on the caret's section;
+  More Columns…: presets, number, width and spacing per column (equal width: all follow), line between, Apply to this
+  section / this point forward (a continuous section break at the caret, the part after gets the columns) / whole
+  document, preview. Breaks ▾ › Column inserts `Break(column)`. The editor wraps a multi-column section's blocks in a
+  `columns` box (a display node built from the sections like the list containers, flattened by `fromPM`, re-wrapped after
+  section changes) rendered with CSS columns (balanced; a column break ends its column, an empty section-end paragraph
+  spans the columns); print layout keeps the box on one page (approximate); a column break outside multi-column sections
+  ends the page. The ruler shows the section's columns (white) and the gaps.
+- **Document properties**: File › Info (a generic Info page of the shared backstage): Title, Subject, Author, Tags,
+  Categories, Comments (commit on blur / Enter → `SetProperties`, an empty field clears) and read-only Created, Last
+  modified, Last modified by, Words, Pages. Saving stamps modified (UI clock), created when unset, last modified by (the
+  user name), the page count and revision + 1 (`saveDocx { modified, user, pages }`, not an edit); `app.xml` names
+  "Rusuite Write" with words and pages.
+- **Symbols**: Insert › Symbol ▾: 20 symbols (recently used first, this browser only, then Word's common set), More
+  Symbols…: Subset (Basic Latin, Latin-1, Greek, Currency, Arrows, Mathematical Operators, Box Drawing, Geometric Shapes,
+  Dingbats and Emoji), Search by name, the character's name, Character code (hex, both ways), Recently used symbols,
+  Insert (double-click inserts too; the dialog stays open); Special Characters tab: em/en dash, nonbreaking hyphen (U+2011
+  ↔ `w:noBreakHyphen`), optional hyphen (U+00AD ↔ `w:softHyphen`), em/en/¼ em space, nonbreaking space, ©, ®, ™, §, ¶,
+  …, single/double quotes, with Word's shortcuts listed. Insert › Date & Time: Word's formats in the UI language,
+  Update automatically → a `DATE` / `TIME` field with the picture, else the text.
+- **Paragraph flow**: the Paragraph dialog's Line and Page Breaks tab: Widow/Orphan control, Keep with next, Keep lines
+  together, Page break before, Suppress line numbers (stored), Don't hyphenate (effective values, changes sent as direct
+  formatting). Print layout honours page break before and keep with next (a block chained by keep with next moves to the
+  next page with the following one, unless that would empty the page); blocks are never split, so keep lines together and
+  widow/orphan control hold by construction. Layout › Hyphenation ▾ None / Automatic → `SetSettings { autoHyphenation }`
+  (`w:autoHyphenation`): CSS `hyphens: auto` with the UI language as `lang`; "Don't hyphenate" paragraphs (style or direct)
+  stay `hyphens: manual`.
+- **Font box**: Home › Font shows the font and size in effect at the caret — direct formatting, the character style, the
+  paragraph style chain, the defaults; theme fonts by name (+Headings Calibri Light, +Body Calibri) — updating on caret moves
+  and style changes; the Style Inspector shows the same ("In effect: Calibri Light, 16 pt").
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |
 | --- | --- |
-| `Ribbon` | `tabs: RibbonTab[]` (`{ id, label, groups: { label, items }[], toolbarLabel? }`); empty groups and tabs without groups are omitted. Active tab controlled (`activeTab`/`onTabChange`) or not (`defaultTab`); collapse likewise (`collapsed`/`defaultCollapsed`/`onCollapsedChange`). `backstage` adds the File tab; `accent` colors it. |
+| `Ribbon` | `tabs: RibbonTab[]` (`{ id, label, groups: { label, items }[], toolbarLabel? }`); empty groups and tabs without groups are omitted. Active tab controlled (`activeTab`/`onTabChange`) or not (`defaultTab`); collapse likewise (`collapsed`/`defaultCollapsed`/`onCollapsedChange`). `backstage` adds the File tab; `accent` colors it. Contextual tabs (P8-28) carry `contextual: { group, color }` (`contextualTabs(tabs, group, color)`, `CONTEXT_COLORS` drawing / picture / table / chart / media / master): they follow the standard tabs, consecutive tabs of one group share a coloured header naming the context ("Table Tools", `ribbon.ctx.*` in the shared catalog) above their labels on a tinted background, the selected one is drawn in the group colour, and the panel's top border takes it. Calc's Chart Design / Format (Chart Tools) and Write's Table Design / Layout (Table Tools) and Picture Format (Picture Tools) use it as well. |
 | `Backstage` | Full-pane File view: Home, New, Open…, Save, Save As…, Print, Export PDF…, Close; the Home page lists the session's recent files (re-opened through `DocumentSession.openRecent`), the Print page shows `print` (see Printing). Commands without a handler are not shown; `fileDisabledReason` disables the file commands with a note. Esc / Back returns. `openBackstage(page)` opens it from anywhere (Ctrl+P). The Home page ends with the **Privacy** entry (P7-12, ADR 0009): where data is kept, the "Keep autosave copies in this browser" checkbox (default on; `DocumentSession.setKeepAutosave`, stored in `localStorage` `rusuite.keepAutosave`; off = no recovery entries, recent entries without content) and "Remove local copies from this browser" (`DocumentSession.clearLocalData` → `DocStorage.clearAll`: IndexedDB recent list, snapshots and recovery entries; desktop: recovery entries only, the recent list holds paths). |
 | `RibbonButton` | Large (24 px icon over the label) or small (icon, optional label); `pressed` makes it a toggle (`aria-pressed`); tooltip = label + formatted `shortcut`. |
 | `RibbonSplitButton`, `RibbonMenuButton` | Main action + arrow, or a button that only opens; the popup is a keyboard menu (`RibbonMenuItem[]`, with separators/section labels and radio items) or any panel. |
@@ -291,9 +350,11 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, multilevel list, indent, line spacing, alignment, shading, borders,
-  tabs; Styles gallery (quick styles with live previews, ▾ Create a Style / Clear Formatting / Apply Styles, Styles pane; P8-21); Editing: Find and replace), Insert (Table picker, Picture, Header/Footer/Page
-  number, Field, Footnotes, Page break, Line break), Layout (Margins, Orientation, Size → `SetSection`/`SetPage`, Breaks),
-  References (Table of contents, Footnotes), Review (Comments: New, Delete ▾, Previous/Next, Resolve, Show Comments, Comments Pane; P8-25), View (views, ruler, Navigation Pane, zoom, spelling, shortcuts help); contextual Table Design and
+  tabs; Styles gallery (quick styles with live previews, ▾ Create a Style / Clear Formatting / Apply Styles, Styles pane; P8-21); Editing: Find and replace), Insert (Table picker, Picture, Links: Link /
+  Bookmark / Cross-reference, Header/Footer/Page number, Text: Field, Date & Time, Symbols: Symbol ▾, Footnotes, Page break,
+  Line break), Layout (Margins, Orientation, Size → `SetSection`/`SetPage`, Columns ▾, Breaks ▾ incl. Column, Hyphenation ▾),
+  References (Table of contents, Captions: Insert Caption, Insert Table of Figures ▾, Cross-reference, Bookmark, Update Fields;
+  Footnotes; P8-27), Review (Comments: New, Delete ▾, Previous/Next, Resolve, Show Comments, Comments Pane; P8-25), View (views, ruler, Navigation Pane, zoom, spelling, shortcuts help); contextual Table Design and
   Table Layout in a table, Picture Format on a picture (P8-17).
 - **Show**: Home (Undo; Clipboard: shapes/slides clipboard + Duplicate; Slides: New slide ▾ layouts, Layout ▾, Duplicate,
   Delete, Hide slide; Font + grow/shrink; Paragraph + line spacing ▾; Drawing: shapes gallery, Arrange ▾
@@ -302,7 +363,11 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   colour, Apply to all, Reset), Transitions (Preview; gallery None/Fade/Push/Wipe/Cover/Split/Cut/Zoom + Effect Options ▾;
   Timing: Duration, Apply to all, Advance slide On mouse click / After mm:ss), Animations (Preview; Animation styles ▾ grouped
   Entrance/Emphasis/Exit + None, Effect Options ▾; Add animation ▾, Animation pane; Timing: Start, Duration, Delay, Move
-  earlier/later), View (Notes pane, present from beginning/current, Presenter view, zoom Fit/50–200 %, shortcuts help),
+  earlier/later), Slide Show (From Beginning / Current Slide, Set Up Slide Show, Hide Slide, Rehearse Timings, Use
+  Timings, Loop until Esc, Presenter View; P8-28), View (Presentation Views: Normal, Outline View, Slide Sorter, Notes
+  Page, Reading View; Slide Master; Show: Ruler, Gridlines, Guides, Notes, Grid and Guides…; present from
+  beginning/current, Presenter view, zoom Fit/50–200 %, shortcuts help), Home › Editing › Select ▾ (Select All, Select
+  Objects, Selection Pane),
   contextual Shape Format while shapes are selected (Format shape…, Alt text…, Change picture…/Reset size; Insert shapes:
   Shapes ▾, Change shape ▾; Shape styles ▾, fill, outline, Arrows ▾, Connector type ▾ + Reroute; Arrange ▾, Rotate ▾), or
   Table Design + Layout while one table is selected, Chart Design + Format while one chart is selected, Playback (+ Shape
@@ -530,6 +595,65 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   slide takes this presentation's layout of the same kind (custom layouts: inferred from the placeholders) and its
   placeholders are re-mapped like a layout change. Media are copied (identical ones shared), links to slides that are
   not inserted are dropped.
+
+## Show: views, rulers, guides, Selection pane, text options, slide-show tools (P8-28)
+
+- **Views** (View › Presentation Views; `ShowState.view`; a file opens in its saved `lastView`): *Normal*. *Outline View*
+  (`views/OutlinePane.tsx`, `outline.ts`): the left pane lists every slide's number, an icon and its outline – the title
+  placeholder, then the body placeholder's paragraphs indented by level – as one text field per slide (first line = title,
+  each body paragraph indented by level + 1 tabs). Leaving a field writes the placeholders (`SetTextBody`, old run and
+  paragraph formatting kept by index); Tab / Shift+Tab demote / promote the selected lines at once: a body line without
+  tabs becomes a new Title and Content slide after this one, a demoted title joins the previous slide's body (the slide is
+  removed). *Slide Sorter* (`views/SlideSorter.tsx`, `sorter.ts`): all slides as thumbnails in a grid with section
+  headers and the slide's time when it has an After timing; click selects, Ctrl+click toggles, Shift+click a range;
+  dragging (pointer events) moves the selection before the slide under the pointer – also into another section or onto a
+  section header – as one undo step (`MoveSlide`s + `RestoreSections`); Delete, Ctrl+D, Ctrl+C/X/V, Ctrl+A, the
+  thumbnail menu and Slide Show › Hide Slide act on the selection; a zoom slider sets the thumbnail size; double-click or
+  Enter opens the slide in Normal. *Notes Page* (`views/NotesPageView.tsx`): the page as printed (portrait 7.5 × 10",
+  slide picture in the upper half, the notes editable below; printing's Notes Pages layout is the same). *Reading View*
+  (`views/ReadingView.tsx`): the show inside the window with transitions and animations and a status bar (slide x of n,
+  Previous, Menu with every slide and End Show, Next, Normal, Slide Sorter, Slide Show); Esc returns to Normal.
+- **Rulers, grid, guides** (View › Show, `canvas/guides.ts`, `Rulers.tsx`; stored with the presentation in
+  `ViewProps` → `ppt/viewProps.xml`; guides in 1/8 pt, grid / ruler display in a Rusuite extension): *Ruler* – a horizontal and a vertical ruler in inches
+  (English UI) or centimetres, counted from the slide centre like PowerPoint's, with the pointer's position marked.
+  *Gridlines* (Shift+F9) – a dotted grid; *Grid and Guides…* (View, slide menu): Snap objects to grid, spacing 1/8, 1/6,
+  1/5, 1/4, 1/3, 1/2, 1 or 2 cm / in, display grid, display drawing guides, smart guides. *Guides* (Alt+F9) – turning
+  them on without any adds the two centre guides; drag a guide to move it (its distance from the centre is shown),
+  Ctrl+drag copies it, dragging it off the slide deletes it; right-click: Add Vertical / Horizontal Guide, Delete Guide,
+  colour. Every change is one `SetViewProps` (undoable). *Smart guides*: while dragging or resizing, red dashed lines at
+  the edges / centres of other shapes and the slide, gap marks for equal spacing between three objects (`equalSpacing`:
+  continuing two neighbours' gap or centring between two), snapping within 4 screen px; drawing guides always snap while
+  shown; otherwise the box goes to the grid when Snap objects to grid is on (also resize handles); Alt moves freely.
+  Arrow keys move by the grid step onto the grid while snapping (else 1 px), Ctrl+arrows always 1 px, Shift+arrows 10 px.
+- **Selection & arrange**: Home › Select ▾ / Shape Format › Arrange › *Selection Pane* (`ui/SelectionPane.tsx`,
+  `selection.ts`): the slide's shapes top to bottom (group children indented); click selects, Ctrl/Shift+click adds,
+  double-click or F2 renames (`SetName`), the eye hides / shows (`SetShapesHidden`; hidden shapes are not drawn in the
+  editor, show, thumbnails or print and are saved as `p:cNvPr/@hidden`), Show All / Hide All, ▲ / ▼ and dragging a row by
+  its grip reorder (`ZOrder` steps, one undo step). Arrange ▾: order, align (left / centre / right / top / middle /
+  bottom), distribute, *Align to Slide* / *Align Selected Objects*, Group / Ungroup / *Regroup* (the last ungrouped
+  shapes), Rotate (90° right / left, flips, *More Rotation Options…*). Several selected shapes resize and rotate as one
+  box (the Transformer). *Format Shape pane* (`ui/FormatShapePane.tsx`, right of the stage; shape menu Size and
+  Position… / Text Options…): Size & Properties – height, width, rotation, lock aspect ratio (for the session; pictures
+  locked by default), position from the top-left corner; Text Options › Text Box – vertical alignment, text direction
+  (horizontal, rotate all text 90° / 270°, stacked), Do not Autofit / Shrink text on overflow / Resize shape to fit text,
+  margins, wrap text in shape, columns (number, spacing) → `SetBodyProps`.
+- **Autofit** (`text/autofit.ts`, `text/layout.ts`): Shrink text on overflow computes PowerPoint's steps (line spacing −10
+  / −20 %, then the font 92.5 … 25 %) and stores them as `fontScale` / `lineReduction` (written as
+  `a:normAutofit/@fontScale`, `@lnSpcReduction`), recomputed when the text is committed, the box is resized or the
+  setting changes; the canvas draws the stored scale. Resize shape to fit text grows the box to the text when it is
+  committed (horizontal text). The *AutoFit Options* button (`canvas/AutofitButton.tsx`) appears under the selected shape
+  while its text overflows or is shrunk: the three choices and the Format pane's text options.
+- **Slide-show tools** (`present/ShowTools.tsx`, `tools.ts`; the full-window show): a tool bar in the lower left on
+  pointer movement (Previous, Next, Pointer Options ▾, See All Slides, Zoom), laser pointer (Ctrl+L), pen (Ctrl+P),
+  highlighter (Ctrl+I) in six colours, eraser (Ctrl+E), arrow (Ctrl+A), E erases the slide's ink, Ctrl+M shows / hides
+  ink; ink lives for the session only (never saved). G or − (at 100 %) shows *See all slides*, + / − zoom into the slide
+  about the pointer (1.5 … 4 ×), Esc first leaves zoom / see all / the pen. B / W, number + Enter, presenter notes A− / A+,
+  timer reset as before. *Set Up Slide Show* (`ui/ViewDialogs.tsx` → `SetShowSettings`, `ppt/presProps.xml`
+  `p:showPr`): loop continuously until Esc, show without narration / animation, all slides or from … to …, advance
+  manually or using timings (custom shows are not offered). *Rehearse Timings*: the show from the start with a Recording
+  bar (next, pause, the slide's time, repeat, total); at the end "keep the new slide timings?" – Yes sets each slide's
+  After (whole seconds, `SetTransition`) and Use Timings in one undo step. Hidden slides are skipped (crossed-out number
+  in the panel and the sorter).
 
 ## Printing (P7-9)
 

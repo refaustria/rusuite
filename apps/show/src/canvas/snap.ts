@@ -1,13 +1,15 @@
 // Smart guides (PowerPoint-like): while a shape is dragged or resized its
 // edges and centre lines snap to the slide's edges and centre lines and to
-// the edges and centres of the other shapes, within a threshold of 6
-// screen px; the matching lines are drawn as guides. Pure geometry in
-// slide px (no Konva), so it is unit-testable.
+// the edges and centres of the other shapes, within a threshold of 4
+// screen px; the matching lines are drawn as red dashed guides. Equal
+// spacing (P8-28): a box dragged next to two shapes snaps to the gap
+// between them (or into the middle of two), shown by gap marks. Pure
+// geometry in slide px (no Konva), so it is unit-testable.
 
 import type { Rect } from "../geometry";
 
 /** Snap threshold in screen px (divide by the stage scale for slide px). */
-export const SNAP_PX = 6;
+export const SNAP_PX = 4;
 
 /** Candidate lines: x positions of vertical lines, y positions of horizontal lines. */
 export interface SnapTargets {
@@ -15,10 +17,18 @@ export interface SnapTargets {
   ys: number[];
 }
 
-/** Guides to draw: vertical lines at `v` (x), horizontal lines at `h` (y). */
+/** Guides to draw: vertical lines at `v` (x), horizontal lines at `h` (y), equal-gap marks. */
 export interface Guides {
   v: number[];
   h: number[];
+  spacing?: SpacingMark[];
+}
+
+/** Equal gaps found by `equalSpacing`: segments `[from, to]` along `axis`, drawn at `at` on the other axis. */
+export interface SpacingMark {
+  axis: "x" | "y";
+  at: number;
+  segments: [number, number][];
 }
 
 export const NO_GUIDES: Guides = { v: [], h: [] };
@@ -90,4 +100,69 @@ export function anchorAxes(anchor: string | null | undefined): { x: boolean; y: 
 
 /** Whether two guide sets are equal (to skip re-renders while dragging). */
 export const sameGuides = (a: Guides, b: Guides): boolean =>
-  a.v.length === b.v.length && a.h.length === b.h.length && a.v.every((v, i) => v === b.v[i]) && a.h.every((h, i) => h === b.h[i]);
+  a.v.length === b.v.length && a.h.length === b.h.length && a.v.every((v, i) => v === b.v[i]) && a.h.every((h, i) => h === b.h[i]) &&
+  JSON.stringify(a.spacing ?? []) === JSON.stringify(b.spacing ?? []);
+
+interface Span {
+  start: number;
+  end: number;
+}
+
+const spanOf = (r: Rect, axis: "x" | "y"): Span => (axis === "x" ? { start: r.x, end: r.x + r.width } : { start: r.y, end: r.y + r.height });
+const overlaps = (a: Span, b: Span) => a.start < b.end && b.start < a.end;
+
+/** Equal spacing along one axis: the best move of `box` (null = none) and its marks. */
+function equalOnAxis(box: Rect, others: readonly Rect[], axis: "x" | "y", threshold: number): { d: number; mark: SpacingMark } | null {
+  const cross = axis === "x" ? "y" : "x";
+  const own = spanOf(box, axis);
+  const size = own.end - own.start;
+  const band = spanOf(box, cross);
+  const row = others
+    .filter((r) => overlaps(spanOf(r, cross), band))
+    .map((r) => spanOf(r, axis))
+    .sort((a, b) => a.start - b.start);
+  const at = (band.start + band.end) / 2;
+  let best: { d: number; segments: [number, number][] } | null = null;
+  const consider = (start: number, segments: [number, number][]) => {
+    const d = start - own.start;
+    if (Math.abs(d) <= threshold && (best === null || Math.abs(d) < Math.abs(best.d))) best = { d, segments };
+  };
+  const centre = (own.start + own.end) / 2;
+  const before = row.filter((r) => r.end <= centre);
+  const after = row.filter((r) => r.start >= centre);
+  const l = before.reduce<Span | null>((m, r) => (m === null || r.end > m.end ? r : m), null);
+  const r = after.reduce<Span | null>((m, x) => (m === null || x.start < m.start ? x : m), null);
+  // a chain: (l2, l, box) with gap(l2, l) = gap(l, box), and the mirror
+  if (l) {
+    const l2 = before.filter((x) => x !== l && x.end <= l.start).reduce<Span | null>((m, x) => (m === null || x.end > m.end ? x : m), null);
+    if (l2) {
+      const g = l.start - l2.end;
+      consider(l.end + g, [[l2.end, l.start], [l.end, l.end + g]]);
+    }
+  }
+  if (r) {
+    const r2 = after.filter((x) => x !== r && x.start >= r.end).reduce<Span | null>((m, x) => (m === null || x.start < m.start ? x : m), null);
+    if (r2) {
+      const g = r2.start - r.end;
+      consider(r.start - g - size, [[r.start - g, r.start], [r.end, r2.start]]);
+    }
+  }
+  // in the middle of two
+  if (l && r && r.start - l.end > size) {
+    const start = (l.end + r.start - size) / 2;
+    consider(start, [[l.end, start], [start + size, r.start]]);
+  }
+  const b = best as { d: number; segments: [number, number][] } | null;
+  return b ? { d: b.d, mark: { axis, at, segments: b.segments.map(([a, c]) => [Math.round(a * 100) / 100, Math.round(c * 100) / 100]) } } : null;
+}
+
+/**
+ * Equal spacing between three objects: moves `box` so its gap to the
+ * neighbouring shape equals the gap between that shape and the next one
+ * (or centres it between two), per axis, within `threshold`.
+ */
+export function equalSpacing(box: Rect, others: readonly Rect[], threshold: number): { dx: number; dy: number; marks: SpacingMark[] } {
+  const x = equalOnAxis(box, others, "x", threshold);
+  const y = equalOnAxis(box, others, "y", threshold);
+  return { dx: x?.d ?? 0, dy: y?.d ?? 0, marks: [x?.mark, y?.mark].filter((m): m is SpacingMark => !!m) };
+}

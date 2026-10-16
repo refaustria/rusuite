@@ -5,6 +5,7 @@
 // (rows & columns, merge, cell size, alignment, cell margins), plus the
 // Insert › Table picker.
 
+import { DI } from "./designIcons";
 import type { ReactNode } from "react";
 import {
   ColorPicker, Icon, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonStack, RibbonRow, RibbonTableSizePicker,
@@ -222,8 +223,11 @@ export function shapeFormatGroups(store: ShowStore, state: ShowState, palette: T
               { id: "rotLeft", label: t("show.rotate.left"), onSelect: () => void store.rotateOrFlip("left") },
               { id: "flipV", label: t("show.rotate.flipV"), onSelect: () => void store.rotateOrFlip("flipV") },
               { id: "flipH", label: t("show.rotate.flipH"), onSelect: () => void store.rotateOrFlip("flipH") },
+              { separator: true },
+              { id: "moreRotation", label: t("show.rotate.moreDots"), onSelect: () => store.openFormatPane("size") },
             ]}
           />
+          <RibbonButton label={t("show.selPane.title")} icon={DI.selectionPane} showLabel pressed={state.selectionPane} onClick={() => store.toggleSelectionPane()} />
         </>
       ),
     },

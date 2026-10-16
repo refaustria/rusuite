@@ -11,6 +11,7 @@
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, TextSelection, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+import type { CoreProperties } from "../generated/CoreProperties";
 import type { FieldKind } from "../generated/FieldKind";
 import type { Section } from "../generated/Section";
 import type { WriteCommand } from "../generated/WriteCommand";
@@ -89,6 +90,27 @@ export interface FieldContext {
   fileName: () => string | null;
   now: () => Date;
   locale: () => string;
+  /** Document properties (TITLE, AUTHOR fields). */
+  properties?: () => CoreProperties | null;
+}
+
+const bookmarkCache = new WeakMap<PMNode, Map<string, number>>();
+
+/** Position of every bookmark start of `doc` by lower-case name. */
+export function bookmarkStarts(doc: PMNode): Map<string, number> {
+  let m = bookmarkCache.get(doc);
+  if (!m) {
+    const out = new Map<string, number>();
+    doc.descendants((n, pos) => {
+      if (n.type.name === "bookmarkStart") {
+        const key = String(n.attrs.name ?? "").toLowerCase();
+        if (!out.has(key)) out.set(key, pos);
+      }
+      return true;
+    });
+    bookmarkCache.set(doc, (m = out));
+  }
+  return m;
 }
 
 /** The live result of a field, or null to keep showing the cached one. */
@@ -107,6 +129,18 @@ export function fieldValue(kind: FieldKind, pos: number, state: EditorState, ctx
     case "fileName":
       return ctx.fileName();
     case "author":
+      return ctx.properties?.()?.author ?? null;
+    case "title":
+      return ctx.properties?.()?.title ?? null;
+    case "pageRef": {
+      // Like PAGE: the page the bookmark starts on, from the pagination.
+      const at = bookmarkStarts(state.doc).get(kind.value.bookmark.toLowerCase());
+      return at === undefined ? null : ctx.pageAt(at, state);
+    }
+    // REF, NOTEREF and SEQ show their result until Update Field (F9) recomputes it in Rust (Word).
+    case "ref":
+    case "noteRef":
+    case "seq":
       return null;
   }
 }
@@ -213,8 +247,14 @@ export function buildStructureDecorations(state: EditorState, opts: StructureOpt
 }
 
 /** Field context from the print-layout pagination of the state, the clock and the document name. */
-export function layoutFieldContext(fileName: () => string | null, locale: () => string, now: () => Date = () => new Date()): FieldContext {
+export function layoutFieldContext(
+  fileName: () => string | null,
+  locale: () => string,
+  now: () => Date = () => new Date(),
+  properties: () => CoreProperties | null = () => null,
+): FieldContext {
   return {
+    properties,
     pageAt: (pos, state) => {
       const layout = currentLayout(state);
       if (!layout) return null;

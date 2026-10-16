@@ -38,6 +38,22 @@ numbering?: NumberingRef | null,
  */
 keepNext?: boolean | null, 
 /**
+ * Keep the lines of the paragraph on one page (docx `w:keepLines`).
+ */
+keepLines?: boolean, 
+/**
+ * Widow/orphan control (docx `w:widowControl`; Word's default: on).
+ */
+widowControl?: boolean, 
+/**
+ * Suppress line numbers (docx `w:suppressLineNumbers`; stored only).
+ */
+suppressLineNumbers?: boolean, 
+/**
+ * Don't hyphenate (docx `w:suppressAutoHyphens`).
+ */
+suppressAutoHyphens?: boolean, 
+/**
  * Start on a new page.
  */
 pageBreakBefore?: boolean | null, 

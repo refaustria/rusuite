@@ -2,10 +2,12 @@
 import type { Layout } from "./Layout";
 import type { MediaItem } from "./MediaItem";
 import type { Section } from "./Section";
+import type { ShowSettings } from "./ShowSettings";
 import type { Slide } from "./Slide";
 import type { SlideMaster } from "./SlideMaster";
 import type { SlideSize } from "./SlideSize";
 import type { Theme } from "./Theme";
+import type { ViewProps } from "./ViewProps";
 
 /**
  * A Show presentation.
@@ -42,4 +44,12 @@ sections?: Array<Section>,
 /**
  * Images.
  */
-media: Array<MediaItem>, };
+media: Array<MediaItem>, 
+/**
+ * Guides, grid, snapping, ruler and the last view (`viewProps.xml`).
+ */
+view?: ViewProps, 
+/**
+ * Set Up Slide Show (`presProps.xml`).
+ */
+showSettings?: ShowSettings, };

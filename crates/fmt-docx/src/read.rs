@@ -17,7 +17,7 @@ use model_text::{
     SectionId, StyleSheet, Table, TableCell, TableLayout, TableProperties, TableRow, TableWidth,
     Toc, VAlign, VMerge,
 };
-use model_text::{Comment, CommentId};
+use model_text::{BookmarkId, Comment, CommentId, CoreProperties, Hyperlink, LinkTarget};
 
 use crate::numbering::read_numbering;
 use crate::props::{
@@ -73,8 +73,16 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         .data;
     let mut consumed: BTreeSet<PartName> = BTreeSet::new();
     consumed.insert(main.clone());
+    let mut properties = CoreProperties::default();
     for p in ["/docProps/core.xml", "/docProps/app.xml"] {
-        consumed.insert(PartName::new(p)?);
+        let name = PartName::new(p)?;
+        if let Some(part) = pkg.part(&name) {
+            // Unreadable property parts are not worth failing the file.
+            if let Ok(root) = parse(&part.data, name.as_str()) {
+                read_properties(&root, &mut properties);
+            }
+        }
+        consumed.insert(name);
     }
 
     // Parts related to the main document, by kind.
@@ -99,6 +107,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     };
 
     let mut context = DocxContext::default();
+    let mut auto_hyphenation = false;
     if let Some((name, data)) = data_of("theme") {
         context.theme = Some(parse_theme(data, name.as_str()).map_err(xml_error)?);
         if pkg.relationships(name).is_some_and(|r| !r.is_empty()) {
@@ -119,6 +128,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
             let settings = parse(data, name.as_str())?;
             context.footnote_separators = separator_ids(&settings, "footnotePr", "footnote");
             context.endnote_separators = separator_ids(&settings, "endnotePr", "endnote");
+            auto_hyphenation = settings.child("autoHyphenation").is_some_and(toggle);
             context.settings_xml = Some(data.to_vec());
         }
         consumed.insert(name.clone());
@@ -161,6 +171,8 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     })?;
 
     let mut doc = Document::empty(styles, PageSetup::a4());
+    doc.properties = properties;
+    doc.settings.auto_hyphenation = auto_hyphenation;
     if let Some(n) = numbering {
         doc.numbering = n.numbering;
         context.numbering = n.instances;
@@ -326,8 +338,11 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
 
     // Tables of contents: entries rebuilt from the headings, page numbers
     // taken from the cached entries with the same text.
-    for (id, (from, to), lines) in tocs {
-        let mut entries = doc.build_toc(from, to);
+    for (id, lines) in tocs {
+        let Some(Block::Toc(t)) = doc.find_block(id) else {
+            continue;
+        };
+        let mut entries = doc.toc_entries(t);
         let mut used = vec![false; lines.len()];
         for e in &mut entries {
             if let Some(k) = (0..lines.len()).find(|&k| !used[k] && lines[k].0 == e.text) {
@@ -443,7 +458,7 @@ fn for_each_paragraph(blocks: &mut [Block], f: &mut impl FnMut(&mut Vec<Inline>)
 
 /// A table of contents read: block id, levels, cached entries (text,
 /// page).
-type ReadToc = (model_text::NodeId, (u8, u8), Vec<(String, Option<u32>)>);
+type ReadToc = (model_text::NodeId, Vec<(String, Option<u32>)>);
 
 /// A complex field being read (`w:fldChar begin … separate … end`).
 #[derive(Debug)]
@@ -484,14 +499,7 @@ struct BodyReader<'a> {
 }
 
 /// Body-level elements dropped silently.
-const SILENT_BLOCK: &[&str] = &[
-    "sectPr",
-    "bookmarkStart",
-    "bookmarkEnd",
-    "proofErr",
-    "permStart",
-    "permEnd",
-];
+const SILENT_BLOCK: &[&str] = &["sectPr", "proofErr", "permStart", "permEnd"];
 
 impl<'a> BodyReader<'a> {
     fn new(
@@ -523,6 +531,52 @@ impl<'a> BodyReader<'a> {
     fn in_main_body(&self) -> bool {
         self.main_body && self.depth == 0
     }
+
+    /// The marker of a `w:bookmarkStart`/`w:bookmarkEnd`; `None` for
+    /// `_Toc…` bookmarks (regenerated with the tables of contents),
+    /// `_GoBack` (Word's last edit position) and malformed ones.
+    fn bookmark(&mut self, el: &El) -> Option<Inline> {
+        let raw = el.attr("id")?;
+        let id = BookmarkId(parse_u32(raw)?);
+        if el.name == "bookmarkStart" {
+            let name = el.attr("name").unwrap_or_default();
+            let toc = name.len() > 4 && name[..4].eq_ignore_ascii_case("_toc");
+            if toc || name.eq_ignore_ascii_case("_GoBack") || name.is_empty() {
+                self.toc_bookmarks.insert(raw.to_owned());
+                return None;
+            }
+            Some(Inline::BookmarkStart {
+                id,
+                name: name.to_owned(),
+            })
+        } else if self.toc_bookmarks.contains(raw) {
+            None
+        } else {
+            Some(Inline::BookmarkEnd { id })
+        }
+    }
+
+    /// The link of a `w:hyperlink`: its external relationship (`r:id`,
+    /// `mailto:` = e-mail) or its bookmark (`w:anchor`), and the tooltip.
+    fn hyperlink(&mut self, el: &El) -> Option<Hyperlink> {
+        let tooltip = el
+            .attr("tooltip")
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned);
+        let target = if let Some(rid) = el.attr("id") {
+            let rel = self.pkg.relationships(&self.part).and_then(|r| r.get(rid));
+            match rel {
+                Some(r) => LinkTarget::from_url(&r.target),
+                None => {
+                    self.w.add("hyperlink with a dangling relationship dropped");
+                    return None;
+                }
+            }
+        } else {
+            LinkTarget::Bookmark(el.attr("anchor").filter(|a| !a.is_empty())?.to_owned())
+        };
+        Some(Hyperlink { target, tooltip })
+    }
 }
 
 impl BodyReader<'_> {
@@ -538,7 +592,8 @@ impl BodyReader<'_> {
         let mut t = Toc::new(self.doc.alloc_id());
         (t.from_level, t.to_level) = scan.levels;
         t.title = scan.title;
-        self.tocs.push((t.id, scan.levels, scan.lines));
+        t.caption = scan.caption;
+        self.tocs.push((t.id, scan.lines));
         Block::Toc(t)
     }
 
@@ -590,6 +645,17 @@ impl BodyReader<'_> {
                 "AlternateContent" => {
                     if let Some(c) = el.child("Choice") {
                         self.collect_blocks(c, out);
+                    }
+                }
+                "bookmarkStart" | "bookmarkEnd" => {
+                    // Between paragraphs: like comment markers.
+                    if let Some(m) = self.bookmark(el) {
+                        match (&m, out.last_mut()) {
+                            (Inline::BookmarkEnd { .. }, Some(Block::Paragraph(p))) => {
+                                p.inlines.push(m)
+                            }
+                            _ => self.pending_marks.push(m),
+                        }
                     }
                 }
                 "commentRangeStart" | "commentRangeEnd" => {
@@ -657,8 +723,20 @@ impl BodyReader<'_> {
                 "pPr" => {}
                 "r" => self.read_run(el, out),
                 "hyperlink" => {
-                    self.w.add("hyperlink targets dropped (link text kept)");
+                    let link = self.hyperlink(el);
+                    let start = out.len();
                     self.read_content(el, out);
+                    if let Some(link) = link {
+                        for inline in &mut out[start..] {
+                            match inline {
+                                Inline::Run(run) => run.link = Some(link.clone()),
+                                Inline::Field(_) | Inline::Image(_) => {
+                                    self.w.add("hyperlinks on fields and pictures dropped");
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                 }
                 "fldSimple" => {
                     let kind = el.attr("instr").and_then(FieldKind::parse);
@@ -702,25 +780,9 @@ impl BodyReader<'_> {
                     }
                 }
                 "del" | "moveFrom" => self.w.add("tracked deletions dropped"),
-                "bookmarkStart" => {
-                    let toc = el
-                        .attr("name")
-                        .is_some_and(|n| n.len() > 4 && n[..4].eq_ignore_ascii_case("_toc"));
-                    if toc {
-                        // Targets of table-of-contents entries: regenerated.
-                        if let Some(id) = el.attr("id") {
-                            self.toc_bookmarks.insert(id.to_owned());
-                        }
-                    } else {
-                        self.w.add("bookmarks dropped");
-                    }
-                }
-                "bookmarkEnd" => {
-                    if !el
-                        .attr("id")
-                        .is_some_and(|id| self.toc_bookmarks.contains(id))
-                    {
-                        self.w.add("bookmarks dropped");
+                "bookmarkStart" | "bookmarkEnd" => {
+                    if let Some(m) = self.bookmark(el) {
+                        out.push(m);
                     }
                 }
                 "commentRangeStart" | "commentRangeEnd" => {
@@ -871,10 +933,7 @@ impl BodyReader<'_> {
                 "br" => {
                     let kind = match el.attr("type") {
                         Some("page") => BreakKind::Page,
-                        Some("column") => {
-                            self.w.add("column break read as line break");
-                            BreakKind::Line
-                        }
+                        Some("column") => BreakKind::Column,
                         _ => BreakKind::Line,
                     };
                     flush(text, props, out);
@@ -1369,7 +1428,31 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
 
 /// Warning for fields that are not modelled.
 const FLATTENED: &str =
-    "fields other than PAGE, NUMPAGES, DATE, TIME, FILENAME and AUTHOR flattened to their current result";
+    "fields other than PAGE, NUMPAGES, DATE, TIME, FILENAME, AUTHOR, TITLE, REF, PAGEREF, NOTEREF and SEQ flattened to their current result";
+
+/// `docProps/core.xml` (Dublin Core) or `docProps/app.xml` (`Pages`) →
+/// the properties.
+fn read_properties(root: &El, p: &mut CoreProperties) {
+    for el in root.elements() {
+        let text = el.text();
+        let text = text.trim();
+        let value = (!text.is_empty()).then(|| text.to_owned());
+        match el.name.as_str() {
+            "title" => p.title = value,
+            "subject" => p.subject = value,
+            "creator" => p.author = value,
+            "keywords" => p.keywords = value,
+            "description" => p.description = value,
+            "category" => p.category = value,
+            "lastModifiedBy" => p.last_modified_by = value,
+            "created" => p.created = value,
+            "modified" => p.modified = value,
+            "revision" => p.revision = text.parse().ok(),
+            "Pages" => p.pages = text.parse().ok(),
+            _ => {}
+        }
+    }
+}
 
 /// Emits a completed modelled field.
 fn push_field(f: OpenField, out: &mut Vec<Inline>) {

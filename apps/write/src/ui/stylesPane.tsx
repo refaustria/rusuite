@@ -17,6 +17,7 @@ import type { StyleSheet } from "../generated/StyleSheet";
 import { propsFromMarks, styleFromMarks } from "../sync/fromPM";
 import { findPos, type SyncController } from "../sync/SyncPlugin";
 import { TEXTBLOCK_TYPES } from "../sync/schema";
+import { fontBoxValue } from "../features/fontBox";
 import type { WriteFeatures, WriteUi } from "../features/WriteFeatures";
 import { clearFormatting } from "../features/formatting";
 import {
@@ -267,6 +268,7 @@ export function StyleInspector({ editor, ctl }: { editor: Editor; ctl: SyncContr
   const t = useT();
   const sheet = useStyles(ctl);
   const s = useThrottledEditorState({ editor, selector: ({ editor: e }) => inspectorState(e) });
+  const box = useThrottledEditorState({ editor, selector: ({ editor: e }) => fontBoxValue(e.state, ctl.styles) });
   const { paragraph } = caretStyles(editor, sheet);
   const pStyle = getStyle(sheet, paragraph);
   const cStyle = getStyle(sheet, s.charStyle);
@@ -291,6 +293,7 @@ export function StyleInspector({ editor, ctl }: { editor: Editor; ctl: SyncContr
       <p className="text-ui-muted" data-testid="inspector-character-direct">
         {describeFormat(s.run, null, t) || none}
       </p>
+      <p data-testid="inspector-resolved-font">{t("write.styles.inEffect", { font: box.font.kind === "named" ? box.font.value : "", size: box.size / 100 })}</p>
       <button type="button" className={SMALL_BTN} onClick={() => void clearFormatting(editor, ctl, false)}>
         {t("write.styles.clearCharacterFormatting")}
       </button>

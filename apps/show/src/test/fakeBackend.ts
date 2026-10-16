@@ -86,6 +86,8 @@ export class FakeBackend implements ShowBackend {
   /** The command changed the theme, master or layouts / the sections (sent with the patch). */
   private design = false;
   private sections = false;
+  /** The command changed the view or slide-show settings. */
+  private props = false;
 
   constructor(pres: Presentation = fixture()) {
     this.pres = clone(pres);
@@ -502,6 +504,32 @@ export class FakeBackend implements ShowBackend {
         touched.add(s);
         return;
       }
+      case "setViewProps":
+        p.view = clone(c.view);
+        this.props = true;
+        return;
+      case "setShowSettings":
+        p.showSettings = clone(c.settings);
+        this.props = true;
+        return;
+      case "setShapesHidden":
+        for (const id of c.shapes) {
+          const s = this.slideOf(id);
+          const sh = findShape(s.shapes, id)!.shape;
+          if (c.hidden) sh.hidden = true;
+          else delete sh.hidden;
+          touched.add(s);
+        }
+        return;
+      case "setBodyProps":
+        for (const id of c.shapes) {
+          const s = this.slideOf(id);
+          const sh = findShape(s.shapes, id)!.shape;
+          if (sh.kind.kind !== "auto") throw new Error("no text");
+          sh.kind.value.text = sh.kind.value.text ? { ...sh.kind.value.text, props: clone(c.props) } : { props: clone(c.props), paragraphs: [{ runs: [] }] };
+          touched.add(s);
+        }
+        return;
       case "setAltText": {
         const s = this.slideOf(c.shape);
         findShape(s.shapes, c.shape)!.shape.alt = c.alt;
@@ -721,6 +749,7 @@ export class FakeBackend implements ShowBackend {
         const order = { changed: false };
         this.design = false;
         this.sections = false;
+        this.props = false;
         try {
           this.exec(request.command, touched, idMap, order);
         } catch (e) {
@@ -737,6 +766,7 @@ export class FakeBackend implements ShowBackend {
             slidesOrder: order.changed ? this.pres.slides.map((s) => s.id) : null,
             ...design,
             ...(this.sections ? { sections: clone(this.pres.sections ?? []) } : {}),
+            ...(this.props ? { ...(this.pres.view ? { view: clone(this.pres.view) } : {}), ...(this.pres.showSettings ? { showSettings: clone(this.pres.showSettings) } : {}) } : {}),
           }),
         });
       }

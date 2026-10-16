@@ -15,6 +15,7 @@ import type { Block } from "../generated/Block";
 import type { Inline } from "../generated/Inline";
 import type { ListKind } from "../generated/ListKind";
 import type { Paragraph } from "../generated/Paragraph";
+import type { Run } from "../generated/Run";
 import type { ParagraphProperties } from "../generated/ParagraphProperties";
 import type { WriteCommand } from "../generated/WriteCommand";
 import { nodesToBlocks, nodeToBlocks, notesNode } from "./fromPM";
@@ -61,6 +62,8 @@ interface Pos {
   props?: RunProperties;
   /** Character style of a text position ("" = none). */
   style?: string;
+  /** Hyperlink of a text position. */
+  link?: Run["link"];
   /** The inline, for images and breaks. */
   inline?: Inline;
 }
@@ -73,7 +76,9 @@ function positions(inlines: Inline[]): Pos[] {
       const pk = propsKey(inline.value.props);
       const props = (canonValue(inline.value.props ?? {}) ?? {}) as RunProperties;
       const style = inline.value.style ?? "";
-      for (const ch of inline.value.text) out.push({ key: `${ch}\u0000${pk}\u0000${style}`, ch, props, style });
+      const link = inline.value.link;
+      const lk = link ? stableStringify(canonValue(link)) : "";
+      for (const ch of inline.value.text) out.push({ key: `${ch}\u0000${pk}\u0000${style}\u0000${lk}`, ch, props, style, link });
     } else {
       out.push({ key: stableStringify(inline), inline });
     }
@@ -81,27 +86,42 @@ function positions(inlines: Inline[]): Pos[] {
   return out;
 }
 
-/** Keys of the comment markers of `ps` whose partner is not in `ps` (what a deletion of `ps` keeps). */
+/** Keys of the comment and bookmark markers of `ps` whose partner is not in `ps` (what a deletion of `ps` keeps). */
 function keptMarkers(ps: Pos[]): { ends: string[]; starts: string[] } {
   const ids = (kind: string) => new Set(ps.flatMap((p) => (p.inline?.kind === kind ? [(p.inline.value as { id: number }).id] : [])));
-  const starts = ids("commentStart");
-  const ends = ids("commentEnd");
+  const idOf = (p: Pos) => (p.inline!.value as { id: number }).id;
+  const cs = ids("commentStart");
+  const ce = ids("commentEnd");
+  const bs = ids("bookmarkStart");
+  const be = ids("bookmarkEnd");
   return {
-    ends: ps.filter((p) => p.inline?.kind === "commentEnd" && !starts.has((p.inline.value as { id: number }).id)).map((p) => p.key),
-    starts: ps.filter((p) => p.inline?.kind === "commentStart" && !ends.has((p.inline.value as { id: number }).id)).map((p) => p.key),
+    ends: ps
+      .filter((p) => (p.inline?.kind === "commentEnd" && !cs.has(idOf(p))) || (p.inline?.kind === "bookmarkEnd" && !bs.has(idOf(p))))
+      .map((p) => p.key),
+    starts: ps
+      .filter((p) => (p.inline?.kind === "commentStart" && !ce.has(idOf(p))) || (p.inline?.kind === "bookmarkStart" && !be.has(idOf(p))))
+      .map((p) => p.key),
   };
 }
 
 /** Splits text positions into segments of equal properties. */
-function segments(ps: Pos[]): { text: string; props: RunProperties; style: string }[] {
-  const out: { text: string; props: RunProperties; style: string; key: string }[] = [];
+function segments(ps: Pos[]): { text: string; props: RunProperties; style: string; link?: Run["link"] }[] {
+  const out: { text: string; props: RunProperties; style: string; link?: Run["link"]; key: string }[] = [];
   for (const p of ps) {
-    const key = `${propsKey(p.props)}\u0000${p.style ?? ""}`;
+    const key = `${propsKey(p.props)}\u0000${p.style ?? ""}\u0000${p.link ? stableStringify(canonValue(p.link)) : ""}`;
     const last = out[out.length - 1];
     if (last && last.key === key) last.text += p.ch;
-    else out.push({ text: p.ch!, props: p.props!, style: p.style ?? "", key });
+    else out.push({ text: p.ch!, props: p.props!, style: p.style ?? "", link: p.link, key });
   }
-  return out.map(({ text, props, style }) => ({ text, props, style }));
+  return out.map(({ text, props, style, link }) => (link ? { text, props, style, link } : { text, props, style }));
+}
+
+/** `InsertText` of one segment (style and link only when set). */
+function insertCmd(block: number, offset: number, s: { text: string; props: RunProperties; style: string; link?: Run["link"] }): WriteCommand {
+  const cmd: WriteCommand = { type: "insertText", block, offset, text: s.text, props: s.props };
+  if (s.style) cmd.style = s.style;
+  if (s.link) cmd.link = s.link;
+  return cmd;
 }
 
 /** A `SetRunProps` patch turning every `old[i]` into `next[i]`, or null. */
@@ -169,7 +189,7 @@ function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): 
       const cmds: WriteCommand[] = [del];
       let offset = pre + ke;
       for (const sg of segments(text)) {
-        cmds.push(sg.style ? { type: "insertText", block: id, offset, text: sg.text, props: sg.props, style: sg.style } : { type: "insertText", block: id, offset, text: sg.text, props: sg.props });
+        cmds.push(insertCmd(id, offset, sg));
         offset += [...sg.text].length;
       }
       return { type: "compound", commands: cmds };
@@ -184,7 +204,7 @@ function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): 
     const cmds: WriteCommand[] = [];
     let offset = at;
     for (const s of segments(newMid)) {
-      cmds.push(s.style ? { type: "insertText", block: id, offset, text: s.text, props: s.props, style: s.style } : { type: "insertText", block: id, offset, text: s.text, props: s.props });
+      cmds.push(insertCmd(id, offset, s));
       offset += [...s.text].length;
     }
     return cmds;
@@ -199,8 +219,9 @@ function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): 
     const propsChanged = oldMid.some((o, i) => propsKey(o.props) !== propsKey(newMid[i]!.props));
     const styles = new Set(newMid.map((n) => n.style ?? ""));
     const styleChanged = oldMid.some((o, i) => (o.style ?? "") !== (newMid[i]!.style ?? ""));
+    const linkChanged = oldMid.some((o, i) => stableStringify(o.link ?? null) !== stableStringify(newMid[i]!.link ?? null));
     const patch = propsChanged ? runPatch(oldMid, newMid) : null;
-    if ((!propsChanged || patch) && (!styleChanged || styles.size === 1)) {
+    if (!linkChanged && (!propsChanged || patch) && (!styleChanged || styles.size === 1)) {
       const cmds: WriteCommand[] = [];
       if (patch) cmds.push({ type: "setRunProps", block: id, from: pre, to, patch });
       if (styleChanged) cmds.push({ type: "applyCharacterStyle", block: id, from: pre, to, style: [...styles][0] || null });
@@ -208,7 +229,13 @@ function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): 
     }
   }
   const segs = segments(newMid);
-  if (segs.length === 1 && oldMid[0]!.ch !== undefined && propsKey(oldMid[0]!.props) === propsKey(segs[0]!.props) && (oldMid[0]!.style ?? "") === segs[0]!.style) {
+  if (
+    segs.length === 1 &&
+    oldMid[0]!.ch !== undefined &&
+    propsKey(oldMid[0]!.props) === propsKey(segs[0]!.props) &&
+    (oldMid[0]!.style ?? "") === segs[0]!.style &&
+    stableStringify(oldMid[0]!.link ?? null) === stableStringify(segs[0]!.link ?? null)
+  ) {
     return { type: "replaceText", block: id, from: pre, to: pre + oldMid.length, text: segs[0]!.text };
   }
   return { type: "compound", commands: [{ type: "deleteText", block: id, from: pre, to: pre + oldMid.length }, ...inserts(pre)] };
@@ -217,7 +244,8 @@ function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): 
 // ----- paragraph properties --------------------------------------------------
 
 const PARA_KEYS = [
-  "style", "alignment", "indent", "spacing", "numbering", "keepNext", "pageBreakBefore", "runDefaults", "borders", "shading", "tabs",
+  "style", "alignment", "indent", "spacing", "numbering", "keepNext", "keepLines", "widowControl", "suppressLineNumbers", "suppressAutoHyphens",
+  "pageBreakBefore", "runDefaults", "borders", "shading", "tabs",
 ] as const;
 type ParaKey = (typeof PARA_KEYS)[number];
 

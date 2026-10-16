@@ -343,7 +343,15 @@ mod tests {
         let sheet = read_styles(xml, "styles", &mut w).unwrap();
         assert!(w.into_vec().is_empty());
         assert_eq!(sheet.defaults.run.size.unwrap().pt(), 11.0);
-        assert!(sheet.defaults.paragraph.is_empty());
+        // "Don't hyphenate" is kept (Layout › Hyphenation respects it).
+        assert_eq!(sheet.defaults.paragraph.suppress_auto_hyphens, Some(true));
+        assert_eq!(
+            ParagraphProperties {
+                suppress_auto_hyphens: None,
+                ..sheet.defaults.paragraph.clone()
+            },
+            ParagraphProperties::default()
+        );
         let h1 = sheet.get("Heading1").unwrap();
         assert_eq!(h1.name, "heading 1");
         assert_eq!(h1.based_on.as_deref(), Some("Heading"));

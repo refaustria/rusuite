@@ -8,7 +8,7 @@ import { FakeCore, fakeBackend } from "../recent/testing";
 import { useShortcuts } from "../shortcuts/useShortcuts";
 import { RibbonButton, RibbonDivider, RibbonMenuButton, RibbonSplitButton, ribbonTooltip } from "./controls";
 import { RibbonGallery, RibbonTableSizePicker } from "./gallery";
-import { openBackstage, Ribbon, visibleTabs, type RibbonProps, type RibbonTab } from "./Ribbon";
+import { CONTEXT_COLORS, contextualTabs, openBackstage, Ribbon, tabRuns, visibleTabs, type RibbonProps, type RibbonTab } from "./Ribbon";
 import { comboEventInit, triggerShortcut } from "./triggerShortcut";
 
 afterEach(cleanup);
@@ -453,5 +453,49 @@ describe("triggerShortcut", () => {
     expect(triggerShortcut("Mod+/")).toBe(true);
     expect(run).toHaveBeenCalledTimes(2);
     expect(triggerShortcut("Mod+K")).toBe(false);
+  });
+});
+
+describe("contextual tabs (P8-28)", () => {
+  const ctxTabs = (): RibbonTab[] => [
+    ...contextualTabs(
+      [
+        { id: "tableDesign", label: "Table Design", groups: [{ label: "Styles", items: <RibbonButton label="Style" icon="cut" onClick={() => {}} /> }] },
+        { id: "tableLayout", label: "Layout", groups: [{ label: "Rows", items: <RibbonButton label="Row" icon="cut" onClick={() => {}} /> }] },
+      ],
+      "Table Tools",
+      CONTEXT_COLORS.table,
+    ),
+    ...tabs(),
+  ];
+
+  it("puts contextual tabs after the standard ones and groups them under one header", () => {
+    const shown = visibleTabs(ctxTabs());
+    expect(shown.map((t) => t.id)).toEqual(["home", "insert", "view", "tableDesign", "tableLayout"]);
+    const runs = tabRuns(shown);
+    expect(runs.map((r) => r.context?.group ?? null)).toEqual([null, null, null, "Table Tools"]);
+    expect(runs[3]!.tabs).toHaveLength(2);
+  });
+
+  it("separate groups get separate headers", () => {
+    const t = [
+      ...contextualTabs([{ id: "a", label: "A", groups: [] }], "Drawing Tools", CONTEXT_COLORS.drawing),
+      ...contextualTabs([{ id: "b", label: "B", groups: [] }], "Picture Tools", CONTEXT_COLORS.picture),
+    ];
+    expect(tabRuns(t).map((r) => r.context?.group)).toEqual(["Drawing Tools", "Picture Tools"]);
+  });
+
+  it("renders the coloured header, tint and the context in the title", () => {
+    render(<Ribbon tabs={ctxTabs()} appName="Rusuite Show" activeTab="tableLayout" />);
+    const group = screen.getByTestId("ribbon-context");
+    expect(group.getAttribute("data-context")).toBe("Table Tools");
+    expect(within(group).getByTestId("ribbon-context-header").textContent).toBe("Table Tools");
+    const layout = within(group).getByRole("tab", { name: "Layout" });
+    expect(layout.getAttribute("aria-selected")).toBe("true");
+    expect(layout.getAttribute("title")).toBe("Table Tools: Layout");
+    expect(within(group).getAllByRole("tab")).toHaveLength(2);
+    expect(screen.getByTestId("ribbon-panel").getAttribute("data-context")).toBe("Table Tools");
+    // standard tabs have no context
+    expect(screen.getByRole("tab", { name: "Home" }).getAttribute("data-context")).toBeNull();
   });
 });

@@ -2,10 +2,12 @@
 import type { Layout } from "./Layout";
 import type { NodeId } from "./NodeId";
 import type { Section } from "./Section";
+import type { ShowSettings } from "./ShowSettings";
 import type { Slide } from "./Slide";
 import type { SlideMaster } from "./SlideMaster";
 import type { SlideSize } from "./SlideSize";
 import type { Theme } from "./Theme";
+import type { ViewProps } from "./ViewProps";
 
 /**
  * The authoritative changes of one command, undo or redo.
@@ -53,6 +55,14 @@ layouts?: Array<Layout>,
  * All sections, when they changed.
  */
 sections?: Array<Section>, 
+/**
+ * The view settings (guides, grid …), when they changed.
+ */
+view?: ViewProps, 
+/**
+ * The Set Up Slide Show options, when they changed.
+ */
+showSettings?: ShowSettings, 
 /**
  * A message for the status bar.
  */

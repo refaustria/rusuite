@@ -6,7 +6,11 @@
 // highlight, super/subscript; paragraph alignment (justify renders
 // left), outline level indent, bullets (char or auto-number), spacing
 // before/after, line spacing; body anchor, wrap, insets and "shrink"
-// autofit (fonts scaled down until the text fits).
+// autofit (the stored `fontScale` / `lineReduction`, else computed with
+// `shrinkFit` like PowerPoint: line spacing reduced first, then the font);
+// text direction (rotated 90° / 270°: laid out in the swapped box and
+// turned by the renderer; stacked: one character per line) and columns
+// (lines flow into the next column at the bottom).
 // Not supported: kerning/letter spacing, tabs, hyphenation, east-asian
 // line breaking, "resize" autofit (text overflows instead), the exact
 // PowerPoint line metrics (line height = 1.2 × the largest font).
@@ -64,6 +68,12 @@ export interface TextLayout {
   height: number;
   /** Autofit font scale (1 = none). */
   scale: number;
+  /** Autofit line spacing reduction (0 = none). */
+  lineReduction?: number;
+  /** Rotated text (`vert`): the fragments are laid out in the swapped box; the renderer turns them. */
+  rotation?: 90 | 270;
+  /** The text does not fit its box (and autofit does not shrink it). */
+  overflow?: boolean;
 }
 
 export interface LayoutOptions {
@@ -170,7 +180,7 @@ function tokenize(runs: { text: string; style: RunStyle }[]): Token[] {
 
 const effSize = (s: RunStyle, scale: number) => s.sizePx * scale * (s.verticalAlign ? 0.65 : 1);
 
-function layoutAt(body: TextBody, o: LayoutOptions, scale: number): TextLayout {
+function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0): TextLayout {
   const ins = body.props.insets;
   const left = emuToPx(ins.left);
   const top = emuToPx(ins.top);
@@ -263,7 +273,7 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number): TextLayout {
         else line.push({ ...pc });
       }
       const maxPx = line.reduce((m, pc) => Math.max(m, pc.style.sizePx * scale), line.length ? 0 : baseSize);
-      const lh = fixedLine ?? maxPx * 1.2 * lineFactor;
+      const lh = (fixedLine ?? maxPx * 1.2 * lineFactor) * (1 - reduction);
       const baseline = y + (lh - maxPx) / 2 + maxPx * 0.85;
       const width = line.reduce((s, pc) => s + pc.width, 0);
       const align = props.alignment ?? "left";
@@ -289,21 +299,89 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number): TextLayout {
     y += spacingPx(props.spacingAfter, baseSize * 1.2) * (props.spacingAfter?.kind === "points" ? scale : 1);
   });
 
-  return { fragments, height: y + top + emuToPx(ins.bottom), scale };
+  return { fragments, height: y + top + emuToPx(ins.bottom), scale, lineReduction: reduction };
+}
+
+/** PowerPoint's shrink steps: line spacing reduced first (10 %, 20 %), then the font (92.5 % … 25 %). */
+export const SHRINK_STEPS: readonly { fontScale: number; lineReduction: number }[] = [
+  { fontScale: 1, lineReduction: 0 },
+  { fontScale: 1, lineReduction: 0.1 },
+  { fontScale: 1, lineReduction: 0.2 },
+  ...[0.925, 0.85, 0.775, 0.7, 0.625, 0.55, 0.475, 0.4, 0.325, 0.25].map((fontScale) => ({ fontScale, lineReduction: 0.2 })),
+];
+
+/** The first shrink step at which `body` fits `o.height` (the last step when none does). */
+export function shrinkFit(body: TextBody, o: LayoutOptions): { fontScale: number; lineReduction: number } {
+  const box = textBox(body, o);
+  for (const step of SHRINK_STEPS) {
+    if (layoutBox(body, box, step.fontScale, step.lineReduction).height <= box.height + 0.5) return step;
+  }
+  return SHRINK_STEPS[SHRINK_STEPS.length - 1]!;
+}
+
+/** The box the text is laid out in: swapped for rotated text, one character wide for stacked text, one column. */
+function textBox(body: TextBody, o: LayoutOptions): LayoutOptions {
+  const vert = body.props.vert ?? "horizontal";
+  const rotated = vert === "rotate90" || vert === "rotate270";
+  let box = rotated ? { ...o, width: o.height, height: o.width } : o;
+  const cols = Math.max(1, body.props.columns ?? 1);
+  if (vert === "stacked") {
+    box = { ...box, width: emuToPx(body.props.insets.left + body.props.insets.right) + 1 };
+  } else if (cols > 1) {
+    const ins = body.props.insets;
+    const avail = box.width - emuToPx(ins.left + ins.right);
+    const colW = Math.max(1, (avail - (cols - 1) * emuToPx(body.props.columnSpacing ?? 0)) / cols);
+    // all columns' lines in one tall column, split later
+    box = { ...box, width: colW + emuToPx(ins.left + ins.right), height: box.height * cols };
+  }
+  return box;
+}
+
+function layoutBox(body: TextBody, box: LayoutOptions, scale: number, reduction: number): TextLayout {
+  const stacked = body.props.vert === "stacked";
+  return layoutAt(stacked ? { ...body, props: { ...body.props, wrap: true } } : body, box, scale, reduction);
 }
 
 /** Lays out `body` in a box of `o.width` × `o.height` px and applies the body anchor. */
 export function layoutText(body: TextBody, o: LayoutOptions): TextLayout {
-  let res = layoutAt(body, o, 1);
-  if (body.props.autofit === "shrink" && res.height > o.height) {
-    for (let s = 0.9; s >= 0.25; s -= 0.05) {
-      res = layoutAt(body, o, s);
-      if (res.height <= o.height) break;
-    }
+  const props = body.props;
+  const vert = props.vert ?? "horizontal";
+  const box = textBox(body, o);
+  let res: TextLayout;
+  if (props.autofit === "shrink") {
+    const stored = props.fontScale !== undefined || props.lineReduction !== undefined;
+    const step = stored ? { fontScale: (props.fontScale ?? 100000) / 100000, lineReduction: (props.lineReduction ?? 0) / 100000 } : shrinkFit(body, o);
+    res = layoutBox(body, box, step.fontScale, step.lineReduction);
+  } else {
+    res = layoutBox(body, box, 1, 0);
   }
-  const anchor = body.props.anchor;
-  const dy = anchor === "middle" ? (o.height - res.height) / 2 : anchor === "bottom" ? o.height - res.height : 0;
+  const cols = Math.max(1, props.columns ?? 1);
+  // the box height of one column / the unrotated box
+  const height = vert === "rotate90" || vert === "rotate270" ? o.width : o.height;
+  if (cols > 1 && vert !== "stacked") {
+    const ins = props.insets;
+    const top = emuToPx(ins.top);
+    const colH = Math.max(1, height - top - emuToPx(ins.bottom));
+    const colW = box.width - emuToPx(ins.left + ins.right);
+    const gap = emuToPx(props.columnSpacing ?? 0);
+    for (const f of res.fragments) {
+      const col = Math.min(cols - 1, Math.max(0, Math.floor((f.y - top + f.fontSize * 0.2) / colH)));
+      f.x += col * (colW + gap);
+      f.y -= col * colH;
+    }
+    res = { ...res, height: Math.min(res.height, height), overflow: res.height > colH * cols + top + emuToPx(ins.bottom) + 0.5 };
+  } else {
+    res.overflow = res.height > height + 0.5;
+  }
+  if (vert === "stacked") {
+    // centre the one-character lines in the box
+    const w = vert === "stacked" ? o.width : box.width;
+    for (const f of res.fragments) f.x = (w - f.width) / 2;
+  }
+  const anchor = props.anchor;
+  const dy = cols > 1 ? 0 : anchor === "middle" ? (height - res.height) / 2 : anchor === "bottom" ? height - res.height : 0;
   if (dy !== 0) for (const f of res.fragments) f.y += dy;
+  if (vert === "rotate90" || vert === "rotate270") res.rotation = vert === "rotate90" ? 90 : 270;
   return res;
 }
 
