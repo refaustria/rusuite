@@ -16,7 +16,7 @@ import type { FieldKind } from "../generated/FieldKind";
 import type { Section } from "../generated/Section";
 import type { WriteCommand } from "../generated/WriteCommand";
 import { notesNode } from "../sync/fromPM";
-import { currentLayout, paginationKey } from "./pagination";
+import { currentLayout, pageAtPos, paginationKey } from "./pagination";
 import { charOffsetOf, findPos } from "../sync/SyncPlugin";
 import { t } from "../i18n";
 import { noteNumbers } from "./numbers";
@@ -258,8 +258,7 @@ export function layoutFieldContext(
     pageAt: (pos, state) => {
       const layout = currentLayout(state);
       if (!layout) return null;
-      const index = state.doc.resolve(Math.min(pos, state.doc.content.size)).index(0);
-      return layout.pages[layout.nodePage[index] ?? 0]?.number ?? null;
+      return pageAtPos(layout, Math.min(pos, state.doc.content.size))?.number ?? null;
     },
     pages: (state) => currentLayout(state)?.pages.length ?? null,
     fileName,

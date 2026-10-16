@@ -5,9 +5,9 @@
 // (a CSS float, one side) and Top and Bottom (a block on its own lines);
 // Behind / In Front of Text are positioned outside the flow (relative to
 // the anchor paragraph). Positions relative to the margin or the page
-// are horizontal only: vertically the picture stays at its paragraph
-// (the editor has no fixed page boxes), offsets from the paragraph or
-// line are honoured.
+// resolve horizontally against the page and vertically against the
+// anchor paragraph's page in print layout (P8-31; draft view: at the
+// paragraph); offsets from the paragraph or line are honoured.
 
 import type { Anchor } from "../generated/Anchor";
 import type { HAlign } from "../generated/HAlign";
@@ -96,6 +96,8 @@ export interface FloatContext {
   columnWidth: number | null;
   /** Page width and left margin (page-relative positions); null = treat the page like the column. */
   page: { width: number; marginLeft: number } | null;
+  /** The anchor paragraph's page (vertical page / margin positions; print layout only). */
+  vpage?: VerticalPage | null;
 }
 
 /** CSS placement of a floating picture inside its paragraph. */
@@ -130,11 +132,34 @@ export function horizontalPos(anchor: Anchor, ctx: FloatContext): { value: numbe
   return { value: null, css: `calc((100% + ${px(ind)} - ${px(ctx.width)}) / 2)` };
 }
 
-/** Vertical offset from the paragraph's top (px): offsets from the paragraph or line, else 0. */
-export function verticalPos(anchor: Anchor): number {
+/** The anchor paragraph on its page (print layout, px): the paragraph's top from the sheet top, the sheet height, the body box. */
+export interface VerticalPage {
+  paraTop: number;
+  height: number;
+  bodyTop: number;
+  bodyBottom: number;
+}
+
+/**
+ * Vertical offset from the paragraph's top (px): offsets from the paragraph
+ * or line; positions relative to the page or the margin are resolved
+ * against the anchor paragraph's page in print layout (P8-31), else 0.
+ */
+export function verticalPos(anchor: Anchor, page: VerticalPage | null = null, height = 0): number {
   const place = anchor.v.place;
-  if (place.kind === "offset" && (anchor.v.relativeTo === "paragraph" || anchor.v.relativeTo === "line")) return place.value / EMU_PER_PX;
-  return 0;
+  const rel = anchor.v.relativeTo;
+  if (rel === "paragraph" || rel === "line") return place.kind === "offset" ? place.value / EMU_PER_PX : 0;
+  if (!page) return 0;
+  const [top, bottom] = rel === "page" ? [0, page.height] : [page.bodyTop, page.bodyBottom];
+  const y =
+    place.kind === "offset"
+      ? top + place.value / EMU_PER_PX
+      : place.value === "top"
+        ? top
+        : place.value === "bottom"
+          ? bottom - height
+          : (top + bottom - height) / 2;
+  return y - page.paraTop;
 }
 
 /** The CSS placement of a floating picture (see the module comment). */
@@ -142,7 +167,7 @@ export function floatPlacement(anchor: Anchor, ctx: FloatContext): FloatPlacemen
   const d = anchor.distance;
   const dist = { t: d.top / EMU_PER_PX, b: d.bottom / EMU_PER_PX, l: d.left / EMU_PER_PX, r: d.right / EMU_PER_PX };
   const x = horizontalPos(anchor, ctx);
-  const y = verticalPos(anchor);
+  const y = verticalPos(anchor, ctx.vpage ?? null, ctx.height);
   // Relative to the paragraph's content box: subtract the left indent.
   const left = x.value != null ? px(x.value - ctx.indentLeft) : `calc(${x.css} - ${px(ctx.indentLeft)})`;
   if (anchor.wrap === "behind" || anchor.wrap === "inFront") {
@@ -151,7 +176,7 @@ export function floatPlacement(anchor: Anchor, ctx: FloatContext): FloatPlacemen
       css: { position: "absolute", left, top: px(y), "z-index": anchor.wrap === "behind" ? "-1" : "3" },
     };
   }
-  const vertical = { "margin-top": px(Math.max(0, y) + dist.t), "margin-bottom": px(dist.b) };
+  const vertical = { "margin-top": px((ctx.vpage ? y : Math.max(0, y)) + dist.t), "margin-bottom": px(dist.b) };
   if (anchor.wrap === "topAndBottom") {
     return { mode: "block", css: { display: "block", "margin-left": left, ...vertical } };
   }

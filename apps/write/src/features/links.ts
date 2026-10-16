@@ -278,6 +278,10 @@ export function headingsOf(doc: PMNode): { id: number; text: string; level: numb
 export function pageStart(state: EditorState, n: number): number | null {
   const layout = currentLayout(state);
   if (!layout) return null;
+  if (layout.pageStarts.length) {
+    const start = layout.pageStarts[n - 1];
+    return start == null ? null : Math.min(state.doc.content.size, start + (start === 0 ? 1 : 0));
+  }
   const k = layout.nodePage.findIndex((p) => p === n - 1);
   if (k < 0) return null;
   let pos = 0;

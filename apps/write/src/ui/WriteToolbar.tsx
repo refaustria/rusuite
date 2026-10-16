@@ -32,7 +32,7 @@ import { paragraphBordersMenu, paragraphShadingPicker } from "./paragraphControl
 import { pictureArrangeItems } from "./pictureControls";
 import type { Anchor } from "../generated/Anchor";
 import type { WriteFeatures } from "../features/WriteFeatures";
-import { currentLayout } from "../features/pagination";
+import { currentLayout, pageAtPos } from "../features/pagination";
 import { formatDateTime, goToNextRef } from "../features/structure";
 import {
   applyMultilevel, currentSection, insertField, insertNote, insertSectionBreak, insertToc, sectionCommand, updateTocs, type MultilevelPreset,
@@ -446,8 +446,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
     const layout = currentLayout(editor.state);
     switch (kind) {
       case "page": {
-        const i = editor.state.selection.$from.index(0);
-        return { kind, cached: layout?.pages[layout.nodePage[i] ?? 0]?.number ?? "1" };
+        return { kind, cached: pageAtPos(layout, editor.state.selection.from)?.number ?? "1" };
       }
       case "numPages":
         return { kind, cached: String(layout?.pages.length ?? 1) };

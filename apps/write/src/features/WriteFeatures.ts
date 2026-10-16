@@ -11,7 +11,8 @@ import { columnResizePlugin } from "./columnResize";
 import { findPlugin } from "./find";
 import { clearFormatting, FormatPainter, toggleScript } from "./formatting";
 import { imageFiles, insertImageFile } from "./images";
-import { paginationPlugin, remeasurePages } from "./pagination";
+import { paginationPlugin, remeasurePages, type PageLayout } from "./pagination";
+import type { FlowProps } from "./layout/measure";
 import { layoutFieldContext, refreshStructure, structurePlugin, updateFieldsCommand, type FieldContext } from "./structure";
 import { linksPlugin } from "./links";
 import { selectsAll, updateFieldsCommand as updateSelectedFields } from "./references";
@@ -86,6 +87,10 @@ export interface WriteUiState {
   pages: number;
   /** Header of the first page and footer of the last page in print layout (from the sections). */
   frame: { firstHeader: string; lastFooter: string } | null;
+  /** The print layout's pages (null in draft view). */
+  layout: PageLayout | null;
+  /** Word's Hide White Space (double-click a page gap). */
+  hideWhiteSpace: boolean;
   comments: CommentsUiState;
   /** After the user name dialog: start the comment that asked for it. */
   userThen: "newComment" | null;
@@ -115,6 +120,8 @@ export class WriteUi {
     headerFooterFocus: "header",
     pages: 1,
     frame: null,
+    layout: null,
+    hideWhiteSpace: false,
     comments: { show: true, pane: false, filter: "all", active: null, hover: null, draft: null, editing: null },
     userThen: null,
     paragraphTab: "indents",
@@ -181,12 +188,17 @@ export class WriteFeatures {
     await this.ctl.run(updateSelectedFields(editor.state, this.fields, selectsAll(editor.state)));
   }
 
-  /** Keep with next / page break before of a paragraph: its style chain, then its direct formatting. */
-  flow(node: PMNode): { keepNext?: boolean | null; pageBreakBefore?: boolean | null } {
+  /** Flow options of a paragraph (widow control, keep lines together, keep with next, page break before): its style chain, then its direct formatting. */
+  flow(node: PMNode): FlowProps {
     const sheet = this.ctl.styles;
     const style = resolveParagraph(sheet, paragraphStyleId(sheet, node));
-    const direct = (node.attrs.extra ?? {}) as { keepNext?: boolean | null; pageBreakBefore?: boolean | null };
-    return { keepNext: direct.keepNext ?? style.keepNext, pageBreakBefore: direct.pageBreakBefore ?? style.pageBreakBefore };
+    const direct = (node.attrs.extra ?? {}) as FlowProps;
+    return {
+      widowControl: direct.widowControl ?? style.widowControl,
+      keepLines: direct.keepLines ?? style.keepLines,
+      keepNext: direct.keepNext ?? style.keepNext,
+      pageBreakBefore: direct.pageBreakBefore ?? style.pageBreakBefore,
+    };
   }
 
   /** Attributes of the editor element (spell check follows the View › Spelling toggle). */
@@ -334,9 +346,11 @@ export class WriteFeatures {
             onEditHeaderFooter: (which) => ui.openDialog("headerFooter", which),
             onPages: (pages) => ui.set({ pages }),
             flow: (node) => features.flow(node),
+            hideWhiteSpace: () => ui.getState().hideWhiteSpace,
             onLayout: (l) => {
               const f = ui.getState().frame;
-              if (f?.firstHeader !== l.firstHeader || f?.lastFooter !== l.lastFooter) ui.set({ frame: { firstHeader: l.firstHeader, lastFooter: l.lastFooter } });
+              const frame = l && (f?.firstHeader !== l.firstHeader || f?.lastFooter !== l.lastFooter) ? { firstHeader: l.firstHeader, lastFooter: l.lastFooter } : l ? f : null;
+              ui.set({ layout: l, frame });
             },
           }),
           // After the pagination: page fields read its layout.
@@ -407,6 +421,7 @@ export class WriteFeatures {
               let mode = ui.getState().view;
               let comments = ctl.comments;
               let commentsUi = ui.getState().comments;
+              let hide = ui.getState().hideWhiteSpace;
               let settings = ctl.settings;
               let properties = ctl.properties;
               const offCtl = ctl.subscribe(() => {
@@ -448,6 +463,10 @@ export class WriteFeatures {
                 if (ui.getState().comments !== commentsUi) {
                   commentsUi = ui.getState().comments;
                   refreshComments(view);
+                }
+                if (ui.getState().hideWhiteSpace !== hide) {
+                  hide = ui.getState().hideWhiteSpace;
+                  remeasurePages(view);
                 }
                 if (ui.getState().view !== mode) {
                   mode = ui.getState().view;

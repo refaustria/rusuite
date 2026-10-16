@@ -15,7 +15,7 @@ import { charOffsetOf } from "../sync/SyncPlugin";
 import { TEXTBLOCK_TYPES } from "../sync/schema";
 import { bookmarksOf, headingsOf } from "./links";
 import { noteNumbers } from "./numbers";
-import { currentLayout } from "./pagination";
+import { currentLayout, pageAtPos } from "./pagination";
 import { fieldValue, type FieldContext } from "./structure";
 
 /** Word's built-in caption labels (more can be added in the dialog). */
@@ -130,8 +130,7 @@ export function caretPoint(state: EditorState): { block: number; offset: number 
 export function pageOfPos(state: EditorState, pos: number): number | null {
   const layout = currentLayout(state);
   if (!layout) return null;
-  const i = state.doc.resolve(Math.min(Math.max(pos, 0), state.doc.content.size)).index(0);
-  return layout.pages[layout.nodePage[i] ?? 0]?.value ?? null;
+  return pageAtPos(layout, Math.min(Math.max(pos, 0), state.doc.content.size))?.value ?? null;
 }
 
 /** Insert › Cross-reference: the command for `item` shown as `show`; a caption's "number" is its label and number. */
@@ -186,14 +185,13 @@ export function paragraphPages(state: EditorState): [number, number][] {
   const layout = currentLayout(state);
   if (!layout) return [];
   const out: [number, number][] = [];
-  state.doc.forEach((top, _o, i) => {
+  state.doc.forEach((top, offset) => {
     if (top.type.name === "notes") return;
-    const page = layout.pages[layout.nodePage[i] ?? 0]?.value ?? 1;
-    const visit = (n: PMNode) => {
-      if (n.isTextblock && n.attrs.id > 0) out.push([n.attrs.id as number, page]);
+    const visit = (n: PMNode, pos: number) => {
+      if (n.isTextblock && n.attrs.id > 0) out.push([n.attrs.id as number, pageAtPos(layout, pos + 1)?.value ?? 1]);
       return !n.isTextblock;
     };
-    if (visit(top)) top.descendants(visit);
+    if (visit(top, offset)) top.descendants((n, p) => visit(n, offset + 1 + p));
   });
   return out;
 }

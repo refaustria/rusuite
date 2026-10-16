@@ -19,7 +19,7 @@ import { cursorBlock } from "../sync/editorCommands";
 import { notesNode } from "../sync/fromPM";
 import { nextTempId, type SyncController } from "../sync/SyncPlugin";
 import { TEXTBLOCK_TYPES } from "../sync/schema";
-import { currentLayout } from "./pagination";
+import { currentLayout, pageAtPos } from "./pagination";
 import { goToNote } from "./structure";
 import { paragraphPages } from "./references";
 
@@ -113,16 +113,15 @@ export function headingPages(state: EditorState): [number, number][] {
   const layout = currentLayout(state);
   if (!layout) return [];
   const out: [number, number][] = [];
-  state.doc.forEach((top, _o, i) => {
+  state.doc.forEach((top, offset) => {
     if (top.type.name === "notes") return;
-    const page = layout.pages[layout.nodePage[i] ?? 0]?.value ?? 1;
-    const visit = (n: typeof top) => {
+    const visit = (n: typeof top, pos: number) => {
       const heading = n.type.name === "heading" || (n.type.name === "paragraph" && /^Heading/.test(String(n.attrs.style ?? "")));
-      if (heading && n.attrs.id != null) out.push([n.attrs.id as number, page]);
+      if (heading && n.attrs.id != null) out.push([n.attrs.id as number, pageAtPos(layout, pos + 1)?.value ?? 1]);
     };
-    visit(top);
-    top.descendants((n) => {
-      visit(n);
+    visit(top, offset);
+    top.descendants((n, p) => {
+      visit(n, offset + 1 + p);
       return !n.isTextblock;
     });
   });

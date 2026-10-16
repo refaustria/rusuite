@@ -8,7 +8,7 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import type { EditorView, NodeView } from "@tiptap/pm/view";
 import type { Anchor } from "../generated/Anchor";
 import type { Indent } from "../generated/Indent";
-import { floatPlacement, movedAnchor, placementStyle } from "./floating";
+import { floatPlacement, movedAnchor, placementStyle, type VerticalPage } from "./floating";
 
 /** Handle positions: corners keep the aspect ratio. */
 export const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
@@ -64,6 +64,20 @@ function indentAt(view: EditorView, pos: number | undefined): { left: number; ri
 }
 
 /** The image node view (handles shown while the node is selected). */
+/** The page of the paragraph holding `wrap` in print layout (from the layout the pagination stores on the editor element). */
+function verticalPage(wrap: HTMLElement): VerticalPage | null {
+  const editor = wrap.closest(".ProseMirror") as (HTMLElement & { rusuiteLayout?: { sheets: { top: number; height: number; bodyTop: number; bodyBottom: number }[] } }) | null;
+  const sheets = editor?.rusuiteLayout?.sheets;
+  const frame = wrap.closest(".write-page") as HTMLElement | null;
+  const para = wrap.parentElement?.closest("p, h1, h2, h3, h4, h5, h6, li") as HTMLElement | null;
+  if (!sheets?.length || !frame || !para) return null;
+  const fr = frame.getBoundingClientRect();
+  const z = frame.offsetWidth > 0 ? fr.width / frame.offsetWidth || 1 : 1;
+  const y = (para.getBoundingClientRect().top - fr.top) / z;
+  const s = [...sheets].reverse().find((x) => x.top <= y + 0.5) ?? sheets[0]!;
+  return { paraTop: y - s.top, height: s.height, bodyTop: s.bodyTop - s.top, bodyBottom: s.bodyBottom - s.top };
+}
+
 export function imageNodeView(node: PMNode, view: EditorView, getPos: () => number | undefined, opts: ImageViewOptions): NodeView {
   let current = node;
   const wrap = document.createElement("span");
@@ -91,6 +105,7 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
     }
     const ind = indentAt(view, getPos());
     const page = opts.page?.() ?? null;
+    const vpage = anchor.v.relativeTo === "page" || anchor.v.relativeTo === "margin" ? verticalPage(wrap) : null;
     const p = floatPlacement(anchor, {
       width: n.attrs.width / opts.emuPerPx,
       height: n.attrs.height / opts.emuPerPx,
@@ -98,6 +113,7 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
       indentRight: ind.right,
       columnWidth: page?.columnWidth ?? null,
       page,
+      vpage,
     });
     wrap.classList.add("floating", p.mode);
     wrap.dataset.wrap = anchor.wrap;
@@ -126,6 +142,12 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
     }
   };
   render(node);
+  // Page / margin positions follow the print layout's pages.
+  const onLayout = () => {
+    const a = current.attrs.anchor as Anchor | null;
+    if (a && (a.v.relativeTo === "page" || a.v.relativeTo === "margin")) place(current);
+  };
+  view.dom.addEventListener("rusuite-layout", onLayout);
 
   // Drag a selected floating picture to move it (new offsets from the column and the paragraph).
   let moving = false;
@@ -225,6 +247,7 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
     },
     ignoreMutation: () => true,
     destroy() {
+      view.dom.removeEventListener("rusuite-layout", onLayout);
       handles.forEach((h) => h.removeEventListener("pointerdown", onDown));
       img.removeEventListener("pointerdown", onMoveStart);
     },
