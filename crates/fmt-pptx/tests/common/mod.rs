@@ -1,8 +1,45 @@
 //! Helpers shared by the integration tests.
 
-use model_show::{NodeId, Presentation, Shape, ShapeKind};
+use model_show::{Hyperlink, LinkTarget, NodeId, Presentation, Shape, ShapeKind, SlideRef};
+
+/// Slide links by slide position instead of id.
+fn link_positions(shapes: &mut [Shape], pos: &dyn Fn(NodeId) -> u64) {
+    let fix = |h: &mut Option<Hyperlink>| {
+        if let Some(Hyperlink {
+            target: LinkTarget::Slide(SlideRef::Id(id)),
+            ..
+        }) = h
+        {
+            *id = NodeId(pos(*id));
+        }
+    };
+    for s in shapes {
+        fix(&mut s.click_action);
+        match &mut s.kind {
+            ShapeKind::Auto {
+                text: Some(body), ..
+            } => {
+                for r in body.paragraphs.iter_mut().flat_map(|p| p.runs.iter_mut()) {
+                    fix(&mut r.hyperlink);
+                }
+            }
+            ShapeKind::Group { children } => link_positions(children, pos),
+            _ => {}
+        }
+    }
+}
 
 fn zero_ids(p: &mut Presentation) {
+    let slide_ids: Vec<NodeId> = p.slides.iter().map(|s| s.id).collect();
+    let slide_pos = |id: NodeId| {
+        slide_ids
+            .iter()
+            .position(|i| *i == id)
+            .map_or(u64::MAX, |i| i as u64)
+    };
+    for s in &mut p.slides {
+        link_positions(&mut s.shapes, &slide_pos);
+    }
     fn walk(shapes: &mut [Shape]) {
         for s in shapes {
             s.id = NodeId(0);

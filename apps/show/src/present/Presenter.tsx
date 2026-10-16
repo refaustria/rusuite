@@ -14,6 +14,9 @@ import { fitScale, slidePx } from "../geometry";
 import { SlideView, type DeckContext } from "../canvas/SlideView";
 import { clickAction, keyAction, type ShowAction, type ShowState } from "./showState";
 import { nextVisit, ShowSlide, type SlideVisit } from "./AnimatedSlide";
+import { ShowOverlay } from "./ShowOverlay";
+import { linkAction } from "../links/regions";
+import type { Hyperlink } from "../generated/Hyperlink";
 import { useT } from "../i18n";
 
 export const IDLE_CURSOR_MS = 3000;
@@ -131,6 +134,26 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
     lastStep.current = show.step;
   });
 
+  // the slide shown before the current one (the action button "Return")
+  const lastViewed = useRef<{ index: number; prev: number | null }>({ index: show.index, prev: null });
+  if (lastViewed.current.index !== show.index) lastViewed.current = { index: show.index, prev: lastViewed.current.index };
+  const follow = (link: Hyperlink) => {
+    const a = linkAction(link, slides.map((s) => s.id));
+    switch (a.kind) {
+      case "goto": return act({ type: "goto", index: a.index });
+      case "first": return act({ type: "first" });
+      case "last": return act({ type: "last" });
+      case "next": return act({ type: "next" });
+      case "previous": return act({ type: "prev" });
+      case "back": {
+        const prev = lastViewed.current.prev;
+        return prev === null ? undefined : act({ type: "goto", index: prev });
+      }
+      case "end": return act({ type: "exit" });
+      default: return undefined;
+    }
+  };
+
   const slide = slides[show.index];
   const blank = show.ended ? "black" : show.blank;
   return (
@@ -152,6 +175,7 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
       {blank === "none" && slide && (
         <ShowSlide deck={deck} slides={slides} visit={visit} step={show.step} media={media} mediaVersion={mediaVersion} width={size.width} height={size.height} />
       )}
+      {blank === "none" && slide && !show.ended && <ShowOverlay key={slide.id} deck={deck} slide={slide} media={media} width={size.width} height={size.height} onLink={follow} />}
       {show.ended && (
         <span className="absolute left-0 right-0 top-6 text-center text-sm text-white/70" data-testid="presenter-end">
           {t("show.endClick")}

@@ -82,11 +82,12 @@ impl PathQuery {
                 sites: p.connection_sites(self.w, self.h, &self.adjust),
             },
             PathKind::Connector { kind, bends } => ShapePaths {
-                paths: vec![SubPath {
-                    fill: false,
-                    stroke: true,
-                    commands: flatten(&kind.path(*bends, self.w, self.h, &self.adjust)),
-                }],
+                paths: vec![SubPath::stroked(flatten(&kind.path(
+                    *bends,
+                    self.w,
+                    self.h,
+                    &self.adjust,
+                )))],
                 sites: Vec::new(),
             },
         }
@@ -156,6 +157,10 @@ pub enum Request {
     /// The built-in themes (for the Design gallery) → `themes`. Changes
     /// nothing.
     GetThemes,
+    /// Reads another `.pptx` file (standard base64) without opening it →
+    /// `peeked` with its presentation (media included) and the reader's
+    /// warnings; for Reuse Slides. Changes nothing.
+    PeekPresentation { bytes_base64: String },
 }
 
 /// The successful part of a [`Response`].
@@ -213,6 +218,11 @@ pub enum ResponseBody {
     ShapePaths { shapes: Vec<ShapePaths> },
     /// The reply to `getThemes`, in gallery order.
     Themes { themes: Vec<BuiltinTheme> },
+    /// The reply to `peekPresentation`.
+    Peeked {
+        presentation: Box<Presentation>,
+        warnings: Vec<String>,
+    },
 }
 
 /// The reply: `{"ok":{"type":"patch",...}}` or
@@ -304,6 +314,15 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
             presentation(host)
         }
         Request::DocumentState => state(host),
+        Request::PeekPresentation { bytes_base64 } => {
+            let bytes = base64_decode(&bytes_base64)
+                .map_err(|e| DispatchError::new("bad_request", format!("invalid base64: {e}")))?;
+            let (doc, warnings) = ShowDocument::open_pptx(&bytes, "")?;
+            ResponseBody::Peeked {
+                presentation: Box::new(doc.into_presentation()),
+                warnings,
+            }
+        }
         Request::GetThemes => ResponseBody::Themes {
             themes: model_show::builtin_themes(),
         },

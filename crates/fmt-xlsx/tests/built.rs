@@ -349,7 +349,10 @@ fn shared_formulas_and_dropped_features() {
     // Only the first sheet view counts.
     assert_eq!(wb.sheet_view(s).zoom, 85);
     assert_eq!(wb.sheet_view(s).frozen_rows, 0);
-    assert!(all.contains("hyperlinks dropped"), "{all}");
+    assert!(
+        all.contains("hyperlink on A1 without target dropped"),
+        "{all}"
+    );
     assert!(wb.cf_rules(s).is_empty());
     assert!(all.contains("C3: formula"), "{all}");
 }

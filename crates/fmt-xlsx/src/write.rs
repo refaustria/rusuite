@@ -7,7 +7,7 @@ use std::io::Cursor;
 use engine_formula::ast::{MAX_COL, MAX_ROW};
 use engine_formula::{CellContent, CellCoord, RangeRef, SheetId, Value};
 use fmt_ooxml::theme::office_theme_xml;
-use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
+use fmt_ooxml::{ct, rel, Package, PartName, Relationships, TargetMode};
 use model_sheet::{
     AutoFilter, ColInfo, DynamicFilter, Filter, FilterOp, NameScope, SheetView, SortState, Workbook,
 };
@@ -36,12 +36,9 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
         .position(|(id, _)| !wb.is_sheet_hidden(*id))
         .unwrap_or(0);
     let mut dynamic = false;
-    let sheet_xml: Vec<Vec<u8>> = sheets
-        .iter()
-        .enumerate()
-        .map(|(i, (id, _))| sheet_xml(wb, *id, i == active, &mut sst, &dxfs, &mut dynamic))
-        .collect();
     let mut drawings = crate::drawing::DrawingParts::default();
+    let mut comments = crate::comments::CommentParts::default();
+    let persons = crate::comments::persons_of(wb);
     let default_font = ctx
         .default_font
         .clone()
@@ -56,16 +53,32 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
         workbook_xml(wb, &sheets, active),
     );
     let mut rels = Relationships::new();
-    for (i, xml) in sheet_xml.into_iter().enumerate() {
+    for (i, (id, _)) in sheets.iter().enumerate() {
+        let id = *id;
         let target = format!("worksheets/sheet{}.xml", i + 1);
         let part = pn(&format!("/xl/{target}"))?;
-        pkg.insert_part(part.clone(), ct::WORKSHEET, xml);
-        rels.add(rel::WORKSHEET, target);
-        let id = sheets[i].0;
+        // Relationships first: the sheet XML names their ids.
+        let mut sheet_rels = Relationships::new();
+        let mut ids = SheetRelIds::default();
         if !wb.charts(id).is_empty() {
             let drawing = drawings.write(&mut pkg, wb, id)?;
-            let mut sheet_rels = Relationships::new();
-            sheet_rels.add(rel::DRAWING, drawing);
+            ids.drawing = Some(sheet_rels.add(rel::DRAWING, drawing).id.clone());
+        }
+        for link in wb.hyperlinks(id) {
+            ids.links.push(link.target.external_url().map(|url| {
+                sheet_rels
+                    .add_with_mode(rel::HYPERLINK, url, TargetMode::External)
+                    .id
+                    .clone()
+            }));
+        }
+        if !wb.notes(id).is_empty() || !wb.threads(id).is_empty() {
+            ids.legacy = Some(comments.write(&mut pkg, &mut sheet_rels, wb, id, &persons)?);
+        }
+        let xml = sheet_xml(wb, id, i == active, &mut sst, &dxfs, &mut dynamic, &ids);
+        pkg.insert_part(part.clone(), ct::WORKSHEET, xml);
+        rels.add(rel::WORKSHEET, target);
+        if !sheet_rels.is_empty() {
             pkg.set_relationships(part, sheet_rels);
         }
     }
@@ -94,6 +107,9 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     if dynamic {
         pkg.insert_part(pn("/xl/metadata.xml")?, METADATA_CT, metadata_xml());
         rels.add(METADATA_REL, "metadata.xml");
+    }
+    if crate::comments::has_threads(wb) || !persons.is_empty() {
+        crate::comments::write_persons(&mut pkg, &mut rels, &persons)?;
     }
     pkg.set_relationships(main, rels);
     pkg.insert_part(pn("/docProps/core.xml")?, ct::CORE_PROPERTIES, core_xml());
@@ -276,6 +292,16 @@ pub(crate) fn col_runs(cols: impl IntoIterator<Item = (u32, ColInfo)>) -> Vec<(u
     runs
 }
 
+/// The relationship ids a worksheet's XML refers to.
+#[derive(Default)]
+struct SheetRelIds {
+    drawing: Option<String>,
+    /// The VML drawing of the notes (`<legacyDrawing>`).
+    legacy: Option<String>,
+    /// Per hyperlink, in order: the id of its external target.
+    links: Vec<Option<String>>,
+}
+
 fn sheet_xml(
     wb: &Workbook,
     id: SheetId,
@@ -283,6 +309,7 @@ fn sheet_xml(
     sst: &mut SharedStrings,
     dxfs: &[model_sheet::DxfStyle],
     dynamic: &mut bool,
+    rel_ids: &SheetRelIds,
 ) -> Vec<u8> {
     let format = wb.sheet_format(id);
     let mut x = XmlOut::new();
@@ -403,6 +430,28 @@ fn sheet_xml(
         x.end("mergeCells");
     }
     crate::condfmt::write_sheet_rules(&mut x, wb, id, dxfs);
+    let links = wb.hyperlinks(id);
+    if !links.is_empty() {
+        x.start("hyperlinks", &[]);
+        for (link, rid) in links.iter().zip(&rel_ids.links) {
+            let r = range_name(link.r0, link.c0, link.r1, link.c1);
+            let mut a: Vec<(&str, &str)> = vec![("ref", &r)];
+            if let Some(rid) = rid {
+                a.push(("r:id", rid));
+            }
+            if let model_sheet::LinkTarget::Location { location } = &link.target {
+                a.push(("location", location));
+            }
+            if let Some(d) = &link.display {
+                a.push(("display", d));
+            }
+            if let Some(t) = &link.tooltip {
+                a.push(("tooltip", t));
+            }
+            x.empty("hyperlink", &a);
+        }
+        x.end("hyperlinks");
+    }
     x.empty(
         "pageMargins",
         &[
@@ -414,9 +463,11 @@ fn sheet_xml(
             ("footer", "0.3"),
         ],
     );
-    // The drawing part is the sheet's only relationship (`rId1`).
-    if !wb.charts(id).is_empty() {
-        x.empty("drawing", &[("r:id", "rId1")]);
+    if let Some(rid) = &rel_ids.drawing {
+        x.empty("drawing", &[("r:id", rid)]);
+    }
+    if let Some(rid) = &rel_ids.legacy {
+        x.empty("legacyDrawing", &[("r:id", rid)]);
     }
     x.end("worksheet");
     x.finish()

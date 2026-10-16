@@ -73,6 +73,15 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
     const File = t("sc.file");
     const grid = t("calc.sc.grid");
     const actions = calcActions(store);
+    /** Delete: a selected chart or note box goes, else the cell contents (notes stay, as in Excel). */
+    const deleteKey = () => {
+      const note = store.comments.selectedNote;
+      if (note) {
+        store.comments.selectedNote = null;
+        return store.apply({ type: "deleteNote", sheet: note.sheet, r0: note.row, c0: note.col, r1: note.row, c1: note.col });
+      }
+      return store.charts.selected ? store.charts.remove() : store.clearSelection();
+    };
     /** Insert/delete: whole-row or whole-column selections skip the dialog. */
     const structural = (kind: "insert" | "delete") => () => {
       const r = normalize(store.getState().selection);
@@ -115,8 +124,11 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       "Mod+R": { label: t("calc.sc.fillRight"), group: t("sc.edit"), when: inGrid, run: () => void actions.fillRight() },
       F2: { label: t("calc.sc.editCell"), group: t("sc.edit"), when: inGrid, run: () => store.beginEdit(null) },
       // A selected chart is deleted instead (Excel).
-      Delete: { label: t("calc.sc.clearCells"), group: t("sc.edit"), when: inGrid, run: () => void (store.charts.selected ? store.charts.remove() : store.clearSelection()) },
-      Backspace: { label: t("calc.sc.clearCells"), group: t("sc.edit"), when: inGrid, run: () => void (store.charts.selected ? store.charts.remove() : store.clearSelection()) },
+      Delete: { label: t("calc.sc.clearCells"), group: t("sc.edit"), when: inGrid, run: () => void deleteKey() },
+      Backspace: { label: t("calc.sc.clearCells"), group: t("sc.edit"), when: inGrid, run: () => void deleteKey() },
+      "Shift+F2": { label: t("calc.notes.newEdit"), group: t("calc.tab.review"), when: inGrid, run: () => actions.editNote() },
+      "Mod+Shift+F2": { label: t("calc.comments.new"), group: t("calc.tab.review"), when: inGrid, run: () => actions.newComment() },
+      "Mod+K": { label: t("calc.link.button"), group: t("tab.insert"), when: inGrid, run: () => actions.link() },
       "Mod+Space": {
         label: t("calc.sc.selectCol"),
         group: grid,

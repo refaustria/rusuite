@@ -1,7 +1,7 @@
 // In-memory backend for tests: records every request and answers like a
 // (much simplified) Show core – enough commands to drive the store.
 
-import type { OpenedFile } from "@rusuite/ui-shared";
+import type { ChartKindModel, OpenedFile } from "@rusuite/ui-shared";
 import type { Envelope } from "../../../../packages/ui-shared/src/generated/Envelope";
 import type { ShowBackend } from "../backend";
 import type { NodeId } from "../generated/NodeId";
@@ -39,6 +39,32 @@ export function fakePaths(q: PathQuery): ShapePaths {
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
+/** A chart shape like the core's `InsertChart`: PowerPoint's 3 × 4 sample (pies: one series). */
+export function fakeChartShape(id: number, kind: ChartKindModel, transform: Shape["transform"]): Shape {
+  const pie = kind.type === "pie" || kind.type === "doughnut";
+  const series = [
+    { name: "Series 1", values: [4.3, 2.5, 3.5, 4.5] },
+    { name: "Series 2", values: [2.4, 4.4, 1.8, 2.8] },
+    { name: "Series 3", values: [2, 2, 3, 5] },
+  ].slice(0, pie ? 1 : 3);
+  const col = (i: number) => String.fromCharCode(66 + i);
+  return {
+    id, name: `Chart ${id}`, transform,
+    kind: {
+      kind: "chart",
+      value: {
+        chart: {
+          kind, title: pie ? {} : { text: { type: "literal", text: "Chart Title" } }, legend: { position: "bottom" },
+          series: series.map((_s, i) => ({ name: { type: "ref", formula: `Sheet1!$${col(i)}$1` }, values: { type: "ref", formula: `Sheet1!$${col(i)}$2:$${col(i)}$5` } })),
+          categories: { type: "ref", formula: "Sheet1!$A$2:$A$5" }, axes: { cat: {}, val: { majorGridlines: true } }, ...(pie ? { varyColors: true } : { gapWidth: 219, overlap: -27 }),
+        },
+        data: { categories: ["Category 1", "Category 2", "Category 3", "Category 4"], series },
+      },
+    },
+    fill: { kind: "none" }, line: { fill: { kind: "none" }, width: 12700, dash: "solid" },
+  };
+}
+
 export class FakeBackend implements ShowBackend {
   readonly kind = "wasm" as const;
   readonly log: Request[] = [];
@@ -74,6 +100,9 @@ export class FakeBackend implements ShowBackend {
   async ping() {
     return "Rusuite Show fake";
   }
+
+  /** What `peekPresentation` answers (Reuse Slides). */
+  peek: Presentation | null = null;
 
   /** Set by `restoreRecovery` (dirty until saved; the fake has no save). */
   restored = false;
@@ -130,6 +159,100 @@ export class FakeBackend implements ShowBackend {
           kind: { kind: "picture", value: { media } }, fill: { kind: "none" }, line: { fill: { kind: "none" }, width: 12700, dash: "solid" },
         });
         touched.add(s);
+        return;
+      }
+      case "insertChart": {
+        const s = this.slideOf(c.slide);
+        s.shapes.push(fakeChartShape(this.real(c.newId, idMap), c.kind, c.transform ?? { x: 1219200, y: 685800, w: 8128000, h: 4572000 }));
+        touched.add(s);
+        return;
+      }
+      case "setChartData":
+      case "updateChart": {
+        const s = this.slideOf(c.shape);
+        const sh = findShape(s.shapes, c.shape)!.shape;
+        if (sh.kind.kind !== "chart") throw new Error("not a chart");
+        if (c.type === "setChartData") {
+          const { workbook: _, ...rest } = sh.kind.value;
+          sh.kind = { kind: "chart", value: { ...rest, data: clone(c.data), chart: { ...rest.chart, series: c.data.series.map((_x, i) => rest.chart.series[i] ?? { values: { type: "ref", formula: `S${i}` } }) } } };
+        } else sh.kind = { kind: "chart", value: { ...sh.kind.value, chart: clone(c.chart) } };
+        touched.add(s);
+        return;
+      }
+      case "setHyperlink": {
+        const s = this.slideOf(c.shape);
+        const sh = findShape(s.shapes, c.shape)!.shape;
+        const para = sh.kind.kind === "auto" ? sh.kind.value.text?.paragraphs[c.paragraph] : undefined;
+        if (!para) throw new Error("no paragraph");
+        // whole runs overlapping the range (the fake does not split)
+        let at = 0;
+        for (const r of para.runs) {
+          const len = Array.from(r.text).length;
+          if (at < c.to && at + len > c.from) {
+            if (c.link) r.hyperlink = c.link;
+            else delete r.hyperlink;
+          }
+          at += len;
+        }
+        touched.add(s);
+        return;
+      }
+      case "setClickAction":
+        for (const id of c.shapes) {
+          const s = this.slideOf(id);
+          const sh = findShape(s.shapes, id)!.shape;
+          if (c.action) sh.clickAction = c.action;
+          else delete sh.clickAction;
+          touched.add(s);
+        }
+        return;
+      case "insertMedia": {
+        const s = this.slideOf(c.slide);
+        const media = p.media.length + 1;
+        p.media.push({ id: media, contentType: c.contentType, data: c.bytesBase64 });
+        const audio = c.contentType.startsWith("audio/");
+        s.shapes.push({
+          id: this.real(c.newId, idMap), name: audio ? "Audio" : "Video", transform: { x: 0, y: 0, w: audio ? 457200 : 6096000, h: audio ? 457200 : 3429000 },
+          kind: { kind: "media", value: { kind: audio ? "audio" : "video", media, start: "onClick" } }, fill: { kind: "none" }, line: { fill: { kind: "none" }, width: 12700, dash: "solid" },
+        });
+        touched.add(s);
+        return;
+      }
+      case "setMediaProps":
+        for (const id of c.shapes) {
+          const s = this.slideOf(id);
+          const sh = findShape(s.shapes, id)!.shape;
+          if (sh.kind.kind === "media") sh.kind = { kind: "media", value: { ...sh.kind.value, ...c.patch } };
+          touched.add(s);
+        }
+        return;
+      case "setMediaPoster": {
+        const s = this.slideOf(c.shape);
+        const sh = findShape(s.shapes, c.shape)!.shape;
+        if (sh.kind.kind !== "media") throw new Error("not media");
+        if (c.bytesBase64 && c.contentType) {
+          const media = p.media.length + 1;
+          p.media.push({ id: media, contentType: c.contentType, data: c.bytesBase64 });
+          sh.kind = { kind: "media", value: { ...sh.kind.value, poster: media } };
+        } else {
+          const { poster: _, ...rest } = sh.kind.value;
+          sh.kind = { kind: "media", value: rest };
+        }
+        touched.add(s);
+        return;
+      }
+      case "insertSlides": {
+        const at = c.after === undefined ? 0 : p.slides.findIndex((x) => x.id === c.after) + 1;
+        const fresh = c.slides.map((sl) => {
+          const copy = clone(sl);
+          copy.id = this.nextId++;
+          copy.shapes = copy.shapes.map((sh) => ({ ...sh, id: this.nextId++ }));
+          if (!c.keepSourceFormatting && !p.layouts.some((l) => l.kind === copy.layout)) copy.layout = "titleContent";
+          return copy;
+        });
+        p.slides.splice(at, 0, ...fresh);
+        fresh.forEach((x) => touched.add(x));
+        order.changed = true;
         return;
       }
       case "setTransform":
@@ -573,6 +696,8 @@ export class FakeBackend implements ShowBackend {
         return ok({ type: "documentState", dirty: false, revision: this.revision, name: this.name });
       case "getThemes":
         return ok({ type: "themes", themes: clone(FAKE_THEMES) });
+      case "peekPresentation":
+        return this.peek ? ok({ type: "peeked", presentation: clone(this.peek), warnings: [] }) : { err: { code: "invalid_file", message: "fake: nothing to peek" } };
       case "shapePaths":
         return ok({ type: "shapePaths", shapes: request.queries.map((q) => fakePaths(q)) });
       case "getMedia": {

@@ -49,8 +49,8 @@ describe("context menus", () => {
     fireEvent.contextMenu(grid, at(2, 1));
     expect(address()).toBe("B3");
     const menu = screen.getByRole("menu", { name: "Cell" });
-    expect(within(menu).getAllByRole("menuitem").map((b) => b.textContent?.replace(/Ctrl.*|Del$/, ""))).toEqual([
-      "Cut", "Copy", "Paste", "Paste values", "Insert rows", "Insert columns", "Delete rows", "Delete columns",
+    expect(within(menu).getAllByRole("menuitem").map((b) => b.textContent?.replace(/Ctrl.*|Shift.*|Del$/, ""))).toEqual([
+      "Cut", "Copy", "Paste", "Paste values", "New Comment", "New Note", "Link", "Insert rows", "Insert columns", "Delete rows", "Delete columns",
       "Clear contents", "Sort A to Z", "Sort Z to A", "Custom Sort…", "Merge & Center", "Merge Cells", "Unmerge Cells", "Format cells…", "Row height…", "Column width…",
     ]);
     expect((within(menu).getByRole("menuitem", { name: "Unmerge Cells" }) as HTMLButtonElement).disabled).toBe(true);

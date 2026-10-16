@@ -39,6 +39,11 @@ import type { NameDef } from "../generated/NameDef";
 import type { NameInfo } from "../generated/NameInfo";
 import type { NameRow } from "../generated/NameRow";
 import type { SheetRect } from "../generated/SheetRect";
+import type { Hyperlink } from "../generated/Hyperlink";
+import type { Note } from "../generated/Note";
+import type { Person } from "../generated/Person";
+import type { Thread } from "../generated/Thread";
+import type { SheetAnnotations } from "../generated/SheetAnnotations";
 import { parseRange, rangeFormula } from "../charts/refs";
 import { findRefs } from "../formula/refs";
 import { nameProblem } from "../names/names";
@@ -67,6 +72,10 @@ interface FakeSheet {
   validations: DataValidation[];
   /** Charts back to front (a toy: data resolved from same-workbook A1 references). */
   charts: ChartObject[];
+  /** Notes, threads and hyperlinks (P8-26). */
+  notes: Note[];
+  threads: Thread[];
+  hyperlinks: Hyperlink[];
 }
 
 const DEFAULT_VIEW: SheetView = { frozenRows: 0, frozenCols: 0, zoom: 100, showGridlines: true, showHeadings: true };
@@ -119,6 +128,9 @@ export class FakeCalcCore {
   log: Request[] = [];
   /** Defined names in definition order (a toy: ranges and constants evaluate). */
   names: NameDef[] = [];
+  /** Comment authors (`setUser`). */
+  persons: Person[] = [];
+  private commentSeq = 0;
   /** Deleted sheets by id (ids are never reused; undo brings them back whole). */
   private removed = new Map<number, FakeSheet>();
   private nextId = 0;
@@ -135,6 +147,7 @@ export class FakeCalcCore {
     this.nextId = this.sheets.length;
     this.styles = [{}];
     this.names = [];
+    this.persons = [];
     this.undoStack = [];
     this.redoStack = [];
     this.revision++;
@@ -142,7 +155,7 @@ export class FakeCalcCore {
   }
 
   private newSheet(id: number, name: string): FakeSheet {
-    return { id, name, cells: new Map(), cols: new Map(), rows: new Map(), formulas: new Set(), view: { ...DEFAULT_VIEW }, merges: [], cfRules: [], validations: [], charts: [] };
+    return { id, name, cells: new Map(), cols: new Map(), rows: new Map(), formulas: new Set(), view: { ...DEFAULT_VIEW }, merges: [], cfRules: [], validations: [], charts: [], notes: [], threads: [], hyperlinks: [] };
   }
 
   private sheet(id: number): FakeSheet {
@@ -237,7 +250,12 @@ export class FakeCalcCore {
     else if (typeof v === "boolean") [display, kind] = [v ? "TRUE" : "FALSE", "bool"];
     else if (typeof v === "object") [display, kind] = [v.error, "error"];
     else [display, kind] = [v, "text"];
-    return { row: r, col: c, input: this.cell(s, r, c)?.input ?? "", display, kind, style: this.effectiveStyle(s, r, c) };
+    const view: CellView = { row: r, col: c, input: this.cell(s, r, c)?.input ?? "", display, kind, style: this.effectiveStyle(s, r, c) };
+    if (s.notes.some((n) => n.row === r && n.col === c)) view.note = true;
+    const th = s.threads.find((x) => x.row === r && x.col === c);
+    if (th) view.comment = th.resolved ? "resolved" : "open";
+    if (s.hyperlinks.some((h) => r >= h.r0 && r <= h.r1 && c >= h.c0 && c <= h.c1) || /^=HYPERLINK\(/i.test(view.input)) view.link = true;
+    return view;
   }
 
   // --- commands -----------------------------------------------------------
@@ -563,7 +581,28 @@ export class FakeCalcCore {
           bySheet.get(sh)!.push(v);
         }
         const cmds: CalcCommand[] = [...bySheet].map(([sheet, cells]) => ({ type: "restoreCells", sheet, cells }));
-        return this.exec({ type: "compound", commands: cmds });
+        const result = this.exec({ type: "compound", commands: cmds });
+        if (cmd.annotations && cmd.mode === "all") {
+          const from = this.sheet(cmd.src.sheet);
+          const inSrc = (x: { row: number; col: number }) => x.row >= cmd.src.r0 && x.row <= cmd.src.r1 && x.col >= cmd.src.c0 && x.col <= cmd.src.c1;
+          const inDst = (x: { row: number; col: number }) => x.row >= cmd.r0 && x.row < cmd.r0 + h * cmd.repeatRows && x.col >= cmd.c0 && x.col < cmd.c0 + w * cmd.repeatCols;
+          const notes = from.notes.filter(inSrc);
+          const threads = cmd.cut ? from.threads.filter(inSrc) : [];
+          if (cmd.cut) {
+            from.notes = from.notes.filter((n) => !inSrc(n));
+            from.threads = from.threads.filter((x) => !inSrc(x));
+          }
+          s.notes = s.notes.filter((n) => !inDst(n));
+          if (cmd.cut) s.threads = s.threads.filter((x) => !inDst(x));
+          for (let ti = 0; ti < cmd.repeatRows; ti++) {
+            for (let tj = 0; tj < cmd.repeatCols; tj++) {
+              const move = <T extends { row: number; col: number }>(x: T): T => ({ ...x, row: x.row - cmd.src.r0 + cmd.r0 + ti * h, col: x.col - cmd.src.c0 + cmd.c0 + tj * w });
+              s.notes.push(...notes.map(move));
+              s.threads.push(...threads.map(move));
+            }
+          }
+        }
+        return result;
       }
       case "fillRange": {
         // Copy with shifted formulas; all-number lines continue linearly.
@@ -613,6 +652,20 @@ export class FakeCalcCore {
         }
         s.cells = moved;
         s.formulas = new Set([...moved].flatMap(([r, row]) => [...row].filter(([, x]) => x.input.startsWith("=")).map(([c]) => `${r},${c}`)));
+        const shift = (i: number) => (ins ? (i >= cmd.at ? i + cmd.count : i) : i >= cmd.at + cmd.count ? i - cmd.count : i >= cmd.at ? null : i);
+        const follow = <T extends { row: number; col: number }>(xs: T[]) =>
+          xs.flatMap((x) => {
+            const j = shift(rowsAxis ? x.row : x.col);
+            return j === null ? [] : [{ ...x, ...(rowsAxis ? { row: j } : { col: j }) }];
+          });
+        s.notes = follow(s.notes);
+        s.threads = follow(s.threads);
+        s.hyperlinks = s.hyperlinks.flatMap((h) => {
+          const a = shift(rowsAxis ? h.r0 : h.c0);
+          const b = shift(rowsAxis ? h.r1 : h.c1);
+          if (a === null || b === null) return [];
+          return [{ ...h, ...(rowsAxis ? { r0: a, r1: b } : { c0: a, c1: b }) }];
+        });
         const patch = this.emptyPatch();
         patch.structural = [{ sheet: cmd.sheet, kind: cmd.type, at: cmd.at, count: cmd.count }];
         const inverse: CalcCommand = { ...cmd, type: (ins ? "delete" : "insert") + (rowsAxis ? "Rows" : "Cols") } as CalcCommand;
@@ -649,6 +702,22 @@ export class FakeCalcCore {
       case "createNamesFromSelection":
       case "restoreNames":
         return this.nameCmd(cmd);
+      case "setNote":
+      case "deleteNote":
+      case "showHideNote":
+      case "convertNotesToComments":
+      case "addComment":
+      case "replyComment":
+      case "editComment":
+      case "deleteReply":
+      case "deleteThread":
+      case "resolveThread":
+      case "setUser":
+      case "setHyperlink":
+      case "removeHyperlink":
+      case "restoreAnnotations":
+      case "restorePersons":
+        return this.annotCmd(cmd);
       default: {
         const unknown: never = cmd;
         throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
@@ -1168,6 +1237,178 @@ export class FakeCalcCore {
   }
 
   /** Like the core: any change of a workbook with rules names those sheets in `cfSheets` (charts: `chartSheets`). */
+  // --- annotations (P8-26, a toy of calc_core's annotations) ---------------------------------
+
+  private annotState(): string {
+    return JSON.stringify({ s: this.sheets.map((x) => [x.id, x.notes, x.threads, x.hyperlinks]), p: this.persons });
+  }
+
+  /** Runs a command; like the core, undo of changed annotations restores their old state. */
+  private withAnnotations(run: () => [CalcPatch, CalcCommand | null]): [CalcPatch, CalcCommand | null] {
+    const before = JSON.parse(this.annotState()) as { s: [number, Note[], Thread[], Hyperlink[]][]; p: Person[] };
+    const [patch, inv] = run();
+    const restore: CalcCommand[] = [];
+    const changed: SheetAnnotations[] = [];
+    for (const [id, notes, threads, hyperlinks] of before.s) {
+      const s = this.sheets.find((x) => x.id === id);
+      if (!s || JSON.stringify([notes, threads, hyperlinks]) === JSON.stringify([s.notes, s.threads, s.hyperlinks])) continue;
+      restore.push({ type: "restoreAnnotations", sheet: id, notes, threads, hyperlinks });
+      changed.push({ sheet: id, notes: JSON.parse(JSON.stringify(s.notes)) as Note[], threads: JSON.parse(JSON.stringify(s.threads)) as Thread[], hyperlinks: JSON.parse(JSON.stringify(s.hyperlinks)) as Hyperlink[] });
+      const cells = new Set<string>();
+      for (const x of [...notes, ...threads, ...s.notes, ...s.threads]) cells.add(`${x.row},${x.col}`);
+      for (const h of [...hyperlinks, ...s.hyperlinks]) cells.add(`${h.r0},${h.c0}`);
+      const views = [...cells].map((k) => k.split(",").map(Number) as [number, number]).map(([r, c]) => this.view(s, r, c));
+      if (!patch.structural.some((x) => x.sheet === id)) {
+        const g = patch.cells.find((x) => x.sheet === id);
+        if (g) g.cells.push(...views.filter((v) => !g.cells.some((c) => c.row === v.row && c.col === v.col)));
+        else patch.cells.push({ sheet: id, cells: views });
+      }
+    }
+    if (JSON.stringify(before.p) !== JSON.stringify(this.persons)) {
+      restore.push({ type: "restorePersons", persons: before.p });
+      patch.persons = this.persons.map((p) => ({ ...p }));
+    }
+    if (changed.length) patch.annotations = changed;
+    if (!restore.length) return [patch, inv];
+    const keep = inv && !(inv.type === "compound" && inv.commands.length === 0) ? [inv] : [];
+    return [patch, { type: "compound", commands: [...keep, ...restore] }];
+  }
+
+  private annotCmd(cmd: Extract<CalcCommand, { type: "setNote" | "deleteNote" | "showHideNote" | "convertNotesToComments" | "addComment" | "replyComment" | "editComment" | "deleteReply" | "deleteThread" | "resolveThread" | "setUser" | "setHyperlink" | "removeHyperlink" | "restoreAnnotations" | "restorePersons" }>): [CalcPatch, CalcCommand] {
+    const none: CalcCommand = { type: "compound", commands: [] };
+    const at = <T extends { row: number; col: number }>(xs: T[], row: number, col: number) => xs.find((x) => x.row === row && x.col === col);
+    const inRange = (c: { r0: number; c0: number; r1: number; c1: number }) => (x: { row: number; col: number }) => x.row >= c.r0 && x.row <= c.r1 && x.col >= c.c0 && x.col <= c.c1;
+    const id = () => `{FAKE-${String(++this.commentSeq).padStart(4, "0")}}`;
+    const thread = (s: FakeSheet, row: number, col: number) => {
+      const t = at(s.threads, row, col);
+      if (!t) throw new Fail("invalid_annotation", "the cell has no comment");
+      return t;
+    };
+    switch (cmd.type) {
+      case "setNote": {
+        const s = this.sheet(cmd.sheet);
+        const old = at(s.notes, cmd.row, cmd.col);
+        const note: Note = { row: cmd.row, col: cmd.col, text: cmd.text };
+        const author = cmd.author ?? old?.author;
+        if (author) note.author = author;
+        if (cmd.visible ?? old?.visible) note.visible = true;
+        const bounds = cmd.bounds ?? old?.bounds;
+        if (bounds) note.bounds = bounds;
+        s.notes = [...s.notes.filter((n) => n !== old), note].sort((a, b) => a.row - b.row || a.col - b.col);
+        break;
+      }
+      case "deleteNote": {
+        const s = this.sheet(cmd.sheet);
+        s.notes = s.notes.filter((n) => !inRange(cmd)(n));
+        break;
+      }
+      case "showHideNote": {
+        const s = this.sheet(cmd.sheet);
+        const n = at(s.notes, cmd.row, cmd.col);
+        if (!n) throw new Fail("invalid_annotation", "the cell has no note");
+        const v = cmd.visible ?? !n.visible;
+        if (v) n.visible = true;
+        else delete n.visible;
+        break;
+      }
+      case "convertNotesToComments": {
+        const s = this.sheet(cmd.sheet);
+        const kept: Note[] = [];
+        for (const n of s.notes) {
+          if (at(s.threads, n.row, n.col)) {
+            kept.push(n);
+            continue;
+          }
+          const text = n.text.map((r) => r.text).join("").replace(new RegExp(`^${n.author ?? "\u0000"}:\n?`), "");
+          s.threads.push({ id: id(), row: n.row, col: n.col, author: n.author ? { name: n.author } : cmd.author, date: cmd.date, text });
+        }
+        s.notes = kept;
+        break;
+      }
+      case "addComment": {
+        const s = this.sheet(cmd.sheet);
+        if (at(s.threads, cmd.row, cmd.col)) throw new Fail("invalid_annotation", "the cell already has a comment");
+        s.threads.push({ id: id(), row: cmd.row, col: cmd.col, author: cmd.author, date: cmd.date, text: cmd.text });
+        s.threads.sort((a, b) => a.row - b.row || a.col - b.col);
+        break;
+      }
+      case "replyComment": {
+        const t = thread(this.sheet(cmd.sheet), cmd.row, cmd.col);
+        t.replies = [...(t.replies ?? []), { id: id(), author: cmd.author, date: cmd.date, text: cmd.text }];
+        break;
+      }
+      case "editComment": {
+        const t = thread(this.sheet(cmd.sheet), cmd.row, cmd.col);
+        if (t.id === cmd.id) t.text = cmd.text;
+        else {
+          const r = t.replies?.find((x) => x.id === cmd.id);
+          if (!r) throw new Fail("invalid_annotation", "unknown comment id");
+          r.text = cmd.text;
+        }
+        break;
+      }
+      case "deleteReply": {
+        const t = thread(this.sheet(cmd.sheet), cmd.row, cmd.col);
+        t.replies = (t.replies ?? []).filter((r) => r.id !== cmd.id);
+        if (!t.replies.length) delete t.replies;
+        break;
+      }
+      case "deleteThread": {
+        const s = this.sheet(cmd.sheet);
+        s.threads = s.threads.filter((t) => !inRange(cmd)(t));
+        break;
+      }
+      case "resolveThread": {
+        const t = thread(this.sheet(cmd.sheet), cmd.row, cmd.col);
+        if (cmd.resolved) t.resolved = true;
+        else delete t.resolved;
+        break;
+      }
+      case "setUser": {
+        const p = this.persons.find((x) => x.name === cmd.name);
+        if (p) p.initials = cmd.initials;
+        else if (cmd.name.trim()) this.persons.push({ name: cmd.name, initials: cmd.initials });
+        break;
+      }
+      case "setHyperlink": {
+        const s = this.sheet(cmd.sheet);
+        s.hyperlinks = s.hyperlinks.filter((h) => !intersects(h, cmd));
+        const link: Hyperlink = { r0: cmd.r0, c0: cmd.c0, r1: cmd.r1, c1: cmd.c1, target: cmd.target };
+        if (cmd.text) link.display = cmd.text;
+        if (cmd.tooltip) link.tooltip = cmd.tooltip;
+        s.hyperlinks.push(link);
+        const patch = this.emptyPatch();
+        const invs: CalcCommand[] = [];
+        if (cmd.text && (this.cell(s, cmd.r0, cmd.c0)?.input ?? "") !== cmd.text) {
+          const [p, inv] = this.exec({ type: "setInput", sheet: cmd.sheet, row: cmd.r0, col: cmd.c0, input: cmd.text });
+          mergePatch(patch, p);
+          if (inv) invs.push(inv);
+        }
+        const [p, inv] = this.exec({ type: "applyStyle", sheet: cmd.sheet, r0: cmd.r0, c0: cmd.c0, r1: cmd.r1, c1: cmd.c1, patch: { font: { underline: "single", color: { kind: "theme", value: { slot: "hyperlink", tint: 0 } } } } });
+        mergePatch(patch, p);
+        if (inv) invs.push(inv);
+        return [patch, { type: "compound", commands: invs.reverse() }];
+      }
+      case "removeHyperlink": {
+        const s = this.sheet(cmd.sheet);
+        s.hyperlinks = s.hyperlinks.filter((h) => !intersects(h, cmd));
+        break;
+      }
+      case "restoreAnnotations": {
+        const s = this.sheets.find((x) => x.id === cmd.sheet);
+        if (!s) break;
+        s.notes = JSON.parse(JSON.stringify(cmd.notes)) as Note[];
+        s.threads = JSON.parse(JSON.stringify(cmd.threads)) as Thread[];
+        s.hyperlinks = JSON.parse(JSON.stringify(cmd.hyperlinks)) as Hyperlink[];
+        break;
+      }
+      case "restorePersons":
+        this.persons = cmd.persons.map((p) => ({ ...p }));
+        break;
+    }
+    return [this.emptyPatch(), none];
+  }
+
   private markCf(patch: CalcPatch): void {
     const ids = this.sheets.filter((x) => x.cfRules.length > 0 || x.validations.length > 0).map((x) => x.id);
     const all = new Set([...(patch.cfSheets ?? []), ...ids]);
@@ -1323,7 +1564,10 @@ export class FakeCalcCore {
   }
 
   private infoResponse(): Response {
-    const info = { sheets: this.sheetInfos(), styles: [...this.styles], revision: this.revision, ...(this.names.length ? { names: this.nameInfos() } : {}) };
+    const info = {
+      sheets: this.sheetInfos(), styles: [...this.styles], revision: this.revision, ...(this.names.length ? { names: this.nameInfos() } : {}),
+      ...(this.persons.length ? { persons: this.persons.map((p) => ({ ...p })) } : {}),
+    };
     return { ok: { type: "info", info } };
   }
 
@@ -1332,7 +1576,7 @@ export class FakeCalcCore {
     try {
       switch (req.type) {
         case "apply": {
-          const [patch, inv] = this.exec(req.command);
+          const [patch, inv] = this.withAnnotations(() => this.exec(req.command));
           this.markCf(patch);
           this.revision++;
           if (inv) this.undoStack.push(inv);
@@ -1345,7 +1589,7 @@ export class FakeCalcCore {
           const to = req.type === "undo" ? this.redoStack : this.undoStack;
           const cmd = from.pop();
           if (!cmd) return { ok: { type: "patch", envelope: this.envelope(this.emptyPatch()) } };
-          const [patch, inv] = this.exec(cmd);
+          const [patch, inv] = this.withAnnotations(() => this.exec(cmd));
           this.markCf(patch);
           if (inv) to.push(inv);
           this.revision++;
@@ -1359,6 +1603,10 @@ export class FakeCalcCore {
             const row = s.cells.get(r);
             if (!row) continue;
             for (const c of row.keys()) if (c >= req.c0 && c <= req.c1) cells.push(this.view(s, r, c));
+          }
+          for (const x of [...s.notes, ...s.threads]) {
+            if (x.row < req.r0 || x.row > req.r1 || x.col < req.c0 || x.col > req.c1 || cells.some((c) => c.row === x.row && c.col === x.col)) continue;
+            cells.push(this.view(s, x.row, x.col));
           }
           cells.sort((a, b) => a.row - b.row || a.col - b.col);
           const merges = s.merges.filter((m) => intersects(m, req)).map((m) => ({ ...m }));
@@ -1509,6 +1757,36 @@ export class FakeCalcCore {
         case "nameAt": {
           const hit = this.nameInfos().find((n) => n.range && n.range.sheet === req.sheet && n.range.r0 === req.rect.r0 && n.range.c0 === req.rect.c0 && n.range.r1 === req.rect.r1 && n.range.c1 === req.rect.c1);
           return { ok: { type: "nameAt", name: hit?.name ?? null } };
+        }
+        case "cellAnnotations": {
+          const s = this.sheet(req.sheet);
+          const inside = (x: { row: number; col: number }) => x.row >= req.r0 && x.row <= req.r1 && x.col >= req.c0 && x.col <= req.c1;
+          const formulaLinks = [];
+          for (const [r, row] of s.cells) {
+            for (const [c, cell] of row) {
+              const m = /^=HYPERLINK\("([^"]*)"/i.exec(cell.input);
+              if (!m || !inside({ row: r, col: c })) continue;
+              const url = m[1]!;
+              formulaLinks.push({ row: r, col: c, target: url.startsWith("#") ? { kind: "location" as const, location: url.slice(1) } : { kind: "url" as const, url } });
+            }
+          }
+          const copy = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
+          return {
+            ok: {
+              type: "annotations",
+              annotations: {
+                sheet: req.sheet,
+                notes: copy(s.notes.filter(inside)),
+                threads: copy(s.threads.filter(inside)),
+                hyperlinks: copy(s.hyperlinks.filter((x) => intersects(x, req))),
+                formulaLinks,
+              },
+            },
+          };
+        }
+        case "allComments": {
+          const list = req.sheet === null ? this.sheets.filter((s) => s.threads.length) : [this.sheet(req.sheet)];
+          return { ok: { type: "comments", sheets: list.map((s) => ({ sheet: s.id, threads: JSON.parse(JSON.stringify(s.threads)) as Thread[] })) } };
         }
         case "precedents":
           return { ok: { type: "trace", refs: this.precedents(req.sheet, req.row, req.col) } };

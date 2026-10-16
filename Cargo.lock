@@ -1027,8 +1027,11 @@ name = "fmt-pptx"
 version = "0.1.0"
 dependencies = [
  "core-model",
+ "engine-formula",
  "fmt-ooxml",
+ "fmt-xlsx",
  "insta",
+ "model-sheet",
  "model-show",
  "quick-xml",
  "serde",
@@ -3231,6 +3234,7 @@ version = "0.1.0"
 dependencies = [
  "app-common",
  "core-model",
+ "fmt-ooxml",
  "fmt-pptx",
  "model-show",
  "serde",

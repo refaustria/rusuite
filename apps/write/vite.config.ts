@@ -1,3 +1,4 @@
+import { sharedTest } from "../../vitest.shared";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -21,11 +22,7 @@ export default defineConfig(({ mode }) => ({
     strictPort: true,
   },
   test: {
-    environment: "jsdom",
-    // The App-level UI tests mount the whole editor and wait for each step (`findBy…`/`waitFor` with their own
-    // timeouts); alone they take 1–3 s, but under CPU load (the whole repo's `pnpm test` next to a `cargo build`)
-    // several exceeded vitest's default 5 s test deadline although every step was still progressing. The waits
-    // decide what is checked; the test deadline only guards against hangs.
-    testTimeout: 30_000,
+    ...sharedTest,
+    setupFiles: ["./src/test-setup.ts"],
   },
 }));

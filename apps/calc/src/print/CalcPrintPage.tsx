@@ -10,7 +10,7 @@ import {
 import type { CalcStore } from "../state/store";
 import { useT } from "../i18n";
 import { buildCalcPrintDoc } from "./calcPrintDoc";
-import { CALC_MARGIN_CHOICES, CALC_SCALE_CHOICES, CALC_WHAT_CHOICES, type CalcMarginPreset, type CalcPrintOptions, type CalcPrintWhat, type CalcScaleMode } from "./layout";
+import { CALC_COMMENTS_CHOICES, CALC_MARGIN_CHOICES, CALC_SCALE_CHOICES, CALC_WHAT_CHOICES, type CalcCommentsMode, type CalcMarginPreset, type CalcPrintOptions, type CalcPrintWhat, type CalcScaleMode } from "./layout";
 
 /** Prints with the given settings (File › Export PDF… and the Print button). */
 export async function printCalc(store: CalcStore, doc: PrintDoc): Promise<void> {
@@ -65,6 +65,7 @@ export function CalcPrintPage({ store, options, onChange }: { store: CalcStore; 
         <PrintCheck label={t("calc.gridlines")} checked={options.gridlines} onChange={(v) => set("gridlines", v)} />
         <PrintCheck label={t("calc.print.headings")} checked={options.headings} onChange={(v) => set("headings", v)} />
         <PrintNumber label={t("calc.print.repeatRows")} value={options.repeatRows} min={0} max={50} onChange={(v) => set("repeatRows", v)} />
+        <PrintSelect label={t("calc.print.comments")} value={options.comments ?? "none"} choices={CALC_COMMENTS_CHOICES} onChange={(v) => set("comments", v as CalcCommentsMode)} />
       </PrintSection>
       <PrintSection title={t("print.headerFooter")}>
         <p className="text-xs text-ui-muted">{t("calc.print.tokens")}</p>

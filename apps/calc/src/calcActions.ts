@@ -110,7 +110,42 @@ export function calcActions(store: CalcStore) {
     hasFilters: () => hasFilters(store.autoFilter()),
     /** Data › Data Validation…. */
     dataValidation: () => store.openDialog({ kind: "dataValidation" }),
+    // --- notes, comments, links (P8-26) ---
+    /** Shift+F2: New Note / Edit Note. */
+    editNote: () => store.comments.editNote(),
+    deleteNote: () => store.comments.deleteNotes(),
+    toggleNote: () => store.comments.toggleNote(),
+    /** Ctrl+Shift+F2: New Comment (a cell with a thread opens it to reply). */
+    newComment: () => store.comments.newComment(),
+    deleteComment: () => store.comments.deleteThreads(),
+    /** Opens the active cell's thread card (Reply to Comment). */
+    replyComment: () => {
+      const st = store.getState();
+      const a = store.activeAnchor();
+      store.comments.pin({ sheet: st.activeSheet, row: a.row, col: a.col });
+    },
+    /** Ctrl+K: Insert / Edit Link. */
+    link: () => store.comments.openLinkDialog(),
+    openLink: () => {
+      const a = store.activeAnchor();
+      return store.comments.follow({ sheet: store.getState().activeSheet, row: a.row, col: a.col });
+    },
+    removeLink: () => store.comments.removeLink(),
+    /** What the active cell has, for the context menu. */
+    annotationState: (): AnnotationState => {
+      const at = { sheet: store.getState().activeSheet, ...store.activeAnchor() };
+      const note = store.comments.note(at);
+      return { note: !!note, noteVisible: !!note?.visible, thread: !!store.comments.thread(at), link: !!store.comments.link(at) || !!store.activeCell()?.link };
+    },
   };
+}
+
+/** The active cell's annotations, for the cell context menu. */
+export interface AnnotationState {
+  note: boolean;
+  noteVisible: boolean;
+  thread: boolean;
+  link: boolean;
 }
 
 export type CalcActions = ReturnType<typeof calcActions>;
@@ -128,11 +163,25 @@ const clipboardItems = (a: CalcActions): ContextMenuItem[] => [
   item("paste-values", t("calc.pasteValues"), a.pasteValues, "Ctrl+Shift+V"),
 ];
 
-/** Right-click on cells; `hasMerge`: the selection touches a merged cell (Unmerge enabled). */
-export function cellMenu(a: CalcActions, hasMerge = false): ContextMenuItem[] {
+/** The context menu's note/comment/link entries for the active cell (Excel's order). */
+export function annotationItems(a: CalcActions, st: AnnotationState): ContextMenuItem[] {
+  return [
+    st.thread ? item("reply-comment", t("calc.comments.reply"), a.replyComment) : item("new-comment", t("calc.comments.new"), a.newComment, "Ctrl+Shift+F2"),
+    ...(st.thread ? [item("delete-comment", t("calc.comments.delete"), a.deleteComment)] : []),
+    item("note", st.note ? t("calc.notes.edit") : t("calc.notes.new"), a.editNote, "Shift+F2"),
+    ...(st.note ? [item("toggle-note", st.noteVisible ? t("calc.notes.hide") : t("calc.notes.show"), a.toggleNote), item("delete-note", t("calc.notes.delete"), a.deleteNote)] : []),
+    SEP,
+    st.link ? item("edit-link", t("calc.link.edit"), a.link, "Ctrl+K") : item("link", t("calc.link.button"), a.link, "Ctrl+K"),
+    ...(st.link ? [item("open-link", t("calc.link.open"), a.openLink), item("remove-link", t("calc.link.remove"), a.removeLink)] : []),
+  ];
+}
+
+/** Right-click on cells; `hasMerge`: the selection touches a merged cell (Unmerge enabled); `annot`: the active cell's notes/comments/links. */
+export function cellMenu(a: CalcActions, hasMerge = false, annot?: AnnotationState): ContextMenuItem[] {
   return [
     ...clipboardItems(a),
     SEP,
+    ...(annot ? [...annotationItems(a, annot), SEP] : []),
     item("insert-rows", t("calc.insertRows"), a.insertRows),
     item("insert-cols", t("calc.insertCols"), a.insertCols),
     item("delete-rows", t("calc.deleteRows"), a.deleteRows),

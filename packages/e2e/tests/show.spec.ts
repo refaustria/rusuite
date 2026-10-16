@@ -572,5 +572,141 @@ test.describe("Show", () => {
     expect(titleY(titleLayout)).toBeGreaterThan(slideBefore + 500000);
     errors.expectNone();
   });
+
+  // ----- P8-24: charts, links, action buttons, media, reuse slides -----
+
+  /** Insert › Chart › OK (clustered column); the chart is selected with Chart Design shown. */
+  async function insertColumnChart(page: Page) {
+    await page.getByRole("tab", { name: "Insert" }).click();
+    await page.getByRole("button", { name: "Chart", exact: true }).click();
+    const dlg = page.getByTestId("insert-chart-dialog");
+    await expect(dlg.getByRole("radio", { name: "Clustered Column" })).toHaveAttribute("aria-checked", "true");
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(page.getByRole("tab", { name: "Chart Design" })).toHaveAttribute("aria-selected", "true");
+  }
+
+  /** The stage canvas pixels of a band (rows `y0`..`y1` as fractions of the height) as a hash-like sum. */
+  const bandSum = (page: Page, y0: number, y1: number) =>
+    page.evaluate(([a, b]) => {
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="editor-stage"] canvas')!;
+      const d = canvas.getContext("2d")!.getImageData(0, Math.round(canvas.height * a!), canvas.width, Math.round(canvas.height * (b! - a!))).data;
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) sum += (d[i]! * 3 + d[i + 1]! * 5 + d[i + 2]! * 7) * ((i / 4) % 97);
+      return sum;
+    }, [y0, y1]);
+
+  test("Insert › Chart saves ppt/charts/chart1.xml and an embedded workbook", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await insertColumnChart(page);
+    const files = unzip(await saveViaBackstage(page));
+    const chart = files.get("ppt/charts/chart1.xml")!.toString();
+    expect(chart).toContain("<c:barChart>");
+    expect(chart).toContain("<c:v>Category 1</c:v>");
+    expect(chart).toMatch(/<c:externalData r:id="rId\d+">/);
+    const xlsx = files.get("ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx")!;
+    expect(xlsx.subarray(0, 2).toString()).toBe("PK");
+    expect(zipText(xlsx, "xl/sharedStrings.xml")).toContain("Series 1");
+    expect(files.get("ppt/slides/slide1.xml")!.toString()).toContain('uri="http://schemas.openxmlformats.org/drawingml/2006/chart"');
+    errors.expectNone();
+  });
+
+  test("Chart Design › Edit Data changes a bar on the canvas and in the saved chart", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await insertColumnChart(page);
+    const before = await bandSum(page, 0.2, 0.8);
+    await page.getByRole("button", { name: "Edit Data" }).click();
+    const dlg = page.getByTestId("edit-data-dialog");
+    await dlg.getByRole("textbox", { name: "Cell B2" }).fill("1");
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect.poll(() => bandSum(page, 0.2, 0.8)).not.toBe(before);
+    const chart = zipText(await saveViaBackstage(page), "ppt/charts/chart1.xml");
+    expect(chart).toMatch(/<c:val><c:numRef><c:f>Sheet1!\$B\$2:\$B\$5<\/c:f><c:numCache><c:formatCode>General<\/c:formatCode><c:ptCount val="4"\/><c:pt idx="0"><c:v>1<\/c:v>/);
+    errors.expectNone();
+  });
+
+  test("Ctrl+K links a shape to slide 2 and a click on it in the slide show jumps there", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await page.getByRole("button", { name: "New slide", exact: true }).first().click();
+    await expect(page.getByTestId("slide-count")).toHaveText("Slide 2 of 2");
+    await page.getByTestId("thumbnail").first().click();
+    await insertRectangle(page);
+    await page.keyboard.press("Control+k");
+    const dlg = page.getByTestId("link-dialog");
+    await dlg.getByRole("tab", { name: "Place in This Document" }).click();
+    await dlg.locator('[data-target="slide-2"]').click();
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+    // the show: a click on the (centred) rectangle jumps to slide 2 instead of advancing
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Present" }).first().click();
+    await expect(page.getByTestId("presenter")).toBeVisible();
+    await expect(page.getByTestId("presenter-counter")).toHaveText("1 / 2");
+    await page.getByTestId("show-link").click();
+    await expect(page.getByTestId("presenter-counter")).toHaveText("2 / 2");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("presenter")).toHaveCount(0);
+    const slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    expect(slide1).toContain('action="ppaction://hlinksldjump"');
+    errors.expectNone();
+  });
+
+  test("an action button Forward or Next is inserted and saved with ppaction://hlinkshowjump", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await page.getByRole("tab", { name: "Insert" }).click();
+    await page.getByRole("button", { name: "Shapes" }).click();
+    await page.getByRole("dialog", { name: "Shapes" }).getByRole("group", { name: "Action Buttons" }).getByRole("button", { name: "Action Button: Go Forward or Next" }).press("Enter");
+    await expect(page.getByRole("tab", { name: "Shape Format" })).toBeVisible();
+    const slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    expect(slide1).toContain('prst="actionButtonForwardNext"');
+    expect(slide1).toMatch(/<a:hlinkClick r:id="" action="ppaction:\/\/hlinkshowjump\?jump=nextslide"\/>/);
+    errors.expectNone();
+  });
+
+  test("Insert › Video with a small webm saves p:pic with a:videoFile; the editor shows the placeholder", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await page.getByRole("tab", { name: "Insert" }).click();
+    // an EBML header: enough for the package (no playable video needed)
+    const webm = Buffer.from("1a45dfa39f4286810142f7810142f2810442f381084282847765626d", "hex");
+    await page.getByTestId("video-input").setInputFiles({ name: "clip.webm", mimeType: "video/webm", buffer: webm });
+    await expect(page.getByRole("tab", { name: "Playback" })).toHaveAttribute("aria-selected", "true");
+    // the placeholder: a dark frame (#262626) in the middle of the slide
+    const c = await stageCentre(page);
+    const box = (await stage(page).boundingBox())!;
+    const px = await page.evaluate(([x, y]) => {
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="editor-stage"] canvas')!;
+      const r = canvas.width / canvas.clientWidth;
+      return [...canvas.getContext("2d")!.getImageData(Math.round(x! * r), Math.round(y! * r), 1, 1).data].slice(0, 3);
+    }, [c.x - box.x - c.w * 0.18, c.y - box.y]);
+    expect(px).toEqual([38, 38, 38]);
+    const files = unzip(await saveViaBackstage(page));
+    const slide1 = files.get("ppt/slides/slide1.xml")!.toString();
+    expect(slide1).toMatch(/<p:pic>(?:(?!<\/p:pic>).)*<a:videoFile r:link="rId\d+"\/>/s);
+    expect(slide1).toContain("p14:media");
+    expect([...files.keys()]).toContain("ppt/media/media1.webm");
+    errors.expectNone();
+  });
+
+  test("Reuse Slides inserts a slide of another presentation after the current one", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await page.getByRole("button", { name: "Slide layouts" }).first().click();
+    await page.getByTestId("reuse-slides").click();
+    const pane = page.getByTestId("reuse-pane");
+    await pane.getByTestId("reuse-input").setInputFiles(testdata("pptx/provisional-03-title-content-3-bullets.pptx"));
+    await expect(pane.getByTestId("reuse-slide-1")).toBeVisible();
+    await pane.getByTestId("reuse-slide-1").click();
+    await expect(page.getByTestId("slide-count")).toHaveText("Slide 2 of 2");
+    const slide2 = zipText(await saveViaBackstage(page), "ppt/slides/slide2.xml");
+    expect(slide2).toContain("<a:t>");
+    // one undo step removes it again
+    await page.keyboard.press("Control+z");
+    await expect(page.getByTestId("thumbnail")).toHaveCount(1);
+    errors.expectNone();
+  });
 });
 

@@ -5,6 +5,7 @@ import { installDevTools, perfOverlayEnabled, pickBackend } from "./dev/devTools
 import { FormulaBar } from "./FormulaBar";
 import { GridCanvas } from "./grid/GridCanvas";
 import { ChartFormatPane } from "./charts/FormatPane";
+import { CommentsPane } from "./comments/CommentsPane";
 import { buildCalcPrintDoc } from "./print/calcPrintDoc";
 import { CalcPrintPage, printCalc } from "./print/CalcPrintPage";
 import { DEFAULT_CALC_PRINT, type CalcPrintOptions } from "./print/layout";
@@ -12,6 +13,7 @@ import { ShortcutLayer } from "./ShortcutLayer";
 import { SheetTabs } from "./SheetTabs";
 import { CalcStore, sheetViewOf, useCalc } from "./state/store";
 import { Toasts } from "./Toasts";
+import { cellAddress } from "./grid/address";
 import { CalcRibbon, type CalcView } from "./ui/CalcRibbon";
 import { t, useT } from "./i18n";
 
@@ -21,6 +23,12 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
   const cycle = useCalc(store, (s) => s.cycle);
   const warnings = useCalc(store, (s) => s.warnings);
   const t = useT();
+  // The hovered note's cell and author (Excel: "Cell B2 note by Ann").
+  const noteBy = useCalc(store, (s) => {
+    void s.version;
+    const n = store.comments.hoverNote();
+    return n ? t("calc.notes.status", { cell: cellAddress(n.row, n.col), author: n.author || t("calc.comments.unknownAuthor") }) : "";
+  });
   // Excel's "n of m records found" while an AutoFilter filters the active sheet (a string: stable for the store hook).
   const records = useCalc(store, (s) => {
     void s.version;
@@ -38,6 +46,7 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
         </span>
       )}
       {records && <span data-testid="filter-records">{records}</span>}
+      {noteBy && <span data-testid="note-status">{noteBy}</span>}
       {cycle && (
         <span role="status" className="font-medium text-red-700">
           {cycle}
@@ -129,6 +138,7 @@ export default function App({ backend }: { backend: CalcBackend }) {
       <div className="flex min-h-0 flex-1">
         <GridCanvas store={store} showPerf={perfOverlayEnabled()} />
         <ChartFormatPane store={store} />
+        <CommentsPane store={store} />
       </div>
       <SheetTabs store={store} />
       <StatusBar store={store} session={session} zoom={view.zoom} />

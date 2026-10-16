@@ -37,8 +37,8 @@ mod text;
 
 pub use command::{
     AlignTarget, AnimationPatch, BackgroundTarget, ConnectorPatch, DesignTarget, HfTarget,
-    NewAttach, NewConnector, NewShape, NewShapeKind, PicturePatch, PlaceholderPatch, ShowCommand,
-    TableCellPatch, TextParagraphPatch, ThemeChoice, ZOp,
+    MediaPatch, NewAttach, NewConnector, NewShape, NewShapeKind, PicturePatch, PlaceholderPatch,
+    ShowCommand, TableCellPatch, TextParagraphPatch, ThemeChoice, ZOp,
 };
 pub use dispatch::{
     dispatch_with, PathKind, PathQuery, Request, Response, ResponseBody, ShapePaths, ShowHost,

@@ -219,8 +219,8 @@ test.describe("Calc", () => {
     await openCalc(page);
     const tabs = page.getByLabel("Ribbon tabs");
     await expect(tabs.getByRole("tab", { name: "Home" })).toHaveAttribute("aria-selected", "true");
-    await tabs.getByRole("tab", { name: "View" }).click();
-    await expect(tabs.getByRole("tab", { name: "View" })).toHaveAttribute("aria-selected", "true");
+    await tabs.getByRole("tab", { name: "View", exact: true }).click();
+    await expect(tabs.getByRole("tab", { name: "View", exact: true })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByRole("combobox", { name: "Zoom" })).toBeVisible();
     await tabs.getByRole("tab", { name: "Home" }).click();
     await page.getByTestId("grid").focus();
@@ -329,7 +329,7 @@ test.describe("Calc", () => {
     const grid = new Grid(page);
     await grid.type(0, 0, "Header");
     await grid.type(0, 1, "Amount");
-    await page.getByRole("tab", { name: "View" }).click();
+    await page.getByRole("tab", { name: "View", exact: true }).click();
     await page.getByRole("button", { name: "Freeze Panes" }).click();
     await page.getByRole("menuitem", { name: "Freeze Top Row" }).click();
     await expect(page.getByTestId("grid-cells")).toHaveAttribute("data-frozen", "1,0");
@@ -485,7 +485,7 @@ test.describe("Calc", () => {
     await openCalc(page);
     const grid = new Grid(page);
     await grid.type(0, 0, "7");
-    await page.getByRole("tab", { name: "View" }).click();
+    await page.getByRole("tab", { name: "View", exact: true }).click();
     await page.getByRole("combobox", { name: "Zoom" }).selectOption("1.5");
     await expect(page.getByTestId("zoom")).toHaveText("150 %");
     const xlsx = await saveViaBackstage(page);
@@ -904,5 +904,170 @@ test.describe("Calc names and number formats", () => {
     if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-show-formulas.png` });
     await page.getByRole("button", { name: "Show Formulas" }).click();
     await expect.poll(() => colouredPixels(page, leftHalf, [0, 0, 0], 90)).toBe(0);
+  });
+});
+
+test.describe("Calc notes, comments and links", () => {
+  const shot = (page: import("@playwright/test").Page, name: string) => (process.env.SHOT_DIR ? page.screenshot({ path: `${process.env.SHOT_DIR}/${name}.png` }) : Promise.resolve());
+  const NOTE_RED: [number, number, number] = [0xd0, 0x02, 0x1b];
+
+  /** Shift+F2 on (row, col), types `text` after the author line, Esc commits. */
+  async function addNote(page: import("@playwright/test").Page, grid: Grid, row: number, col: number, text: string) {
+    await grid.click(row, col);
+    await page.keyboard.press("Shift+F2");
+    // The first note asks for the user name (its bold author line).
+    const user = page.getByTestId("user-dialog");
+    if (await user.isVisible().catch(() => false)) {
+      await user.getByLabel("Name").fill("Ann Lee");
+      await user.getByRole("button", { name: "OK" }).click();
+    }
+    const editor = page.getByTestId("note-editor");
+    await expect(editor).toBeFocused();
+    await page.keyboard.type(text);
+    await shot(page, "calc-note-editor");
+    await page.keyboard.press("Escape");
+    await expect(editor).toHaveCount(0);
+  }
+
+  /** Review › New Comment on (row, col); the first time the user name is asked. */
+  async function addComment(page: import("@playwright/test").Page, grid: Grid, row: number, col: number, text: string) {
+    await grid.click(row, col);
+    await page.getByRole("tab", { name: "Review" }).click();
+    await page.getByRole("button", { name: "New Comment" }).click();
+    const user = page.getByTestId("user-dialog");
+    if (await user.isVisible().catch(() => false)) {
+      await user.getByLabel("Name").fill("Ann Lee");
+      await user.getByRole("button", { name: "OK" }).click();
+    }
+    const composer = page.getByTestId("comment-composer");
+    await composer.getByLabel("Comment").fill(text);
+    await composer.getByRole("button", { name: "Post" }).click();
+    await expect(page.getByTestId("thread-card")).toContainText(text);
+  }
+
+  test("a note (Shift+F2) shows its red triangle; the saved file has comments1.xml and the VML drawing", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(1, 1, "42");
+    await addNote(page, grid, 1, 1, "Check the supplier price");
+    await grid.click(5, 5);
+    await expect.poll(() => colouredPixels(page, [121, 20, 7, 7], NOTE_RED)).toBeGreaterThan(5);
+    // Hovering the cell shows the note box.
+    const q = await grid.pos(1, 1);
+    await page.mouse.move(q.x, q.y);
+    await expect(page.getByTestId("note-box")).toContainText("Check the supplier price");
+    await shot(page, "calc-note-hover");
+    const xlsx = await saveViaBackstage(page);
+    const comments = zipText(xlsx, "xl/comments1.xml");
+    expect(comments).toContain('ref="B2"');
+    expect(comments).toContain("Check the supplier price");
+    expect(zipText(xlsx, "xl/drawings/vmlDrawing1.vml")).toContain("<x:Row>1</x:Row>");
+    expect(zipText(xlsx, "xl/worksheets/sheet1.xml")).toContain("<legacyDrawing");
+    errors.expectNone();
+  });
+
+  test("a threaded comment with a reply saves threadedComments with parentId and the person list", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await addComment(page, grid, 2, 1, "Is this still current?");
+    const card = page.getByTestId("thread-card");
+    await card.getByLabel("Reply", { exact: true }).fill("Yes, until May.");
+    await card.getByRole("button", { name: "Post" }).click();
+    await expect(card.getByTestId("comment-reply")).toContainText("Yes, until May.");
+    await page.getByRole("button", { name: "Show Comments" }).click();
+    await expect(page.getByTestId("comments-pane").getByTestId("thread")).toHaveCount(1);
+    await shot(page, "calc-comment-thread");
+    const xlsx = await saveViaBackstage(page);
+    const threaded = zipText(xlsx, "xl/threadedComments/threadedComment1.xml");
+    expect(threaded.match(/<threadedComment /g)).toHaveLength(2);
+    expect(threaded).toMatch(/parentId="\{[0-9A-F-]+\}"/);
+    expect(threaded).toContain('ref="B3"');
+    expect(zipText(xlsx, "xl/persons/person.xml")).toContain('displayName="Ann Lee"');
+    // Older apps get Excel's placeholder.
+    expect(zipText(xlsx, "xl/comments1.xml")).toContain("[Threaded comment]");
+    errors.expectNone();
+  });
+
+  test("resolving a thread saves done=\"1\" and outlines its marker", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await addComment(page, grid, 0, 0, "Fix the totals");
+    await page.getByTestId("thread-card").getByRole("button", { name: "Resolve" }).click();
+    await expect(page.getByTestId("thread-card").getByRole("button", { name: "Reopen" })).toBeVisible();
+    const xlsx = await saveViaBackstage(page);
+    expect(zipText(xlsx, "xl/threadedComments/threadedComment1.xml")).toContain('done="1"');
+    errors.expectNone();
+  });
+
+  test("a note stays with its cell when a row is inserted above", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(2, 0, "keep");
+    await addNote(page, grid, 2, 0, "moves along");
+    await grid.click(0, 0);
+    await page.getByRole("tab", { name: "Home" }).click();
+    await page.getByRole("button", { name: "Insert", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Insert Sheet Rows" }).click();
+    await expect(page.getByTestId("cell-address")).toHaveValue("A1");
+    // The triangle is now on A4 (rows 20 px).
+    await grid.click(6, 6);
+    await expect.poll(() => colouredPixels(page, [57, 60, 7, 7], NOTE_RED)).toBeGreaterThan(5);
+    expect(await colouredPixels(page, [57, 40, 7, 7], NOTE_RED)).toBe(0);
+    const xlsx = await saveViaBackstage(page);
+    expect(zipText(xlsx, "xl/comments1.xml")).toContain('ref="A4"');
+    errors.expectNone();
+  });
+
+  test("Ctrl+K inserts a web link, saved in hyperlinks; Ctrl+click opens it", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    await page.context().route("https://example.com/**", (r) => r.fulfill({ status: 200, contentType: "text/html", body: "<title>ok</title>" }));
+    const grid = new Grid(page);
+    await grid.click(1, 0);
+    await page.keyboard.press("Control+k");
+    const dialog = page.getByTestId("link-dialog");
+    await dialog.getByLabel("Text to display").fill("Rusuite site");
+    await dialog.getByLabel("Address", { exact: true }).fill("https://example.com/rusuite");
+    await dialog.getByLabel("ScreenTip").fill("Our site");
+    await dialog.getByRole("button", { name: "OK" }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(await grid.input(1, 0)).toBe("Rusuite site");
+    const q = await grid.pos(1, 0);
+    await page.mouse.move(q.x, q.y);
+    await expect(page.getByTestId("link-tip")).toContainText("Our site");
+    await shot(page, "calc-link-tip");
+    const [popup] = await Promise.all([
+      page.waitForEvent("popup"),
+      (async () => {
+        await page.keyboard.down("Control");
+        await page.mouse.click(q.x, q.y);
+        await page.keyboard.up("Control");
+      })(),
+    ]);
+    await expect.poll(() => popup.url()).toBe("https://example.com/rusuite");
+    await popup.close();
+    const xlsx = await saveViaBackstage(page);
+    expect(zipText(xlsx, "xl/worksheets/sheet1.xml")).toMatch(/<hyperlink ref="A2" r:id="rId\d+" display="Rusuite site" tooltip="Our site"\/>/);
+    expect(zipText(xlsx, "xl/worksheets/_rels/sheet1.xml.rels")).toContain('Target="https://example.com/rusuite" TargetMode="External"');
+    errors.expectNone();
+  });
+
+  test("File › Print with Comments: At end of sheet lists the note after the sheet", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "Total");
+    await addNote(page, grid, 0, 0, "Printed at the end");
+    await openPrint(page);
+    const pagesBefore = await previewPages(page);
+    await page.getByLabel("Comments and notes").selectOption("atEnd");
+    await expect.poll(() => previewPages(page)).toBe(pagesBefore + 1);
+    const html = (await page.getByTestId("print-preview").getAttribute("srcdoc")) ?? "";
+    expect(html).toContain("Printed at the end");
+    expect(html).toContain('data-annotation="A1"');
+    await shot(page, "calc-print-notes");
   });
 });

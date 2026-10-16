@@ -7,9 +7,11 @@ use core_model::{
 };
 use model_show::{
     Alignment, Anchor, ArrowEnd, ArrowKind, ArrowSize, AutoNumScheme, Autofit, BodyProps, Bullet,
-    Emu, Fill, Line, LineDash, TextBody, TextField, TextParagraph, TextParagraphProps, TextRun,
-    TextSpacing, Transform,
+    Emu, Fill, Hyperlink, Line, LineDash, TextBody, TextField, TextParagraph, TextParagraphProps,
+    TextRun, TextSpacing, Transform,
 };
+
+use crate::link::{read_hlink, write_hlink, LinkSink, LinkXml};
 
 use crate::xml::{parse_bool, parse_i64, parse_u32, El, XmlOut};
 use crate::Warnings;
@@ -844,7 +846,9 @@ pub fn read_rpr(rpr: &El, w: &mut Warnings) -> RunProperties {
                     w.add("text effects dropped");
                 }
             }
-            "hlinkClick" | "hlinkMouseOver" => w.add("hyperlinks dropped (text kept)"),
+            // runs: read by `read_paragraph`
+            "hlinkClick" => {}
+            "hlinkMouseOver" => w.add("mouse-over hyperlinks dropped"),
             "ea" | "cs" | "sym" | "uLnTx" | "uLn" | "uFillTx" | "uFill" | "rtl" | "extLst" => {}
             _ => w.add(format!("run property {} dropped", el.qname())),
         }
@@ -855,7 +859,18 @@ pub fn read_rpr(rpr: &El, w: &mut Warnings) -> RunProperties {
 /// Writes `a:rPr` (or another `CT_TextCharacterProperties` element named
 /// `name`); nothing if the properties are empty and `always` is false.
 pub fn write_rpr(x: &mut XmlOut, name: &str, p: &RunProperties, always: bool) {
-    if p.is_empty() && !always {
+    write_rpr_link(x, name, p, always, None);
+}
+
+/// [`write_rpr`] with a hyperlink (`a:hlinkClick` as the last child).
+pub fn write_rpr_link(
+    x: &mut XmlOut,
+    name: &str,
+    p: &RunProperties,
+    always: bool,
+    link: Option<&LinkXml>,
+) {
+    if p.is_empty() && !always && link.is_none() {
         return;
     }
     let sz = p.size.map(|s| s.hundredths().to_string());
@@ -888,7 +903,7 @@ pub fn write_rpr(x: &mut XmlOut, name: &str, p: &RunProperties, always: bool) {
     }
     let color = p.color.filter(|c| *c != Color::Auto);
     let highlight = p.highlight.filter(|c| *c != Color::Auto);
-    if color.is_none() && highlight.is_none() && p.font.is_none() {
+    if color.is_none() && highlight.is_none() && p.font.is_none() && link.is_none() {
         x.empty(name, &attrs);
         return;
     }
@@ -906,18 +921,21 @@ pub fn write_rpr(x: &mut XmlOut, name: &str, p: &RunProperties, always: bool) {
     if let Some(f) = &p.font {
         x.empty("a:latin", &[("typeface", typeface_of(f))]);
     }
+    if let Some(l) = link {
+        write_hlink(x, l);
+    }
     x.end(name);
 }
 
 /// Appends `text` with `props` to `runs`, merging with the previous run if
 /// it has the same formatting (fields are never merged). Empty text is
 /// ignored.
-fn push_run(runs: &mut Vec<TextRun>, props: RunProperties, text: &str) {
+fn push_run(runs: &mut Vec<TextRun>, props: RunProperties, text: &str, link: Option<Hyperlink>) {
     if text.is_empty() {
         return;
     }
     if let Some(last) = runs.last_mut() {
-        if last.props == props && last.field.is_none() {
+        if last.props == props && last.field.is_none() && last.hyperlink == link {
             last.text.push_str(text);
             return;
         }
@@ -926,6 +944,7 @@ fn push_run(runs: &mut Vec<TextRun>, props: RunProperties, text: &str) {
         props,
         text: text.to_owned(),
         field: None,
+        hyperlink: link,
     });
 }
 
@@ -935,13 +954,19 @@ pub fn read_paragraph(p: &El, w: &mut Warnings) -> TextParagraph {
     let mut para = TextParagraph::new();
     let props_of =
         |el: &El, w: &mut Warnings| el.child("rPr").map(|r| read_rpr(r, w)).unwrap_or_default();
+    let link_of = |el: &El, w: &mut Warnings| {
+        el.child("rPr")
+            .and_then(|r| r.child("hlinkClick"))
+            .and_then(|h| read_hlink(h, w))
+    };
     for el in p.elements() {
         match el.name.as_str() {
             "pPr" => para.props = read_ppr(el, w),
             "r" => {
                 let props = props_of(el, w);
+                let link = link_of(el, w);
                 let text = el.child("t").map(El::text).unwrap_or_default();
-                push_run(&mut para.runs, props, &text);
+                push_run(&mut para.runs, props, &text, link);
             }
             "fld" => {
                 let props = props_of(el, w);
@@ -951,11 +976,13 @@ pub fn read_paragraph(p: &El, w: &mut Warnings) -> TextParagraph {
                     props,
                     text,
                     field: Some(field),
+                    hyperlink: link_of(el, w),
                 });
             }
             "br" => {
                 let props = props_of(el, w);
-                push_run(&mut para.runs, props, "\n");
+                let link = link_of(el, w);
+                push_run(&mut para.runs, props, "\n", link);
             }
             "endParaRPr" | "extLst" => {}
             "AlternateContent" => w.add("equations and alternate text content dropped"),
@@ -1090,11 +1117,13 @@ fn field_guid(f: &TextField) -> &'static str {
 
 /// Writes one run: `\n` and U+000B become `a:br` (with the run's
 /// formatting), `\r` is dropped; a field run becomes `a:fld`.
-fn write_run(x: &mut XmlOut, run: &TextRun) {
+fn write_run(x: &mut XmlOut, run: &TextRun, links: &mut dyn LinkSink) {
+    let link = run.hyperlink.as_ref().and_then(|h| links.link(h));
+    let link = link.as_ref();
     if let Some(f) = &run.field {
         let ty = f.ooxml_type();
         x.start("a:fld", &[("id", field_guid(f)), ("type", &ty)]);
-        write_rpr(x, "a:rPr", &run.props, true);
+        write_rpr_link(x, "a:rPr", &run.props, true, link);
         let text: String = run.text.chars().filter(|c| !c.is_control()).collect();
         x.text_el("a:t", &[], &text);
         x.end("a:fld");
@@ -1106,7 +1135,7 @@ fn write_run(x: &mut XmlOut, run: &TextRun) {
             return;
         }
         x.start("a:r", &[]);
-        write_rpr(x, "a:rPr", &run.props, false);
+        write_rpr_link(x, "a:rPr", &run.props, false, link);
         x.text_el("a:t", &[], seg);
         x.end("a:r");
         seg.clear();
@@ -1115,11 +1144,11 @@ fn write_run(x: &mut XmlOut, run: &TextRun) {
         match c {
             '\n' | '\u{B}' => {
                 flush(x, &mut seg);
-                if run.props.is_empty() {
+                if run.props.is_empty() && link.is_none() {
                     x.empty("a:br", &[]);
                 } else {
                     x.start("a:br", &[]);
-                    write_rpr(x, "a:rPr", &run.props, false);
+                    write_rpr_link(x, "a:rPr", &run.props, false, link);
                     x.end("a:br");
                 }
             }
@@ -1131,7 +1160,7 @@ fn write_run(x: &mut XmlOut, run: &TextRun) {
 }
 
 /// Writes `a:p`.
-pub fn write_paragraph(x: &mut XmlOut, p: &TextParagraph) {
+pub fn write_paragraph(x: &mut XmlOut, p: &TextParagraph, links: &mut dyn LinkSink) {
     if p.props.is_empty()
         && p.runs
             .iter()
@@ -1143,14 +1172,14 @@ pub fn write_paragraph(x: &mut XmlOut, p: &TextParagraph) {
     x.start("a:p", &[]);
     write_ppr(x, "a:pPr", &p.props);
     for r in &p.runs {
-        write_run(x, r);
+        write_run(x, r, links);
     }
     x.end("a:p");
 }
 
 /// Writes a text body element `name` (`p:txBody`): `a:bodyPr`, an empty
 /// `a:lstStyle` and the paragraphs (at least one).
-pub fn write_text_body(x: &mut XmlOut, name: &str, body: &TextBody) {
+pub fn write_text_body(x: &mut XmlOut, name: &str, body: &TextBody, links: &mut dyn LinkSink) {
     x.start(name, &[]);
     write_body_pr(x, &body.props);
     x.empty("a:lstStyle", &[]);
@@ -1158,7 +1187,7 @@ pub fn write_text_body(x: &mut XmlOut, name: &str, body: &TextBody) {
         x.empty("a:p", &[]);
     }
     for p in &body.paragraphs {
-        write_paragraph(x, p);
+        write_paragraph(x, p, links);
     }
     x.end(name);
 }
@@ -1540,7 +1569,7 @@ mod tests {
         assert_eq!(p.runs[1].text, "3");
         assert_eq!(p.runs[1].field, Some(TextField::SlideNumber));
         assert!(w.into_vec().is_empty());
-        let s = written(|x| write_paragraph(x, &p));
+        let s = written(|x| write_paragraph(x, &p, &mut crate::link::NoLinks));
         assert!(s.contains(r#"<a:br><a:rPr b="1"/></a:br>"#), "{s}");
         assert!(
             s.contains(r#"<a:fld id="{9D3A5A06-5E21-4C21-9D1E-4F8B8A0E2C3D}" type="slidenum"><a:rPr/><a:t>3</a:t></a:fld>"#),
@@ -1548,7 +1577,7 @@ mod tests {
         );
         assert_eq!(read_paragraph(&el(&s), &mut Warnings::default()), p);
         assert_eq!(
-            written(|x| write_paragraph(x, &TextParagraph::new())),
+            written(|x| write_paragraph(x, &TextParagraph::new(), &mut crate::link::NoLinks)),
             "<a:p/>"
         );
     }
@@ -1570,7 +1599,7 @@ mod tests {
             props,
             paragraphs: vec![TextParagraph::plain("x")],
         };
-        let s = written(|x| write_text_body(x, "p:txBody", &body));
+        let s = written(|x| write_text_body(x, "p:txBody", &body, &mut crate::link::NoLinks));
         assert_eq!(
             read_text_body(&el(&s), BodyProps::default(), &mut Warnings::default()),
             body

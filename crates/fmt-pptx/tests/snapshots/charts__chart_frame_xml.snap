@@ -1,0 +1,22 @@
+---
+source: crates/fmt-pptx/tests/charts.rs
+expression: "common::pretty(&xml[start..end])"
+---
+<p:graphicFrame>
+ <p:nvGraphicFramePr>
+  <p:cNvPr id="3" name="Chart 3"/>
+  <p:cNvGraphicFramePr>
+   <a:graphicFrameLocks noGrp="1"/>
+  </p:cNvGraphicFramePr>
+  <p:nvPr/>
+ </p:nvGraphicFramePr>
+ <p:xfrm>
+  <a:off x="720000" y="900000"/>
+  <a:ext cx="7920000" cy="5040000"/>
+ </p:xfrm>
+ <a:graphic>
+  <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">
+   <c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId2"/>
+  </a:graphicData>
+ </a:graphic>
+</p:graphicFrame>

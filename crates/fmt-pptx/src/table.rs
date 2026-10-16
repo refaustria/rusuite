@@ -236,7 +236,7 @@ fn read_cell(tc: &El, w: &mut Warnings) -> TableCell {
 /// Writes `a:tbl` (inside `a:graphicData`). Cells without their own fill
 /// or borders get the default style's spelled out, so that readers
 /// without the style definition show the same table.
-pub fn write_table(x: &mut XmlOut, t: &Table) {
+pub fn write_table(x: &mut XmlOut, t: &Table, links: &mut dyn crate::link::LinkSink) {
     x.start("a:tbl", &[]);
     let look = t.look;
     let mut attrs = Vec::new();
@@ -267,14 +267,20 @@ pub fn write_table(x: &mut XmlOut, t: &Table) {
     for (r, row) in t.rows.iter().enumerate() {
         x.start("a:tr", &[("h", &row.height.0.max(0).to_string())]);
         for c in 0..t.cols.len() {
-            write_cell(x, t, r, c);
+            write_cell(x, t, r, c, links);
         }
         x.end("a:tr");
     }
     x.end("a:tbl");
 }
 
-fn write_cell(x: &mut XmlOut, t: &Table, r: usize, c: usize) {
+fn write_cell(
+    x: &mut XmlOut,
+    t: &Table,
+    r: usize,
+    c: usize,
+    links: &mut dyn crate::link::LinkSink,
+) {
     let cell = &t.cells[r][c];
     let (rs, cs) = (cell.row_span.to_string(), cell.col_span.to_string());
     let mut attrs = Vec::new();
@@ -302,7 +308,7 @@ fn write_cell(x: &mut XmlOut, t: &Table, r: usize, c: usize) {
         x.empty("a:p", &[]);
     }
     for p in &cell.text.paragraphs {
-        write_paragraph(x, p);
+        write_paragraph(x, p, links);
     }
     x.end("a:txBody");
 
@@ -361,7 +367,7 @@ mod tests {
 
     fn roundtrip(t: &Table) -> (Table, Vec<String>) {
         let mut x = XmlOut::fragment();
-        write_table(&mut x, t);
+        write_table(&mut x, t, &mut crate::link::NoLinks);
         let xml = String::from_utf8(x.finish()).unwrap();
         let el = parse(xml.as_bytes(), "t").unwrap();
         let mut w = Warnings::default();

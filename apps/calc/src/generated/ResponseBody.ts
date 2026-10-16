@@ -2,6 +2,7 @@
 import type { Envelope } from "../../../../packages/ui-shared/src/generated/Envelope";
 import type { Revision } from "../../../../packages/ui-shared/src/generated/Revision";
 import type { CalcPatch } from "./CalcPatch";
+import type { CellAnnotations } from "./CellAnnotations";
 import type { CfRule } from "./CfRule";
 import type { Chart } from "./Chart";
 import type { ChartObject } from "./ChartObject";
@@ -12,10 +13,11 @@ import type { NameRow } from "./NameRow";
 import type { RegionSnapshot } from "./RegionSnapshot";
 import type { ResolvedChart } from "./ResolvedChart";
 import type { SheetRect } from "./SheetRect";
+import type { SheetThreads } from "./SheetThreads";
 import type { ValidationResult } from "./ValidationResult";
 import type { WorkbookInfo } from "./WorkbookInfo";
 
 /**
  * The successful part of a [`Response`].
  */
-export type ResponseBody = { "type": "patch", envelope: Envelope<CalcPatch>, } | { "type": "snapshot", snapshot: RegionSnapshot, } | { "type": "info", info: WorkbookInfo, } | { "type": "snapshotJson", json: string, } | { "type": "opened", info: WorkbookInfo, warnings: Array<string>, envelope: Envelope<CalcPatch>, } | { "type": "saved", bytesBase64: string, suggestedName: string, } | { "type": "recoverySnapshot", json: string, revision: Revision, dirty: boolean, name: string | null, } | { "type": "documentState", dirty: boolean, revision: Revision, name: string | null, } | { "type": "found", cells: Array<FoundCell>, } | { "type": "formatted", text: string, color?: string, } | { "type": "names", names: Array<NameRow>, } | { "type": "nameAt", name: string | null, } | { "type": "trace", refs: Array<SheetRect>, } | { "type": "usedRange", last: [number, number] | null, } | { "type": "filterValues", values: Array<FilterValue>, } | { "type": "validation", result: ValidationResult, } | { "type": "listValues", values: Array<string>, } | { "type": "charts", charts: Array<ChartObject>, } | { "type": "chartData", data: ResolvedChart, } | { "type": "recommendedChart", chart: Chart | null, } | { "type": "sheetRules", rules: Array<CfRule>, validations: Array<DataValidation>, };
+export type ResponseBody = { "type": "patch", envelope: Envelope<CalcPatch>, } | { "type": "snapshot", snapshot: RegionSnapshot, } | { "type": "info", info: WorkbookInfo, } | { "type": "snapshotJson", json: string, } | { "type": "opened", info: WorkbookInfo, warnings: Array<string>, envelope: Envelope<CalcPatch>, } | { "type": "saved", bytesBase64: string, suggestedName: string, } | { "type": "recoverySnapshot", json: string, revision: Revision, dirty: boolean, name: string | null, } | { "type": "documentState", dirty: boolean, revision: Revision, name: string | null, } | { "type": "found", cells: Array<FoundCell>, } | { "type": "formatted", text: string, color?: string, } | { "type": "names", names: Array<NameRow>, } | { "type": "nameAt", name: string | null, } | { "type": "trace", refs: Array<SheetRect>, } | { "type": "usedRange", last: [number, number] | null, } | { "type": "filterValues", values: Array<FilterValue>, } | { "type": "validation", result: ValidationResult, } | { "type": "listValues", values: Array<string>, } | { "type": "charts", charts: Array<ChartObject>, } | { "type": "chartData", data: ResolvedChart, } | { "type": "recommendedChart", chart: Chart | null, } | { "type": "annotations", annotations: CellAnnotations, } | { "type": "comments", sheets: Array<SheetThreads>, } | { "type": "sheetRules", rules: Array<CfRule>, validations: Array<DataValidation>, };

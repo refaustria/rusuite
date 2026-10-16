@@ -5,21 +5,27 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 
+use core_model::chart::ChartKind;
+use fmt_ooxml::chart::{write_chart_with, ChartWriteOptions};
 use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
+use model_show::clip::media_extension;
 use model_show::{
-    Adjust, Connector, Fill, HfDate, Layout, LayoutKind, MediaId, NodeId, PictureProps,
-    Presentation, Preset, Recolor, Shape, ShapeKind, Slide, Table,
+    Adjust, ChartShape, Connector, Fill, HfDate, Layout, LayoutKind, MediaClip, MediaId, MediaKind,
+    NodeId, PictureProps, Presentation, Preset, Recolor, Shape, ShapeKind, Slide, Table,
 };
 
-use crate::anim::{write_timing, write_transition, Target};
+use crate::anim::{write_timing, write_transition, MediaTarget, Target};
+use crate::chart::{workbook_xlsx, TableData, CHART_URI, PACKAGE_REL, XLSX_CT};
 use crate::drawing::{
     deg_to_rot, write_color_with_alpha, write_fill, write_line, write_line_with_ends,
     write_text_body, write_xfrm,
 };
 use crate::geom::{write_av_lst, write_geometry};
+use crate::link::{write_hlink, LinkSink, LinkXml, PartLinks, MEDIA_ACTION};
 use crate::master::{
     ph_attrs, placeholder_sp, write_background, write_clr_map, write_hf, write_text_styles, PhWrite,
 };
+use crate::media::{AUDIO_REL, MEDIA_EXT_URI, MEDIA_REL, PLACEHOLDER_POSTER, VIDEO_REL};
 use crate::parts::{self, sp_tree_start, ROOT_NS};
 use crate::table::{write_table, TABLE_URI};
 use crate::theme::{read_theme, theme_xml};
@@ -147,6 +153,14 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
     );
     for (name, content_type, data) in media.parts {
         pkg.insert_part(PartName::new(format!("/ppt/{name}"))?, content_type, data);
+    }
+    for c in media.charts {
+        let name = PartName::new(format!("/ppt/{}", c.name))?;
+        pkg.insert_part(name.clone(), ct::CHART, c.xml);
+        pkg.set_relationships(name, c.rels);
+        if let Some((wb, bytes)) = c.workbook {
+            pkg.insert_part(PartName::new(format!("/ppt/{wb}"))?, XLSX_CT, bytes);
+        }
     }
     pkg.insert_part(
         pn("/docProps/core.xml")?,
@@ -311,32 +325,80 @@ fn extension_of(content_type: &str) -> &str {
     }
 }
 
-/// Media parts of the package, numbered in first-reference order.
+/// A chart part to write.
+struct ChartPartOut {
+    /// `charts/chartN.xml` (relative to `/ppt/`).
+    name: String,
+    xml: Vec<u8>,
+    rels: Relationships,
+    /// `embeddings/…xlsx` and its bytes.
+    workbook: Option<(String, Vec<u8>)>,
+}
+
+/// Media parts of the package (images `media/imageN.ext`, audio/video
+/// `media/mediaN.ext`), numbered in first-reference order, and the chart
+/// parts.
 #[derive(Default)]
 struct MediaParts {
-    /// Media id → `media/imageN.ext`.
+    /// Media id → part name (relative to `/ppt/`).
     names: HashMap<MediaId, String>,
-    /// (`media/imageN.ext`, content type, bytes).
+    /// (part name, content type, bytes).
     parts: Vec<(String, String, Vec<u8>)>,
+    images: usize,
+    clips: usize,
+    /// The generated poster of clips without one.
+    placeholder: Option<String>,
+    charts: Vec<ChartPartOut>,
 }
 
 impl MediaParts {
+    /// The image part of media `id`.
     fn name_of(&mut self, p: &Presentation, id: MediaId) -> Result<String> {
+        self.part_of(p, id, false)
+    }
+
+    fn part_of(&mut self, p: &Presentation, id: MediaId, clip: bool) -> Result<String> {
         if let Some(n) = self.names.get(&id) {
             return Ok(n.clone());
         }
         let m = p.media.get(id).ok_or_else(|| {
-            Error::InvalidPresentation(format!("picture references missing media {}", id.0))
+            Error::InvalidPresentation(format!("a shape references missing media {}", id.0))
         })?;
-        let name = format!(
-            "media/image{}.{}",
-            self.parts.len() + 1,
-            extension_of(&m.content_type)
-        );
+        let name = if clip {
+            self.clips += 1;
+            format!(
+                "media/media{}.{}",
+                self.clips,
+                media_extension(&m.content_type)
+            )
+        } else {
+            self.images += 1;
+            format!(
+                "media/image{}.{}",
+                self.images,
+                extension_of(&m.content_type)
+            )
+        };
         self.parts
             .push((name.clone(), m.content_type.clone(), m.data.clone()));
         self.names.insert(id, name.clone());
         Ok(name)
+    }
+
+    /// The generated poster image.
+    fn placeholder_poster(&mut self) -> String {
+        if let Some(n) = &self.placeholder {
+            return n.clone();
+        }
+        self.images += 1;
+        let name = format!("media/image{}.png", self.images);
+        self.parts.push((
+            name.clone(),
+            "image/png".to_owned(),
+            PLACEHOLDER_POSTER.to_vec(),
+        ));
+        self.placeholder = Some(name.clone());
+        name
     }
 }
 
@@ -356,6 +418,12 @@ struct SlideWriter<'a> {
     layout: Option<Layout>,
     /// Node id → the `idx` a placeholder is written with.
     ph_idx: HashMap<NodeId, u32>,
+    /// Link targets → relationship ids of this part.
+    link_cache: HashMap<String, String>,
+    /// The slides folder relative to this part (links to slides).
+    slides_dir: &'static str,
+    /// Media shapes written (`spid`, clip), for `p:timing`.
+    clips: Vec<(u32, MediaClip)>,
 }
 
 impl<'a> SlideWriter<'a> {
@@ -376,7 +444,36 @@ impl<'a> SlideWriter<'a> {
             spids: shape_ids(shapes),
             layout: None,
             ph_idx: HashMap::new(),
+            link_cache: HashMap::new(),
+            slides_dir: "../slides/",
+            clips: Vec::new(),
         }
+    }
+
+    /// The `a:hlinkClick` of `link` (relationships added to this part).
+    fn link_xml(&mut self, link: &model_show::Hyperlink) -> Option<LinkXml> {
+        let p = self.p;
+        let number = move |id: NodeId| p.slide_index(id).map(|i| i + 1);
+        PartLinks {
+            rels: &mut self.rels,
+            slide_number: &number,
+            slides_dir: self.slides_dir,
+            cache: &mut self.link_cache,
+        }
+        .link(link)
+    }
+
+    /// Writes a text body with this part's links.
+    fn text_body(&mut self, name: &str, body: &model_show::TextBody) {
+        let p = self.p;
+        let number = move |id: NodeId| p.slide_index(id).map(|i| i + 1);
+        let mut links = PartLinks {
+            rels: &mut self.rels,
+            slide_number: &number,
+            slides_dir: self.slides_dir,
+            cache: &mut self.link_cache,
+        };
+        write_text_body(&mut self.x, name, body, &mut links);
     }
 }
 
@@ -445,6 +542,7 @@ fn write_slide(
         .cloned()
         .unwrap_or_else(|| p.layout_or_builtin(&slide.layout));
     let mut w = SlideWriter::new(p, rels, media, &slide.shapes);
+    w.slides_dir = "";
     w.ph_idx = placeholder_indexes(&slide.shapes, &layout);
     w.layout = Some(layout);
     let mut root: Vec<(&str, &str)> = ROOT_NS.to_vec();
@@ -476,8 +574,13 @@ fn write_slide(
     if let Some(t) = &slide.transition {
         write_transition(&mut w.x, t);
     }
-    if !slide.animations.is_empty() {
-        write_timing(&mut w.x, &slide.animations, &w.targets).map_err(|id| {
+    let clips = std::mem::take(&mut w.clips);
+    let media_targets: Vec<MediaTarget<'_>> = clips
+        .iter()
+        .map(|(spid, clip)| MediaTarget { spid: *spid, clip })
+        .collect();
+    if !slide.animations.is_empty() || !media_targets.is_empty() {
+        write_timing(&mut w.x, &slide.animations, &w.targets, &media_targets).map_err(|id| {
             Error::InvalidPresentation(format!(
                 "animation {} targets a shape that is not on slide {number}",
                 id.0
@@ -506,7 +609,23 @@ impl SlideWriter<'_> {
         if let Some(alt) = s.alt.as_deref().filter(|a| !a.is_empty()) {
             attrs.push(("descr", alt));
         }
-        self.x.empty("p:cNvPr", &attrs);
+        let link = match &s.click_action {
+            Some(a) => self.link_xml(a),
+            None if matches!(s.kind, ShapeKind::Media(_)) => Some(LinkXml {
+                rid: String::new(),
+                action: Some(MEDIA_ACTION.to_owned()),
+                tooltip: None,
+            }),
+            None => None,
+        };
+        match link {
+            Some(l) => {
+                self.x.start("p:cNvPr", &attrs);
+                write_hlink(&mut self.x, &l);
+                self.x.end("p:cNvPr");
+            }
+            None => self.x.empty("p:cNvPr", &attrs),
+        }
     }
 
     fn ids(&mut self, s: &Shape) -> (String, String) {
@@ -537,6 +656,8 @@ impl SlideWriter<'_> {
             ShapeKind::Connector(c) => self.connector(s, c),
             ShapeKind::Table(t) => self.table(s, t),
             ShapeKind::Picture { media, props } => self.picture(s, *media, props)?,
+            ShapeKind::Chart(c) => self.chart(s, c)?,
+            ShapeKind::Media(m) => self.media_shape(s, m)?,
             ShapeKind::Group { children } => {
                 let x = &mut self.x;
                 x.start("p:grpSp", &[]);
@@ -610,7 +731,7 @@ impl SlideWriter<'_> {
         write_line(&mut self.x, &s.line);
         self.x.end("p:spPr");
         if let Some(body) = s.text() {
-            write_text_body(&mut self.x, "p:txBody", body);
+            self.text_body("p:txBody", body);
             if let Some(t) = self.targets.get_mut(&s.id) {
                 t.text = true;
                 t.placeholder = s.placeholder.is_some();
@@ -661,33 +782,20 @@ impl SlideWriter<'_> {
 
     /// A table: `p:graphicFrame` with `a:tbl`.
     fn table(&mut self, s: &Shape, t: &Table) {
+        self.frame_start(s);
         let x = &mut self.x;
-        x.start("p:graphicFrame", &[]);
-        x.start("p:nvGraphicFramePr", &[]);
-        self.c_nv_pr(s);
-        let x = &mut self.x;
-        x.start("p:cNvGraphicFramePr", &[]);
-        x.empty("a:graphicFrameLocks", &[("noGrp", "1")]);
-        x.end("p:cNvGraphicFramePr");
-        x.empty("p:nvPr", &[]);
-        x.end("p:nvGraphicFramePr");
-        let tr = &s.transform;
-        x.start("p:xfrm", &[]);
-        x.empty(
-            "a:off",
-            &[("x", &tr.x.0.to_string()), ("y", &tr.y.0.to_string())],
-        );
-        x.empty(
-            "a:ext",
-            &[
-                ("cx", &tr.w.0.max(0).to_string()),
-                ("cy", &tr.h.0.max(0).to_string()),
-            ],
-        );
-        x.end("p:xfrm");
         x.start("a:graphic", &[]);
         x.start("a:graphicData", &[("uri", TABLE_URI)]);
-        write_table(x, t);
+        let p = self.p;
+        let number = move |id: NodeId| p.slide_index(id).map(|i| i + 1);
+        let mut links = PartLinks {
+            rels: &mut self.rels,
+            slide_number: &number,
+            slides_dir: self.slides_dir,
+            cache: &mut self.link_cache,
+        };
+        write_table(&mut self.x, t, &mut links);
+        let x = &mut self.x;
         x.end("a:graphicData");
         x.end("a:graphic");
         x.end("p:graphicFrame");
@@ -713,6 +821,139 @@ impl SlideWriter<'_> {
         write_line(&mut self.x, &s.line);
         self.x.end("p:spPr");
         self.x.end("p:cxnSp");
+    }
+
+    /// `p:nvGraphicFramePr` + `p:xfrm` of a graphic frame (tables, charts).
+    fn frame_start(&mut self, s: &Shape) {
+        self.x.start("p:graphicFrame", &[]);
+        self.x.start("p:nvGraphicFramePr", &[]);
+        self.c_nv_pr(s);
+        let x = &mut self.x;
+        x.start("p:cNvGraphicFramePr", &[]);
+        x.empty("a:graphicFrameLocks", &[("noGrp", "1")]);
+        x.end("p:cNvGraphicFramePr");
+        x.empty("p:nvPr", &[]);
+        x.end("p:nvGraphicFramePr");
+        let tr = &s.transform;
+        x.start("p:xfrm", &[]);
+        x.empty(
+            "a:off",
+            &[("x", &tr.x.0.to_string()), ("y", &tr.y.0.to_string())],
+        );
+        x.empty(
+            "a:ext",
+            &[
+                ("cx", &tr.w.0.max(0).to_string()),
+                ("cy", &tr.h.0.max(0).to_string()),
+            ],
+        );
+        x.end("p:xfrm");
+    }
+
+    /// A chart: `p:graphicFrame` → `c:chart r:id` → `ppt/charts/chartN.xml`
+    /// (+ the embedded workbook).
+    fn chart(&mut self, s: &Shape, c: &ChartShape) -> Result<()> {
+        let n = self.media.charts.len() + 1;
+        let mut rels = Relationships::new();
+        let unsupported = matches!(c.chart.kind, ChartKind::Unsupported { .. });
+        let workbook = if unsupported {
+            None
+        } else {
+            let bytes = match c.workbook.and_then(|id| self.p.media.get(id)) {
+                Some(m) => m.data.clone(),
+                None => workbook_xlsx(&c.data)?,
+            };
+            Some((
+                format!("embeddings/Microsoft_Excel_Worksheet{n}.xlsx"),
+                bytes,
+            ))
+        };
+        let external_data = workbook
+            .as_ref()
+            .map(|(name, _)| rels.add(PACKAGE_REL, format!("../{name}")).id.clone());
+        let xml = write_chart_with(
+            &c.chart,
+            &TableData::new(c),
+            &ChartWriteOptions {
+                external_data,
+                transparent_area: true,
+            },
+        );
+        let name = format!("charts/chart{n}.xml");
+        let rid = self.rels.add(rel::CHART, format!("../{name}")).id.clone();
+        self.media.charts.push(ChartPartOut {
+            name,
+            xml,
+            rels,
+            workbook,
+        });
+        self.frame_start(s);
+        let x = &mut self.x;
+        x.start("a:graphic", &[]);
+        x.start("a:graphicData", &[("uri", CHART_URI)]);
+        x.empty(
+            "c:chart",
+            &[
+                ("xmlns:c", fmt_ooxml::chart::CHART_NS),
+                ("xmlns:r", crate::parts::NS_R),
+                ("r:id", &rid),
+            ],
+        );
+        x.end("a:graphicData");
+        x.end("a:graphic");
+        x.end("p:graphicFrame");
+        Ok(())
+    }
+
+    /// Audio/video: `p:pic` with `a:videoFile`/`a:audioFile r:link` and
+    /// `p14:media r:embed` (both to `media/mediaN.ext`), the poster (or
+    /// the generated placeholder) as the picture.
+    fn media_shape(&mut self, s: &Shape, clip: &MediaClip) -> Result<()> {
+        let file = self.media.part_of(self.p, clip.media, true)?;
+        let embed = self.rels.add(MEDIA_REL, format!("../{file}")).id.clone();
+        let (file_el, link_rel) = match clip.kind {
+            MediaKind::Video => ("a:videoFile", VIDEO_REL),
+            MediaKind::Audio => ("a:audioFile", AUDIO_REL),
+        };
+        let link = self.rels.add(link_rel, format!("../{file}")).id.clone();
+        let poster = match clip.poster {
+            Some(id) => self.media.name_of(self.p, id)?,
+            None => self.media.placeholder_poster(),
+        };
+        let poster_rid = self.rels.add(rel::IMAGE, format!("../{poster}")).id.clone();
+        self.x.start("p:pic", &[]);
+        self.x.start("p:nvPicPr", &[]);
+        self.c_nv_pr(s);
+        self.clips.push((self.next_shape_id - 1, clip.clone()));
+        let x = &mut self.x;
+        x.start("p:cNvPicPr", &[]);
+        x.empty("a:picLocks", &[("noChangeAspect", "1")]);
+        x.end("p:cNvPicPr");
+        x.start("p:nvPr", &[]);
+        x.empty(file_el, &[("r:link", &link)]);
+        x.start("p:extLst", &[]);
+        x.start("p:ext", &[("uri", MEDIA_EXT_URI)]);
+        x.empty(
+            "p14:media",
+            &[("xmlns:p14", crate::parts::NS_P14), ("r:embed", &embed)],
+        );
+        x.end("p:ext");
+        x.end("p:extLst");
+        x.end("p:nvPr");
+        x.end("p:nvPicPr");
+        x.start("p:blipFill", &[]);
+        x.empty("a:blip", &[("r:embed", &poster_rid)]);
+        x.start("a:stretch", &[]);
+        x.empty("a:fillRect", &[]);
+        x.end("a:stretch");
+        x.end("p:blipFill");
+        x.start("p:spPr", &[]);
+        write_xfrm(x, &s.transform, false);
+        self.geometry("rect");
+        write_line(&mut self.x, &s.line);
+        self.x.end("p:spPr");
+        self.x.end("p:pic");
+        Ok(())
     }
 
     fn picture(&mut self, s: &Shape, media: MediaId, props: &PictureProps) -> Result<()> {
