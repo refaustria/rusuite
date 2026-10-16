@@ -159,6 +159,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
 
     wb.begin_batch();
     let mut drawings: Vec<(SheetId, String, PartName)> = Vec::new();
+    let mut pending_links: Vec<(SheetId, String, PartName, Vec<RawLink>)> = Vec::new();
     let loaded = (|| -> Result<()> {
         for (id, name, part) in &sheets {
             let mut loader = SheetLoader {
@@ -172,8 +173,13 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
                 shared: HashMap::new(),
                 arrays: Vec::new(),
                 drawing: None,
+                links: Vec::new(),
             };
             loader.load(part_data(part)?, part.as_str())?;
+            let links = std::mem::take(&mut loader.links);
+            if !links.is_empty() {
+                pending_links.push((*id, name.clone(), part.clone(), links));
+            }
             if let Some(rid) = loader.drawing.take() {
                 let target = pkg
                     .relationships(part)
@@ -199,6 +205,21 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         }
     }
 
+    for (id, name, part, links) in pending_links {
+        for w in load_links(&pkg, &mut wb, id, &part, links) {
+            warnings.push(format!("sheet {name:?}: {w}"));
+        }
+    }
+
+    // Notes and threaded comments.
+    let persons = crate::comments::load_persons(&pkg, &main, &mut consumed)?;
+    wb.set_persons(persons.clone());
+    for (id, name, part) in &sheets {
+        for w in crate::comments::load(&pkg, &mut wb, *id, part, &persons, &mut consumed)? {
+            warnings.push(format!("sheet {name:?}: {w}"));
+        }
+    }
+
     // Visibility last: hiding needs another visible sheet.
     for &(id, is_hidden, very) in &hidden {
         if is_hidden && wb.set_sheet_visibility(id, true, very).is_err() {
@@ -219,6 +240,56 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         context,
         warnings,
     })
+}
+
+/// Stores the hyperlinks of a sheet: external targets come from the
+/// sheet's relationships (`mailto:` becomes an e-mail link), `location`
+/// alone is a place in the workbook. Returns warnings.
+fn load_links(
+    pkg: &Package,
+    wb: &mut Workbook,
+    sheet: SheetId,
+    part: &PartName,
+    links: Vec<RawLink>,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let rels = pkg.relationships(part);
+    let mut out = Vec::new();
+    for l in links {
+        let Some((r0, c0, r1, c1)) = parse_range(&l.r#ref) else {
+            warnings.push(format!("hyperlink on {:?} dropped", l.r#ref));
+            continue;
+        };
+        let url = l
+            .rid
+            .as_deref()
+            .and_then(|id| rels.and_then(|r| r.get(id)))
+            .map(|r| r.target.clone());
+        let target = match (url, l.location) {
+            (Some(u), Some(loc)) if !loc.is_empty() => {
+                model_sheet::LinkTarget::from_url(&format!("{u}#{loc}"))
+            }
+            (Some(u), _) => model_sheet::LinkTarget::from_url(&u),
+            (None, Some(loc)) => model_sheet::LinkTarget::Location { location: loc },
+            (None, None) => {
+                warnings.push(format!("hyperlink on {} without target dropped", l.r#ref));
+                continue;
+            }
+        };
+        out.push(model_sheet::Hyperlink {
+            r0: r0.min(r1),
+            c0: c0.min(c1),
+            r1: r0.max(r1),
+            c1: c0.max(c1),
+            target,
+            display: l.display,
+            tooltip: l.tooltip,
+        });
+    }
+    if let Err(e) = wb.set_hyperlinks(sheet, out) {
+        warnings.push(format!("hyperlinks dropped: {e}"));
+    }
+    warnings
 }
 
 // --- workbook.xml ------------------------------------------------------------
@@ -464,8 +535,6 @@ struct CellBuf {
 
 /// Elements we drop, with the wording used in the warning.
 const DROPPED: &[(&[u8], &str)] = &[
-    (b"hyperlinks", "hyperlinks"),
-    (b"legacyDrawing", "comments/legacy drawings"),
     (b"tableParts", "tables"),
     (b"sheetProtection", "sheet protection"),
     (b"picture", "background picture"),
@@ -489,6 +558,17 @@ struct SheetLoader<'a> {
     arrays: Vec<(u32, u32, u32, u32)>,
     /// `r:id` of the sheet's `<drawing>`.
     drawing: Option<String>,
+    /// The `<hyperlink>` elements, resolved after loading.
+    links: Vec<RawLink>,
+}
+
+/// A `<hyperlink>` as written.
+pub(crate) struct RawLink {
+    pub r#ref: String,
+    pub rid: Option<String>,
+    pub location: Option<String>,
+    pub display: Option<String>,
+    pub tooltip: Option<String>,
 }
 
 impl SheetLoader<'_> {
@@ -620,6 +700,18 @@ impl SheetLoader<'_> {
                         }
                         name if filter.start(name, el, empty) => {}
                         b"drawing" => self.drawing = attr(el, "id").map(|r| r.into_owned()),
+                        b"hyperlink" => {
+                            let get = |n| attr(el, n).map(|v| v.into_owned());
+                            if let Some(r) = get("ref") {
+                                self.links.push(RawLink {
+                                    r#ref: r,
+                                    rid: get("id"),
+                                    location: get("location"),
+                                    display: get("display"),
+                                    tooltip: get("tooltip"),
+                                });
+                            }
+                        }
                         b"conditionalFormatting" | b"dataValidations" | b"extLst" => {
                             if !empty {
                                 let span = reader.read_to_end(el.name()).map_err(xml_err(part))?;

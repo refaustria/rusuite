@@ -1,0 +1,51 @@
+---
+source: crates/fmt-xlsx/tests/comments.rs
+expression: "pretty(&part(&bytes, \"/xl/comments1.xml\"))"
+---
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<comments xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="xr" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision">
+<authors>
+<author>tc={00000000-0000-4000-8000-000000000001}</author>
+<author>Ann Lee</author>
+<author>
+</author>
+</authors>
+<commentList>
+<comment ref="A1" authorId="0" shapeId="0" xr:uid="{00000000-0000-4000-8000-000000000001}">
+<text>
+<t xml:space="preserve">[Threaded comment]
+
+Your version of Excel allows you to read this threaded comment; however, any edits to it will get removed if the file is opened in a newer version of Excel. Learn more: https://go.microsoft.com/fwlink/?linkid=870924
+
+Comment:
+    Source?
+Reply:
+    The 2026 list.</t>
+</text>
+</comment>
+<comment ref="B2" authorId="1" shapeId="0">
+<text>
+<r>
+<rPr>
+<b/>
+<sz val="9"/>
+</rPr>
+<t>Ann Lee:</t>
+</r>
+<r>
+<rPr>
+<i/>
+<color rgb="FFFF0000"/>
+</rPr>
+<t xml:space="preserve">
+red &amp; &lt;italic&gt;</t>
+</r>
+</text>
+</comment>
+<comment ref="D6" authorId="2" shapeId="0">
+<text>
+<t>plain note</t>
+</text>
+</comment>
+</commentList>
+</comments>

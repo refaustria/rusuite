@@ -631,6 +631,13 @@ impl Workbook {
         });
         let recalc = self.end_batch();
         result?;
+        let row_moves: Vec<(u32, u32)> = rows
+            .iter()
+            .zip(order.iter().map(|&i| rows[i]))
+            .filter(|(to, from)| **to != *from)
+            .map(|(to, from)| (from, *to))
+            .collect();
+        self.permute_annotation_rows(sheet, (range.c0, range.c1), &row_moves);
         self.sheet_data_mut(sheet)?.sort_state = Some(state);
         Ok(recalc)
     }

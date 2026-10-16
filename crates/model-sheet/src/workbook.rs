@@ -64,6 +64,8 @@ pub struct Workbook {
     /// Comment, hidden flag and built-in kind of the defined names (the
     /// definitions live in the engine).
     pub(crate) name_meta: std::collections::HashMap<crate::names::NameKey, crate::names::NameMeta>,
+    /// Authors of threaded comments (`personList`).
+    pub(crate) persons: Vec<crate::annotations::Person>,
 }
 
 impl Default for Workbook {
@@ -105,6 +107,7 @@ impl Workbook {
             sheets: vec![SheetData::default()],
             styles: StyleTable::new(),
             name_meta: std::collections::HashMap::new(),
+            persons: Vec::new(),
         }
     }
 
@@ -175,7 +178,8 @@ impl Workbook {
     }
 
     /// Copies a sheet (contents, formulas, cell styles, dimensions, sheet
-    /// format, tab colour, view, merges and charts) to a new, visible
+    /// format, tab colour, view, merges, charts, notes, threads and
+    /// hyperlinks) to a new, visible
     /// sheet `name` right after it. See [`Engine::duplicate_sheet`]. The
     /// copied charts' references to the source sheet point at the copy
     /// (as in Excel).
@@ -190,6 +194,7 @@ impl Workbook {
             self.rename_chart_refs(Some(new), &source, name);
         }
         self.sync_name_meta(Some((id, new)));
+        self.renew_thread_ids(new);
         Ok((new, recalc))
     }
 
@@ -826,6 +831,7 @@ impl Workbook {
         });
         self.shift_rules(sheet, op);
         self.shift_charts(sheet, op);
+        self.shift_annotations(sheet, op);
         Ok(recalc)
     }
 

@@ -27,6 +27,7 @@
 //! the `*_path` helpers exist on native targets only.
 
 pub mod a1;
+mod comments;
 mod condfmt;
 mod drawing;
 mod dynarray;

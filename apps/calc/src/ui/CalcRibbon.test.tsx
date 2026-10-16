@@ -54,9 +54,9 @@ describe("changeDecimals", () => {
 });
 
 describe("Calc ribbon", () => {
-  it("has File, Home, Insert, Formulas, Data and View; Home is the formatting toolbar", async () => {
+  it("has File, Home, Insert, Formulas, Data, Review and View; Home is the formatting toolbar", async () => {
     await setup();
-    expect(screen.getAllByRole("tab").slice(0, 6).map((t) => t.textContent)).toEqual(["File", "Home", "Insert", "Formulas", "Data", "View"]);
+    expect(screen.getAllByRole("tab").slice(0, 7).map((t) => t.textContent)).toEqual(["File", "Home", "Insert", "Formulas", "Data", "Review", "View"]);
     const toolbar = screen.getByRole("toolbar", { name: "Formatting" });
     for (const g of ["Clipboard", "Font", "Alignment", "Number", "Cells", "Editing"]) expect(within(toolbar).getByRole("group", { name: g })).toBeTruthy();
   });
@@ -230,7 +230,7 @@ describe("Calc ribbon in German", () => {
     const core = new FakeCalcCore();
     render(<App backend={new FakeBackend(core)} />);
     await screen.findByRole("tab", { name: "Sheet1" });
-    expect(screen.getAllByRole("tab").slice(0, 6).map((t) => t.textContent)).toEqual(["Datei", "Start", "Einfügen", "Formeln", "Daten", "Ansicht"]);
+    expect(screen.getAllByRole("tab").slice(0, 7).map((t) => t.textContent)).toEqual(["Datei", "Start", "Einfügen", "Formeln", "Daten", "Überprüfen", "Ansicht"]);
     const toolbar = screen.getByRole("toolbar", { name: "Formatierung" });
     for (const g of ["Zwischenablage", "Schriftart", "Ausrichtung", "Zahl", "Zellen", "Bearbeiten"]) expect(within(toolbar).getByRole("group", { name: g })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Kopieren" }).title).toBe("Kopieren (Strg+C)");

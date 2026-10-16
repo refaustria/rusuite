@@ -1,6 +1,6 @@
 // Style table lookups and CSS conversions for the canvas.
 
-import { cssColor, OFFICE_THEME, type CellStyleView } from "@rusuite/ui-shared";
+import { cssColor, OFFICE_THEME, type CellStyleView, type ThemePalette } from "@rusuite/ui-shared";
 import type { CellKind } from "../generated/CellKind";
 import type { CellStyle } from "../generated/CellStyle";
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
@@ -33,8 +33,11 @@ export function toolbarValue(style: CellStyle): CellStyleView {
   return { ...v, font: { font: { kind: "named", value: DEFAULT_FONT_FAMILY }, size: DEFAULT_FONT_SIZE, ...v.font } };
 }
 
+/** The Office theme with its hyperlink colours (the Hyperlink cell style uses them). */
+export const CALC_THEME: ThemePalette = { ...OFFICE_THEME, hyperlink: "0563C1", followedHyperlink: "954F72" };
+
 export function colorCss(c: Color | null | undefined): string | undefined {
-  return cssColor(c ?? undefined, OFFICE_THEME);
+  return cssColor(c ?? undefined, CALC_THEME);
 }
 
 export function fontFamily(style: CellStyle): string {

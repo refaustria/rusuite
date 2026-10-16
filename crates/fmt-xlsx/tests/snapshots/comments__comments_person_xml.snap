@@ -1,0 +1,9 @@
+---
+source: crates/fmt-xlsx/tests/comments.rs
+expression: "pretty(&part(&bytes, \"/xl/persons/person.xml\"))"
+---
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<personList xmlns="http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments" xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<person displayName="Ann Lee" id="{D6B08968-2B97-4273-8C8D-507CDD55BBD8}" userId="Ann Lee" providerId="None"/>
+<person displayName="Bob" id="{7E5C2429-B659-43E9-8B25-A7BA3450789E}" userId="Bob" providerId="None"/>
+</personList>

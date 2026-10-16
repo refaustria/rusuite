@@ -183,6 +183,12 @@ pub(crate) struct SheetData {
     pub validations: Vec<crate::validation::DataValidation>,
     /// Charts, back to front.
     pub charts: Vec<crate::chart::ChartObject>,
+    /// Notes, sorted by cell.
+    pub notes: Vec<crate::annotations::Note>,
+    /// Threaded comments, sorted by cell.
+    pub threads: Vec<crate::annotations::Thread>,
+    /// Hyperlinks in file order.
+    pub hyperlinks: Vec<crate::annotations::Hyperlink>,
 }
 
 impl SheetData {

@@ -4,6 +4,7 @@
 use engine_formula::{CellContent, CellCoord, ErrorKind, NameScope, RangeRef, SheetId, Value};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::annotations::{Hyperlink, Note, Person, Thread};
 use crate::chart::ChartObject;
 use crate::condfmt::CfRule;
 use crate::names::{BuiltinName, DefinedName};
@@ -25,6 +26,9 @@ pub struct WorkbookSnapshot {
     /// Defined names in definition order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub names: Vec<NameSnapshot>,
+    /// Authors of threaded comments.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub persons: Vec<Person>,
 }
 
 /// A defined name in a [`WorkbookSnapshot`].
@@ -86,6 +90,12 @@ pub struct SheetSnapshot {
     /// Charts, back to front.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub charts: Vec<ChartObject>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<Note>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub threads: Vec<Thread>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hyperlinks: Vec<Hyperlink>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -183,6 +193,7 @@ impl Workbook {
             sheets,
             styles: self.styles().iter().map(|(_, s)| s.clone()).collect(),
             names,
+            persons: self.persons().to_vec(),
         }
     }
 
@@ -224,6 +235,9 @@ impl Workbook {
             conditional_formats: self.cf_rules(id).to_vec(),
             validations: self.validations(id).to_vec(),
             charts: self.charts(id).to_vec(),
+            notes: self.notes(id).to_vec(),
+            threads: self.threads(id).to_vec(),
+            hyperlinks: self.hyperlinks(id).to_vec(),
         }
     }
 
@@ -237,6 +251,7 @@ impl Workbook {
             ));
         }
         let mut wb = Workbook::new();
+        wb.set_persons(snapshot.persons.clone());
         let (table, remap) = StyleTable::from_list(&snapshot.styles);
         for (id, style) in table.iter() {
             let interned = wb.intern_style(style);
@@ -287,6 +302,9 @@ impl Workbook {
                 wb.set_cf_rules(id, sheet.conditional_formats.clone())?;
                 wb.set_validations(id, sheet.validations.clone())?;
                 wb.set_charts(id, sheet.charts.clone())?;
+                wb.set_notes(id, sheet.notes.clone())?;
+                wb.set_threads(id, sheet.threads.clone())?;
+                wb.set_hyperlinks(id, sheet.hyperlinks.clone())?;
                 for col in &sheet.cols {
                     let info = ColInfo {
                         style: map_opt(col.info.style)?,
