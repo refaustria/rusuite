@@ -15,8 +15,21 @@ on:
         default: "v0.0.0-test"
 
 jobs:
+  versions:
+    name: version strings
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      # A tag push must match every version string (scripts/set-version.sh); a manual run only checks they agree.
+      - shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then scripts/check-versions.sh "${GITHUB_REF_NAME#v}"; else scripts/check-versions.sh; fi
+
   release:
     name: ${{ matrix.app }} / ${{ matrix.platform }}
+    needs: versions
     strategy:
       fail-fast: false
       matrix:
@@ -59,7 +72,58 @@ jobs:
           projectPath: apps/${{ matrix.app }}
           tagName: ${{ steps.tag.outputs.name }}
           releaseName: "Rusuite ${{ steps.tag.outputs.name }}"
-          releaseBody: "Unsigned preview builds. Windows SmartScreen and macOS Gatekeeper will warn; see docs/release.md."
+          releaseBody: "Unsigned preview builds. Windows SmartScreen and macOS Gatekeeper will warn; see docs/release.md. The full notes (docs/release-notes/) replace this text before publishing."
           releaseDraft: true
           prerelease: true
           args: ${{ matrix.platform == 'macos-latest' && '--target aarch64-apple-darwin' || matrix.platform == 'macos-15-intel' && '--target x86_64-apple-darwin' || '' }}
+      - name: Keep the binary for the smoke job
+        shell: bash
+        run: |
+          case "${{ matrix.platform }}" in
+            macos-latest) bin=target/aarch64-apple-darwin/release/app-${{ matrix.app }} ;;
+            macos-15-intel) bin=target/x86_64-apple-darwin/release/app-${{ matrix.app }} ;;
+            windows-latest) bin=target/release/app-${{ matrix.app }}.exe ;;
+            *) bin=target/release/app-${{ matrix.app }} ;;
+          esac
+          mkdir -p smoke-bin
+          cp "$bin" smoke-bin/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smoke-bin-${{ matrix.app }}-${{ matrix.platform }}
+          path: smoke-bin/
+          if-no-files-found: error
+          retention-days: 3
+
+  # P8-41: start each built app once per OS with `--smoke` (window + ping/dispatch IPC round trip + title + version,
+  # apps/*/src-tauri/src/smoke.rs). It runs the binaries the release jobs built (the same ones the bundles contain).
+  # continue-on-error stays true until a workflow_dispatch run has passed on all four runners (docs/release.md);
+  # then set it to false so a broken start blocks the release.
+  smoke:
+    name: smoke / ${{ matrix.platform }}
+    needs: release
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-22.04, windows-latest, macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - name: WebKitGTK runtime and a virtual display (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 xvfb dbus
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: smoke-bin-*-${{ matrix.platform }}
+          path: smoke-bin
+          merge-multiple: true
+      - name: Start Calc, Write and Show with --smoke
+        shell: bash
+        run: |
+          chmod +x smoke-bin/* || true
+          SMOKE_BIN_DIR="$PWD/smoke-bin" scripts/desktop-smoke.sh --start-only
