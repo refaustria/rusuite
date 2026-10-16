@@ -516,6 +516,15 @@ impl ShowDocument {
                 }
             }
         }
+        for shapes in
+            std::iter::once(&pres.master.shapes).chain(pres.layouts.iter().map(|l| &l.shapes))
+        {
+            for_each_shape(shapes, &mut |s| {
+                if !seen.insert(s.id) {
+                    dup = dup.or(Some(s.id));
+                }
+            });
+        }
         if let Some(id) = dup {
             return Err(ShowError::InvalidDocument(format!(
                 "node id {} is used twice",
