@@ -20,5 +20,8 @@ The vhost sends `Content-Security-Policy` (ADR 0009: `connect-src 'self'`, no th
 ## Redeploy
 From a checkout of `main`: `scripts/deploy-web.sh` (builds, rsyncs `apps/{calc,write,show}/dist-web/` to `/var/www/resuite/{calc,write,show}/` and `apps/portal/` to the root, writes `/var/www/resuite/version.json`, smoke-checks `/` (200 `text/html`, no redirect), each app page and the `application/wasm` content type). `--no-build` reuses an existing `dist-web`. Env overrides: `DEPLOY_HOST`, `DEPLOY_ROOT`.
 
+## Report relay
+`/api/report` (the apps' "Report a problem", P8-43) is proxied to a local service; install and update it with `scripts/deploy-relay.sh` (it adds `/etc/nginx/snippets/rusuite-report.conf`, included by the vhost's glob `include`). Details: `docs/setup.md` "Report relay".
+
 ## Logs
 `/var/log/nginx/resuite.access.log` and `/var/log/nginx/resuite.error.log`.
