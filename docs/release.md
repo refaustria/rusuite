@@ -95,3 +95,6 @@ release notes say so plainly. Code signing, notarization and auto-update are on 
 - **RPM**: RPM versions cannot contain `-`; the bundler has to map `0.1.0-rc.1` to an RPM version/release. If the
   `ubuntu-22.04` build fails in the rpm step, the test run of section 2 shows it before tagging.
 - **macOS** shows the version string as is in *About*; Apple's numeric-only rule applies to the App Store only.
+
+
+Test run 2026-10-16: https://github.com/refaustria/rusuite/actions/runs/38911314761 – 12 builds + 4 smoke jobs green (RPM accepted `0.1.0-rc.1` as `0.1.0-rc.1-1`, MSI uses `0.1.0.1`); the smoke job is blocking since then.

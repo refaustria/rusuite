@@ -126,3 +126,8 @@ problem" into GitHub issues. It listens on `127.0.0.1:8787`; nginx forwards `loc
 - **Rotating the token**: edit the env file, `sudo systemctl restart rusuite-report-relay`.
 - **Removing it**: `sudo systemctl disable --now rusuite-report-relay`, delete the snippet, `sudo nginx -t && sudo
   systemctl reload nginx` (the Help entry then shows "The report service could not be reached").
+
+
+## Domain rusuit.es (2026-10-16)
+
+The owner bought `rusuit.es`; `rusuit.es` and `www.rusuit.es` point to this server. The resuite vhost serves `resuite.inceptum.at rusuit.es`; `www.rusuit.es` redirects (301) to `https://rusuit.es`. The Let's Encrypt certificate `resuite.inceptum.at` was expanded to cover all three names (`certbot --nginx --expand`). Canonical public address: **https://rusuit.es**. The repo copy is `deploy/nginx/resuite.inceptum.at.conf`.
