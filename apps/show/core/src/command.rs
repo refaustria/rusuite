@@ -11,12 +11,13 @@
 //! text, `0..=len`.
 
 use core_model::media::MediaId;
-use core_model::RunProperties;
+use core_model::{ColorScheme, FontScheme, RunProperties};
 use model_show::{
-    Adjust, AlignMode, Alignment, Anchor, Animation, AnimationKind, ArrowEnd, Axis, Bullet,
-    Connector, ConnectorKind, Direction, Effect, Fill, Insets, Layout, LayoutKind, Line, NodeId,
-    PlaceholderKind, Preset, Shape, ShapeKind, Slide, SlideSize, Table, TableLook, TextBody,
-    TextSpacing, Transform, Transition, Trigger,
+    Adjust, AlignMode, Alignment, Anchor, Animation, AnimationKind, ArrowEnd, Axis, Background,
+    BodyProps, Bullet, Connector, ConnectorKind, Crop, Direction, Effect, Fill, HfDate, Insets,
+    Layout, LayoutKind, Line, NodeId, PictureProps, PlaceholderKind, Preset, Recolor, Section,
+    Shadow, Shape, ShapeKind, Slide, SlideMaster, SlideSize, Table, TableLook, TextBody,
+    TextSpacing, Theme, Transform, Transition, Trigger,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
@@ -340,6 +341,146 @@ impl ConnectorPatch {
     }
 }
 
+/// Which theme [`ShowCommand::ApplyTheme`] applies.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub enum ThemeChoice {
+    /// A built-in theme by id (`model_show::BUILTIN_THEME_IDS`); it also
+    /// sets the master background.
+    Builtin(String),
+    /// A theme given in full (e.g. taken from another presentation).
+    Custom(Box<Theme>),
+}
+
+/// The master or one layout (target of design commands).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub enum DesignTarget {
+    /// The slide master.
+    Master,
+    /// A layout.
+    Layout(LayoutKind),
+}
+
+/// What [`ShowCommand::SetBackground`] changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub enum BackgroundTarget {
+    /// These slides.
+    Slides(Vec<NodeId>),
+    /// A layout.
+    Layout(LayoutKind),
+    /// The master.
+    Master,
+}
+
+/// Slides [`ShowCommand::SetHeaderFooter`] applies to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub enum HfTarget {
+    /// Every slide, and the master's settings for new slides ("Apply to
+    /// All").
+    All,
+    /// These slides ("Apply").
+    Slides(Vec<NodeId>),
+}
+
+/// Placeholder properties to change for
+/// [`ShowCommand::SetMasterPlaceholderProps`]. Absent fields keep their
+/// value.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub struct PlaceholderPatch {
+    /// Position and size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub transform: Option<Transform>,
+    /// Body properties (anchor, insets, autofit, wrap).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub body: Option<BodyProps>,
+    /// Run formatting merged into the level-1 defaults (set fields win).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<app_common::wire::RunProperties>")]
+    pub run: Option<RunProperties>,
+    /// Paragraph formatting of level 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub paragraph: Option<TextParagraphPatch>,
+}
+
+/// Picture adjustments to change for [`ShowCommand::SetPictureProps`].
+/// Absent fields keep their value; `geometry`/`shadow` `null` removes.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub struct PicturePatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub crop: Option<Crop>,
+    /// `-1..=1`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub brightness: Option<f64>,
+    /// `-1..=1`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub contrast: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub recolor: Option<Recolor>,
+    /// `0..=1`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub transparency: Option<f64>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<Preset>")]
+    pub geometry: Option<Option<Preset>>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<Shadow>")]
+    pub shadow: Option<Option<Shadow>>,
+}
+
+impl PicturePatch {
+    /// Applies the patch to `p` (values clamped to their ranges).
+    pub fn apply_to(&self, p: &mut PictureProps) {
+        if let Some(c) = self.crop {
+            p.crop = c;
+        }
+        if let Some(v) = self.brightness {
+            p.brightness = v.clamp(-1.0, 1.0);
+        }
+        if let Some(v) = self.contrast {
+            p.contrast = v.clamp(-1.0, 1.0);
+        }
+        if let Some(r) = self.recolor {
+            p.recolor = r;
+        }
+        if let Some(v) = self.transparency {
+            p.transparency = v.clamp(0.0, 1.0);
+        }
+        if let Some(g) = &self.geometry {
+            p.geometry.clone_from(g);
+        }
+        if let Some(s) = self.shadow {
+            p.shadow = s;
+        }
+    }
+}
+
 /// A presentation edit. JSON: `{"type":"setName","shape":7,"name":"Logo"}`.
 ///
 /// The variants after [`Compound`](Self::Compound) are **internal**: the
@@ -471,11 +612,14 @@ pub enum ShowCommand {
         #[ts(type = "number")]
         new_id: i64,
     },
-    /// Changes the slide size; the built-in layouts follow, shapes stay.
+    /// Changes the slide size; master and layout placeholders and shapes
+    /// scale with it (the Office master and layouts are replaced by the
+    /// ones for the new size), slide shapes stay.
     SetSlideSize { size: SlideSize },
     /// Changes the layout of a slide (PowerPoint's Home › Layout):
-    /// placeholders map to the new layout's (title ↔ centered title,
-    /// body ↔ subtitle; unmoved ones take the new position), missing ones
+    /// placeholders map to the new layout's by type and `idx` (else type,
+    /// else class: title ↔ centered title, body ↔ subtitle ↔ picture;
+    /// unmoved ones take the new position, text is kept), missing ones
     /// are added empty (fresh ids), empty ones without a counterpart are
     /// removed; other shapes stay.
     SetSlideLayout { slide: NodeId, layout: LayoutKind },
@@ -624,17 +768,132 @@ pub enum ShowCommand {
         #[ts(optional, as = "Option<Vec<f64>>")]
         row_heights: Option<Vec<model_show::Emu>>,
     },
+    /// Applies a theme: colours, fonts and format styles (a built-in
+    /// theme also sets the master background); placeholders keep their
+    /// positions.
+    ApplyTheme { theme: ThemeChoice },
+    /// Replaces the theme's colour scheme.
+    SetThemeColors {
+        #[ts(as = "model_show::ts::ColorScheme")]
+        colors: ColorScheme,
+    },
+    /// Replaces the theme's font scheme.
+    SetThemeFonts {
+        #[ts(as = "model_show::ts::FontScheme")]
+        fonts: FontScheme,
+    },
+    /// Adds a custom layout `name` (title plus date/footer/slide number,
+    /// as PowerPoint's Insert Layout) after the last layout.
+    AddLayout { name: String },
+    /// Copies a layout (with its shapes) as custom layout `"1_<name>"`
+    /// (the next free number) right after it.
+    DuplicateLayout { layout: LayoutKind },
+    /// Deletes a layout no slide uses.
+    DeleteLayout { layout: LayoutKind },
+    /// Changes a placeholder of the master or a layout. Master changes of
+    /// position, body properties or text defaults flow to the layout
+    /// placeholders (and their slides' placeholders) that still had the
+    /// master's values; layout changes flow to the slides' placeholders
+    /// that still had the layout's position/body properties. Changing a
+    /// master title/body placeholder's text also changes level 1 of the
+    /// title/body text style.
+    SetMasterPlaceholderProps {
+        target: DesignTarget,
+        placeholder: PlaceholderKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        idx: Option<u32>,
+        patch: PlaceholderPatch,
+    },
+    /// Sets (or, with `null`, resets) the background of slides (explicit
+    /// fills only; `null` = the layout's), a layout (`null` = the
+    /// master's) or the master (`null` = theme background style 1);
+    /// `hideMasterShapes` (slides, layouts) hides the master's (and
+    /// layout's) graphics.
+    SetBackground {
+        target: BackgroundTarget,
+        #[serde(default)]
+        fill: Option<Background>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        hide_master_shapes: Option<bool>,
+    },
+    /// Resets slides' placeholders to their layout (position, size, body
+    /// properties, text formatting; missing placeholders are added).
+    ResetSlide { slides: Vec<NodeId> },
+    /// Sets date, footer and slide number (PowerPoint's Header & Footer):
+    /// the target slides' date/footer/number placeholders are replaced (a
+    /// moved placeholder keeps its position); `notOnTitle` skips slides
+    /// with the Title Slide layout. `all` also sets the master's settings
+    /// for new slides.
+    SetHeaderFooter {
+        date: HfDate,
+        #[serde(default)]
+        footer: Option<String>,
+        slide_number: bool,
+        apply_to: HfTarget,
+        #[serde(default)]
+        not_on_title: bool,
+    },
+    /// Adds a section starting at slide `firstSlide` (the rest of that
+    /// slide's section moves into it; the slides before go into "Default
+    /// Section" when there were no sections) or, without `firstSlide`, an
+    /// empty section at the end.
+    AddSection {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        first_slide: Option<NodeId>,
+    },
+    /// Renames section `index`.
+    RenameSection { index: u32, name: String },
+    /// Removes section `index`; with `keepSlides` its slides join the
+    /// previous (first: next) section, else they are deleted.
+    RemoveSection { index: u32, keep_slides: bool },
+    /// Moves section `index` with its slides to position `toIndex`.
+    MoveSection { index: u32, to_index: u32 },
+    /// Changes picture adjustments (crop, corrections, recolour,
+    /// transparency, shape, shadow) of pictures.
+    SetPictureProps {
+        shapes: Vec<NodeId>,
+        patch: PicturePatch,
+    },
+    /// Crops a picture. `transform` absent = the box follows the crop
+    /// (PowerPoint: cropping an edge moves that edge, the image stays put).
+    CropPicture {
+        shape: NodeId,
+        crop: Crop,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        transform: Option<Transform>,
+    },
+    /// Removes all picture adjustments (the box grows back to the uncropped
+    /// image); with `size` the picture also gets its natural size.
+    ResetPicture {
+        shapes: Vec<NodeId>,
+        #[serde(default)]
+        size: bool,
+    },
     /// Applies the commands in order as one undo step; all or nothing.
     Compound { commands: Vec<ShowCommand> },
     /// *Internal.* Inserts slides at the given indices (ascending).
     RestoreSlides { slides: Vec<(u32, Slide)> },
     /// *Internal.* Replaces existing slides (by id) wholesale.
     RestoreSlideContent { slides: Vec<Slide> },
-    /// *Internal.* Sets slide size and layouts.
+    /// *Internal.* Sets slide size, master and layouts.
     RestoreSlideSize {
         size: SlideSize,
-        layouts: Box<[Layout; 3]>,
+        master: Box<SlideMaster>,
+        layouts: Vec<Layout>,
     },
+    /// *Internal.* Puts theme, master and layouts back.
+    RestoreDesign {
+        theme: Box<Theme>,
+        master: Box<SlideMaster>,
+        layouts: Vec<Layout>,
+    },
+    /// *Internal.* Puts the sections back.
+    RestoreSections { sections: Vec<Section> },
     /// *Internal.* Removes a media item.
     RemoveMedia {
         #[ts(as = "model_show::ts::MediaId")]
@@ -711,6 +970,8 @@ pub struct NewShape {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placeholder: Option<PlaceholderKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder_idx: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alt: Option<String>,
 }
 
@@ -729,6 +990,8 @@ pub enum NewShapeKind {
     #[serde(rename_all = "camelCase")]
     Picture {
         media: MediaId,
+        #[serde(default, skip_serializing_if = "PictureProps::is_default")]
+        props: PictureProps,
     },
     #[serde(rename_all = "camelCase")]
     Group {
@@ -783,7 +1046,10 @@ impl From<&Shape> for NewShape {
                     adjust: adjust.clone(),
                     text: text.clone(),
                 },
-                ShapeKind::Picture { media } => NewShapeKind::Picture { media: *media },
+                ShapeKind::Picture { media, props } => NewShapeKind::Picture {
+                    media: *media,
+                    props: props.clone(),
+                },
                 ShapeKind::Group { children } => NewShapeKind::Group {
                     children: children.iter().map(NewShape::from).collect(),
                 },
@@ -793,6 +1059,7 @@ impl From<&Shape> for NewShape {
             fill: s.fill,
             line: s.line,
             placeholder: s.placeholder,
+            placeholder_idx: s.placeholder_idx,
             alt: s.alt.clone(),
         }
     }

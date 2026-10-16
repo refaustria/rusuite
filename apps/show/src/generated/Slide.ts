@@ -43,4 +43,9 @@ transition?: Transition,
 /**
  * Animations of the slide's shapes, in play order (`p:timing`).
  */
-animations?: Array<Animation>, };
+animations?: Array<Animation>, 
+/**
+ * Draw the master's and layout's shapes below the slide's
+ * (`showMasterSp`; PowerPoint's "Hide background graphics" = false).
+ */
+showMasterShapes?: boolean, };

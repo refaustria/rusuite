@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate the 29 PROVISIONAL pptx reference files (testdata/pptx/provisional-NN-*.pptx) with headless
+# Generate the 31 PROVISIONAL pptx reference files (testdata/pptx/provisional-NN-*.pptx) with headless
 # LibreOffice, plus testdata/pptx/manifest.json describing their contents (docs/pptx-suite.md).
 #   gen-pptx-suite.sh            generate (flat ODP from scripts/testdata-src/pptx/gen.py -> pptx)
 #   gen-pptx-suite.sh --verify   check the committed files against the manifest
@@ -30,7 +30,7 @@ verify_dir() {
   local dir="$1" fail=0 f pdf n
   mkdir -p "$TMP/pdf"
   n="$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$dir/manifest.json")"
-  if [[ "$n" != 29 ]]; then echo "FAIL manifest has $n entries, expected 29"; fail=1; fi
+  if [[ "$n" != 31 ]]; then echo "FAIL manifest has $n entries, expected 31"; fail=1; fi
   while IFS= read -r f; do
     if [[ ! -s "$dir/$f" ]]; then echo "FAIL $f: missing"; fail=1; continue; fi
     if ! unzip -Z1 "$dir/$f" >"$TMP/zip.lst" 2>/dev/null || ! grep -qF '[Content_Types].xml' "$TMP/zip.lst"; then echo "FAIL $f: no [Content_Types].xml"; fail=1; continue; fi
@@ -51,6 +51,7 @@ generate() {
   convert -size 48x48 -seed 7 plasma:fractal -colors 16 "$TMP/png/img2.png"
   python3 -I "$GEN" emit "$TMP/src" "$TMP/png"
   lo_convert "$TMP/out" "pptx:Impress MS PowerPoint 2007 XML" "$TMP"/src/provisional-*.fodp
+  python3 -I "$GEN" post "$TMP/out"
   cp "$TMP/src/manifest.json" "$TMP/out/manifest.json"
   verify_dir "$TMP/out"
   cp "$TMP"/out/provisional-*.pptx "$TMP/out/manifest.json" "$OUT/"

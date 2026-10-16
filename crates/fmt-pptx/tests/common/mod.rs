@@ -17,6 +17,10 @@ fn zero_ids(p: &mut Presentation) {
             order(s.children(), out);
         }
     }
+    walk(&mut p.master.shapes);
+    for l in &mut p.layouts {
+        walk(&mut l.shapes);
+    }
     for slide in &mut p.slides {
         slide.id = NodeId(0);
         // animation targets become depth-first shape positions
@@ -54,12 +58,29 @@ fn zero_ids(p: &mut Presentation) {
 
 /// Asserts `a` and `b` are equal ignoring node ids.
 pub fn assert_same(name: &str, a: &Presentation, b: &Presentation) {
+    // sections hold slide ids: compare them as slide positions
+    let pos = |p: &Presentation| {
+        p.sections
+            .iter()
+            .map(|s| {
+                (
+                    s.name.clone(),
+                    s.slide_ids
+                        .iter()
+                        .map(|id| p.slide_index(*id))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(pos(a), pos(b), "{name}: sections");
     let (mut a, mut b) = (a.clone(), b.clone());
     zero_ids(&mut a);
     zero_ids(&mut b);
     assert_eq!(a.slide_size, b.slide_size, "{name}: slide size");
     assert_eq!(a.theme, b.theme, "{name}: theme");
     assert_eq!(a.media, b.media, "{name}: media");
+    assert_eq!(a.master, b.master, "{name}: master");
     assert_eq!(a.layouts, b.layouts, "{name}: layouts");
     assert_eq!(a.slides.len(), b.slides.len(), "{name}: slide count");
     for (i, (x, y)) in a.slides.iter().zip(&b.slides).enumerate() {

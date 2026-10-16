@@ -6,14 +6,21 @@ import type { TextParagraphProps } from "./TextParagraphProps";
 import type { Transform } from "./Transform";
 
 /**
- * A placeholder of a layout: where it sits and how its text looks unless
- * the slide's shape overrides it.
+ * A placeholder of a layout or of the master: where it sits and how its
+ * text looks unless the slide's shape overrides it. The text defaults
+ * are effective values (the master's text style overlaid with the
+ * layout's own changes).
  */
 export type PlaceholderDef = { 
 /**
  * Placeholder type.
  */
 kind: PlaceholderKind, 
+/**
+ * `p:ph/@idx` (0 = none) – slide placeholders find their layout
+ * placeholder by it.
+ */
+idx?: number, 
 /**
  * Position and size.
  */
@@ -23,10 +30,19 @@ transform: Transform,
  */
 bodyDefaults: BodyProps, 
 /**
- * Run formatting of the placeholder's text (font, size).
+ * Run formatting of the placeholder's text (level 1).
  */
 runDefaults: RunProperties, 
 /**
- * Paragraph formatting of the placeholder's text (e.g. bullets).
+ * Paragraph formatting of the placeholder's text (level 1).
  */
-paragraphDefaults: TextParagraphProps, };
+paragraphDefaults: TextParagraphProps, 
+/**
+ * A text placeholder (`type="body"`) rather than a content
+ * placeholder (no type, `obj`); only for [`PlaceholderKind::Body`].
+ */
+textOnly?: boolean, 
+/**
+ * Vertical text (`orient="vert"`, `a:bodyPr vert="eaVert"`).
+ */
+vertical?: boolean, };

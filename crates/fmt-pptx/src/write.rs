@@ -1,22 +1,28 @@
 //! [`Presentation`] → `.pptx`. Every part is regenerated (only the theme
-//! may come verbatim from [`PptxContext`]); masters and layouts are the
-//! fixed built-ins; the output is deterministic.
+//! may come verbatim from [`PptxContext`]): the master and the
+//! presentation's layouts, slides, notes; the output is deterministic.
 
 use std::collections::HashMap;
 use std::io::Cursor;
 
-use fmt_ooxml::theme::{parse_theme, theme_xml};
 use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
 use model_show::{
-    Adjust, Connector, Fill, LayoutKind, MediaId, NodeId, PlaceholderKind, Presentation, Preset,
-    Shape, ShapeKind, Slide, Table,
+    Adjust, Connector, Fill, HfDate, Layout, LayoutKind, MediaId, NodeId, PictureProps,
+    Presentation, Preset, Recolor, Shape, ShapeKind, Slide, Table,
 };
 
 use crate::anim::{write_timing, write_transition, Target};
-use crate::drawing::{write_fill, write_line, write_line_with_ends, write_text_body, write_xfrm};
+use crate::drawing::{
+    deg_to_rot, write_color_with_alpha, write_fill, write_line, write_line_with_ends,
+    write_text_body, write_xfrm,
+};
 use crate::geom::{write_av_lst, write_geometry};
-use crate::parts::{self, layout_meta, sp_tree_start, write_nv_pr_ph, ROOT_NS};
+use crate::master::{
+    ph_attrs, placeholder_sp, write_background, write_clr_map, write_hf, write_text_styles, PhWrite,
+};
+use crate::parts::{self, sp_tree_start, ROOT_NS};
 use crate::table::{write_table, TABLE_URI};
+use crate::theme::{read_theme, theme_xml};
 use crate::xml::XmlOut;
 use crate::{Error, PptxContext, Result};
 
@@ -24,6 +30,18 @@ use crate::{Error, PptxContext, Result};
 /// [`Presentation::theme`].
 pub fn write(presentation: &Presentation) -> Result<Vec<u8>> {
     write_with_context(presentation, &PptxContext::default())
+}
+
+/// The layouts written: the presentation's, plus built-ins for standard
+/// layouts slides use that the list lacks.
+fn written_layouts(p: &Presentation) -> Vec<Layout> {
+    let mut out = p.layouts.clone();
+    for s in &p.slides {
+        if !out.iter().any(|l| l.kind == s.layout) {
+            out.push(p.layout_or_builtin(&s.layout));
+        }
+    }
+    out
 }
 
 /// Writes `presentation` as `.pptx` bytes, reusing the theme part from
@@ -34,10 +52,16 @@ pub fn write(presentation: &Presentation) -> Result<Vec<u8>> {
 /// that is not in the presentation's store.
 pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>> {
     let pn = PartName::new;
+    let layouts = written_layouts(p);
     let mut media = MediaParts::default();
+    let (master_xml, master_rels) = write_master(p, &layouts, &mut media)?;
+    let mut layout_parts = Vec::with_capacity(layouts.len());
+    for layout in &layouts {
+        layout_parts.push(write_layout(p, layout, &mut media)?);
+    }
     let mut slides = Vec::with_capacity(p.slides.len());
     for (i, slide) in p.slides.iter().enumerate() {
-        slides.push(write_slide(p, slide, i + 1, &mut media)?);
+        slides.push(write_slide(p, &layouts, slide, i + 1, &mut media)?);
     }
     let has_notes = p.slides.iter().any(|s| s.notes.is_some());
 
@@ -66,29 +90,13 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
     pkg.set_relationships(main, pres_rels);
 
     let master = pn("/ppt/slideMasters/slideMaster1.xml")?;
-    pkg.insert_part(master.clone(), ct::SLIDE_MASTER, parts::slide_master_xml(p));
-    let mut master_rels = Relationships::new();
-    for kind in LayoutKind::ALL {
-        let (_, _, n) = layout_meta(kind);
-        master_rels.add(
-            rel::SLIDE_LAYOUT,
-            format!("../slideLayouts/slideLayout{n}.xml"),
-        );
-    }
-    master_rels.add(rel::THEME, "../theme/theme1.xml");
+    pkg.insert_part(master.clone(), ct::SLIDE_MASTER, master_xml);
     pkg.set_relationships(master, master_rels);
 
-    for layout in &p.layouts {
-        let (_, _, n) = layout_meta(layout.kind);
-        let name = PartName::new(format!("/ppt/slideLayouts/slideLayout{n}.xml"))?;
-        pkg.insert_part(
-            name.clone(),
-            ct::SLIDE_LAYOUT,
-            parts::slide_layout_xml(layout),
-        );
-        let mut r = Relationships::new();
-        r.add(rel::SLIDE_MASTER, "../slideMasters/slideMaster1.xml");
-        pkg.set_relationships(name, r);
+    for (i, (xml, rels)) in layout_parts.into_iter().enumerate() {
+        let name = PartName::new(format!("/ppt/slideLayouts/slideLayout{}.xml", i + 1))?;
+        pkg.insert_part(name.clone(), ct::SLIDE_LAYOUT, xml);
+        pkg.set_relationships(name, rels);
     }
 
     for (i, (xml, rels)) in slides.into_iter().enumerate() {
@@ -115,7 +123,7 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
     }
 
     let theme = match &ctx.theme_xml {
-        Some(xml) if parse_theme(xml, "theme").ok().as_ref() == Some(&p.theme) => xml.clone(),
+        Some(xml) if read_theme(xml, "theme").ok().as_ref() == Some(&p.theme) => xml.clone(),
         _ => theme_xml(&p.theme),
     };
     if has_notes {
@@ -155,6 +163,136 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
     root.add(rel::CORE_PROPERTIES, "docProps/core.xml");
     root.add(rel::EXTENDED_PROPERTIES, "docProps/app.xml");
     Ok(pkg.write(Cursor::new(Vec::new()))?.into_inner())
+}
+
+/// `ppt/slideMasters/slideMaster1.xml` and its relationships (layouts
+/// `rId1`…, the theme, then images of its shapes).
+fn write_master(
+    p: &Presentation,
+    layouts: &[Layout],
+    media: &mut MediaParts,
+) -> Result<(Vec<u8>, Relationships)> {
+    let m = &p.master;
+    let mut rels = Relationships::new();
+    for i in 0..layouts.len() {
+        rels.add(
+            rel::SLIDE_LAYOUT,
+            format!("../slideLayouts/slideLayout{}.xml", i + 1),
+        );
+    }
+    rels.add(rel::THEME, "../theme/theme1.xml");
+    let mut w = SlideWriter::new(p, rels, media, &m.shapes);
+    w.x.start("p:sldMaster", &ROOT_NS);
+    if m.name.is_empty() {
+        w.x.start("p:cSld", &[]);
+    } else {
+        w.x.start("p:cSld", &[("name", &m.name)]);
+    }
+    write_background(&mut w.x, &m.background);
+    sp_tree_start(&mut w.x);
+    for s in &m.shapes {
+        w.shape(s)?;
+    }
+    for def in &m.placeholders {
+        let l = m.text_styles.level(def.kind.text_class(), 0);
+        let id = w.next_shape_id;
+        w.next_shape_id += 1;
+        placeholder_sp(
+            &mut w.x,
+            &PhWrite {
+                id,
+                def,
+                text_base: Some((&l.paragraph, &l.run)),
+                body_base: None,
+                xfrm: true,
+                master: true,
+                hf: &m.header_footer,
+            },
+        );
+    }
+    w.x.end("p:spTree");
+    w.x.end("p:cSld");
+    write_clr_map(&mut w.x, &m.color_map);
+    w.x.start("p:sldLayoutIdLst", &[]);
+    for i in 0..layouts.len() {
+        let id = (2_147_483_649u64 + i as u64).to_string();
+        let rid = format!("rId{}", i + 1);
+        w.x.empty("p:sldLayoutId", &[("id", &id), ("r:id", &rid)]);
+    }
+    w.x.end("p:sldLayoutIdLst");
+    let hf = &m.header_footer;
+    write_hf(
+        &mut w.x,
+        hf.date != HfDate::Off,
+        hf.footer.is_some(),
+        hf.slide_number,
+    );
+    write_text_styles(&mut w.x, &m.text_styles);
+    w.x.end("p:sldMaster");
+    Ok((w.x.finish(), w.rels))
+}
+
+/// One `ppt/slideLayouts/slideLayoutN.xml` and its relationships (master,
+/// then images of its shapes). Placeholders state only what differs from
+/// the master's (no `a:xfrm` when the position is the master's).
+fn write_layout(
+    p: &Presentation,
+    layout: &Layout,
+    media: &mut MediaParts,
+) -> Result<(Vec<u8>, Relationships)> {
+    let m = &p.master;
+    let mut rels = Relationships::new();
+    rels.add(rel::SLIDE_MASTER, "../slideMasters/slideMaster1.xml");
+    let mut w = SlideWriter::new(p, rels, media, &layout.shapes);
+    let mut attrs: Vec<(&str, &str)> = ROOT_NS.to_vec();
+    attrs.push(("type", layout.kind.ooxml_type()));
+    attrs.push(("preserve", "1"));
+    if !layout.show_master_shapes {
+        attrs.push(("showMasterSp", "0"));
+    }
+    w.x.start("p:sldLayout", &attrs);
+    w.x.start("p:cSld", &[("name", layout.display_name())]);
+    if let Some(bg) = &layout.background {
+        write_background(&mut w.x, bg);
+    }
+    sp_tree_start(&mut w.x);
+    for s in &layout.shapes {
+        w.shape(s)?;
+    }
+    for def in &layout.placeholders {
+        let base = m.placeholder_for(def.kind);
+        let style = m.style_defaults(def.kind);
+        let text_base = match base {
+            Some(b) => (&b.paragraph_defaults, &b.run_defaults),
+            None => (&style.0, &style.1),
+        };
+        let default_body = model_show::BodyProps::default();
+        let body_base = base.map_or(&default_body, |b| &b.body_defaults);
+        let id = w.next_shape_id;
+        w.next_shape_id += 1;
+        placeholder_sp(
+            &mut w.x,
+            &PhWrite {
+                id,
+                def,
+                text_base: Some(text_base),
+                body_base: Some(body_base),
+                xfrm: base.map_or(true, |b| b.transform != def.transform),
+                master: false,
+                hf: &m.header_footer,
+            },
+        );
+    }
+    w.x.end("p:spTree");
+    w.x.end("p:cSld");
+    w.x.start("p:clrMapOvr", &[]);
+    w.x.empty("a:masterClrMapping", &[]);
+    w.x.end("p:clrMapOvr");
+    if layout.kind == LayoutKind::Title && m.header_footer.not_on_title {
+        write_hf(&mut w.x, false, false, false);
+    }
+    w.x.end("p:sldLayout");
+    Ok((w.x.finish(), w.rels))
 }
 
 /// File extension for a media content type.
@@ -207,15 +345,39 @@ struct SlideWriter<'a> {
     p: &'a Presentation,
     rels: Relationships,
     media: &'a mut MediaParts,
-    /// Media id → relationship id within this slide.
+    /// Media id → relationship id within this part.
     media_rels: HashMap<MediaId, String>,
     next_shape_id: u32,
     /// Node id → how the shape was written (animation targets).
     targets: HashMap<NodeId, Target>,
-    /// Next `idx` for subtitle/body placeholders (unique per slide).
-    next_ph_idx: u32,
     /// Node id → the `p:cNvPr id` it is written with (connector targets).
     spids: HashMap<NodeId, u32>,
+    /// The slide's layout (placeholder types and indexes).
+    layout: Option<Layout>,
+    /// Node id → the `idx` a placeholder is written with.
+    ph_idx: HashMap<NodeId, u32>,
+}
+
+impl<'a> SlideWriter<'a> {
+    fn new(
+        p: &'a Presentation,
+        rels: Relationships,
+        media: &'a mut MediaParts,
+        shapes: &[Shape],
+    ) -> Self {
+        SlideWriter {
+            x: XmlOut::new(),
+            p,
+            rels,
+            media,
+            media_rels: HashMap::new(),
+            next_shape_id: 2,
+            targets: HashMap::new(),
+            spids: shape_ids(shapes),
+            layout: None,
+            ph_idx: HashMap::new(),
+        }
+    }
 }
 
 /// The `p:cNvPr id` every shape of `shapes` gets: 2, 3, … in document
@@ -234,17 +396,40 @@ fn shape_ids(shapes: &[Shape]) -> HashMap<NodeId, u32> {
     out
 }
 
+/// The `idx` each placeholder of `shapes` is written with: its own, else
+/// its layout placeholder's when no other placeholder of the slide uses
+/// it (see `read::normalize_placeholder_idx`); none for the others.
+fn placeholder_indexes(shapes: &[Shape], layout: &Layout) -> HashMap<NodeId, u32> {
+    let mut work = shapes.to_vec();
+    crate::read::normalize_placeholder_idx(&mut work, layout);
+    let mut out = HashMap::new();
+    fn walk(shapes: &[Shape], out: &mut HashMap<NodeId, u32>) {
+        for s in shapes {
+            if let (Some(_), Some(i)) = (s.placeholder, s.placeholder_idx) {
+                out.insert(s.id, i);
+            }
+            walk(s.children(), out);
+        }
+    }
+    walk(&work, &mut out);
+    out
+}
+
 /// One slide part and its relationships.
 ///
 /// `number` is the slide's 1-based part number (also of its notes part).
 fn write_slide(
     p: &Presentation,
+    layouts: &[Layout],
     slide: &Slide,
     number: usize,
     media: &mut MediaParts,
 ) -> Result<(Vec<u8>, Relationships)> {
     let mut rels = Relationships::new();
-    let (_, _, n) = layout_meta(slide.layout);
+    let n = layouts
+        .iter()
+        .position(|l| l.kind == slide.layout)
+        .map_or(1, |i| i + 1);
     rels.add(
         rel::SLIDE_LAYOUT,
         format!("../slideLayouts/slideLayout{n}.xml"),
@@ -255,18 +440,17 @@ fn write_slide(
             format!("../notesSlides/notesSlide{number}.xml"),
         );
     }
-    let mut w = SlideWriter {
-        x: XmlOut::new(),
-        p,
-        rels,
-        media,
-        media_rels: HashMap::new(),
-        next_shape_id: 2,
-        targets: HashMap::new(),
-        next_ph_idx: 1,
-        spids: shape_ids(&slide.shapes),
-    };
+    let layout = layouts
+        .get(n - 1)
+        .cloned()
+        .unwrap_or_else(|| p.layout_or_builtin(&slide.layout));
+    let mut w = SlideWriter::new(p, rels, media, &slide.shapes);
+    w.ph_idx = placeholder_indexes(&slide.shapes, &layout);
+    w.layout = Some(layout);
     let mut root: Vec<(&str, &str)> = ROOT_NS.to_vec();
+    if !slide.show_master_shapes {
+        root.push(("showMasterSp", "0"));
+    }
     if slide.hidden {
         root.push(("show", "0"));
     }
@@ -352,7 +536,7 @@ impl SlideWriter<'_> {
             }
             ShapeKind::Connector(c) => self.connector(s, c),
             ShapeKind::Table(t) => self.table(s, t),
-            ShapeKind::Picture { media } => self.picture(s, *media)?,
+            ShapeKind::Picture { media, props } => self.picture(s, *media, props)?,
             ShapeKind::Group { children } => {
                 let x = &mut self.x;
                 x.start("p:grpSp", &[]);
@@ -380,15 +564,28 @@ impl SlideWriter<'_> {
         self.x.end("a:prstGeom");
     }
 
-    fn auto_shape(&mut self, s: &Shape, geometry: &Preset, adjust: &Adjust) {
-        let ph_idx = match s.placeholder {
-            Some(PlaceholderKind::Subtitle | PlaceholderKind::Body) => {
-                let i = self.next_ph_idx;
-                self.next_ph_idx += 1;
-                Some(i)
-            }
-            _ => None,
+    /// Writes `p:nvPr` with the shape's `p:ph` (type and orientation as
+    /// its layout placeholder has them, the slide's `idx`), or empty.
+    fn nv_pr(&mut self, s: &Shape) {
+        let Some(kind) = s.placeholder else {
+            self.x.empty("p:nvPr", &[]);
+            return;
         };
+        let idx = self.ph_idx.get(&s.id).copied().unwrap_or(0);
+        let def = self
+            .layout
+            .as_ref()
+            .and_then(|l| l.find(kind, (idx != 0).then_some(idx)));
+        let text_only = def.is_some_and(|d| d.kind == kind && d.text_only);
+        let vertical = def.is_some_and(|d| d.vertical);
+        let attrs = ph_attrs(kind, text_only, vertical, idx);
+        let attrs: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        self.x.start("p:nvPr", &[]);
+        self.x.empty("p:ph", &attrs);
+        self.x.end("p:nvPr");
+    }
+
+    fn auto_shape(&mut self, s: &Shape, geometry: &Preset, adjust: &Adjust) {
         let x = &mut self.x;
         x.start("p:sp", &[]);
         x.start("p:nvSpPr", &[]);
@@ -403,10 +600,8 @@ impl SlideWriter<'_> {
         } else {
             x.empty("p:cNvSpPr", &[]);
         }
-        match s.placeholder {
-            Some(kind) => write_nv_pr_ph(x, kind, ph_idx),
-            None => x.empty("p:nvPr", &[]),
-        }
+        self.nv_pr(s);
+        let x = &mut self.x;
         x.end("p:nvSpPr");
         x.start("p:spPr", &[]);
         write_xfrm(x, &s.transform, false);
@@ -520,7 +715,7 @@ impl SlideWriter<'_> {
         self.x.end("p:cxnSp");
     }
 
-    fn picture(&mut self, s: &Shape, media: MediaId) -> Result<()> {
+    fn picture(&mut self, s: &Shape, media: MediaId, props: &PictureProps) -> Result<()> {
         let rid = match self.media_rels.get(&media) {
             Some(r) => r.clone(),
             None => {
@@ -538,22 +733,105 @@ impl SlideWriter<'_> {
         x.start("p:cNvPicPr", &[]);
         x.empty("a:picLocks", &[("noChangeAspect", "1")]);
         x.end("p:cNvPicPr");
-        x.empty("p:nvPr", &[]);
+        self.nv_pr(s);
+        let x = &mut self.x;
         x.end("p:nvPicPr");
         x.start("p:blipFill", &[]);
-        x.empty("a:blip", &[("r:embed", &rid)]);
+        write_blip(x, &rid, props);
+        let c = &props.crop;
+        if !c.is_none() {
+            let v = |f: f64| ((f * 100_000.0).round() as i64).to_string();
+            let vals = [("l", c.left), ("t", c.top), ("r", c.right), ("b", c.bottom)]
+                .map(|(k, f)| (k, v(f)));
+            let attrs: Vec<(&str, &str)> = vals
+                .iter()
+                .filter(|(_, v)| v != "0")
+                .map(|(k, v)| (*k, v.as_str()))
+                .collect();
+            x.empty("a:srcRect", &attrs);
+        }
         x.start("a:stretch", &[]);
         x.empty("a:fillRect", &[]);
         x.end("a:stretch");
         x.end("p:blipFill");
         x.start("p:spPr", &[]);
         write_xfrm(x, &s.transform, false);
-        self.geometry("rect");
+        match &props.geometry {
+            Some(g) => write_geometry(x, g, &Adjust::new()),
+            None => self.geometry("rect"),
+        }
         write_line(&mut self.x, &s.line);
+        if let Some(sh) = &props.shadow {
+            let x = &mut self.x;
+            x.start("a:effectLst", &[]);
+            let dir = deg_to_rot(sh.direction_deg).to_string();
+            x.start(
+                "a:outerShdw",
+                &[
+                    ("blurRad", &sh.blur.0.max(0).to_string()),
+                    ("dist", &sh.distance.0.max(0).to_string()),
+                    ("dir", &dir),
+                    ("algn", "tl"),
+                    ("rotWithShape", "0"),
+                ],
+            );
+            write_color_with_alpha(x, &sh.color, sh.alpha);
+            x.end("a:outerShdw");
+            x.end("a:effectLst");
+        }
         self.x.end("p:spPr");
         self.x.end("p:pic");
         Ok(())
     }
+}
+
+/// `a:blip` with the picture's effects: transparency (`a:alphaModFix`),
+/// recolouring (`a:grayscl`, `a:biLevel`, `a:duotone`), brightness and
+/// contrast (`a:lum`).
+fn write_blip(x: &mut XmlOut, rid: &str, props: &PictureProps) {
+    let pct = |f: f64| ((f * 100_000.0).round() as i64).to_string();
+    let has_effects = props.transparency != 0.0
+        || props.recolor != Recolor::None
+        || props.brightness != 0.0
+        || props.contrast != 0.0;
+    if !has_effects {
+        x.empty("a:blip", &[("r:embed", rid)]);
+        return;
+    }
+    x.start("a:blip", &[("r:embed", rid)]);
+    if props.transparency != 0.0 {
+        x.empty(
+            "a:alphaModFix",
+            &[("amt", &pct(1.0 - props.transparency.clamp(0.0, 1.0)))],
+        );
+    }
+    let duotone = |x: &mut XmlOut, dark: core_model::Rgb, light: core_model::Rgb| {
+        x.start("a:duotone", &[]);
+        x.empty("a:srgbClr", &[("val", &dark.to_hex())]);
+        x.empty("a:srgbClr", &[("val", &light.to_hex())]);
+        x.end("a:duotone");
+    };
+    match props.recolor {
+        Recolor::None => {}
+        Recolor::Grayscale => x.empty("a:grayscl", &[]),
+        Recolor::Sepia => duotone(x, core_model::Rgb::BLACK, Recolor::SEPIA_LIGHT),
+        Recolor::BlackWhite { threshold } => {
+            x.empty("a:biLevel", &[("thresh", &pct(threshold.clamp(0.0, 1.0)))])
+        }
+        Recolor::Duotone { dark, light } => duotone(x, dark, light),
+    }
+    if props.brightness != 0.0 || props.contrast != 0.0 {
+        let mut attrs = Vec::new();
+        let (b, c) = (pct(props.brightness), pct(props.contrast));
+        if props.brightness != 0.0 {
+            attrs.push(("bright", b.as_str()));
+        }
+        if props.contrast != 0.0 {
+            attrs.push(("contrast", c.as_str()));
+        }
+        x.empty("a:lum", &attrs);
+    }
+    x.end("a:blip");
 }
 
 #[cfg(test)]
@@ -588,6 +866,14 @@ mod tests {
                 "/ppt/slideLayouts/slideLayout1.xml",
                 "/ppt/slideLayouts/slideLayout2.xml",
                 "/ppt/slideLayouts/slideLayout3.xml",
+                "/ppt/slideLayouts/slideLayout4.xml",
+                "/ppt/slideLayouts/slideLayout5.xml",
+                "/ppt/slideLayouts/slideLayout6.xml",
+                "/ppt/slideLayouts/slideLayout7.xml",
+                "/ppt/slideLayouts/slideLayout8.xml",
+                "/ppt/slideLayouts/slideLayout9.xml",
+                "/ppt/slideLayouts/slideLayout10.xml",
+                "/ppt/slideLayouts/slideLayout11.xml",
                 "/ppt/slides/slide1.xml",
                 "/ppt/theme/theme1.xml",
                 "/ppt/presProps.xml",

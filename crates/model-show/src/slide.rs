@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::anim::{Animation, Transition};
-use crate::layout::{Layout, LayoutKind, PlaceholderKind};
+use crate::layout::{Layout, LayoutKind, PlaceholderDef};
 use crate::shape::{Fill, Shape, ShapeKind};
 use crate::{Error, NodeId};
 
@@ -43,10 +43,26 @@ pub struct Slide {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Animation>>"))]
     pub animations: Vec<Animation>,
+    /// Draw the master's and layout's shapes below the slide's
+    /// (`showMasterSp`; PowerPoint's "Hide background graphics" = false).
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
+    pub show_master_shapes: bool,
 }
 
 fn is_false(v: &bool) -> bool {
     !*v
+}
+
+/// One matching rule of [`Slide::apply_layout`].
+type MatchPass = dyn Fn(&Shape, &PlaceholderDef) -> bool;
+
+fn is_true(v: &bool) -> bool {
+    *v
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Slide {
@@ -61,6 +77,7 @@ impl Slide {
             notes: None,
             transition: None,
             animations: Vec::new(),
+            show_master_shapes: true,
         }
     }
 
@@ -139,58 +156,124 @@ impl Slide {
         self.animations.iter().position(|a| a.id == id)
     }
 
-    /// Changes the slide's layout to `layout` (PowerPoint's "Layout"):
-    /// placeholders that have a counterpart in the new layout (same kind,
-    /// or same class: title ↔ centered title, body ↔ subtitle) take its
-    /// kind and, if they still sit where the old layout put them, its
-    /// position; empty placeholders without a counterpart are removed;
-    /// missing placeholders are added as empty shapes (with id 0 and no
-    /// name: the caller assigns both). Other shapes are kept as they are.
+    /// Changes the slide's layout to `new` (PowerPoint's "Layout"; `old`
+    /// is the current one). Placeholders that have a counterpart in the
+    /// new layout – same kind and `idx`, else same kind, else same class
+    /// (title ↔ centred title; body ↔ subtitle ↔ picture; date, footer and
+    /// slide number only to themselves) – take its kind and `idx` and, if
+    /// they still sit where the old layout put them (or have its body
+    /// properties), its position (or body properties); their text is kept.
+    /// Empty placeholders without a counterpart are removed (date, footer
+    /// and slide number stay); missing placeholders are added as empty
+    /// shapes below the others (with id 0 and no name: the caller assigns
+    /// both). Other shapes are kept as they are.
     pub fn apply_layout(&mut self, old: &Layout, new: &Layout) {
-        let class = |k: PlaceholderKind| match k {
-            PlaceholderKind::Title | PlaceholderKind::CenteredTitle => 0,
-            PlaceholderKind::Subtitle | PlaceholderKind::Body => 1,
-        };
-        let mut matched: Vec<PlaceholderKind> = Vec::new();
-        let mut keep = Vec::with_capacity(self.shapes.len());
-        for mut shape in std::mem::take(&mut self.shapes) {
+        let defs = &new.placeholders;
+        let shapes = std::mem::take(&mut self.shapes);
+        // target def of each shape: exact kind + idx first (for all
+        // shapes), then same kind, then same class
+        let mut target: Vec<Option<usize>> = vec![None; shapes.len()];
+        let mut matched: Vec<usize> = Vec::new();
+        let passes: [&MatchPass; 3] = [
+            &|s, d| s.placeholder == Some(d.kind) && s.placeholder_idx.unwrap_or(0) == d.idx,
+            &|s, d| s.placeholder == Some(d.kind),
+            &|s, d| s.placeholder.is_some_and(|k| d.kind.same_class(k)),
+        ];
+        for pass in passes {
+            for (si, shape) in shapes.iter().enumerate() {
+                if target[si].is_some() || shape.placeholder.is_none() {
+                    continue;
+                }
+                if let Some(di) =
+                    (0..defs.len()).find(|di| !matched.contains(di) && pass(shape, &defs[*di]))
+                {
+                    matched.push(di);
+                    target[si] = Some(di);
+                }
+            }
+        }
+        let mut keep = Vec::with_capacity(shapes.len());
+        for (mut shape, t) in shapes.into_iter().zip(target) {
             let Some(kind) = shape.placeholder else {
                 keep.push(shape);
                 continue;
             };
-            let target = new
-                .placeholder(kind)
-                .filter(|d| !matched.contains(&d.kind))
-                .or_else(|| {
-                    new.placeholders
-                        .iter()
-                        .find(|d| class(d.kind) == class(kind) && !matched.contains(&d.kind))
-                });
-            match target {
-                Some(def) => {
-                    matched.push(def.kind);
-                    let at_default = old
-                        .placeholder(kind)
-                        .is_some_and(|d| d.transform == shape.transform);
-                    if at_default {
+            let before = old.find(kind, shape.placeholder_idx);
+            match t {
+                Some(i) => {
+                    let def = &defs[i];
+                    if before.is_some_and(|d| d.transform == shape.transform) {
                         shape.transform = def.transform;
                     }
+                    let old_body = before.map(|d| d.body_defaults);
+                    if let Some(body) = shape.text_mut() {
+                        if old_body == Some(body.props) {
+                            body.props = def.body_defaults;
+                        }
+                    }
                     shape.placeholder = Some(def.kind);
+                    shape.placeholder_idx = (def.idx != 0).then_some(def.idx);
                     keep.push(shape);
                 }
+                None if kind.is_header_footer() => keep.push(shape),
                 None if !shape.text().is_some_and(|t| !t.is_empty()) => {}
                 None => keep.push(shape),
             }
         }
         // Missing placeholders go below the existing shapes, in layout order.
-        let mut added: Vec<Shape> = new
-            .placeholder_shapes()
-            .into_iter()
-            .filter(|s| s.placeholder.is_some_and(|k| !matched.contains(&k)))
+        let mut added: Vec<Shape> = defs
+            .iter()
+            .enumerate()
+            .filter(|(i, d)| !matched.contains(i) && !d.kind.is_header_footer())
+            .map(|(_, d)| d.empty_shape())
             .collect();
         added.extend(keep);
         self.shapes = added;
-        self.layout = new.kind;
+        self.layout = new.kind.clone();
+    }
+
+    /// Resets the placeholders to `layout` (PowerPoint's "Reset"): each
+    /// placeholder takes its layout placeholder's position, size and body
+    /// properties, and loses its paragraph and run formatting (outline
+    /// levels and text stay); missing placeholders (except date, footer
+    /// and slide number) are added empty, with id 0. Other shapes are
+    /// unchanged.
+    pub fn reset_to_layout(&mut self, layout: &Layout) {
+        let mut used = Vec::new();
+        for shape in &mut self.shapes {
+            let Some(kind) = shape.placeholder else {
+                continue;
+            };
+            let Some(def) = layout.find(kind, shape.placeholder_idx) else {
+                continue;
+            };
+            used.push((def.kind, def.idx));
+            shape.transform = def.transform;
+            if let Some(body) = shape.text_mut() {
+                body.props = def.body_defaults;
+                for p in &mut body.paragraphs {
+                    let level = p.props.level;
+                    p.props = crate::text::TextParagraphProps {
+                        level,
+                        ..Default::default()
+                    };
+                    for r in &mut p.runs {
+                        r.props = core_model::RunProperties::default();
+                    }
+                }
+            }
+        }
+        let missing: Vec<Shape> = layout
+            .placeholders
+            .iter()
+            .filter(|d| !d.kind.is_header_footer() && !used.contains(&(d.kind, d.idx)))
+            .map(PlaceholderDef::empty_shape)
+            .collect();
+        if !missing.is_empty() {
+            let mut shapes = missing;
+            shapes.append(&mut self.shapes);
+            self.shapes = shapes;
+        }
     }
 
     /// The shape with id `id`, searching inside groups.
@@ -292,6 +375,7 @@ fn container_of(shapes: &mut Vec<Shape>, id: NodeId) -> Option<(&mut Vec<Shape>,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::PlaceholderKind;
     use crate::shape::{Preset, Transform};
     use crate::text::TextBody;
     use crate::Emu;

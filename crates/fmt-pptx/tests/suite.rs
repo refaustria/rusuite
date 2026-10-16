@@ -11,8 +11,8 @@ use std::path::PathBuf;
 use core_model::{Color, Rgb, Underline};
 use fmt_ooxml::{Package, PartName};
 use model_show::{
-    Alignment, Anchor, Bullet, Fill, LayoutKind, LineDash, Presentation, Preset, Shape, ShapeKind,
-    TextBody,
+    Alignment, Anchor, Bullet, Fill, LayoutKind, LineDash, PlaceholderKind, Presentation, Preset,
+    Shape, ShapeKind, TextBody,
 };
 
 fn dir() -> PathBuf {
@@ -98,11 +98,7 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
         add("size:4x3".into());
     }
     for slide in &p.slides {
-        add(match slide.layout {
-            LayoutKind::Title => "layout:title".into(),
-            LayoutKind::TitleContent => "layout:titleContent".into(),
-            LayoutKind::Blank => "layout:blank".into(),
-        });
+        add(format!("layout:{}", slide.layout.key()));
         if matches!(slide.background, Some(Fill::Solid(_))) {
             add("background:solid".into());
         }
@@ -147,6 +143,39 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
         }
         if s.is_text_box() {
             add("shape:textBox".into());
+        }
+        match s.placeholder {
+            Some(PlaceholderKind::Footer) if s.text().is_some_and(|t| !t.is_empty()) => {
+                add("footer".into())
+            }
+            Some(PlaceholderKind::DateTime) => add("datetime".into()),
+            Some(PlaceholderKind::SlideNumber)
+                if s.text().is_some_and(|t| {
+                    t.paragraphs
+                        .iter()
+                        .flat_map(|p| &p.runs)
+                        .any(|r| r.field == Some(model_show::TextField::SlideNumber))
+                }) =>
+            {
+                add("slidenum".into())
+            }
+            _ => {}
+        }
+        if let Some(pp) = s.picture_props() {
+            if !pp.crop.is_none() {
+                add("picture:crop".into());
+            }
+            match pp.recolor {
+                model_show::Recolor::Grayscale => add("picture:grayscale".into()),
+                model_show::Recolor::BlackWhite { .. } => add("picture:blackWhite".into()),
+                _ => {}
+            }
+            if pp.brightness != 0.0 || pp.contrast != 0.0 {
+                add("picture:lum".into());
+            }
+            if pp.transparency != 0.0 {
+                add("picture:transparency".into());
+            }
         }
         if matches!(s.fill, Fill::Solid(_)) && !matches!(s.kind, ShapeKind::Group { .. }) {
             add("fill:solid".into());
@@ -240,6 +269,9 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
     if max_level > 0 {
         add(format!("bullets:levels={max_level}"));
     }
+    for _ in &p.sections {
+        add("section".into());
+    }
     f
 }
 
@@ -258,7 +290,7 @@ fn has_feature(found: &BTreeMap<String, usize>, feature: &str) -> bool {
         let count = found.get(key).copied().unwrap_or(0);
         return match key {
             // exact counts
-            "shape:textBox" | "picture" | "group" => count == n,
+            "shape:textBox" | "picture" | "group" | "section" => count == n,
             // at least (rect also matches text boxes and placeholders)
             _ => count >= n,
         };
@@ -270,7 +302,7 @@ fn has_feature(found: &BTreeMap<String, usize>, feature: &str) -> bool {
 fn manifest_features_are_found() {
     let mut failures = Vec::new();
     let entries = manifest();
-    assert_eq!(entries.len(), 29);
+    assert_eq!(entries.len(), 31);
     for e in entries {
         let p = fmt_pptx::read(&load(&e.file)).unwrap();
         let found = features_of(&p);
@@ -462,6 +494,62 @@ fn reference_details() {
     // 24: 4:3 slides
     let p = fmt_pptx::read(&load("provisional-24-size-4x3.pptx")).unwrap();
     assert_eq!(p.slide_size, model_show::SlideSize::standard());
+
+    // 30: sections (added after LibreOffice's export) and footers without
+    // positions on the slides (they come from LibreOffice's master)
+    let (p, warnings) =
+        fmt_pptx::read_with_warnings(&load("provisional-30-sections-footers.pptx")).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    p.validate().unwrap();
+    let sections: Vec<_> = p
+        .sections
+        .iter()
+        .map(|s| (s.name.as_str(), s.slide_ids.len()))
+        .collect();
+    assert_eq!(
+        sections,
+        [("Introduction", 2), ("Details", 2), ("Wrap-up", 1)]
+    );
+    assert_eq!(
+        p.resolved_footer(p.slides[0].id).unwrap(),
+        Default::default()
+    );
+    let f = p.resolved_footer(p.slides[1].id).unwrap();
+    assert_eq!(f.footer.as_deref(), Some("Rusuite reference deck"));
+    assert_eq!(
+        f.date,
+        Some(model_show::FooterDate::Fixed("16 October 2026".into()))
+    );
+    assert_eq!(f.slide_number, Some(2));
+    let ftr = p.slides[1]
+        .shapes
+        .iter()
+        .find(|s| s.placeholder == Some(PlaceholderKind::Footer))
+        .unwrap();
+    let master_ftr = p.master.placeholder_for(PlaceholderKind::Footer).unwrap();
+    assert_eq!(ftr.transform, master_ftr.transform);
+
+    // 31: LibreOffice's picture adjustments
+    let (p, warnings) =
+        fmt_pptx::read_with_warnings(&load("provisional-31-picture-adjustments.pptx")).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let props: Vec<_> = p
+        .slides
+        .iter()
+        .flat_map(|s| &s.shapes)
+        .filter_map(Shape::picture_props)
+        .collect();
+    assert_eq!(props.len(), 6);
+    assert!((props[0].crop.left - 0.314_96).abs() < 1e-9);
+    assert!((props[0].crop.bottom - 0.236_22).abs() < 1e-9);
+    assert_eq!(props[1].recolor, model_show::Recolor::Grayscale);
+    assert_eq!(
+        props[2].recolor,
+        model_show::Recolor::BlackWhite { threshold: 0.5 }
+    );
+    assert_eq!((props[3].brightness, props[3].contrast), (0.2, -0.3));
+    assert_eq!(props[4].transparency, 0.5);
+    assert_eq!(props[5].recolor, model_show::Recolor::Grayscale);
 }
 
 // --- round trip --------------------------------------------------------------------
@@ -687,12 +775,17 @@ fn powerpoint_style_inheritance() {
         ),
         (Emu(5), Emu(6), Emu(7), Emu(8))
     );
-    // placeholder body props come from the built-in layout when not given
-    assert_eq!(title.text().unwrap().props.anchor, Anchor::Middle);
+    // placeholder body props come from the file's layout and master
+    // (which state none here: the DrawingML defaults)
+    assert_eq!(title.text().unwrap().props.anchor, Anchor::Top);
     assert_eq!(
         title.text().unwrap().props.autofit,
-        model_show::Autofit::Shrink
+        model_show::Autofit::None
     );
+    // the file's layout became our Title and Content layout
+    let l = p.layout(&LayoutKind::TitleContent).unwrap();
+    assert_eq!(l.placeholders[0].transform.x, Emu(838_200));
+    assert_eq!(p.master.placeholders[1].transform.w, Emu(7));
     // style references resolve to explicit fill, outline and text color
     use core_model::ThemeColorSlot as S;
     assert_eq!(oval.fill, Fill::Solid(Color::theme(S::Accent1)));

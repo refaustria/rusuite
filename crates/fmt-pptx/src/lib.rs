@@ -2,14 +2,14 @@
 //! Reads and writes `.pptx` files, mapping to and from
 //! [`model_show::Presentation`] (ADR 0008).
 //!
-//! The supported PresentationML/DrawingML subset (slides, placeholders,
-//! auto shapes with preset or custom geometry, pictures, groups, lines,
-//! connectors with arrowheads, tables, DrawingML text, solid fills,
-//! outlines, backgrounds, the theme, slide transitions and preset
-//! animations) and everything that is dropped are
-//! listed in `docs/ooxml-subset.md`. Masters and layouts are not imported:
-//! slides are mapped onto the three built-in layouts and written with fixed
-//! master/layout parts.
+//! The supported PresentationML/DrawingML subset (the slide master and its
+//! layouts with placeholders, text styles, backgrounds and decorative
+//! shapes; slides, placeholders incl. date/footer/slide number with
+//! fields, auto shapes with preset or custom geometry, pictures with crop
+//! and adjustments, groups, lines, connectors with arrowheads, tables,
+//! DrawingML text, solid fills, outlines, backgrounds, the theme with its
+//! format scheme, sections, slide transitions and preset animations) and
+//! everything that is dropped are listed in `docs/ooxml-subset.md`.
 //!
 //! ```
 //! use model_show::{LayoutKind, Presentation, TextParagraph};
@@ -31,9 +31,11 @@
 mod anim;
 mod drawing;
 mod geom;
+mod master;
 mod parts;
 mod read;
 mod table;
+mod theme;
 mod write;
 mod xml;
 
@@ -90,9 +92,9 @@ pub enum Error {
 pub struct PptxContext {
     /// Raw `ppt/theme/theme1.xml` of the file that was read. It is written
     /// back verbatim as long as it still parses to the presentation's
-    /// [`theme`](model_show::Presentation::theme) (keeping effect and fill
-    /// styles we do not model); otherwise the theme part is generated from
-    /// the model.
+    /// [`theme`](model_show::Presentation::theme) (keeping effects and
+    /// details of the format scheme we do not model); otherwise the theme
+    /// part is generated from the model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_xml: Option<Vec<u8>>,
 }

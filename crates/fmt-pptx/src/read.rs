@@ -1,26 +1,34 @@
 //! `.pptx` → [`Presentation`].
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Cursor;
 
 use core_model::Color;
-use fmt_ooxml::theme::parse_theme;
 use fmt_ooxml::{Package, PartName, TargetMode};
 use model_show::{
-    Adjust, Attach, BodyProps, Connector, ConnectorKind, Emu, Fill, LayoutKind, Line, MediaId,
-    NodeId, PlaceholderDef, PlaceholderKind, Presentation, Preset, Shape, ShapeKind, Slide,
-    SlideSize, TextBody, Transform,
+    Adjust, Attach, BodyProps, Connector, ConnectorKind, Crop, Emu, Fill, Layout, LayoutKind, Line,
+    MediaId, NodeId, PictureProps, PlaceholderDef, PlaceholderKind, Presentation, Preset, Recolor,
+    Section, Shadow, Shape, ShapeKind, Slide, SlideMaster, SlideSize, TextBody, TextField,
+    Transform,
 };
 
 use crate::anim::{read_slide_transition, read_timing};
 use crate::drawing::{
-    read_arrows, read_color, read_fill, read_line, read_text_body, read_xfrm, Space, Xfrm,
-    STYLE_LINE_WIDTHS,
+    color_and_alpha, read_arrows, read_color, read_fill, read_line, read_text_body, read_xfrm,
+    Space, Xfrm, ANGLE_UNITS_PER_DEGREE, STYLE_LINE_WIDTHS,
 };
 use crate::geom::{read_adjust, read_geometry};
+use crate::master::{
+    body_pr_of, header_footer_of, kind_of_type, lst_style_lvl1, read_background as read_bg,
+    read_clr_map, read_text_styles,
+};
 use crate::table::{read_table, TABLE_URI};
-use crate::xml::{parse, parse_bool, parse_i64, parse_u32, xml_error, El};
+use crate::theme::read_theme;
+use crate::xml::{parse, parse_bool, parse_i64, parse_u32, El};
 use crate::{Error, PptxContext, Result, Warnings};
+
+/// `p:ext/@uri` of the PowerPoint 2010 section list.
+pub(crate) const SECTION_EXT_URI: &str = "{521415D9-36F7-43E2-AB2F-B90AF26B5E84}";
 
 /// Everything [`read_with_context`] returns.
 #[derive(Debug)]
@@ -67,6 +75,24 @@ fn target_of(pkg: &Package, source: &PartName, rid: &str) -> Option<PartName> {
         .and_then(|r| source.resolve(&r.target).ok())
 }
 
+/// The part an `p:sldId`/`p:sldMasterId`/`p:sldLayoutId` element points
+/// at: it has both `id` and `r:id`, stored by local name, so take the
+/// `id` that resolves as a relationship.
+fn id_target(pkg: &Package, source: &PartName, el: &El) -> Option<PartName> {
+    el.attrs
+        .iter()
+        .filter(|(k, _)| k == "id")
+        .find_map(|(_, v)| target_of(pkg, source, v))
+}
+
+/// The numeric `id` of a `p:sldId` (the `id` that is a number).
+fn numeric_id(el: &El) -> Option<u32> {
+    el.attrs
+        .iter()
+        .filter(|(k, _)| k == "id")
+        .find_map(|(_, v)| parse_u32(v))
+}
+
 /// Reads a `.pptx` file, returning the presentation, the file context (raw
 /// theme part) and warnings.
 pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
@@ -95,9 +121,30 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     let mut p = Presentation::empty(size);
     let mut context = PptxContext::default();
 
-    if let Some(theme) = related(&pkg, &main, "theme") {
+    // the master (first of sldMasterIdLst) and its theme
+    let masters: Vec<PartName> = root
+        .child("sldMasterIdLst")
+        .map(|l| {
+            l.elements()
+                .filter(|e| e.name == "sldMasterId")
+                .filter_map(|e| id_target(&pkg, &main, e))
+                .collect()
+        })
+        .unwrap_or_default();
+    if masters.len() > 1 {
+        w.add("only the first slide master is kept (slides of the others use its layouts)");
+    }
+    let master = masters
+        .first()
+        .cloned()
+        .or_else(|| related(&pkg, &main, "slideMaster"));
+    let theme_part = master
+        .as_ref()
+        .and_then(|m| related(&pkg, m, "theme"))
+        .or_else(|| related(&pkg, &main, "theme"));
+    if let Some(theme) = theme_part {
         if let Some(part) = pkg.part(&theme) {
-            p.theme = parse_theme(&part.data, theme.as_str()).map_err(xml_error)?;
+            p.theme = read_theme(&part.data, theme.as_str())?;
             if pkg.relationships(&theme).is_some_and(|r| !r.is_empty()) {
                 w.add(format!(
                     "{theme}: theme has its own relationships; a generated theme part is written"
@@ -119,25 +166,28 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         w: &mut w,
         media: HashMap::new(),
         layouts: HashMap::new(),
+        synthesized: HashSet::new(),
         consumed: &mut consumed,
         default_table_style,
     };
+    if let Some(m) = &master {
+        reader.read_master(m)?;
+    }
+    // slide numeric ids (for sections), in slide order
+    let mut slide_numbers: Vec<(u32, NodeId)> = Vec::new();
     if let Some(list) = root.child("sldIdLst") {
-        for id in list.elements().filter(|e| e.name == "sldId") {
-            // `p:sldId` has both `id` and `r:id`; attributes are stored by
-            // local name, so take the `id` that resolves as a relationship.
-            let target = id
-                .attrs
-                .iter()
-                .filter(|(k, _)| k == "id")
-                .find_map(|(_, v)| target_of(&pkg, &main, v));
-            let Some(part) = target else {
+        for el in list.elements().filter(|e| e.name == "sldId") {
+            let Some(part) = id_target(&pkg, &main, el) else {
                 reader.w.add("slide with dangling relationship dropped");
                 continue;
             };
-            reader.read_slide(&part)?;
+            let id = reader.read_slide(&part)?;
+            if let Some(n) = numeric_id(el) {
+                slide_numbers.push((n, id));
+            }
         }
     }
+    read_sections(&root, &slide_numbers, &mut p, &mut w);
     p.normalize();
 
     for (name, part) in pkg.parts() {
@@ -179,72 +229,49 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     })
 }
 
-/// A placeholder of a file's layout or master: its type, index and
-/// position (if it has one).
-#[derive(Debug, Clone, PartialEq)]
-struct PhPos {
-    ty: String,
-    idx: Option<u32>,
-    xfrm: Option<Transform>,
-}
-
-/// What we use of a file's slide layout.
-#[derive(Debug, Clone, Default)]
-struct LayoutInfo {
-    /// `p:sldLayout/@type` (missing → `cust`).
-    ty: String,
-    /// Placeholders of the layout, then of its master.
-    layout_phs: Vec<PhPos>,
-    master_phs: Vec<PhPos>,
-}
-
-/// The `p:ph` of a shape element (`p:sp`, `p:pic`, …), if any.
-fn ph_of(shape: &El) -> Option<&El> {
-    shape
-        .elements()
-        .find(|e| e.name.starts_with("nv"))
-        .and_then(|nv| nv.child("nvPr"))
-        .and_then(|nv| nv.child("ph"))
-}
-
-/// The placeholder type of a `p:ph` (missing → `obj`).
-fn ph_type(ph: &El) -> &str {
-    ph.attr("type").unwrap_or("obj")
-}
-
-/// Placeholders (type, index, position) of a layout or master part.
-fn placeholders_of(root: &El) -> Vec<PhPos> {
-    let mut out = Vec::new();
-    if let Some(tree) = root.child("cSld").and_then(|c| c.child("spTree")) {
-        for sp in tree.elements() {
-            if let Some(ph) = ph_of(sp) {
-                let xfrm = sp
-                    .child("spPr")
-                    .and_then(|s| s.child("xfrm"))
-                    .map(|x| Space::SLIDE.map(&read_xfrm(x)));
-                out.push(PhPos {
-                    ty: ph_type(ph).to_owned(),
-                    idx: ph.attr("idx").and_then(parse_u32),
-                    xfrm,
-                });
+/// `p:extLst/p:ext/p14:sectionLst` → [`Presentation::sections`] (slides
+/// of unknown ids are skipped; slides in no section join the one before).
+fn read_sections(root: &El, numbers: &[(u32, NodeId)], p: &mut Presentation, w: &mut Warnings) {
+    let Some(list) = root
+        .child("extLst")
+        .into_iter()
+        .flat_map(|l| l.elements())
+        .filter(|e| e.name == "ext" && e.attr("uri") == Some(SECTION_EXT_URI))
+        .find_map(|e| e.child("sectionLst"))
+    else {
+        return;
+    };
+    let mut seen = HashSet::new();
+    for s in list.elements().filter(|e| e.name == "section") {
+        let mut section = Section::new(s.attr("name").unwrap_or(""));
+        for id in s
+            .child("sldIdLst")
+            .into_iter()
+            .flat_map(|l| l.elements())
+            .filter(|e| e.name == "sldId")
+        {
+            let Some(n) = id.attr("id").and_then(parse_u32) else {
+                continue;
+            };
+            if let Some((_, node)) = numbers.iter().find(|(k, _)| *k == n) {
+                if seen.insert(*node) {
+                    section.slide_ids.push(*node);
+                }
             }
         }
+        p.sections.push(section);
     }
-    out
-}
-
-/// Class of a placeholder type for matching slide placeholders to layout
-/// and master ones.
-fn ph_class(ty: &str) -> &str {
-    match ty {
-        "title" | "ctrTitle" => "title",
-        "body" | "obj" | "subTitle" => "body",
-        other => other,
+    if p.sections.is_empty() {
+        return;
+    }
+    p.fix_sections();
+    if p.validate_sections().is_err() {
+        w.add("sections out of slide order rearranged");
     }
 }
 
-/// Maps a layout part's type to a built-in layout (`None`: not one of
-/// ours).
+/// Maps a layout part's type to one of the layouts the inference uses
+/// (`None`: not one of them).
 pub(crate) fn layout_of_type(ty: &str) -> Option<LayoutKind> {
     match ty {
         "title" => Some(LayoutKind::Title),
@@ -262,12 +289,18 @@ fn is_body_like(ty: &str) -> bool {
     )
 }
 
-/// Chooses the built-in layout of a slide from the types of its
-/// placeholders and the type of the file's layout part. The placeholders
-/// win (LibreOffice references a `title` layout from almost every slide):
-/// a centered title or subtitle → Title; a body/content placeholder →
-/// Title and Content; only a title → by the layout part's type
-/// (`title` → Title, otherwise Title and Content); no placeholders → Blank.
+/// Whether a placeholder type is a date, footer, slide number or header.
+fn is_hf_type(ty: &str) -> bool {
+    matches!(ty, "dt" | "ftr" | "sldNum" | "hdr")
+}
+
+/// Chooses a standard layout for a slide that does not fit the layout it
+/// references, from the types of its placeholders and the type of the
+/// file's layout part. The placeholders win (LibreOffice references a
+/// `title` layout from almost every slide): a centered title or subtitle →
+/// Title; a body/content placeholder → Title and Content; only a title →
+/// by the layout part's type (`title` → Title, otherwise Title and
+/// Content); no placeholders → Blank.
 pub(crate) fn infer_layout(ph_types: &[&str], layout_type: &str, w: &mut Warnings) -> LayoutKind {
     if ph_types
         .iter()
@@ -293,20 +326,34 @@ pub(crate) fn infer_layout(ph_types: &[&str], layout_type: &str, w: &mut Warning
     LayoutKind::Blank
 }
 
+/// Whether a slide whose (non-header/footer) placeholder types are
+/// `types` fits `layout`: every type has a placeholder of its kind on the
+/// layout (titles match titles, content/body/picture match content, body
+/// or picture placeholders, a subtitle needs a subtitle), and a slide
+/// without placeholders only fits a layout without any.
+pub(crate) fn fits(types: &[&str], layout: &Layout) -> bool {
+    let has =
+        |pred: &dyn Fn(PlaceholderKind) -> bool| layout.placeholders.iter().any(|d| pred(d.kind));
+    if types.is_empty() {
+        return !has(&|k| !k.is_header_footer());
+    }
+    types.iter().all(|t| match *t {
+        "title" | "ctrTitle" => {
+            has(&|k| matches!(k, PlaceholderKind::Title | PlaceholderKind::CenteredTitle))
+        }
+        "subTitle" => has(&|k| k == PlaceholderKind::Subtitle),
+        t if is_body_like(t) => {
+            has(&|k| matches!(k, PlaceholderKind::Body | PlaceholderKind::Picture))
+        }
+        _ => true,
+    })
+}
+
 /// Maps a placeholder type to our placeholder kind on a slide with
 /// `layout` (`title`/`ctrTitle` become the layout's title kind). `None`
-/// for placeholders we do not model (date, footer, slide number, …).
-pub(crate) fn placeholder_kind(ty: &str, layout: LayoutKind) -> Option<PlaceholderKind> {
-    match ty {
-        "title" | "ctrTitle" => Some(if layout == LayoutKind::Title {
-            PlaceholderKind::CenteredTitle
-        } else {
-            PlaceholderKind::Title
-        }),
-        "subTitle" => Some(PlaceholderKind::Subtitle),
-        t if is_body_like(t) => Some(PlaceholderKind::Body),
-        _ => None,
-    }
+/// for placeholders we do not model (header, …).
+pub(crate) fn placeholder_kind(ty: &str, layout: &LayoutKind) -> Option<PlaceholderKind> {
+    kind_of_type(ty, *layout == LayoutKind::Title)
 }
 
 /// Style references of a shape (`p:style`): colors for fill, outline and
@@ -345,54 +392,342 @@ struct Reader<'a> {
     w: &'a mut Warnings,
     /// Media part → id in the presentation's store (first-reference order).
     media: HashMap<PartName, MediaId>,
-    /// Parsed layout parts.
-    layouts: HashMap<PartName, LayoutInfo>,
+    /// Layout part → the layout it became.
+    layouts: HashMap<PartName, LayoutKind>,
+    /// Standard layouts generated from the master (the file has none).
+    synthesized: HashSet<LayoutKind>,
     consumed: &'a mut BTreeSet<PartName>,
     /// `def` of `ppt/tableStyles.xml`.
     default_table_style: Option<String>,
 }
 
-/// Per-slide state while reading shapes.
+/// Per-part state while reading shapes.
 struct SlideCtx<'a> {
+    /// The part (for relationships).
     part: &'a PartName,
-    layout: LayoutKind,
-    info: &'a LayoutInfo,
+    /// The slide's layout (placeholder kinds, body properties).
+    layout: Layout,
+    /// The layout the slide's file references, when it differs.
+    file_layout: Option<Layout>,
+}
+
+/// The `p:ph` of a shape element (`p:sp`, `p:pic`, …), if any.
+fn ph_of(shape: &El) -> Option<&El> {
+    shape
+        .elements()
+        .find(|e| e.name.starts_with("nv"))
+        .and_then(|nv| nv.child("nvPr"))
+        .and_then(|nv| nv.child("ph"))
+}
+
+/// The placeholder type of a `p:ph` (missing → `obj`).
+fn ph_type(ph: &El) -> &str {
+    ph.attr("type").unwrap_or("obj")
+}
+
+/// A copy of a shape tree without its placeholder elements.
+fn without_placeholders(tree: &El) -> El {
+    let mut t = tree.clone();
+    t.children.retain(|n| match n {
+        fmt_ooxml::xml::Node::El(e) => ph_of(e).is_none(),
+        _ => true,
+    });
+    t
+}
+
+/// The plain text and first field of a placeholder's text body.
+fn text_and_field(sp: &El, w: &mut Warnings) -> (String, Option<TextField>) {
+    let Some(tx) = sp.child("txBody") else {
+        return (String::new(), None);
+    };
+    let body = read_text_body(tx, BodyProps::default(), w);
+    let field = body
+        .paragraphs
+        .iter()
+        .flat_map(|p| &p.runs)
+        .find_map(|r| r.field.clone());
+    let text = body
+        .paragraphs
+        .iter()
+        .flat_map(|p| &p.runs)
+        .filter(|r| r.field.is_none())
+        .map(|r| r.text.as_str())
+        .collect::<String>();
+    (text, field)
 }
 
 impl Reader<'_> {
-    fn layout_info(&mut self, slide: &PartName) -> LayoutInfo {
-        let Some(layout) = related(self.pkg, slide, "slideLayout") else {
-            return LayoutInfo::default();
+    /// Reads the master, its layouts (in `p:sldLayoutIdLst` order) and
+    /// decorative shapes; standard layouts the file lacks are added from
+    /// the master.
+    fn read_master(&mut self, part: &PartName) -> Result<()> {
+        let Some(data) = self.pkg.part(part).map(|p| p.data.clone()) else {
+            return Ok(());
         };
-        if let Some(info) = self.layouts.get(&layout) {
-            return info.clone();
-        }
-        let mut info = LayoutInfo {
-            ty: "cust".into(),
-            ..LayoutInfo::default()
+        self.consumed.insert(part.clone());
+        let root = parse(&data, part.as_str())?;
+        let size = self.p.slide_size;
+        let builtin = SlideMaster::builtin(size);
+        let c_sld = root.child("cSld");
+        let mut m = SlideMaster {
+            name: c_sld.and_then(|c| c.attr("name")).unwrap_or("").to_owned(),
+            background: c_sld
+                .and_then(|c| c.child("bg"))
+                .and_then(|bg| read_bg(bg, self.w))
+                .unwrap_or_default(),
+            placeholders: Vec::new(),
+            shapes: Vec::new(),
+            text_styles: read_text_styles(root.child("txStyles"), self.w),
+            color_map: read_clr_map(root.child("clrMap")),
+            header_footer: Default::default(),
         };
-        if let Some(root) = self
-            .pkg
-            .part(&layout)
-            .and_then(|part| parse(&part.data, layout.as_str()).ok())
-        {
-            info.ty = root.attr("type").unwrap_or("cust").to_owned();
-            info.layout_phs = placeholders_of(&root);
+        let mut texts = Vec::new();
+        let tree = c_sld.and_then(|c| c.child("spTree"));
+        if let Some(tree) = tree {
+            for sp in tree.elements().filter(|e| e.name == "sp") {
+                let Some(ph) = ph_of(sp) else { continue };
+                let ty = ph_type(ph);
+                let Some(kind) = kind_of_type(ty, false) else {
+                    self.w.add(format!("master placeholder type {ty} dropped"));
+                    continue;
+                };
+                let transform = sp
+                    .child("spPr")
+                    .and_then(|s| s.child("xfrm"))
+                    .map(|x| Space::SLIDE.map(&read_xfrm(x)))
+                    .or_else(|| builtin.placeholder_for(kind).map(|d| d.transform))
+                    .unwrap_or_default();
+                let (sp_para, sp_run) = m.style_defaults(kind);
+                let tx = sp.child("txBody");
+                let (lp, lr) = lst_style_lvl1(tx, self.w);
+                let (body, vertical) = body_pr_of(
+                    tx,
+                    BodyProps::default(),
+                    ph.attr("orient") == Some("vert"),
+                    self.w,
+                );
+                if kind.is_header_footer() {
+                    let (t, f) = text_and_field(sp, &mut Warnings::default());
+                    texts.push((kind, t, f));
+                }
+                m.placeholders.push(PlaceholderDef {
+                    kind,
+                    idx: ph.attr("idx").and_then(parse_u32).unwrap_or(0),
+                    transform,
+                    body_defaults: body,
+                    run_defaults: sp_run.merged_with(&lr),
+                    paragraph_defaults: sp_para.merged_with(&lp),
+                    text_only: ty == "body",
+                    vertical,
+                });
+            }
+            m.shapes = self.read_part_shapes(part, tree);
         }
-        if let Some(master) = related(self.pkg, &layout, "slideMaster") {
-            if let Some(root) = self
-                .pkg
-                .part(&master)
-                .and_then(|part| parse(&part.data, master.as_str()).ok())
-            {
-                info.master_phs = placeholders_of(&root);
+        complete_master(&mut m, &builtin);
+        self.p.master = m.clone();
+        // layouts
+        let mut layouts: Vec<Layout> = Vec::new();
+        let mut not_on_title = false;
+        let mut ids: Vec<PartName> = root
+            .child("sldLayoutIdLst")
+            .map(|l| {
+                l.elements()
+                    .filter(|e| e.name == "sldLayoutId")
+                    .filter_map(|e| id_target(self.pkg, part, e))
+                    .collect()
+            })
+            .unwrap_or_default();
+        // layouts the master links to without listing them
+        if let Some(rels) = self.pkg.relationships(part) {
+            for r in rels.iter() {
+                if r.target_mode == TargetMode::Internal && rel_kind(&r.rel_type) == "slideLayout" {
+                    if let Ok(t) = part.resolve(&r.target) {
+                        if !ids.contains(&t) {
+                            ids.push(t);
+                        }
+                    }
+                }
             }
         }
-        self.layouts.insert(layout, info.clone());
-        info
+        for lp in ids {
+            if let Some((layout, hf_texts, hides_hf)) = self.read_layout(&lp, &m, &layouts)? {
+                texts.extend(hf_texts);
+                if layout.kind == LayoutKind::Title && hides_hf {
+                    not_on_title = true;
+                }
+                self.layouts.insert(lp, layout.kind.clone());
+                layouts.push(layout);
+            }
+        }
+        for k in LayoutKind::STANDARD {
+            if !layouts.iter().any(|l| l.kind == k) {
+                self.synthesized.insert(k.clone());
+                layouts.push(Layout::from_master(k, &m, size));
+            }
+        }
+        m.header_footer = header_footer_of(root.child("hf"), &texts, not_on_title);
+        self.p.master = m;
+        self.p.layouts = layouts;
+        Ok(())
     }
 
-    fn read_slide(&mut self, part: &PartName) -> Result<()> {
+    /// The non-placeholder shapes of a master or layout shape tree, with
+    /// node ids.
+    fn read_part_shapes(&mut self, part: &PartName, tree: &El) -> Vec<Shape> {
+        let ctx = SlideCtx {
+            part,
+            layout: Layout::new(LayoutKind::Blank),
+            file_layout: None,
+        };
+        let mut shapes = self.read_tree(&without_placeholders(tree), Space::SLIDE, &ctx);
+        let mut spids = HashMap::new();
+        for s in &mut shapes {
+            assign_ids(self.p, s, &mut spids);
+        }
+        if remap_attachments(&mut shapes, &spids) {
+            self.w
+                .add("connector attachments to missing shapes dropped");
+        }
+        shapes
+    }
+
+    /// One layout part → the model layout, the text of its date/footer
+    /// placeholders and whether it hides the header/footer (`p:hf` all
+    /// off). `existing`: the layouts read so far (kinds are unique: a
+    /// second layout of a standard type becomes a custom layout).
+    #[allow(clippy::type_complexity)]
+    fn read_layout(
+        &mut self,
+        part: &PartName,
+        m: &SlideMaster,
+        existing: &[Layout],
+    ) -> Result<
+        Option<(
+            Layout,
+            Vec<(PlaceholderKind, String, Option<TextField>)>,
+            bool,
+        )>,
+    > {
+        let Some(data) = self.pkg.part(part).map(|p| p.data.clone()) else {
+            return Ok(None);
+        };
+        self.consumed.insert(part.clone());
+        let root = parse(&data, part.as_str())?;
+        let c_sld = root.child("cSld");
+        let name = c_sld.and_then(|c| c.attr("name")).unwrap_or("").to_owned();
+        let ty = root.attr("type").unwrap_or("cust");
+        let taken = |k: &LayoutKind| existing.iter().any(|l| &l.kind == k);
+        let (kind, own_name) = match LayoutKind::from_ooxml_type(ty).filter(|k| !taken(k)) {
+            Some(k) => {
+                let n = if name == k.display_name() {
+                    String::new()
+                } else {
+                    name.clone()
+                };
+                (k, n)
+            }
+            None => {
+                let base = if name.is_empty() {
+                    "Custom Layout".to_owned()
+                } else {
+                    name.clone()
+                };
+                let mut n = base.clone();
+                let mut i = 2;
+                while taken(&LayoutKind::Custom(n.clone())) {
+                    n = format!("{base} {i}");
+                    i += 1;
+                }
+                (LayoutKind::Custom(n), String::new())
+            }
+        };
+        let on_title = kind == LayoutKind::Title;
+        let mut layout = Layout::new(kind);
+        layout.name = own_name;
+        layout.show_master_shapes = root.attr("showMasterSp").and_then(parse_bool) != Some(false);
+        layout.background = c_sld
+            .and_then(|c| c.child("bg"))
+            .and_then(|bg| read_bg(bg, self.w));
+        let mut texts = Vec::new();
+        if let Some(tree) = c_sld.and_then(|c| c.child("spTree")) {
+            for sp in tree
+                .elements()
+                .filter(|e| e.name == "sp" || e.name == "pic")
+            {
+                let Some(ph) = ph_of(sp) else { continue };
+                let pty = ph_type(ph);
+                let Some(pk) = kind_of_type(pty, on_title) else {
+                    self.w.add(format!("layout placeholder type {pty} dropped"));
+                    continue;
+                };
+                let base = m.placeholder_for(pk);
+                let transform = sp
+                    .child("spPr")
+                    .and_then(|s| s.child("xfrm"))
+                    .map(|x| Space::SLIDE.map(&read_xfrm(x)))
+                    .or_else(|| base.map(|d| d.transform));
+                let Some(transform) = transform else {
+                    self.w.add("layout placeholder without position dropped");
+                    continue;
+                };
+                let (bp, br) = match base {
+                    Some(d) => (d.paragraph_defaults.clone(), d.run_defaults.clone()),
+                    None => m.style_defaults(pk),
+                };
+                let tx = sp.child("txBody");
+                let (lp, lr) = lst_style_lvl1(tx, self.w);
+                let body_base = base.map_or_else(BodyProps::default, |d| d.body_defaults);
+                let (body, vertical) =
+                    body_pr_of(tx, body_base, ph.attr("orient") == Some("vert"), self.w);
+                if pk.is_header_footer() {
+                    let (t, f) = text_and_field(sp, &mut Warnings::default());
+                    texts.push((pk, t, f));
+                }
+                layout.placeholders.push(PlaceholderDef {
+                    kind: pk,
+                    idx: ph.attr("idx").and_then(parse_u32).unwrap_or(0),
+                    transform,
+                    body_defaults: body,
+                    run_defaults: br.merged_with(&lr),
+                    paragraph_defaults: bp.merged_with(&lp),
+                    text_only: pty == "body",
+                    vertical,
+                });
+            }
+            layout.shapes = self.read_part_shapes(part, tree);
+        }
+        let hides = root
+            .child("hf")
+            .is_some_and(|h| crate::master::hf_flags(Some(h)) == (false, false, false));
+        Ok(Some((layout, texts, hides)))
+    }
+
+    /// Reads a layout part the master does not list (e.g. one of another
+    /// master): it replaces a standard layout that was synthesized from
+    /// the master, else becomes a new (possibly custom) layout.
+    fn adopt_layout(&mut self, lp: &PartName) -> Result<()> {
+        let master = self.p.master.clone();
+        let existing: Vec<Layout> = self
+            .p
+            .layouts
+            .iter()
+            .filter(|l| !self.synthesized.contains(&l.kind))
+            .cloned()
+            .collect();
+        let Some((layout, _, _)) = self.read_layout(lp, &master, &existing)? else {
+            return Ok(());
+        };
+        let kind = layout.kind.clone();
+        match self.p.layouts.iter().position(|l| l.kind == kind) {
+            Some(i) => self.p.layouts[i] = layout,
+            None => self.p.layouts.push(layout),
+        }
+        self.synthesized.remove(&kind);
+        self.layouts.insert(lp.clone(), kind);
+        Ok(())
+    }
+
+    fn read_slide(&mut self, part: &PartName) -> Result<NodeId> {
         let data = &self
             .pkg
             .part(part)
@@ -404,31 +739,53 @@ impl Reader<'_> {
             part: part.to_string(),
             reason: "no p:cSld".into(),
         })?;
-        let info = self.layout_info(part);
+        let layout_part = related(self.pkg, part, "slideLayout");
+        if let Some(lp) = &layout_part {
+            if !self.layouts.contains_key(lp) {
+                self.adopt_layout(lp)?;
+            }
+        }
+        let file_kind = layout_part
+            .as_ref()
+            .and_then(|lp| self.layouts.get(lp).cloned());
+        let file_layout = file_kind.as_ref().and_then(|k| self.p.layout(k).cloned());
         let tree = c_sld.child("spTree");
         let mut types = Vec::new();
         if let Some(tree) = tree {
             collect_ph_types(tree, &mut types);
         }
-        let types: Vec<&str> = types.iter().map(String::as_str).collect();
-        let layout = infer_layout(&types, &info.ty, self.w);
+        let types: Vec<&str> = types
+            .iter()
+            .map(String::as_str)
+            .filter(|t| !is_hf_type(t))
+            .collect();
+        let kind = match &file_layout {
+            Some(l) if fits(&types, l) => l.kind.clone(),
+            _ => {
+                let ty = file_kind.as_ref().map_or("cust", LayoutKind::ooxml_type);
+                infer_layout(&types, ty, self.w)
+            }
+        };
+        let layout = self.p.layout_or_builtin(&kind);
 
-        let mut slide = Slide::new(self.p.alloc_id(), layout);
+        let mut slide = Slide::new(self.p.alloc_id(), kind.clone());
         slide.hidden = root.attr("show").and_then(parse_bool) == Some(false);
+        slide.show_master_shapes = root.attr("showMasterSp").and_then(parse_bool) != Some(false);
         slide.notes = self.read_notes(part);
         if let Some(bg) = c_sld.child("bg") {
             slide.background = self.read_background(bg);
         }
         let ctx = SlideCtx {
             part,
+            file_layout: file_layout.filter(|l| l.kind != kind),
             layout,
-            info: &info,
         };
         // Shapes come back carrying their `p:cNvPr/@id`; map those to the
         // node ids we assign (for animation targets).
         let mut spids = HashMap::new();
         if let Some(tree) = tree {
             let mut shapes = self.read_tree(tree, Space::SLIDE, &ctx);
+            normalize_placeholder_idx(&mut shapes, &ctx.layout);
             for s in &mut shapes {
                 assign_ids(self.p, s, &mut spids);
             }
@@ -458,8 +815,9 @@ impl Reader<'_> {
                 a.id = self.p.alloc_id();
             }
         }
+        let id = slide.id;
         self.p.slides.push(slide);
-        Ok(())
+        Ok(id)
     }
 
     /// The plain text of the slide's notes (`notesSlide` part, body
@@ -541,18 +899,23 @@ impl Reader<'_> {
         out
     }
 
-    /// The built-in placeholder definition for `kind` (on the slide's
-    /// layout, else on any layout).
-    fn builtin_def(&self, kind: PlaceholderKind, layout: LayoutKind) -> Option<&PlaceholderDef> {
-        self.p
-            .layout(layout)
-            .placeholder(kind)
-            .or_else(|| self.p.layouts.iter().find_map(|l| l.placeholder(kind)))
+    /// The layout (else master) placeholder a slide placeholder
+    /// `kind`/`idx` inherits from.
+    fn def_for(
+        &self,
+        ctx: &SlideCtx<'_>,
+        kind: PlaceholderKind,
+        idx: Option<u32>,
+    ) -> Option<PlaceholderDef> {
+        ctx.layout
+            .find(kind, idx)
+            .cloned()
+            .or_else(|| self.p.master.placeholder_for(kind).cloned())
     }
 
-    /// Position of a placeholder without `a:xfrm`: from the file's layout
-    /// (same `idx`, else same type class), then its master, then our
-    /// built-in layout.
+    /// Position of a placeholder without `a:xfrm`: from the layout the
+    /// file references (same `idx`, else same type, else same class), then
+    /// the slide's layout, then the master.
     fn inherited_xfrm(
         &self,
         ph: &El,
@@ -560,27 +923,14 @@ impl Reader<'_> {
         ctx: &SlideCtx<'_>,
     ) -> Option<Transform> {
         let ty = ph_type(ph);
+        let kind = kind.or_else(|| kind_of_type(ty, false))?;
         let idx = ph.attr("idx").and_then(parse_u32);
-        let find = |list: &[PhPos], by_idx: bool| {
-            let by_index = by_idx
-                .then(|| {
-                    idx.and_then(|i| list.iter().find(|p| p.idx == Some(i) && p.xfrm.is_some()))
-                })
-                .flatten();
-            by_index
-                .or_else(|| list.iter().find(|p| p.ty == ty && p.xfrm.is_some()))
-                .or_else(|| {
-                    list.iter()
-                        .find(|p| ph_class(&p.ty) == ph_class(ty) && p.xfrm.is_some())
-                })
-                .and_then(|p| p.xfrm)
-        };
-        find(&ctx.info.layout_phs, true)
-            .or_else(|| find(&ctx.info.master_phs, false))
-            .or_else(|| {
-                kind.and_then(|k| self.builtin_def(k, ctx.layout))
-                    .map(|d| d.transform)
-            })
+        ctx.file_layout
+            .as_ref()
+            .and_then(|l| l.find(kind, idx))
+            .or_else(|| ctx.layout.find(kind, idx))
+            .or_else(|| self.p.master.placeholder_for(kind))
+            .map(|d| d.transform)
     }
 
     fn read_sp(&mut self, el: &El, space: Space, ctx: &SlideCtx<'_>) -> Option<Shape> {
@@ -591,8 +941,12 @@ impl Reader<'_> {
             .unwrap_or("")
             .to_owned();
         let ph = ph_of(el);
+        let ph_idx = ph
+            .and_then(|ph| ph.attr("idx"))
+            .and_then(parse_u32)
+            .filter(|i| *i != 0);
         let kind = ph.and_then(|ph| {
-            let k = placeholder_kind(ph_type(ph), ctx.layout);
+            let k = placeholder_kind(ph_type(ph), &ctx.layout.kind);
             if k.is_none() {
                 self.w.add(format!(
                     "placeholder type {} read as a plain text box",
@@ -624,7 +978,7 @@ impl Reader<'_> {
         let (head, tail) = read_arrows(ln, self.w);
         let arrows = !head.is_none() || !tail.is_none();
         let base = kind
-            .and_then(|k| self.builtin_def(k, ctx.layout))
+            .and_then(|k| self.def_for(ctx, k, ph_idx))
             .map_or_else(BodyProps::default, |d| d.body_defaults);
         let mut text = el
             .child("txBody")
@@ -670,6 +1024,7 @@ impl Reader<'_> {
             fill,
             line,
             placeholder: kind,
+            placeholder_idx: kind.and(ph_idx),
         })
     }
 
@@ -752,6 +1107,7 @@ impl Reader<'_> {
             fill,
             line,
             placeholder: None,
+            placeholder_idx: None,
         })
     }
 
@@ -785,6 +1141,7 @@ impl Reader<'_> {
             fill: Fill::None,
             line: Line::default(),
             placeholder: None,
+            placeholder_idx: None,
         })
     }
 
@@ -827,18 +1184,12 @@ impl Reader<'_> {
                 id
             }
         };
-        if blip_fill.and_then(|b| b.child("srcRect")).is_some_and(|r| {
-            ["l", "t", "r", "b"]
-                .iter()
-                .any(|a| r.attr(a).and_then(parse_i64).is_some_and(|v| v != 0))
-        }) {
-            self.w.add("picture cropping dropped");
-        }
         let sp_pr = el.child("spPr");
         let ph = ph_of(el);
+        let ph_kind = ph.and_then(|ph| placeholder_kind(ph_type(ph), &ctx.layout.kind));
         let transform = match sp_pr.and_then(|s| s.child("xfrm")) {
             Some(x) => space.map(&read_xfrm(x)),
-            None => match ph.and_then(|ph| self.inherited_xfrm(ph, None, ctx)) {
+            None => match ph.and_then(|ph| self.inherited_xfrm(ph, ph_kind, ctx)) {
                 Some(t) => t,
                 None => {
                     self.w.add("shape without position dropped");
@@ -846,18 +1197,130 @@ impl Reader<'_> {
                 }
             },
         };
+        let props = self.read_picture_props(blip_fill, sp_pr, &transform);
         let style = read_style(el.child("style"), self.w);
         let line = read_line(sp_pr.and_then(|s| s.child("ln")), style.line, self.w);
+        let ph_idx = ph
+            .and_then(|ph| ph.attr("idx"))
+            .and_then(parse_u32)
+            .filter(|i| *i != 0);
         Some(Shape {
             id: file_id(el),
             alt: alt_of(el),
             name,
             transform,
-            kind: ShapeKind::Picture { media },
+            kind: ShapeKind::Picture { media, props },
             fill: Fill::None,
             line,
-            placeholder: None,
+            placeholder: ph_kind,
+            placeholder_idx: ph_kind.and(ph_idx),
         })
+    }
+
+    /// Crop (`a:srcRect`), blip effects (`a:alphaModFix`, `a:grayscl`,
+    /// `a:biLevel`, `a:duotone`, `a:lum`, PowerPoint 2010's
+    /// `a14:brightnessContrast`), outline shape (`a:prstGeom`) and outer
+    /// shadow of a picture.
+    fn read_picture_props(
+        &mut self,
+        blip_fill: Option<&El>,
+        sp_pr: Option<&El>,
+        transform: &Transform,
+    ) -> PictureProps {
+        let mut props = PictureProps::default();
+        let pct = |e: &El, a: &str| e.attr(a).and_then(parse_i64).unwrap_or(0) as f64 / 100_000.0;
+        if let Some(r) = blip_fill.and_then(|b| b.child("srcRect")) {
+            props.crop = Crop {
+                left: pct(r, "l"),
+                top: pct(r, "t"),
+                right: pct(r, "r"),
+                bottom: pct(r, "b"),
+            };
+        }
+        if blip_fill.is_some_and(|b| b.child("tile").is_some()) {
+            self.w.add("tiled picture fill read as stretched");
+        }
+        if let Some(blip) = blip_fill.and_then(|b| b.child("blip")) {
+            for e in blip.elements() {
+                match e.name.as_str() {
+                    "alphaModFix" => {
+                        let amt = e.attr("amt").and_then(parse_i64).unwrap_or(100_000);
+                        props.transparency = (1.0 - amt as f64 / 100_000.0).clamp(0.0, 1.0);
+                    }
+                    "grayscl" => props.recolor = Recolor::Grayscale,
+                    "biLevel" => {
+                        props.recolor = Recolor::BlackWhite {
+                            threshold: pct(e, "thresh"),
+                        }
+                    }
+                    "duotone" => {
+                        let colors: Vec<_> = e
+                            .elements()
+                            .filter_map(|c| crate::drawing::color_of(c, self.w))
+                            .map(|c| self.p.theme.resolve(&c))
+                            .collect();
+                        if let [dark, light] = colors[..] {
+                            props.recolor = if dark == core_model::Rgb::BLACK
+                                && light == Recolor::SEPIA_LIGHT
+                            {
+                                Recolor::Sepia
+                            } else {
+                                Recolor::Duotone { dark, light }
+                            };
+                        } else {
+                            self.w.add("picture duotone without two colours dropped");
+                        }
+                    }
+                    "lum" => {
+                        props.brightness = pct(e, "bright");
+                        props.contrast = pct(e, "contrast");
+                    }
+                    "extLst" => {
+                        if let Some(bc) = e.find("brightnessContrast") {
+                            props.brightness = pct(bc, "bright");
+                            props.contrast = pct(bc, "contrast");
+                        }
+                    }
+                    other => self.w.add(format!("picture effect {other} dropped")),
+                }
+            }
+        }
+        if let Some(sp) = sp_pr {
+            if sp
+                .child("prstGeom")
+                .is_some_and(|g| g.attr("prst") != Some("rect"))
+                || sp.child("custGeom").is_some()
+            {
+                let (g, adjust) =
+                    read_geometry(Some(sp), transform.w.0 as f64, transform.h.0 as f64, self.w);
+                if !adjust.is_empty() {
+                    self.w.add("picture shape adjust values dropped");
+                }
+                if g != Preset::Rect {
+                    props.geometry = Some(g);
+                }
+            }
+            if let Some(eff) = sp.child("effectLst") {
+                for e in eff.elements() {
+                    if e.name == "outerShdw" {
+                        let n = |a: &str| e.attr(a).and_then(parse_i64).unwrap_or(0);
+                        let (color, alpha) = color_and_alpha(e, self.w)
+                            .unwrap_or((Color::Rgb(core_model::Rgb::BLACK), 1.0));
+                        props.shadow = Some(Shadow {
+                            color,
+                            alpha,
+                            blur: Emu(n("blurRad")),
+                            distance: Emu(n("dist")),
+                            direction_deg: n("dir") as f64 / ANGLE_UNITS_PER_DEGREE,
+                        });
+                    } else {
+                        self.w
+                            .add("picture effects other than an outer shadow dropped");
+                    }
+                }
+            }
+        }
+        props
     }
 
     fn read_group(&mut self, el: &El, space: Space, ctx: &SlideCtx<'_>) -> Option<Shape> {
@@ -884,8 +1347,64 @@ impl Reader<'_> {
             fill: Fill::None,
             line: Line::default(),
             placeholder: None,
+            placeholder_idx: None,
         })
     }
+}
+
+/// Adds the placeholders of the Office master that `m` lacks (title,
+/// body, date, footer, slide number – LibreOffice writes masters without
+/// placeholders), with `m`'s text styles plus the Office placeholders'
+/// own changes.
+fn complete_master(m: &mut SlideMaster, builtin: &SlideMaster) {
+    let office = model_show::TextStyles::office();
+    for def in &builtin.placeholders {
+        if m.placeholders.iter().any(|d| d.kind == def.kind) {
+            continue;
+        }
+        let class = def.kind.text_class();
+        let o = office.level(class, 0);
+        let f = m.text_styles.level(class, 0);
+        let mut d = def.clone();
+        d.paragraph_defaults = f
+            .paragraph
+            .merged_with(&def.paragraph_defaults.diff_from(&o.paragraph));
+        d.run_defaults = f
+            .run
+            .merged_with(&model_show::run_diff(&def.run_defaults, &o.run));
+        m.placeholders.push(d);
+    }
+}
+
+/// Gives slide placeholders without an `idx` the `idx` of the layout
+/// placeholder they inherit from, unless another placeholder of the slide
+/// already uses it (the writer applies the same rule, so ids round-trip).
+pub(crate) fn normalize_placeholder_idx(shapes: &mut [Shape], layout: &Layout) {
+    fn explicit(shapes: &[Shape], out: &mut HashSet<u32>) {
+        for s in shapes {
+            if let (Some(_), Some(i)) = (s.placeholder, s.placeholder_idx) {
+                out.insert(i);
+            }
+            explicit(s.children(), out);
+        }
+    }
+    fn fill(shapes: &mut [Shape], layout: &Layout, used: &mut HashSet<u32>) {
+        for s in shapes {
+            if let (Some(k), None) = (s.placeholder, s.placeholder_idx) {
+                if let Some(d) = layout.find(k, None) {
+                    if d.idx != 0 && used.insert(d.idx) {
+                        s.placeholder_idx = Some(d.idx);
+                    }
+                }
+            }
+            if let ShapeKind::Group { children } = &mut s.kind {
+                fill(children, layout, used);
+            }
+        }
+    }
+    let mut used = HashSet::new();
+    explicit(shapes, &mut used);
+    fill(shapes, layout, &mut used);
 }
 
 /// `p:cNvPr/@id` of a shape element as a provisional node id (0 if
@@ -991,7 +1510,6 @@ mod tests {
         assert_eq!(infer(&["title"], "title"), LayoutKind::Title);
         assert_eq!(infer(&["title"], "obj"), LayoutKind::TitleContent);
         assert_eq!(infer(&[], "title"), LayoutKind::Blank);
-        assert_eq!(infer(&["dt", "sldNum"], "obj"), LayoutKind::Blank);
         assert!(w.into_vec().is_empty());
         let mut w = Warnings::default();
         assert_eq!(
@@ -1004,24 +1522,60 @@ mod tests {
         );
         assert_eq!(layout_of_type("tx"), Some(LayoutKind::TitleContent));
         assert_eq!(layout_of_type("twoObj"), None);
+        // fitting a slide to the layout it references
+        let size = SlideSize::widescreen();
+        let title = Layout::builtin(LayoutKind::Title, size);
+        let two = Layout::builtin(LayoutKind::TwoContent, size);
+        let blank = Layout::builtin(LayoutKind::Blank, size);
+        assert!(fits(&["title", "subTitle"], &title));
+        assert!(!fits(&["title", "obj"], &title));
+        assert!(fits(&["title", "obj", "obj"], &two));
+        assert!(fits(&["pic"], &two));
+        assert!(!fits(&[], &two));
+        assert!(fits(&[], &blank));
+        assert!(!fits(&["title"], &blank));
     }
 
     #[test]
     fn placeholder_kinds() {
         use LayoutKind::*;
         use PlaceholderKind as K;
-        assert_eq!(placeholder_kind("title", Title), Some(K::CenteredTitle));
-        assert_eq!(placeholder_kind("ctrTitle", Title), Some(K::CenteredTitle));
-        assert_eq!(placeholder_kind("title", TitleContent), Some(K::Title));
-        assert_eq!(placeholder_kind("ctrTitle", TitleContent), Some(K::Title));
-        assert_eq!(placeholder_kind("subTitle", Title), Some(K::Subtitle));
-        assert_eq!(placeholder_kind("obj", TitleContent), Some(K::Body));
-        assert_eq!(placeholder_kind("body", TitleContent), Some(K::Body));
-        assert_eq!(placeholder_kind("pic", TitleContent), Some(K::Body));
-        assert_eq!(placeholder_kind("sldNum", TitleContent), None);
-        assert_eq!(placeholder_kind("ftr", Blank), None);
-        assert_eq!(ph_class("ctrTitle"), "title");
-        assert_eq!(ph_class("obj"), ph_class("body"));
+        assert_eq!(placeholder_kind("title", &Title), Some(K::CenteredTitle));
+        assert_eq!(placeholder_kind("ctrTitle", &Title), Some(K::CenteredTitle));
+        assert_eq!(placeholder_kind("title", &TitleContent), Some(K::Title));
+        assert_eq!(placeholder_kind("ctrTitle", &TitleContent), Some(K::Title));
+        assert_eq!(placeholder_kind("subTitle", &Title), Some(K::Subtitle));
+        assert_eq!(placeholder_kind("obj", &TitleContent), Some(K::Body));
+        assert_eq!(placeholder_kind("body", &TitleContent), Some(K::Body));
+        assert_eq!(placeholder_kind("pic", &TitleContent), Some(K::Picture));
+        assert_eq!(
+            placeholder_kind("sldNum", &TitleContent),
+            Some(K::SlideNumber)
+        );
+        assert_eq!(placeholder_kind("ftr", &Blank), Some(K::Footer));
+        assert_eq!(placeholder_kind("dt", &Blank), Some(K::DateTime));
+        assert_eq!(placeholder_kind("hdr", &Blank), None);
+    }
+
+    #[test]
+    fn placeholder_idx_normalization() {
+        let two = Layout::builtin(LayoutKind::TwoContent, SlideSize::widescreen());
+        let mut shapes: Vec<Shape> = (0..3)
+            .map(|_| {
+                let mut s = Shape::text_box(Transform::default(), "");
+                s.placeholder = Some(PlaceholderKind::Body);
+                s
+            })
+            .collect();
+        shapes[2].placeholder_idx = Some(1);
+        normalize_placeholder_idx(&mut shapes, &two);
+        // idx 1 is taken by the explicit one: the first stays without
+        let idx: Vec<_> = shapes.iter().map(|s| s.placeholder_idx).collect();
+        assert_eq!(idx, [None, None, Some(1)]);
+        shapes[2].placeholder_idx = None;
+        normalize_placeholder_idx(&mut shapes, &two);
+        let idx: Vec<_> = shapes.iter().map(|s| s.placeholder_idx).collect();
+        assert_eq!(idx, [Some(1), None, None]);
     }
 
     #[test]

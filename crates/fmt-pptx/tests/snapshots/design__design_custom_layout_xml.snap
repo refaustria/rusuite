@@ -1,0 +1,154 @@
+---
+source: crates/fmt-pptx/tests/design.rs
+expression: "pretty_part(&bytes, \"/ppt/slideLayouts/slideLayout12.xml\")"
+---
+
+<p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="cust" preserve="1">
+ <p:cSld name="Quote">
+  <p:bg>
+   <p:bgPr>
+    <a:solidFill>
+     <a:schemeClr val="accent1">
+      <a:lumMod val="20000"/>
+      <a:lumOff val="80000"/>
+     </a:schemeClr>
+    </a:solidFill>
+    <a:effectLst/>
+   </p:bgPr>
+  </p:bg>
+  <p:spTree>
+   <p:nvGrpSpPr>
+    <p:cNvPr id="1" name=""/>
+    <p:cNvGrpSpPr/>
+    <p:nvPr/>
+   </p:nvGrpSpPr>
+   <p:grpSpPr>
+    <a:xfrm>
+     <a:off x="0" y="0"/>
+     <a:ext cx="0" cy="0"/>
+     <a:chOff x="0" y="0"/>
+     <a:chExt cx="0" cy="0"/>
+    </a:xfrm>
+   </p:grpSpPr>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="2" name="Rectangle 1"/>
+     <p:cNvSpPr/>
+     <p:nvPr/>
+    </p:nvSpPr>
+    <p:spPr>
+     <a:xfrm>
+      <a:off x="0" y="0"/>
+      <a:ext cx="360000" cy="6858000"/>
+     </a:xfrm>
+     <a:prstGeom prst="rect">
+      <a:avLst/>
+     </a:prstGeom>
+     <a:solidFill>
+      <a:schemeClr val="accent1"/>
+     </a:solidFill>
+     <a:ln w="12700">
+      <a:noFill/>
+      <a:prstDash val="solid"/>
+     </a:ln>
+    </p:spPr>
+   </p:sp>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="3" name="Title Placeholder 2"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph type="title"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr/>
+    <p:txBody>
+     <a:bodyPr/>
+     <a:lstStyle/>
+     <a:p>
+      <a:r>
+       <a:rPr lang="en-US"/>
+       <a:t>Click to edit Master title style</a:t>
+      </a:r>
+      <a:endParaRPr lang="en-US"/>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="4" name="Date Placeholder 3"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph type="dt" idx="10"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr/>
+    <p:txBody>
+     <a:bodyPr/>
+     <a:lstStyle/>
+     <a:p>
+      <a:fld id="{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}" type="datetime1">
+       <a:rPr lang="en-US"/>
+       <a:t>
+       </a:t>
+      </a:fld>
+      <a:endParaRPr lang="en-US"/>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="5" name="Footer Placeholder 4"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph type="ftr" idx="11"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr/>
+    <p:txBody>
+     <a:bodyPr/>
+     <a:lstStyle/>
+     <a:p>
+      <a:r>
+       <a:rPr lang="en-US"/>
+       <a:t>Rusuite design deck</a:t>
+      </a:r>
+      <a:endParaRPr lang="en-US"/>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="6" name="Slide Number Placeholder 5"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph type="sldNum" idx="12"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr/>
+    <p:txBody>
+     <a:bodyPr/>
+     <a:lstStyle/>
+     <a:p>
+      <a:fld id="{9D3A5A06-5E21-4C21-9D1E-4F8B8A0E2C3D}" type="slidenum">
+       <a:rPr lang="en-US"/>
+       <a:t>‹#›</a:t>
+      </a:fld>
+      <a:endParaRPr lang="en-US"/>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+  </p:spTree>
+ </p:cSld>
+ <p:clrMapOvr>
+  <a:masterClrMapping/>
+ </p:clrMapOvr>
+</p:sldLayout>

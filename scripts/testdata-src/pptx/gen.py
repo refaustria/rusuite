@@ -1,9 +1,10 @@
-"""Generator for the PROVISIONAL pptx reference suite (29 decks).
+"""Generator for the PROVISIONAL pptx reference suite (31 decks).
 
 Emits one flat ODP (.fodp) per topic plus manifest.json. Conversion to .pptx is done by
 scripts/gen-pptx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
 
   gen.py emit OUTDIR PNGDIR      write OUTDIR/*.fodp and OUTDIR/manifest.json
+  gen.py post PPTXDIR            add what LibreOffice cannot export (PowerPoint 2010 sections) to the .pptx files
   gen.py check MANIFEST PPTXDIR  structural checks of the converted .pptx files against the manifest
 """
 import base64
@@ -53,6 +54,8 @@ class Deck:
         self.feats = []
         self.imgs = 0
         self.deck_bg = bg
+        self.hf = None  # {"footer": text, "date": text, "number": bool}; not on title slides
+        self.sections = []  # (name, index of the section's first slide)
 
     @property
     def file(self):
@@ -99,6 +102,18 @@ class Deck:
         if advance:
             a.append(f'presentation:transition-type="automatic" presentation:duration="PT{advance}S"')
             self.feat("transition:advance")
+        if self.hf and layout != "title":
+            a.append('presentation:display-footer="true" presentation:display-page-number="true" '
+                     'presentation:display-date-time="true"')
+            if self.hf.get("footer"):
+                self.feat("footer")
+            if self.hf.get("date"):
+                self.feat("datetime")
+            if self.hf.get("number"):
+                self.feat("slidenum")
+        elif self.hf:
+            a.append('presentation:display-footer="false" presentation:display-page-number="false" '
+                     'presentation:display-date-time="false"')
         if a:
             st = self.style("drawing-page", f'<style:drawing-page-properties {" ".join(a)}/>', "dp")
         self.slides.append((self.cur, st))
@@ -399,13 +414,32 @@ class Deck:
         self.add(f'<draw:frame draw:style-name="{st}" svg:x="{x}cm" svg:y="{y}cm" svg:width="{w}cm" svg:height="{h}cm">'
                  f"<draw:text-box>{content}</draw:text-box></draw:frame>")
 
-    def picture(self, k, x, y, w, h):
+    def picture(self, k, x, y, w, h, clip=None, mode=None, luminance=None, contrast=None, opacity=None):
+        """clip: (top, right, bottom, left) in cm of the 48 px (1.27 cm) image; mode: greyscale|mono;
+        luminance/contrast: percent (-100..100); opacity: percent."""
         self.imgs += 1
         self.feat("picture"); self.count("picture")
+        st = self.gstyle()
+        a = []
+        if clip:
+            a.append('fo:clip="rect({}cm, {}cm, {}cm, {}cm)"'.format(*clip)); self.feat("picture:crop")
+        if mode:
+            a.append(f'draw:color-mode="{mode}"')
+            self.feat({"greyscale": "picture:grayscale", "mono": "picture:blackWhite"}[mode])
+        if luminance is not None or contrast is not None:
+            a.append(f'draw:luminance="{luminance or 0}%" draw:contrast="{contrast or 0}%"'); self.feat("picture:lum")
+        if opacity is not None:
+            a.append(f'draw:image-opacity="{opacity}%"'); self.feat("picture:transparency")
+        if a:
+            st = self.style("graphic", f'<style:graphic-properties draw:stroke="none" draw:fill="none" {" ".join(a)}/>', "G")
         data = base64.b64encode(IMAGES[k]).decode()
-        self.add(f'<draw:frame draw:style-name="{self.gstyle()}" draw:name="Image{self.imgs}" svg:x="{x}cm" svg:y="{y}cm" '
+        self.add(f'<draw:frame draw:style-name="{st}" draw:name="Image{self.imgs}" svg:x="{x}cm" svg:y="{y}cm" '
                  f'svg:width="{w}cm" svg:height="{h}cm"><draw:image><office:binary-data>{data}'
                  f"</office:binary-data></draw:image></draw:frame>")
+
+    def section(self, name):
+        """Starts a section (PowerPoint 2010 p14:sectionLst, added by `gen.py post`) at the next slide."""
+        self.sections.append((name, len(self.slides)))
 
     def group(self, inner):
         self.feat("group"); self.count("group")
@@ -415,9 +449,26 @@ class Deck:
     def fodp(self):
         w, h = self.w, self.h
         pages = []
+        hf_decl, hf_use, hf_master = "", "", ""
+        if self.hf:
+            if self.hf.get("footer"):
+                hf_decl += f'<presentation:footer-decl presentation:name="ftr1">{esc(self.hf["footer"])}</presentation:footer-decl>'
+                hf_use += ' presentation:use-footer-name="ftr1"'
+            if self.hf.get("date"):
+                hf_decl += (f'<presentation:date-time-decl presentation:name="dtd1" presentation:source="fixed">'
+                            f'{esc(self.hf["date"])}</presentation:date-time-decl>')
+                hf_use += ' presentation:use-date-time-name="dtd1"'
+            y = h - 1.6
+            hf_master = (f'<draw:frame presentation:style-name="pres-hf" presentation:class="date-time" svg:x="1cm" svg:y="{y}cm" '
+                         f'svg:width="6cm" svg:height="1cm"><draw:text-box><text:p><presentation:date-time/></text:p></draw:text-box></draw:frame>'
+                         f'<draw:frame presentation:style-name="pres-hf" presentation:class="footer" svg:x="{w / 2 - 5}cm" svg:y="{y}cm" '
+                         f'svg:width="10cm" svg:height="1cm"><draw:text-box><text:p><presentation:footer/></text:p></draw:text-box></draw:frame>'
+                         f'<draw:frame presentation:style-name="pres-hf" presentation:class="page-number" svg:x="{w - 7}cm" svg:y="{y}cm" '
+                         f'svg:width="6cm" svg:height="1cm"><draw:text-box><text:p><text:page-number>&lt;number&gt;</text:page-number></text:p></draw:text-box></draw:frame>')
         for i, (els, bgst) in enumerate(self.slides, 1):
             st = bgst or "dp0"
-            pages.append(f'<draw:page draw:name="Slide{i}" draw:style-name="{st}" draw:master-page-name="Default">'
+            use = hf_use if self.layouts[i - 1] != "title" else ""
+            pages.append(f'<draw:page draw:name="Slide{i}" draw:style-name="{st}" draw:master-page-name="Default"{use}>'
                          + "".join(els) + self.timing(self.anims[i - 1]) + "</draw:page>")
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <office:document {NS}>
@@ -427,6 +478,7 @@ class Deck:
 <style:style style:name="pres-title" style:family="presentation"><style:graphic-properties draw:stroke="none" draw:fill="none"/><style:text-properties fo:font-size="40pt" fo:font-weight="bold"/></style:style>
 <style:style style:name="pres-sub" style:family="presentation"><style:graphic-properties draw:stroke="none" draw:fill="none"/><style:text-properties fo:font-size="24pt"/></style:style>
 <style:style style:name="pres-outline" style:family="presentation"><style:graphic-properties draw:stroke="none" draw:fill="none"/><style:text-properties fo:font-size="28pt"/></style:style>
+<style:style style:name="pres-hf" style:family="presentation"><style:graphic-properties draw:stroke="none" draw:fill="none"/><style:text-properties fo:font-size="12pt"/></style:style>
 </office:styles>
 <office:automatic-styles>
 <style:page-layout style:name="PL"><style:page-layout-properties fo:page-width="{w}cm" fo:page-height="{h}cm" style:print-orientation="landscape"/></style:page-layout>
@@ -436,10 +488,10 @@ class Deck:
 <text:list-style style:name="LN"><text:list-level-style-number text:level="1" style:num-suffix="." style:num-format="1"><style:list-level-properties text:min-label-width="0.8cm"/></text:list-level-style-number></text:list-style>
 </office:automatic-styles>
 <office:master-styles>
-<style:master-page style:name="Default" style:page-layout-name="PL" draw:style-name="dp0"/>
+<style:master-page style:name="Default" style:page-layout-name="PL" draw:style-name="dp0">{hf_master}</style:master-page>
 </office:master-styles>
 <office:body><office:presentation>
-{"".join(pages)}
+{hf_decl}{"".join(pages)}
 </office:presentation></office:body></office:document>
 """
 
@@ -456,6 +508,8 @@ class Deck:
                 feats.append(f)
             else:
                 feats.append(f)
+        if self.sections:
+            feats.append(f"section:count={len(self.sections)}")
         return {"file": self.file, "topic": self.topic, "features": feats}
 
 
@@ -733,7 +787,34 @@ def d29():
     return d
 
 
-TOPICS = [globals()[f"d{n:02d}"] for n in range(1, 30)]
+def d30():
+    d = Deck(30, "sections-footers", "Three sections; footer text, fixed date and slide numbers on all but the title slide")
+    d.hf = {"footer": "Rusuite reference deck", "date": "16 October 2026", "number": True}
+    d.section("Introduction")
+    d.slide("title"); d.title("Sections and Footers", y=4.0); d.subtitle("Footers are not shown on the title slide")
+    d.slide("titleContent"); d.title("Agenda", cls="title"); d.outline([(1, "Why"), (1, "How")])
+    d.section("Details")
+    d.slide("titleContent"); d.title("Why", cls="title"); d.outline([(1, "Readers need context")])
+    d.slide("titleContent"); d.title("How", cls="title"); d.outline([(1, "With footers"), (1, "And sections")])
+    d.section("Wrap-up")
+    d.slide("titleContent"); d.title("Thanks", cls="title"); d.outline([(1, "Questions?")])
+    return d
+
+
+def d31():
+    d = Deck(31, "picture-adjustments", "Cropped, grayscale, black-and-white, brightness/contrast and transparent pictures")
+    d.slide("blank")
+    d.picture("img0", 1, 2, 6, 6, clip=(0, 0, 0.3, 0.4))
+    d.picture("img2", 8, 2, 6, 6, mode="greyscale")
+    d.picture("img1", 15, 2, 6, 6, mode="mono")
+    d.picture("img2", 22, 2, 5, 5, luminance=20, contrast=-30)
+    d.slide("blank")
+    d.picture("img0", 2, 2, 10, 10, opacity=50)
+    d.picture("img2", 14, 2, 10, 10, clip=(0.2, 0.2, 0.2, 0.2), mode="greyscale")
+    return d
+
+
+TOPICS = [globals()[f"d{n:02d}"] for n in range(1, 32)]
 
 
 def emit(outdir, pngdir):
@@ -747,6 +828,44 @@ def emit(outdir, pngdir):
         (out / d.file.replace(".pptx", ".fodp")).write_text(d.fodp(), encoding="utf-8")
         man.append(d.manifest_entry())
     (out / "manifest.json").write_text(json.dumps(man, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+SECTION_URI = "{521415D9-36F7-43E2-AB2F-B90AF26B5E84}"
+P14 = "http://schemas.microsoft.com/office/powerpoint/2010/main"
+
+
+def post(pptxdir):
+    """Adds the sections of every deck that has some (LibreOffice cannot export them) to its .pptx."""
+    for k in range(3):
+        IMAGES.setdefault(f"img{k}", b"")  # the decks are only rebuilt for their sections
+    for t in TOPICS:
+        d = t()
+        path = Path(pptxdir) / d.file
+        if not d.sections or not path.exists():
+            continue
+        with zipfile.ZipFile(path) as z:
+            entries = [(i, z.read(i.filename)) for i in z.infolist()]
+        out = []
+        for info, data in entries:
+            if info.filename == "ppt/presentation.xml":
+                xml = data.decode("utf-8")
+                ids = re.findall(r'<p:sldId id="(\d+)"', xml)
+                bounds = [first for _, first in d.sections] + [len(ids)]
+                secs = ""
+                for k, (name, first) in enumerate(d.sections):
+                    sl = "".join(f'<p14:sldId id="{i}"/>' for i in ids[first:bounds[k + 1]])
+                    guid = f"{{{0x5EC70000 + k:08X}-0000-4000-8000-{d.n:012d}}}"
+                    secs += f'<p14:section name="{escape(name)}" id="{guid}"><p14:sldIdLst>{sl}</p14:sldIdLst></p14:section>'
+                ext = (f'<p:ext uri="{SECTION_URI}"><p14:sectionLst xmlns:p14="{P14}">{secs}</p14:sectionLst></p:ext>')
+                if "<p:extLst>" in xml:
+                    xml = xml.replace("</p:extLst>", ext + "</p:extLst>", 1)
+                else:
+                    xml = xml.replace("</p:presentation>", f"<p:extLst>{ext}</p:extLst></p:presentation>", 1)
+                data = xml.encode("utf-8")
+            out.append((info, data))
+        with zipfile.ZipFile(path, "w") as z:
+            for info, data in out:
+                z.writestr(info, data, compress_type=info.compress_type)
 
 
 def check(manifest_path, pptxdir):
@@ -851,6 +970,25 @@ def check(manifest_path, pptxdir):
                 errs.append("advTm not found")
             elif ft.startswith("transition:") and ft != "transition:advance" and f"<p:{ft.split(':')[1]}" not in xml:
                 errs.append(f"{ft} not found")
+            elif ft.startswith("section:count="):
+                if pres.count("<p14:section ") != int(ft.split("=")[1]):
+                    errs.append(f"{ft}: found {pres.count('<p14:section ')}")
+            elif ft == "footer" and '<p:ph type="ftr"' not in xml:
+                errs.append("footer placeholder not found")
+            elif ft == "datetime" and '<p:ph type="dt"' not in xml:
+                errs.append("date placeholder not found")
+            elif ft == "slidenum" and 'type="slidenum"' not in xml:
+                errs.append("slide number field not found")
+            elif ft == "picture:crop" and not re.search(r'<a:srcRect [^>]*="[1-9]', xml):
+                errs.append("a:srcRect not found")
+            elif ft == "picture:grayscale" and "<a:grayscl" not in xml:
+                errs.append("a:grayscl not found")
+            elif ft == "picture:blackWhite" and "<a:biLevel" not in xml:
+                errs.append("a:biLevel not found")
+            elif ft == "picture:lum" and "<a:lum " not in xml:
+                errs.append("a:lum not found")
+            elif ft == "picture:transparency" and "<a:alphaModFix" not in xml:
+                errs.append("a:alphaModFix not found")
             elif ft.startswith("animation:"):
                 _, cls, eff = ft.split(":")
                 c = {"entrance": "entr", "emphasis": "emph", "exit": "exit"}[cls]
@@ -867,6 +1005,8 @@ def check(manifest_path, pptxdir):
 if __name__ == "__main__":
     if len(sys.argv) == 4 and sys.argv[1] == "emit":
         emit(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) == 3 and sys.argv[1] == "post":
+        post(sys.argv[2])
     elif len(sys.argv) == 4 and sys.argv[1] == "check":
         sys.exit(1 if check(sys.argv[2], sys.argv[3]) else 0)
     else:

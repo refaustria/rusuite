@@ -40,6 +40,7 @@ const SHAPES: Record<ResponseBody["type"], Record<string, string>> = {
   opened: { presentation: "object", envelope: "object" },
   saved: { bytesBase64: "string", suggestedName: "string" },
   shapePaths: {},
+  themes: {},
 };
 
 /** Checks the shape of a reply and returns its body of the expected type. */
