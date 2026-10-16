@@ -2,8 +2,9 @@
 // (an anchor per web address – opened in a new tab by the browser, no
 // `window.open` – and a button per jump) and its audio / video as HTML5
 // media elements with controls at the shape's place (Automatically clips
-// start when the slide appears; looping, volume, mute and "hide while not
-// playing" as set on the Playback tab).
+// start when the slide appears, "In Click Sequence" clips when the click of
+// their step comes; looping, volume, mute and "hide while not playing" as
+// set on the Playback tab).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DeckContext } from "../design/deck";
@@ -14,10 +15,13 @@ import type { Slide } from "../generated/Slide";
 import { emuToPx, fitScale, slidePx } from "../geometry";
 import { themePalette } from "../model";
 import { linkRegions, safeUrl } from "../links/regions";
+import { startedMedia } from "../anim/playback";
 
 export interface ShowOverlayProps {
   deck: DeckContext;
   slide: Slide;
+  /** Click steps done on the slide (clips "In Click Sequence" start when their step comes). */
+  step?: number;
   media: ReadonlyMap<number, string>;
   /** The screen the slide is letterboxed into. */
   width: number;
@@ -47,7 +51,7 @@ export function mediaUrl(dataUrl: string | undefined): string | undefined {
 }
 
 /** One clip of the slide. */
-function Clip({ shape, clip, url, poster, scale }: { shape: Shape; clip: MediaClip; url: string | undefined; poster: string | undefined; scale: number }) {
+function Clip({ shape, clip, url, poster, scale, started }: { shape: Shape; clip: MediaClip; url: string | undefined; poster: string | undefined; scale: number; started: boolean }) {
   const ref = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   useEffect(() => {
@@ -57,6 +61,16 @@ function Clip({ shape, clip, url, poster, scale }: { shape: Shape; clip: MediaCl
     el.muted = !!clip.muted;
     if (clip.start === "automatically") void el.play?.()?.catch(() => undefined);
   }, [clip.volume, clip.muted, clip.start, url]);
+  // "In Click Sequence": the click of its step starts it (going back stops it)
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || clip.start !== "inClickSequence") return;
+    if (started) void el.play?.()?.catch(() => undefined);
+    else {
+      el.pause?.();
+      if (el.currentTime) el.currentTime = 0;
+    }
+  }, [started, clip.start, url]);
   const t = shape.transform;
   const box = { left: emuToPx(t.x) * scale, top: emuToPx(t.y) * scale, width: emuToPx(t.w) * scale, height: emuToPx(t.h) * scale };
   const hidden = !!clip.hideWhenNotPlaying && !playing;
@@ -86,12 +100,13 @@ function Clip({ shape, clip, url, poster, scale }: { shape: Shape; clip: MediaCl
   return <video {...common} poster={poster} className="absolute bg-black object-contain" style={{ ...box, opacity: hidden ? 0 : 1 }} />;
 }
 
-export function ShowOverlay({ deck, slide, media, width, height, onLink }: ShowOverlayProps) {
+export function ShowOverlay({ deck, slide, step = 0, media, width, height, onLink }: ShowOverlayProps) {
   const scale = fitScale(width, height, deck.slideSize);
   const px = slidePx(deck.slideSize);
   const palette = useMemo(() => themePalette(deck.theme), [deck.theme]);
   const regions = useMemo(() => linkRegions(deck, slide, palette), [deck, slide, palette]);
   const clips = slide.shapes.filter((s): s is Shape & { kind: { kind: "media"; value: MediaClip } } => s.kind.kind === "media");
+  const started = new Set(startedMedia(slide, step));
   if (scale <= 0 || (!regions.length && !clips.length)) return null;
   const left = (width - px.width * scale) / 2;
   const top = (height - px.height * scale) / 2;
@@ -138,7 +153,7 @@ export function ShowOverlay({ deck, slide, media, width, height, onLink }: ShowO
       })}
       {clips.map((s) => (
         <span key={s.id} className="pointer-events-auto">
-          <Clip shape={s} clip={s.kind.value} url={mediaUrl(media.get(s.kind.value.media))} poster={s.kind.value.poster !== undefined ? media.get(s.kind.value.poster) : undefined} scale={scale} />
+          <Clip shape={s} clip={s.kind.value} url={mediaUrl(media.get(s.kind.value.media))} poster={s.kind.value.poster !== undefined ? media.get(s.kind.value.poster) : undefined} scale={scale} started={started.has(s.id)} />
         </span>
       ))}
     </div>

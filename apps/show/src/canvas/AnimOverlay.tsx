@@ -55,7 +55,7 @@ export function AnimBadges({ store, slide, scale }: { store: ShowStore; slide: S
 }
 
 /** A black slide: what a transition preview of the first slide comes from. */
-const blackSlide = (id: number): Slide => ({ id, layout: "blank", shapes: [], background: { kind: "solid", value: { kind: "rgb", value: "000000" } } });
+const blackSlide = (id: number): Slide => ({ id, layout: "blank", shapes: [], background: { kind: "fill", value: { kind: "solid", value: { kind: "rgb", value: "000000" } } } });
 
 export function StagePreview({ store, deck, slides, index, width, height }: {
   store: ShowStore;

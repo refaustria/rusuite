@@ -30,6 +30,7 @@ export function masterMenu(store: ShowStore): ContextMenuItem[] {
     { id: "insertLayout", label: t("show.master.insertLayout"), onSelect: () => void store.addLayout() },
     { id: "duplicateLayout", label: t("show.master.duplicateLayout"), disabled: layout === null, onSelect: () => void store.duplicateLayout() },
     { id: "deleteLayout", label: t("show.master.deleteLayout"), disabled: layout === null || store.layoutInUse(layout), onSelect: () => void store.deleteLayout() },
+    { id: "renameLayout", label: t("show.master.renameDots"), disabled: layout === null, onSelect: () => layout !== null && store.openDialog({ kind: "renameLayout", layout }) },
     { separator: true },
     { id: "formatBackground", label: t("show.bg.formatDots"), onSelect: () => store.toggleBgPane(true) },
     { separator: true },
@@ -191,6 +192,7 @@ export function tableMenu(store: ShowStore): ContextMenuItem[] {
     { separator: true },
     { id: "merge", label: tr("show.table.merge"), disabled: !multi, onSelect: () => void store.mergeCells() },
     { id: "split", label: tr("show.table.split"), disabled: !merged, onSelect: () => void store.splitCell() },
+    { id: "splitGrid", label: tr("show.table.splitDots"), disabled: !range, onSelect: () => store.openDialog({ kind: "splitCells" }) },
     { separator: true },
     { id: "format", label: tr("show.formatShapeDots"), disabled: !table, onSelect: () => store.openDialog({ kind: "format" }) },
   ];

@@ -6,10 +6,11 @@
 // master), Format Background (the pane) and Slide Size ▾. Also the layout
 // galleries of Home / Insert › New Slide ▾ and Home › Layout ▾.
 
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ColorPicker, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonStack, type RibbonGalleryItem, type RibbonMenuItem, type RibbonTab, type TFunction } from "@rusuite/ui-shared";
 import type { ThemeColorSlot } from "../../../../packages/ui-shared/src/generated/ThemeColorSlot";
 import type { Background } from "../generated/Background";
+import type { PictureFill } from "../generated/PictureFill";
 import type { BuiltinTheme } from "../generated/BuiltinTheme";
 import type { LayoutKind } from "../generated/LayoutKind";
 import type { Presentation } from "../generated/Presentation";
@@ -287,11 +288,13 @@ const GRADIENT_SLOTS: ThemeColorSlot[] = ["light1", "light2", "dark2", "accent1"
 const PANE_BTN = "h-8 rounded border border-ui-border bg-ui-bg px-2 text-xs hover:bg-ui-hover disabled:opacity-40";
 
 /**
- * Format Background (right of the stage): Solid fill (colour) or Gradient
- * fill (the theme's gradient background style in a theme colour), Hide
- * background graphics, Apply to All and Reset Background. In the normal
- * view it changes the current slide (gradients, which slides cannot hold,
- * go to the master); in the master view the selected master or layout.
+ * Format Background (right of the stage): Solid fill (colour), Gradient
+ * fill (the theme's gradient background style in a theme colour) or
+ * Picture or texture fill (Insert… a picture file, Tile picture as
+ * texture, Transparency), Hide background graphics, Apply to All and
+ * Reset Background. In the normal view it changes the current slide
+ * (gradients, which slides cannot hold, go to the master); in the master
+ * view the selected master or layout.
  */
 export function BackgroundPane({ store }: { store: ShowStore }) {
   const t = useT();
@@ -299,17 +302,23 @@ export function BackgroundPane({ store }: { store: ShowStore }) {
   const pres = useShow(store, (s) => s.pres);
   const current = useShow(store, (s) => s.current);
   const mv = useShow(store, (s) => s.masterView);
+  // "Picture or texture fill" chosen before a picture was inserted
+  const [picking, setPicking] = useState(false);
   if (!open || !pres) return null;
   const deck = stableDeck(pres);
   const slide = pres.slides.find((s) => s.id === current) ?? null;
   const layout = mv?.kind === "layout" ? layoutOf(pres, mv.value) : undefined;
   const own: Background | null | undefined = mv
     ? mv.kind === "master" ? pres.master?.background : layout?.background ?? null
-    : slide?.background ? { kind: "fill", value: slide.background } : null;
+    : slide?.background ?? null;
   const shown = mv
     ? resolveBackground(pres.theme, own ?? pres.master?.background ?? { kind: "fill", value: { kind: "none" } })
     : slide ? slideBackground(deck, slide) : null;
-  const kind = shown?.kind === "gradient" ? "gradient" : "solid";
+  const kind = shown?.kind === "gradient" ? "gradient" : shown?.kind === "picture" || picking ? "picture" : "solid";
+  const picture = own?.kind === "picture" ? own.value : null;
+  const setPicture = (patch: Partial<PictureFill>) => {
+    if (picture) void store.setBackgroundOf(target, { kind: "picture", value: { ...picture, ...patch } }, mv?.kind === "master" ? undefined : hidden);
+  };
   const target = store.backgroundTarget();
   const hidden = mv ? layout?.showMasterShapes === false : slide?.showMasterShapes === false;
   const palette = themePalette(pres.theme);
@@ -334,15 +343,57 @@ export function BackgroundPane({ store }: { store: ShowStore }) {
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-1 font-medium">{t("show.bg.fill")}</legend>
         <label className="flex items-center gap-2">
-          <input type="radio" name="bg-kind" checked={kind === "solid"} onChange={() => setSolid({ kind: "fill", value: { kind: "solid", value: { kind: "theme", value: { slot: "light1", tint: 0 } } } })} />
+          <input type="radio" name="bg-kind" checked={kind === "solid"} onChange={() => { setPicking(false); setSolid({ kind: "fill", value: { kind: "solid", value: { kind: "theme", value: { slot: "light1", tint: 0 } } } }); }} />
           {t("show.bg.solid")}
         </label>
         <label className="flex items-center gap-2">
-          <input type="radio" name="bg-kind" checked={kind === "gradient"} onChange={() => setGradient("accent1")} />
+          <input type="radio" name="bg-kind" checked={kind === "gradient"} onChange={() => { setPicking(false); setGradient("accent1"); }} />
           {t("show.bg.gradient")}
         </label>
+        <label className="flex items-center gap-2">
+          <input type="radio" name="bg-kind" checked={kind === "picture"} onChange={() => setPicking(true)} data-testid="bg-picture-radio" />
+          {t("show.bg.picture")}
+        </label>
       </fieldset>
-      {kind === "solid" ? (
+      {kind === "picture" ? (
+        <div className="flex flex-col gap-2" data-testid="bg-picture">
+          <span>{t("show.bg.pictureSource")}</span>
+          <label className={`${PANE_BTN} flex cursor-pointer items-center justify-center`}>
+            {t("show.bg.insertPicture")}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/bmp,image/webp,image/svg+xml"
+              className="sr-only"
+              data-testid="bg-picture-file"
+              onChange={(e) => {
+                const f = e.currentTarget.files?.[0];
+                e.currentTarget.value = "";
+                if (f) void store.setBackgroundPictureFile(target, f, { tile: picture?.tile ?? false, transparency: picture?.transparency ?? 0 }, mv?.kind === "master" ? undefined : hidden);
+              }}
+            />
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" disabled={!picture} checked={!!picture?.tile} onChange={(e) => setPicture({ tile: e.currentTarget.checked })} data-testid="bg-tile" />
+            {t("show.bg.tile")}
+          </label>
+          <label className="flex flex-col gap-1">
+            <span>
+              {t("show.bg.transparency")} {Math.round((picture?.transparency ?? 0) * 100)} %
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              disabled={!picture}
+              value={Math.round((picture?.transparency ?? 0) * 100)}
+              aria-label={t("show.bg.transparency")}
+              onChange={(e) => setPicture({ transparency: Number(e.currentTarget.value) / 100 })}
+              data-testid="bg-transparency"
+            />
+          </label>
+        </div>
+      ) : kind === "solid" ? (
         <div className="flex items-center justify-between">
           <span>{t("show.bg.color")}</span>
           <ColorPicker label={t("show.bg.color")} kind="fill" value={solidColor} theme={palette} onSelect={(c) => setSolid(c ? { kind: "fill", value: { kind: "solid", value: c } } : null)} />

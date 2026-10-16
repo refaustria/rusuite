@@ -1,8 +1,14 @@
-//! ECMA-376 preset shape definitions as data (`presetShapeDefinitions.xml`
-//! of ECMA-376 Part 1, converted by `gen.py` in this directory into the
-//! compact line format of `defs.txt`) and their evaluation: guides, paths,
-//! adjust handles (`a:ahLst`), connection sites (`a:cxnLst`) and the text
-//! rectangle (`a:rect`).
+//! ECMA-376 preset shape definitions as data and their evaluation:
+//! guides, paths, adjust handles (`a:ahLst`), connection sites
+//! (`a:cxnLst`) and the text rectangle (`a:rect`).
+//!
+//! `defs.txt` holds the presets of `names.txt`, converted from
+//! `presetShapeDefinitions.xml` of ECMA-376 Part 1 (the electronic
+//! addendum; also shipped in LibreOffice's sources as
+//! `oox/source/drawingml/customshapes/presetShapeDefinitions.xml`) by
+//! `python3 -I gen.py presetShapeDefinitions.xml names.txt > defs.txt`.
+//! To support another preset: add its name to `names.txt`, regenerate,
+//! and add a variant to [`crate::Preset`].
 //!
 //! Line format (one item per line, tokens separated by single spaces;
 //! operands are numbers or guide names):

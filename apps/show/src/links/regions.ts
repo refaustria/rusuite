@@ -39,7 +39,7 @@ export function linkRegions(deck: DeckContext, slide: Slide, palette: ThemePalet
     if (s.kind.kind !== "auto" || !s.kind.value.text) continue;
     const body = s.kind.value.text;
     if (!body.paragraphs.some((p) => p.runs.some((r) => r.hyperlink))) continue;
-    const tr = textRect(s.kind.value.geometry, w, h);
+    const tr = textRect(s, w, h);
     const lay = layoutShapeText(ctx, s, body, tr.w, tr.h);
     for (const f of lay.fragments) {
       if (!f.link || !f.text.trim()) continue;

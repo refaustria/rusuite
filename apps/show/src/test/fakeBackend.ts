@@ -18,15 +18,29 @@ import type { TextField } from "../generated/TextField";
 import { findShape } from "../model";
 import { applyAnimationPatch } from "../anim/effects";
 import { FAKE_THEMES, fixture } from "./fixture";
+import { adjustDefaults } from "../shapes/presets";
 
-/** Outlines like the core's for tests: a box (filled presets) or a line (connectors, `line`), rectangle sites. */
+/**
+ * Outlines like the core's for tests: a box (filled presets) or a line
+ * (connectors, `line`), rectangle sites, the box as text rectangle, and
+ * for presets with adjust values one handle along the top edge driven by
+ * the first value (linear in the shorter side, 0–50000).
+ */
 export function fakePaths(q: PathQuery): ShapePaths {
   const { w, h } = q;
   const line = q.kind.kind === "connector" || q.kind.value === "line";
   const commands: PathCmd[] = line
     ? [{ kind: "moveTo", x: 0, y: 0 }, { kind: "lineTo", x: w, y: h }]
     : [{ kind: "moveTo", x: 0, y: 0 }, { kind: "lineTo", x: w, y: 0 }, { kind: "lineTo", x: w, y: h }, { kind: "lineTo", x: 0, y: h }, { kind: "close" }];
+  const preset = q.kind.kind === "preset" ? q.kind.value : null;
+  const first = preset ? Object.entries(adjustDefaults(preset))[0] : undefined;
+  const ss = Math.min(w, h);
+  const handles = first
+    ? [{ x: (ss * (q.adjust?.[first[0]] ?? first[1])) / 100000, y: 0, xAxis: { adj: first[0], base: 0, k: ss / 100000, min: 0, max: 50000 } }]
+    : undefined;
   return {
+    textRect: { l: 0, t: 0, r: w, b: h },
+    ...(handles ? { handles } : {}),
     paths: [{ fill: !line, stroke: true, commands }],
     sites: q.kind.kind === "connector" ? [] : [
       { x: w / 2, y: 0, angleDeg: 270 },
@@ -158,7 +172,7 @@ export class FakeBackend implements ShowBackend {
         p.media.push({ id: media, contentType: c.contentType, data: c.bytesBase64 });
         s.shapes.push({
           id: this.real(c.newId, idMap), name: "Picture", transform: { x: 0, y: 0, w: 952500, h: 952500 },
-          kind: { kind: "picture", value: { media } }, fill: { kind: "none" }, line: { fill: { kind: "none" }, width: 12700, dash: "solid" },
+          kind: { kind: "picture", value: { media } }, fill: { kind: "none" }, line: { fill: { kind: "none" }, width: 12700, dash: "solid" }, lockAspect: true,
         });
         touched.add(s);
         return;
@@ -350,7 +364,7 @@ export class FakeBackend implements ShowBackend {
         if (t.kind === "slides") {
           for (const id of t.value) {
             const s = this.slideOf(id);
-            s.background = c.fill?.kind === "fill" ? c.fill.value : null;
+            s.background = c.fill ?? null;
             if (c.hideMasterShapes !== undefined) s.showMasterShapes = !c.hideMasterShapes;
             touched.add(s);
           }
@@ -500,7 +514,7 @@ export class FakeBackend implements ShowBackend {
         return;
       case "setSlideBackground": {
         const s = this.slideOf(c.slide);
-        s.background = c.fill;
+        s.background = c.fill ? { kind: "fill", value: c.fill } : null;
         touched.add(s);
         return;
       }
@@ -512,6 +526,65 @@ export class FakeBackend implements ShowBackend {
         p.showSettings = clone(c.settings);
         this.props = true;
         return;
+      // ----- P8-32
+      case "setLockAspect":
+        for (const id of c.shapes) {
+          const s = this.slideOf(id);
+          const sh = findShape(s.shapes, id)!.shape;
+          if (c.locked) sh.lockAspect = true;
+          else delete sh.lockAspect;
+          touched.add(s);
+        }
+        return;
+      case "setBackgroundPicture": {
+        const media = p.media.length + 1;
+        p.media.push({ id: media, contentType: c.contentType, data: c.bytesBase64 });
+        this.exec({ type: "setBackground", target: c.target, fill: { kind: "picture", value: { media, tile: c.tile, transparency: c.transparency } } }, touched, idMap, order);
+        return;
+      }
+      case "renameLayout": {
+        const l = p.layouts.find((x) => x.kind === c.layout)!;
+        if (c.layout.startsWith("custom:")) {
+          const kind = `custom:${c.name}` as const;
+          for (const s of p.slides) if (s.layout === c.layout) {
+            s.layout = kind;
+            touched.add(s);
+          }
+          l.kind = kind;
+          delete l.name;
+        } else l.name = c.name;
+        this.design = true;
+        return;
+      }
+      case "addPlaceholder": {
+        const list = c.target.kind === "master" ? p.master!.placeholders : p.layouts.find((x) => x.kind === (c.target as { value: string }).value)!.placeholders;
+        list.push({ kind: c.kind, idx: Math.max(12, ...list.map((d) => d.idx ?? 0)) + 1, transform: c.transform, bodyDefaults: { anchor: "top", wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" }, runDefaults: {}, paragraphDefaults: {} });
+        this.design = true;
+        return;
+      }
+      case "removePlaceholder": {
+        const holder = c.target.kind === "master" ? p.master! : p.layouts.find((x) => x.kind === (c.target as { value: string }).value)!;
+        const i = holder.placeholders.findIndex((d) => d.kind === c.placeholder && (c.idx === undefined || d.idx === c.idx));
+        holder.placeholders.splice(i, 1);
+        this.design = true;
+        return;
+      }
+      case "setMasterTextStyle": {
+        const list = p.master!.textStyles[c.which];
+        const l = list[c.level] ?? (list[c.level] = clone(list[list.length - 1] ?? {}));
+        if (c.run) l.run = { ...(l.run ?? {}), ...c.run };
+        if (c.paragraph) l.paragraph = { ...(l.paragraph ?? {}), ...(c.paragraph as object) };
+        this.design = true;
+        return;
+      }
+      case "setPlaceholderPrompt": {
+        const list = c.target.kind === "master" ? p.master!.placeholders : p.layouts.find((x) => x.kind === (c.target as { value: string }).value)!.placeholders;
+        const d = list.find((x) => x.kind === c.placeholder && (c.idx === undefined || x.idx === c.idx))!;
+        if (c.prompt === null) delete d.prompt;
+        else d.prompt = c.prompt;
+        this.design = true;
+        return;
+      }
       case "setShapesHidden":
         for (const id of c.shapes) {
           const s = this.slideOf(id);

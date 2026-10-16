@@ -13,7 +13,7 @@ import { EMU_PER_PX } from "../geometry";
 import { lineEnds, mapLocal, toLocal, type Pt } from "../shapes/geom";
 import { dragHandle, effectiveAdjust, elbowHandle, handlePos, handlesOf } from "../shapes/handles";
 import { connectable, shapeUnder, slideSites, snapToSite, type ConnEnd, type SlideSite } from "../shapes/connectors";
-import { pathCache, siteQueryOf } from "../shapes/paths";
+import { pathCache, siteQueryOf, usePathVersion } from "../shapes/paths";
 
 /** Snap radius of connection sites (screen px). */
 export const SITE_SNAP_PX = 12;
@@ -77,10 +77,12 @@ export function AdjustHandles({ shape, scale, onPreview, onCommit }: {
   onPreview: (s: Shape | null) => void;
   onCommit: (id: NodeId, adjust: Record<string, number>) => void;
 }) {
+  // the handles arrive with the shape's outline
+  usePathVersion();
   if (shape.kind.kind !== "auto") return null;
   const k = shape.kind.value;
   const t = shape.transform;
-  const defs = handlesOf(k.geometry, t.w, t.h);
+  const defs = handlesOf(shape);
   const adj = effectiveAdjust(k.geometry, k.adjust);
   const valuesAt = (node: Konva.Node, i: number) => {
     const p = pointerEmu(node);

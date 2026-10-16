@@ -4,7 +4,7 @@ import { body } from "../test/fixture";
 import {
   alignCommand, anchorOf, bordersCommand, cellsIn, deleteColsCommand, deleteRowsCommand, distributeCommand, effectiveBorders, effectiveFill,
   expandRange, insertColsCommand, insertRowsCommand, keyMove, lookCommand, mergeCommand, moveCell, NO_LINE, resizeColCommand,
-  resizeRowCommand, splitCommand, styleCell, styleCommand, TABLE_STYLES,
+  resizeRowCommand, splitCommand, styleCell, styleCommand, BUILTIN_TABLE_STYLES, DEFAULT_TABLE_STYLE, tableStyleGroups, tableStyleOf,
 } from "./tables";
 
 /** A rows × cols table in the default style; `merged` = [row, col, rowSpan, colSpan] regions. */
@@ -13,7 +13,7 @@ function table(rows: number, cols: number, merged: [number, number, number, numb
     rows: Array.from({ length: rows }, () => ({ height: 370840 })),
     cols: Array.from({ length: cols }, () => ({ width: 1000000 })),
     cells: Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => ({ text: body(`${r}${c}`) }))),
-    styleId: TABLE_STYLES[0]!.id,
+    styleId: DEFAULT_TABLE_STYLE,
     look: { firstRow: true, bandRows: true },
   };
   for (const [r, c, rs, cs] of merged) {
@@ -35,12 +35,43 @@ describe("table styles", () => {
     expect(styleCell(t, 2, 1).borders.left).toEqual({ color: accent("light1", 0), width: 12700 });
   });
 
-  it("the six built-ins differ by accent; an unknown style draws nothing", () => {
-    expect(TABLE_STYLES.map((s) => s.accent)).toEqual([1, 2, 3, 4, 5, 6]);
-    const t = { ...table(2, 2), styleId: TABLE_STYLES[3]!.id };
+  it("the 74 built-ins come from the core; an unknown style draws nothing", () => {
+    expect(BUILTIN_TABLE_STYLES).toHaveLength(74);
+    const t = { ...table(2, 2), styleId: "{00A15C55-8517-42AA-B614-E9B94910E393}" }; // Medium Style 2 – Accent 4
     expect(styleCell(t, 0, 0).fill).toEqual(accent("accent4", 0));
+    // ids are case-insensitive
+    expect(tableStyleOf("{00a15c55-8517-42aa-b614-e9b94910e393}")?.name).toBe("Medium Style 2 - Accent 4");
     const none = { ...table(2, 2), styleId: "{00000000-0000-0000-0000-000000000000}" };
     expect(styleCell(none, 0, 0)).toMatchObject({ fill: null, bold: false });
+  });
+
+  it("the gallery groups Light (with the themed styles), Medium and Dark", () => {
+    const g = tableStyleGroups();
+    expect(g.map((x) => [x.id, x.styles.length])).toEqual([["light", 35], ["medium", 28], ["dark", 11]]);
+    expect(g[0]!.styles[0]!.name).toBe("No Style, No Grid");
+  });
+
+  it("Light Style 1: no grid, accent lines at the top, bottom and under the header, banded fill", () => {
+    const t = { ...table(4, 3), styleId: "{3B4B98B0-60AC-42C2-AFA5-B58CD77FA1E5}" };
+    const head = styleCell(t, 0, 1);
+    expect(head.borders.top).toEqual({ color: accent("accent1", 0), width: 12700 });
+    expect(head.borders.bottom).toEqual({ color: accent("accent1", 0), width: 12700 });
+    expect(head.borders.left).toBeNull();
+    expect(styleCell(t, 1, 1).fill).toEqual(accent("accent1", 0.8));
+    expect(styleCell(t, 2, 1).fill).toBeNull();
+  });
+
+  it("Dark Style 2 pairs take the next accent for the header", () => {
+    const t = { ...table(3, 3), styleId: "{46F890A9-2807-4EBB-B81D-B2AA78EC7F39}" }; // Accent 5/Accent 6
+    expect(styleCell(t, 0, 0).fill).toEqual(accent("accent6", 0));
+    expect(styleCell(t, 1, 0).fill).toEqual(accent("accent5", 0.6));
+  });
+
+  it("the presentation's own styles are found first", () => {
+    const own = { id: "{11111111-2222-3333-4444-555555555555}", name: "Mine", whole: { fill: { kind: "solid" as const, value: { kind: "rgb" as const, value: "00FF00" } } } };
+    const t = { ...table(2, 2), styleId: own.id };
+    expect(styleCell(t, 1, 1).fill).toBeNull();
+    expect(styleCell(t, 1, 1, [own]).fill).toEqual({ kind: "rgb", value: "00FF00" });
   });
 
   it("look options: total row and first column are emphasised, banded columns alternate", () => {
@@ -64,8 +95,9 @@ describe("table styles", () => {
 
   it("style gallery and look check boxes keep the other setting", () => {
     const t = table(2, 2);
-    expect(styleCommand(7, t, TABLE_STYLES[1]!.id)).toEqual({ type: "setTableStyle", shape: 7, styleId: TABLE_STYLES[1]!.id, look: t.look });
-    expect(lookCommand(7, t, "lastRow", true)).toEqual({ type: "setTableStyle", shape: 7, styleId: TABLE_STYLES[0]!.id, look: { firstRow: true, bandRows: true, lastRow: true } });
+    const accent2 = "{21E4AEA4-8DFA-4A89-87EB-49C32662AFE0}";
+    expect(styleCommand(7, t, accent2)).toEqual({ type: "setTableStyle", shape: 7, styleId: accent2, look: t.look });
+    expect(lookCommand(7, t, "lastRow", true)).toEqual({ type: "setTableStyle", shape: 7, styleId: DEFAULT_TABLE_STYLE, look: { firstRow: true, bandRows: true, lastRow: true } });
   });
 });
 

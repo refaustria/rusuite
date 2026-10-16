@@ -1,17 +1,20 @@
-// View › Slide Master (P8-22): the Slide Master tab and the panel with
-// the master and its layouts. The stage shows the selected master or
-// layout as a pseudo slide (`design/master.ts`): placeholders are moved
-// and resized with the normal selection tools, their level-1 text
-// formatting comes from the Home tab, the background from Format
-// Background. Inserting placeholders and renaming layouts are not
-// offered: the core has no command for them (P8-19).
+// View › Slide Master (P8-22, P8-32): the Slide Master tab and the panel
+// with the master and its layouts. The stage shows the selected master or
+// layout as a pseudo slide (`design/master.ts`): placeholders are moved,
+// resized and deleted with the normal selection tools, their text
+// formatting comes from the Home tab (on the master's body placeholder
+// per outline level: its sample paragraphs, or the Text level chosen here
+// / with Tab and Shift+Tab), typed text becomes the placeholder's prompt,
+// the background comes from Format Background. Insert Placeholder, the
+// Title / Footers check boxes and Rename edit the layouts.
 
 import { useState } from "react";
-import { ContextMenu, RibbonButton, RibbonStack, type ContextMenuItem, type RibbonTab, type TFunction } from "@rusuite/ui-shared";
+import { ContextMenu, RibbonButton, RibbonMenuButton, RibbonStack, type ContextMenuItem, type RibbonTab, type TFunction } from "@rusuite/ui-shared";
+import type { PlaceholderKind } from "../generated/PlaceholderKind";
 import type { DesignTarget } from "../generated/DesignTarget";
 import { stableDeck } from "../design/deck";
 import { layoutName } from "../design/layouts";
-import { designSlide, sameTarget, targetKey } from "../design/master";
+import { designSlide, sameTarget, targetKey, targetPlaceholders } from "../design/master";
 import { masterMenu } from "../canvas/menus";
 import { useShow, type ShowState, type ShowStore } from "../state/store";
 import { useT } from "../i18n";
@@ -27,6 +30,19 @@ export function slideMasterTab(store: ShowStore, state: ShowState, t: TFunction)
   const inUse = layout !== null && store.layoutInUse(layout);
   const d = designControls(store, state, t);
   const hidden = layout !== null && state.pres?.layouts.find((l) => l.kind === layout)?.showMasterShapes === false;
+  const defs = state.pres && mv ? targetPlaceholders(state.pres, mv) : [];
+  const hasTitle = defs.some((d) => d.kind === "title" || d.kind === "centeredTitle");
+  const hasFooters = defs.some((d) => d.kind === "dateTime" || d.kind === "footer" || d.kind === "slideNumber");
+  const kinds: { kind: PlaceholderKind; label: string }[] = [
+    { kind: "body", label: t("show.master.phContent") },
+    { kind: "picture", label: t("show.master.phPicture") },
+    { kind: "title", label: t("show.master.phTitle") },
+    { kind: "dateTime", label: t("show.master.phDate") },
+    { kind: "footer", label: t("show.master.phFooter") },
+    { kind: "slideNumber", label: t("show.master.phNumber") },
+  ];
+  const onMaster = mv?.kind === "master";
+  const level = state.masterLevel;
   return {
     id: "slideMaster",
     label: t("show.master.tab"),
@@ -39,6 +55,56 @@ export function slideMasterTab(store: ShowStore, state: ShowState, t: TFunction)
             <RibbonStack>
               <RibbonButton label={t("show.master.deleteLayout")} icon="trash" showLabel disabled={layout === null || inUse} tooltip={inUse ? t("show.master.inUse") : undefined} onClick={() => void store.deleteLayout()} />
               <RibbonButton label={t("show.master.duplicateLayout")} icon="duplicate" showLabel disabled={layout === null} onClick={() => void store.duplicateLayout()} />
+              <RibbonButton label={t("show.master.rename")} icon="format" showLabel disabled={layout === null} onClick={() => layout !== null && store.openDialog({ kind: "renameLayout", layout })} />
+            </RibbonStack>
+          </>
+        ),
+      },
+      {
+        label: t("show.master.layoutGroup"),
+        items: (
+          <>
+            <RibbonMenuButton
+              label={t("show.master.insertPlaceholder")}
+              icon={DI.placeholder}
+              size="large"
+              showLabel
+              disabled={!mv}
+              menu={kinds.map((k) => ({
+                id: `ph-${k.kind}`,
+                label: k.label,
+                // the master holds one placeholder per kind (and no pictures)
+                disabled: onMaster ? k.kind === "picture" || defs.some((d) => d.kind === k.kind) : k.kind === "title" && hasTitle,
+                onSelect: () => void store.insertPlaceholder(k.kind),
+              }))}
+            />
+            <RibbonStack>
+              <label className="flex items-center gap-1 whitespace-nowrap text-xs">
+                <input type="checkbox" disabled={layout === null} checked={hasTitle} onChange={(e) => void store.setLayoutPlaceholders("title", e.currentTarget.checked)} />
+                {t("show.master.title")}
+              </label>
+              <label className="flex items-center gap-1 whitespace-nowrap text-xs">
+                <input type="checkbox" disabled={layout === null} checked={hasFooters} onChange={(e) => void store.setLayoutPlaceholders("footers", e.currentTarget.checked)} />
+                {t("show.master.footers")}
+              </label>
+              <label className="flex items-center gap-1 whitespace-nowrap text-xs">
+                {t("show.master.textLevel")}
+                <select
+                  aria-label={t("show.master.textLevel")}
+                  className="h-6 rounded border border-ui-border bg-ui-bg text-xs"
+                  disabled={!onMaster}
+                  value={level === null ? "all" : String(level)}
+                  onChange={(e) => store.setMasterLevel(e.currentTarget.value === "all" ? null : Number(e.currentTarget.value))}
+                  data-testid="master-level"
+                >
+                  <option value="all">{t("show.master.allLevels")}</option>
+                  {Array.from({ length: 9 }, (_, i) => (
+                    <option key={i} value={String(i)}>
+                      {t("show.master.level", { n: i + 1 })}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </RibbonStack>
           </>
         ),

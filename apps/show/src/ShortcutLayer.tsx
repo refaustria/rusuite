@@ -130,6 +130,9 @@ export function ShortcutLayer({ store, guard, enabled, onPresent, onPresenterVie
       "Mod+ArrowRight": slide(t("show.sc.nudgeFine")),
       "Mod+ArrowUp": slide(t("show.sc.nudgeFine")),
       "Mod+ArrowDown": slide(t("show.sc.nudgeFine")),
+      // Slide Master view: the text level of the selected master body placeholder
+      Tab: { label: t("show.sc.masterLevelNext"), group: t("show.master.tab"), run: () => store.stepMasterLevel(1) },
+      "Shift+Tab": { label: t("show.sc.masterLevelPrev"), group: t("show.master.tab"), run: () => store.stepMasterLevel(-1) },
       "Shift+F9": { label: t("show.view.gridlines"), group: t("tab.view"), run: () => void store.toggleGrid() },
       "Alt+F9": { label: t("show.view.guides"), group: t("tab.view"), run: () => void store.toggleGuides() },
     };

@@ -16,7 +16,12 @@ import type { AlignMode } from "../generated/AlignMode";
 import type { Axis } from "../generated/Axis";
 import type { Bullet } from "../generated/Bullet";
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
+import type { Layout } from "../generated/Layout";
 import type { LayoutKind } from "../generated/LayoutKind";
+import type { PlaceholderKind } from "../generated/PlaceholderKind";
+import type { SlideScale } from "../generated/SlideScale";
+import type { SlideMaster } from "../generated/SlideMaster";
+import { bytesToBase64 } from "@rusuite/ui-shared";
 import type { NodeId } from "../generated/NodeId";
 import type { Presentation } from "../generated/Presentation";
 import type { Shape } from "../generated/Shape";
@@ -69,12 +74,11 @@ import type { BuiltinTheme } from "../generated/BuiltinTheme";
 import type { ColorScheme } from "../generated/ColorScheme";
 import type { Crop } from "../generated/Crop";
 import type { DesignTarget } from "../generated/DesignTarget";
-import type { Fill } from "../generated/Fill";
 import type { FontScheme } from "../generated/FontScheme";
 import type { PicturePatch } from "../generated/PicturePatch";
 import type { SlideSize } from "../generated/SlideSize";
 import type { TextField } from "../generated/TextField";
-import { designSlide, translateDesignCommand, validTarget } from "../design/master";
+import { DESIGN_COMMANDS, DESIGN_SHAPE_BASE, designSlide, placeholderOfShape, targetPlaceholders, translateDesignCommand, validTarget } from "../design/master";
 import { hfCommand, insertField, type HfValues } from "../design/hf";
 import { moveToSectionCommand, removeAllSectionsCommand } from "../design/sections";
 import { fieldText } from "../design/fields";
@@ -88,7 +92,7 @@ import {
 } from "../shapes/connectors";
 import {
   alignCommand as cellAlignCommand, anchorCommand, anchorOf, bordersCommand, deleteColsCommand, deleteRowsCommand, distributeCommand,
-  expandRange, insertColsCommand, insertRowsCommand, insertTableCommand, lookCommand, marginsCommand, mergeCommand, moveCell,
+  expandRange, insertColsCommand, insertRowsCommand, insertTableCommand, lookCommand, marginsCommand, mergeCommand, moveCell, splitGridCommand,
   resizeColCommand, resizeRowCommand, shadingCommand, splitCommand, styleCommand, type BorderKind, type CellMove, type CellRange,
 } from "../shapes/tables";
 
@@ -151,6 +155,13 @@ export interface ShowState {
   cellSel: { shape: NodeId; range: CellRange } | null;
   /** View › Slide Master: the master or layout being edited (`null` = normal view). */
   masterView: DesignTarget | null;
+  /**
+   * Slide Master view: the outline level (0-based) formatting of the
+   * selected master body placeholder applies to (`null` = each paragraph
+   * to its own level); Tab / Shift+Tab step it, like moving through
+   * PowerPoint's "Second level, Third level …" sample text.
+   */
+  masterLevel: number | null;
   /** The built-in themes (`getThemes`, loaded once for the Design tab). */
   themes: BuiltinTheme[] | null;
   /** The Format Background pane on the right is open. */
@@ -174,8 +185,6 @@ export interface ShowState {
   formatPane: "size" | "text" | null;
   /** Arrange › Align: align to the slide or to the selected objects (two or more). */
   alignTo: "slide" | "selection";
-  /** Aspect ratio locked in Size & Properties, per shape (session; pictures are locked by default). */
-  lockedAspect: Record<number, boolean>;
 }
 
 /** The presentation views of View › Presentation Views. */
@@ -190,6 +199,9 @@ export type ShowDialog =
   | { kind: "alt"; shape: NodeId }
   | { kind: "replacePicture"; shape: NodeId }
   | { kind: "insertTable" }
+  | { kind: "splitCells" }
+  | { kind: "slideScale"; size: SlideSize }
+  | { kind: "renameLayout"; layout: LayoutKind }
   | { kind: "headerFooter"; tab?: "slide" | "notes" }
   | { kind: "slideSize" }
   | { kind: "renameSection"; index: number }
@@ -262,6 +274,7 @@ export class ShowStore {
     recentShapes: loadRecent(),
     cellSel: null,
     masterView: null,
+    masterLevel: null,
     themes: null,
     bgPane: false,
     crop: null,
@@ -274,7 +287,6 @@ export class ShowStore {
     selectionPane: false,
     formatPane: null,
     alignTo: "selection",
-    lockedAspect: {},
   };
   /** The children of the last Ungroup (Regroup). */
   private lastUngrouped: NodeId[] | null = null;
@@ -429,12 +441,19 @@ export class ShowStore {
       dirty: env.dirty,
       info: p.info ?? s.info,
     });
-    this.fetchMissingMedia(p.slides);
+    this.fetchMissingMedia(p.slides, { master: p.master, layouts: p.layouts });
     return idMap;
   }
 
-  private fetchMissingMedia(slides: Slide[]): void {
+  private fetchMissingMedia(slides: Slide[], design?: { master?: SlideMaster; layouts?: Layout[] }): void {
     const want = new Set<number>();
+    // picture backgrounds of slides, layouts and the master
+    const bg = (b: Background | null | undefined) => {
+      if (b?.kind === "picture") want.add(b.value.media);
+    };
+    slides.forEach((s) => bg(s.background));
+    bg(design?.master?.background);
+    design?.layouts?.forEach((l) => bg(l.background));
     const walk = (shapes: Shape[]) => {
       for (const sh of shapes) {
         if (sh.kind.kind === "picture") want.add(sh.kind.value.media);
@@ -475,7 +494,7 @@ export class ShowStore {
     const mv = this.state.masterView;
     if (mv && this.state.pres && !DESIGN_COMMANDS.has(command.type)) {
       // the master view's pseudo slide: placeholder edits become design commands
-      const tr = translateDesignCommand(this.state.pres, mv, command);
+      const tr = translateDesignCommand(this.state.pres, mv, command, { level: this.state.editing ? null : this.state.masterLevel });
       if (tr.dropped) this.set({ info: t("show.master.notHere") });
       command = compound(tr.commands);
       if (!command) return null;
@@ -1372,6 +1391,11 @@ export class ShowStore {
     return this.tableRun((s, t, r) => splitCommand(s, t, r.r0, r.c0));
   }
 
+  /** Split Cells… OK: the cell (its merged region) into `rows` × `cols`. */
+  splitCellGrid(rows: number, cols: number): Promise<void> {
+    return this.tableRun((s, t, r) => splitGridCommand(s, t, r.r0, r.c0, rows, cols));
+  }
+
   setCellShading(color: Color | null): Promise<void> {
     return this.tableRun((s, _t, r) => shadingCommand(s, r, color ? { kind: "solid", value: color } : null));
   }
@@ -1444,11 +1468,26 @@ export class ShowStore {
     await this.run({ type: "setThemeFonts", fonts });
   }
 
-  /** Design › Slide Size. */
+  /**
+   * Design › Slide Size: with content on the slides PowerPoint asks
+   * whether to Maximize it or Ensure Fit (the prompt dialog); an empty
+   * presentation changes at once.
+   */
   async setSlideSize(size: SlideSize): Promise<void> {
-    const cur = this.state.pres?.slideSize;
+    const pres = this.state.pres;
+    const cur = pres?.slideSize;
     if (cur && cur.width === size.width && cur.height === size.height) return;
+    if (pres?.slides.some((s) => s.shapes.length > 0)) {
+      this.openDialog({ kind: "slideScale", size });
+      return;
+    }
     await this.run({ type: "setSlideSize", size });
+  }
+
+  /** The slide-size prompt's answer: scale the content by the smaller (Ensure Fit) or larger (Maximize) ratio. */
+  async applySlideSize(size: SlideSize, scale: SlideScale): Promise<void> {
+    this.closeDialog();
+    await this.run({ type: "setSlideSize", size, scale });
   }
 
   toggleBgPane(open = !this.state.bgPane): void {
@@ -1482,16 +1521,34 @@ export class ShowStore {
     await this.run(compound(commands));
   }
 
+  /**
+   * Format Background › Picture or texture fill › Insert: the file becomes
+   * the target's background (stretched or tiled, with transparency); the
+   * core adds it to the media store (one undo step).
+   */
+  async setBackgroundPictureFile(target: BackgroundTarget | null, file: File, opts: { tile: boolean; transparency: number }, hide?: boolean): Promise<void> {
+    if (!target) return;
+    const type = file.type || "image/png";
+    if (!type.startsWith("image/")) {
+      this.set({ info: t("show.bg.notPicture") });
+      return;
+    }
+    const bytesBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+    const cmd: ShowCommand = { type: "setBackgroundPicture", target, contentType: type, bytesBase64, tile: opts.tile, transparency: opts.transparency };
+    // the slide's "hide background graphics" stays as it was
+    void hide;
+    await this.run(cmd);
+  }
+
   /** Format Background › Apply to All: every slide gets the current slide's fill and background graphics setting. */
   async applyBackgroundToAll(): Promise<void> {
     const pres = this.state.pres;
     const slide = this.currentSlide();
     if (!pres || !slide || this.state.masterView) return;
-    const fill: Fill | null = slide.background ?? null;
     await this.run({
       type: "setBackground",
       target: { kind: "slides", value: pres.slides.map((s) => s.id) },
-      fill: fill ? { kind: "fill", value: fill } : null,
+      fill: slide.background ?? null,
       hideMasterShapes: slide.showMasterShapes === false,
     });
   }
@@ -1525,7 +1582,84 @@ export class ShowStore {
   /** Selects the master or a layout in the master view's panel. */
   selectDesignTarget(target: DesignTarget): void {
     if (this.state.editing) void this.commitEdit();
-    this.set({ masterView: target, selection: [], editing: null });
+    this.set({ masterView: target, selection: [], editing: null, masterLevel: null });
+  }
+
+  /** The master's body placeholder is the (only) selected pseudo shape. */
+  masterBodySelected(): boolean {
+    const mv = this.state.masterView;
+    const pres = this.state.pres;
+    if (mv?.kind !== "master" || !pres || this.state.selection.length !== 1) return false;
+    return placeholderOfShape(pres, mv, this.state.selection[0]!)?.kind === "body";
+  }
+
+  /** Slide Master › Text level: which outline level formatting changes (`null` = all, each paragraph its own). */
+  setMasterLevel(level: number | null): void {
+    this.set({ masterLevel: level === null ? null : Math.max(0, Math.min(8, level)), info: level === null ? null : t("show.master.levelInfo", { n: Math.max(0, Math.min(8, level)) + 1 }) });
+  }
+
+  /** Tab / Shift+Tab on the selected master body placeholder: the next / previous text level. */
+  stepMasterLevel(delta: 1 | -1): boolean {
+    if (!this.masterBodySelected()) return false;
+    const cur = this.state.masterLevel;
+    const next = cur === null ? (delta > 0 ? 0 : 8) : cur + delta;
+    this.setMasterLevel(next < 0 || next > 8 ? null : next);
+    return true;
+  }
+
+  /** Slide Master › Rename: the selected layout's name (the dialog). */
+  async renameLayout(kind: LayoutKind, name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const mv = this.state.masterView;
+    const shown = mv?.kind === "layout" && mv.value === kind;
+    const res = await this.run({ type: "renameLayout", layout: kind, name: trimmed });
+    // a custom layout's kind follows its name
+    if (res && kind.startsWith("custom:") && shown) this.selectDesignTarget({ kind: "layout", value: `custom:${trimmed}` });
+  }
+
+  /**
+   * Slide Master › Insert Placeholder: a placeholder of `kind` in the
+   * selected layout (the master: only kinds it lacks), centred at half
+   * the slide's size (date / footer / number at the master's position),
+   * then selected.
+   */
+  async insertPlaceholder(kind: PlaceholderKind): Promise<void> {
+    const pres = this.state.pres;
+    const mv = this.state.masterView;
+    if (!pres || !mv) return;
+    const size = pres.slideSize;
+    const fromMaster = pres.master?.placeholders.find((d) => d.kind === (kind === "centeredTitle" ? "title" : kind));
+    const hf = kind === "dateTime" || kind === "footer" || kind === "slideNumber" || kind === "title";
+    const transform = hf && fromMaster
+      ? fromMaster.transform
+      : { x: Math.round(size.width / 4), y: Math.round(size.height / 4), w: Math.round(size.width / 2), h: Math.round(size.height / 2), rotationDeg: 0 };
+    const before = targetPlaceholders(pres, mv).length;
+    const res = await this.run({ type: "addPlaceholder", target: mv, kind, transform });
+    if (res && this.state.pres) {
+      const after = targetPlaceholders(this.state.pres, mv);
+      if (after.length > before) this.set({ selection: [DESIGN_SHAPE_BASE + after.length - 1] });
+    }
+  }
+
+  /** Slide Master › Title / Footers check boxes of a layout: add or remove those placeholders. */
+  async setLayoutPlaceholders(which: "title" | "footers", on: boolean): Promise<void> {
+    const pres = this.state.pres;
+    const mv = this.state.masterView;
+    if (!pres || mv?.kind !== "layout") return;
+    const defs = targetPlaceholders(pres, mv);
+    const kinds: PlaceholderKind[] = which === "title" ? ["title"] : ["dateTime", "footer", "slideNumber"];
+    const commands: ShowCommand[] = [];
+    for (const k of kinds) {
+      const has = defs.filter((d) => d.kind === k || (k === "title" && d.kind === "centeredTitle"));
+      if (on && !has.length) {
+        const m = pres.master?.placeholders.find((d) => d.kind === k);
+        if (m) commands.push({ type: "addPlaceholder", target: mv, kind: k, transform: m.transform });
+      } else if (!on) {
+        for (const d of has) commands.push({ type: "removePlaceholder", target: mv, placeholder: d.kind, ...(d.idx ? { idx: d.idx } : {}) });
+      }
+    }
+    await this.run(compound(commands));
   }
 
   /** Insert Layout: a custom layout (title and footers) after the last one, selected. */
@@ -2054,15 +2188,13 @@ export class ShowStore {
     this.set({ formatPane: page });
   }
 
-  /** Lock aspect ratio (Size & Properties): pictures default to locked. */
+  /** Lock aspect ratio (Size & Properties; saved as `noChangeAspect`, pictures start locked). */
   aspectLocked(shape: Shape): boolean {
-    return this.state.lockedAspect[shape.id] ?? shape.kind.kind === "picture";
+    return !!shape.lockAspect;
   }
 
-  setAspectLocked(ids: NodeId[], locked: boolean): void {
-    const next = { ...this.state.lockedAspect };
-    for (const id of ids) next[id] = locked;
-    this.set({ lockedAspect: next });
+  async setAspectLocked(ids: NodeId[], locked: boolean): Promise<void> {
+    if (ids.length) await this.run({ type: "setLockAspect", shapes: ids, locked });
   }
 
   /** Text body properties of the selected (or edited) text shapes, merged per shape; the shrink scale is recomputed. */
@@ -2198,7 +2330,8 @@ export class ShowStore {
   async save(asName?: string): Promise<void> {
     try {
       if (this.state.editing) await this.commitEdit();
-      const saved = await this.enqueue(() => this.api.savePptx());
+      const view = lastViewOf(this.state.view);
+      const saved = await this.enqueue(() => this.api.savePptx(view));
       const result = await this.api.backend.saveFile(asName ?? saved.suggestedName, saved.bytesBase64, { saveAs: asName !== undefined });
       if (!result) return;
       const name = typeof result === "object" ? result.name : asName;
@@ -2238,11 +2371,17 @@ function viewOfLast(v: ViewProps["lastView"] | undefined): PresentationView {
   }
 }
 
-/** Commands the master view sends as they are (everything else is translated from the pseudo slide). */
-const DESIGN_COMMANDS = new Set<ShowCommand["type"]>([
-  "setMasterPlaceholderProps", "setBackground", "addLayout", "duplicateLayout", "deleteLayout", "applyTheme", "setThemeColors",
-  "setThemeFonts", "setSlideSize", "setHeaderFooter", "restoreSections",
-]);
+/** The `lastView` a view is saved as (Reading View has its own Rusuite value, written by the core). */
+export function lastViewOf(v: PresentationView): ViewProps["lastView"] {
+  switch (v) {
+    case "outline": return "outline";
+    case "sorter": return "slideSorter";
+    case "notesPage": return "notesPage";
+    case "reading": return "reading";
+    default: return "normal";
+  }
+}
+
 
 /** The slide the editor shows: the master view's pseudo slide, else the current slide. */
 export function viewSlide(s: Pick<ShowState, "pres" | "current" | "masterView">): Slide | null {

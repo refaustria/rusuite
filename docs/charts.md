@@ -380,7 +380,10 @@ rows/columns are dropped, text in value cells counts as blank). The Format pane 
 options grouped by section (chart: title, legend, style, empty cells; the picked series: fill,
 line colour/width/dash, markers, smooth, secondary axis (combo), gap width/overlap, first slice
 angle, hole size, vary colours, linear trendline; value and category axes: bounds, units, number
-format, log scale, reverse, gridlines, hide; data labels: parts and position). `presets.ts` and
-`format.ts` are copies of Calc's pure modules on the shared model (Calc's own files are untouched;
-they can be switched to the shared copy later); the Calc pane itself is bound to Calc's store and
-element selection, so Show has its own smaller pane.
+format, log scale, reverse, gridlines, hide; data labels: parts and position). The pure
+helpers – chart type presets, Quick Layout / Change Colors / Chart Styles, the Format pane's edits,
+the ribbon icons and the gallery previews – live in `packages/ui-shared/src/chart/ui/` (P8-32);
+`apps/calc/src/charts/{presets,format,icons,previews}` and Show's files of the same names re-export
+them (the preset lists with the app's catalog keys, `prefixLabels`: `chart.t.colClustered` →
+`calc.chart.t.colClustered` / `show.chart.t.colClustered`). The Calc pane itself is bound to Calc's
+store and element selection, so Show has its own smaller pane.

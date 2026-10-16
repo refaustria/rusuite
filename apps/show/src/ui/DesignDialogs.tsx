@@ -4,6 +4,9 @@
 
 import { useState, type ReactNode } from "react";
 import { Dialog, formatNumber } from "@rusuite/ui-shared";
+import type { LayoutKind } from "../generated/LayoutKind";
+import type { SlideSize } from "../generated/SlideSize";
+import { layoutName } from "../design/layouts";
 import { DATE_FORMATS, formatDate } from "../design/fields";
 import { DEFAULT_HF, hfValuesOf, type HfValues } from "../design/hf";
 import type { NotesHf, ShowPrintOptions } from "../print/showPrintDoc";
@@ -175,6 +178,72 @@ export function SlideSizeDialog({ store }: { store: ShowStore }) {
           </button>
           <button type="submit" className={BUTTON} disabled={!ok}>
             {t("common.ok")}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * PowerPoint's prompt after a slide size change: "Maximize" (content as
+ * large as possible, it may run off the slide) or "Ensure Fit" (scaled
+ * down so that everything stays on the slide).
+ */
+export function SlideScaleDialog({ store, size }: { store: ShowStore; size: SlideSize }) {
+  const t = useT();
+  const close = () => store.closeDialog();
+  const choice = (scale: "maximize" | "fit", label: string, desc: string) => (
+    <button type="button" className="flex flex-1 flex-col items-center gap-1 rounded border border-ui-border p-3 text-center hover:bg-ui-hover" onClick={() => void store.applySlideSize(size, scale)}>
+      <span className="font-medium">{label}</span>
+      <span className="text-xs text-ui-muted">{desc}</span>
+    </button>
+  );
+  return (
+    <Dialog open title={t("show.size.scaleTitle")} onClose={close}>
+      <div className="flex w-96 flex-col gap-3 text-sm">
+        <p>{t("show.size.scaleQuestion")}</p>
+        <div className="flex gap-2">
+          {choice("maximize", t("show.size.maximize"), t("show.size.maximizeHint"))}
+          {choice("fit", t("show.size.ensureFit"), t("show.size.ensureFitHint"))}
+        </div>
+        <div className="flex justify-end">
+          <button type="button" className={BUTTON} onClick={close}>
+            {t("common.cancel")}
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+/** Slide Master › Rename: the layout's name (shown in the layout galleries, saved as `p:cSld/@name`). */
+export function RenameLayoutDialog({ store, layout }: { store: ShowStore; layout: LayoutKind }) {
+  const t = useT();
+  const pres = useShow(store, (s) => s.pres);
+  const l = pres?.layouts.find((x) => x.kind === layout);
+  const [name, setName] = useState(() => (l ? layoutName(l) : ""));
+  const close = () => store.closeDialog();
+  return (
+    <Dialog open title={t("show.master.renameTitle")} onClose={close}>
+      <form
+        className="flex w-72 flex-col gap-2 text-sm"
+        onSubmit={(e) => {
+          e.preventDefault();
+          close();
+          void store.renameLayout(layout, name);
+        }}
+      >
+        <label className="flex flex-col gap-1">
+          <span>{t("show.master.layoutName")}</span>
+          <input className={INPUT} value={name} autoFocus onChange={(e) => setName(e.currentTarget.value)} />
+        </label>
+        <div className="flex justify-end gap-2">
+          <button type="button" className={BUTTON} onClick={close}>
+            {t("common.cancel")}
+          </button>
+          <button type="submit" className={BUTTON} disabled={!name.trim()}>
+            {t("show.master.rename")}
           </button>
         </div>
       </form>

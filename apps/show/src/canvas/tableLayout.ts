@@ -3,6 +3,7 @@
 // their text laid out with the style's text colour and weight. Shared by
 // the renderer (`SlideView`), the editing overlay and the cell editor.
 
+import type { TableStyleDef } from "../generated/TableStyleDef";
 import type { ThemePalette } from "@rusuite/ui-shared";
 import type { RunProperties } from "../../../../packages/ui-shared/src/generated/RunProperties";
 import type { PlaceholderDef } from "../generated/PlaceholderDef";
@@ -54,13 +55,13 @@ export interface TableLayout {
 }
 
 /** The style's run defaults of a cell as CSS (text colour) and weight. */
-export function cellRunBase(table: Table, row: number, col: number, palette: ThemePalette): { color?: string; bold?: boolean } {
-  const s = styleCell(table, row, col);
+export function cellRunBase(table: Table, row: number, col: number, palette: ThemePalette, custom: readonly TableStyleDef[] = []): { color?: string; bold?: boolean } {
+  const s = styleCell(table, row, col, custom);
   return { color: css(s.textColor, palette), bold: s.bold };
 }
 
 /** Lays the table out (`theme`/`palette` resolve fonts and colours). */
-export function tableLayout(table: Table, theme: Theme, palette: ThemePalette): TableLayout {
+export function tableLayout(table: Table, theme: Theme, palette: ThemePalette, custom: readonly TableStyleDef[] = []): TableLayout {
   const colX = offsets(table.cols.map((c) => emuToPx(c.width)));
   const heights = table.rows.map((r) => emuToPx(r.height));
   const list = anchors(table);
@@ -71,7 +72,7 @@ export function tableLayout(table: Table, theme: Theme, palette: ThemePalette): 
       width: w,
       height: h,
       measure: measureText,
-      runStyle: runStyleFor(undefined, theme, palette, cellRunBase(table, a.row, a.col, palette)),
+      runStyle: runStyleFor(undefined, theme, palette, cellRunBase(table, a.row, a.col, palette, custom)),
       paragraphProps: (p) => effectiveParagraph(undefined, p),
     });
   };

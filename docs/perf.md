@@ -119,6 +119,23 @@ Deck: 100 slides × 20 shapes with text (a title text box, bulleted text boxes, 
 | presenter: next slide (key → slide drawn), median of 30 | 32.0 ms | < 50.0 ms | ok |
 | presenter: next slide p95 | 57.4 ms | < 50.0 ms | MISSED |
 
+## Show wasm size (P8-32, measured by hand)
+
+`apps/show/src-wasm/pkg/app_show_wasm_bg.wasm` of `pnpm build:web` (wasm-pack `--release`, wasm-opt), same machine:
+
+| Build | Raw | gzip -9 |
+|---|---:|---:|
+| P8-32 with the chart workbook written by `fmt-xlsx` (pulls `model-sheet` + `engine-formula`) | 4.56 MB | 1.56 MB |
+| P8-32 with the minimal workbook writer in `fmt-pptx/src/chart.rs` | 3.82 MB | 1.28 MB |
+| for comparison: Calc / Write | 3.97 / 2.90 MB | 1.37 / 1.02 MB |
+
+The embedded chart workbook only needs one sheet of literal names, categories and numbers, so `fmt-pptx` writes
+that SpreadsheetML package itself (workbook, one sheet with inline strings, default styles) instead of building a
+`model_sheet::Workbook`: −0.74 MB raw / −0.27 MB gzip, no cargo feature and no second wasm chunk. The spreadsheet
+stack stays a dev-dependency (a test reads the generated workbook back with `fmt-xlsx`). The preset shape data
+(`presets/defs.txt`, 58 KB) and the generated table-style JSON of the UI (112 KB, ~6 KB gzip) are included above / in
+the JS bundle.
+
 ## Findings and fixes
 
 Baseline = first P5-4 commit; each fix is its own commit with these numbers.

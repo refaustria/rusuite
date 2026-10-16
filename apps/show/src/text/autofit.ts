@@ -48,7 +48,7 @@ function optionsFor(pres: Presentation, slide: Slide, shape: Shape, transform: T
   if (shape.kind.kind !== "auto") return null;
   const w = emuToPx(transform.w);
   const h = emuToPx(transform.h);
-  const tr = textRect(shape.kind.value.geometry, w, h);
+  const tr = textRect(shape, w, h);
   const deck = stableDeck(pres);
   return shapeTextOptions({ deck, slide, palette: themePalette(pres.theme), asMaster: false, slideNumber: slideNumberOf(deck, slide.id) }, shape, tr.w, tr.h);
 }
