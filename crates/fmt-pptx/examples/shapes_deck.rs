@@ -83,8 +83,8 @@ fn gallery(p: &mut Presentation) {
     let s = p.add_slide(LayoutKind::Blank);
     title(p, s, "Preset shapes");
     for (i, preset) in Preset::ALL.iter().enumerate() {
-        let (col, row) = ((i % 8) as f64, (i / 8) as f64);
-        let t = cm(1.0 + col * 4.0, 2.4 + row * 3.3, 3.2, 2.4);
+        let (col, row) = ((i % 9) as f64, (i / 9) as f64);
+        let t = cm(1.0 + col * 3.6, 2.4 + row * 2.6, 3.2, 2.2);
         let mut shape = Shape::auto(preset.clone(), t);
         if let Some(body) = shape.text_mut() {
             let mut para = TextParagraph::plain(preset.prst());
@@ -111,7 +111,7 @@ fn gallery(p: &mut Presentation) {
             ],
         }],
     };
-    p.add_shape(s, Shape::auto(house, cm(29.0, 15.6, 2.4, 2.4)))
+    p.add_shape(s, Shape::auto(house, cm(26.2, 15.4, 2.4, 2.2)))
         .expect("slide exists");
 }
 

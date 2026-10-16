@@ -19,7 +19,9 @@ use crate::command::{
 };
 use crate::image::pixel_size;
 use crate::patch::ShowPatch;
-use crate::text::{para_len, set_run_props};
+use crate::text::{para_len, set_run_link, set_run_props};
+
+mod rich;
 
 /// Errors of [`ShowDocument`]; [`code`](Self::code) is the stable
 /// [`DispatchError::code`].
@@ -1710,6 +1712,85 @@ impl ShowDocument {
                 }
                 Ok(())
             }),
+            C::InsertChart {
+                slide,
+                kind,
+                transform,
+                new_id,
+            } => self.insert_chart(*slide, kind, transform.as_ref(), *new_id, ch),
+            C::SetChartData { shape, data } => self.set_chart_data(*shape, data, ch),
+            C::UpdateChart { shape, chart } => self.update_chart(*shape, chart, ch),
+            C::SetHyperlink {
+                shape,
+                paragraph,
+                from,
+                to,
+                link,
+            } => {
+                if link.as_ref().is_some_and(|l| !l.is_valid()) {
+                    return Err(invalid("a hyperlink needs an address"));
+                }
+                let (f, t) = self.text_range(*shape, *paragraph, *from, *to)?;
+                self.edit_shapes(&[*shape], ch, |s| {
+                    if let Some(p) = s
+                        .text_mut()
+                        .and_then(|b| b.paragraphs.get_mut(*paragraph as usize))
+                    {
+                        set_run_link(p, f, t, link.as_ref());
+                    }
+                    Ok(())
+                })
+            }
+            C::SetClickAction { shapes, action } => {
+                if action.as_ref().is_some_and(|l| !l.is_valid()) {
+                    return Err(invalid("a hyperlink needs an address"));
+                }
+                self.edit_shapes(shapes, ch, |s| {
+                    s.click_action.clone_from(action);
+                    Ok(())
+                })
+            }
+            C::InsertMedia {
+                slide,
+                content_type,
+                bytes_base64,
+                transform,
+                new_id,
+            } => self.insert_media(
+                *slide,
+                content_type,
+                bytes_base64,
+                transform.as_ref(),
+                *new_id,
+                ch,
+            ),
+            C::SetMediaProps { shapes, patch } => {
+                for id in shapes {
+                    if self.shape(*id)?.media_clip().is_none() {
+                        return Err(invalid(format!("shape {} is no audio or video", id.0)));
+                    }
+                }
+                self.edit_shapes(shapes, ch, |s| {
+                    if let ShapeKind::Media(m) = &mut s.kind {
+                        patch.apply_to(m);
+                    }
+                    Ok(())
+                })
+            }
+            C::SetMediaPoster {
+                shape,
+                content_type,
+                bytes_base64,
+            } => {
+                self.set_media_poster(*shape, content_type.as_deref(), bytes_base64.as_deref(), ch)
+            }
+            C::InsertSlides {
+                after,
+                slides,
+                layouts,
+                media,
+                keep_source_formatting,
+            } => self.insert_slides(*after, slides, layouts, media, *keep_source_formatting, ch),
             C::Compound { commands } => {
                 let mut inverses = Vec::with_capacity(commands.len());
                 for cmd in commands {
@@ -1935,6 +2016,25 @@ impl ShowDocument {
                     .map(|c| self.build_shape(c, ids, ch))
                     .collect::<R<Vec<_>>>()?,
             },
+            NewShapeKind::Chart(c) => {
+                if let Some(w) = c.workbook {
+                    if self.pres.media.get(w).is_none() {
+                        return Err(ShowError::UnknownMedia(w.0));
+                    }
+                }
+                c.data.validate().map_err(invalid)?;
+                let mut c = (**c).clone();
+                c.canonicalize();
+                ShapeKind::Chart(Box::new(c))
+            }
+            NewShapeKind::Media(m) => {
+                for id in m.media_ids() {
+                    if self.pres.media.get(id).is_none() {
+                        return Err(ShowError::UnknownMedia(id.0));
+                    }
+                }
+                ShapeKind::Media(m.clone())
+            }
         };
         let mut shape = Shape {
             id,
@@ -1946,6 +2046,10 @@ impl ShowDocument {
             placeholder: ns.placeholder,
             placeholder_idx: ns.placeholder_idx,
             alt: ns.alt.clone().filter(|a| !a.is_empty()),
+            click_action: ns
+                .click_action
+                .clone()
+                .filter(model_show::Hyperlink::is_valid),
         };
         shape.fill_default_name();
         normalize_shape(&mut shape);

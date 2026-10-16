@@ -17,6 +17,9 @@ import { AnimationPane } from "./ui/AnimationPane";
 import { BackgroundPane } from "./ui/DesignTab";
 import { MasterPanel } from "./ui/MasterView";
 import { ShowDialogs } from "./ui/ShowDialogs";
+import { ChartFormatPane } from "./charts/FormatPane";
+import { ReusePane } from "./reuse/ReusePane";
+import { PosterInput } from "./media/PlaybackTab";
 import { Toasts } from "./ui/Toasts";
 import { t, useT } from "./i18n";
 
@@ -192,7 +195,10 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
         </div>
         <AnimationPane store={store} />
         <BackgroundPane store={store} />
+        <ChartFormatPane store={store} />
+        <ReusePane store={store} />
       </div>
+      <PosterInput store={store} />
       <StatusBar store={store} backend={backend} session={session} zoom={zoom} />
       <Toasts store={store} />
       <ShowDialogs store={store} printOptions={printOptions} onPrintOptions={setPrintOptions} />

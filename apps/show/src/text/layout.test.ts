@@ -74,3 +74,16 @@ describe("text layout", () => {
     expect(shrunk.fragments[0]!.fontSize).toBeLessThan(plain.fragments[0]!.fontSize);
   });
 });
+
+describe("hyperlinks", () => {
+  it("linked runs are underlined in the link colour and their fragments carry the link", () => {
+    const link = { target: { kind: "url" as const, value: "https://example.com" } };
+    const b = mk([{ runs: [{ text: "Go " }, { text: "here", hyperlink: link }] }]);
+    const f = layoutText(b, { ...opts(1000, 200), linkColor: "#0563C1" }).fragments;
+    expect(f[0]!.link).toBeUndefined();
+    expect(f[1]).toMatchObject({ text: "here", textDecoration: "underline", fill: "#0563C1", link });
+    // without a link colour the run keeps its own
+    const g = layoutText(b, opts(1000, 200)).fragments;
+    expect(g[1]!.fill).toBe("#000000");
+  });
+});

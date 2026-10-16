@@ -14,6 +14,7 @@
 import type { RunProperties } from "../../../../packages/ui-shared/src/generated/RunProperties";
 import type { AutoNumScheme } from "../generated/AutoNumScheme";
 import type { Bullet } from "../generated/Bullet";
+import type { Hyperlink } from "../generated/Hyperlink";
 import type { TextBody } from "../generated/TextBody";
 import type { TextField } from "../generated/TextField";
 import type { TextParagraphProps } from "../generated/TextParagraphProps";
@@ -35,6 +36,8 @@ export interface RunStyle {
   color: string;
   highlight?: string;
   verticalAlign?: "superscript" | "subscript";
+  /** The run's hyperlink (drawn underlined in the theme's hyperlink colour). */
+  link?: Hyperlink;
 }
 
 /** A positioned piece of text with one style (local px of the text box). */
@@ -51,6 +54,8 @@ export interface Fragment {
   fill: string;
   width: number;
   highlight?: string;
+  /** The hyperlink of the run the fragment belongs to. */
+  link?: Hyperlink;
 }
 
 export interface TextLayout {
@@ -72,6 +77,13 @@ export interface LayoutOptions {
   paragraphProps: (props: TextParagraphProps | undefined) => TextParagraphProps;
   /** The text a field run shows (slide number, date); absent = the run's stored text. */
   fieldText?: (field: TextField, stored: string) => string;
+  /** Colour of hyperlinks (the theme's `hlink`); absent = the run's own colour. */
+  linkColor?: string;
+}
+
+/** A run style for a run with a hyperlink: underlined, in the hyperlink colour (PowerPoint). */
+export function linkStyle(s: RunStyle, link: Hyperlink, color?: string): RunStyle {
+  return { ...s, underline: true, color: color ?? s.color, link };
 }
 
 const LEVEL_INDENT_PX = 48; // 0.5"
@@ -171,7 +183,10 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number): TextLayout {
 
   paras.forEach(({ p, props }, pi) => {
     const level = props.level ?? p.props?.level ?? 0;
-    const runs = p.runs.map((r) => ({ text: r.field && o.fieldText ? o.fieldText(r.field, r.text) : r.text, style: o.runStyle(r.props, level) }));
+    const runs = p.runs.map((r) => {
+      const style = o.runStyle(r.props, level);
+      return { text: r.field && o.fieldText ? o.fieldText(r.field, r.text) : r.text, style: r.hyperlink ? linkStyle(style, r.hyperlink, o.linkColor) : style };
+    });
     const firstStyle = runs[0]?.style ?? o.runStyle(undefined, level);
     const baseSize = firstStyle.sizePx * scale;
     const lineFactor = props.lineSpacing?.kind === "percent" ? props.lineSpacing.value / 100000 : 1;
@@ -265,7 +280,7 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number): TextLayout {
         fragments.push({
           x, y: top + baseline - size * 0.85 + raise, text: pc.text, fontFamily: pc.style.fontFamily, fontSize: size,
           fontStyle: konvaStyle(pc.style), textDecoration: konvaDecoration(pc.style), fill: pc.style.color,
-          width: pc.width, highlight: pc.style.highlight,
+          width: pc.width, highlight: pc.style.highlight, ...(pc.style.link ? { link: pc.style.link } : {}),
         });
         x += pc.width;
       }

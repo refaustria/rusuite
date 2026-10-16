@@ -1,0 +1,129 @@
+---
+source: crates/fmt-pptx/tests/links.rs
+expression: "tree(&bytes, 1)"
+---
+<p:sp>
+ <p:nvSpPr>
+  <p:cNvPr id="2" name="TextBox 4"/>
+  <p:cNvSpPr txBox="1"/>
+  <p:nvPr/>
+ </p:nvSpPr>
+ <p:spPr>
+  <a:xfrm>
+   <a:off x="720000" y="720000"/>
+   <a:ext cx="8640000" cy="1080000"/>
+  </a:xfrm>
+  <a:prstGeom prst="rect">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:noFill/>
+  <a:ln w="12700">
+   <a:noFill/>
+   <a:prstDash val="solid"/>
+  </a:ln>
+ </p:spPr>
+ <p:txBody>
+  <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="t">
+   <a:spAutoFit/>
+  </a:bodyPr>
+  <a:lstStyle/>
+  <a:p>
+   <a:r>
+    <a:t>Visit </a:t>
+   </a:r>
+   <a:r>
+    <a:rPr>
+     <a:hlinkClick r:id="rId2" tooltip="The Rusuite site"/>
+    </a:rPr>
+    <a:t>example.com</a:t>
+   </a:r>
+   <a:r>
+    <a:t> or jump to </a:t>
+   </a:r>
+   <a:r>
+    <a:rPr>
+     <a:hlinkClick r:id="rId3" action="ppaction://hlinksldjump"/>
+    </a:rPr>
+    <a:t>the media slide</a:t>
+   </a:r>
+  </a:p>
+ </p:txBody>
+</p:sp>
+<p:sp>
+ <p:nvSpPr>
+  <p:cNvPr id="3" name="Rounded Rectangle 5">
+   <a:hlinkClick r:id="" action="ppaction://hlinkshowjump?jump=endshow"/>
+  </p:cNvPr>
+  <p:cNvSpPr/>
+  <p:nvPr/>
+ </p:nvSpPr>
+ <p:spPr>
+  <a:xfrm>
+   <a:off x="720000" y="2520000"/>
+   <a:ext cx="2160000" cy="900000"/>
+  </a:xfrm>
+  <a:prstGeom prst="roundRect">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:solidFill>
+   <a:schemeClr val="accent1"/>
+  </a:solidFill>
+  <a:ln w="12700">
+   <a:solidFill>
+    <a:schemeClr val="accent1">
+     <a:lumMod val="50000"/>
+    </a:schemeClr>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+  </a:ln>
+ </p:spPr>
+ <p:txBody>
+  <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
+   <a:noAutofit/>
+  </a:bodyPr>
+  <a:lstStyle/>
+  <a:p>
+   <a:r>
+    <a:t>End show</a:t>
+   </a:r>
+  </a:p>
+ </p:txBody>
+</p:sp>
+<p:sp>
+ <p:nvSpPr>
+  <p:cNvPr id="4" name="Oval 6">
+   <a:hlinkClick r:id="rId4"/>
+  </p:cNvPr>
+  <p:cNvSpPr/>
+  <p:nvPr/>
+ </p:nvSpPr>
+ <p:spPr>
+  <a:xfrm>
+   <a:off x="3600000" y="2520000"/>
+   <a:ext cx="1440000" cy="900000"/>
+  </a:xfrm>
+  <a:prstGeom prst="ellipse">
+   <a:avLst/>
+  </a:prstGeom>
+  <a:solidFill>
+   <a:schemeClr val="accent1"/>
+  </a:solidFill>
+  <a:ln w="12700">
+   <a:solidFill>
+    <a:schemeClr val="accent1">
+     <a:lumMod val="50000"/>
+    </a:schemeClr>
+   </a:solidFill>
+   <a:prstDash val="solid"/>
+  </a:ln>
+ </p:spPr>
+ <p:txBody>
+  <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
+   <a:noAutofit/>
+  </a:bodyPr>
+  <a:lstStyle/>
+  <a:p>
+   <a:pPr algn="ctr"/>
+  </a:p>
+ </p:txBody>
+</p:sp>

@@ -29,9 +29,12 @@
 //! the `*_path` helpers exist on native targets only.
 
 mod anim;
+mod chart;
 mod drawing;
 mod geom;
+mod link;
 mod master;
+mod media;
 mod parts;
 mod read;
 mod table;

@@ -6,7 +6,11 @@
 // `Text` node per styled fragment (unflipped, like PowerPoint).
 
 import { memo, useEffect, useMemo, useState } from "react";
-import { Ellipse, Group, Image as KImage, Line as KLine, Path, Rect, Text } from "react-konva";
+import { Ellipse, Group, Image as KImage, Line as KLine, Path, Rect, Shape as KShape, Text } from "react-konva";
+import { applyTint, drawChartScene } from "@rusuite/ui-shared";
+import type { ChartShape } from "../generated/ChartShape";
+import type { MediaClip } from "../generated/MediaClip";
+import { chartScene } from "../charts/render";
 import type Konva from "konva";
 import type { ThemePalette } from "@rusuite/ui-shared";
 import type { Connector } from "../generated/Connector";
@@ -137,12 +141,8 @@ export function preloadImages(urls: readonly string[]): Promise<void> {
   ).then(() => undefined);
 }
 
-function placeholderOf(ctx: Ctx, shape: Shape): PlaceholderDef | undefined {
-  return placeholderFor(ctx.deck, ctx.slide.layout, shape, ctx.asMaster);
-}
-
 /** The placeholder defaults of each outline level (level 1 = the placeholder's own). */
-function levelDefs(ctx: Ctx, def: PlaceholderDef | undefined): (level: number) => PlaceholderDef | undefined {
+function levelDefs(ctx: Pick<Ctx, "deck">, def: PlaceholderDef | undefined): (level: number) => PlaceholderDef | undefined {
   const cache = new Map<number, PlaceholderDef | undefined>();
   return (level) => {
     if (!def || level <= 0) return def;
@@ -154,32 +154,41 @@ function levelDefs(ctx: Ctx, def: PlaceholderDef | undefined): (level: number) =
   };
 }
 
+/** What laying out a shape's text needs to know about the slide. */
+export type TextCtx = Pick<Ctx, "deck" | "slide" | "palette" | "asMaster" | "slideNumber">;
+
+/** The layout of a shape's text in its `w` × `h` px text rectangle (placeholder defaults per level, fields, links). */
+export function layoutShapeText(ctx: TextCtx, shape: Shape, body: TextBody, w: number, h: number, prompt?: string) {
+  const def = placeholderFor(ctx.deck, ctx.slide.layout, shape, ctx.asMaster);
+  const shown: TextBody = prompt ? { ...body, paragraphs: [{ props: body.paragraphs[0]?.props, runs: [{ text: prompt }] }] } : body;
+  const at = levelDefs(ctx, def);
+  const styles = new Map<number, ReturnType<typeof runStyleFor>>();
+  const styleAt = (level: number) => {
+    if (!styles.has(level)) styles.set(level, runStyleFor(at(level), ctx.deck.theme, ctx.palette));
+    return styles.get(level)!;
+  };
+  return layoutText(shown, {
+    width: w,
+    height: h,
+    measure: measureText,
+    runStyle: (props, level = 0) => styleAt(level)(props),
+    paragraphProps: (p: TextParagraphProps | undefined) => effectiveParagraph(at(p?.level ?? 0), p),
+    fieldText: (field, stored) => fieldText(field, ctx.slideNumber, stored),
+    linkColor: css({ kind: "theme", value: { slot: "hyperlink", tint: 0 } }, ctx.palette),
+  });
+}
+
 function TextNodes({ body, shape, w, h, ctx }: { body: TextBody; shape: Shape; w: number; h: number; ctx: Ctx }) {
-  const def = placeholderOf(ctx, shape);
   // a field (date, slide number) is text even while its stored text is empty
   const empty = bodyText(body) === "" && !body.paragraphs.some((p) => p.runs.some((r) => r.field));
   const t = useT();
   const promptKey = empty && ctx.prompts && shape.placeholder ? PROMPTS[shape.placeholder] : undefined;
   const prompt = promptKey ? t(promptKey) : undefined;
-  const layout = useMemo(() => {
-    const shown: TextBody = prompt
-      ? { ...body, paragraphs: [{ props: body.paragraphs[0]?.props, runs: [{ text: prompt }] }] }
-      : body;
-    const at = levelDefs(ctx, def);
-    const styles = new Map<number, ReturnType<typeof runStyleFor>>();
-    const styleAt = (level: number) => {
-      if (!styles.has(level)) styles.set(level, runStyleFor(at(level), ctx.deck.theme, ctx.palette));
-      return styles.get(level)!;
-    };
-    return layoutText(shown, {
-      width: w,
-      height: h,
-      measure: measureText,
-      runStyle: (props, level = 0) => styleAt(level)(props),
-      paragraphProps: (p: TextParagraphProps | undefined) => effectiveParagraph(at(p?.level ?? 0), p),
-      fieldText: (field, stored) => fieldText(field, ctx.slideNumber, stored),
-    });
-  }, [body, w, h, def, ctx.deck, ctx.palette, prompt, ctx.slideNumber]);
+  const layout = useMemo(
+    () => layoutShapeText(ctx, shape, body, w, h, prompt),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [body, w, h, shape.placeholder, shape.placeholderIdx, ctx.deck, ctx.palette, ctx.slide.layout, ctx.asMaster, prompt, ctx.slideNumber],
+  );
   if (empty && !prompt) return null;
   return <Fragments fragments={layout.fragments} opacity={prompt ? 0.45 : 1} />;
 }
@@ -271,6 +280,64 @@ function Picture({ shape, media, w, h, ctx }: { shape: Shape; media: string | un
   );
 }
 
+/** A CSS `#RRGGBB` colour darkened (`d` > 0) or lightened (`d` < 0) by a fraction of its lightness (action button icons). */
+export function shade(color: string, d: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(color);
+  return m ? `#${applyTint(m[1]!.toUpperCase(), -d)}` : color;
+}
+
+/** A chart: the shared renderer's scene painted on the Konva canvas (transparent area, the theme's colours). */
+function ChartGeometry({ chart, w, h, ctx }: { chart: ChartShape; w: number; h: number; ctx: Ctx }) {
+  const scene = chartScene(chart, Math.max(1, w), Math.max(1, h), ctx.palette);
+  return (
+    <>
+      <Rect name="chart-hit" width={w} height={h} fill="rgba(0,0,0,0)" />
+      <KShape
+        name="chart"
+        listening={false}
+        width={w}
+        height={h}
+        sceneFunc={(c: Konva.Context) => {
+          const native = (c as unknown as { _context?: CanvasRenderingContext2D })._context;
+          if (native && typeof Path2D !== "undefined") drawChartScene(native, scene);
+        }}
+      />
+    </>
+  );
+}
+
+/**
+ * Audio / video on the slide: the poster frame, else PowerPoint-like
+ * placeholders (a dark frame with a play button; a speaker for audio).
+ */
+function MediaGeometry({ clip, w, h, ctx }: { clip: MediaClip; w: number; h: number; ctx: Ctx }) {
+  const poster = useImage(clip.poster !== undefined ? ctx.media.get(clip.poster) : undefined);
+  const r = Math.max(4, Math.min(w, h) * 0.18);
+  const cx = w / 2;
+  const cy = h / 2;
+  if (poster) return <KImage name="media-poster" image={poster} width={w} height={h} />;
+  if (clip.kind === "audio") {
+    const s = Math.min(w, h);
+    const x = (w - s) / 2;
+    const y = (h - s) / 2;
+    const u = s / 10;
+    return (
+      <Group name="media-placeholder" data-media="audio">
+        <Rect width={w} height={h} fill="rgba(0,0,0,0)" />
+        <Path x={x} y={y} data={`M${u} ${3.5 * u}H${3.5 * u}L${6 * u} ${u}V${9 * u}L${3.5 * u} ${6.5 * u}H${u}Z`} fill="#404040" />
+        <Path x={x} y={y} data={`M${7 * u} ${3.5 * u}Q${8.2 * u} ${5 * u} ${7 * u} ${6.5 * u}M${8 * u} ${2.5 * u}Q${10 * u} ${5 * u} ${8 * u} ${7.5 * u}`} stroke="#404040" strokeWidth={Math.max(1, u * 0.6)} />
+      </Group>
+    );
+  }
+  return (
+    <Group name="media-placeholder" data-media="video">
+      <Rect width={w} height={h} fill="#262626" />
+      <Ellipse x={cx} y={cy} radiusX={r} radiusY={r} fill="rgba(255,255,255,0.18)" />
+      <KLine points={[cx - r * 0.35, cy - r * 0.5, cx + r * 0.55, cy, cx - r * 0.35, cy + r * 0.5]} closed fill="#F2F2F2" />
+    </Group>
+  );
+}
+
 /** Konva stroke attributes of a shape's outline (`{}` without one). */
 function strokeOf(shape: Shape, palette: ThemePalette) {
   const color = fillCss(shape.line.fill, palette);
@@ -314,7 +381,7 @@ function PresetGeometry({ shape, w, h, ctx }: { shape: Shape; w: number; h: numb
           key={i}
           name="geometry"
           data={svgPath(p.commands)}
-          fill={p.fill ? (fill ?? "rgba(0,0,0,0)") : undefined}
+          fill={p.fill ? (p.darken && fill ? shade(fill, p.darken) : (fill ?? "rgba(0,0,0,0)")) : undefined}
           {...(p.stroke ? s.attrs : {})}
           {...(lineOnly ? { stroke: s.color ?? "#000000", strokeWidth: s.sw, hitStrokeWidth: Math.max(10, s.sw) } : {})}
         />
@@ -396,6 +463,8 @@ function Geometry({ shape, w, h, ctx }: { shape: Shape; w: number; h: number; ct
   if (k.kind === "picture") return <Picture shape={shape} media={ctx.media.get(k.value.media)} w={w} h={h} ctx={ctx} />;
   if (k.kind === "connector") return <ConnectorGeometry shape={shape} c={k.value} ctx={ctx} />;
   if (k.kind === "table") return <TableGeometry shape={shape} table={k.value} ctx={ctx} />;
+  if (k.kind === "chart") return <ChartGeometry chart={k.value} w={w} h={h} ctx={ctx} />;
+  if (k.kind === "media") return <MediaGeometry clip={k.value} w={w} h={h} ctx={ctx} />;
   if (k.kind !== "auto") return null;
   return <PresetGeometry shape={shape} w={w} h={h} ctx={ctx} />;
 }

@@ -1,10 +1,10 @@
-"""Generator for the PROVISIONAL pptx reference suite (31 decks).
+"""Generator for the PROVISIONAL pptx reference suite (33 decks).
 
 Emits one flat ODP (.fodp) per topic plus manifest.json. Conversion to .pptx is done by
 scripts/gen-pptx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
 
   gen.py emit OUTDIR PNGDIR      write OUTDIR/*.fodp and OUTDIR/manifest.json
-  gen.py post PPTXDIR            add what LibreOffice cannot export (PowerPoint 2010 sections) to the .pptx files
+  gen.py post PPTXDIR            add what LibreOffice cannot export (PowerPoint 2010 sections, embedded media) to the .pptx files
   gen.py check MANIFEST PPTXDIR  structural checks of the converted .pptx files against the manifest
 """
 import base64
@@ -26,10 +26,17 @@ NS = (
     'xmlns:smil="urn:oasis:names:tc:opendocument:xmlns:smil-compatible:1.0" '
     'xmlns:anim="urn:oasis:names:tc:opendocument:xmlns:animation:1.0" '
     'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
+    'xmlns:chart="urn:oasis:names:tc:opendocument:xmlns:chart:1.0" '
+    'xmlns:xlink="http://www.w3.org/1999/xlink" '
+    'xmlns:script="urn:oasis:names:tc:opendocument:xmlns:script:1.0" '
+    'xmlns:dom="http://www.w3.org/2001/xml-events" '
     'office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.presentation"'
 )
 SIZES = {"16x9": (28.0, 15.75), "4x3": (25.4, 19.05)}
 IMAGES = {}
+# An EBML header: the "video" of deck 33 (LibreOffice links media; `post` embeds it).
+WEBM = bytes.fromhex("1a45dfa39f4286810142f7810142f2810442f381084282847765626d")
+MEDIA_DIR = None  # where `emit` writes the media files the .fodp files link
 
 
 class X(str):
@@ -437,6 +444,70 @@ class Deck:
                  f'svg:width="{w}cm" svg:height="{h}cm"><draw:image><office:binary-data>{data}'
                  f"</office:binary-data></draw:image></draw:frame>")
 
+    def chart(self, kind, x, y, w, h, title, cats, series):
+        """An embedded chart (ODF chart object inline in the flat ODP); kind: bar|line|pie;
+        series: [(name, [values])]. LibreOffice exports it as ppt/charts/chartN.xml."""
+        cls = {"column": "bar", "bar": "bar", "line": "line", "pie": "circle"}[kind]
+        self.feat(f"chart:{kind}")
+        n = len(cats)
+        cell = lambda v: (f'<table:table-cell office:value-type="float" office:value="{v}"><text:p>{v}</text:p></table:table-cell>'  # noqa: E731
+                          if isinstance(v, (int, float)) else
+                          f'<table:table-cell office:value-type="string"><text:p>{esc(v)}</text:p></table:table-cell>')
+        head = "<table:table-cell/>" + "".join(cell(nm) for nm, _ in series)
+        rows = "".join("<table:table-row>" + cell(c) + "".join(cell(vals[i]) for _, vals in series) + "</table:table-row>"
+                       for i, c in enumerate(cats))
+        col = lambda i: chr(66 + i)  # noqa: E731
+        # LibreOffice's own range syntax (`local-table.$B$2:.$B$5`); without it the data is read by rows
+        sers = "".join(f'<chart:series chart:values-cell-range-address="local-table.${col(i)}$2:.${col(i)}${n + 1}" '
+                       f'chart:label-cell-address="local-table.${col(i)}$1" chart:class="chart:{cls}"/>' for i in range(len(series)))
+        horizontal = kind == "bar"
+        pa = ' chart:style-name="chv"' if horizontal else ""
+        cstyle = ('<style:style style:name="chv" style:family="chart"><style:chart-properties chart:vertical="true"/></style:style>'
+                  if horizontal else "")
+        axes = ("" if kind == "pie" else
+                f'<chart:axis chart:dimension="x" chart:name="primary-x"><chart:categories table:cell-range-address="local-table.$A$2:.$A${n + 1}"/></chart:axis>'
+                '<chart:axis chart:dimension="y" chart:name="primary-y"><chart:grid chart:class="major"/></chart:axis>')
+        if kind == "pie":
+            axes = f'<chart:axis chart:dimension="x" chart:name="primary-x"><chart:categories table:cell-range-address="local-table.$A$2:.$A${n + 1}"/></chart:axis>'
+        doc = (f'<office:document office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.chart">'
+               f'<office:automatic-styles>{cstyle}</office:automatic-styles>'
+               f'<office:body><office:chart><chart:chart svg:width="{w}cm" svg:height="{h}cm" chart:class="chart:{cls}">'
+               f'<chart:title><text:p>{esc(title)}</text:p></chart:title><chart:legend chart:legend-position="bottom"/>'
+               f'<chart:plot-area{pa} table:cell-range-address="local-table.$A$1:.${col(len(series) - 1)}${n + 1}" chart:data-source-has-labels="both">'
+               f'{axes}{sers}</chart:plot-area>'
+               f'<table:table table:name="local-table"><table:table-header-columns><table:table-column/></table:table-header-columns>'
+               f'<table:table-columns><table:table-column table:number-columns-repeated="{len(series)}"/></table:table-columns>'
+               f'<table:table-header-rows><table:table-row>{head}</table:table-row></table:table-header-rows>'
+               f'<table:table-rows>{rows}</table:table-rows></table:table></chart:chart></office:chart></office:body></office:document>')
+        self.add(f'<draw:frame svg:x="{x}cm" svg:y="{y}cm" svg:width="{w}cm" svg:height="{h}cm"><draw:object>{doc}</draw:object></draw:frame>')
+
+    def link(self, text, href):
+        """A hyperlink run (web address, or `#SlideN` for a slide of this deck)."""
+        self.feat("link:slide" if href.startswith("#") else "link:url")
+        return X(f'<text:a xlink:href="{esc(href)}" xlink:type="simple">{esc(text)}</text:a>')
+
+    # presentation:action of an ODF click action → the manifest's action kind
+    ACTIONS = {"next-page": "next", "previous-page": "previous", "first-page": "first", "last-page": "last", "stop": "endShow"}
+
+    def action_shape(self, kind, x, y, w, h, text, action, href=None):
+        """A shape with a mouse-click action (`presentation:event-listener`)."""
+        self.feat("action:" + ("slide" if action == "show" else self.ACTIONS[action]))
+        target = f' xlink:href="{esc(href)}" xlink:type="simple"' if href else ""
+        listener = (f'<office:event-listeners><presentation:event-listener script:event-name="dom:click" '
+                    f'presentation:action="{action}"{target}/></office:event-listeners>')
+        xml = self.shape(kind, x, y, w, h, text, fill=BLUE)
+        self.add(xml.replace(">", ">" + listener, 1))
+
+    def video(self, x, y, w, h, name):
+        """A video (LibreOffice links the file; `gen.py post` embeds it as ppt/media/media1.webm)."""
+        self.feat("media:video")
+        (Path(MEDIA_DIR) / name).write_bytes(WEBM)
+        href = (Path(MEDIA_DIR) / name).resolve().as_uri()
+        self.add(f'<draw:frame svg:x="{x}cm" svg:y="{y}cm" svg:width="{w}cm" svg:height="{h}cm">'
+                 f'<draw:plugin xlink:href="{href}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad" '
+                 f'draw:mime-type="application/vnd.sun.star.media"><draw:param draw:name="Loop" draw:value="false"/>'
+                 f'</draw:plugin></draw:frame>')
+
     def section(self, name):
         """Starts a section (PowerPoint 2010 p14:sectionLst, added by `gen.py post`) at the next slide."""
         self.sections.append((name, len(self.slides)))
@@ -814,14 +885,44 @@ def d31():
     return d
 
 
-TOPICS = [globals()[f"d{n:02d}"] for n in range(1, 32)]
+def d32():
+    d = Deck(32, "charts", "Charts: clustered column, line and pie with their data (LibreOffice chart objects)")
+    d.slide("blank")
+    d.textbox(1, 0.5, 20, 1.2, "Sales by region")
+    d.chart("column", 1, 2, 16, 11, "Sales", ["North", "East", "South", "West"],
+            [("2025", [12, 7.5, 3, 9]), ("2026", [14, 8, 4, 11])])
+    d.slide("blank")
+    d.chart("line", 1, 1, 13, 10, "Trend", ["Q1", "Q2", "Q3", "Q4"], [("Revenue", [4.3, 2.5, 3.5, 4.5]), ("Cost", [2.4, 4.4, 1.8, 2.8])])
+    d.chart("pie", 15, 1, 11, 10, "Share", ["A", "B", "C"], [("Share", [50, 30, 20])])
+    return d
+
+
+def d33():
+    d = Deck(33, "links-media", "Hyperlinks (web, slide), click actions (next, last, end show) and a video")
+    d.slide("blank")
+    d.textbox(1, 1, 24, 2, d.para([X("Visit "), d.link("example.com", "https://example.com/rusuite"),
+                                   X(" or go to "), d.link("the media slide", "#Slide3")]))
+    d.action_shape("rect", 1, 5, 5, 2, "Next", "next-page")
+    d.action_shape("rect", 7, 5, 5, 2, "Last", "last-page")
+    d.action_shape("ellipse", 13, 5, 5, 2, "End", "stop")
+    d.slide("blank")
+    d.textbox(1, 1, 20, 2, "Second slide")
+    d.action_shape("rect", 1, 5, 5, 2, "Back", "previous-page")
+    d.slide("blank")
+    d.video(2, 2, 16, 9, "clip.webm")
+    return d
+
+
+TOPICS = [globals()[f"d{n:02d}"] for n in range(1, 34)]
 
 
 def emit(outdir, pngdir):
+    global MEDIA_DIR
     for k in range(3):
         IMAGES[f"img{k}"] = (Path(pngdir) / f"img{k}.png").read_bytes()
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
+    MEDIA_DIR = out
     man = []
     for t in TOPICS:
         d = t()
@@ -838,9 +939,13 @@ def post(pptxdir):
     """Adds the sections of every deck that has some (LibreOffice cannot export them) to its .pptx."""
     for k in range(3):
         IMAGES.setdefault(f"img{k}", b"")  # the decks are only rebuilt for their sections
+    global MEDIA_DIR
+    MEDIA_DIR = MEDIA_DIR or pptxdir
     for t in TOPICS:
         d = t()
         path = Path(pptxdir) / d.file
+        if path.exists() and "media:video" in d.feats:
+            embed_media(path)
         if not d.sections or not path.exists():
             continue
         with zipfile.ZipFile(path) as z:
@@ -868,6 +973,43 @@ def post(pptxdir):
                 z.writestr(info, data, compress_type=info.compress_type)
 
 
+def embed_media(path):
+    """LibreOffice links audio/video by absolute file URL: embed each file as ppt/media/mediaN.ext and point the
+    `video`/`media` relationships at it (as PowerPoint writes them)."""
+    with zipfile.ZipFile(path) as z:
+        entries = [(i, z.read(i.filename)) for i in z.infolist()]
+    files = {}
+    out = []
+    for info, data in entries:
+        if re.fullmatch(r"ppt/slides/_rels/slide\d+\.xml\.rels", info.filename):
+            xml = data.decode("utf-8")
+
+            def repl(m):
+                url = m.group(1)
+                if url not in files:
+                    files[url] = f"media{len(files) + 1}{Path(url).suffix}"
+                return f'Target="../media/{files[url]}"'
+            xml = re.sub(r'Target="(file://[^"]+)" TargetMode="External"', repl, xml)
+            data = xml.encode("utf-8")
+        out.append((info, data))
+    if not files:
+        return
+    for info, data in list(out):
+        if info.filename == "[Content_Types].xml":
+            xml = data.decode("utf-8")
+            for name in files.values():
+                ext = Path(name).suffix[1:]
+                if f'Extension="{ext}"' not in xml:
+                    xml = xml.replace("<Default ", f'<Default Extension="{ext}" ContentType="video/{ext}"/><Default ', 1)
+            out[out.index((info, data))] = (info, xml.encode("utf-8"))
+    with zipfile.ZipFile(path, "w") as z:
+        for info, data in out:
+            z.writestr(info, data, compress_type=info.compress_type)
+        for url, name in files.items():
+            z.writestr(f"ppt/media/{name}", Path(url[len("file://"):]).read_bytes() if Path(url[len("file://"):]).exists() else WEBM,
+                       compress_type=zipfile.ZIP_DEFLATED)
+
+
 def check(manifest_path, pptxdir):
     fails = 0
     for e in json.loads(Path(manifest_path).read_text(encoding="utf-8")):
@@ -878,6 +1020,7 @@ def check(manifest_path, pptxdir):
                 slides = sorted(n for n in names if re.fullmatch(r"ppt/slides/slide\d+\.xml", n))
                 xml = "".join(z.read(n).decode("utf-8") for n in slides)
                 pres = z.read("ppt/presentation.xml").decode("utf-8")
+                charts = "".join(z.read(n).decode("utf-8") for n in names if re.fullmatch(r"ppt/charts/chart\d+\.xml", n))
         except Exception as ex:  # noqa: BLE001
             print(f"FAIL {e['file']}: {ex}")
             fails += 1
@@ -989,6 +1132,20 @@ def check(manifest_path, pptxdir):
                 errs.append("a:lum not found")
             elif ft == "picture:transparency" and "<a:alphaModFix" not in xml:
                 errs.append("a:alphaModFix not found")
+            elif ft.startswith("chart:"):
+                k = {"column": "<c:barDir val=\"col\"/>", "bar": "<c:barDir val=\"bar\"/>", "line": "<c:lineChart>", "pie": "<c:pieChart>"}[ft.split(":")[1]]
+                if k not in charts:
+                    errs.append(f"{ft} not found")
+            elif ft == "link:url" and not re.search(r'<a:hlinkClick r:id="rId\d+"', xml):
+                errs.append("URL hyperlink not found")
+            elif ft == "link:slide" and "ppaction://hlinksldjump" not in xml:
+                errs.append("slide hyperlink not found")
+            elif ft.startswith("action:") and ft != "action:slide":
+                jump = {"next": "nextslide", "previous": "previousslide", "first": "firstslide", "last": "lastslide", "endShow": "endshow"}[ft.split(":")[1]]
+                if f"ppaction://hlinkshowjump?jump={jump}" not in xml:
+                    errs.append(f"{ft} not found")
+            elif ft == "media:video" and "<a:videoFile" not in xml:
+                errs.append("a:videoFile not found")
             elif ft.startswith("animation:"):
                 _, cls, eff = ft.split(":")
                 c = {"entrance": "entr", "emphasis": "emph", "exit": "exit"}[cls]

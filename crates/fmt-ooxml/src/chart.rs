@@ -137,7 +137,33 @@ fn num(el: &El, name: &str) -> Option<f64> {
 /// Reads a chart part. Returns the chart and warnings about dropped
 /// content (without a part prefix).
 pub fn read_chart(xml: &[u8], part: &str) -> Result<(Chart, Vec<String>)> {
+    read_chart_inner(xml, part, false).map(|r| (r.chart, r.warnings))
+}
+
+/// A chart part as [`read_chart_ext`] returns it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChartPart {
+    pub chart: Chart,
+    /// Warnings about dropped content (without a part prefix).
+    pub warnings: Vec<String>,
+    /// `c:externalData/@r:id`: the relationship of the embedded workbook
+    /// (PowerPoint/Word charts), which the caller resolves.
+    pub external_data: Option<String>,
+}
+
+/// Like [`read_chart`], but `c:externalData` is not dropped: its
+/// relationship id is returned (for pptx/docx charts with an embedded
+/// workbook).
+pub fn read_chart_ext(xml: &[u8], part: &str) -> Result<ChartPart> {
+    read_chart_inner(xml, part, true)
+}
+
+fn read_chart_inner(xml: &[u8], part: &str, keep_external: bool) -> Result<ChartPart> {
     let root = parse(xml, part)?;
+    let external_data = root
+        .child("externalData")
+        .filter(|_| keep_external)
+        .and_then(|e| e.attr("id").map(str::to_owned));
     let mut ctx = Ctx {
         dropped: BTreeSet::new(),
     };
@@ -172,7 +198,11 @@ pub fn read_chart(xml: &[u8], part: &str) -> Result<(Chart, Vec<String>)> {
             kind: bad.name.clone(),
             xml: String::from_utf8_lossy(&xml).into_owned(),
         });
-        return Ok((chart, warnings));
+        return Ok(ChartPart {
+            chart,
+            warnings,
+            external_data: None,
+        });
     }
 
     let mut chart = Chart::new(ChartKind::column());
@@ -190,6 +220,7 @@ pub fn read_chart(xml: &[u8], part: &str) -> Result<(Chart, Vec<String>)> {
                     chart.style = s;
                 }
             }
+            "externalData" if keep_external => {}
             "externalData" | "userShapes" => {
                 warnings.push("chart user shapes / external data dropped".into())
             }
@@ -338,7 +369,11 @@ pub fn read_chart(xml: &[u8], part: &str) -> Result<(Chart, Vec<String>)> {
         let names: Vec<&str> = ctx.dropped.iter().map(String::as_str).collect();
         warnings.push(format!("chart elements dropped: {}", names.join(", ")));
     }
-    Ok((chart, warnings))
+    Ok(ChartPart {
+        chart,
+        warnings,
+        external_data,
+    })
 }
 
 /// `mc:AlternateContent` around the chart style: `c:style` in the
@@ -996,6 +1031,22 @@ const SECONDARY_VAL: &str = "500000004";
 /// Writes a chart part (`c:chartSpace`); an unsupported chart is
 /// returned verbatim.
 pub fn write_chart(chart: &Chart, data: &dyn ChartData) -> Vec<u8> {
+    write_chart_with(chart, data, &ChartWriteOptions::default())
+}
+
+/// Options of [`write_chart_with`] (pptx/docx charts).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ChartWriteOptions {
+    /// Writes `c:externalData r:id` (+ `c:autoUpdate val="0"`): the
+    /// relationship of the embedded workbook.
+    pub external_data: Option<String>,
+    /// Writes a chart area without fill and outline (`c:spPr` with
+    /// `a:noFill` and `a:ln/a:noFill`), as PowerPoint's charts on slides.
+    pub transparent_area: bool,
+}
+
+/// [`write_chart`] with options.
+pub fn write_chart_with(chart: &Chart, data: &dyn ChartData, opts: &ChartWriteOptions) -> Vec<u8> {
     if let ChartKind::Unsupported { xml, .. } = &chart.kind {
         return xml.as_bytes().to_vec();
     }
@@ -1139,6 +1190,19 @@ pub fn write_chart(chart: &Chart, data: &dyn ChartData) -> Vec<u8> {
         )],
     );
     x.end("c:chart");
+    if opts.transparent_area {
+        x.start("c:spPr", &[]);
+        x.empty("a:noFill", &[]);
+        x.start("a:ln", &[]);
+        x.empty("a:noFill", &[]);
+        x.end("a:ln");
+        x.end("c:spPr");
+    }
+    if let Some(rid) = &opts.external_data {
+        x.start("c:externalData", &[("r:id", rid)]);
+        x.empty("c:autoUpdate", &[("val", "0")]);
+        x.end("c:externalData");
+    }
     x.end("c:chartSpace");
     x.finish()
 }
@@ -1824,6 +1888,34 @@ mod tests {
             name: Some(TextSource::reference(format!("S!$B$1{f}"))),
             ..Series::new(DataRef::reference(format!("S!$B$2:$B$5{f}")))
         }
+    }
+
+    #[test]
+    fn external_data_option() {
+        let mut c = Chart::new(ChartKind::column());
+        c.series = vec![series("")];
+        let opts = ChartWriteOptions {
+            external_data: Some("rId3".into()),
+            transparent_area: true,
+        };
+        let xml = write_chart_with(&c, &NoData, &opts);
+        let text = String::from_utf8(xml.clone()).unwrap();
+        assert!(
+            text.contains(r#"<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr><c:externalData r:id="rId3"><c:autoUpdate val="0"/></c:externalData></c:chartSpace>"#),
+            "{text}"
+        );
+        let part = read_chart_ext(&xml, "/c.xml").unwrap();
+        assert_eq!(part.external_data.as_deref(), Some("rId3"));
+        assert!(part.warnings.is_empty(), "{:?}", part.warnings);
+        assert_eq!(part.chart, c);
+        // the xlsx reader keeps dropping it with a warning
+        let (_, warnings) = read_chart(&xml, "/c.xml").unwrap();
+        assert_eq!(warnings, ["chart user shapes / external data dropped"]);
+        // without options the output is unchanged
+        assert_eq!(
+            write_chart_with(&c, &NoData, &ChartWriteOptions::default()),
+            write_chart(&c, &NoData)
+        );
     }
 
     #[test]

@@ -5,19 +5,22 @@ use std::io::Cursor;
 
 use core_model::Color;
 use fmt_ooxml::{Package, PartName, TargetMode};
+use model_show::clip::media_content_type;
 use model_show::{
     Adjust, Attach, BodyProps, Connector, ConnectorKind, Crop, Emu, Fill, Layout, LayoutKind, Line,
-    MediaId, NodeId, PictureProps, PlaceholderDef, PlaceholderKind, Presentation, Preset, Recolor,
-    Section, Shadow, Shape, ShapeKind, Slide, SlideMaster, SlideSize, TextBody, TextField,
-    Transform,
+    MediaClip, MediaId, MediaKind, NodeId, PictureProps, PlaceholderDef, PlaceholderKind,
+    Presentation, Preset, Recolor, Section, Shadow, Shape, ShapeKind, Slide, SlideMaster,
+    SlideSize, TextBody, TextField, Transform,
 };
 
-use crate::anim::{read_slide_transition, read_timing};
+use crate::anim::{read_media_timing, read_slide_transition, read_timing};
+use crate::chart::{shape_from_chart, CHART_URI, XLSX_CT};
 use crate::drawing::{
     color_and_alpha, read_arrows, read_color, read_fill, read_line, read_text_body, read_xfrm,
     Space, Xfrm, ANGLE_UNITS_PER_DEGREE, STYLE_LINE_WIDTHS,
 };
 use crate::geom::{read_adjust, read_geometry};
+use crate::link::{read_hlink, resolve_part_links, resolve_slide_links};
 use crate::master::{
     body_pr_of, header_footer_of, kind_of_type, lst_style_lvl1, read_background as read_bg,
     read_clr_map, read_text_styles,
@@ -175,6 +178,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     }
     // slide numeric ids (for sections), in slide order
     let mut slide_numbers: Vec<(u32, NodeId)> = Vec::new();
+    let mut slide_parts: HashMap<String, NodeId> = HashMap::new();
     if let Some(list) = root.child("sldIdLst") {
         for el in list.elements().filter(|e| e.name == "sldId") {
             let Some(part) = id_target(&pkg, &main, el) else {
@@ -182,11 +186,13 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
                 continue;
             };
             let id = reader.read_slide(&part)?;
+            slide_parts.insert(part.as_str().to_owned(), id);
             if let Some(n) = numeric_id(el) {
                 slide_numbers.push((n, id));
             }
         }
     }
+    resolve_slide_links(&mut p, &slide_parts, &mut w);
     read_sections(&root, &slide_numbers, &mut p, &mut w);
     p.normalize();
 
@@ -580,6 +586,7 @@ impl Reader<'_> {
             file_layout: None,
         };
         let mut shapes = self.read_tree(&without_placeholders(tree), Space::SLIDE, &ctx);
+        self.resolve_links(part, &mut shapes);
         let mut spids = HashMap::new();
         for s in &mut shapes {
             assign_ids(self.p, s, &mut spids);
@@ -785,6 +792,7 @@ impl Reader<'_> {
         let mut spids = HashMap::new();
         if let Some(tree) = tree {
             let mut shapes = self.read_tree(tree, Space::SLIDE, &ctx);
+            self.resolve_links(part, &mut shapes);
             normalize_placeholder_idx(&mut shapes, &ctx.layout);
             for s in &mut shapes {
                 assign_ids(self.p, s, &mut spids);
@@ -810,6 +818,22 @@ impl Reader<'_> {
                 })
         });
         if let Some(timing) = timing {
+            for (spid, mt) in read_media_timing(timing) {
+                let Some(&id) = spids.get(&spid) else {
+                    continue;
+                };
+                if let Some(ShapeKind::Media(m)) = slide.find_shape_mut(id).map(|s| &mut s.kind) {
+                    if let Some(start) = mt.start {
+                        m.start = start;
+                    }
+                    if let Some(v) = mt.volume {
+                        m.volume = v.min(100_000);
+                    }
+                    m.muted = mt.muted;
+                    m.hide_when_not_playing = mt.hide;
+                    m.loop_playback = mt.looped;
+                }
+            }
             slide.animations = read_timing(timing, &spids, self.w);
             for a in &mut slide.animations {
                 a.id = self.p.alloc_id();
@@ -868,9 +892,15 @@ impl Reader<'_> {
                         .and_then(|g| g.attr("uri"))
                         .unwrap_or("");
                     if uri == TABLE_URI || uri.ends_with("/table") {
-                        out.extend(self.read_table_frame(el, space));
-                    } else if uri.ends_with("/chart") {
-                        self.w.add("charts dropped");
+                        out.extend(
+                            self.read_table_frame(el, space)
+                                .map(|s| self.with_action(s, el)),
+                        );
+                    } else if uri == CHART_URI || uri.ends_with("/chart") {
+                        out.extend(
+                            self.read_chart_frame(el, space, ctx)
+                                .map(|s| self.with_action(s, el)),
+                        );
                     } else {
                         self.w
                             .add("graphic frames (diagrams, embedded objects) dropped");
@@ -894,9 +924,192 @@ impl Reader<'_> {
                     None
                 }
             };
-            out.extend(shape);
+            out.extend(shape.map(|s| self.with_action(s, el)));
         }
         out
+    }
+
+    /// `shape` with the click action of its element's `p:cNvPr/a:hlinkClick`.
+    fn with_action(&mut self, mut shape: Shape, el: &El) -> Shape {
+        if let Some(h) = el
+            .elements()
+            .find(|e| e.name.starts_with("nv"))
+            .and_then(|nv| nv.child("cNvPr"))
+            .and_then(|c| c.child("hlinkClick"))
+        {
+            shape.click_action = read_hlink(h, self.w);
+        }
+        if el
+            .elements()
+            .any(|e| e.name.starts_with("nv") && e.find("hlinkMouseOver").is_some())
+        {
+            self.w.add("mouse-over actions dropped");
+        }
+        shape
+    }
+
+    /// Resolves the relationship ids of the links read from `part`.
+    fn resolve_links(&mut self, part: &PartName, shapes: &mut [Shape]) {
+        let rels = self.pkg.relationships(part);
+        let rel_of = |rid: &str| {
+            let r = rels?.get(rid)?;
+            if r.target_mode == TargetMode::External {
+                return Some((rel_kind(&r.rel_type).to_owned(), r.target.clone(), true));
+            }
+            let target = part.resolve(&r.target).ok()?;
+            Some((
+                rel_kind(&r.rel_type).to_owned(),
+                target.as_str().to_owned(),
+                false,
+            ))
+        };
+        resolve_part_links(shapes, &rel_of, self.w);
+    }
+
+    /// The media store id of part `name` (inserted on first use; the
+    /// content type from the package, `fallback_ct` when it is generic).
+    fn media_of_part(&mut self, name: &PartName, fallback_ct: Option<&str>) -> Option<MediaId> {
+        if let Some(id) = self.media.get(name) {
+            return Some(*id);
+        }
+        let part = self.pkg.part(name)?;
+        let mut ct = part.content_type.clone();
+        if let Some(f) = fallback_ct {
+            if !(ct.starts_with("video/") || ct.starts_with("audio/") || ct == f) {
+                ct = f.to_owned();
+            }
+        }
+        let id = self.p.media.insert(ct, part.data.clone());
+        self.consumed.insert(name.clone());
+        self.media.insert(name.clone(), id);
+        Some(id)
+    }
+
+    /// A `p:graphicFrame` holding a chart: the chart part (and its
+    /// embedded workbook) → a chart shape with the data of its caches.
+    fn read_chart_frame(&mut self, el: &El, space: Space, ctx: &SlideCtx<'_>) -> Option<Shape> {
+        let name = el
+            .child("nvGraphicFramePr")
+            .and_then(|n| n.child("cNvPr"))
+            .and_then(|c| c.attr("name"))
+            .unwrap_or("")
+            .to_owned();
+        let Some(xfrm) = el.child("xfrm") else {
+            self.w.add("shape without position dropped");
+            return None;
+        };
+        let mut transform = space.map(&read_xfrm(xfrm));
+        if transform.rotation_deg != 0.0 || transform.flip_h || transform.flip_v {
+            self.w.add("chart rotation and flips dropped");
+            transform.rotation_deg = 0.0;
+            transform.flip_h = false;
+            transform.flip_v = false;
+        }
+        let rid = el.find("graphicData")?.child("chart")?.attr("id")?;
+        let Some(part) = target_of(self.pkg, ctx.part, rid) else {
+            self.w.add("chart with a dangling relationship dropped");
+            return None;
+        };
+        let data = self.pkg.part(&part)?.data.clone();
+        self.consumed.insert(part.clone());
+        let read = match fmt_ooxml::chart::read_chart_ext(&data, part.as_str()) {
+            Ok(r) => r,
+            Err(e) => {
+                self.w.add(format!("unreadable chart dropped ({e})"));
+                return None;
+            }
+        };
+        for msg in read.warnings {
+            self.w.add(msg);
+        }
+        let mut workbook = None;
+        if let Some(rels) = self.pkg.relationships(&part) {
+            for r in rels
+                .iter()
+                .filter(|r| r.target_mode == TargetMode::Internal)
+            {
+                let Ok(target) = part.resolve(&r.target) else {
+                    continue;
+                };
+                let wanted = Some(r.id.as_str()) == read.external_data.as_deref();
+                let ct = self.pkg.content_type_of(&target).unwrap_or("").to_owned();
+                if wanted && ct == XLSX_CT {
+                    workbook = Some(target);
+                } else {
+                    if wanted {
+                        self.w.add("chart data embedded as an OLE object dropped (the chart keeps its data)");
+                    }
+                    // chart style / colour parts, OLE objects, images of the chart
+                    self.consumed.insert(target);
+                }
+            }
+        }
+        let mut chart = shape_from_chart(read.chart, None);
+        if let Some(target) = workbook {
+            // a workbook we would generate from the data anyway is not kept
+            let generated = crate::chart::workbook_xlsx(&chart.data).ok();
+            if self.pkg.part(&target).map(|p| &p.data) == generated.as_ref() {
+                self.consumed.insert(target);
+            } else {
+                chart.workbook = self.media_of_part(&target, None);
+            }
+        }
+        Some(Shape {
+            id: file_id(el),
+            alt: alt_of(el),
+            name,
+            transform,
+            kind: ShapeKind::Chart(Box::new(chart)),
+            fill: Fill::None,
+            line: Line::default(),
+            placeholder: None,
+            placeholder_idx: None,
+            click_action: None,
+        })
+    }
+
+    /// The audio/video of a `p:pic` (`a:videoFile`/`a:audioFile` +
+    /// `p14:media r:embed`): `Some` with the clip when the file is
+    /// embedded; `None` when the picture is no media shape; linked
+    /// (external) media → `None` with a warning (the poster stays as a
+    /// picture).
+    fn read_media(&mut self, el: &El, ctx: &SlideCtx<'_>) -> Option<MediaClip> {
+        let nv = el.child("nvPicPr")?.child("nvPr")?;
+        let (kind, file) = if let Some(v) = nv.child("videoFile") {
+            (MediaKind::Video, v)
+        } else {
+            (MediaKind::Audio, nv.child("audioFile")?)
+        };
+        let embed = nv
+            .find("media")
+            .and_then(|m| m.attr("embed"))
+            .or_else(|| file.attr("link"));
+        let rels = self.pkg.relationships(ctx.part);
+        let rel = embed.and_then(|rid| rels?.get(rid));
+        let Some(rel) = rel.filter(|r| r.target_mode == TargetMode::Internal) else {
+            self.w
+                .add("linked (not embedded) audio/video kept as its poster picture");
+            return None;
+        };
+        let target = ctx.part.resolve(&rel.target).ok()?;
+        let ext = target.extension().unwrap_or("").to_owned();
+        let fallback = media_content_type(&ext).unwrap_or(match kind {
+            MediaKind::Video => "video/mp4",
+            MediaKind::Audio => "audio/mpeg",
+        });
+        let Some(media) = self.media_of_part(&target, Some(fallback)) else {
+            self.w
+                .add("audio/video part missing; kept as its poster picture");
+            return None;
+        };
+        // the other relationship (a:videoFile r:link) points at the same part
+        if let Some(t) = file
+            .attr("link")
+            .and_then(|rid| target_of(self.pkg, ctx.part, rid))
+        {
+            self.consumed.insert(t);
+        }
+        Some(MediaClip::new(kind, media))
     }
 
     /// The layout (else master) placeholder a slide placeholder
@@ -1025,6 +1238,7 @@ impl Reader<'_> {
             line,
             placeholder: kind,
             placeholder_idx: kind.and(ph_idx),
+            click_action: None,
         })
     }
 
@@ -1108,6 +1322,7 @@ impl Reader<'_> {
             line,
             placeholder: None,
             placeholder_idx: None,
+            click_action: None,
         })
     }
 
@@ -1142,6 +1357,7 @@ impl Reader<'_> {
             line: Line::default(),
             placeholder: None,
             placeholder_idx: None,
+            click_action: None,
         })
     }
 
@@ -1154,6 +1370,44 @@ impl Reader<'_> {
             .to_owned();
         let blip_fill = el.child("blipFill");
         let blip = blip_fill.and_then(|b| b.child("blip"));
+        if let Some(mut clip) = self.read_media(el, ctx) {
+            let Some(xfrm) = el.child("spPr").and_then(|s| s.child("xfrm")) else {
+                self.w.add("shape without position dropped");
+                return None;
+            };
+            let poster = blip
+                .and_then(|b| b.attr("embed"))
+                .and_then(|rid| target_of(self.pkg, ctx.part, rid));
+            if let Some(poster) = poster {
+                let generated = self
+                    .pkg
+                    .part(&poster)
+                    .is_some_and(|p| p.data == crate::media::PLACEHOLDER_POSTER);
+                if generated {
+                    self.consumed.insert(poster);
+                } else {
+                    clip.poster = self.media_of_part(&poster, None);
+                }
+            }
+            let style = read_style(el.child("style"), self.w);
+            let line = read_line(
+                el.child("spPr").and_then(|s| s.child("ln")),
+                style.line,
+                self.w,
+            );
+            return Some(Shape {
+                id: file_id(el),
+                alt: alt_of(el),
+                name,
+                transform: space.map(&read_xfrm(xfrm)),
+                kind: ShapeKind::Media(clip),
+                fill: Fill::None,
+                line,
+                placeholder: None,
+                placeholder_idx: None,
+                click_action: None,
+            });
+        }
         let Some(rid) = blip.and_then(|b| b.attr("embed")) else {
             if blip.and_then(|b| b.attr("link")).is_some() {
                 self.w.add("linked (external) pictures dropped");
@@ -1214,6 +1468,7 @@ impl Reader<'_> {
             line,
             placeholder: ph_kind,
             placeholder_idx: ph_kind.and(ph_idx),
+            click_action: None,
         })
     }
 
@@ -1348,6 +1603,7 @@ impl Reader<'_> {
             line: Line::default(),
             placeholder: None,
             placeholder_idx: None,
+            click_action: None,
         })
     }
 }

@@ -276,7 +276,9 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   earlier/later), View (Notes pane, present from beginning/current, Presenter view, zoom Fit/50–200 %, shortcuts help),
   contextual Shape Format while shapes are selected (Format shape…, Alt text…, Change picture…/Reset size; Insert shapes:
   Shapes ▾, Change shape ▾; Shape styles ▾, fill, outline, Arrows ▾, Connector type ▾ + Reroute; Arrange ▾, Rotate ▾), or
-  Table Design + Layout while one table is selected; Present in the strip. Right-click menus on shapes, on the slide and on thumbnails (`apps/show/src/canvas/menus.ts`).
+  Table Design + Layout while one table is selected, Chart Design + Format while one chart is selected, Playback (+ Shape
+  Format) while audio/video is selected (P8-24); Insert also has Chart, Links (Link, Action) and Media (Video, Audio), and
+  New Slide ▾ ends with Reuse Slides…; Present in the strip. Right-click menus on shapes, on the slide and on thumbnails (`apps/show/src/canvas/menus.ts`).
 
 Each app keeps its status bar; Calc and Show also show the zoom there, all three the last autosave.
 
@@ -456,6 +458,49 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   the CSS filter. Crop mode (`canvas/CropOverlay.tsx`): the whole image dimmed under a dark veil, the cropped part bright
   in a frame with eight black handles (32 px hit areas, pointer events); Enter or a click outside → `CropPicture` with the
   new box, Esc cancels. Compress Pictures is not offered.
+
+## Show: charts, links, action buttons, audio/video, Reuse Slides (P8-24)
+
+- **Charts** (`apps/show/src/charts/`, details in [charts.md](charts.md) "Show"): Insert › Chart opens the Insert Chart dialog
+  (PowerPoint's type list, sub-type icons and a live preview drawn by the shared renderer); the chart is inserted centred at
+  2/3 of the slide with PowerPoint's sample data, selected, and Chart Design is shown. On the slide it is drawn by the
+  shared renderer in the presentation's theme colours on a transparent area (editor, thumbnails, presenter, audience
+  window, print); it moves and resizes like any shape. Chart Design: Add Chart Element ▾ (one menu, a section per
+  element), Quick Layout ▾, Change Colors ▾, Chart Styles ▾ (live previews), Switch Row/Column, Edit Data (an in-app grid:
+  row 1 series names, column A categories; Add Series / Add Category, × removes; OK sends `setChartData`), Change Chart
+  Type. Format: the series the fill / outline apply to, Format pane (right of the stage), Reset to Match Style, Shape Fill,
+  Shape Outline.
+- **Links** (`apps/show/src/links/`): Insert › Link / Ctrl+K opens Insert Hyperlink: Web Page or File Address (`www.…` →
+  `https://…`, `name@host` → `mailto:`) or Place in This Document (First / Last / Next / Previous / Last Slide Viewed and
+  every slide with its thumbnail and title), ScreenTip, Remove Link. With text being edited it links the selection (the
+  word at the caret when nothing is selected; the dialog takes the editor's session, which closes); otherwise the
+  selected shapes' click action. Insert › Action (Action Settings, Mouse Click): None or Hyperlink to Next / Previous /
+  First / Last / Last Slide Viewed / End Show / Slide… / URL…; Run program and Play sound are shown disabled. Linked runs
+  are drawn underlined in the theme's hyperlink colour.
+- **Action buttons**: the twelve `actionButton*` presets are the Action Buttons group of the shape library (icons drawn from
+  the core's paths: the frame, the icon with a darkened fill, outlines); inserting one gives it PowerPoint's default
+  action (Back/Forward: previous/next slide, Beginning/Home: first, End: last, Return: last slide viewed).
+- **In the slide show** (`present/ShowOverlay.tsx`): a DOM layer over the slide holds an anchor (`target="_blank"`,
+  `rel="noopener noreferrer"`, only `http(s)`/`mailto`/`tel`/`ftp`) per web link – the browser opens it, no `window.open`
+  (mobile guardrail) – and a button per jump (`linkAction`: go to the slide (if it is in the show), first, last, next,
+  previous, the slide shown before, end the show). Regions: the boxes of top-level shapes with a click action and the
+  text fragments of linked runs (unrotated boxes). A click on a link does not advance the show.
+- **Audio / video** (`apps/show/src/media/`): Insert › Video / Audio pick a file (mp4, webm, ogv / mp3, wav, ogg, m4a;
+  other types are refused with a message) → `insertMedia` (video: half the slide at 16:9, centred; audio: a 1.27 cm icon),
+  selected, Playback shown. The editor shows the poster frame, else a dark frame with a play button (video) or a speaker
+  (audio); print shows the same. Playback: Start (When Clicked On / Automatically / In Click Sequence), Loop until Stopped,
+  Hide While Not Playing, Volume ▾ (Low 25 %, Medium 50 %, High, Mute), Poster Frame ▾ (Image from File…, Reset); trimming
+  is not offered. In the show each clip is an HTML5 `<video>`/`<audio>` with controls at the shape's place (blob URLs);
+  Automatically clips start when the slide appears, In Click Sequence ones play when clicked (they do not join the
+  animation click steps), loop, volume and mute as set, hidden while not playing when asked. The deployed CSP needs
+  `media-src 'self' blob:` for playback (it currently falls back to `default-src 'self'`).
+- **Reuse Slides** (`apps/show/src/reuse/ReusePane.tsx`): New Slide ▾ › Reuse Slides… opens a pane right of the stage:
+  Browse… reads another .pptx through the core without opening it (`peekPresentation`), its slides are listed as
+  thumbnails in their own design; a click inserts that slide after the current one, Insert All Slides all of them
+  (`insertSlides`, one undo step). Keep source formatting copies each used layout as a custom layout; otherwise the
+  slide takes this presentation's layout of the same kind (custom layouts: inferred from the placeholders) and its
+  placeholders are re-mapped like a layout change. Media are copied (identical ones shared), links to slides that are
+  not inserted are dropped.
 
 ## Printing (P7-9)
 
