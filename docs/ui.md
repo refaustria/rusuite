@@ -69,6 +69,42 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
   Tab outside tables and lists types a tab character.
 - Print and Export PDF clone the editor DOM, so they show all of it.
 
+### Write styles (P8-21)
+- **Styles gallery** (Home › Styles): the document's quick styles (`qFormat`, Word's order by `uiPriority`; Heading *N* ≥ 3
+  appears once Heading *N*−1 is used, semi-hidden styles once used) with live previews (font, size scaled down, colour,
+  weight as the style resolves). Click applies (paragraph styles through the editor → `SetStyle`; character styles and a
+  linked style on part of one paragraph → `ApplyCharacterStyle`). Right-click: Update *X* to Match Selection
+  (`UpdateStyleFromSelection`), Modify…, Select All *n* Instances (`blocksWithStyle`; consecutive paragraphs become the
+  selection, otherwise the caret goes to the first and the next style applied goes to all of them), Rename…, Remove from /
+  Add to Style Gallery. The ▾ adds Create a Style…, Clear Formatting, Apply Styles…; the Styles pane button (Mod+Alt+Shift+S)
+  toggles the pane.
+- **Styles pane** (right of the page): every style with its preview text (Show Preview), kind glyph (¶ paragraph, a
+  character, ¶a linked), the caret's styles highlighted; Show: Recommended (priority < 99, user styles, styles in use; by
+  priority) / In use / All styles (alphabetical; hidden styles and the `… Char` halves of linked styles never). Disable Linked
+  Styles makes linked styles act as paragraph styles. A ▾ per style (always visible, no hover-only control) with the gallery
+  menu plus Delete *X*… (user styles only; paragraphs go back to Normal, runs lose the character style). New Style opens
+  Create New Style from Formatting; Style Inspector shows the paragraph style + direct paragraph formatting and the
+  character style + direct character formatting, each with Clear; Clear All = Clear All Formatting.
+- **Modify Style / Create New Style from Formatting**: name, style type (read-only when modifying), based on, style for
+  the following paragraph, a formatting toolbar (font incl. +Body / +Headings theme fonts, size, B/I/U, colour, alignment,
+  line spacing 1 / 1.5 / 2, space before/after, indent), a preview with Word's description line, Add to the Styles gallery,
+  Automatically update (stored as `autoRedefine`), Format ▾ › Font… / Paragraph… (the Paragraph dialog) / Border… (Borders and
+  Shading) / Numbering… (one of the document's lists). OK sends only what changed (`UpdateStyle` / `AddStyle`).
+- **Create a Style** (gallery ▾): a name and a preview of the selection's formatting → `AddStyle` + `UpdateStyleFromSelection`
+  in one undo step; Modify… opens the full dialog.
+- **Apply Styles** box (Mod+Shift+S): style name with autocomplete; Reapply / New Style, Modify…, Styles pane.
+- **Rendering**: the style sheet becomes one `<style>` element (`features/styleCss.ts`: resolved paragraph styles on
+  `p[data-style]`, `h1…h6`, `.doc-title` and unstyled paragraphs; character styles on `span[data-cstyle]` from the
+  `charStyle` mark); a modified style restyles every paragraph at once. Direct formatting stays inline and wins.
+- **Navigation pane** (View › Show › Navigation Pane, left of the page): Heading 1–3 paragraphs (and styles based on them),
+  click to go.
+- **Find and Replace › More ▾**: Use wildcards (`?`, `*`, `[a-z]`, `[!…]`, `{n}`, `{n,}`, `{n,m}`, `@`, `<`, `>`; always
+  case-sensitive), Find All (count), Format ▾ for the Find and the Replace field (Font… with every field "not set" by
+  default, Paragraph…, Style…, Highlight → Not Highlight → none), No Formatting; the formats show under the fields. With
+  formatting or wildcards the matches come from Rust (`find` request → block id + char offsets, mapped to the editor), so
+  the highlighted matches are exactly what Replace all (`FindReplace` with `format` / `replaceFormat`, one undo step)
+  changes; an empty Find with a format finds formatted stretches, an empty Replace with a replace format only reformats.
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |
@@ -165,9 +201,9 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, multilevel list, indent, line spacing, alignment, shading, borders,
-  tabs; Styles gallery Normal/Title/Heading 1–6; Editing: Find and replace), Insert (Table picker, Picture, Header/Footer/Page
+  tabs; Styles gallery (quick styles with live previews, ▾ Create a Style / Clear Formatting / Apply Styles, Styles pane; P8-21); Editing: Find and replace), Insert (Table picker, Picture, Header/Footer/Page
   number, Field, Footnotes, Page break, Line break), Layout (Margins, Orientation, Size → `SetSection`/`SetPage`, Breaks),
-  References (Table of contents, Footnotes), View (views, ruler, zoom, spelling, shortcuts help); contextual Table Design and
+  References (Table of contents, Footnotes), View (views, ruler, Navigation Pane, zoom, spelling, shortcuts help); contextual Table Design and
   Table Layout in a table, Picture Format on a picture (P8-17).
 - **Show**: Home (Undo; Clipboard: shapes/slides clipboard + Duplicate; Slides: New slide ▾ layouts, Layout ▾, Duplicate,
   Delete, Hide slide; Font + grow/shrink; Paragraph + line spacing ▾; Drawing: shapes gallery, Arrange ▾

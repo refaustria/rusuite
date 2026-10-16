@@ -31,6 +31,8 @@ export interface BackstageActions {
   exportDisabled?: boolean;
   /** Extra content under the recent list (e.g. document info). */
   info?: ReactNode;
+  /** The Save As shortcut shown (default `Mod+Shift+S`; Write uses Word's F12). */
+  saveAsShortcut?: string;
 }
 
 /** The backstage pages: Home (recent files) and Print. */
@@ -139,7 +141,7 @@ function PrivacySection({ session }: { session: AnySession }) {
 /** Full-pane File view (Office "backstage"). */
 export function Backstage({
   open, onClose, appName, documentTitle, accent = "var(--ui-focus)", onNew, onOpen, onSave, onSaveAs, onExportPdf, onCloseDocument,
-  session, fileDisabledReason, exportDisabled, info, print, page: pageProp = "home", onPage,
+  session, fileDisabledReason, exportDisabled, info, print, page: pageProp = "home", onPage, saveAsShortcut = "Mod+Shift+S",
 }: BackstageProps) {
   const t = useT();
   const page: BackstagePage = pageProp === "print" && print && !exportDisabled ? "print" : "home";
@@ -240,7 +242,7 @@ export function Backstage({
           {item("new", t("backstage.new"), "new", onNew, "Mod+N")}
           {item("open", t("backstage.open"), "open", onOpen, "Mod+O", fileOff)}
           {item("save", t("backstage.save"), "save", onSave, "Mod+S", fileOff)}
-          {item("saveAs", t("backstage.saveAs"), "saveAs", onSaveAs, "Mod+Shift+S", fileOff)}
+          {item("saveAs", t("backstage.saveAs"), "saveAs", onSaveAs, saveAsShortcut, fileOff)}
           {print && (
             <li key="print">
               <button

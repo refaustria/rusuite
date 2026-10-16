@@ -76,7 +76,9 @@ export function findAll(doc: PMNode, q: FindQuery): FindMatch[] {
 }
 
 export interface FindState {
+  /** The highlighted query; `external` = matches computed by Rust (formatting / wildcards). */
   query: FindQuery | null;
+  external?: boolean;
   matches: FindMatch[];
   /** Index of the current match, or -1. */
   current: number;
@@ -85,7 +87,7 @@ export interface FindState {
 
 export const findKey = new PluginKey<FindState>("rusuiteFind");
 
-type FindMeta = { query: FindQuery | null } | { current: number };
+type FindMeta = { query: FindQuery | null } | { current: number } | { external: FindMatch[] | null };
 
 function decorate(doc: PMNode, matches: FindMatch[], current: number): DecorationSet {
   if (!matches.length) return DecorationSet.empty;
@@ -110,6 +112,26 @@ export function findPlugin(): Plugin<FindState> {
       apply(tr: Transaction, prev: FindState, _old: EditorState, state: EditorState): FindState {
         const meta = tr.getMeta(findKey) as FindMeta | undefined;
         let { query, current } = prev;
+        if (meta && "external" in meta) {
+          if (!meta.external) return { query: null, matches: [], current: -1, decorations: DecorationSet.empty };
+          const matches = meta.external;
+          const keep = prev.external ? prev.current : -2;
+          let cur = keep === -2 ? firstFrom(matches, state.selection.from) : Math.min(keep, matches.length - 1);
+          if (!matches.length) cur = -1;
+          return { query: { text: "", matchCase: false, wholeWord: false }, external: true, matches, current: cur, decorations: decorate(state.doc, matches, cur) };
+        }
+        if (prev.external && tr.docChanged && !meta) {
+          // Until Rust answers again, the old matches follow the edit.
+          const matches = prev.matches
+            .map((m) => ({ from: tr.mapping.map(m.from, 1), to: tr.mapping.map(m.to, -1) }))
+            .filter((m) => m.to > m.from);
+          const cur = Math.min(prev.current, matches.length - 1);
+          return { ...prev, matches, current: cur, decorations: decorate(state.doc, matches, cur) };
+        }
+        if (prev.external && meta && "current" in meta) {
+          return { ...prev, current: meta.current, decorations: decorate(state.doc, prev.matches, meta.current) };
+        }
+        if (prev.external && !(meta && "query" in meta)) return prev;
         if (meta && "query" in meta) {
           query = meta.query;
           current = -2; // recompute from the selection
@@ -130,6 +152,11 @@ export function findPlugin(): Plugin<FindState> {
 
 export function findState(state: EditorState): FindState | null {
   return findKey.getState(state) ?? null;
+}
+
+/** Highlights matches computed elsewhere (Rust's `find`: formatting, wildcards); `null` clears them. */
+export function setFindMatches(view: EditorView, matches: FindMatch[] | null): void {
+  view.dispatch(view.state.tr.setMeta(findKey, { external: matches }).setMeta("addToHistory", false));
 }
 
 /** Sets (or with `null`, clears) the highlighted query. */
