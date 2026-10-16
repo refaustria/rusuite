@@ -84,6 +84,11 @@ export interface AssistantState {
 export interface AssistantOptions {
   store: AiStore;
   provider?: ProviderFactory;
+  /**
+   * `false` on the web build (ADR 0009, owner decision 2026-10-16): the assistant exists only so that File › Options…
+   * can say "available in the desktop apps"; no ribbon group, shortcut, panel or status item, and nothing is sent.
+   */
+  available?: boolean;
 }
 
 let turnSeq = 0;
@@ -98,9 +103,12 @@ export class Assistant {
   private readonly factory: ProviderFactory;
   /** File › Options… of an app that has its own options (shown in the dialog's General page). */
   moreOptions: (() => void) | null = null;
+  /** Whether AI actions can run here (desktop apps; the web build only shows a note in the options). */
+  readonly available: boolean;
 
   constructor(options: AssistantOptions) {
     this.store = options.store;
+    this.available = options.available !== false;
     this.factory = options.provider ?? ((kind, key, base) => createProvider(kind, key, base));
     const settings = this.store.loadSettings();
     this.state = {

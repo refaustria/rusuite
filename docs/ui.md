@@ -530,6 +530,13 @@ backstage. The UI language follows the browser by default and switches in place;
 
 ## Cloud connections (P8-36)
 
+**Desktop apps only (P8-42, owner decision 2026-10-16):** the web CSP stays `connect-src 'self'`, so the web build has no
+connections: `WasmBackend` creates no `Connectors`, File › Open / Save As go straight to the device dialogs (no Connections
+section, no "Add a connection…") and the Privacy entry has no "Forget all connections". The web code paths (IndexedDB
+store, `fetch` provider, CSP detection) stay for the e2e suite, which pretends to be a desktop app with
+`window.__RUSUITE_PLATFORM__ = "desktop"` (`simulatedDesktop()` in `backend.ts`, set via `addInitScript`; it only reveals
+UI, the CSP still blocks other hosts). The text below describes the desktop apps.
+
 Generic and opt-in (owner 2026-10-16; ADR 0009 amendment): the user adds a WebDAV server (Nextcloud, ownCloud, a NAS,
 a hosted drive); Rusuite offers no cloud and contacts nothing until then. Code: `packages/ui-shared/src/connectors`
 (`FileProvider`, `Connectors` controller = `Backend.connectors` = `session.connectors`, transports, stores, UI).
@@ -562,6 +569,10 @@ a hosted drive); Rusuite offers no cloud and contacts nothing until then. Code: 
   prompt), which Save As › a connection runs while `Connectors.pendingSave` points at the target.
 
 ## AI assistant (P8-37)
+
+**Desktop apps only (P8-42):** on the web build `Backend.ai` exists with `available: false` – no Home › AI group, no
+Ctrl+Shift+A, no pane, no status-bar item, no requests – and File › Options… › AI shows only "The AI assistant is available
+in the desktop apps." with a "Download the desktop apps" link (`AiDesktopOnly`). The text below describes the desktop apps.
 
 Opt-in, the user's own provider account and key, client-side (ADR 0009 amendment; design `docs/ai-plan.md`). Code:
 `packages/ui-shared/src/ai` (`Assistant` = `Backend.ai` = `session.ai`, providers, prompts, schemas, panel) and
@@ -596,7 +607,7 @@ selection summary, Insert / Replace buttons).
 - **Status bar**: "AI: <provider>" while AI is enabled (click toggles the pane; "working…" while a request runs).
 - **Errors** in the turn, localized by kind with the provider's message: wrong key, rate limit ("Try again in N s"),
   overloaded, offline / interrupted, CORS, **CSP** ("This site's security policy does not allow connections to the
-  AI provider…" – the live web CSP until the owner decides), refusal, cut off (raise Max tokens), no usable result.
+  AI provider…" – only when the page has a CSP; the desktop apps have none and the web build does not offer the assistant), refusal, cut off (raise Max tokens), no usable result.
 
 ## Save and Save As on the desktop (P7-7)
 

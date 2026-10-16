@@ -27,14 +27,28 @@ export async function fileCommand(page: Page, name: string | RegExp) {
   await page.getByTestId("backstage").getByRole("button", { name }).first().click();
 }
 
-/** File › Open › This device (the Open page lists the connections next to it, P8-36) → the file chooser. */
+/**
+ * P8-42 / ADR 0009: connections and the AI assistant are desktop-app features. The web build does not have them; the
+ * connectors and AI specs make the page believe it runs in a desktop app (`window.__RUSUITE_PLATFORM__`, read by
+ * `WasmBackend`). Call before `page.goto`.
+ */
+export async function simulateDesktop(page: Page) {
+  await page.addInitScript(() => {
+    (window as unknown as { __RUSUITE_PLATFORM__: string }).__RUSUITE_PLATFORM__ = "desktop";
+  });
+}
+
+/**
+ * File › Open → the file chooser. On the web build Open is the device dialog itself; with the simulated desktop
+ * platform it first shows the Open page (connections, P8-36) whose "This device" entry opens the dialog.
+ */
 export async function openViaBackstage(page: Page, file: string) {
   await page.getByRole("tab", { name: "File", exact: true }).click();
+  const chooserPromise = page.waitForEvent("filechooser");
   await page.getByTestId("backstage").getByRole("button", { name: /^Open/ }).click();
-  const [chooser] = await Promise.all([
-    page.waitForEvent("filechooser"),
-    page.getByTestId("open-page").getByRole("button", { name: /^This device/ }).click(),
-  ]);
+  const desktop = await page.evaluate(() => (window as unknown as { __RUSUITE_PLATFORM__?: string }).__RUSUITE_PLATFORM__ === "desktop");
+  if (desktop) await page.getByTestId("open-page").getByRole("button", { name: /^This device/ }).click();
+  const chooser = await chooserPromise;
   await chooser.setFiles(file);
 }
 

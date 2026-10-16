@@ -13,7 +13,7 @@ export function AutosaveStatus({ session, className }: { session: AnySession; cl
   const at = useSession(session, (s) => s.lastAutosave);
   const remote = (session.connectors || session.ai) && (
     <>
-      {session.ai && <AiStatus ai={session.ai} className={className} />}
+      {session.ai?.available && <AiStatus ai={session.ai} className={className} />}
       {session.connectors && <RemoteStatus connectors={session.connectors} className={className} />}
     </>
   );
