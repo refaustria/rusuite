@@ -7,7 +7,9 @@ use model_text::{Document, MediaId, NodeId};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::command::{FindMatch, FindQuery, WriteCommand};
+use crate::command::{
+    FindMatch, FindQuery, ShapeOutline, ShapeOutlinePath, ShapePathQuery, WriteCommand,
+};
 use crate::doc::WriteDocument;
 use crate::patch::WritePatch;
 
@@ -93,6 +95,10 @@ pub enum Request {
         #[ts(optional)]
         initials: Option<String>,
     },
+    /// The outlines of shape presets (shapes and text boxes, the Insert ›
+    /// Shapes gallery icons) → `shapePaths`, one entry per query in order;
+    /// unknown presets are drawn as rectangles. Changes nothing.
+    ShapePaths { queries: Vec<ShapePathQuery> },
     /// Marks the current state as saved (after the shell wrote the file);
     /// `name` (save as) replaces the document's file name →
     /// `documentState`.
@@ -153,6 +159,8 @@ pub enum ResponseBody {
         matches: Vec<FindMatch>,
         revision: Revision,
     },
+    /// The reply to `shapePaths`.
+    ShapePaths { shapes: Vec<ShapeOutline> },
     /// Host state for the title bar: dirty flag, revision and the file
     /// name (`null` for a new document).
     DocumentState {
@@ -279,6 +287,9 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
             host.doc_mut().set_user(&name, initials.as_deref());
             state(host)
         }
+        Request::ShapePaths { queries } => ResponseBody::ShapePaths {
+            shapes: queries.iter().map(shape_outline).collect(),
+        },
         Request::MarkSaved { name } => {
             if let Some(name) = name {
                 host.doc_mut().source_name = Some(name);
@@ -291,6 +302,66 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
         host.doc_mut().user = user;
     }
     Ok(body)
+}
+
+/// The outline of one preset query, from the shared preset geometry
+/// (`model_show::geometry`, ECMA-376 preset definitions).
+pub fn shape_outline(q: &ShapePathQuery) -> ShapeOutline {
+    use model_show::geometry::{flatten, PathCmd, Preset};
+    let preset = Preset::from_prst(&q.preset).unwrap_or(Preset::Rect);
+    let (w, h) = (q.w.clamp(1.0, 1e9), q.h.clamp(1.0, 1e9));
+    let n = |v: f64| format!("{}", (v * 100.0).round() / 100.0);
+    let paths = preset
+        .paths(w, h, &q.adjust)
+        .into_iter()
+        .map(|p| {
+            let mut d = String::new();
+            for c in flatten(&p.commands) {
+                if !d.is_empty() {
+                    d.push(' ');
+                }
+                match c {
+                    PathCmd::MoveTo { x, y } => d.push_str(&format!("M{} {}", n(x), n(y))),
+                    PathCmd::LineTo { x, y } => d.push_str(&format!("L{} {}", n(x), n(y))),
+                    PathCmd::QuadTo { x1, y1, x, y } => {
+                        d.push_str(&format!("Q{} {} {} {}", n(x1), n(y1), n(x), n(y)))
+                    }
+                    PathCmd::CubicTo {
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                        x,
+                        y,
+                    } => d.push_str(&format!(
+                        "C{} {} {} {} {} {}",
+                        n(x1),
+                        n(y1),
+                        n(x2),
+                        n(y2),
+                        n(x),
+                        n(y)
+                    )),
+                    PathCmd::Close => d.push('Z'),
+                    PathCmd::ArcTo { .. } => {}
+                }
+            }
+            ShapeOutlinePath {
+                d,
+                fill: p.fill,
+                stroke: p.stroke,
+                darken: p.darken,
+            }
+        })
+        .collect();
+    ShapeOutline {
+        paths,
+        defaults: preset
+            .adjust_defaults()
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), *v))
+            .collect(),
+    }
 }
 
 /// Decodes a [`Request`], runs it against `host` and encodes the

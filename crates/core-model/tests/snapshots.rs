@@ -19,6 +19,7 @@ fn run_properties_full() {
         }),
         highlight: Some(Color::Rgb(Rgb::new(0xFF, 0xFF, 0x00))),
         vertical_align: Some(VerticalAlign::Superscript),
+        ..Default::default()
     };
     insta::assert_json_snapshot!(props);
     let json = serde_json::to_string(&props).unwrap();

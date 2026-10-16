@@ -147,6 +147,24 @@ impl Document {
         self.containers_mut().find_map(|c| find_in_mut(c, id))
     }
 
+    /// The drawing (shape or text box) with id `id`, anywhere.
+    pub fn find_drawing(&self, id: NodeId) -> Option<&crate::drawing::Drawing> {
+        self.containers().find_map(|c| find_drawing_in(c, id))
+    }
+
+    /// Mutable [`find_drawing`](Self::find_drawing).
+    pub fn find_drawing_mut(&mut self, id: NodeId) -> Option<&mut crate::drawing::Drawing> {
+        self.containers_mut()
+            .find_map(|c| find_drawing_in_mut(c, id))
+    }
+
+    /// For a block inside the text of a drawing (or the drawing itself):
+    /// the paragraph holding the drawing and the drawing's id. `None` for
+    /// blocks outside drawings.
+    pub fn drawing_host(&self, id: NodeId) -> Option<(NodeId, NodeId)> {
+        self.containers().find_map(|c| drawing_host_in(c, id))
+    }
+
     /// The note whose content holds the block `id` (at any depth).
     pub fn note_of_block(&self, id: NodeId) -> Option<&Note> {
         self.notes.iter().find(|n| find_in(&n.blocks, id).is_some())
@@ -272,14 +290,23 @@ impl Document {
         fn walk(blocks: &[Block], max: &mut u64) {
             for b in blocks {
                 *max = (*max).max(b.id().0);
-                if let Block::Table(t) = b {
-                    for row in &t.rows {
-                        *max = (*max).max(row.id.0);
-                        for cell in &row.cells {
-                            *max = (*max).max(cell.id.0);
-                            walk(&cell.blocks, max);
+                match b {
+                    Block::Table(t) => {
+                        for row in &t.rows {
+                            *max = (*max).max(row.id.0);
+                            for cell in &row.cells {
+                                *max = (*max).max(cell.id.0);
+                                walk(&cell.blocks, max);
+                            }
                         }
                     }
+                    Block::Paragraph(p) => {
+                        for d in p.drawings() {
+                            *max = (*max).max(d.id.0);
+                            walk(d.blocks(), max);
+                        }
+                    }
+                    Block::Toc(_) => {}
                 }
             }
         }
@@ -564,6 +591,7 @@ impl Document {
                     Inline::Field(f) => line.push_str(&f.cached),
                     Inline::Break(_) => line.push(' '),
                     Inline::Image(_)
+                    | Inline::Drawing(_)
                     | Inline::NoteRef(_)
                     | Inline::CommentStart { .. }
                     | Inline::CommentEnd { .. }
@@ -610,17 +638,29 @@ fn heading_number(n: &str) -> Option<u8> {
     }
 }
 
+/// The block `id` in `blocks`, searching inside table cells and the text of
+/// drawings.
 pub(crate) fn find_in(blocks: &[Block], id: NodeId) -> Option<&Block> {
     for b in blocks {
         if b.id() == id {
             return Some(b);
         }
-        if let Block::Table(t) = b {
-            for cell in t.rows.iter().flat_map(|r| &r.cells) {
-                if let Some(found) = find_in(&cell.blocks, id) {
-                    return Some(found);
+        match b {
+            Block::Table(t) => {
+                for cell in t.rows.iter().flat_map(|r| &r.cells) {
+                    if let Some(found) = find_in(&cell.blocks, id) {
+                        return Some(found);
+                    }
                 }
             }
+            Block::Paragraph(p) => {
+                for d in p.drawings() {
+                    if let Some(found) = find_in(d.blocks(), id) {
+                        return Some(found);
+                    }
+                }
+            }
+            Block::Toc(_) => {}
         }
     }
     None
@@ -631,12 +671,90 @@ fn find_in_mut(blocks: &mut [Block], id: NodeId) -> Option<&mut Block> {
         if b.id() == id {
             return Some(b);
         }
-        if let Block::Table(t) = b {
-            for cell in t.rows.iter_mut().flat_map(|r| &mut r.cells) {
-                if let Some(found) = find_in_mut(&mut cell.blocks, id) {
-                    return Some(found);
+        match b {
+            Block::Table(t) => {
+                for cell in t.rows.iter_mut().flat_map(|r| &mut r.cells) {
+                    if let Some(found) = find_in_mut(&mut cell.blocks, id) {
+                        return Some(found);
+                    }
                 }
             }
+            Block::Paragraph(p) => {
+                for d in p.drawings_mut() {
+                    if let Some(found) = d.blocks_mut().and_then(|b| find_in_mut(b, id)) {
+                        return Some(found);
+                    }
+                }
+            }
+            Block::Toc(_) => {}
+        }
+    }
+    None
+}
+
+/// The drawing with id `id` in `blocks` (cells included).
+pub(crate) fn find_drawing_in(blocks: &[Block], id: NodeId) -> Option<&crate::drawing::Drawing> {
+    for b in blocks {
+        match b {
+            Block::Table(t) => {
+                for cell in t.rows.iter().flat_map(|r| &r.cells) {
+                    if let Some(found) = find_drawing_in(&cell.blocks, id) {
+                        return Some(found);
+                    }
+                }
+            }
+            Block::Paragraph(p) => {
+                if let Some(d) = p.drawings().find(|d| d.id == id) {
+                    return Some(d);
+                }
+            }
+            Block::Toc(_) => {}
+        }
+    }
+    None
+}
+
+fn find_drawing_in_mut(blocks: &mut [Block], id: NodeId) -> Option<&mut crate::drawing::Drawing> {
+    for b in blocks {
+        match b {
+            Block::Table(t) => {
+                for cell in t.rows.iter_mut().flat_map(|r| &mut r.cells) {
+                    if let Some(found) = find_drawing_in_mut(&mut cell.blocks, id) {
+                        return Some(found);
+                    }
+                }
+            }
+            Block::Paragraph(p) => {
+                if let Some(d) = p.drawings_mut().find(|d| d.id == id) {
+                    return Some(d);
+                }
+            }
+            Block::Toc(_) => {}
+        }
+    }
+    None
+}
+
+/// The id of the paragraph (in `blocks`, cells included) holding the drawing
+/// whose text contains the block `id`, with the drawing's id.
+pub(crate) fn drawing_host_in(blocks: &[Block], id: NodeId) -> Option<(NodeId, NodeId)> {
+    for b in blocks {
+        match b {
+            Block::Table(t) => {
+                for cell in t.rows.iter().flat_map(|r| &r.cells) {
+                    if let Some(found) = drawing_host_in(&cell.blocks, id) {
+                        return Some(found);
+                    }
+                }
+            }
+            Block::Paragraph(p) => {
+                for d in p.drawings() {
+                    if d.id == id || find_in(d.blocks(), id).is_some() {
+                        return Some((p.id, d.id));
+                    }
+                }
+            }
+            Block::Toc(_) => {}
         }
     }
     None
@@ -665,7 +783,17 @@ pub fn paragraphs_in<'a>(blocks: &'a [Block]) -> Box<dyn Iterator<Item = &'a Par
 fn normalize_blocks(blocks: &mut Vec<Block>, next_id: &mut u64) {
     for b in blocks.iter_mut() {
         match b {
-            Block::Paragraph(p) => merge_runs(&mut p.inlines),
+            Block::Paragraph(p) => {
+                merge_runs(&mut p.inlines);
+                for d in p.drawings_mut() {
+                    if d.kind == crate::drawing::DrawingKind::TextBox && d.text.is_none() {
+                        d.text = Some(crate::drawing::DrawingText::new(Vec::new()));
+                    }
+                    if let Some(blocks) = d.blocks_mut() {
+                        normalize_blocks(blocks, next_id);
+                    }
+                }
+            }
             Block::Table(t) => {
                 for cell in t.rows.iter_mut().flat_map(|r| &mut r.cells) {
                     normalize_blocks(&mut cell.blocks, next_id);

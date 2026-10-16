@@ -5,18 +5,23 @@ use std::collections::HashSet;
 
 use model_text::{Block, Document, NodeId, Table, TableCell};
 
-/// A block's place: the containing cell (`None` = body) and its index.
+/// A block's place: the containing cell or drawing (`None` = body) and its
+/// index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Pos {
     pub parent: Option<NodeId>,
     pub index: usize,
 }
 
-/// The blocks of the body (`None`) or of the cell `parent`.
+/// The blocks of the body (`None`), of the cell `parent` or of the text of
+/// the drawing `parent` (anywhere: body, notes, headers).
 pub(crate) fn container(doc: &Document, parent: Option<NodeId>) -> Option<&Vec<Block>> {
     match parent {
         None => Some(&doc.body),
-        Some(id) => find_cell(&doc.body, id).map(|c| &c.blocks),
+        Some(id) => match find_cell(&doc.body, id) {
+            Some(c) => Some(&c.blocks),
+            None => doc.find_drawing(id)?.text.as_ref().map(|t| &t.blocks),
+        },
     }
 }
 
@@ -24,7 +29,12 @@ pub(crate) fn container(doc: &Document, parent: Option<NodeId>) -> Option<&Vec<B
 pub(crate) fn container_mut(doc: &mut Document, parent: Option<NodeId>) -> Option<&mut Vec<Block>> {
     match parent {
         None => Some(&mut doc.body),
-        Some(id) => find_cell_mut(&mut doc.body, id).map(|c| &mut c.blocks),
+        Some(id) => {
+            if find_cell(&doc.body, id).is_some() {
+                return find_cell_mut(&mut doc.body, id).map(|c| &mut c.blocks);
+            }
+            doc.find_drawing_mut(id)?.blocks_mut()
+        }
     }
 }
 
@@ -70,24 +80,41 @@ pub(crate) fn find_table_mut(doc: &mut Document, id: NodeId) -> Option<&mut Tabl
     }
 }
 
-/// The position of the block `id` (paragraph or table).
+/// The position of the block `id` (paragraph or table) in the body, a
+/// cell or the text of a drawing (drawings also in notes and headers).
 pub(crate) fn position(doc: &Document, id: NodeId) -> Option<Pos> {
     fn walk(blocks: &[Block], parent: Option<NodeId>, id: NodeId) -> Option<Pos> {
         for (index, b) in blocks.iter().enumerate() {
             if b.id() == id {
                 return Some(Pos { parent, index });
             }
-            if let Block::Table(t) = b {
-                for cell in t.rows.iter().flat_map(|r| &r.cells) {
-                    if let Some(p) = walk(&cell.blocks, Some(cell.id), id) {
-                        return Some(p);
+            match b {
+                Block::Table(t) => {
+                    for cell in t.rows.iter().flat_map(|r| &r.cells) {
+                        if let Some(p) = walk(&cell.blocks, Some(cell.id), id) {
+                            return Some(p);
+                        }
                     }
                 }
+                Block::Paragraph(p) => {
+                    for d in p.drawings() {
+                        if let Some(p) = walk(d.blocks(), Some(d.id), id) {
+                            return Some(p);
+                        }
+                    }
+                }
+                Block::Toc(_) => {}
             }
         }
         None
     }
-    walk(&doc.body, None, id)
+    if let Some(p) = walk(&doc.body, None, id) {
+        return Some(p);
+    }
+    // Text boxes in notes, headers and footers.
+    let (_, drawing) = doc.drawing_host(id)?;
+    let d = doc.find_drawing(drawing)?;
+    walk(d.blocks(), Some(d.id), id)
 }
 
 /// The ids enclosing node `id` (any node: block, row or cell), outermost
@@ -134,19 +161,31 @@ pub(crate) fn enclosing_table(doc: &Document, id: NodeId) -> Option<NodeId> {
     path.chunks(3).last().map(|c| c[0])
 }
 
-/// Pushes the ids of `block` and everything inside it.
+/// Pushes the ids of `block` and everything inside it (drawings and their
+/// text included).
 pub(crate) fn collect_ids(block: &Block, out: &mut Vec<NodeId>) {
     out.push(block.id());
-    if let Block::Table(t) = block {
-        for row in &t.rows {
-            out.push(row.id);
-            for cell in &row.cells {
-                out.push(cell.id);
-                for b in &cell.blocks {
+    match block {
+        Block::Table(t) => {
+            for row in &t.rows {
+                out.push(row.id);
+                for cell in &row.cells {
+                    out.push(cell.id);
+                    for b in &cell.blocks {
+                        collect_ids(b, out);
+                    }
+                }
+            }
+        }
+        Block::Paragraph(p) => {
+            for d in p.drawings() {
+                out.push(d.id);
+                for b in d.blocks() {
                     collect_ids(b, out);
                 }
             }
         }
+        Block::Toc(_) => {}
     }
 }
 
@@ -161,13 +200,21 @@ pub(crate) fn all_ids(doc: &Document) -> HashSet<NodeId> {
     v.into_iter().collect()
 }
 
-/// Calls `f` on every paragraph inside `block` (including itself).
+/// Calls `f` on every paragraph inside `block` (including itself and the
+/// paragraphs of its drawings' text).
 pub(crate) fn for_each_paragraph_mut(
     block: &mut Block,
     f: &mut impl FnMut(&mut model_text::Paragraph),
 ) {
     match block {
-        Block::Paragraph(p) => f(p),
+        Block::Paragraph(p) => {
+            f(p);
+            for d in p.drawings_mut() {
+                for b in d.blocks_mut().into_iter().flatten() {
+                    for_each_paragraph_mut(b, f);
+                }
+            }
+        }
         Block::Table(t) => {
             for cell in t.rows.iter_mut().flat_map(|r| &mut r.cells) {
                 for b in &mut cell.blocks {

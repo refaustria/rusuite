@@ -1038,6 +1038,7 @@ impl StyleSheet {
             31,
             RunProperties {
                 color: text1(0.35),
+                small_caps: Some(true),
                 ..Default::default()
             },
         );
@@ -1048,6 +1049,8 @@ impl StyleSheet {
             RunProperties {
                 bold: Some(true),
                 color: accent1,
+                small_caps: Some(true),
+                char_spacing: Some(5),
                 ..Default::default()
             },
         );
@@ -1058,6 +1061,7 @@ impl StyleSheet {
             RunProperties {
                 bold: Some(true),
                 italic: Some(true),
+                char_spacing: Some(5),
                 ..Default::default()
             },
         );

@@ -766,6 +766,7 @@ fn properties_settings_and_flow_options_roundtrip() {
         C::SetSettings {
             settings: DocumentSettings {
                 auto_hyphenation: true,
+                ..Default::default()
             },
         },
     );

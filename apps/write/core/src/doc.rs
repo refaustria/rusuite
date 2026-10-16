@@ -31,6 +31,8 @@ use crate::tree::{
     find_cell_mut, find_table_mut, for_each_paragraph_mut, position, Pos,
 };
 
+mod drawings;
+
 /// Errors of [`WriteDocument`]; [`code`](Self::code) is the stable
 /// [`DispatchError::code`].
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -193,7 +195,12 @@ impl Changes {
                 self.events
                     .extend(inserted.iter().map(|&id| (Ev::Inserted, id)));
             }
-            Some(cell) => self.replaced.extend(enclosing_table(doc, cell)),
+            // A cell reports its table, a drawing's text the drawing (its
+            // paragraph, see `finish`).
+            Some(cell) => match enclosing_table(doc, cell) {
+                Some(t) => self.replaced.push(t),
+                None => self.replaced.push(cell),
+            },
         }
     }
 }
@@ -245,14 +252,66 @@ impl Ids {
         Ok(real)
     }
 
+    /// Gives the drawings of `inlines` and the blocks of their text fresh
+    /// ids where theirs are 0 or already in use (pasted copies), keeping
+    /// unused ids (undo, redo); drawings inside drawings are dropped.
+    fn drawing_ids(&mut self, doc: &mut Document, inlines: &mut [Inline]) {
+        fn walk(ids: &mut Ids, doc: &mut Document, blocks: &mut [Block]) {
+            for b in blocks {
+                match b {
+                    Block::Paragraph(p) => {
+                        p.id = ids.keep_or_alloc(doc, p.id);
+                        p.inlines.retain(|i| !matches!(i, Inline::Drawing(_)));
+                    }
+                    Block::Table(t) => {
+                        t.id = ids.keep_or_alloc(doc, t.id);
+                        for row in &mut t.rows {
+                            row.id = ids.keep_or_alloc(doc, row.id);
+                            for cell in &mut row.cells {
+                                cell.id = ids.keep_or_alloc(doc, cell.id);
+                                walk(ids, doc, &mut cell.blocks);
+                            }
+                        }
+                    }
+                    Block::Toc(t) => t.id = ids.keep_or_alloc(doc, t.id),
+                }
+            }
+        }
+        for inline in inlines {
+            if let Inline::Drawing(d) = inline {
+                d.id = self.keep_or_alloc(doc, d.id);
+                if let Some(blocks) = d.blocks_mut() {
+                    walk(self, doc, blocks);
+                }
+            }
+        }
+    }
+
+    /// `id` if it is unused (reserving it), else a fresh id.
+    fn keep_or_alloc(&mut self, doc: &mut Document, id: NodeId) -> NodeId {
+        let real = if id.0 == 0 || self.used.contains(&id) || self.seen.contains(&id) {
+            doc.alloc_id()
+        } else {
+            doc.reserve_id(id);
+            id
+        };
+        self.seen.insert(real);
+        real
+    }
+
     fn block(&mut self, doc: &mut Document, ch: &mut Changes, b: &NewBlock) -> R<Block> {
         Ok(match b {
-            NewBlock::Paragraph(p) => Block::Paragraph(Paragraph {
-                id: self.resolve(doc, ch, Some(p.id))?,
-                props: p.props.clone(),
-                inlines: p.inlines.clone(),
-                list_label: None,
-            }),
+            NewBlock::Paragraph(p) => {
+                let id = self.resolve(doc, ch, Some(p.id))?;
+                let mut inlines = p.inlines.clone();
+                self.drawing_ids(doc, &mut inlines);
+                Block::Paragraph(Paragraph {
+                    id,
+                    props: p.props.clone(),
+                    inlines,
+                    list_label: None,
+                })
+            }
             NewBlock::Toc(t) => Block::Toc(Toc {
                 id: self.resolve(doc, ch, Some(t.id))?,
                 from_level: t.from_level.clamp(1, 9),
@@ -695,6 +754,34 @@ impl WriteDocument {
             C::AddStyle { style } => {
                 let old = self.doc.styles.clone();
                 self.doc.styles.add(style.clone()).map_err(style_err)?;
+                // A linked style names its character half: Word's "Create a
+                // Style" makes the pair ("Memo" + "Memo Char").
+                if style.kind == StyleKind::Linked {
+                    let char_id = style
+                        .link
+                        .clone()
+                        .unwrap_or_else(|| format!("{}Char", style.id));
+                    if self.doc.styles.get(&char_id).is_none() {
+                        let mut c = Style::new(
+                            &char_id,
+                            &format!("{} Char", style.name),
+                            StyleKind::Character,
+                        );
+                        c.priority = style.priority;
+                        c.link = Some(style.id.clone());
+                        c.custom = true;
+                        c.run = style.run.clone();
+                        c.based_on = Some("DefaultParagraphFont".to_owned())
+                            .filter(|p| self.doc.styles.get(p).is_some());
+                        if let Err(e) = self.doc.styles.add(c) {
+                            self.doc.styles = old;
+                            return Err(style_err(e));
+                        }
+                    }
+                    if let Some(s) = self.doc.styles.styles.iter_mut().find(|s| s.id == style.id) {
+                        s.link = Some(char_id);
+                    }
+                }
                 ch.styles = true;
                 Ok(C::RestoreStyles { styles: old })
             }
@@ -778,14 +865,9 @@ impl WriteDocument {
                 let count = self.doc.media.len();
                 let media = self.doc.media.insert(content_type.clone(), bytes);
                 let added = self.doc.media.len() > count;
-                let image = Inline::Image(InlineImage {
-                    media,
-                    width: *width,
-                    height: *height,
-                    alt: alt.clone(),
-                    name: None,
-                    anchor: None,
-                });
+                let mut img = InlineImage::new(media, *width, *height);
+                img.alt.clone_from(alt);
+                let image = Inline::Image(img);
                 replace_range(self.para_mut(*block)?, at, at, vec![image]);
                 ch.block(*block);
                 let delete = C::DeleteText {
@@ -850,16 +932,25 @@ impl WriteDocument {
                 Ok(())
             }),
             C::InsertTableCol { table, at, new_ids } => self.insert_col(*table, *at, new_ids, ch),
+            // Grid column `at`: a merged cell spanning it shrinks by one.
             C::DeleteTableCol { table, at } => self.edit_table(*table, ch, |t| {
                 let at = *at as usize;
-                if t.rows.iter().any(|r| at >= r.cells.len()) {
+                if at >= t.grid_cols() {
                     return Err(invalid(format!("column {at} out of range")));
                 }
-                if t.rows.iter().any(|r| r.cells.len() == 1) {
+                if t.grid_cols() <= 1 {
                     return Err(invalid("cannot delete the only column of a table"));
                 }
-                for row in &mut t.rows {
-                    row.cells.remove(at);
+                for r in 0..t.rows.len() {
+                    let Some(i) = t.cell_at(r, at) else {
+                        continue;
+                    };
+                    let cell = &mut t.rows[r].cells[i];
+                    if cell.span() > 1 {
+                        cell.grid_span -= 1;
+                    } else {
+                        t.rows[r].cells.remove(i);
+                    }
                 }
                 if at < t.props.col_widths.len() {
                     t.props.col_widths.remove(at);
@@ -1427,6 +1518,37 @@ impl WriteDocument {
                 ch.comments = true;
                 Ok(C::RestoreComments { comments: old })
             }
+            C::InsertDrawing { .. } => self.insert_drawing(cmd, ch),
+            C::SetDrawingProps {
+                block,
+                offset,
+                drawing,
+            } => self.set_drawing_props(*block, *offset, drawing, ch),
+            C::SetDrawingText {
+                block,
+                offset,
+                blocks,
+            } => self.set_drawing_text(*block, *offset, blocks.as_deref(), ch),
+            C::SetImageFormat {
+                block,
+                offset,
+                format,
+            } => self.set_image_format(*block, *offset, format, ch),
+            C::SetImageLink {
+                block,
+                offset,
+                link,
+            } => {
+                let link = link.clone();
+                self.edit_image(*block, *offset, ch, |img| img.link = link)
+            }
+            C::ChangeCase {
+                block,
+                from,
+                to,
+                case,
+            } => self.change_case(*block, *from, *to, *case, ch),
+            C::ApplyNumbering { levels, items } => self.apply_numbering(levels, items, ch),
             C::Compound { commands } => {
                 let mut inverses = Vec::with_capacity(commands.len());
                 for cmd in commands {
@@ -3309,35 +3431,66 @@ impl WriteDocument {
         })
     }
 
+    /// Inserts a column before grid column `at` (`at == grid columns`
+    /// appends). A cell spanning across `at` (horizontally merged) grows by
+    /// one column instead of getting a new cell beside it, as in Word.
     fn insert_col(&mut self, table: NodeId, at: u32, new_ids: &[i64], ch: &mut Changes) -> R<C> {
         let t = self.table_mut(table)?.clone();
         let at = at as usize;
-        if t.rows.iter().any(|r| at > r.cells.len()) {
+        let cols = t.grid_cols();
+        if at > cols {
             return Err(invalid(format!("column {at} out of range")));
         }
         let r = t.rows.len();
         let layout = id_layout(new_ids, r, r)?;
         let mut ids = Ids::new(&self.doc, &[]);
-        let mut new_cells = Vec::with_capacity(r);
+        // Per row: Some((cell index, new cell)) or None (a spanning cell grows).
+        let mut plan: Vec<Result<(usize, TableCell), usize>> = Vec::with_capacity(r);
         for (k, row) in t.rows.iter().enumerate() {
+            let mut start = 0;
+            let mut index = row.cells.len();
+            let mut grow = None;
+            for (i, c) in row.cells.iter().enumerate() {
+                if start == at {
+                    index = i;
+                    break;
+                }
+                if start < at && at < start + c.span() {
+                    grow = Some(i);
+                    break;
+                }
+                start += c.span();
+            }
+            if let Some(i) = grow {
+                plan.push(Err(i));
+                continue;
+            }
             let id = ids.resolve(&mut self.doc, ch, layout[k])?;
             let pid = ids.resolve(&mut self.doc, ch, layout[r + k])?;
-            let model = &row.cells[at.saturating_sub(1).min(row.cells.len() - 1)];
-            new_cells.push(TableCell::new(
-                id,
-                model.props,
-                vec![Block::Paragraph(Paragraph::new(pid))],
-            ));
+            let model = &row.cells[index.saturating_sub(1).min(row.cells.len() - 1)];
+            let mut props = model.props;
+            props.width = None;
+            plan.push(Ok((
+                index,
+                TableCell::new(id, props, vec![Block::Paragraph(Paragraph::new(pid))]),
+            )));
         }
         self.edit_table(table, ch, |t| {
-            for (row, cell) in t.rows.iter_mut().zip(new_cells) {
-                row.cells.insert(at, cell);
+            for (row, step) in t.rows.iter_mut().zip(plan) {
+                match step {
+                    Ok((i, cell)) => row.cells.insert(i, cell),
+                    Err(i) => {
+                        let c = &mut row.cells[i];
+                        c.grid_span = c.grid_span.max(1) + 1;
+                    }
+                }
             }
             let w = &mut t.props.col_widths;
             if !w.is_empty() && at <= w.len() {
                 let model = w[at.saturating_sub(1).min(w.len() - 1)];
                 w.insert(at, model);
             }
+            t.normalize_merges();
             Ok(())
         })
     }
@@ -3877,10 +4030,13 @@ impl WriteDocument {
         let inserted_set: HashSet<NodeId> = inserted.iter().map(|(_, id)| *id).collect();
 
         let mut seen = HashSet::new();
+        // Blocks inside the text of a drawing (and drawings) are reported
+        // as the paragraph holding the drawing.
+        let host = |id: NodeId| self.doc.drawing_host(id).map_or(id, |(h, _)| h);
         let candidates: Vec<NodeId> = ch
             .replaced
             .iter()
-            .copied()
+            .map(|&id| host(id))
             .filter(|id| seen.insert(*id) && !inserted_set.contains(id))
             .collect();
         let (mut notes, mut sections) = (ch.notes, ch.sections);
@@ -3888,8 +4044,21 @@ impl WriteDocument {
         for id in candidates {
             match ancestors(&self.doc, id) {
                 Some(a) => with_paths.push((id, a)),
-                None if self.doc.note_of_block(id).is_some() => notes = true,
-                None if self.doc.header_of_block(id).is_some() => sections = true,
+                None if self.doc.note_of_block(id).is_some()
+                    || self.doc.header_of_block(id).is_some() =>
+                {
+                    if self.doc.note_of_block(id).is_some() {
+                        notes = true;
+                    } else {
+                        sections = true;
+                    }
+                    // Notes and headers are reported whole: canonicalize the
+                    // edited paragraph's runs here (one run per typed
+                    // character otherwise).
+                    if let Some(b) = self.doc.find_block_mut(id) {
+                        for_each_paragraph_mut(b, &mut Paragraph::normalize);
+                    }
+                }
                 None => {}
             }
         }
@@ -3954,6 +4123,9 @@ fn affects_labels(cmd: &WriteCommand) -> bool {
         | C::SetImageAlt { .. }
         | C::SetImageAnchor { .. }
         | C::SetImageWrap { .. }
+        | C::SetImageFormat { .. }
+        | C::SetImageLink { .. }
+        | C::ChangeCase { .. }
         | C::RemoveMedia { .. }
         | C::RestoreMedia { .. }
         | C::FindReplace { .. }
@@ -4015,6 +4187,11 @@ fn may_touch_markers(cmd: &WriteCommand) -> bool {
         | C::SetImageAlt { .. }
         | C::SetImageAnchor { .. }
         | C::SetImageWrap { .. }
+        | C::SetImageFormat { .. }
+        | C::SetImageLink { .. }
+        | C::InsertDrawing { .. }
+        | C::SetDrawingProps { .. }
+        | C::ApplyNumbering { .. }
         | C::InsertField { .. }
         | C::UpdateFields { .. }
         | C::UpdateToc { .. }
@@ -4173,7 +4350,20 @@ fn run_diff(want: &RunProperties, have: &RunProperties) -> RunProperties {
         strike,
         color,
         highlight,
-        vertical_align
+        vertical_align,
+        small_caps,
+        all_caps,
+        double_strike,
+        char_spacing,
+        scale,
+        kerning,
+        position,
+        outline,
+        shadow,
+        emboss,
+        imprint,
+        hidden,
+        rtl
     )
 }
 
@@ -4194,7 +4384,20 @@ fn strip_same(p: &RunProperties, base: &RunProperties) -> RunProperties {
         strike,
         color,
         highlight,
-        vertical_align
+        vertical_align,
+        small_caps,
+        all_caps,
+        double_strike,
+        char_spacing,
+        scale,
+        kerning,
+        position,
+        outline,
+        shadow,
+        emboss,
+        imprint,
+        hidden,
+        rtl
     )
 }
 

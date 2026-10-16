@@ -294,6 +294,32 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                             out.insert(format!("run:highlight={name}"));
                         }
                     }
+                    for (on, name) in [
+                        (r.small_caps, "run:small-caps"),
+                        (r.all_caps, "run:all-caps"),
+                        (r.double_strike, "run:double-strike"),
+                        (r.outline, "run:outline"),
+                        (r.shadow, "run:shadow"),
+                        (r.emboss, "run:emboss"),
+                        (r.imprint, "run:imprint"),
+                        (r.hidden, "run:hidden"),
+                    ] {
+                        if on == Some(true) {
+                            out.insert(name.into());
+                        }
+                    }
+                    if let Some(sp) = r.char_spacing.filter(|v| *v != 0) {
+                        out.insert(format!("run:spacing={}pt", f64::from(sp) / 20.0));
+                    }
+                    if let Some(v) = r.position.filter(|v| *v != 0) {
+                        out.insert(format!("run:position={}pt", f64::from(v) / 2.0));
+                    }
+                    if let Some(v) = r.scale.filter(|v| *v != 100) {
+                        out.insert(format!("run:scale={v}"));
+                    }
+                    if r.kerning.is_some_and(|k| k > 0) {
+                        out.insert("run:kerning".into());
+                    }
                     if run.text.contains('\t') {
                         out.insert("tab".into());
                     }
@@ -341,6 +367,35 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                                     HAlign::Left => "left",
                                     HAlign::Center => "center",
                                     HAlign::Right => "right",
+                                }
+                            ));
+                        }
+                    }
+                }
+                Inline::Drawing(d) => {
+                    out.insert(match d.kind {
+                        model_text::DrawingKind::TextBox => "drawing:textbox".to_owned(),
+                        model_text::DrawingKind::Shape => format!("drawing:shape={}", d.preset),
+                    });
+                    if d.blocks().iter().any(|b| {
+                        b.as_paragraph()
+                            .is_some_and(|p| !p.text().trim().is_empty())
+                    }) {
+                        out.insert("drawing:text".into());
+                    }
+                    match &d.anchor {
+                        None => {
+                            out.insert("drawing:inline".into());
+                        }
+                        Some(a) => {
+                            out.insert(format!(
+                                "drawing:float={}",
+                                match a.wrap {
+                                    WrapKind::Square => "square",
+                                    WrapKind::Tight => "tight",
+                                    WrapKind::TopAndBottom => "top-bottom",
+                                    WrapKind::Behind => "behind",
+                                    WrapKind::InFront => "in-front",
                                 }
                             ));
                         }

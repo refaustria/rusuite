@@ -146,6 +146,36 @@ pub struct RunProperties {
     pub highlight: Option<Color>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vertical_align: Option<VerticalAlign>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub small_caps: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub all_caps: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub double_strike: Option<bool>,
+    /// Twips (positive = expanded).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub char_spacing: Option<i32>,
+    /// Percent (100 = normal).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<u16>,
+    /// Half-points (0 = off).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kerning: Option<u32>,
+    /// Half-points (positive = raised).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emboss: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imprint: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rtl: Option<bool>,
 }
 
 #[cfg(test)]
@@ -215,6 +245,19 @@ mod tests {
             color: Some(cm::Color::Rgb(cm::Rgb::new(1, 2, 3))),
             highlight: Some(cm::Color::theme(cm::ThemeColorSlot::Accent2)),
             vertical_align: Some(cm::VerticalAlign::Superscript),
+            small_caps: Some(true),
+            all_caps: Some(false),
+            double_strike: Some(true),
+            char_spacing: Some(-20),
+            scale: Some(150),
+            kerning: Some(28),
+            position: Some(-6),
+            outline: Some(true),
+            shadow: Some(true),
+            emboss: Some(false),
+            imprint: Some(true),
+            hidden: Some(true),
+            rtl: Some(true),
         };
         same_shape::<_, RunProperties>(&full);
         same_shape::<_, RunProperties>(&cm::RunProperties::default());

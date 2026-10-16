@@ -18,6 +18,7 @@ use model_text::{
     WrapKind,
 };
 use model_text::{Columns, Comment, CommentId, CoreProperties, DocumentSettings, Hyperlink};
+use model_text::{Drawing, DrawingKind, Level, PictureFormat};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -243,6 +244,68 @@ pub struct FindMatch {
     pub block: NodeId,
     pub from: u32,
     pub to: u32,
+}
+
+/// Word's Change Case choices (Home › Font › Change Case).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub enum TextCase {
+    /// The first letter of each sentence upper case, the rest lower case.
+    Sentence,
+    /// lowercase.
+    Lower,
+    /// UPPERCASE.
+    Upper,
+    /// Capitalize Each Word.
+    Capitalize,
+    /// tOGGLE cASE.
+    Toggle,
+}
+
+/// One shape-outline request of [`crate::Request::ShapePaths`]: a preset
+/// in a `w` × `h` box (EMU) with adjust values.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub struct ShapePathQuery {
+    pub preset: String,
+    pub w: f64,
+    pub h: f64,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    #[ts(optional, as = "Option<std::collections::BTreeMap<String, f64>>")]
+    pub adjust: std::collections::BTreeMap<String, i64>,
+}
+
+/// The outline of one [`ShapePathQuery`]: SVG path data in EMU (arcs
+/// flattened to Béziers), each with its paint flags, and the preset's
+/// adjust defaults.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub struct ShapeOutline {
+    pub paths: Vec<ShapeOutlinePath>,
+    #[ts(as = "std::collections::BTreeMap<String, f64>")]
+    pub defaults: std::collections::BTreeMap<String, i64>,
+}
+
+/// One sub-path of a [`ShapeOutline`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub struct ShapeOutlinePath {
+    /// SVG path data (EMU).
+    pub d: String,
+    pub fill: bool,
+    pub stroke: bool,
+    /// Fill darkened by this fraction (negative = lightened).
+    #[serde(default, skip_serializing_if = "is_zero_f")]
+    #[ts(optional, as = "Option<f64>")]
+    pub darken: f64,
+}
+
+fn is_zero_f(v: &f64) -> bool {
+    *v == 0.0
 }
 
 /// A document edit. JSON: `{"type":"insertText","block":7,"offset":3,"text":"é"}`.
@@ -822,6 +885,84 @@ pub enum WriteCommand {
     ReopenComment {
         #[ts(type = "number")]
         id: CommentId,
+    },
+    /// Insert › Shapes / Text Box: a shape (`kind: shape`, DrawingML preset
+    /// `preset`, Word's default look: accent 1 fill, darker outline, white
+    /// centred text) or a Simple Text Box (`kind: textBox`: white fill,
+    /// black outline, `text` as its first paragraph) of `width` × `height`
+    /// at `offset` of paragraph `block` (body, cells, notes, headers; not
+    /// inside another drawing), inline or floating with `anchor`. The new
+    /// drawing and its paragraph get fresh ids (in the patch).
+    InsertDrawing {
+        block: NodeId,
+        offset: u32,
+        #[serde(default)]
+        kind: DrawingKind,
+        preset: String,
+        #[ts(type = "number")]
+        width: Emu,
+        #[ts(type = "number")]
+        height: Emu,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        anchor: Option<Anchor>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        text: Option<String>,
+    },
+    /// Shape Format: replaces everything of the drawing at position
+    /// `offset` of `block` (size, placement, geometry, adjust values, fill,
+    /// outline, rotation, flips, text colour and text layout) by
+    /// `drawing`'s, except its id and its text blocks (`drawing.text`
+    /// absent removes the text; present keeps the blocks and takes the
+    /// layout; text added to a shape without text takes `drawing`'s blocks
+    /// or one empty paragraph).
+    SetDrawingProps {
+        block: NodeId,
+        offset: u32,
+        drawing: Box<Drawing>,
+    },
+    /// Replaces the text blocks of the drawing at position `offset` of
+    /// `block` (the coarse fallback for edits inside a text box the text
+    /// commands cannot express; temporary ids allowed); `null` removes the
+    /// text of a shape. A shape without text gets Word's text layout.
+    SetDrawingText {
+        block: NodeId,
+        offset: u32,
+        #[ts(as = "Option<Vec<model_text::Block>>")]
+        blocks: Option<Vec<NewBlock>>,
+    },
+    /// Picture Format: replaces the crop, border, outline shape, shadow and
+    /// corrections of the image at position `offset` of `block` (Reset
+    /// Picture = the default).
+    SetImageFormat {
+        block: NodeId,
+        offset: u32,
+        format: PictureFormat,
+    },
+    /// Sets (`null`: removes) the hyperlink of the image at `offset` of
+    /// `block`.
+    SetImageLink {
+        block: NodeId,
+        offset: u32,
+        #[serde(default)]
+        link: Option<Hyperlink>,
+    },
+    /// Change Case: transforms the letters of `from..to` of `block`
+    /// keeping their formatting (sentences and words are found in the
+    /// whole paragraph).
+    ChangeCase {
+        block: NodeId,
+        from: u32,
+        to: u32,
+        case: TextCase,
+    },
+    /// Home › Multilevel List / list presets: a new list with `levels`
+    /// (levels 0..=8) for the paragraphs `items` (`[paragraph, level]`).
+    ApplyNumbering {
+        levels: Vec<Level>,
+        #[ts(type = "Array<[NodeId, number]>")]
+        items: Vec<(NodeId, u8)>,
     },
     /// Applies the commands in order as one undo step; all or nothing.
     Compound { commands: Vec<WriteCommand> },

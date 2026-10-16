@@ -203,6 +203,8 @@ impl CellStyle {
             color,
             highlight,
             vertical_align,
+            // Word-only character effects (small caps, spacing, …) are never set on cells.
+            ..
         } = &self.font;
         let side = |s: &Option<BorderSide>| s.map(|s| (s.style, ColorKey::from(s.color)));
         StyleKey {

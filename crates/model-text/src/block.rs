@@ -121,8 +121,8 @@ impl Paragraph {
         p
     }
 
-    /// The paragraph's text: runs verbatim (tabs kept), images and fields
-    /// as U+FFFC, line breaks as U+000B, page breaks as U+000C, note
+    /// The paragraph's text: runs verbatim (tabs kept), images, drawings
+    /// and fields as U+FFFC, line breaks as U+000B, page breaks as U+000C, note
     /// references as U+0002 (as Word's `Range.Text`), column breaks as
     /// U+000E and comment/bookmark markers as U+FEFF. One char per position (see [`Paragraph::len`]).
     pub fn text(&self) -> String {
@@ -156,11 +156,27 @@ impl Paragraph {
         crate::document::merge_runs(&mut self.inlines);
     }
 
+    /// The drawings (shapes, text boxes) of the paragraph.
+    pub fn drawings(&self) -> impl Iterator<Item = &crate::drawing::Drawing> {
+        self.inlines.iter().filter_map(|i| match i {
+            Inline::Drawing(d) => Some(&**d),
+            _ => None,
+        })
+    }
+
+    /// Mutable [`Paragraph::drawings`].
+    pub fn drawings_mut(&mut self) -> impl Iterator<Item = &mut crate::drawing::Drawing> {
+        self.inlines.iter_mut().filter_map(|i| match i {
+            Inline::Drawing(d) => Some(&mut **d),
+            _ => None,
+        })
+    }
+
     pub(crate) fn push_text(&self, out: &mut String) {
         for inline in &self.inlines {
             match inline {
                 Inline::Run(run) => out.push_str(&run.text),
-                Inline::Image(_) => out.push('\u{FFFC}'),
+                Inline::Image(_) | Inline::Drawing(_) => out.push('\u{FFFC}'),
                 Inline::Break(crate::BreakKind::Line) => out.push('\u{000B}'),
                 Inline::Break(crate::BreakKind::Page) => out.push('\u{000C}'),
                 Inline::Break(crate::BreakKind::Column) => out.push('\u{000E}'),
@@ -186,6 +202,7 @@ impl Paragraph {
                 Inline::Field(f) => out.push_str(&f.cached),
                 Inline::Break(_) => out.push(' '),
                 Inline::Image(_)
+                | Inline::Drawing(_)
                 | Inline::NoteRef(_)
                 | Inline::CommentStart { .. }
                 | Inline::CommentEnd { .. }
