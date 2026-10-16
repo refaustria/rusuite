@@ -971,9 +971,10 @@ The one server endpoint of Rusuite (ADR 0009 amendment "Report a problem"): the 
 `packages/ui-shared/src/report` (`reportProblem` controller per window, dialog, `client.ts` – the only `fetch`, in the
 privacy-check allow-list, reachable only from the controller's `submit`).
 
-- **Entry points**: Home › **Help** › Report a problem… (a group at the right end of the Home tab in all apps,
-  `reportRibbonGroup(docStats)`, collapse priority 3 so it folds first) and File › **Report a problem…** (backstage,
-  under Options…). The backstage mounts the dialog (`ReportOverlay`, attached to the session's backend).
+- **Entry points**: the **?** Help menu at the right end of the ribbon's tab strip (all apps; `HelpMenu` in the
+  ribbon's `rightSlot`, items Report a problem… and Keyboard shortcuts – in the strip rather than a Home group, so
+  no tab panel loses width and no group collapses because of it) and File › **Report a problem…** (backstage, under
+  Options…). The backstage mounts the dialog (`ReportOverlay`, attached to the session's backend).
 - **Dialog**: Type (Bug / Feature request / Question), Title (≤ 120, counter), Description (20–4000, a placeholder per
   type), Steps to reproduce (bugs only); Screenshots: Add screenshot… (PNG/JPEG, ≤ 3, 2 MB each, 5 MB together;
   thumbnail, Remove) and Capture this window (`html-to-image`, the dialog excluded; JPEG fallback over 2 MB; the note

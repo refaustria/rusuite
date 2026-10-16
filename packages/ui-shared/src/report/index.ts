@@ -6,4 +6,4 @@ export { buildPayload, buildDiagnostics, parsePing, detectOs, type ReportContext
 export { instanceId, waitMinutes } from "./instance";
 export { validateDraft, checkScreenshotFile, checkScreenshotList } from "./validate";
 export { ReportDialog, ReportOverlay } from "./ui/ReportDialog";
-export { reportRibbonGroup, ReportBackstageItem } from "./ui/ribbon";
+export { HelpMenu, ReportBackstageItem } from "./ui/ribbon";

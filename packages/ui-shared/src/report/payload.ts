@@ -21,16 +21,18 @@ export function parsePing(ping: string): { app: ReportApp | null; version: strin
   return { app, version: m?.[2]?.slice(0, 40) ?? "unknown" };
 }
 
-/** The operating system from the user agent (name only). */
+/** The operating system name: from the platform hint when it names one, else from the user agent. */
 export function detectOs(ua: string, platform = ""): string {
-  const s = `${platform} ${ua}`;
-  if (/Android/i.test(s)) return "Android";
-  if (/iPhone|iPad|iPod/i.test(s)) return "iOS";
-  if (/CrOS/i.test(s)) return "ChromeOS";
-  if (/Win/i.test(s)) return "Windows";
-  if (/Mac/i.test(s)) return "macOS";
-  if (/Linux|X11/i.test(s)) return "Linux";
-  return "unknown";
+  const name = (s: string) => {
+    if (/Android/i.test(s)) return "Android";
+    if (/iPhone|iPad|iPod/i.test(s)) return "iOS";
+    if (/CrOS|Chrome OS/i.test(s)) return "ChromeOS";
+    if (/Win/i.test(s)) return "Windows";
+    if (/Mac/i.test(s)) return "macOS";
+    if (/Linux|X11/i.test(s)) return "Linux";
+    return null;
+  };
+  return name(platform) ?? name(ua) ?? "unknown";
 }
 
 /** Counts only: anything but non-negative integers of the three known keys is dropped. */

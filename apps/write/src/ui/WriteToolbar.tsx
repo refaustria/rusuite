@@ -7,7 +7,7 @@
 // structure, page setup and clear formatting are Rust-first commands
 // (`InsertTable`, `InsertImage`, `InsertTableRow`, `SetPage`, …).
 
-import { aiRibbonGroup, reportRibbonGroup } from "@rusuite/ui-shared";
+import { aiRibbonGroup, HelpMenu } from "@rusuite/ui-shared";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
@@ -739,7 +739,6 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         ),
       },
       { ...aiRibbonGroup(session.ai), collapsePriority: 2 },
-      reportRibbonGroup(() => ({ blocks: editor.state.doc.childCount })),
     ],
   };
 
@@ -1321,6 +1320,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       appName="Rusuite Write"
       documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#2b579a"
+      rightSlot={<HelpMenu docStats={() => ({ blocks: editor.state.doc.childCount })} />}
       tabs={[
         home, insert, layout, references, review, view,
         ...contextualTabs(tableTabList, t("ribbon.ctx.tableTools"), CONTEXT_COLORS.table),

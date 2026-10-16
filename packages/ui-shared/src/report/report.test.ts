@@ -165,6 +165,7 @@ describe("payload", () => {
     expect(detectOs("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)")).toBe("macOS");
     expect(detectOs("Mozilla/5.0 (X11; Linux x86_64)")).toBe("Linux");
     expect(detectOs("Mozilla/5.0 (Linux; Android 14)")).toBe("Android");
+    expect(detectOs("Mozilla/5.0 (Windows NT 10.0)", "Linux")).toBe("Linux"); // the platform hint wins
   });
 });
 

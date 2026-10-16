@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ReportController } from "../controller";
 import type { ReportScreenshot } from "../types";
 import { ReportOverlay } from "./ReportDialog";
+import { HelpMenu } from "./ribbon";
 
 afterEach(cleanup);
 
@@ -142,5 +143,19 @@ describe("ReportDialog", () => {
     expect(screen.getByTestId("report-steps")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Question"));
     expect(screen.queryByTestId("report-steps")).toBeNull();
+  });
+
+  it("the ? Help menu opens the dialog", () => {
+    const c = new ReportController({ storage: null, env: () => ({ userAgent: "UA", platform: "", width: 1, height: 1 }) });
+    render(
+      <>
+        <HelpMenu controller={c} docStats={() => ({ cells: 9 })} />
+        <ReportOverlay controller={c} />
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Report a problem…/ }));
+    expect(screen.getByTestId("report-dialog")).toBeTruthy();
+    expect(c.getState().diagnostics?.docStats).toEqual({ cells: 9 });
   });
 });
