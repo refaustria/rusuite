@@ -173,7 +173,8 @@ describe("lists", () => {
     const { backend, editor } = await mount();
     fireEvent.click(screen.getByRole("button", { name: "Multilevel list" }));
     fireEvent.click(menuItem(/Numbered outline/));
-    await waitFor(() => expect(applied(backend).map((c) => c.type)).toEqual(["restoreNumbering", "setParagraphProps"]));
+    // P8-34: one ApplyNumbering (the core allocates the list), no numbering table from the UI.
+    await waitFor(() => expect(applied(backend).map((c) => c.type)).toEqual(["applyNumbering"]));
     await waitFor(() => expect(editor.querySelector("[data-label]")?.getAttribute("data-label")).toBe("1."));
   });
 

@@ -15,7 +15,7 @@ import type { Style } from "../generated/Style";
 import type { StyleKind } from "../generated/StyleKind";
 import type { StyleSheet } from "../generated/StyleSheet";
 import { applyParagraphPatch } from "../sync/model";
-import { colorCss, paragraphBoxCss, TEXTBLOCK_TYPES, TWIPS_PER_PX } from "../sync/schema";
+import { colorCss, paragraphBoxCss, runEffectsCss, TEXTBLOCK_TYPES, TWIPS_PER_PX, type RunEffects } from "../sync/schema";
 import { styleOf } from "../sync/editorCommands";
 import { t } from "../i18n";
 
@@ -168,6 +168,8 @@ export function runCss(r: RunProperties, full: boolean): string[] {
   }
   const hl = r.highlight && r.highlight.kind !== "auto" ? colorCss(r.highlight) : undefined;
   if (hl) css.push(`background-color: ${hl}`);
+  // Small caps, spacing and the other effects (Subtle / Intense Reference, Book Title).
+  css.push(...runEffectsCss(r as RunEffects).css);
   return css;
 }
 
@@ -265,6 +267,9 @@ export function previewStyle(sheet: StyleSheet | null | undefined, s: Style, max
     backgroundColor: r.highlight && r.highlight.kind !== "auto" ? colorCss(r.highlight) : undefined,
     textAlign: p?.alignment === "center" ? "center" : undefined,
     lineHeight: 1.1,
+    fontVariant: r.smallCaps ? "small-caps" : undefined,
+    textTransform: r.allCaps ? "uppercase" : undefined,
+    letterSpacing: r.charSpacing ? `${r.charSpacing / 20}pt` : undefined,
   };
 }
 

@@ -44,6 +44,8 @@ export function sampleCss(run: RunProperties, p: ParagraphProperties): CSSProper
     backgroundColor: run.highlight && run.highlight.kind !== "auto" ? colorCss(run.highlight) : undefined,
     textAlign: (p.alignment as CSSProperties["textAlign"]) ?? "left",
     marginLeft: p.indent?.left ? `${p.indent.left / 15}px` : undefined,
+    fontVariant: run.smallCaps ? "small-caps" : undefined,
+    textTransform: run.allCaps ? "uppercase" : undefined,
   };
 }
 
@@ -72,10 +74,36 @@ type Tri = "" | "on" | "off";
 const tri = (v: boolean | null | undefined): Tri => (v == null ? "" : v ? "on" : "off");
 const fromTri = (v: Tri): boolean | null => (v === "" ? null : v === "on");
 
+/** The effects checkboxes of the Font tab (Word's order). */
+export const FONT_EFFECTS = ["strike", "doubleStrike", "superscript", "subscript", "smallCaps", "allCaps", "hidden", "outline", "shadow", "emboss", "imprint"] as const;
+type Effect = (typeof FONT_EFFECTS)[number];
+type EffectsState = Record<Effect, Tri>;
+
+const effectsOf = (r: RunProperties, allowUnset: boolean): EffectsState => {
+  const out = {} as EffectsState;
+  for (const e of FONT_EFFECTS) {
+    if (e === "superscript" || e === "subscript") {
+      out[e] = r.verticalAlign == null ? (allowUnset ? "" : "off") : r.verticalAlign === e ? "on" : "off";
+    } else {
+      const v = (r as Record<string, unknown>)[e] as boolean | null | undefined;
+      out[e] = allowUnset ? tri(v) : v ? "on" : "off";
+    }
+  }
+  return out;
+};
+
+const num = (s: string): number | null => {
+  const v = Number(s.trim().replace(",", "."));
+  return s.trim() === "" || !Number.isFinite(v) ? null : v;
+};
+
 /**
- * Word's Font dialog: font, style, size, colour, underline, strikethrough,
- * superscript / subscript. With `allowUnset` (Find › Format) every field
- * can stay "not set" and only the set ones are returned.
+ * Word's Font dialog (Ctrl+D): the Font tab (font, style, size, colour,
+ * underline, the effects checkboxes) and the Advanced tab (character
+ * spacing: scale, spacing expanded / condensed by, position raised /
+ * lowered by, kerning for fonts of N pt and above). With `allowUnset`
+ * (Find › Format) every field can stay "not set" and only the set ones are
+ * returned.
  */
 export function FontDialog({ open, initial, allowUnset, onSubmit, onClose }: {
   open: boolean;
@@ -85,27 +113,66 @@ export function FontDialog({ open, initial, allowUnset, onSubmit, onClose }: {
   onClose: () => void;
 }) {
   const t = useT();
-  const [v, setV] = useState({ font: "", bold: "" as Tri, italic: "" as Tri, size: "", underline: "", strike: "" as Tri, script: "", color: null as Color | null });
+  const [tab, setTab] = useState<"font" | "advanced">("font");
+  const [v, setV] = useState({
+    font: "", bold: "" as Tri, italic: "" as Tri, size: "", underline: "", color: null as Color | null,
+    fx: effectsOf({}, true), scale: "", spacing: "", position: "", kerning: false, kernPt: "",
+  });
   useEffect(() => {
     if (!open) return;
+    setTab("font");
     setV({
       font: fontName(initial.font),
       bold: tri(initial.bold),
       italic: tri(initial.italic),
       size: initial.size != null ? String(initial.size / 100) : "",
       underline: initial.underline ?? (allowUnset ? "" : "none"),
-      strike: allowUnset ? tri(initial.strike) : initial.strike ? "on" : "off",
-      script: initial.verticalAlign ?? (allowUnset ? "" : "baseline"),
       color: initial.color ?? null,
+      fx: effectsOf(initial, !!allowUnset),
+      scale: initial.scale != null ? String(initial.scale) : allowUnset ? "" : "100",
+      spacing: initial.charSpacing != null ? String(initial.charSpacing / 20) : allowUnset ? "" : "0",
+      position: initial.position != null ? String(initial.position / 2) : allowUnset ? "" : "0",
+      kerning: (initial.kerning ?? 0) > 0,
+      kernPt: initial.kerning ? String(initial.kerning / 2) : "",
     });
   }, [open, initial, allowUnset]);
   const size = v.size.trim() === "" ? null : Number(v.size.replace(",", "."));
-  const valid = size === null || (Number.isFinite(size) && size >= 1 && size <= 1638);
+  const scale = num(v.scale);
+  const spacing = num(v.spacing);
+  const position = num(v.position);
+  const kernPt = num(v.kernPt);
+  const valid =
+    (size === null || (Number.isFinite(size) && size >= 1 && size <= 1638)) &&
+    (scale === null || (scale >= 1 && scale <= 600)) &&
+    (spacing === null || Math.abs(spacing) <= 1584) &&
+    (position === null || Math.abs(position) <= 1584) &&
+    (!v.kerning || kernPt === null || (kernPt >= 1 && kernPt <= 1638));
   const unset = allowUnset ? <option value="">{t("write.find.notSet")}</option> : null;
+  const setFx = (e: Effect, on: boolean) => {
+    const fx = { ...v.fx, [e]: on ? "on" : "off" } as EffectsState;
+    // Word: superscript and subscript, strikethrough and double, small caps and all caps, emboss and engrave exclude each other.
+    const pairs: [Effect, Effect][] = [["superscript", "subscript"], ["strike", "doubleStrike"], ["smallCaps", "allCaps"], ["emboss", "imprint"]];
+    if (on) for (const [a, b] of pairs) if (e === a) fx[b] = "off"; else if (e === b) fx[a] = "off";
+    setV({ ...v, fx });
+  };
+  const preview: RunProperties = {
+    ...(fontOf(v.font) ? { font: fontOf(v.font)! } : {}),
+    bold: fromTri(v.bold),
+    italic: fromTri(v.italic),
+    size: size != null && valid ? size * 100 : null,
+    color: v.color,
+    smallCaps: v.fx.smallCaps === "on",
+    allCaps: v.fx.allCaps === "on",
+  } as RunProperties;
+  const tabBtn = (id: "font" | "advanced", label: string) => (
+    <button type="button" role="tab" aria-selected={tab === id} className={SMALL} aria-pressed={tab === id} onClick={() => setTab(id)}>
+      {label}
+    </button>
+  );
   return (
     <Dialog open={open} title={t("write.styles.fontDialog")} onClose={onClose}>
       <form
-        className="flex w-80 flex-col gap-2 text-sm"
+        className="flex w-96 flex-col gap-2 text-sm"
         onSubmit={(e) => {
           e.preventDefault();
           if (!valid) return;
@@ -117,85 +184,126 @@ export function FontDialog({ open, initial, allowUnset, onSubmit, onClose }: {
           if (b !== null) out.bold = b;
           if (i !== null) out.italic = i;
           if (size !== null) out.size = Math.round(size * 100);
-          if (v.underline) out.underline = v.underline as Underline;
-          const s = fromTri(v.strike);
-          if (s !== null) out.strike = s;
-          if (v.script) out.verticalAlign = v.script as RunProperties["verticalAlign"];
+          const init = initial as Record<string, unknown>;
+          if (v.underline && (allowUnset || initial.underline != null || v.underline !== "none")) out.underline = v.underline as Underline;
           if (v.color) out.color = v.color;
+          // Unchanged defaults stay unset (an "off" box / 0 / 100 % the run never had).
+          const keep = (k: string, val: unknown, def: unknown) => allowUnset || init[k] != null || val !== def;
+          for (const fx of FONT_EFFECTS) {
+            const on = fromTri(v.fx[fx]);
+            if (on === null || fx === "superscript" || fx === "subscript") continue;
+            if (fx === "strike" || keep(fx, on, false)) (out as Record<string, unknown>)[fx] = on;
+          }
+          const sup = fromTri(v.fx.superscript);
+          const sub = fromTri(v.fx.subscript);
+          if (sup || sub) out.verticalAlign = sup ? "superscript" : "subscript";
+          else if ((sup === false || sub === false) && (allowUnset || initial.verticalAlign != null)) out.verticalAlign = "baseline";
+          if (scale !== null && keep("scale", Math.round(scale), 100)) out.scale = Math.round(scale);
+          if (spacing !== null && keep("charSpacing", Math.round(spacing * 20), 0)) out.charSpacing = Math.round(spacing * 20);
+          if (position !== null && keep("position", Math.round(position * 2), 0)) out.position = Math.round(position * 2);
+          const kern = v.kerning ? Math.round((kernPt ?? 1) * 2) : 0;
+          if ((allowUnset && v.kerning) || (!allowUnset && keep("kerning", kern, 0))) out.kerning = kern;
           onSubmit(out);
         }}
       >
-        <Row label={t("write.styles.font")}>
-          <select aria-label={t("write.styles.font")} className={INPUT} value={v.font} onChange={(e) => setV({ ...v, font: e.target.value })}>
-            {allowUnset ? unset : <option value="">{t("write.styles.inherit")}</option>}
-            <option value="+minor">{t("write.styles.bodyFont")}</option>
-            <option value="+major">{t("write.styles.headingsFont")}</option>
-            {(FONT_FAMILIES.includes(v.font) || v.font === "" || v.font.startsWith("+") ? FONT_FAMILIES : [v.font, ...FONT_FAMILIES]).map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
-        </Row>
-        <Row label={t("write.styles.bold")}>
-          <select aria-label={t("write.styles.bold")} className={INPUT} value={v.bold} onChange={(e) => setV({ ...v, bold: e.target.value as Tri })}>
-            {unset}
-            <option value="on">{t("write.styles.yes")}</option>
-            <option value="off">{t("write.styles.no")}</option>
-          </select>
-        </Row>
-        <Row label={t("write.styles.italic")}>
-          <select aria-label={t("write.styles.italic")} className={INPUT} value={v.italic} onChange={(e) => setV({ ...v, italic: e.target.value as Tri })}>
-            {unset}
-            <option value="on">{t("write.styles.yes")}</option>
-            <option value="off">{t("write.styles.no")}</option>
-          </select>
-        </Row>
-        <Row label={t("write.styles.sizePt")}>
-          <input aria-label={t("write.styles.sizePt")} className={INPUT} list="write-font-sizes" value={v.size} onChange={(e) => setV({ ...v, size: e.target.value })} />
-        </Row>
-        <datalist id="write-font-sizes">
-          {FONT_SIZES.map((s) => (
-            <option key={s} value={s} />
-          ))}
-        </datalist>
-        <Row label={t("fmt.underline")}>
-          <select aria-label={t("fmt.underline")} className={INPUT} value={v.underline} onChange={(e) => setV({ ...v, underline: e.target.value })}>
-            {unset}
-            <option value="none">{t("write.borderStyle.none")}</option>
-            <option value="single">{t("write.borderStyle.single")}</option>
-            <option value="double">{t("write.borderStyle.double")}</option>
-          </select>
-        </Row>
-        <Row label={t("fmt.strike")}>
-          <select aria-label={t("fmt.strike")} className={INPUT} value={v.strike} onChange={(e) => setV({ ...v, strike: e.target.value as Tri })}>
-            {unset}
-            <option value="on">{t("write.styles.yes")}</option>
-            <option value="off">{t("write.styles.no")}</option>
-          </select>
-        </Row>
-        <Row label={t("write.styles.effects")}>
-          <select aria-label={t("write.styles.effects")} className={INPUT} value={v.script} onChange={(e) => setV({ ...v, script: e.target.value })}>
-            {unset}
-            <option value="baseline">{t("write.borderStyle.none")}</option>
-            <option value="superscript">{t("write.superscript")}</option>
-            <option value="subscript">{t("write.subscript")}</option>
-          </select>
-        </Row>
-        <Row label={t("write.fontColor")}>
-          <span className="flex items-center gap-1">
-            <ColorPicker label={t("write.fontColor")} kind="text" value={v.color ?? undefined} onSelect={(c) => setV({ ...v, color: c })} />
-            {v.color && (
-              <button type="button" className={SMALL} onClick={() => setV({ ...v, color: null })}>
-                {t("write.styles.inherit")}
-              </button>
-            )}
-          </span>
-        </Row>
+        <div role="tablist" className="flex gap-1">
+          {tabBtn("font", t("write.font.tabFont"))}
+          {tabBtn("advanced", t("write.font.tabAdvanced"))}
+        </div>
+        {tab === "font" ? (
+          <>
+            <Row label={t("write.styles.font")}>
+              <select aria-label={t("write.styles.font")} className={INPUT} value={v.font} onChange={(e) => setV({ ...v, font: e.target.value })}>
+                {allowUnset ? unset : <option value="">{t("write.styles.inherit")}</option>}
+                <option value="+minor">{t("write.styles.bodyFont")}</option>
+                <option value="+major">{t("write.styles.headingsFont")}</option>
+                {(FONT_FAMILIES.includes(v.font) || v.font === "" || v.font.startsWith("+") ? FONT_FAMILIES : [v.font, ...FONT_FAMILIES]).map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+            </Row>
+            <Row label={t("write.styles.bold")}>
+              <select aria-label={t("write.styles.bold")} className={INPUT} value={v.bold} onChange={(e) => setV({ ...v, bold: e.target.value as Tri })}>
+                {unset}
+                <option value="on">{t("write.styles.yes")}</option>
+                <option value="off">{t("write.styles.no")}</option>
+              </select>
+            </Row>
+            <Row label={t("write.styles.italic")}>
+              <select aria-label={t("write.styles.italic")} className={INPUT} value={v.italic} onChange={(e) => setV({ ...v, italic: e.target.value as Tri })}>
+                {unset}
+                <option value="on">{t("write.styles.yes")}</option>
+                <option value="off">{t("write.styles.no")}</option>
+              </select>
+            </Row>
+            <Row label={t("write.styles.sizePt")}>
+              <input aria-label={t("write.styles.sizePt")} className={INPUT} list="write-font-sizes" value={v.size} onChange={(e) => setV({ ...v, size: e.target.value })} />
+            </Row>
+            <datalist id="write-font-sizes">
+              {FONT_SIZES.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+            <Row label={t("fmt.underline")}>
+              <select aria-label={t("fmt.underline")} className={INPUT} value={v.underline} onChange={(e) => setV({ ...v, underline: e.target.value })}>
+                {unset}
+                <option value="none">{t("write.borderStyle.none")}</option>
+                <option value="single">{t("write.borderStyle.single")}</option>
+                <option value="double">{t("write.borderStyle.double")}</option>
+              </select>
+            </Row>
+            <Row label={t("write.fontColor")}>
+              <span className="flex items-center gap-1">
+                <ColorPicker label={t("write.fontColor")} kind="text" value={v.color ?? undefined} onSelect={(c) => setV({ ...v, color: c })} />
+                {v.color && (
+                  <button type="button" className={SMALL} onClick={() => setV({ ...v, color: null })}>
+                    {t("write.styles.inherit")}
+                  </button>
+                )}
+              </span>
+            </Row>
+            <fieldset className="grid grid-cols-2 gap-x-3 gap-y-1 rounded border border-ui-border p-2">
+              <legend className="px-1 text-xs text-ui-muted">{t("write.styles.effects")}</legend>
+              {FONT_EFFECTS.map((fx) => (
+                <label key={fx} className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    aria-label={t(`write.font.fx.${fx}`)}
+                    checked={v.fx[fx] === "on"}
+                    ref={(el) => {
+                      if (el) el.indeterminate = v.fx[fx] === "";
+                    }}
+                    onChange={(e) => setFx(fx, e.target.checked)}
+                  />
+                  <span>{t(`write.font.fx.${fx}`)}</span>
+                </label>
+              ))}
+            </fieldset>
+          </>
+        ) : (
+          <>
+            <Row label={t("write.font.scale")}>
+              <input aria-label={t("write.font.scale")} className={INPUT} value={v.scale} onChange={(e) => setV({ ...v, scale: e.target.value })} />
+            </Row>
+            <Row label={t("write.font.spacing")}>
+              <input aria-label={t("write.font.spacing")} className={INPUT} value={v.spacing} onChange={(e) => setV({ ...v, spacing: e.target.value })} />
+            </Row>
+            <Row label={t("write.font.position")}>
+              <input aria-label={t("write.font.position")} className={INPUT} value={v.position} onChange={(e) => setV({ ...v, position: e.target.value })} />
+            </Row>
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" aria-label={t("write.font.kerning")} checked={v.kerning} onChange={(e) => setV({ ...v, kerning: e.target.checked, kernPt: e.target.checked && !v.kernPt ? "1" : v.kernPt })} />
+              <span>{t("write.font.kerning")}</span>
+              <input aria-label={t("write.font.kerningPt")} className={`${INPUT} w-14`} disabled={!v.kerning} value={v.kernPt} onChange={(e) => setV({ ...v, kernPt: e.target.value })} />
+              <span>{t("write.font.pointsAbove")}</span>
+            </label>
+            <p className="text-xs text-ui-muted">{t("write.font.advancedHint")}</p>
+          </>
+        )}
         <div className="rounded border border-ui-border bg-white p-2 text-black" aria-label={t("write.styles.preview")}>
-          <span style={sampleCss({ ...(fontOf(v.font) ? { font: fontOf(v.font) } : {}), bold: fromTri(v.bold), italic: fromTri(v.italic), size: size != null && valid ? size * 100 : null, color: v.color }, {})}>
-            {t("write.styles.sampleShort")}
-          </span>
+          <span style={sampleCss(preview, {})}>{t("write.styles.sampleShort")}</span>
         </div>
         <DialogButtons onClose={onClose} disabled={!valid} />
       </form>

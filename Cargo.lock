@@ -5706,6 +5706,7 @@ dependencies = [
  "fmt-docx",
  "fmt-ooxml",
  "insta",
+ "model-show",
  "model-text",
  "serde",
  "serde_json",

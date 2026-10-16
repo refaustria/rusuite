@@ -8,4 +8,15 @@ export type DocumentSettings = {
 /**
  * Layout › Hyphenation › Automatic (`w:autoHyphenation`).
  */
-autoHyphenation?: boolean, };
+autoHyphenation?: boolean, 
+/**
+ * Layout › Hyphenation Options › Hyphenation zone in twips
+ * (`w:hyphenationZone`; `None` = Word's 0.25 inch). Stored, the
+ * browser's hyphenation has no zone.
+ */
+hyphenationZone?: number, 
+/**
+ * Endnotes at the end of each section instead of the document
+ * (`w:endnotePr/w:pos w:val="sectEnd"`).
+ */
+endnotesAtSectionEnd?: boolean, };

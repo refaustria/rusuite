@@ -25,6 +25,7 @@ import {
 import template from "./newDocument.json";
 import { newAnchor } from "../features/floating";
 import { numberingDef } from "./fixtures";
+import { caseChar } from "../features/changeCase";
 
 class Fail extends Error {
   constructor(
@@ -265,6 +266,22 @@ export class FakeWriteBackend implements WriteBackend {
         this.user = n ? { name: n, initials: ini } : null;
         return { type: "documentState", dirty: this.revision !== this.savedRevision, revision: this.revision, name: this.name };
       }
+      case "shapePaths":
+        return {
+          type: "shapePaths",
+          shapes: request.queries.map((q) => ({
+            paths: [
+              {
+                d: q.preset === "ellipse"
+                  ? `M0 ${q.h / 2} C0 0 ${q.w} 0 ${q.w} ${q.h / 2} C${q.w} ${q.h} 0 ${q.h} 0 ${q.h / 2} Z`
+                  : `M0 0 L${q.w} 0 L${q.w} ${q.h} L0 ${q.h} Z`,
+                fill: true,
+                stroke: true,
+              },
+            ],
+            defaults: (q.preset === "roundRect" ? { adj: 16667 } : {}) as Record<string, number>,
+          })),
+        };
       case "markSaved":
         if (request.name) this.name = request.name;
         this.savedRevision = this.revision;
@@ -364,6 +381,13 @@ export class FakeWriteBackend implements WriteBackend {
         if (b.kind === "table") {
           for (const r of b.value.rows) for (const c of r.cells) {
             const f = search(c.blocks);
+            if (f) return f;
+          }
+        }
+        if (b.kind === "paragraph") {
+          for (const inl of b.value.inlines) {
+            if (inl.kind !== "drawing" || !inl.value.text) continue;
+            const f = search(inl.value.text.blocks);
             if (f) return f;
           }
         }
@@ -693,10 +717,20 @@ export class FakeWriteBackend implements WriteBackend {
         p.inlines = mergeRuns([...a, ...changed, ...z]);
         return null;
       }
-      case "addStyle":
+      case "addStyle": {
         if (this.doc.styles.styles.some((s) => s.id === c.style.id)) throw new Fail("invalid_command", "duplicate style id");
-        this.doc.styles.styles.push(structuredClone(c.style));
+        const st = structuredClone(c.style);
+        this.doc.styles.styles.push(st);
+        // A linked style gets its character half (Rust's AddStyle).
+        if (st.kind === "linked") {
+          const charId = st.link ?? `${st.id}Char`;
+          st.link = charId;
+          if (!this.doc.styles.styles.some((s) => s.id === charId)) {
+            this.doc.styles.styles.push({ id: charId, name: `${st.name} Char`, kind: "character", link: st.id, custom: true, basedOn: "DefaultParagraphFont", ...(st.run ? { run: structuredClone(st.run) } : {}) } as never);
+          }
+        }
         return null;
+      }
       case "updateStyle": {
         const s = this.style(c.id);
         const pt = c.patch;
@@ -788,8 +822,25 @@ export class FakeWriteBackend implements WriteBackend {
       case "insertTableCol": {
         const t = this.table(c.table);
         for (const r of t.rows) {
-          if (c.at > r.cells.length) throw new Fail("invalid_command", `column ${c.at} out of range`);
-          r.cells.splice(c.at, 0, { id: this.alloc(), blocks: [{ kind: "paragraph", value: { id: this.alloc(), inlines: [] } } as Block] });
+          // Grid column `at`; a cell spanning across it grows (Word).
+          let start = 0;
+          let index = r.cells.length;
+          let grow: number | null = null;
+          for (let i = 0; i < r.cells.length; i++) {
+            const span = Math.max(1, r.cells[i]!.gridSpan ?? 1);
+            if (start === c.at) {
+              index = i;
+              break;
+            }
+            if (start < c.at && c.at < start + span) {
+              grow = i;
+              break;
+            }
+            start += span;
+          }
+          if (grow == null && index === r.cells.length && start < c.at) throw new Fail("invalid_command", `column ${c.at} out of range`);
+          if (grow != null) r.cells[grow]!.gridSpan = Math.max(1, r.cells[grow]!.gridSpan ?? 1) + 1;
+          else r.cells.splice(index, 0, { id: this.alloc(), blocks: [{ kind: "paragraph", value: { id: this.alloc(), inlines: [] } } as Block] });
         }
         const w = t.props?.colWidths;
         if (w?.length) w.splice(c.at, 0, w[Math.min(Math.max(0, c.at - 1), w.length - 1)]!);
@@ -797,8 +848,20 @@ export class FakeWriteBackend implements WriteBackend {
       }
       case "deleteTableCol": {
         const t = this.table(c.table);
-        if (t.rows.some((r) => c.at >= r.cells.length || r.cells.length === 1)) throw new Fail("invalid_command", `cannot delete column ${c.at}`);
-        for (const r of t.rows) r.cells.splice(c.at, 1);
+        const cols = Math.max(...t.rows.map((r) => r.cells.reduce((n, x) => n + Math.max(1, x.gridSpan ?? 1), 0)));
+        if (c.at >= cols || cols <= 1) throw new Fail("invalid_command", `cannot delete column ${c.at}`);
+        for (const r of t.rows) {
+          let start = 0;
+          for (let i = 0; i < r.cells.length; i++) {
+            const span = Math.max(1, r.cells[i]!.gridSpan ?? 1);
+            if (c.at >= start && c.at < start + span) {
+              if (span > 1) r.cells[i]!.gridSpan = span - 1;
+              else r.cells.splice(i, 1);
+              break;
+            }
+            start += span;
+          }
+        }
         t.props?.colWidths?.splice(c.at, 1);
         return null;
       }
@@ -1227,6 +1290,97 @@ export class FakeWriteBackend implements WriteBackend {
         }
         return null;
       }
+      case "insertDrawing": {
+        const p = this.para(c.block);
+        this.range(p, c.offset, c.offset);
+        const [a, , z] = splitInlines(p.inlines, c.offset, c.offset);
+        const id = this.alloc();
+        const para: Paragraph = { id: this.alloc(), inlines: c.text ? [{ kind: "run", value: { text: c.text } }] : [] };
+        const theme = (slot: string, tint = 0) => ({ kind: "theme", value: { slot, tint } }) as never;
+        const d: Extract<Inline, { kind: "drawing" }>["value"] =
+          c.kind === "textBox"
+            ? {
+                id, kind: "textBox", width: c.width, height: c.height, preset: "rect",
+                fill: { kind: "solid", value: { kind: "rgb", value: "FFFFFF" } }, line: { fill: { kind: "solid", value: { kind: "rgb", value: "000000" } }, width: 9525 },
+                text: { blocks: [{ kind: "paragraph", value: para }] },
+              }
+            : {
+                id, width: c.width, height: c.height, preset: c.preset,
+                fill: { kind: "solid", value: theme("accent1") }, line: { fill: { kind: "solid", value: theme("accent1", -0.5) }, width: 12700 },
+                textColor: theme("light1"),
+                text: { blocks: [{ kind: "paragraph", value: { ...para, props: { alignment: "center" } } }], verticalAlign: "center" },
+              };
+        if (c.anchor) d.anchor = c.anchor;
+        p.inlines = [...a, { kind: "drawing", value: d }, ...z];
+        return null;
+      }
+      case "setDrawingProps":
+      case "setDrawingText": {
+        const p = this.para(c.block);
+        const [a, mid, z] = splitInlines(p.inlines, c.offset, c.offset + 1);
+        const cur = mid[0];
+        if (mid.length !== 1 || cur?.kind !== "drawing") throw new Fail("invalid_command", `no drawing at ${c.offset}`);
+        let d = structuredClone(cur.value);
+        if (c.type === "setDrawingProps") {
+          const old = d;
+          d = { ...structuredClone(c.drawing), id: old.id };
+          if (!c.drawing.text) delete d.text;
+          else d.text = { ...c.drawing.text, blocks: old.text ? old.text.blocks : [{ kind: "paragraph", value: { id: this.alloc(), inlines: [] } }] };
+        } else if (c.blocks == null) {
+          if (d.kind === "textBox") throw new Fail("invalid_command", "a text box keeps its text");
+          delete d.text;
+        } else {
+          const used = new Set([...this.allIds()]);
+          for (const b of walkBlocks(d.text?.blocks ?? [])) used.delete(b.value.id);
+          const blocks = c.blocks.map((b) => this.resolveIds(b, idMap, used));
+          d.text = { ...(d.text ?? { verticalAlign: "center" }), blocks };
+        }
+        p.inlines = [...a, { kind: "drawing", value: d }, ...z];
+        return null;
+      }
+      case "setImageFormat":
+      case "setImageLink": {
+        const p = this.para(c.block);
+        const [a, mid, z] = splitInlines(p.inlines, c.offset, c.offset + 1);
+        const img = mid[0];
+        if (mid.length !== 1 || img?.kind !== "image") throw new Fail("invalid_command", `no image at ${c.offset}`);
+        const value = { ...img.value };
+        if (c.type === "setImageFormat") {
+          if (Object.keys(c.format).length) value.format = c.format;
+          else delete value.format;
+        } else if (c.link) value.link = c.link;
+        else delete value.link;
+        p.inlines = [...a, { kind: "image", value }, ...z];
+        return null;
+      }
+      case "changeCase": {
+        const p = this.para(c.block);
+        this.range(p, c.from, c.to);
+        const chars = [...p.inlines.map((i) => (i.kind === "run" ? i.value.text : "\uFFFC")).join("")];
+        let pos = 0;
+        p.inlines = p.inlines.map((i) => {
+          if (i.kind !== "run") {
+            pos++;
+            return i;
+          }
+          const text = [...i.value.text].map((ch) => {
+            const out = pos >= c.from && pos < c.to ? caseChar(chars, pos, c.case) : ch;
+            pos++;
+            return out;
+          }).join("");
+          return { kind: "run", value: { ...i.value, text } };
+        });
+        return null;
+      }
+      case "applyNumbering": {
+        const numId = Math.max(0, ...this.doc.numbering.defs.map((d) => d.id)) + 1;
+        this.doc.numbering.defs.push({ id: numId, levels: c.levels });
+        for (const [id, level] of c.items) {
+          const p = this.para(id);
+          p.props = { ...(p.props ?? {}), numbering: { numId, level } };
+        }
+        return null;
+      }
       default:
         throw new Fail("invalid_command", `fake backend does not implement ${c.type}`);
     }
@@ -1467,6 +1621,12 @@ function* walkAll(blocks: Block[]): Generator<number> {
           yield c.id;
           yield* walkAll(c.blocks);
         }
+      }
+    } else if (b.kind === "paragraph") {
+      for (const i of b.value.inlines) {
+        if (i.kind !== "drawing") continue;
+        yield i.value.id;
+        yield* walkAll(i.value.text?.blocks ?? []);
       }
     }
   }

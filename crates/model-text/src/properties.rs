@@ -123,6 +123,17 @@ pub struct DocumentSettings {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub auto_hyphenation: bool,
+    /// Layout › Hyphenation Options › Hyphenation zone in twips
+    /// (`w:hyphenationZone`; `None` = Word's 0.25 inch). Stored, the
+    /// browser's hyphenation has no zone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub hyphenation_zone: Option<u32>,
+    /// Endnotes at the end of each section instead of the document
+    /// (`w:endnotePr/w:pos w:val="sectEnd"`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub endnotes_at_section_end: bool,
 }
 
 impl DocumentSettings {

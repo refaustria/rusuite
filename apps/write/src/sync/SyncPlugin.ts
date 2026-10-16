@@ -31,10 +31,16 @@ import type { StyleSheet } from "../generated/StyleSheet";
 import type { WriteCommand } from "../generated/WriteCommand";
 import type { WritePatch } from "../generated/WritePatch";
 import { blockAt, fromPM, notesFromPM, notesNode } from "./fromPM";
-import { blockKey, canonNote, stableStringify, substituteBlock, walkBlocks } from "./model";
+import { blockKey, canonNote, drawingsOf, stableStringify, substituteBlock, walkAllBlocks, walkBlocks } from "./model";
 import { ID_NODE_TYPES, LIST_TYPES } from "./schema";
 import { blocksToPM, notesToPM, orderNotes, sectionIndexes, toPM } from "./toPM";
 import { mapDocChange, topBlocks, type MapperOptions, type MapResult } from "./transactionMapper";
+
+/** Ids inside the drawings of a paragraph block (the drawings and their text blocks). */
+function drawingBlockIds(b: Block): number[] {
+  if (b.kind !== "paragraph") return [];
+  return drawingsOf(b.value).flatMap((d) => [d.id, ...[...walkAllBlocks(d.text?.blocks ?? [])].map((x) => x.value.id)]);
+}
 
 /** Transaction meta key: `"remote"` marks changes that come from Rust. */
 export const SYNC_META = "rusuiteSync";
@@ -714,6 +720,8 @@ export class SyncController {
     for (const block of patch.replaced) {
       const id = block.value.id;
       if (skip.has(id)) continue;
+      // A paragraph holding a text box whose text queued commands still edit (typing in the box).
+      if (block.kind === "paragraph" && drawingBlockIds(block).some((x) => skip.has(x))) continue;
       const local = localBlock(id);
       if (!local) throw new Error(`patch replaces unknown block ${id}`);
       const cmp = compare(local, block);

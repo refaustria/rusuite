@@ -211,7 +211,7 @@ describe("style commands", () => {
     expect(made.command).toMatchObject({
       type: "compound",
       commands: [
-        { type: "addStyle", style: { id: "Normal1", name: "Normal", kind: "paragraph", basedOn: "Quote", custom: true, quickFormat: true } },
+        { type: "addStyle", style: { id: "Normal1", name: "Normal", kind: "linked", link: "Normal1Char", basedOn: "Quote", custom: true, quickFormat: true } },
         { type: "updateStyleFromSelection", id: "Normal1", block: 2, offset: 3 },
       ],
     });

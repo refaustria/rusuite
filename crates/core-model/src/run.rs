@@ -70,6 +70,47 @@ pub struct RunProperties {
     /// Superscript / subscript.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vertical_align: Option<VerticalAlign>,
+    /// Small capitals (docx `w:smallCaps`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub small_caps: Option<bool>,
+    /// All capitals (docx `w:caps`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub all_caps: Option<bool>,
+    /// Double strikethrough (docx `w:dstrike`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub double_strike: Option<bool>,
+    /// Character spacing in twips, positive = expanded (docx `w:spacing`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub char_spacing: Option<i32>,
+    /// Horizontal scale in percent (docx `w:w`, 1–600; 100 = normal).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<u16>,
+    /// Kerning for fonts at or above this size, in half-points (docx
+    /// `w:kern`; 0 = off).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kerning: Option<u32>,
+    /// Raised (positive) or lowered position in half-points (docx
+    /// `w:position`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<i32>,
+    /// Outline effect (docx `w:outline`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<bool>,
+    /// Shadow effect (docx `w:shadow`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<bool>,
+    /// Embossed (docx `w:emboss`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emboss: Option<bool>,
+    /// Engraved (docx `w:imprint`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imprint: Option<bool>,
+    /// Hidden text (docx `w:vanish`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    /// Right-to-left run (docx `w:rtl`; stored, not laid out).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rtl: Option<bool>,
 }
 
 impl RunProperties {
@@ -101,6 +142,19 @@ impl RunProperties {
             color,
             highlight,
             vertical_align,
+            small_caps,
+            all_caps,
+            double_strike,
+            char_spacing,
+            scale,
+            kerning,
+            position,
+            outline,
+            shadow,
+            emboss,
+            imprint,
+            hidden,
+            rtl,
         } = over;
         if font.is_some() {
             self.font.clone_from(font);
@@ -113,6 +167,19 @@ impl RunProperties {
         overlay(&mut self.color, color);
         overlay(&mut self.highlight, highlight);
         overlay(&mut self.vertical_align, vertical_align);
+        overlay(&mut self.small_caps, small_caps);
+        overlay(&mut self.all_caps, all_caps);
+        overlay(&mut self.double_strike, double_strike);
+        overlay(&mut self.char_spacing, char_spacing);
+        overlay(&mut self.scale, scale);
+        overlay(&mut self.kerning, kerning);
+        overlay(&mut self.position, position);
+        overlay(&mut self.outline, outline);
+        overlay(&mut self.shadow, shadow);
+        overlay(&mut self.emboss, emboss);
+        overlay(&mut self.imprint, imprint);
+        overlay(&mut self.hidden, hidden);
+        overlay(&mut self.rtl, rtl);
     }
 }
 

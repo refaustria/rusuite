@@ -87,6 +87,8 @@ pub fn font_diff(font: &RunProperties, default: &RunProperties) -> RunProperties
         color: d(&font.color, &default.color),
         highlight: None,
         vertical_align: d(&font.vertical_align, &default.vertical_align),
+        // Word-only character effects never occur in cell fonts.
+        ..RunProperties::default()
     }
 }
 

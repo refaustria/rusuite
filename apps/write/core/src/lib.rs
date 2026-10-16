@@ -38,8 +38,8 @@ mod tree;
 pub use command::{
     CommentPoint, FieldRefresh, FindFormat, FindMatch, FindQuery, ListKind, MarginsPatch, NewBlock,
     NewCell, NewParagraph, NewRow, NewTable, NewToc, PageSetupPatch, RefShow, RefTarget,
-    SectionPatch, WriteCommand,
+    SectionPatch, ShapeOutline, ShapeOutlinePath, ShapePathQuery, TextCase, WriteCommand,
 };
-pub use dispatch::{dispatch_with, Request, Response, ResponseBody, WriteHost};
+pub use dispatch::{dispatch_with, shape_outline, Request, Response, ResponseBody, WriteHost};
 pub use doc::{WriteDocument, WriteError};
 pub use patch::{InsertedBlock, WritePatch};

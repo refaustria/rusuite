@@ -89,6 +89,12 @@ export const WRITE_PRINT_CSS = `.rs-write-body { position: absolute; }
 .rs-write-content .page-break { border: 0 !important; margin: 0 !important; }
 .rs-write-content .find-match, .rs-write-content .find-current { background: none !important; outline: none !important; }
 .rs-write-content .ProseMirror-selectednode { outline: none !important; }
+.rs-write-content .hidden-text { display: none !important; }
+.rs-write-content .drawing-wrap span[data-tag] { display: block; }
+.rs-write-content .drawing-wrap span.drawing-text { display: flex; }
+.rs-write-content .drawing-wrap span[data-tag="p"] { margin: 0 0 8pt; }
+.rs-write-content .image-handle, .rs-write-content .drawing-rotate, .rs-write-content .drawing-adjust, .rs-write-content .crop-handle, .rs-write-content .crop-window { display: none !important; }
+.rs-write-content .drawing-box, .rs-write-content .inline-image-wrap img { outline: none !important; }
 .rs-write-content .field { background: none !important; }
 .rs-write-content [data-section-label]::after { display: none !important; }
 .rs-write-content .notes-separator { color: transparent !important; }
@@ -174,9 +180,26 @@ export function addCommentMarkup(clones: HTMLElement[], comments: Comment[]): HT
 
 // ----- pages from the pagination ---------------------------------------------------------
 
+/**
+ * The block elements inside shapes and text boxes as `span`s (`display:
+ * block`): the clone is serialized to HTML, where a `div` or `p` inside the
+ * paragraph holding the drawing would end that paragraph.
+ */
+export function inlineDrawingBlocks(c: HTMLElement): void {
+  const doc = c.ownerDocument;
+  c.querySelectorAll<HTMLElement>(".drawing-wrap div, .drawing-wrap p, .drawing-wrap h1, .drawing-wrap h2, .drawing-wrap h3, .drawing-wrap h4, .drawing-wrap h5, .drawing-wrap h6").forEach((e) => {
+    const span = doc.createElement("span");
+    for (const a of Array.from(e.attributes)) span.setAttribute(a.name, a.value);
+    span.dataset.tag = e.tagName.toLowerCase();
+    while (e.firstChild) span.append(e.firstChild);
+    e.replaceWith(span);
+  });
+}
+
 /** Widgets and editor-only placement removed from a cloned block. */
 function cleanClone(c: HTMLElement): HTMLElement {
   c.querySelectorAll(".page-spacer, .page-colbreak, .page-hf-probe").forEach((e) => e.remove());
+  inlineDrawingBlocks(c);
   c.removeAttribute("contenteditable");
   c.querySelectorAll("[contenteditable]").forEach((e) => e.removeAttribute("contenteditable"));
   [c, ...Array.from(c.querySelectorAll<HTMLElement>(".note-paged"))].filter((e) => e.classList.contains("note-paged")).forEach((e) => {

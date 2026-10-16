@@ -15,7 +15,12 @@ use model_text::{
     Table, TableLayout, TableProperties, TableWidth, Toc, VAlign, VAlignPos, VMerge, VRelative,
     WrapKind, WrapSide,
 };
-use model_text::{Comment, CommentId, Hyperlink, LinkTarget};
+use model_text::{Comment, CommentId, Drawing, DrawingKind, Hyperlink, LinkTarget, ShapeFill};
+
+use crate::drawing::{
+    emu_pt, vml_color, write_blip_effects, write_fill, write_line, write_preset, write_shadow,
+    write_src_rect, write_style, NS_O, NS_V, NS_W10, NS_WP14, NS_WPS, URI_WPS,
+};
 
 use crate::numbering::{write_numbering, W_NS};
 use crate::props::{
@@ -266,14 +271,8 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
         pn("/word/settings.xml")?,
         ct::SETTINGS,
         match &ctx.settings_xml {
-            Some(xml) => with_auto_hyphenation(xml, doc.settings.auto_hyphenation),
-            None => default_settings_xml(
-                even_headers,
-                has_notes,
-                foot_sep,
-                end_sep,
-                doc.settings.auto_hyphenation,
-            ),
+            Some(xml) => with_settings(xml, &doc.settings),
+            None => default_settings_xml(even_headers, has_notes, foot_sep, end_sep, &doc.settings),
         },
     );
     pkg.insert_part(
@@ -412,11 +411,19 @@ impl<'a> PartWriter<'a> {
         self.x.start(
             name,
             &[
-                ("xmlns:w", W_NS),
+                ("xmlns:mc", NS_MC),
+                ("xmlns:o", NS_O),
                 ("xmlns:r", NS_R),
+                ("xmlns:v", NS_V),
+                ("xmlns:wp14", NS_WP14),
                 ("xmlns:wp", NS_WP),
+                ("xmlns:w10", NS_W10),
+                ("xmlns:w", W_NS),
+                ("xmlns:w14", NS_W14),
+                ("xmlns:wps", NS_WPS),
                 ("xmlns:a", NS_A),
                 ("xmlns:pic", NS_PIC),
+                ("mc:Ignorable", "w14 wp14"),
             ],
         );
     }
@@ -569,6 +576,7 @@ impl<'a> PartWriter<'a> {
             match inline {
                 Inline::Run(run) => self.run(run),
                 Inline::Image(img) => self.image(img)?,
+                Inline::Drawing(d) => self.drawing(d)?,
                 Inline::Break(kind) => {
                     self.x.start("w:r", &[]);
                     self.brk(*kind);
@@ -1028,7 +1036,20 @@ impl<'a> PartWriter<'a> {
         if let Some(alt) = &img.alt {
             doc_pr.push(("descr", alt));
         }
-        x.empty("wp:docPr", &doc_pr);
+        let link = img.link.as_ref().map(|l| self.drawing_link(l));
+        let x = &mut self.x;
+        match &link {
+            None => x.empty("wp:docPr", &doc_pr),
+            Some((rid, tooltip)) => {
+                x.start("wp:docPr", &doc_pr);
+                let mut attrs = vec![("xmlns:a", NS_A), ("r:id", rid.as_str())];
+                if let Some(t) = tooltip {
+                    attrs.push(("tooltip", t.as_str()));
+                }
+                x.empty("a:hlinkClick", &attrs);
+                x.end("wp:docPr");
+            }
+        }
         x.start("wp:cNvGraphicFramePr", &[]);
         x.empty("a:graphicFrameLocks", &[("noChangeAspect", "1")]);
         x.end("wp:cNvGraphicFramePr");
@@ -1043,7 +1064,17 @@ impl<'a> PartWriter<'a> {
         x.empty("pic:cNvPicPr", &[]);
         x.end("pic:nvPicPr");
         x.start("pic:blipFill", &[]);
-        x.empty("a:blip", &[("r:embed", &rid)]);
+        let f = &img.format;
+        let effects =
+            f.recolor != model_text::Recolor::None || f.brightness != 0 || f.contrast != 0;
+        if effects {
+            x.start("a:blip", &[("r:embed", &rid)]);
+            write_blip_effects(x, f);
+            x.end("a:blip");
+        } else {
+            x.empty("a:blip", &[("r:embed", &rid)]);
+        }
+        write_src_rect(x, &f.crop);
         x.start("a:stretch", &[]);
         x.empty("a:fillRect", &[]);
         x.end("a:stretch");
@@ -1053,9 +1084,17 @@ impl<'a> PartWriter<'a> {
         x.empty("a:off", &[("x", "0"), ("y", "0")]);
         x.empty("a:ext", &[("cx", &cx), ("cy", &cy)]);
         x.end("a:xfrm");
-        x.start("a:prstGeom", &[("prst", "rect")]);
-        x.empty("a:avLst", &[]);
-        x.end("a:prstGeom");
+        write_preset(
+            x,
+            f.geometry.as_deref().unwrap_or("rect"),
+            &std::collections::BTreeMap::new(),
+        );
+        if let Some(b) = &f.border {
+            write_line(x, b);
+        }
+        if f.shadow {
+            write_shadow(x);
+        }
         x.end("pic:spPr");
         x.end("pic:pic");
         x.end("a:graphicData");
@@ -1063,6 +1102,219 @@ impl<'a> PartWriter<'a> {
         x.end(frame);
         x.end("w:drawing");
         x.end("w:r");
+        Ok(())
+    }
+
+    /// The relationship id (external hyperlink relationship; a bookmark as
+    /// `#name`) and tooltip of a picture or shape link (`a:hlinkClick`).
+    fn drawing_link(&mut self, l: &Hyperlink) -> (String, Option<String>) {
+        let target = match &l.target {
+            LinkTarget::Bookmark(b) => format!("#{b}"),
+            t => t.href(),
+        };
+        let rid = self
+            .rels
+            .add_with_mode(rel::HYPERLINK, target, fmt_ooxml::TargetMode::External)
+            .id
+            .clone();
+        (rid, l.tooltip.clone())
+    }
+
+    /// A shape or text box: `mc:AlternateContent` with the DrawingML shape
+    /// (`wps:wsp`) as the choice and a minimal VML shape as the fallback
+    /// for Word 2007.
+    fn drawing(&mut self, d: &Drawing) -> Result<()> {
+        let n = self.shared.next_docpr;
+        let id = n.to_string();
+        self.shared.next_docpr += 1;
+        let (cx, cy) = (d.width.0.max(0).to_string(), d.height.0.max(0).to_string());
+        self.x.start("w:r", &[]);
+        self.x.start("mc:AlternateContent", &[]);
+        self.x.start("mc:Choice", &[("Requires", "wps")]);
+        self.x.start("w:drawing", &[]);
+        let frame = if d.anchor.is_some() {
+            "wp:anchor"
+        } else {
+            "wp:inline"
+        };
+        match &d.anchor {
+            None => {
+                self.x.start(
+                    "wp:inline",
+                    &[
+                        ("distT", "0"),
+                        ("distB", "0"),
+                        ("distL", "0"),
+                        ("distR", "0"),
+                    ],
+                );
+                self.x.empty("wp:extent", &[("cx", &cx), ("cy", &cy)]);
+                self.x.empty(
+                    "wp:effectExtent",
+                    &[("l", "0"), ("t", "0"), ("r", "0"), ("b", "0")],
+                );
+            }
+            Some(a) => {
+                let z = (251_658_240u64 + u64::from(n)).to_string();
+                write_anchor_start(&mut self.x, a, &z, &cx, &cy);
+            }
+        }
+        let default_name = match d.kind {
+            DrawingKind::TextBox => format!("Text Box {n}"),
+            DrawingKind::Shape => format!("Shape {n}"),
+        };
+        let name = d.name.clone().unwrap_or(default_name);
+        let mut doc_pr = vec![("id", id.as_str()), ("name", name.as_str())];
+        if let Some(alt) = &d.alt {
+            doc_pr.push(("descr", alt));
+        }
+        self.x.empty("wp:docPr", &doc_pr);
+        self.x.empty("wp:cNvGraphicFramePr", &[]);
+        self.x.start("a:graphic", &[]);
+        self.x.start("a:graphicData", &[("uri", URI_WPS)]);
+        self.x.start("wps:wsp", &[]);
+        if d.kind == DrawingKind::TextBox {
+            self.x.empty("wps:cNvSpPr", &[("txBox", "1")]);
+        } else {
+            self.x.empty("wps:cNvSpPr", &[]);
+        }
+        self.x.start("wps:spPr", &[]);
+        let rot = ((d.rotation * 60_000.0).round() as i64).rem_euclid(21_600_000);
+        let rot_s = rot.to_string();
+        let mut xfrm: Vec<(&str, &str)> = Vec::new();
+        if rot != 0 {
+            xfrm.push(("rot", &rot_s));
+        }
+        if d.flip_h {
+            xfrm.push(("flipH", "1"));
+        }
+        if d.flip_v {
+            xfrm.push(("flipV", "1"));
+        }
+        self.x.start("a:xfrm", &xfrm);
+        self.x.empty("a:off", &[("x", "0"), ("y", "0")]);
+        self.x.empty("a:ext", &[("cx", &cx), ("cy", &cy)]);
+        self.x.end("a:xfrm");
+        match &d.custom_geometry {
+            Some(xml) => self.x.raw(xml.as_bytes()),
+            None => write_preset(&mut self.x, &d.preset, &d.adjust),
+        }
+        write_fill(&mut self.x, &d.fill);
+        write_line(&mut self.x, &d.line);
+        self.x.end("wps:spPr");
+        if let Some(c) = &d.text_color {
+            write_style(&mut self.x, c);
+        }
+        if let Some(t) = &d.text {
+            self.x.start("wps:txbx", &[]);
+            self.x.start("w:txbxContent", &[]);
+            self.blocks(&t.blocks, true)?;
+            self.x.end("w:txbxContent");
+            self.x.end("wps:txbx");
+        }
+        let ins = d
+            .text
+            .as_ref()
+            .map(|t| t.insets)
+            .unwrap_or_else(model_text::default_text_insets);
+        let ins = [ins.left, ins.top, ins.right, ins.bottom].map(|e| e.0.to_string());
+        let anchor = match d.text.as_ref().map(|t| t.vertical_align) {
+            Some(VAlignPos::Center) => "ctr",
+            Some(VAlignPos::Bottom) => "b",
+            _ => "t",
+        };
+        let wrap = if d.text.as_ref().map_or(true, |t| t.wrap) {
+            "square"
+        } else {
+            "none"
+        };
+        self.x.start(
+            "wps:bodyPr",
+            &[
+                ("rot", "0"),
+                ("vert", "horz"),
+                ("wrap", wrap),
+                ("lIns", &ins[0]),
+                ("tIns", &ins[1]),
+                ("rIns", &ins[2]),
+                ("bIns", &ins[3]),
+                ("anchor", anchor),
+                ("anchorCtr", "0"),
+            ],
+        );
+        if d.text
+            .as_ref()
+            .is_some_and(|t| t.autofit == model_text::Autofit::Resize)
+        {
+            self.x.empty("a:spAutoFit", &[]);
+        } else {
+            self.x.empty("a:noAutofit", &[]);
+        }
+        self.x.end("wps:bodyPr");
+        self.x.end("wps:wsp");
+        self.x.end("a:graphicData");
+        self.x.end("a:graphic");
+        self.x.end(frame);
+        self.x.end("w:drawing");
+        self.x.end("mc:Choice");
+        self.x.start("mc:Fallback", &[]);
+        self.vml_fallback(d, n)?;
+        self.x.end("mc:Fallback");
+        self.x.end("mc:AlternateContent");
+        self.x.end("w:r");
+        Ok(())
+    }
+
+    /// The VML fallback of a drawing: a rectangle, rounded rectangle or
+    /// oval (other presets as rectangles) with the same size, colours and
+    /// text.
+    fn vml_fallback(&mut self, d: &Drawing, n: u32) -> Result<()> {
+        let el = match d.preset.as_str() {
+            "roundRect" => "v:roundrect",
+            "ellipse" | "flowChartConnector" => "v:oval",
+            _ => "v:rect",
+        };
+        let mut style = String::new();
+        if d.anchor.is_some() {
+            style.push_str("position:absolute;");
+        }
+        style.push_str(&format!(
+            "width:{};height:{}",
+            emu_pt(d.width),
+            emu_pt(d.height)
+        ));
+        if d.rotation != 0.0 {
+            style.push_str(&format!(";rotation:{}", d.rotation.round()));
+        }
+        let id = format!("_x0000_s{}", 1025 + n);
+        let mut attrs: Vec<(&str, String)> = vec![("id", id), ("style", style)];
+        match d.fill {
+            ShapeFill::None => attrs.push(("filled", "f".into())),
+            ShapeFill::Solid(c) => attrs.push(("fillcolor", vml_color(&c, self.scheme))),
+        }
+        match d.line.fill {
+            ShapeFill::None => attrs.push(("stroked", "f".into())),
+            ShapeFill::Solid(c) => {
+                attrs.push(("strokecolor", vml_color(&c, self.scheme)));
+                attrs.push(("strokeweight", emu_pt(d.line.width)));
+            }
+        }
+        if el == "v:roundrect" {
+            let adj = d.adjust.get("adj").copied().unwrap_or(16_667);
+            attrs.push(("arcsize", format!("{}f", adj * 65_536 / 100_000)));
+        }
+        let refs: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        self.x.start("w:pict", &[]);
+        self.x.start(el, &refs);
+        if let Some(t) = &d.text {
+            self.x.start("v:textbox", &[]);
+            self.x.start("w:txbxContent", &[]);
+            self.blocks(&t.blocks, true)?;
+            self.x.end("w:txbxContent");
+            self.x.end("v:textbox");
+        }
+        self.x.end(el);
+        self.x.end("w:pict");
         Ok(())
     }
 
@@ -1422,22 +1674,33 @@ fn default_settings_xml(
     notes: [bool; 2],
     foot_sep: (i32, i32),
     end_sep: (i32, i32),
-    auto_hyphenation: bool,
+    settings: &model_text::DocumentSettings,
 ) -> Vec<u8> {
     let mut x = XmlOut::new();
     x.start("w:settings", &[("xmlns:w", W_NS)]);
-    if auto_hyphenation {
+    if settings.auto_hyphenation {
         x.empty("w:autoHyphenation", &[]);
+    }
+    if let Some(z) = settings.hyphenation_zone {
+        x.val("w:hyphenationZone", &z.to_string());
     }
     if even_headers {
         x.empty("w:evenAndOddHeaders", &[]);
     }
     for (on, pr, item, sep) in [
         (notes[0], "w:footnotePr", "w:footnote", foot_sep),
-        (notes[1], "w:endnotePr", "w:endnote", end_sep),
+        (
+            notes[1] || settings.endnotes_at_section_end,
+            "w:endnotePr",
+            "w:endnote",
+            end_sep,
+        ),
     ] {
         if on {
             x.start(pr, &[]);
+            if pr == "w:endnotePr" && settings.endnotes_at_section_end {
+                x.val("w:pos", "sectEnd");
+            }
             x.empty(item, &[("w:id", &sep.0.to_string())]);
             x.empty(item, &[("w:id", &sep.1.to_string())]);
             x.end(pr);
@@ -1455,6 +1718,86 @@ fn default_settings_xml(
     x.end("w:compat");
     x.end("w:settings");
     x.finish()
+}
+
+/// `settings.xml` kept from the file with the model's settings:
+/// hyphenation (see [`with_auto_hyphenation`]), the hyphenation zone and the
+/// endnote position.
+fn with_settings(xml: &[u8], s: &model_text::DocumentSettings) -> Vec<u8> {
+    let xml = with_auto_hyphenation(xml, s.auto_hyphenation);
+    let Ok(text) = std::str::from_utf8(&xml) else {
+        return xml;
+    };
+    let mut out = text.to_owned();
+    let remove = |out: &mut String, tag: &str| {
+        while let Some(i) = out.find(tag) {
+            let Some(len) = out[i..].find("/>") else {
+                break;
+            };
+            out.replace_range(i..i + len + 2, "");
+        }
+    };
+    // Untouched when the file already says what the model says.
+    let current = crate::xml::parse(out.as_bytes(), "settings")
+        .ok()
+        .map(|root| {
+            let zone = root
+                .child("hyphenationZone")
+                .and_then(|z| z.val())
+                .and_then(crate::xml::parse_twips)
+                .and_then(|v| u32::try_from(v).ok());
+            let sect_end = root
+                .child("endnotePr")
+                .and_then(|e| e.child("pos"))
+                .and_then(|p| p.val())
+                == Some("sectEnd");
+            (zone, sect_end)
+        });
+    if current == Some((s.hyphenation_zone, s.endnotes_at_section_end)) {
+        return out.into_bytes();
+    }
+    remove(&mut out, "<w:hyphenationZone");
+    if let Some(z) = s.hyphenation_zone {
+        let el = format!("<w:hyphenationZone w:val=\"{z}\"/>");
+        match out.find("<w:autoHyphenation/>") {
+            Some(i) => out.insert_str(i + "<w:autoHyphenation/>".len(), &el),
+            None => insert_after_root(&mut out, &el),
+        }
+    }
+    // The endnote position: `w:pos` first in `w:endnotePr`.
+    if let Some(i) = out.find("<w:endnotePr") {
+        if let Some(end) = out[i..].find("</w:endnotePr>") {
+            let section = out[i..i + end].to_owned();
+            let mut cleaned = section.clone();
+            remove(&mut cleaned, "<w:pos ");
+            if s.endnotes_at_section_end {
+                if let Some(gt) = cleaned.find('>') {
+                    cleaned.insert_str(gt + 1, "<w:pos w:val=\"sectEnd\"/>");
+                }
+            }
+            out.replace_range(i..i + end, &cleaned);
+        }
+    } else if s.endnotes_at_section_end {
+        let el = "<w:endnotePr><w:pos w:val=\"sectEnd\"/></w:endnotePr>";
+        match out.find("<w:compat") {
+            Some(i) => out.insert_str(i, el),
+            None => {
+                if let Some(i) = out.find("</w:settings>") {
+                    out.insert_str(i, el);
+                }
+            }
+        }
+    }
+    out.into_bytes()
+}
+
+/// Inserts `el` as the first child of the root element.
+fn insert_after_root(out: &mut String, el: &str) {
+    if let Some(i) = out.find("<w:settings") {
+        if let Some(end) = out[i..].find('>') {
+            out.insert_str(i + end + 1, el);
+        }
+    }
 }
 
 /// `settings.xml` kept from the file with `w:autoHyphenation` set or
@@ -1598,6 +1941,8 @@ mod tests {
                     alt: Some("A <logo>".into()),
                     name: None,
                     anchor: None,
+                    format: Default::default(),
+                    link: None,
                 }),
                 Inline::Break(BreakKind::Page),
             ],
@@ -1713,6 +2058,8 @@ mod tests {
                 alt: None,
                 name: None,
                 anchor: None,
+                format: Default::default(),
+                link: None,
             })],
         );
         doc.body = vec![p];

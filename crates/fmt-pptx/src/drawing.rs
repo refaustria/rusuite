@@ -1584,6 +1584,7 @@ mod tests {
             }),
             highlight: Some(Color::Rgb(Rgb::new(255, 255, 0))),
             vertical_align: Some(VerticalAlign::Superscript),
+            ..Default::default()
         };
         let s = written(|x| write_rpr(x, "a:rPr", &props, false));
         assert_eq!(read_rpr(&el(&s), &mut Warnings::default()), props, "{s}");

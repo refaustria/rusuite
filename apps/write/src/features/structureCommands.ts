@@ -227,6 +227,11 @@ export function withPreset(numbering: Numbering, preset: MultilevelPreset): { nu
   return { numbering: { ...structuredClone(numbering), defs: [...structuredClone(numbering.defs), def] }, id };
 }
 
+/** `ApplyNumbering`: a new list of `preset` for the paragraphs `[id, level]`. */
+export function applyNumberingCommand(preset: MultilevelPreset, items: { id: number; level: number }[]): WriteCommand {
+  return { type: "applyNumbering", levels: presetLevels(preset), items: items.map((it) => [it.id, Math.min(8, it.level)] as [number, number]) };
+}
+
 /** Home › Multilevel list: the selected paragraphs become one new list of `preset` (keeping their levels). */
 export async function applyMultilevel(editor: Editor, ctl: SyncController, preset: MultilevelPreset): Promise<boolean> {
   await ctl.idle();
@@ -244,12 +249,8 @@ export async function applyMultilevel(editor: Editor, ctl: SyncController, prese
     return false;
   });
   if (!items.length) return false;
-  const { numbering, id } = withPreset(ctl.numbering, preset);
-  const commands: WriteCommand[] = [{ type: "restoreNumbering", numbering }];
-  const byLevel = new Map<number, number[]>();
-  for (const it of items) byLevel.set(it.level, [...(byLevel.get(it.level) ?? []), it.id]);
-  for (const [level, blocks] of byLevel) commands.push({ type: "setParagraphProps", blocks, patch: { numbering: { numId: id, level } } });
-  await ctl.run({ type: "compound", commands });
+  // The core allocates the list (`ApplyNumbering`); no numbering table is sent.
+  await ctl.run(applyNumberingCommand(preset, items));
   editor.commands.focus();
   return true;
 }

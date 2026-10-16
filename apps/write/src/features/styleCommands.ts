@@ -132,7 +132,7 @@ export function updateToMatchCommand(editor: Editor, id: string): WriteCommand |
 }
 
 /**
- * Word's "Create a Style": a new paragraph style named `name`, based on the
+ * Word's "Create a Style": a new linked style named `name`, based on the
  * caret paragraph's style, that takes the selection's formatting (the
  * paragraph gets it, its direct formatting goes): `AddStyle` +
  * `UpdateStyleFromSelection` in one undo step.
@@ -143,12 +143,14 @@ export function createStyleFromSelectionCommand(editor: Editor, sheet: StyleShee
   if (!at || !trimmed) return null;
   const id = uniqueStyleId(sheet, trimmed);
   const parent = getStyle(sheet, basedOn);
+  // Word makes a linked pair ("Memo" + "Memo Char"); the core adds the character half.
   const style: Style = {
     id,
     name: trimmed,
-    kind: "paragraph",
+    kind: "linked",
     basedOn: parent && isParagraphKind(parent.kind) ? parent.id : "Normal",
     next: id,
+    link: `${id}Char`,
     quickFormat: true,
     custom: true,
     priority: 1,
