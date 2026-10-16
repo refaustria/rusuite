@@ -272,7 +272,7 @@ describe("Formatting details", () => {
     fireEvent.click(within(dlg).getByRole("button", { name: "OK" }));
     await waitFor(() =>
       expect(applied(backend)).toContainEqual(
-        expect.objectContaining({ type: "setParagraphProps", patch: expect.objectContaining({ spacing: { before: 0, after: 120, line: { kind: "exact", value: 360 } } }) }),
+        expect.objectContaining({ type: "setParagraphProps", patch: expect.objectContaining({ spacing: { after: 120, line: { kind: "exact", value: 360 } } }) }),
       ),
     );
     fireEvent.keyDown(editorEl, { key: "2", code: "Digit2", ctrlKey: true });

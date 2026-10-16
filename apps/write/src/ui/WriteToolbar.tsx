@@ -23,7 +23,7 @@ import type { Spacing } from "../generated/Spacing";
 import {
   alignmentAt, cursorBlock, indent, runPropsAt, setAlignment, setTextStyle, styleOf,
 } from "../sync/editorCommands";
-import { clearFormatting, indentAt, setIndent, setSpacing, spacingAt, toggleScript } from "../features/formatting";
+import { clearFormatting, setIndent, setSpacing, toggleScript } from "../features/formatting";
 import { insertImageFile, resetImageSize, selectedImage, setImageAttrs } from "../features/images";
 import { caretIntoNewTable, tableContext, tableIds } from "../features/tables";
 import { plainTextSlice } from "../features/plainPaste";
@@ -48,7 +48,7 @@ import type { FieldKind } from "../generated/FieldKind";
 import type { SectionKind } from "../generated/SectionKind";
 import { TEXTBLOCK_TYPES } from "../sync/schema";
 import type { SyncController, SyncState } from "../sync/SyncPlugin";
-import { cm, fromCm, fromPt, pt } from "./dialogs";
+import { cm, fromCm, fromPt, paragraphInEffect, pt } from "./dialogs";
 import { useThrottledEditorState } from "./useThrottledEditorState";
 import { styleMenuItems, useGallery } from "./stylesPane";
 import { previewStyle, styleLabel } from "../features/styleCss";
@@ -326,8 +326,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       const charStyle = styleFromMarks(e.state.storedMarks ?? $from.marks()) ?? null;
       const { table, image, drawing } = selectionInfo(e);
       const sec = currentSection(e.state, ctl.sections);
-      const sp = spacingAt(e);
-      const ind = indentAt(e);
+      // Layout › Paragraph shows the values in effect, like the Paragraph dialog (W-23).
+      const { spacing: sp, indent: ind } = paragraphInEffect(e, ctl);
       return {
         props: runPropsAt(e),
         // Home › Font shows what is in effect (style chain and theme fonts), not only direct formatting.

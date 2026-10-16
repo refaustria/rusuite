@@ -196,4 +196,63 @@ test.describe("Write quality pass (P8-38)", () => {
     await page.setViewportSize({ width: 1400, height: 900 });
     await expect(page.locator("[data-collapsed-group]")).toHaveCount(0);
   });
+
+  test("W-21: a new table of contents lists the page numbers at once", async ({ page }) => {
+    await openWrite(page);
+    await page.keyboard.press("Control+Alt+1");
+    await page.keyboard.type("Chapter one");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Text.");
+    await editor(page).locator("h1").click();
+    await page.keyboard.press("Home");
+    await page.getByRole("tab", { name: "References" }).click();
+    await page.getByRole("button", { name: "Table of contents" }).click();
+    await page.getByRole("menu").locator("[role^=menuitem]").first().click();
+    await expect(editor(page).locator("[data-toc], .toc, [data-type=toc]").first()).toContainText(/Chapter one\s*1/);
+  });
+
+  test("W-23/W-25: Paragraph and Font dialogs show the values in effect; OK without changes adds no formatting", async ({ page }) => {
+    await openWrite(page);
+    await page.keyboard.type("Plain text.");
+    await page.getByRole("button", { name: "Paragraph settings" }).click();
+    const dlg = page.getByRole("dialog");
+    await expect(dlg.getByLabel("After (pt)")).toHaveValue("8");
+    await expect(dlg.getByLabel("Line spacing")).toHaveValue("multiple");
+    await dlg.getByRole("button", { name: "OK", exact: true }).click();
+    await page.keyboard.press("Control+d");
+    await expect(page.getByRole("dialog").getByLabel("Size (pt)")).toHaveValue("11");
+    await page.getByRole("dialog").getByRole("button", { name: "OK", exact: true }).click();
+    const xml = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml).toMatch(/<w:p><w:r><w:t>Plain text\.<\/w:t><\/w:r><\/w:p>/);
+  });
+
+  test("W-24: on a narrow window with the side panes the page keeps its width", async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await openWrite(page);
+    await page.keyboard.type("Some text on the page.");
+    const width = async () => (await page.getByTestId("write-page").boundingBox())!.width;
+    const before = await width();
+    await page.keyboard.press("Control+Alt+Shift+s");
+    await page.getByRole("tab", { name: "View", exact: true }).click();
+    await page.getByLabel("Navigation Pane").check();
+    await expect(page.getByText("Styles pane")).toBeVisible();
+    expect(Math.abs((await width()) - before)).toBeLessThan(1);
+    await expect(page.getByTestId("page-status")).toHaveText("Page 1 of 1");
+  });
+
+  test("W-27: Multilevel list with the caret in a list renumbers the whole list", async ({ page }) => {
+    await openWrite(page);
+    const k = page.keyboard;
+    await page.getByRole("button", { name: "Numbered list" }).click();
+    await k.type("One");
+    await k.press("Enter");
+    await k.press("Tab");
+    await k.type("Sub");
+    await k.press("Enter");
+    await k.press("Shift+Tab");
+    await k.type("Two");
+    await page.getByRole("button", { name: "Multilevel list" }).click();
+    await page.getByRole("menu").locator("[role^=menuitem]").first().click();
+    await expect.poll(() => editor(page).locator("p[data-label]").evaluateAll((els) => els.map((e) => e.getAttribute("data-label")))).toEqual(["1.", "1.1", "2."]);
+  });
 });

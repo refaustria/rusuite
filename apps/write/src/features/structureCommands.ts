@@ -93,8 +93,30 @@ export async function insertToc(editor: Editor, ctl: SyncController, toLevel = 3
   const { before, current, atStart } = topBlockAtCaret(editor.state);
   const after = atStart ? before : current;
   await ctl.run({ type: "insertToc", after, fromLevel: 1, toLevel, title, newId: nextTempId() });
+  await withPageNumbers(editor, ctl);
   editor.commands.focus();
   return true;
+}
+
+/** Resolves after the next print-layout pass (or after `ms`). */
+export function nextLayout(editor: Editor, ms = 1500): Promise<void> {
+  return new Promise((resolve) => {
+    const dom = editor.view.dom;
+    const done = () => {
+      clearTimeout(timer);
+      dom.removeEventListener("rusuite-layout", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    dom.addEventListener("rusuite-layout", done);
+  });
+}
+
+/** Word fills a new table of contents with page numbers at once: the pages once the table is laid out (W-21). */
+async function withPageNumbers(editor: Editor, ctl: SyncController): Promise<void> {
+  if (editor.isDestroyed || !currentLayout(editor.state)) return;
+  await nextLayout(editor);
+  if (!editor.isDestroyed && currentLayout(editor.state)) await updateTocs(editor, ctl);
 }
 
 /** References › Insert Table of Figures: the captions of `label` (Figure, Table, Equation), placed like a table of contents. */
@@ -104,6 +126,7 @@ export async function insertTableOfFigures(editor: Editor, ctl: SyncController, 
   const { before, current, atStart } = topBlockAtCaret(editor.state);
   const after = atStart ? before : current;
   await ctl.run({ type: "insertToc", after, fromLevel: 1, toLevel: 1, title: null, newId: nextTempId(), caption: label.replace(/\s+/g, "_") });
+  await withPageNumbers(editor, ctl);
   editor.commands.focus();
   return true;
 }
@@ -252,7 +275,18 @@ export function applyNumberingCommand(preset: MultilevelPreset, items: { id: num
 /** Home › Multilevel list: the selected paragraphs become one new list of `preset` (keeping their levels). */
 export async function applyMultilevel(editor: Editor, ctl: SyncController, preset: MultilevelPreset): Promise<boolean> {
   await ctl.idle();
-  const { from, to } = editor.state.selection;
+  let { from, to } = editor.state.selection;
+  // Word: with the caret in a list (no selection) the multilevel list applies to the whole list (W-27).
+  if (from === to) {
+    const $c = editor.state.selection.$from;
+    for (let d = 1; d <= $c.depth; d++) {
+      if ($c.node(d).type.name === "bulletList" || $c.node(d).type.name === "orderedList") {
+        from = $c.before(d);
+        to = $c.after(d);
+        break;
+      }
+    }
+  }
   const items: { id: number; level: number }[] = [];
   editor.state.doc.nodesBetween(from, to, (node, pos) => {
     if (!TEXTBLOCK_TYPES.has(node.type.name)) return true;

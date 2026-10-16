@@ -192,6 +192,15 @@ describe("lists", () => {
     await waitFor(() => expect(editor.querySelector("[data-label]")?.getAttribute("data-label")).toBe("1."));
   });
 
+  it("W-27: with the caret in a list, Multilevel list renumbers the whole list (levels kept)", async () => {
+    const { backend } = await mount([li(1, "one", 2, 0), li(2, "sub", 2, 1), li(3, "two", 2, 0), para(4, "after")]);
+    fireEvent.click(screen.getByRole("button", { name: "Multilevel list" }));
+    fireEvent.click(menuItem(/Numbered outline/));
+    await waitFor(() => expect(applied(backend).map((c) => c.type)).toEqual(["applyNumbering"]));
+    const cmd = applied(backend)[0] as Extract<WriteCommand, { type: "applyNumbering" }>;
+    expect(cmd.items).toEqual([[1, 0], [2, 1], [3, 0]]);
+  });
+
   it("context menu: Restart at 1 / Continue numbering in a list", async () => {
     const { backend, editor } = await mount([li(1, "one", 2, 0), para(2, "gap"), li(3, "two", 2, 0)]);
     const item = editor.querySelectorAll("li p")[1]!;

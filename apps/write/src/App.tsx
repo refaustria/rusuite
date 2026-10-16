@@ -313,7 +313,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
           // No scroll anchoring: showing / hiding the ruler must not shift the text under it.
           style={{ scrollPaddingTop: `${rulerReserve(!!editor && chrome.ruler, zoom)}px`, overflowAnchor: "none" }}
         >
-          <div className="write-zoom" data-testid="write-zoom" style={zoom !== 1 ? { zoom } : undefined}>
+          <div className="write-zoom" data-testid="write-zoom" data-view={chrome.view} style={zoom !== 1 ? { zoom } : undefined}>
             {editor && chrome.ruler && <Ruler editor={editor} ctl={ctl} features={features} page={firstPage} />}
             <CommentsFrame editor={editor} ctl={ctl} features={features} zoom={zoom}>
               <PageFrame
