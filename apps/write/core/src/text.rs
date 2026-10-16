@@ -1,8 +1,10 @@
 //! Char-offset arithmetic on paragraph inlines (ADR 0007 §3): run text
-//! counts in Unicode scalar values, images, breaks, fields and note
-//! references count as one.
+//! counts in Unicode scalar values, images, breaks, fields, note
+//! references and comment markers count as one.
 
-use model_text::{Inline, Paragraph, Run, RunProperties};
+use std::collections::HashSet;
+
+use model_text::{marker_of, CommentId, Inline, Paragraph, Run, RunProperties};
 
 /// Number of positions of one inline.
 pub(crate) fn inline_len(inline: &Inline) -> usize {
@@ -58,6 +60,43 @@ pub(crate) fn replace_range(
     let start = split_at(&mut p.inlines, from);
     let end = split_at(&mut p.inlines, to);
     p.inlines.splice(start..end, new).collect()
+}
+
+/// [`replace_range`] that keeps the comment markers of `from..to` whose
+/// partner lies outside the range: ends go before `new`, starts after it,
+/// so a partly deleted comment range shrinks to the text that is left
+/// (a range deleted as a whole loses both markers). Returns the removed
+/// inlines and the number of markers kept.
+pub(crate) fn replace_keeping_markers(
+    p: &mut Paragraph,
+    from: usize,
+    to: usize,
+    new: Vec<Inline>,
+) -> (Vec<Inline>, usize) {
+    let doomed = slice(p, from, to);
+    let ids = |start: bool| -> HashSet<CommentId> {
+        doomed
+            .iter()
+            .filter_map(marker_of)
+            .filter(|(_, s)| *s == start)
+            .map(|(id, _)| id)
+            .collect()
+    };
+    let (starts, ends) = (ids(true), ids(false));
+    let mut kept_ends = Vec::new();
+    let mut kept_starts = Vec::new();
+    for i in &doomed {
+        match marker_of(i) {
+            Some((id, true)) if !ends.contains(&id) => kept_starts.push(i.clone()),
+            Some((id, false)) if !starts.contains(&id) => kept_ends.push(i.clone()),
+            _ => {}
+        }
+    }
+    let kept = kept_ends.len() + kept_starts.len();
+    let mut all = kept_ends;
+    all.extend(new);
+    all.extend(kept_starts);
+    (replace_range(p, from, to, all), kept)
 }
 
 /// A copy of positions `from..to` of `p`.
@@ -213,6 +252,33 @@ mod tests {
             slice(&para(), 3, 5),
             vec![Inline::Run(Run::with_props("😀b", bold()))]
         );
+    }
+
+    #[test]
+    fn partial_deletes_keep_lone_markers() {
+        use model_text::CommentId;
+        let s = |id| Inline::CommentStart { id: CommentId(id) };
+        let e = |id| Inline::CommentEnd { id: CommentId(id) };
+        let mut p = Paragraph::new(NodeId(1));
+        p.inlines = vec![
+            Inline::Run(Run::new("ab")),
+            s(1),
+            Inline::Run(Run::new("cd")),
+            s(2),
+            Inline::Run(Run::new("e")),
+            e(2),
+            Inline::Run(Run::new("f")),
+            e(1),
+        ];
+        // "b[1" deleted: start 1 stays; "cd [2 e 2] f" deleted: 2 goes, end 1 stays.
+        let (removed, kept) =
+            replace_keeping_markers(&mut p, 1, 3, vec![Inline::Run(Run::new("X"))]);
+        assert_eq!(kept, 1);
+        assert_eq!(removed.len(), 2);
+        assert_eq!(p.text(), "aX\u{FEFF}cd\u{FEFF}e\u{FEFF}f\u{FEFF}");
+        let (_, kept) = replace_keeping_markers(&mut p, 3, 9, vec![]);
+        assert_eq!(kept, 0);
+        assert_eq!(p.text(), "aX\u{FEFF}\u{FEFF}");
     }
 
     #[test]

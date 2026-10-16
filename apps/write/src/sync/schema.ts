@@ -275,6 +275,41 @@ export const NoteRefNode = Node.create({
   },
 });
 
+/**
+ * A comment range marker (`Inline::CommentStart` / `CommentEnd`): an
+ * invisible inline atom with the comment id. Never parsed from HTML, so
+ * pasted text does not copy comments (Word).
+ */
+function commentMark(name: "commentStart" | "commentEnd") {
+  return Node.create({
+    name,
+    group: "inline",
+    inline: true,
+    atom: true,
+    selectable: false,
+    draggable: false,
+    addAttributes() {
+      return { id: { ...jsonAttrPlain } };
+    },
+    parseHTML() {
+      return [];
+    },
+    renderText() {
+      return "";
+    },
+    renderHTML({ node }) {
+      const side = name === "commentStart" ? "start" : "end";
+      return ["span", { class: `comment-mark comment-${side}`, [`data-comment-${side}`]: String(node.attrs.id), contenteditable: "false" }];
+    },
+  });
+}
+
+export const CommentStartNode = commentMark("commentStart");
+export const CommentEndNode = commentMark("commentEnd");
+
+/** The comment marker node types. */
+export const COMMENT_MARKS = new Set(["commentStart", "commentEnd"]);
+
 export interface TocEntryAttr {
   text: string;
   level: number;
@@ -657,6 +692,8 @@ export function writeExtensions(options: WriteExtensionsOptions = {}): Extension
     WriteTableCell,
     FieldNode,
     NoteRefNode,
+    CommentStartNode,
+    CommentEndNode,
     TocNode,
     NotesNode,
     NoteNode,

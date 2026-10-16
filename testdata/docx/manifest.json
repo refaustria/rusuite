@@ -721,5 +721,20 @@
    "page:a4"
   ],
   "paragraphs": 4
+ },
+ {
+  "file": "provisional-59-comments.docx",
+  "topic": "Comments on words, a whole paragraph and a table cell; a reply thread, a resolved comment, two authors with initials and dates",
+  "features": [
+   "heading:1",
+   "comment:reply",
+   "comment:resolved",
+   "table:rows=1:cols=2",
+   "comment:in-table",
+   "comment:count=5",
+   "comment:authors=2",
+   "page:a4"
+  ],
+  "paragraphs": 6
  }
 ]

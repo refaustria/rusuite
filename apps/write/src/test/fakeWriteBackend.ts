@@ -8,6 +8,7 @@
 import { base64ToBytes, bytesToBase64, type OpenedFile, type SaveResult } from "@rusuite/ui-shared";
 import type { WriteBackend } from "../backend";
 import type { Block } from "../generated/Block";
+import type { Comment } from "../generated/Comment";
 import type { Document } from "../generated/Document";
 import type { Inline } from "../generated/Inline";
 import type { NumberingDef } from "../generated/NumberingDef";
@@ -36,6 +37,19 @@ class Fail extends Error {
 
 interface Snapshot {
   doc: Document;
+}
+
+const markerOf = (i: Inline): { id: number; start: boolean } | null =>
+  i.kind === "commentStart" ? { id: i.value.id, start: true } : i.kind === "commentEnd" ? { id: i.value.id, start: false } : null;
+
+/** `write_core`'s `replace_keeping_markers`: lone markers of `mid` stay (ends before `fresh`, starts after it). */
+export function keepMarkers(mid: Inline[], fresh: Inline[]): Inline[] {
+  const ms = mid.map(markerOf).filter((m): m is { id: number; start: boolean } => !!m);
+  const starts = new Set(ms.filter((m) => m.start).map((m) => m.id));
+  const ends = new Set(ms.filter((m) => !m.start).map((m) => m.id));
+  const keptEnds = mid.filter((i) => i.kind === "commentEnd" && !starts.has(i.value.id));
+  const keptStarts = mid.filter((i) => i.kind === "commentStart" && !ends.has(i.value.id));
+  return [...keptEnds, ...fresh, ...keptStarts];
 }
 
 /** Splits `inlines` at char offsets `from`/`to`: [before, middle, after]. */
@@ -94,6 +108,8 @@ export class FakeWriteBackend implements WriteBackend {
   private undoStack: Snapshot[] = [];
   private redoStack: Snapshot[] = [];
   name: string | null = null;
+  /** `setUser`. */
+  user: { name: string; initials: string } | null = null;
   /** Makes the next `apply` fail with this error code. */
   failNext: string | null = null;
   /** Rewrites the next patch before it is returned (tests of mismatches). */
@@ -214,6 +230,12 @@ export class FakeWriteBackend implements WriteBackend {
       }
       case "find":
         return { type: "findMatches", matches: this.findMatches(request.query), revision: this.revision };
+      case "setUser": {
+        const n = request.name.trim();
+        const ini = request.initials?.trim() || initialsOf(n);
+        this.user = n ? { name: n, initials: ini } : null;
+        return { type: "documentState", dirty: this.revision !== this.savedRevision, revision: this.revision, name: this.name };
+      }
       case "markSaved":
         if (request.name) this.name = request.name;
         this.savedRevision = this.revision;
@@ -241,6 +263,7 @@ export class FakeWriteBackend implements WriteBackend {
         let info: string | null = null;
         try {
           info = this.exec(request.command, idMap);
+          this.fixComments();
         } catch (e) {
           this.doc = before;
           throw e;
@@ -286,6 +309,7 @@ export class FakeWriteBackend implements WriteBackend {
     if (stableStringify(before.notes ?? []) !== stableStringify(after.notes ?? [])) patch.notes = structuredClone(after.notes ?? []);
     if (stableStringify(before.sections ?? []) !== stableStringify(after.sections ?? [])) patch.sections = structuredClone(after.sections ?? []);
     if (stableStringify(before.styles) !== stableStringify(after.styles)) patch.styles = structuredClone(after.styles);
+    if (stableStringify(before.comments ?? []) !== stableStringify(after.comments ?? [])) patch.comments = structuredClone(after.comments ?? []);
     return patch;
   }
 
@@ -448,8 +472,8 @@ export class FakeWriteBackend implements WriteBackend {
       case "deleteText": {
         const p = this.para(c.block);
         this.range(p, c.from, c.to);
-        const [a, , z] = splitInlines(p.inlines, c.from, c.to);
-        p.inlines = [...a, ...z];
+        const [a, mid, z] = splitInlines(p.inlines, c.from, c.to);
+        p.inlines = [...a, ...keepMarkers(mid, []), ...z];
         return null;
       }
       case "replaceText": {
@@ -459,7 +483,7 @@ export class FakeWriteBackend implements WriteBackend {
         const first = mid[0];
         const props = first?.kind === "run" ? (first.value.props ?? {}) : inheritedProps(p, c.from);
         const run: Inline[] = c.text ? [{ kind: "run", value: Object.keys(props).length ? { props, text: c.text } : { text: c.text } }] : [];
-        p.inlines = [...a, ...run, ...z];
+        p.inlines = [...a, ...keepMarkers(mid, run), ...z];
         return null;
       }
       case "setRunProps": {
@@ -992,9 +1016,110 @@ export class FakeWriteBackend implements WriteBackend {
         sec[key] = set;
         return null;
       }
+      case "addComment": {
+        const sp = this.para(c.start.block);
+        const ep = this.para(c.end.block);
+        this.range(sp, c.start.offset, c.start.offset);
+        this.range(ep, c.end.offset, c.end.offset);
+        const order = [...walkBlocks(this.doc.body)].filter((b) => b.kind === "paragraph").map((b) => b.value.id);
+        const key = (b: number, o: number) => order.indexOf(b) * 1e6 + o;
+        if (order.indexOf(c.start.block) < 0 || order.indexOf(c.end.block) < 0) throw new Fail("invalid_command", "comments can only be added to the body");
+        if (key(c.start.block, c.start.offset) > key(c.end.block, c.end.offset)) throw new Fail("invalid_command", "the comment's start is after its end");
+        const comments = (this.doc.comments ??= []);
+        const id = Math.max(0, ...comments.map((x) => x.id)) + 1;
+        const insert = (p: Paragraph, at: number, inline: Inline) => {
+          const [a, , z] = splitInlines(p.inlines, at, at);
+          p.inlines = [...a, inline, ...z];
+        };
+        insert(ep, c.end.offset, { kind: "commentEnd", value: { id } });
+        insert(sp, c.start.offset, { kind: "commentStart", value: { id } });
+        comments.push(this.newComment(id, c.text, c.author, c.initials, c.date));
+        return null;
+      }
+      case "replyComment": {
+        const parent = this.comment(c.parent);
+        const root = parent.parent ?? parent.id;
+        const comments = this.doc.comments!;
+        const id = Math.max(0, ...comments.map((x) => x.id)) + 1;
+        const reply = this.newComment(id, c.text, c.author, c.initials, c.date);
+        reply.parent = root;
+        if (this.comment(root).resolved) reply.resolved = true;
+        const last = comments.map((x) => x.id === root || x.parent === root).lastIndexOf(true);
+        comments.splice(last + 1, 0, reply);
+        return null;
+      }
+      case "editComment": {
+        const cm = this.comment(c.id);
+        cm.content = c.text.split("\n").map((line) => para(this.alloc(), line, "CommentText"));
+        return null;
+      }
+      case "deleteComment": {
+        const cm = this.comment(c.id);
+        if (cm.parent != null) this.doc.comments = this.doc.comments!.filter((x) => x.id !== c.id);
+        else this.deleteThreads([cm.id]);
+        return null;
+      }
+      case "deleteAllComments": {
+        const roots = (this.doc.comments ?? []).filter((x) => x.parent == null && (!c.resolvedOnly || x.resolved)).map((x) => x.id);
+        this.deleteThreads(roots);
+        return null;
+      }
+      case "resolveComment":
+      case "reopenComment": {
+        const cm = this.comment(c.id);
+        const root = cm.parent ?? cm.id;
+        for (const x of this.doc.comments!) {
+          if (x.id !== root && x.parent !== root) continue;
+          if (c.type === "resolveComment") x.resolved = true;
+          else delete x.resolved;
+        }
+        return null;
+      }
       default:
         throw new Fail("invalid_command", `fake backend does not implement ${c.type}`);
     }
+  }
+
+  private comment(id: number): Comment {
+    const c = (this.doc.comments ?? []).find((x) => x.id === id);
+    if (!c) throw new Fail("invalid_command", `unknown comment ${id}`);
+    return c;
+  }
+
+  private newComment(id: number, text: string, author?: string, initials?: string, date?: string): Comment {
+    const name = author?.trim() || this.user?.name || "Author";
+    const ini = initials?.trim() || (this.user && this.user.name === name ? this.user.initials : initialsOf(name));
+    const c: Comment = { id, author: name, content: text.split("\n").map((line) => para(this.alloc(), line, "CommentText")) };
+    if (ini) c.initials = ini;
+    if (date) c.date = date;
+    return c;
+  }
+
+  private deleteThreads(roots: number[]): void {
+    const doomed = new Set(roots);
+    for (const b of walkBlocks(this.doc.body)) {
+      if (b.kind === "paragraph") b.value.inlines = b.value.inlines.filter((i) => !(markerOf(i) && doomed.has(markerOf(i)!.id)));
+    }
+    this.doc.comments = (this.doc.comments ?? []).filter((x) => !doomed.has(x.parent ?? x.id));
+  }
+
+  /** `Document::fix_comments`, simplified: threads without markers go, markers of unknown comments go. */
+  private fixComments(): void {
+    const comments = this.doc.comments ?? [];
+    if (!comments.length) return;
+    const roots = new Set(comments.filter((x) => x.parent == null).map((x) => x.id));
+    const anchored = new Set<number>();
+    for (const b of walkBlocks(this.doc.body)) {
+      if (b.kind !== "paragraph") continue;
+      b.value.inlines = b.value.inlines.filter((i) => {
+        const m = markerOf(i);
+        if (!m) return true;
+        if (!roots.has(m.id)) return false;
+        anchored.add(m.id);
+        return true;
+      });
+    }
+    this.doc.comments = comments.filter((x) => anchored.has(x.parent ?? x.id));
   }
 
   /** Every id in use (body, notes, headers and footers). */
@@ -1040,6 +1165,15 @@ export class FakeWriteBackend implements WriteBackend {
     throw new Fail("unknown_block", `unknown cell ${cellId}`);
   }
 }
+
+/** Word's initials of a name. */
+const initialsOf = (name: string): string =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((w) => [...w][0]!.toUpperCase())
+    .join("");
 
 const para = (id: number, text = "", style?: string): Block => ({
   kind: "paragraph",

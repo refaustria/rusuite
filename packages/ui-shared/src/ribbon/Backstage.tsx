@@ -23,6 +23,8 @@ export interface BackstageActions {
   print?: ReactNode;
   /** "Close": close the document (apps start a blank one, asking before discarding changes). */
   onCloseDocument?: () => void;
+  /** "Options…": the app's options (e.g. Write's user name), opened after leaving the backstage. */
+  onOptions?: () => void;
   /** Recent files (and their re-opening) come from the session. */
   session?: AnySession;
   /** When set, Open/Save/Save As/recent files are disabled and this is shown as the reason. */
@@ -140,7 +142,7 @@ function PrivacySection({ session }: { session: AnySession }) {
 
 /** Full-pane File view (Office "backstage"). */
 export function Backstage({
-  open, onClose, appName, documentTitle, accent = "var(--ui-focus)", onNew, onOpen, onSave, onSaveAs, onExportPdf, onCloseDocument,
+  open, onClose, appName, documentTitle, accent = "var(--ui-focus)", onNew, onOpen, onSave, onSaveAs, onExportPdf, onCloseDocument, onOptions,
   session, fileDisabledReason, exportDisabled, info, print, page: pageProp = "home", onPage, saveAsShortcut = "Mod+Shift+S",
 }: BackstageProps) {
   const t = useT();
@@ -260,7 +262,10 @@ export function Backstage({
           )}
           {item("export", t("backstage.exportPdf"), "pdf", onExportPdf, print ? undefined : "Mod+P", !!exportDisabled)}
         </ul>
-        <ul className="mt-auto flex flex-col border-t border-white/20 pt-2">{item("close", t("backstage.close"), "close", onCloseDocument)}</ul>
+        <ul className="mt-auto flex flex-col border-t border-white/20 pt-2">
+          {item("close", t("backstage.close"), "close", onCloseDocument)}
+          {item("options", t("backstage.options"), "options", onOptions)}
+        </ul>
         <LanguageSelect className="px-5 pb-1 pt-2 text-xs [&_span]:text-white/90" />
       </nav>
       <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-auto p-8">

@@ -69,6 +69,17 @@ pub enum Request {
     /// The matches of a search (Find and Replace with formatting or
     /// wildcards; body paragraphs, table cells included) → `findMatches`.
     Find { query: Box<FindQuery> },
+    /// Sets the author of new comments and replies for this document (the
+    /// UI remembers it in the browser / app data and sends it after every
+    /// load; empty `initials` are derived from the name, an empty name
+    /// clears it). Not an edit: no undo step, not dirty →
+    /// `documentState`.
+    SetUser {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        initials: Option<String>,
+    },
     /// Marks the current state as saved (after the shell wrote the file);
     /// `name` (save as) replaces the document's file name →
     /// `documentState`.
@@ -161,7 +172,16 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
         revision: host.revision(),
         name: host.doc().source_name.clone(),
     };
-    Ok(match request {
+    // The comment author stays when the document is replaced.
+    let user = host.doc().user.clone();
+    let replaces = matches!(
+        request,
+        Request::Load { .. }
+            | Request::NewDocument
+            | Request::OpenDocx { .. }
+            | Request::RestoreRecovery { .. }
+    );
+    let body = match request {
         Request::Apply { command } => {
             let env = host.apply(*command)?;
             patch(Some(env), host)
@@ -234,6 +254,10 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
             matches: host.doc().find(&query)?,
             revision: host.revision(),
         },
+        Request::SetUser { name, initials } => {
+            host.doc_mut().set_user(&name, initials.as_deref());
+            state(host)
+        }
         Request::MarkSaved { name } => {
             if let Some(name) = name {
                 host.doc_mut().source_name = Some(name);
@@ -241,7 +265,11 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
             host.mark_saved();
             state(host)
         }
-    })
+    };
+    if replaces {
+        host.doc_mut().user = user;
+    }
+    Ok(body)
 }
 
 /// Decodes a [`Request`], runs it against `host` and encodes the

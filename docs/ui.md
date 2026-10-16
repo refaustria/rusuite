@@ -105,6 +105,34 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
   the highlighted matches are exactly what Replace all (`FindReplace` with `format` / `replaceFormat`, one undo step)
   changes; an empty Find with a format finds formatted stretches, an empty Replace with a replace format only reformats.
 
+### Write comments (P8-25)
+- **Review tab**: New Comment (Ctrl+Alt+M; also in the right-click menu) — on the selection, or on the word at the caret
+  when nothing is selected (Word); Delete ▾ (Delete the selected comment / Delete All Comments in Document / Delete All
+  Resolved Comments); Previous / Next (select the commented text, wrapping around); Resolve / Reopen for the selected
+  thread; Show Comments (balloons vs. margin indicators); Comments Pane (the list at any width).
+- **New Comment** opens a draft card (the range highlighted) with the user's avatar; Post (Ctrl+Enter) sends `AddComment`
+  with the UI's clock (ISO date), Esc / Cancel drops it. The first comment asks for the **user name** (name + initials,
+  initials derived from the name); File › Options… sets it too. It is remembered in this browser / app only
+  (`localStorage` `rusuite.write.user`, ADR 0009) and sent to the core with `setUser` after start (not an edit, not dirty).
+- **Balloons** (window ≥ 1200 px): a 264 px margin right of the page (the page stays centered under the ruler), one card per thread next to its text (Word's layout:
+  anchor order, pushed down to avoid overlaps; the selected balloon stays at its anchor and the ones above move up), a
+  dashed connector from the selected / hovered comment's text to its balloon. A card: author initials avatar (colour per
+  author), author, relative date ("Just now", "5 min ago", "3 h ago", then the date; full date as tooltip), text, replies;
+  when selected: Edit (own comments only: author = the user), Delete thread / Delete reply, an inline reply box (Ctrl+Enter
+  posts). Resolve ✓ / Reopen in the header; resolved threads are dimmed and labelled.
+- **Highlight**: the commented text in the author's light colour (CSS `color-mix` of the palette colour), the selected or
+  hovered thread darker; clicking into commented text selects its (innermost) thread.
+- **Show Comments off**: no balloons, a narrow margin with one comment icon per thread (author colour); clicking one shows
+  the comments again with that thread selected. Only the selected thread stays highlighted.
+- **Comments pane** (windows < 1200 px, or Review › Comments Pane): all threads in document order, filter All / Open /
+  Resolved, the draft on top, the same cards.
+- **Status bar**: "N comments" when there are any.
+- **Print**: File › Print › Print markup — `[AB1]` marks after each commented range and the threads (with replies, author,
+  date, resolved) as a list after the text.
+- **Editing**: the range markers are invisible atoms; arrow keys step over them; an edit deleting one marker of a range
+  keeps it at the edit (the range shrinks; ends before typed text, starts after it — as the core does); deleting the whole
+  range deletes the comment; pasted text never carries comments.
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |
@@ -236,7 +264,7 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, multilevel list, indent, line spacing, alignment, shading, borders,
   tabs; Styles gallery (quick styles with live previews, ▾ Create a Style / Clear Formatting / Apply Styles, Styles pane; P8-21); Editing: Find and replace), Insert (Table picker, Picture, Header/Footer/Page
   number, Field, Footnotes, Page break, Line break), Layout (Margins, Orientation, Size → `SetSection`/`SetPage`, Breaks),
-  References (Table of contents, Footnotes), View (views, ruler, Navigation Pane, zoom, spelling, shortcuts help); contextual Table Design and
+  References (Table of contents, Footnotes), Review (Comments: New, Delete ▾, Previous/Next, Resolve, Show Comments, Comments Pane; P8-25), View (views, ruler, Navigation Pane, zoom, spelling, shortcuts help); contextual Table Design and
   Table Layout in a table, Picture Format on a picture (P8-17).
 - **Show**: Home (Undo; Clipboard: shapes/slides clipboard + Duplicate; Slides: New slide ▾ layouts, Layout ▾, Duplicate,
   Delete, Hide slide; Font + grow/shrink; Paragraph + line spacing ▾; Drawing: shapes gallery, Arrange ▾

@@ -93,6 +93,7 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Tab, Shift+Tab | In a table: next / previous cell; Tab in the last cell appends a row (formatted like the last one). In a list item Tab / Shift+Tab change the level; elsewhere Tab types a tab character (it goes to the next tab stop) |
 | Esc | Stops the format painter |
 | Mod+Alt+F, Mod+Alt+D | Insert footnote, insert endnote (the caret moves into the note) |
+| Mod+Alt+M | New comment on the selection (or the word at the caret); in the comment box Ctrl+Enter posts, Esc cancels |
 | F12 | Save as (Word's key; web: asks for a file name, desktop: the native save dialog) |
 | Mod+Shift+S | Apply Styles box: type a style name (autocomplete from the document's styles), Enter applies it; an unknown name creates a style from the selection; Esc closes (bound in the editor too, so it is no longer strikethrough) |
 | Mod+Alt+Shift+S | Show / hide the Styles pane |
@@ -104,7 +105,8 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 - **Tables**: the pointer becomes a resize cursor on a cell's right border (merged cells: the border after their last grid column); dragging moves the border (the neighbouring column gives or takes the difference, the last border widens the table) → `SetTableProps { colWidths }`. Shift+click (or a drag) across cells selects a rectangle of cells (grown to whole merged cells) for Merge Cells, Borders ▾, Shading, alignment.
 - **Floating pictures**: drag a selected floating picture to move it (new offsets from the column and the paragraph → `SetImageAnchor`); the Layout Options button next to a selected picture switches its text wrapping.
 - **Ruler**: click to add a tab stop of the kind shown in the corner selector (click the selector to cycle Left / Center / Right / Decimal / Bar); drag a stop along the ruler to move it, down off the ruler to remove it; double-click a stop for Tabs….
-- **Right-click** in the document: Cut/Copy/Paste, picture commands (alt text, reset size, delete) on a picture, table commands (insert rows above/below, columns left/right, delete rows/columns/table, Merge Cells, Split Cells…, row height…, Table Properties…) in a table, Paragraph…, Clear formatting.
+- **Comments**: click commented text to select its thread (balloon / pane card); click a balloon to select it; with Show Comments off, click a margin comment icon to show the comments.
+- **Right-click** in the document: Cut/Copy/Paste, New Comment, picture commands (alt text, reset size, delete) on a picture, table commands (insert rows above/below, columns left/right, delete rows/columns/table, Merge Cells, Split Cells…, row height…, Table Properties…) in a table, Paragraph…, Clear formatting.
 - **Format painter** (Home › Clipboard): click copies the formatting at the caret for one use, double-click keeps it on; the next mouse selection (or the word clicked) gets it.
 - **Headers and footers** are shown greyed in the page margins (print layout); double-click one to edit both in the Header and footer dialog (`{PAGE}` = page number).
 - **Notes**: double-click a footnote/endnote reference to jump to its note; double-click the note's number (or a footnote at the bottom of a page) to jump back / into the note.
