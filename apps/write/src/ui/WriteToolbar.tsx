@@ -49,7 +49,7 @@ import { applyStyle } from "../features/styleCommands";
 import { styleFromMarks } from "../sync/fromPM";
 import type { Style } from "../generated/Style";
 import { useT } from "../i18n";
-import { getLocale } from "@rusuite/ui-shared";
+import { getLocale, contextualTabs, CONTEXT_COLORS } from "@rusuite/ui-shared";
 import { deleteAllComments, deleteComment, goToComment, resolveComment } from "../comments/commands";
 import {
   DELETE_COMMENT_ICON, NEW_COMMENT_ICON, NEXT_COMMENT_ICON, PANE_ICON, PREV_COMMENT_ICON, RESOLVE_ICON, SHOW_COMMENTS_ICON,
@@ -1102,7 +1102,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       appName="Rusuite Write"
       documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#2b579a"
-      tabs={[home, insert, layout, references, review, view, ...tableTabList, ...(pictureTab ? [pictureTab] : [])]}
+      tabs={[home, insert, layout, references, review, view, ...contextualTabs(tableTabList, t("ribbon.ctx.tableTools"), CONTEXT_COLORS.table), ...contextualTabs(pictureTab ? [pictureTab] : [], t("ribbon.ctx.pictureTools"), CONTEXT_COLORS.picture)]}
       backstage={{
         session,
         onNew: () => triggerShortcut("Mod+N"),

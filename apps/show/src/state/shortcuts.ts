@@ -5,7 +5,7 @@ import type { ZOp } from "../generated/ZOp";
 
 export type ShortcutAction =
   | { kind: "delete" }
-  | { kind: "nudge"; dx: number; dy: number }
+  | { kind: "nudge"; dx: number; dy: number; fine?: boolean; shift?: boolean }
   | { kind: "duplicate" }
   | { kind: "group" }
   | { kind: "ungroup" }
@@ -40,6 +40,11 @@ export function shortcutFor(e: KeyLike): ShortcutAction | null {
     const bracket = e.code === "BracketRight" || k === "]" || k === "}" ? "]" : e.code === "BracketLeft" || k === "[" || k === "{" ? "[" : null;
     if (bracket === "]") return { kind: "zOrder", op: e.shiftKey ? "bringToFront" : "bringForward" };
     if (bracket === "[") return { kind: "zOrder", op: e.shiftKey ? "sendToBack" : "sendBackward" };
+    // Ctrl+arrows: 1 px, whatever the grid (P8-28)
+    if (!e.shiftKey && k.startsWith("Arrow")) {
+      const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[k];
+      if (d) return { kind: "nudge", dx: d[0]!, dy: d[1]!, fine: true };
+    }
     switch (k) {
       case "z": return e.shiftKey ? { kind: "redo" } : { kind: "undo" };
       case "y": return { kind: "redo" };
@@ -55,13 +60,14 @@ export function shortcutFor(e: KeyLike): ShortcutAction | null {
     }
   }
   const step = e.shiftKey ? 10 : 1;
+  const shift = e.shiftKey ? { shift: true } : {};
   switch (k) {
     case "Delete":
     case "Backspace": return { kind: "delete" };
-    case "ArrowLeft": return { kind: "nudge", dx: -step, dy: 0 };
-    case "ArrowRight": return { kind: "nudge", dx: step, dy: 0 };
-    case "ArrowUp": return { kind: "nudge", dx: 0, dy: -step };
-    case "ArrowDown": return { kind: "nudge", dx: 0, dy: step };
+    case "ArrowLeft": return { kind: "nudge", dx: -step, dy: 0, ...shift };
+    case "ArrowRight": return { kind: "nudge", dx: step, dy: 0, ...shift };
+    case "ArrowUp": return { kind: "nudge", dx: 0, dy: -step, ...shift };
+    case "ArrowDown": return { kind: "nudge", dx: 0, dy: step, ...shift };
     case "Escape": return { kind: "deselect" };
     case "Enter":
     case "F2": return { kind: "editText" };

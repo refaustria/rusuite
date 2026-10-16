@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anchorAxes, sameGuides, snapBox, snapPoint, snapTargets } from "./snap";
+import { anchorAxes, equalSpacing, sameGuides, snapBox, snapPoint, snapTargets } from "./snap";
 
 const slide = { width: 1280, height: 720 };
 
@@ -54,5 +54,31 @@ describe("smart guides", () => {
   it("compares guide sets", () => {
     expect(sameGuides({ v: [1], h: [] }, { v: [1], h: [] })).toBe(true);
     expect(sameGuides({ v: [1], h: [] }, { v: [2], h: [] })).toBe(false);
+  });
+});
+
+describe("equal spacing (P8-28)", () => {
+  it("continues the gap of two neighbours (and its mirror)", () => {
+    const others = [{ x: 0, y: 0, width: 100, height: 50 }, { x: 150, y: 0, width: 100, height: 50 }];
+    // gap 50: the next box belongs at x = 300
+    const r = equalSpacing({ x: 302, y: 10, width: 100, height: 30 }, others, 4);
+    expect(r.dx).toBe(-2);
+    expect(r.marks).toEqual([{ axis: "x", at: 25, segments: [[100, 150], [250, 300]] }]);
+    const m = equalSpacing({ x: -148, y: 10, width: 100, height: 30 }, others, 4);
+    expect(m.dx).toBe(-2); // -150 = 0 - 50 - 100
+  });
+
+  it("centres a box between two shapes", () => {
+    const others = [{ x: 0, y: 0, width: 100, height: 100 }, { x: 300, y: 0, width: 100, height: 100 }];
+    const r = equalSpacing({ x: 152, y: 20, width: 100, height: 40 }, others, 4);
+    expect(r.dx).toBe(-2);
+    expect(r.marks[0]!.segments).toEqual([[100, 150], [250, 300]]);
+  });
+
+  it("works vertically, ignores shapes out of line and beyond the threshold", () => {
+    const col = [{ x: 0, y: 0, width: 50, height: 40 }, { x: 0, y: 60, width: 50, height: 40 }];
+    expect(equalSpacing({ x: 10, y: 121, width: 30, height: 40 }, col, 4).dy).toBe(-1);
+    expect(equalSpacing({ x: 500, y: 121, width: 30, height: 40 }, col, 4).dy).toBe(0); // not overlapping horizontally
+    expect(equalSpacing({ x: 10, y: 130, width: 30, height: 40 }, col, 4)).toEqual({ dx: 0, dy: 0, marks: [] });
   });
 });

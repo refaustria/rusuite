@@ -126,6 +126,12 @@ export function ShortcutLayer({ store, guard, enabled, onPresent, onPresenterVie
       "Shift+ArrowRight": slide(t("show.sc.nudgeRight10")),
       "Shift+ArrowUp": slide(t("show.sc.nudgeUp10")),
       "Shift+ArrowDown": slide(t("show.sc.nudgeDown10")),
+      "Mod+ArrowLeft": slide(t("show.sc.nudgeFine")),
+      "Mod+ArrowRight": slide(t("show.sc.nudgeFine")),
+      "Mod+ArrowUp": slide(t("show.sc.nudgeFine")),
+      "Mod+ArrowDown": slide(t("show.sc.nudgeFine")),
+      "Shift+F9": { label: t("show.view.gridlines"), group: t("tab.view"), run: () => void store.toggleGrid() },
+      "Alt+F9": { label: t("show.view.guides"), group: t("tab.view"), run: () => void store.toggleGuides() },
     };
   }, [store, guard, onPresent, onPresenterView, t]);
 
