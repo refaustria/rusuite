@@ -26,15 +26,30 @@ export class WebDavServer {
   private server: http.Server | null = null;
   private n = 0;
 
+  /**
+   * `port` 0 (the default) listens on a free ephemeral port (read back after `start`), so the suite never collides
+   * with another local server; a fixed port can still be asked for.
+   */
   constructor(
-    readonly port: number,
+    private readonly requestedPort: number,
     private readonly allowOrigin: string,
     private readonly user = "alice",
     private readonly password = "app-secret",
   ) {}
 
+  /** The port it listens on (after `start`; before it, the requested one). */
+  get port(): number {
+    const a = this.server?.address();
+    return a && typeof a === "object" ? a.port : this.requestedPort;
+  }
+
+  /** `http://127.0.0.1:<port>` (after `start`). */
+  get origin(): string {
+    return `http://127.0.0.1:${this.port}`;
+  }
+
   get url(): string {
-    return `http://127.0.0.1:${this.port}${DAV_BASE}`;
+    return `${this.origin}${DAV_BASE}`;
   }
 
   private tag(): string {
@@ -60,7 +75,10 @@ export class WebDavServer {
 
   start(): Promise<void> {
     this.server = http.createServer((req, res) => void this.handle(req, res));
-    return new Promise((resolve) => this.server!.listen(this.port, "127.0.0.1", () => resolve()));
+    return new Promise((resolve, reject) => {
+      this.server!.once("error", reject);
+      this.server!.listen(this.requestedPort, "127.0.0.1", () => resolve());
+    });
   }
 
   stop(): Promise<void> {

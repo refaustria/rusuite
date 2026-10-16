@@ -1709,3 +1709,140 @@ fn typing_run_is_one_undo_step() {
     send(&mut h, json!({"type":"redo"}));
     assert_eq!(text(&h), "Hel");
 }
+
+#[test]
+fn new_lists_use_list_paragraph_with_contextual_spacing() {
+    let mut h = host(&["a", "b", "c"]);
+    // A heading stays a heading; Normal paragraphs become List Paragraph (Word, W-03).
+    let mut hp = Host::new(WriteDocument::from_document(doc_with(&["x"])).unwrap());
+    apply(
+        &mut hp,
+        C::SetStyle {
+            blocks: vec![id(1)],
+            style: "Heading1".into(),
+        },
+    );
+    apply(
+        &mut hp,
+        C::ApplyList {
+            blocks: vec![id(1)],
+            kind: ListKind::Bullet,
+        },
+    );
+    assert_eq!(para(&hp, 1).props.style.as_deref(), Some("Heading1"));
+
+    let p = apply(
+        &mut h,
+        C::ApplyList {
+            blocks: vec![id(1), id(2)],
+            kind: ListKind::Bullet,
+        },
+    );
+    assert!(p.numbering.is_some());
+    for n in [1, 2] {
+        assert_eq!(para(&h, n).props.style.as_deref(), Some("ListParagraph"));
+    }
+    assert_eq!(para(&h, 3).props.style, None);
+    let style = h.doc().document().styles.get("ListParagraph").unwrap();
+    assert_eq!(style.paragraph.contextual_spacing, Some(true));
+    // Bullets → numbering keeps the style; bullets off keeps it too (Word keeps the indent).
+    apply(
+        &mut h,
+        C::ApplyList {
+            blocks: vec![id(1), id(2)],
+            kind: ListKind::Decimal,
+        },
+    );
+    assert_eq!(para(&h, 1).props.style.as_deref(), Some("ListParagraph"));
+    apply(
+        &mut h,
+        C::ApplyList {
+            blocks: vec![id(2)],
+            kind: ListKind::None,
+        },
+    );
+    assert_eq!(para(&h, 2).props.numbering, None);
+    assert_eq!(para(&h, 2).props.style.as_deref(), Some("ListParagraph"));
+
+    // Saved: the item has pStyle ListParagraph, the style w:contextualSpacing.
+    let (doc, _) = WriteDocument::open_docx(&h.doc().save_docx().unwrap(), "t.docx").unwrap();
+    let back = doc.document();
+    let item = back
+        .body
+        .iter()
+        .find_map(|b| match b {
+            Block::Paragraph(p) if p.text() == "a" => Some(p),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(item.props.style.as_deref(), Some("ListParagraph"));
+    assert!(item.props.numbering.is_some());
+    assert_eq!(
+        back.styles
+            .get("ListParagraph")
+            .unwrap()
+            .paragraph
+            .contextual_spacing,
+        Some(true)
+    );
+}
+
+#[test]
+fn list_paragraph_style_is_added_when_missing_and_undone() {
+    let mut doc = doc_with(&["a"]);
+    doc.styles.styles.retain(|s| s.id != "ListParagraph");
+    let mut h = Host::new(WriteDocument::from_document(doc).unwrap());
+    assert!(h.doc().document().styles.get("ListParagraph").is_none());
+    let p = apply(
+        &mut h,
+        C::ApplyList {
+            blocks: vec![id(1)],
+            kind: ListKind::Decimal,
+        },
+    );
+    assert!(p.styles.is_some(), "the patch carries the new style");
+    assert_eq!(para(&h, 1).props.style.as_deref(), Some("ListParagraph"));
+    h.undo().unwrap();
+    assert!(h.doc().document().styles.get("ListParagraph").is_none());
+    assert_eq!(para(&h, 1).props.style, None);
+}
+
+#[test]
+fn backspace_at_a_list_item_start_keeps_the_indent() {
+    let mut h = host(&["a", "b", "c"]);
+    apply(
+        &mut h,
+        C::ApplyList {
+            blocks: vec![id(1), id(2), id(3)],
+            kind: ListKind::Bullet,
+        },
+    );
+    apply(
+        &mut h,
+        C::IndentList {
+            blocks: vec![id(3)],
+            delta: 1,
+        },
+    );
+    // First Backspace: the bullet goes, the text stays at the level's indent (W-28).
+    apply(&mut h, C::ListBackspace { block: id(2) });
+    let p = para(&h, 2);
+    assert_eq!(p.props.numbering, None);
+    let ind = p.props.indent.unwrap();
+    assert_eq!(ind.left, Some(Twips(720)));
+    assert_eq!(ind.first_line, Some(Twips(0)));
+    assert_eq!(ind.hanging, None);
+    let eff = h.doc().document().resolve_paragraph_props(p);
+    assert_eq!(eff.indent.unwrap().left, Some(Twips(720)));
+    // A level-2 item keeps its deeper indent.
+    apply(&mut h, C::ListBackspace { block: id(3) });
+    assert_eq!(para(&h, 3).props.indent.unwrap().left, Some(Twips(1440)));
+    // Second Backspace: an ordinary join with the previous paragraph.
+    apply(&mut h, C::JoinWithPrevious { block: id(2) });
+    assert_eq!(text(&h, 1), "ab");
+    // Not a list item: refused.
+    assert_eq!(
+        err_code(&mut h, C::ListBackspace { block: id(3) }),
+        "invalid_command"
+    );
+}

@@ -355,7 +355,11 @@ pub(crate) fn read_rpr(rpr: &El, ctx: &str, w: &mut Warnings) -> RunProperties {
                 p.highlight = match el.val() {
                     Some("none") => Some(Color::Auto),
                     Some(name) => highlight_rgb(name).map(Color::Rgb).or_else(|| {
-                        w.add(format!("{ctx}: unknown highlight color {name:?} dropped"));
+                        w.warn(
+                            "docx.run.unknownHighlight",
+                            "{ctx}: unknown highlight color {name} dropped",
+                            &[("ctx", &ctx), ("name", &format!("{name:?}"))],
+                        );
                         None
                     }),
                     None => None,
@@ -369,11 +373,15 @@ pub(crate) fn read_rpr(rpr: &El, ctx: &str, w: &mut Warnings) -> RunProperties {
                         let rgb = c.resolve(&ColorScheme::default(), Rgb::WHITE);
                         let (_, near) = nearest_highlight(rgb);
                         if near != rgb {
-                            w.add(format!(
-                                "{ctx}: run shading {} approximated by highlight {}",
-                                rgb.to_hex(),
-                                near.to_hex()
-                            ));
+                            w.warn(
+                                "docx.run.shadingAsHighlight",
+                                "{ctx}: run shading {color} approximated by highlight {highlight}",
+                                &[
+                                    ("ctx", &ctx),
+                                    ("color", &rgb.to_hex()),
+                                    ("highlight", &near.to_hex()),
+                                ],
+                            );
                         }
                         shd_highlight = Some(Color::Rgb(near));
                     }
@@ -383,7 +391,11 @@ pub(crate) fn read_rpr(rpr: &El, ctx: &str, w: &mut Warnings) -> RunProperties {
                 p.underline = match el.val() {
                     None => Some(Underline::Single),
                     Some(v) => underline_of(v).or_else(|| {
-                        w.add(format!("{ctx}: underline style {v:?} read as single"));
+                        w.warn(
+                            "docx.run.underlineAsSingle",
+                            "{ctx}: underline style {style} read as single",
+                            &[("ctx", &ctx), ("style", &format!("{v:?}"))],
+                        );
                         Some(Underline::Single)
                     }),
                 };
@@ -398,11 +410,19 @@ pub(crate) fn read_rpr(rpr: &El, ctx: &str, w: &mut Warnings) -> RunProperties {
             }
             "cs" => {
                 if toggle(el) {
-                    w.add(format!("{ctx}: complex script run formatting dropped"));
+                    w.warn(
+                        "docx.run.complexScript",
+                        "{ctx}: complex script run formatting dropped",
+                        &[("ctx", &ctx)],
+                    );
                 }
             }
             name if SILENT_RPR.contains(&name) => {}
-            _ => w.add(format!("{ctx}: run property {} dropped", el.qname())),
+            _ => w.warn(
+                "docx.run.propertyDropped",
+                "{ctx}: run property {name} dropped",
+                &[("ctx", &ctx), ("name", &el.qname())],
+            ),
         }
     }
     if p.highlight.is_none() {
@@ -570,12 +590,20 @@ fn read_spacing(el: &El, ctx: &str, w: &mut Warnings) -> Option<Spacing> {
     });
     for a in ["beforeAutospacing", "afterAutospacing"] {
         if el.attr(a).and_then(crate::xml::parse_bool) == Some(true) {
-            w.add(format!("{ctx}: automatic paragraph spacing dropped"));
+            w.warn(
+                "docx.paragraph.autoSpacing",
+                "{ctx}: automatic paragraph spacing dropped",
+                &[("ctx", &ctx)],
+            );
         }
     }
     for a in ["beforeLines", "afterLines"] {
         if el.attr(a).is_some() {
-            w.add(format!("{ctx}: paragraph spacing in lines dropped"));
+            w.warn(
+                "docx.paragraph.spacingInLines",
+                "{ctx}: paragraph spacing in lines dropped",
+                &[("ctx", &ctx)],
+            );
         }
     }
     let s = Spacing {
@@ -600,7 +628,11 @@ fn read_indent(el: &El, ctx: &str, w: &mut Warnings) -> Option<Indent> {
         hanging,
     };
     if el.attrs.iter().any(|(k, _)| k.ends_with("Chars")) {
-        w.add(format!("{ctx}: indentation in characters dropped"));
+        w.warn(
+            "docx.paragraph.indentInChars",
+            "{ctx}: indentation in characters dropped",
+            &[("ctx", &ctx)],
+        );
     }
     (!ind.is_empty()).then_some(ind)
 }
@@ -612,11 +644,19 @@ pub(crate) fn read_jc(v: &str, ctx: &str, w: &mut Warnings) -> Option<Alignment>
         "right" | "end" => Alignment::Right,
         "both" | "distribute" => Alignment::Justify,
         "lowKashida" | "mediumKashida" | "highKashida" | "thaiDistribute" => {
-            w.add(format!("{ctx}: alignment {v:?} read as justify"));
+            w.warn(
+                "docx.paragraph.alignmentAsJustify",
+                "{ctx}: alignment {value} read as justify",
+                &[("ctx", &ctx), ("value", &format!("{v:?}"))],
+            );
             Alignment::Justify
         }
         _ => {
-            w.add(format!("{ctx}: alignment {v:?} dropped"));
+            w.warn(
+                "docx.paragraph.alignmentDropped",
+                "{ctx}: alignment {value} dropped",
+                &[("ctx", &ctx), ("value", &format!("{v:?}"))],
+            );
             return None;
         }
     })
@@ -651,9 +691,14 @@ pub(crate) fn read_ppr(ppr: &El, ctx: &str, w: &mut Warnings) -> ParagraphProper
             "suppressLineNumbers" => p.suppress_line_numbers = Some(toggle(el)),
             "suppressAutoHyphens" => p.suppress_auto_hyphens = Some(toggle(el)),
             "pageBreakBefore" => p.page_break_before = Some(toggle(el)),
+            "contextualSpacing" => p.contextual_spacing = Some(toggle(el)),
             "numPr" => {
                 if el.child("ins").is_some() {
-                    w.add(format!("{ctx}: numbering change tracking dropped"));
+                    w.warn(
+                        "docx.paragraph.numberingTracking",
+                        "{ctx}: numbering change tracking dropped",
+                        &[("ctx", &ctx)],
+                    );
                 }
                 p.numbering = read_numpr(el);
             }
@@ -667,7 +712,11 @@ pub(crate) fn read_ppr(ppr: &El, ctx: &str, w: &mut Warnings) -> ParagraphProper
             "bidi" => {
                 if toggle(el) {
                     bidi = true;
-                    w.add(format!("{ctx}: right-to-left paragraph direction dropped"));
+                    w.warn(
+                        "docx.paragraph.rtl",
+                        "{ctx}: right-to-left paragraph direction dropped",
+                        &[("ctx", &ctx)],
+                    );
                 }
             }
             "tabs" => p.tabs = read_tabs(el, ctx, w),
@@ -676,7 +725,11 @@ pub(crate) fn read_ppr(ppr: &El, ctx: &str, w: &mut Warnings) -> ParagraphProper
             // Section breaks are read by the body reader.
             "sectPr" => {}
             name if SILENT_PPR.contains(&name) => {}
-            _ => w.add(format!("{ctx}: paragraph property {} dropped", el.qname())),
+            _ => w.warn(
+                "docx.paragraph.propertyDropped",
+                "{ctx}: paragraph property {name} dropped",
+                &[("ctx", &ctx), ("name", &el.qname())],
+            ),
         }
     }
     if bidi {
@@ -755,6 +808,9 @@ pub(crate) fn write_ppr_sect(
     }
     if let Some(i) = &p.indent {
         write_indent(x, i);
+    }
+    if let Some(k) = p.contextual_spacing {
+        toggle_el(x, "w:contextualSpacing", k);
     }
     if let Some(a) = p.alignment {
         x.val(
@@ -836,7 +892,11 @@ fn read_pbdr(el: &El, ctx: &str, w: &mut Warnings) -> Option<ParagraphBorders> {
             "right" | "end" => &mut b.right,
             "between" => &mut b.between,
             _ => {
-                w.add(format!("{ctx}: paragraph border {} dropped", side.qname()));
+                w.warn(
+                    "docx.paragraph.borderDropped",
+                    "{ctx}: paragraph border {name} dropped",
+                    &[("ctx", &ctx), ("name", &side.qname())],
+                );
                 continue;
             }
         };
@@ -871,7 +931,11 @@ fn read_tabs(el: &El, ctx: &str, w: &mut Warnings) -> Vec<TabStop> {
             "bar" => TabKind::Bar,
             "clear" => TabKind::Clear,
             other => {
-                w.add(format!("{ctx}: tab stop kind {other:?} read as left"));
+                w.warn(
+                    "docx.tabs.kindAsLeft",
+                    "{ctx}: tab stop kind {kind} read as left",
+                    &[("ctx", &ctx), ("kind", &format!("{other:?}"))],
+                );
                 TabKind::Left
             }
         };
@@ -880,11 +944,19 @@ fn read_tabs(el: &El, ctx: &str, w: &mut Warnings) -> Vec<TabStop> {
             "hyphen" => TabLeader::Hyphen,
             "underscore" => TabLeader::Underscore,
             "heavy" => {
-                w.add(format!("{ctx}: heavy tab leader read as underscore"));
+                w.warn(
+                    "docx.tabs.heavyLeader",
+                    "{ctx}: heavy tab leader read as underscore",
+                    &[("ctx", &ctx)],
+                );
                 TabLeader::Underscore
             }
             "middleDot" => {
-                w.add(format!("{ctx}: middle-dot tab leader read as dots"));
+                w.warn(
+                    "docx.tabs.middleDotLeader",
+                    "{ctx}: middle-dot tab leader read as dots",
+                    &[("ctx", &ctx)],
+                );
                 TabLeader::Dot
             }
             _ => TabLeader::None,
@@ -978,7 +1050,11 @@ fn border_style(v: &str, ctx: &str, w: &mut Warnings) -> BorderStyle {
         "thick" => BorderStyle::Thick,
         "nil" | "none" => BorderStyle::None,
         other => {
-            w.add(format!("{ctx}: border style {other:?} read as single"));
+            w.warn(
+                "docx.border.styleAsSingle",
+                "{ctx}: border style {style} read as single",
+                &[("ctx", &ctx), ("style", &format!("{other:?}"))],
+            );
             BorderStyle::Single
         }
     }
@@ -1020,7 +1096,11 @@ pub(crate) fn read_borders(el: &El, ctx: &str, w: &mut Warnings) -> Option<Table
             "insideH" => &mut b.inside_h,
             "insideV" => &mut b.inside_v,
             _ => {
-                w.add(format!("{ctx}: border {} dropped", side.qname()));
+                w.warn(
+                    "docx.border.dropped",
+                    "{ctx}: border {name} dropped",
+                    &[("ctx", &ctx), ("name", &side.qname())],
+                );
                 continue;
             }
         };
@@ -1409,6 +1489,41 @@ mod tests {
         );
         assert_eq!(w.into_vec().len(), 1);
         assert_eq!(rtl.alignment, Some(Alignment::Right), "mirrored");
+    }
+
+    #[test]
+    fn contextual_spacing_both_directions() {
+        let mut w = Warnings::default();
+        let p = read_ppr(
+            &el(
+                r#"<w:pPr><w:pStyle w:val="ListParagraph"/><w:ind w:left="720"/><w:contextualSpacing/></w:pPr>"#,
+            ),
+            "t",
+            &mut w,
+        );
+        assert!(
+            w.into_vec().is_empty(),
+            "contextualSpacing is read, not dropped"
+        );
+        assert_eq!(p.contextual_spacing, Some(true));
+        let xml = out(|x| write_ppr(x, &p, &ColorScheme::default()));
+        // Word's order: after w:ind, before w:jc.
+        assert_eq!(
+            xml,
+            "<w:pPr><w:pStyle w:val=\"ListParagraph\"/><w:ind w:left=\"720\"/><w:contextualSpacing/></w:pPr>"
+        );
+        assert_eq!(read_ppr(&el(&xml), "t", &mut Warnings::default()), p);
+        let off = read_ppr(
+            &el(r#"<w:pPr><w:contextualSpacing w:val="0"/><w:jc w:val="center"/></w:pPr>"#),
+            "t",
+            &mut Warnings::default(),
+        );
+        assert_eq!(off.contextual_spacing, Some(false));
+        let xml = out(|x| write_ppr(x, &off, &ColorScheme::default()));
+        assert!(
+            xml.contains("<w:contextualSpacing w:val=\"0\"/><w:jc"),
+            "{xml}"
+        );
     }
 
     #[test]

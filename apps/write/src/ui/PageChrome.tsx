@@ -20,7 +20,12 @@ export interface PageChromeProps {
   editor: Editor | null;
   onEditHeaderFooter: (which: "header" | "footer") => void;
   onToggleWhiteSpace: () => void;
+  /** The frame width (the widest page): each sheet is centred in it (W-18). Default: the sheets fill the frame. */
+  frameWidth?: number;
 }
+
+/** A sheet's left edge in the frame: centred when the pages differ in width. */
+export const sheetLeft = (frameWidth: number | undefined, sheetWidth: number): number => (frameWidth ? Math.max(0, (frameWidth - sheetWidth) / 2) : 0);
 
 /** The sheets intersecting frame px `[top, bottom)` (binary search; sheets are sorted). */
 export function visibleSheets(sheets: readonly SheetView[], top: number, bottom: number, overscan = OVERSCAN): [number, number] {
@@ -102,8 +107,10 @@ function tableHeader(editor: Editor | null, pos: number, frame: HTMLElement | nu
   return { html: c.outerHTML, left: (r.left - fr.left) / z, width: r.width / z };
 }
 
-const Sheet = memo(function Sheet({ s, last, layout, editor, frame, onEditHeaderFooter, onToggleWhiteSpace }: {
+const Sheet = memo(function Sheet({ s, last, layout, editor, frame, onEditHeaderFooter, onToggleWhiteSpace, x, mixed }: {
   s: SheetView;
+  x: number;
+  mixed: boolean;
   last: boolean;
   layout: PageLayout;
   editor: Editor | null;
@@ -133,24 +140,26 @@ const Sheet = memo(function Sheet({ s, last, layout, editor, frame, onEditHeader
       </div>
     );
   const repeat = s.repeat ? tableHeader(editor, s.repeat.pos, frame) : null;
+  // Mixed page widths: the covers span this sheet only (W-18).
+  const span: React.CSSProperties = mixed ? { left: x, right: "auto", width: g.width } : {};
   return (
     <>
-      <div className="page-cover" style={{ top: s.top, height: Math.max(0, s.bodyTop - s.top) }}>
+      <div className="page-cover" style={{ top: s.top, height: Math.max(0, s.bodyTop - s.top), ...span }}>
         {hf("header", s.header, { top: g.header })}
       </div>
-      {s.contentEnd < s.notesTop - 0.5 && <div className="page-cover page-fill" style={{ top: s.contentEnd, height: s.notesTop - s.contentEnd }} />}
+      {s.contentEnd < s.notesTop - 0.5 && <div className="page-cover page-fill" style={{ top: s.contentEnd, height: s.notesTop - s.contentEnd, ...span }} />}
       {s.notes.length > 0 && (
         <div
           className={`page-note-sep${s.notes[0]!.from > 0 ? " page-note-sep-cont" : ""}`}
           data-testid="page-note-separator"
           data-page={s.index + 1}
-          style={{ top: s.notesTop + 5, left: g.left, ...(s.notes[0]!.from > 0 ? { right: g.right } : {}) }}
+          style={{ top: s.notesTop + 5, left: x + g.left, ...(s.notes[0]!.from > 0 ? (mixed ? { width: g.width - g.left - g.right } : { right: g.right }) : {}) }}
         />
       )}
       {s.notes
         .filter((n) => n.from > 0)
         .map((n) => (
-          <div key={`c${n.id}`} className="page-note-cont tiptap-content" style={{ top: n.top, left: g.left, right: g.right, height: n.to - n.from }}>
+          <div key={`c${n.id}`} className="page-note-cont tiptap-content" style={{ top: n.top, left: x + g.left, ...(mixed ? { width: g.width - g.left - g.right } : { right: g.right }), height: n.to - n.from }}>
             <div style={{ marginTop: -n.from }} dangerouslySetInnerHTML={{ __html: noteHtml(editor, n.id) }} />
           </div>
         ))}
@@ -158,9 +167,9 @@ const Sheet = memo(function Sheet({ s, last, layout, editor, frame, onEditHeader
         <div className="page-repeat tiptap-content" data-testid="page-repeat-header" style={{ top: s.repeat.top, left: repeat.left, width: repeat.width, height: s.repeat.height }} dangerouslySetInnerHTML={{ __html: repeat.html }} />
       )}
       {(s.rules ?? []).map((r, i) =>
-        r.xs.map((x, j) => <div key={`r${i}:${j}`} className="page-column-rule" style={{ top: r.top, height: r.height, left: g.left + x }} />),
+        r.xs.map((rx, j) => <div key={`r${i}:${j}`} className="page-column-rule" style={{ top: r.top, height: r.height, left: x + g.left + rx }} />),
       )}
-      <div className="page-cover" style={{ top: s.bodyBottom, height: Math.max(0, bottomEnd - s.bodyBottom) }}>
+      <div className="page-cover" style={{ top: s.bodyBottom, height: Math.max(0, bottomEnd - s.bodyBottom), ...span }}>
         {hf("footer", s.footer, { bottom: g.footer })}
       </div>
       {!last && (
@@ -181,10 +190,11 @@ const Sheet = memo(function Sheet({ s, last, layout, editor, frame, onEditHeader
   );
 });
 
-export function PageChrome({ layout, editor, onEditHeaderFooter, onToggleWhiteSpace }: PageChromeProps) {
+export function PageChrome({ layout, editor, onEditHeaderFooter, onToggleWhiteSpace, frameWidth }: PageChromeProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [from, to] = useVisibleRange(ref, layout);
   const n = layout.sheets.length;
+  const mixed = frameWidth != null && layout.sheets.some((s) => Math.abs(s.geo.width - frameWidth) > 0.5);
   return (
     <div
       className="page-chrome"
@@ -194,6 +204,8 @@ export function PageChrome({ layout, editor, onEditHeaderFooter, onToggleWhiteSp
       data-pages={n}
       // The body box of every sheet (frame px), for tests and tools: "top,bottom;top,bottom…".
       data-bodies={layout.sheets.map((s) => `${Math.round(s.bodyTop)},${Math.round(s.bodyBottom)}`).join(";")}
+      // Every sheet's left edge and width in the frame (px): "x,width;x,width…".
+      data-sheets={layout.sheets.map((s) => `${Math.round(mixed ? sheetLeft(frameWidth, s.geo.width) : 0)},${Math.round(s.geo.width)}`).join(";")}
       style={{ height: layout.height }}
     >
       {layout.sheets.slice(from, to).map((s) => (
@@ -206,6 +218,8 @@ export function PageChrome({ layout, editor, onEditHeaderFooter, onToggleWhiteSp
           frame={ref.current?.parentElement ?? null}
           onEditHeaderFooter={onEditHeaderFooter}
           onToggleWhiteSpace={onToggleWhiteSpace}
+          x={mixed ? sheetLeft(frameWidth, s.geo.width) : 0}
+          mixed={mixed}
         />
       ))}
     </div>

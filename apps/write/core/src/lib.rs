@@ -41,6 +41,8 @@ pub use command::{
     NewCell, NewParagraph, NewRow, NewTable, NewToc, PageSetupPatch, RefShow, RefTarget,
     SectionPatch, ShapeOutline, ShapeOutlinePath, ShapePathQuery, TextCase, WriteCommand,
 };
-pub use dispatch::{dispatch_with, shape_outline, Request, Response, ResponseBody, WriteHost};
+pub use dispatch::{
+    dispatch_with, shape_outline, ReaderWarning, Request, Response, ResponseBody, WriteHost,
+};
 pub use doc::{WriteDocument, WriteError};
 pub use patch::{InsertedBlock, WritePatch};

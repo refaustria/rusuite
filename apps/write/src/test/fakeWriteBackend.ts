@@ -23,6 +23,7 @@ import {
   applyParagraphPatch, applyRunPatch, blockKey, inlineLength, mergeRuns, paragraphLength, stableStringify, walkBlocks,
 } from "../sync/model";
 import template from "./newDocument.json";
+import type { ReaderWarning } from "../generated/ReaderWarning";
 import { newAnchor } from "../features/floating";
 import { numberingDef } from "./fixtures";
 import { caseChar } from "../features/changeCase";
@@ -199,7 +200,7 @@ export class FakeWriteBackend implements WriteBackend {
         const doc = JSON.parse(new TextDecoder().decode(base64ToBytes(request.bytesBase64))) as Document;
         const r = this.reset(doc);
         this.name = request.name;
-        return { type: "opened", doc: r.doc, warnings: ["fake reader: JSON instead of docx"], envelope: r.envelope };
+        return { type: "opened", doc: r.doc, warnings: structuredClone(this.openWarnings), envelope: r.envelope };
       }
       case "saveDocx": {
         if (request.modified || request.user || request.pages != null) {
@@ -499,6 +500,9 @@ export class FakeWriteBackend implements WriteBackend {
     return out;
   }
 
+  /** What `openDocx` reports (tests set real reader codes). */
+  openWarnings: ReaderWarning[] = [{ code: "fake.json", params: {}, text: "fake reader: JSON instead of docx", count: 1 }];
+
   private style(id: string) {
     const s = this.doc.styles.styles.find((x) => x.id === id);
     if (!s) throw new Fail("unknown_style", `unknown style "${id}"`);
@@ -623,12 +627,30 @@ export class FakeWriteBackend implements WriteBackend {
             this.doc.numbering = { defs: [...this.doc.numbering.defs, def] };
           }
         }
+        // Word (W-03): Normal paragraphs that become list items get List Paragraph.
+        const listStyle = true;
         for (const p of ps) {
           const props = { ...(p.props ?? {}) };
           if (target === null) delete props.numbering;
-          else props.numbering = { numId: target, level: this.numberingOf(p)?.level ?? 0 };
+          else {
+            if (listStyle && !this.numberingOf(p) && (!props.style || props.style === "Normal")) props.style = "ListParagraph";
+            props.numbering = { numId: target, level: this.numberingOf(p)?.level ?? 0 };
+          }
           p.props = props;
         }
+        return null;
+      }
+      case "listBackspace": {
+        const p = this.para(c.block);
+        const n = this.numberingOf(p);
+        if (!n) throw new Fail("invalid_command", "not a list item");
+        const level = this.doc.numbering.defs.find((d) => d.id === n.numId)?.levels[n.level];
+        const left = p.props?.indent?.left ?? level?.indent?.left ?? 0;
+        const props = { ...(p.props ?? {}) };
+        delete props.numbering;
+        props.indent = { ...(props.indent ?? {}), left, firstLine: 0, hanging: undefined };
+        delete props.indent.hanging;
+        p.props = props;
         return null;
       }
       case "indentList":

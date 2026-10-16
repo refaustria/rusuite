@@ -44,14 +44,22 @@ pub(crate) fn read_styles(xml: &[u8], part: &str, w: &mut Warnings) -> Result<St
             "style" => {
                 if let Some(style) = read_style(el, part, w) {
                     if sheet.get(&style.id).is_some() {
-                        w.add(format!("{part}: duplicate style id {:?} dropped", style.id));
+                        w.warn(
+                            "docx.styles.duplicateId",
+                            "{part}: duplicate style id {id} dropped",
+                            &[("part", &part), ("id", &format!("{:?}", style.id))],
+                        );
                     } else {
                         sheet.styles.push(style);
                     }
                 }
             }
             "latentStyles" => {}
-            _ => w.add(format!("{part}: {} dropped", el.qname())),
+            _ => w.warn(
+                "docx.styles.elementDropped",
+                "{part}: {name} dropped",
+                &[("part", &part), ("name", &el.qname())],
+            ),
         }
     }
     Ok(sheet)
@@ -82,7 +90,15 @@ fn read_style(el: &El, part: &str, w: &mut Warnings) -> Option<Style> {
         "table" => StyleKind::Table,
         "numbering" => StyleKind::Numbering,
         other => {
-            w.add(format!("{part}: {other} style {id:?} dropped"));
+            w.warn(
+                "docx.styles.kindDropped",
+                "{part}: {kind} style {id} dropped",
+                &[
+                    ("part", &part),
+                    ("kind", &other),
+                    ("id", &format!("{id:?}")),
+                ],
+            );
             return None;
         }
     };
@@ -114,10 +130,18 @@ fn read_style(el: &El, part: &str, w: &mut Warnings) -> Option<Style> {
             "pPr" => {
                 style.paragraph = read_ppr(c, &ctx, w);
                 if style.paragraph.style.take().is_some() {
-                    w.add(format!("{ctx}: w:pStyle inside a style dropped"));
+                    w.warn(
+                        "docx.styles.pStyleInStyle",
+                        "{ctx}: w:pStyle inside a style dropped",
+                        &[("ctx", &ctx)],
+                    );
                 }
                 if style.paragraph.run_defaults.take().is_some() {
-                    w.add(format!("{ctx}: paragraph mark formatting dropped"));
+                    w.warn(
+                        "docx.styles.markFormatting",
+                        "{ctx}: paragraph mark formatting dropped",
+                        &[("ctx", &ctx)],
+                    );
                 }
             }
             "rPr" => style.run = read_rpr(c, &ctx, w),
@@ -136,7 +160,11 @@ fn read_style(el: &El, part: &str, w: &mut Warnings) -> Option<Style> {
             "tcPr" => table.cell = read_tc_pr(c, &ctx, w),
             "trPr" => {
                 if c.elements().next().is_some() {
-                    w.add(format!("{ctx}: table style row formatting dropped"));
+                    w.warn(
+                        "docx.styles.tableRowFormatting",
+                        "{ctx}: table style row formatting dropped",
+                        &[("ctx", &ctx)],
+                    );
                 }
             }
             "tblStylePr" => {
@@ -146,15 +174,21 @@ fn read_style(el: &El, part: &str, w: &mut Warnings) -> Option<Style> {
                 }
             }
             name if SILENT_STYLE.contains(&name) => {}
-            _ => w.add(format!("{ctx}: {} dropped", c.qname())),
+            _ => w.warn(
+                "docx.styles.childDropped",
+                "{ctx}: {name} dropped",
+                &[("ctx", &ctx), ("name", &c.qname())],
+            ),
         }
     }
     if style.kind == StyleKind::Table && !table.is_empty() {
         style.table = Some(table);
     } else if !table.is_empty() {
-        w.add(format!(
-            "{ctx}: table formatting of a non-table style dropped"
-        ));
+        w.warn(
+            "docx.styles.tableFormattingOnNonTable",
+            "{ctx}: table formatting of a non-table style dropped",
+            &[("ctx", &ctx)],
+        );
     }
     Some(style)
 }
@@ -162,10 +196,11 @@ fn read_style(el: &El, part: &str, w: &mut Warnings) -> Option<Style> {
 /// `w:tblStylePr` → conditional format (`None` for unknown types).
 fn read_conditional(el: &El, ctx: &str, w: &mut Warnings) -> Option<ConditionalFormat> {
     let Some(kind) = el.attr("type").and_then(ConditionalKind::from_docx) else {
-        w.add(format!(
-            "{ctx}: conditional table formatting {:?} dropped",
-            el.attr("type")
-        ));
+        w.warn(
+            "docx.styles.conditionalDropped",
+            "{ctx}: conditional table formatting {kind} dropped",
+            &[("ctx", &ctx), ("kind", &format!("{:?}", el.attr("type")))],
+        );
         return None;
     };
     let mut f = ConditionalFormat {
@@ -185,13 +220,18 @@ fn read_conditional(el: &El, ctx: &str, w: &mut Warnings) -> Option<ConditionalF
             "tcPr" => f.cell = read_tc_pr(c, ctx, w),
             "tblPr" | "trPr" => {
                 if c.elements().next().is_some() {
-                    w.add(format!(
-                        "{ctx}: conditional table/row formatting {} dropped",
-                        c.qname()
-                    ));
+                    w.warn(
+                        "docx.styles.conditionalChildDropped",
+                        "{ctx}: conditional table/row formatting {name} dropped",
+                        &[("ctx", &ctx), ("name", &c.qname())],
+                    );
                 }
             }
-            _ => w.add(format!("{ctx}: {} dropped", c.qname())),
+            _ => w.warn(
+                "docx.styles.childDropped",
+                "{ctx}: {name} dropped",
+                &[("ctx", &ctx), ("name", &c.qname())],
+            ),
         }
     }
     Some(f)

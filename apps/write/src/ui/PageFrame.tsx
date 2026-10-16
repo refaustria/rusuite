@@ -7,6 +7,9 @@ import { useCallback, useEffect, useSyncExternalStore, type ReactNode } from "re
 import type { Editor } from "@tiptap/react";
 import { PageChrome } from "./PageChrome";
 import type { PageSetup } from "../generated/PageSetup";
+import type { Section } from "../generated/Section";
+import { sectionFrames } from "../features/layout/sectionFrames";
+import { sheetLeft } from "./PageChrome";
 import { headerFooterText, pageGeometry, type PageLayout } from "../features/pagination";
 import type { WriteFeatures, WriteView } from "../features/WriteFeatures";
 import { useT } from "../i18n";
@@ -51,19 +54,26 @@ export interface PageFrameProps {
   layout?: PageLayout | null;
   editor?: Editor | null;
   onToggleWhiteSpace?: () => void;
+  /** The document's sections: mixed page widths centre every sheet in a frame as wide as the widest page (W-18). */
+  sections?: Section[];
   children: ReactNode;
 }
 
-export function PageFrame({ page, view, pages, frame, onEditHeaderFooter, layout, editor = null, onToggleWhiteSpace, children }: PageFrameProps) {
+export function PageFrame({ page, view, pages, frame, onEditHeaderFooter, layout, editor = null, onToggleWhiteSpace, sections = [], children }: PageFrameProps) {
   const t = useT();
   const g = pageGeometry(page);
   const print = view === "print";
+  const frames = sectionFrames(sections, page);
+  // Print layout: as wide as the widest page; the editor's text column is the first section's, centred on its sheet.
+  const width = print ? frames.width : g.width;
+  const padLeft = print ? frames.padLeft : g.left;
+  const padRight = print ? frames.padRight : g.right;
   const hf = (which: "header" | "footer", text: string, style: React.CSSProperties) => (
     <div
       className={`page-hf page-${which}`}
       data-testid={`page-${which}`}
       data-hf={which}
-      style={{ left: g.left, right: g.right, ...style }}
+      style={{ left: padLeft, right: padRight, ...style }}
       title={t(`write.hfTip.${which}`)}
       onDoubleClick={() => onEditHeaderFooter(which)}
     >
@@ -71,26 +81,35 @@ export function PageFrame({ page, view, pages, frame, onEditHeaderFooter, layout
     </div>
   );
   const paged = print && layout && layout.sheets.length > 0 ? layout : null;
+  const mixed = !!paged && frames.mixed;
   return (
     <div
-      className={`write-page relative mx-auto bg-white text-black shadow ${print ? "write-paged" : "write-draft"}${paged?.hide ? " write-nowhitespace" : ""}`}
+      className={`write-page relative mx-auto text-black ${mixed ? "write-mixed" : "bg-white shadow"} ${print ? "write-paged" : "write-draft"}${paged?.hide ? " write-nowhitespace" : ""}`}
       data-testid="write-page"
       data-view={view}
       data-pages={print ? (paged?.sheets.length ?? pages) : undefined}
       style={{
-        width: g.width,
+        width,
         // Print layout keeps the page's width (Word: a narrow window scrolls, the lines never re-wrap, W-24); draft
         // view wraps to the window.
         maxWidth: print ? undefined : "100%",
         flexShrink: print ? 0 : undefined,
         minHeight: paged ? paged.height : print ? g.height : undefined,
-        padding: paged ? `${paged.origin}px ${g.right}px 0 ${g.left}px` : `${g.top}px ${g.right}px ${g.bottom}px ${g.left}px`,
+        padding: paged ? `${paged.origin}px ${padRight}px 0 ${padLeft}px` : `${g.top}px ${padRight}px ${g.bottom}px ${padLeft}px`,
       }}
     >
+      {mixed && (
+        // Each sheet's own white page (the frame itself is transparent), below the text.
+        <div className="page-sheets" aria-hidden="true">
+          {paged.sheets.map((s) => (
+            <div key={s.index} className="page-sheet" data-page={s.index + 1} style={{ top: s.top, height: s.height, left: sheetLeft(width, s.geo.width), width: s.geo.width }} />
+          ))}
+        </div>
+      )}
       {print && !paged && hf("header", frame ? frame.firstHeader : headerFooterText(page?.headerText, 1), { top: g.header })}
       {children}
       {print && !paged && hf("footer", frame ? frame.lastFooter : headerFooterText(page?.footerText, pages), { bottom: g.footer })}
-      {paged && <PageChrome layout={paged} editor={editor} onEditHeaderFooter={onEditHeaderFooter} onToggleWhiteSpace={onToggleWhiteSpace ?? (() => undefined)} />}
+      {paged && <PageChrome layout={paged} editor={editor} onEditHeaderFooter={onEditHeaderFooter} onToggleWhiteSpace={onToggleWhiteSpace ?? (() => undefined)} frameWidth={mixed ? width : undefined} />}
     </div>
   );
 }

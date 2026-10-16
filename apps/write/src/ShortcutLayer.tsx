@@ -7,9 +7,11 @@ import type { Editor } from "@tiptap/react";
 import { openBackstage, PromptDialog, ShortcutHelp, useShortcuts, withExtension, type HelpRow, type ShortcutMap } from "@rusuite/ui-shared";
 import type { Alignment } from "./generated/Alignment";
 import { indent, setAlignment, setParagraphStyle, styleOf } from "./sync/editorCommands";
-import { clearFormatting, setLineSpacingRule, toggleSpaceBefore } from "./features/formatting";
+import { setLineSpacingRule, toggleSpaceBefore } from "./features/formatting";
 import type { WriteFeatures } from "./features/WriteFeatures";
 import { insertNote } from "./features/structureCommands";
+import { formatTarget } from "./features/runFormat";
+import { cycleCaseCommand, growFont, removeParagraphFormatting, stepHangingIndent, toggleChar, type CharToggle } from "./features/wordKeys";
 import type { SyncController } from "./sync/SyncPlugin";
 import { useT } from "./i18n";
 
@@ -91,7 +93,46 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
         run: () => (editor ? void toggleHeading(editor, n) : false),
       };
     }
+    // Word's extra character and paragraph keys (W-30); run formatting goes to the text box with the caret.
+    const Fmt = t("sc.format");
+    const font = (label: string, how: "point" | "list", dir: 1 | -1) => ({
+      label,
+      group: Fmt,
+      inField: true,
+      run: () => (editor ? void growFont(formatTarget(editor), ctl.styles, how, dir) : false),
+    });
+    const char = (label: string, kind: CharToggle) => ({
+      label,
+      group: Fmt,
+      inField: true,
+      run: () => (editor ? void toggleChar(formatTarget(editor), ctl.styles, kind) : false),
+    });
+    const para = t("group.paragraph");
+    const word: ShortcutMap = {
+      "Mod+]": font(t("write.sc.growFont1"), "point", 1),
+      "Mod+[": font(t("write.sc.shrinkFont1"), "point", -1),
+      "Mod+Shift+>": font(t("write.sc.growFont"), "list", 1),
+      "Mod+Shift+<": font(t("write.sc.shrinkFont"), "list", -1),
+      "Mod+Shift+K": char(t("write.sc.smallCaps"), "smallCaps"),
+      "Mod+Shift+A": char(t("write.sc.allCaps"), "allCaps"),
+      "Mod+Shift+D": char(t("write.sc.doubleUnderline"), "doubleUnderline"),
+      "Shift+F3": {
+        label: t("write.sc.cycleCase"),
+        group: Fmt,
+        inField: true,
+        run: () => {
+          const cmd = editor ? cycleCaseCommand(editor) : null;
+          if (!cmd) return false;
+          void ctl.run(cmd);
+        },
+      },
+      "Mod+T": { label: t("write.sc.hanging"), group: para, inField: true, run: () => (editor ? void stepHangingIndent(editor, ctl.styles, 1) : false) },
+      "Mod+Shift+T": { label: t("write.sc.reduceHanging"), group: para, inField: true, run: () => (editor ? void stepHangingIndent(editor, ctl.styles, -1) : false) },
+      "Mod+Q": { label: t("write.sc.removeParagraph"), group: para, inField: true, run: () => (editor ? void removeParagraphFormatting(editor) : false) },
+      "Mod+Shift+N": { label: t("write.sc.normalStyle"), group: t("write.styles"), inField: true, run: () => (editor ? void setParagraphStyle(editor, "Normal") : false) },
+    };
     return {
+      ...word,
       "Mod+N": { label: t("write.sc.newDoc"), group: File, inField: true, run: () => onNew() },
       "Mod+O": { label: t("cmd.open"), group: File, inField: true, run: () => void onOpen() },
       "Mod+S": { label: t("cmd.save"), group: File, inField: true, run: () => void onSave() },
@@ -140,7 +181,6 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
       "Mod+0": { label: t("write.sc.space12"), group: t("group.paragraph"), inField: true, run: () => (editor ? void toggleSpaceBefore(editor) : false) },
       "Mod+M": { label: t("list.indent"), group: t("group.paragraph"), inField: true, run: () => (editor ? void indent(editor, 1) : false) },
       "Mod+Shift+M": { label: t("list.outdent"), group: t("group.paragraph"), inField: true, run: () => (editor ? void indent(editor, -1) : false) },
-      "Mod+Shift+N": { label: t("write.sc.clearAll"), group: t("sc.format"), inField: true, run: () => (editor ? void clearFormatting(editor, ctl, true) : false) },
       ...align("center", t("write.sc.center"), "Mod+E"),
       ...align("left", t("fmt.alignLeft"), "Mod+L"),
       ...align("right", t("fmt.alignRight"), "Mod+R"),

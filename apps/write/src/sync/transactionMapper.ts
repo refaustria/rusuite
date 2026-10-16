@@ -336,7 +336,7 @@ function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[], o
 
 const PARA_KEYS = [
   "style", "alignment", "indent", "spacing", "numbering", "keepNext", "keepLines", "widowControl", "suppressLineNumbers", "suppressAutoHyphens",
-  "pageBreakBefore", "runDefaults", "borders", "shading", "tabs",
+  "pageBreakBefore", "contextualSpacing", "runDefaults", "borders", "shading", "tabs",
 ] as const;
 type ParaKey = (typeof PARA_KEYS)[number];
 
@@ -377,8 +377,12 @@ function propsCommands(olds: Paragraph[], news: Paragraph[], opts: MapperOptions
     } else return null;
   }
 
-  // Style.
-  const sIdx = changed("style");
+  // Style. A Normal paragraph that becomes a list item takes List Paragraph inside `ApplyList` (W-03): no SetStyle.
+  const unnumbered = (n: { numId: number } | undefined | null) => !n || n.numId === 0;
+  const sIdx = changed("style").filter(
+    (i) =>
+      !(news[i]!.props?.style === "ListParagraph" && !olds[i]!.props?.style && unnumbered(olds[i]!.props?.numbering) && !unnumbered(news[i]!.props?.numbering)),
+  );
   if (sIdx.length) {
     const styles = new Set(sIdx.map((i) => news[i]!.props?.style ?? opts.defaultStyle ?? "Normal"));
     if (styles.size !== 1) return null;

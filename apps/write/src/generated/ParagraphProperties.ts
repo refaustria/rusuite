@@ -58,6 +58,11 @@ suppressAutoHyphens?: boolean,
  */
 pageBreakBefore?: boolean | null, 
 /**
+ * Ignore the space before / after between paragraphs of the same
+ * style (docx `w:contextualSpacing`; Word's List Paragraph).
+ */
+contextualSpacing?: boolean, 
+/**
  * Paragraph borders (docx `w:pBdr`), merged side by side.
  */
 borders?: ParagraphBorders, 

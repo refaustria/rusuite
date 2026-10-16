@@ -280,6 +280,8 @@ impl WriteDocument {
         let ids: Vec<NodeId> = items.iter().map(|(id, _)| *id).collect();
         self.paras(&ids)?;
         let old = self.doc.numbering.clone();
+        let old_styles = self.doc.styles.clone();
+        let list_style = self.list_paragraph_targets(&ids);
         let num_id = self.doc.numbering.next_id();
         self.doc
             .numbering
@@ -290,7 +292,11 @@ impl WriteDocument {
                 num_id,
                 level: levels_of.get(&id).copied().unwrap_or(0).min(8),
             });
+            if list_style.contains(&id) {
+                p.style = Some(super::LIST_PARAGRAPH.to_owned());
+            }
         })?;
+        let restore = self.with_styles(restore, old_styles, ch);
         ch.numbering = true;
         Ok(C::Compound {
             commands: vec![restore, C::RestoreNumbering { numbering: old }],

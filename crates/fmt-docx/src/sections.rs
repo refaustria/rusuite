@@ -67,7 +67,7 @@ pub(crate) fn read_sect_pr(s: &El, id: SectionId, w: &mut Warnings) -> (Section,
                     }
                 }
                 if tw(el, "gutter").is_some_and(|g| g.0 != 0) {
-                    w.add("section: gutter margin dropped");
+                    w.warn("docx.section.gutter", "section: gutter margin dropped", &[]);
                 }
             }
             "headerReference" | "footerReference" => {
@@ -75,7 +75,11 @@ pub(crate) fn read_sect_pr(s: &El, id: SectionId, w: &mut Warnings) -> (Section,
                 let slot = el.attr("type").map_or(Some(HeaderSlot::Default), slot_of);
                 match (slot, el.attr("id")) {
                     (Some(slot), Some(rid)) => refs.push((footer, slot, rid.to_owned())),
-                    (None, _) => w.add("section: header/footer of unknown type dropped"),
+                    (None, _) => w.warn(
+                        "docx.section.unknownHeaderType",
+                        "section: header/footer of unknown type dropped",
+                        &[],
+                    ),
                     (_, None) => {}
                 }
             }
@@ -85,7 +89,11 @@ pub(crate) fn read_sect_pr(s: &El, id: SectionId, w: &mut Warnings) -> (Section,
                     Some("evenPage") => SectionKind::EvenPage,
                     Some("oddPage") => SectionKind::OddPage,
                     Some("nextColumn") => {
-                        w.add("section: column break section read as continuous");
+                        w.warn(
+                            "docx.section.columnBreak",
+                            "section: column break section read as continuous",
+                            &[],
+                        );
                         SectionKind::Continuous
                     }
                     _ => SectionKind::NextPage,
@@ -130,19 +138,31 @@ pub(crate) fn read_sect_pr(s: &El, id: SectionId, w: &mut Warnings) -> (Section,
                 sec.page_number_start = el.attr("start").and_then(parse_u32);
                 sec.page_number_format = match el.attr("fmt") {
                     Some(f) => number_format(f).or_else(|| {
-                        w.add(format!("section: page number format {f:?} read as decimal"));
+                        w.warn(
+                            "docx.section.pageNumberFormat",
+                            "section: page number format {format} read as decimal",
+                            &[("format", &format!("{f:?}"))],
+                        );
                         None
                     }),
                     None => None,
                 };
                 if el.attr("chapStyle").is_some() {
-                    w.add("section: chapter numbers in page numbers dropped");
+                    w.warn(
+                        "docx.section.chapterNumbers",
+                        "section: chapter numbers in page numbers dropped",
+                        &[],
+                    );
                 }
             }
             "bidi" | "rtlGutter" if !toggle(el) => {}
             "textDirection" if matches!(el.val(), Some("lrTb" | "tb")) => {}
             "formProt" | "docGrid" | "printerSettings" | "noEndnote" | "sectPrChange" => {}
-            _ => w.add(format!("section: {} dropped", el.qname())),
+            _ => w.warn(
+                "docx.section.propertyDropped",
+                "section: {name} dropped",
+                &[("name", &el.qname())],
+            ),
         }
     }
     (sec, refs)

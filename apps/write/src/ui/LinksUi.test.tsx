@@ -157,12 +157,24 @@ describe("captions and cross-references", () => {
     fireEvent.click(screen.getByRole("button", { name: "Insert Caption" }));
     const dialog = await screen.findByRole("dialog", { name: "Caption" }, T);
     expect(within(dialog).getByTestId("caption-prefix").textContent).toBe("Figure 1");
+    // Word: no separator of its own (W-22); the user types it.
+    expect((within(dialog).getByLabelText("Caption") as HTMLInputElement).value).toBe("");
     fireEvent.change(within(dialog).getByLabelText("Caption"), { target: { value: ": A cat" } });
     fireEvent.change(within(dialog).getByLabelText("Label"), { target: { value: "Table" } });
     fireEvent.change(within(dialog).getByLabelText("Position"), { target: { value: "above" } });
     fireEvent.click(within(dialog).getByTestId("caption-ok"));
     await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "insertCaption", anchor: 1, below: false, label: "Table", text: ": A cat" })), T);
     await waitFor(() => expect(editor.textContent).toContain("Table 1: A cat"), T);
+  });
+
+  it("Insert Caption without text gives exactly \"Figure 1\" (W-22)", async () => {
+    const { backend, editor } = await mount();
+    caretIn(editor, "hello", 2);
+    fireEvent.click(tab("References"));
+    fireEvent.click(screen.getByRole("button", { name: "Insert Caption" }));
+    const dialog = await screen.findByRole("dialog", { name: "Caption" }, T);
+    fireEvent.click(within(dialog).getByTestId("caption-ok"));
+    await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "insertCaption", label: "Figure", text: "" })), T);
   });
 
   it("Insert › Cross-reference to a heading as its page number", async () => {

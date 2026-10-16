@@ -588,6 +588,7 @@ expression: "serde_json::to_value(StyleSheet::office_defaults()).unwrap()"
       "kind": "paragraph",
       "name": "List Paragraph",
       "paragraph": {
+        "contextualSpacing": true,
         "indent": {
           "left": 720
         }

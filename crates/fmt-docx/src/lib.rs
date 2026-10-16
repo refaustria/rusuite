@@ -157,34 +157,202 @@ pub fn write_path(doc: &model_text::Document, path: impl AsRef<std::path::Path>)
     Ok(())
 }
 
-/// Collects warnings, merging repeats into one line with a count.
+/// A note of the reader about content that was dropped or approximated:
+/// a stable `code` (the UI translates it, docs/ui.md "Write pre-release fixes"), its
+/// parameters and the English `text` (the fallback). Repeats are merged
+/// (`count`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReaderWarning {
+    /// Stable identifier, e.g. `docx.numbering.levelStyleLink`.
+    pub code: String,
+    /// Values of the `{name}` placeholders of the message.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub params: std::collections::BTreeMap<String, String>,
+    /// The English message (without the count).
+    pub text: String,
+    /// How often it occurred.
+    pub count: usize,
+}
+
+impl ReaderWarning {
+    /// The English line: the text, with ` (Nx)` for repeats.
+    pub fn line(&self) -> String {
+        match self.count {
+            0 | 1 => self.text.clone(),
+            n => format!("{} ({n}x)", self.text),
+        }
+    }
+}
+
+/// Collects warnings, merging repeats into one entry with a count.
 #[derive(Debug, Default)]
 pub(crate) struct Warnings {
-    order: Vec<String>,
-    counts: std::collections::HashMap<String, usize>,
+    order: Vec<ReaderWarning>,
+    index: std::collections::HashMap<String, usize>,
 }
 
 impl Warnings {
-    pub(crate) fn add(&mut self, msg: impl Into<String>) {
-        let msg = msg.into();
-        let n = self.counts.entry(msg.clone()).or_insert(0);
-        if *n == 0 {
-            self.order.push(msg);
+    /// Adds the warning `code`: `template` with its `{name}` placeholders
+    /// replaced by `params` is the English text.
+    pub(crate) fn warn(
+        &mut self,
+        code: &'static str,
+        template: &'static str,
+        params: &[(&'static str, &dyn std::fmt::Display)],
+    ) {
+        let mut text = template.to_owned();
+        let mut map = std::collections::BTreeMap::new();
+        for (k, v) in params {
+            let v = v.to_string();
+            text = text.replace(&format!("{{{k}}}"), &v);
+            map.insert((*k).to_owned(), v);
         }
-        *n += 1;
+        match self.index.get(&text) {
+            Some(&i) => self.order[i].count += 1,
+            None => {
+                self.index.insert(text.clone(), self.order.len());
+                self.order.push(ReaderWarning {
+                    code: code.to_owned(),
+                    params: map,
+                    text,
+                    count: 1,
+                });
+            }
+        }
     }
 
     pub(crate) fn is_empty(&self) -> bool {
         self.order.is_empty()
     }
 
+    /// The English lines (see [`ReaderWarning::line`]).
+    pub(crate) fn lines(&self) -> Vec<String> {
+        self.order.iter().map(ReaderWarning::line).collect()
+    }
+
+    /// [`lines`](Self::lines), consuming.
+    #[cfg(test)]
     pub(crate) fn into_vec(self) -> Vec<String> {
+        self.lines()
+    }
+
+    /// The warnings with their codes.
+    pub(crate) fn into_warnings(self) -> Vec<ReaderWarning> {
         self.order
-            .into_iter()
-            .map(|m| match self.counts[&m] {
-                1 => m,
-                n => format!("{m} ({n}x)"),
-            })
-            .collect()
+    }
+}
+
+#[cfg(test)]
+mod warning_tests {
+    use super::*;
+
+    #[test]
+    fn coded_warnings_merge_repeats_and_fill_placeholders() {
+        let mut w = Warnings::default();
+        w.warn(
+            "docx.run.propertyDropped",
+            "{ctx}: run property {name} dropped",
+            &[("ctx", &"styles"), ("name", &"w:foo")],
+        );
+        w.warn(
+            "docx.run.propertyDropped",
+            "{ctx}: run property {name} dropped",
+            &[("ctx", &"styles"), ("name", &"w:foo")],
+        );
+        w.warn("docx.content.equations", "equations dropped", &[]);
+        assert_eq!(
+            w.lines(),
+            vec![
+                "styles: run property w:foo dropped (2x)".to_owned(),
+                "equations dropped".to_owned()
+            ]
+        );
+        let d = w.into_warnings();
+        assert_eq!(d[0].code, "docx.run.propertyDropped");
+        assert_eq!(d[0].count, 2);
+        assert_eq!(d[0].params["name"], "w:foo");
+        assert_eq!(d[0].params["ctx"], "styles");
+        assert_eq!(d[1].params.len(), 0);
+        let json = serde_json::to_value(&d[1]).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"code": "docx.content.equations", "text": "equations dropped", "count": 1})
+        );
+    }
+
+    /// Every `w.warn` call site: the code is `docx.*` and unique per
+    /// template, and every `{placeholder}` of the template gets a
+    /// parameter (the UI catalog keys are `reader.<code>`).
+    #[test]
+    fn warning_sites_are_consistent() {
+        let src: String = [
+            "lib.rs",
+            "numbering.rs",
+            "props.rs",
+            "read.rs",
+            "sections.rs",
+            "styles.rs",
+        ]
+        .iter()
+        .map(|f| {
+            std::fs::read_to_string(format!("{}/src/{f}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+        })
+        .collect();
+        let catalog: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(format!(
+                "{}/../../packages/ui-shared/src/i18n/locales/en.json",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            catalog["reader.docx.field.flattened"].as_str(),
+            Some(read::FLATTENED)
+        );
+        let mut seen = std::collections::HashMap::new();
+        let mut n = 0;
+        for part in src.split(".warn(").skip(1) {
+            let mut strs = part.split('"');
+            let code = strs.nth(1).unwrap();
+            if code == "code" || !code.starts_with("docx.") {
+                continue;
+            }
+            n += 1;
+            let after = &part[part.find(code).unwrap() + code.len() + 1..];
+            if !after
+                .trim_start()
+                .trim_start_matches(',')
+                .trim_start()
+                .starts_with('"')
+            {
+                continue; // a constant (FLATTENED)
+            }
+            let rest = strs.collect::<Vec<_>>().join("\"");
+            let template = rest.split('"').nth(1).unwrap_or("");
+            if template.is_empty() {
+                continue; // a constant (FLATTENED)
+            }
+            let prev = seen.insert(code.to_owned(), template.to_owned());
+            // The UI's English catalog has the same text under `reader.<code>`.
+            assert_eq!(
+                catalog[format!("reader.{code}")].as_str(),
+                Some(template),
+                "{code}: packages/ui-shared/src/i18n/locales/en.json"
+            );
+            assert!(
+                prev.is_none() || prev.as_deref() == Some(template),
+                "{code}: two templates"
+            );
+            for ph in template.split('{').skip(1) {
+                let name = ph.split('}').next().unwrap();
+                assert!(
+                    part.contains(&format!("(\"{name}\"")),
+                    "{code}: no parameter {name}"
+                );
+            }
+        }
+        assert!(n >= 75, "{n} sites");
     }
 }

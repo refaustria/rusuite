@@ -437,6 +437,10 @@ pub enum WriteCommand {
     /// adjacent paragraph of the same kind, else creating a new list) or
     /// removes their numbering (`none`).
     ApplyList { blocks: Vec<NodeId>, kind: ListKind },
+    /// Word's Backspace at the start of a list item: removes the number
+    /// and keeps the text at the level's indent (a direct left indent, no
+    /// first-line outdent). The next Backspace joins the paragraph.
+    ListBackspace { block: NodeId },
     /// Changes the list level of numbered paragraphs by `delta`, clamped to
     /// `0..=8`; paragraphs without numbering are left alone.
     IndentList { blocks: Vec<NodeId>, delta: i8 },

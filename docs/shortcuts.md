@@ -102,8 +102,16 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Mod+F | Find: the find bar highlights every match in the document; Enter / Shift+Enter (or ↓ / ↑) go to the next / previous match; Esc closes it and removes the highlights |
 | Mod+H | Find and replace (the bar with the replace field: Replace = the current match, Replace all = Rust `FindReplace`) |
 | Mod+=, Mod+Shift+= | Subscript, superscript (bound in the editor) |
-| Mod+Space | Clear character formatting of the selection (bound in the editor) |
-| Mod+Shift+N | Clear all formatting (the paragraph becomes Normal) |
+| Mod+Space | Remove character formatting of the selection (bound in the editor) |
+| Mod+Shift+N | Normal style (Word; Home › Clear All Formatting has no key) |
+| Mod+], Mod+[ | Font size 1 pt larger / smaller (each run of the selection from its own size; at the caret: the typing formatting) |
+| Mod+Shift+>, Mod+Shift+< | Grow / shrink font: the next size of Word's list (8, 9, 10, 10.5, 11, 12, 14 … 28, 36, 48, 72; above 72 in steps of 10) |
+| Mod+Shift+K, Mod+Shift+A | Small caps, all caps (toggles; they exclude each other) |
+| Mod+Shift+D | Double underline (toggle) |
+| Shift+F3 | Change case of the selection (or the word at the caret): lowercase → Capitalize Each Word → UPPERCASE → lowercase |
+| Mod+T, Mod+Shift+T | Hanging indent: the text moves to the next / previous 1.27 cm step, the first line stays |
+| Mod+Q | Remove paragraph formatting (alignment, indents, spacing, borders, shading, tabs, keep options; the style and the list stay) |
+| Backspace at the start of a list item | First removes the number / bullet (the text keeps the level's indent), the next Backspace joins the paragraph to the previous one |
 | Mod+Shift+C, Mod+Shift+V | Copy formatting (format painter stays on until Esc), paste formatting onto the selection |
 | Mod+1, Mod+2, Mod+5 | Line spacing single, double, 1.5 |
 | Mod+0 | Add / remove 12 pt space before the paragraph |
@@ -119,6 +127,10 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Mod+K | Insert Hyperlink (on a link: edit it; Remove Link in the dialog) — bound in the editor |
 | Mod+G, F5 | Go To: a page (print layout), a bookmark or a heading — bound in the editor (F5 does not reload the page while the editor has the focus) |
 | F9 | Update Field: the fields of the selection (REF, PAGEREF, NOTEREF, SEQ, TITLE, AUTHOR computed by the core, page/date/time/file name by the UI); Mod+A then F9 updates every field |
+
+In the browser a few of Word's keys belong to the browser and never reach the page: Mod+T (new tab), Mod+Shift+T
+(reopen tab) and Mod+Shift+N (new private window) in Chrome, Mod+Q (quit) in Firefox on Linux. The desktop app gets
+them all.
 
 ### Mouse
 
