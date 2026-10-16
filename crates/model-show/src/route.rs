@@ -61,7 +61,7 @@ fn crosses(a: Point, b: Point, r: Bounds) -> bool {
 }
 
 /// The corners of the route from `start` (leaving in direction
-/// `start_dir`, an index of [`DIRS`]) to `end` (entered against
+/// `start_dir`, an index of `DIRS`) to `end` (entered against
 /// `end_dir`, the site's outward direction), start and end included, with
 /// as few turns as possible (at most four) and then as short as possible,
 /// not passing through `obstacles`. `None` when no such route exists.
