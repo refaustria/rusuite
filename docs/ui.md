@@ -315,6 +315,33 @@ Corrections from the exploratory test (docs/qa/write-2026-10.md):
 - **Print layout** keeps the page width on narrow windows and next to the panes (the view scrolls sideways); draft view
   wraps to the window. Picture Format › Size holds Crop, Height, Width.
 
+### Write pre-release fixes (P8-46)
+The deferred items of docs/qa/write-2026-10.md:
+- **Lists (W-03)**: Bullets, Numbering and Multilevel list give Normal paragraphs Word's **List Paragraph** style (added to
+  documents that lack it); its `w:contextualSpacing` ("Don't add space between paragraphs of the same style",
+  `ParagraphProperties.contextualSpacing`, read and written by fmt-docx) removes the space between the items. In the
+  editor a node decoration drops the margins between paragraphs of one style with the option, so the pagination (which
+  measures the DOM) and the print clones lose the same space. A list item is placed by its list level, not by the style's
+  indent. Turning bullets off keeps List Paragraph (and its 1.27 cm indent), as in Word.
+- **Backspace at a list item's start (W-28)**: the first press removes the number or bullet and keeps the text at the
+  level's indent (`ListBackspace`: a direct left indent, no first-line outdent; the saved file has Word's values); the
+  paragraph is then an ordinary one and the next Backspace joins it to the previous paragraph. On screen the editor's
+  list rendering (CSS padding per level, the label inline) is an approximation, so the text can move by a few pixels.
+- **Captions (W-22)**: the Caption box of Insert Caption starts empty after "Figure 1"; the separator is typed by the user
+  (Word), a caption without text is exactly "Figure 1".
+- **Shortcuts (W-30)**: Ctrl+] / Ctrl+[ (font size ±1 pt, each run from its own size), Ctrl+Shift+> / < (Word's size
+  list), Ctrl+Shift+K / A / D (small caps, all caps, double underline), Shift+F3 (lowercase → Capitalize Each Word →
+  UPPERCASE), Ctrl+T / Ctrl+Shift+T (hanging indent), Ctrl+Q (remove paragraph formatting), Ctrl+Shift+N (Normal style);
+  docs/shortcuts.md and the in-app help (Ctrl+/) list them.
+- **Reader warnings in the UI language (W-26)**: fmt-docx reports every warning as a stable code (`docx.numbering.levelStyleLink`)
+  with named parameters and the English text; the shared catalog has `reader.<code>` in English and German
+  (`readerWarningText` in `@rusuite/ui-shared`), the status bar and its tooltip show them translated; an unknown code
+  shows the English text. Calc and Show (fmt-xlsx / fmt-pptx) still send English strings, which the helper passes through.
+- **Mixed page sizes (W-18)**: in print layout every sheet has its own section's width and height and is centred in a
+  frame as wide as the widest page (the view scrolls sideways to it); the blocks of a section with another text width
+  are moved and widened into its text column (node decorations), so a landscape section's lines are as long as on paper.
+  File › Print and Export PDF still use the first section's paper size for every page.
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |
