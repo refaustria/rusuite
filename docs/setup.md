@@ -75,3 +75,7 @@ rustup target add wasm32-unknown-unknown
 
 ## Web deployment (nginx + certbot, P2-W3)
 The vhost `deploy/nginx/resuite.inceptum.at.conf` is symlinked into `/etc/nginx/sites-enabled/`, static root `/var/www/resuite` (owned by the deploy user). TLS: `sudo certbot --nginx -d resuite.inceptum.at --non-interactive --agree-tos -m bojan@referee.at --redirect` (nginx plugin is installed; renewal is automatic). Deploy with `scripts/deploy-web.sh`; details in `deploy/README.md`.
+
+## ffmpeg (test media clips, 2026-10-16)
+
+`sudo apt-get install -y ffmpeg` (Debian 13: 7.1). Used only to generate the small MP4/H.264 test clip for the pptx media reference deck (`scripts/testdata-src/pptx/gen.py`); PowerPoint plays MP4/H.264, not WebM.
