@@ -1,5 +1,5 @@
 // P8-36: opt-in cloud connectors (WebDAV) in the web apps, against a local WebDAV server (support/webdav.ts) on
-// port 4846. The live CSP is `connect-src 'self'`; these tests serve the pages with the prepared policy
+// a free ephemeral port (`DAV_PORT` fixes one). The live CSP is `connect-src 'self'`; these tests serve the pages with the prepared policy
 // (`connect-src 'self' https:` – plus this plain-http test server) except the CSP test, which keeps the live one
 // and expects the "security policy" message. `CONNECTORS_SHOTS=<dir>` saves screenshots.
 
@@ -11,8 +11,9 @@ import { Grid } from "../support/calc";
 import { zipText } from "../support/zip";
 import { DAV_BASE, WebDavServer } from "../support/webdav";
 
-const DAV_PORT = Number(process.env.DAV_PORT ?? 4846);
-const DAV_ORIGIN = `http://127.0.0.1:${DAV_PORT}`;
+const DAV_PORT = Number(process.env.DAV_PORT ?? 0);
+/** The WebDAV server's origin, known once it listens (`beforeAll`). */
+let DAV_ORIGIN = "";
 const shots = process.env.CONNECTORS_SHOTS;
 const shot = async (page: Page, name: string) => {
   if (shots) await page.screenshot({ path: path.join(shots, `P8-36-${name}.png`) });
@@ -25,6 +26,7 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async ({ baseURL }) => {
   dav = new WebDavServer(DAV_PORT, new URL(baseURL!).origin);
   await dav.start();
+  DAV_ORIGIN = dav.origin;
 });
 test.afterAll(async () => dav?.stop());
 test.beforeEach(async ({ page }) => {
