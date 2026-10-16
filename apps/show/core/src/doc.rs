@@ -10,12 +10,12 @@ use model_show::{
     align_shapes, distribute, presentation::header_footer_shapes, AlignMode, Attach, Background,
     Connector, Crop, Fill, HeaderFooter, Layout, LayoutKind, Line, NodeId, PictureProps,
     PlaceholderDef, PlaceholderKind, Presentation, Shape, ShapeKind, Site, Slide, SlideMaster,
-    Table, TextClass, Transform,
+    Table, TextClass, Transform, ViewKind,
 };
 
 use crate::command::{
     AlignTarget, AnimationPatch, BackgroundTarget, DesignTarget, HfTarget, NewAttach, NewShape,
-    NewShapeKind, PlaceholderPatch, ShowCommand, ThemeChoice, ZOp,
+    NewShapeKind, PlaceholderPatch, ShowCommand, SlideScale, ThemeChoice, ZOp,
 };
 use crate::image::pixel_size;
 use crate::patch::ShowPatch;
@@ -249,6 +249,33 @@ fn scale_shapes(shapes: &mut [Shape], sx: f64, sy: f64) {
         match &mut c.kind {
             ShapeKind::Group { children } => scale_shapes(children, sx, sy),
             ShapeKind::Table(table) => table.scale_to(t.w, t.h),
+            _ => {}
+        }
+    }
+}
+
+/// Scales top-level shapes by `k` about the slide centre (from a slide of
+/// `old` size to one of `new` size: the old centre maps to the new one);
+/// group children and tables scale with their frames.
+fn scale_about_centre(
+    shapes: &mut [Shape],
+    k: f64,
+    old: model_show::SlideSize,
+    new: model_show::SlideSize,
+) {
+    let (ocx, ocy) = (old.width.0 as f64 / 2.0, old.height.0 as f64 / 2.0);
+    let (ncx, ncy) = (new.width.0 as f64 / 2.0, new.height.0 as f64 / 2.0);
+    let r = |v: f64| Emu(v.round() as i64);
+    for s in shapes {
+        let t = &mut s.transform;
+        t.x = r(ncx + (t.x.0 as f64 - ocx) * k);
+        t.y = r(ncy + (t.y.0 as f64 - ocy) * k);
+        t.w = r(t.w.0 as f64 * k);
+        t.h = r(t.h.0 as f64 * k);
+        let (w, h) = (t.w, t.h);
+        match &mut s.kind {
+            ShapeKind::Group { children } => scale_shapes(children, k, k),
+            ShapeKind::Table(table) => table.scale_to(w, h),
             _ => {}
         }
     }
@@ -558,6 +585,12 @@ impl ShowDocument {
 
     /// Writes the presentation as `.pptx`, with the file-level data it was
     /// opened with (if any).
+    /// Records the view the presentation is saved in (`lastView`): a
+    /// write-time stamp, not an edit (no undo step, no patch).
+    pub fn stamp_last_view(&mut self, v: ViewKind) {
+        self.pres.view.last_view = v;
+    }
+
     pub fn save_pptx(&self) -> R<Vec<u8>> {
         let default_ctx = fmt_pptx::PptxContext::default();
         let ctx = self.pptx_context.as_ref().unwrap_or(&default_ctx);
@@ -868,11 +901,22 @@ impl ShowDocument {
             }
             C::SetSlideBackground { slide, fill } => {
                 let s = self.slide_mut(*slide)?;
-                let old = std::mem::replace(&mut s.background, *fill);
+                let old = std::mem::replace(&mut s.background, fill.map(Background::Fill));
                 ch.slides.push(*slide);
-                Ok(C::SetSlideBackground {
-                    slide: *slide,
-                    fill: old,
+                Ok(match old {
+                    None => C::SetSlideBackground {
+                        slide: *slide,
+                        fill: None,
+                    },
+                    Some(Background::Fill(f)) => C::SetSlideBackground {
+                        slide: *slide,
+                        fill: Some(f),
+                    },
+                    Some(b) => C::SetBackground {
+                        target: BackgroundTarget::Slides(vec![*slide]),
+                        fill: Some(b),
+                        hide_master_shapes: None,
+                    },
                 })
             }
             C::AddShape {
@@ -1085,12 +1129,36 @@ impl ShowDocument {
                 *new_id,
                 ch,
             ),
-            C::SetSlideSize { size } => {
+            C::SetSlideSize { size, scale } => {
                 if size.width.0 <= 0 || size.height.0 <= 0 {
                     return Err(invalid("slide size must be positive"));
                 }
+                let old = self.pres.slide_size;
+                let sx = size.width.0 as f64 / old.width.0.max(1) as f64;
+                let sy = size.height.0 as f64 / old.height.0.max(1) as f64;
+                let k = match scale {
+                    SlideScale::None => None,
+                    SlideScale::Fit => Some(sx.min(sy)),
+                    SlideScale::Maximize => Some(sx.max(sy)),
+                };
+                let mut inverse = Vec::new();
+                if let Some(k) = k.filter(|k| (k - 1.0).abs() > 1e-12 || *size != old) {
+                    let ids: Vec<NodeId> = self.pres.slides.iter().map(|s| s.id).collect();
+                    let new = *size;
+                    inverse.push(self.edit_slides(&ids, ch, |d| {
+                        for s in &mut d.pres.slides {
+                            scale_about_centre(&mut s.shapes, k, old, new);
+                        }
+                        Ok(())
+                    })?);
+                }
                 let (master, layouts) = resized_design(&self.pres, *size);
-                Ok(self.set_size(*size, master, layouts, ch))
+                inverse.insert(0, self.set_size(*size, master, layouts, ch));
+                Ok(if inverse.len() == 1 {
+                    inverse.remove(0)
+                } else {
+                    C::Compound { commands: inverse }
+                })
             }
             C::SetSlideLayout { slide, layout } => {
                 let old_kind = self.pres.slides[self.slide_index(*slide)?].layout.clone();
@@ -1144,6 +1212,10 @@ impl ShowDocument {
                 ch.show_settings = true;
                 Ok(C::SetShowSettings { settings: old })
             }
+            C::SetLockAspect { shapes, locked } => self.edit_shapes(shapes, ch, |s| {
+                s.lock_aspect = *locked;
+                Ok(())
+            }),
             C::SetShapesHidden { shapes, hidden } => self.edit_shapes(shapes, ch, |s| {
                 s.hidden = *hidden;
                 Ok(())
@@ -1310,6 +1382,102 @@ impl ShowDocument {
                 idx,
                 patch,
             } => self.set_placeholder_props(target, *placeholder, *idx, patch, ch),
+            C::RenameLayout { layout, name } => self.rename_layout(layout, name, ch),
+            C::AddPlaceholder {
+                target,
+                kind,
+                transform,
+            } => {
+                check_transform(transform)?;
+                let inverse = self.design_snapshot();
+                let def = self.new_placeholder(target, *kind, *transform)?;
+                match target {
+                    DesignTarget::Master => self.pres.master.placeholders.push(def),
+                    DesignTarget::Layout(lk) => {
+                        let i = self.layout_index(lk)?;
+                        self.pres.layouts[i].placeholders.push(def);
+                    }
+                }
+                ch.design = true;
+                Ok(inverse)
+            }
+            C::RemovePlaceholder {
+                target,
+                placeholder,
+                idx,
+            } => {
+                let inverse = self.design_snapshot();
+                let list = self.placeholders_mut(target)?;
+                let i = list
+                    .iter()
+                    .position(|d| d.kind == *placeholder && idx.map_or(true, |x| d.idx == x))
+                    .ok_or_else(|| invalid(format!("no {placeholder:?} placeholder to remove")))?;
+                list.remove(i);
+                ch.design = true;
+                Ok(inverse)
+            }
+            C::SetMasterTextStyle {
+                which,
+                level,
+                run,
+                paragraph,
+            } => self.set_master_text_style(*which, *level, run.as_ref(), paragraph.as_ref(), ch),
+            C::SetPlaceholderPrompt {
+                target,
+                placeholder,
+                idx,
+                prompt,
+            } => {
+                let inverse = self.design_snapshot();
+                let list = self.placeholders_mut(target)?;
+                let d = list
+                    .iter_mut()
+                    .find(|d| d.kind == *placeholder && idx.map_or(true, |x| d.idx == x))
+                    .ok_or_else(|| invalid(format!("no {placeholder:?} placeholder")))?;
+                if d.kind.is_header_footer() {
+                    return Err(invalid("date, footer and slide number take no prompt"));
+                }
+                d.prompt = prompt.clone();
+                ch.design = true;
+                Ok(inverse)
+            }
+            C::SetBackgroundPicture {
+                target,
+                content_type,
+                bytes_base64,
+                tile,
+                transparency,
+            } => {
+                if content_type.is_empty() {
+                    return Err(invalid("missing content type"));
+                }
+                let bytes = base64_decode(bytes_base64)
+                    .map_err(|e| ShowError::BadRequest(format!("invalid base64: {e}")))?;
+                let count = self.pres.media.len();
+                let media = self.pres.media.insert(content_type.clone(), bytes);
+                let added = self.pres.media.len() > count;
+                let bg = Background::Picture(model_show::PictureFill {
+                    media,
+                    tile: *tile,
+                    transparency: *transparency,
+                });
+                let restore = match self.set_background(target, Some(&bg), None, ch) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        if added {
+                            self.pres.media.remove(media);
+                        }
+                        return Err(e);
+                    }
+                };
+                Ok(if added {
+                    C::Compound {
+                        commands: vec![restore, C::RemoveMedia { id: media }],
+                    }
+                } else {
+                    restore
+                })
+            }
             C::SetBackground {
                 target,
                 fill,
@@ -1685,6 +1853,15 @@ impl ShowDocument {
             C::SplitTableCell { shape, row, col } => {
                 self.edit_table(*shape, ch, |t, _| t.split(*row as usize, *col as usize))
             }
+            C::SplitTableCellGrid {
+                shape,
+                row,
+                col,
+                rows,
+                cols,
+            } => self.edit_table(*shape, ch, |t, _| {
+                t.split_grid(*row as usize, *col as usize, *rows as usize, *cols as usize)
+            }),
             C::SetTableCellProps {
                 shape,
                 row,
@@ -2085,6 +2262,7 @@ impl ShowDocument {
                 .clone()
                 .filter(model_show::Hyperlink::is_valid),
             hidden: ns.hidden,
+            lock_aspect: ns.lock_aspect,
         };
         shape.fill_default_name();
         normalize_shape(&mut shape);
@@ -2300,6 +2478,193 @@ impl ShowDocument {
         Ok(())
     }
 
+    /// The placeholder list of the master or a layout.
+    fn placeholders_mut(&mut self, target: &DesignTarget) -> R<&mut Vec<PlaceholderDef>> {
+        Ok(match target {
+            DesignTarget::Master => &mut self.pres.master.placeholders,
+            DesignTarget::Layout(lk) => {
+                let i = self.layout_index(lk)?;
+                &mut self.pres.layouts[i].placeholders
+            }
+        })
+    }
+
+    /// A new placeholder of `kind` for `target`: text defaults from the
+    /// master placeholder it inherits from (else the master text style),
+    /// the next free `idx` (titles 0; the master: one per kind).
+    fn new_placeholder(
+        &self,
+        target: &DesignTarget,
+        kind: PlaceholderKind,
+        transform: Transform,
+    ) -> R<PlaceholderDef> {
+        let m = &self.pres.master;
+        let existing: &[PlaceholderDef] = match target {
+            DesignTarget::Master => &m.placeholders,
+            DesignTarget::Layout(lk) => &self.pres.layouts[self.layout_index(lk)?].placeholders,
+        };
+        if matches!(target, DesignTarget::Master) {
+            let base = match kind {
+                PlaceholderKind::Title
+                | PlaceholderKind::Body
+                | PlaceholderKind::DateTime
+                | PlaceholderKind::Footer
+                | PlaceholderKind::SlideNumber => kind,
+                _ => return Err(invalid(format!("the master takes no {kind:?} placeholder"))),
+            };
+            if existing.iter().any(|d| d.kind == base) {
+                return Err(invalid(format!(
+                    "the master already has a {kind:?} placeholder"
+                )));
+            }
+        }
+        if matches!(
+            kind,
+            PlaceholderKind::Title | PlaceholderKind::CenteredTitle
+        ) && existing.iter().any(|d| {
+            matches!(
+                d.kind,
+                PlaceholderKind::Title | PlaceholderKind::CenteredTitle
+            )
+        }) {
+            return Err(invalid("the layout already has a title"));
+        }
+        let idx = match kind {
+            PlaceholderKind::Title | PlaceholderKind::CenteredTitle => 0,
+            _ if matches!(target, DesignTarget::Master) => {
+                existing.iter().map(|d| d.idx).max().unwrap_or(0) + 1
+            }
+            k if k.is_header_footer() && !existing.iter().any(|d| d.idx == k.default_idx()) => {
+                k.default_idx()
+            }
+            _ => {
+                // PowerPoint numbers added layout placeholders 13, 14, …
+                let used = existing.iter().map(|d| d.idx).max().unwrap_or(0);
+                used.max(12) + 1
+            }
+        };
+        let mut def = match m.placeholder_for(kind) {
+            Some(b) => b.clone(),
+            None => {
+                let (p, r) = m.style_defaults(kind);
+                PlaceholderDef {
+                    kind,
+                    idx,
+                    transform,
+                    body_defaults: model_show::BodyProps::default(),
+                    run_defaults: r,
+                    paragraph_defaults: p,
+                    text_only: false,
+                    vertical: false,
+                    prompt: None,
+                }
+            }
+        };
+        def.kind = kind;
+        def.idx = idx;
+        def.transform = transform;
+        def.text_only = false;
+        def.vertical = false;
+        def.prompt = None;
+        Ok(def)
+    }
+
+    fn rename_layout(&mut self, layout: &LayoutKind, name: &str, ch: &mut Changes) -> R<C> {
+        let i = self.layout_index(layout)?;
+        let name = name.trim();
+        let inverse = self.design_snapshot();
+        if layout.is_standard() {
+            let l = &mut self.pres.layouts[i];
+            l.name = if name == layout.display_name() {
+                String::new()
+            } else {
+                name.to_owned()
+            };
+            ch.design = true;
+            return Ok(inverse);
+        }
+        let kind = LayoutKind::Custom(name.to_owned());
+        if name.is_empty() {
+            return Err(invalid("a layout needs a name"));
+        }
+        if &kind == layout {
+            return Ok(inverse);
+        }
+        if self.pres.layout(&kind).is_some() {
+            return Err(invalid(format!("layout name {name:?} is taken")));
+        }
+        let slides: Vec<NodeId> = self
+            .pres
+            .slides
+            .iter()
+            .filter(|s| &s.layout == layout)
+            .map(|s| s.id)
+            .collect();
+        let content = self.edit_slides(&slides, ch, |d| {
+            for &id in &slides {
+                d.slide_mut(id)?.layout = kind.clone();
+            }
+            Ok(())
+        })?;
+        let l = &mut self.pres.layouts[i];
+        l.kind = kind;
+        l.name.clear();
+        ch.design = true;
+        Ok(if slides.is_empty() {
+            inverse
+        } else {
+            C::Compound {
+                commands: vec![content, inverse],
+            }
+        })
+    }
+
+    fn set_master_text_style(
+        &mut self,
+        which: TextClass,
+        level: u8,
+        run: Option<&core_model::RunProperties>,
+        paragraph: Option<&crate::command::TextParagraphPatch>,
+        ch: &mut Changes,
+    ) -> R<C> {
+        if level > 8 {
+            return Err(invalid("text style levels are 0–8"));
+        }
+        // level 1 of titles and body text is the master placeholders'
+        // defaults: change it through them, so layouts follow
+        if level == 0 && which != TextClass::Other {
+            let kind = if which == TextClass::Title {
+                PlaceholderKind::Title
+            } else {
+                PlaceholderKind::Body
+            };
+            if self.pres.master.placeholder_for(kind).is_some() {
+                let patch = PlaceholderPatch {
+                    transform: None,
+                    body: None,
+                    run: run.cloned(),
+                    paragraph: paragraph.cloned(),
+                };
+                return self.set_placeholder_props(&DesignTarget::Master, kind, None, &patch, ch);
+            }
+        }
+        let inverse = self.design_snapshot();
+        let styles = self.pres.master.text_styles.of_mut(which);
+        while styles.len() <= usize::from(level) {
+            let last = styles.last().cloned().unwrap_or_default();
+            styles.push(last);
+        }
+        let l = &mut styles[usize::from(level)];
+        if let Some(r) = run {
+            l.run.apply(r);
+        }
+        if let Some(pp) = paragraph {
+            pp.apply_to(&mut l.paragraph);
+        }
+        ch.design = true;
+        Ok(inverse)
+    }
+
     fn set_placeholder_props(
         &mut self,
         target: &DesignTarget,
@@ -2418,6 +2783,19 @@ impl ShowDocument {
         })
     }
 
+    /// A picture background must name an image of the media store.
+    fn check_background_media(&self, bg: Option<&Background>) -> R<()> {
+        match bg {
+            Some(Background::Picture(p)) if self.pres.media.get(p.media).is_none() => Err(invalid(
+                format!("background picture {} is not in the media store", p.media.0),
+            )),
+            Some(Background::Picture(p)) if !(0.0..=1.0).contains(&p.transparency) => {
+                Err(invalid("background transparency must be 0…1"))
+            }
+            _ => Ok(()),
+        }
+    }
+
     fn set_background(
         &mut self,
         target: &BackgroundTarget,
@@ -2428,12 +2806,12 @@ impl ShowDocument {
         match target {
             BackgroundTarget::Slides(slides) => {
                 let fill = match fill {
-                    None => None,
-                    Some(Background::Fill(f)) => Some(*f),
                     Some(Background::Style { .. }) => {
                         return Err(invalid("slides take explicit background fills"))
                     }
+                    f => f.copied(),
                 };
+                self.check_background_media(fill.as_ref())?;
                 for &id in slides {
                     self.slide_index(id)?;
                 }
@@ -2452,6 +2830,7 @@ impl ShowDocument {
             }
             BackgroundTarget::Layout(kind) => {
                 let i = self.layout_index(kind)?;
+                self.check_background_media(fill)?;
                 let inverse = self.design_snapshot();
                 let l = &mut self.pres.layouts[i];
                 l.background = fill.copied();
@@ -2465,6 +2844,7 @@ impl ShowDocument {
                 if hide.is_some() {
                     return Err(invalid("the master has no master graphics to hide"));
                 }
+                self.check_background_media(fill)?;
                 let inverse = self.design_snapshot();
                 self.pres.master.background = fill.copied().unwrap_or_default();
                 ch.design = true;

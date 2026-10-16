@@ -1,0 +1,11 @@
+---
+source: crates/fmt-pptx/tests/fidelity.rs
+expression: first
+---
+<p:nvSpPr>
+     <p:cNvPr id="2" name="U-Turn Arrow 5"/>
+     <p:cNvSpPr>
+      <a:spLocks noChangeAspect="1"/>
+     </p:cNvSpPr>
+     <p:nvPr/>
+    </p:nvSpPr>

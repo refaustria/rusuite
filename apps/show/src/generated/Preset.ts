@@ -2,14 +2,16 @@
 import type { GeomPath } from "./GeomPath";
 
 /**
- * Preset geometry of an auto shape (`a:prstGeom/@prst`), or a custom
- * geometry (`a:custGeom`).
+ * Preset geometry of an auto shape (`a:prstGeom/@prst`), or a
+ * custom geometry (`a:custGeom`). Outlines, adjust values and
+ * their handles, connection sites and text rectangles follow
+ * ECMA-376's preset shape definitions (see [`crate::presets`]).
  *
  * Unit variants serialize as their DrawingML name (`"rect"`,
  * `"wedgeRectCallout"`); a custom geometry as
  * `{"custom":{"paths":[…]}}`.
  */
-export type Preset = "rect" | "roundRect" | "snip1Rect" | "snip2SameRect" | "round1Rect" | "round2SameRect" | "ellipse" | "triangle" | "rtTriangle" | "diamond" | "pentagon" | "hexagon" | "octagon" | "parallelogram" | "trapezoid" | "heart" | "cloud" | "rightArrow" | "leftArrow" | "upArrow" | "downArrow" | "leftRightArrow" | "upDownArrow" | "chevron" | "homePlate" | "star4" | "star5" | "star6" | "star8" | "wedgeRectCallout" | "wedgeRoundRectCallout" | "wedgeEllipseCallout" | "flowChartProcess" | "flowChartDecision" | "flowChartTerminator" | "flowChartDocument" | "flowChartConnector" | "flowChartInputOutput" | "line" | "actionButtonBlank" | "actionButtonHome" | "actionButtonHelp" | "actionButtonInformation" | "actionButtonBackPrevious" | "actionButtonForwardNext" | "actionButtonBeginning" | "actionButtonEnd" | "actionButtonReturn" | "actionButtonDocument" | "actionButtonSound" | "actionButtonMovie" | { "custom": { 
+export type Preset = "rect" | "roundRect" | "snip1Rect" | "snip2SameRect" | "round1Rect" | "round2SameRect" | "ellipse" | "triangle" | "rtTriangle" | "diamond" | "pentagon" | "hexagon" | "octagon" | "parallelogram" | "trapezoid" | "heart" | "cloud" | "rightArrow" | "leftArrow" | "upArrow" | "downArrow" | "leftRightArrow" | "upDownArrow" | "chevron" | "homePlate" | "star4" | "star5" | "star6" | "star8" | "wedgeRectCallout" | "wedgeRoundRectCallout" | "wedgeEllipseCallout" | "flowChartProcess" | "flowChartDecision" | "flowChartTerminator" | "flowChartDocument" | "flowChartConnector" | "flowChartInputOutput" | "line" | "actionButtonBlank" | "actionButtonHome" | "actionButtonHelp" | "actionButtonInformation" | "actionButtonBackPrevious" | "actionButtonForwardNext" | "actionButtonBeginning" | "actionButtonEnd" | "actionButtonReturn" | "actionButtonDocument" | "actionButtonSound" | "actionButtonMovie" | "bentArrow" | "uturnArrow" | "leftRightUpArrow" | "quadArrow" | "ribbon" | "ribbon2" | "wave" | "doubleWave" | "plus" | "mathPlus" | "mathMinus" | "mathMultiply" | "mathDivide" | "mathEqual" | "mathNotEqual" | "frame" | "halfFrame" | "corner" | "diagStripe" | "chord" | "teardrop" | "pie" | "blockArc" | "donut" | "noSmoking" | "foldedCorner" | "bevel" | "cube" | "can" | "lightningBolt" | "sun" | "moon" | "smileyFace" | "cloudCallout" | "borderCallout1" | "borderCallout2" | "flowChartAlternateProcess" | "flowChartPredefinedProcess" | "flowChartInternalStorage" | "flowChartMultidocument" | "flowChartPreparation" | "flowChartManualInput" | "flowChartManualOperation" | "flowChartOffpageConnector" | "flowChartPunchedCard" | "flowChartPunchedTape" | "flowChartSummingJunction" | "flowChartOr" | "flowChartCollate" | "flowChartSort" | "flowChartExtract" | "flowChartMerge" | "flowChartOnlineStorage" | "flowChartDelay" | "flowChartMagneticTape" | "flowChartMagneticDisk" | "flowChartMagneticDrum" | "flowChartDisplay" | "flowChartOfflineStorage" | { "custom": { 
 /**
  * The paths, bottom to top.
  */

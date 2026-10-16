@@ -7,7 +7,7 @@
 pub const PLACEHOLDER_POSTER: &[u8] = include_bytes!("poster.png");
 
 /// `p:ext/@uri` of the `p14:media` extension of `p:nvPr`.
-pub const MEDIA_EXT_URI: &str = "{DAA4B4D4-6D71-4841-9C94-3DA902A3CE3B}";
+pub const MEDIA_EXT_URI: &str = "{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}";
 /// Relationship type of `p14:media r:embed`.
 pub const MEDIA_REL: &str = "http://schemas.microsoft.com/office/2007/relationships/media";
 /// Relationship type of `a:videoFile r:link`.

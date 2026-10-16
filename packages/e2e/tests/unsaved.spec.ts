@@ -47,6 +47,7 @@ test.describe("Unsaved changes", () => {
     await grid.type(0, 0, "saved first");
     await expect(page.getByTestId("status-bar")).toContainText("Modified");
     await fileCommand(page, /^Open/);
+    await page.getByTestId("open-page").getByRole("button", { name: /^This device/ }).click();
     await page.getByRole("dialog", { name: "Save changes to Untitled?" }).getByRole("button", { name: "Save", exact: true }).click();
     const name = page.getByRole("dialog", { name: "Save as" }).getByLabel("File name");
     await expect(name).toHaveValue("Workbook.xlsx");

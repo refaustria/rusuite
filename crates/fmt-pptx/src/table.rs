@@ -156,9 +156,9 @@ fn apply_merges(t: &mut Table, spans: &[Vec<(u32, u32, bool)>], w: &mut Warnings
     }
 }
 
-/// Drops cell fills and borders that equal what the table style draws
-/// (our writer spells the default style out; reading it back gives the
-/// style-only cells again).
+/// Drops cell fills and borders that equal what the default table style
+/// draws (our writer spelled that style out before tableStyles.xml held
+/// its definition; reading such files gives the style-only cells again).
 fn unstyle(t: &mut Table) {
     if t.style_id.as_deref() != Some(MEDIUM_STYLE_2_ACCENT_1) {
         return;
@@ -233,9 +233,8 @@ fn read_cell(tc: &El, w: &mut Warnings) -> TableCell {
     cell
 }
 
-/// Writes `a:tbl` (inside `a:graphicData`). Cells without their own fill
-/// or borders get the default style's spelled out, so that readers
-/// without the style definition show the same table.
+/// Writes `a:tbl` (inside `a:graphicData`) with the style's GUID in
+/// `a:tableStyleId` and only the cells' own fills and borders.
 pub fn write_table(x: &mut XmlOut, t: &Table, links: &mut dyn crate::link::LinkSink) {
     x.start("a:tbl", &[]);
     let look = t.look;
@@ -337,9 +336,10 @@ fn write_cell(
         Anchor::Middle => pr.push(("anchor", "ctr")),
         Anchor::Bottom => pr.push(("anchor", "b")),
     }
-    let borders = t.effective_borders(r, c);
-    let styled = t.style_id.as_deref() == Some(MEDIUM_STYLE_2_ACCENT_1);
-    let fill = cell.fill.or_else(|| styled.then(|| t.effective_fill(r, c)));
+    // only the cell's own formatting: the style is defined in
+    // `tableStyles.xml` and referenced by `a:tableStyleId`
+    let borders = cell.borders;
+    let fill = cell.fill;
     x.start("a:tcPr", &pr);
     let none = model_show::ArrowEnd::default();
     for (name, line) in [

@@ -34,8 +34,23 @@ NS = (
 )
 SIZES = {"16x9": (28.0, 15.75), "4x3": (25.4, 19.05)}
 IMAGES = {}
-# An EBML header: the "video" of deck 33 (LibreOffice links media; `post` embeds it).
+# An EBML header: the stand-in "video" when ffmpeg is missing (LibreOffice links media; `post` embeds it).
 WEBM = bytes.fromhex("1a45dfa39f4286810142f7810142f2810442f381084282847765626d")
+# The real clip of deck 33: 3 s, 320 x 240 test pattern with a 440 Hz tone, H.264 baseline + AAC (what
+# PowerPoint plays), generated with ffmpeg.
+FFMPEG_CLIP = ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=3:size=320x240:rate=15",
+               "-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-c:v", "libx264", "-profile:v", "baseline",
+               "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"]
+
+
+def make_clip(path):
+    """Writes the MP4 clip to `path` (the EBML stand-in when ffmpeg is not installed)."""
+    import shutil
+    import subprocess
+    if shutil.which("ffmpeg"):
+        subprocess.run(FFMPEG_CLIP + [str(path)], check=True)
+    else:
+        Path(path).write_bytes(WEBM)
 MEDIA_DIR = None  # where `emit` writes the media files the .fodp files link
 
 
@@ -499,9 +514,9 @@ class Deck:
         self.add(xml.replace(">", ">" + listener, 1))
 
     def video(self, x, y, w, h, name):
-        """A video (LibreOffice links the file; `gen.py post` embeds it as ppt/media/media1.webm)."""
+        """A video (LibreOffice links the file; `gen.py post` embeds it as ppt/media/media1.mp4)."""
         self.feat("media:video")
-        (Path(MEDIA_DIR) / name).write_bytes(WEBM)
+        make_clip(Path(MEDIA_DIR) / name)
         href = (Path(MEDIA_DIR) / name).resolve().as_uri()
         self.add(f'<draw:frame svg:x="{x}cm" svg:y="{y}cm" svg:width="{w}cm" svg:height="{h}cm">'
                  f'<draw:plugin xlink:href="{href}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad" '
@@ -909,7 +924,7 @@ def d33():
     d.textbox(1, 1, 20, 2, "Second slide")
     d.action_shape("rect", 1, 5, 5, 2, "Back", "previous-page")
     d.slide("blank")
-    d.video(2, 2, 16, 9, "clip.webm")
+    d.video(2, 2, 16, 9, "clip.mp4")
     return d
 
 

@@ -8,6 +8,7 @@
 //! (the placeholder colour `phClr`, a scheme slot or RGB) and the DrawingML
 //! colour modifiers in file units, so theme style lists round-trip exactly.
 
+use core_model::media::MediaId;
 use core_model::{Color, ColorScheme, FontScheme, Rgb, ThemeColorSlot};
 use serde::{Deserialize, Serialize};
 
@@ -134,6 +135,11 @@ impl Theme {
     pub fn resolve_background(&self, bg: &Background) -> ResolvedFill {
         match bg {
             Background::Fill(f) => self.resolve_fill(f),
+            Background::Picture(p) => ResolvedFill::Picture {
+                media: p.media,
+                tile: p.tile,
+                alpha: (1.0 - p.transparency).clamp(0.0, 1.0),
+            },
             Background::Style { index, color } => {
                 let ph = self.resolve(color);
                 let list = if *index >= 1001 {
@@ -161,8 +167,9 @@ impl Theme {
 /// A background (`p:bg`): an explicit fill (`p:bgPr`) or a reference to
 /// the theme's background fill styles (`p:bgRef`).
 ///
-/// Serializes as `{"kind":"fill","value":<Fill>}` or
-/// `{"kind":"style","value":{"index":1001,"color":<Color>}}`.
+/// Serializes as `{"kind":"fill","value":<Fill>}`,
+/// `{"kind":"style","value":{"index":1001,"color":<Color>}}` or
+/// `{"kind":"picture","value":{"media":3,"tile":true}}`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
 #[cfg_attr(
@@ -183,6 +190,39 @@ pub enum Background {
         #[cfg_attr(feature = "ts", ts(as = "app_common::wire::Color"))]
         color: Color,
     },
+    /// A picture or texture (`p:bgPr/a:blipFill`).
+    Picture(PictureFill),
+}
+
+/// A picture background (`a:blipFill`): stretched over the slide, or
+/// tiled at the picture's size (a texture).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub struct PictureFill {
+    /// The image.
+    #[cfg_attr(feature = "ts", ts(as = "crate::ts::MediaId"))]
+    pub media: MediaId,
+    /// Tile instead of stretching (`a:tile` instead of `a:stretch`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
+    pub tile: bool,
+    /// Transparency `0..=1` (`a:alphaModFix amt = 1 − transparency`).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<f64>"))]
+    pub transparency: f64,
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
 }
 
 impl Default for Background {
@@ -225,6 +265,17 @@ pub enum ResolvedFill {
         shape: GradientShape,
         /// Stops by position.
         stops: Vec<ResolvedStop>,
+    },
+    /// A picture, stretched or tiled, with opacity.
+    #[serde(rename_all = "camelCase")]
+    Picture {
+        /// The image.
+        #[cfg_attr(feature = "ts", ts(as = "crate::ts::MediaId"))]
+        media: MediaId,
+        /// Tiled at the picture's size.
+        tile: bool,
+        /// Opacity `0..=1`.
+        alpha: f64,
     },
 }
 

@@ -24,6 +24,13 @@ export interface ClickGroup {
   items: TimedAnimation[];
   /** When the last animation of the group ends. */
   durationMs: number;
+  /** A media clip this click starts (clips "In Click Sequence": one click each, after the animations). */
+  media?: NodeId;
+}
+
+/** The audio / video shapes of a slide that start "In Click Sequence", in z-order (as the core writes them into the timing). */
+export function sequenceMedia(slide: Pick<Slide, "shapes">): NodeId[] {
+  return (slide.shapes ?? []).filter((s) => s.kind.kind === "media" && s.kind.value.start === "inClickSequence").map((s) => s.id);
 }
 
 /** The effective duration of an animation (Appear is instant). */
@@ -36,7 +43,7 @@ export const animDuration = (a: Animation): number => (a.effect === "appear" ? 0
  * follow it. With Previous starts with the previous animation, After
  * Previous when it ends; each adds its own delay.
  */
-export function clickGroups(slide: Pick<Slide, "animations">): ClickGroup[] {
+export function clickGroups(slide: Pick<Slide, "animations"> & Partial<Pick<Slide, "shapes">>): ClickGroup[] {
   const groups: ClickGroup[] = [{ items: [], durationMs: 0 }];
   let prevTrigger = 0;
   let prevEnd = 0;
@@ -55,11 +62,20 @@ export function clickGroups(slide: Pick<Slide, "animations">): ClickGroup[] {
     prevTrigger = trigger;
     prevEnd = end;
   }
+  for (const media of sequenceMedia({ shapes: slide.shapes ?? [] })) groups.push({ items: [], durationMs: 0, media });
   return groups;
 }
 
-/** Click steps of a slide (the On Click animations). */
-export const clickSteps = (slide: Pick<Slide, "animations">): number => (slide.animations ?? []).filter((a) => a.trigger === "onClick").length;
+/** Click steps of a slide: the On Click animations, then one per clip "In Click Sequence". */
+export const clickSteps = (slide: Pick<Slide, "animations"> & Partial<Pick<Slide, "shapes">>): number =>
+  (slide.animations ?? []).filter((a) => a.trigger === "onClick").length + sequenceMedia({ shapes: slide.shapes ?? [] }).length;
+
+/** The clips "In Click Sequence" whose click has come once `step` click steps are done. */
+export function startedMedia(slide: Pick<Slide, "animations" | "shapes">, step: number): NodeId[] {
+  return clickGroups(slide)
+    .slice(1, step + 1)
+    .flatMap((g) => (g.media !== undefined ? [g.media] : []));
+}
 
 /** What animations changed on a shape. */
 export interface ShapeState {

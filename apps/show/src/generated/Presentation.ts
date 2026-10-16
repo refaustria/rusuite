@@ -6,6 +6,7 @@ import type { ShowSettings } from "./ShowSettings";
 import type { Slide } from "./Slide";
 import type { SlideMaster } from "./SlideMaster";
 import type { SlideSize } from "./SlideSize";
+import type { TableStyleDef } from "./TableStyleDef";
 import type { Theme } from "./Theme";
 import type { ViewProps } from "./ViewProps";
 
@@ -52,4 +53,10 @@ view?: ViewProps,
 /**
  * Set Up Slide Show (`presProps.xml`).
  */
-showSettings?: ShowSettings, };
+showSettings?: ShowSettings, 
+/**
+ * Table styles of the file that are not PowerPoint built-ins
+ * (`ppt/tableStyles.xml`; tables find their style here first, then
+ * among [`crate::builtin_table_styles`]).
+ */
+tableStyles?: Array<TableStyleDef>, };

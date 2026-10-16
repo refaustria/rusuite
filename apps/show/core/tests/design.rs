@@ -630,6 +630,7 @@ fn slide_size_scales_custom_designs() {
         &mut h,
         C::SetSlideSize {
             size: model_show::SlideSize::standard(),
+            scale: Default::default(),
         },
     );
     assert_eq!(
@@ -654,6 +655,7 @@ fn slide_size_scales_custom_designs() {
                 width: Emu(18_288_000),
                 height: Emu(6_858_000),
             },
+            scale: Default::default(),
         },
     );
     assert_eq!(

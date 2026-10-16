@@ -11,7 +11,8 @@ export type RibbonIconName =
   | "newSlide" | "duplicate" | "trash" | "rect" | "roundRect" | "ellipse" | "line" | "textBox" | "arrange" | "shapes"
   | "present" | "presentCurrent"
   | "new" | "open" | "save" | "saveAs" | "pdf" | "print" | "home" | "close" | "back" | "recent"
-  | "alignJustify" | "chevronDown" | "chevronUp" | "options";
+  | "alignJustify" | "chevronDown" | "chevronUp" | "options"
+  | "cloud" | "folder" | "file" | "device" | "plus" | "refresh" | "rename" | "chevronRight";
 
 const P = (d: string) => <path d={d} />;
 const page = <path d="M5 2.5h7l3 3v12H5z" />;
@@ -76,6 +77,14 @@ const PATHS: Record<RibbonIconName, ReactNode> = {
   alignJustify: P("M3 5h14M3 9h14M3 13h14M3 17h14"),
   chevronDown: P("M6 8l4 4 4-4"),
   chevronUp: P("M6 12l4-4 4 4"),
+  chevronRight: P("M8 6l4 4-4 4"),
+  cloud: P("M6 15.5h8.5a3.5 3.5 0 00.4-7A5 5 0 005.3 9.6 3 3 0 006 15.5z"),
+  folder: P("M2.5 5.5v10h15v-8H10L8.5 5.5z"),
+  file: <>{page}<path d="M12 2.5v3h3" /></>,
+  device: <><rect x="2.5" y="4" width="15" height="10" rx="1" /><path d="M7 17h6M10 14v3" /></>,
+  plus: P("M10 4v12M4 10h12"),
+  refresh: <><path d="M16 10a6 6 0 11-1.8-4.3" /><path d="M16 3.5v3.2h-3.2" /></>,
+  rename: <><path d="M3 15.5l9-9 2.5 2.5-9 9H3z" /><path d="M11 4.5l2.5 2.5" /></>,
 };
 
 /** A ribbon icon; `size` in px (large buttons use 22). */

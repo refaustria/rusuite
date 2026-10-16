@@ -4,7 +4,8 @@
 use app_common::{DispatchError, Envelope, Host, Revision};
 use core_model::media::{base64_decode, base64_encode, MediaId};
 use model_show::{
-    flatten, Adjust, BuiltinTheme, ConnectorKind, Presentation, Preset, Site, SubPath,
+    flatten, Adjust, AdjustHandle, BuiltinTheme, ConnectorKind, Presentation, Preset, Site,
+    SubPath, TextRect, ViewKind,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -64,6 +65,12 @@ pub struct ShapePaths {
     pub paths: Vec<SubPath>,
     /// Connection sites (none for connectors).
     pub sites: Vec<Site>,
+    /// The text rectangle (`a:rect`; connectors: the box).
+    pub text_rect: TextRect,
+    /// Adjust handles (none for connectors: the UI draws their own).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<AdjustHandle>>")]
+    pub handles: Vec<AdjustHandle>,
 }
 
 impl PathQuery {
@@ -80,6 +87,8 @@ impl PathQuery {
                     })
                     .collect(),
                 sites: p.connection_sites(self.w, self.h, &self.adjust),
+                text_rect: p.text_rect(self.w, self.h, &self.adjust),
+                handles: p.handles(self.w, self.h, &self.adjust),
             },
             PathKind::Connector { kind, bends } => ShapePaths {
                 paths: vec![SubPath::stroked(flatten(&kind.path(
@@ -89,6 +98,13 @@ impl PathQuery {
                     &self.adjust,
                 )))],
                 sites: Vec::new(),
+                text_rect: TextRect {
+                    l: 0.0,
+                    t: 0.0,
+                    r: self.w,
+                    b: self.h,
+                },
+                handles: Vec::new(),
             },
         }
     }
@@ -129,7 +145,13 @@ pub enum Request {
     OpenPptx { bytes_base64: String, name: String },
     /// Writes the presentation as `.pptx` → `saved`. Does NOT mark it
     /// saved: the shell sends `markSaved` once the file was really written.
-    SavePptx,
+    SavePptx {
+        /// The view the user is in (Normal, Slide Sorter …), stamped into
+        /// `viewProps.xml` `lastView` without an undo step.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        last_view: Option<ViewKind>,
+    },
     /// The whole presentation for crash recovery → `recoverySnapshot` (changes
     /// nothing; the JSON is the input of `restoreRecovery`).
     RecoverySnapshot,
@@ -290,7 +312,10 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
                 envelope: Box::new(host.envelope(ShowPatch::default())),
             }
         }
-        Request::SavePptx => {
+        Request::SavePptx { last_view } => {
+            if let Some(v) = last_view {
+                host.doc_mut().stamp_last_view(v);
+            }
             let bytes = host.doc().save_pptx()?;
             ResponseBody::Saved {
                 bytes_base64: base64_encode(&bytes),

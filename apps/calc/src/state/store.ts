@@ -61,6 +61,8 @@ import { ChartController } from "../charts/controller";
 import { NamesController } from "../names/controller";
 import { TraceController } from "../audit/trace";
 import { CommentsController, type UserNext } from "../comments/controller";
+import { PivotController } from "../pivot/controller";
+import type { DropTarget } from "../pivot/buttons";
 
 /** Snapshot blocks: 64 rows × 32 columns. */
 export const BLOCK_ROWS = 64;
@@ -214,7 +216,23 @@ export type CalcDialog =
   /** Insert › Link (Ctrl+K): insert or edit the selection's hyperlink. */
   | { kind: "link" }
   /** Asks for the user name before the first comment (kept in this browser only). */
-  | { kind: "userName"; next: UserNext };
+  | { kind: "userName"; next: UserNext }
+  /** Insert › PivotTable (Create PivotTable). */
+  | { kind: "pivotCreate" }
+  /** Delete on a selection covering whole pivot tables: confirm. */
+  | { kind: "pivotDelete"; ids: number[] }
+  /** Value Field Settings of data field `index`. */
+  | { kind: "pivotValueField"; id: number; index: number }
+  /** Field Settings of an axis or page field. */
+  | { kind: "pivotFieldSettings"; id: number; field: number }
+  /** PivotTable Options (Analyze › Options ▾). */
+  | { kind: "pivotOptions"; id: number }
+  /** Move PivotTable. */
+  | { kind: "pivotMove"; id: number }
+  /** Change Data Source. */
+  | { kind: "pivotSource"; id: number }
+  /** The filter dropdown of a pivot table header or page cell, at viewport point `at`. */
+  | { kind: "pivotFilter"; id: number; target: DropTarget; at: { x: number; y: number } };
 
 /** The failed check of a committed edit (Excel's Stop / Warning / Information alert). */
 export interface ValidationAlert {
@@ -262,7 +280,8 @@ export function emptyCache(): SheetCache {
 
 function isBlankCell(c: CellView): boolean {
   // An empty cell with a note or a comment stays: it carries the indicator.
-  return c.input === "" && c.display === "" && c.style === 0 && !c.note && !c.comment;
+  // So does a blank cell of a pivot table: it carries the table's look.
+  return c.input === "" && c.display === "" && c.style === 0 && !c.note && !c.comment && !c.pivot;
 }
 
 function putCell(cache: SheetCache, c: CellView): void {
@@ -398,6 +417,8 @@ export class CalcStore {
   readonly trace: TraceController = new TraceController(this);
   /** Notes, threaded comments and hyperlinks (P8-26). */
   readonly comments: CommentsController = new CommentsController(this);
+  /** Pivot tables: lists, field lists, the field pane, looks and buttons, commands (P8-33). */
+  readonly pivots: PivotController = new PivotController(this);
 
   constructor(readonly api: CalcApi) {}
 
@@ -533,7 +554,11 @@ export class CalcStore {
   }
 
   pushError(e: unknown): void {
-    const message = e instanceof CalcApiError ? `${e.code}: ${e.message}` : e instanceof Error ? e.message : String(e);
+    // A content edit inside a pivot table: Excel's message.
+    const message =
+      e instanceof CalcApiError && e.code === "pivot_cell"
+        ? t("calc.pivot.cantChange")
+        : e instanceof CalcApiError ? `${e.code}: ${e.message}` : e instanceof Error ? e.message : String(e);
     if (this.state.toasts.some((t) => t.message === message)) return;
     const id = ++this.toastSeq;
     this.set({ toasts: [...this.state.toasts, { id, message }] });
@@ -563,6 +588,7 @@ export class CalcStore {
     this.inflight.clear();
     this.charts.reset();
     this.comments.reset();
+    this.pivots.reset(info.stalePivots ?? []);
     const shown = visibleSheets(info.sheets);
     const active = shown.some((s) => s.id === this.state.activeSheet) ? this.state.activeSheet : (shown[0]?.id ?? info.sheets[0]?.id ?? 0);
     this.bump({ info, activeSheet: active, revision: info.revision, edit: null });
@@ -584,9 +610,14 @@ export class CalcStore {
       for (const key of [...this.inflight.keys()]) if (key.startsWith(`${s.sheet}:`)) this.inflight.delete(key);
       reload.add(s.sheet);
     }
+    let unknownStyle = false;
+    const knownStyles = nextInfo?.styles.length ?? 0;
     for (const g of patch.cells) {
       const cache = this.cache(g.sheet);
-      for (const c of g.cells) putCell(cache, c);
+      for (const c of g.cells) {
+        putCell(cache, c);
+        if (c.style >= knownStyles) unknownStyle = true;
+      }
     }
     for (const g of patch.cols) {
       const cache = this.cache(g.sheet);
@@ -612,6 +643,7 @@ export class CalcStore {
         this.lastViewport.delete(id);
         this.charts.dropSheet(id);
         this.comments.dropSheet(id);
+        this.pivots.dropSheet(id);
         for (const key of [...this.inflight.keys()]) if (key.startsWith(`${id}:`)) this.inflight.delete(key);
       }
       if (!live.has(activeSheet)) {
@@ -645,6 +677,34 @@ export class CalcStore {
     }
     if (patch.cfSheets?.length) this.invalidateCf(patch.cfSheets);
     if (patch.chartSheets?.length) this.charts.invalidate(patch.chartSheets);
+    if (patch.pivotSheets?.length) {
+      // Pivot roles and the table lists are in the snapshots: fetch the sheets' viewports again.
+      this.invalidateCf(patch.pivotSheets);
+      this.pivots.invalidate(patch.pivotSheets);
+    }
+    if (patch.stalePivots) this.pivots.setStale(patch.stalePivots);
+    if (unknownStyle) this.refetchStyles();
+  }
+
+  private stylesFetch: Promise<void> | null = null;
+
+  /**
+   * Cells naming a style the table does not have yet (a pivot table's
+   * layout interns number formats and indents without sending the grown
+   * style table): fetch the table again.
+   */
+  private refetchStyles(): void {
+    if (this.stylesFetch) return;
+    this.stylesFetch = this.api.info().then(
+      (fresh) => {
+        this.stylesFetch = null;
+        const info = this.state.info;
+        if (info && fresh.styles.length > info.styles.length) this.bump({ info: { ...info, styles: fresh.styles } });
+      },
+      () => {
+        this.stylesFetch = null;
+      },
+    );
   }
 
   /** Applies a command reply; replies older than the newest seen revision are discarded (ADR 0002 §5). */
@@ -669,12 +729,15 @@ export class CalcStore {
       }
       if (row.size === 0) cache.cells.delete(r);
     }
+    const knownStyles = this.state.info?.styles.length ?? 0;
     for (const c of snap.cells) putCell(cache, c);
+    if (this.state.info && snap.cells.some((c) => c.style >= knownStyles)) this.refetchStyles();
     for (const c of snap.cols) putCol(cache, c);
     for (const r of snap.rows) putRow(cache, r);
     if (snap.merges?.length || cache.merges.length) cache.merges = mergeSnapshot(cache.merges, snap, snap.merges ?? []);
     applyCfSnapshot(cache, snap);
     this.charts.fromSnapshot(snap.sheet, snap.charts ?? []);
+    this.pivots.fromSnapshot(snap.sheet, snap.pivots ?? []);
     this.bump();
   }
 
@@ -904,6 +967,8 @@ export class CalcStore {
 
   /** Starts editing the active cell; `text` replaces its input (typing) or is its input (F2). */
   beginEdit(text: string | null, origin: EditState["origin"] = "cell"): void {
+    // The cells of a pivot table are not edited (Excel's message; the editor stays closed).
+    if (this.pivots.refuseEdit()) return;
     const mode = text === null || origin === "bar" ? "edit" : "enter";
     const value = text ?? this.activeCell()?.input ?? "";
     // A merged range is edited in its top-left cell.
@@ -985,6 +1050,20 @@ export class CalcStore {
       text, selStart: caret, selEnd: caret, error: null, menuForced: false, menuDismissed: false,
       point: { anchor: { ...anchor }, focus: { ...focus }, start: span.start, end: caret },
     });
+    return true;
+  }
+
+  /**
+   * Inserts `text` where a pointed reference would go (Generate
+   * GetPivotData); `false` when the caret is not at a point-mode position.
+   */
+  insertAtPoint(text: string): boolean {
+    const e = this.state.edit;
+    if (!e) return false;
+    const span = this.pointTarget(e);
+    if (!span) return false;
+    const next = replaceSpan(e.text, span, text);
+    this.patchEdit({ text: next.text, selStart: next.caret, selEnd: next.caret, error: null, menuForced: false, menuDismissed: false, point: null });
     return true;
   }
 
@@ -1340,6 +1419,16 @@ export class CalcStore {
 
   clearSelection(): Promise<void> {
     const r = this.selectionRange();
+    // Whole pivot tables are deleted after a question; part of one is refused.
+    const scope = this.pivots.deleteScope();
+    if (scope === "partial") {
+      this.pushError(new Error(t("calc.pivot.cantChange")));
+      return Promise.resolve();
+    }
+    if (scope) {
+      this.openDialog({ kind: "pivotDelete", ids: scope.ids });
+      return Promise.resolve();
+    }
     // Spilled cells are cleared through their formula cell (Delete there removes the whole spill).
     if (onlySpilledCells(this.cache(this.state.activeSheet).cells, r)) return Promise.resolve();
     return this.apply({ type: "clearRange", sheet: this.state.activeSheet, ...r });

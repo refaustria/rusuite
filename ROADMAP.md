@@ -95,6 +95,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Locale-aware formula input/display (German `;`/`,`, function names) – owner decision pending; translated core messages via error codes; unused-key catalog check; wider gallery tiles for long German labels ("Überschri…"); Write Clipboard group overflow.
 
 ## Calc parity follow-ups
+- Pivot UI (P8-33): Recommended PivotTables, Group, slicers/timelines, PivotChart, Fields/Items & Sets, Blank Rows; subtotal position + banded columns + ChangePivotSource + style table in patches + Show Details + pivot styles in print → P8-35 item 5.
 - Pivot (P8-30): date/number grouping, calculated fields/items, value/label filters, sort by value, distinct count, pivot charts, slicers/timelines, "Show Report Filter Pages"; redo after undoing DuplicateSheet loses the copy's pivots; verify the pivot workbooks in real Excel.
 - Comments (P8-26): `allComments` request for an across-sheets Comments pane; @mentions; threaded-comment extLst/person ids/initials kept; Remove Hyperlink should also clear link formatting (ui-shared style patch cannot unset); hyperlink colour slots in ui-shared's Office theme; print "as displayed" for a printed selection.
 - Names/formats (P8-23): print backstage should pre-fill repeat rows/area from `Print_Titles`/`Print_Area`; Apply Names / Paste Names (F3); manual calculation mode + Calculate Now (F9); Excel-exact `_x` padding widths; trace arrows that follow edits; Error Checking / Evaluate Formula; German decimal display pending the owner's decision.
@@ -105,6 +106,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Store the pane top-left cell (freeze while scrolled like Excel); grid mouse handlers → pointer events; Ctrl+PageUp/Down skipping hidden sheets; unhide several sheets; sort by colour/custom lists, colour/date-group filters, AutoFilter range growth, left-to-right sort, AGGREGATE, "sort warning" for adjacent data; hidden-by-hand rows inside a filtered range read back as filtered (xlsx cannot distinguish).
 
 ## Show parity follow-ups
+- Fidelity (P8-32): prompt text with formatting; exact PowerPoint table style definitions + "Best match" row; freeform tool on the preset path data; share preset data with Write; deeper text levels on layout placeholders; measure Show wasm load time in perf.
 - Views (P8-28): save lock-aspect (`a:spLocks`) and last view on save → P8-32; outline view with rich text; per-layout guides (p15); ink layer under zoom; vertical text edited horizontally; custom shows.
 - Charts/links/media (P8-24): Calc should re-export the shared chart presets/format helpers instead of the copy in apps/show/src/charts; media clips in the animation click sequence; media trim/bookmarks; link hit areas for grouped/rotated shapes in the show; Reuse Slides "keep source formatting" copies layouts but not the source master/theme; Show wasm size (fmt-pptx now pulls fmt-xlsx for the embedded workbook – consider a feature flag or lazy chunk).
 - Design UI (P8-22): core commands for renaming layouts, adding placeholders, master text levels 2–9, picture/texture background fills, scale/fit on SetSlideSize; import LibreOffice decks' footer font size from the master; slide sorter view; Effects (theme effect styles) on the Design tab.
@@ -129,6 +131,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## AI assistant – docs/ai-plan.md
 
 ## Cloud connectors (user-owned accounts) – see docs/cloud-connectors-plan.md
+- v1 (WebDAV) merged 2026-10-16. Next: S3 connector; generic OAuth PKCE connector with the user's own client id (Google Drive/OneDrive/Dropbox); shared desktop connection records across the three apps (per-app data dirs today); CORS setup guide for Nextcloud/ownCloud on the portal; desktop smoke test for the connector commands (keyring untested at runtime).
 - `FileProvider` abstraction + backstage provider tabs; Google Drive (PKCE + Picker + Drive v3), OneDrive (MSAL + Graph), Dropbox, optional WebDAV; iCloud only through the native file system; CSP connect-src per enabled provider; tokens client-side only (ADR 0009). Needs the owner's OAuth app registrations.
 
 ## Mobile (Android, iOS) – after v0.1.0, see docs/mobile-plan.md

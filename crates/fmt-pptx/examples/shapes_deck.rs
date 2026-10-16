@@ -83,8 +83,8 @@ fn gallery(p: &mut Presentation) {
     let s = p.add_slide(LayoutKind::Blank);
     title(p, s, "Preset shapes");
     for (i, preset) in Preset::ALL.iter().enumerate() {
-        let (col, row) = ((i % 9) as f64, (i / 9) as f64);
-        let t = cm(1.0 + col * 3.6, 2.4 + row * 2.6, 3.2, 2.2);
+        let (col, row) = ((i % 12) as f64, (i / 12) as f64);
+        let t = cm(1.0 + col * 2.7, 2.2 + row * 1.6, 2.4, 1.4);
         let mut shape = Shape::auto(preset.clone(), t);
         if let Some(body) = shape.text_mut() {
             let mut para = TextParagraph::plain(preset.prst());
@@ -169,7 +169,7 @@ fn flowchart(p: &mut Presentation) -> NodeId {
     );
     let tri = ArrowKind::Triangle;
     connect(p, s, ConnectorKind::Straight, (start, 2), (input, 0), tri);
-    connect(p, s, ConnectorKind::Elbow, (input, 3), (check, 1), tri);
+    connect(p, s, ConnectorKind::Elbow, (input, 5), (check, 1), tri);
     connect(p, s, ConnectorKind::Straight, (check, 3), (work, 1), tri);
     connect(p, s, ConnectorKind::Elbow, (work, 2), (report, 0), tri);
     connect(p, s, ConnectorKind::Elbow, (check, 2), (end, 0), tri);
@@ -219,6 +219,14 @@ fn table(p: &mut Presentation) {
     t.look = Default::default();
     t.cells[0][0].text = TextBody::plain("no style");
     p.add_shape(s, plain).expect("slide exists");
+    // Light Style 2 - Accent 2 with banded columns and a first column
+    let mut light = Shape::table(3, 3, cm(14.0, 13.0, 12.0, 3.0));
+    let t = light.table_mut().expect("table");
+    t.style_id = Some("{72833802-FEF1-4C79-8D5D-14CF1EAF98D9}".to_owned());
+    t.look.band_cols = true;
+    t.look.first_col = true;
+    t.cells[0][0].text = TextBody::plain("Light Style 2");
+    p.add_shape(s, light).expect("slide exists");
 }
 
 /// Slide 4: lines and connectors with arrowheads, adjusted shapes and a

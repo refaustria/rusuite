@@ -10,7 +10,6 @@ import App from "../App";
 import { ShowApi } from "../api";
 import { tableMenu } from "../canvas/menus";
 import { ShowStore } from "../state/store";
-import { TABLE_STYLES } from "../shapes/tables";
 import { FakeBackend } from "../test/fakeBackend";
 
 afterEach(() => {
@@ -54,7 +53,7 @@ describe("Insert › Shapes", () => {
     const { backend } = await mount();
     const lib = openShapes();
     expect(within(lib).getAllByRole("heading").map((h) => h.textContent)).toEqual([
-      "Lines", "Rectangles", "Basic shapes", "Block arrows", "Flowchart", "Stars and banners", "Callouts", "Action Buttons",
+      "Lines", "Rectangles", "Basic shapes", "Block arrows", "Equation shapes", "Flowchart", "Stars and banners", "Callouts", "Action Buttons",
     ]);
     fireEvent.click(within(within(lib).getByRole("group", { name: "Stars and banners" })).getByRole("button", { name: "Star: 5 points" }));
     await flush();
@@ -150,7 +149,14 @@ describe("tables", () => {
     fireEvent.click(tab("Table Design"));
     fireEvent.click(screen.getByRole("button", { name: "Medium Style 2 – Accent 5" }));
     await flush();
-    expect(last(backend)).toMatchObject({ type: "setTableStyle", shape: 100, styleId: TABLE_STYLES[4]!.id });
+    expect(last(backend)).toMatchObject({ type: "setTableStyle", shape: 100, styleId: "{7DF18680-E054-41AD-8BC1-D1AEF772440D}" });
+    // More: every style grouped Light / Medium / Dark
+    fireEvent.click(screen.getByRole("button", { name: "More table styles" }));
+    const menu = await screen.findByTestId("table-styles-menu");
+    expect(within(menu).getAllByRole("heading").map((h) => h.textContent)).toEqual(["Light", "Medium", "Dark"]);
+    fireEvent.click(within(within(menu).getByRole("group", { name: "Medium" })).getByRole("button", { name: "Medium Style 2 – Accent 3" }));
+    await flush();
+    expect(last(backend)).toMatchObject({ type: "setTableStyle", styleId: "{F5AB1C69-6EDB-4FF4-983F-18BD219EF322}" });
     fireEvent.click(screen.getByRole("checkbox", { name: "Total row" }));
     await flush();
     expect(last(backend)).toMatchObject({ type: "setTableStyle", look: { firstRow: true, bandRows: true, lastRow: true } });
@@ -179,9 +185,25 @@ describe("tables", () => {
     await flush();
     expect(last(backend)).toEqual({ type: "mergeTableCells", shape: 100, row: 1, col: 0, rowSpan: 2, colSpan: 1 });
     expect(screen.getAllByTestId("table-cell")).toHaveLength(8);
-    fireEvent.click(screen.getByRole("button", { name: "Split cells" }));
+    // Split Cells… on the merged cell starts with its spans (back to single cells)
+    fireEvent.click(screen.getByRole("button", { name: "Split Cells…" }));
+    let dlg = await screen.findByRole("dialog", { name: "Split cells" });
+    expect((within(dlg).getByLabelText("Number of rows") as HTMLInputElement).value).toBe("2");
+    fireEvent.click(within(dlg).getByRole("button", { name: "OK" }));
     await flush();
-    expect(last(backend)).toEqual({ type: "splitTableCell", shape: 100, row: 1, col: 0 });
+    expect(last(backend)).toEqual({ type: "splitTableCellGrid", shape: 100, row: 1, col: 0, rows: 2, cols: 1 });
+    // a single cell into 3 columns × 2 rows; 3 rows of a 2-row merge are refused
+    act(() => store.selectCells(100, { r0: 0, c0: 1, r1: 0, c1: 1 }));
+    fireEvent.click(screen.getByRole("button", { name: "Split Cells…" }));
+    dlg = await screen.findByRole("dialog", { name: "Split cells" });
+    fireEvent.change(within(dlg).getByLabelText("Number of columns"), { target: { value: "3" } });
+    fireEvent.change(within(dlg).getByLabelText("Number of rows"), { target: { value: "2" } });
+    fireEvent.click(within(dlg).getByRole("button", { name: "OK" }));
+    await flush();
+    expect(last(backend)).toEqual({ type: "splitTableCellGrid", shape: 100, row: 0, col: 1, rows: 2, cols: 3 });
+    // the context menu still undoes a merge directly
+    act(() => store.selectCells(100, { r0: 1, c0: 0, r1: 1, c1: 0 }));
+    expect(tableMenu(store).find((i) => "id" in i && i.id === "split")).toMatchObject({ disabled: false });
   });
 
   it("Layout: insert below, distribute, cell margins, vertical alignment", async () => {

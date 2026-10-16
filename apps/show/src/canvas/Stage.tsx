@@ -16,6 +16,8 @@ import type { Shape } from "../generated/Shape";
 import { boundsPx, boxAttrs, EMU_PER_PX, fitScale, rectFromPoints, shapesInRect, slidePx, type Rect as R } from "../geometry";
 import { dist, dragBox, snap45, type Pt } from "../shapes/geom";
 import { choiceOf, clickBox } from "../shapes/presets";
+import { handlesOf } from "../shapes/handles";
+import { usePathVersion } from "../shapes/paths";
 import type { ConnEnd, SlideSite } from "../shapes/connectors";
 import { AdjustHandles, ConnectorHandles, PreviewLine, SiteDots, connectorTarget } from "./EditHandles";
 import { TableOverlay } from "./TableOverlay";
@@ -124,6 +126,8 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   const selection = useShow(store, (s) => s.selection);
   const editing = useShow(store, (s) => s.editing);
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
+  // outlines (and with them the adjust handles) arrive asynchronously
+  usePathVersion();
   const stageRef = useRef<Konva.Stage>(null);
   const trRef = useRef<Konva.Transformer>(null);
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number; add: boolean } | null>(null);
@@ -403,7 +407,8 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
 
   // Pictures keep their aspect ratio on corner handles (Shift frees it); other shapes keep it with Shift.
   const sel = store.selectedShapes();
-  const pictures = sel.length > 0 && sel.every((s) => s.kind.kind === "picture");
+  // corner drags keep the proportions of shapes with a locked aspect ratio (pictures start locked)
+  const pictures = sel.length > 0 && sel.every((s) => !!s.lockAspect);
   const m = marquee ? rectFromPoints(marquee.x0, marquee.y0, marquee.x1, marquee.y1) : null;
   const one = !drawMode && !editing && sel.length === 1 ? sel[0]! : null;
   const overrides = preview ? new Map([[preview.id, preview]]) : undefined;
@@ -419,6 +424,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       data-grid={view.showGrid ? "true" : undefined}
       data-draw-mode={drawMode ?? undefined}
       data-master-view={masterView ? (masterView.kind === "master" ? "master" : masterView.value) : undefined}
+      data-adjust-handles={one?.kind.kind === "auto" ? handlesOf(one).length : undefined}
     >
       <Stage
         ref={stageRef}

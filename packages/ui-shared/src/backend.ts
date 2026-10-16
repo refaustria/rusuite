@@ -8,6 +8,8 @@ import { IdbDocStorage, dbNameFromPing } from "./recent/idb";
 import type { DocStorage } from "./recent/storage";
 import { TauriDocStorage } from "./recent/tauri";
 import { t } from "./i18n/locale";
+import { Connectors } from "./connectors/controller";
+import { extensionsOf, tauriConnectorPlatform, webConnectorPlatform } from "./connectors/platform";
 
 export type { DispatchError };
 // Recent files, autosave and crash recovery (P5-3).
@@ -89,6 +91,12 @@ export interface Backend<Req = unknown, Body = unknown> {
    */
   readonly storage?: DocStorage;
   /**
+   * Cloud connections (P8-36): opt-in WebDAV servers the user configured.
+   * `saveFile` of a document opened from one writes back there; absent in
+   * test fakes.
+   */
+  readonly connectors?: Connectors;
+  /**
    * Opens the system print dialog for the current page (the user picks a
    * printer or "Save as PDF"). Web: `window.print()`. Desktop: the shell's
    * `print_webview` command (`WebviewWindow::print`: the native WebKitGTK /
@@ -98,23 +106,8 @@ export interface Backend<Req = unknown, Body = unknown> {
   print(): Promise<void>;
 }
 
-/** Standard base64 of `bytes` (chunked: large files exceed the argument limit). */
-export function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
-/** Decodes standard base64. */
-export function base64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
+export { bytesToBase64, base64ToBytes } from "./base64";
+import { bytesToBase64, base64ToBytes } from "./base64";
 
 /** MIME type of `.xlsx` files. */
 export const XLSX_MIME =
@@ -138,15 +131,28 @@ export interface WasmFileOptions {
   storage?: DocStorage | null;
   /** Desktop: the localized name of the file-type filter of the native dialogs ("Excel workbook"). */
   fileTypeLabel?: () => string;
+  /** Cloud connections (P8-36; default on – nothing is contacted until the user adds one). */
+  connectors?: boolean;
 }
 
 /** Desktop shell: the Tauri commands of `apps/<app>/src-tauri`. */
 export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req, Body> {
   readonly kind = "tauri" as const;
   readonly storage: DocStorage = new TauriDocStorage();
+  readonly connectors: Connectors;
+  private title = new TitleDecorator((title) => getCurrentWindow().setTitle(title));
 
-  /** `fileTypeLabel`: the localized filter name of the native file dialogs (read when a dialog opens). */
-  constructor(private readonly fileTypeLabel?: () => string) {}
+  /**
+   * `fileTypeLabel`: the localized filter name of the native file dialogs (read when a dialog opens);
+   * `accept`: the app's file types (`.xlsx,…`, default `.xlsx`) for the connections' file browser.
+   */
+  constructor(
+    private readonly fileTypeLabel?: () => string,
+    accept = ".xlsx",
+  ) {
+    this.connectors = new Connectors(tauriConnectorPlatform(extensionsOf(accept)));
+    this.title.follow(this.connectors);
+  }
 
   /** The shell's `dialog` argument: localized title and filter name of its native dialogs (English filter name when absent). */
   private dialogText(title: string): { dialog: { title: string; filterName?: string } } {
@@ -175,17 +181,21 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
 
   /** The shell's `save_file`: it keeps the document's file (`DocPath`) and asks only when needed. */
   async saveFile(suggestedName: string, bytesBase64: string, options: SaveOptions = {}): Promise<SaveResult> {
+    const remote = await this.connectors.trySave(suggestedName, bytesBase64, options);
+    if (remote !== undefined) return remote;
     const saved = await invoke<{ path: string; name: string } | null>("save_file", {
       suggestedName,
       bytesBase64,
       saveAs: options.saveAs === true,
       ...this.dialogText(t("dialog.saveAs.title")),
     });
-    return saved ? { name: saved.name, path: saved.path } : false;
+    if (!saved) return false;
+    this.connectors.localSaved();
+    return { name: saved.name, path: saved.path };
   }
 
   setTitle(title: string): Promise<void> {
-    return getCurrentWindow().setTitle(title);
+    return this.title.set(title);
   }
 
   async print(): Promise<void> {
@@ -205,6 +215,10 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
   private readonly mime: string;
   private readonly ext: string;
   readonly storage?: DocStorage;
+  readonly connectors?: Connectors;
+  private title = new TitleDecorator(async (title) => {
+    document.title = title;
+  });
 
   constructor(
     private readonly module: WasmModule,
@@ -222,6 +236,10 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
           ? new IdbDocStorage(() => dbNameFromPing(this.module.ping()))
           : null;
     if (storage) this.storage = storage;
+    if (o.connectors !== false) {
+      this.connectors = new Connectors(webConnectorPlatform(extensionsOf(this.accept)));
+      this.title.follow(this.connectors);
+    }
   }
 
   async ping(): Promise<string> {
@@ -264,8 +282,14 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
     });
   }
 
-  /** Downloads the file via `<a download>`; always `true` (the browser owns the rest). */
-  async saveFile(suggestedName: string, bytesBase64: string): Promise<SaveResult> {
+  /**
+   * Downloads the file via `<a download>`; always `true` (the browser owns the rest). A document of a
+   * connection is written back there instead (`Connectors.trySave`).
+   */
+  async saveFile(suggestedName: string, bytesBase64: string, options: SaveOptions = {}): Promise<SaveResult> {
+    const remote = await this.connectors?.trySave(suggestedName, bytesBase64, options);
+    if (remote !== undefined) return remote;
+    this.connectors?.localSaved();
     const type = this.ext.startsWith(".") && suggestedName.toLowerCase().endsWith(this.ext)
       ? this.mime
       : "application/octet-stream";
@@ -283,12 +307,34 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
     return true;
   }
 
-  async setTitle(title: string): Promise<void> {
-    document.title = title;
+  setTitle(title: string): Promise<void> {
+    return this.title.set(title);
   }
 
   async print(): Promise<void> {
     window.print();
+  }
+}
+
+/** Applies window titles with the remote connection's name (re-applied when the binding changes). */
+class TitleDecorator {
+  private raw: string | null = null;
+  private shown: string | null = null;
+  private connectors: Connectors | null = null;
+
+  constructor(private readonly apply: (title: string) => Promise<void>) {}
+
+  follow(connectors: Connectors): void {
+    this.connectors = connectors;
+    connectors.subscribe(() => {
+      if (this.raw !== null && connectors.decorateTitle(this.raw) !== this.shown) void this.set(this.raw).catch(() => undefined);
+    });
+  }
+
+  set(title: string): Promise<void> {
+    this.raw = title;
+    this.shown = this.connectors ? this.connectors.decorateTitle(title) : title;
+    return this.apply(this.shown);
   }
 }
 
@@ -301,6 +347,6 @@ export async function createBackend<Req = unknown, Body = unknown>(
   loadWasm: () => Promise<WasmModule>,
   options: WasmFileOptions = {},
 ): Promise<Backend<Req, Body>> {
-  if (isTauri()) return new TauriBackend<Req, Body>(options.fileTypeLabel);
+  if (isTauri()) return new TauriBackend<Req, Body>(options.fileTypeLabel, options.accept);
   return new WasmBackend<Req, Body>(await loadWasm(), options);
 }
