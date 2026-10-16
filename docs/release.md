@@ -87,9 +87,16 @@ tauri build`). The web builds always use the relative `/api/report` of the site 
 itself is deployed separately (`scripts/deploy-relay.sh`, docs/setup.md "Report relay").
 
 ## Signing caveats
-Builds are **not code-signed**. Windows SmartScreen shows "unknown publisher" (More info › Run anyway); macOS Gatekeeper
-blocks the app on first launch (right-click › Open, or `xattr -dr com.apple.quarantine <app>`). The downloads page and the
-release notes say so plainly. Code signing, notarization and auto-update are on the ROADMAP.
+Builds are **not code-signed**; the downloads page (notice box plus per-OS steps next to the buttons) and the release notes
+say so plainly:
+- **macOS 15 Sequoia and later**: opening the app shows "Not Opened" – click *Done* (not "Move to Bin"), then System
+  Settings › Privacy & Security › Security › *Open Anyway* › password › *Open*. Alternative in Terminal:
+  `xattr -dr com.apple.quarantine "/Applications/Rusuite Calc.app"` (likewise Write, Show).
+- **macOS 14 and earlier**: right-click the app › *Open* › *Open*.
+- **Windows SmartScreen**: "Windows protected your PC" – *More info* › *Run anyway*.
+- **Linux**: no warning; make the AppImage executable (`chmod +x`), install deb/rpm as usual.
+
+Code signing, notarization and auto-update are on the ROADMAP.
 
 ## Known risks of pre-release versions in bundles
 - **RPM**: RPM versions cannot contain `-`; the bundler has to map `0.1.0-rc.1` to an RPM version/release. If the

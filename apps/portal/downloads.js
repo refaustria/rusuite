@@ -65,6 +65,17 @@
       if (!Number.isNaN(d.getTime()) && i18n) el.textContent = i18n.t("portal.dl.released", { date: dates.format(d) });
     }
   };
+  // Copy buttons of the Terminal lines (clipboard write is local, no request).
+  document.addEventListener("click", (e) => {
+    const btn = e.target instanceof Element ? e.target.closest("button.copy") : null;
+    if (!btn) return;
+    const i18n = window.rusuiteI18n;
+    navigator.clipboard?.writeText(btn.dataset.copy ?? "").then(() => {
+      btn.textContent = i18n ? i18n.t("portal.dl.copied") : "Copied";
+      setTimeout(() => (btn.textContent = i18n ? i18n.t("portal.dl.copy") : "Copy"), 1500);
+    }, () => {});
+  });
+
   // After each catalog load (i18n.js); until then the generated English texts stand.
   window.addEventListener("rusuite:locale", format);
 })();

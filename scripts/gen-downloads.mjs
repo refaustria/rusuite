@@ -42,6 +42,7 @@ export const OSES = [
     ],
     verify: 'certutil -hashfile <file> SHA256',
     warning: "portal.dl.warn.windows",
+    steps: [{ id: "windows", title: "portal.dl.win.title", items: ["portal.dl.win.1", "portal.dl.win.2"] }],
   },
   {
     id: "macos",
@@ -52,6 +53,15 @@ export const OSES = [
     ],
     verify: "shasum -a 256 <file>",
     warning: "portal.dl.warn.macos",
+    steps: [
+      {
+        id: "macos15",
+        title: "portal.dl.mac15.title",
+        items: ["portal.dl.mac15.1", "portal.dl.mac15.2", "portal.dl.mac15.3", "portal.dl.mac15.4", "portal.dl.mac15.5"],
+        terminal: "portal.dl.mac15.terminal",
+      },
+      { id: "macos14", title: "portal.dl.mac14.title", items: ["portal.dl.mac14.1"] },
+    ],
   },
   {
     id: "linux",
@@ -63,6 +73,7 @@ export const OSES = [
     ],
     verify: "sha256sum <file>",
     warning: "portal.dl.warn.linux",
+    steps: [{ id: "linux", title: "portal.dl.linux.title", items: ["portal.dl.linux.1", "portal.dl.linux.2"] }],
   },
 ];
 
@@ -90,6 +101,31 @@ function i18n(cat, key, { params, html = false } = {}) {
   const safe = html && params ? Object.fromEntries(Object.entries(params).map(([k, v]) => [k, esc(v)])) : params;
   const value = interpolate(cat[key], safe);
   return html ? `data-i18n-html="${key}"${p}>${value}` : `data-i18n="${key}"${p}>${esc(value)}`;
+}
+
+/** The "how to open it" step lists of one OS (catalog keys); macOS adds a copyable Terminal line per app. */
+function stepsHtml(cat, os) {
+  const blocks = os.steps.map((st) => {
+    const items = st.items.map((k) => `\n            <li ${i18n(cat, k, { html: true })}</li>`).join("");
+    const terminal = st.terminal
+      ? `
+          <p class="term-intro" ${i18n(cat, st.terminal)}</p>
+          <ul class="term">${APPS.map((app) => {
+            const cmd = `xattr -dr com.apple.quarantine "/Applications/${app.name}.app"`;
+            return `
+            <li><code>${esc(cmd)}</code><button type="button" class="copy" data-copy="${esc(cmd)}" data-i18n-aria-label="portal.dl.copy.aria" aria-label="${esc(cat["portal.dl.copy.aria"])}" ${i18n(cat, "portal.dl.copy")}</button></li>`;
+          }).join("")}
+          </ul>`
+      : "";
+    return `
+        <div class="steps-block" data-steps="${st.id}">
+          <h3 ${i18n(cat, st.title)}</h3>
+          <ol>${items}
+          </ol>${terminal}
+        </div>`;
+  });
+  return `<div class="steps">${blocks.join("")}
+      </div>`;
 }
 
 const sha256Of = (asset) => (/^sha256:([0-9a-f]{64})$/i.exec(asset.digest ?? "")?.[1] ?? "").toLowerCase();
@@ -187,6 +223,7 @@ export function render(release, cat = loadCatalog()) {
       <section class="os" data-os="${os.id}">
         <h2>${os.title}</h2>
         <p class="warn" ${i18n(cat, os.warning, { html: true })}</p>
+        ${stepsHtml(cat, os)}
         <ul class="dl-list">${rows}
         </ul>
         <details class="sums">

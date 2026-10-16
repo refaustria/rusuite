@@ -124,7 +124,8 @@ footer .note strong { color: var(--text); }
 .downloads .lead { max-width: none; }
 .pill { display: inline-block; padding: 1px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font-size: 0.8rem; font-weight: 600; }
 .unsigned { margin: 0 0 24px; padding: 16px 20px; border-radius: 12px; border: 1px solid #f59e0b; background: rgb(245 158 11 / 10%); }
-.unsigned h2 { margin: 0 0 6px; font-size: 1.05rem; }
+.unsigned { border-width: 2px; }
+.unsigned h2 { margin: 0 0 6px; font-size: 1.15rem; }
 .unsigned p { margin: 0; color: var(--muted); }
 #os-list { display: grid; gap: 20px; }
 .os { padding: 20px 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
@@ -132,6 +133,17 @@ footer .note strong { color: var(--text); }
 .os h2 { margin: 0; font-size: 1.35rem; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
 .badge { padding: 2px 10px; border-radius: 999px; background: var(--focus); color: var(--surface); font-size: 0.78rem; font-weight: 600; letter-spacing: 0.02em; }
 .os .warn { margin: 8px 0 12px; color: var(--muted); font-size: 0.92rem; }
+.steps { display: grid; gap: 12px; margin: 0 0 14px; }
+.steps-block { padding: 12px 16px; border-radius: 10px; border: 1px solid var(--line); background: rgb(127 127 127 / 6%); }
+.steps-block h3 { margin: 0 0 6px; font-size: 1rem; }
+.steps-block ol { margin: 0; padding-left: 1.4em; font-size: 0.92rem; }
+.steps-block li { margin: 2px 0; }
+.steps .term-intro { margin: 10px 0 6px; font-size: 0.9rem; color: var(--muted); }
+.steps .term { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.steps .term li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.steps .term code { flex: 1; min-width: 0; padding: 6px 10px; border-radius: 6px; background: rgb(127 127 127 / 14%); overflow-wrap: anywhere; font-size: 0.82rem; }
+.steps .copy { flex: none; min-height: 32px; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: inherit; font: inherit; font-size: 0.85rem; cursor: pointer; }
+.steps .copy:hover { border-color: var(--focus); }
 .dl-list { list-style: none; margin: 0; padding: 0; }
 .dl-app { display: grid; grid-template-columns: 40px minmax(140px, 1fr) auto; align-items: center; gap: 10px 16px; padding: 12px 0; border-top: 1px solid var(--line); }
 .dl-app[data-app="calc"] { --accent: var(--calc); }
