@@ -76,6 +76,19 @@ body,
 .image-handle-sw { left: -4px; bottom: -4px; cursor: nesw-resize; }
 .image-handle-w { left: -4px; top: calc(50% - 4px); cursor: ew-resize; }
 .inline-image-wrap.resizing img { opacity: 0.8; }
+/* Floating pictures (P8-17): square/tight float, top-and-bottom on its own lines, behind/in front out of the flow
+   (relative to the anchor paragraph). */
+.tiptap-content { isolation: isolate; }
+.tiptap-content :is(p, h1, h2, h3, h4, h5, h6):has(> .inline-image-wrap.behind, > .inline-image-wrap.front) { position: relative; }
+.inline-image-wrap.floating { line-height: 0; }
+.inline-image-wrap.block { width: fit-content; }
+.inline-image-wrap.floating.selected img { cursor: move; touch-action: none; }
+.inline-image-wrap.moving img { opacity: 0.7; }
+/* Tab characters sized by the tab-stop layout, with their leaders. */
+.tiptap-content .tab-char { display: inline-block; tab-size: 0; white-space: pre; overflow: hidden; vertical-align: baseline; }
+.tiptap-content .tab-leader-dot { background-image: radial-gradient(circle, currentColor 0.7px, transparent 1px); background-size: 4px 4px; background-repeat: repeat-x; background-position: 0 calc(100% - 0.2em); }
+.tiptap-content .tab-leader-hyphen { background-image: linear-gradient(to right, currentColor 50%, transparent 50%); background-size: 6px 1px; background-repeat: repeat-x; background-position: 0 calc(100% - 0.45em); }
+.tiptap-content .tab-leader-underscore { background-image: linear-gradient(currentColor, currentColor); background-size: 100% 1px; background-repeat: no-repeat; background-position: 0 calc(100% - 0.1em); }
 
 /* Table borders from the model (CSS variables set by the table node); "none" shows as a light gridline on screen. */
 .tiptap-content { --write-gridline: #d0d0d0; }

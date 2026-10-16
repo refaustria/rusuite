@@ -26,7 +26,8 @@ export function PrintPreview({ doc, busy }: { doc: PrintDoc | null; busy?: boole
 
   const apply = useCallback(() => {
     const d = frame.current?.contentDocument;
-    if (!d || !doc) return;
+    // The frame may still hold its transitional blank document (no root element yet).
+    if (!d?.documentElement || !doc) return;
     d.querySelectorAll(".rs-print-page").forEach((el, i) => el.classList.toggle("rs-preview-off", i !== current));
     const h = host.current;
     const zoom = previewZoom(doc.widthIn, doc.heightIn, (h?.clientWidth ?? 0) - 40, (h?.clientHeight ?? 0) - 40);

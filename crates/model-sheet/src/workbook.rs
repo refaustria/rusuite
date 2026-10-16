@@ -123,7 +123,11 @@ impl Workbook {
     }
 
     pub fn rename_sheet(&mut self, id: SheetId, new_name: &str) -> Result<(), Error> {
+        let old = self.engine.sheet_name(id).map(str::to_owned);
         self.engine.rename_sheet(id, new_name)?;
+        if let Some(old) = old.filter(|o| o != new_name) {
+            self.rename_chart_refs(None, &old, new_name);
+        }
         Ok(())
     }
 
@@ -166,14 +170,20 @@ impl Workbook {
     }
 
     /// Copies a sheet (contents, formulas, cell styles, dimensions, sheet
-    /// format, tab colour, view and merges) to a new, visible sheet `name`
-    /// right after it. See [`Engine::duplicate_sheet`].
+    /// format, tab colour, view, merges and charts) to a new, visible
+    /// sheet `name` right after it. See [`Engine::duplicate_sheet`]. The
+    /// copied charts' references to the source sheet point at the copy
+    /// (as in Excel).
     pub fn duplicate_sheet(&mut self, id: SheetId, name: &str) -> Result<(SheetId, Recalc), Error> {
+        let source = self.engine.sheet_name(id).map(str::to_owned);
         let (new, recalc) = self.engine.duplicate_sheet(id, name)?;
         let mut data = self.sheet_data(id).clone();
         data.hidden = false;
         data.very_hidden = false;
         *self.sheet_data_mut(new)? = data;
+        if let Some(source) = source {
+            self.rename_chart_refs(Some(new), &source, name);
+        }
         Ok((new, recalc))
     }
 
@@ -809,6 +819,7 @@ impl Workbook {
             })
         });
         self.shift_rules(sheet, op);
+        self.shift_charts(sheet, op);
         Ok(recalc)
     }
 

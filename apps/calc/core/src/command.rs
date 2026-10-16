@@ -4,10 +4,11 @@
 //! [`SheetInfo`](crate::SheetInfo)); ranges are inclusive
 //! (`r0..=r1`, `c0..=c1`, `r0 <= r1`, `c0 <= c1`).
 
+use core_model::chart::{Chart, DataRef, Series};
 use core_model::Color;
 use model_sheet::{
-    AutoFilter, CellStyle, CfRule, DataValidation, Filter, SheetFormat, SheetView, SortKey,
-    SortState,
+    AutoFilter, CellStyle, CfRule, ChartAnchor, ChartObject, DataValidation, Filter, SheetFormat,
+    SheetView, SortKey, SortState,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -317,6 +318,54 @@ pub enum CalcCommand {
         sheet: u32,
         range: Rect,
     },
+    /// Adds a chart in front of the others on `sheet` (build `chart` with
+    /// the `recommendedChart` request for a selection). `id` absent or 0 =
+    /// a new id; `name` absent = `"Chart <id>"`. Fails with
+    /// `invalid_chart` for a malformed chart or anchor. The patch lists the
+    /// sheet in `chartSheets`.
+    AddChart {
+        sheet: u32,
+        #[ts(as = "crate::wire_chart::ChartAnchor")]
+        anchor: ChartAnchor,
+        #[ts(as = "crate::wire_chart::Chart")]
+        chart: Chart,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        id: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        name: Option<String>,
+    },
+    /// Replaces chart `id` (everything but its anchor and name); fails
+    /// with `unknown_chart` / `invalid_chart` (also for unsupported chart
+    /// types, which are read-only).
+    UpdateChart {
+        sheet: u32,
+        id: u32,
+        #[ts(as = "crate::wire_chart::Chart")]
+        chart: Chart,
+    },
+    /// Moves/resizes chart `id`.
+    SetChartAnchor {
+        sheet: u32,
+        id: u32,
+        #[ts(as = "crate::wire_chart::ChartAnchor")]
+        anchor: ChartAnchor,
+    },
+    /// Replaces the data of chart `id`: its series and shared categories
+    /// (the "Select Data" dialog).
+    SetChartSeries {
+        sheet: u32,
+        id: u32,
+        #[ts(as = "Vec<crate::wire_chart::Series>")]
+        series: Vec<Series>,
+        #[ts(as = "Option<crate::wire_chart::DataRef>")]
+        categories: Option<DataRef>,
+    },
+    RemoveChart {
+        sheet: u32,
+        id: u32,
+    },
     /// *Internal.* Replaces the AutoFilter and the sort state (rows are
     /// restored separately).
     RestoreFilterState {
@@ -373,6 +422,12 @@ pub enum CalcCommand {
         sheet: u32,
         #[ts(as = "Vec<crate::wire_cf::DataValidation>")]
         validations: Vec<DataValidation>,
+    },
+    /// *Internal.* Replaces all charts of the sheet.
+    RestoreCharts {
+        sheet: u32,
+        #[ts(as = "Vec<crate::wire_chart::ChartObject>")]
+        charts: Vec<ChartObject>,
     },
     /// *Internal.* Applies the commands in order as one undo step.
     Compound {

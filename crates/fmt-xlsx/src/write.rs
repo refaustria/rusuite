@@ -41,6 +41,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
         .enumerate()
         .map(|(i, (id, _))| sheet_xml(wb, *id, i == active, &mut sst, &dxfs, &mut dynamic))
         .collect();
+    let mut drawings = crate::drawing::DrawingParts::default();
     let default_font = ctx
         .default_font
         .clone()
@@ -57,8 +58,16 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     let mut rels = Relationships::new();
     for (i, xml) in sheet_xml.into_iter().enumerate() {
         let target = format!("worksheets/sheet{}.xml", i + 1);
-        pkg.insert_part(pn(&format!("/xl/{target}"))?, ct::WORKSHEET, xml);
+        let part = pn(&format!("/xl/{target}"))?;
+        pkg.insert_part(part.clone(), ct::WORKSHEET, xml);
         rels.add(rel::WORKSHEET, target);
+        let id = sheets[i].0;
+        if !wb.charts(id).is_empty() {
+            let drawing = drawings.write(&mut pkg, wb, id)?;
+            let mut sheet_rels = Relationships::new();
+            sheet_rels.add(rel::DRAWING, drawing);
+            pkg.set_relationships(part, sheet_rels);
+        }
     }
     pkg.insert_part(
         pn("/xl/theme/theme1.xml")?,
@@ -380,6 +389,10 @@ fn sheet_xml(
             ("footer", "0.3"),
         ],
     );
+    // The drawing part is the sheet's only relationship (`rId1`).
+    if !wb.charts(id).is_empty() {
+        x.empty("drawing", &[("r:id", "rId1")]);
+    }
     x.end("worksheet");
     x.finish()
 }

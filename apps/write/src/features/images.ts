@@ -8,6 +8,7 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection, type EditorState } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { bytesToBase64 } from "@rusuite/ui-shared";
+import type { Anchor } from "../generated/Anchor";
 import type { PageSetup } from "../generated/PageSetup";
 import { cursorBlock } from "../sync/editorCommands";
 import { EMU_PER_PX, TWIPS_PER_PX } from "../sync/schema";
@@ -77,7 +78,7 @@ export function selectedImage(state: EditorState): { node: PMNode; pos: number }
 }
 
 /** Changes attributes of the image at `pos` (optimistic; the mapper sends `SetImageSize`/`SetImageAlt`). */
-export function setImageAttrs(view: EditorView, pos: number, attrs: { width?: number; height?: number; alt?: string | null }): boolean {
+export function setImageAttrs(view: EditorView, pos: number, attrs: { width?: number; height?: number; alt?: string | null; anchor?: Anchor | null }): boolean {
   const node = view.state.doc.nodeAt(pos);
   if (!node || node.type.name !== "image") return false;
   const tr = view.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, ...attrs });
