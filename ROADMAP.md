@@ -144,6 +144,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Tauri mobile targets for the three apps; tablet-first layouts; touch editing; document picker + share sheet; Rust PDF generation; store publishing. Guardrails apply now (pointer events, responsive ribbon, Backend abstraction).
 
 ## Release / distribution
+- P8-41 follow-ups: run the WebDriver desktop smoke in CI under xvfb; move the --smoke logic into app-common (exists 3×); self-updating docs/ui.md table of contents; SHA256SUMS release asset; RPM version with a pre-release suffix to be verified in the test run; MSI uses bundle.windows.wix.version 0.1.0.1.
 - Report a problem (P8-43): rate-limit pre-check before submit; desktop opens the issue link in the system browser; optional reporter e-mail via a GitHub-side form; prune old screenshots from the attachments branch.
 - Code signing + notarization (Windows/macOS warn today); auto-update (tauri-plugin-updater); CI check that the tag matches `tauri.conf.json` versions; bump actions to Node 24 variants when available.
 
