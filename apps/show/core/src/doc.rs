@@ -168,6 +168,23 @@ fn for_each_shape(shapes: &[Shape], f: &mut impl FnMut(&Shape)) {
     }
 }
 
+/// The number a new shape name continues the slide's numbering with
+/// (PowerPoint: one more than the largest `"<Name> <N>"` on the slide,
+/// groups' children included).
+fn next_name_number(shapes: &[Shape]) -> u32 {
+    let mut max = 0u32;
+    for_each_shape(shapes, &mut |s| {
+        if let Some(n) = s
+            .name
+            .rsplit_once(' ')
+            .and_then(|(_, n)| n.parse::<u32>().ok())
+        {
+            max = max.max(n);
+        }
+    });
+    max.saturating_add(1)
+}
+
 fn count_shapes(shapes: &[Shape]) -> usize {
     let mut n = 0;
     for_each_shape(shapes, &mut |_| n += 1);
@@ -1122,7 +1139,9 @@ impl ShowDocument {
                     s.shapes = rest;
                     let mut group = Shape::group(children);
                     group.id = gid;
-                    group.fill_default_name();
+                    // "Group N" continues the slide's numbering (no "Group 12" next to "Rectangle 12")
+                    let n = next_name_number(&s.shapes).max(next_name_number(group.children()));
+                    group.name = format!("{} {n}", group.default_name());
                     s.shapes.insert(top + 1 - sel.len(), group);
                     Ok(())
                 })
@@ -3011,6 +3030,21 @@ impl AppDocument for ShowDocument {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn new_names_continue_the_slides_numbering() {
+        let mut a = Shape::group(vec![]);
+        a.name = "Rounded Rectangle 12".into();
+        let mut b = Shape::group(vec![]);
+        b.name = "Title 1".into();
+        let mut inner = Shape::group(vec![]);
+        inner.name = "Oval 20".into();
+        let mut g = Shape::group(vec![inner]);
+        g.name = "My group".into();
+        assert_eq!(super::next_name_number(&[a.clone(), b.clone()]), 13);
+        assert_eq!(super::next_name_number(&[a, b, g]), 21);
+        assert_eq!(super::next_name_number(&[]), 1);
+    }
     use super::*;
 
     #[test]

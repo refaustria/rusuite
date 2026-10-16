@@ -769,7 +769,27 @@ function layoutCategory(ctx: Ctx, box: Box): Box {
     b.path(lines.join(" "), { stroke: GRID_COLOR, lineWidth: 1 }, { type: "gridlines", axis: "cat" });
   }
 
-  // Series: bars, then areas, then lines (combo order).
+  // Series in Excel / PowerPoint z-order: areas at the back, then bars, then lines, then scatter on top (P8-45 S-10).
+  const areas = series.filter((s) => s.family === "area");
+  const areaOrder = areas.some((s) => !stacked(s.grouping)) ? [...areas].reverse() : areas;
+  for (const s of areaOrder) {
+    const { sc, spec, stack } = scaleFor(s);
+    const segs = stack.seg.get(s.index) ?? [];
+    const top: [number, number][] = [];
+    const bottom: [number, number][] = [];
+    for (let i = 0; i < n; i++) {
+      const sg = segs[i] ?? [0, 0];
+      const c = catAt(pointT(i));
+      const isStacked = stacked(s.grouping);
+      top.push(xy(c, valAt(sc, spec, sg[1])));
+      bottom.push(xy(c, valAt(sc, spec, isStacked ? sg[0] : catCross)));
+    }
+    if (top.length === 0) continue;
+    const poly = [...top, ...bottom.reverse()];
+    const el: ChartElement = { type: "series", series: s.index };
+    b.path(polyPath(poly, true), { fill: s.fill ?? undefined, stroke: s.stroke ?? undefined, lineWidth: s.lineWidth, clip: plot }, el);
+    b.hit(el, { kind: "polygon", points: poly.flat() });
+  }
   const band = n > 0 ? catLen / n : catLen;
   const gap = (chart.gapWidth ?? 150) / 100;
   const barSeries = series.filter((s) => s.family === "bar");
@@ -805,27 +825,7 @@ function layoutCategory(ctx: Ctx, box: Box): Box {
       }
     });
   }
-  const areas = series.filter((s) => s.family === "area");
-  const areaOrder = areas.some((s) => !stacked(s.grouping)) ? [...areas].reverse() : areas;
-  for (const s of areaOrder) {
-    const { sc, spec, stack } = scaleFor(s);
-    const segs = stack.seg.get(s.index) ?? [];
-    const top: [number, number][] = [];
-    const bottom: [number, number][] = [];
-    for (let i = 0; i < n; i++) {
-      const sg = segs[i] ?? [0, 0];
-      const c = catAt(pointT(i));
-      const isStacked = stacked(s.grouping);
-      top.push(xy(c, valAt(sc, spec, sg[1])));
-      bottom.push(xy(c, valAt(sc, spec, isStacked ? sg[0] : catCross)));
-    }
-    if (top.length === 0) continue;
-    const poly = [...top, ...bottom.reverse()];
-    const el: ChartElement = { type: "series", series: s.index };
-    b.path(polyPath(poly, true), { fill: s.fill ?? undefined, stroke: s.stroke ?? undefined, lineWidth: s.lineWidth, clip: plot }, el);
-    b.hit(el, { kind: "polygon", points: poly.flat() });
-  }
-  const lines = series.filter((s) => s.family === "line" || s.family === "scatter");
+  const lines = [...series.filter((s) => s.family === "line"), ...series.filter((s) => s.family === "scatter")];
   for (const s of lines) {
     const { sc, spec, stack } = scaleFor(s);
     const segs = stack.seg.get(s.index) ?? [];

@@ -197,12 +197,16 @@ export function shapeTextOptions(ctx: TextCtx, shape: Shape, w: number, h: numbe
 export function layoutShapeText(ctx: TextCtx, shape: Shape, body: TextBody, w: number, h: number, prompt?: string) {
   // a picture placeholder's prompt has no bullet and is centred
   const promptProps = shape.placeholder === "picture" ? { ...body.paragraphs[0]?.props, bullet: { kind: "none" as const }, alignment: "center" as const } : body.paragraphs[0]?.props;
-  let shown: TextBody = prompt ? { ...body, paragraphs: [{ props: promptProps, runs: [{ text: prompt }] }] } : body;
-  // vertical placeholders (`orient="vert"`: Title and Vertical Text, Vertical Title and Text) turn their text 90°
-  if ((shown.props.vert ?? "horizontal") === "horizontal" && placeholderFor(ctx.deck, ctx.slide.layout, shape, ctx.asMaster)?.vertical) {
-    shown = { ...shown, props: { ...shown.props, vert: "rotate90" } };
+  const shown: TextBody = prompt ? { ...body, paragraphs: [{ props: promptProps, runs: [{ text: prompt }] }] } : body;
+  return layoutText(drawnBody(ctx, shape, shown), shapeTextOptions(ctx, shape, w, h));
+}
+
+/** `body` as drawn: vertical placeholders (`orient="vert"`: Title and Vertical Text, Vertical Title and Text) turn their text 90°. */
+export function drawnBody(ctx: TextCtx, shape: Shape, body: TextBody): TextBody {
+  if ((body.props.vert ?? "horizontal") === "horizontal" && placeholderFor(ctx.deck, ctx.slide.layout, shape, ctx.asMaster)?.vertical) {
+    return { ...body, props: { ...body.props, vert: "rotate90" } };
   }
-  return layoutText(shown, shapeTextOptions(ctx, shape, w, h));
+  return body;
 }
 
 function TextNodes({ body, shape, w, h, ctx }: { body: TextBody; shape: Shape; w: number; h: number; ctx: Ctx }) {

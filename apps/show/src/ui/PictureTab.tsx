@@ -3,27 +3,38 @@
 // by accent, transparency presets), Change Picture…, Reset Picture ▾,
 // Picture Styles (outline shape + border + shadow), Picture Border,
 // Picture Effects › Shadow ▾ and Crop. Gallery previews are the picture
-// itself with the CSS filter approximation (`cssFilter`). Compress is not
+// itself with the CSS filter approximation (`cssFilter`; duotone and sepia
+// exactly by an SVG colour matrix, `recolorMatrix`). Compress is not
 // offered.
 
-import type { CSSProperties, ReactNode } from "react";
+import { useId, type CSSProperties, type ReactNode } from "react";
 import { ColorPicker, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonStack, type RibbonMenuItem, type RibbonTab, type TFunction } from "@rusuite/ui-shared";
 import type { PictureProps } from "../generated/PictureProps";
 import type { Shape } from "../generated/Shape";
 import type { Theme } from "../generated/Theme";
 import { resolveColor, schemeColor } from "../design/color";
-import { CORRECTION_STEPS, PICTURE_STYLES, SHADOW_PRESETS, TRANSPARENCY_STEPS, cssFilter, recolorPresets, type PictureStyle } from "../design/picture";
+import { CORRECTION_STEPS, PICTURE_STYLES, SHADOW_PRESETS, TRANSPARENCY_STEPS, cssFilter, recolorMatrix, recolorPresets, type PictureStyle } from "../design/picture";
 import { themePalette } from "../model";
 import type { ShowState, ShowStore } from "../state/store";
 import { DI } from "./designIcons";
 
 const pct = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.round(Math.abs(v) * 100)} %`;
 
-/** The picture with adjustments as a small DOM preview. */
+/** The picture with adjustments as a small DOM preview (duotone / sepia exactly, by an SVG colour matrix). */
 function Preview({ url, props, theme, style, className = "h-10 w-14" }: { url: string | undefined; props: PictureProps; theme: Theme | undefined; style?: CSSProperties; className?: string }) {
-  const filter = cssFilter(props, (c) => resolveColor(theme, c));
+  const id = `recolor${useId().replace(/[^\w-]/g, "")}`;
+  const matrix = recolorMatrix(props.recolor);
+  const rest = cssFilter(matrix ? { ...props, recolor: { kind: "none" } } : props, (c) => resolveColor(theme, c));
+  const filter = matrix ? `url(#${id})${rest ? ` ${rest}` : ""}` : rest;
   return (
     <span className={`block overflow-hidden bg-ui-bg ${className}`} style={style}>
+      {matrix && (
+        <svg aria-hidden="true" width="0" height="0" className="absolute">
+          <filter id={id} colorInterpolationFilters="sRGB">
+            <feColorMatrix type="matrix" values={matrix} />
+          </filter>
+        </svg>
+      )}
       {url ? <img alt="" src={url} draggable={false} className="h-full w-full object-cover" style={{ filter: filter || undefined }} /> : <span className="block h-full w-full bg-gray-300" style={{ filter: filter || undefined }} />}
     </span>
   );

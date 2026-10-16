@@ -77,6 +77,25 @@ export function newTransition(kind: TransitionKind): Transition {
   return { kind, durationMs: transitionDefaultDuration(kind), advanceOnClick: true };
 }
 
+/**
+ * The direction PowerPoint picks when a transition is chosen in the
+ * gallery (P8-45 S-17), where it differs from the file format's default:
+ * Push "From Bottom" (`dir="u"`), Split "Vertical Out" (`orient="vert"`),
+ * Zoom "In"; Wipe and Cover start "From Right" (the format's `l`).
+ */
+export function transitionGalleryDirection(kind: TransitionKind): Direction | undefined {
+  switch (kind) {
+    case "push":
+      return "up";
+    case "split":
+      return "verticalOut";
+    case "zoom":
+      return "in";
+    default:
+      return undefined;
+  }
+}
+
 export const effectiveTransitionDirection = (t: Transition): Direction | undefined => t.direction ?? transitionDefaultDirection(t.kind);
 
 /** Equivalent to no transition (`Transition::is_noop`). */
@@ -92,8 +111,8 @@ export type TransitionChange =
 
 /**
  * The slide's transition after a change from the Transitions tab
- * (`null` = none). A new kind gets its default duration and direction
- * (PowerPoint), keeping the advance settings; a direction the kind does
+ * (`null` = none). A new kind gets its default duration and PowerPoint's
+ * gallery direction (`transitionGalleryDirection`), keeping the advance settings; a direction the kind does
  * not accept is ignored.
  */
 export function changeTransition(current: Transition | undefined, change: TransitionChange): Transition | null {
@@ -101,6 +120,8 @@ export function changeTransition(current: Transition | undefined, change: Transi
   let next: Transition;
   if ("kind" in change) {
     next = { ...newTransition(change.kind), advanceOnClick: base.advanceOnClick };
+    const dir = transitionGalleryDirection(change.kind);
+    if (dir) next.direction = dir;
     if (base.advanceAfterMs !== undefined) next.advanceAfterMs = base.advanceAfterMs;
   } else if ("direction" in change) {
     if (!transitionDirections(base.kind).includes(change.direction)) return current ?? null;

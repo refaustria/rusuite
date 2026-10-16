@@ -9,3 +9,17 @@ body,
   overflow: hidden;
 }
 
+
+/* In-place text editor (P8-45 S-01): the bullet or number of a paragraph, outside the editable text. */
+[data-rich-text] [data-bullet]::before {
+  content: attr(data-bullet);
+  display: inline-block;
+  width: var(--bullet-width);
+  font: var(--bullet-font);
+  line-height: inherit;
+  color: var(--bullet-color);
+  text-indent: 0;
+  text-decoration: none;
+  white-space: pre;
+  vertical-align: baseline;
+}
