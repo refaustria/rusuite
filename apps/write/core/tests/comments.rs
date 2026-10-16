@@ -299,6 +299,7 @@ fn partial_deletes_shrink_the_range() {
             text: "+".into(),
             props: None,
             style: None,
+            link: None,
         },
     );
     assert_eq!(text(&h, 1), marked("ab|f+g|Xjk"));

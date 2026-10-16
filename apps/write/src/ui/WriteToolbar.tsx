@@ -50,6 +50,12 @@ import { styleFromMarks } from "../sync/fromPM";
 import type { Style } from "../generated/Style";
 import { useT } from "../i18n";
 import { getLocale, contextualTabs, CONTEXT_COLORS } from "@rusuite/ui-shared";
+import { fontBoxValue } from "../features/fontBox";
+import { presetColumns, presetOf, textWidth, type ColumnPreset } from "../features/columns";
+import { columnsCommand } from "../features/columns";
+import { CAPTION_LABELS } from "../features/references";
+import { insertTableOfFigures } from "../features/structureCommands";
+import { symbolGallery } from "./referenceDialogs";
 import { deleteAllComments, deleteComment, goToComment, resolveComment } from "../comments/commands";
 import {
   DELETE_COMMENT_ICON, NEW_COMMENT_ICON, NEXT_COMMENT_ICON, PANE_ICON, PREV_COMMENT_ICON, RESOLVE_ICON, SHOW_COMMENTS_ICON,
@@ -210,6 +216,15 @@ const UPDATE_ICON = svg(<><path d="M15.5 8A6 6 0 004.6 6M4.5 12a6 6 0 0010.9 2" 
 const MULTILEVEL_ICON = svg(<><path d="M3 4.5h1M7 4.5h10M5 10h1M9 10h8M7 15.5h1M11 15.5h6" /></>);
 const FIELD_ICON = svg(<><rect x="3" y="6" width="14" height="8" rx="1.5" /><path d="M6.5 10h7" strokeDasharray="1.5 1.2" /></>);
 const TABS_ICON = svg(<><path d="M3 5v6h5M10 5v6M7 11h6M17 5v6h-5" /><path d="M3 15h14" strokeDasharray="1.5 1.5" /></>);
+const LINK_ICON = svg(<><path d="M8.5 11.5a3.5 3.5 0 005 0l2.5-2.5a3.5 3.5 0 00-5-5L10 5" /><path d="M11.5 8.5a3.5 3.5 0 00-5 0L4 11a3.5 3.5 0 005 5l1-1" /></>);
+const BOOKMARK_ICON = svg(<path d="M6 3h8v14l-4-3-4 3z" />);
+const XREF_ICON = svg(<><path d="M3 5h7M3 9h5M3 13h7" /><path d="M13 6h4v4M17 6l-5 5" /></>);
+const CAPTION_ICON = svg(<><rect x="4" y="3" width="12" height="9" rx="1" /><path d="M5 15.5h10M7 17.5h6" /></>);
+const FIGURES_ICON = svg(<><rect x="3" y="3" width="5" height="4" /><path d="M10 5h7" /><rect x="3" y="10" width="5" height="4" /><path d="M10 12h7" strokeDasharray="1.2 1.2" /></>);
+const SYMBOL_ICON = svg(<path d="M6 16.5h3v-2.2A5.5 5.5 0 015 9.2a5 5 0 1110 0 5.5 5.5 0 01-4 5.1v2.2h3" />);
+const DATE_ICON = svg(<><rect x="3" y="4.5" width="14" height="12" rx="1.5" /><path d="M3 8h14M7 3v3M13 3v3" /></>);
+const COLUMNS_ICON = svg(<><path d="M3 4h6M3 7h6M3 10h6M3 13h6M3 16h6" /><path d="M11 4h6M11 7h6M11 10h6M11 13h6M11 16h4" /></>);
+const HYPHEN_ICON = svg(<><path d="M3 6h9M3 10h6M3 14h9" /><path d="M11 10h3" strokeWidth="2" /></>);
 const NEXT_ICON = (down: boolean) => svg(<><path d="M4 5h7M4 9h7M4 13h4" /><path d={down ? "M15 6v8M12.5 11.5L15 14l2.5-2.5" : "M15 14V6M12.5 8.5L15 6l2.5 2.5"} /></>);
 
 /** Multilevel list presets (Word's gallery). */
@@ -227,6 +242,7 @@ export const FIELD_CHOICES: { id: FieldKind["kind"]; readonly label: string }[] 
   withLabel({ id: "time" as const }, "write.field.time"),
   withLabel({ id: "fileName" as const }, "write.field.fileName"),
   withLabel({ id: "author" as const }, "write.field.author"),
+  withLabel({ id: "title" as const }, "write.field.title"),
 ];
 
 /** Date/time pictures by UI language (Word's defaults). */
@@ -241,6 +257,15 @@ function useSync<T>(ctl: SyncController, select: (s: SyncState) => T): T {
   return useSyncExternalStore(ctl.subscribe, () => select(ctl.getState()));
 }
 
+/** Layout › Columns presets. */
+export const COLUMN_PRESETS: [ColumnPreset, string][] = [
+  ["one", "write.columns.one"],
+  ["two", "write.columns.two"],
+  ["three", "write.columns.three"],
+  ["left", "write.columns.left"],
+  ["right", "write.columns.right"],
+];
+
 export interface WriteRibbonProps {
   editor: Editor;
   ctl: SyncController;
@@ -254,6 +279,8 @@ export interface WriteRibbonProps {
   onExportPdf: () => void;
   /** File › Print page (settings and preview). */
   print?: ReactNode;
+  /** File › Info page (document properties). */
+  infoPage?: ReactNode;
   zoom: number;
   onZoom: (zoom: number) => void;
 }
@@ -265,7 +292,7 @@ function selectionInfo(e: Editor): { table: TableInfo | null; image: { node: PMN
   return { table: tableInfo(tableContext(e.state)), image: selectedImage(e.state) };
 }
 
-export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSave, onFind, onReplace, onExportPdf, print, zoom, onZoom }: WriteRibbonProps) {
+export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSave, onFind, onReplace, onExportPdf, print, infoPage, zoom, onZoom }: WriteRibbonProps) {
   const t = useT();
   const gallery = useGallery(editor, ctl);
   const [styleMenu, setStyleMenu] = useState<{ at: { x: number; y: number }; style: Style } | null>(null);
@@ -294,6 +321,9 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       const ind = indentAt(e);
       return {
         props: runPropsAt(e),
+        // Home › Font shows what is in effect (style chain and theme fonts), not only direct formatting.
+        fontBox: fontBoxValue(e.state, ctl.styles),
+        columns: sec?.columns ?? null,
         style,
         charStyle,
         align: alignmentAt(e),
@@ -334,7 +364,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
     ),
   }));
   const value: CellStyleView = {
-    font: { ...s.props, font: s.props.font ?? undefined, size: s.props.size ?? undefined } as CellStyleView["font"],
+    font: { ...s.props, font: s.fontBox.font, size: s.fontBox.size } as CellStyleView["font"],
   };
 
   const onChange = (patch: CellStylePatch) => {
@@ -428,8 +458,10 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       }
       case "fileName":
         return { kind, cached: name ?? "" };
+      case "title":
+        return { kind, cached: ctl.properties.title ?? "" };
       default:
-        return { kind: "author", cached: "" };
+        return { kind: "author", cached: ctl.properties.author ?? "" };
     }
   };
   const addField = (kind: FieldKind["kind"]) => {
@@ -707,6 +739,18 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         ),
       },
       {
+        label: t("write.links"),
+        items: (
+          <>
+            <RibbonButton label={t("write.link.button")} icon={LINK_ICON} size="large" shortcut="Mod+K" tooltip={t("write.link.tip")} onClick={() => features.ui.openDialog("link")} />
+            <RibbonStack>
+              <RibbonButton label={t("write.bookmark.button")} icon={BOOKMARK_ICON} showLabel tooltip={t("write.bookmark.tip")} onClick={() => features.ui.openDialog("bookmark")} />
+              <RibbonButton label={t("write.xref.button")} icon={XREF_ICON} showLabel tooltip={t("write.xref.tip")} onClick={() => features.ui.openDialog("crossRef")} />
+            </RibbonStack>
+          </>
+        ),
+      },
+      {
         label: t("write.headerFooter"),
         items: (
           <>
@@ -730,11 +774,54 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       {
         label: t("write.text"),
         items: (
+          <>
+            <RibbonMenuButton
+              label={t("write.field")}
+              icon={FIELD_ICON}
+              size="large"
+              menu={FIELD_CHOICES.map((f) => ({ id: f.id, label: f.label, onSelect: () => addField(f.id) }))}
+            />
+            <RibbonButton label={t("write.dateTime.button")} icon={DATE_ICON} size="large" tooltip={t("write.dateTime.tip")} onClick={() => features.ui.openDialog("dateTime")} />
+          </>
+        ),
+      },
+      {
+        label: t("write.symbols"),
+        items: (
           <RibbonMenuButton
-            label={t("write.field")}
-            icon={FIELD_ICON}
+            label={t("write.symbol.button")}
+            icon={SYMBOL_ICON}
             size="large"
-            menu={FIELD_CHOICES.map((f) => ({ id: f.id, label: f.label, onSelect: () => addField(f.id) }))}
+            menu={(close) => (
+              <div className="flex w-56 flex-col gap-1 p-1" data-testid="symbol-gallery">
+                <div className="grid grid-cols-5 gap-0.5">
+                  {symbolGallery().map((ch) => (
+                    <button
+                      key={ch}
+                      type="button"
+                      className="flex h-9 items-center justify-center rounded border border-ui-border text-base hover:bg-ui-hover"
+                      title={`U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}`}
+                      onClick={() => {
+                        close();
+                        editor.chain().focus().insertContent(ch).run();
+                      }}
+                    >
+                      {ch}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="min-h-8 rounded border-t border-ui-border px-2 text-left text-xs hover:bg-ui-hover"
+                  onClick={() => {
+                    close();
+                    features.ui.set({ dialog: "symbol", symbolTab: "symbols" });
+                  }}
+                >
+                  {t("write.symbol.more")}
+                </button>
+              </div>
+            )}
           />
         ),
       },
@@ -807,16 +894,44 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
               menu={PAGE_SIZES.map((p) => ({ id: p.id, label: p.label, checked: paper === p.id, onSelect: () => setSectionPage(paperPatch(secPage, p.id)) }))}
             />
             <RibbonMenuButton
+              label={t("write.columns.button")}
+              icon={COLUMNS_ICON}
+              size="large"
+              menu={[
+                ...COLUMN_PRESETS.map(([id, key]) => ({
+                  id,
+                  label: t(key),
+                  checked: presetOf(s.columns, textWidth(secPage)) === id,
+                  onSelect: () => {
+                    const cmd = columnsCommand(editor.state, ctl.sections, presetColumns(id, textWidth(secPage)), "section");
+                    if (cmd) void ctl.run(cmd);
+                  },
+                })),
+                { separator: true as const },
+                { id: "more", label: t("write.columns.more"), onSelect: () => features.ui.openDialog("columns") },
+              ]}
+            />
+            <RibbonMenuButton
               label={t("write.breaks")}
               icon="pageBreak"
               size="large"
               menu={[
                 { id: "page", label: t("write.pageBreak"), onSelect: () => editor.chain().focus().insertContent({ type: "pageBreak" }).run() },
+                { id: "column", label: t("write.columnBreak"), onSelect: () => editor.chain().focus().insertContent({ type: "columnBreak" }).run() },
                 { separator: true as const, label: t("write.sectionBreaks") },
                 { id: "nextPage", label: t("write.sectionKind.nextPage"), onSelect: () => sectionBreak("nextPage") },
                 { id: "continuous", label: t("write.sectionKind.continuous"), onSelect: () => sectionBreak("continuous") },
                 { id: "evenPage", label: t("write.sectionKind.evenPage"), onSelect: () => sectionBreak("evenPage") },
                 { id: "oddPage", label: t("write.sectionKind.oddPage"), onSelect: () => sectionBreak("oddPage") },
+              ]}
+            />
+            <RibbonMenuButton
+              label={t("write.hyphenation")}
+              icon={HYPHEN_ICON}
+              size="large"
+              menu={[
+                { id: "none", label: t("write.hyphenation.none"), checked: !ctl.settings.autoHyphenation, onSelect: () => void ctl.run({ type: "setSettings", settings: { ...ctl.settings, autoHyphenation: false } }) },
+                { id: "auto", label: t("write.hyphenation.auto"), checked: !!ctl.settings.autoHyphenation, onSelect: () => void ctl.run({ type: "setSettings", settings: { ...ctl.settings, autoHyphenation: true } }) },
               ]}
             />
           </>
@@ -859,6 +974,29 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
               }))}
             />
             <RibbonButton label={t("write.updateTable")} icon={UPDATE_ICON} size="large" tooltip={t("write.updateTableTip")} onClick={() => void updateTocs(editor, ctl)} />
+          </>
+        ),
+      },
+      {
+        label: t("write.captions"),
+        items: (
+          <>
+            <RibbonButton label={t("write.caption.button")} icon={CAPTION_ICON} size="large" tooltip={t("write.caption.tip")} onClick={() => features.ui.openDialog("caption")} />
+            <RibbonStack>
+              <RibbonMenuButton
+                label={t("write.figures.button")}
+                icon={FIGURES_ICON}
+                showLabel
+                menu={CAPTION_LABELS.map((l) => ({
+                  id: l,
+                  label: t(`write.caption.${l.toLowerCase()}`),
+                  onSelect: () => void insertTableOfFigures(editor, ctl, l),
+                }))}
+              />
+              <RibbonButton label={t("write.xref.button")} icon={XREF_ICON} showLabel tooltip={t("write.xref.tip")} onClick={() => features.ui.openDialog("crossRef")} />
+              <RibbonButton label={t("write.bookmark.button")} icon={BOOKMARK_ICON} showLabel tooltip={t("write.bookmark.tip")} onClick={() => features.ui.openDialog("bookmark")} />
+            </RibbonStack>
+            <RibbonButton label={t("write.updateFields")} icon={UPDATE_ICON} size="large" shortcut="F9" tooltip={t("write.updateFieldsTip")} onClick={() => void features.updateFields()} />
           </>
         ),
       },
@@ -1114,6 +1252,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         print,
         onCloseDocument: () => triggerShortcut("Mod+N"),
         onOptions: () => features.ui.openDialog("userName"),
+        infoPage,
       }}
     />
   );

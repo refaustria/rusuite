@@ -12,7 +12,11 @@
 // top margin with the greyed header. Headers, footers and page numbers
 // follow the sections (first-page / even headers, numbering restarts and
 // formats). Blocks are not split (a list or a table longer than a page
-// overflows it), hence "approximate".
+// overflows it), hence "approximate". Paragraph flow options: "page break
+// before" starts a new page, "keep with next" moves a block to the next
+// page together with the block after it; "keep lines together" and
+// widow/orphan control hold by construction (blocks are never split).
+// A multi-column section is one box (its CSS columns are balanced).
 
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
@@ -35,6 +39,10 @@ export interface BlockBox {
   bottom: number;
   breakAfter: boolean;
   notes?: number;
+  /** Page break before (`pageBreakBefore`). */
+  breakBefore?: boolean;
+  /** Keep with next (`keepNext`): never the last block of a page when the next one moves on. */
+  keepNext?: boolean;
 }
 
 /** A page break before block `index`; `fill` = unused text height left on the previous page. */
@@ -57,14 +65,21 @@ export function computeBreaks(blocks: BlockBox[], pageHeight: number | ((startIn
   let pageStart = Math.min(0, blocks[0]!.top);
   let notes = blocks[0]!.notes ?? 0;
   let forced = blocks[0]!.breakAfter;
+  let startIndex = 0;
   for (let i = 1; i < blocks.length; i++) {
     const b = blocks[i]!;
     const n = b.notes ?? 0;
-    if (forced || (b.bottom - pageStart + notes + n > cap && b.top > pageStart)) {
-      breaks.push({ index: i, fill: Math.max(0, pageStart + cap - blocks[i - 1]!.bottom) });
-      pageStart = b.top;
-      cap = Math.max(1, heightAt(i));
+    const must = forced || !!b.breakBefore;
+    if (must || (b.bottom - pageStart + notes + n > cap && b.top > pageStart)) {
+      // Keep with next: the blocks chained to this one move along (unless that empties the page).
+      let at = i;
+      if (!must) while (at - 1 > startIndex && blocks[at - 1]!.keepNext) at--;
+      breaks.push({ index: at, fill: Math.max(0, pageStart + cap - blocks[at - 1]!.bottom) });
+      pageStart = blocks[at]!.top;
+      cap = Math.max(1, heightAt(at));
       notes = 0;
+      for (let k = at; k < i; k++) notes += blocks[k]!.notes ?? 0;
+      startIndex = at;
     }
     notes += n;
     forced = b.breakAfter;
@@ -188,6 +203,8 @@ export interface PaginationOptions {
   onPages?: (pages: number) => void;
   /** Called after every new layout. */
   onLayout?: (layout: PageLayout) => void;
+  /** The resolved flow options of a paragraph (style chain + direct: keep with next, page break before). */
+  flow?: (textblock: PMNode) => { keepNext?: boolean | null; pageBreakBefore?: boolean | null };
 }
 
 /** The computed layout: pages, the page of each top-level node. */
@@ -211,13 +228,32 @@ export const paginationKey = new PluginKey<PaginationState>("rusuitePagination")
 
 const hasPageBreak = (n: PMNode): boolean => {
   let found = false;
+  // Outside multi-column sections a column break ends the page (Word).
+  const column = n.type.name !== "columns";
   n.descendants((c) => {
     if (found) return false;
-    if (c.type.name === "pageBreak") found = true;
+    if (c.type.name === "pageBreak" || (column && c.type.name === "columnBreak")) found = true;
     return !found;
   });
   return found;
 };
+
+/** Resolved flow options of a top-level node: page break before its first paragraph, keep with next of its last. */
+export function flowOf(n: PMNode, flow: (textblock: PMNode) => { keepNext?: boolean | null; pageBreakBefore?: boolean | null }): { breakBefore: boolean; keepNext: boolean } {
+  const blocks: PMNode[] = [];
+  if (n.isTextblock) blocks.push(n);
+  else
+    n.descendants((c) => {
+      if (c.isTextblock) {
+        blocks.push(c);
+        return false;
+      }
+      return c.type.name !== "table";
+    });
+  const first = blocks[0];
+  const last = blocks[blocks.length - 1];
+  return { breakBefore: !!(first && flow(first).pageBreakBefore), keepNext: n.type.name !== "table" && !!(last && flow(last).keepNext) };
+}
 
 /** Section ids ended by paragraphs inside top-level node `n`. */
 function sectionEnds(n: PMNode): number[] {
@@ -433,7 +469,11 @@ function buildDecorations(doc: PMNode, breaks: PageBreak[], lastFill: number, la
 }
 
 /** Measures the natural boxes of the top-level blocks (without the gap widgets) and the footnote room they need. */
-export function measureBlocks(view: EditorView, sections: Section[] = []): BlockBox[] {
+export function measureBlocks(
+  view: EditorView,
+  sections: Section[] = [],
+  flow?: (textblock: PMNode) => { keepNext?: boolean | null; pageBreakBefore?: boolean | null },
+): BlockBox[] {
   const out: BlockBox[] = [];
   const dom = view.dom as HTMLElement;
   const nodes: PMNode[] = [];
@@ -453,7 +493,8 @@ export function measureBlocks(view: EditorView, sections: Section[] = []): Block
     const top = child.offsetTop - removed;
     const node = nodes[k]!;
     const notes = node.type.name === "notes" ? 0 : footRefs(node).reduce((s, id) => s + (noteHeight.get(id) ?? 0), 0);
-    out.push({ top, bottom: top + child.offsetHeight, breakAfter: hasPageBreak(node) || breakAfter[k] === true, notes });
+    const f = flow && node.type.name !== "notes" ? flowOf(node, flow) : { breakBefore: false, keepNext: false };
+    out.push({ top, bottom: top + child.offsetHeight, breakAfter: hasPageBreak(node) || breakAfter[k] === true, notes, breakBefore: f.breakBefore, keepNext: f.keepNext });
     k++;
   }
   return out;
@@ -505,7 +546,7 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
           const g = pageGeometry(sections[section[i] ?? 0]?.page ?? page);
           return g.height - g.top - g.bottom;
         };
-        const { breaks, lastFill } = computeBreaks(measureBlocks(view, sections), heightAt);
+        const { breaks, lastFill } = computeBreaks(measureBlocks(view, sections, opts.flow), heightAt);
         const layout = computeLayout(view.state.doc, breaks, sections, page);
         const same = st && sameBreaks(st.breaks, breaks) && Math.abs(st.lastFill - lastFill) < 1 && st.decorations !== DecorationSet.empty;
         if (same && !force && JSON.stringify(st.layout) === JSON.stringify(layout)) return;

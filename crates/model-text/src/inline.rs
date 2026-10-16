@@ -1,19 +1,23 @@
-//! Paragraph content: text runs, inline images, breaks, fields,
-//! footnote/endnote references and comment range markers.
+//! Paragraph content: text runs (optionally hyperlinked), inline images,
+//! breaks, fields, footnote/endnote references and the range markers of
+//! comments and bookmarks.
 
 use core_model::units::Emu;
 use core_model::RunProperties;
 use serde::{Deserialize, Serialize};
 
+use crate::link::{BookmarkId, Hyperlink};
 use crate::media::MediaId;
 
 /// One piece of paragraph content.
 ///
 /// Serializes as `{"kind":"run","value":{…}}`, `{"kind":"image","value":{…}}`,
 /// `{"kind":"break","value":"line"}`, `{"kind":"field","value":{…}}`,
-/// `{"kind":"noteRef","value":{…}}` or
-/// `{"kind":"commentStart","value":{"id":3}}`. Images, breaks, fields,
-/// note references and comment markers occupy one position each.
+/// `{"kind":"noteRef","value":{…}}`,
+/// `{"kind":"commentStart","value":{"id":3}}` or
+/// `{"kind":"bookmarkStart","value":{"id":1,"name":"intro"}}`. Images,
+/// breaks, fields, note references and comment/bookmark markers occupy
+/// one position each.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
 #[cfg_attr(
@@ -45,6 +49,18 @@ pub enum Inline {
         #[cfg_attr(feature = "ts", ts(type = "number"))]
         id: crate::comment::CommentId,
     },
+    /// Where bookmark `name` starts (docx `w:bookmarkStart`); an invisible
+    /// atom like the comment markers (see [`crate::link`]).
+    BookmarkStart {
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: BookmarkId,
+        name: String,
+    },
+    /// Where bookmark `id` ends (docx `w:bookmarkEnd`).
+    BookmarkEnd {
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: BookmarkId,
+    },
 }
 
 impl Inline {
@@ -62,6 +78,19 @@ impl Inline {
             self,
             Inline::CommentStart { .. } | Inline::CommentEnd { .. }
         )
+    }
+
+    /// Whether this is a bookmark marker.
+    pub fn is_bookmark_marker(&self) -> bool {
+        matches!(
+            self,
+            Inline::BookmarkStart { .. } | Inline::BookmarkEnd { .. }
+        )
+    }
+
+    /// Whether this is an invisible range marker (comment or bookmark).
+    pub fn is_marker(&self) -> bool {
+        self.is_comment_marker() || self.is_bookmark_marker()
     }
 }
 
@@ -87,6 +116,11 @@ pub struct Run {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub style: Option<String>,
+    /// The hyperlink this text belongs to (docx `w:hyperlink` around the
+    /// run). Consecutive runs with equal links form one link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub link: Option<Hyperlink>,
 }
 
 impl Run {
@@ -96,6 +130,7 @@ impl Run {
             props: RunProperties::default(),
             text: text.into(),
             style: None,
+            link: None,
         }
     }
 
@@ -105,6 +140,7 @@ impl Run {
             props,
             text: text.into(),
             style: None,
+            link: None,
         }
     }
 
@@ -114,7 +150,22 @@ impl Run {
             props,
             text: text.into(),
             style,
+            link: None,
         }
+    }
+
+    /// The same formatting, character style and link with other text.
+    pub fn with_text(&self, text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            ..self.clone()
+        }
+    }
+
+    /// Whether `other` has the same formatting, style and link (runs that
+    /// may merge).
+    pub fn same_format(&self, other: &Run) -> bool {
+        self.props == other.props && self.style == other.style && self.link == other.link
     }
 }
 
@@ -131,6 +182,9 @@ pub enum BreakKind {
     Line,
     /// Page break.
     Page,
+    /// Column break (docx `w:br w:type="column"`): the text continues in
+    /// the next column (a page break outside multi-column sections).
+    Column,
 }
 
 /// An image placed inline with the text.
@@ -468,8 +522,52 @@ pub enum FieldKind {
     },
     /// The document's file name (docx `FILENAME`).
     FileName,
-    /// The document author (docx `AUTHOR`).
+    /// The document author (docx `AUTHOR`, from the document properties).
     Author,
+    /// The document title (docx `TITLE`, from the document properties).
+    Title,
+    /// The text of a bookmark (docx `REF name`; `\\h` = a link to it,
+    /// `\\n` = the paragraph number of a numbered item instead of the text).
+    Ref {
+        bookmark: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        hyperlink: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        number: bool,
+    },
+    /// The page a bookmark starts on (docx `PAGEREF name`).
+    PageRef {
+        bookmark: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        hyperlink: bool,
+    },
+    /// The number of the footnote or endnote whose reference mark a
+    /// bookmark holds (docx `NOTEREF name`; `\\f` = formatted like a
+    /// note reference).
+    NoteRef {
+        bookmark: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        hyperlink: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        formatted: bool,
+    },
+    /// A sequence number (docx `SEQ Figure \\* ARABIC`): counted in
+    /// document order per `identifier`; `reset` = `\\r n`, `format` the
+    /// number format (`None` = arabic).
+    Seq {
+        identifier: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        format: Option<crate::numbering::LevelKind>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        reset: Option<u32>,
+    },
 }
 
 impl FieldKind {
@@ -486,6 +584,63 @@ impl FieldKind {
             FieldKind::Time { format } => with_format("TIME", format),
             FieldKind::FileName => "FILENAME".into(),
             FieldKind::Author => "AUTHOR".into(),
+            FieldKind::Title => "TITLE".into(),
+            FieldKind::Ref {
+                bookmark,
+                hyperlink,
+                number,
+            } => {
+                let mut s = format!("REF {bookmark}");
+                if *number {
+                    s.push_str(" \\n");
+                }
+                if *hyperlink {
+                    s.push_str(" \\h");
+                }
+                s
+            }
+            FieldKind::PageRef {
+                bookmark,
+                hyperlink,
+            } => {
+                let mut s = format!("PAGEREF {bookmark}");
+                if *hyperlink {
+                    s.push_str(" \\h");
+                }
+                s
+            }
+            FieldKind::NoteRef {
+                bookmark,
+                hyperlink,
+                formatted,
+            } => {
+                let mut s = format!("NOTEREF {bookmark}");
+                if *formatted {
+                    s.push_str(" \\f");
+                }
+                if *hyperlink {
+                    s.push_str(" \\h");
+                }
+                s
+            }
+            FieldKind::Seq {
+                identifier,
+                format,
+                reset,
+            } => {
+                let name = match format {
+                    Some(crate::numbering::LevelKind::UpperRoman) => "ROMAN",
+                    Some(crate::numbering::LevelKind::LowerRoman) => "roman",
+                    Some(crate::numbering::LevelKind::UpperLetter) => "ALPHABETIC",
+                    Some(crate::numbering::LevelKind::LowerLetter) => "alphabetic",
+                    _ => "ARABIC",
+                };
+                let mut s = format!("SEQ {identifier} \\* {name}");
+                if let Some(r) = reset {
+                    s.push_str(&format!(" \\r {r}"));
+                }
+                s
+            }
         }
     }
 
@@ -504,9 +659,102 @@ impl FieldKind {
             "TIME" => FieldKind::Time { format: format() },
             "FILENAME" => FieldKind::FileName,
             "AUTHOR" => FieldKind::Author,
+            "TITLE" => FieldKind::Title,
+            "REF" | "PAGEREF" | "NOTEREF" => {
+                let (bookmark, switches) = first_arg(rest)?;
+                let has = |c: char| has_switch(&switches, c);
+                match name.to_ascii_uppercase().as_str() {
+                    "REF" => FieldKind::Ref {
+                        bookmark,
+                        hyperlink: has('h'),
+                        number: has('n') || has('r') || has('w'),
+                    },
+                    "PAGEREF" => FieldKind::PageRef {
+                        bookmark,
+                        hyperlink: has('h'),
+                    },
+                    _ => FieldKind::NoteRef {
+                        bookmark,
+                        hyperlink: has('h'),
+                        formatted: has('f'),
+                    },
+                }
+            }
+            "SEQ" => {
+                let (identifier, switches) = first_arg(rest)?;
+                let format = switch_arg(&switches, '*').and_then(|f| match f.as_str() {
+                    "ROMAN" => Some(crate::numbering::LevelKind::UpperRoman),
+                    "roman" => Some(crate::numbering::LevelKind::LowerRoman),
+                    "ALPHABETIC" => Some(crate::numbering::LevelKind::UpperLetter),
+                    "alphabetic" => Some(crate::numbering::LevelKind::LowerLetter),
+                    _ => None,
+                });
+                let reset = switch_arg(&switches, 'r').and_then(|v| v.parse().ok());
+                FieldKind::Seq {
+                    identifier,
+                    format,
+                    reset,
+                }
+            }
             _ => return None,
         })
     }
+
+    /// The bookmark a cross-reference field refers to.
+    pub fn bookmark(&self) -> Option<&str> {
+        match self {
+            FieldKind::Ref { bookmark, .. }
+            | FieldKind::PageRef { bookmark, .. }
+            | FieldKind::NoteRef { bookmark, .. } => Some(bookmark),
+            _ => None,
+        }
+    }
+
+    /// Whether clicking the field's result follows the bookmark (`\\h`).
+    pub fn is_link(&self) -> bool {
+        matches!(
+            self,
+            FieldKind::Ref {
+                hyperlink: true,
+                ..
+            } | FieldKind::PageRef {
+                hyperlink: true,
+                ..
+            } | FieldKind::NoteRef {
+                hyperlink: true,
+                ..
+            }
+        )
+    }
+}
+
+/// The first argument of a field instruction (a bookmark or sequence
+/// name, possibly quoted) and the switches after it.
+fn first_arg(rest: &str) -> Option<(String, String)> {
+    let rest = rest.trim_start();
+    if let Some(q) = rest.strip_prefix('"') {
+        let end = q.find('"')?;
+        let arg = q[..end].to_owned();
+        return (!arg.is_empty()).then(|| (arg, q[end + 1..].to_owned()));
+    }
+    let (arg, tail) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
+    (!arg.is_empty() && !arg.starts_with('\\')).then(|| (arg.to_owned(), tail.to_owned()))
+}
+
+/// Whether `switches` holds the switch `\\c` (case-insensitive).
+fn has_switch(switches: &str, c: char) -> bool {
+    switches
+        .split_whitespace()
+        .any(|w| w.len() == 2 && w.starts_with('\\') && w[1..].eq_ignore_ascii_case(&c.to_string()))
+}
+
+/// The argument of switch `\\c` (`\\* ARABIC`, `\\r 1`).
+fn switch_arg(switches: &str, c: char) -> Option<String> {
+    let words: Vec<&str> = switches.split_whitespace().collect();
+    let i = words
+        .iter()
+        .position(|w| w.len() == 2 && w.starts_with('\\') && w.ends_with(c))?;
+    words.get(i + 1).map(|w| w.trim_matches('"').to_owned())
 }
 
 /// The argument of a `\\@` switch: a quoted string (`\\@ "d MMM"`, also
@@ -631,7 +879,32 @@ mod tests {
             FieldKind::parse("DATE"),
             Some(FieldKind::Date { format: None })
         );
-        assert_eq!(FieldKind::parse("REF _Ref1 \\h"), None);
+        assert_eq!(
+            FieldKind::parse("REF _Ref1 \\h"),
+            Some(FieldKind::Ref {
+                bookmark: "_Ref1".into(),
+                hyperlink: true,
+                number: false
+            })
+        );
+        assert_eq!(
+            FieldKind::parse(r#" SEQ Figure \* ARABIC \r 2 "#),
+            Some(FieldKind::Seq {
+                identifier: "Figure".into(),
+                format: None,
+                reset: Some(2)
+            })
+        );
+        assert_eq!(
+            FieldKind::parse(r#"NOTEREF _Ref9 \f \h  \* MERGEFORMAT"#),
+            Some(FieldKind::NoteRef {
+                bookmark: "_Ref9".into(),
+                hyperlink: true,
+                formatted: true
+            })
+        );
+        assert_eq!(FieldKind::parse("REF \\h"), None);
+        assert_eq!(FieldKind::parse("HYPERLINK \"x\""), None);
         assert_eq!(FieldKind::parse(""), None);
         for k in [
             FieldKind::Page,
@@ -641,6 +914,21 @@ mod tests {
             FieldKind::Time { format: None },
             FieldKind::FileName,
             FieldKind::Author,
+            FieldKind::Title,
+            FieldKind::PageRef {
+                bookmark: "b".into(),
+                hyperlink: true,
+            },
+            FieldKind::Ref {
+                bookmark: "b".into(),
+                hyperlink: false,
+                number: true,
+            },
+            FieldKind::Seq {
+                identifier: "Table".into(),
+                format: Some(crate::numbering::LevelKind::LowerRoman),
+                reset: Some(1),
+            },
         ] {
             assert_eq!(FieldKind::parse(&k.instruction()), Some(k));
         }

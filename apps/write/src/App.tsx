@@ -5,12 +5,14 @@ import { buildWritePrintDoc, DEFAULT_WRITE_PRINT, type WritePrintOptions } from 
 import { printWrite, WritePrintPage } from "./print/WritePrintPage";
 import { WriteApi, type WriteBackend } from "./backend";
 import { writeExtensions } from "./sync/schema";
-import { SyncController, SyncExtension, type SyncState } from "./sync/SyncPlugin";
+import { SYNC_META, SyncController, SyncExtension, type SyncState } from "./sync/SyncPlugin";
 import { WriteFeatures } from "./features/WriteFeatures";
 import { floatPage } from "./features/pagination";
 import { FindBar } from "./ui/FindBar";
 import { EditorContextMenu } from "./ui/EditorContextMenu";
 import { WriteDialogs } from "./ui/dialogs";
+import { ReferenceDialogs } from "./ui/referenceDialogs";
+import { InfoPanel } from "./ui/InfoPanel";
 import { PageFrame, useWriteChrome } from "./ui/PageFrame";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { Toasts } from "./ui/Toasts";
@@ -64,10 +66,12 @@ function useWordCount(editor: Editor): number {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const update = () => setWords(countDocWords(editor.state.doc));
-    const onTransaction = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+    const onTransaction = ({ transaction }: { transaction: { docChanged: boolean; getMeta: (key: string) => unknown } }) => {
       if (!transaction.docChanged) return;
       clearTimeout(timer);
-      timer = setTimeout(update, WORD_COUNT_DEBOUNCE_MS);
+      // Changes from Rust (open, undo, a re-wrapped column section) are not typing: count at once.
+      if (transaction.getMeta(SYNC_META) === "remote") update();
+      else timer = setTimeout(update, WORD_COUNT_DEBOUNCE_MS);
     };
     update();
     editor.on("transaction", onTransaction);
@@ -243,6 +247,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
           onReplace={chrome.onReplace}
           onExportPdf={exportPdf}
           print={<WritePrintPage editor={editor} page={page} backend={backend} options={printOptions} onChange={setPrintOptions} onError={pushError} comments={comments} />}
+          infoPage={<InfoPanel ctl={ctl} editor={editor} pages={chrome.view === "print" ? chrome.pages : null} />}
           zoom={zoom}
           onZoom={setZoom}
         />
@@ -270,6 +275,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
       {editor && <StatusBar ctl={ctl} editor={editor} backend={backend} session={session} />}
       <FindBar ctl={ctl} editor={editor} ui={features.ui} />
       <WriteDialogs ui={features.ui} ctl={ctl} editor={editor} />
+      <ReferenceDialogs ui={features.ui} ctl={ctl} editor={editor} />
       <UserNameDialog ctl={ctl} features={features} />
       {editor && <StyleDialogsHost editor={editor} ctl={ctl} features={features} />}
       {editor && <ApplyStylesBox editor={editor} ctl={ctl} features={features} />}

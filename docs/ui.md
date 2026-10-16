@@ -133,6 +133,65 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
   keeps it at the edit (the range shrinks; ends before typed text, starts after it — as the core does); deleting the whole
   range deletes the comment; pasted text never carries comments.
 
+### Write links, references, columns, properties (P8-27)
+- **Hyperlinks**: a link is an attribute of its text runs (`Run.link`: web page, a place in this document = a bookmark,
+  e-mail with subject; ScreenTip) → the ProseMirror `link` mark (not inclusive: typing at a link's end does not extend it,
+  typing inside does; `InsertText { link }`). Insert › Link (Ctrl+K): Text to display (fixed for a selection over
+  paragraphs), Link to Web page or file / Place in this document (Top of the document, the headings, the bookmarks — a
+  heading gets a hidden `_Ref` bookmark) / E-mail address (address, subject), ScreenTip; on a link the dialog edits it and
+  offers Remove Link → `SetHyperlink` (`Hyperlink` character style) / `RemoveHyperlink`. Links render as anchors with
+  Word's tooltip ("Ctrl+Click to follow link"); Ctrl+click follows (internal: the caret goes to the bookmark; external: a
+  new tab through an anchor element, no `window.open`); right-click: Edit Link…, Open Link, Remove Link.
+- **Bookmarks**: zero-width markers like the comment markers (`BookmarkStart`/`BookmarkEnd`, invisible atoms; a lone
+  marker survives a partial deletion, deleting the whole range removes the bookmark). Insert › Bookmark: name (Word's
+  rules), the list sorted by name or location, Hidden bookmarks, Add (an existing name moves) / Delete / Go To.
+  Go To (Ctrl+G, F5): Page (print layout), Bookmark, Heading.
+- **Fields**: `REF`, `PAGEREF`, `NOTEREF`, `SEQ`, `TITLE`, `AUTHOR` join the field model. PAGEREF shows the live page of
+  its bookmark like PAGE (saved with the current value); REF / NOTEREF / SEQ keep their result until Update Fields (F9 on
+  the selection, Ctrl+A F9 all; References › Update Fields; right-click Update Field) → `UpdateFields { refresh: { pages,
+  blocks } }`: the core computes SEQ per label in document order, REF (bookmark text, or the list number with `\n`),
+  PAGEREF (from the UI's page per paragraph), NOTEREF, TITLE/AUTHOR (the properties); a missing bookmark gives Word's
+  "Error! Reference source not found.".
+- **Captions**: References › Insert Caption: the caption box shows "Figure 1" (the number it will get) and the text after it,
+  Label (Figure / Table / Equation, New Label…), Position (above / below the selected item: the caret's table, else its
+  paragraph) → `InsertCaption` (a `Caption` paragraph "Label N" + text with a `SEQ` field; every sequence is renumbered).
+  Insert Table of Figures ▾ (Figure, Table, Equation) → `InsertToc { caption }` (a TOC block over the captions, `TOC \h \z
+  \c "Figure"`). Cross-reference (Insert and References): Reference type (Numbered item, Heading, Bookmark, Footnote,
+  Endnote, the caption labels), Insert reference to (text / paragraph number / page; notes: number, formatted number, page;
+  captions: entire caption, only label and number, page), Insert as hyperlink, For which → `InsertCrossReference` (hidden
+  `_Ref` bookmarks created and reused by the core); the dialog stays open (Word).
+- **Columns**: `Section.columns` (count, spacing, equal width or per-column widths, line between) ↔ `w:cols`. Layout ›
+  Columns ▾ One / Two / Three / Left / Right (a narrow column of about a third and a wide one) acts on the caret's section;
+  More Columns…: presets, number, width and spacing per column (equal width: all follow), line between, Apply to this
+  section / this point forward (a continuous section break at the caret, the part after gets the columns) / whole
+  document, preview. Breaks ▾ › Column inserts `Break(column)`. The editor wraps a multi-column section's blocks in a
+  `columns` box (a display node built from the sections like the list containers, flattened by `fromPM`, re-wrapped after
+  section changes) rendered with CSS columns (balanced; a column break ends its column, an empty section-end paragraph
+  spans the columns); print layout keeps the box on one page (approximate); a column break outside multi-column sections
+  ends the page. The ruler shows the section's columns (white) and the gaps.
+- **Document properties**: File › Info (a generic Info page of the shared backstage): Title, Subject, Author, Tags,
+  Categories, Comments (commit on blur / Enter → `SetProperties`, an empty field clears) and read-only Created, Last
+  modified, Last modified by, Words, Pages. Saving stamps modified (UI clock), created when unset, last modified by (the
+  user name), the page count and revision + 1 (`saveDocx { modified, user, pages }`, not an edit); `app.xml` names
+  "Rusuite Write" with words and pages.
+- **Symbols**: Insert › Symbol ▾: 20 symbols (recently used first, this browser only, then Word's common set), More
+  Symbols…: Subset (Basic Latin, Latin-1, Greek, Currency, Arrows, Mathematical Operators, Box Drawing, Geometric Shapes,
+  Dingbats and Emoji), Search by name, the character's name, Character code (hex, both ways), Recently used symbols,
+  Insert (double-click inserts too; the dialog stays open); Special Characters tab: em/en dash, nonbreaking hyphen (U+2011
+  ↔ `w:noBreakHyphen`), optional hyphen (U+00AD ↔ `w:softHyphen`), em/en/¼ em space, nonbreaking space, ©, ®, ™, §, ¶,
+  …, single/double quotes, with Word's shortcuts listed. Insert › Date & Time: Word's formats in the UI language,
+  Update automatically → a `DATE` / `TIME` field with the picture, else the text.
+- **Paragraph flow**: the Paragraph dialog's Line and Page Breaks tab: Widow/Orphan control, Keep with next, Keep lines
+  together, Page break before, Suppress line numbers (stored), Don't hyphenate (effective values, changes sent as direct
+  formatting). Print layout honours page break before and keep with next (a block chained by keep with next moves to the
+  next page with the following one, unless that would empty the page); blocks are never split, so keep lines together and
+  widow/orphan control hold by construction. Layout › Hyphenation ▾ None / Automatic → `SetSettings { autoHyphenation }`
+  (`w:autoHyphenation`): CSS `hyphens: auto` with the UI language as `lang`; "Don't hyphenate" paragraphs (style or direct)
+  stay `hyphens: manual`.
+- **Font box**: Home › Font shows the font and size in effect at the caret — direct formatting, the character style, the
+  paragraph style chain, the defaults; theme fonts by name (+Headings Calibri Light, +Body Calibri) — updating on caret moves
+  and style changes; the Style Inspector shows the same ("In effect: Calibri Light, 16 pt").
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |
@@ -291,9 +350,11 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, multilevel list, indent, line spacing, alignment, shading, borders,
-  tabs; Styles gallery (quick styles with live previews, ▾ Create a Style / Clear Formatting / Apply Styles, Styles pane; P8-21); Editing: Find and replace), Insert (Table picker, Picture, Header/Footer/Page
-  number, Field, Footnotes, Page break, Line break), Layout (Margins, Orientation, Size → `SetSection`/`SetPage`, Breaks),
-  References (Table of contents, Footnotes), Review (Comments: New, Delete ▾, Previous/Next, Resolve, Show Comments, Comments Pane; P8-25), View (views, ruler, Navigation Pane, zoom, spelling, shortcuts help); contextual Table Design and
+  tabs; Styles gallery (quick styles with live previews, ▾ Create a Style / Clear Formatting / Apply Styles, Styles pane; P8-21); Editing: Find and replace), Insert (Table picker, Picture, Links: Link /
+  Bookmark / Cross-reference, Header/Footer/Page number, Text: Field, Date & Time, Symbols: Symbol ▾, Footnotes, Page break,
+  Line break), Layout (Margins, Orientation, Size → `SetSection`/`SetPage`, Columns ▾, Breaks ▾ incl. Column, Hyphenation ▾),
+  References (Table of contents, Captions: Insert Caption, Insert Table of Figures ▾, Cross-reference, Bookmark, Update Fields;
+  Footnotes; P8-27), Review (Comments: New, Delete ▾, Previous/Next, Resolve, Show Comments, Comments Pane; P8-25), View (views, ruler, Navigation Pane, zoom, spelling, shortcuts help); contextual Table Design and
   Table Layout in a table, Picture Format on a picture (P8-17).
 - **Show**: Home (Undo; Clipboard: shapes/slides clipboard + Duplicate; Slides: New slide ▾ layouts, Layout ▾, Duplicate,
   Delete, Hide slide; Font + grow/shrink; Paragraph + line spacing ▾; Drawing: shapes gallery, Arrange ▾

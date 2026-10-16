@@ -20,6 +20,8 @@ import { TWIPS_PER_PX } from "../sync/schema";
 import type { SyncController } from "../sync/SyncPlugin";
 import { useThrottledEditorState } from "./useThrottledEditorState";
 import { useT } from "../i18n";
+import { rulerSegments, textWidth } from "../features/columns";
+import { currentSection } from "../features/structureCommands";
 
 const PX_PER_CM = 96 / 2.54;
 /** Height of the sticky ruler row (`h-7` band + `mb-1`), unzoomed. */
@@ -65,6 +67,8 @@ interface RulerInfo {
   indent: Indent;
   tabs: TabStop[];
   ids: number[];
+  /** The columns of a multi-column section: [start, end] px from the text's left edge (none otherwise). */
+  segments: [number, number][];
 }
 
 /** The caret paragraph's column, measured in the DOM (cells have their own), else the page margins. */
@@ -89,6 +93,23 @@ function measureColumn(editor: Editor, page: PageSetup | null): { left: number; 
   }
 }
 
+/** cm ticks and numbers over `width` px, starting at 0 at the left edge. */
+export function RulerScale({ width }: { width: number }) {
+  const cm = Math.floor(width / PX_PER_CM);
+  return (
+    <>
+      {Array.from({ length: cm * 4 + 1 }, (_, i) => (
+        <span key={i} className="absolute bottom-0 border-l border-gray-400" style={{ left: (i * PX_PER_CM) / 4, height: i % 4 === 0 ? 0 : i % 2 === 0 ? 6 : 3 }} />
+      ))}
+      {Array.from({ length: cm }, (_, i) => (
+        <span key={`n${i}`} className="absolute top-0.5 -translate-x-1/2 text-[9px] leading-3 text-gray-500" style={{ left: (i + 1) * PX_PER_CM }} data-testid="ruler-number">
+          {i + 1}
+        </span>
+      ))}
+    </>
+  );
+}
+
 export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: SyncController; features: WriteFeatures; page: PageSetup | null }) {
   const t = useT();
   const [kind, setKind] = useState<TabStop["kind"]>("left");
@@ -101,8 +122,16 @@ export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: Sy
       const nodes = selectedParagraphs(e.state);
       const first = nodes[0];
       const col = measureColumn(e, page);
+      const { $from } = e.state.selection;
+      let inColumns = false;
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type.name === "tableCell") break;
+        if ($from.node(d).type.name === "columns") inColumns = true;
+      }
+      const sec = inColumns ? currentSection(e.state, ctl.sections) : null;
       return {
         ...col,
+        segments: sec && (sec.columns?.count ?? 1) > 1 ? rulerSegments(sec.columns, textWidth(sec.page), TWIPS_PER_PX) : [],
         indent: ((first?.attrs.indent as Indent | null) ?? {}) as Indent,
         tabs: first ? tabsOf(ctl.styles, first) : [],
         ids: nodes.map((n) => n.attrs.id as number),
@@ -163,7 +192,6 @@ export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: Sy
     window.addEventListener("pointerup", up);
   };
 
-  const cm = Math.floor(info.width / PX_PER_CM);
   const ind = info.indent;
   const px = (tw: number | null | undefined) => (tw ?? 0) / TWIPS_PER_PX;
   const firstLine = px(ind.left) + (ind.firstLine != null ? px(ind.firstLine) : -px(ind.hanging));
@@ -187,20 +215,25 @@ export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: Sy
         >
           <TabGlyph kind={kind} />
         </button>
-        <div className="absolute inset-y-1 bg-white" style={{ left: info.left, width: info.width }} data-testid="ruler-column">
-          {Array.from({ length: cm * 4 + 1 }, (_, i) => (
-            <span
-              key={i}
-              className="absolute bottom-0 border-l border-gray-400"
-              style={{ left: (i * PX_PER_CM) / 4, height: i % 4 === 0 ? 0 : i % 2 === 0 ? 6 : 3 }}
-            />
-          ))}
-          {Array.from({ length: cm }, (_, i) => (
-            <span key={`n${i}`} className="absolute top-0.5 -translate-x-1/2 text-[9px] leading-3 text-gray-500" style={{ left: (i + 1) * PX_PER_CM }}>
-              {i + 1}
-            </span>
-          ))}
-        </div>
+        {/* Multi-column sections: every column has its own scale from 0 at its left edge (Word); the gaps are grey. */}
+        {info.segments.map(([start, end], i) => (
+          <div key={`col${i}`} className="absolute inset-y-1 bg-white" style={{ left: g.left + start, width: end - start }} data-testid="ruler-segment">
+            <RulerScale width={end - start} />
+          </div>
+        ))}
+        {info.segments.slice(1).map(([start], i) => (
+          <div
+            key={`gap${i}`}
+            className="absolute inset-y-1 z-[1] border-x border-gray-400 bg-ui-panel"
+            style={{ left: g.left + info.segments[i]![1], width: start - info.segments[i]![1] }}
+            data-testid="ruler-column-gap"
+          />
+        ))}
+        {info.segments.length === 0 && (
+          <div className="absolute inset-y-1 bg-white" style={{ left: info.left, width: info.width }} data-testid="ruler-column">
+            <RulerScale width={info.width} />
+          </div>
+        )}
         {/* Indents (display): first line on top, left/hanging at the bottom, right indent. */}
         <span className="pointer-events-none absolute top-0 h-0 w-0 -translate-x-1/2 border-x-[5px] border-t-[6px] border-x-transparent border-t-gray-500" style={{ left: info.left + firstLine }} aria-hidden="true" />
         <span className="pointer-events-none absolute bottom-0 h-0 w-0 -translate-x-1/2 border-x-[5px] border-b-[6px] border-x-transparent border-b-gray-500" style={{ left: info.left + px(ind.left) }} aria-hidden="true" />

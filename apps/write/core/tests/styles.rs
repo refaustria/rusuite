@@ -452,6 +452,7 @@ fn typing_keeps_the_character_style() {
             text: "c".into(),
             props: None,
             style: None,
+            link: None,
         },
     );
     assert_eq!(runs(&h, 1), [("abc".into(), Some("Emphasis".into()))]);
@@ -464,6 +465,7 @@ fn typing_keeps_the_character_style() {
             text: "x".into(),
             props: Some(RunProperties::default()),
             style: Some("Strong".into()),
+            link: None,
         },
     );
     assert_eq!(runs(&h, 1)[0], ("x".into(), Some("Strong".into())));

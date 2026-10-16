@@ -84,6 +84,7 @@ fn table_host(rows: u32, cols: u32) -> (WriteHost, NodeId) {
             text,
             props: None,
             style: None,
+            link: None,
         })
         .unwrap();
     }

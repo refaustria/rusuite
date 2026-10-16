@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { interceptPrint, openPrint, previewPdf, openViaBackstage, printCount, saveViaBackstage, testdata, trackErrors, fileCommand } from "../support/common";
+import { interceptPrint, openPrint, previewPdf, openViaBackstage, printCount, saveViaBackstage, testdata, trackErrors, fileCommand, downloadBuffer } from "../support/common";
 import { zipText, unzip } from "../support/zip";
 
 const REPORT = testdata("docx/provisional-47-report.docx");
@@ -106,7 +106,7 @@ test.describe("Write", () => {
     await page.getByRole("tab", { name: "Insert" }).click();
     await page.getByRole("button", { name: "Header", exact: true }).click();
     await page.getByRole("textbox", { name: "Header" }).fill("Rusuite e2e header");
-    await page.getByRole("button", { name: "OK" }).click();
+    await page.getByRole("button", { name: "OK", exact: true }).click();
     await expect(page.getByTestId("page-header")).toContainText("Rusuite e2e header");
     const docx = await saveViaBackstage(page);
     const files = unzip(docx);
@@ -581,5 +581,165 @@ test.describe("Write comments", () => {
     await expect(page.getByTestId("comments-pane").getByTestId("comment-thread")).toHaveCount(4);
     await page.screenshot({ path: `${SHOTS}/comments-pane.png` });
     errors.expectNone();
+  });
+});
+
+test.describe("Write links, fields and columns (P8-27)", () => {
+  test("Ctrl+K: an external link is saved as w:hyperlink with an external relationship", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Visit Rusuite");
+    for (let i = 0; i < "Rusuite".length; i++) await page.keyboard.press("Shift+ArrowLeft");
+    await page.keyboard.press("Control+k");
+    const dialog = page.getByRole("dialog", { name: "Insert Hyperlink" });
+    await expect(dialog.getByLabel("Text to display")).toHaveValue("Rusuite");
+    await dialog.getByRole("textbox", { name: "Address", exact: true }).fill("https://rusuite.example/");
+    await dialog.getByLabel("ScreenTip").fill("Home page");
+    await dialog.getByTestId("link-ok").click();
+    const link = editor(page).locator("a.doc-link");
+    await expect(link).toHaveText("Rusuite");
+    await expect(link).toHaveAttribute("title", /Home page[\s\S]*Ctrl\+Click to follow link/);
+    await page.screenshot({ path: `${SHOTS}/p8-27-link.png` });
+    const docx = await saveViaBackstage(page);
+    const xml = zipText(docx, "word/document.xml");
+    const rid = /<w:hyperlink r:id="(rId\d+)"[^>]*w:tooltip="Home page"/.exec(xml)?.[1];
+    expect(rid).toBeTruthy();
+    expect(xml).toMatch(/<w:hyperlink[^>]*>(?:(?!<\/w:hyperlink>)[^])*Rusuite/);
+    expect(zipText(docx, "word/_rels/document.xml.rels")).toMatch(new RegExp(`Id="${rid}"[^>]*Target="https://rusuite.example/" TargetMode="External"`));
+    errors.expectNone();
+  });
+
+  test("a bookmark and a cross-reference to its page: PAGEREF, updated after a page break", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Intro");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Results here");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("See page ");
+    // Bookmark "results" on the second paragraph.
+    await editor(page).locator("p", { hasText: "Results here" }).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
+    await page.getByRole("tab", { name: "Insert" }).click();
+    await page.getByRole("button", { name: "Bookmark" }).click();
+    const bm = page.getByRole("dialog", { name: "Bookmark" });
+    await bm.getByLabel("Bookmark name").fill("results");
+    await bm.getByRole("button", { name: "Add" }).click();
+    await expect(bm).toBeHidden();
+    await expect(editor(page).locator('[data-bookmark="results"]')).toHaveCount(1);
+    // The cross-reference at the end of "See page ".
+    await editor(page).locator("p", { hasText: "See page" }).click();
+    await page.keyboard.press("End");
+    await page.getByRole("button", { name: "Cross-reference" }).click();
+    const xr = page.getByRole("dialog", { name: "Cross-reference" });
+    await xr.getByLabel("Reference type").selectOption("bookmark");
+    await xr.getByLabel("Insert reference to").selectOption("page");
+    await xr.getByRole("option", { name: "results" }).click();
+    await xr.getByTestId("xref-insert").click();
+    const ref = editor(page).locator('.field[data-field="pageRef"]');
+    await expect(ref).toHaveText("1");
+    await xr.getByRole("button", { name: "Close" }).click();
+    await expect(xr).toBeHidden();
+    // A page break at the end of "Intro" moves the bookmarked paragraph to page 2.
+    await editor(page).locator("p", { hasText: "Intro" }).click();
+    await page.keyboard.press("End");
+    await page.getByRole("button", { name: "Page break" }).first().click();
+    await expect(editor(page).locator("p", { hasText: "Intro" }).locator(".page-break")).toHaveCount(1);
+    await expect(page.locator(".page-gap").first()).toBeVisible();
+    await expect(ref).toHaveAttribute("data-live", "2");
+    const docx = await saveViaBackstage(page);
+    const xml = zipText(docx, "word/document.xml");
+    expect(xml).toContain('<w:bookmarkStart w:id="1" w:name="results"/>');
+    expect(xml).toMatch(/<w:fldSimple w:instr=" PAGEREF results \\h ">(?:(?!<\/w:fldSimple>)[^])*<w:t>2<\/w:t>/);
+  });
+
+  test("captions: Figure 1 and Figure 2 numbered by SEQ, renumbered when one is inserted before", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Picture one");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Picture two");
+    await page.getByRole("tab", { name: "References" }).click();
+    await page.getByRole("button", { name: "Insert Caption" }).click();
+    let dialog = page.getByRole("dialog", { name: "Caption" });
+    await expect(dialog.getByTestId("caption-prefix")).toHaveText("Figure 1");
+    await dialog.getByLabel("Caption").fill(": the second");
+    await dialog.getByTestId("caption-ok").click();
+    await expect(editor(page).locator("p", { hasText: "Figure 1: the second" })).toBeVisible();
+    await editor(page).locator("p", { hasText: "Picture one" }).click();
+    await page.getByRole("button", { name: "Insert Caption" }).click();
+    dialog = page.getByRole("dialog", { name: "Caption" });
+    await dialog.getByLabel("Caption").fill(": the first");
+    await dialog.getByTestId("caption-ok").click();
+    const captions = editor(page).locator('p[data-style="Caption"]');
+    await expect(captions).toHaveText(["Figure 1: the first", "Figure 2: the second"]);
+    const docx = await saveViaBackstage(page);
+    const xml = zipText(docx, "word/document.xml");
+    const seqs = [...xml.matchAll(/<w:fldSimple w:instr=" SEQ Figure \\\* ARABIC ">(?:(?!<\/w:fldSimple>)[^])*<w:t>(\d+)<\/w:t>/g)].map((m) => m[1]);
+    expect(seqs).toEqual(["1", "2"]);
+    expect(xml.match(/<w:pStyle w:val="Caption"\/>/g)).toHaveLength(2);
+  });
+
+  test("Layout › Columns › Two: w:cols w:num=\"2\" and the text laid out in two columns", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    const words = "Columns flow from the bottom of the first column to the top of the next one. ";
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.type(words.repeat(3).trim());
+      if (i < 3) await page.keyboard.press("Enter");
+    }
+    await page.getByRole("tab", { name: "Layout" }).click();
+    await page.getByRole("button", { name: "Columns" }).click();
+    await page.getByRole("menuitemradio", { name: "Two" }).click();
+    const box = editor(page).locator(".section-columns");
+    await expect(box).toHaveAttribute("data-columns", "2");
+    const paras = box.locator("p");
+    await expect(paras).toHaveCount(4);
+    const first = (await paras.first().boundingBox())!;
+    const last = (await paras.last().boundingBox())!;
+    const boxRect = (await box.boundingBox())!;
+    // The first paragraph is in the left column, the last in the right one, side by side.
+    expect(first.x + first.width).toBeLessThan(boxRect.x + boxRect.width / 2 + 2);
+    expect(last.x).toBeGreaterThan(boxRect.x + boxRect.width / 2 - 2);
+    expect(last.y).toBeLessThan(first.y + first.height + boxRect.height / 2);
+    await page.screenshot({ path: `${SHOTS}/p8-27-columns.png` });
+    const docx = await saveViaBackstage(page);
+    expect(zipText(docx, "word/document.xml")).toMatch(/<w:cols[^>]*w:num="2"/);
+  });
+
+  test("File › Info: the title is saved in docProps/core.xml", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Some text");
+    await page.getByRole("tab", { name: "File", exact: true }).click();
+    const backstage = page.getByTestId("backstage");
+    await backstage.getByRole("button", { name: "Info" }).click();
+    const panel = page.getByTestId("info-panel");
+    await panel.getByLabel("Title").fill("E2E Report");
+    await panel.getByLabel("Subject").click();
+    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+    await page.screenshot({ path: `${SHOTS}/p8-27-info.png` });
+    const [dl] = await Promise.all([page.waitForEvent("download"), backstage.getByRole("button", { name: /^Save$/ }).click()]);
+    const docx = await downloadBuffer(dl);
+    const core = zipText(docx, "docProps/core.xml");
+    expect(core).toContain("<dc:title>E2E Report</dc:title>");
+    expect(core).toMatch(/<dcterms:modified xsi:type="dcterms:W3CDTF">\d{4}-\d\d-\d\dT/);
+    expect(zipText(docx, "docProps/app.xml")).toContain("<Application>Rusuite Write</Application>");
+  });
+
+  test("the font box shows the resolved style font and size in Heading 1", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Chapter one");
+    const font = page.getByLabel("Font family");
+    const size = page.getByLabel("Font size");
+    await expect(font).toHaveValue("Calibri");
+    await expect(size).toHaveValue("11");
+    await page.keyboard.press("Control+Alt+1");
+    await expect(editor(page).locator("h1")).toHaveText("Chapter one");
+    await expect(font).toHaveValue("Calibri Light");
+    await expect(size).toHaveValue("16");
   });
 });

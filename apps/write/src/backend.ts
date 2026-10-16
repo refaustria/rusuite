@@ -127,8 +127,8 @@ export class WriteApi {
   }
 
   /** The document as `.docx` (base64) plus the file name to offer. */
-  saveDocx(): Promise<BodyOf<"saved">> {
-    return this.call({ type: "saveDocx" }, "saved");
+  saveDocx(stamp: { modified?: string; user?: string; pages?: number } = {}): Promise<BodyOf<"saved">> {
+    return this.call({ type: "saveDocx", ...stamp }, "saved");
   }
 
   getMedia(id: number): Promise<BodyOf<"media">> {

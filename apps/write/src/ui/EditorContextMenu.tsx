@@ -11,6 +11,7 @@ import { resetImageSize, selectedImage } from "../features/images";
 import { deleteCols, deleteRows, deleteTable, insertCol, insertRow, mergeCellsCommand, tableContext } from "../features/tables";
 import type { WriteFeatures } from "../features/WriteFeatures";
 import { numberedAtCaret } from "../features/structureCommands";
+import { followLink, linkAt, removeLinkCommand } from "../features/links";
 import type { SyncController } from "../sync/SyncPlugin";
 import { t, useT } from "../i18n";
 
@@ -71,6 +72,21 @@ export function contextItems(editor: Editor, ctl: SyncController, features: Writ
       { id: "table-props", label: t("write.tablePropertiesDots"), onSelect: () => features.ui.openDialog("tableProps") },
     );
   }
+  const link = linkAt(editor.state, editor.state.selection.from);
+  if (link) {
+    const remove = removeLinkCommand(editor.state);
+    items.push(
+      sep,
+      { id: "edit-link", label: t("write.link.edit"), onSelect: () => features.ui.openDialog("link") },
+      { id: "open-link", label: t("write.link.open"), onSelect: () => void followLink(editor.view, link.link) },
+      { id: "remove-link", label: t("write.link.remove"), disabled: !remove, onSelect: () => remove && void ctl.run(remove) },
+    );
+  } else {
+    items.push(sep, { id: "link", label: t("write.link.insertDots"), shortcut: "Ctrl+K", onSelect: () => features.ui.openDialog("link") });
+  }
+  const { $from } = editor.state.selection;
+  const field = $from.nodeAfter?.type.name === "field" || $from.nodeBefore?.type.name === "field" || !editor.state.selection.empty;
+  if (field) items.push({ id: "update-field", label: t("write.updateField"), shortcut: "F9", onSelect: () => void features.updateFields() });
   const numbered = numberedAtCaret(editor);
   if (numbered != null && numbered > 0) {
     items.push(

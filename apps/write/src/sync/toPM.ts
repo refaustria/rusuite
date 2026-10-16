@@ -5,7 +5,9 @@ import type { Block } from "../generated/Block";
 import type { Document } from "../generated/Document";
 import type { Inline } from "../generated/Inline";
 import type { Note } from "../generated/Note";
+import type { Hyperlink } from "../generated/Hyperlink";
 import type { Numbering } from "../generated/Numbering";
+import type { Section } from "../generated/Section";
 import type { Paragraph } from "../generated/Paragraph";
 import type { Table } from "../generated/Table";
 import type { Toc } from "../generated/Toc";
@@ -17,6 +19,11 @@ export interface ToPMContext {
   schema: Schema;
   /** List definitions, for the list node type (bullet vs ordered). */
   numbering: Numbering;
+  /**
+   * Top level only: the sections, and the section index of the first block,
+   * so that multi-column sections are wrapped in `columns` nodes.
+   */
+  sections?: { list: Section[]; start: number };
 }
 
 const HEADING = /^Heading([1-6])$/;
@@ -26,8 +33,8 @@ const emptyToNull = (v: unknown) => {
   return c && typeof c === "object" && Object.keys(c).length === 0 ? null : (c ?? null);
 };
 
-/** Run properties (and a character style) → marks (inverse of `propsFromMarks` / `styleFromMarks`). */
-export function marksFromProps(schema: Schema, props: RunProperties | undefined, charStyle?: string | null): Mark[] {
+/** Run properties (and a character style, a link) → marks (inverse of `propsFromMarks` / `styleFromMarks` / `linkFromMarks`). */
+export function marksFromProps(schema: Schema, props: RunProperties | undefined, charStyle?: string | null, link?: Hyperlink | null): Mark[] {
   const p = (canonValue(props ?? {}) ?? {}) as RunProperties;
   const marks: Mark[] = [];
   const extra: RunProperties = {};
@@ -52,6 +59,7 @@ export function marksFromProps(schema: Schema, props: RunProperties | undefined,
   };
   if (Object.values(attrs).some((v) => v !== null)) marks.push(m.textStyle!.create(attrs));
   if (charStyle) marks.push(m.charStyle!.create({ id: charStyle }));
+  if (link) marks.push(m.link!.create({ link: canonValue(link) }));
   return Mark.setFrom(marks) as Mark[];
 }
 
@@ -60,7 +68,7 @@ export function inlinesToPM(schema: Schema, inlines: Inline[]): PMNode[] {
   for (const inline of inlines) {
     switch (inline.kind) {
       case "run":
-        if (inline.value.text !== "") out.push(schema.text(inline.value.text, marksFromProps(schema, inline.value.props, inline.value.style)));
+        if (inline.value.text !== "") out.push(schema.text(inline.value.text, marksFromProps(schema, inline.value.props, inline.value.style, inline.value.link)));
         break;
       case "image": {
         const img = inline.value;
@@ -72,7 +80,9 @@ export function inlinesToPM(schema: Schema, inlines: Inline[]): PMNode[] {
         break;
       }
       case "break":
-        out.push(inline.value === "page" ? schema.nodes.pageBreak!.create() : schema.nodes.hardBreak!.create());
+        out.push(
+          inline.value === "page" ? schema.nodes.pageBreak!.create() : inline.value === "column" ? schema.nodes.columnBreak!.create() : schema.nodes.hardBreak!.create(),
+        );
         break;
       case "field":
         out.push(
@@ -89,6 +99,12 @@ export function inlinesToPM(schema: Schema, inlines: Inline[]): PMNode[] {
       case "commentStart":
       case "commentEnd":
         out.push(schema.nodes[inline.kind]!.create({ id: inline.value.id }));
+        break;
+      case "bookmarkStart":
+        out.push(schema.nodes.bookmarkStart!.create({ id: inline.value.id, name: inline.value.name }));
+        break;
+      case "bookmarkEnd":
+        out.push(schema.nodes.bookmarkEnd!.create({ id: inline.value.id }));
         break;
     }
   }
@@ -201,8 +217,40 @@ export function tableToPM(ctx: ToPMContext, t: Table): PMNode {
 /** Numbered: a real (> 0) or synthetic (< 0, a list created in the editor) numbering id. */
 const isNumbered = (b: Block): boolean => b.kind === "paragraph" && (b.value.props?.numbering?.numId ?? 0) !== 0;
 
-/** Blocks → nodes; runs of numbered paragraphs become nested lists. */
+/** The section index of every block of `blocks` (top level), the first in section `start`. */
+export function sectionIndexes(blocks: Block[], sections: Section[], start = 0): number[] {
+  const index = new Map(sections.map((s, i) => [s.id, i]));
+  let cur = start;
+  return blocks.map((b) => {
+    const here = cur;
+    const end = b.kind === "paragraph" ? b.value.props?.sectionEnd : undefined;
+    const i = end == null ? undefined : index.get(end);
+    if (i !== undefined) cur = Math.min(sections.length - 1, Math.max(cur, i + 1));
+    return here;
+  });
+}
+
+/** Blocks → nodes; runs of numbered paragraphs become nested lists; at the top level, multi-column sections become `columns` boxes. */
 export function blocksToPM(ctx: ToPMContext, blocks: Block[]): PMNode[] {
+  const secs = ctx.sections;
+  if (secs && secs.list.some((s) => (s.columns?.count ?? 1) > 1)) {
+    const inner: ToPMContext = { schema: ctx.schema, numbering: ctx.numbering };
+    const idx = sectionIndexes(blocks, secs.list, secs.start);
+    const out: PMNode[] = [];
+    let i = 0;
+    while (i < blocks.length) {
+      const sec = idx[i]!;
+      let j = i;
+      while (j < blocks.length && idx[j] === sec) j++;
+      const nodes = blocksToPM(inner, blocks.slice(i, j));
+      const cols = secs.list[sec]?.columns;
+      if (cols && cols.count > 1 && nodes.length) {
+        out.push(ctx.schema.nodes.columns!.create({ section: secs.list[sec]!.id, columns: canonValue(cols) }, nodes));
+      } else out.push(...nodes);
+      i = j;
+    }
+    return out;
+  }
   const out: PMNode[] = [];
   let i = 0;
   while (i < blocks.length) {
@@ -227,6 +275,7 @@ export function tocToPM(schema: Schema, t: Toc): PMNode {
     toLevel: t.toLevel,
     title: t.title ?? null,
     entries: canonValue(t.entries ?? []),
+    caption: t.caption ?? null,
   });
 }
 
@@ -268,7 +317,7 @@ export function notesToPM(ctx: ToPMContext, notes: Note[] | undefined, body: Blo
 /** The whole document. */
 export function toPM(doc: Document, schema: Schema): PMNode {
   const ctx: ToPMContext = { schema, numbering: doc.numbering };
-  const content = blocksToPM(ctx, doc.body);
+  const content = blocksToPM({ ...ctx, sections: { list: doc.sections ?? [], start: 0 } }, doc.body);
   if (!content.length) content.push(schema.nodes.paragraph!.create());
   const notes = notesToPM(ctx, doc.notes, doc.body);
   if (notes) content.push(notes);
