@@ -118,6 +118,8 @@ export default function App({ backend }: { backend: CalcBackend }) {
       openFile: (file) => store.openBytes(file),
       onError: (e) => store.pushError(e),
       confirmReplace: async () => (await guard.ensureSaved()) === "proceed",
+      // File › Save As › a connection (P8-36): the app's Save As under the chosen name.
+      saveAs: (name) => guard.doc.save(name),
     });
     void session.start();
     return () => session.stop();

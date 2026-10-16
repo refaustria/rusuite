@@ -20,7 +20,14 @@ Owner question 2026-10-15: "Can we face copyright infringement if we offer pptx/
    identifiers PowerPoint uses (published by Microsoft); their looks are generated from our own family
    rules, not copied from PowerPoint's definitions.
 6. **Reference data.** Test files are generated with LibreOffice; expected formula values are computed by LibreOffice or by us. No Office sample documents are redistributed.
-7. **AI and cloud connectors** (planned) use the user's own accounts and keys; provider terms apply to the user.
+7. **AI and cloud connectors** use the user's own accounts and keys; provider terms apply to the user. Cloud
+   connectors v1 (P8-36, WebDAV) add these crates to the desktop shells (through `app-common`'s opt-in
+   `tauri-connectors` feature), all permissive: `reqwest` (MIT/Apache-2.0), `rustls`, `hyper-rustls`
+   (Apache-2.0/ISC/MIT), `tokio-rustls`, `rustls-pki-types`, `rustls-platform-verifier` (MIT/Apache-2.0),
+   `rustls-webpki`, `untrusted` (ISC), `ring` (Apache-2.0 AND ISC – the `ring` provider instead of aws-lc, whose
+   OpenSSL-licensed parts we avoid), `keyring`, `dbus-secret-service`, `aes`, `cbc`, `hkdf`, `zeroize`
+   (MIT/Apache-2.0), `dbus`/`libdbus-sys` (MIT/Apache-2.0; already used by Tauri). The web apps add no
+   dependency (the browser's `fetch`).
 
 ## Recommendations before a public release
 - Keep the non-affiliation statement in README, portal, about dialogs and store listings.

@@ -18,9 +18,12 @@
 //   file by path, web entries re-open the snapshot stored with them.
 
 import type { Backend, OpenedFile } from "../backend";
+import { bytesToBase64 } from "../base64";
+import type { Connectors, RemoteLocation } from "../connectors/controller";
+import { baseName } from "../connectors/paths";
 import { t } from "../i18n/locale";
 import { getKeepAutosave, storeKeepAutosave } from "./privacy";
-import { newDocId, type DocStorage, type RecentEntry, type RecoveryInfo } from "./storage";
+import { newDocId, RECENT_LIMIT, type DocStorage, type RecentEntry, type RecoveryInfo } from "./storage";
 
 /** App hooks the session calls; each resolves `false` (or rejects) on failure. */
 export interface SessionAdapter {
@@ -36,11 +39,20 @@ export interface SessionAdapter {
    * `false` = keep the open document.
    */
   confirmReplace?(): Promise<boolean>;
+  /**
+   * The app's Save As flow under `name`, without asking for a name
+   * (`UnsavedGuard`'s `doc.save(name)`); resolves `true` when written.
+   * Enables File › Save As › a connection (P8-36).
+   */
+  saveAs?(name: string): Promise<boolean>;
 }
 
+/** A recent entry; remote ones (P8-36) re-open the file from their connection. */
+export type RecentItem = RecentEntry & { remote?: { connectionId: string; path: string } };
+
 export interface SessionState {
-  /** The recent list, newest first. */
-  recent: RecentEntry[];
+  /** The recent list, newest first (local and remote entries). */
+  recent: RecentItem[];
   /** Unsaved documents of earlier sessions (the recovery banner). */
   recoveries: RecoveryInfo[];
   /** When this session last stored a snapshot (ms since the epoch). */
@@ -98,6 +110,8 @@ export class DocumentSession<Req = unknown, Body = unknown> {
   /** The backend the app must use (all calls pass through unchanged). */
   readonly backend: Backend<Req, Body>;
   readonly storage: DocStorage | null;
+  /** The window's cloud connections (P8-36): `Backend.connectors`; `null` when the backend has none. */
+  readonly connectors: Connectors | null;
 
   private state: SessionState = { recent: [], recoveries: [], lastAutosave: null, keepAutosave: getKeepAutosave() };
   private listeners = new Set<() => void>();
@@ -124,6 +138,16 @@ export class DocumentSession<Req = unknown, Body = unknown> {
   ) {
     this.docId = options.docId ?? newDocId();
     this.storage = inner.storage ?? null;
+    this.connectors = inner.connectors ?? null;
+    this.connectors?.attachSession({ reopen: (file, loc) => this.openBound(file, loc) });
+    // Connections forgotten or removed elsewhere in the window: their recent entries go too.
+    let seen = this.connectors?.getState().recent;
+    this.connectors?.subscribe(() => {
+      const now = this.connectors!.getState().recent;
+      if (now === seen) return;
+      seen = now;
+      this.set({ recent: this.mergeRemote(this.state.recent) });
+    });
     this.intervalMs = options.intervalMs ?? AUTOSAVE_INTERVAL_MS;
     this.now = options.now ?? Date.now;
     this.target = options.target === undefined ? (typeof window === "undefined" ? null : window) : options.target;
@@ -231,8 +255,30 @@ export class DocumentSession<Req = unknown, Body = unknown> {
       const oldest = this.now() - RECOVERY_MAX_AGE_MS;
       const expired = all.filter((r) => r.id !== this.docId && !live.has(r.id) && r.savedAt < oldest);
       for (const r of expired) await s.removeRecovery(r.id);
-      this.set({ recent, recoveries: all.filter((r) => r.id !== this.docId && r.savedAt >= oldest && !live.has(r.id)) });
+      this.set({ recent: await this.withRemote(recent), recoveries: all.filter((r) => r.id !== this.docId && r.savedAt >= oldest && !live.has(r.id)) });
     });
+    if (!this.storage && this.connectors) this.set({ recent: await this.withRemote([]) });
+  }
+
+  /** Merges the connections' recent files into a local list (newest first, `RECENT_LIMIT` in all). */
+  private async withRemote(local: RecentEntry[]): Promise<RecentItem[]> {
+    await this.connectors?.load();
+    return this.mergeRemote(local);
+  }
+
+  private mergeRemote(local: RecentItem[]): RecentItem[] {
+    const c = this.connectors;
+    const own = local.filter((r) => !r.remote);
+    if (!c) return own;
+    const remote: RecentItem[] = c.getState().recent.map((r) => ({
+      name: r.name,
+      path: null,
+      blobId: null,
+      openedAt: r.openedAt,
+      remote: { connectionId: r.connectionId, path: r.path },
+    }));
+    if (remote.length === 0) return own;
+    return [...own, ...remote].sort((a, b) => b.openedAt - a.openedAt).slice(0, RECENT_LIMIT);
   }
 
   private async liveSessions(): Promise<Set<string>> {
@@ -275,6 +321,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
       await this.remember(name ?? t("doc.untitled"));
     } else if (REPLACING.has(type)) {
       this.storedRevision = null;
+      this.connectors?.documentReplaced(OPENING.has(type));
       if (type === "restoreRecovery") {
         this.seenDirty = true;
         void this.autosave(true);
@@ -290,6 +337,15 @@ export class DocumentSession<Req = unknown, Body = unknown> {
 
   /** Puts `name` on the recent list (web: with a snapshot of the current document). */
   private async remember(name: string): Promise<void> {
+    const loc = this.connectors?.getState().location;
+    if (loc && this.connectors) {
+      // A remote document re-opens from its connection: no local copy is kept for the recent list.
+      const c = this.connectors;
+      await c.rememberRecent(loc, name, this.now()).catch((e) => this.report(e));
+      void this.queue(async (s) => this.set({ recent: await this.withRemote(await s.listRecent()) }));
+      if (!this.storage) this.set({ recent: await this.withRemote([]) });
+      return;
+    }
     const storage = this.storage;
     if (!storage) return;
     let json: string | null = null;
@@ -301,7 +357,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
         return;
       }
     }
-    void this.queue(async (s) => this.set({ recent: await s.rememberRecent(name, json) }));
+    void this.queue(async (s) => this.set({ recent: await this.withRemote(await s.rememberRecent(name, json)) }));
   }
 
   private async snapshot(): Promise<Snapshot> {
@@ -362,8 +418,12 @@ export class DocumentSession<Req = unknown, Body = unknown> {
 
   /** "Remove local copies": deletes the recent list, its snapshots and all recovery entries of this app. */
   async clearLocalData(): Promise<void> {
+    await this.connectors?.clearRecent().catch((e) => this.report(e));
     const storage = this.storage;
-    if (!storage) return;
+    if (!storage) {
+      if (this.connectors) this.set({ recent: [] });
+      return;
+    }
     this.storedRevision = null;
     await this.queue(async (s) => {
       if (s.clearAll) await s.clearAll();
@@ -422,7 +482,8 @@ export class DocumentSession<Req = unknown, Body = unknown> {
   }
 
   /** Re-opens a recent entry (desktop: the file; web: its stored snapshot). */
-  async openRecent(entry: RecentEntry): Promise<boolean> {
+  async openRecent(entry: RecentItem): Promise<boolean> {
+    if (entry.remote) return this.openRemote(entry.remote.connectionId, entry.remote.path);
     if (!this.storage || !this.adapter) return false;
     if (!(await this.confirmReplace())) return false;
     try {
@@ -433,6 +494,63 @@ export class DocumentSession<Req = unknown, Body = unknown> {
       this.report(e);
       await this.refresh();
       return false;
+    }
+  }
+
+  // --- cloud connections (P8-36) ----------------------------------------------
+
+  /** Opens a remote file like the Open command (asking about unsaved changes first); it stays bound for Save. */
+  async openRemote(connectionId: string, path: string): Promise<boolean> {
+    const c = this.connectors;
+    if (!c || !this.adapter) return false;
+    if (!(await this.confirmReplace())) return false;
+    let file: OpenedFile;
+    let etag: string | null;
+    try {
+      const read = await c.run(connectionId, (p) => p.read(path));
+      file = { name: baseName(path), bytesBase64: bytesToBase64(read.bytes) };
+      etag = read.etag;
+    } catch (e) {
+      c.notify("error", t("conn.err.open", { name: baseName(path), detail: c.describe(e) }));
+      return false;
+    }
+    return this.openBound(file, { connectionId, path, etag });
+  }
+
+  /** Opens fetched contents bound to `loc`, without asking (Reload theirs, `openRemote`). */
+  private async openBound(file: OpenedFile, loc: RemoteLocation): Promise<boolean> {
+    const c = this.connectors;
+    if (!c || !this.adapter) return false;
+    c.pendingOpen = loc;
+    try {
+      const ok = await this.adapter.openFile(file);
+      return ok !== false && c.getState().location?.path === loc.path;
+    } catch (e) {
+      this.report(e);
+      return false;
+    } finally {
+      c.pendingOpen = null;
+    }
+  }
+
+  /** Whether the app supports Save As to a connection (`SessionAdapter.saveAs`). */
+  canSaveRemote(): boolean {
+    return !!this.connectors && !!this.adapter?.saveAs;
+  }
+
+  /** Save As to a connection: runs the app's Save As flow, whose write lands at `path`. */
+  async saveRemote(connectionId: string, path: string): Promise<boolean> {
+    const c = this.connectors;
+    if (!c || !this.adapter?.saveAs) return false;
+    c.pendingSave = { connectionId, path };
+    try {
+      const ok = await this.adapter.saveAs(baseName(path));
+      return ok && c.getState().location?.path === path;
+    } catch (e) {
+      this.report(e);
+      return false;
+    } finally {
+      c.pendingSave = null;
     }
   }
 }

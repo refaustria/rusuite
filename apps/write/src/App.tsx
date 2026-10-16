@@ -240,6 +240,8 @@ export default function App({ backend }: { backend: WriteBackend }) {
       openFile: (file) => ctl.openDocx(file.bytesBase64, file.name),
       onError: (e) => ctl.pushError(e),
       confirmReplace: async () => (await guard.ensureSaved()) === "proceed",
+      // File › Save As › a connection (P8-36): the app's Save As under the chosen name.
+      saveAs: (name) => guard.doc.save(name),
     });
     void session.start();
     return () => session.stop();

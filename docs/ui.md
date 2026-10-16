@@ -223,7 +223,7 @@ The algorithm is in `docs/write-layout.md`.
 | Export | Use |
 | --- | --- |
 | `Ribbon` | `tabs: RibbonTab[]` (`{ id, label, groups: { label, items }[], toolbarLabel? }`); empty groups and tabs without groups are omitted. Active tab controlled (`activeTab`/`onTabChange`) or not (`defaultTab`); collapse likewise (`collapsed`/`defaultCollapsed`/`onCollapsedChange`). `backstage` adds the File tab; `accent` colors it. Contextual tabs (P8-28) carry `contextual: { group, color }` (`contextualTabs(tabs, group, color)`, `CONTEXT_COLORS` drawing / picture / table / chart / media / master): they follow the standard tabs, consecutive tabs of one group share a coloured header naming the context ("Table Tools", `ribbon.ctx.*` in the shared catalog) above their labels on a tinted background, the selected one is drawn in the group colour, and the panel's top border takes it. Calc's Chart Design / Format (Chart Tools) and Write's Table Design / Layout (Table Tools) and Picture Format (Picture Tools) use it as well. |
-| `Backstage` | Full-pane File view: Home, New, Open…, Save, Save As…, Print, Export PDF…, Close; the Home page lists the session's recent files (re-opened through `DocumentSession.openRecent`), the Print page shows `print` (see Printing). Commands without a handler are not shown; `fileDisabledReason` disables the file commands with a note. Esc / Back returns. `openBackstage(page)` opens it from anywhere (Ctrl+P). The Home page ends with the **Privacy** entry (P7-12, ADR 0009): where data is kept, the "Keep autosave copies in this browser" checkbox (default on; `DocumentSession.setKeepAutosave`, stored in `localStorage` `rusuite.keepAutosave`; off = no recovery entries, recent entries without content) and "Remove local copies from this browser" (`DocumentSession.clearLocalData` → `DocStorage.clearAll`: IndexedDB recent list, snapshots and recovery entries; desktop: recovery entries only, the recent list holds paths). |
+| `Backstage` | Full-pane File view: Home, New, Open…, Save, Save As…, Print, Export PDF…, Close; with cloud connections (`session.connectors`, P8-36) Open… and Save As… are pages – "This device" (the app's own command) plus the Connections, see "Cloud connections"; the Home page lists the session's recent files (re-opened through `DocumentSession.openRecent`), the Print page shows `print` (see Printing). Commands without a handler are not shown; `fileDisabledReason` disables the file commands with a note. Esc / Back returns. `openBackstage(page)` opens it from anywhere (Ctrl+P). The Home page ends with the **Privacy** entry (P7-12, ADR 0009): where data is kept, the "Keep autosave copies in this browser" checkbox (default on; `DocumentSession.setKeepAutosave`, stored in `localStorage` `rusuite.keepAutosave`; off = no recovery entries, recent entries without content) and "Remove local copies from this browser" (`DocumentSession.clearLocalData` → `DocStorage.clearAll`: IndexedDB recent list, snapshots and recovery entries; desktop: recovery entries only, the recent list holds paths). |
 | `RibbonButton` | Large (24 px icon over the label) or small (icon, optional label); `pressed` makes it a toggle (`aria-pressed`); tooltip = label + formatted `shortcut`. |
 | `RibbonSplitButton`, `RibbonMenuButton` | Main action + arrow, or a button that only opens; the popup is a keyboard menu (`RibbonMenuItem[]`, with separators/section labels and radio items) or any panel. |
 | `RibbonGallery`, `RibbonTableSizePicker` | Grid of choices with previews (inline in a group, or as a dropdown), arrow-key navigation; rows × columns picker. |
@@ -418,6 +418,39 @@ Each app keeps its status bar; Calc and Show also show the zoom there, all three
 
 Every app's View tab also has **Language / Sprache** (English, Deutsch); the same picker sits at the bottom of the File
 backstage. The UI language follows the browser by default and switches in place; see [i18n.md](i18n.md) (P7-11).
+
+## Cloud connections (P8-36)
+
+Generic and opt-in (owner 2026-10-16; ADR 0009 amendment): the user adds a WebDAV server (Nextcloud, ownCloud, a NAS,
+a hosted drive); Rusuite offers no cloud and contacts nothing until then. Code: `packages/ui-shared/src/connectors`
+(`FileProvider`, `Connectors` controller = `Backend.connectors` = `session.connectors`, transports, stores, UI).
+
+- **File › Open / File › Save As** (backstage pages): left, "This device" (Open: the file dialog / file input;
+  Save As: the native save dialog / the download name prompt – the app's previous command, autofocused) and
+  **Connections** – the configured ones (a connection blocked by the site's CSP is disabled with the reason) and
+  **Add a connection…**. Ctrl+O / Ctrl+Shift+S still go straight to the device dialogs.
+- **Add / Edit connection** dialog: Name, Server URL (`https://…`; `http://` only with "Allow unencrypted http://
+  (local network only)"), User name, Password, Folder (root), "Remember password on this device" (web: kept
+  unencrypted in the browser's storage – said in the dialog; desktop: the system keyring; off: asked once per
+  page/session), the host that will be contacted, **Test connection** (lists the folder: "Connected. The folder lists
+  N entries." or the reason – wrong password, CORS with the site origin and a Help link, the CSP message, offline).
+- **File browser** (`FileBrowser`): connection name and URL with Edit connection… / Remove connection (asks);
+  breadcrumbs; a folder tree (lazy, expandable); the list (`role=listbox`, 32 px rows: name, size, modified; folders
+  first, natural order; only the app's file type unless "Show all files"); New folder (inline name), Rename (F2,
+  inline), Delete (Del, asks; folders with their contents), Refresh. Keyboard: ↑/↓/Home/End/PgUp/PgDn select,
+  Enter opens a folder or the file, Backspace goes up. Open: double-click / Enter / Open. Save As: "File name"
+  (the document's name; the app's extension is added) and Save; an existing file asks "Replace file".
+- **Remote documents**: opening binds the document to connection + path + ETag (`Connectors.location`); the window
+  title reads "Budget.xlsx – Nextcloud – Rusuite Calc" and the status bar shows the connection (`RemoteStatus`, in
+  `AutosaveStatus`). Save (Ctrl+S, File › Save, the unsaved-changes question) writes back with `If-Match`; a 409/412
+  asks **"<name> changed on the server"**: Overwrite / Save a copy ("<name> (copy).xlsx", then bound to it) / Reload
+  theirs (opens the server's version, discarding local changes) / Cancel. A local Save As or download unbinds.
+  Errors and going offline show a notice (bottom right; the changes stay, autosave copies stay local as before).
+- **Recent files** list remote entries with a cloud icon and "Nextcloud › /Docs/Budget.xlsx"; they re-open from the
+  server. File › Home › Privacy adds the connections paragraph and **Forget all connections** (records, secrets,
+  remote recent entries); "Remove local copies" also clears the remote recent entries.
+- Apps wire one line: `SessionAdapter.saveAs(name)` = the guard's `doc.save(name)` (Save As under a name without a
+  prompt), which Save As › a connection runs while `Connectors.pendingSave` points at the target.
 
 ## Save and Save As on the desktop (P7-7)
 

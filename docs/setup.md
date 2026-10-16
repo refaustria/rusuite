@@ -18,6 +18,11 @@ The exact version is pinned in `package.json` (`packageManager`).
 ## Tauri system dependencies
 Already present on the server: `build-essential`, `pkg-config`, `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`. For a fresh machine follow https://tauri.app/start/prerequisites/ (also needs `libayatana-appindicator3-dev`, `librsvg2-dev`, `libssl-dev` on Debian/Ubuntu).
 
+Cloud connectors (P8-36): the desktop shells link `libdbus-1` (the `keyring` crate's Secret Service backend; `libdbus-1-dev`
+is already present, Tauri needs it too) and reach HTTPS servers with rustls + `ring` (only a C compiler, no cmake). At run
+time remembered passwords need a Secret Service (GNOME Keyring, KWallet); without one the app says so and asks for the
+password each session.
+
 ## LibreOffice headless (roundtrip harness)
 ```
 sudo apt-get install -y --no-install-recommends \

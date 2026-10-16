@@ -49,8 +49,13 @@
 //! assert!(!host.is_dirty() && host.can_redo());
 //! ```
 
+pub mod connector;
+#[cfg(feature = "tauri-connectors")]
+pub mod connectors_tauri;
 pub mod host;
 pub mod session;
+#[cfg(feature = "webdav")]
+pub mod webdav;
 pub mod wire;
 
 pub use host::{Applied, Document, Envelope, Host, Patch, Revision, DEFAULT_UNDO_LIMIT};
