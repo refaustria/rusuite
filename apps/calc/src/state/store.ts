@@ -53,6 +53,7 @@ import { t } from "../i18n";
 import { hasFilters, recordsFound, type CustomPreset } from "../sortFilter/filter";
 import { validationAt } from "../validation/validation";
 import { currentRegion, duplicateColumns, guessHeader, sortRangeCommand, sortScope, type SortLevel } from "../sortFilter/sort";
+import { ChartController } from "../charts/controller";
 
 /** Snapshot blocks: 64 rows × 32 columns. */
 export const BLOCK_ROWS = 64;
@@ -184,7 +185,15 @@ export type CalcDialog =
   /** Conditional Formatting Rules Manager. */
   | { kind: "cfManage" }
   /** Data › Data Validation…. */
-  | { kind: "dataValidation" };
+  | { kind: "dataValidation" }
+  /** Insert › Recommended Charts. */
+  | { kind: "recommendedCharts" }
+  /** Change Chart Type… of the selected chart. */
+  | { kind: "changeChartType" }
+  /** Move Chart… of the selected chart. */
+  | { kind: "moveChart" }
+  /** Select Data… of the selected chart. */
+  | { kind: "selectData" };
 
 /** The failed check of a committed edit (Excel's Stop / Warning / Information alert). */
 export interface ValidationAlert {
@@ -220,6 +229,8 @@ export interface CalcState {
   dialog: CalcDialog | null;
   /** A data validation alert over the open edit (`null`: none). */
   validationAlert: ValidationAlert | null;
+  /** A request to show a ribbon tab (inserting a chart shows Chart Design); `seq` tells requests apart. */
+  ribbonRequest: { tab: string; seq: number } | null;
 }
 
 export function emptyCache(): SheetCache {
@@ -325,6 +336,7 @@ export class CalcStore {
     clipMark: null,
     dialog: null,
     validationAlert: null,
+    ribbonRequest: null,
   };
   private listeners = new Set<() => void>();
   private caches = new Map<number, SheetCache>();
@@ -353,7 +365,20 @@ export class CalcStore {
   cfRefreshDelay = 40;
   private axesMemo = new Map<number, { version: number; axes: Map<string, number> }>();
 
+  /** Charts of the sheets: lists, data, selection, commands (P8-20). */
+  readonly charts: ChartController = new ChartController(this);
+
   constructor(readonly api: CalcApi) {}
+
+  /** Redraws everything that follows the cache version (chart state changes). */
+  notify(): void {
+    this.bump();
+  }
+
+  /** Asks the ribbon to show tab `tab`. */
+  requestRibbonTab(tab: string): void {
+    this.set({ ribbonRequest: { tab, seq: (this.state.ribbonRequest?.seq ?? 0) + 1 } });
+  }
 
   // --- store plumbing ---------------------------------------------------
 
@@ -505,6 +530,7 @@ export class CalcStore {
     this.caches.clear();
     this.geo.clear();
     this.inflight.clear();
+    this.charts.reset();
     const shown = visibleSheets(info.sheets);
     const active = shown.some((s) => s.id === this.state.activeSheet) ? this.state.activeSheet : (shown[0]?.id ?? info.sheets[0]?.id ?? 0);
     this.bump({ info, activeSheet: active, revision: info.revision, edit: null });
@@ -549,6 +575,7 @@ export class CalcStore {
         this.geo.delete(id);
         this.extents.delete(id);
         this.lastViewport.delete(id);
+        this.charts.dropSheet(id);
         for (const key of [...this.inflight.keys()]) if (key.startsWith(`${id}:`)) this.inflight.delete(key);
       }
       if (!live.has(activeSheet)) {
@@ -581,6 +608,7 @@ export class CalcStore {
       if (vp) void this.ensureRegion(sheet, vp.r0, vp.c0, vp.r1, vp.c1);
     }
     if (patch.cfSheets?.length) this.invalidateCf(patch.cfSheets);
+    if (patch.chartSheets?.length) this.charts.invalidate(patch.chartSheets);
   }
 
   /** Applies a command reply; replies older than the newest seen revision are discarded (ADR 0002 §5). */
@@ -610,6 +638,7 @@ export class CalcStore {
     for (const r of snap.rows) putRow(cache, r);
     if (snap.merges?.length || cache.merges.length) cache.merges = mergeSnapshot(cache.merges, snap, snap.merges ?? []);
     applyCfSnapshot(cache, snap);
+    this.charts.fromSnapshot(snap.sheet, snap.charts ?? []);
     this.bump();
   }
 
@@ -823,6 +852,7 @@ export class CalcStore {
 
   private showSheet(sheet: number, selection: Selection, edit: EditState | null): void {
     const changed = sheet !== this.state.activeSheet;
+    if (changed && !this.state.dialog) this.charts.deselect();
     this.set({ activeSheet: sheet, selection, edit });
     if (!changed) return;
     const vp = this.lastViewport.get(sheet) ?? { r0: 0, c0: 0, r1: BLOCK_ROWS - 1, c1: BLOCK_COLS - 1 };
@@ -831,6 +861,8 @@ export class CalcStore {
 
   /** Selects `selection`, grown to whole merged cells (the active cell becomes a merge's top-left). */
   select(selection: Selection): void {
+    // Selecting cells leaves the chart (not while a chart dialog picks a range).
+    if (!this.state.dialog) this.charts.deselect();
     this.set({ selection: snapSelection(selection, this.merges()) });
   }
 

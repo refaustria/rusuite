@@ -2,7 +2,8 @@
 // selection, paginated per the print settings, as fixed-size HTML pages.
 
 import type { CSSProperties } from "react";
-import { EMPTY_SLOTS, escapeHtml, headerFooterHtml, paperSize, type HeaderFooterSlots, type PrintDoc } from "@rusuite/ui-shared";
+import { EMPTY_SLOTS, escapeHtml, headerFooterHtml, paperSize, sceneToSvg, type HeaderFooterSlots, type PrintDoc } from "@rusuite/ui-shared";
+import { anchorRect, rectsIntersect, type PxRect } from "../charts/anchor";
 import { isWholeCols, isWholeRows, normalize, type Range } from "../grid/Selection";
 import type { CalcStore } from "../state/store";
 import { loadUsedRange } from "./loadUsed";
@@ -11,10 +12,17 @@ import { buildPrintTable, type PrintTable } from "./printTable";
 import type { IconSetKind } from "../generated/IconSetKind";
 import { iconGlyph } from "../grid/cf";
 
+/** A chart to print: its box in px from the part's first printed cell, and its SVG. */
+export interface PrintChart extends PxRect {
+  svg: string;
+}
+
 /** One sheet (or the selection) to print. */
 export interface CalcPrintPart {
   sheetName: string;
   table: PrintTable;
+  /** Charts over the table (P8-20). */
+  charts?: PrintChart[];
 }
 
 /** Inline CSS text of React style properties (`fontWeight` → `font-weight`; numbers as px). */
@@ -77,6 +85,28 @@ export function sliceTableHtml(table: PrintTable, slice: PageSlice, o: Pick<Calc
   return `<table class="rs-calc-table${o.gridlines ? " rs-grid" : ""}" style="width:${width}px"><colgroup>${colgroup}</colgroup>${head}${body}</table>`;
 }
 
+/** The charts of one page: absolutely placed SVGs over the slice's table, cut at the page's cell area. */
+export function sliceChartsHtml(part: CalcPrintPart, slice: PageSlice, o: Pick<CalcPrintOptions, "headings">): string {
+  const charts = part.charts ?? [];
+  if (!charts.length) return "";
+  const { table } = part;
+  const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+  const colX0 = sum(table.cols.slice(0, slice.cols[0]).map((c) => c.width));
+  const rowY0 = sum(table.rows.slice(0, slice.rows[0]).map((r) => r.height));
+  const w = sum(table.cols.slice(slice.cols[0], slice.cols[1]).map((c) => c.width));
+  const h = sum(table.rows.slice(slice.rows[0], slice.rows[1]).map((r) => r.height));
+  const repeatH = sum(table.rows.slice(0, slice.repeat).map((r) => r.height));
+  const area = { x: colX0, y: rowY0, w, h };
+  const shown = charts.filter((c) => rectsIntersect(c, area));
+  if (!shown.length) return "";
+  const left = o.headings ? HEADING_COL_PX : 0;
+  const top = (o.headings ? HEADING_ROW_PX : 0) + repeatH;
+  const body = shown
+    .map((c) => `<div class="rs-calc-chart" style="position:absolute;left:${c.x - colX0}px;top:${c.y - rowY0}px;width:${c.w}px;height:${c.h}px">${c.svg}</div>`)
+    .join("");
+  return `<div class="rs-calc-charts" style="position:absolute;left:${left}px;top:${top}px;width:${w}px;height:${h}px;overflow:hidden">${body}</div>`;
+}
+
 /**
  * The pages of all parts: each part paginated on its own (a sheet starts
  * a new page), `&P`/`&N` counted over the whole printout.
@@ -97,7 +127,7 @@ export function calcPrintDocument(parts: CalcPrintPart[], o: CalcPrintOptions, c
       const n = pages.length + 1;
       const zoom = l.scale === 1 ? "" : ` style="zoom:${Number(l.scale.toFixed(4))}"`;
       pages.push(
-        `${hf(o.header, "header", n, l.part.sheetName)}<div class="rs-calc-body" style="top:${m.top}in;left:${m.left}in"><div${zoom}>${sliceTableHtml(l.part.table, slice, o)}</div></div>${hf(o.footer, "footer", n, l.part.sheetName)}`,
+        `${hf(o.header, "header", n, l.part.sheetName)}<div class="rs-calc-body" style="top:${m.top}in;left:${m.left}in"><div${zoom}><div style="position:relative">${sliceTableHtml(l.part.table, slice, o)}${sliceChartsHtml(l.part, slice, o)}</div></div></div>${hf(o.footer, "footer", n, l.part.sheetName)}`,
       );
     }
   }
@@ -120,9 +150,18 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
   const nameOf = (id: number) => sheets.find((s) => s.id === id)?.name ?? "";
   const parts: CalcPrintPart[] = [];
   const sheetPart = async (id: number) => {
-    const { lastRow, lastCol } = await loadUsedRange(store, id);
+    const used = await loadUsedRange(store, id);
+    const charts = await printCharts(store, id);
+    // The printed area reaches the charts' bottom-right cells.
+    const geo = store.geometry(id);
+    let { lastRow, lastCol } = used;
+    for (const c of charts) {
+      lastRow = Math.max(lastRow, geo.row.indexAt(c.y + c.h - 1));
+      lastCol = Math.max(lastCol, geo.col.indexAt(c.x + c.w - 1));
+    }
     if (lastRow < 0 || lastCol < 0) return;
-    parts.push({ sheetName: nameOf(id), table: buildPrintTable(store.cache(id), store.styles(), lastRow, lastCol) });
+    if (lastRow > used.lastRow || lastCol > used.lastCol) await store.ensureRegion(id, 0, 0, lastRow, lastCol);
+    parts.push({ sheetName: nameOf(id), table: buildPrintTable(store.cache(id), store.styles(), lastRow, lastCol), charts });
   };
   if (o.what === "workbook") {
     // Hidden sheets are not printed (Excel).
@@ -133,8 +172,31 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
     const r = selectionRange(normalize(st.selection), used);
     if (r) {
       await store.ensureRegion(id, r.r0, r.c0, r.r1, r.c1);
-      parts.push({ sheetName: nameOf(id), table: buildPrintTable(store.cache(id), store.styles(), r.r1, r.c1, r.r0, r.c0) });
+      // Charts intersecting the selection print with it (cut at its edges).
+      const geo = store.geometry(id);
+      const x0 = geo.col.offset(r.c0);
+      const y0 = geo.row.offset(r.r0);
+      const box = { x: x0, y: y0, w: geo.col.offset(r.c1 + 1) - x0, h: geo.row.offset(r.r1 + 1) - y0 };
+      const charts = (await printCharts(store, id, { x: 0, y: 0 }))
+        .filter((c) => rectsIntersect(c, box))
+        .map((c) => ({ ...c, x: c.x - x0, y: c.y - y0 }));
+      parts.push({ sheetName: nameOf(id), table: buildPrintTable(store.cache(id), store.styles(), r.r1, r.c1, r.r0, r.c0), charts });
     }
   } else await sheetPart(st.activeSheet);
   return calcPrintDocument(parts, o, { file: st.name ?? undefined });
+}
+
+/** The charts of a sheet as print SVGs, in sheet px (`origin`: subtracted). */
+export async function printCharts(store: CalcStore, sheet: number, origin = { x: 0, y: 0 }): Promise<PrintChart[]> {
+  const list = await store.charts.ensureList(sheet);
+  const geo = store.geometry(sheet);
+  const out: PrintChart[] = [];
+  for (const obj of list) {
+    const r = anchorRect(obj.anchor, geo.col, geo.row);
+    if (r.w < 1 || r.h < 1) continue;
+    if (!store.charts.dataOf(sheet, obj)) await store.charts.fetchData(sheet, obj);
+    const scene = store.charts.scene(sheet, obj, Math.round(r.w), Math.round(r.h));
+    if (scene) out.push({ x: r.x - origin.x, y: r.y - origin.y, w: Math.round(r.w), h: Math.round(r.h), svg: sceneToSvg(scene) });
+  }
+  return out;
 }

@@ -4,7 +4,7 @@
 // ShortcutLayer (Save As, New with its discard prompt, shortcut help), the
 // shortcut map.
 
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlignmentControls, BordersDropdown, ColorControls, FontControls, NumberFormatSelect, RIBBON_SELECT, Ribbon, RibbonButton,
   RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack, StyleToggles, triggerShortcut, type AnySession, type CellStylePatch,
@@ -16,6 +16,7 @@ import { sheetMenu } from "../SheetTabs";
 import { toolbarValue } from "../grid/style";
 import { useCalc, type CalcStore } from "../state/store";
 import { CfMenu } from "../condFormat/CfMenu";
+import { chartDesignTab, chartFormatTab, chartsInsertGroup } from "../charts/ChartRibbon";
 import {
   clearFilterIcon, condFormatIcon, filterIcon, freezeIcon, headingsIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon, validationIcon,
 } from "./icons";
@@ -71,6 +72,12 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
   const name = useCalc(store, (s) => s.name);
   const dirty = useCalc(store, (s) => s.dirty);
   const actions = useMemo(() => calcActions(store), [store]);
+  // Controlled tab: inserting a chart shows Chart Design (store.requestRibbonTab).
+  const [tab, setTab] = useState<string | undefined>(undefined);
+  const ribbonRequest = useCalc(store, (s) => s.ribbonRequest);
+  useEffect(() => {
+    if (ribbonRequest) setTab(ribbonRequest.tab);
+  }, [ribbonRequest]);
 
   const off = !ready;
   const done = () => store.focusGrid();
@@ -324,8 +331,16 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
           </RibbonStack>
         ),
       },
+      chartsInsertGroup(store, t, off),
     ],
   };
+  // Chart Design and Format while a chart is selected.
+  const contextual = [chartDesignTab(store, t), chartFormatTab(store, t)].filter((x): x is RibbonTab => x !== null);
+  const contextualTab = tab === "chartDesign" || tab === "chartFormat";
+  useEffect(() => {
+    // Leaving the chart leaves its tabs.
+    if (contextual.length === 0 && contextualTab) setTab("home");
+  }, [contextual.length, contextualTab]);
 
   const data: RibbonTab = {
     id: "data",
@@ -432,7 +447,9 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
       appName="Rusuite Calc"
       documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#217346"
-      tabs={[home, insert, data, viewTab]}
+      tabs={[home, insert, data, viewTab, ...contextual]}
+      activeTab={tab}
+      onTabChange={setTab}
       backstage={{
         session,
         onNew: () => triggerShortcut("Mod+N"),

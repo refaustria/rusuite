@@ -8,3 +8,4 @@ export * from "./print/PrintPanel";
 export * from "./print/PrintPreview";
 export * from "./print/usePrintDoc";
 export * from "./i18n";
+export * from "./chart";

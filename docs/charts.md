@@ -2,8 +2,8 @@
 
 The chart model shared by Calc and Show, how Calc stores and resolves charts, and the rendering
 rules a chart renderer must follow so that Calc and Show draw the same chart the same way (and as
-close to Excel/PowerPoint as we can get without their layout engine). Backend: P8-18; the UI
-renderer, the insert/format dialogs and Show charts are later tasks.
+close to Excel/PowerPoint as we can get without their layout engine). Backend: P8-18; renderer and
+Calc UI: P8-20 (see "Renderer" and "Calc UI" below); Show charts are a later task.
 
 | Layer | Where | What |
 |---|---|---|
@@ -12,6 +12,8 @@ renderer, the insert/format dialogs and Show charts are later tasks.
 | Calc document | `model_sheet::chart` | `ChartObject { id, name, anchor, chart }` per sheet, reference adjustment, `Workbook::chart_data` |
 | xlsx | `fmt-xlsx` (`drawing.rs`) | `xl/drawings/drawingN.xml` anchors + `xl/charts/chartN.xml` |
 | Calc wire | `calc-core` (`charts.rs`, `wire_chart.rs`) | commands, requests, patch `chartSheets`, TS types in `apps/calc/src/generated/` |
+| Renderer | `@rusuite/ui-shared` `chart/` | `layoutChart` → `ChartScene`, canvas/SVG painters, hit-testing (app-independent) |
+| Calc UI | `apps/calc/src/charts/` | charts on the grid, Insert › Charts, Chart Design / Format tabs, dialogs, Format pane, printing |
 
 File-format details and losses: [ooxml-subset.md](ooxml-subset.md) (xlsx, "Charts").
 
@@ -260,3 +262,74 @@ refetches `sheetCharts` for those sheets and `chartData` for the charts it shows
 
 Saving to xlsx writes the charts with fresh caches; reading drops the caches of references that
 resolve (Calc recomputes) and keeps unsupported chart types verbatim.
+
+## Renderer (`packages/ui-shared/src/chart`, P8-20)
+
+- `layoutChart(chart, data, width, height, options) → ChartScene`: pure; the scene is a flat list of
+  primitives (`rect`, `path` with SVG path data, `text` with alignment/rotation, optional clip box)
+  in px of the chart box, back to front, each tagged with its `ChartElement` (chart area, plot area,
+  title, legend, axis, axis title, gridlines, series/point, data labels, trendline), plus hit regions
+  (`rect`, `polyline` with width, `polygon`, `sector`, `circle`) and the drawn value-axis scales.
+  `options`: `theme` (slot → RRGGBB; default Office), `format(value, code)` (Calc passes the core's
+  number formats, cached), `measure(text, px, bold)` (Calc: the grid's canvas measure), translated
+  `labels` ("Chart Title", "Axis Title", trendline names, the unsupported placeholder), `thumbnail`
+  (gallery icons: no text, thin padding).
+- `drawChartScene(ctx, scene)` (canvas, `Path2D`), `drawChartSelection(ctx, scene, el)` (Excel's
+  frame/handles of a selected element), `sceneToSvg(scene)` (print, PDF, previews; unique clip ids),
+  `hitTestChart(scene, x, y)` (topmost element), `ChartPreview` (React, inline SVG).
+- Everything in "Rendering rules" above is implemented; approximations: text widths are measured
+  by the host (default: an average Calibri advance), category labels are thinned, never rotated or
+  wrapped; minor gridlines are drawn in `#F2F2F2`; area charts with bars use band centres.
+- `crosses` follows OOXML: an axis' `crosses` says where *it* sits on the other axis (`val.crosses:
+  max` puts the value axis on the right; `cat.crosses: {at: 5}` draws the category axis at value 5);
+  a secondary value axis sits on the opposite side unless its `crosses` is `min`.
+
+## Calc UI (`apps/calc/src/charts`, P8-20)
+
+- State (`store.charts`, `ChartController`): chart lists per sheet (from `snapshot.charts` and
+  `sheetCharts`), resolved data per chart (`chartData`, refetched when `chartSheets` names the sheet,
+  debounced 40 ms like CF; the old data stays until the new arrives), scenes memoized per chart /
+  data / size, the selection (`{sheet, id, element}`), the drag preview, the chart clipboard and every
+  chart command. `window.__calcCharts` holds the last frame's charts (sheet px rectangle and scene) for
+  the end-to-end tests.
+- Grid: charts are painted over the cells per frozen-pane quadrant (scroll/zoom aware); the selected
+  chart gets a frame with 8 round handles and Excel's coloured outlines of its source ranges (names
+  red, categories purple, values blue). Pointer events: a click selects the chart and the element
+  under the pointer (a series first, a second click its point; a click on the selected title/axis
+  title edits it inline), a drag moves it, a handle resizes it (min 24 px), Alt snaps to cell edges;
+  the anchor kind is kept (`setChartAnchor`). Double-click opens the Format pane on the element.
+  Keys: Esc goes element → chart → cells, Delete/Backspace removes, Ctrl+C/X/V copy, cut and paste a
+  duplicate at the active cell (within the workbook), typing does nothing. Right-click: Cut, Copy,
+  Paste, Select Data…, Change Chart Type…, Move Chart…, Format Chart Area…, Delete.
+- Insert › Charts: Recommended Charts (dialog with 3–5 live previews built from `recommendedChart`
+  and `previewChartData`), Column or Bar ▾, Line or Area ▾, Pie or Doughnut ▾, Scatter ▾, Combo ▾
+  (Excel's 2-D sub-types; icons are drawn by the renderer on sample data). A new chart is
+  `recommendedChart` of the selection (an empty clustered column chart without numbers) converted to
+  the sub-type (`applyPreset`: Office 2013+ gap/overlap, vary-coloured pies, 75 % doughnut hole,
+  scatter X values from the first column when there are no category labels), placed one column right
+  of the selection at the top row, 480 × 288 px, selected, and Chart Design is shown.
+- Chart Design (contextual): Add Chart Element ▾ (flyouts: Axes, Axis Titles, Chart Title, Data
+  Labels per kind, Gridlines, Legend, Trendline – on the selected series, else the first), Quick
+  Layout ▾ (8 layouts, live previews), Change Colors ▾ (Colorful 1 = style rule 2; Colorful 2–4 =
+  explicit accent fills per series, per point for vary-coloured pies; Monochromatic 1–6 = styles
+  3–8; gray = style 1), Chart Styles ▾ (8 styles as live previews: gridlines, labels, bar widths,
+  markers, legend place – the model has no chart-area fills or effects), Switch Row/Column (series
+  that are adjacent single columns/rows of one block; names ↔ categories), Select Data…, Change Chart
+  Type… (type list, sub-type icons, live preview; Combo: kind and secondary axis per series), Move
+  Chart… (another sheet, or a new sheet inserted before the current one; one compound).
+- Format (contextual): Current Selection (element list, Format Selection, Reset to Match Style),
+  Shape Fill / Shape Outline of the selected series or point, Size (cm). The Format pane (right of the
+  grid): series fill/line/border/width/dash, markers, smooth, secondary axis, gap width, overlap,
+  hole size, first slice angle, vary colours; axis bounds/units (blank = automatic), log scale and
+  base, reverse, where the other axis crosses, tick label position, number format, hide; data label
+  parts/position/format; legend position/overlay; title text/overlay; trendline type, order, period,
+  name, equation, R²; chart area: style number, empty cells, hidden data. Each change is one command.
+- Select Data…: chart data range (re-derived with `recommendedChart`), Switch Row/Column, series list
+  (Add / Edit / Remove / ▲▼, names from `previewChartData`), category labels, Hidden and Empty Cells.
+  Range fields have a collapse button: the dialog shrinks to a bar and the grid selection fills the
+  field (`=Sheet1!$C$2:$C$5`); OK sends `setChartSeries` (or `updateChart` when the hidden/empty
+  options changed).
+- Printing: the print area grows to the charts' bottom-right cells; each page carries the charts that
+  intersect it as SVG at their place, cut at the page; the selection scope prints the charts that
+  intersect the selection.
+- Unsupported charts are drawn as the placeholder and are read-only (dialogs and pane disabled).
