@@ -36,6 +36,7 @@ import { chartMenu } from "../charts/menus";
 import { ChartTextEditor } from "../charts/ChartTextEditor";
 import { AnnotationLayer } from "../comments/AnnotationLayer";
 import { drawIndicators, indicators } from "../comments/model";
+import { drawPivotButtons, drawPlaceholder, type PivotButton } from "../pivot/buttons";
 
 /** Hit zone around a header boundary for resizing, px. */
 const RESIZE_SLOP = 4;
@@ -89,6 +90,8 @@ type Hit =
   | { kind: "chart"; id: number; element: ChartElement | null }
   /** A resize handle of the selected chart. */
   | { kind: "chartHandle"; id: number; handle: Handle }
+  /** A −/+ or dropdown button of a pivot table. */
+  | { kind: "pivotButton"; button: PivotButton }
   | { kind: "none" };
 
 export function GridCanvas({ store, showPerf = false }: { store: CalcStore; showPerf?: boolean }) {
@@ -130,6 +133,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       cells: cache.cells, cols: cache.cols, rows: cache.rows, colGeo: geo.col, rowGeo: geo.row, merges: cache.merges,
       cf: cache.cf, barAxes: cache.cf.size > 0 ? store.barAxes(sheet) : undefined,
       showFormulas: store.getState().showFormulas,
+      pivotLook: store.pivots.looks(sheet),
     };
   }, [store]);
 
@@ -225,6 +229,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       // The spill range around the active cell: blue, dashed red when blocked (`#SPILL!`).
       const spill = edit ? null : store.activeSpill();
       const cfOps: RenderOp[] = [];
+      const pivotButtonsShown: PivotButton[] = [];
       // Charts over the cells; the selected chart's source ranges are outlined (Excel).
       const frames = store.charts.frames(state.activeSheet);
       const chartSel = store.charts.selected?.sheet === state.activeSheet ? store.charts.selected : null;
@@ -253,6 +258,19 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           const vis = visibleRange(vp, data.colGeo, data.rowGeo);
           if (af.r0 >= vis.r0 && af.r0 <= vis.r1) {
             drawFilterButtons(cctx, filterButtons(data.colGeo, data.rowGeo, af, vis.c0, vis.c1, sortState), vp.scrollX, vp.scrollY);
+          }
+        }
+        {
+          // Pivot tables: −/+ buttons on item labels, dropdowns on the headers and page fields.
+          const vis = visibleRange(vp, data.colGeo, data.rowGeo);
+          const pb = store.pivots.buttonsIn(state.activeSheet, data.colGeo, data.rowGeo, vis);
+          if (pb.length) {
+            drawPivotButtons(cctx, pb, vp.scrollX, vp.scrollY);
+            pivotButtonsShown.push(...pb);
+          }
+          for (const ph of store.pivots.placeholders(state.activeSheet)) {
+            const r = rangeRect(vp, data, ph.rect);
+            if (r) drawPlaceholder(cctx, r, ph.name, t("calc.pivot.placeholder"));
           }
         }
         if (mark) {
@@ -290,6 +308,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       (window as unknown as { __calcCharts?: unknown }).__calcCharts = frames.map((f) => ({ id: f.obj.id, rect: f.rect, scene: f.scene }));
       // Render-op hook for the end-to-end tests: the data bars and icons of the last frame.
       (window as unknown as { __calcCfOps?: RenderOp[] }).__calcCfOps = cfOps;
+      // The pivot buttons of the last frame (sheet px), for the end-to-end tests.
+      (window as unknown as { __calcPivotButtons?: PivotButton[] }).__calcPivotButtons = pivotButtonsShown;
       drawFreezeLines(cctx, l);
       if (!edit && !chartSel) {
         const h = handleRect(sel);
@@ -517,6 +537,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       if (cy - start <= RESIZE_SLOP / 2 && row > 0) return { kind: "rowEdge", row: row - 1 };
       return { kind: "rowHeader", row };
     }
+    const pivotButton = store.pivots.buttonAt(store.getState().activeSheet, data.colGeo, data.rowGeo, cx, cy);
+    if (pivotButton) return { kind: "pivotButton", button: pivotButton };
     const filterCol = filterButtonAt(data.colGeo, data.rowGeo, store.autoFilter(), cx, cy);
     if (filterCol !== null) return { kind: "filterButton", col: filterCol };
     return { kind: "cell", cell: { row: data.rowGeo.indexAt(cy), col: data.colGeo.indexAt(cx) } };
@@ -580,6 +602,21 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     store.openDialog({ kind: "filterMenu", col, at: { x: Math.max(0, x), y: Math.max(0, y) } });
   };
 
+  /** Opens the filter dropdown of a pivot header or page cell under it. */
+  const openPivotFilter = (b: Extract<PivotButton, { kind: "drop" }>) => {
+    const el = scroller.current;
+    if (!el) return;
+    const data = sheetData();
+    const l = layout();
+    const { hw, hh } = headerSize();
+    const rect = el.getBoundingClientRect();
+    const scale = screenScale(el);
+    const x = rect.left + (hw + screenX(l, data.colGeo.offset(b.col))) * scale;
+    const y = rect.top + (hh + screenY(l, data.rowGeo.offset(b.row + 1))) * scale;
+    store.select(cellSelection(b.row, b.col));
+    store.openDialog({ kind: "pivotFilter", id: b.id, target: b.target, at: { x: Math.max(0, x), y: Math.max(0, y) } });
+  };
+
   // Pointer events (mobile guardrail): a press on a filter button opens its dropdown; the rest is the mouse path below.
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -587,6 +624,14 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     if (hit.kind === "chart" || hit.kind === "chartHandle") {
       e.preventDefault();
       chartPointer(hit, e);
+      return;
+    }
+    if (hit.kind === "pivotButton") {
+      e.preventDefault();
+      if (store.getState().edit) return;
+      scroller.current?.focus({ preventScroll: true });
+      if (hit.button.kind === "expand") void store.pivots.pressExpand(hit.button);
+      else openPivotFilter(hit.button);
       return;
     }
     if (hit.kind !== "filterButton") return;
@@ -636,13 +681,15 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
   const onMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    const hit = hitTest(e.clientX, e.clientY);
+    let hit = hitTest(e.clientX, e.clientY);
     if (hit.kind === "none") return;
-    if (hit.kind === "filterButton" || hit.kind === "chart" || hit.kind === "chartHandle") {
+    if (hit.kind === "filterButton" || hit.kind === "chart" || hit.kind === "chartHandle" || (hit.kind === "pivotButton" && !store.getState().edit)) {
       // Handled on pointerdown; keep the selection and the focus where they are.
       e.preventDefault();
       return;
     }
+    // While editing, a pivot button is just its cell (point mode).
+    if (hit.kind === "pivotButton") hit = { kind: "cell", cell: { row: hit.button.row, col: hit.button.col } };
     e.preventDefault();
     const edit = store.getState().edit;
     if (store.comments.selectedNote) {
@@ -766,6 +813,15 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       return null;
     };
     const [a, f] = corners(hit)!;
+    const edit = store.getState().edit;
+    if (hit.kind === "cell" && !extend && edit) {
+      // Generate GetPivotData: a value of a pivot table is referenced by its items, not by its address (Excel).
+      const gpd = store.pivots.getPivotDataAt(hit.cell.row, hit.cell.col, edit.sheet);
+      if (gpd && store.insertAtPoint(gpd)) {
+        store.focusEditor();
+        return;
+      }
+    }
     const point = store.getState().edit?.point;
     const anchor = extend && point && store.getState().edit?.selEnd === point.end ? point.anchor : a;
     store.pointRange(anchor, f);
@@ -789,7 +845,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     // Notes, threads and links show their box / card / tip on hover (also reachable from the Review tab and the context menu).
     if (e.buttons === 0) store.comments.hoverAt(hit.kind === "cell" ? hit.cell : null);
     const cursor =
-      hit.kind === "colEdge" ? "col-resize" : hit.kind === "rowEdge" ? "row-resize" : hit.kind === "fillHandle" ? "crosshair" : hit.kind === "filterButton" ? "default"
+      hit.kind === "colEdge" ? "col-resize" : hit.kind === "rowEdge" ? "row-resize" : hit.kind === "fillHandle" ? "crosshair" : hit.kind === "filterButton" || hit.kind === "pivotButton" ? "default"
         : hit.kind === "chartHandle" ? handleCursor(hit.handle) : hit.kind === "chart" ? (store.charts.selected?.id === hit.id ? "move" : "default") : "cell";
     if (scroller.current && scroller.current.style.cursor !== cursor) scroller.current.style.cursor = cursor;
   };
@@ -810,6 +866,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     else if (hit.kind === "fillHandle") void store.fillToData(e.ctrlKey || e.metaKey ? "alternate" : "auto");
     else if (hit.kind === "cell" && !store.getState().edit) {
       store.select(cellSelection(hit.cell.row, hit.cell.col));
+      // Double-click on a pivot item with inner items expands / collapses it; other pivot cells are not edited.
+      if (store.pivots.toggleLabel(hit.cell.row, hit.cell.col)) return;
       store.beginEdit(null);
     }
   };
@@ -855,12 +913,20 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       return;
     }
     if (key === "ArrowDown" && e.altKey && !ctrl) {
-      // Alt+↓ on an AutoFilter header cell opens its dropdown (Excel).
+      // Alt+↓ on an AutoFilter header cell opens its dropdown (Excel); so it does on a pivot header or page cell.
       e.preventDefault();
       const af = store.autoFilter();
       const { row, col } = store.activeAnchor();
-      if (af && row === af.r0 && col >= af.c0 && col <= af.c1) openFilterMenu(col);
+      const data = sheetData();
+      const pb = store.pivots.buttonsIn(store.getState().activeSheet, data.colGeo, data.rowGeo, { r0: row, c0: col, r1: row, c1: col }).find((b) => b.kind === "drop");
+      if (pb && pb.kind === "drop") openPivotFilter(pb);
+      else if (af && row === af.r0 && col >= af.c0 && col <= af.c1) openFilterMenu(col);
       else store.openValidationList?.();
+      return;
+    }
+    if (ctrl && (key === "a" || key === "A" || (key === "*" && e.shiftKey)) && store.pivots.selectWhole()) {
+      // Ctrl+A / Ctrl+Shift+* inside a pivot table selects the table.
+      e.preventDefault();
       return;
     }
     const next = navigate(store.getState().selection, { key, shift: e.shiftKey, ctrl }, store.navContext(pageRows()));
@@ -911,7 +977,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
   const onContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
-    if (hit.kind === "none" || hit.kind === "corner" || hit.kind === "filterButton" || store.getState().edit) return;
+    if (hit.kind === "none" || hit.kind === "corner" || hit.kind === "filterButton" || hit.kind === "pivotButton" || store.getState().edit) return;
     e.preventDefault();
     if (hit.kind === "chart" || hit.kind === "chartHandle") {
       const sheet = store.getState().activeSheet;
