@@ -16,6 +16,13 @@ pnpm e2e                                                                        
 The first run needs a browser: `pnpm --filter e2e exec playwright install chromium`. Single spec: `pnpm e2e calc`; headed:
 `pnpm e2e --headed`; failure traces: `pnpm --filter e2e exec playwright show-trace test-results/<test>/trace.zip`.
 
+Cloud connectors (P8-36): `tests/connectors.spec.ts` starts its own in-memory WebDAV server (`support/webdav.ts`:
+PROPFIND/GET/PUT/MKCOL/DELETE/MOVE, CORS for the page origin, Basic auth) on `127.0.0.1:4846` (`DAV_PORT`), runs its
+tests serially and serves the app pages with the prepared CSP (`connect-src 'self' https:` plus the plain-http test
+server, via `page.route`; the routed pages need Chromium's `local-network-access` permission) – except the CSP test,
+which keeps the live policy and expects the "security policy" message. `CONNECTORS_SHOTS=<dir>` saves screenshots.
+The Open page lists "This device" first: `openViaBackstage` clicks it before the file chooser.
+
 ## Against the live site
 
 `BASE_URL=https://resuite.inceptum.at pnpm e2e` skips the local server. `scripts/deploy-web.sh --e2e` runs exactly that after

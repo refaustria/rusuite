@@ -11,7 +11,8 @@ import { textOf, themePalette } from "../model";
 import { formatValuesOf, type FormatValues } from "../state/commands";
 import { useShow, type ShowStore } from "../state/store";
 import { useT } from "../i18n";
-import { HeaderFooterDialog, RenameSectionDialog, SlideSizeDialog } from "./DesignDialogs";
+import { splitDefaults, splitGridCommand } from "../shapes/tables";
+import { HeaderFooterDialog, RenameLayoutDialog, RenameSectionDialog, SlideScaleDialog, SlideSizeDialog } from "./DesignDialogs";
 import type { ShowPrintOptions } from "../print/showPrintDoc";
 import { ChartTypeDialog, EditDataDialog, InsertChartDialog } from "../charts/ChartDialogs";
 import { ActionDialog, LinkDialog } from "../links/LinkDialogs";
@@ -210,6 +211,43 @@ function InsertTableDialog({ store }: { store: ShowStore }) {
   );
 }
 
+/** Table Layout › Split Cells…: number of columns and rows for the selected cell. */
+function SplitCellsDialog({ store }: { store: ShowStore }) {
+  const t = useT();
+  const sel = store.selectedTable();
+  const range = store.cellRange();
+  const start = sel && range ? splitDefaults(sel.table, range.r0, range.c0) : { rows: 1, cols: 2 };
+  const [rows, setRows] = useState(start.rows);
+  const [cols, setCols] = useState(start.cols);
+  const close = () => store.closeDialog();
+  const clamp = (v: number) => Math.max(1, Math.min(50, Math.round(v)));
+  const ok = !!sel && !!range && splitGridCommand(sel.shape.id, sel.table, range.r0, range.c0, clamp(rows), clamp(cols)) !== null;
+  return (
+    <Dialog open title={t("show.table.splitTitle")} onClose={close}>
+      <form
+        className="flex w-64 flex-col gap-2 text-sm"
+        onSubmit={(e) => {
+          e.preventDefault();
+          close();
+          void store.splitCellGrid(clamp(rows), clamp(cols));
+        }}
+      >
+        <Num label={t("show.table.cols")} value={cols} step={1} min={1} onChange={setCols} />
+        <Num label={t("show.table.rows")} value={rows} step={1} min={1} onChange={setRows} />
+        {!ok && <p className="text-xs text-ui-muted">{t("show.table.splitInvalid")}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className={BUTTON} onClick={close}>
+            {t("common.cancel")}
+          </button>
+          <button type="submit" className={BUTTON} disabled={!ok}>
+            {t("common.ok")}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
 /** Mounts the open dialog; Change Picture opens the file picker. */
 export function ShowDialogs({ store, printOptions, onPrintOptions }: { store: ShowStore; printOptions?: ShowPrintOptions; onPrintOptions?: (o: ShowPrintOptions) => void }) {
   const dialog = useShow(store, (s) => s.dialog);
@@ -228,8 +266,11 @@ export function ShowDialogs({ store, printOptions, onPrintOptions }: { store: Sh
       {dialog?.kind === "format" && <FormatShapeDialog store={store} />}
       {dialog?.kind === "alt" && <AltTextDialog store={store} shape={dialog.shape} />}
       {dialog?.kind === "insertTable" && <InsertTableDialog store={store} />}
+      {dialog?.kind === "splitCells" && <SplitCellsDialog store={store} />}
       {dialog?.kind === "headerFooter" && <HeaderFooterDialog store={store} tab={dialog.tab} print={printOptions} onPrint={onPrintOptions} />}
       {dialog?.kind === "slideSize" && <SlideSizeDialog store={store} />}
+      {dialog?.kind === "slideScale" && <SlideScaleDialog store={store} size={dialog.size} />}
+      {dialog?.kind === "renameLayout" && <RenameLayoutDialog store={store} layout={dialog.layout} />}
       {dialog?.kind === "renameSection" && <RenameSectionDialog store={store} index={dialog.index} />}
       {dialog?.kind === "insertChart" && <InsertChartDialog store={store} />}
       {dialog?.kind === "chartType" && <ChartTypeDialog store={store} />}

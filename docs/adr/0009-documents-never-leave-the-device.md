@@ -16,3 +16,28 @@
 
 ## Amendment 2026-10-15 – user-owned cloud connectors are allowed
 The owner clarified: documents live on the user's local drive **or in the user's own cloud account** (Google Drive, iCloud, OneDrive, Dropbox, …), never on Rusuite infrastructure. Connectors therefore talk **directly from the client to the provider** with the user's own authorization (OAuth PKCE in the browser, native dialogs on desktop), tokens stay in the user's browser/app data, no Rusuite proxy or server component is involved, and the CSP `connect-src` is extended only with the explicit provider API origins the user enabled. Design and plan: `docs/cloud-connectors-plan.md`.
+
+
+## Amendment 2026-10-16 – cloud connectors v1 (WebDAV) and the web CSP (proposed; owner decision pending)
+P8-36 implements the owner's "generic and opt-in" direction: a connection is a WebDAV server URL plus the user's own
+credentials, entered by the user and stored only on the device (web: IndexedDB, the password only with "Remember
+password on this device"; desktop: the app data directory and the OS keyring). Rusuite offers no cloud service,
+registers no provider apps and runs no proxy.
+
+1. **Desktop**: the shells' `connector_*` commands use `app_common::webdav` (reqwest + rustls) behind `app-common`'s
+   opt-in `webdav`/`tauri-connectors` features – the only HTTP client in the workspace; the shells' own
+   `Cargo.toml`s still have none (Decision 3 holds for them; `scripts/privacy-check.sh` now also refuses HTTP clients
+   anywhere but `app-common` and a `webdav` default feature). Requests go only to the configured server: HTTPS
+   unless the user allows `http://` for a LAN server, no redirects to other hosts or to plain HTTP.
+2. **Web**: `packages/ui-shared/src/connectors/webdav-fetch.ts` is the one allowed `fetch` for documents
+   (privacy-check allow-list); it runs only when the user browses, opens or saves through a connection.
+3. **The trade-off for the owner**: Decision 2's `connect-src 'self'` makes the browser refuse every user-configured
+   server, so on the live site the connections UI detects the block and shows the connection disabled ("This site's
+   security policy does not allow connections to other servers"). Enabling WebDAV on the web needs
+   `connect-src 'self' https:` (nginx: `set $csp_connect "'self' https:";` – prepared, **not applied**). That widens
+   what a hypothetical injected script could contact from "this origin" to "any HTTPS host". It does not change where
+   documents go: the code sends them only to a server the user configured, and the e2e request audit
+   (`connectors.spec.ts`) proves there is no background traffic – with no connection, only the page's own files and
+   `/version.json`; with one, only that host. Per-origin lists are impossible on a static site (the CSP is a server
+   header, the connections live in each user's browser). Alternative: keep the CSP and offer connections in the
+   desktop apps only (the current state).

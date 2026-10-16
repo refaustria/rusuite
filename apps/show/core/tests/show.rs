@@ -215,12 +215,16 @@ fn background_and_slide_size() {
             fill: Some(red),
         },
     );
-    assert_eq!(p.slides[0].background, Some(red));
+    assert_eq!(
+        p.slides[0].background,
+        Some(model_show::Background::Fill(red))
+    );
     assert_eq!(p.slides_order, None);
     let p = apply(
         &mut h,
         C::SetSlideSize {
             size: SlideSize::standard(),
+            scale: Default::default(),
         },
     );
     assert_eq!(p.slide_size, Some(SlideSize::standard()));
@@ -238,7 +242,8 @@ fn background_and_slide_size() {
                 size: SlideSize {
                     width: Emu(0),
                     height: Emu(1)
-                }
+                },
+                scale: Default::default(),
             }
         ),
         "invalid_command"
@@ -796,6 +801,7 @@ fn pictures_and_media_undo() {
                 width: Emu(1_000_000),
                 height: Emu(500_000),
             },
+            scale: Default::default(),
         },
     );
     apply(
@@ -974,6 +980,7 @@ fn scripted_session_undo_redo() {
         },
         C::SetSlideSize {
             size: SlideSize::standard(),
+            scale: Default::default(),
         },
         C::DeleteShapes {
             ids: vec![id(6), id(11)],

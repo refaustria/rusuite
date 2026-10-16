@@ -23,6 +23,7 @@
 //! [`read()`] / [`write()`] work on bytes and compile for `wasm32` (ADR 0005);
 //! the `*_path` helpers exist on native targets only.
 
+mod drawing;
 mod numbering;
 mod props;
 mod read;

@@ -238,6 +238,13 @@ pub fn write_background(x: &mut XmlOut, bg: &Background) {
             write_color(x, color);
             x.end("p:bgRef");
         }
+        // written by the slide writer, which owns the image relationships
+        Background::Picture(_) => {
+            x.start("p:bgPr", &[]);
+            x.empty("a:noFill", &[]);
+            x.empty("a:effectLst", &[]);
+            x.end("p:bgPr");
+        }
     }
     x.end("p:bg");
 }
@@ -477,7 +484,14 @@ pub fn placeholder_sp(x: &mut XmlOut, ph: &PhWrite<'_>) {
     x.start("p:cNvSpPr", &[]);
     x.empty("a:spLocks", &[("noGrp", "1")]);
     x.end("p:cNvSpPr");
-    let attrs = ph_attrs(def.kind, def.text_only, def.vertical, def.idx);
+    let mut attrs = ph_attrs(def.kind, def.text_only, def.vertical, def.idx);
+    let prompt = def
+        .prompt
+        .as_deref()
+        .filter(|_| !def.kind.is_header_footer());
+    if prompt.is_some() {
+        attrs.push(("hasCustomPrompt", "1".to_owned()));
+    }
     let attrs: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (*k, v.as_str())).collect();
     x.start("p:nvPr", &[]);
     x.empty("p:ph", &attrs);
@@ -505,6 +519,22 @@ pub fn placeholder_sp(x: &mut XmlOut, ph: &PhWrite<'_>) {
             &run_diff(&def.run_defaults, r),
         ),
         None => x.empty("a:lstStyle", &[]),
+    }
+    if let Some(prompt) = prompt {
+        // custom prompt text: one paragraph per line (on the master's body
+        // placeholder line N is outline level N, as its sample text)
+        for (i, line) in prompt.split('\n').enumerate() {
+            x.start("a:p", &[]);
+            if ph.master && def.kind == PlaceholderKind::Body && (1..9).contains(&i) {
+                x.empty("a:pPr", &[("lvl", &i.to_string())]);
+            }
+            text_run(x, line);
+            x.empty("a:endParaRPr", &[("lang", "en-US")]);
+            x.end("a:p");
+        }
+        x.end("p:txBody");
+        x.end("p:sp");
+        return;
     }
     x.start("a:p", &[]);
     let field = |x: &mut XmlOut, ty: &str, guid: &str, text: &str| {

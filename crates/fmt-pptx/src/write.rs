@@ -10,8 +10,9 @@ use fmt_ooxml::chart::{write_chart_with, ChartWriteOptions};
 use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
 use model_show::clip::media_extension;
 use model_show::{
-    Adjust, ChartShape, Connector, Fill, HfDate, Layout, LayoutKind, MediaClip, MediaId, MediaKind,
-    NodeId, PictureProps, Presentation, Preset, Recolor, Shape, ShapeKind, Slide, Table,
+    Adjust, Background, ChartShape, Connector, Fill, HfDate, Layout, LayoutKind, MediaClip,
+    MediaId, MediaKind, NodeId, PictureProps, Presentation, Preset, Recolor, Shape, ShapeKind,
+    Slide, Table,
 };
 
 use crate::anim::{write_timing, write_transition, MediaTarget, Target};
@@ -149,7 +150,7 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
     pkg.insert_part(
         pn("/ppt/tableStyles.xml")?,
         ct::TABLE_STYLES,
-        parts::table_styles_xml(),
+        crate::tablestyle::table_styles_xml(p),
     );
     for (name, content_type, data) in media.parts {
         pkg.insert_part(PartName::new(format!("/ppt/{name}"))?, content_type, data);
@@ -202,7 +203,7 @@ fn write_master(
     } else {
         w.x.start("p:cSld", &[("name", &m.name)]);
     }
-    write_background(&mut w.x, &m.background);
+    w.background(&m.background)?;
     sp_tree_start(&mut w.x);
     for s in &m.shapes {
         w.shape(s)?;
@@ -267,7 +268,7 @@ fn write_layout(
     w.x.start("p:sldLayout", &attrs);
     w.x.start("p:cSld", &[("name", layout.display_name())]);
     if let Some(bg) = &layout.background {
-        write_background(&mut w.x, bg);
+        w.background(bg)?;
     }
     sp_tree_start(&mut w.x);
     for s in &layout.shapes {
@@ -555,12 +556,7 @@ fn write_slide(
     w.x.start("p:sld", &root);
     w.x.start("p:cSld", &[]);
     if let Some(bg) = &slide.background {
-        w.x.start("p:bg", &[]);
-        w.x.start("p:bgPr", &[]);
-        write_fill(&mut w.x, bg);
-        w.x.empty("a:effectLst", &[]);
-        w.x.end("p:bgPr");
-        w.x.end("p:bg");
+        w.background(bg)?;
     }
     sp_tree_start(&mut w.x);
     for s in &slide.shapes {
@@ -667,7 +663,13 @@ impl SlideWriter<'_> {
                 x.start("p:nvGrpSpPr", &[]);
                 self.c_nv_pr(s);
                 let x = &mut self.x;
-                x.empty("p:cNvGrpSpPr", &[]);
+                if s.lock_aspect {
+                    x.start("p:cNvGrpSpPr", &[]);
+                    x.empty("a:grpSpLocks", &[("noChangeAspect", "1")]);
+                    x.end("p:cNvGrpSpPr");
+                } else {
+                    x.empty("p:cNvGrpSpPr", &[]);
+                }
                 x.empty("p:nvPr", &[]);
                 x.end("p:nvGrpSpPr");
                 x.start("p:grpSpPr", &[]);
@@ -715,14 +717,24 @@ impl SlideWriter<'_> {
         x.start("p:nvSpPr", &[]);
         self.c_nv_pr(s);
         let x = &mut self.x;
+        let mut locks: Vec<(&str, &str)> = Vec::new();
         if s.placeholder.is_some() {
-            x.start("p:cNvSpPr", &[]);
-            x.empty("a:spLocks", &[("noGrp", "1")]);
-            x.end("p:cNvSpPr");
-        } else if s.is_text_box() {
-            x.empty("p:cNvSpPr", &[("txBox", "1")]);
+            locks.push(("noGrp", "1"));
+        }
+        if s.lock_aspect {
+            locks.push(("noChangeAspect", "1"));
+        }
+        let attrs: &[(&str, &str)] = if s.placeholder.is_none() && s.is_text_box() {
+            &[("txBox", "1")]
         } else {
-            x.empty("p:cNvSpPr", &[]);
+            &[]
+        };
+        if locks.is_empty() {
+            x.empty("p:cNvSpPr", attrs);
+        } else {
+            x.start("p:cNvSpPr", attrs);
+            x.empty("a:spLocks", &locks);
+            x.end("p:cNvSpPr");
         }
         self.nv_pr(s);
         let x = &mut self.x;
@@ -759,10 +771,13 @@ impl SlideWriter<'_> {
             })
             .collect();
         let x = &mut self.x;
-        if ends.is_empty() {
+        if ends.is_empty() && !s.lock_aspect {
             x.empty("p:cNvCxnSpPr", &[]);
         } else {
             x.start("p:cNvCxnSpPr", &[]);
+            if s.lock_aspect {
+                x.empty("a:cxnSpLocks", &[("noChangeAspect", "1")]);
+            }
             for (name, id, idx) in &ends {
                 x.empty(name, &[("id", id), ("idx", idx)]);
             }
@@ -812,7 +827,13 @@ impl SlideWriter<'_> {
         x.start("p:nvCxnSpPr", &[]);
         self.c_nv_pr(s);
         let x = &mut self.x;
-        x.empty("p:cNvCxnSpPr", &[]);
+        if s.lock_aspect {
+            x.start("p:cNvCxnSpPr", &[]);
+            x.empty("a:cxnSpLocks", &[("noChangeAspect", "1")]);
+            x.end("p:cNvCxnSpPr");
+        } else {
+            x.empty("p:cNvCxnSpPr", &[]);
+        }
         x.empty("p:nvPr", &[]);
         x.end("p:nvCxnSpPr");
         x.start("p:spPr", &[]);
@@ -833,7 +854,14 @@ impl SlideWriter<'_> {
         self.c_nv_pr(s);
         let x = &mut self.x;
         x.start("p:cNvGraphicFramePr", &[]);
-        x.empty("a:graphicFrameLocks", &[("noGrp", "1")]);
+        if s.lock_aspect {
+            x.empty(
+                "a:graphicFrameLocks",
+                &[("noGrp", "1"), ("noChangeAspect", "1")],
+            );
+        } else {
+            x.empty("a:graphicFrameLocks", &[("noGrp", "1")]);
+        }
         x.end("p:cNvGraphicFramePr");
         x.empty("p:nvPr", &[]);
         x.end("p:nvGraphicFramePr");
@@ -929,9 +957,13 @@ impl SlideWriter<'_> {
         self.c_nv_pr(s);
         self.clips.push((self.next_shape_id - 1, clip.clone()));
         let x = &mut self.x;
-        x.start("p:cNvPicPr", &[]);
-        x.empty("a:picLocks", &[("noChangeAspect", "1")]);
-        x.end("p:cNvPicPr");
+        if s.lock_aspect {
+            x.start("p:cNvPicPr", &[]);
+            x.empty("a:picLocks", &[("noChangeAspect", "1")]);
+            x.end("p:cNvPicPr");
+        } else {
+            x.empty("p:cNvPicPr", &[]);
+        }
         x.start("p:nvPr", &[]);
         x.empty(file_el, &[("r:link", &link)]);
         x.start("p:extLst", &[]);
@@ -959,6 +991,63 @@ impl SlideWriter<'_> {
         Ok(())
     }
 
+    /// The relationship id of image `media` in this part (added once).
+    fn image_rid(&mut self, media: MediaId) -> Result<String> {
+        if let Some(rid) = self.media_rels.get(&media) {
+            return Ok(rid.clone());
+        }
+        let name = self.media.name_of(self.p, media)?;
+        let rid = self.rels.add(rel::IMAGE, format!("../{name}")).id.clone();
+        self.media_rels.insert(media, rid.clone());
+        Ok(rid)
+    }
+
+    /// `p:bg`: a picture as `p:bgPr/a:blipFill` (`a:stretch` or `a:tile`,
+    /// transparency as `a:alphaModFix`), other backgrounds as
+    /// [`write_background`].
+    fn background(&mut self, bg: &Background) -> Result<()> {
+        let Background::Picture(pf) = bg else {
+            write_background(&mut self.x, bg);
+            return Ok(());
+        };
+        let rid = self.image_rid(pf.media)?;
+        let x = &mut self.x;
+        x.start("p:bg", &[]);
+        x.start("p:bgPr", &[]);
+        x.start("a:blipFill", &[("dpi", "0"), ("rotWithShape", "1")]);
+        if pf.transparency > 0.0 {
+            x.start("a:blip", &[("r:embed", &rid)]);
+            let amt = ((1.0 - pf.transparency.clamp(0.0, 1.0)) * 100_000.0_f64).round() as i64;
+            x.empty("a:alphaModFix", &[("amt", &amt.to_string())]);
+            x.end("a:blip");
+        } else {
+            x.empty("a:blip", &[("r:embed", &rid)]);
+        }
+        x.empty("a:srcRect", &[]);
+        if pf.tile {
+            x.empty(
+                "a:tile",
+                &[
+                    ("tx", "0"),
+                    ("ty", "0"),
+                    ("sx", "100000"),
+                    ("sy", "100000"),
+                    ("flip", "none"),
+                    ("algn", "tl"),
+                ],
+            );
+        } else {
+            x.start("a:stretch", &[]);
+            x.empty("a:fillRect", &[]);
+            x.end("a:stretch");
+        }
+        x.end("a:blipFill");
+        x.empty("a:effectLst", &[]);
+        x.end("p:bgPr");
+        x.end("p:bg");
+        Ok(())
+    }
+
     fn picture(&mut self, s: &Shape, media: MediaId, props: &PictureProps) -> Result<()> {
         let rid = match self.media_rels.get(&media) {
             Some(r) => r.clone(),
@@ -974,9 +1063,13 @@ impl SlideWriter<'_> {
         x.start("p:nvPicPr", &[]);
         self.c_nv_pr(s);
         let x = &mut self.x;
-        x.start("p:cNvPicPr", &[]);
-        x.empty("a:picLocks", &[("noChangeAspect", "1")]);
-        x.end("p:cNvPicPr");
+        if s.lock_aspect {
+            x.start("p:cNvPicPr", &[]);
+            x.empty("a:picLocks", &[("noChangeAspect", "1")]);
+            x.end("p:cNvPicPr");
+        } else {
+            x.empty("p:cNvPicPr", &[]);
+        }
         self.nv_pr(s);
         let x = &mut self.x;
         x.end("p:nvPicPr");

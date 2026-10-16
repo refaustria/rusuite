@@ -83,8 +83,10 @@ export function inlinesFromPM(node: PMNode): Inline[] {
       const a = child.attrs;
       out.push({
         kind: "image",
-        value: canonValue({ media: a.mediaId, width: a.width, height: a.height, alt: a.alt, name: a.name, anchor: a.anchor }) as never,
+        value: canonValue({ media: a.mediaId, width: a.width, height: a.height, alt: a.alt, name: a.name, anchor: a.anchor, format: a.format, link: a.link }) as never,
       });
+    } else if (child.type.name === "drawing") {
+      out.push({ kind: "drawing", value: canonValue(child.attrs.value) as never });
     } else if (child.type.name === "hardBreak") {
       out.push({ kind: "break", value: "line" });
     } else if (child.type.name === "pageBreak") {

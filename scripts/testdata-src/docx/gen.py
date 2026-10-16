@@ -1,4 +1,4 @@
-"""Generator for the PROVISIONAL docx reference suite (60 documents).
+"""Generator for the PROVISIONAL docx reference suite (62 documents).
 
 Emits one flat ODT (.fodt) per topic plus manifest.json. Conversion to .docx is done by
 scripts/gen-docx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
@@ -323,6 +323,9 @@ class Doc:
         # Comment texts end up in comments.xml.
         counted = re.sub(r"<text:note-body>.*?</text:note-body>", "", body)
         counted = re.sub(r"<office:annotation[ >].*?</office:annotation>", "", counted)
+        # Text of shapes and text boxes lives in the drawing, not in the body.
+        counted = re.sub(r"<draw:text-box>.*?</draw:text-box>", "", counted)
+        counted = re.sub(r"<draw:custom-shape .*?</draw:custom-shape>", "", counted)
         paragraphs = len(re.findall(r"<text:(?:p|h)[ >]", counted))
         if self.imgs:
             self.feat(f"image:count={self.imgs}")
@@ -1162,13 +1165,90 @@ def _(d):
         d.feat(f)
 
 
+def _gstyle(d, name, props):
+    d.styles[name] = f'<style:style style:name="{name}" style:family="graphic"><style:graphic-properties {props}/></style:style>'
+    return name
+
+
+# Word's default shape look (accent 1 fill, darker outline) and its Simple Text Box (white, thin black outline).
+SHAPE_LOOK = 'draw:fill="solid" draw:fill-color="#4472c4" draw:stroke="solid" svg:stroke-color="#2f528f" svg:stroke-width="0.035cm"'
+BOX_LOOK = 'draw:fill="solid" draw:fill-color="#ffffff" draw:stroke="solid" svg:stroke-color="#000000" svg:stroke-width="0.026cm"'
+
+
+def _shape(d, name, kind, w, h, text, anchor="as-char", extra=""):
+    """A custom shape (`round-rectangle`, `ellipse`, `right-arrow`) with optional text."""
+    d.imgs += 0
+    body = f'<text:p text:style-name="PShape">{escape(text)}</text:p>' if text else ""
+    pos = 'svg:x="0cm" svg:y="0cm" ' if anchor != "as-char" else ""
+    return X(
+        f'<draw:custom-shape text:anchor-type="{anchor}" draw:z-index="0" draw:name="{name}" draw:style-name="{extra or "grShape"}" '
+        f'{pos}svg:width="{w}cm" svg:height="{h}cm">{body}'
+        f'<draw:enhanced-geometry svg:viewBox="0 0 21600 21600" draw:type="{kind}"/></draw:custom-shape>'
+    )
+
+
+def _text_box(d, name, w, h, paras, anchor="as-char", style="grBox"):
+    inner = "".join(f"<text:p>{escape(t)}</text:p>" for t in paras)
+    pos = 'svg:x="0cm" svg:y="0cm" ' if anchor != "as-char" else ""
+    return X(
+        f'<draw:frame text:anchor-type="{anchor}" draw:z-index="1" draw:name="{name}" draw:style-name="{style}" '
+        f'{pos}svg:width="{w}cm" svg:height="{h}cm"><draw:text-box>{inner}</draw:text-box></draw:frame>'
+    )
+
+
+@topic(61, "shapes-text-boxes", "Shapes and text boxes: inline rounded rectangle with text, floating text box right with square wrap, floating arrow")
+def _(d):
+    _gstyle(d, "grShape", SHAPE_LOOK + ' style:vertical-pos="middle" style:vertical-rel="baseline" draw:textarea-vertical-align="middle"')
+    _gstyle(d, "grBox", BOX_LOOK + ' style:vertical-pos="top" style:vertical-rel="baseline" fo:padding="0.13cm"')
+    _gstyle(d, "grBoxRight", BOX_LOOK + ' style:wrap="parallel" style:number-wrapped-paragraphs="no-limit" '
+            'style:wrap-contour="false" style:run-through="foreground" fo:margin-left="0.32cm" fo:margin-right="0.32cm" '
+            'style:vertical-pos="top" style:vertical-rel="paragraph" style:horizontal-pos="right" style:horizontal-rel="paragraph" fo:padding="0.13cm"')
+    _gstyle(d, "grArrow", SHAPE_LOOK + ' style:wrap="none" style:run-through="foreground" style:vertical-pos="top" '
+            'style:vertical-rel="paragraph" style:horizontal-pos="center" style:horizontal-rel="paragraph"')
+    d.extra_styles = (
+        '<style:style style:name="PShape" style:family="paragraph" style:parent-style-name="Standard">'
+        '<style:paragraph-properties fo:text-align="center"/><style:text-properties fo:color="#ffffff"/></style:style>'
+    )
+    d.h(1, "Shapes and text boxes")
+    d.p(["An inline shape: ", _shape(d, "Rounded Rectangle 1", "round-rectangle", 4, 1.5, "Shape text"), " and more text."])
+    d.p([_text_box(d, "Text Box 2", 5, 2.5, ["Floating text box", "Second line"], anchor="paragraph", style="grBoxRight"),
+         txt(5), " ", txt(5, 2)])
+    d.p(["An inline text box: ", _text_box(d, "Text Box 3", 4, 1.2, ["Boxed text"]), " ends here."])
+    d.p([_shape(d, "Right Arrow 4", "right-arrow", 3, 1.5, "", anchor="paragraph", extra="grArrow"), txt(3, 1)])
+    for f in ["drawing:shape=roundRect", "drawing:shape=rightArrow", "drawing:textbox", "drawing:text", "drawing:inline",
+              "drawing:float=square", "drawing:float=top-bottom"]:
+        d.feat(f)
+
+
+@topic(62, "character-formatting", "Character formatting: small caps, all caps, spacing, position, scale, double strike, outline, shadow, emboss, engrave, hidden")
+def _(d):
+    def span(props, text, *feats):
+        for f in feats:
+            d.feat(f)
+        name = d.style("text", f"<style:text-properties {props}/>")
+        return X(f'<text:span text:style-name="{name}">{esc(text)}</text:span>')
+    d.h(1, "Character formatting")
+    d.p(["Normal, ", span('fo:font-variant="small-caps"', "Small Caps", "run:small-caps"), ", ",
+         span('fo:text-transform="uppercase"', "all caps", "run:all-caps"), "."])
+    d.p(["Spacing: ", span('fo:letter-spacing="0.0706cm"', "expanded by two points", "run:spacing=2pt"), ", ",
+         span('fo:letter-spacing="-0.0176cm"', "condensed", "run:spacing=-0.5pt"), "."])
+    d.p(["Position: ", span('style:text-position="33% 100%"', "raised", "run:position=3.5pt"), " and ",
+         span('style:text-scale="150%"', "wide", "run:scale=150"), "."])
+    d.p(["Effects: ", span('style:text-line-through-style="solid" style:text-line-through-type="double"', "double strike", "run:double-strike"), ", ",
+         span('style:text-outline="true"', "outline", "run:outline"), ", ",
+         span('fo:text-shadow="1pt 1pt"', "shadow", "run:shadow"), ", ",
+         span('style:font-relief="embossed"', "emboss", "run:emboss"), ", ",
+         span('style:font-relief="engraved"', "engrave", "run:imprint"), "."])
+    d.p(["Hidden: [", span('text:display="none"', "secret", "run:hidden"), "] done."])
+
+
 def emit(outdir, pngdir):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     for k in range(3):
         IMAGES[k] = (Path(pngdir) / f"img{k}.png").read_bytes()
     manifest = []
-    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 61)), "need exactly topics 1..60"
+    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 63)), "need exactly topics 1..62"
     for n, slug, desc, fn in sorted(TOPICS):
         d = Doc(n, slug, desc)
         fn(d)
@@ -1219,6 +1299,13 @@ def patch(docxdir):
             for info, data in out:
                 z.writestr(info, data, compress_type=zipfile.ZIP_DEFLATED)
         print(f"patched {name}")
+
+
+RUN_XML = {
+    "run:small-caps": "<w:smallCaps/>", "run:all-caps": "<w:caps/>", "run:spacing": "<w:spacing w:val=",
+    "run:scale": "<w:w w:val=", "run:double-strike": "<w:dstrike/>", "run:outline": "<w:outline/>",
+    "run:shadow": "<w:shadow/>", "run:emboss": "<w:emboss/>", "run:imprint": "<w:imprint/>", "run:hidden": "<w:vanish/>",
+}
 
 
 def check(manifest_path, docxdir):
@@ -1323,6 +1410,15 @@ def check(manifest_path, docxdir):
                 errs.append("column separator not found")
             elif ft == "break:column" and 'w:type="column"' not in doc:
                 errs.append("column break not found")
+            elif ft.startswith("drawing:shape="):
+                if f'prst="{ft.split("=")[1]}"' not in doc or "<wps:wsp" not in doc:
+                    errs.append(f"{ft} not found")
+            elif ft == "drawing:textbox" and "<w:txbxContent>" not in doc:
+                errs.append("txbxContent not found")
+            elif ft.startswith("drawing:float=") and "<wp:anchor" not in doc:
+                errs.append("wp:anchor not found")
+            elif ft.startswith("run:") and ft.split("=")[0] in RUN_XML and RUN_XML[ft.split("=")[0]] not in doc:
+                errs.append(f"{ft} not found")
         n = len(re.findall(r"<w:p[ >]", doc))
         if n < e["paragraphs"]:
             errs.append(f"paragraphs: manifest {e['paragraphs']}, docx {n}")

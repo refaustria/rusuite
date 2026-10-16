@@ -13,6 +13,7 @@ autobenches = false
 app-common = { path = "../../../crates/app-common" }
 core-model = { path = "../../../crates/core-model" }
 fmt-docx = { path = "../../../crates/fmt-docx" }
+model-show = { path = "../../../crates/model-show" }
 model-text = { path = "../../../crates/model-text", features = ["ts"] }
 serde.workspace = true
 serde_json.workspace = true

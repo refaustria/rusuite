@@ -2,7 +2,7 @@
 
 /**
  * Distance between a floating object and the text, in EMU (docx
- * `distT/distB/distL/distR`).
+ * `distT/distB/distL/distR`); also the text insets of a shape.
  */
 export type Insets = { 
 /**

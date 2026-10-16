@@ -25,6 +25,7 @@
 pub mod block;
 pub mod comment;
 pub mod document;
+pub mod drawing;
 pub mod fields;
 pub mod inline;
 pub mod link;
@@ -43,6 +44,10 @@ pub use comment::{marker_of, Comment, CommentFix, CommentId, CommentRange};
 pub use core_model::units::{Emu, Pt, Twips};
 pub use core_model::RunProperties;
 pub use document::Document;
+pub use drawing::{
+    default_text_insets, Autofit, Crop, Drawing, DrawingKind, DrawingText, LineDash, PictureFormat,
+    Recolor, ShapeFill, ShapeLine,
+};
 pub use fields::{FieldValue, REF_ERROR};
 pub use inline::{
     Anchor, BreakKind, Field, FieldKind, HAlign, HPos, HRelative, Inline, InlineImage, Insets,

@@ -79,16 +79,20 @@ describe("Design tab", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Slide Size" }));
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Standard (4:3)" }));
+    // the slides have content: PowerPoint's Maximize / Ensure Fit prompt
+    const prompt = await screen.findByRole("dialog", { name: "Slide Size" });
+    fireEvent.click(within(prompt).getByRole("button", { name: /Ensure Fit/ }));
     await flush();
-    expect(last(backend.commands)).toEqual({ type: "setSlideSize", size: { width: 9144000, height: 6858000 } });
+    expect(last(backend.commands)).toEqual({ type: "setSlideSize", size: { width: 9144000, height: 6858000 }, scale: "fit" });
     fireEvent.click(screen.getByRole("button", { name: "Slide Size" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Custom Slide Size…" }));
     const dlg = screen.getByRole("dialog", { name: "Slide Size" });
     fireEvent.change(within(dlg).getByLabelText("Width"), { target: { value: "20" } });
     fireEvent.change(within(dlg).getByLabelText("Height"), { target: { value: "15" } });
     fireEvent.click(within(dlg).getByRole("button", { name: "OK" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Slide Size" })).getByRole("button", { name: /Maximize/ }));
     await flush();
-    expect(last(backend.commands)).toEqual({ type: "setSlideSize", size: { width: 7200000, height: 5400000 } });
+    expect(last(backend.commands)).toEqual({ type: "setSlideSize", size: { width: 7200000, height: 5400000 }, scale: "maximize" });
   });
 
   it("Format Background: solid on the slide, gradient on the master, hide background graphics", async () => {

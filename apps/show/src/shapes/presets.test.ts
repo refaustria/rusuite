@@ -1,14 +1,23 @@
 import { describe, expect, it } from "vitest";
 import type { Preset } from "../generated/Preset";
+import type { Shape } from "../generated/Shape";
+import type { ShapePaths } from "../generated/ShapePaths";
+import presetInfo from "../generated/presetInfo.json";
+import samples from "../generated/shapePathSamples.json";
+import { pathCache, pathKey, pathQueryOf } from "./paths";
 import { adjustDefaults, choiceOf, choiceShape, clickBox, NAMED_PRESETS, pushRecent, SHAPE_GROUPS, textRect } from "./presets";
 
 const T = { x: 0, y: 0, w: 914400, h: 914400, rotationDeg: 0 };
 
 describe("shape library", () => {
-  it("has PowerPoint's groups and every named preset once (39 with the line)", () => {
-    expect(SHAPE_GROUPS.map((g) => g.id)).toEqual(["lines", "rectangles", "basic", "arrows", "flowchart", "stars", "callouts", "actionButtons"]);
-    expect(NAMED_PRESETS).toHaveLength(51);
-    expect(new Set(NAMED_PRESETS).size).toBe(51);
+  it("has PowerPoint's groups and every named preset once (110 with the line)", () => {
+    expect(SHAPE_GROUPS.map((g) => g.id)).toEqual(["lines", "rectangles", "basic", "arrows", "equation", "flowchart", "stars", "callouts", "actionButtons"]);
+    expect(NAMED_PRESETS).toHaveLength(110);
+    expect(new Set(NAMED_PRESETS).size).toBe(110);
+    // the whole flowchart group of PowerPoint (28) plus offline storage
+    expect(SHAPE_GROUPS.find((g) => g.id === "flowchart")!.items).toHaveLength(29);
+    // every preset the core knows is in the gallery
+    expect([...NAMED_PRESETS].sort()).toEqual(Object.keys(presetInfo).sort());
     for (const g of SHAPE_GROUPS) for (const id of g.items) expect(choiceOf(id)).not.toBeNull();
     expect(choiceOf("nope")).toBeNull();
   });
@@ -51,20 +60,26 @@ describe("shape library", () => {
     expect(pushRecent(["a", "b"], "c", 2)).toEqual(["c", "a"]);
   });
 
-  it("adjust defaults mirror the core's", () => {
+  it("adjust defaults come from the core's preset data", () => {
     expect(adjustDefaults("star5")).toEqual({ adj: 19098, hf: 105146, vf: 110557 });
     expect(adjustDefaults("rightArrow")).toEqual({ adj1: 50000, adj2: 50000 });
+    expect(adjustDefaults("uturnArrow")).toEqual({ adj1: 25000, adj2: 25000, adj3: 25000, adj4: 43750, adj5: 75000 });
     expect(adjustDefaults("rect")).toEqual({});
   });
 
-  it("text sits inside round and pointed shapes (approximate a:rect)", () => {
-    expect(textRect("rect", 100, 50)).toEqual({ x: 0, y: 0, w: 100, h: 50 });
-    const e = textRect("ellipse", 100, 100);
-    expect(e.x).toBeCloseTo(14.64);
-    expect(e.w).toBeCloseTo(70.72);
-    expect(textRect("diamond", 100, 100)).toEqual({ x: 25, y: 25, w: 50, h: 50 });
-    expect(textRect("triangle", 100, 100)).toEqual({ x: 25, y: 50, w: 50, h: 50 });
-    expect(textRect({ custom: { paths: [] } } as Preset, 10, 10)).toEqual({ x: 0, y: 0, w: 10, h: 10 });
+  it("text sits in the core's text rectangle, scaled to the drawn box", () => {
+    pathCache.clear();
+    const shape = (geometry: Preset): Shape => ({ id: 1, name: "", transform: { x: 0, y: 0, w: 1000000, h: 600000, rotationDeg: 0 }, kind: { kind: "auto", value: { geometry } }, fill: { kind: "none" }, line: { fill: { kind: "none" }, width: 0, dash: "solid" } });
+    const e = shape("ellipse");
+    // not cached yet: the whole box
+    expect(textRect(e, 100, 60)).toEqual({ x: 0, y: 0, w: 100, h: 60 });
+    pathCache.load([[pathKey(pathQueryOf(e)!), (samples as unknown as Record<string, { paths: ShapePaths }>).ellipse!.paths]]);
+    const r = textRect(e, 100, 60);
+    expect(r.x).toBeCloseTo(14.64, 1);
+    expect(r.w).toBeCloseTo(70.71, 1);
+    expect(r.y).toBeCloseTo(8.79, 1);
+    expect(textRect({ ...shape({ custom: { paths: [] } } as Preset) }, 10, 10)).toEqual({ x: 0, y: 0, w: 10, h: 10 });
+    pathCache.clear();
   });
 });
 

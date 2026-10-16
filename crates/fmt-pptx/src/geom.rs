@@ -412,12 +412,9 @@ mod tests {
             r#"<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val 5000"/></a:avLst></a:prstGeom>"#
         );
         let mut w = Warnings::default();
-        let sp = el(r#"<p:spPr><a:prstGeom prst="lightningBolt"/></p:spPr>"#);
+        let sp = el(r#"<p:spPr><a:prstGeom prst="gear9"/></p:spPr>"#);
         assert_eq!(read_geometry(Some(&sp), 1.0, 1.0, &mut w).0, Preset::Rect);
-        assert_eq!(
-            w.into_vec(),
-            ["preset geometry lightningBolt read as rectangle"]
-        );
+        assert_eq!(w.into_vec(), ["preset geometry gear9 read as rectangle"]);
     }
 
     #[test]

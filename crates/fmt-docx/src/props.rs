@@ -306,7 +306,6 @@ const SILENT_RPR: &[&str] = &[
     "iCs",
     "szCs",
     "lang",
-    "kern",
     "noProof",
     "webHidden",
     "snapToGrid",
@@ -325,13 +324,30 @@ pub(crate) fn read_rpr(rpr: &El, ctx: &str, w: &mut Warnings) -> RunProperties {
             "b" => p.bold = Some(toggle(el)),
             "i" => p.italic = Some(toggle(el)),
             "strike" => p.strike = Some(toggle(el)),
-            "dstrike" => {
-                if toggle(el) {
-                    w.add(format!("{ctx}: double strikethrough read as single"));
-                    p.strike = Some(true);
-                } else if p.strike.is_none() {
-                    p.strike = Some(false);
-                }
+            "dstrike" => p.double_strike = Some(toggle(el)),
+            "caps" => p.all_caps = Some(toggle(el)),
+            "smallCaps" => p.small_caps = Some(toggle(el)),
+            "outline" => p.outline = Some(toggle(el)),
+            "shadow" => p.shadow = Some(toggle(el)),
+            "emboss" => p.emboss = Some(toggle(el)),
+            "imprint" => p.imprint = Some(toggle(el)),
+            "vanish" => p.hidden = Some(toggle(el)),
+            "rtl" => p.rtl = Some(toggle(el)),
+            "spacing" => p.char_spacing = el.val().and_then(parse_twips),
+            "w" => {
+                p.scale = el
+                    .val()
+                    .and_then(|v| v.trim().trim_end_matches('%').parse::<u16>().ok())
+                    .map(|v| v.clamp(1, 600))
+            }
+            "kern" => p.kerning = el.val().and_then(parse_u32),
+            "position" => {
+                p.position = el.val().and_then(|v| {
+                    v.trim()
+                        .parse::<i32>()
+                        .ok()
+                        .or_else(|| parse_twips(v).map(|t| t / 10))
+                })
             }
             "color" => p.color = read_color(el, &RUN_COLOR),
             "sz" => p.size = el.val().and_then(parse_u32).map(FontSize::from_half_points),
@@ -380,9 +396,9 @@ pub(crate) fn read_rpr(rpr: &El, ctx: &str, w: &mut Warnings) -> RunProperties {
                     _ => None,
                 }
             }
-            "rtl" | "cs" => {
+            "cs" => {
                 if toggle(el) {
-                    w.add(format!("{ctx}: right-to-left run formatting dropped"));
+                    w.add(format!("{ctx}: complex script run formatting dropped"));
                 }
             }
             name if SILENT_RPR.contains(&name) => {}
@@ -425,12 +441,41 @@ pub(crate) fn write_rpr_styled(
         toggle_el(x, "w:i", i);
         toggle_el(x, "w:iCs", i);
     }
+    for (on, name) in [(p.all_caps, "w:caps"), (p.small_caps, "w:smallCaps")] {
+        if let Some(v) = on {
+            toggle_el(x, name, v);
+        }
+    }
     if let Some(s) = p.strike {
         toggle_el(x, "w:strike", s);
+    }
+    for (on, name) in [
+        (p.double_strike, "w:dstrike"),
+        (p.outline, "w:outline"),
+        (p.shadow, "w:shadow"),
+        (p.emboss, "w:emboss"),
+        (p.imprint, "w:imprint"),
+        (p.hidden, "w:vanish"),
+    ] {
+        if let Some(v) = on {
+            toggle_el(x, name, v);
+        }
     }
     if let Some(c) = &p.color {
         let attrs = prefixed(color_attrs(c, scheme, &RUN_COLOR));
         x.empty("w:color", &attrs_ref(&attrs));
+    }
+    if let Some(v) = p.char_spacing {
+        x.val("w:spacing", &v.to_string());
+    }
+    if let Some(v) = p.scale {
+        x.val("w:w", &v.to_string());
+    }
+    if let Some(v) = p.kerning {
+        x.val("w:kern", &v.to_string());
+    }
+    if let Some(v) = p.position {
+        x.val("w:position", &v.to_string());
     }
     if let Some(sz) = p.size {
         let v = sz.half_points().to_string();
@@ -456,6 +501,9 @@ pub(crate) fn write_rpr_styled(
                 VerticalAlign::Subscript => "subscript",
             },
         );
+    }
+    if let Some(v) = p.rtl {
+        toggle_el(x, "w:rtl", v);
     }
     x.end("w:rPr");
 }

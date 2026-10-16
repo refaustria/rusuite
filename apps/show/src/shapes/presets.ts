@@ -1,6 +1,7 @@
 // The shape library of Insert › Shapes (PowerPoint's groups), the shapes
-// a gallery choice inserts, the adjust defaults of the presets (mirror of
-// `Preset::adjust_defaults`) and the text rectangle inside a preset.
+// a gallery choice inserts, the adjust defaults of the presets (the core's
+// `Preset::adjust_defaults`, generated) and the text rectangle inside a
+// shape (from the core's outline).
 
 import type { ArrowEnd } from "../generated/ArrowEnd";
 import type { ConnectorKind } from "../generated/ConnectorKind";
@@ -10,6 +11,11 @@ import type { TextBody } from "../generated/TextBody";
 import type { Transform } from "../generated/Transform";
 import type { Hyperlink } from "../generated/Hyperlink";
 import { EMU_PER_PT } from "../geometry";
+import presetInfo from "../generated/presetInfo.json";
+import { pathCache, pathQueryOf } from "./paths";
+
+/** Every preset's default name and adjust values (written by `cargo test -p show-core`). */
+const PRESET_INFO = presetInfo as Record<string, { name: string; adjust: Record<string, number> }>;
 
 /** A named preset (every `Preset` but `custom`). */
 export type NamedPreset = Exclude<Preset, { custom: unknown }>;
@@ -20,7 +26,17 @@ export type ShapeChoice =
   | { kind: "textBox" }
   | { kind: "connector"; connector: ConnectorKind; head: boolean; tail: boolean };
 
-export type ShapeGroupId = "recent" | "lines" | "rectangles" | "basic" | "arrows" | "flowchart" | "stars" | "callouts" | "actionButtons";
+export type ShapeGroupId =
+  | "recent"
+  | "lines"
+  | "rectangles"
+  | "basic"
+  | "arrows"
+  | "equation"
+  | "flowchart"
+  | "stars"
+  | "callouts"
+  | "actionButtons";
 
 /** Gallery ids of the connector choices. */
 const CONNECTORS: Record<string, ShapeChoice> = {
@@ -39,15 +55,30 @@ export const SHAPE_GROUPS: { id: Exclude<ShapeGroupId, "recent">; items: string[
   { id: "rectangles", items: ["rect", "roundRect", "snip1Rect", "snip2SameRect", "round1Rect", "round2SameRect"] },
   {
     id: "basic",
-    items: ["textBox", "ellipse", "triangle", "rtTriangle", "parallelogram", "trapezoid", "diamond", "pentagon", "hexagon", "octagon", "heart", "cloud"],
+    items: [
+      "textBox", "ellipse", "triangle", "rtTriangle", "parallelogram", "trapezoid", "diamond", "pentagon", "hexagon", "octagon",
+      "pie", "chord", "teardrop", "frame", "halfFrame", "corner", "diagStripe", "plus", "can", "cube", "bevel", "donut", "noSmoking",
+      "blockArc", "foldedCorner", "smileyFace", "heart", "lightningBolt", "sun", "moon", "cloud",
+    ],
   },
-  { id: "arrows", items: ["rightArrow", "leftArrow", "upArrow", "downArrow", "leftRightArrow", "upDownArrow", "homePlate", "chevron"] },
+  {
+    id: "arrows",
+    items: ["rightArrow", "leftArrow", "upArrow", "downArrow", "leftRightArrow", "upDownArrow", "quadArrow", "leftRightUpArrow", "bentArrow", "uturnArrow", "homePlate", "chevron"],
+  },
+  { id: "equation", items: ["mathPlus", "mathMinus", "mathMultiply", "mathDivide", "mathEqual", "mathNotEqual"] },
   {
     id: "flowchart",
-    items: ["flowChartProcess", "flowChartDecision", "flowChartInputOutput", "flowChartTerminator", "flowChartDocument", "flowChartConnector"],
+    items: [
+      "flowChartProcess", "flowChartAlternateProcess", "flowChartDecision", "flowChartInputOutput", "flowChartPredefinedProcess",
+      "flowChartInternalStorage", "flowChartDocument", "flowChartMultidocument", "flowChartTerminator", "flowChartPreparation",
+      "flowChartManualInput", "flowChartManualOperation", "flowChartConnector", "flowChartOffpageConnector", "flowChartPunchedCard",
+      "flowChartPunchedTape", "flowChartSummingJunction", "flowChartOr", "flowChartCollate", "flowChartSort", "flowChartExtract",
+      "flowChartMerge", "flowChartOnlineStorage", "flowChartDelay", "flowChartMagneticTape", "flowChartMagneticDisk",
+      "flowChartMagneticDrum", "flowChartDisplay", "flowChartOfflineStorage",
+    ],
   },
-  { id: "stars", items: ["star4", "star5", "star6", "star8"] },
-  { id: "callouts", items: ["wedgeRectCallout", "wedgeRoundRectCallout", "wedgeEllipseCallout"] },
+  { id: "stars", items: ["star4", "star5", "star6", "star8", "ribbon2", "ribbon", "wave", "doubleWave"] },
+  { id: "callouts", items: ["wedgeRectCallout", "wedgeRoundRectCallout", "wedgeEllipseCallout", "cloudCallout", "borderCallout1", "borderCallout2"] },
   {
     id: "actionButtons",
     items: [
@@ -80,7 +111,7 @@ export function defaultAction(p: Preset): Hyperlink | undefined {
 /** Whether a preset is one of the twelve action buttons. */
 export const isActionButton = (p: Preset): boolean => typeof p === "string" && p.startsWith("actionButton");
 
-/** Every named preset (the 50 of the gallery plus `line`). */
+/** Every named preset (the gallery's plus `line`). */
 export const NAMED_PRESETS: NamedPreset[] = [
   ...SHAPE_GROUPS.flatMap((g) => g.items.filter((i) => !(i in CONNECTORS) && i !== "textBox")),
   "line",
@@ -101,52 +132,10 @@ export function pushRecent(list: readonly string[], id: string, max = 10): strin
   return [id, ...list.filter((x) => x !== id)].slice(0, max);
 }
 
-/** Adjust values a preset has, with defaults (100000 = 100 %). */
+/** Adjust values a preset has, with defaults (100000 = 100 %; ECMA-376 `a:avLst`, generated by the core). */
 export function adjustDefaults(p: Preset): Record<string, number> {
-  switch (p) {
-    case "roundRect":
-    case "snip1Rect":
-    case "round1Rect":
-      return { adj: 16667 };
-    case "snip2SameRect":
-    case "round2SameRect":
-      return { adj1: 16667, adj2: 0 };
-    case "triangle":
-    case "chevron":
-    case "homePlate":
-      return { adj: 50000 };
-    case "parallelogram":
-    case "trapezoid":
-      return { adj: 25000 };
-    case "pentagon":
-      return { hf: 105146, vf: 110557 };
-    case "hexagon":
-      return { adj: 25000, vf: 115470 };
-    case "octagon":
-      return { adj: 29289 };
-    case "rightArrow":
-    case "leftArrow":
-    case "upArrow":
-    case "downArrow":
-    case "leftRightArrow":
-    case "upDownArrow":
-      return { adj1: 50000, adj2: 50000 };
-    case "star4":
-      return { adj: 12500 };
-    case "star5":
-      return { adj: 19098, hf: 105146, vf: 110557 };
-    case "star6":
-      return { adj: 28868, hf: 115470 };
-    case "star8":
-      return { adj: 38250 };
-    case "wedgeRectCallout":
-    case "wedgeEllipseCallout":
-      return { adj1: -20833, adj2: 62500 };
-    case "wedgeRoundRectCallout":
-      return { adj1: -20833, adj2: 62500, adj3: 16667 };
-    default:
-      return {};
-  }
+  if (typeof p !== "string") return {};
+  return { ...(PRESET_INFO[p]?.adjust ?? {}) };
 }
 
 /** Default size of a shape inserted by a click (PowerPoint: 1 inch; text box and lines wider). */
@@ -215,53 +204,18 @@ export interface Box {
 }
 
 /**
- * The text rectangle of a preset in a `w` × `h` box (approximating the
- * presets' `a:rect`): ellipses and round shapes use the inscribed
- * rectangle, diamonds the middle half, triangles the lower middle part,
- * stars their inner area, callouts and arrows their body.
+ * The text rectangle of a shape in a `w` × `h` box (px or EMU): the
+ * preset's `a:rect` from the core's outline (`shapePaths`), scaled to the
+ * box; the whole box until the outline is cached (and for custom
+ * geometry, pictures and other shapes).
  */
-export function textRect(p: Preset, w: number, h: number): Box {
-  const inset = (fx: number, fy: number): Box => ({ x: w * fx, y: h * fy, w: w * (1 - 2 * fx), h: h * (1 - 2 * fy) });
-  switch (p) {
-    case "ellipse":
-    case "flowChartConnector":
-    case "wedgeEllipseCallout":
-      return inset(0.1464, 0.1464);
-    case "diamond":
-    case "flowChartDecision":
-      return inset(0.25, 0.25);
-    case "triangle":
-      return { x: w / 4, y: h / 2, w: w / 2, h: h / 2 };
-    case "rtTriangle":
-      return { x: w / 12, y: (h * 7) / 12, w: w / 2, h: (h * 5) / 12 };
-    case "heart":
-      return inset(0.2, 0.18);
-    case "cloud":
-      return inset(0.15, 0.17);
-    case "star4":
-    case "star5":
-    case "star6":
-    case "star8":
-      return inset(0.3, 0.3);
-    case "pentagon":
-    case "hexagon":
-    case "octagon":
-      return inset(0.15, 0.15);
-    case "parallelogram":
-    case "trapezoid":
-    case "flowChartInputOutput":
-      return inset(0.2, 0.08);
-    case "rightArrow":
-    case "leftArrow":
-    case "leftRightArrow":
-      return inset(0.12, 0.25);
-    case "upArrow":
-    case "downArrow":
-    case "upDownArrow":
-      return inset(0.25, 0.12);
-    case "flowChartDocument":
-      return { x: 0, y: 0, w, h: h * 0.83 };
-    default:
-      return { x: 0, y: 0, w, h };
-  }
+export function textRect(shape: Shape, w: number, h: number): Box {
+  const q = shape.kind.kind === "auto" ? pathQueryOf(shape) : null;
+  const r = q ? pathCache.peek(q)?.textRect : undefined;
+  const tw = shape.transform.w;
+  const th = shape.transform.h;
+  if (!r || tw <= 0 || th <= 0) return { x: 0, y: 0, w, h };
+  const sx = w / tw;
+  const sy = h / th;
+  return { x: r.l * sx, y: r.t * sy, w: Math.max(0, (r.r - r.l) * sx), h: Math.max(0, (r.b - r.t) * sy) };
 }

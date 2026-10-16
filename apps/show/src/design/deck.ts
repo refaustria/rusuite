@@ -4,6 +4,7 @@
 // background (slide → layout → master) and the decorative shapes of the
 // master and layout drawn below the slide (`showMasterShapes`).
 
+import type { TableStyleDef } from "../generated/TableStyleDef";
 import type { RunProperties } from "../../../../packages/ui-shared/src/generated/RunProperties";
 import type { Layout } from "../generated/Layout";
 import type { LayoutKind } from "../generated/LayoutKind";
@@ -20,7 +21,7 @@ import type { SlideSize } from "../generated/SlideSize";
 import type { TextParagraphProps } from "../generated/TextParagraphProps";
 import type { Theme } from "../generated/Theme";
 import { mergeDefined } from "../model";
-import { resolveBackground, resolveFill } from "./color";
+import { resolveBackground } from "./color";
 
 /** What a slide needs from the presentation besides the slide itself. */
 export interface DeckContext {
@@ -32,6 +33,8 @@ export interface DeckContext {
   /** All slide ids in order (slide numbers); absent = numbers unknown. */
   order?: NodeId[];
   sections?: Section[];
+  /** The presentation's own table styles (built-ins need none). */
+  tableStyles?: TableStyleDef[];
 }
 
 /** The deck context of a presentation. */
@@ -43,6 +46,7 @@ export function deckOf(pres: Presentation): DeckContext {
     master: pres.master,
     order: pres.slides.map((s) => s.id),
     sections: pres.sections,
+    tableStyles: pres.tableStyles,
   };
 }
 
@@ -107,7 +111,7 @@ const WHITE: ResolvedFill = { kind: "solid", value: { color: "FFFFFF", alpha: 1 
 
 /** The background a slide shows: its own fill, else its layout's, else the master's. */
 export function slideBackground(deck: DeckContext, slide: Pick<Slide, "background" | "layout">): ResolvedFill {
-  if (slide.background) return resolveFill(deck.theme, slide.background);
+  if (slide.background) return resolveBackground(deck.theme, slide.background);
   const l = layoutOf(deck, slide.layout);
   if (l?.background) return resolveBackground(deck.theme, l.background);
   if (deck.master) return resolveBackground(deck.theme, deck.master.background);

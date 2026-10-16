@@ -8,13 +8,28 @@ import App from "../App";
 import type { PageSetup } from "../generated/PageSetup";
 import { FakeWriteBackend } from "../test/fakeWriteBackend";
 import { writePageCss, writePrintCss } from "./printCss";
-import { buildWritePrintDoc, DEFAULT_WRITE_PRINT, editorBlocks, pageGroups, writePageHtml, writePrintGeometry } from "./writePrintDoc";
+import { buildWritePrintDoc, DEFAULT_WRITE_PRINT, editorBlocks, inlineDrawingBlocks, pageGroups, writePageHtml, writePrintGeometry } from "./writePrintDoc";
 
 afterEach(cleanup);
 
 const margins = { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720 };
 const page = (p: Partial<PageSetup>): PageSetup => ({ width: 11906, height: 16838, margins, orientation: "portrait", ...p });
 
+
+describe("printed drawings", () => {
+  it("the text of a shape is serialized as spans (a div or p would end the paragraph when the page is parsed)", () => {
+    const p = document.createElement("p");
+    p.innerHTML = 'a<span class="drawing-wrap"><span class="drawing-box"><div class="drawing-text"><div><div class="ProseMirror"><p data-style="Normal">Boxed</p></div></div></div></span></span>b';
+    inlineDrawingBlocks(p);
+    expect(p.querySelector("div, p p")).toBeNull();
+    const html = p.outerHTML;
+    const back = document.createElement("div");
+    back.innerHTML = html;
+    expect(back.children).toHaveLength(1);
+    expect(back.querySelector('.drawing-text span[data-tag="p"]')?.textContent).toBe("Boxed");
+    expect(back.querySelector('span[data-tag="p"]')?.getAttribute("data-style")).toBe("Normal");
+  });
+});
 
 describe("writePageCss", () => {
   it("A4 portrait with 1in margins", () => {

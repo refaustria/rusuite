@@ -106,6 +106,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Store the pane top-left cell (freeze while scrolled like Excel); grid mouse handlers → pointer events; Ctrl+PageUp/Down skipping hidden sheets; unhide several sheets; sort by colour/custom lists, colour/date-group filters, AutoFilter range growth, left-to-right sort, AGGREGATE, "sort warning" for adjacent data; hidden-by-hand rows inside a filtered range read back as filtered (xlsx cannot distinguish).
 
 ## Show parity follow-ups
+- Fidelity (P8-32): prompt text with formatting; exact PowerPoint table style definitions + "Best match" row; freeform tool on the preset path data; share preset data with Write; deeper text levels on layout placeholders; measure Show wasm load time in perf.
 - Views (P8-28): save lock-aspect (`a:spLocks`) and last view on save → P8-32; outline view with rich text; per-layout guides (p15); ink layer under zoom; vertical text edited horizontally; custom shows.
 - Charts/links/media (P8-24): Calc should re-export the shared chart presets/format helpers instead of the copy in apps/show/src/charts; media clips in the animation click sequence; media trim/bookmarks; link hit areas for grouped/rotated shapes in the show; Reuse Slides "keep source formatting" copies layouts but not the source master/theme; Show wasm size (fmt-pptx now pulls fmt-xlsx for the embedded workbook – consider a feature flag or lazy chunk).
 - Design UI (P8-22): core commands for renaming layouts, adding placeholders, master text levels 2–9, picture/texture background fills, scale/fit on SetSlideSize; import LibreOffice decks' footer font size from the master; slide sorter view; Effects (theme effect styles) on the Design tab.
@@ -115,6 +116,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Effect Options for sorter-selected slides; transitions when going back/jumping; badges for grouped shapes; emphasis auto-reverse; Animation Painter; Konva-rendered transitions in PDF export; Float In / Split effects; per-paragraph builds; p14 transitions.
 
 ## Write parity follow-ups
+- Drawings (P8-34): move preset geometry + adjust handles into core-model/ui-shared so Show and Write share one copy (write-core depends on model-show today); handles should rotate with the shape; drag-to-draw; linked text boxes; group shapes; dimmed crop mask; East Asian/complex-script fonts; VML-only legacy text boxes; soft edge/bevel.
 - Pagination (P8-31): measure pagination in scripts/perf.sh (docs/perf.md is generated and would drop the hand-measured section); speed up flow/page data building (~20 ms per run on 12k lines); editable footnote continuations; "endnotes at section end" setting; different text widths per section within one page frame; cell borders stay open where a row splits; nested tables are not split.
 - Links/columns (P8-27): hyperlinks on pictures and HYPERLINK fields; unequal column widths in the editor (CSS columns are equal); read the document's own theme fonts into the UI font box; Word's special-character shortcuts; long paragraphs/column boxes split across pages → P8-31.
 - Comments (P8-25): formatting inside comment text; @mentions and people.xml identities; comments in footnotes; "Simple markup" mode; balloons following pagination gaps exactly in print layout; one Write unit test still fails intermittently under full-repo load (passes alone) – identify and fix.
@@ -130,6 +132,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## AI assistant – docs/ai-plan.md
 
 ## Cloud connectors (user-owned accounts) – see docs/cloud-connectors-plan.md
+- v1 (WebDAV) merged 2026-10-16. Next: S3 connector; generic OAuth PKCE connector with the user's own client id (Google Drive/OneDrive/Dropbox); shared desktop connection records across the three apps (per-app data dirs today); CORS setup guide for Nextcloud/ownCloud on the portal; desktop smoke test for the connector commands (keyring untested at runtime).
 - `FileProvider` abstraction + backstage provider tabs; Google Drive (PKCE + Picker + Drive v3), OneDrive (MSAL + Graph), Dropbox, optional WebDAV; iCloud only through the native file system; CSP connect-src per enabled provider; tokens client-side only (ADR 0009). Needs the owner's OAuth app registrations.
 
 ## Mobile (Android, iOS) – after v0.1.0, see docs/mobile-plan.md

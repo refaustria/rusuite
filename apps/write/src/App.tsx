@@ -5,6 +5,8 @@ import { buildWritePrintDoc, DEFAULT_WRITE_PRINT, type WritePrintOptions } from 
 import { printWrite, WritePrintPage } from "./print/WritePrintPage";
 import { WriteApi, type WriteBackend } from "./backend";
 import { writeExtensions } from "./sync/schema";
+import { innerEditorFactory } from "./features/drawings/innerEditorFactory";
+import { shapePaths } from "./features/drawings/paths";
 import { SYNC_META, SyncController, SyncExtension, type SyncState } from "./sync/SyncPlugin";
 import { WriteFeatures } from "./features/WriteFeatures";
 import { currentLayout, floatPage, pageIndexAt, remeasurePages } from "./features/pagination";
@@ -155,10 +157,20 @@ export default function App({ backend }: { backend: WriteBackend }) {
   const session = useMemo(() => new DocumentSession(backend), [backend]);
   const ctl = useMemo(() => new SyncController(new WriteApi(session.backend)), [session]);
   const features = useMemo(() => new WriteFeatures(ctl), [ctl]);
+  // Shape outlines come from the core's preset geometry.
+  shapePaths.fetcher = (queries) => ctl.api.shapePaths(queries);
   const [zoom, setZoom] = useState(1);
   const editor = useEditor(
     {
-      extensions: [...writeExtensions({ resolveMedia: ctl.media.resolve, page: () => floatPage(ctl.page) }), SyncExtension(ctl), features.extension()],
+      extensions: [
+        ...writeExtensions({
+          resolveMedia: ctl.media.resolve,
+          page: () => floatPage(ctl.page),
+          innerEditor: innerEditorFactory(ctl, { resolveMedia: ctl.media.resolve, page: () => floatPage(ctl.page) }, () => features.editor),
+        }),
+        SyncExtension(ctl),
+        features.extension(),
+      ],
       editorProps: { attributes: () => features.editorAttributes() },
     },
     [ctl],
@@ -240,6 +252,8 @@ export default function App({ backend }: { backend: WriteBackend }) {
       openFile: (file) => ctl.openDocx(file.bytesBase64, file.name),
       onError: (e) => ctl.pushError(e),
       confirmReplace: async () => (await guard.ensureSaved()) === "proceed",
+      // File › Save As › a connection (P8-36): the app's Save As under the chosen name.
+      saveAs: (name) => guard.doc.save(name),
     });
     void session.start();
     return () => session.stop();

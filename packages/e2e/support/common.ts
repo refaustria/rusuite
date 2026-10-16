@@ -27,11 +27,13 @@ export async function fileCommand(page: Page, name: string | RegExp) {
   await page.getByTestId("backstage").getByRole("button", { name }).first().click();
 }
 
+/** File › Open › This device (the Open page lists the connections next to it, P8-36) → the file chooser. */
 export async function openViaBackstage(page: Page, file: string) {
   await page.getByRole("tab", { name: "File", exact: true }).click();
+  await page.getByTestId("backstage").getByRole("button", { name: /^Open/ }).click();
   const [chooser] = await Promise.all([
     page.waitForEvent("filechooser"),
-    page.getByTestId("backstage").getByRole("button", { name: /^Open/ }).click(),
+    page.getByTestId("open-page").getByRole("button", { name: /^This device/ }).click(),
   ]);
   await chooser.setFiles(file);
 }

@@ -120,6 +120,21 @@ function useImage(url: string | undefined): HTMLImageElement | null {
   return img;
 }
 
+/**
+ * A picture background (Format Background › Picture or texture fill):
+ * stretched over the slide, or tiled at the picture's size (px), with its
+ * opacity. Nothing until the image has loaded.
+ */
+function BackgroundPicture({ url, tile, alpha, width, height }: { url: string | undefined; tile: boolean; alpha: number; width: number; height: number }) {
+  const img = useImage(url);
+  if (!img) return null;
+  return tile ? (
+    <Rect name="slide-background-picture" x={0} y={0} width={width} height={height} fillPatternImage={img} fillPatternRepeat="repeat" opacity={alpha} listening={false} />
+  ) : (
+    <KImage name="slide-background-picture" x={0} y={0} width={width} height={height} image={img} opacity={alpha} listening={false} />
+  );
+}
+
 /** Loads `urls` into the image cache; resolves when all are decoded (or failed). */
 export function preloadImages(urls: readonly string[]): Promise<void> {
   if (typeof Image === "undefined") return Promise.resolve();
@@ -188,7 +203,9 @@ function TextNodes({ body, shape, w, h, ctx }: { body: TextBody; shape: Shape; w
   const empty = bodyText(body) === "" && !body.paragraphs.some((p) => p.runs.some((r) => r.field));
   const t = useT();
   const promptKey = empty && ctx.prompts && shape.placeholder ? PROMPTS[shape.placeholder] : undefined;
-  const prompt = promptKey ? t(promptKey) : undefined;
+  // a custom prompt of the layout's placeholder (typed in the Slide Master view) wins
+  const custom = promptKey ? placeholderFor(ctx.deck, ctx.slide.layout, shape)?.prompt : undefined;
+  const prompt = promptKey ? (custom ?? t(promptKey)) : undefined;
   const layout = useMemo(
     () => layoutShapeText(ctx, shape, body, w, h, prompt),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -438,13 +455,13 @@ function ConnectorGeometry({ shape, c, ctx }: { shape: Shape; c: Connector; ctx:
 
 /** A table: cell fills, cell text, then the borders over them. */
 function TableGeometry({ shape, table, ctx }: { shape: Shape; table: Table; ctx: Ctx }) {
-  const lay = useMemo(() => tableLayout(table, ctx.deck.theme, ctx.palette), [table, ctx.deck.theme, ctx.palette]);
+  const lay = useMemo(() => tableLayout(table, ctx.deck.theme, ctx.palette, ctx.deck.tableStyles), [table, ctx.deck.theme, ctx.palette, ctx.deck.tableStyles]);
   const hideCell = ctx.hiddenText === shape.id ? ctx.hiddenCell : null;
   const width = lay.colX[lay.colX.length - 1]!;
   const height = lay.rowY[lay.rowY.length - 1]!;
   const lines: { key: string; points: number[]; color: string; width: number }[] = [];
   for (const c of lay.cells) {
-    const b = effectiveBorders(table, c.row, c.col);
+    const b = effectiveBorders(table, c.row, c.col, ctx.deck.tableStyles);
     const add = (side: string, l: typeof b.left, points: number[]) => {
       const color = l ? css(l.color, ctx.palette) : undefined;
       if (l && color) lines.push({ key: `${c.row}-${c.col}-${side}`, points, color, width: Math.max(0.5, emuToPx(l.width)) });
@@ -458,7 +475,7 @@ function TableGeometry({ shape, table, ctx }: { shape: Shape; table: Table; ctx:
     <>
       <Rect name="table-hit" width={width} height={height} fill="rgba(0,0,0,0)" />
       {lay.cells.map((c) => {
-        const fill = css(effectiveFill(table, c.row, c.col), ctx.palette);
+        const fill = css(effectiveFill(table, c.row, c.col, ctx.deck.tableStyles), ctx.palette);
         return fill ? <Rect key={`f${c.row}-${c.col}`} name="table-cell" x={c.x} y={c.y} width={c.w} height={c.h} fill={fill} listening={false} /> : null;
       })}
       {lay.cells.map((c) =>
@@ -486,7 +503,9 @@ function ShapeNode({ shape, ctx, top }: { shape: Shape; ctx: Ctx; top: boolean }
   const a = boxAttrs(shape.transform);
   const t = shape.transform;
   const text = shape.kind.kind === "auto" ? shape.kind.value.text : null;
-  const tr = shape.kind.kind === "auto" && text ? textRect(shape.kind.value.geometry, a.width, a.height) : null;
+  // the text rectangle comes with the outline
+  usePathVersion();
+  const tr = shape.kind.kind === "auto" && text ? textRect(shape, a.width, a.height) : null;
   return (
     <Group
       id={top ? `shape-${shape.id}` : undefined}
@@ -544,10 +563,11 @@ export const SlideView = memo(function SlideView({
   const bg = design ? designBackground(deck, target) : slideBackground(deck, slide);
   const backdrop = design ? designShapes(deck, target) : backdropShapes(deck, slide);
   const bctx: Ctx = { ...ctx, interactive: false, prompts: false, hiddenText: null, asMaster: design === "master" };
-  const fill = bg.kind === "none" ? { fill: "#ffffff" } : konvaFill(bg, size.width, size.height);
+  const fill = bg.kind === "none" || bg.kind === "picture" ? { fill: "#ffffff" } : konvaFill(bg, size.width, size.height);
   return (
     <>
       <Rect name="slide-background" x={0} y={0} width={size.width} height={size.height} {...fill} data-bg={bg.kind === "solid" ? bg.value.color : bg.kind} />
+      {bg.kind === "picture" && <BackgroundPicture url={media.get(bg.value.media)} tile={bg.value.tile} alpha={bg.value.alpha} width={size.width} height={size.height} />}
       {backdrop.length > 0 && (
         <Group name="master-shapes" listening={false}>
           {backdrop.map((s) => (

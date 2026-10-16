@@ -37,5 +37,7 @@
   "portal.write.kind": "Dokumente",
   "portal.write.logo": "Rusuite-Write-Logo",
   "portal.write.open": "Write im Browser öffnen",
-  "portal.write.text": "Formatvorlagen, Listen, Tabellen, Bilder, Kopf- und Fußzeilen mit Seitenansicht – gespeichert als <code>.docx</code>."
+  "portal.write.text": "Formatvorlagen, Listen, Tabellen, Bilder, Kopf- und Fußzeilen mit Seitenansicht – gespeichert als <code>.docx</code>.",
+  "portal.privacy.h.connections": "Verbindungen zu Ihrer eigenen Cloud (optional)",
+  "portal.privacy.connections": "Calc, Write und Show können Dateien auf einem WebDAV-Server öffnen und speichern, den Sie nutzen – Nextcloud, ownCloud, ein NAS oder ein gehosteter Speicher –, sobald Sie unter Datei › Öffnen › Verbindung hinzufügen… einen eintragen. Bis dahin geschieht nichts: Rusuite bietet keine eigene Cloud, registriert keine Anbieter-Apps, und kein Rusuite-Server ist beteiligt. Kontaktiert wird nur der von Ihnen eingetragene Server, direkt aus Ihrem Browser oder der Desktop-App, und nur wenn Sie dort durchsuchen, öffnen oder speichern. Die Verbindung und – nur wenn Sie „Kennwort auf diesem Gerät merken“ wählen – ihr Kennwort bleiben auf diesem Gerät (im Speicher des Browsers, unverschlüsselt; am Desktop im Datenordner der App und im Schlüsselbund des Systems). Datei › Start › Datenschutz › Alle Verbindungen vergessen entfernt sie. Im Browser muss der Server Anfragen von dieser Website erlauben (CORS: Nextcloud und ownCloud brauchen die Adresse dieser Website in ihren CORS-Einstellungen), und die Sicherheitsrichtlinie dieser Website erlaubt derzeit keine anderen Hosts; vorerst funktionieren Verbindungen daher in den Desktop-Apps."
 }

@@ -28,7 +28,7 @@ expression: "{\n    let xml = text(&bytes, \"/ppt/slides/slide3.xml\"); let star
     <p:nvPr>
      <a:videoFile r:link="rId3"/>
      <p:extLst>
-      <p:ext uri="{DAA4B4D4-6D71-4841-9C94-3DA902A3CE3B}">
+      <p:ext uri="{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}">
        <p14:media xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" r:embed="rId2"/>
       </p:ext>
      </p:extLst>
@@ -65,7 +65,7 @@ expression: "{\n    let xml = text(&bytes, \"/ppt/slides/slide3.xml\"); let star
     <p:nvPr>
      <a:audioFile r:link="rId6"/>
      <p:extLst>
-      <p:ext uri="{DAA4B4D4-6D71-4841-9C94-3DA902A3CE3B}">
+      <p:ext uri="{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}">
        <p14:media xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" r:embed="rId5"/>
       </p:ext>
      </p:extLst>

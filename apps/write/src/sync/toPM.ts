@@ -13,6 +13,11 @@ import type { Table } from "../generated/Table";
 import type { Toc } from "../generated/Toc";
 import { buildLists } from "./listMapping";
 import { canonValue, walkBlocks, type RunProperties } from "./model";
+
+/** Run properties rendered from the `textStyle` mark's `extra` (no toggle mark). */
+export const EXTRA_RUN_KEYS = [
+  "smallCaps", "allCaps", "doubleStrike", "charSpacing", "scale", "kerning", "position", "outline", "shadow", "emboss", "imprint", "hidden", "rtl",
+] as const;
 import { TWIPS_PER_PX } from "./schema";
 
 export interface ToPMContext {
@@ -50,6 +55,8 @@ export function marksFromProps(schema: Schema, props: RunProperties | undefined,
   if (p.verticalAlign === "superscript") marks.push(m.superscript!.create());
   else if (p.verticalAlign === "subscript") marks.push(m.subscript!.create());
   else if (p.verticalAlign === "baseline") extra.verticalAlign = "baseline";
+  // Character effects without a mark of their own travel in `extra`.
+  for (const k of EXTRA_RUN_KEYS) if (p[k] != null) (extra as Record<string, unknown>)[k] = p[k];
   const attrs = {
     font: p.font ?? null,
     size: p.size ?? null,
@@ -75,10 +82,14 @@ export function inlinesToPM(schema: Schema, inlines: Inline[]): PMNode[] {
         out.push(
           schema.nodes.image!.create({
             mediaId: img.media, width: img.width, height: img.height, alt: img.alt ?? null, name: img.name ?? null, anchor: img.anchor ? canonValue(img.anchor) : null,
+            format: img.format ? emptyToNull(img.format) : null, link: img.link ? canonValue(img.link) : null,
           }),
         );
         break;
       }
+      case "drawing":
+        out.push(schema.nodes.drawing!.create({ value: canonValue(inline.value) }));
+        break;
       case "break":
         out.push(
           inline.value === "page" ? schema.nodes.pageBreak!.create() : inline.value === "column" ? schema.nodes.columnBreak!.create() : schema.nodes.hardBreak!.create(),

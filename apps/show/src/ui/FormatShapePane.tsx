@@ -93,7 +93,6 @@ export function FormatShapePane({ store }: { store: ShowStore }) {
   const page = useShow(store, (s) => s.formatPane);
   useShow(store, (s) => s.selection);
   useShow(store, (s) => s.pres);
-  useShow(store, (s) => s.lockedAspect);
   if (!page) return null;
   const unit: RulerUnit = rulerUnit(locale);
   const per = emuPerUnit(unit);
@@ -149,7 +148,7 @@ export function FormatShapePane({ store }: { store: ShowStore }) {
           <NumField label={t("show.fmtPane.width")} value={common(ts.map((x) => x.w)) === null ? null : ts[0]!.w / per} suffix={unit} min={0.01} onCommit={(v) => size("w", v)} testId="fmt-width" />
           <NumField label={t("show.fmtPane.rotation")} value={common(ts.map((x) => x.rotationDeg ?? 0))} digits={1} suffix="°" min={-3600} max={3600} onCommit={(v) => setT((tr) => ({ ...tr, rotationDeg: ((v % 360) + 360) % 360 }))} testId="fmt-rotation" />
           <label className="flex min-h-8 items-center gap-2">
-            <input type="checkbox" checked={locked} onChange={(e) => store.setAspectLocked(sel.map((s) => s.id), e.currentTarget.checked)} data-testid="fmt-lock" />
+            <input type="checkbox" checked={locked} onChange={(e) => void store.setAspectLocked(sel.map((s) => s.id), e.currentTarget.checked)} data-testid="fmt-lock" />
             {t("show.fmtPane.lockAspect")}
           </label>
           <h3 className="mt-2 font-semibold">{t("show.fmtPane.position")}</h3>

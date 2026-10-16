@@ -18,7 +18,7 @@ use model_show::{
     Background, BodyProps, Bullet, ChartData, ChartShape, Connector, ConnectorKind, Crop,
     Direction, Effect, Fill, HfDate, Hyperlink, Insets, Layout, LayoutKind, Line, MediaClip,
     MediaStart, NodeId, PictureProps, PlaceholderKind, Preset, Recolor, Section, Shadow, Shape,
-    ShapeKind, ShowSettings, Slide, SlideMaster, SlideSize, Table, TableLook, TextBody,
+    ShapeKind, ShowSettings, Slide, SlideMaster, SlideSize, Table, TableLook, TextBody, TextClass,
     TextSpacing, Theme, Transform, Transition, Trigger, ViewProps,
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -355,6 +355,28 @@ pub enum ThemeChoice {
     Custom(Box<Theme>),
 }
 
+/// How [`ShowCommand::SetSlideSize`] treats slide content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub enum SlideScale {
+    /// Shapes keep their position and size.
+    #[default]
+    None,
+    /// Ensure Fit: scale by the smaller ratio, everything stays on the
+    /// slide.
+    Fit,
+    /// Maximize: scale by the larger ratio (content may run off the slide).
+    Maximize,
+}
+
+impl SlideScale {
+    /// Whether shapes stay as they are.
+    pub fn is_none(&self) -> bool {
+        *self == SlideScale::None
+    }
+}
+
 /// The master or one layout (target of design commands).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
@@ -661,8 +683,16 @@ pub enum ShowCommand {
     },
     /// Changes the slide size; master and layout placeholders and shapes
     /// scale with it (the Office master and layouts are replaced by the
-    /// ones for the new size), slide shapes stay.
-    SetSlideSize { size: SlideSize },
+    /// ones for the new size). Slide shapes stay (`scale` absent / `none`)
+    /// or scale proportionally about the slide centre (PowerPoint's
+    /// "Ensure Fit": by the smaller of the width and height ratios;
+    /// "Maximize": by the larger).
+    SetSlideSize {
+        size: SlideSize,
+        #[serde(default, skip_serializing_if = "SlideScale::is_none")]
+        #[ts(optional, as = "Option<SlideScale>")]
+        scale: SlideScale,
+    },
     /// Changes the layout of a slide (PowerPoint's Home › Layout):
     /// placeholders map to the new layout's by type and `idx` (else type,
     /// else class: title ↔ centered title, body ↔ subtitle ↔ picture;
@@ -783,6 +813,15 @@ pub enum ShowCommand {
     },
     /// Splits the merged cell anchored at `row`, `col` into single cells.
     SplitTableCell { shape: NodeId, row: u32, col: u32 },
+    /// Splits cell `row`, `col` into `rows` × `cols` cells (PowerPoint's
+    /// Split Cells dialog; see `Table::split_grid`).
+    SplitTableCellGrid {
+        shape: NodeId,
+        row: u32,
+        col: u32,
+        rows: u32,
+        cols: u32,
+    },
     /// Changes fill, borders, alignment or margins of the cells in the
     /// `rowSpan` × `colSpan` range at `row`, `col` (default 1 × 1).
     SetTableCellProps {
@@ -837,6 +876,66 @@ pub enum ShowCommand {
     DuplicateLayout { layout: LayoutKind },
     /// Deletes a layout no slide uses.
     DeleteLayout { layout: LayoutKind },
+    /// Renames a layout (Slide Master › Rename): a standard layout keeps
+    /// its kind and shows `name` (empty = PowerPoint's standard name); a
+    /// custom layout becomes `custom:<name>` and its slides follow.
+    RenameLayout { layout: LayoutKind, name: String },
+    /// Adds a placeholder of `kind` at `transform` to the master (one per
+    /// kind) or to a layout (Slide Master › Insert Placeholder; the next
+    /// free `idx`, text defaults from the master).
+    AddPlaceholder {
+        target: DesignTarget,
+        kind: PlaceholderKind,
+        transform: Transform,
+    },
+    /// Removes a placeholder of the master or a layout (slides keep their
+    /// placeholder shapes).
+    RemovePlaceholder {
+        target: DesignTarget,
+        placeholder: PlaceholderKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        idx: Option<u32>,
+    },
+    /// Changes outline level `level` (0–8) of a master text style
+    /// (`p:titleStyle`/`p:bodyStyle`/`p:otherStyle`): run formatting
+    /// merged in, paragraph formatting patched. Level 1 of the title and
+    /// body styles also changes the master placeholders' text defaults
+    /// (and the layouts' that still inherit them).
+    SetMasterTextStyle {
+        which: TextClass,
+        level: u8,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, as = "Option<app_common::wire::RunProperties>")]
+        run: Option<RunProperties>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        paragraph: Option<TextParagraphPatch>,
+    },
+    /// Sets (or, with `null`, removes) the custom prompt text of a master
+    /// or layout placeholder (what typing into it in the Slide Master view
+    /// stores; slides show it in empty placeholders).
+    SetPlaceholderPrompt {
+        target: DesignTarget,
+        placeholder: PlaceholderKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        idx: Option<u32>,
+        #[serde(default)]
+        prompt: Option<String>,
+    },
+    /// A picture background from a file (Format Background › Picture or
+    /// texture fill › Insert): adds the image to the media store and sets
+    /// it as the background of the target (stretched, or tiled).
+    SetBackgroundPicture {
+        target: BackgroundTarget,
+        content_type: String,
+        bytes_base64: String,
+        #[serde(default)]
+        tile: bool,
+        #[serde(default)]
+        transparency: f64,
+    },
     /// Changes a placeholder of the master or a layout. Master changes of
     /// position, body properties or text defaults flow to the layout
     /// placeholders (and their slides' placeholders) that still had the
@@ -1028,6 +1127,9 @@ pub enum ShowCommand {
         shapes: Vec<NodeId>,
         props: BodyProps,
     },
+    /// Locks or unlocks the aspect ratio of shapes (Format Shape › Size ›
+    /// Lock aspect ratio; `noChangeAspect`).
+    SetLockAspect { shapes: Vec<NodeId>, locked: bool },
     /// Applies the commands in order as one undo step; all or nothing.
     Compound { commands: Vec<ShowCommand> },
     /// *Internal.* Inserts slides at the given indices (ascending).
@@ -1131,6 +1233,8 @@ pub struct NewShape {
     pub click_action: Option<Action>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lock_aspect: bool,
 }
 
 /// [`ShapeKind`] with [`NewShape`] children.
@@ -1225,6 +1329,7 @@ impl From<&Shape> for NewShape {
             alt: s.alt.clone(),
             click_action: s.click_action.clone(),
             hidden: s.hidden,
+            lock_aspect: s.lock_aspect,
         }
     }
 }

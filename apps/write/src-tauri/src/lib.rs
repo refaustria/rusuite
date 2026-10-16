@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use app_common::connectors_tauri;
 use app_common::session::{
     DirStorage, RecentEntry, RecoveryEntry, RecoveryInfo, Session, SessionError,
 };
@@ -475,6 +476,8 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .unwrap_or_else(|_| std::env::temp_dir().join("rusuite-write"));
+            // Cloud connections (P8-36): records next to the session files, passwords in the OS keyring.
+            app.manage(connectors_tauri::ConnectorState::new(&dir));
             app.manage(SessionState::new(dir));
             Ok(())
         })
@@ -490,7 +493,19 @@ pub fn run() {
             recovery_put,
             recovery_remove,
             set_close_guard,
-            print_webview
+            print_webview,
+            connectors_tauri::connector_list,
+            connectors_tauri::connector_stat,
+            connectors_tauri::connector_read,
+            connectors_tauri::connector_write,
+            connectors_tauri::connector_mkdir,
+            connectors_tauri::connector_delete,
+            connectors_tauri::connector_rename,
+            connectors_tauri::connector_store_load,
+            connectors_tauri::connector_store_save,
+            connectors_tauri::connector_secret_get,
+            connectors_tauri::connector_secret_set,
+            connectors_tauri::connector_secret_delete
         ])
         .run(tauri::generate_context!())
         .expect("error while running Rusuite Write");

@@ -156,6 +156,10 @@ export function resolveFill(theme: Theme | undefined, f: Fill | null | undefined
  */
 export function resolveBackground(theme: Theme | undefined, bg: Background): ResolvedFill {
   if (bg.kind === "fill") return resolveFill(theme, bg.value);
+  if (bg.kind === "picture") {
+    const p = bg.value;
+    return { kind: "picture", value: { media: p.media, tile: !!p.tile, alpha: Math.min(1, Math.max(0, 1 - (p.transparency ?? 0))) } };
+  }
   const { index, color } = bg.value;
   const ph = resolveColor(theme, color);
   const list = (index >= 1001 ? theme?.format?.bgFillStyles : theme?.format?.fillStyles) ?? [];
@@ -173,7 +177,7 @@ export function cssRgba(hex: string, alpha = 1): string {
 
 /** A CSS `background` value of a resolved fill (`undefined` = none). */
 export function fillCssBackground(f: ResolvedFill): string | undefined {
-  if (f.kind === "none") return undefined;
+  if (f.kind === "none" || f.kind === "picture") return undefined;
   if (f.kind === "solid") return cssRgba(f.value.color, f.value.alpha);
   const stops = f.value.stops.map((s) => `${cssRgba(s.color, s.alpha)} ${Math.round(s.pos * 100)}%`).join(", ");
   if (f.value.shape !== "linear") return `radial-gradient(circle, ${stops})`;
@@ -187,7 +191,8 @@ export function fillCssBackground(f: ResolvedFill): string | undefined {
  * left → right).
  */
 export function konvaFill(f: ResolvedFill, w: number, h: number): Record<string, unknown> {
-  if (f.kind === "none") return {};
+  // pictures are drawn as an image over the background (SlideView)
+  if (f.kind === "none" || f.kind === "picture") return {};
   if (f.kind === "solid") return { fill: cssRgba(f.value.color, f.value.alpha) };
   const stops = f.value.stops.flatMap((s) => [clamp01(s.pos), cssRgba(s.color, s.alpha)]);
   if (f.value.shape !== "linear") {

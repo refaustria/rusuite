@@ -761,5 +761,42 @@
    "page:a4"
   ],
   "paragraphs": 10
+ },
+ {
+  "file": "provisional-61-shapes-text-boxes.docx",
+  "topic": "Shapes and text boxes: inline rounded rectangle with text, floating text box right with square wrap, floating arrow",
+  "features": [
+   "heading:1",
+   "drawing:shape=roundRect",
+   "drawing:shape=rightArrow",
+   "drawing:textbox",
+   "drawing:text",
+   "drawing:inline",
+   "drawing:float=square",
+   "drawing:float=top-bottom",
+   "page:a4"
+  ],
+  "paragraphs": 5
+ },
+ {
+  "file": "provisional-62-character-formatting.docx",
+  "topic": "Character formatting: small caps, all caps, spacing, position, scale, double strike, outline, shadow, emboss, engrave, hidden",
+  "features": [
+   "heading:1",
+   "run:small-caps",
+   "run:all-caps",
+   "run:spacing=2pt",
+   "run:spacing=-0.5pt",
+   "run:position=3.5pt",
+   "run:scale=150",
+   "run:double-strike",
+   "run:outline",
+   "run:shadow",
+   "run:emboss",
+   "run:imprint",
+   "run:hidden",
+   "page:a4"
+  ],
+  "paragraphs": 6
  }
 ]

@@ -12,6 +12,7 @@ use crate::master::SlideMaster;
 use crate::presentation::{Presentation, SlideSize};
 use crate::section::Section;
 use crate::slide::Slide;
+use crate::tablestyle::TableStyleDef;
 use crate::theme::Theme;
 use crate::view::{ShowSettings, ViewProps};
 use crate::Error;
@@ -44,6 +45,8 @@ pub(crate) struct PresentationData {
     view: ViewProps,
     #[serde(default)]
     show_settings: ShowSettings,
+    #[serde(default)]
+    table_styles: Vec<TableStyleDef>,
 }
 
 impl From<PresentationData> for Presentation {
@@ -67,6 +70,7 @@ impl From<PresentationData> for Presentation {
         p.media = d.media;
         p.view = d.view;
         p.show_settings = d.show_settings;
+        p.table_styles = d.table_styles;
         p.next_id = p.max_node_id() + 1;
         p
     }

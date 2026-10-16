@@ -10,6 +10,10 @@ import { formatTime, useSession } from "../recent/useSession";
 import { formatCombo } from "../shortcuts/keys";
 import { RibbonIcon, type RibbonIconName } from "./icons";
 import { LanguageSelect, useT } from "../i18n/react";
+import { ConnectorsOverlay } from "../connectors/ui/Overlay";
+import { ForgetConnections } from "../connectors/ui/ForgetConnections";
+import { RemotePage } from "../connectors/ui/RemotePage";
+import { baseName } from "../connectors/paths";
 
 const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
@@ -40,8 +44,11 @@ export interface BackstageActions {
   saveAsShortcut?: string;
 }
 
-/** The backstage pages: Home (recent files), Info and Print. */
-export type BackstagePage = "home" | "info" | "print";
+/**
+ * The backstage pages: Home (recent files), Info, Print, and – with cloud connections (P8-36) – Open and
+ * Save As ("This device" plus the Connections and their file browser).
+ */
+export type BackstagePage = "home" | "info" | "print" | "open" | "saveAs";
 
 export interface BackstageProps extends BackstageActions {
   open: boolean;
@@ -62,6 +69,9 @@ function RecentFiles({ session, disabled, pick }: { session: AnySession; disable
     void session.refresh();
   }, [session]);
   const browser = session.storage?.kind === "browser";
+  const connections = session.connectors?.getState().connections ?? [];
+  const remoteLabel = (r: { connectionId: string; path: string }) =>
+    `${connections.find((c) => c.id === r.connectionId)?.name ?? "?"} › ${r.path}`;
   return (
     <section aria-label={t("recent.title")} className="flex min-h-0 flex-col">
       <h2 className="mb-2 text-lg font-semibold">{t("recent.title")}</h2>
@@ -72,19 +82,21 @@ function RecentFiles({ session, disabled, pick }: { session: AnySession; disable
       )}
       <ul className="flex min-h-0 flex-col overflow-auto">
         {recent.map((r) => (
-          <li key={r.path ?? r.blobId ?? r.name}>
+          <li key={r.remote ? `${r.remote.connectionId}:${r.remote.path}` : (r.path ?? r.blobId ?? r.name)}>
             <button
               type="button"
               disabled={disabled}
               className={`flex w-full items-center gap-3 rounded px-2 py-1.5 text-left text-sm hover:bg-ui-hover disabled:opacity-40 ${FOCUS_RING}`}
-              title={r.path ?? t("recent.browserCopy", { name: r.name })}
+              title={r.remote ? remoteLabel(r.remote) : (r.path ?? t("recent.browserCopy", { name: r.name }))}
               data-testid="recent-entry"
+              data-remote={r.remote ? "true" : undefined}
               onClick={() => pick(() => void session.openRecent(r))}
             >
-              <RibbonIcon name="recent" />
+              <RibbonIcon name={r.remote ? "cloud" : "recent"} />
               <span className="flex min-w-0 flex-col">
                 <span className="truncate font-medium">{r.name}</span>
                 {r.path && <span className="truncate text-xs text-ui-muted">{r.path}</span>}
+                {r.remote && <span className="truncate text-xs text-ui-muted">{remoteLabel(r.remote)}</span>}
               </span>
               <span className="ml-auto shrink-0 text-xs text-ui-muted">{formatTime(r.openedAt)}</span>
             </button>
@@ -139,6 +151,7 @@ function PrivacySection({ session }: { session: AnySession }) {
           </span>
         )}
       </div>
+      {session.connectors && <ForgetConnections connectors={session.connectors} />}
     </section>
   );
 }
@@ -149,7 +162,17 @@ export function Backstage({
   session, fileDisabledReason, exportDisabled, info, infoPage, print, page: pageProp = "home", onPage, saveAsShortcut = "Mod+Shift+S",
 }: BackstageProps) {
   const t = useT();
-  const page: BackstagePage = pageProp === "print" && print && !exportDisabled ? "print" : pageProp === "info" && infoPage ? "info" : "home";
+  const connectors = session?.connectors ?? null;
+  const page: BackstagePage =
+    pageProp === "print" && print && !exportDisabled
+      ? "print"
+      : pageProp === "info" && infoPage
+        ? "info"
+        : pageProp === "open" && connectors && onOpen
+          ? "open"
+          : pageProp === "saveAs" && connectors && onSaveAs && session?.canSaveRemote()
+            ? "saveAs"
+            : "home";
   const ref = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -166,9 +189,11 @@ export function Backstage({
   // Switching to Print (e.g. Ctrl+P while the backstage is open) moves the focus to the page.
   useEffect(() => {
     if (open && page === "print") ref.current?.querySelector<HTMLElement>('[data-testid="print-panel"] :is(button, input, select):not([disabled])')?.focus();
+    if (open && (page === "open" || page === "saveAs")) ref.current?.querySelector<HTMLElement>("main [data-autofocus]:not([disabled])")?.focus();
   }, [open, page]);
 
-  if (!open) return null;
+  const overlay = connectors && <ConnectorsOverlay connectors={connectors} />;
+  if (!open) return overlay;
 
   /** Runs a command after leaving the backstage (dialogs it opens then get the focus). */
   const pick = (fn: () => void) => {
@@ -192,7 +217,29 @@ export function Backstage({
       </li>
     );
 
+  /** A command that shows a page of the backstage (Open / Save As with connections). */
+  const pageItem = (id: "open" | "saveAs", label: string, ic: RibbonIconName, shortcut: string, disabled: boolean) => (
+    <li key={id}>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-current={page === id ? "page" : undefined}
+        title={disabled && fileOff ? fileDisabledReason : `${label} (${formatCombo(shortcut)})`}
+        className={`flex w-full items-center gap-3 px-5 py-2 text-left text-sm hover:bg-white/15 disabled:opacity-50 ${page === id ? "bg-white/20 font-semibold" : ""} ${FOCUS_RING}`}
+        onClick={() => onPage?.(id)}
+      >
+        <RibbonIcon name={ic} size={18} />
+        {label}
+      </button>
+    </li>
+  );
+  const docName = (documentTitle ?? "").replace(/\s*•\s*$/, "").trim();
+  const ext = connectors?.extensions[0] ?? "";
+  const defaultName = !docName || docName === t("doc.untitled") ? `${t("doc.untitled")}${ext}` : baseName(docName);
+
   return (
+    <>
+    {overlay}
     <div
       ref={ref}
       role="dialog"
@@ -231,7 +278,7 @@ export function Backstage({
           <RibbonIcon name="back" size={24} />
         </button>
         <ul className="flex flex-col">
-          {(print || infoPage) && (
+          {(print || infoPage || connectors) && (
             <li key="home">
               <button
                 type="button"
@@ -258,9 +305,11 @@ export function Backstage({
             </li>
           )}
           {item("new", t("backstage.new"), "new", onNew, "Mod+N")}
-          {item("open", t("backstage.open"), "open", onOpen, "Mod+O", fileOff)}
+          {connectors && onOpen ? pageItem("open", t("backstage.open"), "open", "Mod+O", fileOff) : item("open", t("backstage.open"), "open", onOpen, "Mod+O", fileOff)}
           {item("save", t("backstage.save"), "save", onSave, "Mod+S", fileOff)}
-          {item("saveAs", t("backstage.saveAs"), "saveAs", onSaveAs, saveAsShortcut, fileOff)}
+          {connectors && onSaveAs && session?.canSaveRemote()
+            ? pageItem("saveAs", t("backstage.saveAs"), "saveAs", saveAsShortcut, fileOff)
+            : item("saveAs", t("backstage.saveAs"), "saveAs", onSaveAs, saveAsShortcut, fileOff)}
           {print && (
             <li key="print">
               <button
@@ -298,6 +347,17 @@ export function Backstage({
           print
         ) : page === "info" ? (
           infoPage
+        ) : (page === "open" || page === "saveAs") && session ? (
+          <main className="flex min-h-0 flex-1 flex-col">
+            <RemotePage
+              session={session}
+              mode={page === "open" ? "open" : "save"}
+              onLocal={page === "open" ? onOpen && (() => pick(onOpen)) : onSaveAs && (() => pick(onSaveAs))}
+              onDone={() => onCloseRef.current()}
+              defaultName={defaultName}
+              disabled={fileOff}
+            />
+          </main>
         ) : (
           <>
             {session && <RecentFiles session={session} disabled={fileOff} pick={pick} />}
@@ -307,5 +367,6 @@ export function Backstage({
         )}
       </div>
     </div>
+    </>
   );
 }

@@ -150,6 +150,8 @@ pub fn document() -> Document {
                 alt: Some(format!("Figure {}", k + 1)),
                 name: None,
                 anchor: None,
+                format: Default::default(),
+                link: None,
             }));
         }
         doc.body.push(Block::Paragraph(p));

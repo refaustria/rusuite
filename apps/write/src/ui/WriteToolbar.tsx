@@ -30,6 +30,12 @@ import { tableInfo, tableTabs, type TableInfo } from "./tableTabs";
 import { paragraphBorderState, selectedParagraphs } from "../features/paragraphFormat";
 import { paragraphBordersMenu, paragraphShadingPicker } from "./paragraphControls";
 import { pictureArrangeItems } from "./pictureControls";
+import { fontExtras, insertDrawingButtons, pictureFormatGroups, shapeFormatTab } from "./drawingTabs";
+import { selectedDrawing } from "../features/drawings/drawings";
+import { formatTarget } from "../features/runFormat";
+import { innerEditors } from "../features/drawings/innerEditors";
+import type { Drawing } from "../generated/Drawing";
+import type { PictureFormat } from "../generated/PictureFormat";
 import type { Anchor } from "../generated/Anchor";
 import type { WriteFeatures } from "../features/WriteFeatures";
 import { currentLayout, pageAtPos } from "../features/pagination";
@@ -288,8 +294,8 @@ export interface WriteRibbonProps {
 export const WRITE_ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 /** What the Table / Picture Format tabs need from the selection. */
-function selectionInfo(e: Editor): { table: TableInfo | null; image: { node: PMNode; pos: number } | null } {
-  return { table: tableInfo(tableContext(e.state)), image: selectedImage(e.state) };
+function selectionInfo(e: Editor): { table: TableInfo | null; image: { node: PMNode; pos: number } | null; drawing: Drawing | null } {
+  return { table: tableInfo(tableContext(e.state)), image: selectedImage(e.state), drawing: selectedDrawing(e.state)?.value ?? null };
 }
 
 export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSave, onFind, onReplace, onExportPdf, print, infoPage, zoom, onZoom }: WriteRibbonProps) {
@@ -302,6 +308,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
   const name = useSync(ctl, (s) => s.name);
   const dirty = useSync(ctl, (s) => s.dirty);
   const ui = useSyncExternalStore(features.ui.subscribe, features.ui.getState);
+  // The text box with the caret (its Shape Format tab stays while its text is edited).
+  const activeInner = useSyncExternalStore(innerEditors.subscribe, () => innerEditors.active());
   const painter = useSyncExternalStore(features.painter.subscribe, () => features.painter.active);
   const s = useThrottledEditorState({
     editor,
@@ -315,7 +323,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         }
       }
       const charStyle = styleFromMarks(e.state.storedMarks ?? $from.marks()) ?? null;
-      const { table, image } = selectionInfo(e);
+      const { table, image, drawing } = selectionInfo(e);
       const sec = currentSection(e.state, ctl.sections);
       const sp = spacingAt(e);
       const ind = indentAt(e);
@@ -345,8 +353,10 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
               height: image.node.attrs.height as number,
               alt: (image.node.attrs.alt as string | null) ?? "",
               anchor: (image.node.attrs.anchor as Anchor | null) ?? null,
+              format: (image.node.attrs.format as PictureFormat | null) ?? null,
             }
           : null,
+        drawing,
         borders: paragraphBorderState(selectedParagraphs(e.state)),
       };
     },
@@ -369,7 +379,9 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
 
   const onChange = (patch: CellStylePatch) => {
     const f = patch.font ?? {};
-    const chain = () => editor.chain().focus();
+    // Inside a text box the text box's editor is formatted (Word).
+    const target = formatTarget(editor);
+    const chain = () => target.chain().focus();
     if (f.bold !== undefined) (f.bold ? chain().setBold() : chain().unsetBold()).run();
     if (f.italic !== undefined) (f.italic ? chain().setItalic() : chain().unsetItalic()).run();
     if (f.strike !== undefined) (f.strike ? chain().setStrike() : chain().unsetStrike()).run();
@@ -382,14 +394,15 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
     if (f.size) ts.size = f.size;
     if (f.color) ts.color = f.color.kind === "auto" ? null : f.color;
     if (Object.keys(ts).length) {
-      editor.commands.focus();
-      setTextStyle(editor, ts);
+      target.commands.focus();
+      setTextStyle(target, ts);
     }
   };
   const fmt: FormatControlProps = { value, onChange };
   const textStyle = (patch: Parameters<typeof setTextStyle>[1]) => {
-    editor.commands.focus();
-    setTextStyle(editor, patch);
+    const target = formatTarget(editor);
+    target.commands.focus();
+    setTextStyle(target, patch);
   };
 
   const alignBtn = (a: Alignment, label: string, icon: ReactNode, shortcut: string) => (
@@ -566,6 +579,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
               <RibbonButton label={t("write.superscript")} icon={SCRIPT_ICON(true)} shortcut="Mod+Shift+=" pressed={s.superscript} onClick={() => toggleScript(editor, "superscript")} />
               <RibbonMenuButton label={t("write.highlight")} icon={HIGHLIGHT_ICON} menu={highlightMenu} />
               <ColorPicker label={t("write.fontColor")} kind="text" value={s.props.color ?? undefined} onSelect={(c) => textStyle({ color: c && c.kind !== "auto" ? c : null })} />
+              {fontExtras(editor, ctl, s.props)}
+              <RibbonButton label={t("write.fontDialog")} icon="format" shortcut="Mod+D" tooltip={t("write.fontDialogTip")} onClick={() => features.ui.openDialog("font")} />
             </RibbonRow>
           </RibbonStack>
         ),
@@ -722,6 +737,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         items: (
           <>
             <RibbonButton label={t("write.picture")} icon="image" size="large" tooltip={t("write.pictureTip")} onClick={() => fileInput.current?.click()} />
+            {insertDrawingButtons(editor, ctl)}
             <input
               ref={fileInput}
               type="file"
@@ -931,6 +947,13 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
               menu={[
                 { id: "none", label: t("write.hyphenation.none"), checked: !ctl.settings.autoHyphenation, onSelect: () => void ctl.run({ type: "setSettings", settings: { ...ctl.settings, autoHyphenation: false } }) },
                 { id: "auto", label: t("write.hyphenation.auto"), checked: !!ctl.settings.autoHyphenation, onSelect: () => void ctl.run({ type: "setSettings", settings: { ...ctl.settings, autoHyphenation: true } }) },
+                { separator: true, label: t("write.hyphenation.zone") },
+                ...[360, 425, 720].map((z) => ({
+                  id: `zone-${z}`,
+                  label: t("write.hyphenation.zoneCm", { n: cm(z) }),
+                  checked: (ctl.settings.hyphenationZone ?? 360) === z,
+                  onSelect: () => void ctl.run({ type: "setSettings", settings: { ...ctl.settings, hyphenationZone: z } }),
+                })),
               ]}
             />
           </>
@@ -1008,6 +1031,15 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
             <RibbonStack>
               <RibbonButton label={t("write.nextFootnote")} icon={NEXT_ICON(true)} showLabel onClick={() => goToNextRef(editor.view, 1)} />
               <RibbonButton label={t("write.prevFootnote")} icon={NEXT_ICON(false)} showLabel onClick={() => goToNextRef(editor.view, -1)} />
+              <RibbonMenuButton
+                label={t("write.endnotesAt")}
+                icon={ENDNOTE_ICON}
+                showLabel
+                menu={[
+                  { id: "doc", label: t("write.endnotesAt.document"), checked: !ctl.settings.endnotesAtSectionEnd, onSelect: () => void ctl.run({ type: "setSettings", settings: { ...ctl.settings, endnotesAtSectionEnd: false } }) },
+                  { id: "sect", label: t("write.endnotesAt.section"), checked: !!ctl.settings.endnotesAtSectionEnd, onSelect: () => void ctl.run({ type: "setSettings", settings: { ...ctl.settings, endnotesAtSectionEnd: true } }) },
+                ]}
+              />
             </RibbonStack>
           </>
         ),
@@ -1141,6 +1173,10 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
               <input type="checkbox" checked={ui.navigation} onChange={() => features.ui.set({ navigation: !ui.navigation })} />
               {t("write.navigationPane")}
             </label>
+            <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
+              <input type="checkbox" checked={ui.hiddenText} onChange={() => features.ui.set({ hiddenText: !ui.hiddenText })} />
+              {t("write.hiddenText")}
+            </label>
           </RibbonStack>
         ),
       },
@@ -1184,6 +1220,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         id: "picture",
         label: t("write.pictureFormat"),
         groups: [
+          ...pictureFormatGroups(editor, img.format),
           {
             label: t("write.accessibility"),
             items: <RibbonButton label={t("write.altText")} icon="textBox" size="large" tooltip={t("write.altTextDots")} onClick={() => features.ui.openDialog("altText")} />,
@@ -1239,7 +1276,14 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       appName="Rusuite Write"
       documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#2b579a"
-      tabs={[home, insert, layout, references, review, view, ...contextualTabs(tableTabList, t("ribbon.ctx.tableTools"), CONTEXT_COLORS.table), ...contextualTabs(pictureTab ? [pictureTab] : [], t("ribbon.ctx.pictureTools"), CONTEXT_COLORS.picture)]}
+      tabs={[
+        home, insert, layout, references, review, view,
+        ...contextualTabs(tableTabList, t("ribbon.ctx.tableTools"), CONTEXT_COLORS.table),
+        ...contextualTabs(pictureTab ? [pictureTab] : [], t("ribbon.ctx.pictureTools"), CONTEXT_COLORS.picture),
+        ...((d) => contextualTabs(d ? [shapeFormatTab(editor, ctl, d, features.ui)] : [], t("ribbon.ctx.drawingTools"), CONTEXT_COLORS.drawing))(
+          s.drawing ?? (activeInner ? (selectedDrawing(editor.state)?.value ?? null) : null),
+        ),
+      ]}
       backstage={{
         session,
         onNew: () => triggerShortcut("Mod+N"),

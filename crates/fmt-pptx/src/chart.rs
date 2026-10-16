@@ -7,9 +7,9 @@
 //! Reading takes the chart's data from the part's caches
 //! (`c:strCache`/`c:numCache`) into [`ChartData`] and keeps the embedded
 //! workbook verbatim; writing fills the caches from [`ChartData`] and
-//! embeds the original workbook, or one generated with `fmt-xlsx` (the
-//! table in `Sheet1`, as PowerPoint lays it out) so that PowerPoint's
-//! "Edit Data" works.
+//! embeds the original workbook, or a minimal one generated from the
+//! table (`Sheet1`, as PowerPoint lays it out; [`workbook_xlsx`]) so that
+//! PowerPoint's "Edit Data" works.
 
 use std::collections::HashMap;
 
@@ -17,6 +17,7 @@ use core_model::chart::{Chart, ChartValue, DataRef, TextSource};
 use fmt_ooxml::chart::{ChartData as CacheData, RefData};
 use model_show::{ChartData, ChartSeriesData, ChartShape};
 
+use crate::xml::XmlOut;
 use crate::{Error, Result};
 
 /// `a:graphicData/@uri` of charts.
@@ -174,43 +175,168 @@ impl CacheData for TableData {
     }
 }
 
-/// A minimal workbook holding the table in `Sheet1` (series names in row
-/// 1 from B, categories in column A from row 2, values below the names),
-/// written with `fmt-xlsx`.
+/// The embedded workbook of a chart's table, as PowerPoint lays it out
+/// (`Sheet1`: series names in row 1 from column B, categories in column A
+/// from row 2, the values of each series below its name; numbers as
+/// numbers, text as inline strings). A minimal SpreadsheetML package
+/// (workbook, one sheet, default styles) written directly, so that the
+/// Show build carries no spreadsheet engine.
 pub fn workbook_xlsx(data: &ChartData) -> Result<Vec<u8>> {
-    use model_sheet::{CellContent, CellCoord, Workbook};
-    let mut wb = Workbook::new();
-    let sheet = wb
-        .sheets()
-        .first()
-        .map(|(id, _)| *id)
-        .ok_or_else(|| Error::InvalidPresentation("workbook without a sheet".into()))?;
-    let bad =
-        |e: model_sheet::EngineError| Error::InvalidPresentation(format!("chart workbook: {e}"));
-    let text = |s: &str| CellContent::Value(engine_formula::Value::Text(s.to_owned()));
-    let num = |n: f64| CellContent::Value(engine_formula::Value::Number(n));
-    wb.begin_batch();
-    let mut put = |row: usize, col: usize, c: CellContent| -> Result<()> {
-        let at = CellCoord::new(sheet, row as u32, col as u32);
-        wb.engine_mut().set_content(at, c).map(|_| ()).map_err(bad)
+    use fmt_ooxml::{rel, Package, PartName, Relationships};
+    use std::io::Cursor;
+
+    const NS_MAIN: &str = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+    let pn = |s: &str| PartName::new(s).map_err(Error::Package);
+    let col_name = |mut c: usize| {
+        let mut s = String::new();
+        loop {
+            s.insert(0, (b'A' + (c % 26) as u8) as char);
+            if c < 26 {
+                break;
+            }
+            c = c / 26 - 1;
+        }
+        s
     };
+    // rows of (column, cell) – text or number
+    enum Cell<'a> {
+        Text(&'a str),
+        Num(f64),
+    }
+    let rows = 1 + data.categories.len().max(
+        data.series
+            .iter()
+            .map(|s| s.values.len())
+            .max()
+            .unwrap_or(0),
+    );
+    let mut grid: Vec<Vec<(usize, Cell<'_>)>> = (0..rows).map(|_| Vec::new()).collect();
+    for (r, c) in data.categories.iter().enumerate() {
+        let t = c.trim();
+        let cell = match t.parse::<f64>() {
+            Ok(n) if n.is_finite() && !t.is_empty() => Cell::Num(n),
+            _ => Cell::Text(c),
+        };
+        grid[r + 1].push((0, cell));
+    }
     for (i, s) in data.series.iter().enumerate() {
-        put(0, i + 1, text(&s.name))?;
+        grid[0].push((i + 1, Cell::Text(&s.name)));
         for (r, v) in s.values.iter().enumerate() {
-            if let Some(v) = v {
-                put(r + 1, i + 1, num(*v))?;
+            if let Some(v) = v.filter(|v| v.is_finite()) {
+                grid[r + 1].push((i + 1, Cell::Num(v)));
             }
         }
     }
-    for (r, c) in data.categories.iter().enumerate() {
-        let content = match c.trim().parse::<f64>() {
-            Ok(n) if n.is_finite() && !c.trim().is_empty() => num(n),
-            _ => text(c),
-        };
-        put(r + 1, 0, content)?;
+    let mut x = XmlOut::new();
+    x.start("worksheet", &[("xmlns", NS_MAIN)]);
+    x.start("sheetData", &[]);
+    for (r, cells) in grid.iter_mut().enumerate() {
+        if cells.is_empty() {
+            continue;
+        }
+        cells.sort_by_key(|(c, _)| *c);
+        let rn = (r + 1).to_string();
+        x.start("row", &[("r", &rn)]);
+        for (c, cell) in cells.iter() {
+            let at = format!("{}{}", col_name(*c), r + 1);
+            match cell {
+                Cell::Num(n) => {
+                    x.start("c", &[("r", &at)]);
+                    x.text_el("v", &[], &number_text(*n));
+                    x.end("c");
+                }
+                Cell::Text(t) => {
+                    x.start("c", &[("r", &at), ("t", "inlineStr")]);
+                    x.start("is", &[]);
+                    x.text_el("t", &[("xml:space", "preserve")], t);
+                    x.end("is");
+                    x.end("c");
+                }
+            }
+        }
+        x.end("row");
     }
-    wb.end_batch();
-    fmt_xlsx::write(&wb).map_err(|e| Error::InvalidPresentation(format!("chart workbook: {e}")))
+    x.end("sheetData");
+    x.end("worksheet");
+    let sheet = x.finish();
+
+    let mut w = XmlOut::new();
+    w.start("workbook", &[("xmlns", NS_MAIN), ("xmlns:r", rel::NS)]);
+    w.start("sheets", &[]);
+    w.empty(
+        "sheet",
+        &[("name", "Sheet1"), ("sheetId", "1"), ("r:id", "rId1")],
+    );
+    w.end("sheets");
+    w.end("workbook");
+
+    let mut st = XmlOut::new();
+    st.start("styleSheet", &[("xmlns", NS_MAIN)]);
+    st.start("fonts", &[("count", "1")]);
+    st.start("font", &[]);
+    st.empty("sz", &[("val", "11")]);
+    st.empty("name", &[("val", "Calibri")]);
+    st.end("font");
+    st.end("fonts");
+    st.start("fills", &[("count", "2")]);
+    for p in ["none", "gray125"] {
+        st.start("fill", &[]);
+        st.empty("patternFill", &[("patternType", p)]);
+        st.end("fill");
+    }
+    st.end("fills");
+    st.start("borders", &[("count", "1")]);
+    st.empty("border", &[]);
+    st.end("borders");
+    st.start("cellStyleXfs", &[("count", "1")]);
+    st.empty(
+        "xf",
+        &[
+            ("numFmtId", "0"),
+            ("fontId", "0"),
+            ("fillId", "0"),
+            ("borderId", "0"),
+        ],
+    );
+    st.end("cellStyleXfs");
+    st.start("cellXfs", &[("count", "1")]);
+    st.empty(
+        "xf",
+        &[
+            ("numFmtId", "0"),
+            ("fontId", "0"),
+            ("fillId", "0"),
+            ("borderId", "0"),
+            ("xfId", "0"),
+        ],
+    );
+    st.end("cellXfs");
+    st.end("styleSheet");
+
+    let mut pkg = Package::new();
+    let book = pn("/xl/workbook.xml")?;
+    pkg.insert_part(
+        book.clone(),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+        w.finish(),
+    );
+    pkg.insert_part(
+        pn("/xl/worksheets/sheet1.xml")?,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml",
+        sheet,
+    );
+    pkg.insert_part(
+        pn("/xl/styles.xml")?,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml",
+        st.finish(),
+    );
+    let mut rels = Relationships::new();
+    rels.add(rel::WORKSHEET, "worksheets/sheet1.xml");
+    rels.add(rel::STYLES, "styles.xml");
+    pkg.set_relationships(book, rels);
+    pkg.package_relationships_mut()
+        .add(rel::OFFICE_DOCUMENT, "xl/workbook.xml");
+    Ok(pkg.write(Cursor::new(Vec::new()))?.into_inner())
 }
 
 #[cfg(test)]

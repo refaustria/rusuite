@@ -35,6 +35,10 @@ import { nextTempId, type SyncController } from "../sync/SyncPlugin";
 import { blocksText, sectionHf } from "../features/pagination";
 import { currentSection } from "../features/structureCommands";
 import { useT } from "../i18n";
+import { selectedDrawing, setDrawingValue } from "../features/drawings/drawings";
+import { applyRunPatch, formatTarget, runPatchBetween } from "../features/runFormat";
+import { runPropsAt } from "../sync/editorCommands";
+import { FontDialog } from "./styleDialogs";
 import { paragraphStyleId, resolveParagraph } from "../features/styleCss";
 
 // ----- units ------------------------------------------------------------------------
@@ -655,6 +659,10 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
     if (cmds.length) void ctl.run(cmds.length === 1 ? cmds[0]! : { type: "compound", commands: cmds });
   };
   const image = useMemo(() => (editor && dialog === "altText" ? selectedImage(editor.state) : null), [editor, dialog]);
+  const drawing = useMemo(() => (editor && dialog === "altText" ? selectedDrawing(editor.state) : null), [editor, dialog]);
+  // Font… (Ctrl+D): the formatting at the selection of the editor with the caret (a text box's, else the main one).
+  const fontTarget = useMemo(() => (editor && dialog === "font" ? formatTarget(editor) : null), [editor, dialog]);
+  const fontInitial = useMemo(() => (fontTarget ? runPropsAt(fontTarget) : {}), [fontTarget]);
   const para = useMemo<ParagraphValues | null>(
     () =>
       editor && dialog === "paragraph"
@@ -679,12 +687,31 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
         }}
       />
       <AltTextDialog
-        open={dialog === "altText" && !!image}
-        initial={(image?.node.attrs.alt as string | null) ?? ""}
+        open={dialog === "altText" && (!!image || !!drawing)}
+        initial={(image?.node.attrs.alt as string | null) ?? drawing?.value.alt ?? ""}
         onClose={close}
         onSubmit={(alt) => {
           if (editor && image) setImageAttrs(editor.view, image.pos, { alt: alt || null });
+          else if (editor && drawing) {
+            const d = { ...drawing.value };
+            if (alt) d.alt = alt;
+            else delete d.alt;
+            setDrawingValue(editor.view, drawing.pos, d);
+          }
           close();
+        }}
+      />
+      <FontDialog
+        open={dialog === "font"}
+        initial={fontInitial}
+        onClose={close}
+        onSubmit={(run) => {
+          const target = fontTarget;
+          ui.openDialog(null);
+          if (!target) return;
+          const patch = runPatchBetween(fontInitial, { ...fontInitial, ...run });
+          if (Object.keys(patch).length) applyRunPatch(target, patch);
+          target.commands.focus();
         }}
       />
       <PageSetupDialog

@@ -321,6 +321,12 @@ pub struct PlaceholderDef {
     #[serde(default, skip_serializing_if = "is_false")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
     pub vertical: bool,
+    /// Custom prompt text (`p:ph/@hasCustomPrompt` + the placeholder's
+    /// text; paragraphs separated by `\n`): what empty slide placeholders
+    /// show instead of "Click to add title" (`None`: the standard prompt).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub prompt: Option<String>,
 }
 
 /// A slide layout.
@@ -455,6 +461,7 @@ impl Layout {
                         paragraph_defaults: p,
                         text_only: false,
                         vertical: false,
+                        prompt: None,
                     }
                 }
             };

@@ -194,7 +194,7 @@ fn themes_and_backgrounds() {
         }
     );
     let mut s2 = s.clone();
-    s2.background = Some(model_show::Fill::None);
+    s2.background = Some(model_show::Background::Fill(model_show::Fill::None));
     assert_eq!(p.resolved_background(&s2), ResolvedFill::None);
     // snapshots keep master, layouts, sections and the theme's format
     let back = Presentation::from_json(&p.to_json().unwrap()).unwrap();

@@ -30,6 +30,8 @@ pub enum Inline {
     Run(Run),
     /// An image placed inline with the text.
     Image(InlineImage),
+    /// A shape or text box (see [`crate::drawing`]).
+    Drawing(Box<crate::drawing::Drawing>),
     /// A manual line or page break.
     Break(BreakKind),
     /// A field (page number, date, …) with its last computed result.
@@ -188,7 +190,7 @@ pub enum BreakKind {
 }
 
 /// An image placed inline with the text.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(
     feature = "ts",
@@ -217,6 +219,36 @@ pub struct InlineImage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub anchor: Option<Anchor>,
+    /// Crop, border, outline shape, shadow and corrections.
+    #[serde(
+        default,
+        skip_serializing_if = "crate::drawing::PictureFormat::is_default"
+    )]
+    #[cfg_attr(
+        feature = "ts",
+        ts(optional, as = "Option<crate::drawing::PictureFormat>")
+    )]
+    pub format: crate::drawing::PictureFormat,
+    /// The hyperlink of the picture (docx `a:hlinkClick` in `wp:docPr`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub link: Option<Hyperlink>,
+}
+
+impl InlineImage {
+    /// An unformatted inline picture of `media`.
+    pub fn new(media: MediaId, width: Emu, height: Emu) -> Self {
+        InlineImage {
+            media,
+            width,
+            height,
+            alt: None,
+            name: None,
+            anchor: None,
+            format: crate::drawing::PictureFormat::default(),
+            link: None,
+        }
+    }
 }
 
 /// What a floating object's horizontal position is measured from
@@ -389,7 +421,7 @@ pub enum WrapSide {
 }
 
 /// Distance between a floating object and the text, in EMU (docx
-/// `distT/distB/distL/distR`).
+/// `distT/distB/distL/distR`); also the text insets of a shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(

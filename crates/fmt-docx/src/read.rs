@@ -11,6 +11,7 @@ use model_text::{
     Anchor, HAlign, HPos, HRelative, Insets, Placement, VAlignPos, VPos, VRelative, WrapKind,
     WrapSide,
 };
+use model_text::{Autofit, Drawing, DrawingKind, DrawingText, LineDash, ShapeFill, ShapeLine};
 use model_text::{
     Block, BreakKind, CellProperties, Document, Field, FieldKind, HeightRule, Inline, InlineImage,
     MediaId, Note, NoteKind, NoteRef, PageSetup, Paragraph, RowHeight, RowProperties, Run, Section,
@@ -18,6 +19,10 @@ use model_text::{
     Toc, VAlign, VMerge,
 };
 use model_text::{BookmarkId, Comment, CommentId, CoreProperties, Hyperlink, LinkTarget};
+
+use crate::drawing::{
+    el_to_xml, read_fill, read_line, read_picture_format, read_preset, style_ref, theme_line_width,
+};
 
 use crate::numbering::read_numbering;
 use crate::props::{
@@ -107,7 +112,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     };
 
     let mut context = DocxContext::default();
-    let mut auto_hyphenation = false;
+    let mut settings_read = model_text::DocumentSettings::default();
     if let Some((name, data)) = data_of("theme") {
         context.theme = Some(parse_theme(data, name.as_str()).map_err(xml_error)?);
         if pkg.relationships(name).is_some_and(|r| !r.is_empty()) {
@@ -128,7 +133,17 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
             let settings = parse(data, name.as_str())?;
             context.footnote_separators = separator_ids(&settings, "footnotePr", "footnote");
             context.endnote_separators = separator_ids(&settings, "endnotePr", "endnote");
-            auto_hyphenation = settings.child("autoHyphenation").is_some_and(toggle);
+            settings_read.auto_hyphenation = settings.child("autoHyphenation").is_some_and(toggle);
+            settings_read.hyphenation_zone = settings
+                .child("hyphenationZone")
+                .and_then(|z| z.val())
+                .and_then(parse_twips)
+                .and_then(|v| u32::try_from(v).ok());
+            settings_read.endnotes_at_section_end = settings
+                .child("endnotePr")
+                .and_then(|e| e.child("pos"))
+                .and_then(|p| p.val())
+                == Some("sectEnd");
             context.settings_xml = Some(data.to_vec());
         }
         consumed.insert(name.clone());
@@ -172,7 +187,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
 
     let mut doc = Document::empty(styles, PageSetup::a4());
     doc.properties = properties;
-    doc.settings.auto_hyphenation = auto_hyphenation;
+    doc.settings = settings_read;
     if let Some(n) = numbering {
         doc.numbering = n.numbering;
         context.numbering = n.instances;
@@ -958,8 +973,8 @@ impl BodyReader<'_> {
                 }
                 "drawing" => {
                     flush(text, props, out);
-                    if let Some(img) = self.read_drawing(el) {
-                        out.push(Inline::Image(img));
+                    if let Some(inline) = self.read_drawing(el) {
+                        out.push(inline);
                     }
                 }
                 "AlternateContent" => {
@@ -1020,13 +1035,22 @@ impl BodyReader<'_> {
         }
     }
 
-    fn read_drawing(&mut self, d: &El) -> Option<InlineImage> {
+    fn read_drawing(&mut self, d: &El) -> Option<Inline> {
         let (shape, floating) = match (d.child("inline"), d.child("anchor")) {
             (Some(i), _) => (i, false),
             (None, Some(a)) => (a, true),
             _ => return None,
         };
         let data = shape.find("graphicData");
+        if let Some(wsp) = data.and_then(|g| g.child("wsp")) {
+            return self
+                .read_shape(shape, wsp, floating)
+                .map(|d| Inline::Drawing(Box::new(d)));
+        }
+        if data.and_then(|g| g.child("wgp")).is_some() {
+            self.w.add("grouped drawing objects dropped");
+            return None;
+        }
         let blip = data.and_then(|g| g.find("blip"));
         let Some(rid) = blip.and_then(|b| b.attr("embed")) else {
             if blip.and_then(|b| b.attr("link")).is_some() {
@@ -1078,14 +1102,171 @@ impl BodyReader<'_> {
                 .filter(|s| !s.is_empty())
                 .map(str::to_owned)
         };
-        Some(InlineImage {
+        let link = doc_pr
+            .and_then(|d| d.child("hlinkClick"))
+            .and_then(|h| self.drawing_link(h));
+        let format = data
+            .and_then(|g| g.child("pic"))
+            .map(read_picture_format)
+            .unwrap_or_default();
+        Some(Inline::Image(InlineImage {
             media,
             width: emu("cx"),
             height: emu("cy"),
             alt: attr("descr"),
             name: attr("name"),
             anchor: floating.then(|| read_anchor(shape, self.w)),
-        })
+            format,
+            link,
+        }))
+    }
+
+    /// The link of an `a:hlinkClick` (its relationship; `#name` targets are
+    /// bookmarks).
+    fn drawing_link(&mut self, h: &El) -> Option<Hyperlink> {
+        let rid = h.attr("id")?;
+        let rel = self
+            .pkg
+            .relationships(&self.part)
+            .and_then(|r| r.get(rid))?;
+        let target = match rel.target.strip_prefix('#') {
+            Some(b) if !b.is_empty() => LinkTarget::Bookmark(b.to_owned()),
+            _ => LinkTarget::from_url(&rel.target),
+        };
+        let tooltip = h
+            .attr("tooltip")
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned);
+        Some(Hyperlink { target, tooltip })
+    }
+
+    /// A `wps:wsp` (shape or text box) in `wp:inline` / `wp:anchor` `frame`.
+    fn read_shape(&mut self, frame: &El, wsp: &El, floating: bool) -> Option<Drawing> {
+        let extent = frame.child("extent");
+        let emu = |a: &str| {
+            extent
+                .and_then(|e| e.attr(a))
+                .and_then(|v| v.trim().parse::<i64>().ok())
+                .map_or(Emu(0), Emu)
+        };
+        let doc_pr = frame.child("docPr");
+        let attr = |a: &str| {
+            doc_pr
+                .and_then(|d| d.attr(a))
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+        };
+        let text_box = wsp
+            .child("cNvSpPr")
+            .and_then(|c| c.attr("txBox"))
+            .and_then(parse_bool)
+            .unwrap_or(false);
+        let id = self.doc.alloc_id();
+        let mut d = Drawing::shape(id, "rect", emu("cx"), emu("cy"));
+        d.kind = if text_box {
+            DrawingKind::TextBox
+        } else {
+            DrawingKind::Shape
+        };
+        d.name = attr("name");
+        d.alt = attr("descr");
+        d.anchor = floating.then(|| read_anchor(frame, self.w));
+        let style = wsp.child("style");
+        let sp = wsp.child("spPr");
+        if let Some(x) = sp.and_then(|s| s.child("xfrm")) {
+            d.rotation = x
+                .attr("rot")
+                .and_then(|v| v.parse::<i64>().ok())
+                .map_or(0.0, |r| r as f64 / 60_000.0);
+            d.flip_h = x.attr("flipH").and_then(parse_bool).unwrap_or(false);
+            d.flip_v = x.attr("flipV").and_then(parse_bool).unwrap_or(false);
+        }
+        if let Some(g) = sp.and_then(|s| s.child("prstGeom")) {
+            (d.preset, d.adjust) = read_preset(g);
+        } else if let Some(g) = sp.and_then(|s| s.child("custGeom")) {
+            d.preset = "rect".into();
+            d.custom_geometry = Some(el_to_xml(g));
+            self.w
+                .add("custom shape geometry drawn as its bounding box");
+        }
+        // Fill and outline: explicit, else from the style references.
+        d.fill = match sp.and_then(read_fill) {
+            Some(f) => f,
+            None => match style_ref(style, "fillRef") {
+                Some((idx, Some(c))) if idx > 0 => ShapeFill::Solid(c),
+                _ => ShapeFill::None,
+            },
+        };
+        let ln = sp.and_then(|s| s.child("ln"));
+        let (lfill, lwidth, dash) = ln.map_or((None, None, LineDash::Solid), read_line);
+        let lref = style_ref(style, "lnRef");
+        d.line = match lfill {
+            Some(fill) => ShapeLine {
+                fill,
+                width: lwidth.unwrap_or(Emu(9525)),
+                dash,
+            },
+            None => match lref {
+                Some((idx, Some(c))) if idx > 0 => ShapeLine {
+                    fill: ShapeFill::Solid(c),
+                    width: lwidth.unwrap_or_else(|| theme_line_width(idx)),
+                    dash,
+                },
+                _ => ShapeLine::default(),
+            },
+        };
+        d.text_color = style_ref(style, "fontRef").and_then(|(_, c)| c);
+        let body = wsp.child("bodyPr");
+        let content = wsp.child("txbx").and_then(|t| t.child("txbxContent"));
+        if let Some(c) = content {
+            let blocks = self.read_nested_blocks(c);
+            let mut t = DrawingText::new(blocks);
+            if let Some(b) = body {
+                let ins = |a: &str, def: i64| {
+                    Emu(b.attr(a).and_then(|v| v.parse::<i64>().ok()).unwrap_or(def))
+                };
+                t.insets = Insets {
+                    left: ins("lIns", 91_440),
+                    top: ins("tIns", 45_720),
+                    right: ins("rIns", 91_440),
+                    bottom: ins("bIns", 45_720),
+                };
+                t.vertical_align = match b.attr("anchor") {
+                    Some("ctr") => VAlignPos::Center,
+                    Some("b") => VAlignPos::Bottom,
+                    _ => VAlignPos::Top,
+                };
+                t.wrap = b.attr("wrap") != Some("none");
+                if b.child("spAutoFit").is_some() {
+                    t.autofit = Autofit::Resize;
+                }
+            }
+            d.text = Some(t);
+        } else if text_box {
+            d.text = Some(DrawingText::new(Vec::new()));
+        }
+        Some(d)
+    }
+
+    /// The blocks of a text box (`w:txbxContent`): read like a nested
+    /// container (no section marks, no tables of contents; drawings inside
+    /// are dropped, as text boxes do not nest).
+    fn read_nested_blocks(&mut self, c: &El) -> Vec<Block> {
+        let fields = std::mem::take(&mut self.fields);
+        let marks = std::mem::take(&mut self.pending_marks);
+        self.depth += 1;
+        let mut blocks = self.read_blocks(c);
+        self.depth -= 1;
+        self.fields = fields;
+        self.pending_marks = marks;
+        let mut nested = false;
+        for b in &mut blocks {
+            strip_drawings(b, &mut nested);
+        }
+        if nested {
+            self.w.add("drawing objects inside text boxes dropped");
+        }
+        blocks
     }
 
     fn read_table(&mut self, t: &El) -> Table {
@@ -1300,6 +1481,25 @@ pub(crate) fn read_tc_pr(pr: &El, ctx: &str, w: &mut Warnings) -> CellProperties
         }
     }
     props
+}
+
+/// Removes the drawings from the paragraphs of `b` (text box content).
+fn strip_drawings(b: &mut Block, found: &mut bool) {
+    match b {
+        Block::Paragraph(p) => p.inlines.retain(|i| {
+            let d = matches!(i, Inline::Drawing(_));
+            *found |= d;
+            !d
+        }),
+        Block::Table(t) => {
+            for cell in t.rows.iter_mut().flat_map(|r| &mut r.cells) {
+                for b in &mut cell.blocks {
+                    strip_drawings(b, found);
+                }
+            }
+        }
+        Block::Toc(_) => {}
+    }
 }
 
 /// `wp:anchor` → floating placement.

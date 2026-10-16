@@ -12,8 +12,22 @@ Owner question 2026-10-15: "Can we face copyright infringement if we offer pptx/
 2. **Fonts.** Calibri, Calibri Light, Cambria etc. are proprietary Microsoft fonts. We only *name* them in documents (as every OOXML file does); we **do not ship** font files. Rendering uses whatever the OS/browser substitutes. Bundling fonts would require licences (or use of metric-compatible open fonts such as Carlito/Caladea).
 3. **Themes and style names.** The default "Office" theme colours/fonts and style names like "Normal", "Heading 1" come from the ECMA-376 examples and are needed for interoperability; they are not expressive works. Fine to keep.
 4. **UI look.** Our ribbon is our own implementation (React, hand-drawn icons, own layout). Microsoft's 2007 Office UI licensing programme for the ribbon concept is discontinued and the original ribbon patents date from 2005–2007; residual risk is low but non-zero – do not copy Office icon artwork, screenshots or exact gallery contents. Our icons and logos are hand-made SVGs (P6-1, P7-10).
-5. **Reference data.** Test files are generated with LibreOffice; expected formula values are computed by LibreOffice or by us. No Office sample documents are redistributed.
-6. **AI and cloud connectors** (planned) use the user's own accounts and keys; provider terms apply to the user.
+5. **Preset shape and table style data (P8-32).** Show's preset geometries (outlines, adjust handles,
+   connection sites, text rectangles) are ECMA-376 Part 1's `presetShapeDefinitions.xml`, converted
+   to a compact line format (`crates/model-show/src/presets/`, generator `gen.py`); the specification
+   is freely available and may be used to implement it (Ecma's copyright notice allows copies and
+   derivative works that assist in implementing the standard). The 74 built-in table style GUIDs are
+   identifiers PowerPoint uses (published by Microsoft); their looks are generated from our own family
+   rules, not copied from PowerPoint's definitions.
+6. **Reference data.** Test files are generated with LibreOffice; expected formula values are computed by LibreOffice or by us. No Office sample documents are redistributed.
+7. **AI and cloud connectors** use the user's own accounts and keys; provider terms apply to the user. Cloud
+   connectors v1 (P8-36, WebDAV) add these crates to the desktop shells (through `app-common`'s opt-in
+   `tauri-connectors` feature), all permissive: `reqwest` (MIT/Apache-2.0), `rustls`, `hyper-rustls`
+   (Apache-2.0/ISC/MIT), `tokio-rustls`, `rustls-pki-types`, `rustls-platform-verifier` (MIT/Apache-2.0),
+   `rustls-webpki`, `untrusted` (ISC), `ring` (Apache-2.0 AND ISC – the `ring` provider instead of aws-lc, whose
+   OpenSSL-licensed parts we avoid), `keyring`, `dbus-secret-service`, `aes`, `cbc`, `hkdf`, `zeroize`
+   (MIT/Apache-2.0), `dbus`/`libdbus-sys` (MIT/Apache-2.0; already used by Tauri). The web apps add no
+   dependency (the browser's `fetch`).
 
 ## Recommendations before a public release
 - Keep the non-affiliation statement in README, portal, about dialogs and store listings.

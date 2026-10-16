@@ -289,6 +289,12 @@ pub struct Shape {
     #[serde(default, skip_serializing_if = "is_false")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
     pub hidden: bool,
+    /// Lock aspect ratio (Format Shape › Size; `a:spLocks`/`a:picLocks`/…
+    /// `@noChangeAspect`): corner drags keep the proportions. Pictures and
+    /// media start locked, as in PowerPoint.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
+    pub lock_aspect: bool,
 }
 
 impl Shape {
@@ -305,6 +311,7 @@ impl Shape {
             alt: None,
             click_action: None,
             hidden: false,
+            lock_aspect: false,
         }
     }
 
@@ -392,13 +399,15 @@ impl Shape {
 
     /// A picture of media item `media`.
     pub fn picture(media: MediaId, transform: Transform) -> Self {
-        Self::new(
+        let mut s = Self::new(
             ShapeKind::Picture {
                 media,
                 props: PictureProps::default(),
             },
             transform,
-        )
+        );
+        s.lock_aspect = true;
+        s
     }
 
     /// A chart shape (no fill or outline: the chart draws its own area).
@@ -408,7 +417,9 @@ impl Shape {
 
     /// An audio or video shape.
     pub fn media(clip: MediaClip, transform: Transform) -> Self {
-        Self::new(ShapeKind::Media(clip), transform)
+        let mut s = Self::new(ShapeKind::Media(clip), transform);
+        s.lock_aspect = true;
+        s
     }
 
     /// An action button (one of the `actionButton*` presets) with
@@ -915,7 +926,7 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(
             json,
-            r#"{"id":0,"name":"","transform":{"x":1,"y":2,"w":3,"h":4,"rotationDeg":45.0},"kind":{"kind":"picture","value":{"media":3}},"fill":{"kind":"none"},"line":{"fill":{"kind":"none"},"width":12700,"dash":"solid"}}"#
+            r#"{"id":0,"name":"","transform":{"x":1,"y":2,"w":3,"h":4,"rotationDeg":45.0},"kind":{"kind":"picture","value":{"media":3}},"fill":{"kind":"none"},"line":{"fill":{"kind":"none"},"width":12700,"dash":"solid"},"lockAspect":true}"#
         );
         assert_eq!(serde_json::from_str::<Shape>(&json).unwrap(), s);
     }

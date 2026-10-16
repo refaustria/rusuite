@@ -15,8 +15,8 @@ use core_model::{
     VerticalAlign,
 };
 use model_show::{
-    Alignment, Anchor, AutoNumScheme, Bullet, Emu, Fill, LayoutKind, Line, LineDash, NodeId,
-    Presentation, Preset, Shape, TextBody, TextParagraph, TextRun, TextSpacing, Transform,
+    Alignment, Anchor, AutoNumScheme, Background, Bullet, Emu, Fill, LayoutKind, Line, LineDash,
+    NodeId, Presentation, Preset, Shape, TextBody, TextParagraph, TextRun, TextSpacing, Transform,
 };
 
 /// A box in centimeters.
@@ -266,7 +266,7 @@ pub fn build_deck() -> Presentation {
 
     // 8 – background color with light text
     let s8 = p.add_slide(LayoutKind::TitleContent);
-    p.slide_mut(s8).expect("slide").background = Some(Fill::Solid(rgb("1F3864")));
+    p.slide_mut(s8).expect("slide").background = Some(Background::Fill(Fill::Solid(rgb("1F3864"))));
     let white = RunProperties {
         color: Some(rgb("FFFFFF")),
         ..Default::default()
@@ -339,10 +339,11 @@ pub fn build_deck() -> Presentation {
 
     // 10 – closing title slide on a theme-colored background
     let s10 = p.add_slide(LayoutKind::Title);
-    p.slide_mut(s10).expect("slide").background = Some(Fill::Solid(Color::Theme {
-        slot: ThemeColorSlot::Accent1,
-        tint: 0.8,
-    }));
+    p.slide_mut(s10).expect("slide").background =
+        Some(Background::Fill(Fill::Solid(Color::Theme {
+            slot: ThemeColorSlot::Accent1,
+            tint: 0.8,
+        })));
     fill_placeholder(&mut p, s10, 0, vec![TextParagraph::plain("Thank you")]);
     fill_placeholder(
         &mut p,

@@ -1,0 +1,345 @@
+---
+source: crates/fmt-pptx/tests/shapes.rs
+expression: "xml.replace(\"><\", \">\\n<\")"
+---
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<a:tblStyleLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" def="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}">
+<a:tblStyle styleId="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}" styleName="Medium Style 2 - Accent 1">
+<a:wholeTbl>
+<a:tcTxStyle>
+<a:fontRef idx="minor">
+<a:prstClr val="black"/>
+</a:fontRef>
+<a:schemeClr val="tx1"/>
+</a:tcTxStyle>
+<a:tcStyle>
+<a:tcBdr>
+<a:left>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="bg1"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:left>
+<a:right>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="bg1"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:right>
+<a:top>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="bg1"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:top>
+<a:bottom>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="bg1"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:bottom>
+<a:insideH>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="bg1"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:insideH>
+<a:insideV>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="bg1"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:insideV>
+</a:tcBdr>
+<a:fill>
+<a:solidFill>
+<a:schemeClr val="accent1">
+<a:lumMod val="20000"/>
+<a:lumOff val="80000"/>
+</a:schemeClr>
+</a:solidFill>
+</a:fill>
+</a:tcStyle>
+</a:wholeTbl>
+<a:band1H>
+<a:tcStyle>
+<a:fill>
+<a:solidFill>
+<a:schemeClr val="accent1">
+<a:lumMod val="40000"/>
+<a:lumOff val="60000"/>
+</a:schemeClr>
+</a:solidFill>
+</a:fill>
+</a:tcStyle>
+</a:band1H>
+<a:band1V>
+<a:tcStyle>
+<a:fill>
+<a:solidFill>
+<a:schemeClr val="accent1">
+<a:lumMod val="40000"/>
+<a:lumOff val="60000"/>
+</a:schemeClr>
+</a:solidFill>
+</a:fill>
+</a:tcStyle>
+</a:band1V>
+<a:lastCol>
+<a:tcTxStyle b="on">
+<a:fontRef idx="minor">
+<a:prstClr val="black"/>
+</a:fontRef>
+<a:schemeClr val="bg1"/>
+</a:tcTxStyle>
+<a:tcStyle>
+<a:fill>
+<a:solidFill>
+<a:schemeClr val="accent1"/>
+</a:solidFill>
+</a:fill>
+</a:tcStyle>
+</a:lastCol>
+<a:firstCol>
+<a:tcTxStyle b="on">
+<a:fontRef idx="minor">
+<a:prstClr val="black"/>
+</a:fontRef>
+<a:schemeClr val="bg1"/>
+</a:tcTxStyle>
+<a:tcStyle>
+<a:fill>
+<a:solidFill>
+<a:schemeClr val="accent1"/>
+</a:solidFill>
+</a:fill>
+</a:tcStyle>
+</a:firstCol>
+<a:lastRow>
+<a:tcTxStyle b="on">
+<a:fontRef idx="minor">
+<a:prstClr val="black"/>
+</a:fontRef>
+<a:schemeClr val="bg1"/>
+</a:tcTxStyle>
+<a:tcStyle>
+<a:tcBdr>
+<a:top>
+<a:ln w="38100">
+<a:solidFill>
+<a:schemeClr val="bg1"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:top>
+</a:tcBdr>
+<a:fill>
+<a:solidFill>
+<a:schemeClr val="accent1"/>
+</a:solidFill>
+</a:fill>
+</a:tcStyle>
+</a:lastRow>
+<a:firstRow>
+<a:tcTxStyle b="on">
+<a:fontRef idx="minor">
+<a:prstClr val="black"/>
+</a:fontRef>
+<a:schemeClr val="bg1"/>
+</a:tcTxStyle>
+<a:tcStyle>
+<a:tcBdr>
+<a:bottom>
+<a:ln w="38100">
+<a:solidFill>
+<a:schemeClr val="bg1"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:bottom>
+</a:tcBdr>
+<a:fill>
+<a:solidFill>
+<a:schemeClr val="accent1"/>
+</a:solidFill>
+</a:fill>
+</a:tcStyle>
+</a:firstRow>
+</a:tblStyle>
+<a:tblStyle styleId="{72833802-FEF1-4C79-8D5D-14CF1EAF98D9}" styleName="Light Style 2 - Accent 2">
+<a:wholeTbl>
+<a:tcTxStyle>
+<a:fontRef idx="minor">
+<a:prstClr val="black"/>
+</a:fontRef>
+<a:schemeClr val="tx1"/>
+</a:tcTxStyle>
+<a:tcStyle>
+<a:tcBdr>
+<a:left>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="accent2"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:left>
+<a:right>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="accent2"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:right>
+<a:top>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="accent2"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:top>
+<a:bottom>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="accent2"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:bottom>
+</a:tcBdr>
+</a:tcStyle>
+</a:wholeTbl>
+<a:band1H>
+<a:tcStyle>
+<a:tcBdr>
+<a:top>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="accent2"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:top>
+<a:bottom>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="accent2"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:bottom>
+</a:tcBdr>
+</a:tcStyle>
+</a:band1H>
+<a:band1V>
+<a:tcStyle>
+<a:tcBdr>
+<a:left>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="accent2"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:left>
+<a:right>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="accent2"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:right>
+</a:tcBdr>
+</a:tcStyle>
+</a:band1V>
+<a:band2V>
+<a:tcStyle>
+<a:tcBdr>
+<a:left>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="accent2"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:left>
+<a:right>
+<a:ln w="12700">
+<a:solidFill>
+<a:schemeClr val="accent2"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:right>
+</a:tcBdr>
+</a:tcStyle>
+</a:band2V>
+<a:lastCol>
+<a:tcTxStyle b="on">
+<a:fontRef idx="minor">
+<a:prstClr val="black"/>
+</a:fontRef>
+</a:tcTxStyle>
+<a:tcStyle>
+</a:tcStyle>
+</a:lastCol>
+<a:firstCol>
+<a:tcTxStyle b="on">
+<a:fontRef idx="minor">
+<a:prstClr val="black"/>
+</a:fontRef>
+</a:tcTxStyle>
+<a:tcStyle>
+</a:tcStyle>
+</a:firstCol>
+<a:lastRow>
+<a:tcTxStyle b="on">
+<a:fontRef idx="minor">
+<a:prstClr val="black"/>
+</a:fontRef>
+</a:tcTxStyle>
+<a:tcStyle>
+<a:tcBdr>
+<a:top>
+<a:ln w="38100">
+<a:solidFill>
+<a:schemeClr val="accent2"/>
+</a:solidFill>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:top>
+</a:tcBdr>
+</a:tcStyle>
+</a:lastRow>
+<a:firstRow>
+<a:tcTxStyle b="on">
+<a:fontRef idx="minor">
+<a:prstClr val="black"/>
+</a:fontRef>
+<a:schemeClr val="bg1"/>
+</a:tcTxStyle>
+<a:tcStyle>
+<a:fill>
+<a:solidFill>
+<a:schemeClr val="accent2"/>
+</a:solidFill>
+</a:fill>
+</a:tcStyle>
+</a:firstRow>
+</a:tblStyle>
+</a:tblStyleLst>
