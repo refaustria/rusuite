@@ -3,6 +3,7 @@
 Status at v0.1.0: Phase 8 parity batches, three quality passes, cloud connectors v1 (WebDAV, desktop), AI assistant v1 (desktop), in-app "Report a problem", portal at **https://rusuit.es** (free, open source MIT, informal German). Everything below is ordered by my recommendation; each block is one or more agent tasks that I run the usual way (brief → agent → verification → merge → deploy). Owner inputs are marked **Owner**.
 
 ## Block 0 – Release and feedback loop (week 1)
+- **Code signing & notarization (top priority after the owner hit macOS Gatekeeper on 2026-10-16):** Apple Developer ID certificate + notarization in release.yml (tauri-action supports `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` secrets); Windows Authenticode (OV certificate or Azure Trusted Signing) optional. **Owner**: Apple Developer Program enrolment (99 USD/year; also needed for iOS), then the secrets. Until then the Downloads page explains Gatekeeper/SmartScreen (P8-50).
 - Tag `v0.1.0` once the fix batches P8-44/45/46 and the "du" sweep (P8-48) are merged and the release test run is green. Release notes: `docs/release-notes/0.1.0.md`; Downloads page regenerates at deploy.
 - **Owner**: install the Windows and macOS builds once; open the Office check pack (`scripts/office-check-pack.sh`) in Excel/Word/PowerPoint; promote rusuit.es.
 - Triage incoming GitHub issues from the report button twice a week into fix batches (label `from-app`). First fix release `v0.1.1` ~2 weeks after v0.1.0.
