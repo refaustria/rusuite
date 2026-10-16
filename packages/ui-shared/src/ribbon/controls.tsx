@@ -19,8 +19,11 @@ const icon = (i: RibbonIconName | ReactNode, size: number) =>
   typeof i === "string" ? <RibbonIcon name={i as RibbonIconName} size={size} /> : i;
 
 const BASE = `rounded text-ui-fg hover:bg-ui-hover disabled:cursor-not-allowed disabled:opacity-40 aria-pressed:bg-ui-active aria-expanded:bg-ui-hover ${FOCUS_RING}`;
-const LARGE = `${BASE} flex h-12 min-w-11 max-w-20 flex-col items-center justify-start gap-0.5 px-1 pt-0.5 text-center text-[11px] leading-[11px]`;
+const LARGE = `${BASE} flex h-12 min-w-11 flex-col items-center justify-start gap-0.5 px-1 pt-0.5 text-center text-[11px] leading-[11px]`;
 const SMALL = `${BASE} inline-flex h-6 min-w-6 items-center justify-center gap-1 px-1 text-xs`;
+
+/** Labels of large buttons: two lines of at most 80 px, but never narrower than their longest word (German compounds). */
+const LARGE_LABEL = "line-clamp-2 max-w-20 min-w-min";
 
 /** Select styling inside ribbon groups. */
 export const RIBBON_SELECT = `h-6 rounded border border-ui-border bg-ui-bg px-1 text-xs text-ui-fg disabled:opacity-40 ${FOCUS_RING}`;
@@ -56,7 +59,7 @@ export function RibbonButton({ label, icon: i, size = "small", showLabel, presse
       onClick={onClick}
     >
       {i !== undefined && icon(i, large ? 22 : 16)}
-      {(large || showLabel || i === undefined) && <span className={large ? "line-clamp-2" : "whitespace-nowrap"}>{label}</span>}
+      {(large || showLabel || i === undefined) && <span className={large ? LARGE_LABEL : "whitespace-nowrap"}>{label}</span>}
     </button>
   );
 }
@@ -107,7 +110,7 @@ export function RibbonMenu({ label, items, onDone }: { label: string; items: Rib
       ref={ref}
       role="menu"
       aria-label={label}
-      className="flex min-w-44 flex-col py-0.5"
+      className="flex max-h-[calc(100vh-7rem)] min-w-44 flex-col overflow-y-auto py-0.5"
       onKeyDown={(e) => {
         const b = buttons();
         const i = b.indexOf(document.activeElement as HTMLButtonElement);
@@ -141,9 +144,9 @@ export function RibbonMenu({ label, items, onDone }: { label: string; items: Rib
               it.onSelect();
             }}
           >
-            <span className="flex w-4 justify-center">{it.icon !== undefined && icon(it.icon, 16)}</span>
-            <span className="flex-1">{it.label}</span>
-            {it.shortcut && <span className="text-xs text-ui-muted">{formatCombo(it.shortcut)}</span>}
+            <span className="flex min-w-4 shrink-0 justify-center">{it.icon !== undefined && icon(it.icon, 16)}</span>
+            <span className="flex-1 whitespace-nowrap">{it.label}</span>
+            {it.shortcut && <span className="whitespace-nowrap pl-3 text-xs text-ui-muted">{formatCombo(it.shortcut)}</span>}
           </button>
         ),
       )}

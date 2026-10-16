@@ -980,10 +980,13 @@ test.describe("Show", () => {
 
 test.describe("Show quality pass (P8-40)", () => {
   test("S-02: at 1024 px the Home groups fold instead of running off the ribbon; a folded group opens its controls", async ({ page }) => {
-    await page.setViewportSize({ width: 1024, height: 768 });
     const errors = trackErrors(page);
     await openShow(page);
     const toolbar = page.getByTestId("ribbon-panel").getByRole("toolbar");
+    // at 1400 px the whole Home tab fits
+    await expect(toolbar.getByRole("group", { name: "AI" })).toBeVisible();
+    await expect(toolbar).not.toHaveAttribute("data-collapsed-groups", /\d/);
+    await page.setViewportSize({ width: 1024, height: 768 });
     for (const name of ["Home", "Insert", "Design", "Transitions", "Animations", "Slide Show", "View"]) {
       await page.getByRole("tab", { name, exact: true }).click();
       expect(await toolbar.evaluate((el) => el.scrollWidth - el.clientWidth), name).toBeLessThanOrEqual(0);

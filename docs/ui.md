@@ -908,8 +908,11 @@ Corrections from the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md))
 - **Placeholders**: an empty picture placeholder shows "Picture" centred without a bullet; vertical placeholders
   (Title and Vertical Text, Vertical Title and Text: the layout's `vertical`) draw their text turned 90° like `vert="eaVert"`.
 - **Home**: Clipboard › Duplicate is a small button next to Copy and Drawing shows ten quick shapes (two rows of five; the
-  rest under More shapes ▾), so the Home tab fits a 1400 px window with only Editing and AI collapsed; Arrange ▾ › Ungroup is
+  rest under More shapes ▾), so the Home tab fits a 1400 px window without collapsing a group; Arrange ▾ › Ungroup is
   enabled only when a group is selected.
+- **Ribbon (all apps, `ui-shared`)**: a large button's label wraps at 80 px but is never narrower than its longest word (German
+  compounds no longer run into the neighbouring button); menu items stay on one line and menus taller than the window
+  scroll; the tab strip scrolls instead of running under the right slot (Present) on narrow windows.
 - **Notes Page**: the slide picture's frame is drawn over the picture (all four edges visible).
 
 ## Printing (P7-9)
