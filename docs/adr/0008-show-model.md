@@ -1,4 +1,0 @@
-
-## Amendment 2026-10-16 (P8-19): themes, one editable master, layouts, sections
-
-Masters and layouts are no longer fixed built-ins. A presentation has exactly one editable `SlideMaster` (background, placeholders, decorative shapes, title/body/other text styles with 9 levels, colour map, header/footer settings) and a list of `Layout`s (the 11 standard kinds plus `custom:<name>`), identified by kind rather than by id. Slides reference a layout; placeholder geometry and text defaults resolve slide → layout → master. The `Theme` carries the full format scheme and 8 built-in designs (Office plus 7 own designs) ship as data; `ApplyTheme` re-themes master and layouts in place. Sections (`p14:sectionLst`), header/footer fields (slide number, date formats) and picture adjustments (crop, brightness/contrast, recolour, transparency, shadow) are part of the model. Any design change is reported in one patch (`theme`, `master`, `layouts`).
