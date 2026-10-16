@@ -15,6 +15,11 @@ import type { CellView } from "../generated/CellView";
 import type { CellCf } from "../generated/CellCf";
 import type { CfResult } from "../generated/CfResult";
 import type { CfRule } from "../generated/CfRule";
+import type { Chart } from "../generated/Chart";
+import type { ChartObject } from "../generated/ChartObject";
+import type { DataRef } from "../generated/DataRef";
+import type { ResolvedChart } from "../generated/ResolvedChart";
+import type { TextSource } from "../generated/TextSource";
 import type { CompareOp } from "../generated/CompareOp";
 import type { DataValidation } from "../generated/DataValidation";
 import type { ValidationResult } from "../generated/ValidationResult";
@@ -53,6 +58,8 @@ interface FakeSheet {
   /** Conditional formatting rules by priority (a toy evaluation: see `cfOf`). */
   cfRules: CfRule[];
   validations: DataValidation[];
+  /** Charts back to front (a toy: data resolved from same-workbook A1 references). */
+  charts: ChartObject[];
 }
 
 const DEFAULT_VIEW: SheetView = { frozenRows: 0, frozenCols: 0, zoom: 100, showGridlines: true, showHeadings: true };
@@ -125,7 +132,7 @@ export class FakeCalcCore {
   }
 
   private newSheet(id: number, name: string): FakeSheet {
-    return { id, name, cells: new Map(), cols: new Map(), rows: new Map(), formulas: new Set(), view: { ...DEFAULT_VIEW }, merges: [], cfRules: [], validations: [] };
+    return { id, name, cells: new Map(), cols: new Map(), rows: new Map(), formulas: new Set(), view: { ...DEFAULT_VIEW }, merges: [], cfRules: [], validations: [], charts: [] };
   }
 
   private sheet(id: number): FakeSheet {
@@ -621,7 +628,7 @@ export class FakeCalcCore {
       case "setChartSeries":
       case "removeChart":
       case "restoreCharts":
-        throw new Fail("internal", "charts are not supported by the fake backend");
+        return this.chartCmd(cmd);
       default: {
         const unknown: never = cmd;
         throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
@@ -1002,11 +1009,145 @@ export class FakeCalcCore {
     return this.styles.length - 1;
   }
 
-  /** Like the core: any change of a workbook with rules names those sheets in `cfSheets`. */
+  /** Like the core: any change of a workbook with rules names those sheets in `cfSheets` (charts: `chartSheets`). */
   private markCf(patch: CalcPatch): void {
     const ids = this.sheets.filter((x) => x.cfRules.length > 0 || x.validations.length > 0).map((x) => x.id);
     const all = new Set([...(patch.cfSheets ?? []), ...ids]);
     if (all.size > 0) patch.cfSheets = [...all];
+    const charts = new Set([...(patch.chartSheets ?? []), ...this.sheets.filter((x) => x.charts.length > 0).map((x) => x.id)]);
+    if (charts.size > 0) patch.chartSheets = [...charts];
+  }
+
+  // --- charts (a toy: A1 references of this workbook, Excel's recommendation simplified) ---
+
+  private chartCmd(cmd: Extract<CalcCommand, { type: "addChart" | "updateChart" | "setChartAnchor" | "setChartSeries" | "removeChart" | "restoreCharts" }>): [CalcPatch, CalcCommand] {
+    const s = this.sheet(cmd.sheet);
+    const copy = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
+    const inverse: CalcCommand = { type: "restoreCharts", sheet: s.id, charts: copy(s.charts) };
+    const find = (id: number) => {
+      const c = s.charts.find((x) => x.id === id);
+      if (!c) throw new Fail("unknown_chart", `unknown chart ${id}`);
+      return c;
+    };
+    switch (cmd.type) {
+      case "addChart": {
+        if (cmd.chart.kind.type === "unsupported") throw new Fail("invalid_chart", "unsupported chart type");
+        const id = cmd.id || Math.max(0, ...s.charts.map((c) => c.id)) + 1;
+        s.charts.push({ id, name: cmd.name ?? `Chart ${id}`, anchor: copy(cmd.anchor), chart: copy(cmd.chart) });
+        break;
+      }
+      case "updateChart":
+        find(cmd.id).chart = copy(cmd.chart);
+        break;
+      case "setChartAnchor":
+        find(cmd.id).anchor = copy(cmd.anchor);
+        break;
+      case "setChartSeries": {
+        const c = find(cmd.id);
+        c.chart = { ...c.chart, series: copy(cmd.series) };
+        if (cmd.categories) c.chart.categories = copy(cmd.categories);
+        else delete c.chart.categories;
+        break;
+      }
+      case "removeChart":
+        find(cmd.id);
+        s.charts = s.charts.filter((c) => c.id !== cmd.id);
+        break;
+      case "restoreCharts":
+        s.charts = copy(cmd.charts);
+        break;
+    }
+    const patch = this.emptyPatch();
+    patch.chartSheets = [s.id];
+    return [patch, inverse];
+  }
+
+  /** Cells of an A1 reference `Sheet!$A$1:$B$2` row-major (`null`: unresolvable). */
+  private refCells(formula: string): { sheet: FakeSheet; cells: [number, number][] } | null {
+    const m = /^(?:'?((?:[^'!]|'')+)'?!)?\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/.exec(formula.trim());
+    if (!m) return null;
+    const col = (l: string) => [...l].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+    let sheet: FakeSheet;
+    try {
+      sheet = m[1] ? this.sheetByName(m[1].replace(/''/g, "'")) : this.sheets[0]!;
+    } catch {
+      return null;
+    }
+    const r0 = Number(m[3]) - 1;
+    const c0 = col(m[2]!);
+    const r1 = m[5] ? Number(m[5]) - 1 : r0;
+    const c1 = m[4] ? col(m[4]) : c0;
+    const cells: [number, number][] = [];
+    for (let r = Math.min(r0, r1); r <= Math.max(r0, r1); r++) for (let c = Math.min(c0, c1); c <= Math.max(c0, c1); c++) cells.push([r, c]);
+    return { sheet, cells };
+  }
+
+  private refValues(ref: DataRef | undefined): (number | null)[] {
+    if (!ref) return [];
+    if (ref.type === "literal") return ref.values.map((v) => (typeof v === "number" ? v : v === null ? null : 0));
+    const cells = this.refCells(ref.formula);
+    if (!cells) return (ref.cache ?? []).map((v) => (typeof v === "number" ? v : null));
+    return cells.cells.map(([r, c]) => {
+      const v = this.value(cells.sheet, r, c);
+      return typeof v === "number" ? v : v === "" || typeof v === "object" ? null : 0;
+    });
+  }
+
+  private refTexts(ref: DataRef | TextSource | undefined): string[] {
+    if (!ref) return [];
+    if (ref.type === "literal") return "text" in ref ? [ref.text] : ref.values.map((v) => (v === null ? "" : String(v)));
+    const cells = this.refCells(ref.formula);
+    if (!cells) return [];
+    return cells.cells.map(([r, c]) => this.view(cells.sheet, r, c).display);
+  }
+
+  resolveChart(chart: Chart): ResolvedChart {
+    const series = chart.series.map((s, i) => {
+      const values = this.refValues(s.values);
+      const catRef = s.categories ?? chart.categories;
+      const cats = this.refTexts(catRef);
+      const categories = values.map((_, k) => cats[k] ?? String(k + 1));
+      const name = s.name ? this.refTexts(s.name).join(" ") : `Series${i + 1}`;
+      const xNums = catRef ? this.refValues(catRef) : [];
+      const numeric = catRef && xNums.length > 0 && xNums.every((v) => v !== null);
+      return { name, categories, values, ...(numeric ? { xValues: xNums } : chart.kind.type === "scatter" ? { xValues: values.map((_, k) => k + 1) } : {}) };
+    });
+    const title = chart.title ? (chart.title.text ? this.refTexts(chart.title.text).join(" ") : series.length === 1 ? series[0]!.name : undefined) : undefined;
+    return { series, ...(title ? { title } : {}) };
+  }
+
+  /** Excel's recommended chart, simplified: header row and first text column, series down the columns. */
+  recommendChart(sheetId: number, r0: number, c0: number, r1: number, c1: number): Chart | null {
+    const s = this.sheet(sheetId);
+    if (r0 === r1 && c0 === c1) {
+      // A single cell: the filled block around it (toy current region: to the right and down).
+      while (this.cell(s, r1 + 1, c0)?.input) r1++;
+      while (this.cell(s, r0, c1 + 1)?.input) c1++;
+    }
+    const isNum = (r: number, c: number) => typeof this.value(s, r, c) === "number";
+    const header = !isNum(r0, c0) && [...Array(c1 - c0 + 1).keys()].every((k) => !isNum(r0, c0 + k) || k === 0) && r1 > r0;
+    const firstCol = c1 > c0 && [...Array(r1 - r0 + 1).keys()].slice(header ? 1 : 0).every((k) => !isNum(r0 + k, c0));
+    const dr0 = header ? r0 + 1 : r0;
+    const dc0 = firstCol ? c0 + 1 : c0;
+    let any = false;
+    for (let r = dr0; r <= r1; r++) for (let c = dc0; c <= c1; c++) any ||= isNum(r, c);
+    if (!any) return null;
+    const name = s.name;
+    const a1 = (r: number, c: number) => `$${shiftRefs("=A1", 0, c).slice(1).replace(/\d+$/, "")}$${r + 1}`;
+    const ref = (ra: number, ca: number, rb: number, cb: number) => ({ type: "ref" as const, formula: `${name}!${a1(ra, ca)}${ra === rb && ca === cb ? "" : `:${a1(rb, cb)}`}` });
+    const series = [];
+    for (let c = dc0; c <= c1; c++) series.push({ ...(header ? { name: { type: "ref" as const, formula: `${name}!${a1(r0, c)}` } } : {}), values: ref(dr0, c, r1, c) });
+    const chart: Chart = {
+      kind: { type: "bar", direction: "column", grouping: "clustered" },
+      series,
+      axes: { cat: {}, val: { majorGridlines: true } },
+      title: series.length === 1 ? {} : { text: { type: "literal", text: "Chart Title" } },
+      gapWidth: 219,
+      overlap: -27,
+      ...(firstCol ? { categories: ref(dr0, c0, r1, c0) } : {}),
+      ...(series.length > 1 ? { legend: { position: "bottom" as const } } : {}),
+    };
+    return chart;
   }
 
   envelope(patch: CalcPatch) {
@@ -1084,6 +1225,7 @@ export class FakeCalcCore {
                 ...(merges.length ? { merges } : {}),
                 ...(cf.length ? { cf } : {}),
                 ...(validations.length ? { validations: JSON.parse(JSON.stringify(validations)) as DataValidation[] } : {}),
+                ...(s.charts.length ? { charts: JSON.parse(JSON.stringify(s.charts)) as ChartObject[] } : {}),
               },
             },
           };
@@ -1191,6 +1333,18 @@ export class FakeCalcCore {
           const s = this.sheet(req.sheet);
           return { ok: { type: "sheetRules", rules: JSON.parse(JSON.stringify(s.cfRules)), validations: JSON.parse(JSON.stringify(s.validations)) } };
         }
+        case "sheetCharts":
+          return { ok: { type: "charts", charts: JSON.parse(JSON.stringify(this.sheet(req.sheet).charts)) as ChartObject[] } };
+        case "chartData": {
+          const c = this.sheet(req.sheet).charts.find((x) => x.id === req.id);
+          if (!c) throw new Fail("unknown_chart", `unknown chart ${req.id}`);
+          return { ok: { type: "chartData", data: this.resolveChart(c.chart) } };
+        }
+        case "previewChartData":
+          this.sheet(req.sheet);
+          return { ok: { type: "chartData", data: this.resolveChart(req.chart) } };
+        case "recommendedChart":
+          return { ok: { type: "recommendedChart", chart: this.recommendChart(req.sheet, req.r0, req.c0, req.r1, req.c1) } };
         case "loadSnapshotJson":
         case "saveSnapshotJson":
           throw new Fail("internal", "not supported by the fake backend");

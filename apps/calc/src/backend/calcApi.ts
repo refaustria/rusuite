@@ -6,6 +6,9 @@ import type { Envelope } from "../../../../packages/ui-shared/src/generated/Enve
 import type { CalcCommand } from "../generated/CalcCommand";
 import type { CalcPatch } from "../generated/CalcPatch";
 import type { CfRule } from "../generated/CfRule";
+import type { Chart } from "../generated/Chart";
+import type { ChartObject } from "../generated/ChartObject";
+import type { ResolvedChart } from "../generated/ResolvedChart";
 import type { DataValidation } from "../generated/DataValidation";
 import type { FilterValue } from "../generated/FilterValue";
 import type { FoundCell } from "../generated/FoundCell";
@@ -206,5 +209,26 @@ export class CalcApi {
   async sheetRules(sheet: number): Promise<{ rules: CfRule[]; validations: DataValidation[] }> {
     const { rules, validations } = await this.call({ type: "sheetRules", sheet }, "sheetRules");
     return { rules, validations };
+  }
+
+  /** Every chart of `sheet`, back to front. */
+  async sheetCharts(sheet: number): Promise<ChartObject[]> {
+    return (await this.call({ type: "sheetCharts", sheet }, "charts")).charts;
+  }
+
+  /** The resolved data of chart `id` on `sheet`. */
+  async chartData(sheet: number, id: number): Promise<ResolvedChart> {
+    return (await this.call({ type: "chartData", sheet, id }, "chartData")).data;
+  }
+
+  /** The data `chart` would show on `sheet` (dialog previews). */
+  async previewChartData(sheet: number, chart: Chart): Promise<ResolvedChart> {
+    return (await this.call({ type: "previewChartData", sheet, chart }, "chartData")).data;
+  }
+
+  /** Excel's recommended chart for a range (`null` without numbers). */
+  async recommendedChart(sheet: number, r0: number, c0: number, r1: number, c1: number): Promise<Chart | null> {
+    const { chart } = await this.call({ type: "recommendedChart", sheet, r0, c0, r1, c1 }, "recommendedChart");
+    return chart && typeof chart === "object" ? chart : null;
   }
 }

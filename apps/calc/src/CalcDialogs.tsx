@@ -16,6 +16,7 @@ import { unhideableSheets, useCalc, type CalcStore } from "./state/store";
 import { useT } from "./i18n";
 import { CfDialog } from "./condFormat/CfDialogs";
 import { ValidationDialog } from "./validation/ValidationDialogs";
+import { ChartDialog } from "./charts/ChartDialogs";
 import { CustomFilterDialog, CustomSortDialog, FilterPanel, SortExpandDialog, Top10Dialog } from "./sortFilter/SortFilterDialogs";
 
 const BTN = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover disabled:opacity-40";
@@ -429,6 +430,11 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
     case "cfRule":
     case "cfManage":
       return <CfDialog store={store} dialog={dialog} />;
+    case "recommendedCharts":
+    case "changeChartType":
+    case "moveChart":
+    case "selectData":
+      return <ChartDialog store={store} dialog={dialog} />;
     case "dataValidation":
       return <ValidationDialog store={store} />;
     case "mergeConfirm":

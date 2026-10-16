@@ -161,6 +161,15 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   the core (`validateInput`) first; a failed check shows Excel's alert while the editor stays open: Stop → Retry (back to
   the edit, text selected) / Cancel (discard); Warning "Continue?" → Yes (keep) / No (back) / Cancel; Information → OK /
   Cancel. Paste and fill are not checked (as in Excel); Circle Invalid Data is not offered.
+- **Calc charts** (P8-20, `apps/calc/src/charts`, renderer `@rusuite/ui-shared` `chart/`): Insert › Charts (Recommended
+  Charts dialog with live previews; Column or Bar ▾, Line or Area ▾, Pie or Doughnut ▾, Scatter ▾, Combo ▾ galleries of
+  Excel's sub-types). While a chart is selected the contextual **Chart Design** (Add Chart Element ▾ with flyouts, Quick
+  Layout ▾, Change Colors ▾, Chart Styles ▾, Switch Row/Column, Select Data…, Change Chart Type…, Move Chart…) and
+  **Format** (Current Selection list, Format Selection, Reset to Match Style, Shape Fill, Shape Outline, Size) tabs appear;
+  inserting a chart shows Chart Design. Charts are drawn over the cells, selected by click (element, then point), moved by
+  drag, resized with 8 handles (Alt snaps to cells), deleted with Delete, copied with Ctrl+C/V; Esc deselects;
+  double-click opens the Format pane; a click on the selected title edits it inline; right-click has the chart menu.
+  Details: [charts.md](charts.md) "Calc UI".
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).
