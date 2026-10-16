@@ -23,7 +23,8 @@ tauri = { version = "=2.12.0", features = [] }
 tauri-plugin-dialog = "=2.8.0"
 write-core = { path = "../core" }
 base64 = "=0.23.1"
-app-common = { path = "../../../crates/app-common", features = ["fs"] }
+# `tauri-connectors`: the opt-in cloud connector commands (P8-36, ADR 0009 amendment).
+app-common = { path = "../../../crates/app-common", features = ["fs", "tauri-connectors"] }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
