@@ -129,6 +129,20 @@ describe("sections", () => {
     await waitFor(() => expect(editor.querySelector("[data-section-label]")).toBeTruthy());
   });
 
+  it("W-17: after Breaks › Next page the caret is in the new section: Orientation changes that one", async () => {
+    const { backend } = await mount([para(1, "first second")]);
+    fireEvent.click(tab("Layout"));
+    fireEvent.click(screen.getByRole("button", { name: "Breaks" }));
+    fireEvent.click(menuItem("Next page"));
+    await waitFor(() => expect(applied(backend).map((c) => c.type)).toEqual(["splitParagraph", "insertSectionBreak"]));
+    const doc = await backend.dispatch({ type: "getDocument" }) as { ok: { doc: Document } };
+    const sections = doc.ok.doc.sections ?? [];
+    expect(sections.length).toBe(2);
+    fireEvent.click(screen.getByRole("button", { name: "Orientation" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Landscape" }));
+    await waitFor(() => expect(applied(backend)).toContainEqual({ type: "setSection", section: sections[1]!.id, patch: { page: { orientation: "landscape" } } }));
+  });
+
   it("Layout › Orientation acts on the caret's section (setSection)", async () => {
     const { backend } = await twoSections();
     fireEvent.click(tab("Layout"));

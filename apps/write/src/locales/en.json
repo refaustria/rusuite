@@ -177,7 +177,6 @@
   "write.corrections": "Corrections",
   "write.corrections.item": "Brightness: {b} %, Contrast: {c} %",
   "write.crop": "Crop",
-  "write.cropGroup": "Size",
   "write.cropTip": "Crop the picture: drag the black handles, Enter or a click outside ends",
   "write.currentPosition": "Current position",
   "write.customMargins": "Custom margins…",

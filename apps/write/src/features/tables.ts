@@ -461,3 +461,31 @@ export function selectInTable(view: EditorView, kind: TableSelectKind): boolean 
   view.dispatch(view.state.tr.setSelection(CellSelection.create(view.state.doc, start + first, start + last)));
   return true;
 }
+
+/** The ids of the tables in `doc` (to find the one a command inserts). */
+export function tableIds(doc: PMNode): Set<number> {
+  const out = new Set<number>();
+  doc.descendants((n) => {
+    if (n.type.name === "table" && n.attrs.id != null) out.add(n.attrs.id as number);
+    return !n.isTextblock;
+  });
+  return out;
+}
+
+/** Word: after Insert › Table the caret is in the new table's first cell (W-09). Returns false when there is none. */
+export function caretIntoNewTable(view: EditorView, known: Set<number>): boolean {
+  let at = -1;
+  view.state.doc.descendants((n, pos) => {
+    if (at >= 0) return false;
+    if (n.type.name === "table" && n.attrs.id != null && !known.has(n.attrs.id as number)) {
+      at = pos;
+      return false;
+    }
+    return !n.isTextblock;
+  });
+  if (at < 0) return false;
+  // table > row > cell > paragraph: the paragraph's content starts 4 positions in.
+  view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(at + 4))).scrollIntoView());
+  view.focus();
+  return true;
+}

@@ -1525,8 +1525,10 @@ fn table_borders_none_and_outline() {
             },
         },
     );
+    // New tables are "Table Grid" (Word): the outline comes from the style.
+    assert_eq!(table_of(&h, t).props.style.as_deref(), Some("TableGrid"));
     let b = table_of(&h, t).props.borders.unwrap();
-    assert_eq!(b.top.unwrap().style, BorderStyle::Single);
+    assert!(b.top.is_none());
     assert_eq!(b.inside_h.unwrap().style, BorderStyle::None);
 }
 
@@ -1668,4 +1670,42 @@ fn new_commands_roundtrip_through_json() {
         let back = serde_json::to_value(&cmd).unwrap();
         assert_eq!(serde_json::from_value::<C>(back).unwrap(), cmd, "{c}");
     }
+}
+
+/// P8-38 (W-05): characters typed in a row are one undo step, as in Word;
+/// Backspaces in a row are another; Redo restores the whole run.
+#[test]
+fn typing_run_is_one_undo_step() {
+    let mut h = host(&["", "other"]);
+    let send = |h: &mut WriteHost, v: Json| -> Json {
+        serde_json::from_str(&dispatch_with(h, &v.to_string())).unwrap()
+    };
+    let text = |h: &WriteHost| match &h.doc().document().body[0] {
+        Block::Paragraph(p) => p.text(),
+        _ => unreachable!(),
+    };
+    for (i, c) in "Hello".chars().enumerate() {
+        let cmd = json!({"type":"insertText","block":1,"offset":i,"text":c.to_string()});
+        send(&mut h, json!({"type":"apply","command":cmd}));
+    }
+    for at in [5, 4] {
+        let cmd = json!({"type":"deleteText","block":1,"from":at - 1,"to":at});
+        send(&mut h, json!({"type":"apply","command":cmd}));
+    }
+    assert_eq!(text(&h), "Hel");
+    let r = send(&mut h, json!({"type":"undo"}));
+    assert_eq!(text(&h), "Hello");
+    // One reply carrying the paragraph as it is now.
+    let replaced = &r["ok"]["envelope"]["patch"]["replaced"];
+    assert!(replaced.to_string().contains("Hello"), "{replaced}");
+    send(&mut h, json!({"type":"undo"}));
+    assert_eq!(text(&h), "");
+    assert_eq!(
+        send(&mut h, json!({"type":"undo"}))["ok"]["envelope"]["canUndo"],
+        json!(false)
+    );
+    send(&mut h, json!({"type":"redo"}));
+    assert_eq!(text(&h), "Hello");
+    send(&mut h, json!({"type":"redo"}));
+    assert_eq!(text(&h), "Hel");
 }

@@ -25,12 +25,13 @@ import {
 } from "../sync/editorCommands";
 import { clearFormatting, indentAt, setIndent, setSpacing, spacingAt, toggleScript } from "../features/formatting";
 import { insertImageFile, resetImageSize, selectedImage, setImageAttrs } from "../features/images";
-import { tableContext } from "../features/tables";
+import { caretIntoNewTable, tableContext, tableIds } from "../features/tables";
+import { plainTextSlice } from "../features/plainPaste";
 import { tableInfo, tableTabs, type TableInfo } from "./tableTabs";
 import { paragraphBorderState, selectedParagraphs } from "../features/paragraphFormat";
 import { paragraphBordersMenu, paragraphShadingPicker } from "./paragraphControls";
 import { pictureArrangeItems } from "./pictureControls";
-import { fontExtras, insertDrawingButtons, pictureFormatGroups, shapeFormatTab } from "./drawingTabs";
+import { fontExtras, insertDrawingButtons, pictureCropButton, pictureFormatGroups, shapeFormatTab } from "./drawingTabs";
 import { selectedDrawing } from "../features/drawings/drawings";
 import { formatTarget } from "../features/runFormat";
 import { innerEditors } from "../features/drawings/innerEditors";
@@ -418,9 +419,11 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
     />
   );
 
-  const insertTable = (rows: number, cols: number) => {
+  const insertTable = async (rows: number, cols: number) => {
     const at = cursorBlock(editor);
-    void ctl.run({ type: "insertTable", after: at?.id ?? null, parent: at?.cell ?? null, rows, cols });
+    const known = tableIds(editor.state.doc);
+    await ctl.run({ type: "insertTable", after: at?.id ?? null, parent: at?.cell ?? null, rows, cols });
+    if (!editor.isDestroyed) caretIntoNewTable(editor.view, known);
   };
 
   const clipboard = (kind: "cut" | "copy") => {
@@ -434,7 +437,12 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
   const paste = async () => {
     try {
       const text = await navigator.clipboard.readText();
-      if (text) editor.chain().focus().insertContent(text).run();
+      // As text (never parsed as HTML), one paragraph per line like Ctrl+V of plain text.
+      if (text) {
+        editor.commands.focus();
+        const { state } = editor;
+        editor.view.dispatch(state.tr.replaceSelection(plainTextSlice(text, state.selection.$from, state.schema)).scrollIntoView());
+      }
     } catch {
       ctl.pushError(new Error(t("write.pasteNeedsClipboard")));
     }
@@ -544,23 +552,26 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         items: (
           <>
             <RibbonButton label={t("cmd.paste")} icon="paste" size="large" shortcut="Mod+V" onClick={() => void paste()} />
+            {/* Two rows fit the 64 px group: Cut; Copy + the format painter (W-01). */}
             <RibbonStack>
               <RibbonButton label={t("cmd.cut")} icon="cut" showLabel shortcut="Mod+X" onClick={() => clipboard("cut")} />
-              <RibbonButton label={t("cmd.copy")} icon="copy" showLabel shortcut="Mod+C" onClick={() => clipboard("copy")} />
-              <span
-                onDoubleClick={() => {
-                  features.painter.copy(editor, true);
-                }}
-              >
-                <RibbonButton
-                  label={t("write.formatPainter")}
-                  icon={PAINTER_ICON}
-                  pressed={painter}
-                  shortcut="Mod+Shift+C"
-                  tooltip={t("write.formatPainterTip")}
-                  onClick={() => (features.painter.active ? features.painter.cancel(editor) : features.painter.copy(editor))}
-                />
-              </span>
+              <RibbonRow>
+                <RibbonButton label={t("cmd.copy")} icon="copy" showLabel shortcut="Mod+C" onClick={() => clipboard("copy")} />
+                <span
+                  onDoubleClick={() => {
+                    features.painter.copy(editor, true);
+                  }}
+                >
+                  <RibbonButton
+                    label={t("write.formatPainter")}
+                    icon={PAINTER_ICON}
+                    pressed={painter}
+                    shortcut="Mod+Shift+C"
+                    tooltip={t("write.formatPainterTip")}
+                    onClick={() => (features.painter.active ? features.painter.cancel(editor) : features.painter.copy(editor))}
+                  />
+                </span>
+              </RibbonRow>
             </RibbonStack>
           </>
         ),
@@ -725,7 +736,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
               <RibbonTableSizePicker
                 onPick={(r, c) => {
                   close();
-                  insertTable(r, c);
+                  void insertTable(r, c);
                 }}
               />
             )}
@@ -1016,9 +1027,12 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
                 }))}
               />
               <RibbonButton label={t("write.xref.button")} icon={XREF_ICON} showLabel tooltip={t("write.xref.tip")} onClick={() => features.ui.openDialog("crossRef")} />
-              <RibbonButton label={t("write.bookmark.button")} icon={BOOKMARK_ICON} showLabel tooltip={t("write.bookmark.tip")} onClick={() => features.ui.openDialog("bookmark")} />
             </RibbonStack>
-            <RibbonButton label={t("write.updateFields")} icon={UPDATE_ICON} size="large" shortcut="F9" tooltip={t("write.updateFieldsTip")} onClick={() => void features.updateFields()} />
+            {/* Two rows per stack: three overflow the 64 px group (W-19). */}
+            <RibbonStack>
+              <RibbonButton label={t("write.bookmark.button")} icon={BOOKMARK_ICON} showLabel tooltip={t("write.bookmark.tip")} onClick={() => features.ui.openDialog("bookmark")} />
+              <RibbonButton label={t("write.updateFields")} icon={UPDATE_ICON} showLabel shortcut="F9" tooltip={t("write.updateFieldsTip")} onClick={() => void features.updateFields()} />
+            </RibbonStack>
           </>
         ),
       },
@@ -1031,6 +1045,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
             <RibbonStack>
               <RibbonButton label={t("write.nextFootnote")} icon={NEXT_ICON(true)} showLabel onClick={() => goToNextRef(editor.view, 1)} />
               <RibbonButton label={t("write.prevFootnote")} icon={NEXT_ICON(false)} showLabel onClick={() => goToNextRef(editor.view, -1)} />
+            </RibbonStack>
+            <RibbonStack>
               <RibbonMenuButton
                 label={t("write.endnotesAt")}
                 icon={ENDNOTE_ICON}
@@ -1104,6 +1120,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
             <RibbonStack>
               <RibbonButton label={t("write.comments.previous")} icon={PREV_COMMENT_ICON} showLabel disabled={ctl.comments.length === 0} onClick={() => goTo(-1)} />
               <RibbonButton label={t("write.comments.next")} icon={NEXT_COMMENT_ICON} showLabel disabled={ctl.comments.length === 0} onClick={() => goTo(1)} />
+            </RibbonStack>
+            <RibbonStack>
               <RibbonButton
                 label={activeComment?.resolved ? t("write.comments.reopen") : t("write.comments.resolve")}
                 icon={RESOLVE_ICON}
@@ -1164,20 +1182,24 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       {
         label: t("write.show"),
         items: (
-          <RibbonStack>
-            <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
-              <input type="checkbox" checked={ui.ruler} onChange={() => features.ui.set({ ruler: !ui.ruler })} />
-              {t("write.ruler")}
-            </label>
-            <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
-              <input type="checkbox" checked={ui.navigation} onChange={() => features.ui.set({ navigation: !ui.navigation })} />
-              {t("write.navigationPane")}
-            </label>
-            <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
-              <input type="checkbox" checked={ui.hiddenText} onChange={() => features.ui.set({ hiddenText: !ui.hiddenText })} />
-              {t("write.hiddenText")}
-            </label>
-          </RibbonStack>
+          <>
+            <RibbonStack>
+              <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
+                <input type="checkbox" checked={ui.ruler} onChange={() => features.ui.set({ ruler: !ui.ruler })} />
+                {t("write.ruler")}
+              </label>
+              <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
+                <input type="checkbox" checked={ui.navigation} onChange={() => features.ui.set({ navigation: !ui.navigation })} />
+                {t("write.navigationPane")}
+              </label>
+            </RibbonStack>
+            <RibbonStack>
+              <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
+                <input type="checkbox" checked={ui.hiddenText} onChange={() => features.ui.set({ hiddenText: !ui.hiddenText })} />
+                {t("write.hiddenText")}
+              </label>
+            </RibbonStack>
+          </>
         ),
       },
       {
@@ -1244,6 +1266,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
             label: t("write.size"),
             items: (
               <>
+                {pictureCropButton(editor)}
                 <RibbonStack>
                   <NumberField
                     label={t("write.heightCm")}

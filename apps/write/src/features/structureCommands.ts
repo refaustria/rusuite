@@ -4,7 +4,7 @@
 // commands sent through the `SyncController`; the patches update the editor.
 
 import type { Editor } from "@tiptap/core";
-import type { EditorState } from "@tiptap/pm/state";
+import { TextSelection, type EditorState } from "@tiptap/pm/state";
 import type { FieldKind } from "../generated/FieldKind";
 import type { Level } from "../generated/Level";
 import type { LevelKind } from "../generated/LevelKind";
@@ -17,7 +17,7 @@ import type { SectionPatch } from "../generated/SectionPatch";
 import type { WriteCommand } from "../generated/WriteCommand";
 import { cursorBlock } from "../sync/editorCommands";
 import { notesNode } from "../sync/fromPM";
-import { nextTempId, type SyncController } from "../sync/SyncPlugin";
+import { findPos, nextTempId, type SyncController } from "../sync/SyncPlugin";
 import { TEXTBLOCK_TYPES } from "../sync/schema";
 import { currentLayout, pageAtPos } from "./pagination";
 import { goToNote } from "./structure";
@@ -182,7 +182,24 @@ export async function insertSectionBreak(editor: Editor, ctl: SyncController, ki
       { type: "insertSectionBreak", block: at.id, kind },
     ],
   });
+  // Word: the caret goes to the start of the new section (the paragraph after the break), so Layout commands that
+  // follow act on it (W-17).
+  caretAfterBlock(editor, at.id);
   editor.commands.focus();
+  return true;
+}
+
+/** Puts the caret at the start of the text block after the block with id `id` (no-op when there is none). */
+export function caretAfterBlock(editor: Editor, id: number): boolean {
+  const { doc } = editor.state;
+  const pos = findPos(doc, id);
+  const node = pos >= 0 ? doc.nodeAt(pos) : null;
+  if (!node) return false;
+  const after = pos + node.nodeSize;
+  if (after >= doc.content.size) return false;
+  const sel = TextSelection.findFrom(doc.resolve(after), 1, true);
+  if (!sel) return false;
+  editor.view.dispatch(editor.state.tr.setSelection(sel).scrollIntoView());
   return true;
 }
 

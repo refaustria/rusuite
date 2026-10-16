@@ -9,6 +9,7 @@ import { useShortcuts } from "../shortcuts/useShortcuts";
 import { RibbonButton, RibbonDivider, RibbonMenuButton, RibbonSplitButton, ribbonTooltip } from "./controls";
 import { RibbonGallery, RibbonTableSizePicker } from "./gallery";
 import { CONTEXT_COLORS, contextualTabs, openBackstage, Ribbon, tabRuns, visibleTabs, type RibbonProps, type RibbonTab } from "./Ribbon";
+import { collapsedWidth, groupsThatFit } from "./groups";
 import { comboEventInit, triggerShortcut } from "./triggerShortcut";
 
 afterEach(cleanup);
@@ -497,5 +498,17 @@ describe("contextual tabs (P8-28)", () => {
     expect(screen.getByTestId("ribbon-panel").getAttribute("data-context")).toBe("Table Tools");
     // standard tabs have no context
     expect(screen.getByRole("tab", { name: "Home" }).getAttribute("data-context")).toBeNull();
+  });
+});
+
+describe("groups on narrow windows (P8-38, W-20)", () => {
+  it("collapses the groups that do not fit, from the right", () => {
+    const labels = ["Clipboard", "Font", "Paragraph", "Styles", "Editing"];
+    const widths = [120, 300, 240, 420, 110];
+    expect(groupsThatFit(widths, labels, 2000)).toBe(5);
+    // 120 + 300 + 240 + 420 = 1080, + the Editing button
+    expect(groupsThatFit(widths, labels, 1080 + collapsedWidth("Editing"))).toBe(4);
+    expect(groupsThatFit(widths, labels, 1000)).toBe(3);
+    expect(groupsThatFit(widths, labels, 10)).toBe(0);
   });
 });
