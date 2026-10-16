@@ -43,6 +43,7 @@ import { intersects, isSingleCell, mergeAnchor, mergeLookup, mergeSnapshot, part
 import { fontCss, styleAt } from "../grid/style";
 import { cfKey, dataBarAxes } from "../grid/cf";
 import { formatCommands, type FormatState, type FormatTab } from "../numfmt/formatCells";
+import { widenedPx } from "./autoWiden";
 import { cellsCommand, type CellsChoice, type CellsMode } from "./shiftCells";
 import { captureClip, fillDownEnd, pasteTarget, tsvClip, type Clip } from "./clipboard";
 import { findStep, replaceInInput, type FindOptions } from "./find";
@@ -1531,6 +1532,8 @@ export class CalcStore {
     return this.api.apply(command).then(
       (env) => {
         this.applyEnvelope(env);
+        const widen = this.widenCommand(sheet, row, col, text !== null && text !== "");
+        if (widen) void this.apply(widen);
         return true;
       },
       (e: unknown) => {
@@ -2025,6 +2028,24 @@ export class CalcStore {
     return axis === "rows"
       ? (cache.rows.get(anchor.row)?.height ?? cache.format.defaultRowHeight)
       : (cache.cols.get(anchor.col)?.width ?? cache.format.defaultColWidth);
+  }
+
+  /** C-23: the column width command after typing a number into a default-width column (Excel widens it), else `null`. */
+  private widenCommand(sheet: number, row: number, col: number, constant: boolean): CalcCommand | null {
+    const cache = this.cache(sheet);
+    const cell = cache.cells.get(row)?.get(col);
+    if (!cell) return null;
+    const style = styleAt(this.styles(), cell.style);
+    const px = widenedPx({
+      constant,
+      kind: cell.kind,
+      textPx: this.measure(cell.display, fontCss(style)),
+      colPx: this.geometry(sheet).col.size(col),
+      explicitWidth: (cache.cols.get(col)?.width ?? null) !== null,
+      wrap: !!style.alignment?.wrapText,
+      merged: cache.merges.some((m) => m.r0 <= row && row <= m.r1 && m.c0 <= col && col <= m.c1),
+    });
+    return px === null ? null : { type: "setColWidth", sheet, col, width: pxToChars(px) };
   }
 
   /**

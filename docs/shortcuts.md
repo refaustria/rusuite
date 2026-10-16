@@ -35,7 +35,8 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Mod+Arrow | Jump to the edge of the data |
 | Mod+Shift+Arrow | Extend the selection to the edge of the data |
 | F2 | Edit the active cell (edit mode); inside the editor: switch between edit and enter mode |
-| Delete, Backspace | Clear the selection |
+| Delete | Clear the selection |
+| Backspace | Edit the active cell starting empty (Enter clears it, Esc keeps the old content); a selected chart, picture or note box is deleted |
 | Alt+Enter | Line break in the cell editor (stored as `\n`; committing turns wrap text on and grows the row) |
 | Enter, Tab (Shift: reverse) | Commit the edit and move down / right |
 | Mod+Enter | Commit the edit without moving; a selected range gets the entry in every cell (relative references shift, formats stay) |

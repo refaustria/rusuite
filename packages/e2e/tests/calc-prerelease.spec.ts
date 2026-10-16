@@ -115,4 +115,38 @@ test.describe("Calc pre-release fixes (P8-44)", () => {
     expect(await shown(page, grid, 1, 1)).toBe("$1,234.50");
     errors.expectNone();
   });
+
+  test("C-21 Backspace edits the active cell starting empty; C-23 a typed amount widens a default-width column", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "old");
+    await grid.click(0, 0);
+    await page.keyboard.press("Backspace");
+    const editor = page.getByTestId("cell-editor");
+    await expect(editor).toHaveValue("");
+    await page.keyboard.press("Escape");
+    expect(await grid.input(0, 0)).toBe("old");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.type("new");
+    await page.keyboard.press("Enter");
+    expect(await grid.input(0, 0)).toBe("new");
+    // C-23: column C (default width 8.43) grows for a long amount instead of showing ####.
+    const width = async (col: number) => {
+      await grid.click(0, col, { button: "right" });
+      await page.getByRole("menuitem", { name: "Column width…" }).click();
+      const dlg = page.getByRole("dialog", { name: "Column width" });
+      const v = Number(await dlg.getByRole("textbox").inputValue());
+      await page.keyboard.press("Escape");
+      return v;
+    };
+    expect(await width(2)).toBeCloseTo(8.43, 1);
+    await grid.type(0, 2, "$1,234,567.50");
+    await page.screenshot({ path: "../../shots/P8-44-widened-column.png" });
+    expect(await width(2)).toBeGreaterThan(9);
+    // Text does not widen.
+    await grid.type(0, 4, "a long piece of text");
+    expect(await width(4)).toBeCloseTo(8.43, 1);
+    errors.expectNone();
+  });
 });

@@ -1248,6 +1248,7 @@
   "calc.rowHeightPt": "Row height (points)",
   "calc.rowHeightRange": "Row height must be between 0 and 409",
   "calc.rowsCols": "Rows & columns",
+  "calc.sc.backspace": "Clear the active cell and edit it",
   "calc.sc.cancelCopy": "Cancel copy / cut mode",
   "calc.sc.clearCells": "Clear cells",
   "calc.sc.copy": "Copy (marching ants until Esc or an edit)",

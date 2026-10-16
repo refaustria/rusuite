@@ -555,6 +555,11 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   dependents compute with it) and the status bar says "Circular reference: B8" (the cycle's first cell; with a sheet
   prefix in a workbook of several sheets) for as long as the cycle exists (`CalcDocument` re-checks it after every
   command with `Engine::cycle_through`).
+- **Calc Backspace and column widening** (P8-44): Backspace opens the cell editor on the active cell with the content
+  cleared (Enter clears the cell, Esc keeps it; a selected chart, picture or note box is deleted instead); Delete clears
+  the selection. Typing a number (a constant, not a formula) into a column nobody sized widens the column to fit the
+  displayed number (`state/autoWiden.ts`, a separate `setColWidth` after the entry), as Excel; columns never get
+  narrower, wrapped and merged cells are left alone.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).

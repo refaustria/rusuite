@@ -1248,6 +1248,7 @@
   "calc.rowHeightPt": "Zeilenhöhe (Punkt)",
   "calc.rowHeightRange": "Die Zeilenhöhe muss zwischen 0 und 409 liegen",
   "calc.rowsCols": "Zeilen und Spalten",
+  "calc.sc.backspace": "Aktive Zelle leeren und bearbeiten",
   "calc.sc.cancelCopy": "Kopier-/Ausschneidemodus abbrechen",
   "calc.sc.clearCells": "Zellen löschen",
   "calc.sc.copy": "Kopieren (Laufrahmen bis Esc oder zur nächsten Bearbeitung)",

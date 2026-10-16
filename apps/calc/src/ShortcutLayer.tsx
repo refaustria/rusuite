@@ -129,7 +129,13 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       F2: { label: t("calc.sc.editCell"), group: t("sc.edit"), when: inGrid, run: () => store.beginEdit(null) },
       // A selected chart is deleted instead (Excel).
       Delete: { label: t("calc.sc.clearCells"), group: t("sc.edit"), when: inGrid, run: () => void deleteKey() },
-      Backspace: { label: t("calc.sc.clearCells"), group: t("sc.edit"), when: inGrid, run: () => void deleteKey() },
+      // Excel: Backspace edits the active cell starting empty (Esc keeps the old content); selected objects are deleted.
+      Backspace: {
+        label: t("calc.sc.backspace"),
+        group: t("sc.edit"),
+        when: inGrid,
+        run: () => (store.comments.selectedNote || store.pictures.selected || store.charts.selected ? void deleteKey() : store.beginEdit("")),
+      },
       "Shift+F2": { label: t("calc.notes.newEdit"), group: t("calc.tab.review"), when: inGrid, run: () => actions.editNote() },
       "Mod+Shift+F2": { label: t("calc.comments.new"), group: t("calc.tab.review"), when: inGrid, run: () => actions.newComment() },
       "Mod+K": { label: t("calc.link.button"), group: t("tab.insert"), when: inGrid, run: () => actions.link() },
