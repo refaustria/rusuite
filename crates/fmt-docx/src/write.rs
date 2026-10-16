@@ -547,7 +547,18 @@ impl<'a> PartWriter<'a> {
             return;
         }
         self.x.start("w:r", &[]);
-        write_rpr(&mut self.x, &run.props, self.scheme);
+        // `w:rStyle` names a character style: a linked style by its
+        // character half.
+        let style = run
+            .style
+            .as_deref()
+            .and_then(|id| self.doc.styles.get(id))
+            .and_then(|s| match s.kind {
+                StyleKind::Character => Some(s.id.as_str()),
+                StyleKind::Linked => s.link.as_deref(),
+                _ => None,
+            });
+        write_rpr_styled(&mut self.x, &run.props, self.scheme, style);
         self.run_text(&run.text);
         self.x.end("w:r");
     }

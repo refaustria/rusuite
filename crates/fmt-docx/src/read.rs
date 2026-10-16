@@ -641,24 +641,36 @@ impl BodyReader<'_> {
                 "footnoteReference" | "endnoteReference" | "footnoteRef" | "endnoteRef"
             )
         });
+        // The character style (`w:rStyle`); a note reference's style is
+        // implied (and regenerated).
+        let mut style = None;
         let props = r
             .child("rPr")
             .map(|rpr| {
-                if note {
-                    // The reference style is implied (and regenerated).
-                    let mut quiet = rpr.clone();
-                    quiet
-                        .children
-                        .retain(|n| !matches!(n, Node::El(e) if e.name == "rStyle"));
-                    read_rpr(&quiet, "run", self.w)
-                } else {
-                    read_rpr(rpr, "run", self.w)
-                }
+                let mut quiet = rpr.clone();
+                quiet.children.retain(|n| match n {
+                    Node::El(e) if e.name == "rStyle" => {
+                        if !note {
+                            style = e.val().map(str::to_owned);
+                        }
+                        false
+                    }
+                    _ => true,
+                });
+                read_rpr(&quiet, "run", self.w)
             })
             .unwrap_or_default();
+        let start = out.len();
         let mut text = String::new();
         self.run_children(r, &props, &mut text, out);
         flush(&mut text, &props, out);
+        if style.is_some() {
+            for inline in &mut out[start..] {
+                if let Inline::Run(run) = inline {
+                    run.style.clone_from(&style);
+                }
+            }
+        }
     }
 
     /// Adds run text, or captures it as the result of an open field.

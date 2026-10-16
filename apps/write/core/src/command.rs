@@ -13,8 +13,9 @@ use core_model::units::Emu;
 use model_text::{
     Anchor, Block, CellProperties, FieldKind, HeaderSlot, Inline, LevelKind, MediaId, NodeId, Note,
     NoteKind, Numbering, Orientation, PageSetup, Paragraph, ParagraphProperties, RowHeight,
-    RowProperties, RunProperties, Section, SectionId, SectionKind, StyleSheet, Table, TableCell,
-    TableProperties, TableRow, Toc, TocEntry, Twips, VMerge, WrapKind,
+    RowProperties, RunProperties, Section, SectionId, SectionKind, Style, StyleKind, StylePatch,
+    StyleSheet, Table, TableCell, TableProperties, TableRow, Toc, TocEntry, Twips, VMerge,
+    WrapKind,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -107,6 +108,78 @@ pub struct SectionPatch {
     pub page: Option<PageSetupPatch>,
 }
 
+/// Formatting a find (or replace) is restricted to (Word's Find › Format):
+/// every matched character must have these effective run properties
+/// (paragraph style → character style → direct), its paragraph these
+/// effective paragraph properties (only `alignment`, `indent`, `spacing`,
+/// `keepNext`, `pageBreakBefore` are compared), and `style` must be the
+/// paragraph's style or the run's character style. `highlight: true` =
+/// any highlight, `false` = none. As a replacement format the same fields
+/// are applied to the replaced text (a paragraph style to its paragraph).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub struct FindFormat {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(as = "Option<app_common::wire::RunProperties>", optional)]
+    pub run: Option<RunProperties>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub paragraph: Option<ParagraphProperties>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub style: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub highlight: Option<bool>,
+}
+
+impl FindFormat {
+    /// Whether nothing is constrained.
+    pub fn is_empty(&self) -> bool {
+        self.run.as_ref().map_or(true, RunProperties::is_empty)
+            && self
+                .paragraph
+                .as_ref()
+                .map_or(true, ParagraphProperties::is_empty)
+            && self.style.as_deref().map_or(true, str::is_empty)
+            && self.highlight.is_none()
+    }
+}
+
+/// A search (Find and Replace dialog). `text` empty with a `format` finds
+/// the stretches of text with that formatting. `wildcards` (Word's "Use
+/// wildcards", always case-sensitive, whole words ignored): `?` any
+/// character, `*` any run of characters (shortest), `[abc]` / `[a-z]` /
+/// `[!a-z]` a character (not) in the set, `{n}` / `{n,}` / `{n,m}` and `@`
+/// (one or more) repeat the previous item, `<` / `>` start / end of a
+/// word, `\` escapes; parentheses group without capturing.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub struct FindQuery {
+    pub text: String,
+    #[serde(default)]
+    pub match_case: bool,
+    #[serde(default)]
+    pub whole_word: bool,
+    #[serde(default)]
+    pub wildcards: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub format: Option<FindFormat>,
+}
+
+/// One match: char offsets `from..to` of paragraph `block`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub struct FindMatch {
+    pub block: NodeId,
+    pub from: u32,
+    pub to: u32,
+}
+
 /// A document edit. JSON: `{"type":"insertText","block":7,"offset":3,"text":"é"}`.
 ///
 /// The variants after [`Compound`](Self::Compound) are **internal**: the
@@ -121,9 +194,11 @@ pub struct SectionPatch {
 )]
 #[ts(export, export_to = "apps/write/src/generated/")]
 pub enum WriteCommand {
-    /// Inserts `text` at `offset`. `props` absent = the formatting of the
-    /// run containing the character before `offset` (or of the first run).
-    /// `text` must not contain `\n`/`\r` (split the paragraph instead).
+    /// Inserts `text` at `offset`. `props` absent = the formatting (and
+    /// character style) of the run containing the character before
+    /// `offset` (or of the first run); with `props`, `style` is the
+    /// character style of the new text. `text` must not contain `\n`/`\r`
+    /// (split the paragraph instead).
     InsertText {
         block: NodeId,
         offset: u32,
@@ -131,6 +206,9 @@ pub enum WriteCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(as = "Option<app_common::wire::RunProperties>")]
         props: Option<RunProperties>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        style: Option<String>,
     },
     /// Deletes positions `from..to` (text, images and breaks).
     DeleteText { block: NodeId, from: u32, to: u32 },
@@ -175,8 +253,51 @@ pub enum WriteCommand {
         blocks: Vec<NodeId>,
         patch: ParagraphProperties,
     },
-    /// Sets the paragraph style (must be a paragraph style of the document).
+    /// Sets the paragraph style (must be a paragraph or linked style of the
+    /// document).
     SetStyle { blocks: Vec<NodeId>, style: String },
+    /// Gives the runs of `from..to` the character style `style` (a
+    /// character style, or a linked style — its character half is used;
+    /// `null` / `""` removes the character style), splitting runs at the
+    /// boundaries.
+    ApplyCharacterStyle {
+        block: NodeId,
+        from: u32,
+        to: u32,
+        #[serde(default)]
+        style: Option<String>,
+    },
+    /// Adds a style (Word's "Create a Style" / "New Style"; see
+    /// `model_text::StyleSheet::add`).
+    AddStyle { style: Style },
+    /// Changes a style (Word's "Modify Style"; `StyleSheet::update`). The
+    /// patch reports the styles and every paragraph using the style or a
+    /// style based on it.
+    UpdateStyle { id: String, patch: StylePatch },
+    /// Changes a style's display name.
+    RenameStyle { id: String, name: String },
+    /// Deletes a user-defined style; paragraphs using it get `replacement`
+    /// (default: the default paragraph style), runs lose it
+    /// (`Document::delete_style`).
+    DeleteStyle {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        replacement: Option<String>,
+    },
+    /// Makes `id` the default style of `kind` (`StyleSheet::set_default`).
+    SetDefaultStyle { kind: StyleKind, id: String },
+    /// Word's "Update <style> to Match Selection": the effective paragraph
+    /// formatting of `block` and the effective run formatting at `offset`
+    /// become the style's (where they differ from what the style gives),
+    /// the paragraph gets the style (a character style: the run at
+    /// `offset` is the sample and the style's run formatting changes
+    /// only), and the paragraph's direct paragraph formatting and the
+    /// direct run formatting now covered by the style are removed.
+    UpdateStyleFromSelection {
+        id: String,
+        block: NodeId,
+        offset: u32,
+    },
     /// Makes the paragraphs list items of `kind` (reusing the list of an
     /// adjacent paragraph of the same kind, else creating a new list) or
     /// removes their numbering (`none`).
@@ -347,27 +468,43 @@ pub enum WriteCommand {
         offset: u32,
         wrap: WrapKind,
     },
-    /// Removes the direct character formatting of `from..to` (Word's
-    /// Ctrl+Space); with `paragraph`, also the paragraph's direct
-    /// formatting, list numbering and style (Word's "Clear All
-    /// Formatting": the paragraph becomes Normal).
+    /// Removes the direct character formatting and character styles of
+    /// `from..to` (Word's Ctrl+Space); with `paragraph`, also the
+    /// paragraph's direct formatting, list numbering and style (Word's
+    /// "Clear All Formatting": the paragraph becomes Normal) — with
+    /// `keepStyle` the paragraph keeps its style and numbering and only its
+    /// direct paragraph formatting goes.
     ClearFormatting {
         block: NodeId,
         from: u32,
         to: u32,
         #[serde(default)]
         paragraph: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        keep_style: bool,
     },
-    /// Replaces matches of `find` in the text of every paragraph (a match
-    /// may span runs; the replacement takes the formatting of the first
-    /// matched character). `all == false` replaces only the first match.
-    /// The patch's `info` reports the count (`"3 replacements"`).
+    /// Replaces matches of `find` in the text of every body paragraph (a
+    /// match may span runs; the replacement takes the formatting of the
+    /// first matched character). `all == false` replaces only the first
+    /// match. `wildcards` and `format` restrict the search like
+    /// [`FindQuery`]; `replaceFormat` is applied to the replacement. With
+    /// an empty `replace` and a `replaceFormat` the matched text is kept
+    /// and only reformatted (Word's "replace formatting"). The patch's
+    /// `info` reports the count (`"3 replacements"`). One undo step.
     FindReplace {
         find: String,
         replace: String,
         match_case: bool,
         whole_word: bool,
         all: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        wildcards: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        format: Option<FindFormat>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        replace_format: Option<FindFormat>,
     },
     /// Inserts a field (page number, date, …) at `offset`, formatted like
     /// typed text there. `cached` is the result shown until the UI

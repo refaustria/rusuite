@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate the 57 PROVISIONAL docx reference files (testdata/docx/provisional-NN-*.docx) with headless
+# Generate the 58 PROVISIONAL docx reference files (testdata/docx/provisional-NN-*.docx) with headless
 # LibreOffice, plus testdata/docx/manifest.json describing their contents (docs/docx-suite.md).
 #   gen-docx-suite.sh            generate (flat ODT from scripts/testdata-src/docx/gen.py -> docx)
 #   gen-docx-suite.sh --verify   check the committed files against the manifest
@@ -30,7 +30,7 @@ verify_dir() {
   local dir="$1" fail=0 f pdf n
   mkdir -p "$TMP/pdf"
   n="$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$dir/manifest.json")"
-  if [[ "$n" != 57 ]]; then echo "FAIL manifest has $n entries, expected 57"; fail=1; fi
+  if [[ "$n" != 58 ]]; then echo "FAIL manifest has $n entries, expected 58"; fail=1; fi
   while IFS= read -r f; do
     if [[ ! -s "$dir/$f" ]]; then echo "FAIL $f: missing"; fail=1; continue; fi
     if ! unzip -l "$dir/$f" | grep -q '\[Content_Types\].xml'; then echo "FAIL $f: no [Content_Types].xml"; fail=1; continue; fi
@@ -51,6 +51,7 @@ generate() {
   convert -size 48x48 -seed 7 plasma:fractal -colors 16 "$TMP/png/img2.png"
   python3 -I "$GEN" emit "$TMP/src" "$TMP/png"
   lo_convert "$TMP/out" "docx:MS Word 2007 XML" "$TMP"/src/provisional-*.fodt
+  python3 -I "$GEN" patch "$TMP/out"
   cp "$TMP/src/manifest.json" "$TMP/out/manifest.json"
   verify_dir "$TMP/out"
   cp "$TMP"/out/provisional-*.docx "$TMP/out/manifest.json" "$OUT/"

@@ -14,4 +14,9 @@ props?: RunProperties,
 /**
  * The text.
  */
-text: string, };
+text: string, 
+/**
+ * Character style id (docx `w:rStyle`), applied between the paragraph
+ * style and the direct formatting.
+ */
+style?: string, };
