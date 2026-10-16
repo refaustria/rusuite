@@ -89,12 +89,24 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
       "Mod+N": { label: t("write.sc.newDoc"), group: File, inField: true, run: () => onNew() },
       "Mod+O": { label: t("cmd.open"), group: File, inField: true, run: () => void onOpen() },
       "Mod+S": { label: t("cmd.save"), group: File, inField: true, run: () => void onSave() },
-      // Desktop: the native save dialog is the Save As; web: name the download first.
-      "Mod+Shift+S": {
+      // Word: F12 is Save As (Ctrl+Shift+S is Apply Styles). Desktop: the native save dialog; web: name the download first.
+      F12: {
         label: t("cmd.saveAs"),
         group: File,
         inField: true,
         run: () => (ctl.api.backend.kind === "tauri" ? onSaveAs() : setSaveAsOpen(true)),
+      },
+      "Mod+Shift+S": {
+        label: t("write.styles.applyStyles"),
+        group: t("write.styles"),
+        inField: true,
+        run: () => (features ? features.ui.set({ applyStyles: true }) : false),
+      },
+      "Mod+Alt+Shift+S": {
+        label: t("write.styles.pane"),
+        group: t("write.styles"),
+        inField: true,
+        run: () => (features ? features.ui.set({ stylesPane: !features.ui.getState().stylesPane }) : false),
       },
       "Mod+P": { label: t("sc.printTip"), group: File, inField: true, run: () => void openBackstage("print") },
       "Mod+/": { label: t("shortcuts.title"), inField: true, run: () => setHelpOpen(true) },

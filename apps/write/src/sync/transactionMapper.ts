@@ -59,6 +59,8 @@ interface Pos {
   key: string;
   ch?: string;
   props?: RunProperties;
+  /** Character style of a text position ("" = none). */
+  style?: string;
   /** The inline, for images and breaks. */
   inline?: Inline;
 }
@@ -70,7 +72,8 @@ function positions(inlines: Inline[]): Pos[] {
     if (inline.kind === "run") {
       const pk = propsKey(inline.value.props);
       const props = (canonValue(inline.value.props ?? {}) ?? {}) as RunProperties;
-      for (const ch of inline.value.text) out.push({ key: `${ch}\u0000${pk}`, ch, props });
+      const style = inline.value.style ?? "";
+      for (const ch of inline.value.text) out.push({ key: `${ch}\u0000${pk}\u0000${style}`, ch, props, style });
     } else {
       out.push({ key: stableStringify(inline), inline });
     }
@@ -79,15 +82,15 @@ function positions(inlines: Inline[]): Pos[] {
 }
 
 /** Splits text positions into segments of equal properties. */
-function segments(ps: Pos[]): { text: string; props: RunProperties }[] {
-  const out: { text: string; props: RunProperties; key: string }[] = [];
+function segments(ps: Pos[]): { text: string; props: RunProperties; style: string }[] {
+  const out: { text: string; props: RunProperties; style: string; key: string }[] = [];
   for (const p of ps) {
-    const key = propsKey(p.props);
+    const key = `${propsKey(p.props)}\u0000${p.style ?? ""}`;
     const last = out[out.length - 1];
     if (last && last.key === key) last.text += p.ch;
-    else out.push({ text: p.ch!, props: p.props!, key });
+    else out.push({ text: p.ch!, props: p.props!, style: p.style ?? "", key });
   }
-  return out.map(({ text, props }) => ({ text, props }));
+  return out.map(({ text, props, style }) => ({ text, props, style }));
 }
 
 /** A `SetRunProps` patch turning every `old[i]` into `next[i]`, or null. */
@@ -148,7 +151,7 @@ function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): 
     const cmds: WriteCommand[] = [];
     let offset = at;
     for (const s of segments(newMid)) {
-      cmds.push({ type: "insertText", block: id, offset, text: s.text, props: s.props });
+      cmds.push(s.style ? { type: "insertText", block: id, offset, text: s.text, props: s.props, style: s.style } : { type: "insertText", block: id, offset, text: s.text, props: s.props });
       offset += [...s.text].length;
     }
     return cmds;
@@ -159,11 +162,20 @@ function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): 
   }
   // Same characters, different formatting: a mark change.
   if (oldMid.length === newMid.length && allText(oldMid) && oldMid.every((o, i) => o.ch === newMid[i]!.ch)) {
-    const patch = runPatch(oldMid, newMid);
-    if (patch) return { type: "setRunProps", block: id, from: pre, to: pre + oldMid.length, patch };
+    const to = pre + oldMid.length;
+    const propsChanged = oldMid.some((o, i) => propsKey(o.props) !== propsKey(newMid[i]!.props));
+    const styles = new Set(newMid.map((n) => n.style ?? ""));
+    const styleChanged = oldMid.some((o, i) => (o.style ?? "") !== (newMid[i]!.style ?? ""));
+    const patch = propsChanged ? runPatch(oldMid, newMid) : null;
+    if ((!propsChanged || patch) && (!styleChanged || styles.size === 1)) {
+      const cmds: WriteCommand[] = [];
+      if (patch) cmds.push({ type: "setRunProps", block: id, from: pre, to, patch });
+      if (styleChanged) cmds.push({ type: "applyCharacterStyle", block: id, from: pre, to, style: [...styles][0] || null });
+      if (cmds.length) return one(cmds);
+    }
   }
   const segs = segments(newMid);
-  if (segs.length === 1 && oldMid[0]!.ch !== undefined && propsKey(oldMid[0]!.props) === propsKey(segs[0]!.props)) {
+  if (segs.length === 1 && oldMid[0]!.ch !== undefined && propsKey(oldMid[0]!.props) === propsKey(segs[0]!.props) && (oldMid[0]!.style ?? "") === segs[0]!.style) {
     return { type: "replaceText", block: id, from: pre, to: pre + oldMid.length, text: segs[0]!.text };
   }
   return { type: "compound", commands: [{ type: "deleteText", block: id, from: pre, to: pre + oldMid.length }, ...inserts(pre)] };

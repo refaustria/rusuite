@@ -1,9 +1,10 @@
-"""Generator for the PROVISIONAL docx reference suite (57 documents).
+"""Generator for the PROVISIONAL docx reference suite (58 documents).
 
 Emits one flat ODT (.fodt) per topic plus manifest.json. Conversion to .docx is done by
 scripts/gen-docx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
 
   gen.py emit OUTDIR PNGDIR     write OUTDIR/*.fodt and OUTDIR/manifest.json
+  gen.py patch DOCXDIR          add what LibreOffice cannot export to the converted files (style flags)
   gen.py check MANIFEST DOCXDIR structural checks of the converted .docx files against the manifest
 """
 import base64
@@ -21,6 +22,7 @@ NS = (
     'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
     'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" '
     'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" '
+    'xmlns:loext="urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0" '
     'xmlns:xlink="http://www.w3.org/1999/xlink" '
     'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" '
     'office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.text"'
@@ -1022,13 +1024,46 @@ def _(d):
     d.feat("para:tab-leader=dot")
 
 
+# ---------------- 58 named styles ----------------
+@topic(58, "styles-custom", "Custom paragraph, character and linked styles, next style, hidden and gallery flags")
+def _(d):
+    d.extra_styles = (
+        # A custom paragraph style in the gallery whose next paragraph uses "Memo Body".
+        '<style:style style:name="Memo_20_Heading" style:display-name="Memo Heading" style:family="paragraph" '
+        'style:parent-style-name="Standard" style:next-style-name="Memo_20_Body" style:class="text" '
+        'loext:linked-style-name="Memo_20_Heading_20_Char">'
+        '<style:paragraph-properties fo:text-align="center" fo:margin-top="12pt" fo:margin-bottom="6pt"/>'
+        '<style:text-properties fo:font-size="16pt" fo:font-weight="bold" fo:color="#1f4e79"/></style:style>'
+        '<style:style style:name="Memo_20_Heading_20_Char" style:display-name="Memo Heading Char" style:family="text" '
+        'loext:linked-style-name="Memo_20_Heading">'
+        '<style:text-properties fo:font-size="16pt" fo:font-weight="bold" fo:color="#1f4e79"/></style:style>'
+        '<style:style style:name="Memo_20_Body" style:display-name="Memo Body" style:family="paragraph" '
+        'style:parent-style-name="Standard" style:class="text">'
+        '<style:paragraph-properties fo:margin-left="1cm"/><style:text-properties fo:font-style="italic"/></style:style>'
+        # A hidden paragraph style.
+        '<style:style style:name="Internal_20_Note" style:display-name="Internal Note" style:family="paragraph" '
+        'style:parent-style-name="Standard" style:hidden="true">'
+        '<style:text-properties fo:color="#808080"/></style:style>'
+        # A custom character style.
+        '<style:style style:name="Key_20_Term" style:display-name="Key Term" style:family="text">'
+        '<style:text-properties fo:font-weight="bold" fo:color="#c00000"/></style:style>'
+    )
+    d.body.append(X('<text:p text:style-name="Memo_20_Heading">Quarterly memo</text:p>'))
+    d.body.append(X('<text:p text:style-name="Memo_20_Body">' + escape(txt(2)) + '</text:p>'))
+    d.body.append(X('<text:p text:style-name="Standard">A <text:span text:style-name="Key_20_Term">key term</text:span> '
+                    'and a <text:span text:style-name="Memo_20_Heading_20_Char">linked run</text:span> in Normal text.</text:p>'))
+    d.body.append(X('<text:p text:style-name="Internal_20_Note">' + escape(txt(1, 3)) + '</text:p>'))
+    for f in ["style:custom-paragraph", "style:custom-character", "style:linked", "style:next", "style:hidden"]:
+        d.feat(f)
+
+
 def emit(outdir, pngdir):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     for k in range(3):
         IMAGES[k] = (Path(pngdir) / f"img{k}.png").read_bytes()
     manifest = []
-    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 58)), "need exactly topics 1..57"
+    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 59)), "need exactly topics 1..58"
     for n, slug, desc, fn in sorted(TOPICS):
         d = Doc(n, slug, desc)
         fn(d)
@@ -1037,6 +1072,46 @@ def emit(outdir, pngdir):
         manifest.append({"file": d.file, "topic": desc, "features": d.feats, "paragraphs": paras})
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"emitted {len(manifest)} documents")
+
+
+# Word style flags LibreOffice does not export (it marks every style qFormat and writes no
+# hidden / uiPriority / customStyle / latentStyles): added to file 58 after the conversion.
+STYLE_PATCHES = {
+    "provisional-58-styles-custom.docx": [
+        ('<w:style w:type="paragraph" w:styleId="MemoHeading">', '<w:style w:type="paragraph" w:customStyle="1" w:styleId="MemoHeading">'),
+        ('<w:link w:val="MemoHeadingChar"/><w:qFormat/>', '<w:link w:val="MemoHeadingChar"/><w:uiPriority w:val="5"/><w:qFormat/>'),
+        ('<w:style w:type="character" w:styleId="MemoHeadingChar">', '<w:style w:type="character" w:customStyle="1" w:styleId="MemoHeadingChar">'),
+        ('<w:style w:type="paragraph" w:styleId="MemoBody"><w:name w:val="Memo Body"/><w:basedOn w:val="Normal"/><w:qFormat/>',
+         '<w:style w:type="paragraph" w:customStyle="1" w:styleId="MemoBody"><w:name w:val="Memo Body"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="6"/>'),
+        ('<w:style w:type="paragraph" w:styleId="InternalNote"><w:name w:val="Internal Note"/><w:basedOn w:val="Normal"/><w:qFormat/>',
+         '<w:style w:type="paragraph" w:customStyle="1" w:styleId="InternalNote"><w:name w:val="Internal Note"/><w:basedOn w:val="Normal"/><w:hidden/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/>'),
+        ('<w:style w:type="character" w:styleId="KeyTerm">', '<w:style w:type="character" w:customStyle="1" w:styleId="KeyTerm">'),
+        ('</w:docDefaults>', '</w:docDefaults><w:latentStyles w:defLockedState="0" w:defUIPriority="99" w:defSemiHidden="0" '
+         'w:defUnhideWhenUsed="0" w:defQFormat="0" w:count="2"><w:lsdException w:name="Normal" w:uiPriority="0" w:qFormat="1"/>'
+         '<w:lsdException w:name="heading 1" w:uiPriority="9" w:qFormat="1"/></w:latentStyles>'),
+    ],
+}
+
+
+def patch(docxdir):
+    for name, edits in STYLE_PATCHES.items():
+        path = Path(docxdir) / name
+        with zipfile.ZipFile(path) as z:
+            items = [(i, z.read(i.filename)) for i in z.infolist()]
+        out = []
+        for info, data in items:
+            if info.filename == "word/styles.xml":
+                xml = data.decode("utf-8")
+                for old, new in edits:
+                    if old not in xml:
+                        raise SystemExit(f"{name}: {old!r} not found in styles.xml")
+                    xml = xml.replace(old, new, 1)
+                data = xml.encode("utf-8")
+            out.append((info, data))
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+            for info, data in out:
+                z.writestr(info, data, compress_type=zipfile.ZIP_DEFLATED)
+        print(f"patched {name}")
 
 
 def check(manifest_path, docxdir):
@@ -1094,6 +1169,8 @@ def check(manifest_path, docxdir):
                 errs.append("pBdr not found")
             elif ft.startswith("para:tab=") and "<w:tabs>" not in doc:
                 errs.append("tabs not found")
+            elif ft == "style:custom-character" and "<w:rStyle " not in doc:
+                errs.append("rStyle not found")
         n = len(re.findall(r"<w:p[ >]", doc))
         if n < e["paragraphs"]:
             errs.append(f"paragraphs: manifest {e['paragraphs']}, docx {n}")
@@ -1106,6 +1183,8 @@ def check(manifest_path, docxdir):
 if __name__ == "__main__":
     if len(sys.argv) == 4 and sys.argv[1] == "emit":
         emit(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) == 3 and sys.argv[1] == "patch":
+        patch(sys.argv[2])
     elif len(sys.argv) == 4 and sys.argv[1] == "check":
         sys.exit(1 if check(sys.argv[2], sys.argv[3]) else 0)
     else:

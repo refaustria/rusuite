@@ -221,13 +221,16 @@ impl Document {
     }
 
     /// Effective character formatting of `run` in `p`: document defaults →
-    /// paragraph style chain → direct formatting. (Character styles are not
-    /// part of the MVP.)
+    /// paragraph style chain → the run's character style chain → direct
+    /// formatting.
     pub fn resolve_run_props(&self, p: &Paragraph, run: &Run) -> RunProperties {
-        let base = match self.effective_style(p) {
+        let mut base = match self.effective_style(p) {
             Some(id) => self.styles.resolve_run(id),
             None => self.styles.defaults.run.clone(),
         };
+        if let Some(cs) = &run.style {
+            base.apply(&self.styles.resolve_character(cs));
+        }
         base.merged_with(&run.props)
     }
 
@@ -639,7 +642,9 @@ pub(crate) fn merge_runs(inlines: &mut Vec<Inline>) {
     for inline in inlines.drain(..) {
         match (out.last_mut(), inline) {
             (_, Inline::Run(run)) if run.text.is_empty() => {}
-            (Some(Inline::Run(prev)), Inline::Run(run)) if prev.props == run.props => {
+            (Some(Inline::Run(prev)), Inline::Run(run))
+                if prev.props == run.props && prev.style == run.style =>
+            {
                 prev.text.push_str(&run.text);
             }
             (_, other) => out.push(other),

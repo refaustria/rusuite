@@ -136,7 +136,8 @@ fn footnotes_insert_edit_delete() {
     assert_eq!(notes.len(), 1);
     let note_id = notes[0].id;
     let note_para = notes[0].blocks[0].id();
-    assert!(patch.styles.is_some(), "footnote styles added");
+    // Word's default styles include the footnote styles: nothing to add.
+    assert!(patch.styles.is_none(), "footnote styles already there");
     assert!(doc(&h).styles.get("FootnoteText").is_some());
     assert_eq!(doc(&h).find_paragraph(id(1)).unwrap().text(), "Claim\u{2}");
     assert_eq!(
@@ -152,6 +153,7 @@ fn footnotes_insert_edit_delete() {
             offset: 8,
             text: " Page 4.".into(),
             props: None,
+            style: None,
         },
     );
     assert!(patch.replaced.is_empty());
@@ -246,6 +248,7 @@ fn table_of_contents() {
             offset: 6,
             text: "s".into(),
             props: None,
+            style: None,
         },
     );
     let patch = apply(
@@ -455,6 +458,7 @@ fn sections_and_headers() {
             offset: 8,
             text: " A".into(),
             props: None,
+            style: None,
         },
     );
     assert!(patch.replaced.is_empty());

@@ -149,6 +149,7 @@ fn insert_text_counts_scalars_and_atoms() {
             offset: 4,
             text: "ñ".into(),
             props: None,
+            style: None,
         },
     );
     apply(
@@ -158,6 +159,7 @@ fn insert_text_counts_scalars_and_atoms() {
             offset: 8,
             text: "Z".into(),
             props: None,
+            style: None,
         },
     );
     assert_eq!(text(&h, 1), "aé\u{FFFC}😀ñb\u{000B}cZ");
@@ -180,7 +182,8 @@ fn insert_text_counts_scalars_and_atoms() {
                 block: id(1),
                 offset: 8,
                 text: "x".into(),
-                props: None
+                props: None,
+                style: None,
             }
         ),
         "bad_offset"
@@ -220,6 +223,7 @@ fn insert_text_inherits_formatting() {
                 offset,
                 text: t.into(),
                 props: None,
+                style: None,
             },
         );
     }
@@ -238,6 +242,7 @@ fn insert_text_inherits_formatting() {
             offset: 0,
             text: "I".into(),
             props: Some(italic()),
+            style: None,
         },
     );
     assert_eq!(
@@ -514,6 +519,7 @@ fn list_none_overrides_style_numbering() {
         run: RunProperties::default(),
         is_default: false,
         table: None,
+        ..Style::new("", "", StyleKind::Paragraph)
     });
     if let Block::Paragraph(p) = &mut doc.body[0] {
         p.props.style = Some("ListBullet".into());
@@ -763,6 +769,7 @@ fn tables_stay_rectangular() {
             offset: 0,
             text: "in cell".into(),
             props: None,
+            style: None,
         },
     );
     assert_eq!(p.replaced.len(), 1);
@@ -843,6 +850,9 @@ fn find_replace_across_runs() {
             match_case: false,
             whole_word: true,
             all: true,
+            wildcards: false,
+            format: None,
+            replace_format: None,
         },
     );
     assert_eq!(p.info.as_deref(), Some("4 replacements"));
@@ -865,6 +875,9 @@ fn find_replace_across_runs() {
             match_case: true,
             whole_word: false,
             all: false,
+            wildcards: false,
+            format: None,
+            replace_format: None,
         },
     );
     assert_eq!(p.info.as_deref(), Some("1 replacement"));
@@ -877,6 +890,9 @@ fn find_replace_across_runs() {
             match_case: true,
             whole_word: false,
             all: true,
+            wildcards: false,
+            format: None,
+            replace_format: None,
         },
     );
     assert_eq!(p.info.as_deref(), Some("0 replacements"));
@@ -888,7 +904,10 @@ fn find_replace_across_runs() {
                 replace: "x".into(),
                 match_case: true,
                 whole_word: false,
-                all: true
+                all: true,
+                wildcards: false,
+                format: None,
+                replace_format: None,
             }
         ),
         "invalid_command"
@@ -984,6 +1003,7 @@ fn compound_is_atomic() {
         offset: 3,
         text: "d".into(),
         props: None,
+        style: None,
     };
     let bad = C::DeleteText {
         block: id(1),
@@ -1014,6 +1034,7 @@ fn compound_is_atomic() {
                     offset: 2,
                     text: "!".into(),
                     props: None,
+                    style: None,
                 },
             ],
         },
@@ -1041,6 +1062,7 @@ fn scripted_session_undo_redo() {
             offset: 4,
             text: "é😀".into(),
             props: None,
+            style: None,
         },
         C::SetRunProps {
             block: id(2),
@@ -1083,6 +1105,9 @@ fn scripted_session_undo_redo() {
             match_case: true,
             whole_word: false,
             all: true,
+            wildcards: false,
+            format: None,
+            replace_format: None,
         },
         C::JoinWithPrevious { block: id(3) },
         C::DeleteText {
@@ -1524,6 +1549,7 @@ fn clear_formatting_runs_and_paragraph() {
             from: 7,
             to: 9,
             paragraph: false,
+            keep_style: false,
         },
     );
     let p = para(&h, 1);
@@ -1538,6 +1564,7 @@ fn clear_formatting_runs_and_paragraph() {
             from: 0,
             to: 9,
             paragraph: true,
+            keep_style: false,
         },
     );
     let p = para(&h, 1);

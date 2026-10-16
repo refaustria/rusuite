@@ -123,10 +123,10 @@ describe("Write shortcuts", () => {
     await waitFor(() => expect(backend.log.some((r) => r.type === "openDocx")).toBe(true));
   });
 
-  it("Ctrl+Shift+S asks for a name and saves under it", async () => {
+  it("F12 (Word's Save As) asks for a name and saves under it", async () => {
     const { backend, editor } = await mount();
     const save = vi.spyOn(backend, "saveFile").mockResolvedValue(true);
-    fireEvent.keyDown(editor, ctrl("S", { shiftKey: true }));
+    fireEvent.keyDown(editor, { key: "F12" });
     const input = screen.getByLabelText("File name") as HTMLInputElement;
     expect(input.value).toBe("t.docx");
     fireEvent.change(input, { target: { value: "report" } });
@@ -136,11 +136,19 @@ describe("Write shortcuts", () => {
     expect(backend.log.find((r) => r.type === "markSaved")).toEqual({ type: "markSaved", name: "report.docx" });
   });
 
-  it("desktop: Ctrl+Shift+S goes straight to the save dialog; the chosen file names the document and Ctrl+S saves there", async () => {
+  it("Ctrl+Shift+S opens the Apply Styles box (Word), Alt+Ctrl+Shift+S the Styles pane", async () => {
+    const { editor } = await mount();
+    fireEvent.keyDown(editor, ctrl("S", { shiftKey: true }));
+    expect(await screen.findByTestId("apply-styles")).toBeTruthy();
+    fireEvent.keyDown(editor, ctrl("S", { shiftKey: true, altKey: true, code: "KeyS" }));
+    expect(await screen.findByTestId("styles-pane")).toBeTruthy();
+  });
+
+  it("desktop: F12 goes straight to the save dialog; the chosen file names the document and Ctrl+S saves there", async () => {
     const { backend, editor } = await mount();
     backend.kind = "tauri";
     const save = vi.spyOn(backend, "saveFile").mockResolvedValue({ name: "final.docx", path: "/docs/final.docx" });
-    fireEvent.keyDown(editor, ctrl("S", { shiftKey: true }));
+    fireEvent.keyDown(editor, { key: "F12" });
     await waitFor(() => expect(save).toHaveBeenCalledWith("t.docx", expect.any(String), { saveAs: true }));
     expect(screen.queryByLabelText("File name")).toBeNull();
     await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("final.docx"));

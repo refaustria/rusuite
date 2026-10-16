@@ -3,11 +3,11 @@
 
 use app_common::{DispatchError, Envelope, Host, Revision};
 use model_text::media::{base64_decode, base64_encode};
-use model_text::{Document, MediaId};
+use model_text::{Document, MediaId, NodeId};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::command::WriteCommand;
+use crate::command::{FindMatch, FindQuery, WriteCommand};
 use crate::doc::WriteDocument;
 use crate::patch::WritePatch;
 
@@ -63,6 +63,12 @@ pub enum Request {
     },
     /// → `documentState`.
     DocumentState,
+    /// The paragraphs (all containers) using style `id` (Word's "Select
+    /// All n Instances"; see `Document::blocks_with_style`) → `blockIds`.
+    BlocksWithStyle { id: String },
+    /// The matches of a search (Find and Replace with formatting or
+    /// wildcards; body paragraphs, table cells included) → `findMatches`.
+    Find { query: Box<FindQuery> },
     /// Marks the current state as saved (after the shell wrote the file);
     /// `name` (save as) replaces the document's file name →
     /// `documentState`.
@@ -115,6 +121,13 @@ pub enum ResponseBody {
         revision: Revision,
         dirty: bool,
         name: Option<String>,
+    },
+    /// Block ids, in document order.
+    BlockIds { ids: Vec<NodeId> },
+    /// Find results in document order, with the revision they belong to.
+    FindMatches {
+        matches: Vec<FindMatch>,
+        revision: Revision,
     },
     /// Host state for the title bar: dirty flag, revision and the file
     /// name (`null` for a new document).
@@ -214,6 +227,13 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
             document(host)
         }
         Request::DocumentState => state(host),
+        Request::BlocksWithStyle { id } => ResponseBody::BlockIds {
+            ids: host.doc().document().blocks_with_style(&id),
+        },
+        Request::Find { query } => ResponseBody::FindMatches {
+            matches: host.doc().find(&query)?,
+            revision: host.revision(),
+        },
         Request::MarkSaved { name } => {
             if let Some(name) = name {
                 host.doc_mut().source_name = Some(name);

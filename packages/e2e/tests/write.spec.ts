@@ -3,6 +3,8 @@ import { interceptPrint, openPrint, previewPdf, openViaBackstage, printCount, sa
 import { zipText, unzip } from "../support/zip";
 
 const REPORT = testdata("docx/provisional-47-report.docx");
+/** Screenshots of the P8-21 checks (outside the repository). */
+const SHOTS = process.env.SHOTS_DIR ?? "test-results/shots";
 const editor = (page: Page) => page.locator(".ProseMirror");
 
 async function openWrite(page: Page) {
@@ -321,5 +323,143 @@ test.describe("Write", () => {
     expect(Math.abs(value - (8 * 96) / 2.54)).toBeLessThan(4);
     const xml = zipText(await saveViaBackstage(page), "word/document.xml");
     expect(xml).toMatch(/<w:tabs><w:tab w:val="left" w:pos="4535"/);
+  });
+
+  // ----- styles (P8-21) -----------------------------------------------------------
+
+  test("Modify Heading 1 from the gallery: its colour reaches every heading and styles.xml", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Chapter one");
+    await page.keyboard.press("Control+Alt+1");
+    await expect(editor(page).locator("h1")).toHaveText("Chapter one");
+    const gallery = page.getByRole("group", { name: "Paragraph styles" });
+    await gallery.getByRole("button", { name: "Heading 1" }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Modify…" }).click();
+    const dlg = page.getByRole("dialog", { name: "Modify Style" });
+    await expect(dlg.getByLabel("Name")).toHaveValue("heading 1");
+    await dlg.getByRole("button", { name: "Font color" }).click();
+    await page.getByRole("button", { name: "Standard color C00000" }).click();
+    await expect(dlg.getByTestId("style-description")).toContainText("#C00000");
+    await page.screenshot({ path: SHOTS + "/modify-style.png" });
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(editor(page).locator("h1")).toHaveCSS("color", "rgb(192, 0, 0)");
+    const styles = zipText(await saveViaBackstage(page), "word/styles.xml");
+    expect(styles).toMatch(/<w:style w:type="paragraph" w:styleId="Heading1">(?:(?!<\/w:style>)[^])*<w:color w:val="C00000"\/>/);
+    errors.expectNone();
+  });
+
+  test("Create a Style from the selection, then apply it to another paragraph from the gallery", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Callout text");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Plain text");
+    await editor(page).locator("p", { hasText: "Callout text" }).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
+    // ProseMirror takes over the DOM selection asynchronously: bold from the ribbon once it has it.
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe("Callout text");
+    await page.getByRole("button", { name: "Bold" }).click();
+    await expect(editor(page).locator("strong")).toHaveText("Callout text");
+    await page.keyboard.press("Control+e");
+    await page.getByRole("button", { name: "More styles" }).click();
+    await page.getByRole("button", { name: "Create a Style…" }).click();
+    const dlg = page.getByRole("dialog", { name: "Create New Style from Formatting" });
+    await dlg.getByLabel("Name").fill("Callout");
+    await dlg.getByRole("button", { name: "OK" }).click();
+    const first = editor(page).locator('p[data-style="Callout"]');
+    await expect(first).toHaveText("Callout text");
+    const gallery = page.getByRole("group", { name: "Paragraph styles" });
+    await expect(gallery.getByRole("button", { name: "Callout" })).toBeVisible();
+    await editor(page).locator("p", { hasText: "Plain text" }).click();
+    await gallery.getByRole("button", { name: "Callout" }).click();
+    const second = editor(page).locator('p[data-style="Callout"]', { hasText: "Plain text" });
+    await expect(second).toHaveCSS("text-align", "center");
+    await expect(second).toHaveCSS("font-weight", "700");
+    await page.screenshot({ path: SHOTS + "/create-style.png" });
+    const docx = await saveViaBackstage(page);
+    expect(zipText(docx, "word/document.xml").match(/<w:pStyle w:val="Callout"\/>/g)).toHaveLength(2);
+    const styles = zipText(docx, "word/styles.xml");
+    expect(styles).toMatch(/<w:style w:type="paragraph" w:customStyle="1" w:styleId="Callout"><w:name w:val="Callout"\/>(?:(?!<\/w:style>)[^])*<w:jc w:val="center"\/>(?:(?!<\/w:style>)[^])*<w:b\/>/);
+  });
+
+  test("the Apply Styles box (Ctrl+Shift+S) applies Quote", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("To be or not to be");
+    await page.keyboard.press("Control+Shift+S");
+    const box = page.getByTestId("apply-styles");
+    await expect(box).toBeVisible();
+    await box.getByLabel("Style Name").fill("Quote");
+    await page.screenshot({ path: SHOTS + "/apply-styles.png" });
+    await box.getByLabel("Style Name").press("Enter");
+    await expect(box).toBeHidden();
+    const quote = editor(page).locator('p[data-style="Quote"]');
+    await expect(quote).toHaveText("To be or not to be");
+    await expect(quote).toHaveCSS("font-style", "italic");
+    await expect(quote).toHaveCSS("text-align", "center");
+    expect(zipText(await saveViaBackstage(page), "word/document.xml")).toContain('<w:pStyle w:val="Quote"/>');
+  });
+
+  test("Find and Replace with formatting: bold fox → cat, the plain fox stays", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("The fox and the ");
+    await page.keyboard.press("Control+b");
+    await page.keyboard.type("fox");
+    await page.keyboard.press("Control+b");
+    await page.keyboard.type(". Another fox.");
+    await expect(editor(page).locator("strong")).toHaveText("fox");
+    await page.keyboard.press("Control+h");
+    const bar = page.getByTestId("find-bar");
+    await bar.getByLabel("Find", { exact: true }).fill("fox");
+    await expect(page.locator(".find-match")).toHaveCount(3);
+    await bar.getByRole("button", { name: "More" }).click();
+    await bar.getByRole("button", { name: "Find format" }).click();
+    await bar.getByRole("menuitem", { name: "Font…" }).click();
+    const font = page.getByRole("dialog", { name: "Font" });
+    await font.getByLabel("Bold").selectOption("on");
+    await font.getByRole("button", { name: "OK" }).click();
+    await expect(bar.getByTestId("find-format")).toContainText("Bold");
+    await expect(page.locator(".find-match")).toHaveCount(1);
+    await bar.getByLabel("Replace with").fill("cat");
+    await page.screenshot({ path: SHOTS + "/find-format.png" });
+    await bar.getByRole("button", { name: "Replace all" }).click();
+    await expect(bar.getByRole("status")).toHaveText("1 replacement");
+    await expect(editor(page).locator("p").first()).toHaveText("The fox and the cat. Another fox.");
+    await expect(editor(page).locator("strong")).toHaveText("cat");
+    // One undo step brings the bold fox back.
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Undo" }).click();
+    await expect(editor(page).locator("strong")).toHaveText("fox");
+  });
+
+  test("deleting a custom style in the Styles pane re-points its paragraphs to Normal", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Memo paragraph");
+    await page.keyboard.press("Control+Alt+Shift+S");
+    const pane = page.getByTestId("styles-pane");
+    await expect(pane).toBeVisible();
+    await pane.getByRole("button", { name: "New Style" }).click();
+    const dlg = page.getByRole("dialog", { name: "Create New Style from Formatting" });
+    await dlg.getByLabel("Name").fill("Memo");
+    await dlg.getByRole("button", { name: "Italic" }).click();
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await pane.getByRole("option", { name: "Memo" }).click();
+    await expect(editor(page).locator('p[data-style="Memo"]')).toHaveCSS("font-style", "italic");
+    await pane.getByRole("button", { name: "Style Memo" }).click();
+    await page.screenshot({ path: SHOTS + "/styles-pane.png" });
+    await page.getByRole("menuitem", { name: 'Delete "Memo"…' }).click();
+    await page.getByRole("dialog", { name: "Delete style" }).getByRole("button", { name: "Yes" }).click();
+    await expect(pane.getByRole("option", { name: "Memo" })).toHaveCount(0);
+    const p = editor(page).locator("p", { hasText: "Memo paragraph" });
+    await expect(p).not.toHaveAttribute("data-style", /.*/);
+    await expect(p).toHaveCSS("font-style", "normal");
+    const docx = await saveViaBackstage(page);
+    expect(zipText(docx, "word/styles.xml")).not.toContain('w:styleId="Memo"');
+    expect(zipText(docx, "word/document.xml")).not.toContain("Memo\"");
   });
 });

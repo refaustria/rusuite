@@ -64,7 +64,7 @@ export function mergeRuns(inlines: Inline[]): Inline[] {
     if (inline.kind === "run") {
       if (inline.value.text === "") continue;
       const prev = out[out.length - 1];
-      if (prev?.kind === "run" && propsKey(prev.value.props) === propsKey(inline.value.props)) {
+      if (prev?.kind === "run" && propsKey(prev.value.props) === propsKey(inline.value.props) && (prev.value.style ?? null) === (inline.value.style ?? null)) {
         out[out.length - 1] = { kind: "run", value: { ...prev.value, text: prev.value.text + inline.value.text } };
         continue;
       }

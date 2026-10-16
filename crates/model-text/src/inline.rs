@@ -61,6 +61,11 @@ pub struct Run {
     pub props: RunProperties,
     /// The text.
     pub text: String,
+    /// Character style id (docx `w:rStyle`), applied between the paragraph
+    /// style and the direct formatting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub style: Option<String>,
 }
 
 impl Run {
@@ -69,6 +74,7 @@ impl Run {
         Self {
             props: RunProperties::default(),
             text: text.into(),
+            style: None,
         }
     }
 
@@ -77,6 +83,16 @@ impl Run {
         Self {
             props,
             text: text.into(),
+            style: None,
+        }
+    }
+
+    /// A run with a character style and direct formatting.
+    pub fn styled(text: impl Into<String>, style: Option<String>, props: RunProperties) -> Self {
+        Self {
+            props,
+            text: text.into(),
+            style,
         }
     }
 }
