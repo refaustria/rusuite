@@ -62,7 +62,7 @@ function CodeList({ label, codes, value, onPick, labels }: { label: string; code
           type="button"
           role="option"
           aria-selected={c === value}
-          className={`truncate px-2 py-0.5 text-left font-mono text-xs ${c === value ? "bg-ui-active" : "hover:bg-ui-hover"}`}
+          className={`shrink-0 truncate px-2 py-0.5 text-left font-mono text-xs ${c === value ? "bg-ui-active" : "hover:bg-ui-hover"}`}
           onClick={() => onPick(c)}
         >
           {labels ? labels(c) : c}

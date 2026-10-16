@@ -185,7 +185,7 @@ describe("store: edits", () => {
     });
     expect(store.cache(0).cells.get(0)?.get(1)?.display).toBe("2");
     expect(store.getState().selection.focus).toEqual({ row: 1, col: 1 });
-    expect(store.copy()).toBe("1\t=A1*2\nx\t");
+    expect(store.copy()).toBe("1\t2\nx\t"); // displayed values (P8-39)
   });
 
   it("toggles bold from the active cell's style", async () => {

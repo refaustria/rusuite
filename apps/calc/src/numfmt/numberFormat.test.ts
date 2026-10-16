@@ -2,7 +2,7 @@
 // ribbon's quick formats, Increase / Decrease Decimal on every family.
 import { describe, expect, it } from "vitest";
 import {
-  accountingCode, buildCode, BUILTIN_CODES, CATEGORIES, changeDecimals, customCodes, DEFAULT_CHOICE, FRACTION_CODES, parseCode, QUICK_FORMATS, quickCode,
+  accountingCode, buildCode, BUILTIN_CODES, CATEGORIES, changeDecimals, customCodes, shownDecimals, DEFAULT_CHOICE, FRACTION_CODES, parseCode, QUICK_FORMATS, quickCode,
   quickOf, type FormatChoice,
 } from "../numberFormat";
 
@@ -70,11 +70,21 @@ describe("ribbon number format box", () => {
     expect(quickOf("0.00%", "$", false)).toBe("percentage");
     expect(quickOf(null, "$", false)).toBe("general");
     expect(quickOf("0.000", "$", false)).toBeNull();
+    expect(quickOf("0%", "$", false)).toBe("percentage");
     for (const q of QUICK_FORMATS) expect(quickOf(quickCode(q, "€", true), "€", true)).toBe(q);
   });
 });
 
 describe("Increase / Decrease Decimal", () => {
+  it("starts a General cell from the decimals it shows (P8-39 C-06)", () => {
+    expect(shownDecimals("3.14159")).toBe(5);
+    expect(shownDecimals("1.23E+11")).toBe(0);
+    expect(shownDecimals("42")).toBe(0);
+    expect(changeDecimals("General", 1, 5)).toBe("0.000000");
+    expect(changeDecimals("General", -1, 5)).toBe("0.0000");
+    expect(changeDecimals("General", 1, 0)).toBe("0.0");
+  });
+
   it("works on every family with digits", () => {
     expect(changeDecimals("0.00E+00", 1)).toBe("0.000E+00");
     expect(changeDecimals("0E+00", 1)).toBe("0.0E+00");
