@@ -41,3 +41,4 @@ export const Text = el("Text");
 export const Transformer = el("Transformer");
 export const Path = el("Path");
 export const Circle = el("Circle");
+export const Shape = el("Shape");

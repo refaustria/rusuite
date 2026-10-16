@@ -407,5 +407,38 @@
    "picture:lum",
    "picture:transparency"
   ]
+ },
+ {
+  "file": "provisional-32-charts.pptx",
+  "topic": "Charts: clustered column, line and pie with their data (LibreOffice chart objects)",
+  "features": [
+   "slides:2",
+   "layout:blank",
+   "size:16x9",
+   "shape:textBox:count=1",
+   "chart:column",
+   "chart:line",
+   "chart:pie"
+  ]
+ },
+ {
+  "file": "provisional-33-links-media.pptx",
+  "topic": "Hyperlinks (web, slide), click actions (next, last, end show) and a video",
+  "features": [
+   "slides:3",
+   "layout:blank",
+   "size:16x9",
+   "link:url",
+   "link:slide",
+   "shape:textBox:count=2",
+   "action:next",
+   "fill:solid",
+   "shape:rect:count=3",
+   "action:last",
+   "action:endShow",
+   "shape:ellipse:count=1",
+   "action:previous",
+   "media:video"
+  ]
  }
 ]

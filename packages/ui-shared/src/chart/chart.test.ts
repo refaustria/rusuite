@@ -357,3 +357,18 @@ describe("sceneToSvg", () => {
     expect((svg.match(/<path/g) ?? []).length).toBeGreaterThan(5);
   });
 });
+
+describe("layout options for hosts", () => {
+  it("area fill / border and the text colour can be set (Show: transparent, theme text)", () => {
+    const chart = chartOf({ type: "bar", direction: "column", grouping: "clustered" });
+    const plain = layoutChart(chart, DATA, W, H);
+    const area = plain.items[0]!;
+    expect(area.t === "rect" && area.fill).toBe("#FFFFFF");
+    const show = layoutChart(chart, DATA, W, H, { area: { fill: null, border: null }, textColor: "#F2F2F2" });
+    const a = show.items[0]!;
+    expect(a.t === "rect" && a.fill === undefined && a.stroke === undefined).toBe(true);
+    const texts = show.items.filter((it) => it.t === "text");
+    expect(texts.length).toBeGreaterThan(0);
+    expect(texts.every((it) => it.t === "text" && it.color === "#F2F2F2")).toBe(true);
+  });
+});

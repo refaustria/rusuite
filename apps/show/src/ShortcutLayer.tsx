@@ -100,6 +100,17 @@ export function ShortcutLayer({ store, guard, enabled, onPresent, onPresenterVie
       "Mod+V": edit(t("cmd.paste")),
       "Mod+Shift+>": fontStep(t("show.fontBigger"), 1),
       "Mod+Shift+<": fontStep(t("show.fontSmaller"), -1),
+      "Mod+K": {
+        label: t("show.link.insertDots"),
+        group: t("tab.insert"),
+        inField: true,
+        when: (e) => store.getState().editing !== null || !fromField(e.target),
+        run: () => {
+          const s = store.getState();
+          if (s.editing === null && s.selection.length === 0) return false;
+          store.openDialog({ kind: "link" });
+        },
+      },
       "Mod+D": edit(t("show.duplicate")),
       "Mod+G": edit(t("show.group")),
       "Mod+Shift+G": edit(t("show.ungroup")),

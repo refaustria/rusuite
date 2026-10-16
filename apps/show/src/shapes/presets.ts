@@ -8,6 +8,7 @@ import type { Preset } from "../generated/Preset";
 import type { Shape } from "../generated/Shape";
 import type { TextBody } from "../generated/TextBody";
 import type { Transform } from "../generated/Transform";
+import type { Hyperlink } from "../generated/Hyperlink";
 import { EMU_PER_PT } from "../geometry";
 
 /** A named preset (every `Preset` but `custom`). */
@@ -19,7 +20,7 @@ export type ShapeChoice =
   | { kind: "textBox" }
   | { kind: "connector"; connector: ConnectorKind; head: boolean; tail: boolean };
 
-export type ShapeGroupId = "recent" | "lines" | "rectangles" | "basic" | "arrows" | "flowchart" | "stars" | "callouts";
+export type ShapeGroupId = "recent" | "lines" | "rectangles" | "basic" | "arrows" | "flowchart" | "stars" | "callouts" | "actionButtons";
 
 /** Gallery ids of the connector choices. */
 const CONNECTORS: Record<string, ShapeChoice> = {
@@ -47,9 +48,39 @@ export const SHAPE_GROUPS: { id: Exclude<ShapeGroupId, "recent">; items: string[
   },
   { id: "stars", items: ["star4", "star5", "star6", "star8"] },
   { id: "callouts", items: ["wedgeRectCallout", "wedgeRoundRectCallout", "wedgeEllipseCallout"] },
+  {
+    id: "actionButtons",
+    items: [
+      "actionButtonBackPrevious", "actionButtonForwardNext", "actionButtonBeginning", "actionButtonEnd", "actionButtonHome", "actionButtonInformation",
+      "actionButtonReturn", "actionButtonMovie", "actionButtonDocument", "actionButtonSound", "actionButtonHelp", "actionButtonBlank",
+    ],
+  },
 ];
 
-/** Every named preset (the 38 of the gallery plus `line`). */
+/** The click action PowerPoint gives a new action button (mirror of `Preset::default_action`). */
+export function defaultAction(p: Preset): Hyperlink | undefined {
+  const to = (kind: "first" | "last" | "next" | "previous" | "lastViewed"): Hyperlink => ({ target: { kind: "slide", value: { kind } } });
+  switch (p) {
+    case "actionButtonHome":
+    case "actionButtonBeginning":
+      return to("first");
+    case "actionButtonEnd":
+      return to("last");
+    case "actionButtonBackPrevious":
+      return to("previous");
+    case "actionButtonForwardNext":
+      return to("next");
+    case "actionButtonReturn":
+      return to("lastViewed");
+    default:
+      return undefined;
+  }
+}
+
+/** Whether a preset is one of the twelve action buttons. */
+export const isActionButton = (p: Preset): boolean => typeof p === "string" && p.startsWith("actionButton");
+
+/** Every named preset (the 50 of the gallery plus `line`). */
 export const NAMED_PRESETS: NamedPreset[] = [
   ...SHAPE_GROUPS.flatMap((g) => g.items.filter((i) => !(i in CONNECTORS) && i !== "textBox")),
   "line",
@@ -155,13 +186,16 @@ export function choiceShape(choice: ShapeChoice, transform: Transform, id: numbe
         line: { fill: { kind: "solid", value: ACCENT }, width: EMU_PER_PT, dash: "solid" },
       };
     }
-    case "preset":
+    case "preset": {
+      const action = defaultAction(choice.preset);
       return {
         ...base,
         kind: { kind: "auto", value: { geometry: choice.preset, text: body("middle", true) } },
         fill: { kind: "solid", value: ACCENT },
         line: { fill: { kind: "solid", value: ACCENT_DARK }, width: EMU_PER_PT, dash: "solid" },
+        ...(action ? { clickAction: action } : {}),
       };
+    }
   }
 }
 

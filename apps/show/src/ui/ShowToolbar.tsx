@@ -30,6 +30,8 @@ import { LayoutGallery, designTab } from "./DesignTab";
 import { slideMasterTab } from "./MasterView";
 import { pictureFormatTab } from "./PictureTab";
 import { DI } from "./designIcons";
+import { chartDesignTab, chartFormatTab, insertChartButton } from "../charts/ChartRibbon";
+import { MediaInsertButtons, playbackTab } from "../media/PlaybackTab";
 
 /** The shape the formatting controls reflect: the edited one, else the first selected. */
 function focusShape(s: ShowState): Shape | null {
@@ -67,6 +69,18 @@ const FontStep = ({ sign }: { sign: "+" | "-" }) => (
   <span aria-hidden="true" className="flex items-start text-[13px] font-semibold leading-none">
     A<span className="text-[9px]">{sign === "+" ? "▲" : "▼"}</span>
   </span>
+);
+
+/** Insert › Link and Insert › Action icons. */
+const LinkIcon = () => (
+  <svg aria-hidden="true" width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+    <path d="M8.5 11.5l3-3M7 9.5l-2 2a2.5 2.5 0 0 0 3.5 3.5l2-2M13 10.5l2-2A2.5 2.5 0 0 0 11.5 5l-2 2" />
+  </svg>
+);
+const ActionIcon = () => (
+  <svg aria-hidden="true" width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
+    <path d="M6 3l9 7-4 .8 2.2 4.6-1.8.9-2.2-4.6L6 14z" fill="currentColor" fillOpacity="0.15" />
+  </svg>
 );
 
 // ----- galleries ------------------------------------------------------------------------
@@ -194,7 +208,22 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
       tooltip={t("show.newSlideTip")}
       onClick={() => addSlide("titleContent")}
       menuLabel={t("show.slideLayouts")}
-      menu={(close) => <LayoutGallery store={store} label={t("show.slideLayouts")} close={close} onSelect={(k) => addSlide(k)} />}
+      menu={(close) => (
+        <div className="flex flex-col gap-1">
+          <LayoutGallery store={store} label={t("show.slideLayouts")} close={close} onSelect={(k) => addSlide(k)} />
+          <button
+            type="button"
+            className="rounded px-2 py-1 text-left text-sm hover:bg-ui-hover"
+            data-testid="reuse-slides"
+            onClick={() => {
+              close();
+              store.toggleReusePane(true);
+            }}
+          >
+            {t("show.reuse.menu")}
+          </button>
+        </div>
+      )}
     />
   );
   const quickKeyboard = { current: false };
@@ -410,8 +439,24 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         items: (
           // A menu button around an inline gallery in a `w-max` box: the popup is anchored to the narrow trigger, so
           // the gallery's auto-sized columns would otherwise shrink and its buttons overlap.
-          <RibbonMenuButton label={t("show.shapes")} icon="shapes" size="large" disabled={!hasSlide} menu={shapesMenu(store, state)} />
+          <>
+            <RibbonMenuButton label={t("show.shapes")} icon="shapes" size="large" disabled={!hasSlide} menu={shapesMenu(store, state)} />
+            {insertChartButton(store, t, !hasSlide || masterView)}
+          </>
         ),
+      },
+      {
+        label: t("show.links"),
+        items: (
+          <>
+            <RibbonButton label={t("show.link.insert")} icon={<LinkIcon />} size="large" shortcut="Mod+K" disabled={!hasSlide || (selCount === 0 && !editing)} onClick={() => store.openDialog({ kind: "link" })} />
+            <RibbonButton label={t("show.action.insert")} icon={<ActionIcon />} size="large" disabled={selCount === 0} onClick={() => store.openDialog({ kind: "action" })} />
+          </>
+        ),
+      },
+      {
+        label: t("show.media.group"),
+        items: <MediaInsertButtons store={store} t={t} disabled={!hasSlide || masterView} />,
       },
       {
         label: t("show.text"),
@@ -465,13 +510,20 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
   const tableDesign = tableDesignTab(store, palette, t);
   const tableLayout = tableLayoutTab(store, t);
   const pictures = sel.filter((x) => x.kind.kind === "picture");
+  const chartDesign = chartDesignTab(store, state, t);
+  const chartFormat = chartFormatTab(store, state, t);
+  const playback = sel.length > 0 && sel.every((x) => x.kind.kind === "media") ? playbackTab(store, state, t) : null;
   const contextual = masterView
     ? []
     : tableDesign && tableLayout
       ? [tableDesign, tableLayout]
-      : pictures.length > 0 && pictures.length === sel.length
-        ? [pictureFormatTab(store, state, t, pictures)]
-        : selCount > 0 ? [shapeFormat] : [];
+      : chartDesign && chartFormat
+        ? [chartDesign, chartFormat]
+        : playback
+          ? [playback, shapeFormat]
+          : pictures.length > 0 && pictures.length === sel.length
+            ? [pictureFormatTab(store, state, t, pictures)]
+            : selCount > 0 ? [shapeFormat] : [];
 
   const view: RibbonTab = {
     id: "view",

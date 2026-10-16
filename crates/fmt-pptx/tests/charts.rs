@@ -46,21 +46,11 @@ fn charts_deck_roundtrips() {
     assert_eq!(bytes, fmt_pptx::write(&deck).unwrap(), "deterministic");
     let (back, warnings) = fmt_pptx::read_with_warnings(&bytes).unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
-    // the read charts keep their files' workbooks
+    // workbooks we generated ourselves are not kept (they are generated again)
     let read = charts(&back);
     assert_eq!(read.len(), 5);
-    assert!(read.iter().all(|c| c.workbook.is_some()));
-    // apart from that, everything is as written
-    let mut plain = back.clone();
-    for s in &mut plain.slides {
-        for sh in &mut s.shapes {
-            if let ShapeKind::Chart(c) = &mut sh.kind {
-                c.workbook = None;
-            }
-        }
-    }
-    plain.media = deck.media.clone();
-    common::assert_same("charts deck", &deck, &plain);
+    assert!(read.iter().all(|c| c.workbook.is_none()));
+    common::assert_same("charts deck", &deck, &back);
     // the read deck writes the same file (its workbooks verbatim)
     assert_eq!(fmt_pptx::write(&back).unwrap(), bytes, "fixpoint");
 
@@ -165,4 +155,23 @@ fn edited_data_drops_the_file_workbook() {
     assert_eq!(wb.value(CellCoord::new(sheet, 1, 1)), Value::Number(99.0));
     let chart = text(&again, "/ppt/charts/chart1.xml");
     assert!(chart.contains("<c:v>99</c:v>"), "{chart}");
+}
+
+#[test]
+fn foreign_workbooks_are_kept_verbatim() {
+    let bytes = fmt_pptx::write(&charts_deck::charts_deck()).unwrap();
+    // the file's workbook has one more cell than we would write
+    let name = PartName::new("/ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx").unwrap();
+    let mut pkg = Package::open(Cursor::new(&bytes)).unwrap();
+    let mut wb = fmt_xlsx::read(&pkg.part(&name).unwrap().data).unwrap();
+    let sheet = wb.sheets()[0].0;
+    wb.set_input(CellCoord::new(sheet, 20, 20), "note").unwrap();
+    let foreign = fmt_xlsx::write(&wb).unwrap();
+    pkg.part_mut(&name).unwrap().data = foreign.clone();
+    let edited = pkg.write(Cursor::new(Vec::new())).unwrap().into_inner();
+    let back = fmt_pptx::read(&edited).unwrap();
+    assert!(charts(&back)[0].workbook.is_some());
+    assert!(charts(&back)[1].workbook.is_none());
+    let again = fmt_pptx::write(&back).unwrap();
+    assert_eq!(part(&again, name.as_str()), foreign);
 }

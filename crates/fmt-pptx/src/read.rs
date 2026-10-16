@@ -1034,7 +1034,7 @@ impl Reader<'_> {
                 let wanted = Some(r.id.as_str()) == read.external_data.as_deref();
                 let ct = self.pkg.content_type_of(&target).unwrap_or("").to_owned();
                 if wanted && ct == XLSX_CT {
-                    workbook = self.media_of_part(&target, None);
+                    workbook = Some(target);
                 } else {
                     if wanted {
                         self.w.add("chart data embedded as an OLE object dropped (the chart keeps its data)");
@@ -1044,12 +1044,22 @@ impl Reader<'_> {
                 }
             }
         }
+        let mut chart = shape_from_chart(read.chart, None);
+        if let Some(target) = workbook {
+            // a workbook we would generate from the data anyway is not kept
+            let generated = crate::chart::workbook_xlsx(&chart.data).ok();
+            if self.pkg.part(&target).map(|p| &p.data) == generated.as_ref() {
+                self.consumed.insert(target);
+            } else {
+                chart.workbook = self.media_of_part(&target, None);
+            }
+        }
         Some(Shape {
             id: file_id(el),
             alt: alt_of(el),
             name,
             transform,
-            kind: ShapeKind::Chart(Box::new(shape_from_chart(read.chart, workbook))),
+            kind: ShapeKind::Chart(Box::new(chart)),
             fill: Fill::None,
             line: Line::default(),
             placeholder: None,

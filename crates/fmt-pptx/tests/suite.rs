@@ -345,7 +345,7 @@ fn has_feature(found: &BTreeMap<String, usize>, feature: &str) -> bool {
 fn manifest_features_are_found() {
     let mut failures = Vec::new();
     let entries = manifest();
-    assert_eq!(entries.len(), 31);
+    assert_eq!(entries.len(), 33);
     for e in entries {
         let p = fmt_pptx::read(&load(&e.file)).unwrap();
         let found = features_of(&p);

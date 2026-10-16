@@ -26,6 +26,14 @@ import type { Slide } from "../generated/Slide";
 import type { TextBody } from "../generated/TextBody";
 import type { Transform } from "../generated/Transform";
 import type { ZOp } from "../generated/ZOp";
+import type { ChartData } from "../generated/ChartData";
+import type { ChartShape } from "../generated/ChartShape";
+import type { Hyperlink } from "../generated/Hyperlink";
+import type { MediaPatch } from "../generated/MediaPatch";
+import { applyPreset, presetById } from "../charts/presets";
+import { transposeData } from "../charts/data";
+import type { Chart } from "../charts/types";
+import { linkAt, linkCommands, reusePayload } from "./rich";
 import { bodyText, effectiveParagraph, findShape, placeholderDef, textOf } from "../model";
 import {
   alignCommand, alignmentCommand, bodyFromText, bulletCommand, compound, duplicateCommand, formatCommands, indentCommands,
@@ -139,6 +147,13 @@ export interface ShowState {
   bgPane: boolean;
   /** Picture Format › Crop: the picture being cropped, its crop and box so far. */
   crop: { shape: NodeId; crop: Crop; box: Transform } | null;
+  /** The chart Format pane (right of the stage). */
+  chartPane: boolean;
+  /** The series the chart Format tab and pane edit. */
+  chartSeries: number;
+  /** The Reuse Slides pane and the presentation it shows. */
+  reusePane: boolean;
+  reuse: { name: string; pres: Presentation; warnings: string[] } | null;
 }
 
 /** Theme shape styles of Shape Format › Shape Styles: fill and outline per accent. */
@@ -152,7 +167,12 @@ export type ShowDialog =
   | { kind: "insertTable" }
   | { kind: "headerFooter"; tab?: "slide" | "notes" }
   | { kind: "slideSize" }
-  | { kind: "renameSection"; index: number };
+  | { kind: "renameSection"; index: number }
+  | { kind: "insertChart" }
+  | { kind: "chartType" }
+  | { kind: "editData" }
+  | { kind: "link" }
+  | { kind: "action" };
 
 /** The internal clipboard: shapes (with the slide they came from) or slide ids. */
 type Clip = { kind: "shapes"; shapes: Shape[]; slide: NodeId | null; pastes: number } | { kind: "slides"; ids: NodeId[] };
@@ -216,8 +236,14 @@ export class ShowStore {
     themes: null,
     bgPane: false,
     crop: null,
+    chartPane: false,
+    chartSeries: 0,
+    reusePane: false,
+    reuse: null,
   };
   private clip: Clip | null = null;
+  /** The editor session Insert › Link was opened from (the editor closes when the dialog opens). */
+  private linkEdit: EditSession | null = null;
   private listeners = new Set<() => void>();
   private toastSeq = 0;
   private tempSeq = 0;
@@ -369,7 +395,10 @@ export class ShowStore {
     const walk = (shapes: Shape[]) => {
       for (const sh of shapes) {
         if (sh.kind.kind === "picture") want.add(sh.kind.value.media);
-        else if (sh.kind.kind === "group") walk(sh.kind.value.children);
+        else if (sh.kind.kind === "media") {
+          want.add(sh.kind.value.media);
+          if (sh.kind.value.poster !== undefined) want.add(sh.kind.value.poster);
+        } else if (sh.kind.kind === "group") walk(sh.kind.value.children);
       }
     };
     slides.forEach((s) => walk(s.shapes));
@@ -563,6 +592,8 @@ export class ShowStore {
   // --- dialogs ----------------------------------------------------------------
 
   openDialog(dialog: ShowDialog): void {
+    // Insert › Link works on the text selection the editor had
+    this.linkEdit = dialog.kind === "link" && this.state.editing && !this.state.editing.cell ? this.state.editing : null;
     if (this.state.editing) void this.commitEdit();
     this.set({ dialog });
   }
@@ -1566,6 +1597,162 @@ export class ShowStore {
   /** Esc: leaves crop mode without changes. */
   cancelCrop(): void {
     if (this.state.crop) this.set({ crop: null });
+  }
+
+  // ----- charts (P8-24)
+
+  /** The one selected chart shape and its chart. */
+  selectedChart(): { shape: Shape; chart: ChartShape } | null {
+    const sel = this.selectedShapes();
+    const s = sel.length === 1 ? sel[0]! : null;
+    return s && s.kind.kind === "chart" ? { shape: s, chart: s.kind.value } : null;
+  }
+
+  /** Insert › Chart: a chart of preset `id` on PowerPoint's sample data, selected, with Chart Design shown. */
+  async insertChart(id: string): Promise<void> {
+    const preset = presetById(id);
+    const slide = this.state.current;
+    if (!preset || slide === null || this.state.masterView) return;
+    if (this.state.editing) await this.commitEdit();
+    const newId = this.temp();
+    const kind = preset.combo ? ({ type: "bar", direction: "column", grouping: "clustered" } as const) : preset.kind;
+    const res = await this.run({ type: "insertChart", slide, kind, newId });
+    const real = res?.idMap.get(newId);
+    if (real === undefined) return;
+    this.set({ selection: [real], ribbonTab: "chartDesign" });
+    if (preset.combo) {
+      const c = this.selectedChart();
+      if (c) await this.run({ type: "updateChart", shape: real, chart: applyPreset(c.chart.chart as Chart, preset) });
+    }
+  }
+
+  /** Chart Design / Format edits of the selected chart (one `UpdateChart`). */
+  async updateChart(fn: (c: Chart) => Chart): Promise<void> {
+    const c = this.selectedChart();
+    if (!c || c.chart.chart.kind.type === "unsupported") return;
+    const next = fn(c.chart.chart as Chart);
+    if (JSON.stringify(next) === JSON.stringify(c.chart.chart)) return;
+    await this.run({ type: "updateChart", shape: c.shape.id, chart: next });
+  }
+
+  /** Edit Data: the selected chart's table. */
+  async setChartData(data: ChartData): Promise<void> {
+    const c = this.selectedChart();
+    if (c) await this.run({ type: "setChartData", shape: c.shape.id, data });
+  }
+
+  /** Switch Row/Column: the table transposed. */
+  async switchRowCol(): Promise<void> {
+    const c = this.selectedChart();
+    if (c) await this.setChartData(transposeData(c.chart.data));
+  }
+
+  toggleChartPane(open = !this.state.chartPane): void {
+    this.set({ chartPane: open });
+  }
+
+  /** The series the chart Format tab and pane edit. */
+  selectChartSeries(i: number): void {
+    this.set({ chartSeries: Math.max(0, Math.floor(i)) });
+  }
+
+  // ----- hyperlinks and actions (P8-24)
+
+  /** The link Insert › Link starts from: the run at the editor's caret, else the selected shape's click action. */
+  currentLink(): Hyperlink | null {
+    const e = this.state.editing ?? this.linkEdit;
+    if (e && !e.cell) {
+      const s = this.shape(e.shape);
+      return s ? linkAt(s, e.text, e.start) : null;
+    }
+    const sel = this.selectedShapes();
+    return sel.length === 1 ? (sel[0]!.clickAction ?? null) : null;
+  }
+
+  /**
+   * Insert › Link (Ctrl+K): on the editor's selection (the word at the
+   * caret when nothing is selected), else as the click action of the
+   * selected shapes; `null` removes it.
+   */
+  async setLink(link: Hyperlink | null): Promise<void> {
+    const e = this.state.editing ?? this.linkEdit;
+    this.linkEdit = null;
+    if (e && !e.cell) {
+      const text = this.state.editing ? this.textCommand(e) : null;
+      const links = linkCommands(e.shape, e.text, e.start, e.end, link);
+      if (links.length) {
+        await this.run(compound([text, ...links].filter((c): c is ShowCommand => !!c)));
+        return;
+      }
+    }
+    await this.setAction(link);
+  }
+
+  /** Insert › Action: the mouse-click action of the selected shapes (`null` = none). */
+  async setAction(action: Hyperlink | null): Promise<void> {
+    if (this.state.editing) await this.commitEdit();
+    const shapes = this.state.selection;
+    if (shapes.length) await this.run({ type: "setClickAction", shapes, action });
+  }
+
+  // ----- audio and video (P8-24)
+
+  /** The selected audio/video shapes. */
+  selectedMedia(): Shape[] {
+    return this.selectedShapes().filter((s) => s.kind.kind === "media");
+  }
+
+  /** Insert › Video / Audio: the clip (centred by the core), selected, with Playback shown. */
+  async insertMedia(contentType: string, bytesBase64: string): Promise<void> {
+    const slide = this.state.current;
+    if (slide === null || this.state.masterView) return;
+    if (this.state.editing) await this.commitEdit();
+    const newId = this.temp();
+    const res = await this.run({ type: "insertMedia", slide, contentType, bytesBase64, newId });
+    const real = res?.idMap.get(newId);
+    if (real !== undefined) this.set({ selection: [real], ribbonTab: "playback" });
+  }
+
+  /** Playback settings of the selected clips. */
+  async setMediaProps(patch: MediaPatch): Promise<void> {
+    const shapes = this.selectedMedia().map((s) => s.id);
+    if (shapes.length) await this.run({ type: "setMediaProps", shapes, patch });
+  }
+
+  /** Poster Frame › Image from File (`null`: Reset) of the one selected clip. */
+  async setMediaPoster(image: { contentType: string; bytesBase64: string } | null): Promise<void> {
+    const m = this.selectedMedia();
+    if (m.length !== 1) return;
+    await this.run(image ? { type: "setMediaPoster", shape: m[0]!.id, contentType: image.contentType, bytesBase64: image.bytesBase64 } : { type: "setMediaPoster", shape: m[0]!.id });
+  }
+
+  // ----- Reuse Slides (P8-24)
+
+  toggleReusePane(open = !this.state.reusePane): void {
+    this.set({ reusePane: open });
+  }
+
+  /** Reads a `.pptx` for the Reuse Slides pane (the presentation stays as it is). */
+  async peekReuse(file: { name: string; bytesBase64: string }): Promise<void> {
+    try {
+      const body = await this.enqueue(() => this.api.peekPresentation(file.bytesBase64));
+      this.set({ reuse: { name: file.name, pres: body.presentation, warnings: body.warnings }, reusePane: true });
+    } catch (e) {
+      this.pushError(e);
+    }
+  }
+
+  /** Inserts slides `ids` of the pane's presentation after the current slide (one undo step) and selects the last one. */
+  async reuseSlides(ids: NodeId[], keepSourceFormatting: boolean): Promise<void> {
+    const src = this.state.reuse?.pres;
+    if (!src || !ids.length || this.state.masterView) return;
+    if (this.state.editing) await this.commitEdit();
+    const { slides, layouts, media } = reusePayload(src, ids);
+    const before = new Set(this.state.pres?.slides.map((s) => s.id) ?? []);
+    const res = await this.run({ type: "insertSlides", after: this.state.current ?? undefined, slides, layouts, media, keepSourceFormatting });
+    const added = res?.env.patch.slidesOrder?.filter((id) => !before.has(id)) ?? [];
+    const last = added[added.length - 1];
+    if (last !== undefined) this.selectSlide(last);
   }
 
   // --- keyboard -----------------------------------------------------------------
