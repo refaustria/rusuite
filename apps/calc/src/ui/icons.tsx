@@ -127,3 +127,113 @@ export const validationIcon = (size = 22) =>
       <path d="M12.5 16.5l4-4" stroke="#E0393E" />
     </>
   ));
+
+// --- Formulas tab (P8-23) ---------------------------------------------------
+
+/** Insert Function: fx. */
+export const fxIcon = (size = 20) =>
+  svg(size, (
+    <>
+      <path d="M8 3.5c-1.5 0-2 1-2.3 2.5L4.5 16.5" />
+      <path d="M3.5 8h5" />
+      <path d="M10.5 9l5 6M15.5 9l-5 6" />
+    </>
+  ));
+
+/** AutoSum: Σ. */
+export const sigmaIcon = (size = 20) => svg(size, <path d="M14.5 4h-9l5 6-5 6h9" />);
+
+/** A function category: a small book. */
+export const libraryIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <path d="M4 4.5h8.5v11H4z" />
+      <path d="M6.5 4.5v11M14.5 6v10.5H6.5" />
+    </>
+  ));
+
+/** Name Manager: a tag over a grid. */
+export const nameManagerIcon = (size = 20) =>
+  svg(size, (
+    <>
+      <rect x="2.5" y="8.5" width="15" height="9" />
+      <path d="M2.5 13h15M7.5 8.5v9" />
+      <path d="M5 2.5h7l2 2.5-2 2.5H5z" />
+    </>
+  ));
+
+/** Define Name: a tag with a plus. */
+export const defineNameIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <path d="M3 6h8.5l3 3-3 3H3z" />
+      <path d="M15.5 13v4M13.5 15h4" />
+    </>
+  ));
+
+/** Use in Formula: a tag and an equals sign. */
+export const useNameIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <path d="M3 4h8l2.5 2.5L11 9H3z" />
+      <path d="M5 13h8M5 16h8" />
+    </>
+  ));
+
+/** Create from Selection: a range with a label row. */
+export const createNamesIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <rect x="3" y="3.5" width="14" height="13" />
+      <path d="M3 7.5h14M8 3.5v13" />
+    </>
+  ));
+
+/** Trace Precedents: an arrow into a cell. */
+export const tracePrecedentsIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <circle cx="4" cy="5" r="1.5" />
+      <path d="M5 6l7.5 7" />
+      <path d="M12.5 10v3.5H9" />
+      <rect x="13" y="13" width="4.5" height="4" />
+    </>
+  ));
+
+/** Trace Dependents: an arrow out of a cell. */
+export const traceDependentsIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <rect x="2.5" y="3" width="4.5" height="4" />
+      <path d="M7 7l7 7" />
+      <path d="M14 10.5V14h-3.5" />
+      <circle cx="16" cy="16" r="1.5" />
+    </>
+  ));
+
+/** Remove Arrows: an arrow struck through. */
+export const removeArrowsIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <path d="M3 10h11M11 7l3 3-3 3" />
+      <path d="M4 16L16 4" />
+    </>
+  ));
+
+/** Show Formulas: a sheet with fx. */
+export const showFormulasIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <rect x="2.5" y="3" width="15" height="14" />
+      <path d="M7 7c-.7 0-1 .5-1.2 1.2L5 14M4.5 10h3M10 9l4 5M14 9l-4 5" />
+    </>
+  ));
+
+/** Accounting number format: a banknote. */
+export const accountingIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <rect x="2" y="5" width="16" height="10" rx="1" />
+      <circle cx="10" cy="10" r="2.5" />
+    </>
+  ));

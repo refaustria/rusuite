@@ -8,6 +8,19 @@ use app_common::wire::{Color, RunProperties};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// Mirror of `model_sheet::BuiltinName`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum BuiltinName {
+    PrintArea,
+    PrintTitles,
+    Criteria,
+    Extract,
+    ConsolidateArea,
+    SheetTitle,
+}
+
 /// Mirror of `model_sheet::Fill`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "color")]

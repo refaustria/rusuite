@@ -8,9 +8,9 @@ use engine_formula::{offset_relative, CellContent, CellCoord, ErrorKind, Expr, S
 use fmt_ooxml::theme::parse_color_scheme;
 use fmt_ooxml::{rel, Package, PartName, TargetMode};
 use model_sheet::{
-    AutoFilter, ColInfo, Criterion, DynamicFilter, Filter, FilterColumn, FilterOp, MergeRect,
-    RowInfo, SheetFormat, SheetView, SortKey, SortKind, SortState, StyleId, Workbook, MAX_ZOOM,
-    MIN_ZOOM,
+    AutoFilter, BuiltinName, ColInfo, Criterion, DefinedName, DynamicFilter, Filter, FilterColumn,
+    FilterOp, MergeRect, NameScope, RowInfo, SheetFormat, SheetView, SortKey, SortKind, SortState,
+    StyleId, Workbook, MAX_ZOOM, MIN_ZOOM,
 };
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
@@ -63,9 +63,6 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     let book = parse_workbook(part_data(&main)?, main.as_str())?;
     if book.date1904 {
         return Err(Error::Unsupported("date1904".into()));
-    }
-    if book.defined_names > 0 {
-        warnings.push(format!("{} defined name(s) dropped", book.defined_names));
     }
     let mut consumed: BTreeSet<PartName> = BTreeSet::new();
     consumed.insert(main.clone());
@@ -146,6 +143,20 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         });
     }
 
+    // Defined names before the cells: formulas using them register edges.
+    let by_index: HashMap<usize, SheetId> = book
+        .sheets
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| {
+            sheets
+                .iter()
+                .find(|(_, n, _)| *n == e.name)
+                .map(|(id, _, _)| (i, *id))
+        })
+        .collect();
+    load_names(&mut wb, &book.defined_names, &by_index, &mut warnings);
+
     wb.begin_batch();
     let mut drawings: Vec<(SheetId, String, PartName)> = Vec::new();
     let loaded = (|| -> Result<()> {
@@ -220,10 +231,20 @@ struct SheetEntry {
     very_hidden: bool,
 }
 
+/// A `<definedName>` as written.
+struct RawName {
+    name: String,
+    /// Index into `<sheets>`.
+    local: Option<usize>,
+    hidden: bool,
+    comment: Option<String>,
+    text: String,
+}
+
 struct BookInfo {
     sheets: Vec<SheetEntry>,
     date1904: bool,
-    defined_names: usize,
+    defined_names: Vec<RawName>,
 }
 
 fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
@@ -231,10 +252,35 @@ fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
     let mut info = BookInfo {
         sheets: Vec::new(),
         date1904: false,
-        defined_names: 0,
+        defined_names: Vec::new(),
     };
+    let mut name: Option<RawName> = None;
     loop {
         match reader.read_event().map_err(xml_err(part))? {
+            Event::Start(el) if name_of(&el) == b"definedName" => {
+                name = Some(RawName {
+                    name: attr(&el, "name").unwrap_or_default().into_owned(),
+                    local: attr_parse(&el, "localSheetId"),
+                    hidden: attr_bool(&el, "hidden").unwrap_or(false),
+                    comment: attr(&el, "comment").map(|c| decode_x_escapes(&c).into_owned()),
+                    text: String::new(),
+                });
+            }
+            Event::Text(t) => {
+                if let Some(n) = name.as_mut() {
+                    push_text(&mut n.text, &t);
+                }
+            }
+            Event::GeneralRef(r) => {
+                if let Some(n) = name.as_mut() {
+                    push_ref(&mut n.text, &r);
+                }
+            }
+            Event::End(el) if crate::xml::end_name(&el) == b"definedName" => {
+                if let Some(n) = name.take() {
+                    info.defined_names.push(n);
+                }
+            }
             Event::Start(el) | Event::Empty(el) => match name_of(&el) {
                 b"workbookPr" => info.date1904 = attr_bool(&el, "date1904").unwrap_or(false),
                 b"sheet" => {
@@ -252,11 +298,6 @@ fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
                         very_hidden: state.as_deref() == Some("veryHidden"),
                     });
                 }
-                // Excel's AutoFilter range name; the filter itself is read
-                // from the sheet.
-                b"definedName" if attr(&el, "name").as_deref() != Some("_xlnm._FilterDatabase") => {
-                    info.defined_names += 1
-                }
                 _ => {}
             },
             Event::Eof => break,
@@ -264,6 +305,75 @@ fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
         }
     }
     Ok(info)
+}
+
+/// `Sheet1!#REF!` (Excel's text for a deleted reference) as `#REF!`, which
+/// the formula grammar reads.
+fn drop_sheet_ref_errors(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find("!#REF!") {
+        let head = &rest[..i];
+        let start = if let Some(inner) = head.strip_suffix('\'') {
+            // A quoted sheet name: back to its opening quote.
+            inner.rfind('\'').unwrap_or(0)
+        } else {
+            head.rfind(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
+                .map_or(0, |p| p + 1)
+        };
+        out.push_str(&head[..start]);
+        out.push_str("#REF!");
+        rest = &rest[i + 6..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Defines the workbook's names (`_xlnm._FilterDatabase` comes from the
+/// AutoFilter; `_xlfn.*` names are Excel's placeholders for functions it
+/// did not know and are dropped too).
+fn load_names(
+    wb: &mut Workbook,
+    names: &[RawName],
+    by_index: &HashMap<usize, SheetId>,
+    warnings: &mut Vec<String>,
+) {
+    for raw in names {
+        let lower = raw.name.to_ascii_lowercase();
+        if lower == "_xlnm._filterdatabase" || lower.starts_with("_xlfn.") {
+            continue;
+        }
+        let scope = match raw.local {
+            None => NameScope::Workbook,
+            Some(i) => match by_index.get(&i) {
+                Some(id) => NameScope::Sheet(*id),
+                None => {
+                    warnings.push(format!(
+                        "defined name {:?}: its sheet is missing; dropped",
+                        raw.name
+                    ));
+                    continue;
+                }
+            },
+        };
+        let builtin = BuiltinName::from_file_name(&raw.name);
+        let name = builtin.map_or_else(|| raw.name.clone(), |b| b.display().to_string());
+        let text = strip_xlfn_prefixes(&drop_sheet_ref_errors(raw.text.trim()));
+        let def = DefinedName {
+            name,
+            scope,
+            refers_to: text,
+            comment: raw.comment.clone(),
+            hidden: raw.hidden,
+            builtin,
+        };
+        if let Err(e) = wb.define_name(&def) {
+            warnings.push(format!(
+                "defined name {:?} ({}) dropped: {e}",
+                raw.name, raw.text
+            ));
+        }
+    }
 }
 
 // --- sharedStrings.xml -------------------------------------------------------
@@ -1051,7 +1161,8 @@ mod tests {
             <definedNames><definedName name="x">A!$A$1</definedName></definedNames></workbook>"#;
         let info = parse_workbook(xml, "wb").unwrap();
         assert!(info.date1904);
-        assert_eq!(info.defined_names, 1);
+        assert_eq!(info.defined_names.len(), 1);
+        assert_eq!(info.defined_names[0].text, "A!$A$1");
         assert_eq!(info.sheets[0].name, "A & B");
         assert_eq!(info.sheets[0].rid, "rId3");
         assert!(!info.sheets[0].hidden && info.sheets[1].hidden);

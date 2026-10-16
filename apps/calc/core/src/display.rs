@@ -21,6 +21,11 @@ pub fn display_value(value: &Value, number_format: Option<&str>) -> String {
     model_sheet::numfmt::display_value(value, number_format)
 }
 
+/// `0xRRGGBB` as CSS `#RRGGBB`.
+pub fn css_color(rgb: u32) -> String {
+    format!("#{rgb:06X}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -7,7 +7,7 @@ export async function openCalc(page: Page) {
   await page.goto("calc/");
   await page.getByTestId("grid").waitFor();
   // The wasm core is ready once the first interaction round-trips.
-  await expect(page.getByTestId("cell-address")).toHaveText("A1");
+  await expect(page.getByTestId("cell-address")).toHaveValue("A1");
 }
 
 export class Grid {

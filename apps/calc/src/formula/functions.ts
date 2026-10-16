@@ -3,13 +3,35 @@
 
 import list from "./functions.json";
 
+/** Function library category (the `##` sections of docs/functions.md). */
+export type FunctionCategory = "math" | "logical" | "info" | "text" | "lookup" | "datetime" | "statistical" | "financial" | "other";
+
 export interface FunctionInfo {
   name: string;
   signature: string;
   description: string;
+  category?: FunctionCategory | string;
+  /** An autocomplete entry for a defined name (accepting inserts the name only). */
+  kind?: "name";
 }
 
 export const FUNCTIONS: FunctionInfo[] = list;
+
+/** The functions of a category, alphabetical. */
+export function functionsIn(category: string): FunctionInfo[] {
+  return FUNCTIONS.filter((f) => f.category === category);
+}
+
+/** Insert Function's search: name prefix first, then name or description containing every word. */
+export function searchFunctions(query: string, category: string | null = null): FunctionInfo[] {
+  const pool = category && category !== "all" ? functionsIn(category) : FUNCTIONS;
+  const q = query.trim().toLowerCase();
+  if (q === "") return pool;
+  const words = q.split(/\s+/);
+  const prefix = pool.filter((f) => f.name.toLowerCase().startsWith(q));
+  const rest = pool.filter((f) => !prefix.includes(f) && words.every((w) => f.name.toLowerCase().includes(w) || f.description.toLowerCase().includes(w)));
+  return [...prefix, ...rest];
+}
 
 const byName = new Map(FUNCTIONS.map((f) => [f.name, f]));
 

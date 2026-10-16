@@ -7,7 +7,7 @@ use model_sheet::{Workbook, WorkbookSnapshot};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::command::CalcCommand;
+use crate::command::{CalcCommand, Rect};
 use crate::doc::CalcDocument;
 use crate::patch::{CalcPatch, FoundCell, RegionSnapshot, WorkbookInfo};
 
@@ -127,6 +127,17 @@ pub enum Request {
         r1: u32,
         c1: u32,
     },
+    /// Every defined name with its value (workbook names evaluated on
+    /// `sheet`) for the Name Manager → `names`.
+    Names { sheet: u32 },
+    /// The name whose range is exactly `rect` on `sheet` (the Name Box
+    /// shows it instead of the address) → `nameAt`.
+    NameAt { sheet: u32, rect: Rect },
+    /// The cells and ranges the formula in the cell reads directly
+    /// (Trace Precedents) → `trace`.
+    Precedents { sheet: u32, row: u32, col: u32 },
+    /// The formula cells reading the cell (Trace Dependents) → `trace`.
+    Dependents { sheet: u32, row: u32, col: u32 },
 }
 
 /// The successful part of a [`Response`].
@@ -183,9 +194,25 @@ pub enum ResponseBody {
     Found {
         cells: Vec<FoundCell>,
     },
-    /// The reply to `formatPreview`.
+    /// The reply to `formatPreview`: the text and the format's colour
+    /// (`#RRGGBB`, absent = none).
     Formatted {
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        color: Option<String>,
+    },
+    /// The reply to `names`.
+    Names {
+        names: Vec<crate::names::NameRow>,
+    },
+    /// The reply to `nameAt`.
+    NameAt {
+        name: Option<String>,
+    },
+    /// The reply to `precedents` / `dependents`.
+    Trace {
+        refs: Vec<crate::command::SheetRect>,
     },
     /// The reply to `usedRange`: `[row, col]` of the last used cell,
     /// `null` for an empty sheet.
@@ -397,11 +424,27 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
         Request::UsedRange { sheet } => ResponseBody::UsedRange {
             last: host.doc().used_range(sheet)?,
         },
-        Request::FormatPreview { value, code } => ResponseBody::Formatted {
-            text: crate::display::display_value(
+        Request::FormatPreview { value, code } => {
+            let f = model_sheet::numfmt::format_cell(
                 &engine_formula::Value::Number(value),
                 Some(code.as_str()),
-            ),
+            );
+            ResponseBody::Formatted {
+                text: f.text,
+                color: f.color.map(crate::display::css_color),
+            }
+        }
+        Request::Names { sheet } => ResponseBody::Names {
+            names: host.doc().name_rows(sheet)?,
+        },
+        Request::NameAt { sheet, rect } => ResponseBody::NameAt {
+            name: host.doc().name_at(sheet, rect)?,
+        },
+        Request::Precedents { sheet, row, col } => ResponseBody::Trace {
+            refs: host.doc().precedents(sheet, row, col)?,
+        },
+        Request::Dependents { sheet, row, col } => ResponseBody::Trace {
+            refs: host.doc().dependents(sheet, row, col)?,
         },
     })
 }

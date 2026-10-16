@@ -1,13 +1,13 @@
 //! `TEXT(value, format_text)`.
 
 use crate::ast::Expr;
-use crate::functions::text::numfmt;
 use crate::functions::{Arity, CallContext, Function};
+use crate::numfmt;
 use crate::value::{parse_number_text, to_text, Value};
 
-/// Formats a value with an Excel number format (MVP subset, see
-/// `numfmt`). Non-numeric text is returned unchanged; numeric text is
-/// converted first.
+/// Formats a value with an Excel number format (the cell formatter of
+/// [`crate::numfmt`], without colour and fill). Non-numeric text is
+/// returned unchanged; numeric text is converted first.
 pub struct Text;
 
 impl Function for Text {
@@ -25,6 +25,12 @@ impl Function for Text {
             Ok(f) => f,
             Err(e) => return Value::Error(e),
         };
+        if fmt.is_empty() {
+            return match v {
+                Value::Error(e) => Value::Error(e),
+                _ => Value::Text(String::new()),
+            };
+        }
         let n = match &v {
             Value::Error(e) => return Value::Error(*e),
             Value::Number(n) => *n,

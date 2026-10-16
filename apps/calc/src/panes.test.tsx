@@ -37,7 +37,7 @@ async function setup(sheets?: string[]) {
 }
 
 const applied = (log: Request[]) => log.flatMap((r) => (r.type === "apply" ? [r.command] : []));
-const address = () => screen.getByTestId("cell-address").textContent;
+const address = () => (screen.getByTestId("cell-address") as HTMLInputElement).value;
 const toasts = () => screen.queryAllByRole("alert").map((a) => a.textContent ?? "").join(" ");
 /** Client point inside cell (row, col) with default sizes (46 px row header, 64×20 cells, 22 px column header). */
 const at = (row: number, col: number) => ({ clientX: 46 + 64 * col + 10, clientY: 22 + 20 * row + 5 });

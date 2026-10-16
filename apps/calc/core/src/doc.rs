@@ -12,7 +12,6 @@ use model_sheet::{
 };
 
 use crate::command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect, SheetViewPatch};
-use crate::display::display_value;
 use crate::fill::{move_input, plan, shift_input, FillItem};
 use crate::patch::{
     CalcPatch, CellKind, CellView, ColView, FoundCell, RegionSnapshot, RowView, SheetCells,
@@ -37,6 +36,9 @@ pub enum CalcError {
     /// Writing the `.xlsx` file failed.
     #[error("cannot write xlsx: {0}")]
     WriteXlsx(String),
+    /// Create from Selection found no label to make a name of.
+    #[error("no names to create from the selection")]
+    NothingToName,
 }
 
 impl From<EngineError> for CalcError {
@@ -74,6 +76,10 @@ impl CalcError {
             CalcError::Model(M::UnknownRule(_)) => "unknown_rule",
             CalcError::Model(M::InvalidChart(_)) => "invalid_chart",
             CalcError::Model(M::UnknownChart(_)) => "unknown_chart",
+            CalcError::Model(M::Engine(EngineError::InvalidName(_))) => "invalid_name",
+            CalcError::Model(M::Engine(EngineError::DuplicateName(_))) => "duplicate_name",
+            CalcError::Model(M::Engine(EngineError::UnknownName(_))) => "unknown_name",
+            CalcError::NothingToName => "no_names",
             CalcError::ReadXlsx(_) => "invalid_file",
             CalcError::WriteXlsx(_) => "internal",
         }
@@ -261,6 +267,7 @@ impl CalcDocument {
             sheets: self.sheet_infos(),
             styles: self.style_list(),
             revision: Revision(0),
+            names: self.name_infos(),
         }
     }
 
@@ -334,13 +341,34 @@ impl CalcDocument {
         let wb = &self.workbook;
         let value = wb.value(c);
         let style = wb.style_id(c);
-        let format = wb.styles().get(style).number_format.as_deref();
+        let cell_style = wb.styles().get(style);
+        let format = cell_style.number_format.as_deref();
         let engine = wb.engine();
+        let text = model_sheet::numfmt::format_cell(&value, format);
+        let narrow = match value {
+            Value::Number(n) if wb.merge_at(c).is_none() => {
+                let width = wb
+                    .col_info(c.sheet, c.col)
+                    .width
+                    .unwrap_or(wb.sheet_format(c.sheet).default_col_width);
+                let pt = cell_style.font.size.map_or(11.0, |s| s.pt());
+                model_sheet::numfmt::fit_number(&text, n, width, pt).1
+            }
+            _ => false,
+        };
+        let (fill_at, fill_char) = match text.fill {
+            Some((at, ch)) => (Some(at as u32), Some(ch.to_string())),
+            None => (None, None),
+        };
         CellView {
             row: c.row,
             col: c.col,
             input: content_to_input(wb.content(c)),
-            display: display_value(&value, format),
+            color: text.color.map(crate::display::css_color),
+            fill_at,
+            fill_char,
+            narrow,
+            display: text.text,
             kind: kind_of(&value),
             style: style.0,
             spilled: engine.spill_anchor(c).map(|a| (a.row, a.col)),
@@ -427,7 +455,7 @@ impl CalcDocument {
         Some(format!("Circular reference: {}", names.join(" → ")))
     }
 
-    fn content_patch(
+    pub(crate) fn content_patch(
         &self,
         edited: impl IntoIterator<Item = CellCoord>,
         recalc: &Recalc,
@@ -1120,6 +1148,11 @@ impl CalcDocument {
             | C::RemoveValidation { .. }
             | C::RestoreCfRules { .. }
             | C::RestoreValidations { .. } => self.rules_cmd(cmd),
+            C::DefineName { .. }
+            | C::UpdateName { .. }
+            | C::DeleteName { .. }
+            | C::CreateNamesFromSelection { .. }
+            | C::RestoreNames { .. } => self.names_cmd(cmd),
             C::AddChart { .. }
             | C::UpdateChart { .. }
             | C::SetChartAnchor { .. }
@@ -1770,6 +1803,18 @@ impl CalcDocument {
             let _ = set(wb, &prev);
             return Err(e.into());
         }
+        // Numbers re-check the "too narrow" rule against the new widths.
+        let wb = &self.workbook;
+        let numbers: Vec<CellCoord> = cols
+            .iter()
+            .filter(|v| prev.iter().any(|p| p.col == v.col && p.width != v.width))
+            .flat_map(|v| {
+                wb.cells_in(CellRange::new(s, 0, v.col, MAX_ROW, v.col))
+                    .map(|(c, _, _)| c)
+                    .filter(|&c| matches!(wb.value(c), Value::Number(_)))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
         let cols = cols
             .iter()
             .map(|v| col_view(v.col, self.workbook.col_info(s, v.col)))
@@ -1777,6 +1822,7 @@ impl CalcDocument {
         Ok(Applied {
             patch: CalcPatch {
                 cols: vec![SheetCols { sheet, cols }],
+                cells: self.cells_patch(numbers, None),
                 ..Default::default()
             },
             inverse: Some(CalcCommand::RestoreCols { sheet, cols: prev }),
@@ -2012,7 +2058,9 @@ impl Document for CalcDocument {
     type Error = CalcError;
 
     fn apply(&mut self, cmd: &CalcCommand) -> Result<CalcApplied> {
+        let names = self.workbook.names();
         let mut applied = self.apply_cmd(cmd)?;
+        self.mark_names(names, cmd, &mut applied);
         self.mark_cf_sheets(&mut applied.patch);
         self.mark_chart_sheets(&mut applied.patch);
         Ok(applied)

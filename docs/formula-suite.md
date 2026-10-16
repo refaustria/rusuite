@@ -152,3 +152,14 @@ rows of the table above, many carry `DIFF:` notes with an `[excel=...]` value; t
 exports `#NUM!`, `#DIV/0!` or `#REF!` results of these functions as `#VALUE!`, that it accepts arguments Excel rejects
 (`SYD` with `per` beyond the life, `EFFECT` with a zero rate, negative serials in `HOUR`) and that `CHAR`/`CODE` depend on
 the system code page. Read the `# NOTE:` lines in `testdata/formulas/*.tsv` for the full list.
+
+## Defined names and number formats (P8-23)
+
+Defined names are not part of the LibreOffice suite (its cases run on a fixture without names);
+their behaviour is covered by `crates/engine-formula/tests/names.rs` (scoping, constants, formula
+names, dependency tracking, structural edits, sheet rename/delete/copy, relative names), the model
+and core tests, and the reference workbook `testdata/xlsx/provisional-names.xlsx`
+(`crates/fmt-xlsx/tests/names.rs`: names used in formulas, values computed by the engine).
+`TEXT` shares the cell formatter (`engine_formula::numfmt`); its reference cases are in
+`crates/engine-formula/src/numfmt/tests.rs` (see [number-formats.md](number-formats.md)) and the
+`TEXT` rows of `text.tsv` stay green.

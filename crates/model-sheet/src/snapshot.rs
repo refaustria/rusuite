@@ -1,11 +1,12 @@
 //! [`WorkbookSnapshot`]: the serializable form of a [`Workbook`], shared
 //! by serde, the IPC layer and `fmt-xlsx`.
 
-use engine_formula::{CellContent, CellCoord, ErrorKind, RangeRef, SheetId, Value};
+use engine_formula::{CellContent, CellCoord, ErrorKind, NameScope, RangeRef, SheetId, Value};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::chart::ChartObject;
 use crate::condfmt::CfRule;
+use crate::names::{BuiltinName, DefinedName};
 use crate::sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView};
 use crate::sortfilter::{AutoFilter, SortState};
 use crate::style::{CellStyle, StyleId, StyleTable};
@@ -21,6 +22,28 @@ pub struct WorkbookSnapshot {
     /// Indexed by [`StyleId`]; entry 0 is the default style. On load,
     /// duplicates are merged and ids remapped.
     pub styles: Vec<CellStyle>,
+    /// Defined names in definition order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub names: Vec<NameSnapshot>,
+}
+
+/// A defined name in a [`WorkbookSnapshot`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NameSnapshot {
+    pub name: String,
+    /// Position of the scope sheet in [`WorkbookSnapshot::sheets`];
+    /// absent = a workbook name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_sheet: Option<u32>,
+    /// The definition without `=`.
+    pub refers_to: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builtin: Option<BuiltinName>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -140,9 +163,26 @@ impl Workbook {
             .sheets()
             .map(|(id, name)| self.sheet_snapshot(id, name))
             .collect();
+        let order: Vec<SheetId> = self.engine().sheets().map(|(id, _)| id).collect();
+        let names = self
+            .names()
+            .into_iter()
+            .map(|n| NameSnapshot {
+                local_sheet: match n.scope {
+                    NameScope::Workbook => None,
+                    NameScope::Sheet(id) => order.iter().position(|&o| o == id).map(|p| p as u32),
+                },
+                name: n.name,
+                refers_to: n.refers_to,
+                comment: n.comment,
+                hidden: n.hidden,
+                builtin: n.builtin,
+            })
+            .collect();
         WorkbookSnapshot {
             sheets,
             styles: self.styles().iter().map(|(_, s)| s.clone()).collect(),
+            names,
         }
     }
 
@@ -217,6 +257,23 @@ impl Workbook {
             } else {
                 ids.push(wb.add_sheet(&sheet.name)?);
             }
+        }
+        // Names before the cells: formulas using them register their edges.
+        for n in &snapshot.names {
+            let scope = match n.local_sheet {
+                None => NameScope::Workbook,
+                Some(i) => NameScope::Sheet(*ids.get(i as usize).ok_or_else(|| {
+                    Error::InvalidSnapshot(format!("name {:?}: no sheet {i}", n.name))
+                })?),
+            };
+            wb.define_name(&DefinedName {
+                name: n.name.clone(),
+                scope,
+                refers_to: n.refers_to.clone(),
+                comment: n.comment.clone(),
+                hidden: n.hidden,
+                builtin: n.builtin,
+            })?;
         }
         wb.begin_batch();
         let loaded = (|| -> Result<(), Error> {

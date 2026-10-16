@@ -22,8 +22,15 @@ pub enum Expr {
     /// Error literal such as `#DIV/0!`.
     Error(ErrorKind),
     Reference(Reference),
-    /// Named range or unknown identifier (evaluates to `#NAME?` later).
+    /// A defined name (or an unknown identifier, which evaluates to
+    /// `#NAME?`), as written.
     Name(String),
+    /// A sheet-qualified name `Sheet1!Tax` (the sheet's own name first,
+    /// then the workbook's).
+    QualifiedName {
+        sheet: String,
+        name: String,
+    },
     /// Array constant `{1,2;3,4}`: rows of constants (Number/Text/Bool/Error).
     Array(Vec<Vec<Expr>>),
     /// Function call; `name` is stored uppercase.
@@ -367,14 +374,19 @@ pub struct Reference {
     pub kind: RangeKind,
 }
 
+/// Writes `Sheet!` (quoted as `'My Sheet'!` when needed).
+fn write_sheet_prefix(f: &mut fmt::Formatter<'_>, sheet: &str) -> fmt::Result {
+    if sheet_needs_quotes(sheet) {
+        write!(f, "'{}'!", sheet.replace('\'', "''"))
+    } else {
+        write!(f, "{sheet}!")
+    }
+}
+
 impl fmt::Display for Reference {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(sheet) = &self.sheet {
-            if sheet_needs_quotes(sheet) {
-                write!(f, "'{}'!", sheet.replace('\'', "''"))?;
-            } else {
-                write!(f, "{sheet}!")?;
-            }
+            write_sheet_prefix(f, sheet)?;
         }
         write!(f, "{}", self.kind)
     }
@@ -383,7 +395,7 @@ impl fmt::Display for Reference {
 /// True if a sheet name must be written as `'...'`: it is not of the form
 /// `[A-Za-z_][A-Za-z0-9_.]*`, or it would read as a cell reference (A1 or
 /// R1C1 style).
-fn sheet_needs_quotes(name: &str) -> bool {
+pub fn sheet_needs_quotes(name: &str) -> bool {
     let mut chars = name.chars();
     let plain = matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.');
@@ -406,6 +418,36 @@ fn looks_like_r1c1(s: &str) -> bool {
         Some(tail) => tail.bytes().all(|b| b.is_ascii_digit()),
         None => rest.is_empty(),
     }
+}
+
+/// Whether `s` is a valid defined name (Excel's rules): 1–255
+/// characters; starts with a letter, `_` or a backslash; then letters,
+/// digits, `_`, `.`, backslashes and `?`; not a cell reference (`A1`, `$B$2`, `XFD1`),
+/// not R1C1-style (`R`, `C`, `R1C1`, `RC2`) and not `TRUE`/`FALSE`.
+/// Uniqueness is the engine's concern (case-insensitive per scope).
+pub fn is_valid_name(s: &str) -> bool {
+    let mut chars = s.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if s.chars().count() > 255 || !(first.is_alphabetic() || first == '_' || first == '\\') {
+        return false;
+    }
+    if !chars.all(|c| c.is_alphanumeric() || matches!(c, '_' | '.' | '\\' | '?')) {
+        return false;
+    }
+    let upper = s.to_ascii_uppercase();
+    if upper == "TRUE" || upper == "FALSE" {
+        return false;
+    }
+    let cell = CellRef::parse(s).is_ok();
+    let r1c1 = upper == "C" || upper == "R" || looks_like_r1c1(s) || {
+        // `C1`, `C12`: a column in R1C1 style.
+        upper
+            .strip_prefix('C')
+            .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))
+    };
+    !cell && !r1c1
 }
 
 /// Converts a 0-based column index to letters: 0 → `A`, 25 → `Z`, 26 → `AA`.
@@ -462,6 +504,7 @@ impl Expr {
             | Expr::Bool(_)
             | Expr::Error(_)
             | Expr::Name(_)
+            | Expr::QualifiedName { .. }
             | Expr::Missing => {}
         }
     }
@@ -531,6 +574,10 @@ impl fmt::Display for Expr {
             Expr::Error(e) => write!(f, "{e}"),
             Expr::Reference(r) => write!(f, "{r}"),
             Expr::Name(n) => f.write_str(n),
+            Expr::QualifiedName { sheet, name } => {
+                write_sheet_prefix(f, sheet)?;
+                f.write_str(name)
+            }
             Expr::Missing => Ok(()),
             Expr::Array(rows) => {
                 f.write_str("{")?;
@@ -596,6 +643,7 @@ impl fmt::Display for Expr {
                         Expr::Reference(_)
                             | Expr::Number(_)
                             | Expr::Name(_)
+                            | Expr::QualifiedName { .. }
                             | Expr::Unary {
                                 op: UnaryOp::SpillRange,
                                 ..

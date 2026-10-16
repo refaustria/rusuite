@@ -21,7 +21,8 @@ pub enum TokenKind {
     Number(f64),
     /// String literal with `""` already unescaped.
     String(String),
-    /// Identifier: letters, digits, `_`, `.` (starting with a letter or `_`).
+    /// Identifier: letters, digits, `_`, `.`, `?` and backslashes (starting
+    /// with a letter, `_` or a backslash).
     Ident(String),
     Error(ErrorKind),
     /// Sheet name before `!`: either a quoted `'My Sheet'` (unquoted, `''`
@@ -63,11 +64,12 @@ pub struct Token {
 }
 
 fn is_ident_start(c: char) -> bool {
-    c.is_alphabetic() || c == '_'
+    c.is_alphabetic() || c == '_' || c == '\\'
 }
 
+/// Defined names may also contain backslashes and `?`.
 fn is_ident_continue(c: char) -> bool {
-    c.is_alphanumeric() || c == '_' || c == '.'
+    c.is_alphanumeric() || matches!(c, '_' | '.' | '\\' | '?')
 }
 
 /// Tokenizes `src` (without the leading `=`). Whitespace is skipped.

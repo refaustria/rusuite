@@ -31,4 +31,21 @@ spilled?: [number, number],
  * (formula cell included), or would spill into when its value is
  * `#SPILL!` (the UI outlines it). Absent = no array result.
  */
-spill?: Rect, };
+spill?: Rect, 
+/**
+ * The number format's colour (`[Red]`, `[Color 10]`) as `#RRGGBB`;
+ * absent = none (the font colour applies).
+ */
+color?: string, 
+/**
+ * `*x` in the number format: `display` is split at this char index
+ * and `fillChar` repeats there to fill the cell. Absent = no fill.
+ */
+fillAt?: number, fillChar?: string, 
+/**
+ * A number that does not fit its column (Excel's `####`): estimated
+ * from the column width in character units and the font size (a
+ * General number counts as fitting while fewer decimals or
+ * scientific notation fit). Absent = fits.
+ */
+narrow?: boolean, };
