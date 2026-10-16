@@ -86,4 +86,24 @@ describe("hyperlinks", () => {
     const g = layoutText(b, opts(1000, 200)).fragments;
     expect(g[1]!.fill).toBe("#000000");
   });
+
+  it("reports per-paragraph metrics matching the fragments (the in-place editor's CSS, P8-45)", () => {
+    const dot = { kind: "char", value: "•" } as const;
+    const b = mk([
+      { props: { bullet: dot }, runs: [{ text: "one" }] },
+      { props: { bullet: dot, level: 2 }, runs: [] },
+      { props: { alignment: "justify", lineSpacing: { kind: "points", value: 3000 } }, runs: [{ text: "x" }] },
+    ]);
+    const lay = layoutText(b, opts(500, 300));
+    const [m0, m1, m2] = lay.paragraphs!;
+    const one = lay.fragments.find((f) => f.text === "one")!;
+    const bullet = lay.fragments.find((f) => f.text === "•")!;
+    expect(m0!.textX).toBeCloseTo(one.x);
+    expect(m0!.indent).toBeCloseTo(bullet.x);
+    // an empty bulleted paragraph still knows its bullet (shown while editing) and indent
+    expect(m1).toMatchObject({ label: "•", indent: 96, level: 2 });
+    expect(m1!.textX).toBeGreaterThan(96);
+    expect(m2).toMatchObject({ label: null, alignment: "left", lineHeight: { kind: "fixed", px: 40 } });
+    expect(layoutText(mk([{ props: { alignment: "center" }, runs: [{ text: "c" }] }], { wrap: false }), opts(500, 300)).paragraphs![0]!.alignment).toBe("left");
+  });
 });

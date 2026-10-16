@@ -429,6 +429,7 @@
   "show.shape.star6": "Star: 6 points",
   "show.shape.star8": "Star: 8 points",
   "show.shape.textBox": "Text box",
+  "show.shape.textBoxTip": "Draw a text box: click on the slide (default size) or drag to draw it",
   "show.shape.trapezoid": "Trapezoid",
   "show.shape.triangle": "Isosceles triangle",
   "show.shape.upArrow": "Arrow: up",

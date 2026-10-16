@@ -5,7 +5,7 @@ import de from "../locales/de.json";
 import {
   ANIMATION_KINDS, EFFECTS, TRANSITION_KINDS, animationDirectionKey, animationError, applyAnimationPatch, badgesByShape, changeTransition,
   clickNumbers, effectDefaultDirection, effectDirections, effectKey, effectPatch, effectSupports, effectsOf, hasEffects, msToMmss,
-  msToSeconds, newAnimation, newTransition, parseMmss, reorderTarget, secondsToMs, transitionDefaultDirection, transitionDefaultDuration,
+  msToSeconds, newAnimation, newTransition, parseMmss, reorderTarget, secondsToMs, transitionDefaultDirection, transitionDefaultDuration, transitionGalleryDirection, effectiveTransitionDirection,
   transitionDirectionKey, transitionDirections, transitionKey, triggerKey, TRIGGERS,
 } from "./effects";
 
@@ -37,7 +37,24 @@ describe("transition rules (mirror of anim.rs)", () => {
   it("a new kind resets duration and direction but keeps the advance settings", () => {
     const push = { ...newTransition("push"), direction: "up" as const, durationMs: 2500, advanceOnClick: false, advanceAfterMs: 3000 };
     expect(changeTransition(push, { kind: "fade" })).toEqual({ kind: "fade", durationMs: 700, advanceOnClick: false, advanceAfterMs: 3000 });
-    expect(changeTransition(undefined, { kind: "split" })).toEqual({ kind: "split", durationMs: 1500, advanceOnClick: true });
+    expect(changeTransition(undefined, { kind: "split" })).toEqual({ kind: "split", durationMs: 1500, advanceOnClick: true, direction: "verticalOut" });
+  });
+
+  it("a transition chosen in the gallery starts with PowerPoint's Effect Options (P8-45 S-17)", () => {
+    expect(changeTransition(undefined, { kind: "push" })?.direction).toBe("up"); // From Bottom
+    expect(changeTransition(undefined, { kind: "split" })?.direction).toBe("verticalOut");
+    expect(changeTransition(undefined, { kind: "zoom" })?.direction).toBe("in");
+    // Wipe and Cover start From Right: the format's default, not written
+    expect(changeTransition(undefined, { kind: "wipe" })?.direction).toBeUndefined();
+    expect(changeTransition(undefined, { kind: "cover" })?.direction).toBeUndefined();
+    expect(changeTransition(undefined, { kind: "fade" })?.direction).toBeUndefined();
+    for (const k of ["push", "split", "zoom"] as const) {
+      const d = transitionGalleryDirection(k)!;
+      expect(transitionDirections(k)).toContain(d);
+      expect(effectiveTransitionDirection(changeTransition(undefined, { kind: k })!)).toBe(d);
+    }
+    // the file format's default for a transition without a direction is unchanged (reading files)
+    expect(transitionDefaultDirection("push")).toBe("left");
   });
 
   it("a direction the kind does not accept is ignored", () => {
