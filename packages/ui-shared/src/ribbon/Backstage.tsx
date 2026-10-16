@@ -14,6 +14,7 @@ import { ConnectorsOverlay } from "../connectors/ui/Overlay";
 import { ForgetConnections } from "../connectors/ui/ForgetConnections";
 import { RemotePage } from "../connectors/ui/RemotePage";
 import { baseName } from "../connectors/paths";
+import { AiOverlay } from "../ai/ui/AiOverlay";
 
 const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
@@ -192,8 +193,21 @@ export function Backstage({
     if (open && (page === "open" || page === "saveAs")) ref.current?.querySelector<HTMLElement>("main [data-autofocus]:not([disabled])")?.focus();
   }, [open, page]);
 
-  const overlay = connectors && <ConnectorsOverlay connectors={connectors} />;
-  if (!open) return overlay;
+  const ai = session?.ai ?? null;
+  const overlay = (connectors || ai) && (
+    <>
+      {connectors && <ConnectorsOverlay connectors={connectors} />}
+      {ai && <AiOverlay ai={ai} />}
+    </>
+  );
+  // File › Options…: the shared options dialog (AI, P8-37); an app's own options become its General page.
+  const options = ai
+    ? () => {
+        ai.moreOptions = onOptions ?? null;
+        ai.openSettings();
+      }
+    : onOptions;
+  if (!open) return overlay || null;
 
   /** Runs a command after leaving the backstage (dialogs it opens then get the focus). */
   const pick = (fn: () => void) => {
@@ -329,7 +343,7 @@ export function Backstage({
         </ul>
         <ul className="mt-auto flex flex-col border-t border-white/20 pt-2">
           {item("close", t("backstage.close"), "close", onCloseDocument)}
-          {item("options", t("backstage.options"), "options", onOptions)}
+          {item("options", t("backstage.options"), "options", options)}
         </ul>
         <LanguageSelect className="px-5 pb-1 pt-2 text-xs [&_span]:text-white/90" />
       </nav>
