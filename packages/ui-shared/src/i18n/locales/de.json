@@ -271,6 +271,8 @@
   "ribbon.expand": "Menüband erweitern",
   "ribbon.file": "Datei",
   "ribbon.options": "{label}-Optionen",
+  "ribbon.scrollLeft": "Befehle links anzeigen",
+  "ribbon.scrollRight": "Weitere Befehle anzeigen",
   "ribbon.tabs": "Menübandregisterkarten",
   "saveAs.fileName": "Dateiname",
   "saveAs.title": "Speichern unter",

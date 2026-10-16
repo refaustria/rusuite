@@ -271,6 +271,8 @@
   "ribbon.expand": "Expand the ribbon",
   "ribbon.file": "File",
   "ribbon.options": "{label} options",
+  "ribbon.scrollLeft": "Show the commands on the left",
+  "ribbon.scrollRight": "Show more commands",
   "ribbon.tabs": "Ribbon tabs",
   "saveAs.fileName": "File name",
   "saveAs.title": "Save as",
