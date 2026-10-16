@@ -14,8 +14,8 @@
 
 use engine_formula::ast::{MAX_COL, MAX_ROW};
 use engine_formula::{
-    adjust_references, offset_relative, parse, AdjustContext, CellCoord, CellProvider, CellRect,
-    Engine, Expr, RowHidden, SheetId, StructuralOp, Value,
+    adjust_references_shift, offset_relative, parse, AdjustContext, CellCoord, CellProvider,
+    CellRect, CellShift, Engine, Expr, RowHidden, SheetId, StructuralOp, Value,
 };
 
 use crate::Error;
@@ -188,11 +188,13 @@ fn unmap_index(op: StructuralOp, j: u32) -> u32 {
 pub(crate) fn shift_rule(
     ranges: &mut Vec<CellRect>,
     formulas: Vec<&mut String>,
-    op: StructuralOp,
+    shift: impl Into<CellShift>,
     same: bool,
     host: &str,
     target: &str,
 ) -> bool {
+    let shift: CellShift = shift.into();
+    let op = shift.op;
     let ctx = AdjustContext {
         host_sheet: host,
         target_sheet: target,
@@ -203,7 +205,7 @@ pub(crate) fn shift_rule(
             return text.to_owned();
         };
         let moved = offset_relative(&ast, dr, dc);
-        let adjusted = adjust_references(&moved, &ctx);
+        let adjusted = adjust_references_shift(&moved, &ctx, shift.band);
         if adjusted == ast {
             text.to_owned()
         } else {
@@ -219,13 +221,8 @@ pub(crate) fn shift_rule(
     let new: Vec<CellRect> = ranges
         .iter()
         .filter_map(|r| {
-            if op.is_rows() {
-                let (r0, r1) = op.map_interval(r.r0, r.r1)?;
-                Some(CellRect { r0, r1, ..*r })
-            } else {
-                let (c0, c1) = op.map_interval(r.c0, r.c1)?;
-                Some(CellRect { c0, c1, ..*r })
-            }
+            let (r0, c0, r1, c1) = shift.map_rect((r.r0, r.c0, r.r1, r.c1))?;
+            Some(CellRect { r0, c0, r1, c1 })
         })
         .collect();
     let (Some(old), Some(now)) = (anchor(ranges), anchor(&new)) else {
@@ -233,9 +230,15 @@ pub(crate) fn shift_rule(
     };
     // The new anchor's cell before the edit.
     let pre = if op.is_rows() {
-        (unmap_index(op, now.0), now.1)
-    } else {
+        if shift.in_band(now.1) {
+            (unmap_index(op, now.0), now.1)
+        } else {
+            now
+        }
+    } else if shift.in_band(now.0) {
         (now.0, unmap_index(op, now.1))
+    } else {
+        now
     };
     let (dr, dc) = (
         i64::from(pre.0) - i64::from(old.0),

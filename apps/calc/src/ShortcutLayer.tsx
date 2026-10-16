@@ -4,7 +4,7 @@
 // in-cell editor keys (Enter/Tab/Esc/Alt+Enter) live in the components.
 
 import { useMemo, useState } from "react";
-import { Dialog, openBackstage, PromptDialog, ShortcutHelp, useShortcuts, withExtension, type HelpRow, type ShortcutMap, type UnsavedGuard } from "@rusuite/ui-shared";
+import { openBackstage, PromptDialog, ShortcutHelp, useShortcuts, withExtension, type HelpRow, type ShortcutMap, type UnsavedGuard } from "@rusuite/ui-shared";
 import { colSelection, isWholeCols, isWholeRows, normalize, rowSelection } from "./grid/Selection";
 import { calcActions } from "./calcActions";
 import { CalcDialogs } from "./CalcDialogs";
@@ -28,47 +28,10 @@ export const nativeRows = (t = translate): HelpRow[] => [
   { combo: "Alt+ArrowDown", label: t("calc.sc.filterMenu"), group: t("calc.sortFilter") },
 ];
 
-function StructureDialog({ kind, onClose, store }: { kind: "insert" | "delete" | null; onClose: () => void; store: CalcStore }) {
-  const t = useT();
-  const [axis, setAxis] = useState<"rows" | "cols">("rows");
-  const Label = kind === "insert" ? t("tab.insert") : t("cmd.delete");
-  return (
-    <Dialog open={kind !== null} title={Label} onClose={onClose}>
-      <form
-        className="flex w-64 flex-col gap-2 text-sm"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (kind) void store.structure(kind, axis);
-          onClose();
-          store.focusGrid();
-        }}
-      >
-        <label className="flex items-center gap-2">
-          <input type="radio" name="axis" checked={axis === "rows"} onChange={() => setAxis("rows")} />
-          {t("calc.sc.entireRow")}
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="radio" name="axis" checked={axis === "cols"} onChange={() => setAxis("cols")} />
-          {t("calc.sc.entireCol")}
-        </label>
-        <div className="flex justify-end gap-2">
-          <button type="button" className="h-7 rounded border border-ui-border px-3 hover:bg-ui-hover" onClick={onClose}>
-            {t("common.cancel")}
-          </button>
-          <button type="submit" className="h-7 rounded border border-ui-border px-3 hover:bg-ui-hover">
-            {t("common.ok")}
-          </button>
-        </div>
-      </form>
-    </Dialog>
-  );
-}
-
 export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: UnsavedGuard }) {
   const t = useT();
   const [helpOpen, setHelpOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
-  const [structure, setStructure] = useState<"insert" | "delete" | null>(null);
 
   const map = useMemo<ShortcutMap>(() => {
     const File = t("sc.file");
@@ -96,7 +59,7 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       const r = normalize(store.getState().selection);
       if (isWholeRows(r)) void store.structure(kind, "rows");
       else if (isWholeCols(r)) void store.structure(kind, "cols");
-      else setStructure(kind);
+      else store.openDialog({ kind: "cells", mode: kind });
     };
     /** Ctrl+Shift+1…6 / ~: Excel's number format keys. */
     const numberFormat = (code: string) => () => void store.applyStyle({ numberFormat: code });
@@ -238,7 +201,6 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
           else void store.saveFile(withExtension(name, ".xlsx"));
         }}
       />
-      <StructureDialog kind={structure} store={store} onClose={() => setStructure(null)} />
       <CalcDialogs store={store} />
       <ValidationAlertDialog store={store} />
     </>

@@ -343,7 +343,7 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
 - **Calc**: Home (Undo; Clipboard: Paste ▾ values, Cut, Copy – `calcActions`; Font incl. borders; Alignment incl. wrap and
   Merge & Center ▾ (Merge & Center – a toggle that unmerges a merged selection –, Merge Across, Merge Cells, Unmerge Cells);
   Number: the Number Format box (Excel's eleven entries with previews), Accounting ▾, %, Comma Style, decimals ±
-  (see [number-formats.md](number-formats.md)); Styles: Conditional Formatting ▾; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide
+  (see [number-formats.md](number-formats.md)); Styles: Conditional Formatting ▾; Cells: Insert ▾ (Insert Cells…, rows, columns, sheet), Delete ▾ (Delete Cells…, rows, columns, sheet), Format ▾ (row height, column width, autofit, hide/unhide
   rows and columns, Hide Sheet / Unhide Sheet…, Format cells…); Editing: Clear, Find ▾ Replace, Sort & Filter ▾ (Sort A
   to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (Tables › PivotTable, Table; Illustrations › Pictures; New sheet, rows/columns, Charts, Links › Link), Page Layout (P8-35), Formulas (see below), Data (Get & Transform › From Text/CSV; Sort & Filter: A→Z,
   Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Text to Columns, Remove Duplicates, Data Validation…; Forecast › What-If Analysis › Goal Seek…; Outline: Group ▾, Ungroup ▾, Subtotal, Show/Hide Detail), Review (Comments, Notes ▾; see below), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
@@ -529,6 +529,15 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   Renaming a sheet rewrites the formulas that name it (`=Sheet2!A1` → `='Data 2'!A1`). The fill handle continues
   weekdays and months (`Mon`, `January`; the source's letter case). Not done: German decimal commas in typed numbers
   (pending the locale decision of number-formats.md), formula results inheriting the format of the cells they refer to.
+- **Calc Insert / Delete Cells** (P8-44, `state/shiftCells.ts`): Home › Insert ▾ › Insert Cells…, Delete ▾ › Delete
+  Cells…, the cell menu's Insert… / Delete… and Ctrl++ / Ctrl+- on a cell selection open Excel's dialog (Shift cells
+  right / down – left / up –, Entire row, Entire column) → `insertCells` / `deleteCells` (`engine_formula::CellShift`:
+  the edit of whole columns / rows restricted to the selection's rows / columns). Cells, styles, notes, threads,
+  hyperlinks, merges inside the band, rule ranges and every formula, name, rule and chart reference follow (an area
+  reference only when it lies inside the band across, as in Excel; others stay); dimensions, charts and pictures stay.
+  Refused like Excel: cutting a merge ("We can't do that to a merged cell."), shifting cells of a table or the AutoFilter
+  range, of a pivot table, or pushing cells off the sheet. A selection spanning every row / column inserts whole columns
+  / rows. Undo is the opposite command plus the deleted cells and the original text of rewritten formulas.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).

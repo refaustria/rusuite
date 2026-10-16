@@ -137,4 +137,11 @@ pub enum Error {
     /// No table with this id.
     #[error("unknown table {0}")]
     UnknownTable(u32),
+    /// Insert / Delete Cells would cut through merged cells.
+    #[error("We can't do that to a merged cell.")]
+    ShiftMerged,
+    /// Insert / Delete Cells would shift cells of a table or an
+    /// AutoFilter range.
+    #[error("This operation is not allowed. The operation is attempting to shift cells in a table or filtered range on your worksheet.")]
+    ShiftTable,
 }

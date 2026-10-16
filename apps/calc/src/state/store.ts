@@ -42,6 +42,7 @@ import { changesPartOfArray, hasSpilledCells, isFilledCell, obstructingCells, on
 import { intersects, isSingleCell, mergeAnchor, mergeLookup, mergeSnapshot, partialMerge, snapSelection } from "../grid/merges";
 import { fontCss, styleAt } from "../grid/style";
 import { cfKey, dataBarAxes } from "../grid/cf";
+import { cellsCommand, type CellsChoice, type CellsMode } from "./shiftCells";
 import { captureClip, fillDownEnd, pasteTarget, tsvClip, type Clip } from "./clipboard";
 import { findStep, replaceInInput, type FindOptions } from "./find";
 import { activeArg, applyFunction, FUNCTIONS, functionInfo, matchFunctions, signatureArgs, type FunctionInfo } from "../formula/functions";
@@ -171,6 +172,8 @@ export interface Toast {
 /** The dialogs Calc opens from shortcuts, menus and (later) the ribbon. */
 export type CalcDialog =
   | { kind: "numberFormat" }
+  /** Insert / Delete dialog for a cell selection (shift cells, entire rows / columns). */
+  | { kind: "cells"; mode: CellsMode }
   | { kind: "find"; replace: boolean }
   | { kind: "rowHeight" }
   | { kind: "colWidth" }
@@ -593,9 +596,10 @@ export class CalcStore {
 
   pushError(e: unknown): void {
     // A content edit inside a pivot table: Excel's message.
+    const known: Record<string, string> = { pivot_cell: "calc.pivot.cantChange", shift_merged: "calc.shiftMerged", shift_table: "calc.shiftTable" };
     const message =
-      e instanceof CalcApiError && e.code === "pivot_cell"
-        ? t("calc.pivot.cantChange")
+      e instanceof CalcApiError && known[e.code]
+        ? t(known[e.code])
         : e instanceof CalcApiError ? `${e.code}: ${e.message}` : e instanceof Error ? e.message : String(e);
     if (this.state.toasts.some((t) => t.message === message)) return;
     const id = ++this.toastSeq;
@@ -1644,6 +1648,11 @@ export class CalcStore {
     const [at, count] = axis === "rows" ? [r.r0, r.r1 - r.r0 + 1] : [r.c0, r.c1 - r.c0 + 1];
     const type = `${kind}${axis === "rows" ? "Rows" : "Cols"}` as "insertRows" | "deleteRows" | "insertCols" | "deleteCols";
     return this.apply({ type, sheet, at, count });
+  }
+
+  /** Insert / Delete dialog: shifts the selected cells, or inserts / deletes their entire rows or columns. */
+  shiftCells(mode: CellsMode, choice: CellsChoice): Promise<void> {
+    return this.apply(cellsCommand(mode, choice, this.state.activeSheet, this.selectionRange()));
   }
 
   clearSelection(): Promise<void> {

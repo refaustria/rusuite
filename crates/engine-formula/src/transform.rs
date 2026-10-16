@@ -227,8 +227,151 @@ fn map_references(expr: &Expr, f: &dyn Fn(&Reference) -> Option<Reference>) -> E
 /// * Row operations leave whole-column references (`A:A`) unchanged and
 ///   column operations leave whole-row references (`1:1`) unchanged.
 pub fn adjust_references(expr: &Expr, ctx: &AdjustContext) -> Expr {
+    adjust_banded(expr, ctx, None)
+}
+
+/// Excel's Insert / Delete Cells with a shift: a row or column operation
+/// restricted to the band `lo..=hi` of the other axis (columns for a row
+/// operation – "shift cells down / up" –, rows for a column operation –
+/// "shift cells right / left"). Only cells inside the band move.
+///
+/// ```
+/// use engine_formula::{CellShift, StructuralOp};
+///
+/// // Insert cells B2:B3 and shift right: rows 1..=2, columns ≥ 1 move by one.
+/// let s = CellShift::new(StructuralOp::InsertCols { at: 1, count: 1 }, 1, 2);
+/// assert_eq!(s.map_cell(1, 1), Some((1, 2)));
+/// assert_eq!(s.map_cell(0, 1), Some((0, 1)));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CellShift {
+    pub op: StructuralOp,
+    /// Inclusive band on the other axis; `None` = whole rows / columns.
+    pub band: Option<(u32, u32)>,
+}
+
+impl From<StructuralOp> for CellShift {
+    fn from(op: StructuralOp) -> Self {
+        CellShift { op, band: None }
+    }
+}
+
+impl CellShift {
+    /// `op` restricted to `lo..=hi` of the other axis (swapped if needed).
+    pub fn new(op: StructuralOp, lo: u32, hi: u32) -> Self {
+        CellShift {
+            op,
+            band: Some((lo.min(hi), lo.max(hi))),
+        }
+    }
+
+    /// Whether index `p` of the other axis is inside the band.
+    pub fn in_band(self, p: u32) -> bool {
+        match self.band {
+            None => true,
+            Some((lo, hi)) => (lo..=hi).contains(&p),
+        }
+    }
+
+    /// Whether the interval `lo..=hi` of the other axis lies inside the
+    /// band (such areas follow the edit; others stay).
+    pub fn covers(self, lo: u32, hi: u32) -> bool {
+        match self.band {
+            None => true,
+            Some((a, b)) => a <= lo && hi <= b,
+        }
+    }
+
+    /// New `(row, col)` of a cell: `None` if it is deleted or pushed past
+    /// the end of the sheet. Cells outside the band stay.
+    pub fn map_cell(self, row: u32, col: u32) -> Option<(u32, u32)> {
+        let perp = if self.op.is_rows() { col } else { row };
+        if self.in_band(perp) {
+            self.op.map_cell(row, col)
+        } else {
+            Some((row, col))
+        }
+    }
+
+    /// New bounds of a rectangle `(r0, c0, r1, c1)`: one lying inside the
+    /// band across moves, grows or shrinks like an area reference
+    /// ([`StructuralOp::map_interval`]; `None` when deleted); any other
+    /// stays.
+    pub fn map_rect(self, r: (u32, u32, u32, u32)) -> Option<(u32, u32, u32, u32)> {
+        let (r0, c0, r1, c1) = r;
+        if self.op.is_rows() {
+            if !self.covers(c0, c1) {
+                return Some(r);
+            }
+            let (a, b) = self.op.map_interval(r0, r1)?;
+            Some((a, c0, b, c1))
+        } else {
+            if !self.covers(r0, r1) {
+                return Some(r);
+            }
+            let (a, b) = self.op.map_interval(c0, c1)?;
+            Some((r0, a, r1, b))
+        }
+    }
+
+    /// Whether the rectangle intersects the cells the edit moves or
+    /// deletes (the band from `at` to the sheet end).
+    pub fn touches(self, r: (u32, u32, u32, u32)) -> bool {
+        let (r0, c0, r1, c1) = r;
+        let (at, _) = self.op.span();
+        let (lo, hi, plo, phi) = if self.op.is_rows() {
+            (r0, r1, c0, c1)
+        } else {
+            (c0, c1, r0, r1)
+        };
+        let perp = match self.band {
+            None => true,
+            Some((a, b)) => plo <= b && a <= phi,
+        };
+        perp && hi >= at && lo <= self.op.max_index()
+    }
+
+    /// Whether a block (merge, table) given as a rectangle would be cut by
+    /// the edit: it touches the moved cells but sticks out of the band, or
+    /// the edit's start falls inside it (an insert splitting it, a delete
+    /// of part of it).
+    pub fn splits(self, r: (u32, u32, u32, u32)) -> bool {
+        if !self.touches(r) {
+            return false;
+        }
+        let (r0, c0, r1, c1) = r;
+        let (lo, hi, plo, phi) = if self.op.is_rows() {
+            (r0, r1, c0, c1)
+        } else {
+            (c0, c1, r0, r1)
+        };
+        if !self.covers(plo, phi) {
+            return true;
+        }
+        let (at, count) = self.op.span();
+        if self.op.is_insert() {
+            lo < at && at <= hi
+        } else {
+            let end = u64::from(at) + u64::from(count); // exclusive
+            let inside = lo >= at && u64::from(hi) < end;
+            let outside = u64::from(lo) >= end || hi < at;
+            !(inside || outside)
+        }
+    }
+}
+
+/// [`adjust_references`] for a [`CellShift`] (Excel's Insert / Delete
+/// Cells): references to cells inside the band follow them, area
+/// references lying inside the band across grow, shrink or move like for
+/// whole rows/columns; other areas and whole-row/column references stay.
+pub fn adjust_references_shift(expr: &Expr, ctx: &AdjustContext, band: Option<(u32, u32)>) -> Expr {
+    adjust_banded(expr, ctx, band)
+}
+
+fn adjust_banded(expr: &Expr, ctx: &AdjustContext, band: Option<(u32, u32)>) -> Expr {
     let op = ctx.op;
     let rows = op.is_rows();
+    let shift = CellShift { op, band };
     map_refs(expr, &|r: &Reference| {
         let affected = match &r.sheet {
             Some(name) => same_sheet(name, ctx.target_sheet),
@@ -239,6 +382,9 @@ pub fn adjust_references(expr: &Expr, ctx: &AdjustContext) -> Expr {
         }
         match r.kind {
             RangeKind::Cell(mut c) => {
+                if !shift.in_band(if rows { c.col } else { c.row }) {
+                    return Some(r.kind);
+                }
                 if rows {
                     c.row = op.map_index(c.row)?;
                 } else {
@@ -250,6 +396,10 @@ pub fn adjust_references(expr: &Expr, ctx: &AdjustContext) -> Expr {
                 let RangeKind::Area(mut a, mut b) = RangeKind::area(a, b) else {
                     unreachable!("RangeKind::area builds an area")
                 };
+                let (plo, phi) = if rows { (a.col, b.col) } else { (a.row, b.row) };
+                if !shift.covers(plo, phi) {
+                    return Some(r.kind);
+                }
                 if rows {
                     (a.row, b.row) = op.map_interval(a.row, b.row)?;
                 } else {
@@ -257,6 +407,7 @@ pub fn adjust_references(expr: &Expr, ctx: &AdjustContext) -> Expr {
                 }
                 Some(RangeKind::area(a, b))
             }
+            _ if band.is_some() => Some(r.kind),
             RangeKind::Rows { start, end, abs } if rows => {
                 let (start, end) = op.map_interval(start.min(end), start.max(end))?;
                 Some(RangeKind::Rows { start, end, abs })

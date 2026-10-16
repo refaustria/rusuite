@@ -118,7 +118,7 @@ use crate::functions::FunctionRegistry;
 use crate::graph::{Cycle, DependencyGraph, Precedent, SheetResolver};
 use crate::parser::{parse, ParseError};
 use crate::structured::{StructRef, TableDef};
-use crate::transform::{adjust_references, AdjustContext, StructuralOp};
+use crate::transform::{adjust_references_shift, AdjustContext, CellShift, StructuralOp};
 use crate::value::{parse_number_text, Value};
 
 /// What a cell holds.
@@ -1393,7 +1393,7 @@ impl Engine {
         at: u32,
         count: u32,
     ) -> Result<Recalc, EngineError> {
-        self.structural(sheet, StructuralOp::InsertRows { at, count })
+        self.structural(sheet, StructuralOp::InsertRows { at, count }.into())
     }
 
     /// Deletes rows `at..at + count` of `sheet`; cells below move up and
@@ -1406,7 +1406,7 @@ impl Engine {
         at: u32,
         count: u32,
     ) -> Result<Recalc, EngineError> {
-        self.structural(sheet, StructuralOp::DeleteRows { at, count })
+        self.structural(sheet, StructuralOp::DeleteRows { at, count }.into())
     }
 
     /// Inserts `count` empty columns before column `at`. See
@@ -1417,7 +1417,7 @@ impl Engine {
         at: u32,
         count: u32,
     ) -> Result<Recalc, EngineError> {
-        self.structural(sheet, StructuralOp::InsertCols { at, count })
+        self.structural(sheet, StructuralOp::InsertCols { at, count }.into())
     }
 
     /// Deletes columns `at..at + count`. See
@@ -1428,7 +1428,26 @@ impl Engine {
         at: u32,
         count: u32,
     ) -> Result<Recalc, EngineError> {
-        self.structural(sheet, StructuralOp::DeleteCols { at, count })
+        self.structural(sheet, StructuralOp::DeleteCols { at, count }.into())
+    }
+
+    /// Excel's Insert / Delete Cells with a shift: `op` restricted to the
+    /// band `lo..=hi` of the other axis (see [`CellShift`]). Contents of
+    /// the band move; references follow with
+    /// [`adjust_references_shift`]. Same errors and cost as
+    /// [`insert_rows`](Self::insert_rows).
+    pub fn shift_cells(
+        &mut self,
+        sheet: SheetId,
+        op: StructuralOp,
+        lo: u32,
+        hi: u32,
+    ) -> Result<Recalc, EngineError> {
+        let band_max = if op.is_rows() { MAX_COL } else { MAX_ROW };
+        if lo.max(hi) > band_max {
+            return Err(EngineError::InvalidCoord);
+        }
+        self.structural(sheet, CellShift::new(op, lo, hi))
     }
 
     // --- tables -----------------------------------------------------------
@@ -1956,7 +1975,9 @@ impl Engine {
     }
 
     /// Shared implementation of the row/column insert and delete methods.
-    fn structural(&mut self, sheet: SheetId, op: StructuralOp) -> Result<Recalc, EngineError> {
+    fn structural(&mut self, sheet: SheetId, shift: CellShift) -> Result<Recalc, EngineError> {
+        let op = shift.op;
+        let band = shift.band;
         let idx = self.sheet_index(sheet)?;
         let (at, count) = op.span();
         let max = u64::from(op.max_index());
@@ -1971,7 +1992,7 @@ impl Engine {
                 .cells
                 .iter()
                 .filter(|(_, x)| !matches!(x, CellContent::Spilled { .. }))
-                .any(|(&(r, c), _)| op.map_cell(r, c).is_none());
+                .any(|(&(r, c), _)| shift.map_cell(r, c).is_none());
             if u64::from(at) + u64::from(count) > max + 1 || pushed_off {
                 return Err(EngineError::InvalidCoord);
             }
@@ -1997,7 +2018,7 @@ impl Engine {
             let old_cells = std::mem::take(&mut s.cells);
             let mut old_values = std::mem::take(&mut s.values);
             for (pos, content) in old_cells {
-                let new_pos = op.map_cell(pos.0, pos.1);
+                let new_pos = shift.map_cell(pos.0, pos.1);
                 let is_formula = matches!(content, CellContent::Formula { .. });
                 if new_pos != Some(pos) {
                     vacated.push(coord(sheet, pos));
@@ -2023,7 +2044,7 @@ impl Engine {
                 None => Some((r, c)),
                 Some((mr, mc)) => Some((mr.max(r), mc.max(c))),
             });
-            if op.is_rows() {
+            if op.is_rows() && band.is_none() {
                 s.hidden_rows = std::mem::take(&mut s.hidden_rows)
                     .into_iter()
                     .filter_map(|(r, h)| op.map_index(r).map(|r| (r, h)))
@@ -2044,7 +2065,7 @@ impl Engine {
                 let CellContent::Formula { text, ast } = content else {
                     continue;
                 };
-                let new = adjust_references(ast, &ctx);
+                let new = adjust_references_shift(ast, &ctx, band);
                 if new != *ast {
                     *text = format!("={new}");
                     *ast = new;
@@ -2065,13 +2086,14 @@ impl Engine {
         // Names on the edited sheet follow the edit; formulas using a
         // changed name get new edges.
         let changed_names = self.adjust_names(&|ast: &Expr, host: &str| {
-            adjust_references(
+            adjust_references_shift(
                 ast,
                 &AdjustContext {
                     host_sheet: host,
                     target_sheet: &target,
                     op,
                 },
+                band,
             )
         });
         let users = self.name_users(&changed_names);
@@ -2103,7 +2125,7 @@ impl Engine {
         seeds.extend(
             anchors
                 .iter()
-                .filter_map(|&(r, c)| op.map_cell(r, c))
+                .filter_map(|&(r, c)| shift.map_cell(r, c))
                 .map(|p| coord(sheet, p)),
         );
         let mut changed = moved_to;

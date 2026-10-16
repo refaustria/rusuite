@@ -11,7 +11,10 @@ use model_sheet::{
     StyleId, Workbook, MAX_PATCH_CELLS,
 };
 
-use crate::command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect, SheetViewPatch};
+use crate::command::{
+    CalcCommand, ClipCell, DeleteShift, FillMode, InsertShift, PasteMode, Rect, SheetRect,
+    SheetViewPatch,
+};
 use crate::fill::{move_input, plan, shift_input, FillItem};
 use crate::patch::{
     CalcPatch, CellKind, CellView, ColView, FoundCell, RegionSnapshot, RowView, SheetCells,
@@ -86,6 +89,8 @@ impl CalcError {
             CalcError::Model(M::PivotOverlap { .. }) => "pivot_overlap",
             CalcError::Model(M::InvalidTable(_)) => "invalid_table",
             CalcError::Model(M::UnknownTable(_)) => "unknown_table",
+            CalcError::Model(M::ShiftMerged) => "shift_merged",
+            CalcError::Model(M::ShiftTable) => "shift_table",
             CalcError::Model(M::Engine(EngineError::InvalidName(_))) => "invalid_name",
             CalcError::Model(M::Engine(EngineError::DuplicateName(_))) => "duplicate_name",
             CalcError::Model(M::Engine(EngineError::UnknownName(_))) => "unknown_name",
@@ -944,6 +949,48 @@ impl CalcDocument {
             }
             &C::DeleteCols { sheet, at, count } => {
                 self.structural(sheet, StructuralOp::DeleteCols { at, count })
+            }
+            &C::InsertCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                shift,
+            } => {
+                let rect = Rect { r0, c0, r1, c1 };
+                let op = match shift {
+                    InsertShift::Right => StructuralOp::InsertCols {
+                        at: c0,
+                        count: c1.saturating_sub(c0) + 1,
+                    },
+                    InsertShift::Down => StructuralOp::InsertRows {
+                        at: r0,
+                        count: r1.saturating_sub(r0) + 1,
+                    },
+                };
+                self.shift_cells(sheet, rect, op)
+            }
+            &C::DeleteCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                shift,
+            } => {
+                let rect = Rect { r0, c0, r1, c1 };
+                let op = match shift {
+                    DeleteShift::Left => StructuralOp::DeleteCols {
+                        at: c0,
+                        count: c1.saturating_sub(c0) + 1,
+                    },
+                    DeleteShift::Up => StructuralOp::DeleteRows {
+                        at: r0,
+                        count: r1.saturating_sub(r0) + 1,
+                    },
+                };
+                self.shift_cells(sheet, rect, op)
             }
             C::AddSheet { name, index } => {
                 let count = self.workbook.sheets().len();
@@ -2335,6 +2382,139 @@ impl CalcDocument {
             },
             inverse: Some(CalcCommand::RestoreRows { sheet, rows: prev }),
         })
+    }
+
+    /// Insert / Delete Cells with a shift ([`CalcCommand::InsertCells`],
+    /// [`CalcCommand::DeleteCells`]): `op` on the rect's rows (column
+    /// operations) or columns (row operations). The inverse is the
+    /// opposite command on the same rect, then (for a delete) the deleted
+    /// cells, and the original text of every rewritten formula, merges,
+    /// rules and charts as in [`structural`](Self::structural).
+    fn shift_cells(&mut self, sheet: u32, rect: Rect, op: StructuralOp) -> Result<CalcApplied> {
+        use CalcCommand as C;
+        let s = self.sheet(sheet)?;
+        let Rect { r0, c0, r1, c1 } = rect;
+        if r0 > r1 || c0 > c1 || r1 > MAX_ROW || c1 > MAX_COL {
+            return Err(CalcError::InvalidRange);
+        }
+        let (lo, hi) = if op.is_rows() { (c0, c1) } else { (r0, r1) };
+        let full = if op.is_rows() { MAX_COL } else { MAX_ROW };
+        if lo == 0 && hi == full {
+            // Whole rows / columns: Excel inserts or deletes them.
+            return self.structural(sheet, op);
+        }
+        let shift = engine_formula::CellShift::new(op, lo, hi);
+        let formulas = self.formulas();
+        let merges_before = self.workbook.merges(s).to_vec();
+        let rules_before = self.rules_state();
+        let charts_before = self.charts_state();
+        let span_cells: Vec<(u32, u32, String, u32)> = if op.is_insert() {
+            Vec::new()
+        } else {
+            let range = self.range(sheet, r0, c0, r1, c1)?;
+            self.workbook
+                .cells_in(range)
+                .map(|(c, content, style)| (c.row, c.col, content_to_input(content), style.0))
+                .collect()
+        };
+        let recalc = self.workbook.shift_cells(s, op, lo, hi)?;
+        let opposite = match op {
+            StructuralOp::InsertCols { .. } => C::DeleteCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                shift: DeleteShift::Left,
+            },
+            StructuralOp::InsertRows { .. } => C::DeleteCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                shift: DeleteShift::Up,
+            },
+            StructuralOp::DeleteCols { .. } => C::InsertCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                shift: InsertShift::Right,
+            },
+            StructuralOp::DeleteRows { .. } => C::InsertCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                shift: InsertShift::Down,
+            },
+        };
+        let mut rewritten: BTreeMap<u32, Vec<(u32, u32, String, u32)>> = BTreeMap::new();
+        for (c, text, style) in formulas {
+            let now = if c.sheet == s {
+                shift.map_cell(c.row, c.col)
+            } else {
+                Some((c.row, c.col))
+            };
+            let Some((row, col)) = now else {
+                continue; // deleted: restored with the span
+            };
+            let current = self
+                .workbook
+                .formula_text(CellCoord::new(c.sheet, row, col));
+            if current != Some(text.as_str()) {
+                rewritten
+                    .entry(c.sheet.0)
+                    .or_default()
+                    .push((c.row, c.col, text, style.0));
+            }
+        }
+        let mut inverse = vec![opposite];
+        if !span_cells.is_empty() {
+            inverse.push(C::RestoreCells {
+                sheet,
+                cells: span_cells,
+            });
+        }
+        for (sheet, cells) in rewritten {
+            inverse.push(C::RestoreCells { sheet, cells });
+        }
+        let mut extra = CalcPatch::default();
+        if self.workbook.merges(s) != merges_before.as_slice() {
+            inverse.push(C::RestoreMerges {
+                sheet,
+                merges: merges_before.iter().map(rect_of).collect(),
+            });
+            extra.merge(self.merges_patch(s));
+        }
+        let (restore, changed) = self.rules_changed(rules_before);
+        inverse.extend(restore);
+        extra.cf_sheets = changed;
+        let (restore, changed) = self.charts_changed(charts_before);
+        inverse.extend(restore);
+        extra.chart_sheets = changed;
+        let inverse = if inverse.len() == 1 {
+            inverse.pop()
+        } else {
+            Some(C::Compound { commands: inverse })
+        };
+        let (at, count) = op.span();
+        let mut patch = CalcPatch {
+            cells: self.cells_patch(recalc.changed.iter().copied(), Some(s)),
+            cycle: self.cycle_text(recalc.cycle.as_ref()),
+            structural: vec![StructuralChange {
+                sheet,
+                kind: StructuralKind::ShiftCells,
+                at,
+                count,
+            }],
+            ..Default::default()
+        };
+        patch.merge(extra);
+        Ok(Applied { patch, inverse })
     }
 
     /// Row/column insert or delete.

@@ -45,7 +45,7 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | F4 | Cycle `$` anchoring of the reference at the caret: `A1` → `$A$1` → `A$1` → `$A1` |
 | ArrowUp/ArrowDown, Tab/Enter | Function list: choose, accept (`SUM(`) |
 | Mod+Space, Shift+Space | Select the column(s), the row(s) |
-| Mod+Plus, Mod+Minus | Insert, delete rows or columns (dialog unless whole rows/columns are selected) |
+| Mod+Plus, Mod+Minus | Insert, delete: whole rows/columns selected act at once; otherwise Excel's Insert / Delete dialog (Shift cells right / down – left / up –, Entire row, Entire column; a selection taller than wide preselects the sideways shift) |
 | Mod+1 | Format cells: number format dialog (General, Number, Currency, Percentage, Date, Time, Text, Custom) with a live preview |
 | Mod+Shift+~, Mod+Shift+!, Mod+Shift+@, Mod+Shift+#, Mod+Shift+$, Mod+Shift+%, Mod+Shift+^ | Number format General, `#,##0.00`, `h:mm AM/PM`, `d-mmm-yy`, currency, `0%`, `0.00E+00` (the Shift+digit keys of a US layout) |
 | Mod+5 | Strikethrough |

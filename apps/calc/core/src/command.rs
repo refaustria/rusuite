@@ -102,6 +102,32 @@ pub enum CalcCommand {
         at: u32,
         count: u32,
     },
+    /// Excel's Insert Cells (Home › Insert ▾ › Insert Cells…, Ctrl++):
+    /// empty cells take the place of the range; the cells at and right of
+    /// it (`right`, same rows) or at and below it (`down`, same columns)
+    /// move along, and references follow. A range spanning every row /
+    /// column inserts whole columns / rows. Refused (`shift_merged`,
+    /// `shift_table`, `pivot_cell`) where Excel refuses. Undo is the
+    /// matching [`DeleteCells`](Self::DeleteCells).
+    InsertCells {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+        shift: InsertShift,
+    },
+    /// Excel's Delete Cells: removes the range; the cells right of it
+    /// (`left`) or below it (`up`) move into its place. References into
+    /// it become `#REF!`.
+    DeleteCells {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+        shift: DeleteShift,
+    },
     /// Adds an empty sheet at position `index` of the sheet order (absent:
     /// last). Undo deletes it; redo brings back the same sheet id.
     AddSheet {
@@ -968,6 +994,24 @@ pub enum CalcCommand {
     Compound {
         commands: Vec<CalcCommand>,
     },
+}
+
+/// Where [`CalcCommand::InsertCells`] moves the existing cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum InsertShift {
+    Right,
+    Down,
+}
+
+/// Where [`CalcCommand::DeleteCells`] takes the replacing cells from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum DeleteShift {
+    Left,
+    Up,
 }
 
 /// The view settings [`CalcCommand::SetSheetView`] changes; absent fields

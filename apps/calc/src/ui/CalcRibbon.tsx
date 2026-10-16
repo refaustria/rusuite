@@ -201,6 +201,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
               size="large"
               disabled={off}
               menu={[
+                { id: "cells", label: t("calc.insertCellsDots"), icon: "insertCells", onSelect: run(actions.insertCells) },
                 { id: "rows", label: t("calc.insertSheetRows"), icon: "insertRows", onSelect: run(actions.insertRows) },
                 { id: "cols", label: t("calc.insertSheetCols"), icon: "insertCols", onSelect: run(actions.insertCols) },
                 { separator: true },
@@ -213,6 +214,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
               size="large"
               disabled={off}
               menu={[
+                { id: "cells", label: t("calc.deleteCellsDots"), icon: "deleteCells", onSelect: run(actions.deleteCells) },
                 { id: "rows", label: t("calc.deleteSheetRows"), icon: "deleteRows", onSelect: run(actions.deleteRows) },
                 { id: "cols", label: t("calc.deleteSheetCols"), icon: "deleteCols", onSelect: run(actions.deleteCols) },
                 { separator: true },

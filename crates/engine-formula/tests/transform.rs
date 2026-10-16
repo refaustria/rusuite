@@ -1,7 +1,10 @@
 //! Table-driven tests for reference adjustment (`adjust_references`) and
 //! copy/paste offsets (`offset_relative`).
 
-use engine_formula::{adjust_references, offset_relative, parse, AdjustContext, StructuralOp};
+use engine_formula::{
+    adjust_references, adjust_references_shift, offset_relative, parse, AdjustContext, CellShift,
+    StructuralOp,
+};
 
 use StructuralOp::{DeleteCols, DeleteRows, InsertCols, InsertRows};
 
@@ -162,4 +165,78 @@ fn offset_for_copy_paste() {
             "{formula} by ({d_row}, {d_col})"
         );
     }
+}
+
+/// Like [`adjust`], restricted to the band `lo..=hi` of the other axis
+/// (Insert / Delete Cells).
+fn adjust_band(formula: &str, op: StructuralOp, lo: u32, hi: u32) -> String {
+    let ast = parse(formula).unwrap();
+    let ctx = AdjustContext {
+        host_sheet: "Sheet1",
+        target_sheet: "Sheet1",
+        op,
+    };
+    format!("={}", adjust_references_shift(&ast, &ctx, Some((lo, hi))))
+}
+
+#[test]
+fn adjust_for_cell_shifts() {
+    // (formula, op, band, expected)
+    let cases: &[(&str, StructuralOp, (u32, u32), &str)] = &[
+        // Shift right in row 1 (index 0) from column B.
+        ("=B1", ic(1, 1), (0, 0), "=C1"),
+        ("=B2", ic(1, 1), (0, 0), "=B2"),
+        ("=A1", ic(1, 1), (0, 0), "=A1"),
+        ("=SUM(A1:D1)", ic(1, 1), (0, 0), "=SUM(A1:E1)"),
+        ("=SUM(A1:D2)", ic(1, 1), (0, 0), "=SUM(A1:D2)"),
+        ("=SUM(A1:D2)", ic(1, 1), (0, 1), "=SUM(A1:E2)"),
+        ("=SUM(1:1)", ic(1, 1), (0, 0), "=SUM(1:1)"),
+        ("=SUM(B:B)", ic(1, 1), (0, 0), "=SUM(B:B)"),
+        ("=$B$1", ic(1, 2), (0, 0), "=$D$1"),
+        // Shift down in column A from row 3 (index 2).
+        ("=A5", ir(2, 1), (0, 0), "=A6"),
+        ("=B5", ir(2, 1), (0, 0), "=B5"),
+        ("=SUM(A1:A10)", ir(2, 1), (0, 0), "=SUM(A1:A11)"),
+        ("=SUM(A1:B10)", ir(2, 1), (0, 0), "=SUM(A1:B10)"),
+        // Delete left / up.
+        ("=B1", dc(1, 1), (0, 0), "=#REF!"),
+        ("=C1", dc(1, 1), (0, 0), "=B1"),
+        ("=C2", dc(1, 1), (0, 0), "=C2"),
+        ("=SUM(A1:D1)", dc(1, 1), (0, 0), "=SUM(A1:C1)"),
+        ("=A3", dr(2, 1), (0, 0), "=#REF!"),
+        ("=A4+B4", dr(2, 1), (0, 0), "=A3+B4"),
+        ("=SUM(A3:A3)", dr(2, 1), (0, 0), "=SUM(#REF!)"),
+    ];
+    for &(f, op, (lo, hi), want) in cases {
+        assert_eq!(
+            adjust_band(f, op, lo, hi),
+            want,
+            "{f} {op:?} band {lo}..={hi}"
+        );
+    }
+}
+
+#[test]
+fn cell_shift_geometry() {
+    let s = CellShift::new(ic(2, 1), 3, 5);
+    assert_eq!(s.map_cell(4, 2), Some((4, 3)));
+    assert_eq!(s.map_cell(4, 1), Some((4, 1)));
+    assert_eq!(s.map_cell(6, 2), Some((6, 2)));
+    // A rectangle inside the band moves; one sticking out stays.
+    assert_eq!(s.map_rect((3, 2, 5, 4)), Some((3, 3, 5, 5)));
+    assert_eq!(s.map_rect((2, 2, 5, 4)), Some((2, 2, 5, 4)));
+    // Blocks cut by the edit.
+    assert!(s.splits((4, 6, 6, 7)), "sticks out of the band");
+    assert!(s.splits((3, 1, 3, 3)), "insert inside the block");
+    assert!(!s.splits((3, 6, 5, 7)), "moves as a whole");
+    assert!(!s.splits((7, 0, 9, 9)), "outside the band");
+    assert!(!s.splits((3, 0, 5, 1)), "before the insert");
+    let d = CellShift::new(dr(2, 2), 0, 1);
+    assert!(d.splits((3, 0, 4, 1)), "partly deleted");
+    assert!(!d.splits((2, 0, 3, 1)), "deleted as a whole");
+    assert!(!d.splits((4, 0, 5, 1)), "moves up as a whole");
+    assert!(d.touches((9, 0, 9, 0)));
+    assert!(!d.touches((0, 0, 1, 1)));
+    assert_eq!(d.map_rect((2, 0, 3, 1)), None);
+    assert_eq!(CellShift::from(ir(0, 1)).map_cell(0, 9), Some((1, 9)));
 }

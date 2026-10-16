@@ -62,6 +62,9 @@ export function calcActions(store: CalcStore) {
     paste: () => (store.charts.hasClip() && !store.hasClip() ? store.charts.paste() : pasteMode("all")),
     /** Ctrl+Shift+V: values only. */
     pasteValues: () => pasteMode("valuesOnly"),
+    /** Insert Cells… / Delete Cells…: Excel's dialog (whole rows / columns selected: no dialog). */
+    insertCells: () => store.openDialog({ kind: "cells", mode: "insert" }),
+    deleteCells: () => store.openDialog({ kind: "cells", mode: "delete" }),
     insertRows: () => store.structure("insert", "rows"),
     insertCols: () => store.structure("insert", "cols"),
     deleteRows: () => store.structure("delete", "rows"),
@@ -182,6 +185,8 @@ export function cellMenu(a: CalcActions, hasMerge = false, annot?: AnnotationSta
     ...clipboardItems(a),
     SEP,
     ...(annot ? [...annotationItems(a, annot), SEP] : []),
+    item("insert-cells", t("calc.insertDots"), a.insertCells),
+    item("delete-cells", t("calc.deleteDots"), a.deleteCells),
     item("insert-rows", t("calc.insertRows"), a.insertRows),
     item("insert-cols", t("calc.insertCols"), a.insertCols),
     item("delete-rows", t("calc.deleteRows"), a.deleteRows),

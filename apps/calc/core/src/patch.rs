@@ -267,6 +267,9 @@ pub enum StructuralKind {
     DeleteRows,
     InsertCols,
     DeleteCols,
+    /// Insert / Delete Cells with a shift (`at`, `count` on the shift's
+    /// axis; only part of the rows / columns moved).
+    ShiftCells,
 }
 
 /// Rows/columns were inserted or deleted on `sheet`: the UI drops its
