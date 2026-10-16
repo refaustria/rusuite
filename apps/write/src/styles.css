@@ -176,6 +176,10 @@ body,
 .tiptap-content[data-paged] .notes-separator-foot { display: none; }
 .tiptap-content[data-paged] > .notes-area:not(:has(.note[data-note-kind="end"])) { margin: 0; }
 .tiptap-content .note.note-paged { position: absolute; left: 0; right: 0; z-index: 3; background: #fff; }
+/* Mixed page widths (W-18): the frame is transparent, each sheet draws its own white page and shadow below the text. */
+.write-page.write-mixed { background: transparent; box-shadow: none; }
+.page-sheets { position: absolute; inset: 0; pointer-events: none; }
+.page-sheet { position: absolute; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24); }
 .page-chrome { position: absolute; left: 0; top: 0; right: 0; pointer-events: none; z-index: 2; }
 .page-cover { position: absolute; left: 0; right: 0; background: #fff; }
 .page-gap { position: absolute; left: -8px; right: -8px; display: flex; align-items: center; justify-content: center; pointer-events: auto; user-select: none; background: var(--ui-panel); box-shadow: inset 0 5px 5px -5px rgba(0, 0, 0, 0.3), inset 0 -5px 5px -5px rgba(0, 0, 0, 0.3); }

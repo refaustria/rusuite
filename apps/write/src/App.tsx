@@ -205,6 +205,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
   const comments = useSync(ctl, () => ctl.comments);
   // The frame (first page) uses the first section's page setup.
   const firstPage = useSync(ctl, () => ctl.sections[0]?.page ?? ctl.page);
+  const sections = useSync(ctl, () => ctl.sections);
 
   useEffect(() => {
     if (!editor) return;
@@ -328,6 +329,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
                 layout={chrome.layout}
                 editor={editor}
                 onToggleWhiteSpace={chrome.onToggleWhiteSpace}
+                sections={sections}
               >
                 <EditorContent editor={editor} />
               </PageFrame>

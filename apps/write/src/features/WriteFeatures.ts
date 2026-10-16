@@ -21,10 +21,13 @@ import { paragraphStyleId, resolveParagraph } from "./styleCss";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { insertNote } from "./structureCommands";
 import { listBackspace } from "./listKeys";
+import { formatTarget } from "./runFormat";
+import { toggleChar } from "./wordKeys";
 import { getLocale } from "@rusuite/ui-shared";
 import { caretToCell, inLastCell, tableContext } from "./tables";
 import { paragraphBoxPlugin } from "./paragraphBox";
 import { contextualSpacingPlugin, refreshContextualSpacing } from "./contextualSpacing";
+import { refreshSectionWidths, sectionWidthPlugin } from "./sectionWidths";
 import { refreshTables, tableRenderPlugin } from "./tableRender";
 import { refreshTabs, tabStopsPlugin } from "./tabStops";
 import { installStyleSheetCss } from "./styleCss";
@@ -286,6 +289,11 @@ export class WriteFeatures {
             this.editor.commands.goToPreviousCell();
             return true;
           },
+          // Word: Ctrl+Shift+K / A / D are small caps, all caps, double underline (W-30); bound here so that ProseMirror's
+          // Shift fallback does not run Ctrl+K / Ctrl+A / Ctrl+D instead.
+          "Mod-Shift-k": () => toggleChar(formatTarget(this.editor as Editor), ctl.styles, "smallCaps"),
+          "Mod-Shift-a": () => toggleChar(formatTarget(this.editor as Editor), ctl.styles, "allCaps"),
+          "Mod-Shift-d": () => toggleChar(formatTarget(this.editor as Editor), ctl.styles, "doubleUnderline"),
           // Word: Backspace at a list item's start removes the number first, keeping the indent (W-28).
           Backspace: () => listBackspace(this.editor as Editor, ctl),
           Escape: () => {
@@ -357,6 +365,7 @@ export class WriteFeatures {
           tableRenderPlugin(() => ctl.styles),
           paragraphBoxPlugin(),
           contextualSpacingPlugin(() => ctl.styles),
+          sectionWidthPlugin({ enabled: () => ui.getState().view === "print", sections: () => ctl.sections, page: () => ctl.page, styles: () => ctl.styles }),
           tabStopsPlugin(() => ctl.styles),
           columnResizePlugin(ctl),
           paginationPlugin({
@@ -463,10 +472,12 @@ export class WriteFeatures {
                   refreshTables(view);
                   refreshTabs(view);
                   refreshContextualSpacing(view);
+                  refreshSectionWidths(view);
                 }
                 if (ctl.page !== page || ctl.sections !== sections) {
                   page = ctl.page;
                   sections = ctl.sections;
+                  refreshSectionWidths(view);
                   remeasurePages(view);
                   refreshStructure(view);
                 }
@@ -510,6 +521,7 @@ export class WriteFeatures {
                 if (ui.getState().view !== mode) {
                   mode = ui.getState().view;
                   if (mode === "draft") ui.set({ frame: null });
+                  refreshSectionWidths(view);
                   remeasurePages(view);
                 }
               });
