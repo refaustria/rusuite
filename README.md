@@ -1,4 +1,4 @@
-# Rusuite
+# Rusuite – rusuit.es
 
 <p>
   <img src="apps/portal/logos/rusuite.svg" width="56" height="56" alt="Rusuite logo" />&nbsp;
@@ -9,8 +9,11 @@
 
 > A stripped-down but fully working office suite with a Rust backend and a web frontend via Tauri – and the same apps running in the browser via WebAssembly. Three apps: **Rusuite Write** (documents), **Rusuite Calc** (spreadsheets), **Rusuite Show** (presentations). Not an MS Office replacement, but a cleanly architected minimum that can read and write real `.docx`, `.xlsx` and `.pptx` files.
 
+**Free and open source (MIT) – and it will stay that way.** Rusuite is free to use, has no accounts, no tracking and no
+server-side documents; use it, keep it, modify it, share it. Home: <https://rusuit.es/>.
+
 **Status:** 0.1.0 release candidate (alpha quality) – all three apps run on the desktop (Windows, macOS, Linux; Tauri)
-and in the browser (WebAssembly) at <https://resuite.inceptum.at/>. See [Install](#install) and [CHANGELOG.md](CHANGELOG.md).
+and in the browser (WebAssembly) at <https://rusuit.es/>. See [Install](#install) and [CHANGELOG.md](CHANGELOG.md).
 
 | | What works | Known gaps (top) |
 |---|---|---|
@@ -231,9 +234,9 @@ The order is deliberate: first what can be tested without a UI, then what produc
 
 ## Install
 
-- **Web:** nothing to install – open <https://resuite.inceptum.at/> (Chrome, Edge, Firefox or Safari).
+- **Web:** nothing to install – open <https://rusuit.es/> (Chrome, Edge, Firefox or Safari).
 - **Desktop:** installers for Windows (`.exe`, `.msi`), macOS (Apple Silicon and Intel `.dmg`) and Linux (`.deb`, `.rpm`,
-  `.AppImage`) are on the [Downloads page](https://resuite.inceptum.at/downloads.html), with SHA-256 checksums, and on
+  `.AppImage`) are on the [Downloads page](https://rusuit.es/downloads.html), with SHA-256 checksums, and on
   [GitHub Releases](https://github.com/refaustria/rusuite/releases). The builds are **not code-signed** yet: on Windows
   choose *More info › Run anyway* in the SmartScreen dialog; on macOS right-click the app › *Open* the first time. On
   Linux install the `.deb` with `sudo apt install ./<file>.deb`, or make the `.AppImage` executable and run it.

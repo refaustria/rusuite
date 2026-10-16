@@ -7,6 +7,7 @@ versions follow [Semantic Versioning](https://semver.org/). One section per app;
 ## [Unreleased]
 
 ### In progress
+- **Portal** (rusuit.es): the site is now rusuit.es with a wordmark, a "free, open source, and it stays that way" statement and an Open source section.
 - **Report a problem** (all apps, in progress): a dialog that sends a problem report – your text, screenshots you choose and
   diagnostics you can read before sending, never the document – to Rusuite's public issue tracker on GitHub, only when you
   press Send.
@@ -15,7 +16,7 @@ versions follow [Semantic Versioning](https://semver.org/). One section per app;
 ## [0.1.0-rc.1] – untagged
 
 First release candidate: Rusuite Calc, Write and Show as desktop apps for Windows, macOS and Linux and as web apps in the
-browser at <https://resuite.inceptum.at/>. They open and save real `.xlsx`, `.docx` and `.pptx` files.
+browser at <https://rusuit.es/>. They open and save real `.xlsx`, `.docx` and `.pptx` files.
 
 ### Calc (spreadsheets)
 - Formula engine compatible with Excel: 221 functions (maths, statistics, text, dates, lookup incl. XLOOKUP, logic,
@@ -75,7 +76,7 @@ browser at <https://resuite.inceptum.at/>. They open and save real `.xlsx`, `.do
   own Anthropic or OpenAI-compatible API key – both off until you set them up.
 
 ### Portal (website)
-- Start page at <https://resuite.inceptum.at/> listing the three apps, a privacy page and a **Downloads** page with the
+- Start page at <https://rusuit.es/> listing the three apps, a privacy page and a **Downloads** page with the
   installers for each operating system and their SHA-256 checksums; English and German.
 
 ### Desktop
