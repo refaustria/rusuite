@@ -244,7 +244,8 @@ function textLines(el: HTMLElement, base: number, spacers: [number, number][], f
   }));
   // Floating pictures, shapes and text boxes may hang below the text: the page cover must not hide them.
   const last2 = lines[lines.length - 1]!;
-  el.querySelectorAll(".drawing-wrap.floating, .inline-image-wrap.floating").forEach((f) => {
+  // (Rotated shapes too: the rotated box may reach below its line.)
+  el.querySelectorAll(".drawing-wrap.floating, .inline-image-wrap.floating, .drawing-wrap:not(.floating) > .drawing-box[style*='rotate']").forEach((f) => {
     const r = f.getBoundingClientRect();
     if (r.height > 0) last2.ink = Math.max(last2.ink ?? last2.bottom, naturalY(r.bottom / z, base, spacers));
   });

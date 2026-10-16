@@ -162,6 +162,20 @@ export function outlineMenu(line: ShapeLine | null | undefined, set: (l: ShapeLi
   ];
 }
 
+/**
+ * Align ▾ (Word's Align Left / Center / Right / Top / Middle / Bottom,
+ * relative to the margin): the drawing floats (square wrapping when it was
+ * inline) aligned on one axis, the other keeps its position.
+ */
+export function alignAnchor(a: Anchor | null, to: { h?: "left" | "center" | "right"; v?: "top" | "center" | "bottom" }): Anchor {
+  const base = a ?? newAnchor("square");
+  return {
+    ...base,
+    ...(to.h ? { h: { relativeTo: "margin", place: { kind: "align", value: to.h } } } : {}),
+    ...(to.v ? { v: { relativeTo: "margin", place: { kind: "align", value: to.v } } } : {}),
+  } as Anchor;
+}
+
 /** Applies `make(anchor)` to the selected drawing (Position ▾ / Wrap Text ▾). */
 function setDrawingAnchor(editor: Editor, make: (a: Anchor | null) => Anchor | null) {
   editSelectedDrawing(editor, (d) => {
@@ -342,6 +356,14 @@ export function shapeFormatTab(editor: Editor, ctl: SyncController, d: Drawing, 
         items: (
           <>
             {arrangeMenus((d.anchor as Anchor | undefined) ?? null, (make) => setDrawingAnchor(editor, make))}
+            <RibbonMenuButton
+              label={t("write.alignObjects")}
+              icon={presetIcon("top-left")}
+              size="large"
+              menu={(["left", "center", "right"] as const)
+                .map((h) => ({ id: `h-${h}`, label: t(`write.alignObj.${h}`), onSelect: () => setDrawingAnchor(editor, (a) => alignAnchor(a, { h })) }))
+                .concat((["top", "center", "bottom"] as const).map((v) => ({ id: `v-${v}`, label: t(`write.alignObj.v${v}`), onSelect: () => setDrawingAnchor(editor, (a) => alignAnchor(a, { v })) })))}
+            />
             <RibbonMenuButton
               label={t("write.rotate")}
               icon="arrange"

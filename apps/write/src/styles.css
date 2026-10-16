@@ -117,6 +117,18 @@ body,
 .drawing-adjust { display: none; position: absolute; width: 10px; height: 10px; border-radius: 50%; background: #ffd500; border: 1px solid #7a6000; box-sizing: border-box; cursor: pointer; z-index: 2; touch-action: none; }
 .drawing-wrap.selected .drawing-adjust { display: block; }
 .drawing-wrap.floating.selected { cursor: move; touch-action: none; }
+/* Touch-sized hit areas around the small handles (docs/mobile-plan.md guardrails: ≥ 32 px). */
+/* They grow outwards only, so the text next to the box edge stays clickable. */
+.drawing-handle::before, .drawing-rotate::before, .drawing-adjust::before { content: ""; position: absolute; inset: -12px; }
+.drawing-handle.image-handle-n::before { inset: -12px -12px 4px -12px; }
+.drawing-handle.image-handle-s::before { inset: 4px -12px -12px -12px; }
+.drawing-handle.image-handle-e::before { inset: -12px -12px -12px 4px; }
+.drawing-handle.image-handle-w::before { inset: -12px 4px -12px -12px; }
+.drawing-handle.image-handle-nw::before { inset: -12px 4px 4px -12px; }
+.drawing-handle.image-handle-ne::before { inset: -12px -12px 4px 4px; }
+.drawing-handle.image-handle-se::before { inset: 4px -12px -12px 4px; }
+.drawing-handle.image-handle-sw::before { inset: 4px 4px -12px -12px; }
+.drawing-adjust::before { inset: -6px; }
 .drawing-wrap.moving, .drawing-wrap.resizing { opacity: 0.8; }
 .tiptap-content :is(p, h1, h2, h3, h4, h5, h6):has(> .drawing-wrap.behind, > .drawing-wrap.front) { position: relative; }
 /* Hidden text (w:vanish): not shown, not printed; View › Hidden Text shows it dotted. */

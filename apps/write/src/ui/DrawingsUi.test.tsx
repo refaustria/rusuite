@@ -163,6 +163,18 @@ describe("Shape Format", () => {
     await waitFor(() => expect(lastDrawingCmd(backend)?.drawing.anchor?.h).toEqual({ relativeTo: "margin", place: { kind: "align", value: "right" } }));
   });
 
+  it("Align › Align Center floats the shape centred on the margin; Align Bottom keeps it centred", async () => {
+    const { backend } = await selected();
+    fireEvent.click(screen.getByRole("button", { name: "Align" }));
+    fireEvent.click(menuItem("Align Center"));
+    await waitFor(() => expect(lastDrawingCmd(backend)?.drawing.anchor).toMatchObject({ wrap: "square", h: { relativeTo: "margin", place: { kind: "align", value: "center" } } }));
+    fireEvent.click(screen.getByRole("button", { name: "Align" }));
+    fireEvent.click(menuItem("Align Bottom"));
+    await waitFor(() =>
+      expect(lastDrawingCmd(backend)?.drawing.anchor).toMatchObject({ h: { place: { value: "center" } }, v: { relativeTo: "margin", place: { kind: "align", value: "bottom" } } }),
+    );
+  });
+
   it("Size fields and Align Text › Middle", async () => {
     const { backend } = await selected();
     const w = screen.getByRole("textbox", { name: "Width (cm)" });

@@ -228,7 +228,7 @@ The algorithm is in `docs/write-layout.md`.
   arrives), the text a nested editor (the Write schema; Enter, Backspace, Ctrl+B/I/U, Tab, Ctrl+Z/Y; Escape selects the
   shape). Double-click a shape to edit its text; a click in a text box's text puts the caret there. Selected: eight
   resize handles (corners free, Shift keeps the proportions), a rotation handle above (Shift snaps to 15°), the preset's
-  yellow adjust handles; a floating drawing moves by dragging. Inline drawings take part in the measurement like
+  yellow adjust handles (touch-sized hit areas that grow outwards only); a floating drawing moves by dragging. Inline drawings take part in the measurement like
   pictures (one box per drawing; the text inside is not part of the page's lines); floating ones are placed like
   floating pictures (square/tight float, top and bottom, behind / in front; page and margin positions follow the print
   layout) and the page cover never hides what hangs below the last line. Prints and exports to PDF as shown.
@@ -236,7 +236,7 @@ The algorithm is in `docs/write-layout.md`.
   Change Shape ▾), Shape Styles (18 presets: colored fill / light fill / colored outline × accents 1–6), Shape Fill,
   Shape Outline colour, Outline weight and dashes ▾ (No Outline, 0.25–6 pt, seven dash styles), Text: Align Text ▾
   (top / middle / bottom), Resize shape to fit text; Alt text; Arrange: Position ▾, Wrap Text ▾ (as for pictures),
-  Rotate ▾ (right / left 90°, flip vertical / horizontal); Size (height, width in cm). Each change is one
+  Align ▾ (left / center / right / top / middle / bottom on the margin; an inline shape starts floating), Rotate ▾ (right / left 90°, flip vertical / horizontal); Size (height, width in cm). Each change is one
   `SetDrawingProps` (the text blocks stay in Rust); typing in the text sends the ordinary text commands for the paragraphs
   inside (`InsertText`, `SplitParagraph`, …, addressed by their ids), anything else one `SetDrawingText`.
 - **Picture Format** (P8-34 additions): Adjust: Corrections ▾ (brightness × contrast −40…+40 %, 25 previews), Color ▾
