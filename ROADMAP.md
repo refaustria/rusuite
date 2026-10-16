@@ -144,6 +144,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Tauri mobile targets for the three apps; tablet-first layouts; touch editing; document picker + share sheet; Rust PDF generation; store publishing. Guardrails apply now (pointer events, responsive ribbon, Backend abstraction).
 
 ## Release / distribution
+- Report a problem (P8-43): rate-limit pre-check before submit; desktop opens the issue link in the system browser; optional reporter e-mail via a GitHub-side form; prune old screenshots from the attachments branch.
 - Code signing + notarization (Windows/macOS warn today); auto-update (tauri-plugin-updater); CI check that the tag matches `tauri.conf.json` versions; bump actions to Node 24 variants when available.
 
 ## Calc (Phase 6 leftovers)
