@@ -11,18 +11,34 @@ import { CALC_MARGINS, HEADING_COL_PX, HEADING_ROW_PX, colLetters, paginate, pri
 import { buildPrintTable, type PrintTable } from "./printTable";
 import type { IconSetKind } from "../generated/IconSetKind";
 import { iconGlyph } from "../grid/cf";
+import { cellAddress } from "../grid/address";
+import { noteBoxRect, runsText } from "../comments/model";
+import { runsToHtml } from "../comments/richText";
+import { t } from "../i18n";
 
 /** A chart to print: its box in px from the part's first printed cell, and its SVG. */
 export interface PrintChart extends PxRect {
   svg: string;
 }
 
+/** A note or comment printed at the end of its sheet (Page Setup › Comments: At end of sheet). */
+export interface PrintAnnotation {
+  /** `A2`. */
+  cell: string;
+  kind: "note" | "comment";
+  author: string;
+  text: string;
+  replies?: { author: string; text: string }[];
+}
+
 /** One sheet (or the selection) to print. */
 export interface CalcPrintPart {
   sheetName: string;
   table: PrintTable;
-  /** Charts over the table (P8-20). */
+  /** Charts over the table (P8-20) and, with Comments "As displayed on sheet", the visible notes (`svg` holds their HTML). */
   charts?: PrintChart[];
+  /** Notes and comments listed on pages after the sheet. */
+  annotations?: PrintAnnotation[];
 }
 
 /** Inline CSS text of React style properties (`fontWeight` → `font-weight`; numbers as px). */
@@ -35,6 +51,9 @@ export function styleText(css: CSSProperties): string {
 }
 
 export const CALC_PRINT_CSS = `.rs-calc-body { position: absolute; }
+.rs-calc-note { box-sizing: border-box; width: 100%; height: 100%; overflow: hidden; white-space: pre-wrap; background: #ffffe1; border: 1px solid #767676; padding: 1px 3px; font: 9pt Tahoma, Verdana, sans-serif; color: #000; }
+.rs-calc-annots { font: 10pt Calibri, Carlito, Arial, sans-serif; color: #000; border-collapse: collapse; width: 100%; }
+.rs-calc-annots td { vertical-align: top; padding: 2px 4px; border-bottom: 1px solid #ddd; white-space: pre-wrap; }
 .rs-calc-table { border-collapse: collapse; table-layout: fixed; font: 11pt Calibri, Carlito, Arial, sans-serif; color: #000; }
 .rs-calc-table td { overflow: hidden; white-space: nowrap; padding: 0 3px; box-sizing: border-box; line-height: 1.1; }
 .rs-calc-table.rs-grid td { border: 1px solid #c8c8c8; }
@@ -119,19 +138,56 @@ export function calcPrintDocument(parts: CalcPrintPart[], o: CalcPrintOptions, c
   const total = laid.reduce((s, l) => s + (l.part.table.rows.length && l.part.table.cols.length ? l.pages.length : 0), 0);
   const date = ctx.date ?? new Date();
   const pages: string[] = [];
+  // Pages of annotation lists after their sheet (counted into &N).
+  const lists = laid.map((l) => annotationPages(l.part.annotations ?? [], area.height));
+  const allPages = total + lists.reduce((sum, p) => sum + p.length, 0);
   const hf = (slots: HeaderFooterSlots, where: "header" | "footer", page: number, sheet: string) =>
-    headerFooterHtml(slots ?? EMPTY_SLOTS, { page, pages: total, date, sheet, file: ctx.file }, where, where === "header" ? m.header : m.footer, m.left, m.right);
-  for (const l of laid) {
-    if (!l.part.table.rows.length || !l.part.table.cols.length) continue;
-    for (const slice of l.pages) {
-      const n = pages.length + 1;
-      const zoom = l.scale === 1 ? "" : ` style="zoom:${Number(l.scale.toFixed(4))}"`;
-      pages.push(
-        `${hf(o.header, "header", n, l.part.sheetName)}<div class="rs-calc-body" style="top:${m.top}in;left:${m.left}in"><div${zoom}><div style="position:relative">${sliceTableHtml(l.part.table, slice, o)}${sliceChartsHtml(l.part, slice, o)}</div></div></div>${hf(o.footer, "footer", n, l.part.sheetName)}`,
-      );
+    headerFooterHtml(slots ?? EMPTY_SLOTS, { page, pages: allPages, date, sheet, file: ctx.file }, where, where === "header" ? m.header : m.footer, m.left, m.right);
+  const body = (inner: string) => `<div class="rs-calc-body" style="top:${m.top}in;left:${m.left}in;width:${area.width}px">${inner}</div>`;
+  laid.forEach((l, i) => {
+    if (l.part.table.rows.length && l.part.table.cols.length) {
+      for (const slice of l.pages) {
+        const n = pages.length + 1;
+        const zoom = l.scale === 1 ? "" : ` style="zoom:${Number(l.scale.toFixed(4))}"`;
+        pages.push(
+          `${hf(o.header, "header", n, l.part.sheetName)}<div class="rs-calc-body" style="top:${m.top}in;left:${m.left}in"><div${zoom}><div style="position:relative">${sliceTableHtml(l.part.table, slice, o)}${sliceChartsHtml(l.part, slice, o)}</div></div></div>${hf(o.footer, "footer", n, l.part.sheetName)}`,
+        );
+      }
     }
-  }
+    for (const list of lists[i]!) {
+      const n = pages.length + 1;
+      pages.push(`${hf(o.header, "header", n, l.part.sheetName)}${body(list)}${hf(o.footer, "footer", n, l.part.sheetName)}`);
+    }
+  });
+
   return { widthIn: size.w, heightIn: size.h, css: CALC_PRINT_CSS, pages };
+}
+
+/** Line height of the annotation list (px). */
+const ANNOT_LINE_PX = 16;
+
+/** The annotation list of a sheet split into page bodies (Excel: "Cell: A2  Note: …"). */
+export function annotationPages(list: readonly PrintAnnotation[], heightPx: number): string[] {
+  if (!list.length) return [];
+  const perPage = Math.max(1, Math.floor(heightPx / ANNOT_LINE_PX) - 1);
+  const lines = (a: PrintAnnotation) => 1 + a.text.split("\n").length + (a.replies ?? []).reduce((s, r) => s + r.text.split("\n").length, 0);
+  const pages: string[] = [];
+  let rows: string[] = [];
+  let used = 0;
+  for (const a of list) {
+    const n = lines(a);
+    if (used > 0 && used + n > perPage) {
+      pages.push(rows.join(""));
+      rows = [];
+      used = 0;
+    }
+    const label = a.kind === "note" ? t("calc.print.noteLabel") : t("calc.print.commentLabel");
+    const replies = (a.replies ?? []).map((r) => `<div>${escapeHtml(r.author)}: ${escapeHtml(r.text)}</div>`).join("");
+    rows.push(`<tr data-annotation="${escapeHtml(a.cell)}"><td style="width:5em"><b>${escapeHtml(a.cell)}</b></td><td><div>${escapeHtml(label)} · <b>${escapeHtml(a.author)}</b></div><div>${escapeHtml(a.text)}</div>${replies}</td></tr>`);
+    used += n;
+  }
+  if (rows.length) pages.push(rows.join(""));
+  return pages.map((r) => `<table class="rs-calc-annots">${r}</table>`);
 }
 
 /** The selection range clipped to the sheet's used range (whole rows/columns would be huge). */
@@ -160,8 +216,13 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
       lastCol = Math.max(lastCol, geo.col.indexAt(c.x + c.w - 1));
     }
     if (lastRow < 0 || lastCol < 0) return;
+    const annots = await printAnnotations(store, id, o);
+    for (const n of annots.boxes) {
+      lastRow = Math.max(lastRow, geo.row.indexAt(n.y + n.h - 1));
+      lastCol = Math.max(lastCol, geo.col.indexAt(n.x + n.w - 1));
+    }
     if (lastRow > used.lastRow || lastCol > used.lastCol) await store.ensureRegion(id, 0, 0, lastRow, lastCol);
-    parts.push({ sheetName: nameOf(id), table: buildPrintTable(store.cache(id), store.styles(), lastRow, lastCol), charts });
+    parts.push({ sheetName: nameOf(id), table: buildPrintTable(store.cache(id), store.styles(), lastRow, lastCol), charts: [...charts, ...annots.boxes], annotations: annots.list });
   };
   if (o.what === "workbook") {
     // Hidden sheets are not printed (Excel).
@@ -184,6 +245,35 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
     }
   } else await sheetPart(st.activeSheet);
   return calcPrintDocument(parts, o, { file: st.name ?? undefined });
+}
+
+/** The notes and comments to print for a sheet: visible note boxes (As displayed) or the list (At end of sheet). */
+export async function printAnnotations(store: CalcStore, sheet: number, o: Pick<CalcPrintOptions, "comments">): Promise<{ boxes: PrintChart[]; list: PrintAnnotation[] }> {
+  const mode = o.comments ?? "none";
+  if (mode === "none") return { boxes: [], list: [] };
+  await store.comments.ensure(sheet);
+  const { notes, threads } = store.comments.of(sheet);
+  if (mode === "asDisplayed") {
+    const geo = store.geometry(sheet);
+    const shown = notes.filter((n) => n.visible || store.comments.showAllNotes);
+    return {
+      boxes: shown.map((n) => {
+        const r = noteBoxRect(n, geo.col, geo.row);
+        return { ...r, svg: `<div class="rs-calc-note" data-note="${cellAddress(n.row, n.col)}">${runsToHtml(n.text)}</div>` };
+      }),
+      list: [],
+    };
+  }
+  const list: PrintAnnotation[] = [
+    ...notes.map((n) => ({ row: n.row, col: n.col, a: { cell: cellAddress(n.row, n.col), kind: "note" as const, author: n.author ?? "", text: runsText(n.text) } })),
+    ...threads.map((th) => ({
+      row: th.row, col: th.col,
+      a: { cell: cellAddress(th.row, th.col), kind: "comment" as const, author: th.author.name, text: th.text, replies: (th.replies ?? []).map((r) => ({ author: r.author.name, text: r.text })) },
+    })),
+  ]
+    .sort((x, y) => x.row - y.row || x.col - y.col)
+    .map((x) => x.a);
+  return { boxes: [], list };
 }
 
 /** The charts of a sheet as print SVGs, in sheet px (`origin`: subtracted). */

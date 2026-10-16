@@ -36,7 +36,7 @@ describe("clipboard", () => {
     await store.paste("=A1*2");
     expect(applied(core.log)).toEqual([{
       type: "pasteRange", sheet: 0, r0: 2, c0: 2, src: { sheet: 0, r0: 0, c0: 1, r1: 0, c1: 1 },
-      cells: [{ dr: 0, dc: 0, input: "=A1*2", style: 0 }], mode: "all", cut: false, repeatRows: 1, repeatCols: 1,
+      cells: [{ dr: 0, dc: 0, input: "=A1*2", style: 0 }], mode: "all", cut: false, repeatRows: 1, repeatCols: 1, annotations: true,
     }]);
     expect(store.cache(0).cells.get(2)?.get(2)?.input).toBe("=B3*2");
     expect(store.getState().clipMark).not.toBeNull();

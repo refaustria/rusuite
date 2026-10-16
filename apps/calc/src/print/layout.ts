@@ -9,6 +9,8 @@ import { EMPTY_SLOTS, paperSize, withLabel, type HeaderFooterSlots, type PageOri
 export type CalcPrintWhat = "active" | "workbook" | "selection";
 export type CalcScaleMode = "actual" | "fitSheet" | "fitColumns" | "fitRows" | "custom";
 export type CalcMarginPreset = "normal" | "narrow" | "wide";
+/** Page Setup › Sheet › Comments and notes: none, a list at the end of the sheet, or the visible notes where they are. */
+export type CalcCommentsMode = "none" | "atEnd" | "asDisplayed";
 
 export interface CalcPrintOptions {
   what: CalcPrintWhat;
@@ -27,6 +29,8 @@ export interface CalcPrintOptions {
   repeatRows: number;
   header: HeaderFooterSlots;
   footer: HeaderFooterSlots;
+  /** Notes and comments (default: none). */
+  comments: CalcCommentsMode;
 }
 
 export const DEFAULT_CALC_PRINT: CalcPrintOptions = {
@@ -42,6 +46,7 @@ export const DEFAULT_CALC_PRINT: CalcPrintOptions = {
   repeatRows: 0,
   header: EMPTY_SLOTS,
   footer: EMPTY_SLOTS,
+  comments: "none",
 };
 
 /** Excel's margin presets (inches). */
@@ -63,6 +68,12 @@ export const CALC_SCALE_CHOICES: PrintChoice[] = [
   withLabel({ value: "fitColumns" }, "calc.print.fitColumns"),
   withLabel({ value: "fitRows" }, "calc.print.fitRows"),
   withLabel({ value: "custom" }, "calc.print.customScale"),
+];
+
+export const CALC_COMMENTS_CHOICES: PrintChoice[] = [
+  withLabel({ value: "none" }, "calc.print.comments.none"),
+  withLabel({ value: "atEnd" }, "calc.print.comments.atEnd"),
+  withLabel({ value: "asDisplayed" }, "calc.print.comments.asDisplayed"),
 ];
 
 export const CALC_MARGIN_CHOICES: PrintChoice[] = [

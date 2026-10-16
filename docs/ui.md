@@ -134,8 +134,8 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   Number: the Number Format box (Excel's eleven entries with previews), Accounting ▾, %, Comma Style, decimals ±
   (see [number-formats.md](number-formats.md)); Styles: Conditional Formatting ▾; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide
   rows and columns, Hide Sheet / Unhide Sheet…, Format cells…); Editing: Clear, Find ▾ Replace, Sort & Filter ▾ (Sort A
-  to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (New sheet, rows/columns), Formulas (see below), Data (Sort & Filter: A→Z,
-  Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Data Validation…), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
+  to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (New sheet, rows/columns, Charts, Links › Link), Formulas (see below), Data (Sort & Filter: A→Z,
+  Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Data Validation…), Review (Comments, Notes ▾; see below), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
   scaled; Window: Freeze Panes ▾ (Freeze/Unfreeze Panes, Freeze Top Row, Freeze First Column); shortcuts help). Zoom,
   gridlines, headings and frozen panes are the active sheet's `SheetView` (`setSheetView` / `setFreeze`, undoable, saved in
   the file's `<sheetView>`); the formula bar toggle is the app's.
@@ -189,6 +189,35 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   and the print view) with the text after them, and Show Bar/Icon Only. Patches with `cfSheets` re-fetch the active sheet's
   viewport (debounced 40 ms; other sheets reload when shown). The print view prints fills, bars (CSS gradients) and icons
   (inline SVG). `window.__calcCfOps` holds the last frame's bar/icon ops for the end-to-end tests.
+- **Calc notes, comments and links** (P8-26, `apps/calc/src/comments`): the Review tab has Comments (New Comment
+  Ctrl+Shift+F2 – a cell with a thread opens it to reply –, Delete (the selection's threads, else its notes),
+  Previous/Next Comment (row by row, wrapping; opens the thread's card), Show Comments (the Comments pane right of the
+  grid: the sheet's threads by cell with All/Open/Resolved filter, reply box, Resolve/Reopen, Edit, Delete, New Comment))
+  and Notes ▾ (New/Edit Note Shift+F2, Previous/Next Note, Show/Hide Note, Show All Notes – a view toggle, not saved –,
+  Convert to Comments). Indicators come with the cells (`CellView.note` / `comment`; annotated empty cells are in the
+  snapshot): a red triangle for a note, a purple bubble for a thread (outlined when resolved), drawn over the selection.
+  Hovering an annotated cell shows the note box (Excel's default position 15 px right / 10 px above the cell's corner,
+  128 × 74 px, connector line), the thread card or the link tip; leaving the cell keeps the card 350 ms so the pointer can
+  reach it (`hoverAt`, `holdHover`), and every hover action is also on the ribbon, the context menu and the pane (mobile
+  guardrail). Visible notes are drawn on an HTML layer over the cells (`AnnotationLayer`, positioned from the grid's
+  `screen` mapping after every frame, clipped to the cell area): click selects a box (dashed outline, eight handles;
+  drag moves, handles resize → `setNote` with `bounds`; Delete removes the note; Esc deselects), double-click edits. The
+  note editor is a `contenteditable` box with the runs as spans (`richText.ts`: `<br>` line breaks, caret/selection as
+  character offsets) and a small toolbar (bold, italic, size, colour → `formatRuns` on the selection, the whole note when
+  nothing is selected); Esc or clicking away commits (`setNote`, an unchanged or empty new note sends nothing). A new note
+  starts with the author's name in bold, as in Excel. The author name is asked once ("Your name", initials) and kept in
+  this browser's local storage only (`rusuite.user`, ADR 0009); `setUser` records it in the document's person list. The
+  status bar shows the hovered note's cell and author. The cell context menu adds New Comment / Reply to Comment, Delete
+  Comment, New/Edit Note, Show/Hide Note, Delete Note, Link / Edit Hyperlink…, Open Hyperlink, Remove Hyperlink. Insert ›
+  Links › Link (Ctrl+K) opens Excel's dialog (existing file or web page – `www.` gets `http://`, an e-mail address becomes
+  `mailto:` –, place in this document – cell reference + sheet, or a defined name –, e-mail address with subject; Text to
+  display, ScreenTip; Remove Link when editing) → `setHyperlink` (the core gives the cells the Hyperlink style: theme
+  hyperlink colour `#0563C1`, underline; an empty cell gets the address as text). Ctrl+click follows a link or a
+  `HYPERLINK()` cell (target from `cellAnnotations`): web pages and mail through a hidden `<a target="_blank"
+  rel="noopener">` (no `window.open`; `javascript:`/`data:` refused), places by selecting them (`goToTarget`). Copy and
+  paste copies notes and links, cut and paste moves notes, threads and links (`pasteRange.annotations`); sorting and row /
+  column edits move them with their cells. File › Print › Comments and notes: None, At end of sheet (pages listing cell,
+  kind, author, text and replies after each sheet) or As displayed on sheet (the visible notes as boxes over the cells).
 - **Calc data validation** (P8-13, `apps/calc/src/validation`): Data › Data Tools › Data Validation… (Settings: Allow
   any / whole / decimal / list / date / time / text length / custom, operator, minimum/maximum or value – dates and times
   typed as dates –, list source `a,b,c` or `=$A$1:$A$5`, Ignore blank, In-cell dropdown; Input Message; Error Alert:
