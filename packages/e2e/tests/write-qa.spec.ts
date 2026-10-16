@@ -1,6 +1,6 @@
 // P8-38: regression tests of the Write quality pass (docs/qa/write-2026-10.md, one test per fixed W-item or group).
 import { expect, test, type Page } from "@playwright/test";
-import { saveViaBackstage, trackErrors } from "../support/common";
+import { ribbonCommand, saveViaBackstage, trackErrors } from "../support/common";
 import { zipText } from "../support/zip";
 
 const editor = (page: Page) => page.locator(".ProseMirror").first();
@@ -156,13 +156,19 @@ test.describe("Write quality pass (P8-38)", () => {
     expect(xml.indexOf("Landscape section")).toBeGreaterThan(xml.indexOf(sects[0]!));
   });
 
-  for (const width of [1400, 1024]) {
-    test(`W-19/W-20: at ${width} px every ribbon control sits inside its group and the window`, async ({ page }) => {
+  for (const [app, width] of [["write", 1400], ["write", 1024], ["calc", 1400], ["calc", 1024], ["show", 1400], ["show", 1024]] as const) {
+    test(`W-19/W-20: ${app} at ${width} px: every ribbon control sits inside its group and the window`, async ({ page }) => {
       await page.setViewportSize({ width, height: 800 });
-      await openWrite(page);
-      for (const name of ["Home", "Insert", "Layout", "References", "Review", "View"]) {
+      if (app === "write") await openWrite(page);
+      else {
+        await page.goto(`${app}/`);
+        await expect(page.getByTestId("ribbon-panel")).toBeVisible();
+      }
+      const tabs = (await page.getByRole("tablist").first().getByRole("tab").allInnerTexts()).filter((t) => t !== "File");
+      expect(tabs.length).toBeGreaterThan(3);
+      for (const name of tabs) {
         await page.getByRole("tab", { name, exact: true }).click();
-        const bad = await page.getByTestId("ribbon-panel").evaluate((panel) => {
+        const bad = await page.getByTestId("ribbon-panel").evaluate((panel, checkRows) => {
           const out: string[] = [];
           for (const g of panel.querySelectorAll<HTMLElement>('[role="toolbar"] > [role="group"]')) {
             const gr = g.getBoundingClientRect();
@@ -171,13 +177,14 @@ test.describe("Write quality pass (P8-38)", () => {
             if (gr.right > window.innerWidth + 0.5) out.push(`${g.getAttribute("aria-label")}: beyond the window`);
             for (const c of g.querySelectorAll<HTMLElement>("button, input, select, label")) {
               const r = c.getBoundingClientRect();
-              if (!r.width || g.hasAttribute("data-collapsed-group")) continue;
+              // Calc's and Show's group contents are their own: there only nothing may leave the window.
+              if (!r.width || g.hasAttribute("data-collapsed-group") || !checkRows) continue;
               // A pixel or two of a 2-row stack on the label is tolerated; a third row is 26 px over.
               if (r.top < gr.top - 4 || r.bottom > lr.top + 4) out.push(`${g.getAttribute("aria-label")}: ${c.getAttribute("aria-label") ?? c.textContent}`);
             }
           }
           return out;
-        });
+        }, app === "write");
         expect(bad, name).toEqual([]);
       }
     });
@@ -187,14 +194,20 @@ test.describe("Write quality pass (P8-38)", () => {
     await page.setViewportSize({ width: 1024, height: 768 });
     await openWrite(page);
     await page.keyboard.type("Narrow");
-    const editing = page.getByRole("group", { name: "Editing" });
-    await expect(editing).toHaveAttribute("data-collapsed-group", "");
-    await editing.getByRole("button", { name: "Editing" }).click();
-    await page.getByTestId("ribbon-group-popup").getByRole("button", { name: "Find and replace" }).click();
+    // How many groups collapse depends on the tab's contents: at least one at 1024 px.
+    const collapsed = page.locator("[data-collapsed-group]");
+    await expect.poll(() => collapsed.count()).toBeGreaterThan(0);
+    const narrow = await collapsed.count();
+    await collapsed.first().getByRole("button").first().click();
+    await expect(page.getByTestId("ribbon-group-popup").getByRole("button").first()).toBeVisible();
+    await page.keyboard.press("Escape");
+    await ribbonCommand(page, "Editing", "Find and replace");
     await expect(page.getByTestId("find-bar")).toBeVisible();
     await expect(page.getByTestId("ribbon-group-popup")).toHaveCount(0);
+    // Wider: the gallery and the formatting groups come back first (AI and Editing collapse before them).
     await page.setViewportSize({ width: 1400, height: 900 });
-    await expect(page.locator("[data-collapsed-group]")).toHaveCount(0);
+    await expect(page.getByTestId("ribbon-panel").getByRole("group", { name: "Styles", exact: true })).not.toHaveAttribute("data-collapsed-group", "");
+    expect(await collapsed.count()).toBeLessThanOrEqual(narrow);
   });
 
   test("W-21: a new table of contents lists the page numbers at once", async ({ page }) => {

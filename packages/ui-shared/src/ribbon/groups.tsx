@@ -14,26 +14,41 @@ import { RibbonIcon } from "./icons";
 export interface GroupBarGroup {
   label: string;
   items: ReactNode;
+  /** Collapses before groups with a lower priority on narrow windows (default 0). */
+  collapsePriority?: number;
 }
 
 /** Width (px) a collapsed group's button takes: its label at 11 px plus padding (estimate). */
 export const collapsedWidth = (label: string) => Math.max(52, Math.ceil(label.length * 6.2) + 22);
 
 /**
- * How many groups (from the left) stay expanded in `available` px: the most `k` such that the first `k`
- * natural widths plus a collapsed button for each other group fit.
+ * The order groups collapse in: a higher `collapsePriority` first (an AI or a gallery group before the commands),
+ * among equal priorities the rightmost first.
  */
-export function groupsThatFit(widths: readonly number[], labels: readonly string[], available: number): number {
+export function collapseOrder(priorities: readonly (number | undefined)[]): number[] {
+  return priorities.map((p, i) => ({ p: p ?? 0, i })).sort((a, b) => b.p - a.p || b.i - a.i).map((x) => x.i);
+}
+
+/**
+ * How many groups stay expanded in `available` px: the fewest groups collapse (in `collapseOrder`) such that the
+ * natural widths of the others plus a collapsed button for each collapsed one fit.
+ */
+export function groupsThatFit(widths: readonly number[], labels: readonly string[], available: number, priorities: readonly (number | undefined)[] = []): number {
   const n = widths.length;
+  const order = collapseOrder(Array.from({ length: n }, (_, i) => priorities[i]));
   let total = widths.reduce((s, w) => s + w, 0);
-  if (total <= available) return n;
-  for (let k = n - 1; k >= 0; k--) {
-    total -= widths[k]!;
-    let rest = 0;
-    for (let i = k; i < n; i++) rest += collapsedWidth(labels[i] ?? "");
-    if (total + rest <= available) return k;
+  for (let k = 0; k <= n; k++) {
+    if (total <= available) return n - k;
+    if (k === n) break;
+    const i = order[k]!;
+    total += collapsedWidth(labels[i] ?? "") - widths[i]!;
   }
   return 0;
+}
+
+/** The groups collapsed when `fit` of `n` stay expanded. */
+export function collapsedSet(n: number, fit: number, priorities: readonly (number | undefined)[]): Set<number> {
+  return new Set(collapseOrder(Array.from({ length: n }, (_, i) => priorities[i])).slice(0, Math.max(0, n - fit)));
 }
 
 function Group({ label, children }: { label: string; children: ReactNode }) {
@@ -148,7 +163,7 @@ export function GroupBar({ groups, label, tabId }: { groups: GroupBarGroup[]; la
     if (fit >= n && els.length === n) widths.current = els.map((g) => g.getBoundingClientRect().width);
     if (!widths.current || widths.current.length !== n) return;
     if (cap.current && cap.current.width !== el.clientWidth) cap.current = null;
-    let want = groupsThatFit(widths.current, groups.map((g) => g.label), available);
+    let want = groupsThatFit(widths.current, groups.map((g) => g.label), available, groups.map((g) => g.collapsePriority));
     if (cap.current) want = Math.min(want, cap.current.fit);
     const used = els.reduce((s, g) => s + g.getBoundingClientRect().width, 0);
     if (want === fit && used > available + 1 && fit > 0) {
@@ -158,10 +173,11 @@ export function GroupBar({ groups, label, tabId }: { groups: GroupBarGroup[]; la
     if (want !== fit) setFit(want);
   });
 
+  const collapsed = collapsedSet(n, fit, groups.map((g) => g.collapsePriority));
   return (
     <div ref={bar} role="toolbar" aria-label={label} data-tab={tabId} data-collapsed-groups={n - Math.min(fit, n) || undefined} className="flex h-[64px] min-w-0 items-stretch px-1 py-px" data-width={width || undefined}>
       {groups.map((g, i) =>
-        i < fit ? (
+        !collapsed.has(i) ? (
           // Labels may repeat within a tab (two "Size" groups): keyed by position too.
           <div key={`${tabId}:${i}:${g.label}`} role="group" aria-label={g.label} className="flex shrink-0 flex-col border-r border-ui-border px-1 last:border-r-0">
             <Group label={g.label}>{g.items}</Group>

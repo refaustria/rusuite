@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { interceptPrint, openPrint, previewPages, previewPdf, openViaBackstage, printCount, saveViaBackstage, testdata, trackErrors, fileCommand } from "../support/common";
+import { interceptPrint, openPrint, previewPages, previewPdf, openViaBackstage, printCount, saveViaBackstage, testdata, trackErrors, fileCommand, ribbonCommand } from "../support/common";
 import { unzip, zipText } from "../support/zip";
 
 const DECK = testdata("pptx/provisional-25-pitch-deck.pptx");
@@ -819,7 +819,7 @@ test.describe("Show", () => {
     const blue = await stagePixel(page, c.x, c.y);
     expect(blue[2]).toBeGreaterThan(blue[0]); // accent 1 fill
     await page.getByRole("tab", { name: "Home" }).click();
-    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await ribbonCommand(page, "Editing", "Select");
     await page.getByRole("menuitemradio", { name: /Selection Pane/ }).click();
     const row = page.getByTestId("selection-row").first();
     await expect(row.getByTestId("selection-name")).toHaveText(/Rectangle/);

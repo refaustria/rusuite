@@ -25,6 +25,8 @@ export interface RibbonGroup {
   label: string;
   /** Group contents; `null`/`false`/empty means the group is omitted. */
   items: ReactNode;
+  /** On a narrow window groups with a higher priority collapse first (default 0; ties: the rightmost first). */
+  collapsePriority?: number;
 }
 
 export interface RibbonTab {

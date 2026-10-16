@@ -730,6 +730,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       },
       {
         label: t("group.editing"),
+        collapsePriority: 1,
         items: (
           <RibbonStack>
             <RibbonButton label={t("cmd.findReplace")} icon="find" showLabel shortcut="Mod+F" tooltip={t("cmd.find")} onClick={onFind} />
@@ -737,7 +738,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
           </RibbonStack>
         ),
       },
-      aiRibbonGroup(session.ai),
+      { ...aiRibbonGroup(session.ai), collapsePriority: 2 },
     ],
   };
 

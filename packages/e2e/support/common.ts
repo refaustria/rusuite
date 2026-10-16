@@ -93,3 +93,17 @@ export async function previewPdf(page: Page, name: string): Promise<number> {
     await pdfPage.close();
   }
 }
+
+/**
+ * Clicks the ribbon command `label` of group `groupName` on the active tab; on a narrow window the group may be
+ * collapsed into one button (P8-38): that is opened first and the command clicked in its popup.
+ */
+export async function ribbonCommand(page: Page, groupName: string | RegExp, label: string | RegExp, exact = true) {
+  const group = page.getByTestId("ribbon-panel").getByRole("group", { name: groupName }).first();
+  if ((await group.getAttribute("data-collapsed-group")) !== null) {
+    await group.getByRole("button").first().click();
+    await page.getByTestId("ribbon-group-popup").getByRole("button", { name: label, exact }).first().click();
+    return;
+  }
+  await group.getByRole("button", { name: label, exact }).first().click();
+}

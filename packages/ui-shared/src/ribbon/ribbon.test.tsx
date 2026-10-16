@@ -9,7 +9,7 @@ import { useShortcuts } from "../shortcuts/useShortcuts";
 import { RibbonButton, RibbonDivider, RibbonMenuButton, RibbonSplitButton, ribbonTooltip } from "./controls";
 import { RibbonGallery, RibbonTableSizePicker } from "./gallery";
 import { CONTEXT_COLORS, contextualTabs, openBackstage, Ribbon, tabRuns, visibleTabs, type RibbonProps, type RibbonTab } from "./Ribbon";
-import { collapsedWidth, groupsThatFit } from "./groups";
+import { collapseOrder, collapsedWidth, groupsThatFit } from "./groups";
 import { comboEventInit, triggerShortcut } from "./triggerShortcut";
 
 afterEach(cleanup);
@@ -510,5 +510,12 @@ describe("groups on narrow windows (P8-38, W-20)", () => {
     expect(groupsThatFit(widths, labels, 1080 + collapsedWidth("Editing"))).toBe(4);
     expect(groupsThatFit(widths, labels, 1000)).toBe(3);
     expect(groupsThatFit(widths, labels, 10)).toBe(0);
+  });
+
+  it("collapses groups with a higher collapsePriority first", () => {
+    expect(collapseOrder([0, 2, 0, 1, 0])).toEqual([1, 3, 4, 2, 0]);
+    const labels = ["A", "Gallery", "Editing"];
+    // Editing (rightmost) stays: the gallery collapses instead.
+    expect(groupsThatFit([300, 400, 100], labels, 500, [0, 1, 0])).toBe(2);
   });
 });
