@@ -95,6 +95,11 @@ pub struct CellView {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]
     pub link: bool,
+    /// A cell of a pivot table (read-only for contents): its table and
+    /// role; absent = none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub pivot: Option<crate::pivots::PivotCellView>,
 }
 
 /// A match of the `findCells` request.
@@ -298,6 +303,17 @@ pub struct CalcPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<Vec<crate::wire_annot::Person>>")]
     pub persons: Option<Vec<model_sheet::Person>>,
+    /// Sheets whose pivot tables changed (definition, layout or place):
+    /// the UI refetches their region snapshot and the `pivotInfo` it
+    /// shows; absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<u32>>")]
+    pub pivot_sheets: Vec<u32>,
+    /// The pivot tables whose source changed since their last refresh,
+    /// when that list changed; absent = unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub stale_pivots: Option<Vec<u32>>,
 }
 
 /// Merges `other` into `list`, replacing entries with the same key.
@@ -329,6 +345,14 @@ impl app_common::Patch for CalcPatch {
         }
         if other.persons.is_some() {
             self.persons = other.persons;
+        }
+        if other.stale_pivots.is_some() {
+            self.stale_pivots = other.stale_pivots;
+        }
+        for s in other.pivot_sheets {
+            if !self.pivot_sheets.contains(&s) {
+                self.pivot_sheets.push(s);
+            }
         }
         merge_keyed(&mut self.annotations, other.annotations, |a| a.sheet);
         merge_keyed(&mut self.merges, other.merges, |m| m.sheet);
@@ -410,6 +434,10 @@ pub struct RegionSnapshot {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<crate::wire_chart::ChartObject>>")]
     pub charts: Vec<ChartObject>,
+    /// Every pivot table of the sheet; absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<crate::pivots::PivotSummary>>")]
+    pub pivots: Vec<crate::pivots::PivotSummary>,
 }
 
 /// The conditional formatting of one cell of a [`RegionSnapshot`].
@@ -443,4 +471,9 @@ pub struct WorkbookInfo {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<crate::wire_annot::Person>>")]
     pub persons: Vec<model_sheet::Person>,
+    /// Pivot tables whose source changed since their last refresh;
+    /// absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<u32>>")]
+    pub stale_pivots: Vec<u32>,
 }

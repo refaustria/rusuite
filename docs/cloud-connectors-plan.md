@@ -25,3 +25,11 @@
 ## Owner decisions needed when scheduling
 - Which providers first (Google Drive, OneDrive, Dropbox, WebDAV)? iCloud only via the native file system.
 - Provider app registrations: the OAuth client IDs/keys must be created in the owner's accounts (we can prepare exact instructions).
+
+
+## Amendment 2026-10-16 (owner): generic and opt-in
+
+The owner's direction: connectors must be **generic** – the user decides whether to connect a cloud at all; Rusuite offers no cloud service and does not register provider apps on the user's behalf. Consequences for the first implementation (task to be scheduled after the current Phase 8 batch):
+1. Order: **WebDAV first** (Nextcloud/ownCloud/Synology/most self-hosted and many commercial drives; no OAuth, user enters URL + credentials, stored only on the device), then **S3-compatible** (optional), then OAuth providers (Google Drive, OneDrive, Dropbox) through a **generic OAuth PKCE connector** where the user pastes their own client id (documented step-by-step) – no Rusuite-owned client ids.
+2. Everything behind one `FileProvider` interface (list/open/save/save-as/rename, conflicts via ETag/If-Match) and one "Connections" dialog (File › Open/Save › Add a connection…), off by default, CSP `connect-src` extended per connection origin at runtime where the platform allows (desktop: Tauri allowlist; web: the user is told which origin will be contacted).
+3. iCloud stays native-file-system only.

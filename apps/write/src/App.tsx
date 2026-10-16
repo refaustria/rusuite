@@ -7,7 +7,8 @@ import { WriteApi, type WriteBackend } from "./backend";
 import { writeExtensions } from "./sync/schema";
 import { SYNC_META, SyncController, SyncExtension, type SyncState } from "./sync/SyncPlugin";
 import { WriteFeatures } from "./features/WriteFeatures";
-import { floatPage } from "./features/pagination";
+import { currentLayout, floatPage, pageIndexAt, remeasurePages } from "./features/pagination";
+import type { Node as PMNode } from "@tiptap/pm/model";
 import { FindBar } from "./ui/FindBar";
 import { EditorContextMenu } from "./ui/EditorContextMenu";
 import { WriteDialogs } from "./ui/dialogs";
@@ -96,7 +97,33 @@ function TitleSync({ ctl, backend, guard }: { ctl: SyncController; backend: Writ
   return null;
 }
 
-const StatusBar = memo(function StatusBar({ ctl, editor, backend, session }: { ctl: SyncController; editor: Editor; backend: WriteBackend; session: AnySession }) {
+/** "Page X of Y" in print layout: the caret's page from the pagination (updated at most every 100 ms). */
+function PageStatus({ editor, features }: { editor: Editor; features: WriteFeatures }) {
+  const t = useT();
+  const layout = useSyncExternalStore(features.ui.subscribe, () => features.ui.getState().layout);
+  const [head, setHead] = useState(() => editor.state.selection.head);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onSel = () => {
+      timer ??= setTimeout(() => {
+        timer = undefined;
+        if (!editor.isDestroyed) setHead(editor.state.selection.head);
+      }, 100);
+    };
+    editor.on("selectionUpdate", onSel);
+    editor.on("transaction", onSel);
+    return () => {
+      clearTimeout(timer);
+      editor.off("selectionUpdate", onSel);
+      editor.off("transaction", onSel);
+    };
+  }, [editor]);
+  if (!layout) return null;
+  const n = Math.min(layout.pages.length, pageIndexAt(layout, head) + 1);
+  return <span data-testid="page-status">{t("write.status.page", { n, total: layout.pages.length })}</span>;
+}
+
+const StatusBar = memo(function StatusBar({ ctl, editor, backend, session, features }: { ctl: SyncController; editor: Editor; backend: WriteBackend; session: AnySession; features: WriteFeatures }) {
   const { revision, dirty, name, info, warnings } = useThrottledSync(ctl);
   const words = useWordCount(editor);
   const comments = useSyncExternalStore(ctl.subscribe, () => ctl.comments.length);
@@ -104,6 +131,7 @@ const StatusBar = memo(function StatusBar({ ctl, editor, backend, session }: { c
   return (
     <div className="flex items-center gap-4 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted" data-testid="status-bar">
       <span data-testid="doc-name">{name ?? t("doc.untitled")}</span>
+      <PageStatus editor={editor} features={features} />
       <span data-testid="dirty">{dirty ? t("status.modified") : t("status.saved")}</span>
       <span data-testid="words">{t("write.status.words", { count: words })}</span>
       {comments > 0 && <span data-testid="comment-count">{t("write.status.comments", { count: comments })}</span>}
@@ -149,6 +177,14 @@ export default function App({ backend }: { backend: WriteBackend }) {
     });
     return () => cancelAnimationFrame(frame);
   }, [editor, reserve]);
+  // A new zoom lays the pages out again (60 ms debounce).
+  useEffect(() => {
+    if (!editor) return;
+    const timer = setTimeout(() => {
+      if (!editor.isDestroyed) remeasurePages(editor.view);
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [editor, zoom]);
   // ctl.page is replaced before the state change that announces it.
   const page = useSync(ctl, () => ctl.page);
   const comments = useSync(ctl, () => ctl.comments);
@@ -219,16 +255,17 @@ export default function App({ backend }: { backend: WriteBackend }) {
 
   const [printOptions, setPrintOptions] = useState<WritePrintOptions>(DEFAULT_WRITE_PRINT);
   const pushError = useCallback((e: unknown) => ctl.pushError(e), [ctl]);
+  const flowOf = useCallback((node: PMNode) => features.flow(node), [features]);
   // File › Export PDF…: the Print pipeline with the current settings, straight to the system dialog ("Save as PDF").
   const exportPdf = useCallback(() => {
     if (!editor) return;
     try {
-      const doc = buildWritePrintDoc(editor.view.dom as HTMLElement, ctl.page, printOptions, ctl.comments);
+      const doc = buildWritePrintDoc(editor.view.dom as HTMLElement, ctl.page, printOptions, ctl.comments, currentLayout(editor.state), flowOf);
       void printWrite(backend, applyPageRange(doc, printOptions.range), pushError);
     } catch (e) {
       pushError(e);
     }
-  }, [editor, ctl, backend, printOptions, pushError]);
+  }, [editor, ctl, backend, printOptions, pushError, flowOf]);
 
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
@@ -246,7 +283,9 @@ export default function App({ backend }: { backend: WriteBackend }) {
           onFind={chrome.onFind}
           onReplace={chrome.onReplace}
           onExportPdf={exportPdf}
-          print={<WritePrintPage editor={editor} page={page} backend={backend} options={printOptions} onChange={setPrintOptions} onError={pushError} comments={comments} />}
+          print={
+            <WritePrintPage editor={editor} page={page} backend={backend} options={printOptions} onChange={setPrintOptions} onError={pushError} comments={comments} layout={chrome.layout} flow={flowOf} />
+          }
           infoPage={<InfoPanel ctl={ctl} editor={editor} pages={chrome.view === "print" ? chrome.pages : null} />}
           zoom={zoom}
           onZoom={setZoom}
@@ -263,7 +302,16 @@ export default function App({ backend }: { backend: WriteBackend }) {
           <div className="write-zoom" data-testid="write-zoom" style={zoom !== 1 ? { zoom } : undefined}>
             {editor && chrome.ruler && <Ruler editor={editor} ctl={ctl} features={features} page={firstPage} />}
             <CommentsFrame editor={editor} ctl={ctl} features={features} zoom={zoom}>
-              <PageFrame page={firstPage} view={chrome.view} pages={chrome.pages} frame={chrome.frame} onEditHeaderFooter={chrome.onEditHeaderFooter}>
+              <PageFrame
+                page={firstPage}
+                view={chrome.view}
+                pages={chrome.pages}
+                frame={chrome.frame}
+                onEditHeaderFooter={chrome.onEditHeaderFooter}
+                layout={chrome.layout}
+                editor={editor}
+                onToggleWhiteSpace={chrome.onToggleWhiteSpace}
+              >
                 <EditorContent editor={editor} />
               </PageFrame>
             </CommentsFrame>
@@ -272,7 +320,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
         {editor && <StylesPane editor={editor} ctl={ctl} features={features} />}
         {editor && <CommentsPane editor={editor} ctl={ctl} features={features} />}
       </div>
-      {editor && <StatusBar ctl={ctl} editor={editor} backend={backend} session={session} />}
+      {editor && <StatusBar ctl={ctl} editor={editor} backend={backend} session={session} features={features} />}
       <FindBar ctl={ctl} editor={editor} ui={features.ui} />
       <WriteDialogs ui={features.ui} ctl={ctl} editor={editor} />
       <ReferenceDialogs ui={features.ui} ctl={ctl} editor={editor} />

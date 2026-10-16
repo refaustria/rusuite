@@ -215,6 +215,8 @@ pub struct ParsedStyles {
     pub default_font: RunProperties,
     /// The differential formats of `<dxfs>` (conditional formatting).
     pub dxfs: Vec<model_sheet::DxfStyle>,
+    /// The custom number formats of `<numFmts>` by id (pivot fields).
+    pub num_fmts: std::collections::HashMap<u32, String>,
 }
 
 fn underline_of(v: Option<&str>) -> Underline {
@@ -511,6 +513,7 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
         xfs,
         default_font,
         dxfs,
+        num_fmts,
     })
 }
 

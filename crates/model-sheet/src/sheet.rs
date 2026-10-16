@@ -189,6 +189,10 @@ pub(crate) struct SheetData {
     pub threads: Vec<crate::annotations::Thread>,
     /// Hyperlinks in file order.
     pub hyperlinks: Vec<crate::annotations::Hyperlink>,
+    /// Pivot tables.
+    pub pivots: Vec<crate::pivot::PivotTable>,
+    /// The layout of each pivot table as last rendered, by id.
+    pub pivot_outputs: HashMap<u32, crate::pivot::PivotOutput>,
 }
 
 impl SheetData {

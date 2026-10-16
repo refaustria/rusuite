@@ -110,21 +110,36 @@ body,
 /* Format painter. */
 .tiptap-content.format-painter { cursor: copy; }
 
-/* Print layout: gaps between pages, headers and footers greyed in the margins. */
-.page-gap { position: relative; user-select: none; white-space: normal; }
-.page-gap-band { position: absolute; left: 0; right: 0; background: var(--ui-panel); box-shadow: inset 0 5px 5px -5px rgba(0, 0, 0, 0.3), inset 0 -5px 5px -5px rgba(0, 0, 0, 0.3); }
-.page-end { user-select: none; }
-.page-hf { position: absolute; min-height: 1.3em; overflow: hidden; color: #9ca3af; font: 9pt/1.3 Calibri, Carlito, "Segoe UI", sans-serif; white-space: pre-wrap; tab-size: 8; cursor: default; user-select: none; }
+/* Print layout (P8-31, docs/write-layout.md): page gaps are spacers in the text flow (heights from the
+   pagination); the page chrome layer draws margins, headers/footers, gaps and footnote separators over them. */
+.write-paged .tiptap-content[data-paged] { position: relative; display: flow-root; }
+.page-spacer { display: block; user-select: none; cursor: default; white-space: normal; }
+.page-spacer-span { column-span: all; }
+.page-colbreak { display: block; height: 0; break-before: column; }
+.tiptap-content[data-paged] .page-break { border-top: 0; margin: 0; }
+.tiptap-content[data-paged] .notes-separator-foot { display: none; }
+.tiptap-content[data-paged] > .notes-area:not(:has(.note[data-note-kind="end"])) { margin: 0; }
+.tiptap-content .note.note-paged { position: absolute; left: 0; right: 0; z-index: 3; background: #fff; }
+.page-chrome { position: absolute; left: 0; top: 0; right: 0; pointer-events: none; z-index: 2; }
+.page-cover { position: absolute; left: 0; right: 0; background: #fff; }
+.page-gap { position: absolute; left: -8px; right: -8px; display: flex; align-items: center; justify-content: center; pointer-events: auto; user-select: none; background: var(--ui-panel); box-shadow: inset 0 5px 5px -5px rgba(0, 0, 0, 0.3), inset 0 -5px 5px -5px rgba(0, 0, 0, 0.3); }
+.page-gap-label { font: 9px/1 Calibri, Carlito, "Segoe UI", sans-serif; color: var(--ui-muted); opacity: 0; transition: opacity 0.1s; pointer-events: none; }
+.page-gap:hover .page-gap-label { opacity: 1; }
+.page-gap.page-gap-hidden { left: 0; right: 0; background: #fff; box-shadow: none; border-top: 1px solid #555; }
+.page-gap.page-gap-hidden .page-gap-label { display: none; }
+.page-hf { position: absolute; min-height: 1.3em; overflow: hidden; color: #9ca3af; font: 9pt/1.3 Calibri, Carlito, "Segoe UI", sans-serif; white-space: pre-wrap; tab-size: 8; cursor: default; user-select: none; pointer-events: auto; }
 .page-hf:hover { outline: 1px dashed #cbd5e1; }
-/* Footnotes at the bottom of their page (print layout; double-click edits them in the notes area). */
-.page-notes { position: absolute; font: 9pt/1.25 Calibri, Carlito, "Segoe UI", sans-serif; color: #000; white-space: normal; user-select: none; cursor: default; }
-.page-notes::before { content: ""; display: block; width: 2in; margin-bottom: 2px; border-top: 1px solid #555; }
-.page-note sup { font-size: 0.75em; }
+.page-note-sep { position: absolute; width: 2in; border-top: 1px solid #555; }
+.page-note-sep.page-note-sep-cont { width: auto; }
+.page-note-cont { position: absolute; overflow: hidden; font-size: 10pt; background: #fff; white-space: pre-wrap; }
+.page-repeat { position: absolute; overflow: hidden; background: #fff; }
+.page-repeat table { margin: 0; }
+.page-column-rule { position: absolute; width: 0; border-left: 1px solid #000; }
 @media print {
   .tiptap-content { --write-gridline: transparent; }
   .tiptap-content .field { background: none; }
   .tiptap-content [data-section-label]::after, .tiptap-content .notes-separator { color: transparent; }
-  .page-gap, .page-end, .page-hf { display: none !important; }
+  .page-chrome, .page-hf { display: none !important; }
 }
 
 /* Long documents (P5-4): off-screen top-level blocks skip style, layout,

@@ -680,6 +680,8 @@ pub struct Engine {
     visibility_dirty: bool,
     /// Defined names in definition order.
     names: Vec<NameEntry>,
+    /// The pivot tables `GETPIVOTDATA` reads, by sheet.
+    pivots: crate::pivot::PivotRegistry,
 }
 
 impl Default for Engine {
@@ -707,6 +709,7 @@ impl Engine {
             freed: Vec::new(),
             visibility_dirty: false,
             names: Vec::new(),
+            pivots: Default::default(),
         }
     }
 
@@ -1210,6 +1213,22 @@ impl Engine {
             pending.extend(self.row_visibility_cells());
         }
         self.recalc(&pending)
+    }
+
+    /// Replaces the pivot tables of `sheet` that `GETPIVOTDATA` reads (the
+    /// document model calls it whenever it renders a pivot table; the
+    /// function is volatile, so the next recalculation sees them).
+    pub fn set_pivot_data(&mut self, sheet: SheetId, tables: Vec<crate::PivotData>) {
+        if tables.is_empty() {
+            self.pivots.remove(&sheet);
+        } else {
+            self.pivots.insert(sheet, tables);
+        }
+    }
+
+    /// The pivot tables of `sheet` (see [`set_pivot_data`](Self::set_pivot_data)).
+    pub fn pivot_data(&self, sheet: SheetId) -> &[crate::PivotData] {
+        self.pivots.get(&sheet).map_or(&[], Vec::as_slice)
     }
 
     /// Whether row `row` of `sheet` is hidden (see [`RowHidden`]).
@@ -2022,6 +2041,15 @@ impl CellProvider for Engine {
 
     fn defined_name(&self, name: &str, sheet: SheetId) -> Option<&Expr> {
         lookup_name(&self.names, name, sheet).map(|n| &n.ast)
+    }
+
+    fn pivot_data(
+        &self,
+        at: CellCoord,
+        data_field: &str,
+        pairs: &[(String, Value)],
+    ) -> Option<Value> {
+        crate::pivot::find_pivot_value(Engine::pivot_data(self, at.sheet), at, data_field, pairs)
     }
 
     fn spill_extent(&self, c: CellCoord) -> Option<(u32, u32)> {

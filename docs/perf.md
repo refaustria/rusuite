@@ -148,6 +148,29 @@ Baseline = first P5-4 commit; each fix is its own commit with these numbers.
 
 Checked and not changed (the numbers did not justify it): `Recalc.changed` sorting and the 10k-cell chain patch (17 ms), `RegionSnapshot` number formatting (~1 ms of the styled snapshot), the Write sync plugin's per-transaction document walks (< 1 ms per keystroke), `GetDocument` with inline media (25 ms for 7.9 MB; the browser parses it in ~26 ms), Show thumbnails (memoized per slide; 100 render in ~1.2 s on open, a slide switch takes ~22 ms).
 
+## Write – print layout pagination (P8-31, measured by hand)
+
+Not part of `scripts/perf.sh` yet (rerunning it drops this section; keep it until the script measures the pagination).
+Measured on 2026-10-16 on the machine above, production web build, headless Chromium 141, a generated 200-page `.docx`
+(4000 paragraphs of 25 words, a Heading 1 every 40 paragraphs, 20 tables of 6 × 4; Chromium's fonts make it 311 pages).
+The timings come from the plugin's `rusuitePaginationMs` on the editor element.
+
+| Measurement | Value |
+|---|---:|
+| open .docx → all 311 pages laid out (file read … first full pagination) | 1.25 s |
+| full layout (zoom / resize / page setup): measure 4120 blocks + paginate | 470–500 ms (measure ~480 ms) |
+| layout after a keystroke (one block re-measured, pagination resumed at the edited page): p50 / p95 | 22 / 32 ms |
+| … of which measuring | 3 ms |
+| typing in the middle (paragraph 2000, keystroke → next frame incl. Playwright overhead): p50 / p95 | 61 / 73 ms |
+| the same on `main` before P8-31 (block-level pagination), same harness | 66 / 100 ms |
+| page chrome elements rendered (visible pages ± 2 of 311) | 12 |
+
+The layout runs 120 ms after the last edit (60 ms after a resize or zoom), never inside the keystroke. Measuring is per
+block and cached (PM node, width, zoom; a `MutationObserver` marks blocks whose DOM changed); the top-level elements are
+read in one pass (`nodeDOM` per block was quadratic: 60 ms per run on this document). The pagination resumes at the last
+page that was decided before the first changed unit (`firstChange`); what remains per run (~20 ms) is building the flow
+and the page data for 12 000 lines, a candidate for the next round if typing in very long documents needs it.
+
 ## Known shortfalls and follow-ups
 
 - **Write typing p95 vs the 30 ms target on a 200-page document:** after the fixes above p50/p95 are 27/32 ms (median of three quiet runs; the machine is shared and p95 doubles under load, so the table of a single run can show more), ~2 ms over the target. What remains is Chromium's native editing of the large `contenteditable` (insert, selection, layout of the edited block) and the ~60 ms-throttled React work. Longer term: a windowed/paged editor so the `contenteditable` holds only the visible pages.
