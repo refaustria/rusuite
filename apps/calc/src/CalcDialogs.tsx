@@ -20,6 +20,7 @@ import { ValidationDialog } from "./validation/ValidationDialogs";
 import { ChartDialog } from "./charts/ChartDialogs";
 import { LinkDialog, UserNameDialog } from "./comments/LinkDialog";
 import { CustomFilterDialog, CustomSortDialog, FilterPanel, SortExpandDialog, Top10Dialog } from "./sortFilter/SortFilterDialogs";
+import { PivotDialog } from "./pivot/PivotDialogs";
 
 const BTN = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover disabled:opacity-40";
 const FIELD = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";
@@ -323,6 +324,15 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       return <LinkDialog store={store} />;
     case "userName":
       return <UserNameDialog store={store} next={dialog.next} />;
+    case "pivotCreate":
+    case "pivotDelete":
+    case "pivotValueField":
+    case "pivotFieldSettings":
+    case "pivotOptions":
+    case "pivotMove":
+    case "pivotSource":
+    case "pivotFilter":
+      return <PivotDialog store={store} dialog={dialog} />;
     case "mergeConfirm":
       return (
         <Dialog open title={t("calc.mergeCells")} onClose={close}>

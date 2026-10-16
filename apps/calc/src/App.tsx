@@ -6,6 +6,8 @@ import { FormulaBar } from "./FormulaBar";
 import { GridCanvas } from "./grid/GridCanvas";
 import { ChartFormatPane } from "./charts/FormatPane";
 import { CommentsPane } from "./comments/CommentsPane";
+import { PivotPane } from "./pivot/PivotPane";
+import { PivotStaleBar } from "./pivot/StaleBar";
 import { buildCalcPrintDoc } from "./print/calcPrintDoc";
 import { CalcPrintPage, printCalc } from "./print/CalcPrintPage";
 import { DEFAULT_CALC_PRINT, type CalcPrintOptions } from "./print/layout";
@@ -35,6 +37,11 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
     const r = store.recordsFound();
     return r ? t("calc.filter.records", { shown: formatNumber(r.shown), total: formatNumber(r.total) }) : "";
   });
+  // Pivot tables whose source changed (Refresh brings them up to date).
+  const stale = useCalc(store, (s) => {
+    void s.version;
+    return store.pivots.stale.size;
+  });
   return (
     <div className="flex items-center gap-4 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted" data-testid="status-bar">
       <span>{t("calc.status.revision", { revision })}</span>
@@ -46,6 +53,7 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
         </span>
       )}
       {records && <span data-testid="filter-records">{records}</span>}
+      {stale > 0 && <span data-testid="pivot-stale-status" className="text-amber-700">{t("calc.pivot.staleStatus", { count: stale })}</span>}
       {noteBy && <span data-testid="note-status">{noteBy}</span>}
       {cycle && (
         <span role="status" className="font-medium text-red-700">
@@ -135,10 +143,12 @@ export default function App({ backend }: { backend: CalcBackend }) {
         onViewChange={setView}
       />
       {view.formulaBar && <FormulaBar store={store} />}
+      <PivotStaleBar store={store} />
       <div className="flex min-h-0 flex-1">
         <GridCanvas store={store} showPerf={perfOverlayEnabled()} />
         <ChartFormatPane store={store} />
         <CommentsPane store={store} />
+        <PivotPane store={store} />
       </div>
       <SheetTabs store={store} />
       <StatusBar store={store} session={session} zoom={view.zoom} />

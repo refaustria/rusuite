@@ -61,7 +61,7 @@ describe("Calc ribbon", () => {
     for (const g of ["Clipboard", "Font", "Alignment", "Number", "Cells", "Editing"]) expect(within(toolbar).getByRole("group", { name: g })).toBeTruthy();
   });
 
-  it("keyboard only: Alt, arrows and Enter reach Insert › New sheet", async () => {
+  it("keyboard: Alt, arrows and Enter reach Insert › PivotTable; New sheet adds a sheet", async () => {
     const { core, grid } = await setup();
     fireEvent.keyDown(window, { key: "Alt", altKey: true });
     fireEvent.keyUp(window, { key: "Alt" });
@@ -69,8 +69,12 @@ describe("Calc ribbon", () => {
     fireEvent.keyDown(tab("Home"), { key: "ArrowRight" });
     fireEvent.keyDown(tab("Insert"), { key: "Enter" });
     fireEvent.keyDown(tab("Insert"), { key: "ArrowDown" });
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "New sheet" })));
+    // Insert starts with Tables › PivotTable (Excel).
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "PivotTable" })));
     fireEvent.click(document.activeElement!);
+    const dlg = await screen.findByRole("dialog", { name: "Create PivotTable" });
+    fireEvent.keyDown(dlg, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "New sheet" }));
     await waitFor(() => expect(applied(core.log)).toContainEqual({ type: "addSheet", name: "Sheet2" }));
     // Esc from the strip goes back to the grid.
     grid.focus();

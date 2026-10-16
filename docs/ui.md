@@ -247,7 +247,7 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   Number: the Number Format box (Excel's eleven entries with previews), Accounting ▾, %, Comma Style, decimals ±
   (see [number-formats.md](number-formats.md)); Styles: Conditional Formatting ▾; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide
   rows and columns, Hide Sheet / Unhide Sheet…, Format cells…); Editing: Clear, Find ▾ Replace, Sort & Filter ▾ (Sort A
-  to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (New sheet, rows/columns, Charts, Links › Link), Formulas (see below), Data (Sort & Filter: A→Z,
+  to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (Tables › PivotTable, New sheet, rows/columns, Charts, Links › Link), Formulas (see below), Data (Sort & Filter: A→Z,
   Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Data Validation…), Review (Comments, Notes ▾; see below), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
   scaled; Window: Freeze Panes ▾ (Freeze/Unfreeze Panes, Freeze Top Row, Freeze First Column); shortcuts help). Zoom,
   gridlines, headings and frozen panes are the active sheet's `SheetView` (`setSheetView` / `setFreeze`, undoable, saved in
@@ -372,6 +372,20 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   manual mode). In formulas, names autocomplete with the functions (accepting inserts the name without `(`), are coloured
   over the range they refer to and outlined on the grid while editing (point mode shows the name's range), and
   `Sheet1!Name` is accepted by the editor's syntax check.
+- **Calc pivot tables** (P8-33, `apps/calc/src/pivot`, details in [pivot.md](pivot.md) "UI"): Insert › Tables › PivotTable
+  (Create PivotTable: Table/Range from the current region with the range picker, New / Existing Worksheet +
+  Location; Recommended PivotTables not offered) creates an empty table (Excel's placeholder box) and opens the
+  **PivotTable Fields** pane right of the grid (search, field checkboxes, Filters / Columns / Rows / Values with
+  pointer drag and drop and a ▾ menu per entry, Defer Layout Update + Update). While a cell of a table is selected
+  the contextual **PivotTable Analyze** (Name, Options ▾ incl. Generate GetPivotData, Active Field, Refresh ▾,
+  Change Data Source…, Clear ▾, Select ▾, Move PivotTable…, Field List, +/- Buttons, Field Headers) and **Design**
+  (Subtotals ▾, Grand Totals ▾, Report Layout ▾, style options, the 84-style gallery) tabs appear under
+  "PivotTable Tools". The grid draws the table style from the cells' pivot roles, −/+ buttons (press or
+  double-click), header and page dropdowns (item check-list with search, sort, clear; page fields with
+  Select Multiple Items), refuses content edits ("We can't change this part of a PivotTable."), asks before
+  Delete removes a whole table, selects the table with Ctrl+A inside it, autofits the table's columns after
+  each update, shows "Data changed – Refresh" over a sheet with a stale table (and a status-bar hint) and, in
+  point mode, inserts `GETPIVOTDATA(…)` for a clicked value.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).

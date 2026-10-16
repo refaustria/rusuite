@@ -1071,3 +1071,201 @@ test.describe("Calc notes, comments and links", () => {
     await shot(page, "calc-print-notes");
   });
 });
+
+test.describe("Calc pivot tables", () => {
+  /** Region / Product / Month / Sales in A1:D6. */
+  async function salesTable(grid: Grid) {
+    const rows = [
+      ["Region", "Product", "Month", "Sales"],
+      ["North", "Apple", "Jan", "10"],
+      ["North", "Pear", "Jan", "20"],
+      ["South", "Apple", "Feb", "30"],
+      ["South", "Pear", "Feb", "40"],
+      ["North", "Apple", "Feb", "5"],
+    ];
+    for (const [r, row] of rows.entries()) for (const [c, v] of row.entries()) await grid.type(r, c, v);
+  }
+
+  /** Insert › PivotTable from A1 (the current region) onto a new sheet; the field pane opens. */
+  async function insertPivot(page: import("@playwright/test").Page, grid: Grid) {
+    await grid.click(0, 0);
+    await page.getByRole("tab", { name: "Insert" }).click();
+    await page.getByRole("button", { name: "PivotTable", exact: true }).click();
+    const dlg = page.getByRole("dialog", { name: "Create PivotTable" });
+    await expect(dlg.getByTestId("pivot-source")).toHaveValue("Sheet1!$A$1:$D$6");
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(page.getByRole("tab", { name: "Sheet2" })).toHaveAttribute("aria-selected", "true");
+    const pane = page.getByTestId("pivot-pane");
+    await expect(pane.getByRole("checkbox", { name: "Region" })).toBeVisible();
+    return pane;
+  }
+
+  /**
+   * The input of a cell as the formula bar shows it (pivot cells hold plain values), reached through the
+   * Name Box: the table widens its columns to fit (autofit on update), so cell positions move.
+   */
+  const cell = async (grid: Grid, row: number, col: number) => {
+    const box = grid.page.getByTestId("cell-address");
+    await box.fill(`${String.fromCharCode(65 + col)}${row + 1}`);
+    await box.press("Enter");
+    return grid.page.getByLabel("Formula bar").inputValue();
+  };
+
+  /** Drags a field list entry onto an area of the pane (pointer events). */
+  async function dragField(page: import("@playwright/test").Page, field: string, area: "filters" | "cols" | "rows" | "values") {
+    const pane = page.getByTestId("pivot-pane");
+    const from = (await pane.getByTestId("pivot-field-list").locator("li", { hasText: field }).boundingBox())!;
+    const to = (await pane.getByTestId(`pivot-area-${area}`).boundingBox())!;
+    await page.mouse.move(from.x + from.width - 20, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width - 30, from.y + from.height / 2 + 10, { steps: 3 });
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height - 6, { steps: 6 });
+    await page.mouse.up();
+  }
+
+  test("Insert › PivotTable from a 4-column range opens the PivotTable Fields pane on a new sheet", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await salesTable(grid);
+    const pane = await insertPivot(page, grid);
+    for (const f of ["Region", "Product", "Month", "Sales"]) await expect(pane.getByRole("checkbox", { name: f })).not.toBeChecked();
+    await expect(page.getByRole("tab", { name: "PivotTable Analyze" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tab", { name: "Design" })).toBeVisible();
+    await page.screenshot({ path: "/tmp/claude-1001/-home-bojan-rusuite/2fa6aaf5-fd99-4487-bced-8b2a06be5873/scratchpad/shots/pivot-insert.png" });
+    errors.expectNone();
+  });
+
+  test("checking Region and Sales shows the regions with their sums and a grand total", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await salesTable(grid);
+    const pane = await insertPivot(page, grid);
+    await pane.getByRole("checkbox", { name: "Region" }).check();
+    await expect(pane.getByTestId("pivot-area-rows")).toContainText("Region");
+    await pane.getByRole("checkbox", { name: "Sales" }).check();
+    await expect(pane.getByTestId("pivot-area-values")).toContainText("Sum of Sales");
+    // A3: Row Labels | Sum of Sales; North 35, South 70, Grand Total 105.
+    await expect.poll(() => cell(grid, 2, 1)).toBe("Sum of Sales");
+    expect(await cell(grid, 2, 0)).toBe("Row Labels");
+    expect(await cell(grid, 3, 0)).toBe("North");
+    expect(await cell(grid, 3, 1)).toBe("35");
+    expect(await cell(grid, 4, 0)).toBe("South");
+    expect(await cell(grid, 4, 1)).toBe("70");
+    expect(await cell(grid, 5, 0)).toBe("Grand Total");
+    expect(await cell(grid, 5, 1)).toBe("105");
+    // Typing into the table is refused with Excel's message.
+    await cell(grid, 3, 1);
+    await page.getByTestId("grid").focus();
+    await page.keyboard.type("9");
+    await expect(page.getByText("We can't change this part of a PivotTable.")).toBeVisible();
+    await expect(page.getByTestId("cell-editor")).toHaveCount(0);
+    await page.screenshot({ path: "/tmp/claude-1001/-home-bojan-rusuite/2fa6aaf5-fd99-4487-bced-8b2a06be5873/scratchpad/shots/pivot-rows.png" });
+    errors.expectNone();
+  });
+
+  test("dragging Product to Columns makes a crosstab", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await salesTable(grid);
+    const pane = await insertPivot(page, grid);
+    await pane.getByRole("checkbox", { name: "Region" }).check();
+    await pane.getByRole("checkbox", { name: "Sales" }).check();
+    await expect.poll(() => cell(grid, 5, 1)).toBe("105");
+    await dragField(page, "Product", "cols");
+    await expect(pane.getByTestId("pivot-area-cols")).toContainText("Product");
+    // A3 Sum of Sales | B3 Column Labels; A4 Row Labels | Apple | Pear | Grand Total; North 15 20 35; South 30 40 70.
+    await expect.poll(() => cell(grid, 2, 1)).toBe("Column Labels");
+    expect(await cell(grid, 3, 1)).toBe("Apple");
+    expect(await cell(grid, 3, 2)).toBe("Pear");
+    expect(await cell(grid, 3, 3)).toBe("Grand Total");
+    expect(await cell(grid, 4, 1)).toBe("15");
+    expect(await cell(grid, 4, 2)).toBe("20");
+    expect(await cell(grid, 5, 3)).toBe("70");
+    expect(await cell(grid, 6, 3)).toBe("105");
+    await page.screenshot({ path: "/tmp/claude-1001/-home-bojan-rusuite/2fa6aaf5-fd99-4487-bced-8b2a06be5873/scratchpad/shots/pivot-crosstab.png" });
+    errors.expectNone();
+  });
+
+  test("the − button of a region collapses it (expandCollapse), + expands it again", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await salesTable(grid);
+    const pane = await insertPivot(page, grid);
+    await pane.getByRole("checkbox", { name: "Region" }).check();
+    await pane.getByRole("checkbox", { name: "Product" }).check();
+    await pane.getByRole("checkbox", { name: "Sales" }).check();
+    // North 35 / Apple 15 / Pear 20 / South 70 / Apple / Pear / Grand Total.
+    await expect.poll(() => cell(grid, 6, 0)).toBe("South");
+    const button = async () =>
+      page.evaluate(() => (window as unknown as { __calcPivotButtons: { kind: string; row: number; x: number; y: number; size: number; collapsed?: boolean }[] }).__calcPivotButtons.find((b) => b.kind === "expand" && b.row === 3));
+    const b = (await button())!;
+    expect(b.collapsed).toBe(false);
+    const box = (await page.getByTestId("grid-cells").boundingBox())!;
+    await page.mouse.click(box.x + b.x + b.size / 2, box.y + b.y + b.size / 2);
+    await expect.poll(() => cell(grid, 4, 0)).toBe("South");
+    expect(await cell(grid, 3, 1)).toBe("35");
+    await expect.poll(async () => (await button())?.collapsed).toBe(true);
+    await page.screenshot({ path: "/tmp/claude-1001/-home-bojan-rusuite/2fa6aaf5-fd99-4487-bced-8b2a06be5873/scratchpad/shots/pivot-collapsed.png" });
+    const b2 = (await button())!;
+    await page.mouse.click(box.x + b2.x + b2.size / 2, box.y + b2.y + b2.size / 2);
+    await expect.poll(() => cell(grid, 4, 0)).toBe("Apple");
+    errors.expectNone();
+  });
+
+  test("changing a source cell shows the stale bar; Refresh updates the sum", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await salesTable(grid);
+    const pane = await insertPivot(page, grid);
+    await pane.getByRole("checkbox", { name: "Region" }).check();
+    await pane.getByRole("checkbox", { name: "Sales" }).check();
+    await expect.poll(() => cell(grid, 3, 1)).toBe("35");
+    await page.getByRole("tab", { name: "Sheet1" }).click();
+    await grid.type(1, 3, "110");
+    await expect(page.getByTestId("pivot-stale-status")).toBeVisible();
+    await page.getByRole("tab", { name: "Sheet2" }).click();
+    const bar = page.getByTestId("pivot-stale-bar");
+    await expect(bar).toContainText("Data changed – Refresh");
+    await page.screenshot({ path: "/tmp/claude-1001/-home-bojan-rusuite/2fa6aaf5-fd99-4487-bced-8b2a06be5873/scratchpad/shots/pivot-stale.png" });
+    await bar.getByRole("button", { name: "Refresh" }).click();
+    await expect(bar).toHaveCount(0);
+    await expect.poll(() => cell(grid, 3, 1)).toBe("135");
+    expect(await cell(grid, 5, 1)).toBe("205");
+    errors.expectNone();
+  });
+
+  test("the saved file has xl/pivotTables/pivotTable1.xml; reopening shows the same table", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await salesTable(grid);
+    const pane = await insertPivot(page, grid);
+    await pane.getByRole("checkbox", { name: "Region" }).check();
+    await pane.getByRole("checkbox", { name: "Sales" }).check();
+    await expect.poll(() => cell(grid, 5, 1)).toBe("105");
+    const xlsx = await saveViaBackstage(page);
+    const def = zipText(xlsx, "xl/pivotTables/pivotTable1.xml");
+    expect(def).toContain("<pivotTableDefinition");
+    expect(def).toContain('dataField="1"');
+    expect(zipText(xlsx, "xl/pivotCache/pivotCacheDefinition1.xml")).toContain("worksheetSource");
+    const fs = await import("node:fs");
+    const file = "/tmp/claude-1001/-home-bojan-rusuite/2fa6aaf5-fd99-4487-bced-8b2a06be5873/scratchpad/pivot-roundtrip.xlsx";
+    fs.writeFileSync(file, xlsx);
+    await page.goto("about:blank");
+    await openCalc(page);
+    await openViaBackstage(page, file);
+    await page.getByRole("tab", { name: "Sheet2" }).click();
+    await expect.poll(() => cell(grid, 3, 0)).toBe("North");
+    expect(await cell(grid, 3, 1)).toBe("35");
+    expect(await cell(grid, 5, 1)).toBe("105");
+    // The table is a pivot table again: its cell shows the contextual tabs and the pane.
+    await expect(page.getByRole("tab", { name: "PivotTable Analyze" })).toBeVisible();
+    await expect(page.getByTestId("pivot-pane").getByRole("checkbox", { name: "Region" })).toBeChecked();
+    errors.expectNone();
+  });
+});

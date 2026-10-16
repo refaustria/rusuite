@@ -19,6 +19,7 @@ import { CfMenu } from "../condFormat/CfMenu";
 import { chartDesignTab, chartFormatTab, chartsInsertGroup } from "../charts/ChartRibbon";
 import { formulasTab } from "../formulas/FormulasRibbon";
 import { linksInsertGroup, reviewTab } from "../comments/ReviewRibbon";
+import { pivotAnalyzeTab, pivotDesignTab, pivotInsertGroup } from "../pivot/PivotRibbon";
 import { NumberGroup } from "./NumberGroup";
 import {
   clearFilterIcon, condFormatIcon, filterIcon, freezeIcon, headingsIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon, validationIcon,
@@ -271,6 +272,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
     id: "insert",
     label: t("tab.insert"),
     groups: [
+      pivotInsertGroup(store, t, off),
       {
         label: t("calc.sheets"),
         items: (
@@ -300,12 +302,22 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
     ],
   };
   // Chart Design and Format while a chart is selected.
-  const contextual = contextualTabs([chartDesignTab(store, t), chartFormatTab(store, t)].filter((x): x is RibbonTab => x !== null), t("ribbon.ctx.chartTools"), CONTEXT_COLORS.chart);
-  const contextualTab = tab === "chartDesign" || tab === "chartFormat";
+  const chartTabs = contextualTabs([chartDesignTab(store, t), chartFormatTab(store, t)].filter((x): x is RibbonTab => x !== null), t("ribbon.ctx.chartTools"), CONTEXT_COLORS.chart);
+  // PivotTable Analyze and Design while a cell of a pivot table is selected (P8-33).
+  const pivotTabs = chartTabs.length
+    ? []
+    : contextualTabs([pivotAnalyzeTab(store, t), pivotDesignTab(store, t)].filter((x): x is RibbonTab => x !== null), t("calc.pivot.tools"), CONTEXT_COLORS.table);
+  const contextual = [...chartTabs, ...pivotTabs];
+  const contextualTab = tab !== undefined && ["chartDesign", "chartFormat", "pivotAnalyze", "pivotDesign"].includes(tab);
+  const available = contextual.some((x) => x.id === tab);
+  // A new pivot table's tab is requested before its sheet and field list have arrived.
+  const pending = tab !== undefined && store.pivots.pendingTab === tab;
+  const shownTab = contextualTab && !available && !pending;
   useEffect(() => {
-    // Leaving the chart leaves its tabs.
-    if (contextual.length === 0 && contextualTab) setTab("home");
-  }, [contextual.length, contextualTab]);
+    if (available && pending) store.pivots.pendingTab = null;
+    // Leaving the chart (or the pivot table) leaves its tabs.
+    if (shownTab) setTab("home");
+  }, [shownTab, available, pending, store]);
 
   const data: RibbonTab = {
     id: "data",
