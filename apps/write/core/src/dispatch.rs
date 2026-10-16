@@ -47,8 +47,21 @@ pub enum Request {
     /// bytes; `name` is the file name shown to the user) → `opened`.
     OpenDocx { bytes_base64: String, name: String },
     /// Writes the document as `.docx` → `saved`. Does NOT mark it saved:
-    /// the shell sends `markSaved` once the file was really written.
-    SaveDocx,
+    /// the shell sends `markSaved` once the file was really written. The
+    /// optional fields stamp the document properties first (`modified` =
+    /// the UI's clock, ISO 8601; `user` = last modified by; `pages` = the
+    /// page count of the pagination; revision + 1) — not an edit.
+    SaveDocx {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        modified: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        user: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pages: Option<u32>,
+    },
     /// The whole document for crash recovery → `recoverySnapshot` (changes
     /// nothing; the JSON is the input of `restoreRecovery`).
     RecoverySnapshot,
@@ -223,7 +236,15 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
                 envelope: Box::new(host.envelope(WritePatch::default())),
             }
         }
-        Request::SaveDocx => {
+        Request::SaveDocx {
+            modified,
+            user,
+            pages,
+        } => {
+            if modified.is_some() || user.is_some() || pages.is_some() {
+                host.doc_mut()
+                    .stamp_save(modified.as_deref(), user.as_deref(), pages);
+            }
             let bytes = host.doc().save_docx()?;
             ResponseBody::Saved {
                 bytes_base64: base64_encode(&bytes),

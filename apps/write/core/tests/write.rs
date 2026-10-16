@@ -150,6 +150,7 @@ fn insert_text_counts_scalars_and_atoms() {
             text: "ñ".into(),
             props: None,
             style: None,
+            link: None,
         },
     );
     apply(
@@ -160,6 +161,7 @@ fn insert_text_counts_scalars_and_atoms() {
             text: "Z".into(),
             props: None,
             style: None,
+            link: None,
         },
     );
     assert_eq!(text(&h, 1), "aé\u{FFFC}😀ñb\u{000B}cZ");
@@ -184,6 +186,7 @@ fn insert_text_counts_scalars_and_atoms() {
                 text: "x".into(),
                 props: None,
                 style: None,
+                link: None,
             }
         ),
         "bad_offset"
@@ -224,6 +227,7 @@ fn insert_text_inherits_formatting() {
                 text: t.into(),
                 props: None,
                 style: None,
+                link: None,
             },
         );
     }
@@ -243,6 +247,7 @@ fn insert_text_inherits_formatting() {
             text: "I".into(),
             props: Some(italic()),
             style: None,
+            link: None,
         },
     );
     assert_eq!(
@@ -770,6 +775,7 @@ fn tables_stay_rectangular() {
             text: "in cell".into(),
             props: None,
             style: None,
+            link: None,
         },
     );
     assert_eq!(p.replaced.len(), 1);
@@ -1004,6 +1010,7 @@ fn compound_is_atomic() {
         text: "d".into(),
         props: None,
         style: None,
+        link: None,
     };
     let bad = C::DeleteText {
         block: id(1),
@@ -1035,6 +1042,7 @@ fn compound_is_atomic() {
                     text: "!".into(),
                     props: None,
                     style: None,
+                    link: None,
                 },
             ],
         },
@@ -1063,6 +1071,7 @@ fn scripted_session_undo_redo() {
             text: "é😀".into(),
             props: None,
             style: None,
+            link: None,
         },
         C::SetRunProps {
             block: id(2),

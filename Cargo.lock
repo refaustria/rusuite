@@ -4810,6 +4810,7 @@ dependencies = [
  "app-common",
  "core-model",
  "fmt-docx",
+ "fmt-ooxml",
  "insta",
  "model-text",
  "serde",

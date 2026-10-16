@@ -193,6 +193,22 @@ pub struct ParagraphProperties {
     /// Keep with the next paragraph.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keep_next: Option<bool>,
+    /// Keep the lines of the paragraph on one page (docx `w:keepLines`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub keep_lines: Option<bool>,
+    /// Widow/orphan control (docx `w:widowControl`; Word's default: on).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub widow_control: Option<bool>,
+    /// Suppress line numbers (docx `w:suppressLineNumbers`; stored only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub suppress_line_numbers: Option<bool>,
+    /// Don't hyphenate (docx `w:suppressAutoHyphens`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub suppress_auto_hyphens: Option<bool>,
     /// Start on a new page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_break_before: Option<bool>,
@@ -249,6 +265,10 @@ impl ParagraphProperties {
             spacing,
             numbering,
             keep_next,
+            keep_lines,
+            widow_control,
+            suppress_line_numbers,
+            suppress_auto_hyphens,
             page_break_before,
             borders,
             shading,
@@ -264,6 +284,10 @@ impl ParagraphProperties {
         self.spacing = merge_opt(self.spacing, *spacing, |a, b| a.merged_with(b));
         self.numbering = numbering.or(self.numbering);
         self.keep_next = keep_next.or(self.keep_next);
+        self.keep_lines = keep_lines.or(self.keep_lines);
+        self.widow_control = widow_control.or(self.widow_control);
+        self.suppress_line_numbers = suppress_line_numbers.or(self.suppress_line_numbers);
+        self.suppress_auto_hyphens = suppress_auto_hyphens.or(self.suppress_auto_hyphens);
         self.page_break_before = page_break_before.or(self.page_break_before);
         self.section_end = section_end.or(self.section_end);
         self.borders = merge_opt(self.borders, *borders, |a, b| a.merged_with(b));

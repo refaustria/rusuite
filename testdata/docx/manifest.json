@@ -736,5 +736,30 @@
    "page:a4"
   ],
   "paragraphs": 6
+ },
+ {
+  "file": "provisional-60-links-bookmarks-columns.docx",
+  "topic": "Hyperlinks (web, e-mail, bookmark), bookmarks, cross-references (REF/PAGEREF), captions with SEQ, 2- and 3-column sections with a column break, document properties",
+  "features": [
+   "heading:1",
+   "link:url",
+   "link:email",
+   "link:bookmark",
+   "field:ref",
+   "field:pageref",
+   "field:seq=Figure",
+   "field:seq=Table",
+   "section:columns=2",
+   "section:columns=3",
+   "section:column-separator",
+   "break:column",
+   "props:title",
+   "props:subject",
+   "props:author",
+   "props:keywords",
+   "bookmark:count=2",
+   "page:a4"
+  ],
+  "paragraphs": 10
  }
 ]

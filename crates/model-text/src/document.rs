@@ -11,6 +11,7 @@ use crate::inline::{Field, FieldKind, Inline, Run};
 use crate::media::MediaStore;
 use crate::numbering::{ListCounter, Numbering};
 use crate::page::{PageSetup, PAGE_FIELD};
+use crate::properties::{CoreProperties, DocumentSettings};
 use crate::props::{NumberingRef, ParagraphProperties};
 use crate::section::{HeaderSlot, Note, Section, SectionId};
 use crate::style::{StyleKind, StyleSheet};
@@ -54,6 +55,14 @@ pub struct Document {
     /// Images and other binary parts.
     #[cfg_attr(feature = "ts", ts(as = "Vec<crate::media::MediaItem>"))]
     pub media: MediaStore,
+    /// Document properties (File › Info).
+    #[serde(default, skip_serializing_if = "CoreProperties::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<CoreProperties>"))]
+    pub properties: CoreProperties,
+    /// Document settings (hyphenation).
+    #[serde(default, skip_serializing_if = "DocumentSettings::is_default")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<DocumentSettings>"))]
+    pub settings: DocumentSettings,
     #[serde(skip)]
     pub(crate) next_id: u64,
 }
@@ -87,6 +96,8 @@ impl Document {
             notes: Vec::new(),
             comments: Vec::new(),
             media: MediaStore::new(),
+            properties: CoreProperties::default(),
+            settings: DocumentSettings::default(),
             next_id: 1,
         }
     }
@@ -242,9 +253,11 @@ impl Document {
     /// (adding an empty one if needed, as Word requires); resolves the
     /// numbering levels ([`Numbering::resolve`]), the sections
     /// ([`Document::sync_sections`]) and the comment invariants
-    /// ([`Document::fix_comments`]). Text is preserved.
+    /// ([`Document::fix_comments`]) and bookmarks
+    /// ([`Document::fix_bookmarks`]). Text is preserved.
     pub fn normalize(&mut self) {
         self.fix_comments();
+        self.fix_bookmarks();
         let mut next_id = self.next_id;
         for c in self.containers_mut() {
             normalize_blocks(c, &mut next_id);
@@ -359,6 +372,27 @@ impl Document {
                 (!text.is_empty()).then_some(TocEntry {
                     text,
                     level,
+                    page: None,
+                    target: p.id,
+                })
+            })
+            .collect()
+    }
+
+    /// The entries of table of contents `t`: [`Document::build_toc`] over
+    /// its levels, or for a table of figures every caption of its
+    /// sequence (text as shown, level 1).
+    pub fn toc_entries(&self, t: &crate::block::Toc) -> Vec<TocEntry> {
+        let Some(id) = t.caption.as_deref() else {
+            return self.build_toc(t.from_level, t.to_level);
+        };
+        self.captions(id)
+            .into_iter()
+            .filter_map(|p| {
+                let text = p.display_text().replace('\t', " ").trim().to_owned();
+                (!text.is_empty()).then_some(TocEntry {
+                    text,
+                    level: 1,
                     page: None,
                     target: p.id,
                 })
@@ -532,7 +566,9 @@ impl Document {
                     Inline::Image(_)
                     | Inline::NoteRef(_)
                     | Inline::CommentStart { .. }
-                    | Inline::CommentEnd { .. } => {}
+                    | Inline::CommentEnd { .. }
+                    | Inline::BookmarkStart { .. }
+                    | Inline::BookmarkEnd { .. } => {}
                 }
             }
             lines.push(line);
@@ -649,9 +685,7 @@ pub(crate) fn merge_runs(inlines: &mut Vec<Inline>) {
     for inline in inlines.drain(..) {
         match (out.last_mut(), inline) {
             (_, Inline::Run(run)) if run.text.is_empty() => {}
-            (Some(Inline::Run(prev)), Inline::Run(run))
-                if prev.props == run.props && prev.style == run.style =>
-            {
+            (Some(Inline::Run(prev)), Inline::Run(run)) if prev.same_format(&run) => {
                 prev.text.push_str(&run.text);
             }
             (_, other) => out.push(other),

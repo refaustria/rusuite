@@ -226,6 +226,7 @@ pub fn run() -> (Report, Vec<u8>) {
                 text: "x".into(),
                 props: None,
                 style: None,
+                link: None,
             };
             host.apply(cmd).expect("insert");
         },

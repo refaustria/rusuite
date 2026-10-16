@@ -15,7 +15,7 @@ use model_text::{
     Table, TableLayout, TableProperties, TableWidth, Toc, VAlign, VAlignPos, VMerge, VRelative,
     WrapKind, WrapSide,
 };
-use model_text::{Comment, CommentId};
+use model_text::{Comment, CommentId, Hyperlink, LinkTarget};
 
 use crate::numbering::{write_numbering, W_NS};
 use crate::props::{
@@ -138,7 +138,14 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
         media_names: HashMap::new(),
         media_parts: Vec::new(),
         next_docpr: 1,
-        toc_targets: toc_targets(doc),
+        toc_targets: toc_targets(
+            doc,
+            if doc.bookmarks().is_empty() {
+                0
+            } else {
+                doc.next_bookmark_id().0
+            },
+        ),
         note_ids: note_ids(doc, [foot_sep.0, foot_sep.1, end_sep.0, end_sep.1]),
         comment_para_ids: doc
             .comments
@@ -258,9 +265,16 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
     pkg.insert_part(
         pn("/word/settings.xml")?,
         ct::SETTINGS,
-        ctx.settings_xml
-            .clone()
-            .unwrap_or_else(|| default_settings_xml(even_headers, has_notes, foot_sep, end_sep)),
+        match &ctx.settings_xml {
+            Some(xml) => with_auto_hyphenation(xml, doc.settings.auto_hyphenation),
+            None => default_settings_xml(
+                even_headers,
+                has_notes,
+                foot_sep,
+                end_sep,
+                doc.settings.auto_hyphenation,
+            ),
+        },
     );
     pkg.insert_part(
         pn("/word/theme/theme1.xml")?,
@@ -283,8 +297,16 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
         pkg.insert_part(PartName::new(format!("/word/{name}"))?, content_type, data);
     }
     pkg.set_relationships(main, rels);
-    pkg.insert_part(pn("/docProps/core.xml")?, ct::CORE_PROPERTIES, core_xml());
-    pkg.insert_part(pn("/docProps/app.xml")?, ct::EXTENDED_PROPERTIES, app_xml());
+    pkg.insert_part(
+        pn("/docProps/core.xml")?,
+        ct::CORE_PROPERTIES,
+        core_xml(&doc.properties),
+    );
+    pkg.insert_part(
+        pn("/docProps/app.xml")?,
+        ct::EXTENDED_PROPERTIES,
+        app_xml(doc),
+    );
     let root = pkg.package_relationships_mut();
     root.add(rel::OFFICE_DOCUMENT, "word/document.xml");
     root.add(rel::CORE_PROPERTIES, "docProps/core.xml");
@@ -293,8 +315,9 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
 }
 
 /// Bookmarks for the headings that tables of contents point to:
-/// `_Toc` + nine digits, numbered in order of first reference.
-fn toc_targets(doc: &Document) -> HashMap<NodeId, (u32, String)> {
+/// `_Toc` + nine digits, numbered in order of first reference; their ids
+/// start at `first_id` (after the document's own bookmarks).
+fn toc_targets(doc: &Document, first_id: u32) -> HashMap<NodeId, (u32, String)> {
     let mut out = HashMap::new();
     for t in doc.body.iter().filter_map(Block::as_toc) {
         for e in &t.entries {
@@ -302,7 +325,7 @@ fn toc_targets(doc: &Document) -> HashMap<NodeId, (u32, String)> {
                 continue;
             }
             let n = out.len() as u32;
-            out.insert(e.target, (n, format!("_Toc{:09}", n + 1)));
+            out.insert(e.target, (first_id + n, format!("_Toc{:09}", n + 1)));
         }
     }
     out
@@ -532,7 +555,17 @@ impl<'a> PartWriter<'a> {
                 &[("w:id", &id.to_string()), ("w:name", name)],
             );
         }
+        let mut open_link: Option<&Hyperlink> = None;
         for inline in &p.inlines {
+            let link = inline.as_run().and_then(|r| r.link.as_ref());
+            if open_link.is_some() && open_link != link && !inline.is_marker() {
+                self.x.end("w:hyperlink");
+                open_link = None;
+            }
+            if let (None, Some(l)) = (open_link, link) {
+                self.hyperlink_start(l);
+                open_link = Some(l);
+            }
             match inline {
                 Inline::Run(run) => self.run(run),
                 Inline::Image(img) => self.image(img)?,
@@ -545,7 +578,17 @@ impl<'a> PartWriter<'a> {
                 Inline::NoteRef(r) => self.note_ref(r),
                 Inline::CommentStart { id } => self.comment_marks(*id, true),
                 Inline::CommentEnd { id } => self.comment_marks(*id, false),
+                Inline::BookmarkStart { id, name } => self.x.empty(
+                    "w:bookmarkStart",
+                    &[("w:id", &id.0.to_string()), ("w:name", name)],
+                ),
+                Inline::BookmarkEnd { id } => self
+                    .x
+                    .empty("w:bookmarkEnd", &[("w:id", &id.0.to_string())]),
             }
+        }
+        if open_link.is_some() {
+            self.x.end("w:hyperlink");
         }
         if let Some((id, _)) = &bookmark {
             self.x.empty("w:bookmarkEnd", &[("w:id", &id.to_string())]);
@@ -701,7 +744,36 @@ impl<'a> PartWriter<'a> {
         match kind {
             BreakKind::Line => self.x.empty("w:br", &[]),
             BreakKind::Page => self.x.empty("w:br", &[("w:type", "page")]),
+            BreakKind::Column => self.x.empty("w:br", &[("w:type", "column")]),
         }
+    }
+
+    /// Opens a `w:hyperlink`: an external relationship for web and e-mail
+    /// targets (`r:id`), `w:anchor` for a bookmark; `w:history="1"` as
+    /// Word writes it.
+    fn hyperlink_start(&mut self, l: &Hyperlink) {
+        let mut attrs: Vec<(&str, String)> = Vec::new();
+        match &l.target {
+            LinkTarget::Bookmark(b) => attrs.push(("w:anchor", b.clone())),
+            target => {
+                let rid = self
+                    .rels
+                    .add_with_mode(
+                        rel::HYPERLINK,
+                        target.href(),
+                        fmt_ooxml::TargetMode::External,
+                    )
+                    .id
+                    .clone();
+                attrs.push(("r:id", rid));
+            }
+        }
+        if let Some(t) = &l.tooltip {
+            attrs.push(("w:tooltip", t.clone()));
+        }
+        attrs.push(("w:history", "1".to_owned()));
+        let refs: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        self.x.start("w:hyperlink", &refs);
     }
 
     fn text(&mut self, s: &str) {
@@ -746,10 +818,23 @@ impl<'a> PartWriter<'a> {
     fn run_text(&mut self, text: &str) {
         let mut seg = String::new();
         for c in text.chars() {
+            if c == '\u{2011}' || c == '\u{AD}' {
+                self.text(&std::mem::take(&mut seg));
+                self.x.empty(
+                    if c == '\u{AD}' {
+                        "w:softHyphen"
+                    } else {
+                        "w:noBreakHyphen"
+                    },
+                    &[],
+                );
+                continue;
+            }
             let special = match c {
                 '\t' => Some(None),
                 '\n' | '\u{B}' => Some(Some(BreakKind::Line)),
                 '\u{C}' => Some(Some(BreakKind::Page)),
+                '\u{E}' => Some(Some(BreakKind::Column)),
                 '\r' => continue,
                 _ => None,
             };
@@ -804,7 +889,10 @@ impl<'a> PartWriter<'a> {
     /// hyperlink to the heading's `_Toc` bookmark, the page number as a
     /// `PAGEREF` field), all inside the `TOC \o "a-b" \h \z \u` field.
     fn toc(&mut self, t: &Toc) {
-        let instr = format!(" TOC \\o \"{}-{}\" \\h \\z \\u ", t.from_level, t.to_level);
+        let instr = match &t.caption {
+            Some(c) => format!(" TOC \\h \\z \\c \"{c}\" "),
+            None => format!(" TOC \\o \"{}-{}\" \\h \\z \\u ", t.from_level, t.to_level),
+        };
         self.x.start("w:sdt", &[]);
         self.x.start("w:sdtPr", &[]);
         self.x.start("w:docPartObj", &[]);
@@ -835,8 +923,12 @@ impl<'a> PartWriter<'a> {
             let bookmark = self.shared.toc_targets.get(&e.target).cloned();
             self.x.start("w:p", &[]);
             self.x.start("w:pPr", &[]);
-            self.x
-                .val("w:pStyle", &format!("TOC{}", e.level.clamp(1, 9)));
+            match &t.caption {
+                Some(_) => self.x.val("w:pStyle", "TableofFigures"),
+                None => self
+                    .x
+                    .val("w:pStyle", &format!("TOC{}", e.level.clamp(1, 9))),
+            }
             self.x.start("w:tabs", &[]);
             self.x.empty(
                 "w:tab",
@@ -1330,9 +1422,13 @@ fn default_settings_xml(
     notes: [bool; 2],
     foot_sep: (i32, i32),
     end_sep: (i32, i32),
+    auto_hyphenation: bool,
 ) -> Vec<u8> {
     let mut x = XmlOut::new();
     x.start("w:settings", &[("xmlns:w", W_NS)]);
+    if auto_hyphenation {
+        x.empty("w:autoHyphenation", &[]);
+    }
     if even_headers {
         x.empty("w:evenAndOddHeaders", &[]);
     }
@@ -1361,11 +1457,44 @@ fn default_settings_xml(
     x.finish()
 }
 
-fn core_xml() -> Vec<u8> {
-    // No timestamps: core crates have no clock (ADR 0005), and fixed fake
-    // dates would be misleading. Both are optional.
+/// `settings.xml` kept from the file with `w:autoHyphenation` set or
+/// removed (it is the second child in Word's order; we insert it first,
+/// which Word accepts).
+fn with_auto_hyphenation(xml: &[u8], on: bool) -> Vec<u8> {
+    let Ok(s) = std::str::from_utf8(xml) else {
+        return xml.to_vec();
+    };
+    let has = s.contains("<w:autoHyphenation");
+    if has == on {
+        // Present with w:val="0" while on: rewrite below.
+        if !(on && s.contains("<w:autoHyphenation w:val=\"0\"")) {
+            return xml.to_vec();
+        }
+    }
+    let mut out = s.to_owned();
+    // Remove every existing element (self-closing as Word writes it).
+    while let Some(i) = out.find("<w:autoHyphenation") {
+        let Some(len) = out[i..].find("/>") else {
+            break;
+        };
+        out.replace_range(i..i + len + 2, "");
+    }
+    if on {
+        if let Some(i) = out.find("<w:settings") {
+            if let Some(end) = out[i..].find('>') {
+                let at = i + end + 1;
+                out.insert_str(at, "<w:autoHyphenation/>");
+            }
+        }
+    }
+    out.into_bytes()
+}
+
+/// `docProps/core.xml` from the document properties. Dates are written as
+/// stored (the UI stamps them; core crates have no clock, ADR 0005).
+fn core_xml(p: &model_text::CoreProperties) -> Vec<u8> {
     let mut x = XmlOut::new();
-    x.empty(
+    x.start(
         "cp:coreProperties",
         &[
             (
@@ -1374,13 +1503,43 @@ fn core_xml() -> Vec<u8> {
             ),
             ("xmlns:dc", "http://purl.org/dc/elements/1.1/"),
             ("xmlns:dcterms", "http://purl.org/dc/terms/"),
+            ("xmlns:dcmitype", "http://purl.org/dc/dcmitype/"),
             ("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance"),
         ],
     );
+    for (name, v) in [
+        ("dc:title", &p.title),
+        ("dc:subject", &p.subject),
+        ("dc:creator", &p.author),
+        ("cp:keywords", &p.keywords),
+        ("dc:description", &p.description),
+        ("cp:lastModifiedBy", &p.last_modified_by),
+    ] {
+        if let Some(v) = v {
+            x.text_el(name, &[], v);
+        }
+    }
+    if let Some(r) = p.revision {
+        x.text_el("cp:revision", &[], &r.to_string());
+    }
+    for (name, v) in [
+        ("dcterms:created", &p.created),
+        ("dcterms:modified", &p.modified),
+    ] {
+        if let Some(v) = v {
+            x.text_el(name, &[("xsi:type", "dcterms:W3CDTF")], v);
+        }
+    }
+    if let Some(v) = &p.category {
+        x.text_el("cp:category", &[], v);
+    }
+    x.end("cp:coreProperties");
     x.finish()
 }
 
-fn app_xml() -> Vec<u8> {
+/// `docProps/app.xml`: the application, the page count of the last
+/// pagination and the word count.
+fn app_xml(doc: &Document) -> Vec<u8> {
     let mut x = XmlOut::new();
     x.start(
         "Properties",
@@ -1389,7 +1548,11 @@ fn app_xml() -> Vec<u8> {
             "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties",
         )],
     );
-    x.text_el("Application", &[], "Rusuite");
+    x.text_el("Application", &[], "Rusuite Write");
+    if let Some(pages) = doc.properties.pages {
+        x.text_el("Pages", &[], &pages.to_string());
+    }
+    x.text_el("Words", &[], &doc.word_count().to_string());
     x.end("Properties");
     x.finish()
 }

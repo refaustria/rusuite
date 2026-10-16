@@ -1,4 +1,4 @@
-"""Generator for the PROVISIONAL docx reference suite (59 documents).
+"""Generator for the PROVISIONAL docx reference suite (60 documents).
 
 Emits one flat ODT (.fodt) per topic plus manifest.json. Conversion to .docx is done by
 scripts/gen-docx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
@@ -75,6 +75,8 @@ class Doc:
         self.extra_styles = ""  # appended to office:styles
         self.extra_auto = ""  # appended to office:automatic-styles
         self.master_xml = None  # replaces the Standard master page
+        self.meta_xml = ""  # office:meta content (document properties)
+        self.text_decls = ""  # first children of office:text (sequence declarations)
 
     @property
     def file(self):
@@ -362,9 +364,10 @@ class Doc:
         )
         master = self.master_xml or '<style:master-page style:name="Standard" style:page-layout-name="pm1"/>'
         master = f"<office:master-styles>{master}</office:master-styles>"
+        meta = f"<office:meta>{self.meta_xml}</office:meta>\n" if self.meta_xml else ""
         xml = (
-            f'<?xml version="1.0" encoding="UTF-8"?>\n<office:document {NS}>\n{styles}\n{auto}\n{master}\n'
-            f"<office:body><office:text>\n{body}\n</office:text></office:body></office:document>\n"
+            f'<?xml version="1.0" encoding="UTF-8"?>\n<office:document {NS}>\n{meta}{styles}\n{auto}\n{master}\n'
+            f"<office:body><office:text>{self.text_decls}\n{body}\n</office:text></office:body></office:document>\n"
         )
         return xml, paragraphs
 
@@ -1099,13 +1102,73 @@ def _(d):
     d.feat("comment:authors=2")
 
 
+# ---------------- 60 links, bookmarks, cross-references, captions, columns, properties ----------------
+def _link(href, text):
+    return X(f'<text:a xlink:type="simple" xlink:href="{escape(href)}">{escape(text)}</text:a>')
+
+
+def _caption(d, label, n, text):
+    """A caption paragraph `Label N: text` with a sequence field (docx SEQ Label \\* ARABIC)."""
+    return d.p([f"{label} ", X(f'<text:sequence text:ref-name="ref{label}{n - 1}" text:name="{label}" '
+                               f'text:formula="ooow:{label}+1" style:num-format="1">{n}</text:sequence>'), f": {text}"],
+               parent="Caption")
+
+
+@topic(60, "links-bookmarks-columns", "Hyperlinks (web, e-mail, bookmark), bookmarks, cross-references (REF/PAGEREF), captions with SEQ, 2- and 3-column sections with a column break, document properties")
+def _(d):
+    d.meta_xml = (
+        "<dc:title>Links and columns</dc:title><dc:subject>Reference suite</dc:subject>"
+        "<meta:initial-creator>Anna Berg</meta:initial-creator><dc:creator>Anna Berg</dc:creator>"
+        "<meta:keyword>links</meta:keyword><meta:keyword>columns</meta:keyword>"
+        "<dc:description>Provisional test document</dc:description>"
+    )
+    d.text_decls = (
+        '<text:sequence-decls><text:sequence-decl text:display-outline-level="0" text:name="Illustration"/>'
+        '<text:sequence-decl text:display-outline-level="0" text:name="Table"/>'
+        '<text:sequence-decl text:display-outline-level="0" text:name="Figure"/></text:sequence-decls>'
+    )
+    d.extra_styles = (
+        '<style:style style:name="Caption" style:family="paragraph" style:parent-style-name="Standard" style:class="extra">'
+        '<style:text-properties fo:font-size="9pt" fo:font-style="italic"/></style:style>'
+    )
+    d.extra_auto = (
+        '<style:style style:name="Sect2" style:family="section"><style:section-properties>'
+        '<style:columns fo:column-count="2" fo:column-gap="0.5cm"/></style:section-properties></style:style>'
+        '<style:style style:name="Sect3" style:family="section"><style:section-properties>'
+        '<style:columns fo:column-count="3" fo:column-gap="0.4cm"><style:column-sep style:width="0.02cm" style:color="#000000" '
+        'style:height="100%" style:style="solid"/></style:columns></style:section-properties></style:style>'
+        '<style:style style:name="PCol" style:family="paragraph" style:parent-style-name="Standard">'
+        '<style:paragraph-properties fo:break-before="column"/></style:style>'
+    )
+    d.h(1, ["Links and ", X('<text:bookmark-start text:name="results"/>'), "results", X('<text:bookmark-end text:name="results"/>')])
+    d.p(["Visit ", _link("https://www.example.com/", "the example site"), ", write to ",
+         _link("mailto:info@example.com", "info@example.com"), " or jump to ", _link("#summary", "the summary"), "."])
+    d.p(["The results are on page ",
+         X('<text:bookmark-ref text:reference-format="page" text:ref-name="results">1</text:bookmark-ref>'),
+         ", see \u201c", X('<text:bookmark-ref text:reference-format="text" text:ref-name="results">results</text:bookmark-ref>'),
+         "\u201d."])
+    _caption(d, "Figure", 1, "A first picture")
+    _caption(d, "Figure", 2, "A second picture")
+    _caption(d, "Table", 1, "Some numbers")
+    d.body.append(X('<text:section text:style-name="Sect2" text:name="TwoColumns">'
+                    + d.p_xml(txt(3)) + f'<text:p text:style-name="PCol">{escape(txt(2, 1))}</text:p>'
+                    + "</text:section>"))
+    d.body.append(X('<text:section text:style-name="Sect3" text:name="ThreeColumns">'
+                    + d.p_xml(txt(4, 2)) + "</text:section>"))
+    d.p([X('<text:bookmark-start text:name="summary"/>'), "Summary paragraph", X('<text:bookmark-end text:name="summary"/>'), "."])
+    for f in ["link:url", "link:email", "link:bookmark", "field:ref", "field:pageref", "field:seq=Figure", "field:seq=Table",
+              "section:columns=2", "section:columns=3", "section:column-separator", "break:column",
+              "props:title", "props:subject", "props:author", "props:keywords", "bookmark:count=2"]:
+        d.feat(f)
+
+
 def emit(outdir, pngdir):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     for k in range(3):
         IMAGES[k] = (Path(pngdir) / f"img{k}.png").read_bytes()
     manifest = []
-    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 60)), "need exactly topics 1..59"
+    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 61)), "need exactly topics 1..60"
     for n, slug, desc, fn in sorted(TOPICS):
         d = Doc(n, slug, desc)
         fn(d)
@@ -1138,6 +1201,8 @@ STYLE_PATCHES = {
 def patch(docxdir):
     for name, edits in STYLE_PATCHES.items():
         path = Path(docxdir) / name
+        if not path.exists():  # converting only some topics
+            continue
         with zipfile.ZipFile(path) as z:
             items = [(i, z.read(i.filename)) for i in z.infolist()]
         out = []
@@ -1228,6 +1293,36 @@ def check(manifest_path, docxdir):
                     errs.append("paraIdParent not found")
                 if ft == "comment:resolved" and 'w15:done="1"' not in ext:
                     errs.append("w15:done not found")
+            elif ft.startswith("link:") or ft.startswith("props:"):
+                with zipfile.ZipFile(f) as z:
+                    rels = z.read("word/_rels/document.xml.rels").decode("utf-8")
+                    core = z.read("docProps/core.xml").decode("utf-8")
+                want = {
+                    "link:url": ("<w:hyperlink r:id=" in doc and 'Target="http' in rels),
+                    "link:email": 'Target="mailto:' in rels,
+                    "link:bookmark": "<w:hyperlink w:anchor=" in doc,
+                    "props:title": "<dc:title>" in core,
+                    "props:subject": "<dc:subject>" in core,
+                    "props:author": "<dc:creator>" in core,
+                    "props:keywords": "<cp:keywords>" in core,
+                }.get(ft, True)
+                if not want:
+                    errs.append(f"{ft} not found")
+            elif ft.startswith("bookmark:count="):
+                names = [n for n in re.findall(r'<w:bookmarkStart [^>]*w:name="([^"]*)"', doc) if not n.startswith("_")]
+                if len(names) != int(ft.split("=")[1]):
+                    errs.append(f"{ft}: found {len(names)}")
+            elif ft in ("field:ref", "field:pageref") or ft.startswith("field:seq="):
+                instr = {"field:ref": " REF ", "field:pageref": " PAGEREF "}.get(ft) or f" SEQ {ft.split('=')[1]} "
+                if instr not in doc:
+                    errs.append(f"{ft} not found")
+            elif ft.startswith("section:columns="):
+                if f'w:num="{ft.split("=")[1]}"' not in doc:
+                    errs.append(f"{ft} not found")
+            elif ft == "section:column-separator" and not re.search(r'w:sep="(true|1)"', doc):
+                errs.append("column separator not found")
+            elif ft == "break:column" and 'w:type="column"' not in doc:
+                errs.append("column break not found")
         n = len(re.findall(r"<w:p[ >]", doc))
         if n < e["paragraphs"]:
             errs.append(f"paragraphs: manifest {e['paragraphs']}, docx {n}")

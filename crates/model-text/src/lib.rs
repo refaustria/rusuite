@@ -5,7 +5,8 @@
 //! [`Document`] body is a list of [`Block`]s ([`Paragraph`], [`Table`] or
 //! [`Toc`]); paragraphs hold [`Inline`]s (text [`Run`]s, [`InlineImage`]s,
 //! [`BreakKind`] breaks, [`Field`]s, [`NoteRef`]s and the range markers
-//! of [`Comment`]s). Lists are paragraphs
+//! of [`Comment`]s and bookmarks; text runs may carry a [`Hyperlink`]).
+//! Lists are paragraphs
 //! with a [`NumberingRef`], headings are paragraphs with a heading style.
 //! The document is divided into [`Section`]s (page setup, headers and
 //! footers); footnotes and endnotes live in [`Document::notes`], comments
@@ -24,10 +25,13 @@
 pub mod block;
 pub mod comment;
 pub mod document;
+pub mod fields;
 pub mod inline;
+pub mod link;
 pub mod media;
 pub mod numbering;
 pub mod page;
+pub mod properties;
 pub mod props;
 pub mod section;
 pub mod snapshot;
@@ -39,22 +43,29 @@ pub use comment::{marker_of, Comment, CommentFix, CommentId, CommentRange};
 pub use core_model::units::{Emu, Pt, Twips};
 pub use core_model::RunProperties;
 pub use document::Document;
+pub use fields::{FieldValue, REF_ERROR};
 pub use inline::{
     Anchor, BreakKind, Field, FieldKind, HAlign, HPos, HRelative, Inline, InlineImage, Insets,
     NoteKind, NoteRef, Placement, Run, VAlignPos, VPos, VRelative, WrapKind, WrapSide,
+};
+pub use link::{
+    bookmark_marker_of, valid_bookmark_name, BookmarkId, BookmarkRange, Hyperlink, LinkTarget,
 };
 pub use media::{Base64Error, Media, MediaId, MediaStore};
 pub use numbering::{
     AbstractNumbering, Level, LevelKind, LevelOverride, LevelSuffix, Numbering, NumberingDef,
 };
 pub use page::{Margins, Orientation, PageSetup, PAGE_FIELD};
+pub use properties::{CoreProperties, DocumentSettings};
 pub use props::{
     Alignment, BorderSide, BorderStyle, CellMargins, CellProperties, HeightRule, Indent,
     LineSpacing, NumberingRef, ParagraphBorders, ParagraphProperties, RowHeight, RowProperties,
     Spacing, TabKind, TabLeader, TabStop, TableAlignment, TableBorders, TableLayout, TableLook,
     TableProperties, TableWidth, VAlign, VMerge,
 };
-pub use section::{HeaderFooterSet, HeaderSlot, Note, Section, SectionId, SectionKind};
+pub use section::{
+    ColumnWidth, Columns, HeaderFooterSet, HeaderSlot, Note, Section, SectionId, SectionKind,
+};
 pub use snapshot::DocumentSnapshot;
 pub use style::{
     is_builtin_name, ConditionalFormat, ConditionalKind, Defaults, Style, StyleError, StyleKind,

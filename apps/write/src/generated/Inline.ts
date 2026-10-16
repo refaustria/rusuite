@@ -10,8 +10,10 @@ import type { Run } from "./Run";
  *
  * Serializes as `{"kind":"run","value":{…}}`, `{"kind":"image","value":{…}}`,
  * `{"kind":"break","value":"line"}`, `{"kind":"field","value":{…}}`,
- * `{"kind":"noteRef","value":{…}}` or
- * `{"kind":"commentStart","value":{"id":3}}`. Images, breaks, fields,
- * note references and comment markers occupy one position each.
+ * `{"kind":"noteRef","value":{…}}`,
+ * `{"kind":"commentStart","value":{"id":3}}` or
+ * `{"kind":"bookmarkStart","value":{"id":1,"name":"intro"}}`. Images,
+ * breaks, fields, note references and comment/bookmark markers occupy
+ * one position each.
  */
-export type Inline = { "kind": "run", "value": Run } | { "kind": "image", "value": InlineImage } | { "kind": "break", "value": BreakKind } | { "kind": "field", "value": Field } | { "kind": "noteRef", "value": NoteRef } | { "kind": "commentStart", "value": { id: number, } } | { "kind": "commentEnd", "value": { id: number, } };
+export type Inline = { "kind": "run", "value": Run } | { "kind": "image", "value": InlineImage } | { "kind": "break", "value": BreakKind } | { "kind": "field", "value": Field } | { "kind": "noteRef", "value": NoteRef } | { "kind": "commentStart", "value": { id: number, } } | { "kind": "commentEnd", "value": { id: number, } } | { "kind": "bookmarkStart", "value": { id: number, name: string, } } | { "kind": "bookmarkEnd", "value": { id: number, } };

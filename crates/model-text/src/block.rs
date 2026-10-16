@@ -123,8 +123,8 @@ impl Paragraph {
 
     /// The paragraph's text: runs verbatim (tabs kept), images and fields
     /// as U+FFFC, line breaks as U+000B, page breaks as U+000C, note
-    /// references as U+0002 (as Word's `Range.Text`) and comment markers
-    /// as U+FEFF. One char per position (see [`Paragraph::len`]).
+    /// references as U+0002 (as Word's `Range.Text`), column breaks as
+    /// U+000E and comment/bookmark markers as U+FEFF. One char per position (see [`Paragraph::len`]).
     pub fn text(&self) -> String {
         let mut out = String::new();
         self.push_text(&mut out);
@@ -163,9 +163,13 @@ impl Paragraph {
                 Inline::Image(_) => out.push('\u{FFFC}'),
                 Inline::Break(crate::BreakKind::Line) => out.push('\u{000B}'),
                 Inline::Break(crate::BreakKind::Page) => out.push('\u{000C}'),
+                Inline::Break(crate::BreakKind::Column) => out.push('\u{000E}'),
                 Inline::Field(_) => out.push('\u{FFFC}'),
                 Inline::NoteRef(_) => out.push('\u{0002}'),
-                Inline::CommentStart { .. } | Inline::CommentEnd { .. } => out.push('\u{FEFF}'),
+                Inline::CommentStart { .. }
+                | Inline::CommentEnd { .. }
+                | Inline::BookmarkStart { .. }
+                | Inline::BookmarkEnd { .. } => out.push('\u{FEFF}'),
             }
         }
     }
@@ -184,7 +188,9 @@ impl Paragraph {
                 Inline::Image(_)
                 | Inline::NoteRef(_)
                 | Inline::CommentStart { .. }
-                | Inline::CommentEnd { .. } => {}
+                | Inline::CommentEnd { .. }
+                | Inline::BookmarkStart { .. }
+                | Inline::BookmarkEnd { .. } => {}
             }
         }
         out
@@ -333,6 +339,12 @@ pub struct Toc {
     /// The entries in document order.
     #[serde(default)]
     pub entries: Vec<TocEntry>,
+    /// A table of figures: the sequence identifier (`Figure`, `Table`)
+    /// whose captions are listed instead of headings (docx `TOC \c
+    /// "Figure"`); the levels are then ignored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub caption: Option<String>,
 }
 
 impl Toc {
@@ -344,6 +356,7 @@ impl Toc {
             to_level: 3,
             title: None,
             entries: Vec::new(),
+            caption: None,
         }
     }
 }

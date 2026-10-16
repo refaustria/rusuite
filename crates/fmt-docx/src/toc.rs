@@ -10,6 +10,8 @@ pub(crate) struct TocScan {
     pub title: Option<String>,
     /// Outline levels from the `\o "a-b"` switch (default 1–3).
     pub levels: (u8, u8),
+    /// The sequence of a table of figures (`\c "Figure"`).
+    pub caption: Option<String>,
     /// Cached entries: text and page number (the text after the last tab,
     /// if it is a number).
     pub lines: Vec<(String, Option<u32>)>,
@@ -31,6 +33,18 @@ fn is_toc_instr(instr: &str) -> bool {
         .split_whitespace()
         .next()
         .is_some_and(|w| w.eq_ignore_ascii_case("TOC"))
+}
+
+/// The caption sequence of a `TOC` instruction (`\c "Figure"`, also
+/// `\c Figure`): a table of figures.
+pub(crate) fn toc_caption(instr: &str) -> Option<String> {
+    let at = instr.find("\\c")?;
+    let rest = instr[at + 2..].trim_start();
+    let name = match rest.strip_prefix('"') {
+        Some(q) => &q[..q.find('"')?],
+        None => rest.split_whitespace().next()?,
+    };
+    (!name.is_empty() && !name.starts_with('\\')).then(|| name.to_owned())
 }
 
 /// The outline levels of a `TOC` instruction (`\o "1-3"`).
@@ -216,6 +230,7 @@ pub(crate) fn scan(paras: &[&El], title_allowed: bool) -> Option<TocScan> {
         out.consumed = paras.len();
     }
     out.levels = toc_levels(s.instr.as_deref().unwrap_or(""));
+    out.caption = toc_caption(s.instr.as_deref().unwrap_or(""));
     out.title = (!title.is_empty()).then(|| title.join(" "));
     Some(out)
 }
@@ -239,6 +254,12 @@ mod tests {
         assert_eq!(toc_levels(r#"TOC \f \o "2-4" \h"#), (2, 4));
         assert_eq!(toc_levels(r#"TOC \h"#), (1, 3));
         assert_eq!(toc_levels(r#"TOC \o "5-2""#), (5, 5));
+        assert_eq!(
+            toc_caption(r#" TOC \h \z \c "Figure" "#).as_deref(),
+            Some("Figure")
+        );
+        assert_eq!(toc_caption(r#"TOC \c Table \h"#).as_deref(), Some("Table"));
+        assert_eq!(toc_caption(r#"TOC \o "1-3""#), None);
     }
 
     #[test]

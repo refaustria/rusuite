@@ -1,10 +1,25 @@
 //! Char-offset arithmetic on paragraph inlines (ADR 0007 §3): run text
 //! counts in Unicode scalar values, images, breaks, fields, note
-//! references and comment markers count as one.
+//! references and comment/bookmark markers count as one.
 
 use std::collections::HashSet;
 
-use model_text::{marker_of, CommentId, Inline, Paragraph, Run, RunProperties};
+use model_text::{bookmark_marker_of, marker_of, Inline, Paragraph, Run, RunProperties};
+
+/// A range marker's identity: comment or bookmark id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum MarkerKey {
+    Comment(u32),
+    Bookmark(u32),
+}
+
+/// The range marker of `inline` (comment or bookmark): key and whether it
+/// is a start.
+fn range_marker(inline: &Inline) -> Option<(MarkerKey, bool)> {
+    marker_of(inline)
+        .map(|(id, s)| (MarkerKey::Comment(id.0), s))
+        .or_else(|| bookmark_marker_of(inline).map(|(id, s)| (MarkerKey::Bookmark(id.0), s)))
+}
 
 /// Number of positions of one inline.
 pub(crate) fn inline_len(inline: &Inline) -> usize {
@@ -38,9 +53,8 @@ fn split_at(inlines: &mut Vec<Inline>, offset: usize) -> usize {
                     .nth(offset - pos)
                     .map_or(run.text.len(), |(b, _)| b);
                 let tail = run.text.split_off(byte);
-                let props = run.props.clone();
-                let style = run.style.clone();
-                inlines.insert(i + 1, Inline::Run(Run::styled(tail, style, props)));
+                let rest = run.with_text(tail);
+                inlines.insert(i + 1, Inline::Run(rest));
             }
             return i + 1;
         }
@@ -62,11 +76,11 @@ pub(crate) fn replace_range(
     p.inlines.splice(start..end, new).collect()
 }
 
-/// [`replace_range`] that keeps the comment markers of `from..to` whose
-/// partner lies outside the range: ends go before `new`, starts after it,
-/// so a partly deleted comment range shrinks to the text that is left
-/// (a range deleted as a whole loses both markers). Returns the removed
-/// inlines and the number of markers kept.
+/// [`replace_range`] that keeps the comment and bookmark markers of
+/// `from..to` whose partner lies outside the range: ends go before `new`,
+/// starts after it, so a partly deleted range shrinks to the text that is
+/// left (a range deleted as a whole loses both markers). Returns the
+/// removed inlines and the number of markers kept.
 pub(crate) fn replace_keeping_markers(
     p: &mut Paragraph,
     from: usize,
@@ -74,10 +88,10 @@ pub(crate) fn replace_keeping_markers(
     new: Vec<Inline>,
 ) -> (Vec<Inline>, usize) {
     let doomed = slice(p, from, to);
-    let ids = |start: bool| -> HashSet<CommentId> {
+    let ids = |start: bool| -> HashSet<MarkerKey> {
         doomed
             .iter()
-            .filter_map(marker_of)
+            .filter_map(range_marker)
             .filter(|(_, s)| *s == start)
             .map(|(id, _)| id)
             .collect()
@@ -86,7 +100,7 @@ pub(crate) fn replace_keeping_markers(
     let mut kept_ends = Vec::new();
     let mut kept_starts = Vec::new();
     for i in &doomed {
-        match marker_of(i) {
+        match range_marker(i) {
             Some((id, true)) if !ends.contains(&id) => kept_starts.push(i.clone()),
             Some((id, false)) if !starts.contains(&id) => kept_ends.push(i.clone()),
             _ => {}
@@ -163,9 +177,22 @@ pub(crate) fn inherited_props(p: &Paragraph, offset: usize) -> RunProperties {
 }
 
 /// [`inherited_props`] with the character style: an empty run carrying
-/// the formatting of typed text at `offset`.
+/// the formatting of typed text at `offset`. The hyperlink is inherited
+/// only inside a link (the text after `offset` has the same link), never
+/// at its end (Word).
 pub(crate) fn inherited_run(p: &Paragraph, offset: usize) -> Run {
-    let template = |r: &Run| Run::styled("", r.style.clone(), r.props.clone());
+    let mut run = inherited_format(p, offset);
+    if run.link.is_some() && run_at(p, offset).and_then(|r| r.link.as_ref()) != run.link.as_ref() {
+        run.link = None;
+        if run.style.as_deref() == Some("Hyperlink") {
+            run.style = None;
+        }
+    }
+    run
+}
+
+fn inherited_format(p: &Paragraph, offset: usize) -> Run {
+    let template = |r: &Run| r.with_text("");
     if offset > 0 {
         let mut pos = 0;
         let mut last_run: Option<&Run> = None;
@@ -198,10 +225,10 @@ pub(crate) fn props_at(p: &Paragraph, offset: usize) -> RunProperties {
     run_format_at(p, offset).props
 }
 
-/// [`props_at`] with the character style (an empty run).
+/// [`props_at`] with the character style and link (an empty run).
 pub(crate) fn run_format_at(p: &Paragraph, offset: usize) -> Run {
     match run_at(p, offset) {
-        Some(run) => Run::styled("", run.style.clone(), run.props.clone()),
+        Some(run) => run.with_text(""),
         None => inherited_run(p, offset),
     }
 }
