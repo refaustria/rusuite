@@ -1,5 +1,7 @@
 # Roadmap – ideas beyond the README scope
 
+> What comes after v0.1.0 is planned in [docs/plan-after-0.1.0.md](docs/plan-after-0.1.0.md).
+
 Captured here, **not implemented** unless essential to the current phase. README is the authority on scope.
 
 ## Tooling / DX
