@@ -188,6 +188,89 @@ describe("Write shortcuts", () => {
     expect(screen.queryByLabelText("File name")).toBeNull();
   });
 
+  describe("Word's character and paragraph keys (W-30)", () => {
+    const selectAll = (editor: HTMLElement) =>
+      act(() => {
+        const range = document.createRange();
+        range.selectNodeContents(editor.querySelector("p")!);
+        getSelection()!.removeAllRanges();
+        getSelection()!.addRange(range);
+        document.dispatchEvent(new Event("selectionchange"));
+      });
+    const runProps = (backend: FakeWriteBackend) => applied(backend).flatMap((c) => (c.type === "setRunProps" ? [c.patch] : []));
+
+    it("Ctrl+] and Ctrl+[ grow / shrink the selection by 1 pt", async () => {
+      const { backend, editor } = await mount();
+      selectAll(editor);
+      fireEvent.keyDown(editor, ctrl("]", { code: "BracketRight" }));
+      await waitFor(() => expect(runProps(backend).at(-1)?.size).toBeDefined());
+      const grown = runProps(backend).at(-1)!.size!;
+      fireEvent.keyDown(editor, ctrl("[", { code: "BracketLeft" }));
+      await waitFor(() => expect(runProps(backend).at(-1)?.size).toBe(grown - 100));
+    });
+
+    it("Ctrl+Shift+> / < step through Word's size list", async () => {
+      const { backend, editor } = await mount();
+      selectAll(editor);
+      fireEvent.keyDown(editor, ctrl(">", { shiftKey: true, code: "Period" }));
+      await waitFor(() => expect(runProps(backend).length).toBeGreaterThan(0));
+      const first = runProps(backend).at(-1)!.size!;
+      fireEvent.keyDown(editor, ctrl(">", { shiftKey: true, code: "Period" }));
+      await waitFor(() => expect(runProps(backend).at(-1)!.size!).toBeGreaterThan(first));
+      fireEvent.keyDown(editor, ctrl("<", { shiftKey: true, code: "Comma" }));
+      await waitFor(() => expect(runProps(backend).at(-1)!.size!).toBe(first));
+    });
+
+    it("Ctrl+Shift+K / A / D: small caps, all caps, double underline", async () => {
+      const { backend, editor } = await mount();
+      selectAll(editor);
+      fireEvent.keyDown(editor, ctrl("K", { shiftKey: true, code: "KeyK" }));
+      await waitFor(() => expect(runProps(backend).at(-1)).toMatchObject({ smallCaps: true }));
+      fireEvent.keyDown(editor, ctrl("A", { shiftKey: true, code: "KeyA" }));
+      await waitFor(() => expect(runProps(backend).at(-1)).toMatchObject({ allCaps: true }));
+      expect(runProps(backend).at(-1)?.smallCaps).toBeFalsy();
+      fireEvent.keyDown(editor, ctrl("D", { shiftKey: true, code: "KeyD" }));
+      await waitFor(() => expect(runProps(backend).at(-1)).toMatchObject({ underline: "double" }));
+    });
+
+    it("Shift+F3 cycles the case of the selection with ChangeCase", async () => {
+      const { backend, editor } = await mount();
+      selectAll(editor);
+      fireEvent.keyDown(editor, { key: "F3", shiftKey: true });
+      await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "changeCase", case: "capitalize" })));
+    });
+
+    it("Ctrl+T / Ctrl+Shift+T: hanging indent and back; Ctrl+Q removes it again", async () => {
+      const { backend, editor } = await mount();
+      fireEvent.keyDown(editor, ctrl("t"));
+      await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "setParagraphProps", patch: { indent: { left: 720, hanging: 720 } } })));
+      fireEvent.keyDown(editor, ctrl("T", { shiftKey: true }));
+      await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "setParagraphProps", patch: { indent: { left: 0, hanging: 0 } } })));
+      fireEvent.keyDown(editor, ctrl("e"));
+      fireEvent.keyDown(editor, ctrl("q"));
+      await waitFor(() => expect(editor.querySelector("p")!.getAttribute("style") ?? "").not.toContain("text-align"));
+    });
+
+    it("Ctrl+Shift+N applies the Normal style", async () => {
+      const { backend, editor } = await mount();
+      fireEvent.keyDown(editor, ctrl("2", { altKey: true, code: "Digit2" }));
+      await waitFor(() => expect(editor.querySelector("h2")).not.toBeNull());
+      fireEvent.keyDown(editor, ctrl("N", { shiftKey: true }));
+      await waitFor(() => expect(editor.querySelector("h2")).toBeNull());
+      expect(applied(backend).at(-1)).toMatchObject({ type: "setStyle", style: "Normal" });
+    });
+
+    it("the help lists the new keys", async () => {
+      const { editor } = await mount();
+      fireEvent.keyDown(editor, ctrl("/"));
+      const help = screen.getByRole("dialog", { name: "Keyboard shortcuts" });
+      for (const label of ["Font size 1 pt larger", "Small caps", "Double underline", "Hanging indent", "Remove paragraph formatting", "Normal style"]) {
+        expect(help.textContent).toContain(label);
+      }
+      expect(help.textContent).toContain("Shift+F3");
+    });
+  });
+
   it("Ctrl+/ lists the shortcuts, including the editor-native ones", async () => {
     const { editor } = await mount();
     fireEvent.keyDown(editor, ctrl("/"));
