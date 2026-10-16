@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@12.11.2",
   "scripts": {
-    "test": "pnpm -r --if-present test",
+    "test": "pnpm -r --workspace-concurrency=1 --if-present test",
     "lint": "pnpm -r --if-present lint",
     "e2e": "pnpm --filter e2e e2e",
     "i18n:check": "node scripts/i18n-check.mjs"
