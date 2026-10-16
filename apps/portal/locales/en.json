@@ -83,5 +83,16 @@
   "portal.os.modify": "modify it – change the code to fit your needs",
   "portal.os.share": "share it – pass it on, with or without changes",
   "portal.os.code": "The code lives on <a href=\"https://github.com/refaustria/rusuite\">GitHub</a>.",
-  "portal.os.report": "Found a problem? Use the ? Help menu in the app (Report a problem…) or open an <a href=\"https://github.com/refaustria/rusuite/issues\">issue on GitHub</a>."
+  "portal.os.report": "Found a problem? Use the ? Help menu in the app (Report a problem…) or open an <a href=\"https://github.com/refaustria/rusuite/issues\">issue on GitHub</a>.",
+  "portal.soon.h": "Coming soon",
+  "portal.soon.intro": "What the next releases are planned to bring – no dates, and plans can change:",
+  "portal.soon.item1": "<strong>Mobile</strong> – Android and iOS apps for Calc, Write and Show are planned.",
+  "portal.soon.item2": "<strong>Cloud</strong> – More cloud connections in the desktop apps are planned: Google Drive, OneDrive, Dropbox and S3.",
+  "portal.soon.item3": "<strong>AI assistant</strong> – Image input and faster whole-document context are planned.",
+  "portal.soon.item4": "<strong>Calc</strong> – Slicers, sparklines, sheet protection and Flash Fill are planned.",
+  "portal.soon.item5": "<strong>Write</strong> – Linked text boxes, grouped shapes and templates are planned.",
+  "portal.soon.item6": "<strong>Show</strong> – More table styles, freeform drawing and media trimming are planned.",
+  "portal.soon.item7": "<strong>Languages</strong> – More interface languages are planned.",
+  "portal.soon.close": "Your feedback shapes the order: tell us what you need via the ? Help menu in the app (Report a problem…).",
+  "portal.soon.link": "What's coming soon"
 }

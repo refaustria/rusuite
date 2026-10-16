@@ -81,7 +81,7 @@ their download links work only for repository members).
 
 ## Report relay URL (P8-43)
 The desktop apps post "Report a problem" to the relay URL baked in at build time: `REPORT_RELAY_URL` (Vite exposes it
-through the apps' `envPrefix`), default `https://resuite.inceptum.at/api/report`. Set it in the environment of the
+through the apps' `envPrefix`), default `https://rusuit.es/api/report`. Set it in the environment of the
 release build to point a build at another relay (`REPORT_RELAY_URL=https://example.org/api/report pnpm --filter calc
 tauri build`). The web builds always use the relative `/api/report` of the site they are served from. The relay
 itself is deployed separately (`scripts/deploy-relay.sh`, docs/setup.md "Report relay").

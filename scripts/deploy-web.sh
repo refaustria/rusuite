@@ -8,7 +8,7 @@
 set -euo pipefail
 
 export PATH="$HOME/.cargo/bin:$PATH"
-HOST="${DEPLOY_HOST:-resuite.inceptum.at}"
+HOST="${DEPLOY_HOST:-rusuit.es}"
 TARGET="${DEPLOY_ROOT:-/var/www/resuite}"
 
 build=1
