@@ -15,6 +15,9 @@ import {
 import { fontBoxValue, fontName, resolvedRunAt } from "./fontBox";
 import { computeBreaks } from "./pagination";
 import type { StyleSheet } from "../generated/StyleSheet";
+import { toPM } from "../sync/toPM";
+import { writeSchema } from "../sync/schema";
+import { countDocWords } from "../wordCount";
 
 let editor: Editor | null = null;
 afterEach(() => {
@@ -76,6 +79,17 @@ describe("columns", () => {
     const fwd = columnsCommand(e.state, sections, cols, "forward") as { type: "compound"; commands: { type: string }[] };
     expect(fwd.commands.map((c) => c.type)).toEqual(["splitParagraph", "insertSectionBreak", "setSection"]);
     expect(fwd.commands[1]).toMatchObject({ block: 2, kind: "continuous" });
+  });
+
+  it("the word count includes the paragraphs of a multi-column section box", () => {
+    const doc = makeDoc([para(1, "one two", { sectionEnd: 1 }), para(2, "three four five"), para(3, "six")]);
+    doc.sections = [
+      { id: 1, page: A4, kind: "nextPage", titlePage: false },
+      { id: 2, page: A4, kind: "continuous", titlePage: false, columns: { count: 2, equal: true } },
+    ];
+    const pm = toPM(doc, writeSchema());
+    expect(pm.child(1).type.name).toBe("columns");
+    expect(countDocWords(pm)).toBe(6);
   });
 
   it("rulerSegments: one per column with the gaps between", () => {

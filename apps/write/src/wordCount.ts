@@ -14,7 +14,7 @@ export function countWords(text: string): number {
 /** Separator for a leaf node: comment and bookmark markers are invisible (no word break), other leaves (images, breaks) separate words. */
 const leafText = (leaf: PMNode): string => (/^(comment|bookmark)(Start|End)$/.test(leaf.type.name) ? "" : " ");
 
-/** Words of one node; text blocks and leaf nodes inside it are separated by a space. */
+/** Words of one node (a paragraph, list, table or multi-column section box); text blocks and leaf nodes inside it are separated by a space. */
 export function countNodeWords(node: PMNode): number {
   return countWords(node.textBetween(0, node.content.size, " ", leafText));
 }

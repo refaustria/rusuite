@@ -206,6 +206,20 @@ describe("Layout", () => {
     await waitFor(() => expect(editor.querySelector(".section-columns")?.getAttribute("style")).toContain("column-count: 2"), T);
   });
 
+  it("a two-column section: the ruler has a scale per column; the status bar counts the words in the columns", async () => {
+    const twoCols = { ...sectionsOf([1])[0]!, columns: { count: 2, equal: true } };
+    const { editor } = await mount([para(1, "alpha beta gamma"), para(2, "delta epsilon")], { sections: [twoCols] });
+    await waitFor(() => expect(editor.querySelector(".section-columns")).toBeTruthy(), T);
+    await waitFor(() => expect(screen.getByTestId("words").textContent).toBe("5 words"), T);
+    caretIn(editor, "alpha", 2);
+    await waitFor(() => expect(screen.getAllByTestId("ruler-segment")).toHaveLength(2), T);
+    for (const seg of screen.getAllByTestId("ruler-segment")) {
+      // Each column's scale starts at its own left edge: 1, 2, 3 … cm.
+      expect(within(seg).getAllByTestId("ruler-number")[0]!.textContent).toBe("1");
+    }
+    expect(screen.getAllByTestId("ruler-column-gap")).toHaveLength(1);
+  });
+
   it("More Columns…: three columns with a line between, for the whole document", async () => {
     const { backend } = await mount([para(1, "a", { sectionEnd: 1 }), para(2, "b")], { sections: sectionsOf([1, 2]) });
     fireEvent.click(tab("Layout"));
