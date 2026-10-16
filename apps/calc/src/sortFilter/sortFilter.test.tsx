@@ -25,7 +25,7 @@ const applied = (log: Request[]): CalcCommand[] => log.flatMap((r) => (r.type ==
 const at = (row: number, col: number) => ({ clientX: 46 + 64 * col + 10, clientY: 22 + 20 * row + 5 });
 /** The dropdown button of header cell (0, col): right edge of the cell. */
 const button = (col: number) => ({ clientX: 46 + 64 * col + 64 - 9, clientY: 22 + 11, button: 0 });
-const address = () => screen.getByTestId("cell-address").textContent;
+const address = () => (screen.getByTestId("cell-address") as HTMLInputElement).value;
 
 /** Name / Qty table in A1:B4 (Qty: 3, 1, 2). */
 const TABLE = [

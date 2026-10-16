@@ -28,11 +28,11 @@ const tab = (name: string) => screen.getByRole("tab", { name });
 async function mount(text = "hello world") {
   const backend = new FakeWriteBackend();
   render(<App backend={backend} />);
-  const editor = await screen.findByTestId("editor");
-  await waitFor(() => expect(backend.log.some((r) => r.type === "newDocument")).toBe(true));
+  const editor = await screen.findByTestId("editor", undefined, { timeout: 5000 });
+  await waitFor(() => expect(backend.log.some((r) => r.type === "newDocument")).toBe(true), { timeout: 5000 });
   vi.spyOn(backend, "openFile").mockResolvedValue({ name: "t.docx", bytesBase64: b64(makeDoc([para(1, text)])) });
   fireEvent.keyDown(window, { key: "o", ctrlKey: true });
-  await waitFor(() => expect(editor.textContent).toBe(text));
+  await waitFor(() => expect(editor.textContent).toBe(text), { timeout: 5000 });
   backend.log.length = 0;
   (editor as HTMLElement).focus();
   return { backend, editor };
@@ -52,9 +52,9 @@ describe("page setup helpers", () => {
 });
 
 describe("Write ribbon", () => {
-  it("has File, Home, Insert, Layout, References and View", async () => {
+  it("has File, Home, Insert, Layout, References, Review and View", async () => {
     await mount();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["File", "Home", "Insert", "Layout", "References", "View"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["File", "Home", "Insert", "Layout", "References", "Review", "View"]);
     const toolbar = screen.getByRole("toolbar", { name: "Formatting" });
     for (const g of ["Clipboard", "Font", "Paragraph", "Styles", "Editing"]) expect(within(toolbar).getByRole("group", { name: g })).toBeTruthy();
   });
@@ -83,10 +83,11 @@ describe("Write ribbon", () => {
 
   it("Insert › Table picks rows × columns", async () => {
     const { backend } = await mount();
+    // Deterministic under CPU load: wait for each control instead of assuming it rendered, with generous timeouts.
     fireEvent.click(tab("Insert"));
-    fireEvent.click(screen.getByRole("button", { name: "Table" }));
-    fireEvent.click(screen.getByRole("button", { name: "3 × 4 table" }));
-    await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "insertTable", rows: 3, cols: 4 })));
+    fireEvent.click(await screen.findByRole("button", { name: "Table" }, { timeout: 5000 }));
+    fireEvent.click(await screen.findByRole("button", { name: "3 × 4 table" }, { timeout: 5000 }));
+    await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "insertTable", rows: 3, cols: 4 })), { timeout: 5000 });
   });
 
   it("Insert › Page break and Line break", async () => {

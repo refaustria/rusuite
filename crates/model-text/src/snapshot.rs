@@ -7,6 +7,7 @@
 use serde::Deserialize;
 
 use crate::block::Block;
+use crate::comment::Comment;
 use crate::document::Document;
 use crate::media::MediaStore;
 use crate::numbering::Numbering;
@@ -36,6 +37,8 @@ pub(crate) struct DocumentData {
     sections: Vec<Section>,
     #[serde(default)]
     notes: Vec<Note>,
+    #[serde(default)]
+    comments: Vec<Comment>,
 }
 
 impl From<DocumentData> for Document {
@@ -46,6 +49,7 @@ impl From<DocumentData> for Document {
         doc.media = d.media;
         doc.sections = d.sections;
         doc.notes = d.notes;
+        doc.comments = d.comments;
         doc.next_id = doc.max_node_id() + 1;
         doc
     }

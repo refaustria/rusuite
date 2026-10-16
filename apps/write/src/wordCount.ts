@@ -11,9 +11,12 @@ export function countWords(text: string): number {
   return t ? t.split(/\s+/).length : 0;
 }
 
+/** Separator for a leaf node: comment markers are invisible (no word break), other leaves (images, breaks) separate words. */
+const leafText = (leaf: PMNode): string => (leaf.type.name === "commentStart" || leaf.type.name === "commentEnd" ? "" : " ");
+
 /** Words of one node; text blocks and leaf nodes inside it are separated by a space. */
 export function countNodeWords(node: PMNode): number {
-  return countWords(node.textBetween(0, node.content.size, " ", " "));
+  return countWords(node.textBetween(0, node.content.size, " ", leafText));
 }
 
 /** A word counter over documents with its own cache; `countNode` is injectable (tests). */

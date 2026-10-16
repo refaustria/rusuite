@@ -7,12 +7,14 @@
 //! number formats ([`numfmt`]), column/row dimensions, sheet defaults,
 //! sheet views (frozen panes, zoom), hidden sheets, merged cells, sorting
 //! and AutoFilter ([`sortfilter`]), conditional formatting ([`condfmt`])
-//! data validation ([`validation`]) and charts ([`chart`]).
+//! data validation ([`validation`]), charts ([`chart`]) and defined names
+//! ([`names`]).
 //! [`WorkbookSnapshot`] is the serializable form (camelCase JSON) used by
 //! serde, the IPC layer and `fmt-xlsx`.
 
 pub mod chart;
 pub mod condfmt;
+pub mod names;
 pub mod numfmt;
 mod rules;
 pub mod sheet;
@@ -28,10 +30,12 @@ pub use condfmt::{
 };
 pub use engine_formula::CellRect;
 
-pub use engine_formula::{CellContent, CellCoord, EngineError, Recalc, SheetId};
+pub use engine_formula::{CellContent, CellCoord, EngineError, NameScope, Recalc, SheetId};
+pub use names::{BuiltinName, DefinedName};
 pub use sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView, MAX_ZOOM, MIN_ZOOM};
 pub use snapshot::{
-    content_to_input, CellSnapshot, ColSnapshot, RowSnapshot, SheetSnapshot, WorkbookSnapshot,
+    content_to_input, CellSnapshot, ColSnapshot, NameSnapshot, RowSnapshot, SheetSnapshot,
+    WorkbookSnapshot,
 };
 pub use sortfilter::{
     AutoFilter, Criterion, DynamicFilter, Filter, FilterChange, FilterColumn, FilterOp,

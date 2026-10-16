@@ -105,6 +105,34 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
   the highlighted matches are exactly what Replace all (`FindReplace` with `format` / `replaceFormat`, one undo step)
   changes; an empty Find with a format finds formatted stretches, an empty Replace with a replace format only reformats.
 
+### Write comments (P8-25)
+- **Review tab**: New Comment (Ctrl+Alt+M; also in the right-click menu) — on the selection, or on the word at the caret
+  when nothing is selected (Word); Delete ▾ (Delete the selected comment / Delete All Comments in Document / Delete All
+  Resolved Comments); Previous / Next (select the commented text, wrapping around); Resolve / Reopen for the selected
+  thread; Show Comments (balloons vs. margin indicators); Comments Pane (the list at any width).
+- **New Comment** opens a draft card (the range highlighted) with the user's avatar; Post (Ctrl+Enter) sends `AddComment`
+  with the UI's clock (ISO date), Esc / Cancel drops it. The first comment asks for the **user name** (name + initials,
+  initials derived from the name); File › Options… sets it too. It is remembered in this browser / app only
+  (`localStorage` `rusuite.write.user`, ADR 0009) and sent to the core with `setUser` after start (not an edit, not dirty).
+- **Balloons** (window ≥ 1200 px): a 264 px margin right of the page (the page stays centered under the ruler), one card per thread next to its text (Word's layout:
+  anchor order, pushed down to avoid overlaps; the selected balloon stays at its anchor and the ones above move up), a
+  dashed connector from the selected / hovered comment's text to its balloon. A card: author initials avatar (colour per
+  author), author, relative date ("Just now", "5 min ago", "3 h ago", then the date; full date as tooltip), text, replies;
+  when selected: Edit (own comments only: author = the user), Delete thread / Delete reply, an inline reply box (Ctrl+Enter
+  posts). Resolve ✓ / Reopen in the header; resolved threads are dimmed and labelled.
+- **Highlight**: the commented text in the author's light colour (CSS `color-mix` of the palette colour), the selected or
+  hovered thread darker; clicking into commented text selects its (innermost) thread.
+- **Show Comments off**: no balloons, a narrow margin with one comment icon per thread (author colour); clicking one shows
+  the comments again with that thread selected. Only the selected thread stays highlighted.
+- **Comments pane** (windows < 1200 px, or Review › Comments Pane): all threads in document order, filter All / Open /
+  Resolved, the draft on top, the same cards.
+- **Status bar**: "N comments" when there are any.
+- **Print**: File › Print › Print markup — `[AB1]` marks after each commented range and the threads (with replies, author,
+  date, resolved) as a list after the text.
+- **Editing**: the range markers are invisible atoms; arrow keys step over them; an edit deleting one marker of a range
+  keeps it at the edit (the range shrinks; ends before typed text, starts after it — as the core does); deleting the whole
+  range deletes the comment; pasted text never carries comments.
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |
@@ -131,9 +159,10 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
 
 - **Calc**: Home (Undo; Clipboard: Paste ▾ values, Cut, Copy – `calcActions`; Font incl. borders; Alignment incl. wrap and
   Merge & Center ▾ (Merge & Center – a toggle that unmerges a merged selection –, Merge Across, Merge Cells, Unmerge Cells);
-  Number: format, %, comma, decimals ±; Styles: Conditional Formatting ▾; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide
+  Number: the Number Format box (Excel's eleven entries with previews), Accounting ▾, %, Comma Style, decimals ±
+  (see [number-formats.md](number-formats.md)); Styles: Conditional Formatting ▾; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide
   rows and columns, Hide Sheet / Unhide Sheet…, Format cells…); Editing: Clear, Find ▾ Replace, Sort & Filter ▾ (Sort A
-  to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (New sheet, rows/columns), Data (Sort & Filter: A→Z,
+  to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (New sheet, rows/columns), Formulas (see below), Data (Sort & Filter: A→Z,
   Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Data Validation…), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
   scaled; Window: Freeze Panes ▾ (Freeze/Unfreeze Panes, Freeze Top Row, Freeze First Column); shortcuts help). Zoom,
   gridlines, headings and frozen panes are the active sheet's `SheetView` (`setSheetView` / `setFreeze`, undoable, saved in
@@ -206,13 +235,36 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   drag, resized with 8 handles (Alt snaps to cells), deleted with Delete, copied with Ctrl+C/V; Esc deselects;
   double-click opens the Format pane; a click on the selected title edits it inline; right-click has the chart menu.
   Details: [charts.md](charts.md) "Calc UI".
+- **Calc names and Formulas tab** (P8-23, `apps/calc/src/names`, `formulas`, `audit`, `numfmt`): the **Name Box** left of the
+  formula bar is a combobox: it shows the active cell (or the name of a selected named range); typing a reference
+  (`B7`, `A1:C3`, `A:A`, `Sheet2!B2`) or a name and Enter goes there, any other valid name is defined (workbook scope)
+  for the selection – an invalid one toasts Excel's rule; ▾ (or ↓) lists the names of the sheet and the workbook and
+  navigates. **Go To** (Ctrl+G, F5) lists them too and accepts references. **Formulas**: Function Library (Insert
+  Function… – Shift+F3 and the formula bar's fx –: search by name and description, a category list, the signature and
+  arguments of the selected function, OK inserts `NAME()` at the caret or starts a formula; AutoSum ▾ (Alt+=: Sum,
+  Average, Count Numbers, Max, Min of the numbers above, else left of the active cell, pointed at; More Functions…);
+  Recently Used, Financial, Logical, Text, Date & Time, Lookup & Reference, Math & Trig, More Functions (Statistical,
+  Information) ▾ menus from `functions.json` (category = the section of functions.md); the recent list is kept in
+  `localStorage` `rusuite.calc.recentFunctions`), Defined Names (Name Manager… – Ctrl+F3: name, value, refers to, scope,
+  comment; New / Edit / Delete; Filter (scope, errors, defined); the selected name's Refers to edited in place with ✓ / ✕
+  and the range picker that collapses the dialog –; Define Name ▾ (New Name: name with live validation, scope,
+  comment, refers to – the selection by default, range picker); Use in Formula ▾ (inserts a name at the caret); Create
+  from Selection… – Ctrl+Shift+F3: top row / left column / bottom row / right column, Excel's defaults guessed from the
+  selection), Formula Auditing (Trace Precedents / Trace Dependents: blue arrows from the engine's dependency graph
+  (`precedents` / `dependents` requests) with a dot at the start and a box around precedent ranges, a dashed arrow from a
+  sheet icon for other sheets; each click adds the arrows; Remove Arrows ▾ (all, precedent, dependent arrows); Show
+  Formulas – Ctrl+` (the key left of 1) –: cells show their input, formulas left-aligned, spilled cells blank). Error
+  Checking, Evaluate Formula and Calculation Options are not offered: the core always recalculates automatically (no
+  manual mode). In formulas, names autocomplete with the functions (accepting inserts the name without `(`), are coloured
+  over the range they refer to and outlined on the grid while editing (point mode shows the name's range), and
+  `Sheet1!Name` is accepted by the editor's syntax check.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, multilevel list, indent, line spacing, alignment, shading, borders,
   tabs; Styles gallery (quick styles with live previews, ▾ Create a Style / Clear Formatting / Apply Styles, Styles pane; P8-21); Editing: Find and replace), Insert (Table picker, Picture, Header/Footer/Page
   number, Field, Footnotes, Page break, Line break), Layout (Margins, Orientation, Size → `SetSection`/`SetPage`, Breaks),
-  References (Table of contents, Footnotes), View (views, ruler, Navigation Pane, zoom, spelling, shortcuts help); contextual Table Design and
+  References (Table of contents, Footnotes), Review (Comments: New, Delete ▾, Previous/Next, Resolve, Show Comments, Comments Pane; P8-25), View (views, ruler, Navigation Pane, zoom, spelling, shortcuts help); contextual Table Design and
   Table Layout in a table, Picture Format on a picture (P8-17).
 - **Show**: Home (Undo; Clipboard: shapes/slides clipboard + Duplicate; Slides: New slide ▾ layouts, Layout ▾, Duplicate,
   Delete, Hide slide; Font + grow/shrink; Paragraph + line spacing ▾; Drawing: shapes gallery, Arrange ▾

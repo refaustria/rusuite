@@ -12,6 +12,9 @@ import type { ResolvedChart } from "../generated/ResolvedChart";
 import type { DataValidation } from "../generated/DataValidation";
 import type { FilterValue } from "../generated/FilterValue";
 import type { FoundCell } from "../generated/FoundCell";
+import type { NameRow } from "../generated/NameRow";
+import type { Rect } from "../generated/Rect";
+import type { SheetRect } from "../generated/SheetRect";
 import type { RegionSnapshot } from "../generated/RegionSnapshot";
 import type { Request } from "../generated/Request";
 import type { ResponseBody } from "../generated/ResponseBody";
@@ -80,6 +83,10 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     recommendedChart: {},
     // `last` may be null (empty sheet): checked by the caller.
     usedRange: {},
+    names: { names: "array" },
+    // `name` is null when no name has exactly that range.
+    nameAt: {},
+    trace: { refs: "array" },
   };
   for (const [field, kind] of Object.entries(shapes[expected])) {
     const value = body[field];
@@ -193,6 +200,33 @@ export class CalcApi {
   /** `value` displayed with the number format `code` (the core's `display_value`). */
   async formatPreview(value: number, code: string): Promise<string> {
     return (await this.call({ type: "formatPreview", value, code }, "formatted")).text;
+  }
+
+  /** `value` with the number format `code`: text and the format's colour (`#RRGGBB`, `null` = none). */
+  async formatSample(value: number, code: string): Promise<{ text: string; color: string | null }> {
+    const r = await this.call({ type: "formatPreview", value, code }, "formatted");
+    return { text: r.text, color: r.color ?? null };
+  }
+
+  /** Every defined name with its value (workbook names evaluated on `sheet`), for the Name Manager. */
+  async names(sheet: number): Promise<NameRow[]> {
+    return (await this.call({ type: "names", sheet }, "names")).names;
+  }
+
+  /** The name whose range is exactly `rect` on `sheet` (`null`: none). */
+  async nameAt(sheet: number, rect: Rect): Promise<string | null> {
+    const { name } = await this.call({ type: "nameAt", sheet, rect }, "nameAt");
+    return typeof name === "string" ? name : null;
+  }
+
+  /** What the formula in the cell reads directly (Trace Precedents). */
+  async precedents(sheet: number, row: number, col: number): Promise<SheetRect[]> {
+    return (await this.call({ type: "precedents", sheet, row, col }, "trace")).refs;
+  }
+
+  /** The formula cells reading the cell (Trace Dependents). */
+  async dependents(sheet: number, row: number, col: number): Promise<SheetRect[]> {
+    return (await this.call({ type: "dependents", sheet, row, col }, "trace")).refs;
   }
 
   /** Checks `input` (as typed) against the data validation of the cell, before `setInput`. */

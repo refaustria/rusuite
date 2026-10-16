@@ -159,6 +159,11 @@ export class WriteApi {
     return this.call({ type: "find", query }, "findMatches");
   }
 
+  /** The author of new comments for this document (not an edit). */
+  setUser(name: string, initials?: string): Promise<BodyOf<"documentState">> {
+    return this.call({ type: "setUser", name, initials: initials || undefined }, "documentState");
+  }
+
   markSaved(name?: string): Promise<BodyOf<"documentState">> {
     return this.call({ type: "markSaved", name: name ?? null }, "documentState");
   }

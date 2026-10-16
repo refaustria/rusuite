@@ -5,6 +5,7 @@ import App from "../App";
 import { FakeBackend, FakeCalcCore } from "../dev/fakeBackend";
 import type { Request } from "../generated/Request";
 import { changeDecimals } from "./CalcRibbon";
+import { COMMA_STYLE } from "./NumberGroup";
 import { setLocale } from "@rusuite/ui-shared";
 
 beforeAll(() => {
@@ -53,9 +54,9 @@ describe("changeDecimals", () => {
 });
 
 describe("Calc ribbon", () => {
-  it("has File, Home, Insert, Data and View; Home is the formatting toolbar", async () => {
+  it("has File, Home, Insert, Formulas, Data and View; Home is the formatting toolbar", async () => {
     await setup();
-    expect(screen.getAllByRole("tab").slice(0, 5).map((t) => t.textContent)).toEqual(["File", "Home", "Insert", "Data", "View"]);
+    expect(screen.getAllByRole("tab").slice(0, 6).map((t) => t.textContent)).toEqual(["File", "Home", "Insert", "Formulas", "Data", "View"]);
     const toolbar = screen.getByRole("toolbar", { name: "Formatting" });
     for (const g of ["Clipboard", "Font", "Alignment", "Number", "Cells", "Editing"]) expect(within(toolbar).getByRole("group", { name: g })).toBeTruthy();
   });
@@ -85,7 +86,8 @@ describe("Calc ribbon", () => {
     fireEvent.click(screen.getByRole("button", { name: "Comma style" }));
     fireEvent.click(screen.getByRole("button", { name: "Increase decimal" }));
     await waitFor(() => expect(applied(core.log)).toHaveLength(3));
-    expect(applied(core.log).map((c) => (c.type === "applyStyle" ? c.patch.numberFormat : null))).toEqual(["0%", "#,##0.00", "0.0"]);
+    // Comma Style is Excel's accounting format without a symbol.
+    expect(applied(core.log).map((c) => (c.type === "applyStyle" ? c.patch.numberFormat : null))).toEqual(["0%", COMMA_STYLE, "0.0"]);
   });
 
   it("copy, paste and cut use the internal clipboard", async () => {
@@ -228,7 +230,7 @@ describe("Calc ribbon in German", () => {
     const core = new FakeCalcCore();
     render(<App backend={new FakeBackend(core)} />);
     await screen.findByRole("tab", { name: "Sheet1" });
-    expect(screen.getAllByRole("tab").slice(0, 5).map((t) => t.textContent)).toEqual(["Datei", "Start", "Einfügen", "Daten", "Ansicht"]);
+    expect(screen.getAllByRole("tab").slice(0, 6).map((t) => t.textContent)).toEqual(["Datei", "Start", "Einfügen", "Formeln", "Daten", "Ansicht"]);
     const toolbar = screen.getByRole("toolbar", { name: "Formatierung" });
     for (const g of ["Zwischenablage", "Schriftart", "Ausrichtung", "Zahl", "Zellen", "Bearbeiten"]) expect(within(toolbar).getByRole("group", { name: g })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Kopieren" }).title).toBe("Kopieren (Strg+C)");

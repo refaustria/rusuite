@@ -41,8 +41,9 @@ const SIMPLE: Record<string, TokKind> = {
   "^": "caret", "&": "amp", "%": "percent", "=": "eq", "@": "at",
 };
 
-export const isIdentStart = (c: string) => /^[\p{L}_]$/u.test(c);
-export const isIdentContinue = (c: string) => /^[\p{L}\p{N}_.]$/u.test(c);
+export const isIdentStart = (c: string) => /^[\p{L}_\\]$/u.test(c);
+/** Defined names may also contain backslashes and `?`. */
+export const isIdentContinue = (c: string) => /^[\p{L}\p{N}_.\\?]$/u.test(c);
 const isDigit = (c: string | undefined) => c !== undefined && c >= "0" && c <= "9";
 
 /** `true` when the input is a formula (starts with `=`). */

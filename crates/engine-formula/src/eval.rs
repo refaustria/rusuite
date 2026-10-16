@@ -44,6 +44,65 @@ pub trait CellProvider {
         let _ = c;
         None
     }
+    /// The definition of the defined name `name` (case-insensitive) as
+    /// seen from `sheet`: the sheet's own name first, then the workbook's.
+    /// The default: no names.
+    fn defined_name(&self, name: &str, sheet: SheetId) -> Option<&Expr> {
+        let _ = (name, sheet);
+        None
+    }
+}
+
+/// Nesting of names being evaluated (names referring to names); a name
+/// referring to itself is `#NAME?` once the limit is reached.
+const MAX_NAME_DEPTH: u32 = 32;
+
+thread_local! {
+    static NAME_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Whether `e` holds a reference with a relative row or column part.
+fn has_relative_refs(e: &Expr) -> bool {
+    e.references().iter().any(|r| match r.kind {
+        RangeKind::Cell(c) => !c.row_abs || !c.col_abs,
+        RangeKind::Area(a, b) => !(a.row_abs && a.col_abs && b.row_abs && b.col_abs),
+        RangeKind::Cols { abs, .. } | RangeKind::Rows { abs, .. } => !abs,
+    })
+}
+
+/// A defined name's definition as used in the cell `at`: its relative
+/// references are relative to `A1` (as Excel stores them), so they move
+/// by the cell's position, wrapping around the sheet edges.
+pub fn name_definition_at(def: &Expr, at: CellCoord) -> std::borrow::Cow<'_, Expr> {
+    if (at.row, at.col) != (0, 0) && has_relative_refs(def) {
+        std::borrow::Cow::Owned(crate::transform::offset_relative_wrapping(
+            def,
+            i64::from(at.row),
+            i64::from(at.col),
+        ))
+    } else {
+        std::borrow::Cow::Borrowed(def)
+    }
+}
+
+/// Evaluates a defined name (`sheet`: the qualifying sheet, else the
+/// current one) in array mode: a name for a range is that range.
+fn name_operand(name: &str, sheet: Option<SheetId>, ctx: &EvalContext) -> Operand {
+    let Some(def) = ctx
+        .provider
+        .defined_name(name, sheet.unwrap_or(ctx.current.sheet))
+    else {
+        return Operand::Scalar(Value::Error(ErrorKind::Name));
+    };
+    let depth = NAME_DEPTH.with(std::cell::Cell::get);
+    if depth >= MAX_NAME_DEPTH {
+        return Operand::Scalar(Value::Error(ErrorKind::Name));
+    }
+    NAME_DEPTH.with(|d| d.set(depth + 1));
+    let def = name_definition_at(def, ctx.current);
+    let out = eval_array(&def, ctx);
+    NAME_DEPTH.with(|d| d.set(depth));
+    out
 }
 
 /// The visibility of a row as `SUBTOTAL` sees it.
@@ -172,8 +231,11 @@ pub fn eval_operand(expr: &Expr, ctx: &EvalContext) -> Operand {
         Expr::Bool(b) => Operand::Scalar(Value::Bool(*b)),
         Expr::Error(e) => Operand::Scalar(Value::Error(*e)),
         Expr::Missing => Operand::Scalar(Value::Empty),
-        // Named ranges are not supported yet.
-        Expr::Name(_) => Operand::Scalar(Value::Error(ErrorKind::Name)),
+        Expr::Name(n) => name_operand(n, None, ctx),
+        Expr::QualifiedName { sheet, name } => match ctx.provider.sheet_id(sheet) {
+            Some(id) => name_operand(name, Some(id), ctx),
+            None => Operand::Scalar(Value::Error(ErrorKind::Ref)),
+        },
         Expr::Reference(r) => match resolve(r, ctx) {
             Ok(range) => Operand::Range(range),
             Err(e) => Operand::Scalar(Value::Error(e)),

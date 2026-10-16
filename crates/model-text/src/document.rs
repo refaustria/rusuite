@@ -6,6 +6,7 @@ use core_model::RunProperties;
 use serde::{Deserialize, Serialize};
 
 use crate::block::{Block, NodeId, Paragraph, TocEntry};
+use crate::comment::Comment;
 use crate::inline::{Field, FieldKind, Inline, Run};
 use crate::media::MediaStore;
 use crate::numbering::{ListCounter, Numbering};
@@ -46,6 +47,10 @@ pub struct Document {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Note>>"))]
     pub notes: Vec<Note>,
+    /// Comments and replies (see [`crate::comment`]), in file order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Comment>>"))]
+    pub comments: Vec<Comment>,
     /// Images and other binary parts.
     #[cfg_attr(feature = "ts", ts(as = "Vec<crate::media::MediaItem>"))]
     pub media: MediaStore,
@@ -80,21 +85,17 @@ impl Document {
             page,
             sections: Vec::new(),
             notes: Vec::new(),
+            comments: Vec::new(),
             media: MediaStore::new(),
             next_id: 1,
         }
     }
 
     /// Every block container: the body, then each note's blocks, then the
-    /// headers and footers of each section.
+    /// headers and footers of each section, then each comment's content.
     pub fn containers(&self) -> impl Iterator<Item = &Vec<Block>> {
-        std::iter::once(&self.body)
-            .chain(self.notes.iter().map(|n| &n.blocks))
-            .chain(
-                self.sections
-                    .iter()
-                    .flat_map(|s| s.headers.slots().chain(s.footers.slots()).map(|(_, b)| b)),
-            )
+        self.text_containers()
+            .chain(self.comments.iter().map(|c| &c.content))
     }
 
     /// Mutable [`Document::containers`].
@@ -106,6 +107,7 @@ impl Document {
                     .iter_mut()
                     .flat_map(|s| s.headers.blocks_mut().chain(s.footers.blocks_mut())),
             )
+            .chain(self.comments.iter_mut().map(|c| &mut c.content))
     }
 
     /// Allocates a fresh, document-unique node id.
@@ -238,9 +240,11 @@ impl Document {
     /// formatting, drops empty runs, and makes the body, every note,
     /// header, footer and table cell non-empty and end with a paragraph
     /// (adding an empty one if needed, as Word requires); resolves the
-    /// numbering levels ([`Numbering::resolve`]) and the sections
-    /// ([`Document::sync_sections`]). Text is preserved.
+    /// numbering levels ([`Numbering::resolve`]), the sections
+    /// ([`Document::sync_sections`]) and the comment invariants
+    /// ([`Document::fix_comments`]). Text is preserved.
     pub fn normalize(&mut self) {
+        self.fix_comments();
         let mut next_id = self.next_id;
         for c in self.containers_mut() {
             normalize_blocks(c, &mut next_id);
@@ -525,7 +529,10 @@ impl Document {
                     Inline::Field(f) if f.kind == FieldKind::Page => line.push_str(PAGE_FIELD),
                     Inline::Field(f) => line.push_str(&f.cached),
                     Inline::Break(_) => line.push(' '),
-                    Inline::Image(_) | Inline::NoteRef(_) => {}
+                    Inline::Image(_)
+                    | Inline::NoteRef(_)
+                    | Inline::CommentStart { .. }
+                    | Inline::CommentEnd { .. } => {}
                 }
             }
             lines.push(line);

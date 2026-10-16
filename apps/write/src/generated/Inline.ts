@@ -9,8 +9,9 @@ import type { Run } from "./Run";
  * One piece of paragraph content.
  *
  * Serializes as `{"kind":"run","value":{…}}`, `{"kind":"image","value":{…}}`,
- * `{"kind":"break","value":"line"}`, `{"kind":"field","value":{…}}` or
- * `{"kind":"noteRef","value":{…}}`. Images, breaks, fields and note
- * references occupy one position each.
+ * `{"kind":"break","value":"line"}`, `{"kind":"field","value":{…}}`,
+ * `{"kind":"noteRef","value":{…}}` or
+ * `{"kind":"commentStart","value":{"id":3}}`. Images, breaks, fields,
+ * note references and comment markers occupy one position each.
  */
-export type Inline = { "kind": "run", "value": Run } | { "kind": "image", "value": InlineImage } | { "kind": "break", "value": BreakKind } | { "kind": "field", "value": Field } | { "kind": "noteRef", "value": NoteRef };
+export type Inline = { "kind": "run", "value": Run } | { "kind": "image", "value": InlineImage } | { "kind": "break", "value": BreakKind } | { "kind": "field", "value": Field } | { "kind": "noteRef", "value": NoteRef } | { "kind": "commentStart", "value": { id: number, } } | { "kind": "commentEnd", "value": { id: number, } };

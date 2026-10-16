@@ -8,6 +8,9 @@ import {
 } from "@rusuite/ui-shared";
 import "../i18n";
 import type { PageSetup } from "../generated/PageSetup";
+import type { Comment } from "../generated/Comment";
+import { commentText, fullDate, initialsOf, threads } from "../comments/model";
+import { t } from "../i18n";
 import { computeBreaks, headerFooterText, pageGeometry, type BlockBox, type PageGeometry } from "../features/pagination";
 
 export interface WritePrintOptions {
@@ -19,9 +22,11 @@ export interface WritePrintOptions {
   margins: MarginPreset | "document";
   /** Content scale in percent (25–200). */
   scale: number;
+  /** "Print markup": comment marks in the text and the comments as a list at the end. */
+  markup?: boolean;
 }
 
-export const DEFAULT_WRITE_PRINT: WritePrintOptions = { range: "", paper: "document", orientation: "document", margins: "document", scale: 100 };
+export const DEFAULT_WRITE_PRINT: WritePrintOptions = { range: "", paper: "document", orientation: "document", margins: "document", scale: 100, markup: false };
 
 export const WRITE_PAPER_CHOICES: PrintChoice[] = [
   withLabel({ value: "document" }, "print.asDocument"),
@@ -83,6 +88,12 @@ export const WRITE_PRINT_CSS = `.rs-write-body { position: absolute; }
 .rs-write-content [data-section-label]::after { display: none !important; }
 .rs-write-content .notes-separator { color: transparent !important; }
 .rs-write-content > * { content-visibility: visible !important; }
+.rs-write-content .comment-range { background: none !important; }
+.rs-write-markup .comment-range { background: #fff3b0 !important; }
+.rs-write-content .comment-ref { font-size: 0.7em; vertical-align: super; line-height: 0; color: #555; }
+.rs-write-content .print-comment { margin: 0 0 4pt; font-size: 9.5pt; }
+.rs-write-content .print-comment-reply { margin-left: 1.5em; }
+.rs-write-content .print-comments-title { margin: 12pt 0 6pt; font-size: 12pt; font-weight: 600; border-top: 1px solid #888; padding-top: 6pt; }
 .rs-write-hf { position: absolute; overflow: hidden; color: #000; font: 9pt/1.3 Calibri, Carlito, "Segoe UI", sans-serif; white-space: pre-wrap; tab-size: 8; }`;
 
 /** One page: header, the blocks in the text area (scaled), footer. */
@@ -111,8 +122,51 @@ export function editorBlocks(dom: HTMLElement): HTMLElement[] {
   return (Array.from(dom.children) as HTMLElement[]).filter((c) => !c.classList.contains("page-gap") && !c.classList.contains("page-end") && !c.classList.contains("ProseMirror-widget"));
 }
 
-/** Builds the print document from the editor DOM `dom` and the document's page setup. */
-export function buildWritePrintDoc(dom: HTMLElement, page: PageSetup | null, o: WritePrintOptions): PrintDoc {
+/** A comment's mark in printed markup: the author's initials and the thread's number (`[AB1]`). */
+export function commentLabel(c: Comment, n: number): string {
+  return `[${c.initials || initialsOf(c.author)}${n}]`;
+}
+
+/**
+ * Print markup on the cloned blocks: a `[AB1]` mark after every comment
+ * range and, appended as blocks of their own, the comments as a list
+ * (threads in the order of their ranges, replies indented).
+ */
+export function addCommentMarkup(clones: HTMLElement[], comments: Comment[]): HTMLElement[] {
+  const order: number[] = [];
+  for (const c of clones) c.querySelectorAll<HTMLElement>("[data-comment-start]").forEach((e) => order.push(Number(e.dataset.commentStart)));
+  const list = threads(comments, order).filter((th) => order.includes(th.root.id));
+  if (!list.length) return clones;
+  const number = new Map(list.map((th, i) => [th.root.id, i + 1]));
+  for (const c of clones) {
+    c.querySelectorAll<HTMLElement>("[data-comment-end]").forEach((e) => {
+      const id = Number(e.dataset.commentEnd);
+      const th = list.find((x) => x.root.id === id);
+      if (!th) return;
+      const sup = document.createElement("span");
+      sup.className = "comment-ref";
+      sup.textContent = commentLabel(th.root, number.get(id)!);
+      e.after(sup);
+    });
+  }
+  const block = (cls: string, text: string) => {
+    const p = document.createElement("p");
+    p.className = cls;
+    p.textContent = text;
+    return p;
+  };
+  const out = [...clones, block("print-comments-title", t("write.print.commentsTitle"))];
+  for (const th of list) {
+    const n = number.get(th.root.id)!;
+    const line = (c: Comment) => `${c.author}${c.date ? ` (${fullDate(c.date)})` : ""}: ${commentText(c)}`;
+    out.push(block("print-comment", `${commentLabel(th.root, n)} ${line(th.root)}${th.root.resolved ? ` – ${t("write.comments.resolved")}` : ""}`));
+    for (const r of th.replies) out.push(block("print-comment print-comment-reply", line(r)));
+  }
+  return out;
+}
+
+/** Builds the print document from the editor DOM `dom` and the document's page setup (`comments` for print markup). */
+export function buildWritePrintDoc(dom: HTMLElement, page: PageSetup | null, o: WritePrintOptions, comments: Comment[] = []): PrintDoc {
   const geo = writePrintGeometry(page, o);
   const scale = Math.max(0.1, o.scale / 100);
   const textW = geo.width - geo.left - geo.right;
@@ -129,12 +183,13 @@ export function buildWritePrintDoc(dom: HTMLElement, page: PageSetup | null, o: 
   inner.className = `${contentClass} rs-write-content`;
   inner.style.position = "relative";
   host.appendChild(inner);
-  const clones = editorBlocks(dom).map((b) => {
+  let clones = editorBlocks(dom).map((b) => {
     const c = b.cloneNode(true) as HTMLElement;
     c.removeAttribute("contenteditable");
     c.querySelectorAll("[contenteditable]").forEach((e) => e.removeAttribute("contenteditable"));
     return c;
   });
+  if (o.markup) clones = addCommentMarkup(clones, comments);
   inner.append(...clones);
   document.body.appendChild(host);
   let groups: [number, number][];
@@ -152,6 +207,7 @@ export function buildWritePrintDoc(dom: HTMLElement, page: PageSetup | null, o: 
   } finally {
     host.remove();
   }
-  const pages = groups.map(([s, e], i) => writePageHtml(clones.slice(s, e).map((c) => c.outerHTML).join(""), i + 1, geo, page, scale, contentClass));
+  const cls = o.markup ? `${contentClass} rs-write-markup` : contentClass;
+  const pages = groups.map(([s, e], i) => writePageHtml(clones.slice(s, e).map((c) => c.outerHTML).join(""), i + 1, geo, page, scale, cls));
   return { widthIn: geo.width / 96, heightIn: geo.height / 96, css: WRITE_PRINT_CSS, pages, head: documentStyles() };
 }

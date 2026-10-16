@@ -42,6 +42,40 @@ export interface SheetData {
   cf?: ReadonlyMap<number, CfResult>;
   /** Zero axes of the data bars by bar colour (see `dataBarAxes`; computed when absent). */
   barAxes?: ReadonlyMap<string, number>;
+  /** Formulas › Show Formulas: cells show their input (formulas left-aligned, values unformatted). */
+  showFormulas?: boolean;
+}
+
+/** What a cell shows with Show Formulas on: its input, formulas as text. */
+export function formulaView(cell: CellView): CellView {
+  if (cell.spilled) return { ...cell, display: "" };
+  if (cell.input === "") return cell;
+  const formula = cell.input.startsWith("=");
+  const { color: _c, fillAt: _f, fillChar: _ch, narrow: _n, ...rest } = cell;
+  return { ...rest, display: cell.input, kind: formula ? "text" : cell.kind };
+}
+
+/** `display` with the format's fill character (`*x`) repeated to fill `width`; `null` without a fill. */
+export function fillText(cell: Pick<CellView, "display" | "fillAt" | "fillChar">, width: number, font: string, measure: Measure): string | null {
+  if (cell.fillAt === undefined || !cell.fillChar) return null;
+  const chars = [...cell.display];
+  const left = chars.slice(0, cell.fillAt).join("");
+  const right = chars.slice(cell.fillAt).join("");
+  const unit = Math.max(1, measure(cell.fillChar, font));
+  const room = width - measure(left + right, font);
+  const n = Math.max(0, Math.floor(room / unit));
+  return left + cell.fillChar.repeat(n) + right;
+}
+
+/** The number format's colour (`[Red]`) wins over the font colour; a highlight rule's font colour wins over both. */
+function withFormatColor<T extends { color: string }>(attrs: T, cell: CellView, cf?: CfResult): T {
+  if (!cell.color || cf?.dxf?.fontColor) return attrs;
+  return { ...attrs, color: cell.color };
+}
+
+/** `#` repeated across `width` (a number that does not fit). */
+export function hashes(width: number, font: string, measure: Measure): string {
+  return "#".repeat(Math.max(1, Math.floor(width / Math.max(1, measure("#", font)))));
 }
 
 export interface VisibleRange {
@@ -245,7 +279,8 @@ export function computeRenderOps(
     const rowMerges = textMerges.filter((m) => m.r0 <= r && r <= m.r1);
     const merged = (c: number) => rowMerges.some((m) => c >= m.c0 && c <= m.c1);
     const isEmpty = (c: number) => (rowCells.get(c)?.display ?? "") === "" && !merged(c);
-    for (const [c, cell] of rowCells) {
+    for (const [c, raw] of rowCells) {
+      const cell = sheet.showFormulas ? formulaView(raw) : raw;
       if (c < t0 || c > t1 || cell.display === "") continue;
       if (rowMerges.length > 0 && merged(c)) continue;
       const cf = cfAt(r, c);
@@ -257,10 +292,17 @@ export function computeRenderOps(
       if (w <= 0) continue;
       const styleId = cell.style;
       const style = styleAt(styles, styleId);
-      const t = textAttrs(styleId, style, cf);
+      const t = withFormatColor(textAttrs(styleId, style, cf), cell, cf);
       const align = horizontalAlign(style, cell.kind);
       const avail = w - 2 * CELL_PADDING;
       const base = { op: "text" as const, row: r, col: c, x, y, w, h, align, ...t };
+      const filled = fillText(cell, avail, t.font, measure);
+      if (filled !== null && !style.alignment?.wrapText) {
+        if (c < vis.c0 || c > vis.c1) continue;
+        const text = cell.kind === "number" && (cell.narrow || measure(cell.display, t.font) > avail) ? hashes(avail, t.font, measure) : filled;
+        texts.push({ ...base, align: "left", text, clipX: x, clipW: w });
+        continue;
+      }
       if (style.alignment?.wrapText) {
         if (c < vis.c0 || c > vis.c1) continue;
         const wrapped = wrapLines(cell.display, avail, t.font, measure);
@@ -271,7 +313,7 @@ export function computeRenderOps(
       if (cell.kind === "number") {
         if (c < vis.c0 || c > vis.c1) continue;
         const code = style.numberFormat;
-        text = fitNumber(text, avail, t.font, measure, !code || code.trim().toLowerCase() === "general");
+        text = cell.narrow ? hashes(avail, t.font, measure) : fitNumber(text, avail, t.font, measure, !code || code.trim().toLowerCase() === "general");
         texts.push({ ...base, text, clipX: x, clipW: w });
         continue;
       }
@@ -338,9 +380,10 @@ export function computeRenderOps(
       if (right) lines.push(borderLine(right, x + w, ry, x + w, ry + rh));
     }
     if (cf) decorate(m.r0, m.c0, cf, x, y, w, h);
-    const cell = anchorRow?.get(m.c0);
+    const rawCell = anchorRow?.get(m.c0);
+    const cell = rawCell && sheet.showFormulas ? formulaView(rawCell) : rawCell;
     if (!cell || cell.display === "" || cf?.hideValue) continue;
-    const t = textAttrs(styleId, styleAt(styles, styleId), cf);
+    const t = withFormatColor(textAttrs(styleId, styleAt(styles, styleId), cf), cell, cf);
     const align = horizontalAlign(style, cell.kind);
     const avail = w - 2 * CELL_PADDING;
     const base = { op: "text" as const, row: m.r0, col: m.c0, x, y, w, h, align, ...t, clipX: x, clipW: w };

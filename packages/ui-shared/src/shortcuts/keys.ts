@@ -41,6 +41,8 @@ function keyName(e: KeyLike): string {
   if (code === "NumpadAdd") return "plus";
   if (code === "NumpadSubtract") return "minus";
   if (code === "Slash") return "/";
+  // The key left of 1 (`` ` `` on US layouts, `^` on German ones): Excel's Show Formulas.
+  if (code === "Backquote") return "`";
   // With Alt the produced character differs by layout (macOS Option): use the physical key.
   const letter = /^Key([A-Z])$/.exec(code);
   if (e.altKey && letter) return letter[1]!.toLowerCase();

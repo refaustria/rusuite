@@ -366,6 +366,47 @@ pub enum CalcCommand {
         sheet: u32,
         id: u32,
     },
+    /// Defines a name (`def.sheet` absent = workbook scope). Fails with
+    /// `invalid_name`, `duplicate_name` (any case, same scope) or
+    /// `invalid_formula`. Formulas using the name recalculate; the patch
+    /// carries `names`.
+    DefineName {
+        def: crate::names::NameDef,
+    },
+    /// Replaces the name `name` (scope `sheet`) by `def` – a new spelling,
+    /// scope, definition or comment – keeping its place in the list.
+    UpdateName {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        sheet: Option<u32>,
+        def: crate::names::NameDef,
+    },
+    /// Deletes a name; formulas using it show `#NAME?`.
+    DeleteName {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        sheet: Option<u32>,
+    },
+    /// Excel's Create Names from Selection: names from the texts of the
+    /// selection's top row / left column / bottom row / right column for
+    /// the cells beside them (workbook scope; an existing name of the same
+    /// spelling is redefined). Fails with `no_names` when no label gives a
+    /// name.
+    CreateNamesFromSelection {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+        edges: crate::names::NameEdges,
+    },
+    /// *Internal.* Replaces every defined name (the undo of the name
+    /// commands and of edits that rewrote names).
+    RestoreNames {
+        names: Vec<crate::names::NameDef>,
+    },
     /// *Internal.* Replaces the AutoFilter and the sort state (rows are
     /// restored separately).
     RestoreFilterState {

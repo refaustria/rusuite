@@ -79,6 +79,21 @@
 //! does not exist evaluate to `#REF!` and start working once a sheet of
 //! that name is added (or another sheet is renamed to it).
 //!
+//! # Defined names
+//!
+//! [`Engine::set_name`] and friends keep a list of [`NameEntry`]s (a
+//! name, a [`NameScope`], the definition). Formulas resolve an identifier
+//! through [`CellProvider::defined_name`]: the formula's sheet's own name
+//! first, then the workbook's (`Sheet1!Name` asks that sheet). For the
+//! dependency graph and the volatility check a formula is registered with
+//! its names expanded to their definitions, so cells read through a name
+//! are edges; changing, adding or removing a name re-registers and
+//! recalculates every formula that uses it (directly or through other
+//! names). Definitions follow row/column inserts and deletes (a
+//! sheet-level name's unqualified references follow its sheet) and sheet
+//! renames; removing a sheet removes its own names and turns references
+//! to it into `#REF!`; duplicating a sheet copies its names.
+//!
 //! # Sheet order and removal
 //!
 //! [`Engine::sheets`] lists the sheets in display order, which
@@ -94,10 +109,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::ast::{ErrorKind, Expr, MAX_COL, MAX_ROW};
+use crate::ast::{is_valid_name, ErrorKind, Expr, MAX_COL, MAX_ROW};
 use crate::eval::{
-    default_now, evaluate_formula, CellCoord, CellProvider, EvalContext, RangeRef, RowHidden,
-    SheetId,
+    default_now, evaluate_formula, name_definition_at, CellCoord, CellProvider, EvalContext,
+    RangeRef, RowHidden, SheetId,
 };
 use crate::functions::FunctionRegistry;
 use crate::graph::{Cycle, DependencyGraph, Precedent, SheetResolver};
@@ -160,6 +175,35 @@ pub enum EngineError {
     LastSheet,
     #[error("sheet position {0} out of range")]
     InvalidSheetIndex(usize),
+    /// Not a valid defined name (see [`is_valid_name`]).
+    #[error("`{0}` is not a valid name")]
+    InvalidName(String),
+    /// A name of that spelling (any case) exists in the scope.
+    #[error("a name `{0}` already exists in this scope")]
+    DuplicateName(String),
+    #[error("unknown name `{0}`")]
+    UnknownName(String),
+}
+
+/// Where a defined name is visible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum NameScope {
+    Workbook,
+    /// A sheet-level name: it wins over a workbook name of the same
+    /// spelling on its sheet and is reached as `Sheet1!Name` elsewhere.
+    Sheet(SheetId),
+}
+
+/// A defined name: a range (`Sheet1!$A$1:$B$5`), a constant (`0.19`) or a
+/// formula (`OFFSET(...)`), evaluated where it is used.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NameEntry {
+    pub name: String,
+    pub scope: NameScope,
+    /// The definition without the leading `=` (regenerated from the AST
+    /// when a structural edit or a sheet rename/delete rewrites it).
+    pub formula: String,
+    pub ast: Expr,
 }
 
 static EMPTY: CellContent = CellContent::Empty;
@@ -340,6 +384,10 @@ fn is_volatile(e: &Expr, registry: &FunctionRegistry) -> bool {
 /// reference of `e`; returns whether anything changed.
 fn rename_refs(e: &mut Expr, from: &str, to: &str) -> bool {
     match e {
+        Expr::QualifiedName { sheet, .. } if same_name(sheet, from) => {
+            *sheet = to.to_string();
+            true
+        }
         Expr::Reference(r) => match &mut r.sheet {
             Some(s) if same_name(s, from) => {
                 *s = to.to_string();
@@ -363,12 +411,17 @@ fn rename_refs(e: &mut Expr, from: &str, to: &str) -> bool {
 /// Replaces every reference prefixed with sheet `name` (case-insensitive)
 /// by `#REF!`; returns whether anything changed.
 fn drop_sheet_refs(e: &mut Expr, name: &str) -> bool {
-    if let Expr::Reference(r) = e {
-        let hit = r.sheet.as_deref().is_some_and(|s| same_name(s, name));
-        if hit {
-            *e = Expr::Error(ErrorKind::Ref);
-        }
-        return hit;
+    let hit = match e {
+        Expr::Reference(r) => r.sheet.as_deref().is_some_and(|s| same_name(s, name)),
+        Expr::QualifiedName { sheet, .. } => same_name(sheet, name),
+        _ => false,
+    };
+    if hit {
+        *e = Expr::Error(ErrorKind::Ref);
+        return true;
+    }
+    if matches!(e, Expr::Reference(_) | Expr::QualifiedName { .. }) {
+        return false;
     }
     match e {
         Expr::Call { args, .. } => args
@@ -381,6 +434,186 @@ fn drop_sheet_refs(e: &mut Expr, name: &str) -> bool {
             .flatten()
             .fold(false, |acc, a| drop_sheet_refs(a, name) | acc),
         _ => false,
+    }
+}
+
+/// Rebuilds `e`: `f` returns `Some(replacement)` for the nodes it
+/// rewrites (their children are not visited), `None` to descend.
+fn map_expr(e: &Expr, f: &dyn Fn(&Expr) -> Option<Expr>) -> Expr {
+    if let Some(x) = f(e) {
+        return x;
+    }
+    match e {
+        Expr::Call { name, args } => Expr::Call {
+            name: name.clone(),
+            args: args.iter().map(|a| map_expr(a, f)).collect(),
+        },
+        Expr::Unary { op, expr } => Expr::Unary {
+            op: *op,
+            expr: Box::new(map_expr(expr, f)),
+        },
+        Expr::Binary { op, lhs, rhs } => Expr::Binary {
+            op: *op,
+            lhs: Box::new(map_expr(lhs, f)),
+            rhs: Box::new(map_expr(rhs, f)),
+        },
+        Expr::Array(rows) => Expr::Array(
+            rows.iter()
+                .map(|r| r.iter().map(|x| map_expr(x, f)).collect())
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// Whether `e` uses a defined name (any name, any qualifier).
+fn uses_names(e: &Expr) -> bool {
+    match e {
+        Expr::Name(_) | Expr::QualifiedName { .. } => true,
+        Expr::Call { args, .. } => args.iter().any(uses_names),
+        Expr::Unary { expr, .. } => uses_names(expr),
+        Expr::Binary { lhs, rhs, .. } => uses_names(lhs) || uses_names(rhs),
+        Expr::Array(rows) => rows.iter().flatten().any(uses_names),
+        _ => false,
+    }
+}
+
+/// Whether `e` uses one of `names` (lower-case spellings).
+fn mentions(e: &Expr, names: &HashSet<String>) -> bool {
+    match e {
+        Expr::Name(n) | Expr::QualifiedName { name: n, .. } => names.contains(&n.to_lowercase()),
+        Expr::Call { args, .. } => args.iter().any(|a| mentions(a, names)),
+        Expr::Unary { expr, .. } => mentions(expr, names),
+        Expr::Binary { lhs, rhs, .. } => mentions(lhs, names) || mentions(rhs, names),
+        Expr::Array(rows) => rows.iter().flatten().any(|a| mentions(a, names)),
+        _ => false,
+    }
+}
+
+/// The definition of `name` seen from `sheet` (its own names first).
+fn lookup_name<'a>(names: &'a [NameEntry], name: &str, sheet: SheetId) -> Option<&'a NameEntry> {
+    names
+        .iter()
+        .find(|n| n.scope == NameScope::Sheet(sheet) && same_name(&n.name, name))
+        .or_else(|| {
+            names
+                .iter()
+                .find(|n| n.scope == NameScope::Workbook && same_name(&n.name, name))
+        })
+}
+
+/// `e` with every defined name replaced by its definition as used in
+/// `at` (recursively; unknown names become `#NAME?`): the dependency
+/// graph and the volatility check see what the name reads.
+fn expand_names(
+    e: &Expr,
+    names: &[NameEntry],
+    sheets: &[Sheet],
+    at: CellCoord,
+    depth: u32,
+) -> Expr {
+    map_expr(e, &|x| {
+        let (name, sheet) = match x {
+            Expr::Name(n) => (n, Some(at.sheet)),
+            Expr::QualifiedName { sheet, name } => (name, find_sheet(sheets, sheet)),
+            _ => return None,
+        };
+        let def = sheet.and_then(|s| lookup_name(names, name, s));
+        Some(match def {
+            Some(d) if depth < 32 => {
+                let d = name_definition_at(&d.ast, at);
+                expand_names(&d, names, sheets, at, depth + 1)
+            }
+            _ => Expr::Error(ErrorKind::Name),
+        })
+    })
+}
+
+/// Registers the formula of `c` in the graph (with its names expanded)
+/// and records whether it is volatile.
+fn register(
+    graph: &mut DependencyGraph,
+    volatile: &mut HashSet<CellCoord>,
+    sheets: &[Sheet],
+    names: &[NameEntry],
+    registry: &FunctionRegistry,
+    c: CellCoord,
+    ast: &Expr,
+) {
+    let expanded;
+    let e = if uses_names(ast) {
+        expanded = expand_names(ast, names, sheets, c, 0);
+        &expanded
+    } else {
+        ast
+    };
+    graph.set_formula(c, e, &Names(sheets), c.sheet);
+    if is_volatile(e, registry) {
+        volatile.insert(c);
+    } else {
+        volatile.remove(&c);
+    }
+}
+
+/// The call a name's top-level union `A1:B2,D1:D9` (Excel's reference
+/// union, used by print titles and multi-area print ranges) is stored
+/// as; it is not a function, so evaluating it gives `#NAME?`, but its
+/// references are tracked and adjusted like any other.
+pub const UNION_CALL: &str = "_XLUNION";
+
+/// Splits `text` at commas outside quotes, brackets and parentheses.
+fn split_top_level(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let (mut depth, mut quote, mut start) = (0i32, None::<char>, 0);
+    for (i, c) in text.char_indices() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"') => quote = Some(c),
+            (None, '(' | '{') => depth += 1,
+            (None, ')' | '}') => depth -= 1,
+            (None, ',') if depth == 0 => {
+                out.push(&text[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&text[start..]);
+    out
+}
+
+/// Parses a name's definition; a top-level union becomes [`UNION_CALL`].
+fn parse_name_formula(body: &str) -> Result<Expr, ParseError> {
+    match parse(body) {
+        Ok(ast) => Ok(ast),
+        Err(e) => {
+            let parts = split_top_level(body);
+            if parts.len() < 2 {
+                return Err(e);
+            }
+            let args = parts
+                .iter()
+                .map(|p| parse(p.trim()))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| e)?;
+            Ok(Expr::Call {
+                name: UNION_CALL.to_string(),
+                args,
+            })
+        }
+    }
+}
+
+/// The text of a name's definition (a union as `A,B`).
+fn name_formula_text(ast: &Expr) -> String {
+    match ast {
+        Expr::Call { name, args } if name == UNION_CALL => args
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(","),
+        e => e.to_string(),
     }
 }
 
@@ -445,6 +678,8 @@ pub struct Engine {
     /// A row's visibility changed inside the open batch: `end_batch`
     /// re-evaluates the cells reading row visibility.
     visibility_dirty: bool,
+    /// Defined names in definition order.
+    names: Vec<NameEntry>,
 }
 
 impl Default for Engine {
@@ -471,6 +706,7 @@ impl Engine {
             pending: None,
             freed: Vec::new(),
             visibility_dirty: false,
+            names: Vec::new(),
         }
     }
 
@@ -518,6 +754,27 @@ impl Engine {
                 }
             }
         }
+        // Names: the sheet's own names go; references to the sheet in the
+        // others become `#REF!`; formulas using either are re-registered.
+        let mut changed_names: Vec<String> = Vec::new();
+        self.names.retain(|n| {
+            let local = n.scope == NameScope::Sheet(id);
+            if local {
+                changed_names.push(n.name.clone());
+            }
+            !local
+        });
+        for n in &mut self.names {
+            if drop_sheet_refs(&mut n.ast, &name) {
+                n.formula = name_formula_text(&n.ast);
+                changed_names.push(n.name.clone());
+            }
+        }
+        for c in self.name_users(&changed_names) {
+            if c.sheet != id && !rewritten.contains(&c) {
+                rewritten.push(c);
+            }
+        }
         // 2. Drop the sheet's own formulas and edges, then re-register the
         //    rewritten ones (they no longer point at the sheet).
         for c in self.graph.remove_sheet(id) {
@@ -529,13 +786,15 @@ impl Engine {
             else {
                 continue;
             };
-            self.graph
-                .set_formula(c, ast, &Names(&self.sheets), c.sheet);
-            if is_volatile(ast, &self.registry) {
-                self.volatile.insert(c);
-            } else {
-                self.volatile.remove(&c);
-            }
+            register(
+                &mut self.graph,
+                &mut self.volatile,
+                &self.sheets,
+                &self.names,
+                &self.registry,
+                c,
+                ast,
+            );
         }
         // 3. Tombstone.
         let s = &mut self.sheets[idx];
@@ -629,6 +888,23 @@ impl Engine {
         let hidden_rows = self.sheets[idx].hidden_rows.clone();
         let new = self.add_sheet(name)?;
         self.sheets[new.0 as usize].hidden_rows = hidden_rows;
+        // The source's own names are copied to the new sheet (as Excel).
+        let copies: Vec<NameEntry> = self
+            .names
+            .iter()
+            .filter(|n| n.scope == NameScope::Sheet(id))
+            .map(|n| {
+                let mut ast = n.ast.clone();
+                rename_refs(&mut ast, &source, name);
+                NameEntry {
+                    name: n.name.clone(),
+                    scope: NameScope::Sheet(new),
+                    formula: name_formula_text(&ast),
+                    ast,
+                }
+            })
+            .collect();
+        self.names.extend(copies);
         self.order.pop();
         self.order.insert(at, new);
         for (_, content) in &mut cells {
@@ -673,6 +949,11 @@ impl Engine {
                     if let CellContent::Formula { ast, .. } = content {
                         rename_refs(ast, &old, new_name);
                     }
+                }
+            }
+            for n in &mut self.names {
+                if rename_refs(&mut n.ast, &old, new_name) {
+                    n.formula = name_formula_text(&n.ast);
                 }
             }
             self.reresolve(new_name);
@@ -751,13 +1032,15 @@ impl Engine {
         }
         match &content {
             CellContent::Formula { ast, .. } => {
-                self.graph
-                    .set_formula(c, ast, &Names(&self.sheets), c.sheet);
-                if is_volatile(ast, &self.registry) {
-                    self.volatile.insert(c);
-                } else {
-                    self.volatile.remove(&c);
-                }
+                register(
+                    &mut self.graph,
+                    &mut self.volatile,
+                    &self.sheets,
+                    &self.names,
+                    &self.registry,
+                    c,
+                    ast,
+                );
             }
             _ => {
                 self.graph.remove_formula(c);
@@ -1056,6 +1339,274 @@ impl Engine {
         self.structural(sheet, StructuralOp::DeleteCols { at, count })
     }
 
+    // --- defined names ----------------------------------------------------
+
+    /// The defined names in definition order.
+    pub fn names(&self) -> &[NameEntry] {
+        &self.names
+    }
+
+    /// The name `name` (case-insensitive) of exactly `scope`.
+    pub fn name(&self, name: &str, scope: NameScope) -> Option<&NameEntry> {
+        self.names
+            .iter()
+            .find(|n| n.scope == scope && same_name(&n.name, name))
+    }
+
+    /// The name `name` as a formula on `sheet` sees it (the sheet's own
+    /// name first, then the workbook's).
+    pub fn resolve_name(&self, name: &str, sheet: SheetId) -> Option<&NameEntry> {
+        lookup_name(&self.names, name, sheet)
+    }
+
+    fn check_name(&self, name: &str, scope: NameScope) -> Result<(), EngineError> {
+        if !is_valid_name(name) {
+            return Err(EngineError::InvalidName(name.to_string()));
+        }
+        if let NameScope::Sheet(id) = scope {
+            self.sheet_index(id)?;
+        }
+        Ok(())
+    }
+
+    /// Defines (or redefines) `name` in `scope` as `refers_to` (a formula,
+    /// with or without the leading `=`). Every formula using the name –
+    /// directly or through other names – is re-registered and
+    /// recalculated (deferred inside a batch). Fails for an invalid name,
+    /// an unknown sheet scope or a formula that does not parse.
+    pub fn set_name(
+        &mut self,
+        name: &str,
+        scope: NameScope,
+        refers_to: &str,
+    ) -> Result<Recalc, EngineError> {
+        self.check_name(name, scope)?;
+        let entry = Self::name_entry(name, scope, refers_to)?;
+        match self
+            .names
+            .iter_mut()
+            .find(|n| n.scope == scope && same_name(&n.name, name))
+        {
+            Some(slot) => *slot = entry,
+            None => self.names.push(entry),
+        }
+        Ok(self.names_changed(&[name.to_string()]))
+    }
+
+    /// Replaces the name `old` (in `old_scope`) by `name` in `scope`,
+    /// keeping its position in the list (the Name Manager's Edit). Fails
+    /// with [`EngineError::DuplicateName`] when the new spelling exists
+    /// in the new scope (other than the edited name itself).
+    pub fn update_name(
+        &mut self,
+        old: &str,
+        old_scope: NameScope,
+        name: &str,
+        scope: NameScope,
+        refers_to: &str,
+    ) -> Result<Recalc, EngineError> {
+        self.check_name(name, scope)?;
+        let pos = self
+            .names
+            .iter()
+            .position(|n| n.scope == old_scope && same_name(&n.name, old))
+            .ok_or_else(|| EngineError::UnknownName(old.to_string()))?;
+        let clash = self
+            .names
+            .iter()
+            .enumerate()
+            .any(|(i, n)| i != pos && n.scope == scope && same_name(&n.name, name));
+        if clash {
+            return Err(EngineError::DuplicateName(name.to_string()));
+        }
+        self.names[pos] = Self::name_entry(name, scope, refers_to)?;
+        Ok(self.names_changed(&[old.to_string(), name.to_string()]))
+    }
+
+    /// Inserts a name at position `index` of the list (undo of a delete);
+    /// fails with [`EngineError::DuplicateName`] if it exists.
+    pub fn insert_name(
+        &mut self,
+        index: usize,
+        name: &str,
+        scope: NameScope,
+        refers_to: &str,
+    ) -> Result<Recalc, EngineError> {
+        self.check_name(name, scope)?;
+        if self.name(name, scope).is_some() {
+            return Err(EngineError::DuplicateName(name.to_string()));
+        }
+        let entry = Self::name_entry(name, scope, refers_to)?;
+        let at = index.min(self.names.len());
+        self.names.insert(at, entry);
+        Ok(self.names_changed(&[name.to_string()]))
+    }
+
+    /// Deletes a name; formulas using it show `#NAME?`.
+    pub fn remove_name(&mut self, name: &str, scope: NameScope) -> Result<Recalc, EngineError> {
+        let pos = self
+            .names
+            .iter()
+            .position(|n| n.scope == scope && same_name(&n.name, name))
+            .ok_or_else(|| EngineError::UnknownName(name.to_string()))?;
+        let removed = self.names.remove(pos);
+        Ok(self.names_changed(&[removed.name]))
+    }
+
+    /// Replaces every name (undo of edits that rewrote several names);
+    /// entries are `(name, scope, formula)` and must be valid.
+    pub fn replace_names(
+        &mut self,
+        names: &[(String, NameScope, String)],
+    ) -> Result<Recalc, EngineError> {
+        let mut entries = Vec::with_capacity(names.len());
+        for (name, scope, formula) in names {
+            self.check_name(name, *scope)?;
+            entries.push(Self::name_entry(name, *scope, formula)?);
+        }
+        let mut changed: Vec<String> = self.names.iter().map(|n| n.name.clone()).collect();
+        changed.extend(entries.iter().map(|n| n.name.clone()));
+        self.names = entries;
+        Ok(self.names_changed(&changed))
+    }
+
+    fn name_entry(name: &str, scope: NameScope, refers_to: &str) -> Result<NameEntry, EngineError> {
+        let body = refers_to.strip_prefix('=').unwrap_or(refers_to).trim();
+        let ast = parse_name_formula(body)?;
+        Ok(NameEntry {
+            name: name.to_string(),
+            scope,
+            formula: name_formula_text(&ast),
+            ast,
+        })
+    }
+
+    /// The value of a name's definition evaluated at `at` (a range gives
+    /// the array of its cells, as the Name Manager shows it).
+    pub fn name_value(&self, entry: &NameEntry, at: CellCoord) -> Value {
+        let mut ctx = EvalContext::new(self, &self.registry, at);
+        ctx.now = self.now;
+        let def = name_definition_at(&entry.ast, at);
+        evaluate_formula(&def, &ctx)
+    }
+
+    /// The range a name refers to as used on `sheet` (`None` unless its
+    /// definition is a single reference to an existing sheet).
+    pub fn name_range(&self, entry: &NameEntry, sheet: SheetId) -> Option<RangeRef> {
+        let Expr::Reference(r) = &entry.ast else {
+            return None;
+        };
+        let ctx = EvalContext::new(self, &self.registry, CellCoord::new(sheet, 0, 0));
+        crate::eval::resolve(r, &ctx).ok()
+    }
+
+    /// Every formula cell using one of `changed` (directly or through
+    /// other names), sorted.
+    fn name_users(&self, changed: &[String]) -> Vec<CellCoord> {
+        if changed.is_empty() {
+            return Vec::new();
+        }
+        let mut set: HashSet<String> = changed.iter().map(|n| n.to_lowercase()).collect();
+        loop {
+            let before = set.len();
+            for n in &self.names {
+                if mentions(&n.ast, &set) {
+                    set.insert(n.name.to_lowercase());
+                }
+            }
+            if set.len() == before {
+                break;
+            }
+        }
+        let mut out = Vec::new();
+        for (i, sheet) in self.sheets.iter().enumerate() {
+            for (&(row, col), content) in &sheet.cells {
+                if let CellContent::Formula { ast, .. } = content {
+                    if mentions(ast, &set) {
+                        out.push(CellCoord::new(SheetId(i as u32), row, col));
+                    }
+                }
+            }
+        }
+        out.sort_unstable();
+        out
+    }
+
+    /// Re-registers and recalculates the users of the changed names.
+    fn names_changed(&mut self, changed: &[String]) -> Recalc {
+        let users = self.name_users(changed);
+        for &c in &users {
+            let Some(CellContent::Formula { ast, .. }) =
+                self.sheets[c.sheet.0 as usize].cells.get(&(c.row, c.col))
+            else {
+                continue;
+            };
+            register(
+                &mut self.graph,
+                &mut self.volatile,
+                &self.sheets,
+                &self.names,
+                &self.registry,
+                c,
+                ast,
+            );
+        }
+        match &mut self.pending {
+            Some(pending) => {
+                pending.extend(users);
+                Recalc::default()
+            }
+            None => {
+                let mut r = self.recalc(&users);
+                r.changed.extend(users);
+                r.changed.sort_unstable();
+                r.changed.dedup();
+                r
+            }
+        }
+    }
+
+    /// Rewrites every name's definition with `f(ast, host sheet name)`
+    /// (the host is the scope sheet; `""` for workbook names, whose
+    /// unqualified references follow no sheet). Returns the changed names.
+    fn adjust_names(&mut self, f: &dyn Fn(&Expr, &str) -> Expr) -> Vec<String> {
+        let mut changed = Vec::new();
+        for i in 0..self.names.len() {
+            let host = match self.names[i].scope {
+                NameScope::Sheet(id) => self.sheets[id.0 as usize].name.clone(),
+                NameScope::Workbook => String::new(),
+            };
+            let new = f(&self.names[i].ast, &host);
+            let n = &mut self.names[i];
+            if new != n.ast {
+                n.formula = name_formula_text(&new);
+                n.ast = new;
+                changed.push(n.name.clone());
+            }
+        }
+        changed
+    }
+
+    /// What the formula in `c` reads directly (cells and ranges, through
+    /// its names; references to unknown sheets are left out), in source
+    /// order; empty for a cell without formula. Formula Auditing's
+    /// "Trace Precedents".
+    pub fn precedents(&self, c: CellCoord) -> Vec<RangeRef> {
+        self.graph
+            .precedents(c)
+            .filter_map(|p| match p {
+                Precedent::Cell(x) => Some(RangeRef::new(x.sheet, x.row, x.col, x.row, x.col)),
+                Precedent::Range(r) => Some(*r),
+                Precedent::Unresolved(_) => None,
+            })
+            .collect()
+    }
+
+    /// The formula cells reading `c` directly (sorted). "Trace Dependents".
+    pub fn dependents(&self, c: CellCoord) -> Vec<CellCoord> {
+        self.graph.direct_dependents(c)
+    }
+
     /// Shared implementation of the row/column insert and delete methods.
     fn structural(&mut self, sheet: SheetId, op: StructuralOp) -> Result<Recalc, EngineError> {
         let idx = self.sheet_index(sheet)?;
@@ -1092,7 +1643,7 @@ impl Engine {
         let mut vacated = Vec::new();
         let mut moved_to = Vec::new();
         let mut unregister: HashSet<CellCoord> = HashSet::new();
-        let mut register: HashSet<CellCoord> = HashSet::new();
+        let mut register_cells: HashSet<CellCoord> = HashSet::new();
         {
             let s = &mut self.sheets[idx];
             let old_cells = std::mem::take(&mut s.cells);
@@ -1112,7 +1663,7 @@ impl Engine {
                 if new_pos != pos {
                     moved_to.push(coord(sheet, new_pos));
                     if is_formula {
-                        register.insert(coord(sheet, new_pos));
+                        register_cells.insert(coord(sheet, new_pos));
                     }
                 }
                 if let Some(v) = old_values.remove(&pos) {
@@ -1152,7 +1703,7 @@ impl Engine {
                     let c = coord(SheetId(i as u32), pos);
                     rewritten.push(c);
                     unregister.insert(c);
-                    register.insert(c);
+                    register_cells.insert(c);
                 }
             }
         }
@@ -1163,17 +1714,36 @@ impl Engine {
             self.graph.remove_formula(*c);
             self.volatile.remove(c);
         }
-        for &c in &register {
+        // Names on the edited sheet follow the edit; formulas using a
+        // changed name get new edges.
+        let changed_names = self.adjust_names(&|ast: &Expr, host: &str| {
+            adjust_references(
+                ast,
+                &AdjustContext {
+                    host_sheet: host,
+                    target_sheet: &target,
+                    op,
+                },
+            )
+        });
+        let users = self.name_users(&changed_names);
+        rewritten.extend(users.iter().copied());
+        register_cells.extend(users);
+        for &c in &register_cells {
             let Some(CellContent::Formula { ast, .. }) =
                 self.sheets[c.sheet.0 as usize].cells.get(&(c.row, c.col))
             else {
                 continue;
             };
-            self.graph
-                .set_formula(c, ast, &Names(&self.sheets), c.sheet);
-            if is_volatile(ast, &self.registry) {
-                self.volatile.insert(c);
-            }
+            register(
+                &mut self.graph,
+                &mut self.volatile,
+                &self.sheets,
+                &self.names,
+                &self.registry,
+                c,
+                ast,
+            );
         }
 
         // 4. Recalculate from every coordinate whose content changed.
@@ -1235,8 +1805,15 @@ impl Engine {
                     .precedents(c)
                     .any(|p| matches!(p, Precedent::Unresolved(n) if same_name(n, name)));
                 if unresolved {
-                    self.graph
-                        .set_formula(c, ast, &Names(&self.sheets), c.sheet);
+                    register(
+                        &mut self.graph,
+                        &mut self.volatile,
+                        &self.sheets,
+                        &self.names,
+                        &self.registry,
+                        c,
+                        ast,
+                    );
                     cells.push(c);
                 }
             }
@@ -1441,6 +2018,10 @@ impl CellProvider for Engine {
 
     fn is_subtotal_cell(&self, c: CellCoord) -> bool {
         matches!(self.content(c), CellContent::Formula { ast, .. } if reads_row_visibility(ast, &self.registry))
+    }
+
+    fn defined_name(&self, name: &str, sheet: SheetId) -> Option<&Expr> {
+        lookup_name(&self.names, name, sheet).map(|n| &n.ast)
     }
 
     fn spill_extent(&self, c: CellCoord) -> Option<(u32, u32)> {

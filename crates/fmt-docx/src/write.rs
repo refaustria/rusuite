@@ -15,6 +15,7 @@ use model_text::{
     Table, TableLayout, TableProperties, TableWidth, Toc, VAlign, VAlignPos, VMerge, VRelative,
     WrapKind, WrapSide,
 };
+use model_text::{Comment, CommentId};
 
 use crate::numbering::{write_numbering, W_NS};
 use crate::props::{
@@ -42,6 +43,29 @@ const CT_FOOTNOTES: &str =
 const CT_ENDNOTES: &str =
     "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml";
 
+/// Relationship type of `word/comments.xml`.
+pub(crate) const REL_COMMENTS: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
+const CT_COMMENTS: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml";
+const REL_COMMENTS_EXTENDED: &str =
+    "http://schemas.microsoft.com/office/2011/relationships/commentsExtended";
+const CT_COMMENTS_EXTENDED: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml";
+const REL_COMMENTS_IDS: &str =
+    "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds";
+const CT_COMMENTS_IDS: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml";
+const REL_COMMENTS_EXTENSIBLE: &str =
+    "http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible";
+const CT_COMMENTS_EXTENSIBLE: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml";
+const NS_MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+const NS_W14: &str = "http://schemas.microsoft.com/office/word/2010/wordml";
+const NS_W15: &str = "http://schemas.microsoft.com/office/word/2012/wordml";
+const NS_W16CID: &str = "http://schemas.microsoft.com/office/word/2016/wordml/cid";
+const NS_W16CEX: &str = "http://schemas.microsoft.com/office/word/2018/wordml/cex";
+
 /// Writes `doc` as `.docx` bytes with the built-in theme and settings.
 pub fn write(doc: &Document) -> Result<Vec<u8>> {
     write_with_context(doc, &DocxContext::default())
@@ -58,6 +82,9 @@ struct Shared {
     toc_targets: HashMap<NodeId, (u32, String)>,
     /// Model note id → id written to the notes part.
     note_ids: HashMap<u32, i64>,
+    /// Comment → `w14:paraId` of its last paragraph (links
+    /// `commentsExtended`/`commentsIds` to it).
+    comment_para_ids: HashMap<CommentId, String>,
 }
 
 /// Writes `doc` as `.docx` bytes, reusing the theme and settings parts
@@ -113,6 +140,12 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
         next_docpr: 1,
         toc_targets: toc_targets(doc),
         note_ids: note_ids(doc, [foot_sep.0, foot_sep.1, end_sep.0, end_sep.1]),
+        comment_para_ids: doc
+            .comments
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.id, format!("{:08X}", 0x1000_0000 + i)))
+            .collect(),
     };
     let content_width = doc.page.content_width().0;
     let mut parts: Vec<(String, &str, Vec<u8>, Relationships)> = Vec::new();
@@ -142,6 +175,40 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
         let (xml, part_rels) = w.finish();
         rels.add(rel_type, file);
         parts.push((file.to_owned(), content_type, xml, part_rels));
+    }
+
+    // Comments: the comments part (author, date, initials, text), the
+    // threads and "done" flags (`commentsExtended`), durable ids and UTC
+    // dates as Word writes them.
+    if !doc.comments.is_empty() {
+        let mut w = PartWriter::new(doc, scheme, &mut shared, content_width);
+        w.comments()?;
+        let (xml, part_rels) = w.finish();
+        rels.add(REL_COMMENTS, "comments.xml");
+        parts.push(("comments.xml".to_owned(), CT_COMMENTS, xml, part_rels));
+        for (file, rel_type, content_type, xml) in [
+            (
+                "commentsExtended.xml",
+                REL_COMMENTS_EXTENDED,
+                CT_COMMENTS_EXTENDED,
+                comments_extended_xml(doc, &shared.comment_para_ids),
+            ),
+            (
+                "commentsIds.xml",
+                REL_COMMENTS_IDS,
+                CT_COMMENTS_IDS,
+                comments_ids_xml(doc, &shared.comment_para_ids),
+            ),
+            (
+                "commentsExtensible.xml",
+                REL_COMMENTS_EXTENSIBLE,
+                CT_COMMENTS_EXTENSIBLE,
+                comments_extensible_xml(doc),
+            ),
+        ] {
+            rels.add(rel_type, file);
+            parts.push((file.to_owned(), content_type, xml, Relationships::new()));
+        }
     }
 
     // Headers and footers, per section.
@@ -287,6 +354,10 @@ struct PartWriter<'a> {
     content_width: i32,
     /// The note whose reference mark opens the next paragraph.
     note_mark: Option<NoteKind>,
+    /// The next paragraph opens with a comment's `w:annotationRef`.
+    comment_mark: bool,
+    /// The paragraph that gets a `w14:paraId` (a comment's last one).
+    para_id: Option<(NodeId, String)>,
 }
 
 impl<'a> PartWriter<'a> {
@@ -305,6 +376,8 @@ impl<'a> PartWriter<'a> {
             shared,
             content_width,
             note_mark: None,
+            comment_mark: false,
+            para_id: None,
         }
     }
 
@@ -425,8 +498,21 @@ impl<'a> PartWriter<'a> {
     }
 
     fn paragraph(&mut self, p: &Paragraph, sect: Option<&[u8]>) -> Result<()> {
-        self.x.start("w:p", &[]);
+        match self.para_id.as_ref().filter(|(id, _)| *id == p.id) {
+            Some((_, pid)) => {
+                let pid = pid.clone();
+                self.x
+                    .start("w:p", &[("w14:paraId", &pid), ("w14:textId", "77777777")]);
+            }
+            None => self.x.start("w:p", &[]),
+        }
         write_ppr_sect(&mut self.x, &p.props, self.scheme, sect);
+        if std::mem::take(&mut self.comment_mark) {
+            self.x.start("w:r", &[]);
+            self.comment_reference_rpr();
+            self.x.empty("w:annotationRef", &[]);
+            self.x.end("w:r");
+        }
         if let Some(kind) = self.note_mark.take() {
             self.x.start("w:r", &[]);
             self.reference_rpr(kind, &RunProperties::default());
@@ -457,6 +543,8 @@ impl<'a> PartWriter<'a> {
                 }
                 Inline::Field(f) => self.field(f),
                 Inline::NoteRef(r) => self.note_ref(r),
+                Inline::CommentStart { id } => self.comment_marks(*id, true),
+                Inline::CommentEnd { id } => self.comment_marks(*id, false),
             }
         }
         if let Some((id, _)) = &bookmark {
@@ -503,6 +591,97 @@ impl<'a> PartWriter<'a> {
         };
         self.x.empty(name, &[("w:id", &id.to_string())]);
         self.x.end("w:r");
+    }
+
+    /// `w:rPr` of a comment reference mark: the `CommentReference`
+    /// character style when the document defines it.
+    fn comment_reference_rpr(&mut self) {
+        let has_style = self
+            .doc
+            .styles
+            .get("CommentReference")
+            .is_some_and(|s| s.kind == StyleKind::Character);
+        if has_style {
+            self.x.start("w:rPr", &[]);
+            self.x.val("w:rStyle", "CommentReference");
+            self.x.end("w:rPr");
+        }
+    }
+
+    /// The range start (`start`) or end of thread `id`, for the root and
+    /// each reply (as Word writes them); an end is followed by the
+    /// `w:commentReference` run. Markers of unknown comments or replies
+    /// are skipped.
+    fn comment_marks(&mut self, id: CommentId, start: bool) {
+        let doc = self.doc;
+        if doc.comment(id).map_or(true, Comment::is_reply) {
+            return;
+        }
+        for c in doc.thread(id) {
+            let cid = c.id.0.to_string();
+            if start {
+                self.x.empty("w:commentRangeStart", &[("w:id", &cid)]);
+            } else {
+                self.x.empty("w:commentRangeEnd", &[("w:id", &cid)]);
+                self.x.start("w:r", &[]);
+                self.comment_reference_rpr();
+                self.x.empty("w:commentReference", &[("w:id", &cid)]);
+                self.x.end("w:r");
+            }
+        }
+    }
+
+    /// `word/comments.xml`: one `w:comment` per comment and reply; its
+    /// first paragraph opens with the `w:annotationRef` mark, its last one
+    /// carries the `w14:paraId` the extended parts refer to.
+    fn comments(&mut self) -> Result<()> {
+        self.x.start(
+            "w:comments",
+            &[
+                ("xmlns:w", W_NS),
+                ("xmlns:r", NS_R),
+                ("xmlns:wp", NS_WP),
+                ("xmlns:a", NS_A),
+                ("xmlns:pic", NS_PIC),
+                ("xmlns:mc", NS_MC),
+                ("xmlns:w14", NS_W14),
+                ("mc:Ignorable", "w14"),
+            ],
+        );
+        let doc = self.doc;
+        for c in &doc.comments {
+            let id = c.id.0.to_string();
+            let mut attrs: Vec<(&str, &str)> = vec![("w:id", &id), ("w:author", &c.author)];
+            if let Some(d) = &c.date {
+                attrs.push(("w:date", d));
+            }
+            if !c.initials.is_empty() {
+                attrs.push(("w:initials", &c.initials));
+            }
+            self.x.start("w:comment", &attrs);
+            let pid = self.shared.comment_para_ids[&c.id].clone();
+            self.comment_mark = true;
+            match model_text::document::paragraphs_in(&c.content).last() {
+                Some(last) => {
+                    self.para_id = Some((last.id, pid));
+                    self.blocks(&c.content, true)?;
+                }
+                None => {
+                    self.x
+                        .start("w:p", &[("w14:paraId", &pid), ("w14:textId", "77777777")]);
+                    self.x.start("w:r", &[]);
+                    self.comment_reference_rpr();
+                    self.x.empty("w:annotationRef", &[]);
+                    self.x.end("w:r");
+                    self.x.end("w:p");
+                }
+            }
+            self.comment_mark = false;
+            self.para_id = None;
+            self.x.end("w:comment");
+        }
+        self.x.end("w:comments");
+        Ok(())
     }
 
     /// A field as `w:fldSimple` with its cached result.
@@ -1068,6 +1247,82 @@ fn grid(t: &Table, content_width: i32) -> Vec<i32> {
             .flatten()
     });
     first.unwrap_or_else(|| vec![content_width.max(cols as i32) / cols as i32; cols])
+}
+
+/// `word/commentsExtended.xml`: per comment its paragraph id, the
+/// thread's root (`paraIdParent`, replies only) and `done`.
+fn comments_extended_xml(doc: &Document, para: &HashMap<CommentId, String>) -> Vec<u8> {
+    let mut x = XmlOut::new();
+    x.start(
+        "w15:commentsEx",
+        &[
+            ("xmlns:mc", NS_MC),
+            ("xmlns:w15", NS_W15),
+            ("mc:Ignorable", "w15"),
+        ],
+    );
+    for c in &doc.comments {
+        let mut attrs: Vec<(&str, &str)> = vec![("w15:paraId", &para[&c.id])];
+        if let Some(p) = c.parent.and_then(|p| para.get(&p)) {
+            attrs.push(("w15:paraIdParent", p));
+        }
+        attrs.push(("w15:done", if c.resolved { "1" } else { "0" }));
+        x.empty("w15:commentEx", &attrs);
+    }
+    x.end("w15:commentsEx");
+    x.finish()
+}
+
+/// A comment's durable id (`commentsIds`/`commentsExtensible`).
+fn durable_id(index: usize) -> String {
+    format!("{:08X}", 0x3000_0000 + index)
+}
+
+/// `word/commentsIds.xml`: paragraph id → durable id.
+fn comments_ids_xml(doc: &Document, para: &HashMap<CommentId, String>) -> Vec<u8> {
+    let mut x = XmlOut::new();
+    x.start(
+        "w16cid:commentsIds",
+        &[
+            ("xmlns:mc", NS_MC),
+            ("xmlns:w16cid", NS_W16CID),
+            ("mc:Ignorable", "w16cid"),
+        ],
+    );
+    for (i, c) in doc.comments.iter().enumerate() {
+        x.empty(
+            "w16cid:commentId",
+            &[
+                ("w16cid:paraId", &para[&c.id]),
+                ("w16cid:durableId", &durable_id(i)),
+            ],
+        );
+    }
+    x.end("w16cid:commentsIds");
+    x.finish()
+}
+
+/// `word/commentsExtensible.xml`: durable id → UTC date.
+fn comments_extensible_xml(doc: &Document) -> Vec<u8> {
+    let mut x = XmlOut::new();
+    x.start(
+        "w16cex:commentsExtensible",
+        &[
+            ("xmlns:mc", NS_MC),
+            ("xmlns:w16cex", NS_W16CEX),
+            ("mc:Ignorable", "w16cex"),
+        ],
+    );
+    for (i, c) in doc.comments.iter().enumerate() {
+        let id = durable_id(i);
+        let mut attrs: Vec<(&str, &str)> = vec![("w16cex:durableId", &id)];
+        if let Some(d) = &c.date {
+            attrs.push(("w16cex:dateUtc", d));
+        }
+        x.empty("w16cex:commentExtensible", &attrs);
+    }
+    x.end("w16cex:commentsExtensible");
+    x.finish()
 }
 
 fn default_settings_xml(

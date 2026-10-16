@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CellStyle } from "../generated/CellStyle";
 import type { CellView } from "../generated/CellView";
 import { colGeometry, DEFAULT_FORMAT, rowGeometry } from "./geometry";
-import { computeRenderOps, type RenderOp, type SheetData } from "./render";
+import { computeRenderOps, fillText, formulaView, hashes, type RenderOp, type SheetData } from "./render";
 import type { Measure } from "./textLayout";
 
 const m7: Measure = (t) => t.length * 7;
@@ -22,7 +22,7 @@ function sheet(cells: CellView[], extra: Partial<SheetData> = {}): SheetData {
   }
   const cols = extra.cols ?? new Map();
   const rows = extra.rows ?? new Map();
-  return { cells: map, cols, rows, colGeo: colGeometry(DEFAULT_FORMAT, cols), rowGeo: rowGeometry(DEFAULT_FORMAT, rows), merges: extra.merges };
+  return { cells: map, cols, rows, colGeo: colGeometry(DEFAULT_FORMAT, cols), rowGeo: rowGeometry(DEFAULT_FORMAT, rows), merges: extra.merges, showFormulas: extra.showFormulas };
 }
 
 const v = (row: number, col: number, display: string, kind: CellView["kind"], style = 0): CellView => ({
@@ -150,5 +150,40 @@ describe("computeRenderOps: merged cells (P8-3)", () => {
     const ts = texts(ops);
     expect(ts.find((t) => t.col === 1)).toMatchObject({ x: -36, w: 192 });
     expect(ts.find((t) => t.col === 0)?.clipW ?? 64).toBe(64);
+  });
+});
+
+describe("number format rendering (P8-23)", () => {
+  const vp = { scrollX: 0, scrollY: 0, width: 200, height: 70 };
+
+  it("the format colour wins over the font colour", () => {
+    const ops = computeRenderOps(vp, sheet([{ ...v(0, 0, "-5.0", "number", 1), color: "#FF0000" }, { ...v(0, 1, "x", "text"), color: "#0000FF" }]), styles, m7);
+    expect(texts(ops).map((t) => t.color)).toEqual(["#FF0000", "#0000FF"]);
+  });
+
+  it("repeats the fill character across the cell and shows #### for a narrow number", () => {
+    const ops = computeRenderOps(vp, sheet([
+      { ...v(0, 0, "$5", "number"), fillAt: 1, fillChar: "." },
+      { ...v(1, 0, "123", "number"), narrow: true },
+    ]), styles, m7);
+    const [fill, narrow] = texts(ops);
+    // 64 px − 2 × 3 px padding = 58 px: "$" + 6 dots + "5" (8 × 7 px = 56).
+    expect(fill.text).toBe("$......5");
+    expect(fill.align).toBe("left");
+    expect(narrow.text).toBe("########");
+    expect(fillText({ display: "ab", fillAt: 2, fillChar: "-" }, 35, "", m7)).toBe("ab---");
+    expect(fillText({ display: "ab" }, 35, "", m7)).toBeNull();
+    expect(hashes(10, "", m7)).toBe("#");
+  });
+
+  it("Show Formulas shows inputs: formulas as left-aligned text, spilled cells blank", () => {
+    const cells = [
+      { ...v(0, 0, "3", "number"), input: "=1+2" },
+      { ...v(0, 1, "1,234.50", "number"), input: "1234.5", color: "#FF0000" },
+      { ...v(1, 0, "2", "number"), input: "", spilled: [0, 0] as [number, number] },
+    ];
+    const ops = computeRenderOps(vp, sheet(cells, { showFormulas: true }), styles, m7);
+    expect(texts(ops).map((t) => [t.text, t.align, t.color])).toEqual([["=1+2", "left", "#000000"], ["1234.5", "right", "#000000"]]);
+    expect(formulaView(cells[0]!).kind).toBe("text");
   });
 });

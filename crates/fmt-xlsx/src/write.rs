@@ -9,7 +9,7 @@ use engine_formula::{CellContent, CellCoord, RangeRef, SheetId, Value};
 use fmt_ooxml::theme::office_theme_xml;
 use fmt_ooxml::{ct, rel, Package, PartName, Relationships};
 use model_sheet::{
-    AutoFilter, ColInfo, DynamicFilter, Filter, FilterOp, SheetView, SortState, Workbook,
+    AutoFilter, ColInfo, DynamicFilter, Filter, FilterOp, NameScope, SheetView, SortState, Workbook,
 };
 
 use crate::a1::{cell_name, range_name};
@@ -171,32 +171,57 @@ fn workbook_xml(wb: &Workbook, sheets: &[(SheetId, String)], active: usize) -> V
         x.empty("sheet", &a);
     }
     x.end("sheets");
-    // Excel names every AutoFilter range `_xlnm._FilterDatabase`.
-    let filters: Vec<(usize, String)> = sheets
-        .iter()
-        .enumerate()
-        .filter_map(|(i, (id, name))| {
-            let af = wb.auto_filter(*id)?;
-            let quoted = name.replace('\'', "''");
-            Some((
-                i,
-                format!("'{quoted}'!{}", abs_range(af.r0, af.c0, af.r1, af.c1)),
-            ))
-        })
-        .collect();
-    if !filters.is_empty() {
+    // Defined names in model order, then Excel's `_xlnm._FilterDatabase`
+    // for every AutoFilter range.
+    let position = |id: SheetId| sheets.iter().position(|(s, _)| *s == id);
+    // (name, comment, localSheetId, hidden, text)
+    type Entry = (String, Option<String>, Option<usize>, bool, String);
+    let mut entries: Vec<Entry> = Vec::new();
+    for n in wb.names() {
+        let local = match n.scope {
+            NameScope::Workbook => None,
+            NameScope::Sheet(id) => match position(id) {
+                Some(p) => Some(p),
+                None => continue,
+            },
+        };
+        let name = n.builtin.map_or(n.name, |b| b.file_name());
+        entries.push((
+            name,
+            n.comment,
+            local,
+            n.hidden,
+            add_xlfn_prefixes(&n.refers_to),
+        ));
+    }
+    for (i, (id, name)) in sheets.iter().enumerate() {
+        let Some(af) = wb.auto_filter(*id) else {
+            continue;
+        };
+        let quoted = name.replace('\'', "''");
+        entries.push((
+            "_xlnm._FilterDatabase".into(),
+            None,
+            Some(i),
+            true,
+            format!("'{quoted}'!{}", abs_range(af.r0, af.c0, af.r1, af.c1)),
+        ));
+    }
+    if !entries.is_empty() {
         x.start("definedNames", &[]);
-        for (i, target) in &filters {
-            let local = i.to_string();
-            x.text_el(
-                "definedName",
-                &[
-                    ("name", "_xlnm._FilterDatabase"),
-                    ("localSheetId", &local),
-                    ("hidden", "1"),
-                ],
-                target,
-            );
+        for (name, comment, local, hidden, text) in &entries {
+            let local = local.map(|l| l.to_string());
+            let mut a: Vec<(&str, &str)> = vec![("name", name)];
+            if let Some(c) = comment {
+                a.push(("comment", c));
+            }
+            if let Some(l) = &local {
+                a.push(("localSheetId", l));
+            }
+            if *hidden {
+                a.push(("hidden", "1"));
+            }
+            x.text_el("definedName", &a, text);
         }
         x.end("definedNames");
     }

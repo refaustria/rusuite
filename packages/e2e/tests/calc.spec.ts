@@ -114,7 +114,7 @@ test.describe("Calc", () => {
     await grid.type(0, 1, "=A1*2");
     await grid.click(0, 0);
     await grid.click(3, 1, { shift: true });
-    await expect(page.getByTestId("cell-address")).toHaveText("A1:B4");
+    await expect(page.getByTestId("cell-address")).toHaveValue("A1:B4");
     await page.keyboard.press("Control+d");
     expect(await grid.input(3, 1)).toBe("=A4*2");
     expect(await grid.display(3, 1)).toBe("10");
@@ -202,7 +202,7 @@ test.describe("Calc", () => {
     const find = page.getByRole("dialog", { name: "Find" });
     await find.getByLabel("Find what").fill("pie");
     await find.getByLabel("Find what").press("Enter");
-    await expect(page.getByTestId("cell-address")).toHaveText("H2");
+    await expect(page.getByTestId("cell-address")).toHaveValue("H2");
     await find.getByRole("button", { name: "Replace…" }).click();
     const rep = page.getByRole("dialog", { name: "Find and replace" });
     await rep.getByLabel("Find what").fill("apple");
@@ -259,7 +259,7 @@ test.describe("Calc", () => {
       await page.keyboard.type(`row ${i}`);
       await page.keyboard.press("Enter");
     }
-    await expect(page.getByTestId("cell-address")).toHaveText("A121");
+    await expect(page.getByTestId("cell-address")).toHaveValue("A121");
     await page.keyboard.press("Control+p");
     await expect(page.getByTestId("print-panel")).toBeVisible();
     await expect(page.getByTestId("print-page-count")).toHaveText("Page 1 of 3");
@@ -338,10 +338,10 @@ test.describe("Calc", () => {
     });
     // The frozen row is still where it was; just below it the sheet continues at row 52 (1000 px / 20 px + 2).
     await grid.click(0, 0);
-    await expect(page.getByTestId("cell-address")).toHaveText("A1");
+    await expect(page.getByTestId("cell-address")).toHaveValue("A1");
     await expect(page.getByRole("textbox", { name: "Formula bar" })).toHaveValue("Header");
     await grid.click(1, 0);
-    await expect(page.getByTestId("cell-address")).toHaveText("A52");
+    await expect(page.getByTestId("cell-address")).toHaveValue("A52");
     if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-frozen-scrolled.png` });
     errors.expectNone();
   });
@@ -354,13 +354,13 @@ test.describe("Calc", () => {
     await grid.click(0, 2, { shift: true });
     await page.getByRole("tab", { name: "Home" }).click();
     await page.getByRole("button", { name: "Merge & Center" }).click();
-    await expect(page.getByTestId("cell-address")).toHaveText("A1");
+    await expect(page.getByTestId("cell-address")).toHaveValue("A1");
     await page.keyboard.type("Quarterly report");
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("cell-editor")).toHaveCount(0);
     // A covered cell selects the merge, whose content is A1's.
     await grid.click(0, 2);
-    await expect(page.getByTestId("cell-address")).toHaveText("A1");
+    await expect(page.getByTestId("cell-address")).toHaveValue("A1");
     await expect(page.getByRole("textbox", { name: "Formula bar" })).toHaveValue("Quarterly report");
     await grid.type(1, 0, "1");
     if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-merged-header.png` });
@@ -525,7 +525,7 @@ test.describe("Calc", () => {
     await expect.poll(() => edgePixels(page, leftEdgeA1A3(), SPILL_RED)).toBeGreaterThan(5);
     await tag.click();
     await page.getByRole("menuitem", { name: "Select obstructing cells" }).click();
-    await expect(page.getByTestId("cell-address")).toHaveText("A2");
+    await expect(page.getByTestId("cell-address")).toHaveValue("A2");
     await page.keyboard.press("Delete");
     expect(await grid.display(0, 0)).toBe("1");
     expect(await grid.display(1, 0)).toBe("2");
@@ -772,5 +772,137 @@ test.describe("Calc charts", () => {
     expect(html).toMatch(/<svg[^>]*viewBox="0 0 480 288"/);
     expect(html).toContain(">North</text>");
     await page.screenshot({ path: "test-results/chart-print-preview.png" });
+  });
+});
+
+/** Pixels of the cell canvas inside cell-area rectangle (x, y, w, h) whose colour is within ±tol of `rgb`. */
+async function colouredPixels(page: import("@playwright/test").Page, rect: [number, number, number, number], rgb: [number, number, number], tol = 60) {
+  return page.getByTestId("grid-cells").evaluate((el, { rect, rgb, tol }) => {
+    const canvas = el as HTMLCanvasElement;
+    const ctx = canvas.getContext("2d")!;
+    const s = canvas.width / canvas.clientWidth;
+    const d = ctx.getImageData(Math.floor(rect[0] * s), Math.floor(rect[1] * s), Math.floor(rect[2] * s), Math.floor(rect[3] * s)).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i]! - rgb[0]) < tol && Math.abs(d[i + 1]! - rgb[1]) < tol && Math.abs(d[i + 2]! - rgb[2]) < tol) n++;
+    return n;
+  }, { rect, rgb, tol });
+}
+
+test.describe("Calc names and number formats", () => {
+  test("a name defined in the Name Box works in a formula and shows for its range", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    for (const [i, v] of ["10", "20", "30"].entries()) await grid.type(i, 0, v);
+    await grid.click(0, 0);
+    await grid.click(2, 0, { shift: true });
+    const box = page.getByTestId("cell-address");
+    await box.fill("Amounts");
+    await box.press("Enter");
+    await expect(box).toHaveValue("Amounts");
+    await grid.type(0, 2, "=SUM(Amounts)*2");
+    expect(await grid.input(0, 2)).toBe("=SUM(Amounts)*2");
+    expect(await grid.display(0, 2)).toBe("120");
+    // The Name Box list navigates back to the range.
+    await grid.click(5, 5);
+    await page.getByRole("button", { name: "Defined names" }).click();
+    await page.getByTestId("name-list").getByRole("option", { name: "Amounts" }).click();
+    await expect(box).toHaveValue("Amounts");
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-name-box.png` });
+    errors.expectNone();
+  });
+
+  test("Name Manager: editing refers-to updates the dependent cell", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    for (const [i, v] of ["1", "2", "3"].entries()) {
+      await grid.type(i, 0, v);
+      await grid.type(i, 1, String(Number(v) * 100));
+    }
+    await grid.click(0, 0);
+    await grid.click(2, 0, { shift: true });
+    await page.getByRole("tab", { name: "Formulas" }).click();
+    await page.getByRole("button", { name: "Define Name", exact: true }).click();
+    const nd = page.getByRole("dialog", { name: "New Name" });
+    await nd.getByLabel("Name", { exact: true }).fill("Data");
+    await expect(nd.getByTestId("name-refers-to")).toHaveValue("=Sheet1!$A$1:$A$3");
+    await nd.getByRole("button", { name: "OK" }).click();
+    await grid.type(4, 0, "=SUM(Data)");
+    expect(await grid.display(4, 0)).toBe("6");
+    await page.getByRole("button", { name: "Name Manager" }).click();
+    const nm = page.getByRole("dialog", { name: "Name Manager" });
+    await nm.getByTestId("name-row").filter({ hasText: "Data" }).click();
+    await expect(nm.getByTestId("name-row").filter({ hasText: "Data" })).toContainText("{1;2;3}");
+    await nm.getByTestId("manager-refers-to").fill("=Sheet1!$B$1:$B$3");
+    await nm.getByRole("button", { name: "Apply the definition" }).click();
+    await expect(nm.getByTestId("name-row").filter({ hasText: "Data" })).toContainText("{100;200;300}");
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-name-manager.png` });
+    await nm.getByRole("button", { name: "Close" }).click();
+    expect(await grid.display(4, 0)).toBe("600");
+  });
+
+  test("Create from Selection makes three names, saved as definedName", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    const rows = [["North", "South", "West"], ["1", "2", "3"], ["4", "5", "6"]];
+    for (const [r, row] of rows.entries()) for (const [c, v] of row.entries()) await grid.type(r, c, v);
+    await grid.click(0, 0);
+    await grid.click(2, 2, { shift: true });
+    await page.getByRole("tab", { name: "Formulas" }).click();
+    await page.getByRole("button", { name: "Create from Selection" }).click();
+    const dlg = page.getByRole("dialog", { name: "Create Names from Selection" });
+    await expect(dlg.getByLabel("Top row")).toBeChecked();
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await grid.type(4, 0, "=SUM(North,South,West)");
+    expect(await grid.display(4, 0)).toBe("21");
+    const xlsx = await saveViaBackstage(page);
+    const book = zipText(xlsx, "xl/workbook.xml");
+    expect(book).toContain('<definedName name="North">Sheet1!$A$2:$A$3</definedName>');
+    expect(book).toContain('<definedName name="South">Sheet1!$B$2:$B$3</definedName>');
+    expect(book).toContain('<definedName name="West">Sheet1!$C$2:$C$3</definedName>');
+    expect(zipText(xlsx, "xl/worksheets/sheet1.xml")).toContain("<f>SUM(North,South,West)</f>");
+  });
+
+  test("the custom format [Red][<0]-0.0;0.0 shows a negative number in red", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "-5");
+    await grid.type(1, 0, "5");
+    await grid.click(0, 0);
+    await grid.click(1, 0, { shift: true });
+    await page.keyboard.press("Control+1");
+    const dlg = page.getByRole("dialog", { name: "Format cells" });
+    await dlg.getByRole("option", { name: "Custom" }).click();
+    await dlg.getByRole("textbox", { name: "Format code" }).fill("[Red][<0]-0.0;0.0");
+    await expect(page.getByTestId("format-preview")).toHaveText("-5.0");
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(dlg).toHaveCount(0);
+    await grid.click(5, 5);
+    // A1 (0..64 × 0..20 cell-area px) has red text, A2 none.
+    await expect.poll(() => colouredPixels(page, [2, 2, 60, 16], [255, 0, 0])).toBeGreaterThan(5);
+    expect(await colouredPixels(page, [2, 22, 60, 16], [255, 0, 0])).toBe(0);
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-red-format.png` });
+    const xlsx = await saveViaBackstage(page);
+    expect(zipText(xlsx, "xl/styles.xml")).toContain('formatCode="[Red][&lt;0]-0.0;0.0"');
+    errors.expectNone();
+  });
+
+  test("Show Formulas (Ctrl+`) toggles the grid between values and formulas", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "=1+2");
+    await grid.click(5, 5);
+    // The number is right-aligned: nothing dark in the left half of A1.
+    const leftHalf: [number, number, number, number] = [2, 2, 22, 16];
+    await expect.poll(() => colouredPixels(page, leftHalf, [0, 0, 0], 90)).toBe(0);
+    await page.keyboard.press("Control+Backquote");
+    await page.getByRole("tab", { name: "Formulas" }).click();
+    await expect(page.getByRole("button", { name: "Show Formulas" })).toHaveAttribute("aria-pressed", "true");
+    // The formula text starts at the left edge.
+    await expect.poll(() => colouredPixels(page, leftHalf, [0, 0, 0], 90)).toBeGreaterThan(5);
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/calc-show-formulas.png` });
+    await page.getByRole("button", { name: "Show Formulas" }).click();
+    await expect.poll(() => colouredPixels(page, leftHalf, [0, 0, 0], 90)).toBe(0);
   });
 });

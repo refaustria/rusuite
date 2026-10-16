@@ -28,7 +28,7 @@ async function setup(configure: (backend: FakeBackend) => void = () => {}) {
 }
 
 const applied = (log: Request[]) => log.flatMap((r) => (r.type === "apply" ? [r.command] : []));
-const address = () => screen.getByTestId("cell-address").textContent;
+const address = () => (screen.getByTestId("cell-address") as HTMLInputElement).value;
 const ctrl = (key: string, extra: KeyboardEventInit = {}) => ({ key, ctrlKey: true, ...extra });
 
 async function typeCell(grid: HTMLElement, text: string) {

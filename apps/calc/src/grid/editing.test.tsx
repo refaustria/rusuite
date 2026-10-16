@@ -39,7 +39,7 @@ async function setup(sheets?: string[]) {
 const applied = (log: Request[]) => log.flatMap((r) => (r.type === "apply" ? [r.command] : []));
 const editor = () => screen.getByTestId("cell-editor") as HTMLTextAreaElement;
 const bar = () => screen.getByLabelText("Formula bar") as HTMLInputElement;
-const address = () => screen.getByTestId("cell-address").textContent;
+const address = () => (screen.getByTestId("cell-address") as HTMLInputElement).value;
 const functionOptions = () => within(screen.getByRole("listbox", { name: "Functions" })).getAllByRole("option");
 
 /** Types `text` into the field (caret at the end). */
@@ -197,12 +197,15 @@ describe("formula bar parity, colours and autocomplete", () => {
     expect(screen.getByTestId("signature-tip").querySelector("b")?.textContent).toBe("[number2]");
   });
 
-  it("the fx button opens the function list in the formula bar", async () => {
+  it("the fx button opens Insert Function, which starts the formula", async () => {
     await setup();
     fireEvent.click(screen.getByRole("button", { name: "Insert function" }));
-    expect(bar().value).toBe("=");
-    expect(functionOptions()).toHaveLength(FUNCTIONS.length);
-    fireEvent.click(functionOptions()[1]);
-    expect(bar().value).toBe(`=${FUNCTIONS[1].name}(`);
+    const dialog = await screen.findByRole("dialog", { name: "Insert Function" });
+    fireEvent.change(within(dialog).getByLabelText("Or select a category"), { target: { value: "all" } });
+    const list = within(dialog).getByRole("listbox", { name: "Select a function" });
+    expect(within(list).getAllByRole("option")).toHaveLength(FUNCTIONS.length);
+    fireEvent.click(within(list).getAllByRole("option")[1]!);
+    fireEvent.click(within(dialog).getByRole("button", { name: "OK" }));
+    expect(bar().value).toBe(`=${FUNCTIONS[1].name}()`);
   });
 });

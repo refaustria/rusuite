@@ -46,12 +46,13 @@ pub mod eval;
 pub mod functions;
 pub mod graph;
 pub mod lexer;
+pub mod numfmt;
 pub mod parser;
 pub mod transform;
 pub mod value;
 
-pub use ast::{ErrorKind, Expr};
-pub use engine::{CellContent, Engine, EngineError, Recalc, Spill};
+pub use ast::{is_valid_name, ErrorKind, Expr};
+pub use engine::{CellContent, Engine, EngineError, NameEntry, NameScope, Recalc, Spill};
 pub use eval::{
     default_now, evaluate, evaluate_formula, set_default_clock, system_now, CellCoord,
     CellProvider, EvalContext, Operand, RangeRef, RowHidden, SheetId,
@@ -65,9 +66,8 @@ pub use transform::{
 };
 pub use value::{Array, Value};
 
-/// Formats `n` with an Excel number format code (the `TEXT` function's
-/// subset, see `functions::text::numfmt`); `None` when the code cannot
-/// format it (e.g. a negative date).
+/// Formats `n` with an Excel number format code (see [`numfmt`]); `None`
+/// when the code cannot format it (e.g. a negative date).
 pub fn format_number(n: f64, code: &str) -> Option<String> {
-    functions::text::numfmt::format_number(n, code).ok()
+    numfmt::format_number(n, code).ok()
 }

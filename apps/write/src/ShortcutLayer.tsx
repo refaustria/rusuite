@@ -159,6 +159,11 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
         inField: true,
         run: () => (editor ? void insertNote(editor, ctl, "end") : false),
       },
+      "Mod+Alt+M": {
+        label: t("write.comments.new"),
+        group: t("write.comments.title"),
+        run: () => (features ? void features.newComment() : false),
+      },
     };
   }, [editor, ctl, onNew, onOpen, onSave, onSaveAs, onFind, onReplace, features, t]);
 
