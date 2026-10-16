@@ -1,6 +1,6 @@
 // P8-39 Calc quality pass: regression tests for the defects fixed (ids from docs/qa/calc-2026-10.md).
 import { expect, test, type Page } from "@playwright/test";
-import { saveViaBackstage, trackErrors } from "../support/common";
+import { ribbonCommand, saveViaBackstage, trackErrors } from "../support/common";
 import { Grid, openCalc } from "../support/calc";
 import { zipText } from "../support/zip";
 
@@ -167,23 +167,26 @@ test.describe("Calc quality pass (P8-39)", () => {
   });
 });
 
-test.describe("Calc ribbon at 1024 px, German UI (P8-39 C-03)", () => {
-  test.use({ locale: "de-DE", viewport: { width: 1024, height: 700 } });
+for (const [locale, width, editing, sortLabel, sortItem] of [
+  ["en-US", 1024, "Editing", /^Sort & Filter/, /Sort A to Z/],
+  ["de-DE", 1024, "Bearbeiten", /^Sortieren und Filtern/, /Von A bis Z sortieren/],
+  ["de-DE", 1400, "Bearbeiten", /^Sortieren und Filtern/, /Von A bis Z sortieren/],
+  ["en-US", 1400, "Editing", /^Sort & Filter/, /Sort A to Z/],
+] as const) {
+  test.describe(`Calc ribbon at ${width} px, ${locale} (P8-39 C-03)`, () => {
+    test.use({ locale, viewport: { width, height: 700 } });
 
-  test("the groups beyond the right edge are reached with the scroll button; their menu stays in the window", async ({ page }) => {
-    await page.goto("calc/");
-    await page.getByTestId("grid").waitFor();
-    const sort = page.getByTestId("ribbon").getByRole("button", { name: /^Sortieren und Filtern/ });
-    await expect.poll(async () => (await sort.boundingBox())!.x).toBeGreaterThan(1024);
-    await page.getByRole("button", { name: "Weitere Befehle anzeigen" }).click();
-    await expect.poll(async () => { const b = (await sort.boundingBox())!; return b.x + b.width; }).toBeLessThanOrEqual(1024);
-    await sort.click();
-    const item = page.getByRole("menuitem", { name: /Von A bis Z sortieren/ });
-    await expect(item).toBeVisible();
-    const box = (await item.boundingBox())!;
-    expect(box.x + box.width).toBeLessThanOrEqual(1024);
-    await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "Befehle links anzeigen" }).click();
-    await expect(page.getByRole("button", { name: "Befehle links anzeigen" })).toHaveCount(0);
+    test("every group is reachable (collapsed groups open their commands); the sort menu stays in the window", async ({ page }) => {
+      await page.goto("calc/");
+      await page.getByTestId("grid").waitFor();
+      // No group sticks out of the window: the ones that do not fit collapse into a button.
+      const groups = page.getByTestId("ribbon-panel").getByRole("group");
+      await expect.poll(async () => Math.max(...(await groups.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().right))))).toBeLessThanOrEqual(width);
+      await ribbonCommand(page, editing, sortLabel, false);
+      const item = page.getByRole("menuitem", { name: sortItem });
+      await expect(item).toBeVisible();
+      const box = (await item.boundingBox())!;
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+    });
   });
-});
+}

@@ -79,7 +79,10 @@ export function PageFrame({ page, view, pages, frame, onEditHeaderFooter, layout
       data-pages={print ? (paged?.sheets.length ?? pages) : undefined}
       style={{
         width: g.width,
-        maxWidth: "100%",
+        // Print layout keeps the page's width (Word: a narrow window scrolls, the lines never re-wrap, W-24); draft
+        // view wraps to the window.
+        maxWidth: print ? undefined : "100%",
+        flexShrink: print ? 0 : undefined,
         minHeight: paged ? paged.height : print ? g.height : undefined,
         padding: paged ? `${paged.origin}px ${g.right}px 0 ${g.left}px` : `${g.top}px ${g.right}px ${g.bottom}px ${g.left}px`,
       }}

@@ -4,7 +4,7 @@
 // commands sent through the `SyncController`; the patches update the editor.
 
 import type { Editor } from "@tiptap/core";
-import type { EditorState } from "@tiptap/pm/state";
+import { TextSelection, type EditorState } from "@tiptap/pm/state";
 import type { FieldKind } from "../generated/FieldKind";
 import type { Level } from "../generated/Level";
 import type { LevelKind } from "../generated/LevelKind";
@@ -17,7 +17,7 @@ import type { SectionPatch } from "../generated/SectionPatch";
 import type { WriteCommand } from "../generated/WriteCommand";
 import { cursorBlock } from "../sync/editorCommands";
 import { notesNode } from "../sync/fromPM";
-import { nextTempId, type SyncController } from "../sync/SyncPlugin";
+import { findPos, nextTempId, type SyncController } from "../sync/SyncPlugin";
 import { TEXTBLOCK_TYPES } from "../sync/schema";
 import { currentLayout, pageAtPos } from "./pagination";
 import { goToNote } from "./structure";
@@ -93,8 +93,30 @@ export async function insertToc(editor: Editor, ctl: SyncController, toLevel = 3
   const { before, current, atStart } = topBlockAtCaret(editor.state);
   const after = atStart ? before : current;
   await ctl.run({ type: "insertToc", after, fromLevel: 1, toLevel, title, newId: nextTempId() });
-  editor.commands.focus();
+  await withPageNumbers(editor, ctl);
+  if (!editor.isDestroyed) editor.commands.focus();
   return true;
+}
+
+/** Resolves after the next print-layout pass (or after `ms`). */
+export function nextLayout(editor: Editor, ms = 1500): Promise<void> {
+  return new Promise((resolve) => {
+    const dom = editor.view.dom;
+    const done = () => {
+      clearTimeout(timer);
+      dom.removeEventListener("rusuite-layout", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    dom.addEventListener("rusuite-layout", done);
+  });
+}
+
+/** Word fills a new table of contents with page numbers at once: the pages once the table is laid out (W-21). */
+async function withPageNumbers(editor: Editor, ctl: SyncController): Promise<void> {
+  if (editor.isDestroyed || !currentLayout(editor.state)) return;
+  await nextLayout(editor);
+  if (!editor.isDestroyed && currentLayout(editor.state)) await updateTocs(editor, ctl);
 }
 
 /** References › Insert Table of Figures: the captions of `label` (Figure, Table, Equation), placed like a table of contents. */
@@ -104,7 +126,8 @@ export async function insertTableOfFigures(editor: Editor, ctl: SyncController, 
   const { before, current, atStart } = topBlockAtCaret(editor.state);
   const after = atStart ? before : current;
   await ctl.run({ type: "insertToc", after, fromLevel: 1, toLevel: 1, title: null, newId: nextTempId(), caption: label.replace(/\s+/g, "_") });
-  editor.commands.focus();
+  await withPageNumbers(editor, ctl);
+  if (!editor.isDestroyed) editor.commands.focus();
   return true;
 }
 
@@ -182,7 +205,24 @@ export async function insertSectionBreak(editor: Editor, ctl: SyncController, ki
       { type: "insertSectionBreak", block: at.id, kind },
     ],
   });
+  // Word: the caret goes to the start of the new section (the paragraph after the break), so Layout commands that
+  // follow act on it (W-17).
+  caretAfterBlock(editor, at.id);
   editor.commands.focus();
+  return true;
+}
+
+/** Puts the caret at the start of the text block after the block with id `id` (no-op when there is none). */
+export function caretAfterBlock(editor: Editor, id: number): boolean {
+  const { doc } = editor.state;
+  const pos = findPos(doc, id);
+  const node = pos >= 0 ? doc.nodeAt(pos) : null;
+  if (!node) return false;
+  const after = pos + node.nodeSize;
+  if (after >= doc.content.size) return false;
+  const sel = TextSelection.findFrom(doc.resolve(after), 1, true);
+  if (!sel) return false;
+  editor.view.dispatch(editor.state.tr.setSelection(sel).scrollIntoView());
   return true;
 }
 
@@ -235,7 +275,18 @@ export function applyNumberingCommand(preset: MultilevelPreset, items: { id: num
 /** Home › Multilevel list: the selected paragraphs become one new list of `preset` (keeping their levels). */
 export async function applyMultilevel(editor: Editor, ctl: SyncController, preset: MultilevelPreset): Promise<boolean> {
   await ctl.idle();
-  const { from, to } = editor.state.selection;
+  let { from, to } = editor.state.selection;
+  // Word: with the caret in a list (no selection) the multilevel list applies to the whole list (W-27).
+  if (from === to) {
+    const $c = editor.state.selection.$from;
+    for (let d = 1; d <= $c.depth; d++) {
+      if ($c.node(d).type.name === "bulletList" || $c.node(d).type.name === "orderedList") {
+        from = $c.before(d);
+        to = $c.after(d);
+        break;
+      }
+    }
+  }
   const items: { id: number; level: number }[] = [];
   editor.state.doc.nodesBetween(from, to, (node, pos) => {
     if (!TEXTBLOCK_TYPES.has(node.type.name)) return true;

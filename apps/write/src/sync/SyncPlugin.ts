@@ -904,7 +904,24 @@ export class SyncController {
     const { anchor, head } = view.state.selection;
     const pa = pointAt(doc, anchor);
     const ph = pointAt(doc, head);
+    // The local blocks carry no list labels (they come from Rust): keep the ones shown (W-07); the patch's own
+    // paragraphs get theirs from `applyLabels` afterwards.
+    const labels = new Map<number, string>();
+    doc.nodesBetween(from, to, (n) => {
+      if (!n.isTextblock) return true;
+      if (n.attrs.id != null && n.attrs.listLabel != null) labels.set(n.attrs.id as number, n.attrs.listLabel as string);
+      return false;
+    });
     const tr = view.state.tr.replaceWith(from, to, fresh);
+    if (labels.size) {
+      const end = tr.mapping.map(to, 1);
+      tr.doc.nodesBetween(from, end, (n, pos) => {
+        if (!n.isTextblock) return true;
+        const keep = n.attrs.id != null ? labels.get(n.attrs.id as number) : undefined;
+        if (keep != null && n.attrs.listLabel == null) tr.setNodeAttribute(pos, "listLabel", keep);
+        return false;
+      });
+    }
     const an = resolvePoint(tr.doc, pa, tr.mapping.map(anchor));
     const hd = resolvePoint(tr.doc, ph, tr.mapping.map(head));
     try {

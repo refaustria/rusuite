@@ -40,6 +40,7 @@ import { applyRunPatch, formatTarget, runPatchBetween } from "../features/runFor
 import { runPropsAt } from "../sync/editorCommands";
 import { FontDialog } from "./styleDialogs";
 import { paragraphStyleId, resolveParagraph } from "../features/styleCss";
+import { fontBoxValue } from "../features/fontBox";
 
 // ----- units ------------------------------------------------------------------------
 
@@ -451,7 +452,8 @@ export function lineRuleOf(line: LineSpacing | null | undefined): { rule: LineRu
     if (line.value === 1) return { rule: "single", value: "1" };
     if (line.value === 1.5) return { rule: "1.5", value: "1.5" };
     if (line.value === 2) return { rule: "double", value: "2" };
-    return { rule: "multiple", value: String(line.value) };
+    // Word shows two decimals (259 / 240 = 1.08 lines).
+    return { rule: "multiple", value: String(Math.round(line.value * 100) / 100) };
   }
   return { rule: line.kind === "exact" ? "exact" : "atLeast", value: pt(line.value) };
 }
@@ -593,6 +595,60 @@ export function ParagraphDialog({ open, initial, tab = "indents", onTab, onSubmi
   );
 }
 
+const defined = <T extends object>(o: T | null | undefined): Partial<T> =>
+  Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v != null)) as Partial<T>;
+
+/**
+ * The Paragraph dialog's values for the caret's paragraph as Word shows them: in effect (the style chain, then the
+ * direct formatting), not only the direct formatting (W-23).
+ */
+export function paragraphValuesAt(editor: Editor, ctl: SyncController): ParagraphValues {
+  return { ...paragraphInEffect(editor, ctl), flow: flowAt(editor, ctl) };
+}
+
+/** Alignment, indents and spacing in effect at the caret's paragraph (style chain + direct formatting). */
+export function paragraphInEffect(editor: Editor, ctl: SyncController): Omit<ParagraphValues, "flow"> {
+  const node = selectedTextblocks(editor)[0]?.[0];
+  const style = node ? resolveParagraph(ctl.styles, paragraphStyleId(ctl.styles, node)) : {};
+  const direct = defined(indentAt(editor));
+  const ownFirst = direct.firstLine != null || direct.hanging != null;
+  const indent: Indent = { ...defined(style.indent), ...direct };
+  if (ownFirst) {
+    indent.firstLine = direct.firstLine ?? null;
+    indent.hanging = direct.hanging ?? null;
+  }
+  return {
+    alignment: (node?.attrs.align as Alignment | null) ?? style.alignment ?? null,
+    indent,
+    spacing: { ...defined(style.spacing), ...defined(spacingAt(editor)) },
+  };
+}
+
+/** The fields of the Paragraph dialog that changed (compared as shown: cm to 0.01, pt to 0.1). */
+export function paragraphValuesPatch(before: ParagraphValues, after: ParagraphValues): { alignment?: Alignment; indent?: Partial<Indent>; spacing?: Partial<Spacing> } {
+  const out: { alignment?: Alignment; indent?: Partial<Indent>; spacing?: Partial<Spacing> } = {};
+  if (after.alignment && after.alignment !== (before.alignment ?? "left")) out.alignment = after.alignment;
+  const first = (i: Indent) => i.firstLine ?? (i.hanging != null ? -i.hanging : 0);
+  const ind: Partial<Indent> = {};
+  if (cm(after.indent.left ?? 0) !== cm(before.indent.left ?? 0)) ind.left = after.indent.left;
+  if (cm(after.indent.right ?? 0) !== cm(before.indent.right ?? 0)) ind.right = after.indent.right;
+  if (cm(first(after.indent)) !== cm(first(before.indent))) {
+    ind.firstLine = after.indent.firstLine ?? null;
+    ind.hanging = after.indent.hanging ?? null;
+  }
+  if (Object.keys(ind).length) out.indent = ind;
+  const sp: Partial<Spacing> = {};
+  if (pt(after.spacing.before ?? 0) !== pt(before.spacing.before ?? 0)) sp.before = after.spacing.before;
+  if (pt(after.spacing.after ?? 0) !== pt(before.spacing.after ?? 0)) sp.after = after.spacing.after;
+  const shown = (l: LineSpacing | null | undefined) => {
+    const r = lineRuleOf(l);
+    return `${r.rule}:${r.value}`;
+  };
+  if (shown(after.spacing.line) !== shown(before.spacing.line)) sp.line = after.spacing.line;
+  if (Object.keys(sp).length) out.spacing = sp;
+  return out;
+}
+
 /** The flow values of the caret's paragraph: its style chain, then its direct formatting. */
 export function flowAt(editor: Editor, ctl: SyncController): FlowValues {
   const node = selectedTextblocks(editor)[0]?.[0];
@@ -662,19 +718,14 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
   const drawing = useMemo(() => (editor && dialog === "altText" ? selectedDrawing(editor.state) : null), [editor, dialog]);
   // Font… (Ctrl+D): the formatting at the selection of the editor with the caret (a text box's, else the main one).
   const fontTarget = useMemo(() => (editor && dialog === "font" ? formatTarget(editor) : null), [editor, dialog]);
-  const fontInitial = useMemo(() => (fontTarget ? runPropsAt(fontTarget) : {}), [fontTarget]);
-  const para = useMemo<ParagraphValues | null>(
-    () =>
-      editor && dialog === "paragraph"
-        ? {
-            alignment: (selectedTextblocks(editor)[0]?.[0].attrs.align as Alignment | null) ?? null,
-            indent: indentAt(editor),
-            spacing: spacingAt(editor),
-            flow: flowAt(editor, ctl),
-          }
-        : null,
-    [editor, dialog],
-  );
+  // The font and size in effect (style chain, theme fonts) like Word's dialog, then the direct formatting (W-25).
+  const fontInitial = useMemo(() => {
+    if (!fontTarget) return {};
+    const direct = runPropsAt(fontTarget);
+    const shown = fontBoxValue(fontTarget.state, ctl.styles);
+    return { ...direct, font: direct.font ?? shown.font, size: direct.size ?? shown.size };
+  }, [fontTarget, ctl]);
+  const para = useMemo<ParagraphValues | null>(() => (editor && dialog === "paragraph" ? paragraphValuesAt(editor, ctl) : null), [editor, dialog]);
   return (
     <>
       <RowHeightDialog
@@ -803,11 +854,13 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
         onTab={(tab) => ui.set({ paragraphTab: tab })}
         onClose={close}
         onSubmit={(v) => {
-          if (editor) {
-            if (v.alignment) setAlignment(editor, v.alignment);
-            setIndent(editor, v.indent);
-            setSpacing(editor, v.spacing);
-            if (v.flow && para?.flow) setFlow(editor, flowPatch(para.flow, v.flow));
+          if (editor && para) {
+            // Only what the user changed becomes direct formatting (W-23).
+            const d = paragraphValuesPatch(para, v);
+            if (d.alignment) setAlignment(editor, d.alignment);
+            if (d.indent) setIndent(editor, d.indent);
+            if (d.spacing) setSpacing(editor, d.spacing);
+            if (v.flow && para.flow) setFlow(editor, flowPatch(para.flow, v.flow));
           }
           close();
         }}

@@ -319,6 +319,28 @@ function margins(el: HTMLElement): { mt: number; mb: number } {
   return { mt: cssPx(cs.marginTop), mb: cssPx(cs.marginBottom) };
 }
 
+/**
+ * The margins of a container block (a list) as CSS collapses them: without padding or a border, the first child's
+ * top margin and the last child's bottom margin collapse through it (the last list item's space after is outside
+ * the list's border box, so the next block starts below it).
+ */
+export function collapsedMargins(el: Element): { mt: number; mb: number } {
+  const cs = getComputedStyle(el);
+  let mt = cssPx(cs.marginTop);
+  let mb = cssPx(cs.marginBottom);
+  const through = /^(UL|OL|LI)$/.test(el.tagName) && (cs.display === "block" || cs.display === "list-item") && cs.overflow === "visible" && cs.columnCount === "auto" && cs.float === "none";
+  if (!through) return { mt, mb };
+  const kids = Array.from(el.children).filter((c) => {
+    const k = getComputedStyle(c);
+    return k.display !== "none" && k.position !== "absolute" && k.position !== "fixed" && k.float === "none";
+  });
+  const first = kids[0];
+  const last = kids[kids.length - 1];
+  if (first && cssPx(cs.paddingTop) === 0 && cssPx(cs.borderTopWidth) === 0) mt = collapseMargins(mt, collapsedMargins(first).mt);
+  if (last && cssPx(cs.paddingBottom) === 0 && cssPx(cs.borderBottomWidth) === 0) mb = collapseMargins(mb, collapsedMargins(last).mb);
+  return { mt, mb };
+}
+
 /** Measures a table: rows with their cells' lines; header rows; the cells' spacers and the rows' growth subtracted. */
 function measureTable(el: HTMLElement, node: PMNode | null, pos: number, ctx: MeasureContext, base: number): BlockMeasure {
   const z = ctx.zoom;
@@ -440,7 +462,8 @@ function measureElement(el: HTMLElement, node: PMNode | null, pos: number, ctx: 
   const cs = getComputedStyle(el);
   const height = contained || !rect.height ? bottom + cssPx(cs.paddingBottom) + cssPx(cs.borderBottomWidth) : rect.height / z - own;
   if (!items.length) items.push({ kind: "atom", top: 0, bottom: height, anchorTop: 0, at: { kind: "block", rel: 0 }, para: -1 });
-  return { kind: "flow", height, ...margins(el), items, paras, breakAfter };
+  // A list: its items' outer margins collapse through it (a paragraph keeps its own).
+  return { kind: "flow", height, ...(ctx.textblock(el) ? margins(el) : collapsedMargins(el)), items, paras, breakAfter };
 }
 
 /** Lines of a footnote element (relative to its top) and its height. */

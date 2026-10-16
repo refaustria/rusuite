@@ -177,7 +177,6 @@
   "write.corrections": "Korrekturen",
   "write.corrections.item": "Helligkeit: {b} %, Kontrast: {c} %",
   "write.crop": "Zuschneiden",
-  "write.cropGroup": "Größe",
   "write.cropTip": "Bild zuschneiden: an den schwarzen Ziehpunkten ziehen, Eingabe oder ein Klick daneben beendet",
   "write.currentPosition": "Aktuelle Position",
   "write.customMargins": "Benutzerdefinierte Seitenränder…",

@@ -13,89 +13,20 @@
 // of a group share a coloured header naming the context above their
 // labels, on a tinted background (Office's look).
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { FOCUS_RING } from "../Popover";
 import { formatCombo } from "../shortcuts/keys";
 import { Backstage, type BackstageActions, type BackstagePage } from "./Backstage";
 import { RibbonIcon } from "./icons";
+import { GroupBar } from "./groups";
 import { useT } from "../i18n/react";
-
-/** Width kept free for a scroll button at each edge of an overflowing toolbar. */
-const SCROLL_BUTTON_W = 20;
-
-/**
- * The active tab's groups. When they are wider than the window (1024 px,
- * the German labels) the hidden part is reached with ‹ / › buttons at the
- * edges, the mouse wheel, or the keyboard (a focused control scrolls into
- * view). The row is shifted with a negative margin, not clipped or
- * transformed, so dropdown panels and fixed popups keep their positions.
- */
-function ScrollingToolbar({ label, children }: { label: string; children: ReactNode }) {
-  const t = useT();
-  const outer = useRef<HTMLDivElement>(null);
-  const inner = useRef<HTMLDivElement>(null);
-  const [offset, setOffset] = useState(0);
-  const [max, setMax] = useState(0);
-  useLayoutEffect(() => {
-    const measure = () => {
-      const o = outer.current;
-      const i = inner.current;
-      if (!o || !i) return;
-      const m = Math.max(0, Math.ceil(i.scrollWidth - o.clientWidth));
-      setMax(m);
-      setOffset((x) => Math.min(x, m));
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(measure);
-    if (outer.current) ro.observe(outer.current);
-    if (inner.current) ro.observe(inner.current);
-    return () => ro.disconnect();
-  }, []);
-  const scrollBy = (dx: number) => setOffset((x) => Math.max(0, Math.min(max, x + dx)));
-  const step = () => Math.max(120, (outer.current?.clientWidth ?? 600) * 0.6);
-  const edge = "absolute top-0 z-10 flex h-full items-center justify-center border-ui-border bg-ui-panel text-ui-muted shadow hover:bg-ui-hover hover:text-ui-fg";
-  return (
-    <div ref={outer} className="relative h-[64px]">
-      <div
-        ref={inner}
-        role="toolbar"
-        aria-label={label}
-        className="flex h-[64px] w-max items-stretch px-1 py-px"
-        style={offset > 0 ? { marginLeft: -offset } : undefined}
-        onWheel={(e) => {
-          if (max > 0) scrollBy(Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY);
-        }}
-        onFocus={(e) => {
-          // Keyboard navigation into a hidden control scrolls it into view.
-          const o = outer.current;
-          if (!o || max === 0) return;
-          const box = o.getBoundingClientRect();
-          const r = (e.target as HTMLElement).getBoundingClientRect();
-          if (r.right > box.right - SCROLL_BUTTON_W) scrollBy(r.right - (box.right - SCROLL_BUTTON_W));
-          else if (r.left < box.left + SCROLL_BUTTON_W) scrollBy(r.left - (box.left + SCROLL_BUTTON_W));
-        }}
-      >
-        {children}
-      </div>
-      {offset > 0 && (
-        <button type="button" tabIndex={-1} aria-label={t("ribbon.scrollLeft")} title={t("ribbon.scrollLeft")} className={`${edge} left-0 border-r`} style={{ width: SCROLL_BUTTON_W }} onClick={() => scrollBy(-step())}>
-          ‹
-        </button>
-      )}
-      {offset < max && (
-        <button type="button" tabIndex={-1} aria-label={t("ribbon.scrollRight")} title={t("ribbon.scrollRight")} className={`${edge} right-0 border-l`} style={{ width: SCROLL_BUTTON_W }} onClick={() => scrollBy(step())}>
-          ›
-        </button>
-      )}
-    </div>
-  );
-}
 
 export interface RibbonGroup {
   label: string;
   /** Group contents; `null`/`false`/empty means the group is omitted. */
   items: ReactNode;
+  /** On a narrow window groups with a higher priority collapse first (default 0; ties: the rightmost first). */
+  collapsePriority?: number;
 }
 
 export interface RibbonTab {
@@ -437,7 +368,7 @@ export function Ribbon({
                 <span
                   aria-hidden="true"
                   data-testid="ribbon-context-header"
-                  className="pointer-events-none absolute inset-x-0 top-0 h-[10px] truncate rounded-t-sm px-1 text-center text-[9px] font-semibold leading-[10px] text-white"
+                  className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[10px] truncate rounded-t-sm px-1 text-center text-[9px] font-semibold leading-[10px] text-white"
                   style={{ background: run.context.color }}
                 >
                   {run.context.group}
@@ -483,16 +414,7 @@ export function Ribbon({
             }
           }}
         >
-          <ScrollingToolbar key={active.id} label={active.toolbarLabel ?? active.label}>
-            {active.groups.map((g) => (
-              <div key={g.label} role="group" aria-label={g.label} className="flex shrink-0 flex-col border-r border-ui-border px-1.5 last:border-r-0">
-                <div className="flex min-h-0 flex-1 items-center gap-0.5">{g.items}</div>
-                <div aria-hidden="true" className="h-3 text-center text-[10px] leading-3 text-ui-muted">
-                  {g.label}
-                </div>
-              </div>
-            ))}
-          </ScrollingToolbar>
+          <GroupBar key={active.id} tabId={active.id} groups={active.groups} label={active.toolbarLabel ?? active.label} />
         </div>
       )}
       {backstage && (

@@ -341,6 +341,16 @@ export function FindBar({ ctl, editor, ui }: { ctl: SyncController; editor: Edit
           if (formatMenu) setFormatMenu(null);
           else close();
         }
+        // Ctrl+Z / Ctrl+Y on the bar's buttons undo the document (after Replace all); a text field keeps its own undo (W-08).
+        const target = e.target as HTMLElement;
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && !target.matches("input[type=text], input:not([type]), textarea")) {
+          const key = e.key.toLowerCase();
+          if (key === "z" || key === "y") {
+            e.preventDefault();
+            if (key === "y" || e.shiftKey) ctl.redo();
+            else ctl.undo();
+          }
+        }
       }}
     >
       <div className="flex items-center gap-1">

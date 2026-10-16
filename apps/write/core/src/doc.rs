@@ -124,6 +124,8 @@ pub struct WriteDocument {
     /// The user comments are written as (`SetUser`; kept with the
     /// document in memory only, never saved apart from the comments).
     pub user: Option<User>,
+    /// How many commands each Undo / Redo step takes (typing runs).
+    pub(crate) undo_groups: crate::undo_groups::UndoGroups,
 }
 
 /// The author of new comments: name and initials.
@@ -403,6 +405,7 @@ impl WriteDocument {
             source_name: None,
             labels: HashMap::new(),
             user: None,
+            undo_groups: Default::default(),
         }
     }
 
@@ -428,6 +431,7 @@ impl WriteDocument {
             source_name: None,
             labels,
             user: None,
+            undo_groups: Default::default(),
         })
     }
 
@@ -3264,16 +3268,25 @@ impl WriteDocument {
                 cells,
             });
         }
+        // Word inserts "Table Grid" tables (no direct borders: a table
+        // style applied later shows its own; compact cell paragraphs).
+        let old_styles = self.doc.styles.clone();
+        let grid = match self.doc.styles.get("TableGrid") {
+            Some(s) => s.kind == StyleKind::Table,
+            None => self.ensure_table_style("TableGrid").is_ok(),
+        };
         let table = NewBlock::Table(NewTable {
             id: table_id,
             props: TableProperties {
                 col_widths: vec![Twips(col_width); c],
-                borders: Some(TableBorders::all(side)),
+                borders: (!grid).then(|| TableBorders::all(side)),
+                style: grid.then(|| "TableGrid".to_owned()),
                 ..Default::default()
             },
             rows: new_rows,
         });
-        self.insert_blocks(after, parent, &[table], ch)
+        let inverse = self.insert_blocks(after, parent, &[table], ch)?;
+        Ok(self.with_styles(inverse, old_styles, ch))
     }
 
     /// Edits the inline image at position `offset` of paragraph `block`;
