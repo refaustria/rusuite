@@ -56,6 +56,18 @@ pub enum CalcCommand {
         #[ts(as = "crate::wire::CellStyle")]
         patch: CellStyle,
     },
+    /// Format Cells › Border: edits the edges of the range like Excel
+    /// (`top` / `bottom` / `left` / `right` = the outline, `insideHorizontal`
+    /// / `insideVertical` = the lines between the range's cells, diagonals
+    /// in every cell). Absent edges stay; `{"kind":"none"}` removes a line.
+    SetBorders {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+        edits: BorderEdits,
+    },
     /// Column width in character units; `null` = sheet default.
     SetColWidth {
         sheet: u32,
@@ -101,6 +113,32 @@ pub enum CalcCommand {
         sheet: u32,
         at: u32,
         count: u32,
+    },
+    /// Excel's Insert Cells (Home › Insert ▾ › Insert Cells…, Ctrl++):
+    /// empty cells take the place of the range; the cells at and right of
+    /// it (`right`, same rows) or at and below it (`down`, same columns)
+    /// move along, and references follow. A range spanning every row /
+    /// column inserts whole columns / rows. Refused (`shift_merged`,
+    /// `shift_table`, `pivot_cell`) where Excel refuses. Undo is the
+    /// matching [`DeleteCells`](Self::DeleteCells).
+    InsertCells {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+        shift: InsertShift,
+    },
+    /// Excel's Delete Cells: removes the range; the cells right of it
+    /// (`left`) or below it (`up`) move into its place. References into
+    /// it become `#REF!`.
+    DeleteCells {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+        shift: DeleteShift,
     },
     /// Adds an empty sheet at position `index` of the sheet order (absent:
     /// last). Undo deletes it; redo brings back the same sheet id.
@@ -968,6 +1006,102 @@ pub enum CalcCommand {
     Compound {
         commands: Vec<CalcCommand>,
     },
+}
+
+/// One line of [`BorderEdits`].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum EdgeEdit {
+    /// No line.
+    None,
+    /// This line style and colour.
+    Line {
+        #[ts(as = "crate::wire::BorderSide")]
+        side: model_sheet::BorderSide,
+    },
+}
+
+/// The edges [`CalcCommand::SetBorders`] changes; absent = unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct BorderEdits {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub top: Option<EdgeEdit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub bottom: Option<EdgeEdit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub left: Option<EdgeEdit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub right: Option<EdgeEdit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub inside_horizontal: Option<EdgeEdit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub inside_vertical: Option<EdgeEdit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub diagonal_up: Option<EdgeEdit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub diagonal_down: Option<EdgeEdit>,
+}
+
+impl BorderEdits {
+    /// The borders of the cell at `(row, col)` of the range `r0..=r1`,
+    /// `c0..=c1` after the edits.
+    pub fn apply(
+        &self,
+        b: model_sheet::Borders,
+        (row, col): (u32, u32),
+        (r0, c0, r1, c1): (u32, u32, u32, u32),
+    ) -> model_sheet::Borders {
+        let edit = |cur: Option<model_sheet::BorderSide>, e: Option<EdgeEdit>| match e {
+            None => cur,
+            Some(EdgeEdit::None) => None,
+            Some(EdgeEdit::Line { side }) => Some(side),
+        };
+        let pick =
+            |outer: bool, o: Option<EdgeEdit>| if outer { o } else { self.inside_horizontal };
+        let pick_v =
+            |outer: bool, o: Option<EdgeEdit>| if outer { o } else { self.inside_vertical };
+        model_sheet::Borders {
+            top: edit(b.top, pick(row == r0, self.top)),
+            bottom: edit(b.bottom, pick(row == r1, self.bottom)),
+            left: edit(b.left, pick_v(col == c0, self.left)),
+            right: edit(b.right, pick_v(col == c1, self.right)),
+            diagonal_up: edit(b.diagonal_up, self.diagonal_up),
+            diagonal_down: edit(b.diagonal_down, self.diagonal_down),
+        }
+    }
+}
+
+/// Where [`CalcCommand::InsertCells`] moves the existing cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum InsertShift {
+    Right,
+    Down,
+}
+
+/// Where [`CalcCommand::DeleteCells`] takes the replacing cells from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum DeleteShift {
+    Left,
+    Up,
 }
 
 /// The view settings [`CalcCommand::SetSheetView`] changes; absent fields

@@ -80,6 +80,12 @@ pub struct Borders {
     pub top: Option<BorderSide>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bottom: Option<BorderSide>,
+    /// Line from the bottom-left to the top-right corner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagonal_up: Option<BorderSide>,
+    /// Line from the top-left to the bottom-right corner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagonal_down: Option<BorderSide>,
 }
 
 impl Borders {
@@ -95,6 +101,8 @@ impl Borders {
             right: patch.right.or(self.right),
             top: patch.top.or(self.top),
             bottom: patch.bottom.or(self.bottom),
+            diagonal_up: patch.diagonal_up.or(self.diagonal_up),
+            diagonal_down: patch.diagonal_down.or(self.diagonal_down),
         }
     }
 }
@@ -132,6 +140,13 @@ pub struct Alignment {
     pub wrap_text: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub indent: Option<u8>,
+    /// Shrink the text to fit the column width (ignored with wrap text).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shrink_to_fit: Option<bool>,
+    /// Text orientation in degrees, `-90..=90` (positive = counter-clockwise,
+    /// as Excel's Format Cells; xlsx stores negative angles as `90 - a`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_rotation: Option<i16>,
 }
 
 impl Alignment {
@@ -147,6 +162,35 @@ impl Alignment {
             vertical: patch.vertical.or(self.vertical),
             wrap_text: patch.wrap_text.or(self.wrap_text),
             indent: patch.indent.or(self.indent),
+            shrink_to_fit: patch.shrink_to_fit.or(self.shrink_to_fit),
+            text_rotation: patch.text_rotation.or(self.text_rotation),
+        }
+    }
+}
+
+/// Cell protection (effective only on a protected sheet); `None` =
+/// Excel's default (locked, not hidden).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Protection {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked: Option<bool>,
+    /// Hide the formula in the formula bar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+}
+
+impl Protection {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// `self` overlaid with `patch`, field by field.
+    #[must_use]
+    pub fn merged_with(&self, patch: &Protection) -> Protection {
+        Protection {
+            locked: patch.locked.or(self.locked),
+            hidden: patch.hidden.or(self.hidden),
         }
     }
 }
@@ -167,6 +211,8 @@ pub struct CellStyle {
     /// Number format code (see [`crate::numfmt`]); `None` = `General`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Protection::is_default")]
+    pub protection: Protection,
 }
 
 impl CellStyle {
@@ -189,6 +235,7 @@ impl CellStyle {
                 .number_format
                 .clone()
                 .or_else(|| self.number_format.clone()),
+            protection: self.protection.merged_with(&patch.protection),
         }
     }
 
@@ -224,9 +271,12 @@ impl CellStyle {
                 side(&self.borders.right),
                 side(&self.borders.top),
                 side(&self.borders.bottom),
+                side(&self.borders.diagonal_up),
+                side(&self.borders.diagonal_down),
             ],
             alignment: self.alignment,
             number_format: self.number_format.as_deref(),
+            protection: self.protection,
         }
     }
 }
@@ -260,9 +310,10 @@ struct StyleKey<'a> {
     highlight: Option<ColorKey>,
     vertical_align: Option<VerticalAlign>,
     fill: Option<Option<ColorKey>>,
-    borders: [Option<(BorderStyle, ColorKey)>; 4],
+    borders: [Option<(BorderStyle, ColorKey)>; 6],
     alignment: Alignment,
     number_format: Option<&'a str>,
+    protection: Protection,
 }
 
 impl PartialEq for CellStyle {
@@ -431,6 +482,7 @@ mod tests {
                 ..Default::default()
             },
             number_format: Some("0.00".into()),
+            ..Default::default()
         };
         let patch = CellStyle {
             font: RunProperties {

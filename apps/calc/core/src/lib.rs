@@ -45,8 +45,9 @@ pub mod wire_tables;
 
 pub use annotations::{CellAnnotations, FormulaLink, SheetAnnotations, SheetThreads};
 pub use command::{
-    CalcCommand, ClipCell, FillMode, PasteMode, PasteOperation, PasteParts, PasteSpecial,
-    RangeFormat, Rect, SheetRect, SheetViewPatch, SubtotalFunction,
+    BorderEdits, CalcCommand, ClipCell, DeleteShift, EdgeEdit, FillMode, InsertShift, PasteMode,
+    PasteOperation, PasteParts, PasteSpecial, RangeFormat, Rect, SheetRect, SheetViewPatch,
+    SubtotalFunction,
 };
 pub use dispatch::{dispatch, CalcHost, Request, Response, ResponseBody};
 pub use display::{display_value, UNDISPLAYABLE};

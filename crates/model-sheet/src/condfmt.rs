@@ -48,7 +48,7 @@ use std::collections::{BTreeMap, HashMap};
 use core_model::{Color, ColorScheme, Rgb};
 use engine_formula::eval::{evaluate, CellProvider};
 use engine_formula::value::{compare, to_number, to_text};
-use engine_formula::{offset_relative, CellCoord, CellRect, Expr, SheetId, StructuralOp, Value};
+use engine_formula::{offset_relative, CellCoord, CellRect, CellShift, Expr, SheetId, Value};
 use serde::{Deserialize, Serialize};
 
 use crate::rules::{
@@ -1063,7 +1063,7 @@ impl Workbook {
 
     /// Moves the rules and validations of every sheet for a row/column
     /// insert or delete on `sheet` (see `crate::rules`).
-    pub(crate) fn shift_rules(&mut self, sheet: SheetId, op: StructuralOp) {
+    pub(crate) fn shift_rules(&mut self, sheet: SheetId, op: CellShift) {
         let names: Vec<(SheetId, String)> = self.sheets();
         let Some(target) = names
             .iter()

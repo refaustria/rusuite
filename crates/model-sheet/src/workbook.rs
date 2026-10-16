@@ -40,7 +40,8 @@
 use core_model::Color;
 use engine_formula::ast::{MAX_COL, MAX_ROW};
 use engine_formula::{
-    CellContent, CellCoord, Engine, EngineError, Recalc, RowHidden, SheetId, StructuralOp, Value,
+    CellContent, CellCoord, CellShift, Engine, EngineError, Recalc, RowHidden, SheetId,
+    StructuralOp, Value,
 };
 
 use crate::sheet::{
@@ -728,6 +729,76 @@ impl Workbook {
         self.structural(sheet, StructuralOp::DeleteCols { at, count })
     }
 
+    /// Excel's Insert / Delete Cells with a shift: `op` restricted to the
+    /// band `lo..=hi` of the other axis ([`CellShift`]; `InsertCols` =
+    /// "shift cells right" for rows `lo..=hi`, `DeleteRows` = "shift cells
+    /// up" for columns `lo..=hi`, …). Contents, formulas
+    /// ([`engine_formula::adjust_references_shift`]), cell styles, merges
+    /// lying inside the band, notes, threads, hyperlinks, rule ranges and
+    /// formulas and chart references follow; dimensions, frozen panes,
+    /// charts' and pictures' positions stay. Refused like Excel when the
+    /// edit would cut a merge ([`Error::ShiftMerged`]) or shift cells of a
+    /// table or the AutoFilter range ([`Error::ShiftTable`]) or of a pivot
+    /// table ([`Error::PivotCell`]).
+    pub fn shift_cells(
+        &mut self,
+        sheet: SheetId,
+        op: StructuralOp,
+        lo: u32,
+        hi: u32,
+    ) -> Result<Recalc, Error> {
+        let shift = CellShift::new(op, lo, hi);
+        let data = self.sheet_data(sheet);
+        if data
+            .merges
+            .iter()
+            .any(|m| shift.splits((m.r0, m.c0, m.r1, m.c1)))
+        {
+            return Err(Error::ShiftMerged);
+        }
+        let filtered = data
+            .auto_filter
+            .as_ref()
+            .is_some_and(|af| shift.touches((af.r0, af.c0, af.r1, af.c1)));
+        let in_table = self
+            .tables(sheet)
+            .iter()
+            .any(|t| shift.touches((t.r0, t.c0, t.r1, t.c1)));
+        if filtered || in_table {
+            return Err(Error::ShiftTable);
+        }
+        let (at, _) = op.span();
+        let (lo, hi) = (lo.min(hi), lo.max(hi));
+        let region = if op.is_rows() {
+            CellRange::new(sheet, at, lo, MAX_ROW, hi)
+        } else {
+            CellRange::new(sheet, lo, at, hi, MAX_COL)
+        };
+        self.check_pivot_edit(region)?;
+        let recalc = self.engine.shift_cells(sheet, op, lo, hi)?;
+        if op.span().1 == 0 {
+            return Ok(recalc);
+        }
+        let data = self.sheet_data_mut(sheet)?;
+        let styles = std::mem::take(&mut data.cell_styles)
+            .into_iter()
+            .filter_map(|((r, c), id)| shift.map_cell(r, c).map(|p| (p, id)))
+            .collect();
+        data.replace_cell_styles(styles);
+        data.merges = std::mem::take(&mut data.merges)
+            .into_iter()
+            .filter_map(|m| {
+                let (r0, c0, r1, c1) = shift.map_rect((m.r0, m.c0, m.r1, m.c1))?;
+                let m = MergeRect { r0, c0, r1, c1 };
+                (m.cells() >= 2).then_some(m)
+            })
+            .collect();
+        self.shift_rules(sheet, shift);
+        self.shift_charts(sheet, shift);
+        self.shift_annotations(sheet, shift);
+        Ok(recalc)
+    }
+
     /// Runs `op` on the engine, then moves cell styles and the row/column
     /// dimension map of the affected axis with
     /// [`StructuralOp::map_cell`] / [`StructuralOp::map_index`] (entries
@@ -846,9 +917,9 @@ impl Workbook {
                 ..st
             })
         });
-        self.shift_rules(sheet, op);
-        self.shift_charts(sheet, op);
-        self.shift_annotations(sheet, op);
+        self.shift_rules(sheet, op.into());
+        self.shift_charts(sheet, op.into());
+        self.shift_annotations(sheet, op.into());
         self.shift_pivots(sheet, op);
         self.shift_page_breaks(sheet, op);
         self.shift_pictures(sheet, op);

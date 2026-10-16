@@ -164,27 +164,30 @@ fn cycles() {
     assert_eq!(e.set_input(c("A1"), "=B1").unwrap().cycle, None);
     let r = e.set_input(c("B1"), "=A1").unwrap();
     assert_eq!(r.cycle.unwrap().cells, cells(&["A1", "B1"]));
-    assert_eq!(e.value(c("A1")), Value::Error(ErrorKind::Num));
-    assert_eq!(e.value(c("B1")), Value::Error(ErrorKind::Num));
+    // Excel (iterative calculation off): the cells of a cycle show 0.
+    assert_eq!(e.value(c("A1")), n(0.0));
+    assert_eq!(e.value(c("B1")), n(0.0));
+    assert!(e.cycle_through(&[c("A1")]).is_some());
 
     let r = e.set_input(c("C1"), "=1+1").unwrap();
     assert_eq!(r.cycle, None);
     assert_eq!(e.value(c("C1")), n(2.0));
 
-    // A dependent of the cycle is still computed and sees the error.
-    let r = e.set_input(c("D1"), "=ISERROR(A1)").unwrap();
-    assert_eq!(e.value(c("D1")), Value::Bool(true));
+    // A dependent of the cycle is still computed and sees the 0.
+    let r = e.set_input(c("D1"), "=A1+5").unwrap();
+    assert_eq!(e.value(c("D1")), n(5.0));
     assert_eq!(r.cycle, None);
 
     let r = e.set_input(c("B1"), "1").unwrap();
     assert_eq!(r.cycle, None);
     assert_eq!(e.value(c("A1")), n(1.0));
-    assert_eq!(e.value(c("D1")), Value::Bool(false));
+    assert_eq!(e.value(c("D1")), n(6.0));
     assert_eq!(r.changed, cells(&["A1", "D1"]));
+    assert!(e.cycle_through(&[c("A1"), c("B1")]).is_none());
 
     let r = e.set_input(c("E1"), "=E1+1").unwrap();
     assert!(r.cycle.is_some());
-    assert_eq!(e.value(c("E1")), Value::Error(ErrorKind::Num));
+    assert_eq!(e.value(c("E1")), n(0.0));
 }
 
 #[test]

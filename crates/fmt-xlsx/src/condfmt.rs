@@ -155,6 +155,7 @@ pub(crate) fn parse_dxfs(dxfs: &El, color: &dyn Fn(&El) -> Option<Color>) -> Vec
                     right: side(&["right", "end"]),
                     top: side(&["top"]),
                     bottom: side(&["bottom"]),
+                    ..Borders::default()
                 };
             }
             d

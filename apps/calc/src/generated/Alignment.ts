@@ -5,4 +5,8 @@ import type { VAlign } from "./VAlign";
 /**
  * Mirror of `model_sheet::Alignment`.
  */
-export type Alignment = { horizontal?: HAlign | null, vertical?: VAlign | null, wrapText?: boolean | null, indent?: number | null, };
+export type Alignment = { horizontal?: HAlign | null, vertical?: VAlign | null, wrapText?: boolean | null, indent?: number | null, shrinkToFit?: boolean | null, 
+/**
+ * Degrees, `-90..=90`, positive = counter-clockwise.
+ */
+textRotation?: number | null, };

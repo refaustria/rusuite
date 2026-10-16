@@ -15,6 +15,7 @@ import { InsertFunctionDialog } from "./formulas/InsertFunctionDialog";
 import type { FindOptions } from "./state/find";
 import { unhideableSheets, useCalc, type CalcStore } from "./state/store";
 import { useT } from "./i18n";
+import { cellsChoices, defaultCellsChoice, type CellsChoice, type CellsMode } from "./state/shiftCells";
 import { CfDialog } from "./condFormat/CfDialogs";
 import { ValidationDialog } from "./validation/ValidationDialogs";
 import { ChartDialog } from "./charts/ChartDialogs";
@@ -136,6 +137,53 @@ function FindPanel({ store, replace }: { store: CalcStore; replace: boolean }) {
   );
 }
 
+/** Excel's Insert / Delete dialog for a cell selection: shift cells or entire rows / columns. */
+function CellsDialog({ store, mode }: { store: CalcStore; mode: CellsMode }) {
+  const t = useT();
+  const [choice, setChoice] = useState<CellsChoice>(() => defaultCellsChoice(mode, store.selectionRange()));
+  const close = () => {
+    store.closeDialog();
+    store.focusGrid();
+  };
+  const label: Record<CellsChoice, string> = {
+    right: t("calc.cells.right"),
+    down: t("calc.cells.down"),
+    left: t("calc.cells.left"),
+    up: t("calc.cells.up"),
+    rows: t("calc.sc.entireRow"),
+    cols: t("calc.sc.entireCol"),
+  };
+  return (
+    <Dialog open title={mode === "insert" ? t("calc.cells.insertTitle") : t("calc.cells.deleteTitle")} onClose={close}>
+      <form
+        className="flex w-64 flex-col gap-2 text-sm"
+        onSubmit={(e) => {
+          e.preventDefault();
+          close();
+          void store.shiftCells(mode, choice);
+        }}
+      >
+        <div role="radiogroup" aria-label={mode === "insert" ? t("calc.cells.insertTitle") : t("calc.cells.deleteTitle")} className="flex flex-col gap-1">
+          {cellsChoices(mode).map((c) => (
+            <label key={c} className="flex items-center gap-2">
+              <input type="radio" name="cells-shift" value={c} checked={choice === c} onChange={() => setChoice(c)} />
+              {label[c]}
+            </label>
+          ))}
+        </div>
+        <div className="flex justify-end gap-2">
+          <button type="submit" className={BTN}>
+            {t("common.ok")}
+          </button>
+          <button type="button" className={BTN} onClick={close}>
+            {t("common.cancel")}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
 /** Theme colours (no tint) then the standard colours, as in Excel's tab colour menu. */
 const TAB_COLORS: { label: string; color: Color }[] = [
   ...THEME_SLOTS.map((slot) => ({ label: `theme-${slot}`, color: { kind: "theme", value: { slot, tint: 0 } } as Color })), // i18n-ignore: an id, named at render
@@ -246,6 +294,8 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
   switch (dialog.kind) {
     case "numberFormat":
       return <NumberFormatDialog store={store} />;
+    case "cells":
+      return <CellsDialog store={store} mode={dialog.mode} />;
     case "tabColor":
       return <TabColorDialog store={store} sheet={dialog.sheet} />;
     case "renameSheet": {

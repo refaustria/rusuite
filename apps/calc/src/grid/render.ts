@@ -95,6 +95,21 @@ function withFormatColor<T extends { color: string }>(attrs: T, cell: CellView, 
 }
 
 /** `#` repeated across `width` (a number that does not fit). */
+/**
+ * Format Cells › Alignment › Shrink to fit: the font scaled down so that
+ * `text` fits `avail` px (never below 1 px, never larger; off with wrap
+ * text, as in Excel).
+ */
+export function shrunkFont(style: CellStyle, text: string, avail: number, font: string, measure: Measure): string {
+  if (!style.alignment?.shrinkToFit || style.alignment.wrapText || text === "") return font;
+  const width = measure(text.replace(/\n/g, " "), font);
+  if (width <= avail || width <= 0) return font;
+  const m = /([\d.]+)px/.exec(font);
+  if (!m) return font;
+  const px = Math.max(1, (Number(m[1]) * Math.max(0, avail)) / width);
+  return font.replace(m[0], `${px.toFixed(2)}px`);
+}
+
 export function hashes(width: number, font: string, measure: Measure): string {
   return "#".repeat(Math.max(1, Math.floor(width / Math.max(1, measure("#", font)))));
 }
@@ -131,6 +146,8 @@ export type RenderOp =
       color: string;
       underline: boolean;
       strike: boolean;
+      /** Format Cells › Alignment › Orientation: degrees counter-clockwise (drawn around the cell centre, clipped to it). */
+      rotation?: number;
     }
   | { op: "line"; x1: number; y1: number; x2: number; y2: number; color: string; width: number; dash: number[] }
   /** A conditional-formatting data bar: the bar rect, its colour, and the zero axis (x) when the rule has negative values. */
@@ -300,6 +317,8 @@ export function computeRenderOps(
         if (b.bottom) lines.push(borderLine(b.bottom, x, y + h, x + w, y + h));
         if (b.left) lines.push(borderLine(b.left, x, y, x, y + h));
         if (b.right) lines.push(borderLine(b.right, x + w, y, x + w, y + h));
+        if (b.diagonalUp) lines.push(borderLine(b.diagonalUp, x, y + h, x + w, y));
+        if (b.diagonalDown) lines.push(borderLine(b.diagonalDown, x, y, x + w, y + h));
       }
     }
     if (!rowCells) continue;
@@ -322,9 +341,17 @@ export function computeRenderOps(
       const x = xOf(c) + shift;
       const w = colGeo.size(c) - shift;
       if (w <= 0) continue;
-      const t = withFormatColor(look ? resolveText(cfStyle(withLook(style, look), cf)) : textAttrs(styleId, style, cf), cell, cf);
+      const t0attrs = withFormatColor(look ? resolveText(cfStyle(withLook(style, look), cf)) : textAttrs(styleId, style, cf), cell, cf);
       const avail = w - 2 * CELL_PADDING;
+      const t = { ...t0attrs, font: shrunkFont(style, cell.display, avail, t0attrs.font, measure) };
       const base = { op: "text" as const, row: r, col: c, x, y, w, h, align, ...t };
+      const rotation = style.alignment?.textRotation ?? 0;
+      if (rotation !== 0) {
+        // Rotated text stays inside its cell (Excel lets it overflow; kept simple).
+        if (c < vis.c0 || c > vis.c1) continue;
+        texts.push({ ...base, text: cell.display.replace(/\n/g, " "), clipX: x, clipW: w, rotation });
+        continue;
+      }
       const filled = fillText(cell, avail, t.font, measure);
       if (filled !== null && !style.alignment?.wrapText) {
         if (c < vis.c0 || c > vis.c1) continue;
@@ -537,6 +564,19 @@ export function drawOps(ctx: CanvasRenderingContext2D, ops: RenderOp[], bg: stri
             ctx.fillText(line, tx, ly);
             if (o.underline || o.strike) decorate(ctx, o, line, tx, ly, "middle");
           });
+          ctx.restore();
+          break;
+        }
+        if (o.rotation) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(o.x, o.y, o.w - 1, o.h - 1);
+          ctx.clip();
+          ctx.translate(o.x + o.w / 2, o.y + o.h / 2);
+          ctx.rotate((-o.rotation * Math.PI) / 180);
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(o.text, 0, 0);
           ctx.restore();
           break;
         }

@@ -4,4 +4,4 @@ import type { BorderSide } from "./BorderSide";
 /**
  * Mirror of `model_sheet::Borders`.
  */
-export type Borders = { left?: BorderSide | null, right?: BorderSide | null, top?: BorderSide | null, bottom?: BorderSide | null, };
+export type Borders = { left?: BorderSide | null, right?: BorderSide | null, top?: BorderSide | null, bottom?: BorderSide | null, diagonalUp?: BorderSide | null, diagonalDown?: BorderSide | null, };

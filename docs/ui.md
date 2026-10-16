@@ -370,7 +370,7 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
 - **Calc**: Home (Undo; Clipboard: Paste ▾ values, Cut, Copy – `calcActions`; Font incl. borders; Alignment incl. wrap and
   Merge & Center ▾ (Merge & Center – a toggle that unmerges a merged selection –, Merge Across, Merge Cells, Unmerge Cells);
   Number: the Number Format box (Excel's eleven entries with previews), Accounting ▾, %, Comma Style, decimals ±
-  (see [number-formats.md](number-formats.md)); Styles: Conditional Formatting ▾; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide
+  (see [number-formats.md](number-formats.md)); Styles: Conditional Formatting ▾; Cells: Insert ▾ (Insert Cells…, rows, columns, sheet), Delete ▾ (Delete Cells…, rows, columns, sheet), Format ▾ (row height, column width, autofit, hide/unhide
   rows and columns, Hide Sheet / Unhide Sheet…, Format cells…); Editing: Clear, Find ▾ Replace, Sort & Filter ▾ (Sort A
   to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (Tables › PivotTable, Table; Illustrations › Pictures; New sheet, rows/columns, Charts, Links › Link), Page Layout (P8-35), Formulas (see below), Data (Get & Transform › From Text/CSV; Sort & Filter: A→Z,
   Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Text to Columns, Remove Duplicates, Data Validation…; Forecast › What-If Analysis › Goal Seek…; Outline: Group ▾, Ungroup ▾, Subtotal, Show/Hide Detail), Review (Comments, Notes ▾; see below), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
@@ -555,7 +555,38 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   today's date / the current time; Ctrl+PageDown / PageUp switch sheets (desktop; browsers keep some of these keys).
   Renaming a sheet rewrites the formulas that name it (`=Sheet2!A1` → `='Data 2'!A1`). The fill handle continues
   weekdays and months (`Mon`, `January`; the source's letter case). Not done: German decimal commas in typed numbers
-  (pending the locale decision of number-formats.md), formula results inheriting the format of the cells they refer to.
+  (pending the locale decision of number-formats.md). A formula typed into a General cell takes the number format of
+  the first formatted cell it refers to when it is a single reference or simple arithmetic on references (`=A1`,
+  `=A1*2`, `=-(A2)+1`; not functions, comparisons, text or ranges), as Excel (P8-44).
+- **Calc Insert / Delete Cells** (P8-44, `state/shiftCells.ts`): Home › Insert ▾ › Insert Cells…, Delete ▾ › Delete
+  Cells…, the cell menu's Insert… / Delete… and Ctrl++ / Ctrl+- on a cell selection open Excel's dialog (Shift cells
+  right / down – left / up –, Entire row, Entire column) → `insertCells` / `deleteCells` (`engine_formula::CellShift`:
+  the edit of whole columns / rows restricted to the selection's rows / columns). Cells, styles, notes, threads,
+  hyperlinks, merges inside the band, rule ranges and every formula, name, rule and chart reference follow (an area
+  reference only when it lies inside the band across, as in Excel; others stay); dimensions, charts and pictures stay.
+  Refused like Excel: cutting a merge ("We can't do that to a merged cell."), shifting cells of a table or the AutoFilter
+  range, of a pivot table, or pushing cells off the sheet. A selection spanning every row / column inserts whole columns
+  / rows. Undo is the opposite command plus the deleted cells and the original text of rewritten formulas.
+- **Calc Format Cells** (P8-44, `numfmt/NumberFormatDialog.tsx`, `FormatCellsTabs.tsx`, `formatCells.ts`): Ctrl+1 (and
+  Format ▾ › Format cells…, the cell menu) opens Excel's dialog on Number; the other tabs are Alignment (horizontal,
+  vertical, indent, wrap text, shrink to fit, merge cells, orientation −90…90° as `alignment.textRotation`), Font
+  (family, style, size, underline none/single/double, colour, strikethrough, superscript, subscript, preview), Border
+  (presets None / Outline / Inside, the eight edge buttons around a clickable 2 × 2 preview incl. both diagonals, seven
+  line styles, colour → the core's `setBorders`, which sets outer and inner edges per cell and can remove lines), Fill
+  (No Color, theme and standard colours, sample; patterns are not offered) and Protection (Locked, Hidden – stored and
+  saved; sheet protection itself is not implemented). OK sends only what changed (`formatCommands`), as one compound.
+  The grid draws rotated text (inside its cell), shrinks the font of shrink-to-fit cells and draws diagonal borders;
+  the print view does not show rotation or diagonals yet. `fmt-xlsx` reads and writes `textRotation`, `shrinkToFit`,
+  `<protection>` and the diagonal (`diagonalUp` / `diagonalDown`, one line style as in SpreadsheetML).
+- **Calc circular references** (P8-44): as Excel with iterative calculation off, the cells of a cycle show 0 (their
+  dependents compute with it) and the status bar says "Circular reference: B8" (the cycle's first cell; with a sheet
+  prefix in a workbook of several sheets) for as long as the cycle exists (`CalcDocument` re-checks it after every
+  command with `Engine::cycle_through`).
+- **Calc Backspace and column widening** (P8-44): Backspace opens the cell editor on the active cell with the content
+  cleared (Enter clears the cell, Esc keeps it; a selected chart, picture or note box is deleted instead); Delete clears
+  the selection. Typing a number (a constant, not a formula) into a column nobody sized widens the column to fit the
+  displayed number (`state/autoWiden.ts`, a separate `setColWidth` after the entry), as Excel; columns never get
+  narrower, wrapped and merged cells are left alone.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).

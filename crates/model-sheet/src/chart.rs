@@ -12,7 +12,8 @@
 use core_model::chart::{Chart, ChartKind, ChartValue, ResolvedChart, ResolvedSeries, TextSource};
 use engine_formula::ast::{RangeKind, MAX_COL, MAX_ROW};
 use engine_formula::{
-    adjust_references, parse, AdjustContext, CellCoord, Expr, SheetId, StructuralOp, Value,
+    adjust_references_shift, parse, AdjustContext, CellCoord, CellShift, Expr, SheetId,
+    StructuralOp, Value,
 };
 use serde::{Deserialize, Serialize};
 
@@ -471,7 +472,8 @@ impl Workbook {
 
     /// After a row/column insert or delete on `sheet`: moves the anchors
     /// of its charts and adjusts every chart reference to it.
-    pub(crate) fn shift_charts(&mut self, sheet: SheetId, op: StructuralOp) {
+    pub(crate) fn shift_charts(&mut self, sheet: SheetId, shift: CellShift) {
+        let op = shift.op;
         let names = self.sheets();
         let Some(target) = names
             .iter()
@@ -490,12 +492,12 @@ impl Workbook {
                 op,
             };
             for obj in &mut data.charts {
-                if *id == sheet {
+                if *id == sheet && shift.band.is_none() {
                     obj.anchor.shift(op);
                 }
                 for f in obj.chart.formulas_mut() {
                     let Some(ast) = parse_ref(f) else { continue };
-                    let adjusted = adjust_references(&ast, &ctx);
+                    let adjusted = adjust_references_shift(&ast, &ctx, shift.band);
                     if adjusted != ast {
                         *f = adjusted.to_string().trim_start_matches('=').to_owned();
                     }

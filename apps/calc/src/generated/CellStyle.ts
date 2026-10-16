@@ -3,6 +3,7 @@ import type { RunProperties } from "../../../../packages/ui-shared/src/generated
 import type { Alignment } from "./Alignment";
 import type { Borders } from "./Borders";
 import type { Fill } from "./Fill";
+import type { Protection } from "./Protection";
 
 /**
  * Mirror of `model_sheet::CellStyle`: every part optional (absent =
@@ -13,4 +14,4 @@ export type CellStyle = { font?: RunProperties | null, fill?: Fill | null, borde
 /**
  * Number format code (`"0.00"`, `"yyyy-mm-dd"`); absent = `General`.
  */
-numberFormat?: string | null, };
+numberFormat?: string | null, protection?: Protection | null, };

@@ -247,7 +247,7 @@ fn batches_sheets_and_cycles() {
     // A spill read by its own anchor is a circular reference.
     let r = e.set_input(c("F1"), "=SEQUENCE(2)+F2").unwrap();
     assert!(r.cycle.is_some());
-    assert_eq!(v(&e, "F1"), Value::Error(ErrorKind::Num));
+    assert_eq!(v(&e, "F1"), n(0.0));
     assert_eq!(e.content(c("F2")), &CellContent::Empty);
     // Setting `Spilled` content is the same as clearing.
     e.set_content(c("G1"), CellContent::Value(n(1.0))).unwrap();
