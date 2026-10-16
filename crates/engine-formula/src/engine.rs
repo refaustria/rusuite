@@ -705,7 +705,9 @@ pub fn parse_input(input: &str) -> Result<CellContent, ParseError> {
         Value::Error(k)
     } else if input.trim() == input {
         // Surrounding whitespace keeps the input text (as in Excel).
-        match parse_number_text(input) {
+        // Numbers, percentages, currencies, fractions, dates and times
+        // (`crate::entry`); the format Excel gives them is the caller's.
+        match parse_number_text(input).or_else(|| crate::entry::recognize(input).map(|e| e.value)) {
             Some(n) => Value::Number(n),
             None => Value::Text(input.to_string()),
         }
@@ -994,10 +996,16 @@ impl Engine {
         Ok((new, recalc))
     }
 
-    /// Renames a sheet. Formulas referencing it keep working (their ASTs are
-    /// updated; their text is not); formulas referencing `new_name` while
-    /// no such sheet existed are re-resolved and recalculated.
-    pub fn rename_sheet(&mut self, id: SheetId, new_name: &str) -> Result<(), EngineError> {
+    /// Renames a sheet. Formulas referencing it keep working: their ASTs
+    /// and their text are rewritten (`=Sheet2!A1` → `='Data 2'!A1`, as in
+    /// Excel); formulas referencing `new_name` while no such sheet existed
+    /// are re-resolved and recalculated. Returns the rewritten formula
+    /// cells.
+    pub fn rename_sheet(
+        &mut self,
+        id: SheetId,
+        new_name: &str,
+    ) -> Result<Vec<CellCoord>, EngineError> {
         let idx = self.sheet_index(id)?;
         if let Some(other) = find_sheet(&self.sheets, new_name) {
             if other != id {
@@ -1005,11 +1013,15 @@ impl Engine {
             }
         }
         let old = std::mem::replace(&mut self.sheets[idx].name, new_name.to_string());
+        let mut rewritten = Vec::new();
         if !same_name(&old, new_name) {
-            for sheet in &mut self.sheets {
-                for content in sheet.cells.values_mut() {
-                    if let CellContent::Formula { ast, .. } = content {
-                        rename_refs(ast, &old, new_name);
+            for (i, sheet) in self.sheets.iter_mut().enumerate() {
+                for (&(row, col), content) in sheet.cells.iter_mut() {
+                    if let CellContent::Formula { text, ast } = content {
+                        if rename_refs(ast, &old, new_name) {
+                            *text = format!("={ast}");
+                            rewritten.push(CellCoord::new(SheetId(i as u32), row, col));
+                        }
                     }
                 }
             }
@@ -1020,7 +1032,8 @@ impl Engine {
             }
             self.reresolve(new_name);
         }
-        Ok(())
+        rewritten.sort_unstable();
+        Ok(rewritten)
     }
 
     pub fn sheet_id(&self, name: &str) -> Option<SheetId> {
@@ -2475,6 +2488,23 @@ mod tests {
         assert!(rename_refs(&mut e, "DATA", "Facts"));
         assert_eq!(e.to_string(), "SUM(Facts!A1:A2,Other!B1)+Facts!C1");
         assert!(!rename_refs(&mut e, "Data", "X"));
+    }
+
+    #[test]
+    fn rename_sheet_rewrites_formula_text() {
+        // P8-39 (C-18): the text follows the AST, so the formula bar, copies
+        // and the saved file name the new sheet.
+        let mut e = Engine::new();
+        let other = e.add_sheet("Sheet2").unwrap();
+        let a1 = CellCoord::new(SheetId(0), 0, 0);
+        e.set_input(CellCoord::new(other, 0, 0), "42").unwrap();
+        e.set_input(a1, "=Sheet2!A1+1").unwrap();
+        e.set_input(CellCoord::new(SheetId(0), 1, 0), "=A1")
+            .unwrap();
+        assert_eq!(e.rename_sheet(other, "Data 2").unwrap(), vec![a1]);
+        assert_eq!(e.formula_text(a1), Some("='Data 2'!A1+1"));
+        assert_eq!(e.value(a1), Value::Number(43.0));
+        assert_eq!(e.rename_sheet(other, "Data 2").unwrap(), vec![]);
     }
 
     #[test]

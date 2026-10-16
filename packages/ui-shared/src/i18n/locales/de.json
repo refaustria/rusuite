@@ -489,6 +489,8 @@
   "sc.format": "Format",
   "sc.navigation": "Navigation",
   "sc.printTip": "Drucken (Datei › Drucken: Einstellungen und Seitenansicht)",
+  "ai.settings.desktopOnly": "Der KI-Assistent ist in den Desktop-Apps verfügbar.",
+  "ai.settings.desktopDownloads": "Desktop-Apps herunterladen",
   "settings.ai": "KI",
   "settings.appOptions": "Optionen der App öffnen…",
   "settings.general": "Allgemein",

@@ -302,6 +302,7 @@ Alt pressed and released alone focuses the active tab (again: back to where the 
 (File included), Enter/Space activate (File opens the backstage), ↓ enters the tab's commands, Esc returns to the document.
 Ctrl+F1 (or double-clicking a tab, or the chevron) collapses/expands; while collapsed, activating a tab shows its groups over the
 document until a command runs, Esc, or a click elsewhere. Menus and galleries use the arrow keys; Esc closes them.
+Ribbon dropdown panels near the window's right edge move left to stay in the window (P8-39).
 
 ## Tabs per app
 
@@ -480,6 +481,20 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   Delete removes a whole table, selects the table with Ctrl+A inside it, autofits the table's columns after
   each update, shows "Data changed – Refresh" over a sheet with a stale table (and a status-bar hint) and, in
   point mode, inserts `GETPIVOTDATA(…)` for a clicked value.
+- **Calc entry and clipboard** (P8-39): a typed constant is recognised as Excel does (`engine_formula::entry`): `1,234`,
+  `12%`, `$1,234.50` / `€12` / `12 €`, `(5)`, `1e3`, `1 1/2`, dates (`3/4/2024`, `2024-03-04`, `4.3.2024`, `4-Mar`,
+  `March 4, 2024`, `Mar 2024`), times (`13:45`, `1:30 PM`) and date + time; a General cell gets the matching format
+  (`#,##0`, `0%`, currency, `0.00E+00`, `# ?/?`, `m/d/yyyy`, `d-mmm`, `h:mm`, …), an `@` (Text) cell keeps the typed text.
+  The formula bar shows dates as `m/d/yyyy`, times as `h:mm:ss AM/PM` and percentages as `12%` (the raw number when that
+  form would not round-trip exactly). The formula bar is a one-line textarea (line breaks of Alt+Enter survive editing
+  there). Ctrl+Enter commits without moving and puts the entry into every cell of a selected range. Ctrl+C puts the
+  displayed values on the system clipboard (formulas as their results; cells with line breaks quoted, as Excel's TSV); the
+  internal copy keeps formulas and formats. Number format keys: Ctrl+Shift+~ General, ! `#,##0.00`, @ `h:mm AM/PM`,
+  # `d-mmm-yy`, $ currency, % `0%`, ^ `0.00E+00`; Ctrl+5 strikethrough; Ctrl+; / Ctrl+Shift+: start the editor with
+  today's date / the current time; Ctrl+PageDown / PageUp switch sheets (desktop; browsers keep some of these keys).
+  Renaming a sheet rewrites the formulas that name it (`=Sheet2!A1` → `='Data 2'!A1`). The fill handle continues
+  weekdays and months (`Mon`, `January`; the source's letter case). Not done: German decimal commas in typed numbers
+  (pending the locale decision of number-formats.md), formula results inheriting the format of the cells they refer to.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).
@@ -515,6 +530,13 @@ backstage. The UI language follows the browser by default and switches in place;
 
 ## Cloud connections (P8-36)
 
+**Desktop apps only (P8-42, owner decision 2026-10-16):** the web CSP stays `connect-src 'self'`, so the web build has no
+connections: `WasmBackend` creates no `Connectors`, File › Open / Save As go straight to the device dialogs (no Connections
+section, no "Add a connection…") and the Privacy entry has no "Forget all connections". The web code paths (IndexedDB
+store, `fetch` provider, CSP detection) stay for the e2e suite, which pretends to be a desktop app with
+`window.__RUSUITE_PLATFORM__ = "desktop"` (`simulatedDesktop()` in `backend.ts`, set via `addInitScript`; it only reveals
+UI, the CSP still blocks other hosts). The text below describes the desktop apps.
+
 Generic and opt-in (owner 2026-10-16; ADR 0009 amendment): the user adds a WebDAV server (Nextcloud, ownCloud, a NAS,
 a hosted drive); Rusuite offers no cloud and contacts nothing until then. Code: `packages/ui-shared/src/connectors`
 (`FileProvider`, `Connectors` controller = `Backend.connectors` = `session.connectors`, transports, stores, UI).
@@ -547,6 +569,10 @@ a hosted drive); Rusuite offers no cloud and contacts nothing until then. Code: 
   prompt), which Save As › a connection runs while `Connectors.pendingSave` points at the target.
 
 ## AI assistant (P8-37)
+
+**Desktop apps only (P8-42):** on the web build `Backend.ai` exists with `available: false` – no Home › AI group, no
+Ctrl+Shift+A, no pane, no status-bar item, no requests – and File › Options… › AI shows only "The AI assistant is available
+in the desktop apps." with a "Download the desktop apps" link (`AiDesktopOnly`). The text below describes the desktop apps.
 
 Opt-in, the user's own provider account and key, client-side (ADR 0009 amendment; design `docs/ai-plan.md`). Code:
 `packages/ui-shared/src/ai` (`Assistant` = `Backend.ai` = `session.ai`, providers, prompts, schemas, panel) and
@@ -581,7 +607,7 @@ selection summary, Insert / Replace buttons).
 - **Status bar**: "AI: <provider>" while AI is enabled (click toggles the pane; "working…" while a request runs).
 - **Errors** in the turn, localized by kind with the provider's message: wrong key, rate limit ("Try again in N s"),
   overloaded, offline / interrupted, CORS, **CSP** ("This site's security policy does not allow connections to the
-  AI provider…" – the live web CSP until the owner decides), refusal, cut off (raise Max tokens), no usable result.
+  AI provider…" – only when the page has a CSP; the desktop apps have none and the web build does not offer the assistant), refusal, cut off (raise Max tokens), no usable result.
 
 ## Save and Save As on the desktop (P7-7)
 
@@ -650,7 +676,8 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   live preview while dragging, one `SetGeometry` on release (all adjust values of the shape).
 - **Connectors** (`shapes/connectors.ts`): drawing or dragging an end over a shape shows its connection sites (grey, red
   when within 12 px); releasing on one glues it (`AddShape` with `start`/`end`, or `SetTransform` + `SetConnector`: the
-  core lets go of ends whose shape did not move and re-glues them from the patch, then reroutes). End handles are green
+  core lets go of ends whose shape did not move and re-glues them from the patch, then reroutes; a connector moved together
+  with every shape it is glued to – one drag or nudge of the selection – keeps its route, P8-40). End handles are green
   when glued. An elbow with two turns has a middle handle (`adj1`). Shape Format › Arrows (9 presets + Small / Medium /
   Large), Connector type (Straight / Elbow / Curved) and Reroute connectors (each glued end to the site nearest to the
   other end). Duplicating / pasting keeps a connector glued only to shapes copied with it.
@@ -661,7 +688,8 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   events, inset 5 px so the Transformer handles and the frame for moving stay reachable) takes clicks (edit the cell in
   the text overlay), drags across cells (cell selection, highlighted) and drags on column / row borders (`SetTableGrid`;
   neighbouring columns share the change, rows grow); right-click opens the table menu. In a cell Tab / Shift+Tab and the
-  arrows at the text's edges move between cells (Tab in the last cell adds a row), Enter makes a new paragraph; the text is
+  arrows at the text's edges move between cells (Tab in the last cell adds a row; Tab / Shift+Tab select the text of the
+  cell they move to, ← enters at its end, → at its start, P8-40), Enter makes a new paragraph; the text is
   committed with `SetTableCellText`. Table Design: style options (header / total row, banded rows / columns, first / last
   column → `SetTableStyle`), table styles gallery + Clear table, Shading and Borders (all, outside, inside, none, each
   side; explicit lines in `SetTableCellProps`) for the cell selection (else the edited cell, else the whole table).
@@ -896,6 +924,22 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   bar (next, pause, the slide's time, repeat, total); at the end "keep the new slide timings?" – Yes sets each slide's
   After (whole seconds, `SetTransition`) and Use Timings in one undo step. Hidden slides are skipped (crossed-out number
   in the panel and the sorter).
+
+## Show quality pass (P8-40)
+
+Corrections from the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)):
+- **Text editing**: while typing in a shape, Ctrl/Cmd combinations reach the shortcut map – Ctrl+B / I / U format the
+  selected text, Ctrl+K opens Insert Hyperlink for it (the overlay keeps Tab, arrows, Esc, Ctrl+Enter and
+  Ctrl+Shift+> / < for itself).
+- **Placeholders**: an empty picture placeholder shows "Picture" centred without a bullet; vertical placeholders
+  (Title and Vertical Text, Vertical Title and Text: the layout's `vertical`) draw their text turned 90° like `vert="eaVert"`.
+- **Home**: Clipboard › Duplicate is a small button next to Copy and Drawing shows ten quick shapes (two rows of five; the
+  rest under More shapes ▾), so the Home tab fits a 1400 px window without collapsing a group; Arrange ▾ › Ungroup is
+  enabled only when a group is selected.
+- **Ribbon (all apps, `ui-shared`)**: a large button's label wraps at 80 px but is never narrower than its longest word (German
+  compounds no longer run into the neighbouring button); menu items stay on one line and menus taller than the window
+  scroll; the tab strip scrolls instead of running under the right slot (Present) on narrow windows.
+- **Notes Page**: the slide picture's frame is drawn over the picture (all four edges visible).
 
 ## Printing (P7-9)
 

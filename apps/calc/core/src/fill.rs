@@ -122,6 +122,14 @@ pub enum FillPlan {
     Copy,
     /// `a + b·k`.
     Linear { a: f64, b: f64 },
+    /// Entry `start + step·k` (wrapping) of one of Excel's built-in lists
+    /// (weekdays, months; short or long), in the source's letter case.
+    List {
+        list: &'static [&'static str],
+        start: i64,
+        step: i64,
+        case: ListCase,
+    },
     /// `prefix` followed by `|a + b·k|`, zero-padded to `width` digits.
     TextNumber {
         prefix: String,
@@ -137,6 +145,20 @@ impl FillPlan {
         match self {
             FillPlan::Copy => None,
             FillPlan::Linear { a, b } => Some(Value::Number(round15(a + b * k as f64))),
+            FillPlan::List {
+                list,
+                start,
+                step,
+                case,
+            } => {
+                let n = list.len() as i64;
+                let item = list[(start + step * k).rem_euclid(n) as usize];
+                Some(Value::Text(match case {
+                    ListCase::Upper => item.to_ascii_uppercase(),
+                    ListCase::Lower => item.to_ascii_lowercase(),
+                    ListCase::Title => item.to_string(),
+                }))
+            }
             FillPlan::TextNumber {
                 prefix,
                 width,
@@ -152,6 +174,92 @@ impl FillPlan {
             }
         }
     }
+}
+
+/// Letter case of a list fill: `MON`, `mon` or `Mon`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListCase {
+    Upper,
+    Lower,
+    Title,
+}
+
+/// Excel's built-in custom lists (Options › Advanced › Edit Custom Lists).
+const FILL_LISTS: [&[&str]; 4] = [
+    &["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    &[
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+    ],
+    &[
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ],
+    &[
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ],
+];
+
+/// A fill line whose texts are all entries of one built-in list, at equal
+/// steps (one entry steps by one).
+fn list_plan(items: &[FillItem]) -> Option<FillPlan> {
+    let texts: Vec<&str> = items
+        .iter()
+        .map(|it| match it {
+            FillItem::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect::<Option<_>>()?;
+    for list in FILL_LISTS {
+        let n = list.len() as i64;
+        let idx: Option<Vec<i64>> = texts
+            .iter()
+            .map(|t| {
+                list.iter()
+                    .position(|e| e.eq_ignore_ascii_case(t))
+                    .map(|i| i as i64)
+            })
+            .collect();
+        let Some(idx) = idx else { continue };
+        let step = if idx.len() == 1 {
+            1
+        } else {
+            (idx[1] - idx[0]).rem_euclid(n)
+        };
+        if step == 0 || idx.windows(2).any(|w| (w[1] - w[0]).rem_euclid(n) != step) {
+            return None;
+        }
+        let first = texts[0];
+        let case = if first.len() > 1 && first.bytes().all(|b| !b.is_ascii_lowercase()) {
+            ListCase::Upper
+        } else if first.bytes().all(|b| !b.is_ascii_uppercase()) {
+            ListCase::Lower
+        } else {
+            ListCase::Title
+        };
+        return Some(FillPlan::List {
+            list,
+            start: idx[0],
+            step,
+            case,
+        });
+    }
+    None
 }
 
 /// Rounds to 15 significant digits (hides binary noise such as
@@ -228,6 +336,9 @@ pub fn plan(items: &[FillItem], mode: FillMode) -> FillPlan {
         let (a, b) = best_fit(&ys);
         return FillPlan::Linear { a, b };
     }
+    if let Some(list) = list_plan(items) {
+        return if series(true) { list } else { FillPlan::Copy };
+    }
     let texts: Option<Vec<(&str, u64, usize)>> = items
         .iter()
         .map(|it| match it {
@@ -268,6 +379,34 @@ mod tests {
 
     fn values(p: &FillPlan, ks: std::ops::Range<i64>) -> Vec<Value> {
         ks.map(|k| p.value_at(k).unwrap()).collect()
+    }
+
+    #[test]
+    fn weekday_and_month_lists() {
+        let t = |s: &str| FillItem::Text(s.into());
+        let texts = |p: &FillPlan, ks: std::ops::Range<i64>| -> Vec<String> {
+            ks.map(|k| match p.value_at(k) {
+                Some(Value::Text(t)) => t,
+                v => panic!("{v:?}"),
+            })
+            .collect()
+        };
+        let p = plan(&[t("Mon")], FillMode::Auto);
+        assert_eq!(texts(&p, 0..4), ["Mon", "Tue", "Wed", "Thu"]);
+        assert_eq!(texts(&p, -2..0), ["Sat", "Sun"]);
+        let p = plan(&[t("JANUARY")], FillMode::Auto);
+        assert_eq!(texts(&p, 11..13), ["DECEMBER", "JANUARY"]);
+        let p = plan(&[t("jan"), t("mar")], FillMode::Auto);
+        assert_eq!(texts(&p, 2..4), ["may", "jul"]);
+        assert_eq!(plan(&[t("Mon")], FillMode::Alternate), FillPlan::Copy);
+        assert_eq!(
+            plan(&[t("Mon"), t("Wed"), t("Thu")], FillMode::Auto),
+            FillPlan::Copy
+        );
+        assert_eq!(
+            plan(&[t("May"), t("Monday")], FillMode::Auto),
+            FillPlan::Copy
+        );
     }
 
     #[test]

@@ -77,7 +77,9 @@ describe("Show ribbon", () => {
     const { backend, store } = await mount();
     act(() => store.select([2]));
     fireEvent.click(screen.getByRole("button", { name: "Arrange" }));
-    expect((screen.getByRole("menuitem", { name: /Group/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("menuitem", { name: /^Group/ }) as HTMLButtonElement).disabled).toBe(true);
+    // a shape that is not a group cannot be ungrouped (P8-40 S-06)
+    expect((screen.getByRole("menuitem", { name: /^Ungroup/ }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("menuitem", { name: /Bring to front/ }));
     await flush();
     expect(backend.commands[0]).toMatchObject({ type: "zOrder", op: "bringToFront" });

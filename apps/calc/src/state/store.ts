@@ -39,7 +39,7 @@ import { approxMeasure, lineHeightPx, wrapLines, type Measure } from "../grid/te
 import { colName, sheetPrefix } from "../grid/address";
 import { cellSelection, LAST_COL, LAST_ROW, move, normalize, type Cell, type NavContext, type Range, type Selection } from "../grid/Selection";
 import { changesPartOfArray, hasSpilledCells, isFilledCell, obstructingCells, onlySpilledCells, spillAt, type SpillOutline } from "../grid/spill";
-import { intersects, mergeAnchor, mergeLookup, mergeSnapshot, partialMerge, snapSelection } from "../grid/merges";
+import { intersects, isSingleCell, mergeAnchor, mergeLookup, mergeSnapshot, partialMerge, snapSelection } from "../grid/merges";
 import { fontCss, styleAt } from "../grid/style";
 import { cfKey, dataBarAxes } from "../grid/cf";
 import { captureClip, fillDownEnd, pasteTarget, tsvClip, type Clip } from "./clipboard";
@@ -1538,6 +1538,33 @@ export class CalcStore {
         } else this.pushError(e);
         return false;
       },
+    );
+  }
+
+  /**
+   * Ctrl+Enter: commits the edit without moving the active cell; a larger
+   * selection gets the entry in every cell, as in Excel (relative
+   * references shift, the cells keep their formats; one more undo step).
+   */
+  async commitEditInSelection(): Promise<boolean> {
+    const edit = this.state.edit;
+    if (!edit) return true;
+    const selection = this.state.selection;
+    const r = this.selectionRange();
+    const { row, col } = edit.cell;
+    const sheet = edit.sheet;
+    const ok = await this.commitEdit(0, 0);
+    if (!ok || this.state.edit || this.state.activeSheet !== sheet || isSingleCell(r, this.merges())) return ok;
+    this.select(selection);
+    if (this.refuseMergeSplit(r) || this.refuseArrayChange(r)) return ok;
+    const input = this.cache(sheet).cells.get(row)?.get(col)?.input ?? "";
+    return this.applyChecked(
+      input === ""
+        ? { type: "clearRange", sheet, ...r }
+        : {
+          type: "pasteRange", sheet, r0: r.r0, c0: r.c0, src: { sheet, r0: row, c0: col, r1: row, c1: col },
+          cells: [{ dr: 0, dc: 0, input }], mode: "all", cut: false, repeatRows: r.r1 - r.r0 + 1, repeatCols: r.c1 - r.c0 + 1,
+        },
     );
   }
 

@@ -166,7 +166,7 @@ export function CustomSortDialog({ store, range, hasHeader: guessed }: { store: 
           </label>
         </div>
         <div role="table" aria-label={t("calc.sort.levels")} className="flex max-h-64 flex-col gap-1 overflow-auto rounded border border-ui-border p-1">
-          <div role="row" className="grid grid-cols-[5rem_1fr_7rem_10rem] gap-1 px-1 text-xs text-ui-muted">
+          <div role="row" className="grid grid-cols-[6.5rem_1fr_8.5rem_10rem] gap-1 px-1 text-xs text-ui-muted">
             <span role="columnheader" />
             <span role="columnheader">{t("calc.sort.column")}</span>
             <span role="columnheader">{t("calc.sort.sortOn")}</span>
@@ -180,7 +180,7 @@ export function CustomSortDialog({ store, range, hasHeader: guessed }: { store: 
                 role="row"
                 aria-selected={i === current}
                 data-testid="sort-level"
-                className={`grid grid-cols-[5rem_1fr_7rem_10rem] items-center gap-1 rounded px-1 py-0.5 ${i === current ? "bg-ui-active" : ""}`}
+                className={`grid grid-cols-[6.5rem_1fr_8.5rem_10rem] items-center gap-1 rounded px-1 py-0.5 ${i === current ? "bg-ui-active" : ""}`}
                 onPointerDown={() => setCurrent(i)}
                 onFocus={() => setCurrent(i)}
               >

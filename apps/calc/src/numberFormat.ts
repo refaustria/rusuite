@@ -242,6 +242,8 @@ export function quickCode(q: QuickFormat, symbol: CurrencySymbol, german: boolea
 /** Which quick format `code` is (`null`: none of the eleven). */
 export function quickOf(code: string | null | undefined, symbol: CurrencySymbol, german: boolean): QuickFormat | null {
   const c = code ?? "General";
+  // Percent Style / Ctrl+Shift+5 (`0%`) shows as Percentage, as in Excel.
+  if (c === "0%") return "percentage";
   return QUICK_FORMATS.find((q) => quickCode(q, symbol, german) === c || (q === "general" && c.toLowerCase() === "general")) ?? null;
 }
 
@@ -295,8 +297,9 @@ function splitSections(code: string): string[] {
  * accounting and currency codes. Dates, times, fractions and text are
  * unchanged.
  */
-export function changeDecimals(code: string, delta: 1 | -1): string {
-  const base = code === "General" || code === "" ? "0" : code;
+export function changeDecimals(code: string, delta: 1 | -1, shown = 0): string {
+  // General starts from the decimals the cell shows (Excel: 3.14159 → 3.141590 / 3.1416).
+  const base = code === "General" || code === "" ? (shown > 0 ? `0.${"0".repeat(shown)}` : "0") : code;
   return splitSections(base)
     .map((section) => {
       const mask = literalMask(section);
@@ -323,4 +326,10 @@ export function changeDecimals(code: string, delta: 1 | -1): string {
       return section.slice(0, last.index) + digits + section.slice(last.index + run.length);
     })
     .join(";");
+}
+
+/** Decimals a General cell shows (`3.14159` → 5; scientific or non-numbers → 0), for Increase / Decrease Decimal. */
+export function shownDecimals(display: string | undefined): number {
+  const m = /^-?\d*\.(\d+)$/.exec(display?.trim() ?? "");
+  return m ? m[1]!.length : 0;
 }

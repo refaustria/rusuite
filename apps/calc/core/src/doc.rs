@@ -6,9 +6,9 @@ use app_common::{Applied, DispatchError, Document, Patch, Revision};
 use engine_formula::ast::{MAX_COL, MAX_ROW};
 use engine_formula::{CellContent, CellRect, Cycle, MoveContext, StructuralOp, Value};
 use model_sheet::{
-    content_to_input, AutoFilter, CellCoord, CellRange, ColInfo, EngineError, FilterChange,
-    FilterValue, MergeRect, Recalc, RowInfo, SheetId, SortKey, SortKind, SortSpec, StyleId,
-    Workbook, MAX_PATCH_CELLS,
+    content_to_input, AutoFilter, CellCoord, CellRange, CellStyle, ColInfo, EngineError,
+    FilterChange, FilterValue, MergeRect, Recalc, RowInfo, SheetId, SortKey, SortKind, SortSpec,
+    StyleId, Workbook, MAX_PATCH_CELLS,
 };
 
 use crate::command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect, SheetViewPatch};
@@ -400,7 +400,11 @@ impl CalcDocument {
         CellView {
             row: c.row,
             col: c.col,
-            input: content_to_input(wb.content(c)),
+            input: match wb.content(c) {
+                CellContent::Value(Value::Number(n)) => model_sheet::numfmt::edit_input(*n, format)
+                    .unwrap_or_else(|| content_to_input(wb.content(c))),
+                content => content_to_input(content),
+            },
             color: text.color.map(crate::display::css_color),
             fill_at,
             fill_char,
@@ -759,7 +763,8 @@ impl CalcDocument {
                 }
                 let c = CellCoord::new(self.sheet(sheet)?, row, col);
                 let prev = content_to_input(self.workbook.content(c));
-                let recalc = self.workbook.set_input(c, input)?;
+                let (input, typed_format) = typed_entry(&self.workbook, c, input);
+                let recalc = self.workbook.set_input(c, &input)?;
                 let inverse = if prev.is_empty() {
                     C::ClearRange {
                         sheet,
@@ -776,8 +781,31 @@ impl CalcDocument {
                         input: prev,
                     }
                 };
+                let mut patch = self.content_patch([c], &recalc);
+                let mut inverse = inverse;
+                if let Some(code) = typed_format {
+                    // Excel gives a General cell the format of what was
+                    // typed (`12%`, `$5`, `3/4/2024`, `13:45`).
+                    let styled = self.apply_cmd(&C::ApplyStyle {
+                        sheet,
+                        r0: row,
+                        c0: col,
+                        r1: row,
+                        c1: col,
+                        patch: CellStyle {
+                            number_format: Some(code.to_string()),
+                            ..Default::default()
+                        },
+                    })?;
+                    patch.merge(styled.patch);
+                    if let Some(restore) = styled.inverse {
+                        inverse = C::Compound {
+                            commands: vec![restore, inverse],
+                        };
+                    }
+                }
                 Ok(Applied {
-                    patch: self.content_patch([c], &recalc),
+                    patch,
                     inverse: Some(inverse),
                 })
             }
@@ -988,9 +1016,15 @@ impl CalcDocument {
                     .sheet_name(s)
                     .unwrap_or_default()
                     .to_string();
-                self.workbook.rename_sheet(s, name)?;
+                let rewritten = self.workbook.rename_sheet(s, name)?;
+                let mut patch = self.sheets_patch(&before);
+                // Formulas naming the sheet show the new name.
+                patch.merge(CalcPatch {
+                    cells: self.cells_patch(rewritten, None),
+                    ..Default::default()
+                });
                 Ok(Applied {
-                    patch: self.sheets_patch(&before),
+                    patch,
                     inverse: Some(C::RenameSheet {
                         sheet: *sheet,
                         name: old,
@@ -2506,6 +2540,33 @@ impl Document for CalcDocument {
         self.mark_cf_sheets(&mut applied.patch);
         self.mark_chart_sheets(&mut applied.patch);
         Ok(applied)
+    }
+}
+
+/// What typing `input` into `c` stores, and the number format to give the
+/// cell (Excel's number recognition, `engine_formula::entry`): a General
+/// cell takes the format of a typed percentage, currency, date or time; a
+/// Text (`@`) cell keeps a typed constant as text.
+fn typed_entry<'a>(
+    wb: &model_sheet::Workbook,
+    c: CellCoord,
+    input: &'a str,
+) -> (std::borrow::Cow<'a, str>, Option<&'static str>) {
+    use std::borrow::Cow;
+    if input.is_empty() || input.starts_with(['=', '\'']) {
+        return (Cow::Borrowed(input), None);
+    }
+    let style = wb.style(c);
+    match style.number_format.as_deref() {
+        Some("@") => match engine_formula::engine::parse_input(input) {
+            Ok(CellContent::Value(Value::Text(_))) => (Cow::Borrowed(input), None),
+            _ => (Cow::Owned(format!("'{input}")), None),
+        },
+        Some(code) if !code.eq_ignore_ascii_case("general") => (Cow::Borrowed(input), None),
+        _ => {
+            let format = engine_formula::entry::recognize(input).and_then(|e| e.format);
+            (Cow::Borrowed(input), format)
+        }
     }
 }
 

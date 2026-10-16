@@ -324,7 +324,8 @@ fn style_and_dimension_patches() {
     assert_eq!(cells.len(), 2);
     assert_eq!(cells[0].display, "2024-01-15");
     assert_eq!(cells[0].kind, CellKind::Number);
-    assert_eq!(cells[0].input, "45306");
+    // The formula bar shows a date as Excel does (P8-39).
+    assert_eq!(cells[0].input, "1/15/2024");
     assert_eq!(cells[1].style, 1);
     // Same style again: nothing changes, no table.
     let env = host
@@ -958,4 +959,84 @@ fn panes_hidden_sheets_and_merges() {
         r["ok"]["snapshot"]["merges"],
         json!([{"r0": 0, "c0": 0, "r1": 0, "c1": 3}])
     );
+}
+
+/// P8-39 (C-02): typed percentages, currencies, dates and times become
+/// numbers with Excel's format; the formula bar shows the edit form; a
+/// Text cell keeps a typed number as text; undo restores the format.
+#[test]
+fn typed_entries_get_excel_formats() {
+    let mut host = Host::new(CalcDocument::new());
+    let cell = |host: &CalcHost, env: &app_common::Envelope<CalcPatch>| {
+        let c = env.patch.cells[0].cells[0].clone();
+        let format = host
+            .doc()
+            .workbook()
+            .styles()
+            .get(model_sheet::StyleId(c.style))
+            .number_format
+            .clone();
+        (c.input, c.display, c.kind, format)
+    };
+    let cases = [
+        ("12%", "12%", "12%", Some("0%")),
+        (
+            "$1,234.50",
+            "1234.5",
+            "$1,234.50 ",
+            Some("\"$\"#,##0.00_);\\(\"$\"#,##0.00\\)"),
+        ),
+        ("3/4/2024", "3/4/2024", "3/4/2024", Some("m/d/yyyy")),
+        ("13:45", "1:45:00 PM", "13:45", Some("h:mm")),
+        ("1 1/2", "1.5", "1 1/2", Some("# ?/?")),
+    ];
+    for (row, (typed, input, display, format)) in cases.into_iter().enumerate() {
+        let env = host.apply(set(0, row as u32, 0, typed)).unwrap();
+        let (i, d, kind, f) = cell(&host, &env);
+        assert_eq!(
+            (i.as_str(), d.as_str(), kind, f.as_deref()),
+            (input, display, CellKind::Number, format),
+            "{typed}"
+        );
+    }
+    // Undo removes value and format in one step.
+    host.undo().unwrap().unwrap();
+    let wb = host.doc().workbook();
+    let s = wb.sheet_id("Sheet1").unwrap();
+    let c = model_sheet::CellCoord::new(s, 4, 0);
+    assert!(wb.style(c).number_format.is_none());
+    // A Text cell keeps "0123".
+    host.apply(C::ApplyStyle {
+        sheet: 0,
+        r0: 9,
+        c0: 0,
+        r1: 9,
+        c1: 0,
+        patch: CellStyle {
+            number_format: Some("@".into()),
+            ..Default::default()
+        },
+    })
+    .unwrap();
+    let env = host.apply(set(0, 9, 0, "0123")).unwrap();
+    let (i, d, kind, _) = cell(&host, &env);
+    assert_eq!(
+        (i.as_str(), d.as_str(), kind),
+        ("'0123", "0123", CellKind::Text)
+    );
+    // A formatted cell keeps its format.
+    host.apply(C::ApplyStyle {
+        sheet: 0,
+        r0: 10,
+        c0: 0,
+        r1: 10,
+        c1: 0,
+        patch: CellStyle {
+            number_format: Some("0.000".into()),
+            ..Default::default()
+        },
+    })
+    .unwrap();
+    let env = host.apply(set(0, 10, 0, "12%")).unwrap();
+    assert_eq!(cell(&host, &env).1, "0.120");
 }

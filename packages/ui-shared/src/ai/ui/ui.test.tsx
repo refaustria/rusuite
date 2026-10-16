@@ -109,3 +109,23 @@ describe("Settings › AI", () => {
     await waitFor(() => expect(store.keys.size).toBe(0));
   });
 });
+
+describe("unavailable assistant (web build)", () => {
+  it("has no ribbon group content, panel, shortcut or status; Options shows the desktop note", async () => {
+    const { aiRibbonGroup } = await import("./ribbon");
+    const { AiStatus } = await import("./AiStatus");
+    const ai = new Assistant({ store: new MemoryAiStore(), available: false });
+    expect(aiRibbonGroup(ai).items).toBeNull();
+    expect(aiRibbonGroup(null).items).toBeNull();
+    const adapter = { app: "write", actions: () => [], textApply: [], subscribe: () => () => undefined } as unknown as AiAppAdapter;
+    ai.saveSettings({ ...ai.getState().settings, enabled: true });
+    render(<><AssistantPane ai={ai} adapter={adapter} /><AiStatus ai={ai} /><SettingsDialog ai={ai} /></>);
+    fireEvent.keyDown(window, { key: "a", code: "KeyA", ctrlKey: true, shiftKey: true });
+    expect(ai.getState().panelOpen).toBe(false);
+    expect(screen.queryByTestId("ai-status")).toBeNull();
+    act(() => ai.openSettings());
+    expect(screen.getByTestId("ai-desktop-only").textContent).toContain("available in the desktop apps");
+    expect(screen.getByTestId("ai-desktop-downloads").getAttribute("href")).toMatch(/^https:\/\/github\.com\//);
+    expect(screen.queryByLabelText(/API key/i)).toBeNull();
+  });
+});
