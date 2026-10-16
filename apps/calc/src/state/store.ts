@@ -42,6 +42,7 @@ import { changesPartOfArray, hasSpilledCells, isFilledCell, obstructingCells, on
 import { intersects, isSingleCell, mergeAnchor, mergeLookup, mergeSnapshot, partialMerge, snapSelection } from "../grid/merges";
 import { fontCss, styleAt } from "../grid/style";
 import { cfKey, dataBarAxes } from "../grid/cf";
+import { formatCommands, type FormatState, type FormatTab } from "../numfmt/formatCells";
 import { cellsCommand, type CellsChoice, type CellsMode } from "./shiftCells";
 import { captureClip, fillDownEnd, pasteTarget, tsvClip, type Clip } from "./clipboard";
 import { findStep, replaceInInput, type FindOptions } from "./find";
@@ -171,7 +172,7 @@ export interface Toast {
 
 /** The dialogs Calc opens from shortcuts, menus and (later) the ribbon. */
 export type CalcDialog =
-  | { kind: "numberFormat" }
+  | { kind: "numberFormat"; tab?: FormatTab }
   /** Insert / Delete dialog for a cell selection (shift cells, entire rows / columns). */
   | { kind: "cells"; mode: CellsMode }
   | { kind: "find"; replace: boolean }
@@ -1648,6 +1649,26 @@ export class CalcStore {
     const [at, count] = axis === "rows" ? [r.r0, r.r1 - r.r0 + 1] : [r.c0, r.c1 - r.c0 + 1];
     const type = `${kind}${axis === "rows" ? "Rows" : "Cols"}` as "insertRows" | "deleteRows" | "insertCols" | "deleteCols";
     return this.apply({ type, sheet, at, count });
+  }
+
+  /** Format Cells OK: the changed parts of every tab as one undo step (wrap text on/off refits the rows, as `applyStyle`). */
+  formatCells(init: FormatState, next: FormatState): Promise<void> {
+    const r = this.selectionRange();
+    const sheet = this.state.activeSheet;
+    const commands = formatCommands(init, next, sheet, r);
+    if (init.wrapText !== next.wrapText && r.r1 - r.r0 <= 500) {
+      const rows: number[] = [];
+      for (let row = r.r0; row <= r.r1; row++) rows.push(row);
+      commands.push(...this.rowFitCommands(sheet, rows, (c) => (c >= r.c0 && c <= r.c1 ? { wrap: next.wrapText } : undefined)));
+    }
+    if (commands.length === 0) return Promise.resolve();
+    return this.apply(commands.length === 1 ? commands[0] : { type: "compound", commands });
+  }
+
+  /** Whether the selection touches a merged range. */
+  selectionMerged(): boolean {
+    const r = this.selectionRange();
+    return this.merges().some((m) => intersects(m, r));
   }
 
   /** Insert / Delete dialog: shifts the selected cells, or inserts / deletes their entire rows or columns. */

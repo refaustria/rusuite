@@ -66,6 +66,10 @@ pub struct Borders {
     pub top: Option<BorderSide>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bottom: Option<BorderSide>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagonal_up: Option<BorderSide>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagonal_down: Option<BorderSide>,
 }
 
 /// Mirror of `model_sheet::HAlign`.
@@ -104,6 +108,22 @@ pub struct Alignment {
     pub wrap_text: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub indent: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shrink_to_fit: Option<bool>,
+    /// Degrees, `-90..=90`, positive = counter-clockwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_rotation: Option<i16>,
+}
+
+/// Mirror of `model_sheet::Protection`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct Protection {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
 }
 
 /// Mirror of `model_sheet::CellStyle`: every part optional (absent =
@@ -124,6 +144,8 @@ pub struct CellStyle {
     /// Number format code (`"0.00"`, `"yyyy-mm-dd"`); absent = `General`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protection: Option<Protection>,
 }
 
 /// Mirror of `model_sheet::SheetFormat`.
@@ -363,14 +385,22 @@ mod tests {
                 right: Some(side(ms::BorderStyle::Thick)),
                 top: Some(side(ms::BorderStyle::Hair)),
                 bottom: Some(side(ms::BorderStyle::Double)),
+                diagonal_up: Some(side(ms::BorderStyle::Thin)),
+                diagonal_down: Some(side(ms::BorderStyle::Dashed)),
             },
             alignment: ms::Alignment {
                 horizontal: Some(ms::HAlign::Center),
                 vertical: Some(ms::VAlign::Top),
                 wrap_text: Some(true),
                 indent: Some(2),
+                shrink_to_fit: Some(true),
+                text_rotation: Some(-45),
             },
             number_format: Some("0.00".into()),
+            protection: ms::Protection {
+                locked: Some(false),
+                hidden: Some(true),
+            },
         };
         same_shape::<_, CellStyle>(&full);
         same_shape::<_, CellStyle>(&ms::CellStyle::default());

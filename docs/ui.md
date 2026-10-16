@@ -538,6 +538,17 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   Refused like Excel: cutting a merge ("We can't do that to a merged cell."), shifting cells of a table or the AutoFilter
   range, of a pivot table, or pushing cells off the sheet. A selection spanning every row / column inserts whole columns
   / rows. Undo is the opposite command plus the deleted cells and the original text of rewritten formulas.
+- **Calc Format Cells** (P8-44, `numfmt/NumberFormatDialog.tsx`, `FormatCellsTabs.tsx`, `formatCells.ts`): Ctrl+1 (and
+  Format ▾ › Format cells…, the cell menu) opens Excel's dialog on Number; the other tabs are Alignment (horizontal,
+  vertical, indent, wrap text, shrink to fit, merge cells, orientation −90…90° as `alignment.textRotation`), Font
+  (family, style, size, underline none/single/double, colour, strikethrough, superscript, subscript, preview), Border
+  (presets None / Outline / Inside, the eight edge buttons around a clickable 2 × 2 preview incl. both diagonals, seven
+  line styles, colour → the core's `setBorders`, which sets outer and inner edges per cell and can remove lines), Fill
+  (No Color, theme and standard colours, sample; patterns are not offered) and Protection (Locked, Hidden – stored and
+  saved; sheet protection itself is not implemented). OK sends only what changed (`formatCommands`), as one compound.
+  The grid draws rotated text (inside its cell), shrinks the font of shrink-to-fit cells and draws diagonal borders;
+  the print view does not show rotation or diagonals yet. `fmt-xlsx` reads and writes `textRotation`, `shrinkToFit`,
+  `<protection>` and the diagonal (`diagonalUp` / `diagonalDown`, one line style as in SpreadsheetML).
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).

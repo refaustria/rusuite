@@ -1,4 +1,6 @@
-// Format Cells › Number (Ctrl+1, P8-23): Excel's categories (General,
+// Format Cells (Ctrl+1): the tabs Number, Alignment, Font, Border, Fill and
+// Protection (P8-44; the other tabs in FormatCellsTabs.tsx), applied on OK
+// as one undo step. Number (P8-23): Excel's categories (General,
 // Number, Currency, Accounting, Date, Time, Percentage, Fraction,
 // Scientific, Text, Custom – Special is not offered) with their options and
 // a live sample formatted by the core (colour included); Custom lists the
@@ -11,7 +13,9 @@ import {
   type CurrencySymbol, type FormatChoice, type NegativeStyle,
 } from "../numberFormat";
 import { useT } from "../i18n";
-import type { CalcStore } from "../state/store";
+import { useCalc, type CalcStore } from "../state/store";
+import { FORMAT_TABS, formatState, type FormatState, type FormatTab } from "./formatCells";
+import { AlignmentTab, BorderTab, FillTab, FontTab, ProtectionTab } from "./FormatCellsTabs";
 
 const BTN = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover disabled:opacity-40";
 const FIELD = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";
@@ -74,7 +78,13 @@ function CodeList({ label, codes, value, onPick, labels }: { label: string; code
 
 export function NumberFormatDialog({ store }: { store: CalcStore }) {
   const t = useT();
+  const dialog = useCalc(store, (s) => s.dialog);
+  const [tab, setTab] = useState<FormatTab>(dialog?.kind === "numberFormat" && dialog.tab ? dialog.tab : "number");
   const [choice, setChoice] = useState<FormatChoice>(() => parseCode(store.activeStyle().numberFormat));
+  // The state of every tab at open; the Number tab's code as the dialog would build it (so an untouched tab sends nothing).
+  const [init] = useState<FormatState>(() => ({ ...formatState(store.activeStyle(), store.selectionMerged()), numberFormat: buildCode(parseCode(store.activeStyle().numberFormat)) }));
+  const [state, setState] = useState<FormatState>(init);
+  const setFormat = (p: Partial<FormatState>) => setState((s) => ({ ...s, ...p }));
   const code = buildCode(choice);
   const cell = store.activeCell();
   const value = previewValue(cell);
@@ -125,13 +135,34 @@ export function NumberFormatDialog({ store }: { store: CalcStore }) {
   return (
     <Dialog open title={t("calc.fmt.title")} onClose={close}>
       <form
-        className="flex w-[34rem] flex-col gap-3 text-sm"
+        className="flex w-[36rem] max-w-full flex-col gap-3 text-sm"
         onSubmit={(e) => {
           e.preventDefault();
-          void store.applyStyle({ numberFormat: code });
+          void store.formatCells(init, { ...state, numberFormat: code });
           close();
         }}
       >
+        <div role="tablist" aria-label={t("calc.fmt.title")} className="flex gap-1 border-b border-ui-border">
+          {FORMAT_TABS.map((k) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={tab === k}
+              className={`-mb-px rounded-t border px-3 py-1 ${tab === k ? "border-ui-border border-b-ui-panel bg-ui-panel font-medium" : "border-transparent hover:bg-ui-hover"}`}
+              onClick={() => setTab(k)}
+            >
+              {t(`calc.fmt.tab.${k}`)}
+            </button>
+          ))}
+        </div>
+        <div role="tabpanel" aria-label={t(`calc.fmt.tab.${tab}`)} className="min-h-[18rem]">
+        {tab === "alignment" && <AlignmentTab state={state} set={setFormat} />}
+        {tab === "font" && <FontTab state={state} set={setFormat} />}
+        {tab === "border" && <BorderTab state={state} set={setFormat} />}
+        {tab === "fill" && <FillTab state={state} set={setFormat} />}
+        {tab === "protection" && <ProtectionTab state={state} set={setFormat} />}
+        {tab === "number" && (
         <div className="flex gap-3">
           <div role="listbox" aria-label={t("calc.fmt.category")} className="flex w-32 flex-col rounded border border-ui-border bg-ui-bg py-1">
             {CATEGORIES.map((k) => (
@@ -181,6 +212,8 @@ export function NumberFormatDialog({ store }: { store: CalcStore }) {
             {c === "text" && <p className="text-xs text-ui-muted">{t("calc.fmt.textNote")}</p>}
             {c === "accounting" && <p className="text-xs text-ui-muted">{t("calc.fmt.accountingNote")}</p>}
           </div>
+        </div>
+        )}
         </div>
         <div className="flex justify-end gap-2">
           <button type="button" className={BTN} onClick={close}>

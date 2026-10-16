@@ -880,6 +880,42 @@ impl CalcDocument {
                     inverse: Some(C::RestoreStyles { sheet, cells }),
                 })
             }
+            &C::SetBorders {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                ref edits,
+            } => {
+                let range = self.range(sheet, r0, c0, r1, c1)?;
+                let s = range.sheet;
+                let before = self.workbook.styles().len();
+                let mut prev = Vec::new();
+                let mut changed = Vec::new();
+                for row in r0..=r1 {
+                    for col in c0..=c1 {
+                        let c = CellCoord::new(s, row, col);
+                        let old = self.workbook.style_id(c);
+                        let mut style = self.workbook.styles().get(old).clone();
+                        style.borders = edits.apply(style.borders, (row, col), (r0, c0, r1, c1));
+                        let new = self.workbook.intern_style(&style);
+                        if new != old {
+                            prev.push((row, col, self.workbook.cell_style_id(c).0));
+                            self.workbook.set_style(c, new)?;
+                            changed.push(c);
+                        }
+                    }
+                }
+                Ok(Applied {
+                    patch: CalcPatch {
+                        cells: self.cells_patch(changed, None),
+                        styles: self.styles_if_grew(before),
+                        ..Default::default()
+                    },
+                    inverse: Some(C::RestoreStyles { sheet, cells: prev }),
+                })
+            }
             C::RestoreStyles { sheet, cells } => {
                 let s = self.sheet(*sheet)?;
                 for &(row, col, style) in cells {

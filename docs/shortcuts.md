@@ -46,7 +46,7 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | ArrowUp/ArrowDown, Tab/Enter | Function list: choose, accept (`SUM(`) |
 | Mod+Space, Shift+Space | Select the column(s), the row(s) |
 | Mod+Plus, Mod+Minus | Insert, delete: whole rows/columns selected act at once; otherwise Excel's Insert / Delete dialog (Shift cells right / down – left / up –, Entire row, Entire column; a selection taller than wide preselects the sideways shift) |
-| Mod+1 | Format cells: number format dialog (General, Number, Currency, Percentage, Date, Time, Text, Custom) with a live preview |
+| Mod+1 | Format Cells, on the Number tab (General, Number, Currency, Percentage, Date, Time, Text, Custom, live preview); the tabs Alignment, Font, Border, Fill and Protection apply with it as one undo step |
 | Mod+Shift+~, Mod+Shift+!, Mod+Shift+@, Mod+Shift+#, Mod+Shift+$, Mod+Shift+%, Mod+Shift+^ | Number format General, `#,##0.00`, `h:mm AM/PM`, `d-mmm-yy`, currency, `0%`, `0.00E+00` (the Shift+digit keys of a US layout) |
 | Mod+5 | Strikethrough |
 | Mod+;, Mod+Shift+: | Start the cell editor with today's date / the current time (Enter stores it as a date / time) |

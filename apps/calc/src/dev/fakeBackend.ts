@@ -51,6 +51,7 @@ import { parseRange, rangeFormula } from "../charts/refs";
 import { findRefs } from "../formula/refs";
 import { nameProblem } from "../names/names";
 import { FakePivots } from "./fakePivot";
+import { applyBorderEdits } from "../numfmt/formatCells";
 
 interface FakeCell {
   input: string;
@@ -384,6 +385,27 @@ export class FakeCalcCore {
         } else {
           // Large ranges: only existing cells (the fake has no row/col styles for ranges).
           for (const [r, row] of s.cells) for (const c of row.keys()) if (r >= cmd.r0 && r <= cmd.r1 && c >= cmd.c0 && c <= cmd.c1) visit(r, c);
+        }
+        const patch = this.cellsPatch(s, coords);
+        if (this.styles.length > before) patch.styles = [...this.styles];
+        return [patch, { type: "restoreStyles", sheet: cmd.sheet, cells: changed }];
+      }
+      case "setBorders": {
+        const s = this.sheet(cmd.sheet);
+        this.checkRange(cmd.r0, cmd.c0, cmd.r1, cmd.c1);
+        const before = this.styles.length;
+        const changed: [number, number, number][] = [];
+        const coords: [number, number][] = [];
+        for (let r = cmd.r0; r <= cmd.r1; r++) {
+          for (let c = cmd.c0; c <= cmd.c1; c++) {
+            const old = this.cell(s, r, c)?.style ?? 0;
+            const cur = this.styles[this.effectiveStyle(s, r, c)];
+            const borders = applyBorderEdits(cur.borders ?? {}, r, c, cmd, cmd.edits);
+            const next = this.intern({ ...cur, borders: Object.keys(borders).length ? borders : undefined });
+            changed.push([r, c, old]);
+            this.setCell(s, r, c, this.cell(s, r, c)?.input ?? "", next);
+            coords.push([r, c]);
+          }
         }
         const patch = this.cellsPatch(s, coords);
         if (this.styles.length > before) patch.styles = [...this.styles];

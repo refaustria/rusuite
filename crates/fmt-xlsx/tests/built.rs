@@ -57,6 +57,9 @@ fn styles() -> Vec<CellStyle> {
                 right: side(BorderStyle::Medium, red),
                 top: side(BorderStyle::Thick, accent),
                 bottom: side(BorderStyle::Double, Color::theme(ThemeColorSlot::Dark1)),
+                // P8-44: diagonals (one line style in SpreadsheetML).
+                diagonal_up: side(BorderStyle::Thin, red),
+                diagonal_down: side(BorderStyle::Thin, red),
             },
             number_format: Some("0.00".into()),
             ..Default::default()
@@ -67,20 +70,30 @@ fn styles() -> Vec<CellStyle> {
                 right: side(BorderStyle::Dotted, Color::Auto),
                 top: side(BorderStyle::Hair, Color::Auto),
                 bottom: None,
+                diagonal_up: None,
+                diagonal_down: side(BorderStyle::Dashed, Color::Auto),
             },
             alignment: Alignment {
                 horizontal: Some(HAlign::Right),
                 vertical: Some(VAlign::Top),
                 wrap_text: Some(true),
                 indent: Some(2),
+                shrink_to_fit: None,
+                text_rotation: Some(-45),
             },
             number_format: Some("yyyy-mm-dd".into()),
+            protection: model_sheet::Protection {
+                locked: Some(false),
+                hidden: Some(true),
+            },
             ..Default::default()
         },
         CellStyle {
             alignment: Alignment {
                 horizontal: Some(HAlign::Center),
                 vertical: Some(VAlign::Center),
+                shrink_to_fit: Some(true),
+                text_rotation: Some(30),
                 ..Default::default()
             },
             number_format: Some("#,##0.000 \"EUR\"".into()),
