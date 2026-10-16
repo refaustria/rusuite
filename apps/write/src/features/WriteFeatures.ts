@@ -15,6 +15,7 @@ import { paginationPlugin, remeasurePages, type PageLayout } from "./pagination"
 import type { FlowProps } from "./layout/measure";
 import { layoutFieldContext, refreshStructure, structurePlugin, updateFieldsCommand, type FieldContext } from "./structure";
 import { linksPlugin } from "./links";
+import { plainTextSlice } from "./plainPaste";
 import { selectsAll, updateFieldsCommand as updateSelectedFields } from "./references";
 import { paragraphStyleId, resolveParagraph } from "./styleCss";
 import type { Node as PMNode } from "@tiptap/pm/model";
@@ -288,6 +289,11 @@ export class WriteFeatures {
             painter.cancel(this.editor as Editor);
             return true;
           },
+          // Word: Ctrl+Enter is a page break (Tiptap's hard break keeps Shift+Enter; W-29).
+          "Mod-Enter": () => {
+            if (tableContext(this.editor.state) || !this.editor.state.selection.$from.parent.isTextblock) return false;
+            return this.editor.chain().insertContent({ type: "pageBreak" }).run();
+          },
           // Word: Ctrl+Shift+S is Apply Styles (not Tiptap's strikethrough).
           "Mod-Shift-s": () => {
             ui.set({ applyStyles: true });
@@ -393,6 +399,8 @@ export class WriteFeatures {
                 }
                 return false;
               },
+              // Plain text from other programs: a paragraph per line (W-06).
+              clipboardTextParser: (text, $context, _plain, view) => plainTextSlice(text, $context, view.state.schema),
               handlePaste(_view, e) {
                 const data = e.clipboardData;
                 const files = imageFiles(data);

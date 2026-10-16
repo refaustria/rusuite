@@ -24,14 +24,15 @@ import type { Spacing } from "../generated/Spacing";
 import {
   alignmentAt, cursorBlock, indent, runPropsAt, setAlignment, setTextStyle, styleOf,
 } from "../sync/editorCommands";
-import { clearFormatting, indentAt, setIndent, setSpacing, spacingAt, toggleScript } from "../features/formatting";
+import { clearFormatting, setIndent, setSpacing, toggleScript } from "../features/formatting";
 import { insertImageFile, resetImageSize, selectedImage, setImageAttrs } from "../features/images";
-import { tableContext } from "../features/tables";
+import { caretIntoNewTable, tableContext, tableIds } from "../features/tables";
+import { plainTextSlice } from "../features/plainPaste";
 import { tableInfo, tableTabs, type TableInfo } from "./tableTabs";
 import { paragraphBorderState, selectedParagraphs } from "../features/paragraphFormat";
 import { paragraphBordersMenu, paragraphShadingPicker } from "./paragraphControls";
 import { pictureArrangeItems } from "./pictureControls";
-import { fontExtras, insertDrawingButtons, pictureFormatGroups, shapeFormatTab } from "./drawingTabs";
+import { fontExtras, insertDrawingButtons, pictureCropButton, pictureFormatGroups, shapeFormatTab } from "./drawingTabs";
 import { selectedDrawing } from "../features/drawings/drawings";
 import { formatTarget } from "../features/runFormat";
 import { innerEditors } from "../features/drawings/innerEditors";
@@ -48,7 +49,7 @@ import type { FieldKind } from "../generated/FieldKind";
 import type { SectionKind } from "../generated/SectionKind";
 import { TEXTBLOCK_TYPES } from "../sync/schema";
 import type { SyncController, SyncState } from "../sync/SyncPlugin";
-import { cm, fromCm, fromPt, pt } from "./dialogs";
+import { cm, fromCm, fromPt, paragraphInEffect, pt } from "./dialogs";
 import { useThrottledEditorState } from "./useThrottledEditorState";
 import { styleMenuItems, useGallery } from "./stylesPane";
 import { previewStyle, styleLabel } from "../features/styleCss";
@@ -303,6 +304,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
   const t = useT();
   const gallery = useGallery(editor, ctl);
   const [styleMenu, setStyleMenu] = useState<{ at: { x: number; y: number }; style: Style } | null>(null);
+  // Word's highlighter applies the last colour chosen (yellow at first; "No Color" erases) – W-04.
+  const [lastHighlight, setLastHighlight] = useState<string | null>("FFFF00");
   const fileInput = useRef<HTMLInputElement>(null);
   const canUndo = useSync(ctl, (s) => s.canUndo);
   const canRedo = useSync(ctl, (s) => s.canRedo);
@@ -326,8 +329,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       const charStyle = styleFromMarks(e.state.storedMarks ?? $from.marks()) ?? null;
       const { table, image, drawing } = selectionInfo(e);
       const sec = currentSection(e.state, ctl.sections);
-      const sp = spacingAt(e);
-      const ind = indentAt(e);
+      // Layout › Paragraph shows the values in effect, like the Paragraph dialog (W-23).
+      const { spacing: sp, indent: ind } = paragraphInEffect(e, ctl);
       return {
         props: runPropsAt(e),
         // Home › Font shows what is in effect (style chain and theme fonts), not only direct formatting.
@@ -419,9 +422,11 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
     />
   );
 
-  const insertTable = (rows: number, cols: number) => {
+  const insertTable = async (rows: number, cols: number) => {
     const at = cursorBlock(editor);
-    void ctl.run({ type: "insertTable", after: at?.id ?? null, parent: at?.cell ?? null, rows, cols });
+    const known = tableIds(editor.state.doc);
+    await ctl.run({ type: "insertTable", after: at?.id ?? null, parent: at?.cell ?? null, rows, cols });
+    if (!editor.isDestroyed) caretIntoNewTable(editor.view, known);
   };
 
   const clipboard = (kind: "cut" | "copy") => {
@@ -435,7 +440,12 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
   const paste = async () => {
     try {
       const text = await navigator.clipboard.readText();
-      if (text) editor.chain().focus().insertContent(text).run();
+      // As text (never parsed as HTML), one paragraph per line like Ctrl+V of plain text.
+      if (text) {
+        editor.commands.focus();
+        const { state } = editor;
+        editor.view.dispatch(state.tr.replaceSelection(plainTextSlice(text, state.selection.$from, state.schema)).scrollIntoView());
+      }
     } catch {
       ctl.pushError(new Error(t("write.pasteNeedsClipboard")));
     }
@@ -498,13 +508,24 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
   };
 
   const highlightMenu: RibbonMenuItem[] = [
-    { id: "none", label: t("write.noColor"), icon: swatch(undefined), onSelect: () => textStyle({ highlight: null }) },
+    {
+      id: "none",
+      label: t("write.noColor"),
+      icon: swatch(undefined),
+      onSelect: () => {
+        setLastHighlight(null);
+        textStyle({ highlight: null });
+      },
+    },
     ...HIGHLIGHT_COLORS.map((c) => ({
       id: c.hex,
       label: c.label,
       icon: swatch(`#${c.hex}`),
       checked: s.props.highlight?.kind === "rgb" && s.props.highlight.value.toUpperCase() === c.hex,
-      onSelect: () => textStyle({ highlight: { kind: "rgb", value: c.hex } as Color }),
+      onSelect: () => {
+        setLastHighlight(c.hex);
+        textStyle({ highlight: { kind: "rgb", value: c.hex } as Color });
+      },
     })),
   ];
 
@@ -545,23 +566,26 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         items: (
           <>
             <RibbonButton label={t("cmd.paste")} icon="paste" size="large" shortcut="Mod+V" onClick={() => void paste()} />
+            {/* Two rows fit the 64 px group: Cut; Copy + the format painter (W-01). */}
             <RibbonStack>
               <RibbonButton label={t("cmd.cut")} icon="cut" showLabel shortcut="Mod+X" onClick={() => clipboard("cut")} />
-              <RibbonButton label={t("cmd.copy")} icon="copy" showLabel shortcut="Mod+C" onClick={() => clipboard("copy")} />
-              <span
-                onDoubleClick={() => {
-                  features.painter.copy(editor, true);
-                }}
-              >
-                <RibbonButton
-                  label={t("write.formatPainter")}
-                  icon={PAINTER_ICON}
-                  pressed={painter}
-                  shortcut="Mod+Shift+C"
-                  tooltip={t("write.formatPainterTip")}
-                  onClick={() => (features.painter.active ? features.painter.cancel(editor) : features.painter.copy(editor))}
-                />
-              </span>
+              <RibbonRow>
+                <RibbonButton label={t("cmd.copy")} icon="copy" showLabel shortcut="Mod+C" onClick={() => clipboard("copy")} />
+                <span
+                  onDoubleClick={() => {
+                    features.painter.copy(editor, true);
+                  }}
+                >
+                  <RibbonButton
+                    label={t("write.formatPainter")}
+                    icon={PAINTER_ICON}
+                    pressed={painter}
+                    shortcut="Mod+Shift+C"
+                    tooltip={t("write.formatPainterTip")}
+                    onClick={() => (features.painter.active ? features.painter.cancel(editor) : features.painter.copy(editor))}
+                  />
+                </span>
+              </RibbonRow>
             </RibbonStack>
           </>
         ),
@@ -578,7 +602,12 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
               <StyleToggles {...fmt} />
               <RibbonButton label={t("write.subscript")} icon={SCRIPT_ICON(false)} shortcut="Mod+=" pressed={s.subscript} onClick={() => toggleScript(editor, "subscript")} />
               <RibbonButton label={t("write.superscript")} icon={SCRIPT_ICON(true)} shortcut="Mod+Shift+=" pressed={s.superscript} onClick={() => toggleScript(editor, "superscript")} />
-              <RibbonMenuButton label={t("write.highlight")} icon={HIGHLIGHT_ICON} menu={highlightMenu} />
+              <RibbonSplitButton
+                label={t("write.highlight")}
+                icon={HIGHLIGHT_ICON}
+                menu={highlightMenu}
+                onClick={() => textStyle({ highlight: lastHighlight ? ({ kind: "rgb", value: lastHighlight } as Color) : null })}
+              />
               <ColorPicker label={t("write.fontColor")} kind="text" value={s.props.color ?? undefined} onSelect={(c) => textStyle({ color: c && c.kind !== "auto" ? c : null })} />
               {fontExtras(editor, ctl, s.props)}
               <RibbonButton label={t("write.fontDialog")} icon="format" shortcut="Mod+D" tooltip={t("write.fontDialogTip")} onClick={() => features.ui.openDialog("font")} />
@@ -701,6 +730,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       },
       {
         label: t("group.editing"),
+        collapsePriority: 1,
         items: (
           <RibbonStack>
             <RibbonButton label={t("cmd.findReplace")} icon="find" showLabel shortcut="Mod+F" tooltip={t("cmd.find")} onClick={onFind} />
@@ -708,7 +738,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
           </RibbonStack>
         ),
       },
-      aiRibbonGroup(session.ai),
+      { ...aiRibbonGroup(session.ai), collapsePriority: 2 },
     ],
   };
 
@@ -727,7 +757,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
               <RibbonTableSizePicker
                 onPick={(r, c) => {
                   close();
-                  insertTable(r, c);
+                  void insertTable(r, c);
                 }}
               />
             )}
@@ -1018,9 +1048,12 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
                 }))}
               />
               <RibbonButton label={t("write.xref.button")} icon={XREF_ICON} showLabel tooltip={t("write.xref.tip")} onClick={() => features.ui.openDialog("crossRef")} />
-              <RibbonButton label={t("write.bookmark.button")} icon={BOOKMARK_ICON} showLabel tooltip={t("write.bookmark.tip")} onClick={() => features.ui.openDialog("bookmark")} />
             </RibbonStack>
-            <RibbonButton label={t("write.updateFields")} icon={UPDATE_ICON} size="large" shortcut="F9" tooltip={t("write.updateFieldsTip")} onClick={() => void features.updateFields()} />
+            {/* Two rows per stack: three overflow the 64 px group (W-19). */}
+            <RibbonStack>
+              <RibbonButton label={t("write.bookmark.button")} icon={BOOKMARK_ICON} showLabel tooltip={t("write.bookmark.tip")} onClick={() => features.ui.openDialog("bookmark")} />
+              <RibbonButton label={t("write.updateFields")} icon={UPDATE_ICON} showLabel shortcut="F9" tooltip={t("write.updateFieldsTip")} onClick={() => void features.updateFields()} />
+            </RibbonStack>
           </>
         ),
       },
@@ -1033,6 +1066,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
             <RibbonStack>
               <RibbonButton label={t("write.nextFootnote")} icon={NEXT_ICON(true)} showLabel onClick={() => goToNextRef(editor.view, 1)} />
               <RibbonButton label={t("write.prevFootnote")} icon={NEXT_ICON(false)} showLabel onClick={() => goToNextRef(editor.view, -1)} />
+            </RibbonStack>
+            <RibbonStack>
               <RibbonMenuButton
                 label={t("write.endnotesAt")}
                 icon={ENDNOTE_ICON}
@@ -1106,6 +1141,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
             <RibbonStack>
               <RibbonButton label={t("write.comments.previous")} icon={PREV_COMMENT_ICON} showLabel disabled={ctl.comments.length === 0} onClick={() => goTo(-1)} />
               <RibbonButton label={t("write.comments.next")} icon={NEXT_COMMENT_ICON} showLabel disabled={ctl.comments.length === 0} onClick={() => goTo(1)} />
+            </RibbonStack>
+            <RibbonStack>
               <RibbonButton
                 label={activeComment?.resolved ? t("write.comments.reopen") : t("write.comments.resolve")}
                 icon={RESOLVE_ICON}
@@ -1166,20 +1203,24 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       {
         label: t("write.show"),
         items: (
-          <RibbonStack>
-            <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
-              <input type="checkbox" checked={ui.ruler} onChange={() => features.ui.set({ ruler: !ui.ruler })} />
-              {t("write.ruler")}
-            </label>
-            <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
-              <input type="checkbox" checked={ui.navigation} onChange={() => features.ui.set({ navigation: !ui.navigation })} />
-              {t("write.navigationPane")}
-            </label>
-            <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
-              <input type="checkbox" checked={ui.hiddenText} onChange={() => features.ui.set({ hiddenText: !ui.hiddenText })} />
-              {t("write.hiddenText")}
-            </label>
-          </RibbonStack>
+          <>
+            <RibbonStack>
+              <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
+                <input type="checkbox" checked={ui.ruler} onChange={() => features.ui.set({ ruler: !ui.ruler })} />
+                {t("write.ruler")}
+              </label>
+              <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
+                <input type="checkbox" checked={ui.navigation} onChange={() => features.ui.set({ navigation: !ui.navigation })} />
+                {t("write.navigationPane")}
+              </label>
+            </RibbonStack>
+            <RibbonStack>
+              <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
+                <input type="checkbox" checked={ui.hiddenText} onChange={() => features.ui.set({ hiddenText: !ui.hiddenText })} />
+                {t("write.hiddenText")}
+              </label>
+            </RibbonStack>
+          </>
         ),
       },
       {
@@ -1246,6 +1287,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
             label: t("write.size"),
             items: (
               <>
+                {pictureCropButton(editor)}
                 <RibbonStack>
                   <NumberField
                     label={t("write.heightCm")}

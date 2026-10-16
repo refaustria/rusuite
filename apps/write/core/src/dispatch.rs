@@ -1,7 +1,7 @@
 //! The JSON entry point both shells call (ADR 0005 §3, ADR 0007 §7):
 //! [`dispatch_with`]`(host, request_json) -> response_json`.
 
-use app_common::{DispatchError, Envelope, Host, Revision};
+use app_common::{DispatchError, Envelope, Host, Patch, Revision};
 use model_text::media::{base64_decode, base64_encode};
 use model_text::{Document, MediaId, NodeId};
 use serde::{Deserialize, Serialize};
@@ -180,6 +180,34 @@ pub enum Response {
     Err(DispatchError),
 }
 
+type Step = fn(&mut WriteHost) -> Result<Option<Envelope<WritePatch>>, crate::WriteError>;
+
+/// Runs `step` (undo / redo) up to `n` times; the patches are merged into
+/// one envelope (the last one's host state). Returns how many ran.
+fn repeat(
+    host: &mut WriteHost,
+    n: usize,
+    step: Step,
+) -> Result<(Option<Envelope<WritePatch>>, usize), DispatchError> {
+    let mut merged: Option<Envelope<WritePatch>> = None;
+    let mut done = 0;
+    for _ in 0..n.max(1) {
+        let Some(env) = step(host)? else { break };
+        done += 1;
+        merged = Some(match merged {
+            None => env,
+            Some(mut m) => {
+                m.patch.merge(env.patch);
+                Envelope {
+                    patch: m.patch,
+                    ..env
+                }
+            }
+        });
+    }
+    Ok((merged, done))
+}
+
 fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, DispatchError> {
     let patch = |env: Option<Envelope<WritePatch>>, host: &WriteHost| ResponseBody::Patch {
         envelope: Box::new(env.unwrap_or_else(|| host.envelope(WritePatch::default()))),
@@ -204,15 +232,27 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
     );
     let body = match request {
         Request::Apply { command } => {
+            let limit = host.undo_limit();
+            let planned = host.doc().undo_groups.plan(&command);
             let env = host.apply(*command)?;
+            host.doc_mut().undo_groups.applied(planned, limit);
             patch(Some(env), host)
         }
+        // One step = a typing run (Word): several host entries, one reply.
         Request::Undo => {
-            let env = host.undo()?;
+            let n = host.doc_mut().undo_groups.take_undo();
+            let (env, done) = repeat(host, n, WriteHost::undo)?;
+            if done > 0 {
+                host.doc_mut().undo_groups.undone(done);
+            }
             patch(env, host)
         }
         Request::Redo => {
-            let env = host.redo()?;
+            let n = host.doc_mut().undo_groups.take_redo();
+            let (env, done) = repeat(host, n, WriteHost::redo)?;
+            if done > 0 {
+                host.doc_mut().undo_groups.redone(done);
+            }
             patch(env, host)
         }
         Request::Load { document: doc } => {

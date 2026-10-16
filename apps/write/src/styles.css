@@ -231,3 +231,9 @@ body,
 .tiptap-content:focus-within .field[data-field="pageRef"], .tiptap-content:focus-within .field[data-field="ref"], .tiptap-content:focus-within .field[data-field="noteRef"], .tiptap-content:focus-within .field[data-field="seq"] { background: #ececec; }
 /* An empty section-end paragraph of a multi-column section: its "Section break" line spans the columns. */
 .tiptap-content .section-columns > p[data-section-end]:has(> br.ProseMirror-trailingBreak:only-child) { column-span: all; }
+
+/* Print layout keeps the page width on narrow windows (the scroll area scrolls sideways, W-24); draft view wraps. */
+.write-zoom[data-view="print"] .comments-frame,
+.write-zoom[data-view="print"] [data-testid="ruler"] {
+  max-width: none !important;
+}

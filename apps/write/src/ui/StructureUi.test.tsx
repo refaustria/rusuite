@@ -129,6 +129,20 @@ describe("sections", () => {
     await waitFor(() => expect(editor.querySelector("[data-section-label]")).toBeTruthy());
   });
 
+  it("W-17: after Breaks › Next page the caret is in the new section: Orientation changes that one", async () => {
+    const { backend } = await mount([para(1, "first second")]);
+    fireEvent.click(tab("Layout"));
+    fireEvent.click(screen.getByRole("button", { name: "Breaks" }));
+    fireEvent.click(menuItem("Next page"));
+    await waitFor(() => expect(applied(backend).map((c) => c.type)).toEqual(["splitParagraph", "insertSectionBreak"]));
+    const doc = await backend.dispatch({ type: "getDocument" }) as { ok: { doc: Document } };
+    const sections = doc.ok.doc.sections ?? [];
+    expect(sections.length).toBe(2);
+    fireEvent.click(screen.getByRole("button", { name: "Orientation" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Landscape" }));
+    await waitFor(() => expect(applied(backend)).toContainEqual({ type: "setSection", section: sections[1]!.id, patch: { page: { orientation: "landscape" } } }));
+  });
+
   it("Layout › Orientation acts on the caret's section (setSection)", async () => {
     const { backend } = await twoSections();
     fireEvent.click(tab("Layout"));
@@ -176,6 +190,15 @@ describe("lists", () => {
     // P8-34: one ApplyNumbering (the core allocates the list), no numbering table from the UI.
     await waitFor(() => expect(applied(backend).map((c) => c.type)).toEqual(["applyNumbering"]));
     await waitFor(() => expect(editor.querySelector("[data-label]")?.getAttribute("data-label")).toBe("1."));
+  });
+
+  it("W-27: with the caret in a list, Multilevel list renumbers the whole list (levels kept)", async () => {
+    const { backend } = await mount([li(1, "one", 2, 0), li(2, "sub", 2, 1), li(3, "two", 2, 0), para(4, "after")]);
+    fireEvent.click(screen.getByRole("button", { name: "Multilevel list" }));
+    fireEvent.click(menuItem(/Numbered outline/));
+    await waitFor(() => expect(applied(backend).map((c) => c.type)).toEqual(["applyNumbering"]));
+    const cmd = applied(backend)[0] as Extract<WriteCommand, { type: "applyNumbering" }>;
+    expect(cmd.items).toEqual([[1, 0], [2, 1], [3, 0]]);
   });
 
   it("context menu: Restart at 1 / Continue numbering in a list", async () => {

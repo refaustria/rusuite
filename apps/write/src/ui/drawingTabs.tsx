@@ -216,7 +216,7 @@ function SizeField({ label, value, onCommit }: { label: string; value: number; o
   const text = String(Math.round((value / EMU_PER_CM) * 100) / 100);
   return (
     <label className="flex items-center gap-1 text-[11px] text-ui-fg">
-      <span className="w-12">{label}</span>
+      <span className="min-w-12 whitespace-nowrap">{label}</span>
       <input
         key={text}
         aria-label={label}
@@ -528,22 +528,23 @@ export function pictureFormatGroups(editor: Editor, format: PictureFormat | null
         </>
       ),
     },
-    {
-      label: t("write.cropGroup"),
-      items: (
-        <RibbonButton
-          label={t("write.crop")}
-          icon={CROP_ICON}
-          size="large"
-          tooltip={t("write.cropTip")}
-          onClick={() => {
-            const img = selectedImage(editor.state);
-            if (img) toggleCropMode(editor.view, img.pos);
-          }}
-        />
-      ),
-    },
   ];
+}
+
+/** Picture Format › Size › Crop (Word's place: before the height and width). */
+export function pictureCropButton(editor: Editor) {
+  return (
+    <RibbonButton
+      label={t("write.crop")}
+      icon={CROP_ICON}
+      size="large"
+      tooltip={t("write.cropTip")}
+      onClick={() => {
+        const img = selectedImage(editor.state);
+        if (img) toggleCropMode(editor.view, img.pos);
+      }}
+    />
+  );
 }
 
 const CROP_ICON = (

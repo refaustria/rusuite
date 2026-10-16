@@ -18,50 +18,7 @@ expression: p
               3008,
               3008
             ],
-            "borders": {
-              "top": {
-                "style": "single",
-                "width": 10,
-                "color": {
-                  "kind": "auto"
-                }
-              },
-              "left": {
-                "style": "single",
-                "width": 10,
-                "color": {
-                  "kind": "auto"
-                }
-              },
-              "bottom": {
-                "style": "single",
-                "width": 10,
-                "color": {
-                  "kind": "auto"
-                }
-              },
-              "right": {
-                "style": "single",
-                "width": 10,
-                "color": {
-                  "kind": "auto"
-                }
-              },
-              "insideH": {
-                "style": "single",
-                "width": 10,
-                "color": {
-                  "kind": "auto"
-                }
-              },
-              "insideV": {
-                "style": "single",
-                "width": 10,
-                "color": {
-                  "kind": "auto"
-                }
-              }
-            }
+            "style": "TableGrid"
           },
           "rows": [
             {

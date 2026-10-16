@@ -29,6 +29,8 @@
 - Provider app registrations: the OAuth client IDs/keys must be created in the owner's accounts (we can prepare exact instructions).
 
 
+**Decision 2026-10-16: desktop only.** The website keeps `connect-src 'self'`; this feature is offered in the desktop apps only and hidden on the web (see ADR 0009 decision).
+
 ## Amendment 2026-10-16 (owner): generic and opt-in
 
 The owner's direction: connectors must be **generic** – the user decides whether to connect a cloud at all; Rusuite offers no cloud service and does not register provider apps on the user's behalf. Consequences for the first implementation (task to be scheduled after the current Phase 8 batch):

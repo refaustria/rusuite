@@ -470,6 +470,19 @@ interface CacheEntry {
   m: BlockMeasure;
 }
 
+/** Where the floats that text wraps around are, relative to their paragraphs (CSS px): a change reflows the text. */
+export function floatSignature(dom: HTMLElement, zoom: number): string {
+  const out: string[] = [];
+  dom.querySelectorAll<HTMLElement>("[data-wrap]").forEach((el) => {
+    if (!/^(square|tight|through|topAndBottom)$/.test(el.dataset.wrap ?? "")) return;
+    const p = el.closest("p, h1, h2, h3, h4, h5, h6");
+    const r = el.getBoundingClientRect();
+    const b = p?.getBoundingClientRect() ?? r;
+    out.push([r.left - b.left, r.top - b.top, r.width, r.height].map((v) => Math.round(v / zoom)).join(","));
+  });
+  return out.join(";");
+}
+
 /** The measuring side of the plugin: cached block measures, dirty tracking, header heights. */
 class Measurer {
   /** Measures by PM node (a node unchanged by an edit is the same object). */
@@ -555,7 +568,9 @@ class Measurer {
     const dom = view.dom as HTMLElement;
     const z = this.zoom();
     let fresh = 0;
-    const key = `${dom.offsetWidth}|${z.toFixed(3)}`;
+    // Text wrapping around a floating picture or shape reflows the following blocks without touching their DOM
+    // (a moved or resized float): their cached lines are stale then (W-14).
+    const key = `${dom.offsetWidth}|${z.toFixed(3)}|${floatSignature(dom, z)}`;
     if (key !== this.key) {
       this.cache.clear();
       this.key = key;

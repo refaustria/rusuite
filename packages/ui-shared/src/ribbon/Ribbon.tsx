@@ -18,12 +18,15 @@ import { FOCUS_RING } from "../Popover";
 import { formatCombo } from "../shortcuts/keys";
 import { Backstage, type BackstageActions, type BackstagePage } from "./Backstage";
 import { RibbonIcon } from "./icons";
+import { GroupBar } from "./groups";
 import { useT } from "../i18n/react";
 
 export interface RibbonGroup {
   label: string;
   /** Group contents; `null`/`false`/empty means the group is omitted. */
   items: ReactNode;
+  /** On a narrow window groups with a higher priority collapse first (default 0; ties: the rightmost first). */
+  collapsePriority?: number;
 }
 
 export interface RibbonTab {
@@ -365,7 +368,7 @@ export function Ribbon({
                 <span
                   aria-hidden="true"
                   data-testid="ribbon-context-header"
-                  className="pointer-events-none absolute inset-x-0 top-0 h-[10px] truncate rounded-t-sm px-1 text-center text-[9px] font-semibold leading-[10px] text-white"
+                  className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[10px] truncate rounded-t-sm px-1 text-center text-[9px] font-semibold leading-[10px] text-white"
                   style={{ background: run.context.color }}
                 >
                   {run.context.group}
@@ -411,16 +414,7 @@ export function Ribbon({
             }
           }}
         >
-          <div role="toolbar" aria-label={active.toolbarLabel ?? active.label} className="flex h-[64px] items-stretch px-1 py-px">
-            {active.groups.map((g) => (
-              <div key={g.label} role="group" aria-label={g.label} className="flex shrink-0 flex-col border-r border-ui-border px-1.5 last:border-r-0">
-                <div className="flex min-h-0 flex-1 items-center gap-0.5">{g.items}</div>
-                <div aria-hidden="true" className="h-3 text-center text-[10px] leading-3 text-ui-muted">
-                  {g.label}
-                </div>
-              </div>
-            ))}
-          </div>
+          <GroupBar key={active.id} tabId={active.id} groups={active.groups} label={active.toolbarLabel ?? active.label} />
         </div>
       )}
       {backstage && (
