@@ -303,6 +303,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
   const t = useT();
   const gallery = useGallery(editor, ctl);
   const [styleMenu, setStyleMenu] = useState<{ at: { x: number; y: number }; style: Style } | null>(null);
+  // Word's highlighter applies the last colour chosen (yellow at first; "No Color" erases) – W-04.
+  const [lastHighlight, setLastHighlight] = useState<string | null>("FFFF00");
   const fileInput = useRef<HTMLInputElement>(null);
   const canUndo = useSync(ctl, (s) => s.canUndo);
   const canRedo = useSync(ctl, (s) => s.canRedo);
@@ -505,13 +507,24 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
   };
 
   const highlightMenu: RibbonMenuItem[] = [
-    { id: "none", label: t("write.noColor"), icon: swatch(undefined), onSelect: () => textStyle({ highlight: null }) },
+    {
+      id: "none",
+      label: t("write.noColor"),
+      icon: swatch(undefined),
+      onSelect: () => {
+        setLastHighlight(null);
+        textStyle({ highlight: null });
+      },
+    },
     ...HIGHLIGHT_COLORS.map((c) => ({
       id: c.hex,
       label: c.label,
       icon: swatch(`#${c.hex}`),
       checked: s.props.highlight?.kind === "rgb" && s.props.highlight.value.toUpperCase() === c.hex,
-      onSelect: () => textStyle({ highlight: { kind: "rgb", value: c.hex } as Color }),
+      onSelect: () => {
+        setLastHighlight(c.hex);
+        textStyle({ highlight: { kind: "rgb", value: c.hex } as Color });
+      },
     })),
   ];
 
@@ -588,7 +601,12 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
               <StyleToggles {...fmt} />
               <RibbonButton label={t("write.subscript")} icon={SCRIPT_ICON(false)} shortcut="Mod+=" pressed={s.subscript} onClick={() => toggleScript(editor, "subscript")} />
               <RibbonButton label={t("write.superscript")} icon={SCRIPT_ICON(true)} shortcut="Mod+Shift+=" pressed={s.superscript} onClick={() => toggleScript(editor, "superscript")} />
-              <RibbonMenuButton label={t("write.highlight")} icon={HIGHLIGHT_ICON} menu={highlightMenu} />
+              <RibbonSplitButton
+                label={t("write.highlight")}
+                icon={HIGHLIGHT_ICON}
+                menu={highlightMenu}
+                onClick={() => textStyle({ highlight: lastHighlight ? ({ kind: "rgb", value: lastHighlight } as Color) : null })}
+              />
               <ColorPicker label={t("write.fontColor")} kind="text" value={s.props.color ?? undefined} onSelect={(c) => textStyle({ color: c && c.kind !== "auto" ? c : null })} />
               {fontExtras(editor, ctl, s.props)}
               <RibbonButton label={t("write.fontDialog")} icon="format" shortcut="Mod+D" tooltip={t("write.fontDialogTip")} onClick={() => features.ui.openDialog("font")} />

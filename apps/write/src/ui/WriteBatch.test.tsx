@@ -251,11 +251,18 @@ describe("Formatting details", () => {
     caret(editor, 1, 0, 5);
     fireEvent.click(screen.getByRole("button", { name: "Superscript" }));
     await waitFor(() => expect(applied(backend)).toContainEqual({ type: "setRunProps", block: 1, from: 0, to: 5, patch: { verticalAlign: "superscript" } }));
-    fireEvent.click(screen.getByRole("button", { name: "Text highlight color" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Yellow" }));
+    fireEvent.click(screen.getByRole("button", { name: "Text highlight color options" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Bright green" }));
     await waitFor(() =>
-      expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "setRunProps", patch: { highlight: { kind: "rgb", value: "FFFF00" } } })),
+      expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "setRunProps", patch: { highlight: { kind: "rgb", value: "00FF00" } } })),
     );
+    // W-04: the button itself applies the last colour (Word's highlighter).
+    caret(editor, 1, 6, 8);
+    fireEvent.click(screen.getByRole("button", { name: "Text highlight color" }));
+    await waitFor(() =>
+      expect(applied(backend)).toContainEqual({ type: "setRunProps", block: 1, from: 6, to: 8, patch: { highlight: { kind: "rgb", value: "00FF00" } } }),
+    );
+    caret(editor, 1, 0, 5);
     fireEvent.click(screen.getByRole("button", { name: "Clear formatting" }));
     await waitFor(() => expect(applied(backend)).toContainEqual({ type: "clearFormatting", block: 1, from: 0, to: 5, paragraph: true }));
     await waitFor(() => expect(editor.view.dom.querySelector("sup")).toBeNull());
