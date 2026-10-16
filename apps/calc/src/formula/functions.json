@@ -61,6 +61,7 @@
   { "name": "FV", "signature": "FV(rate, nper, pmt, [pv=0], [type=0])", "description": "Future value", "category": "financial" },
   { "name": "GCD", "signature": "GCD(number1, ...)", "description": "Greatest common divisor", "category": "math" },
   { "name": "GEOMEAN", "signature": "GEOMEAN(number1, ...)", "description": "Geometric mean", "category": "statistical" },
+  { "name": "GETPIVOTDATA", "signature": "GETPIVOTDATA(data_field, pivot_table, [field1, item1], ...)", "description": "Value shown by a pivot table", "category": "lookup" },
   { "name": "HARMEAN", "signature": "HARMEAN(number1, ...)", "description": "Harmonic mean", "category": "statistical" },
   { "name": "HLOOKUP", "signature": "HLOOKUP(value, table, row, [approx=TRUE])", "description": "Search first row", "category": "lookup" },
   { "name": "HOUR", "signature": "HOUR(serial)", "description": "Hour 0..23", "category": "datetime" },
