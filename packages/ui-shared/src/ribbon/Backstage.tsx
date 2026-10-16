@@ -15,6 +15,8 @@ import { ForgetConnections } from "../connectors/ui/ForgetConnections";
 import { RemotePage } from "../connectors/ui/RemotePage";
 import { baseName } from "../connectors/paths";
 import { AiOverlay } from "../ai/ui/AiOverlay";
+import { ReportOverlay } from "../report/ui/ReportDialog";
+import { ReportBackstageItem } from "../report/ui/ribbon";
 
 const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
@@ -125,6 +127,7 @@ function PrivacySection({ session }: { session: AnySession }) {
       <p className="mb-3 text-sm" data-testid="privacy-text">
         {t(desktop ? "privacy.desktop" : "privacy.web")}
       </p>
+      <p className="mb-3 text-sm text-ui-muted" data-testid="privacy-report">{t("privacy.report")}</p>
       <label className="mb-3 flex items-center gap-2 text-sm">
         <input
           type="checkbox"
@@ -194,10 +197,11 @@ export function Backstage({
   }, [open, page]);
 
   const ai = session?.ai ?? null;
-  const overlay = (connectors || ai) && (
+  const overlay = (
     <>
       {connectors && <ConnectorsOverlay connectors={connectors} />}
       {ai && <AiOverlay ai={ai} />}
+      <ReportOverlay host={session?.backend} />
     </>
   );
   // File › Options…: the shared options dialog (AI, P8-37); an app's own options become its General page.
@@ -207,7 +211,7 @@ export function Backstage({
         ai.openSettings();
       }
     : onOptions;
-  if (!open) return overlay || null;
+  if (!open) return overlay;
 
   /** Runs a command after leaving the backstage (dialogs it opens then get the focus). */
   const pick = (fn: () => void) => {
@@ -344,6 +348,7 @@ export function Backstage({
         <ul className="mt-auto flex flex-col border-t border-white/20 pt-2">
           {item("close", t("backstage.close"), "close", onCloseDocument)}
           {item("options", t("backstage.options"), "options", options)}
+          <ReportBackstageItem pick={pick} />
         </ul>
         <LanguageSelect className="px-5 pb-1 pt-2 text-xs [&_span]:text-white/90" />
       </nav>

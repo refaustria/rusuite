@@ -4,7 +4,7 @@
 // ShortcutLayer (Save As, New with its discard prompt, shortcut help), the
 // shortcut map.
 
-import { aiRibbonGroup } from "@rusuite/ui-shared";
+import { aiRibbonGroup, reportRibbonGroup } from "@rusuite/ui-shared";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlignmentControls, BordersDropdown, ColorControls, FontControls, RIBBON_SELECT, Ribbon, RibbonButton,
@@ -266,6 +266,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
         ),
       },
       { ...aiRibbonGroup(session.ai), collapsePriority: 2 },
+      reportRibbonGroup(() => ({ cells: [...store.cache(store.getState().activeSheet).cells.values()].reduce((n, row) => n + row.size, 0) })),
     ],
   };
 

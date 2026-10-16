@@ -5,7 +5,7 @@
 // is inside `[data-keep-edit]`, so using it does not end the overlay text
 // editor.
 
-import { aiRibbonGroup } from "@rusuite/ui-shared";
+import { aiRibbonGroup, reportRibbonGroup } from "@rusuite/ui-shared";
 import { useMemo, useRef, type ReactNode } from "react";
 import {
   ColorPicker, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
@@ -439,6 +439,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         items: <RibbonMenuButton label={t("show.select")} icon={DI.select} showLabel disabled={!hasSlide} menu={selectMenu} />,
       },
       { ...aiRibbonGroup(session.ai), collapsePriority: 2 },
+      reportRibbonGroup(() => ({ slides: store.getState().pres?.slides.length ?? 0 })),
     ],
   };
 
