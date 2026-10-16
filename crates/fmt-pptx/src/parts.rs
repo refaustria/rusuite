@@ -1,16 +1,14 @@
-//! The fixed parts of a written package: slide master, the three slide
-//! layouts, `presProps`, `viewProps`, `tableStyles` and `docProps`.
+//! The fixed parts of a written package: `presentation.xml` (with the
+//! section list), notes master and slides, `presProps`, `viewProps`,
+//! `tableStyles` and `docProps`.
 //!
 //! Element order follows PowerPoint-generated files (PresentationML is
-//! validated strictly by PowerPoint). Placeholder positions and text
-//! defaults come from [`Presentation::layouts`].
+//! validated strictly by PowerPoint).
 
-use core_model::RunProperties;
-use model_show::{
-    Layout, LayoutKind, PlaceholderDef, PlaceholderKind, Presentation, TextParagraphProps,
-};
+use model_show::Presentation;
 
-use crate::drawing::{ppr_attrs, write_body_pr, write_ppr_children, write_rpr, write_xfrm};
+use crate::master::LEVEL_ATTRS;
+use crate::read::SECTION_EXT_URI;
 use crate::xml::XmlOut;
 
 pub const NS_A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
@@ -19,27 +17,6 @@ pub const NS_P: &str = "http://schemas.openxmlformats.org/presentationml/2006/ma
 
 /// `xmlns` attributes of a PresentationML root element.
 pub const ROOT_NS: [(&str, &str); 3] = [("xmlns:a", NS_A), ("xmlns:r", NS_R), ("xmlns:p", NS_P)];
-
-/// `p:ph` attributes (type, idx) of a placeholder kind. `idx` is the
-/// placeholder index used on layouts (slides may renumber body-like
-/// placeholders to keep indexes unique).
-pub fn ph_attrs(kind: PlaceholderKind) -> (Option<&'static str>, Option<u32>) {
-    match kind {
-        PlaceholderKind::CenteredTitle => (Some("ctrTitle"), None),
-        PlaceholderKind::Title => (Some("title"), None),
-        PlaceholderKind::Subtitle => (Some("subTitle"), Some(1)),
-        PlaceholderKind::Body => (None, Some(1)),
-    }
-}
-
-/// `p:sldLayout/@type`, `p:cSld/@name` and part number of a layout.
-pub fn layout_meta(kind: LayoutKind) -> (&'static str, &'static str, usize) {
-    match kind {
-        LayoutKind::Title => ("title", "Title Slide", 1),
-        LayoutKind::TitleContent => ("obj", "Title and Content", 2),
-        LayoutKind::Blank => ("blank", "Blank", 3),
-    }
-}
 
 /// Writes `p:nvGrpSpPr` + `p:grpSpPr` of a shape tree root.
 pub fn sp_tree_start(x: &mut XmlOut) {
@@ -59,177 +36,7 @@ pub fn sp_tree_start(x: &mut XmlOut) {
     x.end("p:grpSpPr");
 }
 
-/// Writes `p:nvPr` with a `p:ph` of `kind` (index `idx` overrides the
-/// default index).
-pub fn write_nv_pr_ph(x: &mut XmlOut, kind: PlaceholderKind, idx: Option<u32>) {
-    let (ty, default_idx) = ph_attrs(kind);
-    let idx = idx.or(default_idx).map(|i| i.to_string());
-    let mut attrs: Vec<(&str, &str)> = Vec::new();
-    if let Some(t) = ty {
-        attrs.push(("type", t));
-    }
-    if let Some(i) = &idx {
-        attrs.push(("idx", i));
-    }
-    x.start("p:nvPr", &[]);
-    x.empty("p:ph", &attrs);
-    x.end("p:nvPr");
-}
-
-/// A master or layout placeholder `p:sp` with prompt text and, for
-/// layouts, a level-1 list style with the placeholder's text defaults.
-fn placeholder_sp(
-    x: &mut XmlOut,
-    id: u32,
-    name: &str,
-    def: &PlaceholderDef,
-    ph: (Option<&str>, Option<u32>),
-    with_lst_style: bool,
-    prompt: &str,
-) {
-    let id = id.to_string();
-    x.start("p:sp", &[]);
-    x.start("p:nvSpPr", &[]);
-    x.empty("p:cNvPr", &[("id", &id), ("name", name)]);
-    x.start("p:cNvSpPr", &[]);
-    x.empty("a:spLocks", &[("noGrp", "1")]);
-    x.end("p:cNvSpPr");
-    let idx = ph.1.map(|i| i.to_string());
-    let mut attrs: Vec<(&str, &str)> = Vec::new();
-    if let Some(t) = ph.0 {
-        attrs.push(("type", t));
-    }
-    if let Some(i) = &idx {
-        attrs.push(("idx", i));
-    }
-    x.start("p:nvPr", &[]);
-    x.empty("p:ph", &attrs);
-    x.end("p:nvPr");
-    x.end("p:nvSpPr");
-    x.start("p:spPr", &[]);
-    write_xfrm(x, &def.transform, false);
-    x.start("a:prstGeom", &[("prst", "rect")]);
-    x.empty("a:avLst", &[]);
-    x.end("a:prstGeom");
-    x.end("p:spPr");
-    x.start("p:txBody", &[]);
-    write_body_pr(x, &def.body_defaults);
-    if with_lst_style {
-        x.start("a:lstStyle", &[]);
-        lvl_ppr(x, "a:lvl1pPr", &def.paragraph_defaults, &def.run_defaults);
-        x.end("a:lstStyle");
-    } else {
-        x.empty("a:lstStyle", &[]);
-    }
-    x.start("a:p", &[]);
-    x.start("a:r", &[]);
-    x.empty("a:rPr", &[("lang", "en-US")]);
-    x.text_el("a:t", &[], prompt);
-    x.end("a:r");
-    x.empty("a:endParaRPr", &[("lang", "en-US")]);
-    x.end("a:p");
-    x.end("p:txBody");
-    x.end("p:sp");
-}
-
-/// A list-style level (`a:lvlNpPr`) holding paragraph defaults and a
-/// `a:defRPr` with the run defaults.
-fn lvl_ppr(x: &mut XmlOut, name: &str, para: &TextParagraphProps, run: &RunProperties) {
-    let attrs = ppr_attrs(para, false);
-    let attrs: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    x.start(name, &attrs);
-    write_ppr_children(x, para);
-    write_rpr(x, "a:defRPr", run, true);
-    x.end(name);
-}
-
-/// The placeholder definition `kind` from the presentation's layouts
-/// (first layout that has one).
-fn def_of(p: &Presentation, kind: PlaceholderKind) -> Option<&PlaceholderDef> {
-    p.layouts.iter().find_map(|l| l.placeholder(kind))
-}
-
-/// `ppt/slideMasters/slideMaster1.xml`: white background, title and body
-/// placeholders (positions of the Title and Content layout), the standard
-/// color map, the three layout ids and text styles (title 44 pt major
-/// font; body 28/24/20/18 pt minor font with `•` bullets, 0.5" per level;
-/// other text 18 pt).
-pub fn slide_master_xml(p: &Presentation) -> Vec<u8> {
-    let mut x = XmlOut::new();
-    x.start("p:sldMaster", &ROOT_NS);
-    x.start("p:cSld", &[]);
-    x.start("p:bg", &[]);
-    x.start("p:bgRef", &[("idx", "1001")]);
-    x.empty("a:schemeClr", &[("val", "bg1")]);
-    x.end("p:bgRef");
-    x.end("p:bg");
-    sp_tree_start(&mut x);
-    let builtin = Layout::builtin(LayoutKind::TitleContent, p.slide_size);
-    let title = def_of(p, PlaceholderKind::Title)
-        .or_else(|| builtin.placeholder(PlaceholderKind::Title))
-        .cloned()
-        .expect("built-in title placeholder");
-    let body = def_of(p, PlaceholderKind::Body)
-        .or_else(|| builtin.placeholder(PlaceholderKind::Body))
-        .cloned()
-        .expect("built-in body placeholder");
-    let plain = |d: &PlaceholderDef| PlaceholderDef {
-        paragraph_defaults: TextParagraphProps::default(),
-        run_defaults: RunProperties::default(),
-        ..d.clone()
-    };
-    placeholder_sp(
-        &mut x,
-        2,
-        "Title Placeholder 1",
-        &plain(&title),
-        (Some("title"), None),
-        false,
-        "Click to edit Master title style",
-    );
-    placeholder_sp(
-        &mut x,
-        3,
-        "Text Placeholder 2",
-        &plain(&body),
-        (Some("body"), Some(1)),
-        false,
-        "Click to edit Master text styles",
-    );
-    x.end("p:spTree");
-    x.end("p:cSld");
-    x.empty(
-        "p:clrMap",
-        &[
-            ("bg1", "lt1"),
-            ("tx1", "dk1"),
-            ("bg2", "lt2"),
-            ("tx2", "dk2"),
-            ("accent1", "accent1"),
-            ("accent2", "accent2"),
-            ("accent3", "accent3"),
-            ("accent4", "accent4"),
-            ("accent5", "accent5"),
-            ("accent6", "accent6"),
-            ("hlink", "hlink"),
-            ("folHlink", "folHlink"),
-        ],
-    );
-    x.start("p:sldLayoutIdLst", &[]);
-    for (i, _) in LayoutKind::ALL.iter().enumerate() {
-        let id = (2_147_483_649u64 + i as u64).to_string();
-        let rid = format!("rId{}", i + 1);
-        x.empty("p:sldLayoutId", &[("id", &id), ("r:id", &rid)]);
-    }
-    x.end("p:sldLayoutIdLst");
-    x.start("p:txStyles", &[]);
-    text_styles(&mut x);
-    x.end("p:txStyles");
-    x.end("p:sldMaster");
-    x.finish()
-}
-
-/// `a:defRPr` children shared by the master text styles.
+/// `a:defRPr` of the default text style.
 fn def_rpr(x: &mut XmlOut, sz: u32, major: bool) {
     let (lt, ea, cs) = if major {
         ("+mj-lt", "+mj-ea", "+mj-cs")
@@ -244,114 +51,6 @@ fn def_rpr(x: &mut XmlOut, sz: u32, major: bool) {
     x.empty("a:ea", &[("typeface", ea)]);
     x.empty("a:cs", &[("typeface", cs)]);
     x.end("a:defRPr");
-}
-
-const LEVEL_ATTRS: [(&str, &str); 5] = [
-    ("defTabSz", "914400"),
-    ("rtl", "0"),
-    ("eaLnBrk", "1"),
-    ("latinLnBrk", "0"),
-    ("hangingPunct", "1"),
-];
-
-fn text_styles(x: &mut XmlOut) {
-    let pct = |x: &mut XmlOut, name: &str, v: &str| {
-        x.start(name, &[]);
-        x.empty("a:spcPct", &[("val", v)]);
-        x.end(name);
-    };
-    // title
-    x.start("p:titleStyle", &[]);
-    let mut attrs = vec![("algn", "l")];
-    attrs.extend(LEVEL_ATTRS);
-    x.start("a:lvl1pPr", &attrs);
-    pct(x, "a:lnSpc", "90000");
-    pct(x, "a:spcBef", "0");
-    x.empty("a:buNone", &[]);
-    def_rpr(x, 4400, true);
-    x.end("a:lvl1pPr");
-    x.end("p:titleStyle");
-    // body
-    x.start("p:bodyStyle", &[]);
-    for lvl in 0..9u32 {
-        let name = format!("a:lvl{}pPr", lvl + 1);
-        let mar = (228_600 + lvl * 457_200).to_string();
-        let mut attrs = vec![("marL", mar.as_str()), ("indent", "-228600"), ("algn", "l")];
-        attrs.extend(LEVEL_ATTRS);
-        x.start(&name, &attrs);
-        pct(x, "a:lnSpc", "90000");
-        x.start("a:spcBef", &[]);
-        x.empty(
-            "a:spcPts",
-            &[("val", if lvl == 0 { "1000" } else { "500" })],
-        );
-        x.end("a:spcBef");
-        x.empty("a:buFont", &[("typeface", "Arial")]);
-        x.empty("a:buChar", &[("char", "•")]);
-        let sz = match lvl {
-            0 => 2800,
-            1 => 2400,
-            2 => 2000,
-            _ => 1800,
-        };
-        def_rpr(x, sz, false);
-        x.end(&name);
-    }
-    x.end("p:bodyStyle");
-    // other
-    x.start("p:otherStyle", &[]);
-    x.start("a:defPPr", &[]);
-    x.empty("a:defRPr", &[("lang", "en-US")]);
-    x.end("a:defPPr");
-    for lvl in 0..9u32 {
-        let name = format!("a:lvl{}pPr", lvl + 1);
-        let mar = (lvl * 457_200).to_string();
-        let mut attrs = vec![("marL", mar.as_str()), ("algn", "l")];
-        attrs.extend(LEVEL_ATTRS);
-        x.start(&name, &attrs);
-        def_rpr(x, 1800, false);
-        x.end(&name);
-    }
-    x.end("p:otherStyle");
-}
-
-/// `ppt/slideLayouts/slideLayoutN.xml` for `layout`: its placeholders at
-/// their positions, each with the layout's text defaults as list style.
-pub fn slide_layout_xml(layout: &Layout) -> Vec<u8> {
-    let (ty, name, _) = layout_meta(layout.kind);
-    let mut x = XmlOut::new();
-    let mut attrs: Vec<(&str, &str)> = ROOT_NS.to_vec();
-    attrs.push(("type", ty));
-    attrs.push(("preserve", "1"));
-    x.start("p:sldLayout", &attrs);
-    x.start("p:cSld", &[("name", name)]);
-    sp_tree_start(&mut x);
-    for (i, def) in layout.placeholders.iter().enumerate() {
-        let (base, prompt) = match def.kind {
-            PlaceholderKind::CenteredTitle | PlaceholderKind::Title => {
-                ("Title", "Click to edit Master title style")
-            }
-            PlaceholderKind::Subtitle => ("Subtitle", "Click to edit Master subtitle style"),
-            PlaceholderKind::Body => ("Content Placeholder", "Click to edit Master text styles"),
-        };
-        let id = i as u32 + 2;
-        placeholder_sp(
-            &mut x,
-            id,
-            &format!("{base} {}", id - 1),
-            def,
-            ph_attrs(def.kind),
-            true,
-            prompt,
-        );
-    }
-    x.end("p:spTree");
-    x.end("p:cSld");
-    x.start("p:clrMapOvr", &[]);
-    x.empty("a:masterClrMapping", &[]);
-    x.end("p:clrMapOvr");
-    x.end("p:sldLayout");
-    x.finish()
 }
 
 /// `ppt/presentation.xml`: master id, slide ids (`rId2`…), slide size,
@@ -401,8 +100,38 @@ pub fn presentation_xml(p: &Presentation, notes_master_rid: Option<&str>) -> Vec
     def_rpr(&mut x, 1800, false);
     x.end("a:lvl1pPr");
     x.end("p:defaultTextStyle");
+    if !p.sections.is_empty() {
+        x.start("p:extLst", &[]);
+        x.start("p:ext", &[("uri", SECTION_EXT_URI)]);
+        x.start("p14:sectionLst", &[("xmlns:p14", NS_P14)]);
+        for (i, section) in p.sections.iter().enumerate() {
+            x.start(
+                "p14:section",
+                &[("name", &section.name), ("id", &section_guid(i))],
+            );
+            x.start("p14:sldIdLst", &[]);
+            for id in &section.slide_ids {
+                if let Some(n) = p.slide_index(*id) {
+                    x.empty("p14:sldId", &[("id", &(256 + n).to_string())]);
+                }
+            }
+            x.end("p14:sldIdLst");
+            x.end("p14:section");
+        }
+        x.end("p14:sectionLst");
+        x.end("p:ext");
+        x.end("p:extLst");
+    }
     x.end("p:presentation");
     x.finish()
+}
+
+/// PowerPoint 2010 main namespace (`p14:`).
+pub const NS_P14: &str = "http://schemas.microsoft.com/office/powerpoint/2010/main";
+
+/// A stable GUID for section `i` (sections have no id in the model).
+fn section_guid(i: usize) -> String {
+    format!("{{{:08X}-5EC7-4E1D-8A3B-{:012X}}}", 0x5EC7_1000 + i, i + 1)
 }
 
 /// The standard colour map of masters.

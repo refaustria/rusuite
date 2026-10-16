@@ -3,7 +3,9 @@
 
 use app_common::{DispatchError, Envelope, Host, Revision};
 use core_model::media::{base64_decode, base64_encode, MediaId};
-use model_show::{flatten, Adjust, ConnectorKind, Presentation, Preset, Site, SubPath};
+use model_show::{
+    flatten, Adjust, BuiltinTheme, ConnectorKind, Presentation, Preset, Site, SubPath,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -151,6 +153,9 @@ pub enum Request {
     /// rendering → `shapePaths` (one entry per query, in order). Changes
     /// nothing.
     ShapePaths { queries: Vec<PathQuery> },
+    /// The built-in themes (for the Design gallery) → `themes`. Changes
+    /// nothing.
+    GetThemes,
 }
 
 /// The successful part of a [`Response`].
@@ -206,6 +211,8 @@ pub enum ResponseBody {
     },
     /// The reply to `shapePaths`.
     ShapePaths { shapes: Vec<ShapePaths> },
+    /// The reply to `getThemes`, in gallery order.
+    Themes { themes: Vec<BuiltinTheme> },
 }
 
 /// The reply: `{"ok":{"type":"patch",...}}` or
@@ -297,6 +304,9 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
             presentation(host)
         }
         Request::DocumentState => state(host),
+        Request::GetThemes => ResponseBody::Themes {
+            themes: model_show::builtin_themes(),
+        },
         Request::ShapePaths { queries } => ResponseBody::ShapePaths {
             shapes: queries.iter().map(PathQuery::compute).collect(),
         },

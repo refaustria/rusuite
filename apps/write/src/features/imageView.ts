@@ -6,6 +6,9 @@
 
 import type { Node as PMNode } from "@tiptap/pm/model";
 import type { EditorView, NodeView } from "@tiptap/pm/view";
+import type { Anchor } from "../generated/Anchor";
+import type { Indent } from "../generated/Indent";
+import { floatPlacement, movedAnchor, placementStyle } from "./floating";
 
 /** Handle positions: corners keep the aspect ratio. */
 export const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
@@ -43,6 +46,21 @@ export function resizeBy(handle: Handle, w: number, h: number, dx: number, dy: n
 export interface ImageViewOptions {
   emuPerPx: number;
   resolve: ((id: number) => Promise<string>) | null;
+  /** Page width and left margin in CSS px (page-relative floating positions). */
+  page?: (() => { width: number; marginLeft: number; columnWidth: number } | null) | null;
+}
+
+const TWIPS_PER_PX = 15;
+
+/** The left/right indent (px) of the paragraph holding the image at `pos`. */
+function indentAt(view: EditorView, pos: number | undefined): { left: number; right: number } {
+  if (pos === undefined) return { left: 0, right: 0 };
+  try {
+    const ind = view.state.doc.resolve(pos).parent.attrs.indent as Indent | null;
+    return { left: (ind?.left ?? 0) / TWIPS_PER_PX, right: (ind?.right ?? 0) / TWIPS_PER_PX };
+  } catch {
+    return { left: 0, right: 0 };
+  }
 }
 
 /** The image node view (handles shown while the node is selected). */
@@ -63,7 +81,31 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
   });
   let media: number | null = null;
 
+  const place = (n: PMNode) => {
+    const anchor = n.attrs.anchor as Anchor | null;
+    wrap.classList.remove("floating", "float-left", "float-right", "block", "behind", "front");
+    if (!anchor) {
+      wrap.removeAttribute("style");
+      delete wrap.dataset.wrap;
+      return;
+    }
+    const ind = indentAt(view, getPos());
+    const page = opts.page?.() ?? null;
+    const p = floatPlacement(anchor, {
+      width: n.attrs.width / opts.emuPerPx,
+      height: n.attrs.height / opts.emuPerPx,
+      indentLeft: ind.left,
+      indentRight: ind.right,
+      columnWidth: page?.columnWidth ?? null,
+      page,
+    });
+    wrap.classList.add("floating", p.mode);
+    wrap.dataset.wrap = anchor.wrap;
+    wrap.setAttribute("style", placementStyle(p));
+  };
+
   const render = (n: PMNode) => {
+    place(n);
     img.dataset.mediaId = String(n.attrs.mediaId);
     img.alt = n.attrs.alt ?? "";
     img.title = n.attrs.alt ?? "";
@@ -85,7 +127,46 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
   };
   render(node);
 
-  const onDown = (e: MouseEvent) => {
+  // Drag a selected floating picture to move it (new offsets from the column and the paragraph).
+  let moving = false;
+  const onMoveStart = (e: PointerEvent) => {
+    const anchor = current.attrs.anchor as Anchor | null;
+    if (!anchor || !wrap.classList.contains("selected") || e.button !== 0 || (e.target as HTMLElement).dataset.handle) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const para = wrap.closest("p, h1, h2, h3, h4, h5, h6") as HTMLElement | null;
+    const zoom = img.offsetWidth ? img.getBoundingClientRect().width / img.offsetWidth || 1 : 1;
+    const ind = indentAt(view, getPos());
+    const r0 = wrap.getBoundingClientRect();
+    const p0 = para?.getBoundingClientRect() ?? r0;
+    const x = (r0.left - p0.left) / zoom + ind.left;
+    const y = (r0.top - p0.top) / zoom;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let d = { x: 0, y: 0 };
+    moving = true;
+    wrap.classList.add("moving");
+    const move = (ev: PointerEvent) => {
+      d = { x: (ev.clientX - sx) / zoom, y: (ev.clientY - sy) / zoom };
+      img.style.transform = `translate(${d.x}px, ${d.y}px)`;
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      moving = false;
+      wrap.classList.remove("moving");
+      img.style.transform = "";
+      const pos = getPos();
+      if (pos === undefined || Math.hypot(d.x, d.y) < 3) return;
+      const next = movedAnchor(current.attrs.anchor as Anchor, x, y, d.x, d.y);
+      view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, anchor: next }));
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  img.addEventListener("pointerdown", onMoveStart);
+
+  const onDown = (e: PointerEvent) => {
     const handle = (e.target as HTMLElement).dataset.handle as Handle | undefined;
     if (!handle || e.button !== 0) return;
     e.preventDefault();
@@ -97,14 +178,14 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
     const y0 = e.clientY;
     let size = { w: w0, h: h0 };
     wrap.classList.add("resizing");
-    const move = (ev: MouseEvent) => {
+    const move = (ev: PointerEvent) => {
       size = resizeBy(handle, w0, h0, (ev.clientX - x0) / zoom, (ev.clientY - y0) / zoom);
       img.width = size.w;
       img.height = size.h;
     };
     const up = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
       wrap.classList.remove("resizing");
       const pos = getPos();
       if (pos === undefined || (size.w === w0 && size.h === h0)) {
@@ -118,10 +199,10 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
       });
       view.dispatch(tr);
     };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   };
-  handles.forEach((h) => h.addEventListener("mousedown", onDown));
+  handles.forEach((h) => h.addEventListener("pointerdown", onDown));
 
   return {
     dom: wrap,
@@ -138,11 +219,14 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
       wrap.classList.remove("selected");
     },
     stopEvent(e) {
-      return !!(e.target as HTMLElement).dataset?.handle;
+      // A selected floating picture handles its own pointer (moving); the editor must not re-place the caret.
+      const own = /^(pointer|mouse|click|dblclick|dragstart)/.test(e.type) && !!current.attrs.anchor && wrap.classList.contains("selected");
+      return !!(e.target as HTMLElement).dataset?.handle || moving || own;
     },
     ignoreMutation: () => true,
     destroy() {
-      handles.forEach((h) => h.removeEventListener("mousedown", onDown));
+      handles.forEach((h) => h.removeEventListener("pointerdown", onDown));
+      img.removeEventListener("pointerdown", onMoveStart);
     },
   };
 }

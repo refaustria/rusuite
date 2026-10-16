@@ -33,6 +33,42 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
   headers/footers (first-page / even) and page numbering. Saving first sends `UpdateFields` for fields whose live value
   differs from the cached one.
 
+### Write tables, pictures, paragraph borders and tabs (P8-17)
+- **Sync**: merged cells map to ProseMirror `colspan` / `rowspan` (`gridSpan`; a `vMerge` region's first cell gets the rowspan
+  and keeps the covered `continue` cells in its `continues` attribute, restored by `tableFromPM` — a row of continue cells only
+  is an empty row); `InlineImage.anchor` is an image attribute (a change → `SetImageAnchor`); paragraph `borders` / `shading` /
+  `tabs` travel in the paragraph's `extra`. Table commands use grid coordinates (`TableMap`); a cell selection grows to whole
+  merged cells.
+- **Table Design** tab: Table Style Options (Header Row, First Column, Total Row, Last Column, Banded Rows, Banded Columns →
+  `look`), table styles gallery with previews (Table Grid, Plain Table 1, List Table 3, Grid Table 4 Accent 1–3 and the
+  document's own table styles; ▾ also Clear; a table without a look gets Word's default look with its first style), Shading ▾
+  and Borders ▾ (bottom/top/left/right, none, all, outside, inside, inside horizontal/vertical) for the selected cells
+  (`SetCellProps`).
+- **Table Layout** tab: Select ▾ (cell, column, row, table), Properties… (alignment, indent, automatic resize, allow row to
+  break across pages, repeat header row), Delete ▾ / Insert above/below/left/right, Merge Cells, Split Cells… (columns × rows;
+  rows must divide a merged region), Cell Size (row height / column width in cm, Distribute Rows / Columns, Row height…),
+  Alignment 9-grid (cell vertical alignment + paragraph alignment) and Cell Margins…, Header row. The context menu adds Merge
+  Cells, Split Cells…, Table Properties….
+- **Rendering**: every cell gets its resolved formatting (`features/tableStyles.ts`, a mirror of
+  `Document::resolve_cell_props`: style along `basedOn`, conditional formats by look, direct props; edges, fill, padding,
+  vertical alignment, the style's text colour/bold) as a node decoration; table width, alignment and indent on the table.
+  Borders "none" show as light gridlines on screen.
+- **Picture Format › Arrange**: Position ▾ (In Line with Text; nine "With Text Wrapping" presets aligned to the margin) and Wrap
+  Text ▾ (In Line, Square, Tight, Top and Bottom, Behind Text, In Front of Text); the **Layout Options** button next to a
+  selected picture offers the same wrap choices. A selected floating picture is moved by dragging (offsets from the column and
+  the paragraph). Square/Tight float (one side: the side with more room, `wrapSide` respected), Top and Bottom is a block,
+  Behind / In Front are positioned outside the flow relative to the anchor paragraph (z-order below / above the text).
+  Vertical positions relative to the margin or page stay at the anchor paragraph (no fixed page boxes in the editor).
+- **Home › Paragraph**: Shading ▾ (fill), Borders ▾ (bottom/top/left/right toggle, no border, all, outside, inside = between,
+  Borders and Shading… with setting, style, colour, width, sides and shading), Tabs… (position, alignment, leader, Set /
+  Clear / Clear All). Paragraphs with equal borders form one box (top above the first, bottom below the last, "between"
+  lines, the spacing inside); left/right borders sit in the indent like Word's.
+- **Ruler** (View › Show › Ruler): the caret paragraph's column (a table cell's own), indents, tab stops; click adds a stop of
+  the corner selector's kind, drag moves, drag off removes. Tab characters are laid out from the stops in effect (style chain +
+  direct, `clear` entries; Word's default every 1.27 cm): left, centre, right, decimal, with dot / hyphen / underscore leaders.
+  Tab outside tables and lists types a tab character.
+- Print and Export PDF clone the editor DOM, so they show all of it.
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |
@@ -137,10 +173,11 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).
-- **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, multilevel list, indent, line spacing, alignment; Styles gallery
-  Normal/Title/Heading 1–6; Editing: Find and replace), Insert (Table picker, Picture, Header/Footer/Page number, Field,
-  Footnotes, Page break, Line break), Layout (Margins, Orientation, Size → `SetSection`/`SetPage`, Breaks), References
-  (Table of contents, Footnotes), View (zoom, shortcuts help).
+- **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, multilevel list, indent, line spacing, alignment, shading, borders,
+  tabs; Styles gallery Normal/Title/Heading 1–6; Editing: Find and replace), Insert (Table picker, Picture, Header/Footer/Page
+  number, Field, Footnotes, Page break, Line break), Layout (Margins, Orientation, Size → `SetSection`/`SetPage`, Breaks),
+  References (Table of contents, Footnotes), View (views, ruler, zoom, spelling, shortcuts help); contextual Table Design and
+  Table Layout in a table, Picture Format on a picture (P8-17).
 - **Show**: Home (Undo; Clipboard: shapes/slides clipboard + Duplicate; Slides: New slide ▾ layouts, Layout ▾, Duplicate,
   Delete, Hide slide; Font + grow/shrink; Paragraph + line spacing ▾; Drawing: shapes gallery, Arrange ▾
   order/align/distribute/group, fill and outline), Insert (New slide, Table ▾ picker 10 × 8 + Insert table…, Picture,

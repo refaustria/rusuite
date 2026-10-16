@@ -235,4 +235,91 @@ test.describe("Write", () => {
     await page.keyboard.press("Tab");
     await expect(editor(page).locator("li p", { hasText: "Sub item" })).toHaveAttribute("data-label", "1.1");
   });
+
+  // ----- P8-17: merged cells, table styles, floating images, paragraph borders, tab stops -----
+
+  async function newTable(page: Page, rows: number, cols: number) {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Before the table");
+    await page.getByRole("tab", { name: "Insert" }).click();
+    await page.getByRole("button", { name: "Table", exact: true }).click();
+    await page.getByRole("button", { name: `${rows} × ${cols} table` }).click();
+    await expect(editor(page).locator("table tr")).toHaveCount(rows);
+  }
+
+  test("Merge Cells on two cells of a row → the saved docx has gridSpan", async ({ page }) => {
+    await newTable(page, 2, 3);
+    const cells = editor(page).locator("table td");
+    await cells.nth(0).click();
+    await page.keyboard.type("A");
+    await cells.nth(1).click({ modifiers: ["Shift"] });
+    await page.getByRole("tab", { name: "Table Layout" }).click();
+    await page.getByRole("button", { name: "Merge Cells" }).click();
+    await expect(editor(page).locator("table tr").first().locator("td")).toHaveCount(2);
+    await expect(editor(page).locator("table td[colspan='2']")).toHaveCount(1);
+    const xml = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml).toMatch(/<w:gridSpan w:val="2"\/>/);
+  });
+
+  test("Table Design › Grid Table 4 Accent 1: the header row is filled with the accent", async ({ page }) => {
+    await newTable(page, 3, 3);
+    await editor(page).locator("table td").nth(4).click();
+    await page.getByRole("tab", { name: "Table Design" }).click();
+    await page.getByRole("button", { name: "Grid Table 4 Accent 1" }).first().click();
+    const header = editor(page).locator("table tr").first().locator("td").first();
+    await expect(header).toHaveCSS("background-color", "rgb(68, 114, 196)");
+    // Banded rows: the first data row is tinted, the second is not.
+    await expect(editor(page).locator("table tr").nth(1).locator("td").nth(1)).toHaveCSS("background-color", "rgb(218, 227, 243)");
+    await expect(editor(page).locator("table tr").nth(2).locator("td").nth(1)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    const xml = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml).toContain('w:tblStyle w:val="GridTable4-Accent1"');
+  });
+
+  test("Picture Format › Wrap Text › Square → the saved docx has wp:anchor with wrapSquare", async ({ page }) => {
+    await openReport(page);
+    const img = editor(page).locator("img.inline-image").first();
+    await img.click();
+    await page.getByRole("tab", { name: "Picture Format" }).click();
+    await page.getByRole("button", { name: "Wrap Text" }).click();
+    await page.getByRole("menuitemradio", { name: "Square" }).click();
+    await expect(editor(page).locator(".inline-image-wrap.floating")).toHaveCount(1);
+    await expect(page.getByTestId("layout-options")).toBeVisible();
+    const xml = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml).toContain("<wp:anchor");
+    expect(xml).toContain("<wp:wrapSquare");
+  });
+
+  test("Home › Borders › Bottom border on a paragraph → w:pBdr", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("A ruled paragraph");
+    await page.getByRole("button", { name: "Borders", exact: true }).click();
+    await page.getByRole("menuitemradio", { name: "Bottom border" }).click();
+    await expect(editor(page).locator("p").first()).toHaveCSS("border-bottom-style", "solid");
+    const xml = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml).toMatch(/<w:pBdr><w:bottom w:val="single"/);
+  });
+
+  test("a tab stop added on the ruler → w:tabs; the tab character moves to it", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Name");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("Value");
+    const column = page.getByTestId("ruler-column");
+    const box = (await column.boundingBox())!;
+    await page.mouse.click(box.x + (8 * 96) / 2.54, box.y + box.height / 2);
+    await expect(page.getByRole("button", { name: /Left tab at 8\.00 cm/ })).toBeVisible();
+    // "Value" starts at the stop (8 cm from the column's left edge).
+    const value = await editor(page).locator("p").first().evaluate((p) => {
+      const r = document.createRange();
+      const text = [...p.querySelectorAll("*")].map((e) => e.lastChild).find((n) => n?.textContent?.includes("Value")) ?? p.lastChild!;
+      r.selectNodeContents(text);
+      return r.getBoundingClientRect().left - p.getBoundingClientRect().left;
+    });
+    expect(Math.abs(value - (8 * 96) / 2.54)).toBeLessThan(4);
+    const xml = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml).toMatch(/<w:tabs><w:tab w:val="left" w:pos="4535"/);
+  });
 });

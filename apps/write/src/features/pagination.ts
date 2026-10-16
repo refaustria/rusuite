@@ -554,3 +554,9 @@ export function pageCount(view: EditorView): number {
 export function currentLayout(state: EditorState): PageLayout | null {
   return paginationKey.getState(state)?.layout ?? null;
 }
+
+/** Page width, left margin and text column width (CSS px) of `page`, for floating pictures. */
+export function floatPage(page: PageSetup | null | undefined): { width: number; marginLeft: number; columnWidth: number } {
+  const g = pageGeometry(page);
+  return { width: g.width, marginLeft: g.left, columnWidth: g.width - g.left - g.right };
+}

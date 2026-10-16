@@ -120,6 +120,9 @@ function imageCommand(block: number, offset: number, a: Inline | undefined, b: I
     cmds.push({ type: "setImageSize", block, offset, width: y.width, height: y.height });
   }
   if ((x.alt ?? null) !== (y.alt ?? null)) cmds.push({ type: "setImageAlt", block, offset, alt: y.alt ?? null });
+  if (stableStringify(canonValue(x.anchor ?? null)) !== stableStringify(canonValue(y.anchor ?? null))) {
+    cmds.push({ type: "setImageAnchor", block, offset, anchor: y.anchor ?? null });
+  }
   return cmds.length ? one(cmds) : null;
 }
 
@@ -168,7 +171,9 @@ function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): 
 
 // ----- paragraph properties --------------------------------------------------
 
-const PARA_KEYS = ["style", "alignment", "indent", "spacing", "numbering", "keepNext", "pageBreakBefore", "runDefaults"] as const;
+const PARA_KEYS = [
+  "style", "alignment", "indent", "spacing", "numbering", "keepNext", "pageBreakBefore", "runDefaults", "borders", "shading", "tabs",
+] as const;
 type ParaKey = (typeof PARA_KEYS)[number];
 
 const kindOfSynthetic = (numId: number): "bullet" | "decimal" | null =>
@@ -283,13 +288,14 @@ function replaceBlocks(ids: number[], blocks: Block[], opts: MapperOptions): Map
 
 /** Commands addressed to existing paragraphs only (valid inside a table cell as well). */
 const IN_PLACE = new Set<WriteCommand["type"]>([
-  "insertText", "deleteText", "replaceText", "setRunProps", "setParagraphProps", "setStyle", "setImageSize", "setImageAlt",
+  "insertText", "deleteText", "replaceText", "setRunProps", "setParagraphProps", "setStyle", "setImageSize", "setImageAlt", "setImageAnchor",
 ]);
 const inPlace = (c: WriteCommand): boolean =>
   c.type === "compound" ? c.commands.every(inPlace) : IN_PLACE.has(c.type);
 
 type T = Extract<Block, { kind: "table" }>["value"];
-const shell = (x: { props?: unknown }) => stableStringify(canonValue(x.props ?? {}));
+const shell = (x: { props?: unknown; gridSpan?: number; vMerge?: unknown }) =>
+  stableStringify(canonValue({ props: x.props ?? {}, span: (x.gridSpan ?? 1) > 1 ? x.gridSpan : null, vMerge: x.vMerge ?? null }));
 
 /**
  * Typing or formatting inside one cell of an otherwise unchanged table:

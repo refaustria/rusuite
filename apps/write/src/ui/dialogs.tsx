@@ -22,7 +22,13 @@ import type { RowHeight } from "../generated/RowHeight";
 import type { Spacing } from "../generated/Spacing";
 import { selectedImage, setImageAttrs } from "../features/images";
 import { indentAt, selectedTextblocks, setIndent, setSpacing, spacingAt } from "../features/formatting";
-import { setRowHeight, tableContext } from "../features/tables";
+import {
+  setCellMargins, setRowHeight, splitCellCommand, splitRowsValid, tableContext, tablePropsCommands, tablePropsValues, type TablePropsValues,
+} from "../features/tables";
+import {
+  bordersShadingCommand, paragraphBorders, paragraphShading, selectedParagraphs, tabsDialogCommand, tabsOf, type BordersShadingValues,
+} from "../features/paragraphFormat";
+import { BordersShadingDialog, CellMarginsDialog, SplitCellsDialog, TablePropsDialog, TabsDialog } from "./formatDialogs";
 import type { WriteUi } from "../features/WriteFeatures";
 import { setAlignment } from "../sync/editorCommands";
 import { nextTempId, type SyncController } from "../sync/SyncPlugin";
@@ -46,10 +52,10 @@ export function fromPt(text: string): number | null {
   return text.trim() === "" || !Number.isFinite(v) ? null : Math.round(v * 20);
 }
 
-const INPUT = "h-7 w-24 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";
-const BUTTON = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm text-ui-fg hover:bg-ui-hover disabled:opacity-40";
+export const INPUT = "h-7 w-24 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";
+export const BUTTON = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm text-ui-fg hover:bg-ui-hover disabled:opacity-40";
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+export function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="flex items-center justify-between gap-3">
       <span>{label}</span>
@@ -58,7 +64,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Buttons({ onClose, disabled }: { onClose: () => void; disabled?: boolean }) {
+export function Buttons({ onClose, disabled }: { onClose: () => void; disabled?: boolean }) {
   const t = useT();
   return (
     <div className="mt-2 flex justify-end gap-2">
@@ -540,7 +546,23 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
     editor?.commands.focus();
   };
   // Captured when the dialog opens (the editor does not change while a modal dialog is up).
-  const table = useMemo(() => (editor && dialog === "rowHeight" ? tableContext(editor.state) : null), [editor, dialog]);
+  const table = useMemo(
+    () => (editor && (dialog === "rowHeight" || dialog === "splitCells" || dialog === "cellMargins" || dialog === "tableProps") ? tableContext(editor.state) : null),
+    [editor, dialog],
+  );
+  const tblValues = useMemo<TablePropsValues>(
+    () => (table ? tablePropsValues(table) : { alignment: "left", indent: 0, layout: "autofit", cantSplit: false, header: false }),
+    [table],
+  );
+  const paras = useMemo(() => (editor && (dialog === "bordersShading" || dialog === "tabs") ? selectedParagraphs(editor.state) : []), [editor, dialog]);
+  const bsInitial = useMemo<BordersShadingValues>(
+    () => ({ borders: paras[0] ? paragraphBorders(paras[0]) : {}, shading: paras[0] ? paragraphShading(paras[0]) : null }),
+    [paras],
+  );
+  const tabsInitial = useMemo(() => (paras[0] ? tabsOf(ctl.styles, paras[0]) : []), [paras, ctl]);
+  const runAll = (cmds: Parameters<SyncController["run"]>[0][]) => {
+    if (cmds.length) void ctl.run(cmds.length === 1 ? cmds[0]! : { type: "compound", commands: cmds });
+  };
   const image = useMemo(() => (editor && dialog === "altText" ? selectedImage(editor.state) : null), [editor, dialog]);
   const para = useMemo<ParagraphValues | null>(
     () =>
@@ -604,6 +626,54 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
         onSubmit={(v) => {
           const sec = sections[secIndex];
           if (sec) void ctl.run({ type: "setSection", section: sec.id, patch: { pageNumberFormat: v.format, pageNumberStart: v.start ?? 0 } });
+          close();
+        }}
+      />
+      <SplitCellsDialog
+        open={dialog === "splitCells" && !!table}
+        rowsValid={(r) => (table ? splitRowsValid(table, r) : false)}
+        onClose={close}
+        onSubmit={(rows, cols) => {
+          const cmd = table && splitCellCommand(table, rows, cols);
+          if (cmd) void ctl.run(cmd);
+          close();
+        }}
+      />
+      <CellMarginsDialog
+        open={dialog === "cellMargins" && !!table}
+        initial={table?.props.cellMargins}
+        onClose={close}
+        onSubmit={(m) => {
+          if (table) void ctl.run(setCellMargins(table, m));
+          close();
+        }}
+      />
+      <TablePropsDialog
+        open={dialog === "tableProps" && !!table}
+        initial={tblValues}
+        onClose={close}
+        onSubmit={(v) => {
+          if (table) runAll(tablePropsCommands(table, tblValues, v));
+          close();
+        }}
+      />
+      <BordersShadingDialog
+        open={dialog === "bordersShading" && paras.length > 0}
+        initial={bsInitial}
+        onClose={close}
+        onSubmit={(v) => {
+          const cmd = bordersShadingCommand(paras, v);
+          if (cmd) void ctl.run(cmd);
+          close();
+        }}
+      />
+      <TabsDialog
+        open={dialog === "tabs" && paras.length > 0}
+        initial={tabsInitial}
+        onClose={close}
+        onSubmit={(stops) => {
+          const cmd = tabsDialogCommand(paras, tabsInitial, stops);
+          if (cmd) void ctl.run(cmd);
           close();
         }}
       />

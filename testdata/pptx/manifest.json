@@ -377,5 +377,35 @@
    "table",
    "table:merged"
   ]
+ },
+ {
+  "file": "provisional-30-sections-footers.pptx",
+  "topic": "Three sections; footer text, fixed date and slide numbers on all but the title slide",
+  "features": [
+   "slides:5",
+   "layout:title",
+   "layout:titleContent",
+   "size:16x9",
+   "footer",
+   "datetime",
+   "slidenum",
+   "bullets:levels=1",
+   "section:count=3"
+  ]
+ },
+ {
+  "file": "provisional-31-picture-adjustments.pptx",
+  "topic": "Cropped, grayscale, black-and-white, brightness/contrast and transparent pictures",
+  "features": [
+   "slides:2",
+   "layout:blank",
+   "size:16x9",
+   "picture:count=6",
+   "picture:crop",
+   "picture:grayscale",
+   "picture:blackWhite",
+   "picture:lum",
+   "picture:transparency"
+  ]
  }
 ]

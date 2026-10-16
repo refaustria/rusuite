@@ -37,6 +37,7 @@ fn run(text: &str, props: RunProperties) -> TextRun {
     TextRun {
         props,
         text: text.to_owned(),
+        field: None,
     }
 }
 

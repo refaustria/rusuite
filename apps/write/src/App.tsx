@@ -7,12 +7,15 @@ import { WriteApi, type WriteBackend } from "./backend";
 import { writeExtensions } from "./sync/schema";
 import { SyncController, SyncExtension, type SyncState } from "./sync/SyncPlugin";
 import { WriteFeatures } from "./features/WriteFeatures";
+import { floatPage } from "./features/pagination";
 import { FindBar } from "./ui/FindBar";
 import { EditorContextMenu } from "./ui/EditorContextMenu";
 import { WriteDialogs } from "./ui/dialogs";
 import { PageFrame, useWriteChrome } from "./ui/PageFrame";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { Toasts } from "./ui/Toasts";
+import { Ruler } from "./ui/Ruler";
+import { LayoutOptions } from "./ui/LayoutOptions";
 import { countDocWords, countWords } from "./wordCount";
 import { WriteRibbon } from "./ui/WriteToolbar";
 import { t, useT } from "./i18n";
@@ -118,7 +121,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
   const [zoom, setZoom] = useState(1);
   const editor = useEditor(
     {
-      extensions: [...writeExtensions({ resolveMedia: ctl.media.resolve }), SyncExtension(ctl), features.extension()],
+      extensions: [...writeExtensions({ resolveMedia: ctl.media.resolve, page: () => floatPage(ctl.page) }), SyncExtension(ctl), features.extension()],
       editorProps: { attributes: () => features.editorAttributes() },
     },
     [ctl],
@@ -222,6 +225,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
       )}
       <div className="write-scroll min-h-0 flex-1 overflow-auto bg-ui-panel p-6">
         <div className="write-zoom" data-testid="write-zoom" style={zoom !== 1 ? { zoom } : undefined}>
+          {editor && chrome.ruler && <Ruler editor={editor} ctl={ctl} features={features} page={firstPage} />}
           <PageFrame page={firstPage} view={chrome.view} pages={chrome.pages} frame={chrome.frame} onEditHeaderFooter={chrome.onEditHeaderFooter}>
             <EditorContent editor={editor} />
           </PageFrame>
@@ -231,6 +235,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
       <FindBar ctl={ctl} editor={editor} ui={features.ui} />
       <WriteDialogs ui={features.ui} ctl={ctl} editor={editor} />
       <EditorContextMenu editor={editor} ctl={ctl} features={features} />
+      <LayoutOptions editor={editor} />
       <Toasts ctl={ctl} />
       <ShortcutLayer editor={editor} ctl={ctl} onNew={newDocument} onOpen={() => void open()} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={chrome.onFind} onReplace={chrome.onReplace} features={features} />
       <ConfirmDiscard guard={guard} />

@@ -61,19 +61,6 @@ pub struct FontScheme {
     pub minor_complex_script: String,
 }
 
-/// Mirror of `core_model::Theme`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "apps/show/src/generated/")]
-pub struct Theme {
-    /// Theme name.
-    pub name: String,
-    /// Colors.
-    pub colors: ColorScheme,
-    /// Fonts.
-    pub fonts: FontScheme,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,8 +68,11 @@ mod tests {
     #[test]
     fn mirrors_match_core_model() {
         let theme = core_model::Theme::default();
-        let json = serde_json::to_value(&theme).unwrap();
-        let mirror: Theme = serde_json::from_value(json.clone()).unwrap();
+        let json = serde_json::to_value(&theme.colors).unwrap();
+        let mirror: ColorScheme = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&mirror).unwrap(), json);
+        let json = serde_json::to_value(&theme.fonts).unwrap();
+        let mirror: FontScheme = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(serde_json::to_value(&mirror).unwrap(), json);
 
         let mut store = core_model::MediaStore::new();

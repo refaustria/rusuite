@@ -226,7 +226,7 @@ fn background_and_slide_size() {
     assert_eq!(p.slide_size, Some(SlideSize::standard()));
     assert_eq!(pres(&h).slide_size, SlideSize::standard());
     assert_eq!(
-        pres(&h).layout(LayoutKind::Title).placeholders[0]
+        pres(&h).layout(&LayoutKind::Title).unwrap().placeholders[0]
             .transform
             .w,
         Emu(7_772_400)
@@ -305,7 +305,10 @@ fn add_and_delete_shapes() {
         "invalid_command"
     );
     let mut pic = new_rect(-1, tr(0, 0, 1, 1));
-    pic.kind = show_core::NewShapeKind::Picture { media: MediaId(42) };
+    pic.kind = show_core::NewShapeKind::Picture {
+        media: MediaId(42),
+        props: Default::default(),
+    };
     assert_eq!(
         err_code(
             &mut h,
