@@ -73,3 +73,7 @@ the user configured**, no Rusuite proxy, no telemetry, nothing in the background
 ## Decision 2026-10-16 (owner): desktop only
 
 The owner chose option (c): the web CSP stays `connect-src 'self'`. Cloud connectors and the AI assistant are available in the desktop apps only; the web apps hide those entry points and say so ("available in the desktop apps"). ADR 0009's original guarantee for the website is unchanged.
+
+## Amendment 2026-10-16 (owner request): "Report a problem" relay
+
+The owner asked for an in-app "Report a problem" that creates a GitHub issue. A GitHub token cannot live in a client app, so Rusuite runs **one server endpoint**, `POST https://resuite.inceptum.at/api/report`, a small relay that holds the token (root-only env file on the server, never in the repository) and forwards the report to GitHub. Rules: the call happens **only when the user submits the dialog**; the payload is exactly what the dialog shows (text, optional screenshots the user chose, optional diagnostics shown in full before sending) and never the document; the relay stores nothing except in-memory rate-limit counters (1 report per app instance per hour, plus per-IP and global caps) and logs no content; the report lands **publicly** in the GitHub issue tracker and the dialog says so. The web CSP stays `connect-src 'self'` (the relay is same-origin); the desktop apps add the site origin to their CSP for this endpoint only. The request-audit e2e keeps proving there is no traffic without that explicit user action.
