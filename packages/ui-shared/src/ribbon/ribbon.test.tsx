@@ -519,3 +519,20 @@ describe("groups on narrow windows (P8-38, W-20)", () => {
     expect(groupsThatFit([300, 400, 100], labels, 500, [0, 1, 0])).toBe(2);
   });
 });
+
+describe("long labels and tall menus (P8-40)", () => {
+  it("a large button's label is never narrower than its longest word; menus scroll inside the window", async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <RibbonButton label="Gliederungsansicht" icon="cut" size="large" onClick={() => {}} />
+        <RibbonMenuButton label="Arrange" menu={[{ id: "a", label: "Bring to front", shortcut: "Mod+Shift+]", onSelect: () => {} }]} />
+      </div>,
+    );
+    expect(screen.getByText("Gliederungsansicht").className).toContain("min-w-min");
+    await user.click(screen.getByRole("button", { name: "Arrange" }));
+    const menu = screen.getByRole("menu", { name: "Arrange" });
+    expect(menu.className).toContain("overflow-y-auto");
+    expect(within(menu).getByText("Bring to front").className).toContain("whitespace-nowrap");
+  });
+});

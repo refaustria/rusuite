@@ -11,3 +11,4 @@ export * from "./print/usePrintDoc";
 export * from "./i18n";
 export * from "./chart";
 export * from "./ai";
+export * from "./report";

@@ -970,3 +970,97 @@ test.describe("Show", () => {
     errors.expectNone();
   });
 });
+
+test.describe("Show quality pass (P8-40)", () => {
+  test("S-02: at 1024 px the Home groups fold instead of running off the ribbon; a folded group opens its controls", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    const toolbar = page.getByTestId("ribbon-panel").getByRole("toolbar");
+    // at 1400 px the whole Home tab fits
+    await expect(toolbar.getByRole("group", { name: "Drawing", exact: true })).toBeVisible();
+    await expect(toolbar).not.toHaveAttribute("data-collapsed-groups", /\d/);
+    await page.setViewportSize({ width: 1024, height: 768 });
+    for (const name of ["Home", "Insert", "Design", "Transitions", "Animations", "Slide Show", "View"]) {
+      await page.getByRole("tab", { name, exact: true }).click();
+      // no control outside the window
+      expect(await toolbar.evaluate((el) => el.scrollWidth - el.clientWidth), name).toBeLessThanOrEqual(0);
+    }
+    await page.getByRole("tab", { name: "Home", exact: true }).click();
+    await expect(toolbar).toHaveAttribute("data-collapsed-groups", /\d/);
+    // whichever group collapsed: its button opens a popup with its controls
+    const collapsed = toolbar.locator("[data-collapsed-group]").first();
+    await collapsed.getByRole("button").first().click();
+    const popup = page.getByTestId("ribbon-group-popup");
+    await expect(popup).toBeVisible();
+    expect(await popup.locator("button, select, input").count()).toBeGreaterThan(0);
+    const box = (await popup.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(1024);
+    await page.keyboard.press("Escape");
+    await ribbonCommand(page, "Slides", "New slide");
+    await expect(page.getByTestId("slide-count")).toHaveText("Slide 2 of 2");
+    // German labels: no large button's label runs into its neighbour (S-16)
+    await page.getByRole("tab", { name: "View", exact: true }).click();
+    const lang = toolbar.getByRole("group", { name: "Language / Sprache" });
+    if ((await lang.getAttribute("data-collapsed-group")) !== null) await lang.getByRole("button").first().click();
+    await page.getByRole("combobox", { name: "Language / Sprache" }).selectOption("de");
+    for (const name of ["Start", "Bildschirmpräsentation", "Ansicht"]) {
+      await page.getByRole("tab", { name, exact: true }).click();
+      const over = await toolbar.evaluate((el) =>
+        [...el.querySelectorAll("button")].filter((b) => b.scrollWidth > b.clientWidth + 1).map((b) => b.getAttribute("aria-label") ?? b.textContent),
+      );
+      expect(over, name).toEqual([]);
+    }
+    errors.expectNone();
+  });
+
+  test("S-15: Ctrl+B while typing in a placeholder makes the selected text bold", async ({ page }) => {
+    await openShow(page);
+    const c = await stageCentre(page);
+    await page.mouse.dblclick(c.x, c.y - c.h * 0.1);
+    await expect(page.getByTestId("text-overlay")).toBeFocused();
+    await page.keyboard.type("Quarterly Review");
+    await page.keyboard.press("Shift+Home");
+    await page.keyboard.press("Control+b");
+    await expect(page.getByRole("button", { name: "Bold" })).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("Control+k");
+    await expect(page.getByTestId("link-dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    const slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    expect(slide1).toMatch(/<a:rPr[^>]*\bb="1"[^>]*\/?>(<[^>]*>)*<a:t>Quarterly Review<\/a:t>/);
+  });
+
+  test("S-09: Tab and Shift+Tab select the cell's text, so typing replaces it", async ({ page }) => {
+    await openShow(page);
+    await insertTable(page, 3, 3);
+    await cell(page, 0, 0).click({ force: true });
+    await page.keyboard.type("A");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("B");
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.type("C");
+    await page.keyboard.press("Escape");
+    const slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    const texts = [...slide1.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => m[1]);
+    expect(texts).toContain("C");
+    expect(texts).toContain("B");
+    expect(texts).not.toContain("AC");
+  });
+
+  test("S-05: nudging glued shapes together with their connectors keeps the connectors' routes", async ({ page }) => {
+    await openShow(page);
+    await openViaBackstage(page, testdata("pptx/provisional-28-flowchart.pptx"));
+    await expect(page.getByTestId("slide-count")).toHaveText("Slide 1 of 2");
+    const box = (await stage(page).boundingBox())!;
+    await page.mouse.click(box.x + 5, box.y + 5);
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Shift+ArrowRight");
+    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+    const slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    // the first connector (Start → Read): straight, 360 × 720360 EMU, moved 10 px (95250 EMU) to the right
+    const first = slide1.slice(slide1.indexOf("<p:cxnSp>"), slide1.indexOf("</p:cxnSp>"));
+    expect(first).toContain('prst="straightConnector1"');
+    expect(first).toContain('<a:off x="1355250" y="1080000"/><a:ext cx="360" cy="720360"/>');
+  });
+});
+

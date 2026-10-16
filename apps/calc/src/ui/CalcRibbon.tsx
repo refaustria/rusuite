@@ -4,7 +4,7 @@
 // ShortcutLayer (Save As, New with its discard prompt, shortcut help), the
 // shortcut map.
 
-import { aiRibbonGroup } from "@rusuite/ui-shared";
+import { aiRibbonGroup, HelpMenu } from "@rusuite/ui-shared";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlignmentControls, BordersDropdown, ColorControls, FontControls, RIBBON_SELECT, Ribbon, RibbonButton,
@@ -442,6 +442,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
       accent="#217346"
       tabs={[home, insert, pageLayoutTab(store, t, off), formulasTab(store, t, off), data, reviewTab(store, t, off), viewTab, ...contextual]}
       activeTab={tab}
+      rightSlot={<HelpMenu docStats={() => ({ cells: [...store.cache(store.getState().activeSheet).cells.values()].reduce((n, row) => n + row.size, 0) })} />}
       onTabChange={setTab}
       backstage={{
         session,

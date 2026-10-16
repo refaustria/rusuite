@@ -5,7 +5,7 @@
 // is inside `[data-keep-edit]`, so using it does not end the overlay text
 // editor.
 
-import { aiRibbonGroup } from "@rusuite/ui-shared";
+import { aiRibbonGroup, HelpMenu } from "@rusuite/ui-shared";
 import { useMemo, useRef, type ReactNode } from "react";
 import {
   ColorPicker, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
@@ -247,7 +247,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
       <RibbonGallery
         label={t("show.shapes")}
         items={shapeItems(QUICK_SHAPES, t)}
-        columns={6}
+        columns={5}
         hideLabels
         itemClassName="h-6 w-7"
         disabled={!hasSlide}
@@ -268,7 +268,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
     { id: "alignSelected", label: t("show.alignSelected"), checked: state.alignTo === "selection" && selCount >= 2, disabled: selCount < 2, onSelect: () => store.setAlignTo("selection") },
     { separator: true, label: t("show.group") },
     { id: "group", label: t("show.group"), shortcut: "Mod+G", disabled: selCount < 2, onSelect: () => void store.group() },
-    { id: "ungroup", label: t("show.ungroup"), shortcut: "Mod+Shift+G", disabled: selCount === 0, onSelect: () => void store.ungroup() },
+    { id: "ungroup", label: t("show.ungroup"), shortcut: "Mod+Shift+G", disabled: !store.selectedShapes().some((sh) => sh.kind.kind === "group"), onSelect: () => void store.ungroup() },
     { id: "regroup", label: t("show.regroup"), disabled: !store.canRegroup(), onSelect: () => void store.regroup() },
     { separator: true, label: t("show.rotate") },
     { id: "rotRight", label: t("show.rotate.right"), disabled: selCount === 0, onSelect: () => void store.rotateOrFlip("right") },
@@ -328,9 +328,12 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
                 shortcut="Mod+X"
                 onClick={() => void store.cut()}
               />
-              <RibbonButton label={t("cmd.copy")} icon="copy" showLabel shortcut="Mod+C" tooltip={clipTip} disabled={editing || selCount === 0} onClick={copy} />
+              <RibbonRow>
+                <RibbonButton label={t("cmd.copy")} icon="copy" showLabel shortcut="Mod+C" tooltip={clipTip} disabled={editing || selCount === 0} onClick={copy} />
+                {/* small, so that Home fits a 1400 px window (P8-40) */}
+                <RibbonButton label={t("show.duplicate")} icon="duplicate" shortcut="Mod+D" disabled={editing || selCount === 0} onClick={() => void store.duplicateSelection()} />
+              </RibbonRow>
             </RibbonStack>
-            <RibbonButton label={t("show.duplicate")} icon="duplicate" size="large" shortcut="Mod+D" disabled={editing || selCount === 0} onClick={() => void store.duplicateSelection()} />
           </>
         ),
       },
@@ -690,7 +693,8 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         tabs={masterView ? [slideMasterTab(store, state, t), home, view] : [home, insert, design, transitions, animations, slideShow, view, ...contextual]}
         activeTab={state.ribbonTab}
         onTabChange={(id) => store.setRibbonTab(id)}
-        rightSlot={
+        rightSlot={<>
+          <HelpMenu docStats={() => ({ slides: store.getState().pres?.slides.length ?? 0 })} />
           <button
             type="button"
             onClick={() => onPresent(false)}
@@ -701,7 +705,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
             <RibbonIcon name="present" />
             {t("show.present")}
           </button>
-        }
+        </>}
         backstage={{
           session,
           onNew: () => triggerShortcut("Mod+N"),

@@ -96,3 +96,33 @@ would also work but needs a template and a licence allow-list config; the list f
 ## Release tooling (P8-41)
 `scripts/set-version.sh <version>` / `scripts/check-versions.sh` need only bash, awk and node; `scripts/gen-downloads.sh`
 needs an authenticated `gh` (GitHub CLI 2.46 from Debian; read access to the repository is enough).
+## Report relay (P8-43)
+
+`services/report-relay` (binary `rusuite-report-relay`, axum + tokio + reqwest/rustls) turns the apps' "Report a
+problem" into GitHub issues. It listens on `127.0.0.1:8787`; nginx forwards `location = /api/report` and
+`/api/report/health` from the resuite vhost (`/etc/nginx/snippets/rusuite-report.conf`, included by the vhost line
+`include /etc/nginx/snippets/rusuite-report*.conf;` – a glob, so `nginx -t` passes without the snippet).
+
+- **Secrets**: `/etc/rusuite/report-relay.env`, `root:root 0600`, created by the owner and never committed:
+  ```
+  GITHUB_TOKEN=<fine-grained token: Issues read/write, Contents read/write (screenshots) on the repository>
+  GITHUB_REPO=refaustria/rusuite
+  ```
+  Optional: `REPORT_LISTEN` (default `127.0.0.1:8787`), `REPORT_SITE_ORIGIN` (default `https://resuite.inceptum.at`),
+  `REPORT_EXTRA_ORIGINS` (comma-separated, e.g. a dev server), `REPORT_ATTACHMENT_BRANCH` (default
+  `issue-attachments`), `GITHUB_API` (tests). Without Contents permission issues are created without screenshots and
+  the app says so.
+- **Install / update**: `scripts/deploy-relay.sh` (release build → `/usr/local/bin/rusuite-report-relay`; system user
+  `rusuite-relay`; unit `/etc/systemd/system/rusuite-report-relay.service` with `EnvironmentFile=` and systemd
+  sandboxing; the nginx snippet and the vhost include (backup `<vhost>.bak-<time>`, restored if `nginx -t` fails);
+  reload; health checks on `127.0.0.1:8787` and `https://resuite.inceptum.at/api/report/health`). Idempotent;
+  `--build-only` just builds, `--no-build` installs an existing build. Needs `sudo`.
+- **Operations**: `systemctl status rusuite-report-relay`, `journalctl -u rusuite-report-relay` (one line per request:
+  status, app, kind, an 8-character hash of the instance, duration – never text, images or IP addresses).
+  `curl -s https://resuite.inceptum.at/api/report/health` → `{"ok":true,"version":"0.1.0"}`.
+- **Limits** (in memory, reset by a restart): 1 report per app instance, 5 per client IP (`X-Forwarded-For`, set by
+  nginx to `$remote_addr` and trusted from loopback only), 100 in total per hour; body ≤ 8 MB, ≤ 3 screenshots of
+  ≤ 2 MB (5 MB together). CORS: the site, `tauri://localhost` and `https://tauri.localhost` only.
+- **Rotating the token**: edit the env file, `sudo systemctl restart rusuite-report-relay`.
+- **Removing it**: `sudo systemctl disable --now rusuite-report-relay`, delete the snippet, `sudo nginx -t && sudo
+  systemctl reload nginx` (the Help entry then shows "The report service could not be reached").

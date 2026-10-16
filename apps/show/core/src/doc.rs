@@ -404,6 +404,17 @@ fn follow_connectors(old: &Slide, slide: &mut Slide) {
                 detach.push((cid, lets_go));
             }
         }
+        // moved together with every shape it is glued to (one drag, a nudge of the
+        // selection): the route moves along unchanged, as in PowerPoint
+        let rigid = self_moved
+            && (c.start.is_some() || c.end.is_some())
+            && [c.start, c.end]
+                .iter()
+                .flatten()
+                .all(|a| moved_by_same_offset(old, slide, a.shape, cid));
+        if rigid {
+            continue;
+        }
         if !unchanged || start_moved || end_moved {
             reroute.push(cid);
         }
@@ -421,6 +432,30 @@ fn follow_connectors(old: &Slide, slide: &mut Slide) {
     for cid in reroute {
         slide.reroute_connector(cid);
     }
+}
+
+/// Whether shape `id` moved by exactly the offset connector `cid` moved by,
+/// keeping its size, rotation and flips (and therefore its sites' layout).
+fn moved_by_same_offset(old: &Slide, slide: &Slide, id: NodeId, cid: NodeId) -> bool {
+    let (Some(a0), Some(a1), Some(c0), Some(c1)) = (
+        old.absolute_transform(id),
+        slide.absolute_transform(id),
+        old.absolute_transform(cid),
+        slide.absolute_transform(cid),
+    ) else {
+        return false;
+    };
+    let same_box = a0.w == a1.w
+        && a0.h == a1.h
+        && a0.rotation_deg == a1.rotation_deg
+        && a0.flip_h == a1.flip_h
+        && a0.flip_v == a1.flip_v;
+    let geometry_kept =
+        old.find_shape(id).map(|s| &s.kind) == slide.find_shape(id).map(|s| &s.kind);
+    same_box
+        && geometry_kept
+        && a1.x.0 - a0.x.0 == c1.x.0 - c0.x.0
+        && a1.y.0 - a0.y.0 == c1.y.0 - c0.y.0
 }
 
 /// The table of shape `s`, or an error.

@@ -44,8 +44,8 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
     el.focus();
     const e = store.getState().editing;
     if (e) el.setSelectionRange(e.start, e.end);
-    // Only when the session starts.
-  }, [editing?.shape]);
+    // Only when the session starts (or moves to another table cell).
+  }, [editing?.shape, editing?.cell?.row, editing?.cell?.col]);
 
   // After a toolbar command (new revision) return the focus to the editor.
   useLayoutEffect(() => {
@@ -127,8 +127,10 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
         onChange={(e) => sync(e.currentTarget)}
         onSelect={(e) => sync(e.currentTarget)}
         onKeyDown={(e) => {
-          e.stopPropagation();
           const mod = e.ctrlKey || e.metaKey;
+          // Ctrl/Cmd combinations go on to the shortcut layer (B / I / U, K, S, P …: its entries for text fields);
+          // the keys the editor handles itself stop here
+          if (!mod) e.stopPropagation();
           const move = editing.cell && !mod && !e.altKey ? keyMove(e.key, e.shiftKey, e.currentTarget.value, e.currentTarget.selectionStart, e.currentTarget.selectionEnd) : null;
           if (move) {
             e.preventDefault();
@@ -136,6 +138,7 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
             void store.moveCellEdit(move);
           } else if (e.key === "Escape" || (e.key === "Enter" && mod)) {
             e.preventDefault();
+            e.stopPropagation();
             commit();
           } else if (e.key === "Tab" && !mod && !e.altKey) {
             e.preventDefault();
@@ -143,6 +146,7 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
             void store.indent(e.shiftKey ? -1 : 1);
           } else if (mod && e.shiftKey && (e.key === ">" || e.key === "<" || e.code === "Period" || e.code === "Comma")) {
             e.preventDefault();
+            e.stopPropagation();
             sync(e.currentTarget);
             void store.stepFont(e.key === ">" || e.code === "Period" ? 1 : -1, run.size ?? 1800);
           }

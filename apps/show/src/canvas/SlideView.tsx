@@ -93,6 +93,7 @@ const PROMPTS: Record<string, string> = {
   centeredTitle: "show.prompt.title",
   subtitle: "show.prompt.subtitle",
   body: "show.prompt.text",
+  picture: "show.master.samplePicture",
 };
 
 const imageCache = new Map<string, HTMLImageElement>();
@@ -194,7 +195,13 @@ export function shapeTextOptions(ctx: TextCtx, shape: Shape, w: number, h: numbe
 
 /** The layout of a shape's text in its `w` × `h` px text rectangle (placeholder defaults per level, fields, links). */
 export function layoutShapeText(ctx: TextCtx, shape: Shape, body: TextBody, w: number, h: number, prompt?: string) {
-  const shown: TextBody = prompt ? { ...body, paragraphs: [{ props: body.paragraphs[0]?.props, runs: [{ text: prompt }] }] } : body;
+  // a picture placeholder's prompt has no bullet and is centred
+  const promptProps = shape.placeholder === "picture" ? { ...body.paragraphs[0]?.props, bullet: { kind: "none" as const }, alignment: "center" as const } : body.paragraphs[0]?.props;
+  let shown: TextBody = prompt ? { ...body, paragraphs: [{ props: promptProps, runs: [{ text: prompt }] }] } : body;
+  // vertical placeholders (`orient="vert"`: Title and Vertical Text, Vertical Title and Text) turn their text 90°
+  if ((shown.props.vert ?? "horizontal") === "horizontal" && placeholderFor(ctx.deck, ctx.slide.layout, shape, ctx.asMaster)?.vertical) {
+    shown = { ...shown, props: { ...shown.props, vert: "rotate90" } };
+  }
   return layoutText(shown, shapeTextOptions(ctx, shape, w, h));
 }
 

@@ -710,7 +710,8 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   live preview while dragging, one `SetGeometry` on release (all adjust values of the shape).
 - **Connectors** (`shapes/connectors.ts`): drawing or dragging an end over a shape shows its connection sites (grey, red
   when within 12 px); releasing on one glues it (`AddShape` with `start`/`end`, or `SetTransform` + `SetConnector`: the
-  core lets go of ends whose shape did not move and re-glues them from the patch, then reroutes). End handles are green
+  core lets go of ends whose shape did not move and re-glues them from the patch, then reroutes; a connector moved together
+  with every shape it is glued to – one drag or nudge of the selection – keeps its route, P8-40). End handles are green
   when glued. An elbow with two turns has a middle handle (`adj1`). Shape Format › Arrows (9 presets + Small / Medium /
   Large), Connector type (Straight / Elbow / Curved) and Reroute connectors (each glued end to the site nearest to the
   other end). Duplicating / pasting keeps a connector glued only to shapes copied with it.
@@ -721,7 +722,8 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   events, inset 5 px so the Transformer handles and the frame for moving stay reachable) takes clicks (edit the cell in
   the text overlay), drags across cells (cell selection, highlighted) and drags on column / row borders (`SetTableGrid`;
   neighbouring columns share the change, rows grow); right-click opens the table menu. In a cell Tab / Shift+Tab and the
-  arrows at the text's edges move between cells (Tab in the last cell adds a row), Enter makes a new paragraph; the text is
+  arrows at the text's edges move between cells (Tab in the last cell adds a row; Tab / Shift+Tab select the text of the
+  cell they move to, ← enters at its end, → at its start, P8-40), Enter makes a new paragraph; the text is
   committed with `SetTableCellText`. Table Design: style options (header / total row, banded rows / columns, first / last
   column → `SetTableStyle`), table styles gallery + Clear table, Shading and Borders (all, outside, inside, none, each
   side; explicit lines in `SetTableCellProps`) for the cell selection (else the edited cell, else the whole table).
@@ -957,6 +959,22 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   After (whole seconds, `SetTransition`) and Use Timings in one undo step. Hidden slides are skipped (crossed-out number
   in the panel and the sorter).
 
+## Show quality pass (P8-40)
+
+Corrections from the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)):
+- **Text editing**: while typing in a shape, Ctrl/Cmd combinations reach the shortcut map – Ctrl+B / I / U format the
+  selected text, Ctrl+K opens Insert Hyperlink for it (the overlay keeps Tab, arrows, Esc, Ctrl+Enter and
+  Ctrl+Shift+> / < for itself).
+- **Placeholders**: an empty picture placeholder shows "Picture" centred without a bullet; vertical placeholders
+  (Title and Vertical Text, Vertical Title and Text: the layout's `vertical`) draw their text turned 90° like `vert="eaVert"`.
+- **Home**: Clipboard › Duplicate is a small button next to Copy and Drawing shows ten quick shapes (two rows of five; the
+  rest under More shapes ▾), so the Home tab fits a 1400 px window without collapsing a group; Arrange ▾ › Ungroup is
+  enabled only when a group is selected.
+- **Ribbon (all apps, `ui-shared`)**: a large button's label wraps at 80 px but is never narrower than its longest word (German
+  compounds no longer run into the neighbouring button); menu items stay on one line and menus taller than the window
+  scroll; the tab strip scrolls instead of running under the right slot (Present) on narrow windows.
+- **Notes Page**: the slide picture's frame is drawn over the picture (all four edges visible).
+
 ## Printing (P7-9)
 
 **File › Print** (Ctrl+P) is the Office print page: on the left the **Print** button, a note that copies, printer and
@@ -1023,3 +1041,36 @@ and stores the choice where the apps read it; a German browser gets German by de
 - `scripts/privacy-check.sh` (CI) rejects `fetch(`, `XMLHttpRequest`, `WebSocket`, `sendBeacon`, `EventSource`, `navigator.share` outside the portal's `version.js`/`i18n.js`, and HTTP clients in `apps/*/src-tauri/Cargo.toml`.
 - e2e `privacy.spec.ts` records all requests of each app while opening, editing, autosaving and saving and asserts they are the page's own static files; it also covers the Privacy entry (EN/DE; `PRIVACY_SHOTS=<dir>` saves screenshots).
 - The portal says it in one sentence and links `privacy.html`.
+
+## Report a problem (P8-43)
+
+The one server endpoint of Rusuite (ADR 0009 amendment "Report a problem"): the dialog posts to the site's relay
+(`POST /api/report`, `services/report-relay`), which creates a **public** GitHub issue. Code:
+`packages/ui-shared/src/report` (`reportProblem` controller per window, dialog, `client.ts` – the only `fetch`, in the
+privacy-check allow-list, reachable only from the controller's `submit`).
+
+- **Entry points**: the **?** Help menu at the right end of the ribbon's tab strip (all apps; `HelpMenu` in the
+  ribbon's `rightSlot`, items Report a problem… and Keyboard shortcuts – in the strip rather than a Home group, so
+  no tab panel loses width and no group collapses because of it) and File › **Report a problem…** (backstage, under
+  Options…). The backstage mounts the dialog (`ReportOverlay`, attached to the session's backend).
+- **Dialog**: Type (Bug / Feature request / Question), Title (≤ 120, counter), Description (20–4000, a placeholder per
+  type), Steps to reproduce (bugs only); Screenshots: Add screenshot… (PNG/JPEG, ≤ 3, 2 MB each, 5 MB together;
+  thumbnail, Remove) and Capture this window (`html-to-image`, the dialog excluded; JPEG fallback over 2 MB; the note
+  says it includes the visible document content); "Include diagnostics" (on) with "Show exactly what is sent" – the
+  JSON taken when the dialog opened (user agent, viewport, `docStats` counts – Calc cells of the active sheet, Write
+  blocks, Show slides –, the last uncaught error message), sent unchanged; the amber notice "Your report, including
+  screenshots, will be posted publicly at github.com/refaustria/rusuite/issues. Do not include confidential
+  content." with **I understand** (required: Submit is disabled without it). Submit → "Sending…" → success card
+  "Thank you! Your report is issue #N." with **Open the issue on GitHub** (an `<a target="_blank">`), the
+  screenshots-not-attached warning when the relay says so, and "You can send another report in 60 min."
+- **Errors**: 429 "Too many reports – you can send another report in N min." (Submit disabled until then), offline,
+  relay unreachable, 502 "GitHub did not accept the report – try again later.", 413, 400 with the relay's message.
+  The fields stay filled after an error (also when the dialog is closed and reopened); a sent report clears them.
+- **Who sends**: app and version from `Backend.ping()`, platform (web/desktop), OS name, UI language, and
+  `instanceId` – a random v4 UUID made once in `localStorage` `rusuite.report.instance` (desktop: the webview's storage
+  in the app data directory; never from hardware). The client gate (`rusuite.report.nextAllowedAt`) allows one report
+  per hour; the relay enforces the same limit. URL: web `/api/report` (same origin, CSP unchanged); desktop
+  `REPORT_RELAY_URL` at build time (Vite `envPrefix`), default `https://resuite.inceptum.at/api/report`.
+- **Privacy**: nothing is sent before Submit (e2e `report.spec.ts` audits the requests); the payload has no document
+  content (the relay also refuses unknown fields); File › Home › Privacy has the paragraph `privacy.report`; the portal's
+  privacy page has a "Reporting a problem" section.
