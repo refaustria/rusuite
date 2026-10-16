@@ -120,6 +120,8 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
         match &s.kind {
             ShapeKind::Auto { geometry, .. } => add(format!("shape:{}", geometry.prst())),
             ShapeKind::Picture { .. } => add("picture".into()),
+            ShapeKind::Chart(c) => add(format!("chart:{}", chart_kind_name(&c.chart.kind))),
+            ShapeKind::Media(m) => add(format!("media:{}", camel(&format!("{:?}", m.kind)))),
             ShapeKind::Group { .. } => add("group".into()),
             ShapeKind::Connector(c) => {
                 add(format!("connector:{}", camel(&format!("{:?}", c.kind))));
@@ -143,6 +145,16 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
         }
         if s.is_text_box() {
             add("shape:textBox".into());
+        }
+        if let Some(a) = &s.click_action {
+            add(format!("action:{}", link_kind(a)));
+        }
+        if let Some(body) = s.text() {
+            for r in body.paragraphs.iter().flat_map(|p| &p.runs) {
+                if let Some(h) = &r.hyperlink {
+                    add(format!("link:{}", link_kind(h)));
+                }
+            }
         }
         match s.placeholder {
             Some(PlaceholderKind::Footer) if s.text().is_some_and(|t| !t.is_empty()) => {
@@ -273,6 +285,37 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
         add("section".into());
     }
     f
+}
+
+/// `bar`, `line`, `pie`, … of a chart kind (`column` for vertical bars).
+fn chart_kind_name(k: &core_model::chart::ChartKind) -> &'static str {
+    use core_model::chart::{BarDirection, ChartKind};
+    match k {
+        ChartKind::Bar {
+            direction: BarDirection::Column,
+            ..
+        } => "column",
+        ChartKind::Bar { .. } => "bar",
+        ChartKind::Line { .. } => "line",
+        ChartKind::Area { .. } => "area",
+        ChartKind::Pie => "pie",
+        ChartKind::Doughnut => "doughnut",
+        ChartKind::Scatter { .. } => "scatter",
+        ChartKind::Combo => "combo",
+        ChartKind::Unsupported { .. } => "unsupported",
+    }
+}
+
+/// `url`, `slide`, `next`, `previous`, `first`, `last`, `lastViewed`,
+/// `endShow` of a link.
+fn link_kind(h: &model_show::Hyperlink) -> String {
+    use model_show::{LinkTarget, SlideRef};
+    match &h.target {
+        LinkTarget::Url(_) => "url".into(),
+        LinkTarget::EndShow => "endShow".into(),
+        LinkTarget::Slide(SlideRef::Id(_)) => "slide".into(),
+        LinkTarget::Slide(r) => camel(&format!("{r:?}")),
+    }
 }
 
 /// `FlyIn` → `flyIn` (the manifest's spelling of enum variants).

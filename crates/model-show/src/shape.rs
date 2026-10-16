@@ -6,10 +6,13 @@ use core_model::units::Emu;
 use core_model::{Color, ThemeColorSlot};
 use serde::{Deserialize, Serialize};
 
+use crate::chart::ChartShape;
+use crate::clip::{MediaClip, MediaKind};
 use crate::connector::Connector;
 pub use crate::geometry::Preset;
 use crate::geometry::{Adjust, ConnectorKind};
 use crate::layout::PlaceholderKind;
+use crate::link::Action;
 use crate::picture::PictureProps;
 use crate::table::Table;
 use crate::text::{Alignment, Anchor, Autofit, BodyProps, TextBody, TextParagraph};
@@ -235,6 +238,10 @@ pub enum ShapeKind {
     /// A table (`p:graphicFrame` with `a:tbl`); the shape's box is the
     /// table's frame.
     Table(Table),
+    /// A chart (`p:graphicFrame` with `c:chart`).
+    Chart(Box<ChartShape>),
+    /// Audio or video (`p:pic` with `a:videoFile` / `a:audioFile`).
+    Media(MediaClip),
 }
 
 /// A shape on a slide (or inside a group).
@@ -272,6 +279,11 @@ pub struct Shape {
     /// Alternative text (`p:cNvPr/@descr`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alt: Option<String>,
+    /// What a mouse click on the shape does in the slide show
+    /// (`p:cNvPr/a:hlinkClick`; Insert › Action, action buttons).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub click_action: Option<Action>,
 }
 
 impl Shape {
@@ -286,6 +298,7 @@ impl Shape {
             placeholder: None,
             placeholder_idx: None,
             alt: None,
+            click_action: None,
         }
     }
 
@@ -380,6 +393,41 @@ impl Shape {
             },
             transform,
         )
+    }
+
+    /// A chart shape (no fill or outline: the chart draws its own area).
+    pub fn chart(chart: ChartShape, transform: Transform) -> Self {
+        Self::new(ShapeKind::Chart(Box::new(chart)), transform)
+    }
+
+    /// An audio or video shape.
+    pub fn media(clip: MediaClip, transform: Transform) -> Self {
+        Self::new(ShapeKind::Media(clip), transform)
+    }
+
+    /// An action button (one of the `actionButton*` presets) with
+    /// PowerPoint's default style and the preset's default action
+    /// ([`Preset::default_action`]).
+    pub fn action_button(preset: Preset, transform: Transform) -> Self {
+        let mut s = Self::auto(preset.clone(), transform);
+        s.click_action = preset.default_action();
+        s
+    }
+
+    /// The chart of a chart shape.
+    pub fn chart_data(&self) -> Option<&ChartShape> {
+        match &self.kind {
+            ShapeKind::Chart(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// The clip of an audio/video shape.
+    pub fn media_clip(&self) -> Option<&MediaClip> {
+        match &self.kind {
+            ShapeKind::Media(m) => Some(m),
+            _ => None,
+        }
     }
 
     /// Groups `children` (given in absolute coordinates): the group's box is
@@ -504,6 +552,11 @@ impl Shape {
                 ConnectorKind::Curved => "Curved Connector",
             },
             ShapeKind::Table(_) => "Table",
+            ShapeKind::Chart(_) => "Chart",
+            ShapeKind::Media(m) => match m.kind {
+                MediaKind::Video => "Video",
+                MediaKind::Audio => "Audio",
+            },
         }
     }
 

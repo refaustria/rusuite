@@ -17,4 +17,11 @@ stroke: boolean,
 /**
  * Commands in EMU in the shape's box.
  */
-commands: Array<PathCmd>, };
+commands: Array<PathCmd>, 
+/**
+ * The fill is darkened by this fraction of its lightness (DrawingML
+ * `fill="darken"` = 0.4, `"darkenLess"` = 0.2) or, when negative,
+ * lightened (`"lighten"` = −0.4, `"lightenLess"` = −0.2); 0 = the
+ * shape's fill (action button icons).
+ */
+darken?: number, };

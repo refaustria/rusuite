@@ -81,6 +81,39 @@ pub struct SubPath {
     pub stroke: bool,
     /// Commands in EMU in the shape's box.
     pub commands: Vec<PathCmd>,
+    /// The fill is darkened by this fraction of its lightness (DrawingML
+    /// `fill="darken"` = 0.4, `"darkenLess"` = 0.2) or, when negative,
+    /// lightened (`"lighten"` = −0.4, `"lightenLess"` = −0.2); 0 = the
+    /// shape's fill (action button icons).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<f64>"))]
+    pub darken: f64,
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
+}
+
+impl SubPath {
+    /// A filled and stroked path.
+    pub fn filled(commands: Vec<PathCmd>) -> Self {
+        SubPath {
+            fill: true,
+            stroke: true,
+            commands,
+            darken: 0.0,
+        }
+    }
+
+    /// A stroked path without fill.
+    pub fn stroked(commands: Vec<PathCmd>) -> Self {
+        SubPath {
+            fill: false,
+            stroke: true,
+            commands,
+            darken: 0.0,
+        }
+    }
 }
 
 /// A path of a custom geometry (`a:custGeom/a:pathLst/a:path`): commands in
@@ -230,6 +263,30 @@ pub enum Preset {
     /// Straight line from the top-left to the bottom-right corner of the
     /// box (`line`; flips select the other diagonals).
     Line,
+    /// Action button (`actionButtonBlank`).
+    ActionButtonBlank,
+    /// Action button (`actionButtonHome`).
+    ActionButtonHome,
+    /// Action button (`actionButtonHelp`).
+    ActionButtonHelp,
+    /// Action button (`actionButtonInformation`).
+    ActionButtonInformation,
+    /// Action button (`actionButtonBackPrevious`).
+    ActionButtonBackPrevious,
+    /// Action button (`actionButtonForwardNext`).
+    ActionButtonForwardNext,
+    /// Action button (`actionButtonBeginning`).
+    ActionButtonBeginning,
+    /// Action button (`actionButtonEnd`).
+    ActionButtonEnd,
+    /// Action button (`actionButtonReturn`).
+    ActionButtonReturn,
+    /// Action button (`actionButtonDocument`).
+    ActionButtonDocument,
+    /// Action button (`actionButtonSound`).
+    ActionButtonSound,
+    /// Action button (`actionButtonMovie`).
+    ActionButtonMovie,
     /// A custom geometry (`a:custGeom`): its paths, each scaled to the box.
     #[serde(rename_all = "camelCase")]
     Custom {
@@ -241,7 +298,7 @@ pub enum Preset {
 impl Preset {
     /// Every named preset (all but [`Custom`](Self::Custom)), in gallery
     /// order.
-    pub const ALL: [Preset; 39] = [
+    pub const ALL: [Preset; 51] = [
         Preset::Rect,
         Preset::RoundRect,
         Preset::Snip1Rect,
@@ -281,7 +338,56 @@ impl Preset {
         Preset::FlowChartConnector,
         Preset::FlowChartInputOutput,
         Preset::Line,
+        Preset::ActionButtonBlank,
+        Preset::ActionButtonHome,
+        Preset::ActionButtonHelp,
+        Preset::ActionButtonInformation,
+        Preset::ActionButtonBackPrevious,
+        Preset::ActionButtonForwardNext,
+        Preset::ActionButtonBeginning,
+        Preset::ActionButtonEnd,
+        Preset::ActionButtonReturn,
+        Preset::ActionButtonDocument,
+        Preset::ActionButtonSound,
+        Preset::ActionButtonMovie,
     ];
+
+    /// The twelve action buttons, in PowerPoint's gallery order.
+    pub const ACTION_BUTTONS: [Preset; 12] = [
+        Preset::ActionButtonBackPrevious,
+        Preset::ActionButtonForwardNext,
+        Preset::ActionButtonBeginning,
+        Preset::ActionButtonEnd,
+        Preset::ActionButtonHome,
+        Preset::ActionButtonInformation,
+        Preset::ActionButtonReturn,
+        Preset::ActionButtonMovie,
+        Preset::ActionButtonDocument,
+        Preset::ActionButtonSound,
+        Preset::ActionButtonHelp,
+        Preset::ActionButtonBlank,
+    ];
+
+    /// Whether this is one of the `actionButton*` presets.
+    pub fn is_action_button(&self) -> bool {
+        Preset::ACTION_BUTTONS.contains(self)
+    }
+
+    /// The click action PowerPoint gives a new action button of this
+    /// preset (Home and Beginning: first slide, End: last, Back/Forward:
+    /// previous/next, Return: last slide viewed; the others: none).
+    pub fn default_action(&self) -> Option<crate::link::Action> {
+        use crate::link::{Hyperlink, SlideRef};
+        let to = match self {
+            Preset::ActionButtonHome | Preset::ActionButtonBeginning => SlideRef::First,
+            Preset::ActionButtonEnd => SlideRef::Last,
+            Preset::ActionButtonBackPrevious => SlideRef::Previous,
+            Preset::ActionButtonForwardNext => SlideRef::Next,
+            Preset::ActionButtonReturn => SlideRef::LastViewed,
+            _ => return None,
+        };
+        Some(Hyperlink::slide(to))
+    }
 
     /// The DrawingML `prst` name (`"custom"` for a custom geometry, which
     /// is written as `a:custGeom`).
@@ -326,6 +432,18 @@ impl Preset {
             Preset::FlowChartConnector => "flowChartConnector",
             Preset::FlowChartInputOutput => "flowChartInputOutput",
             Preset::Line => "line",
+            Preset::ActionButtonBlank => "actionButtonBlank",
+            Preset::ActionButtonHome => "actionButtonHome",
+            Preset::ActionButtonHelp => "actionButtonHelp",
+            Preset::ActionButtonInformation => "actionButtonInformation",
+            Preset::ActionButtonBackPrevious => "actionButtonBackPrevious",
+            Preset::ActionButtonForwardNext => "actionButtonForwardNext",
+            Preset::ActionButtonBeginning => "actionButtonBeginning",
+            Preset::ActionButtonEnd => "actionButtonEnd",
+            Preset::ActionButtonReturn => "actionButtonReturn",
+            Preset::ActionButtonDocument => "actionButtonDocument",
+            Preset::ActionButtonSound => "actionButtonSound",
+            Preset::ActionButtonMovie => "actionButtonMovie",
             Preset::Custom { .. } => "custom",
         }
     }
@@ -413,6 +531,18 @@ impl Preset {
             Preset::FlowChartConnector => "Flowchart: Connector",
             Preset::FlowChartInputOutput => "Flowchart: Data",
             Preset::Line => "Straight Connector",
+            Preset::ActionButtonBlank => "Action Button: Blank",
+            Preset::ActionButtonHome => "Action Button: Go Home",
+            Preset::ActionButtonHelp => "Action Button: Help",
+            Preset::ActionButtonInformation => "Action Button: Get Information",
+            Preset::ActionButtonBackPrevious => "Action Button: Go Back or Previous",
+            Preset::ActionButtonForwardNext => "Action Button: Go Forward or Next",
+            Preset::ActionButtonBeginning => "Action Button: Go to Beginning",
+            Preset::ActionButtonEnd => "Action Button: Go to End",
+            Preset::ActionButtonReturn => "Action Button: Return",
+            Preset::ActionButtonDocument => "Action Button: Document",
+            Preset::ActionButtonSound => "Action Button: Sound",
+            Preset::ActionButtonMovie => "Action Button: Video",
             Preset::Custom { .. } => "Freeform",
         }
     }
@@ -448,6 +578,7 @@ impl Preset {
                             fill: p.fill,
                             stroke: p.stroke,
                             commands: b.cmds,
+                            darken: 0.0,
                         }
                     })
                     .collect();
@@ -455,12 +586,20 @@ impl Preset {
             Preset::Line => {
                 b.m(0.0, 0.0);
                 b.l(w, h);
-                return vec![SubPath {
-                    fill: false,
-                    stroke: true,
-                    commands: b.cmds,
-                }];
+                return vec![SubPath::stroked(b.cmds)];
             }
+            Preset::ActionButtonBlank
+            | Preset::ActionButtonHome
+            | Preset::ActionButtonHelp
+            | Preset::ActionButtonInformation
+            | Preset::ActionButtonBackPrevious
+            | Preset::ActionButtonForwardNext
+            | Preset::ActionButtonBeginning
+            | Preset::ActionButtonEnd
+            | Preset::ActionButtonReturn
+            | Preset::ActionButtonDocument
+            | Preset::ActionButtonSound
+            | Preset::ActionButtonMovie => return action_button_paths(self, w, h),
             Preset::Rect | Preset::FlowChartProcess => g.rect(&mut b),
             Preset::RoundRect => g.round_rect(&mut b),
             Preset::Snip1Rect => g.snip1_rect(&mut b),
@@ -521,11 +660,7 @@ impl Preset {
                 b.poly(&[(0.0, h), (w / 5.0, 0.0), (w, 0.0), (w * 4.0 / 5.0, h)])
             }
         }
-        vec![SubPath {
-            fill: true,
-            stroke: true,
-            commands: b.cmds,
-        }]
+        vec![SubPath::filled(b.cmds)]
     }
 
     /// The connection sites of the shape in a `w` × `h` box, in
@@ -614,6 +749,184 @@ impl Preset {
         out.push(site(hc, vc, 0.0));
         out
     }
+}
+
+/// The paths of an action button (ECMA-376's `actionButton*`: the frame,
+/// the icon filled with a darkened fill, then the outlines). The icons
+/// sit in a square of 3/4 of the shorter side around the centre; Help,
+/// Return, Document, Sound and Movie are simplified drawings.
+fn action_button_paths(p: &Preset, w: f64, h: f64) -> Vec<SubPath> {
+    let (hc, vc) = (w / 2.0, h / 2.0);
+    let u = w.min(h) * 3.0 / 8.0;
+    let pt = |dx: f64, dy: f64| (hc + dx * u, vc + dy * u);
+    let poly = |pts: &[(f64, f64)]| {
+        let mut b = Builder::new(1.0, 1.0);
+        let pts: Vec<(f64, f64)> = pts.iter().map(|&(x, y)| pt(x, y)).collect();
+        b.poly(&pts);
+        b.cmds
+    };
+    let circle = |dx: f64, dy: f64, r: f64| {
+        let mut b = Builder::new(1.0, 1.0);
+        let (cx, cy) = pt(dx, dy);
+        b.m(cx + r * u, cy);
+        b.a(r * u, r * u, 0.0, 180.0);
+        b.a(r * u, r * u, 180.0, 180.0);
+        b.z();
+        b.cmds
+    };
+    let frame = {
+        let mut b = Builder::new(1.0, 1.0);
+        b.poly(&[(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]);
+        b.cmds
+    };
+    // (commands, darken) of the icon's filled parts; strokes drawn on top
+    let mut icon: Vec<(Vec<PathCmd>, f64)> = Vec::new();
+    let mut strokes: Vec<Vec<PathCmd>> = Vec::new();
+    match p {
+        Preset::ActionButtonForwardNext => {
+            icon.push((poly(&[(1.0, 0.0), (-1.0, -1.0), (-1.0, 1.0)]), 0.4))
+        }
+        Preset::ActionButtonBackPrevious => {
+            icon.push((poly(&[(-1.0, 0.0), (1.0, -1.0), (1.0, 1.0)]), 0.4))
+        }
+        Preset::ActionButtonEnd => {
+            icon.push((poly(&[(0.5, 0.0), (-1.0, -1.0), (-1.0, 1.0)]), 0.4));
+            icon.push((
+                poly(&[(0.625, -1.0), (1.0, -1.0), (1.0, 1.0), (0.625, 1.0)]),
+                0.4,
+            ));
+        }
+        Preset::ActionButtonBeginning => {
+            icon.push((poly(&[(-0.5, 0.0), (1.0, -1.0), (1.0, 1.0)]), 0.4));
+            icon.push((
+                poly(&[(-1.0, -1.0), (-0.625, -1.0), (-0.625, 1.0), (-1.0, 1.0)]),
+                0.4,
+            ));
+        }
+        Preset::ActionButtonHome => {
+            icon.push((
+                poly(&[
+                    (0.0, -1.0),
+                    (1.0, 0.0),
+                    (0.75, 0.0),
+                    (0.75, 1.0),
+                    (-0.75, 1.0),
+                    (-0.75, 0.0),
+                    (-1.0, 0.0),
+                ]),
+                0.4,
+            ));
+            icon.push((
+                poly(&[(-0.2, 0.3), (0.2, 0.3), (0.2, 1.0), (-0.2, 1.0)]),
+                0.2,
+            ));
+        }
+        Preset::ActionButtonInformation => {
+            icon.push((circle(0.0, 0.0, 1.0), 0.4));
+            icon.push((circle(0.0, -0.55, 0.15), -0.4));
+            icon.push((
+                poly(&[(-0.15, -0.25), (0.15, -0.25), (0.15, 0.7), (-0.15, 0.7)]),
+                -0.4,
+            ));
+        }
+        Preset::ActionButtonHelp => {
+            let mut b = Builder::new(1.0, 1.0);
+            let m = |x: f64, y: f64| pt(x, y);
+            let (x, y) = m(-0.5, -0.45);
+            b.m(x, y);
+            let (x1, y1) = m(-0.5, -1.0);
+            let (x2, y2) = m(0.5, -1.0);
+            let (x3, y3) = m(0.5, -0.45);
+            b.c(x1, y1, x2, y2, x3, y3);
+            let (x1, y1) = m(0.5, -0.1);
+            let (x2, y2) = m(0.0, 0.0);
+            let (x3, y3) = m(0.0, 0.35);
+            b.c(x1, y1, x2, y2, x3, y3);
+            let (x, y) = m(0.0, 0.5);
+            b.l(x, y);
+            strokes.push(b.cmds);
+            icon.push((circle(0.0, 0.8, 0.15), 0.4));
+        }
+        Preset::ActionButtonReturn => {
+            icon.push((
+                poly(&[
+                    (-0.5, -0.6),
+                    (1.0, -0.6),
+                    (1.0, 1.0),
+                    (-0.6, 1.0),
+                    (-0.6, 0.6),
+                    (0.6, 0.6),
+                    (0.6, -0.2),
+                    (-0.5, -0.2),
+                ]),
+                0.4,
+            ));
+            icon.push((poly(&[(-1.0, -0.4), (-0.5, -0.9), (-0.5, 0.1)]), 0.4));
+        }
+        Preset::ActionButtonDocument => {
+            icon.push((
+                poly(&[
+                    (-0.7, -1.0),
+                    (0.3, -1.0),
+                    (0.7, -0.6),
+                    (0.7, 1.0),
+                    (-0.7, 1.0),
+                ]),
+                0.2,
+            ));
+            icon.push((poly(&[(0.3, -1.0), (0.3, -0.6), (0.7, -0.6)]), 0.4));
+        }
+        Preset::ActionButtonSound => {
+            icon.push((
+                poly(&[
+                    (-1.0, -0.35),
+                    (-0.4, -0.35),
+                    (0.2, -1.0),
+                    (0.2, 1.0),
+                    (-0.4, 0.35),
+                    (-1.0, 0.35),
+                ]),
+                0.4,
+            ));
+            for (y0, y1) in [(-0.5, -0.8), (0.0, 0.0), (0.5, 0.8)] {
+                let mut b = Builder::new(1.0, 1.0);
+                let (x, y) = pt(0.45, y0);
+                b.m(x, y);
+                let (x, y) = pt(1.0, y1);
+                b.l(x, y);
+                strokes.push(b.cmds);
+            }
+        }
+        Preset::ActionButtonMovie => {
+            icon.push((
+                poly(&[(-1.0, -0.5), (0.4, -0.5), (0.4, 0.5), (-1.0, 0.5)]),
+                0.4,
+            ));
+            icon.push((
+                poly(&[(0.4, -0.15), (1.0, -0.5), (1.0, 0.5), (0.4, 0.15)]),
+                0.4,
+            ));
+        }
+        _ => {}
+    }
+    let mut out = vec![SubPath {
+        stroke: false,
+        ..SubPath::filled(frame.clone())
+    }];
+    for (cmds, darken) in &icon {
+        out.push(SubPath {
+            fill: true,
+            stroke: false,
+            commands: cmds.clone(),
+            darken: *darken,
+        });
+    }
+    for (cmds, _) in icon {
+        out.push(SubPath::stroked(cmds));
+    }
+    out.extend(strokes.into_iter().map(SubPath::stroked));
+    out.push(SubPath::stroked(frame));
+    out
 }
 
 /// The geometry of a connector (`p:cxnSp`). Elbow and curved connectors
@@ -1643,6 +1956,36 @@ mod tests {
             r#"{"custom":{"paths":[{"w":10.0,"h":10.0,"fill":true,"stroke":true,"commands":[{"kind":"moveTo","x":0.0,"y":0.0},{"kind":"close"}]}]}}"#
         );
         assert_eq!(serde_json::from_str::<Preset>(&json).unwrap(), c);
+    }
+
+    #[test]
+    fn action_buttons() {
+        use crate::link::{Hyperlink, SlideRef};
+        assert_eq!(Preset::ACTION_BUTTONS.len(), 12);
+        for p in Preset::ACTION_BUTTONS {
+            assert!(p.is_action_button());
+            assert!(p.default_name().starts_with("Action Button: "));
+            let paths = p.paths(W, H, &Adjust::new());
+            // frame fill first, frame outline last
+            assert!(paths[0].fill && !paths[0].stroke, "{p:?}");
+            let last = paths.last().unwrap();
+            assert!(!last.fill && last.stroke, "{p:?}");
+            if p != Preset::ActionButtonBlank {
+                assert!(paths.iter().any(|sp| sp.darken != 0.0), "{p:?} has an icon");
+            }
+        }
+        assert_eq!(
+            Preset::ActionButtonForwardNext.default_action(),
+            Some(Hyperlink::slide(SlideRef::Next))
+        );
+        assert_eq!(
+            Preset::ActionButtonReturn.default_action(),
+            Some(Hyperlink::slide(SlideRef::LastViewed))
+        );
+        assert_eq!(Preset::ActionButtonHelp.default_action(), None);
+        assert!(!Preset::Rect.is_action_button());
+        let json = serde_json::to_string(&SubPath::filled(vec![])).unwrap();
+        assert_eq!(json, r#"{"fill":true,"stroke":true,"commands":[]}"#);
     }
 
     #[test]

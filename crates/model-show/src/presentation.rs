@@ -505,6 +505,33 @@ impl Presentation {
         }
     }
 
+    /// Every media item `shapes` use (pictures, audio/video files and
+    /// posters, embedded chart workbooks), in first-use order, recursively.
+    pub fn media_of(shapes: &[Shape]) -> Vec<core_model::media::MediaId> {
+        fn walk(shapes: &[Shape], out: &mut Vec<core_model::media::MediaId>) {
+            for s in shapes {
+                let ids: Vec<core_model::media::MediaId> = match &s.kind {
+                    ShapeKind::Picture { media, .. } => vec![*media],
+                    ShapeKind::Media(m) => m.media_ids().collect(),
+                    ShapeKind::Chart(c) => c.workbook.into_iter().collect(),
+                    ShapeKind::Group { children } => {
+                        walk(children, out);
+                        Vec::new()
+                    }
+                    _ => Vec::new(),
+                };
+                for id in ids {
+                    if !out.contains(&id) {
+                        out.push(id);
+                    }
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(shapes, &mut out);
+        out
+    }
+
     /// Largest node id in use (0 if none), including master and layout
     /// shapes.
     pub(crate) fn max_node_id(&self) -> u64 {

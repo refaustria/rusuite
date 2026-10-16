@@ -9,7 +9,7 @@ import type { GeomPath } from "./GeomPath";
  * `"wedgeRectCallout"`); a custom geometry as
  * `{"custom":{"paths":[…]}}`.
  */
-export type Preset = "rect" | "roundRect" | "snip1Rect" | "snip2SameRect" | "round1Rect" | "round2SameRect" | "ellipse" | "triangle" | "rtTriangle" | "diamond" | "pentagon" | "hexagon" | "octagon" | "parallelogram" | "trapezoid" | "heart" | "cloud" | "rightArrow" | "leftArrow" | "upArrow" | "downArrow" | "leftRightArrow" | "upDownArrow" | "chevron" | "homePlate" | "star4" | "star5" | "star6" | "star8" | "wedgeRectCallout" | "wedgeRoundRectCallout" | "wedgeEllipseCallout" | "flowChartProcess" | "flowChartDecision" | "flowChartTerminator" | "flowChartDocument" | "flowChartConnector" | "flowChartInputOutput" | "line" | { "custom": { 
+export type Preset = "rect" | "roundRect" | "snip1Rect" | "snip2SameRect" | "round1Rect" | "round2SameRect" | "ellipse" | "triangle" | "rtTriangle" | "diamond" | "pentagon" | "hexagon" | "octagon" | "parallelogram" | "trapezoid" | "heart" | "cloud" | "rightArrow" | "leftArrow" | "upArrow" | "downArrow" | "leftRightArrow" | "upDownArrow" | "chevron" | "homePlate" | "star4" | "star5" | "star6" | "star8" | "wedgeRectCallout" | "wedgeRoundRectCallout" | "wedgeEllipseCallout" | "flowChartProcess" | "flowChartDecision" | "flowChartTerminator" | "flowChartDocument" | "flowChartConnector" | "flowChartInputOutput" | "line" | "actionButtonBlank" | "actionButtonHome" | "actionButtonHelp" | "actionButtonInformation" | "actionButtonBackPrevious" | "actionButtonForwardNext" | "actionButtonBeginning" | "actionButtonEnd" | "actionButtonReturn" | "actionButtonDocument" | "actionButtonSound" | "actionButtonMovie" | { "custom": { 
 /**
  * The paths, bottom to top.
  */

@@ -33,9 +33,12 @@
 //! IPC payloads. Lengths are [`Emu`].
 
 pub mod anim;
+pub mod chart;
+pub mod clip;
 pub mod connector;
 pub mod geometry;
 pub mod layout;
+pub mod link;
 pub mod master;
 pub mod picture;
 pub mod presentation;
@@ -51,12 +54,15 @@ pub mod themes;
 pub mod ts;
 
 pub use anim::{Animation, AnimationKind, Direction, Effect, Transition, TransitionKind, Trigger};
+pub use chart::{ChartData, ChartSeriesData, ChartShape};
+pub use clip::{MediaClip, MediaKind, MediaStart};
 pub use connector::{ArrowEnd, ArrowKind, ArrowSize, Attach, Connector};
 pub use core_model::media::{Media, MediaId, MediaStore};
 pub use core_model::units::Emu;
 pub use core_model::{Color, RunProperties};
 pub use geometry::{flatten, Adjust, ConnectorKind, GeomPath, PathCmd, Site, SubPath};
 pub use layout::{Layout, LayoutKind, PlaceholderDef, PlaceholderKind};
+pub use link::{Action, Hyperlink, LinkTarget, SlideRef};
 pub use master::{ColorMap, HeaderFooter, HfDate, LevelStyle, SlideMaster, TextClass, TextStyles};
 pub use picture::{Crop, PictureProps, Recolor, Shadow};
 pub use presentation::{FooterDate, Presentation, ResolvedFooter, ResolvedPlaceholder, SlideSize};
