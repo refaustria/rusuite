@@ -6,6 +6,7 @@
 
 import { Extension, type Editor } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
 import { columnResizePlugin } from "./columnResize";
 import { findPlugin } from "./find";
 import { clearFormatting, FormatPainter, toggleScript } from "./formatting";
@@ -140,6 +141,13 @@ export class WriteUi {
 }
 
 const featuresKey = new PluginKey("rusuiteWriteFeatures");
+
+/** Reads a pending DOM selection change into the editor state now (ProseMirror otherwise waits for `selectionchange`). */
+export function syncDomSelection(view: EditorView): void {
+  const observer = (view as unknown as { domObserver?: { forceFlush?: () => void; flush?: () => void } }).domObserver;
+  observer?.forceFlush?.();
+  observer?.flush?.();
+}
 
 export class WriteFeatures {
   readonly ui = new WriteUi();
@@ -301,7 +309,10 @@ export class WriteFeatures {
           new Plugin({
             key: featuresKey,
             props: {
-              handleKeyDown(_view, e) {
+              handleKeyDown(view, e) {
+                // A selection the browser has just changed (Shift+Home, then Delete at once) may not have
+                // reached the editor state yet: take it over before Delete / Backspace / Enter act on it.
+                if (e.key === "Delete" || e.key === "Backspace" || e.key === "Enter") syncDomSelection(view);
                 // Word: Ctrl+= subscript, Ctrl+Shift+= superscript.
                 if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.code === "Equal" || e.key === "=" || e.key === "+")) {
                   e.preventDefault();
