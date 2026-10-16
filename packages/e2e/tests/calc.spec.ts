@@ -650,3 +650,127 @@ test.describe("Calc", () => {
     errors.expectNone();
   });
 });
+
+// --- charts (P8-20) ---------------------------------------------------------------------------
+
+interface SceneRect { t: string; x: number; y: number; w: number; h: number; el?: { type: string; series?: number; point?: number } }
+interface ChartHook { id: number; rect: { x: number; y: number; w: number; h: number }; scene: { items: SceneRect[] } | null }
+
+const chartHook = (page: import("@playwright/test").Page) => page.evaluate(() => (window as unknown as { __calcCharts?: ChartHook[] }).__calcCharts ?? []);
+
+/** The bar of series `s`, point `p` of the first chart (cell-area px). */
+async function barOf(page: import("@playwright/test").Page, s: number, p: number) {
+  const [c] = await chartHook(page);
+  const bar = c?.scene?.items.find((it) => it.t === "rect" && it.el?.type === "series" && it.el.series === s && it.el.point === p);
+  return bar && c ? { x: c.rect.x + bar.x, y: c.rect.y + bar.y, w: bar.w, h: bar.h } : null;
+}
+
+/** Quarter / North / South table in A1:C5, the range selected. */
+async function chartTable(page: import("@playwright/test").Page, grid: Grid, cols = 3) {
+  const rows = [["", "North", "South"], ["Q1", "10", "20"], ["Q2", "25", "5"], ["Q3", "15", "8"], ["Q4", "30", "12"]];
+  for (const [r, row] of rows.entries()) for (const [c, v] of row.entries()) if (v) await grid.type(r, c, v);
+  await grid.click(0, 0);
+  await grid.click(4, cols - 1, { shift: true });
+}
+
+async function insertClusteredColumn(page: import("@playwright/test").Page) {
+  await page.getByRole("tab", { name: "Insert", exact: true }).click();
+  await page.getByRole("button", { name: "Column or Bar Chart" }).click();
+  await page.getByTestId("chart-gallery-columnBar").getByRole("button", { name: "Clustered Column", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Chart Design" })).toHaveAttribute("aria-selected", "true");
+  await expect.poll(async () => (await barOf(page, 0, 3))?.h ?? 0).toBeGreaterThan(10);
+}
+
+test.describe("Calc charts", () => {
+  test("Insert › Clustered Column draws the chart; the saved file has xl/charts/chart1.xml", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await chartTable(page, grid);
+    await insertClusteredColumn(page);
+    const bar = (await barOf(page, 0, 3))!;
+    // The canvas shows accent 1 (#4472C4) in the middle of North's Q4 bar.
+    const rgb = await page.getByTestId("grid-cells").evaluate((el, { x, y }) => {
+      const canvas = el as HTMLCanvasElement;
+      const scale = canvas.width / canvas.clientWidth;
+      return Array.from(canvas.getContext("2d")!.getImageData(Math.floor(x * scale), Math.floor(y * scale), 1, 1).data.slice(0, 3));
+    }, { x: bar.x + bar.w / 2, y: bar.y + bar.h / 2 });
+    expect(Math.abs(rgb[0]! - 0x44) + Math.abs(rgb[1]! - 0x72) + Math.abs(rgb[2]! - 0xc4)).toBeLessThan(30);
+    const xlsx = await saveViaBackstage(page);
+    const chart = zipText(xlsx, "xl/charts/chart1.xml");
+    expect(chart).toContain("<c:barChart>");
+    expect(chart.match(/<c:ser>/g)).toHaveLength(2);
+    expect(zipText(xlsx, "xl/drawings/drawing1.xml")).toContain("xdr:twoCellAnchor");
+    errors.expectNone();
+  });
+
+  test("Change Chart Type → Pie saves a c:pieChart", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    await chartTable(page, grid);
+    await insertClusteredColumn(page);
+    await page.getByRole("button", { name: "Change Chart Type" }).click();
+    const dialog = page.getByTestId("change-chart-type");
+    await dialog.getByRole("option", { name: "Pie" }).click();
+    await dialog.getByRole("button", { name: "OK" }).click();
+    await expect.poll(async () => (await chartHook(page))[0]?.scene?.items.some((it) => it.t === "path" && it.el?.type === "series" && it.el.point === 3) ?? false).toBe(true);
+    const xlsx = await saveViaBackstage(page);
+    const chart = zipText(xlsx, "xl/charts/chart1.xml");
+    expect(chart).toContain("<c:pieChart>");
+    expect(chart).not.toContain("<c:barChart>");
+  });
+
+  test("editing a source cell updates the bar height", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    await chartTable(page, grid);
+    await insertClusteredColumn(page);
+    const before = (await barOf(page, 0, 0))!.h;
+    await grid.type(1, 1, "20");
+    await expect.poll(async () => Math.round(((await barOf(page, 0, 0))?.h ?? 0) / before * 10) / 10).toBe(2);
+  });
+
+  test("Select Data adds a second series picked on the grid → 2 c:ser", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    await chartTable(page, grid, 2);
+    await insertClusteredColumn(page);
+    expect(await barOf(page, 1, 0)).toBeNull();
+    await page.getByRole("button", { name: "Select Data", exact: true }).click();
+    const dialog = page.getByTestId("select-data");
+    await expect(dialog.getByTestId("series-list").getByRole("option")).toHaveCount(1);
+    await dialog.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByTestId("series-name").fill("=Sheet1!$C$1");
+    // The values come from the grid: collapse the dialog, drag C2:C5, expand again.
+    await page.getByRole("button", { name: "Select the range on the sheet: Series values" }).click();
+    await expect(page.getByTestId("range-pick-bar")).toBeVisible();
+    const from = await grid.pos(1, 2);
+    const to = await grid.pos(4, 2);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 4 });
+    await page.mouse.up();
+    await expect(page.getByTestId("range-pick-bar").getByRole("textbox")).toHaveValue("=Sheet1!$C$2:$C$5");
+    await page.getByRole("button", { name: "Expand dialog" }).click();
+    await expect(page.getByTestId("series-values")).toHaveValue("=Sheet1!$C$2:$C$5");
+    await page.getByRole("dialog", { name: "Edit Series" }).getByRole("button", { name: "OK" }).click();
+    await expect(dialog.getByTestId("series-list").getByRole("option")).toHaveText(["North", "South"]);
+    await dialog.getByRole("button", { name: "OK" }).click();
+    await expect.poll(async () => (await barOf(page, 1, 0))?.h ?? 0).toBeGreaterThan(10);
+    const xlsx = await saveViaBackstage(page);
+    expect(zipText(xlsx, "xl/charts/chart1.xml").match(/<c:ser>/g)).toHaveLength(2);
+  });
+
+  test("print preview shows the chart", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    await chartTable(page, grid);
+    await insertClusteredColumn(page);
+    await openPrint(page);
+    const html = (await page.getByTestId("print-preview").getAttribute("srcdoc")) ?? "";
+    expect(html).toContain('class="rs-calc-chart"');
+    expect(html).toMatch(/<svg[^>]*viewBox="0 0 480 288"/);
+    expect(html).toContain(">North</text>");
+    await page.screenshot({ path: "test-results/chart-print-preview.png" });
+  });
+});
