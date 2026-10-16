@@ -152,6 +152,21 @@ describe("Show shortcuts", () => {
     expect(patches).toEqual([{ bold: true }, { italic: true }, { underline: "single" }]);
   });
 
+  it("Ctrl+B and Ctrl+K work while typing in the text overlay (P8-40 S-15)", async () => {
+    const { backend, store } = await mount();
+    act(() => store.startEdit(3));
+    const ta = screen.getByTestId("text-overlay") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "Hello" } });
+    ta.setSelectionRange(0, 5);
+    fireEvent.select(ta);
+    fireEvent.keyDown(ta, ctrl("b"));
+    await flush();
+    fireEvent.keyDown(screen.getByTestId("text-overlay"), ctrl("k"));
+    await flush();
+    expect(screen.getByTestId("link-dialog")).toBeTruthy();
+    expect(JSON.stringify(backend.commands)).toContain('"bold":true');
+  });
+
   it("Delete and arrows are left to the text overlay while editing", async () => {
     const { backend, store } = await mount();
     act(() => store.startEdit(3));

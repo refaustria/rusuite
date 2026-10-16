@@ -56,7 +56,7 @@ export function sampleParagraphs(kind: PlaceholderKind): TextParagraph[] {
         p(t("show.master.sampleLevel5"), 4),
       ];
     case "picture":
-      return [p(t("show.master.samplePicture"))];
+      return [{ props: { bullet: { kind: "none" }, alignment: "center" }, runs: [{ text: t("show.master.samplePicture") }] }];
     case "dateTime":
       return [{ runs: [{ text: "", field: { kind: "dateTime", value: { format: 1 } } }] }];
     case "footer":

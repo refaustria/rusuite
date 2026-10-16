@@ -1315,15 +1315,18 @@ export class ShowStore {
     this.set({ cellSel: range ? { shape, range } : null });
   }
 
-  /** Starts editing cell `row`, `col` (its anchor) of table `shape`. */
-  startCellEdit(shape: NodeId, row: number, col: number): void {
+  /**
+   * Starts editing cell `row`, `col` (its anchor) of table `shape`, the caret at the end of its text;
+   * `caret` "all" selects the text (Tab / Shift+Tab, as PowerPoint), "start" puts the caret before it.
+   */
+  startCellEdit(shape: NodeId, row: number, col: number, caret: "end" | "start" | "all" = "end"): void {
     const table = tableOf(this.shape(shape));
     if (!table) return;
     const [r, c] = anchorOf(table, row, col);
     const body = table.cells[r]?.[c]?.text;
     const text = body ? bodyText(body) : "";
     this.set({
-      editing: { shape, cell: { row: r, col: c }, text, start: text.length, end: text.length },
+      editing: { shape, cell: { row: r, col: c }, text, start: caret === "end" ? text.length : 0, end: caret === "start" ? 0 : text.length },
       selection: [shape],
       cellSel: { shape, range: { r0: r, c0: c, r1: r, c1: c } },
     });
@@ -1345,7 +1348,8 @@ export class ShowStore {
       this.startCellEdit(shape, rows, 0);
       return;
     }
-    this.startCellEdit(shape, to[0], to[1]);
+    // Tab selects the next cell's text; ← enters at its end, → at its start
+    this.startCellEdit(shape, to[0], to[1], move === "next" || move === "prev" ? "all" : move === "right" ? "start" : "end");
   }
 
   private async tableRun(build: (shape: NodeId, table: Table, range: CellRange) => ShowCommand | null): Promise<void> {
