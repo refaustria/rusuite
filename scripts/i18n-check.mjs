@@ -16,6 +16,11 @@
 //    (or the shared one).
 // 4. Portal: every `data-i18n*="key"` of the pages in apps/portal
 //    (index, privacy, downloads) exists in its catalog.
+// 5. German tone (P8-48): German addresses the user informally ("du").
+//    A `de.json` value containing "Sie", "Ihnen", "Ihr", "Ihre", "Ihrem",
+//    "Ihren", "Ihrer" or "Ihres" (capitalised: the formal address) fails,
+//    unless its key is in FORMAL_ALLOW below with a reason (a genuine
+//    third-person "Sie"/"Ihre" at the start of a sentence).
 //
 // Exit code 1 with a list of findings, else 0.
 
@@ -36,6 +41,15 @@ const PACKAGES = [
 ];
 const PORTAL = { name: "portal", dir: "apps/portal", locales: "apps/portal/locales" };
 
+/**
+ * German values that may contain a capitalised "Sie"/"Ihr…" because it is a third-person pronoun, not the formal
+ * address ("Sie werden geleert" = "they are cleared"). Key: `<locales dir>:<catalog key>`, value: the reason.
+ * Prefer rewording (lower-case after a colon, "Die Zellen …") over an entry here. Stale entries are reported.
+ */
+const FORMAL_ALLOW = {};
+const FORMAL_RE = /\b(Sie|Ihnen|Ihre?[mnrs]?)\b/;
+const formalUsed = new Set();
+
 // --- 1. parity --------------------------------------------------------------
 
 function catalogs(dir) {
@@ -46,6 +60,12 @@ function catalogs(dir) {
   for (const [k, v] of Object.entries(en)) {
     const names = (s) => [...String(s).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(",");
     if (k in de && names(v) !== names(de[k])) findings.push(`${dir}/de.json: "${k}" has other placeholders than en.json`);
+  }
+  for (const [k, v] of Object.entries(de)) {
+    const m = FORMAL_RE.exec(String(v));
+    if (!m) continue;
+    if (`${dir}:${k}` in FORMAL_ALLOW) formalUsed.add(`${dir}:${k}`);
+    else findings.push(`${dir}/de.json: "${k}" uses the formal "${m[1]}" – German says "du" (docs/i18n.md; FORMAL_ALLOW for a third-person use)`);
   }
   return en;
 }
@@ -163,6 +183,10 @@ for (const pkg of PACKAGES) {
       if (!(m[1] in en)) findings.push(`${file}:${lineOf(html, m.index)}: unknown key "${m[1]}"`);
     }
   }
+}
+
+for (const k of Object.keys(FORMAL_ALLOW)) {
+  if (!formalUsed.has(k)) findings.push(`scripts/i18n-check.mjs: stale FORMAL_ALLOW entry "${k}"`);
 }
 
 if (findings.length > 0) {
