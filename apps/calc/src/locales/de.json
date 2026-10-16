@@ -1316,6 +1316,7 @@
   "calc.spill.ghost": "Übergelaufen aus {cell}: die Formel dort bearbeiten",
   "calc.spill.notBlank": "Überlaufbereich ist nicht leer",
   "calc.spill.selectObstructing": "Blockierende Zellen auswählen",
+  "calc.status.circular": "Zirkelbezug: {cell}",
   "calc.status.revision": "Revision {revision}",
   "calc.status.warnings": "{count} Warnungen: {list}",
   "calc.styles": "Formatvorlagen",

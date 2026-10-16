@@ -291,12 +291,11 @@ fn patch_lists_exactly_the_changed_cells() {
     // A cycle is reported.
     let env = host.apply(set(0, 0, 0, "=A3")).unwrap();
     let cycle = env.patch.cycle.unwrap();
-    assert!(cycle.contains("Sheet1!A1"), "{cycle}");
+    // The first cell of the cycle (one sheet: no prefix).
+    assert_eq!(cycle, "A1");
     let view = &env.patch.cells[0].cells[0];
-    assert_eq!(
-        (view.kind, view.display.as_str()),
-        (CellKind::Error, "#NUM!")
-    );
+    // Excel: a circular reference shows 0 (P8-44, C-05).
+    assert_eq!((view.kind, view.display.as_str()), (CellKind::Number, "0"));
 }
 
 #[test]

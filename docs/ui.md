@@ -549,6 +549,10 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   The grid draws rotated text (inside its cell), shrinks the font of shrink-to-fit cells and draws diagonal borders;
   the print view does not show rotation or diagonals yet. `fmt-xlsx` reads and writes `textRotation`, `shrinkToFit`,
   `<protection>` and the diagonal (`diagonalUp` / `diagonalDown`, one line style as in SpreadsheetML).
+- **Calc circular references** (P8-44): as Excel with iterative calculation off, the cells of a cycle show 0 (their
+  dependents compute with it) and the status bar says "Circular reference: B8" (the cycle's first cell; with a sheet
+  prefix in a workbook of several sheets) for as long as the cycle exists (`CalcDocument` re-checks it after every
+  command with `Engine::cycle_through`).
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).

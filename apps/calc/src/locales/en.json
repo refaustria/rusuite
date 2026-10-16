@@ -1316,6 +1316,7 @@
   "calc.spill.ghost": "Spilled from {cell}: edit the formula there",
   "calc.spill.notBlank": "Spill range isn't blank",
   "calc.spill.selectObstructing": "Select obstructing cells",
+  "calc.status.circular": "Circular reference: {cell}",
   "calc.status.revision": "Revision {revision}",
   "calc.status.warnings": "{count} warnings: {list}",
   "calc.styles": "Styles",

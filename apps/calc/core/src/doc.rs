@@ -117,6 +117,9 @@ pub struct CalcDocument {
     pub xlsx_context: Option<fmt_xlsx::XlsxContext>,
     /// The file name the document was opened from (no directory).
     pub source_name: Option<String>,
+    /// The cells of the last circular reference reported in a patch: later
+    /// patches keep reporting it while it exists (Excel's status bar).
+    last_cycle: std::cell::RefCell<Option<Vec<CellCoord>>>,
 }
 
 /// `A`, `B`, …, `Z`, `AA`, … for a 0-based column.
@@ -217,6 +220,7 @@ impl CalcDocument {
             workbook: out.workbook,
             xlsx_context: Some(out.context),
             source_name: Some(name.to_owned()),
+            ..Self::default()
         };
         Ok((doc, out.warnings))
     }
@@ -501,18 +505,47 @@ impl CalcDocument {
         self.cells_patch(coords, None)
     }
 
+    /// The patch's `cycle`: the address of the first cell of a circular
+    /// reference (`A1`; `Sheet2!A1` in a workbook with several sheets),
+    /// which the UI shows as Excel's "Circular reference: A1".
     fn cycle_text(&self, cycle: Option<&Cycle>) -> Option<String> {
         let cycle = cycle?;
-        let names: Vec<String> = cycle
-            .cells
-            .iter()
-            .chain(cycle.cells.first())
-            .map(|c| {
-                let sheet = self.workbook.engine().sheet_name(c.sheet).unwrap_or("?");
-                format!("{sheet}!{}{}", col_letters(c.col), c.row + 1)
-            })
+        let first = cycle.cells.first()?;
+        *self.last_cycle.borrow_mut() = Some(cycle.cells.clone());
+        let engine = self.workbook.engine();
+        let cell = format!("{}{}", col_letters(first.col), first.row + 1);
+        if engine.sheets().count() <= 1 {
+            return Some(cell);
+        }
+        let sheet = engine.sheet_name(first.sheet).unwrap_or("?");
+        let plain = sheet.chars().all(|ch| ch.is_alphanumeric() || ch == '_')
+            && !sheet.starts_with(|ch: char| ch.is_ascii_digit());
+        Some(if plain {
+            format!("{sheet}!{cell}")
+        } else {
+            format!("'{}'!{cell}", sheet.replace('\'', "''"))
+        })
+    }
+
+    /// Keeps reporting a circular reference found earlier while it exists
+    /// (a patch without `cycle` would hide the warning).
+    fn track_cycle(&self, patch: &mut CalcPatch) {
+        if patch.cycle.is_some() {
+            return;
+        }
+        let Some(cells) = self.last_cycle.borrow_mut().take() else {
+            return;
+        };
+        let engine = self.workbook.engine();
+        let live: Vec<CellCoord> = cells
+            .into_iter()
+            .filter(|c| engine.sheet_name(c.sheet).is_some())
             .collect();
-        Some(format!("Circular reference: {}", names.join(" → ")))
+        if live.is_empty() {
+            return;
+        }
+        let cycle = engine.cycle_through(&live);
+        patch.cycle = self.cycle_text(cycle.as_ref());
     }
 
     pub(crate) fn content_patch(
@@ -2755,6 +2788,7 @@ impl Document for CalcDocument {
         self.mark_stale(stale, &mut applied);
         self.mark_cf_sheets(&mut applied.patch);
         self.mark_chart_sheets(&mut applied.patch);
+        self.track_cycle(&mut applied.patch);
         Ok(applied)
     }
 }

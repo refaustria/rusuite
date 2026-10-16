@@ -64,11 +64,11 @@
 //!
 //! # Circular references
 //!
-//! Excel shows 0 plus a warning for a circular reference; the error set
-//! of the AST is fixed, so the engine uses `#NUM!` instead: every cell on
-//! a cycle gets `Value::Error(ErrorKind::Num)` and [`Recalc::cycle`]
-//! carries the cycle so the UI can warn. Cells outside the cycle are still
-//! recalculated (dependents of a cycle see the `#NUM!`).
+//! As Excel with iterative calculation off: every cell on a cycle gets
+//! `0` and [`Recalc::cycle`] carries the cycle so the UI can warn
+//! ([`Engine::cycle_through`] tells later whether it still exists). Cells
+//! outside the cycle are still recalculated (dependents of a cycle see the
+//! `0`).
 //!
 //! # Sheet names
 //!
@@ -1214,7 +1214,7 @@ impl Engine {
     }
 
     /// The computed value of `c`: constants return themselves, blank cells
-    /// `Empty`, formulas their last computed result (`#NUM!` on a cycle).
+    /// `Empty`, formulas their last computed result (`0` on a cycle).
     pub fn value(&self, c: CellCoord) -> Value {
         let Some(sheet) = self.sheets.get(c.sheet.0 as usize) else {
             return Value::Empty;
@@ -1969,6 +1969,13 @@ impl Engine {
             .collect()
     }
 
+    /// A circular reference that `cells` (or their dependents) take part
+    /// in, if any – whether a cycle reported by [`Recalc::cycle`] still
+    /// exists. Cost: the dependents of `cells`.
+    pub fn cycle_through(&self, cells: &[CellCoord]) -> Option<Cycle> {
+        self.graph.recalc_schedule(cells).cycle
+    }
+
     /// The formula cells reading `c` directly (sorted). "Trace Dependents".
     pub fn dependents(&self, c: CellCoord) -> Vec<CellCoord> {
         self.graph.direct_dependents(c)
@@ -2268,7 +2275,7 @@ impl Engine {
         let (mut first_volatile, mut last_change) = (None, None);
         for (i, &c) in schedule.order.iter().enumerate() {
             let result = if cyclic.contains(&c) {
-                Value::Error(ErrorKind::Num)
+                Value::Number(0.0)
             } else {
                 let CellContent::Formula { ast, .. } = self.content(c) else {
                     continue;

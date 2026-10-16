@@ -74,4 +74,21 @@ test.describe("Calc pre-release fixes (P8-44)", () => {
     expect(again).toMatch(/<c r="B2"(?![^>]*\ss="[1-9])/);
     errors.expectNone();
   });
+
+  test("C-05 a circular reference shows 0 and keeps Excel's status bar warning until it is fixed", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(6, 1, "5");
+    await grid.type(7, 1, "=B8+1");
+    const status = page.getByTestId("cycle-status");
+    await expect(status).toHaveText("Circular reference: B8");
+    expect(await grid.display(7, 1)).toBe("0");
+    await grid.type(0, 0, "other");
+    await expect(status).toHaveText("Circular reference: B8");
+    await grid.type(7, 1, "=B7+1");
+    await expect(status).toHaveCount(0);
+    expect(await grid.display(7, 1)).toBe("6");
+    errors.expectNone();
+  });
 });
