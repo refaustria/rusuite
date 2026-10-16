@@ -216,4 +216,24 @@ test.describe("Show pre-release fixes (P8-45)", () => {
     await page.screenshot({ path: "../../shots/P8-45-combo.png" });
     errors.expectNone();
   });
+
+  test("S-17: Transitions › Push starts From Bottom (saved dir=\"u\"), Split Vertical Out, Zoom In", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await page.getByRole("tab", { name: "Transitions" }).click();
+    const gallery = page.getByRole("group", { name: "Transitions", exact: true });
+    await gallery.getByRole("button", { name: "Push", exact: true }).click();
+    await page.getByRole("button", { name: "Effect Options" }).click();
+    await expect(page.getByRole("menuitemradio", { name: "From Bottom" }).or(page.getByRole("menuitemcheckbox", { name: "From Bottom" }))).toHaveAttribute("aria-checked", "true");
+    await page.keyboard.press("Escape");
+    let slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    expect(slide1).toMatch(/<p:push dir="u"\/>/);
+    await gallery.getByRole("button", { name: "Split", exact: true }).click();
+    slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    expect(slide1).toMatch(/<p:split orient="vert"( dir="out")?\/>/);
+    await gallery.getByRole("button", { name: "Zoom", exact: true }).click();
+    slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    expect(slide1).toMatch(/<p:zoom dir="in"\/>/);
+    errors.expectNone();
+  });
 });

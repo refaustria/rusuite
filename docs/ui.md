@@ -1000,6 +1000,14 @@ Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)
 - **Combo charts (S-10)**: the shared renderer (`packages/ui-shared/src/chart/layout.ts`) draws the series in Excel's /
   PowerPoint's z-order – areas at the back, then bars / columns, then lines, then scatter – so Stacked Area – Clustered
   Column shows its columns in front of the area (hit testing follows: a click on a column picks the column).
+- **Transition defaults (S-17)**: a transition chosen in the gallery starts with PowerPoint's Effect Options – Push From
+  Bottom (saved `dir="u"`), Split Vertical Out (`orient="vert"`), Zoom In (`dir="in"`); Wipe and Cover From Right (the
+  format's default). A transition read from a file without a direction keeps the format's default (`TransitionKind::
+  default_direction`).
+- **Picture › Color previews (S-18)**: duotone and sepia previews are exact (an SVG `feColorMatrix` equal to the pixel
+  pipeline), so each duotone shows its accent colour.
+- **Group names (S-19)**: a new group is named "Group N" with N one more than the largest number in the slide's shape
+  names (as PowerPoint), not after its id.
 
 ## Printing (P7-9)
 
