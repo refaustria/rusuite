@@ -66,8 +66,8 @@ pub use parser::{parse, ParseError};
 pub use pivot::{find_pivot_value, PivotData, PivotEntry, PivotItemName};
 pub use structured::{StructRef, TableDef, TableItem};
 pub use transform::{
-    adjust_references, adjust_references_for_move, offset_relative, AdjustContext, CellRect,
-    MoveContext, StructuralOp,
+    adjust_references, adjust_references_for_move, adjust_references_shift, offset_relative,
+    AdjustContext, CellRect, CellShift, MoveContext, StructuralOp,
 };
 pub use value::{Array, Value};
 

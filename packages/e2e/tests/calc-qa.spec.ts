@@ -41,7 +41,8 @@ test.describe("Calc quality pass (P8-39)", () => {
     // Ctrl+C puts what the cells show on the clipboard, formulas as their values.
     await grid.click(0, 0);
     await grid.click(4, 1, { shift: true });
-    expect((await copiedText(page)).split("\n")).toEqual(["12%\t0.24", "$1,234.50\t", "3/4/2024\t", "13:45\t", "1 1/2\t"]);
+    // =A1*2 inherits A1's percent format (C-19, P8-44).
+    expect((await copiedText(page)).split("\n")).toEqual(["12%\t24%", "$1,234.50\t", "3/4/2024\t", "13:45\t", "1 1/2\t"]);
     await page.keyboard.press("Escape");
     const xlsx = await saveViaBackstage(page);
     const sheet = zipText(xlsx, "xl/worksheets/sheet1.xml");

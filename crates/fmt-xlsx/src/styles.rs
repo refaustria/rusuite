@@ -18,7 +18,8 @@ use std::collections::HashMap;
 use core_model::{Color, FontFace, FontSize, Rgb, RunProperties, Underline, VerticalAlign};
 use model_sheet::numfmt::{builtin_code, builtin_id, is_locale_builtin, GENERAL};
 use model_sheet::{
-    Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, StyleTable, VAlign,
+    Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, Protection, StyleTable,
+    VAlign,
 };
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
@@ -184,8 +185,10 @@ struct RawFill {
 
 #[derive(Debug, Default)]
 struct RawBorder {
-    /// left, right, top, bottom
-    sides: [Option<(String, Option<RawColor>)>; 4],
+    /// left, right, top, bottom, diagonal
+    sides: [Option<(String, Option<RawColor>)>; 5],
+    diagonal_up: bool,
+    diagonal_down: bool,
 }
 
 #[derive(Debug, Default)]
@@ -195,6 +198,7 @@ struct RawXf {
     fill: usize,
     border: usize,
     alignment: Alignment,
+    protection: Protection,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -270,6 +274,21 @@ fn alignment_of(el: &BytesStart<'_>) -> Alignment {
         indent: attr_parse::<u32>(el, "indent")
             .filter(|&i| i > 0)
             .map(|i| i.min(255) as u8),
+        shrink_to_fit: attr_bool(el, "shrinkToFit").filter(|&w| w),
+        // 0..=90 counter-clockwise, 91..=180 clockwise (90 - value);
+        // 255 (stacked vertical text) is not modelled.
+        text_rotation: attr_parse::<i16>(el, "textRotation").and_then(|r| match r {
+            1..=90 => Some(r),
+            91..=180 => Some(90 - r),
+            _ => None,
+        }),
+    }
+}
+
+fn protection_of(el: &BytesStart<'_>) -> Protection {
+    Protection {
+        locked: attr_bool(el, "locked").filter(|&l| !l),
+        hidden: attr_bool(el, "hidden").filter(|&h| h),
     }
 }
 
@@ -369,7 +388,11 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
                     _ => {}
                 }
             }
-            (Section::Borders, b"border") => borders.push(RawBorder::default()),
+            (Section::Borders, b"border") => borders.push(RawBorder {
+                diagonal_up: attr_bool(el, "diagonalUp").unwrap_or(false),
+                diagonal_down: attr_bool(el, "diagonalDown").unwrap_or(false),
+                ..RawBorder::default()
+            }),
             (Section::Borders, _) => {
                 let Some(b) = borders.last_mut() else {
                     continue;
@@ -379,6 +402,7 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
                     b"right" | b"end" => Some(1),
                     b"top" => Some(2),
                     b"bottom" => Some(3),
+                    b"diagonal" => Some(4),
                     _ => None,
                 };
                 if let Some(i) = idx {
@@ -388,7 +412,7 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
                     if let Some(Some((_, color))) = side.map(|i| &mut b.sides[i]) {
                         *color = Some(RawColor::from_el(el));
                     }
-                } else if name == b"diagonal" || name == b"vertical" || name == b"horizontal" {
+                } else if name == b"vertical" || name == b"horizontal" {
                     side = None;
                 }
             }
@@ -398,10 +422,16 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
                 fill: attr_parse(el, "fillId").unwrap_or(0),
                 border: attr_parse(el, "borderId").unwrap_or(0),
                 alignment: Alignment::default(),
+                protection: Protection::default(),
             }),
             (Section::CellXfs, b"alignment") => {
                 if let Some(x) = xfs.last_mut() {
                     x.alignment = alignment_of(el);
+                }
+            }
+            (Section::CellXfs, b"protection") => {
+                if let Some(x) = xfs.last_mut() {
+                    x.protection = protection_of(el);
                 }
             }
             (Section::Colors, b"indexedColors") => palette = Some(Vec::new()),
@@ -473,6 +503,8 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
                 right: side(1),
                 top: side(2),
                 bottom: side(3),
+                diagonal_up: if b.diagonal_up { side(4) } else { None },
+                diagonal_down: if b.diagonal_down { side(4) } else { None },
             }
         })
         .collect();
@@ -501,6 +533,7 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
             borders: borders.get(x.border).copied().unwrap_or_default(),
             alignment: x.alignment,
             number_format: code_of(x.num_fmt),
+            protection: x.protection,
         })
         .collect();
     for id in unknown_fmts {
@@ -618,7 +651,14 @@ fn border_style_name(s: BorderStyle) -> &'static str {
 
 fn border_xml(b: &Borders) -> Vec<u8> {
     let mut x = XmlOut::fragment();
-    x.start("border", &[]);
+    let mut attrs: Vec<(&str, &str)> = Vec::new();
+    if b.diagonal_up.is_some() {
+        attrs.push(("diagonalUp", "1"));
+    }
+    if b.diagonal_down.is_some() {
+        attrs.push(("diagonalDown", "1"));
+    }
+    x.start("border", &attrs);
     for (name, side) in [
         ("left", b.left),
         ("right", b.right),
@@ -634,7 +674,15 @@ fn border_xml(b: &Borders) -> Vec<u8> {
             }
         }
     }
-    x.empty("diagonal", &[]);
+    // One diagonal line style in SpreadsheetML: the up line's, else the down line's.
+    match b.diagonal_up.or(b.diagonal_down) {
+        None => x.empty("diagonal", &[]),
+        Some(s) => {
+            x.start("diagonal", &[("style", border_style_name(s.style))]);
+            color_el(&mut x, "color", s.color);
+            x.end("diagonal");
+        }
+    }
     x.end("border");
     x.finish()
 }
@@ -721,6 +769,7 @@ pub fn write_styles_with_dxfs(
         fill: usize,
         border: usize,
         alignment: Alignment,
+        protection: Protection,
     }
     let xfs: Vec<Xf> = table
         .iter()
@@ -759,6 +808,7 @@ pub fn write_styles_with_dxfs(
                 fill,
                 border: borders.add(border_xml(&s.borders)),
                 alignment: s.alignment,
+                protection: s.protection,
             }
         })
         .collect();
@@ -821,17 +871,22 @@ pub fn write_styles_with_dxfs(
             ("applyFill", xf.fill != 0),
             ("applyBorder", xf.border != 0),
             ("applyAlignment", !xf.alignment.is_default()),
+            ("applyProtection", !xf.protection.is_default()),
         ] {
             if on {
                 attrs.push((flag, "1"));
             }
         }
-        if xf.alignment.is_default() {
+        if xf.alignment.is_default() && xf.protection.is_default() {
             x.empty("xf", &attrs);
         } else {
             x.start("xf", &attrs);
             let a = xf.alignment;
             let indent = a.indent.map(|i| i.to_string());
+            let rotation = a
+                .text_rotation
+                .filter(|&r| r != 0)
+                .map(|r| if r < 0 { 90 - r.max(-90) } else { r.min(90) }.to_string());
             let mut al: Vec<(&str, &str)> = Vec::new();
             if let Some(h) = a.horizontal {
                 al.push(("horizontal", halign_name(h)));
@@ -845,7 +900,26 @@ pub fn write_styles_with_dxfs(
             if let Some(i) = &indent {
                 al.push(("indent", i));
             }
-            x.empty("alignment", &al);
+            if let Some(r) = &rotation {
+                al.push(("textRotation", r));
+            }
+            if a.shrink_to_fit == Some(true) {
+                al.push(("shrinkToFit", "1"));
+            }
+            if !al.is_empty() {
+                x.empty("alignment", &al);
+            }
+            let p = xf.protection;
+            if !p.is_default() {
+                let mut pr: Vec<(&str, &str)> = Vec::new();
+                if let Some(l) = p.locked {
+                    pr.push(("locked", if l { "1" } else { "0" }));
+                }
+                if let Some(h) = p.hidden {
+                    pr.push(("hidden", if h { "1" } else { "0" }));
+                }
+                x.empty("protection", &pr);
+            }
             x.end("xf");
         }
     }
@@ -993,6 +1067,7 @@ mod tests {
                 vertical: Some(VAlign::Top),
                 wrap_text: Some(true),
                 indent: Some(2),
+                ..Default::default()
             }
         );
         assert_eq!(p.xfs[4].number_format.as_deref(), Some("mm-dd-yy"));

@@ -42,6 +42,9 @@ import { changesPartOfArray, hasSpilledCells, isFilledCell, obstructingCells, on
 import { intersects, isSingleCell, mergeAnchor, mergeLookup, mergeSnapshot, partialMerge, snapSelection } from "../grid/merges";
 import { fontCss, styleAt } from "../grid/style";
 import { cfKey, dataBarAxes } from "../grid/cf";
+import { formatCommands, type FormatState, type FormatTab } from "../numfmt/formatCells";
+import { widenedPx } from "./autoWiden";
+import { cellsCommand, type CellsChoice, type CellsMode } from "./shiftCells";
 import { captureClip, fillDownEnd, pasteTarget, tsvClip, type Clip } from "./clipboard";
 import { findStep, replaceInInput, type FindOptions } from "./find";
 import { activeArg, applyFunction, FUNCTIONS, functionInfo, matchFunctions, signatureArgs, type FunctionInfo } from "../formula/functions";
@@ -170,7 +173,9 @@ export interface Toast {
 
 /** The dialogs Calc opens from shortcuts, menus and (later) the ribbon. */
 export type CalcDialog =
-  | { kind: "numberFormat" }
+  | { kind: "numberFormat"; tab?: FormatTab }
+  /** Insert / Delete dialog for a cell selection (shift cells, entire rows / columns). */
+  | { kind: "cells"; mode: CellsMode }
   | { kind: "find"; replace: boolean }
   | { kind: "rowHeight" }
   | { kind: "colWidth" }
@@ -593,9 +598,10 @@ export class CalcStore {
 
   pushError(e: unknown): void {
     // A content edit inside a pivot table: Excel's message.
+    const known: Record<string, string> = { pivot_cell: "calc.pivot.cantChange", shift_merged: "calc.shiftMerged", shift_table: "calc.shiftTable" };
     const message =
-      e instanceof CalcApiError && e.code === "pivot_cell"
-        ? t("calc.pivot.cantChange")
+      e instanceof CalcApiError && known[e.code]
+        ? t(known[e.code])
         : e instanceof CalcApiError ? `${e.code}: ${e.message}` : e instanceof Error ? e.message : String(e);
     if (this.state.toasts.some((t) => t.message === message)) return;
     const id = ++this.toastSeq;
@@ -1526,6 +1532,8 @@ export class CalcStore {
     return this.api.apply(command).then(
       (env) => {
         this.applyEnvelope(env);
+        const widen = this.widenCommand(sheet, row, col, text !== null && text !== "");
+        if (widen) void this.apply(widen);
         return true;
       },
       (e: unknown) => {
@@ -1644,6 +1652,31 @@ export class CalcStore {
     const [at, count] = axis === "rows" ? [r.r0, r.r1 - r.r0 + 1] : [r.c0, r.c1 - r.c0 + 1];
     const type = `${kind}${axis === "rows" ? "Rows" : "Cols"}` as "insertRows" | "deleteRows" | "insertCols" | "deleteCols";
     return this.apply({ type, sheet, at, count });
+  }
+
+  /** Format Cells OK: the changed parts of every tab as one undo step (wrap text on/off refits the rows, as `applyStyle`). */
+  formatCells(init: FormatState, next: FormatState): Promise<void> {
+    const r = this.selectionRange();
+    const sheet = this.state.activeSheet;
+    const commands = formatCommands(init, next, sheet, r);
+    if (init.wrapText !== next.wrapText && r.r1 - r.r0 <= 500) {
+      const rows: number[] = [];
+      for (let row = r.r0; row <= r.r1; row++) rows.push(row);
+      commands.push(...this.rowFitCommands(sheet, rows, (c) => (c >= r.c0 && c <= r.c1 ? { wrap: next.wrapText } : undefined)));
+    }
+    if (commands.length === 0) return Promise.resolve();
+    return this.apply(commands.length === 1 ? commands[0] : { type: "compound", commands });
+  }
+
+  /** Whether the selection touches a merged range. */
+  selectionMerged(): boolean {
+    const r = this.selectionRange();
+    return this.merges().some((m) => intersects(m, r));
+  }
+
+  /** Insert / Delete dialog: shifts the selected cells, or inserts / deletes their entire rows or columns. */
+  shiftCells(mode: CellsMode, choice: CellsChoice): Promise<void> {
+    return this.apply(cellsCommand(mode, choice, this.state.activeSheet, this.selectionRange()));
   }
 
   clearSelection(): Promise<void> {
@@ -1995,6 +2028,24 @@ export class CalcStore {
     return axis === "rows"
       ? (cache.rows.get(anchor.row)?.height ?? cache.format.defaultRowHeight)
       : (cache.cols.get(anchor.col)?.width ?? cache.format.defaultColWidth);
+  }
+
+  /** C-23: the column width command after typing a number into a default-width column (Excel widens it), else `null`. */
+  private widenCommand(sheet: number, row: number, col: number, constant: boolean): CalcCommand | null {
+    const cache = this.cache(sheet);
+    const cell = cache.cells.get(row)?.get(col);
+    if (!cell) return null;
+    const style = styleAt(this.styles(), cell.style);
+    const px = widenedPx({
+      constant,
+      kind: cell.kind,
+      textPx: this.measure(cell.display, fontCss(style)),
+      colPx: this.geometry(sheet).col.size(col),
+      explicitWidth: (cache.cols.get(col)?.width ?? null) !== null,
+      wrap: !!style.alignment?.wrapText,
+      merged: cache.merges.some((m) => m.r0 <= row && row <= m.r1 && m.c0 <= col && col <= m.c1),
+    });
+    return px === null ? null : { type: "setColWidth", sheet, col, width: pxToChars(px) };
   }
 
   /**

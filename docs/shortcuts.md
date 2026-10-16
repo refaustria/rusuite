@@ -35,7 +35,8 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Mod+Arrow | Jump to the edge of the data |
 | Mod+Shift+Arrow | Extend the selection to the edge of the data |
 | F2 | Edit the active cell (edit mode); inside the editor: switch between edit and enter mode |
-| Delete, Backspace | Clear the selection |
+| Delete | Clear the selection |
+| Backspace | Edit the active cell starting empty (Enter clears it, Esc keeps the old content); a selected chart, picture or note box is deleted |
 | Alt+Enter | Line break in the cell editor (stored as `\n`; committing turns wrap text on and grows the row) |
 | Enter, Tab (Shift: reverse) | Commit the edit and move down / right |
 | Mod+Enter | Commit the edit without moving; a selected range gets the entry in every cell (relative references shift, formats stay) |
@@ -45,8 +46,8 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | F4 | Cycle `$` anchoring of the reference at the caret: `A1` → `$A$1` → `A$1` → `$A1` |
 | ArrowUp/ArrowDown, Tab/Enter | Function list: choose, accept (`SUM(`) |
 | Mod+Space, Shift+Space | Select the column(s), the row(s) |
-| Mod+Plus, Mod+Minus | Insert, delete rows or columns (dialog unless whole rows/columns are selected) |
-| Mod+1 | Format cells: number format dialog (General, Number, Currency, Percentage, Date, Time, Text, Custom) with a live preview |
+| Mod+Plus, Mod+Minus | Insert, delete: whole rows/columns selected act at once; otherwise Excel's Insert / Delete dialog (Shift cells right / down – left / up –, Entire row, Entire column; a selection taller than wide preselects the sideways shift) |
+| Mod+1 | Format Cells, on the Number tab (General, Number, Currency, Percentage, Date, Time, Text, Custom, live preview); the tabs Alignment, Font, Border, Fill and Protection apply with it as one undo step |
 | Mod+Shift+~, Mod+Shift+!, Mod+Shift+@, Mod+Shift+#, Mod+Shift+$, Mod+Shift+%, Mod+Shift+^ | Number format General, `#,##0.00`, `h:mm AM/PM`, `d-mmm-yy`, currency, `0%`, `0.00E+00` (the Shift+digit keys of a US layout) |
 | Mod+5 | Strikethrough |
 | Mod+;, Mod+Shift+: | Start the cell editor with today's date / the current time (Enter stores it as a date / time) |

@@ -51,6 +51,7 @@ import { parseRange, rangeFormula } from "../charts/refs";
 import { findRefs } from "../formula/refs";
 import { nameProblem } from "../names/names";
 import { FakePivots } from "./fakePivot";
+import { applyBorderEdits } from "../numfmt/formatCells";
 
 interface FakeCell {
   input: string;
@@ -389,6 +390,27 @@ export class FakeCalcCore {
         if (this.styles.length > before) patch.styles = [...this.styles];
         return [patch, { type: "restoreStyles", sheet: cmd.sheet, cells: changed }];
       }
+      case "setBorders": {
+        const s = this.sheet(cmd.sheet);
+        this.checkRange(cmd.r0, cmd.c0, cmd.r1, cmd.c1);
+        const before = this.styles.length;
+        const changed: [number, number, number][] = [];
+        const coords: [number, number][] = [];
+        for (let r = cmd.r0; r <= cmd.r1; r++) {
+          for (let c = cmd.c0; c <= cmd.c1; c++) {
+            const old = this.cell(s, r, c)?.style ?? 0;
+            const cur = this.styles[this.effectiveStyle(s, r, c)];
+            const borders = applyBorderEdits(cur.borders ?? {}, r, c, cmd, cmd.edits);
+            const next = this.intern({ ...cur, borders: Object.keys(borders).length ? borders : undefined });
+            changed.push([r, c, old]);
+            this.setCell(s, r, c, this.cell(s, r, c)?.input ?? "", next);
+            coords.push([r, c]);
+          }
+        }
+        const patch = this.cellsPatch(s, coords);
+        if (this.styles.length > before) patch.styles = [...this.styles];
+        return [patch, { type: "restoreStyles", sheet: cmd.sheet, cells: changed }];
+      }
       case "restoreStyles": {
         const s = this.sheet(cmd.sheet);
         const prev: [number, number, number][] = cmd.cells.map(([r, c]) => [r, c, this.cell(s, r, c)?.style ?? 0]);
@@ -706,6 +728,40 @@ export class FakeCalcCore {
         const patch = this.emptyPatch();
         patch.structural = [{ sheet: cmd.sheet, kind: cmd.type, at: cmd.at, count: cmd.count }];
         const inverse: CalcCommand = { ...cmd, type: (ins ? "delete" : "insert") + (rowsAxis ? "Rows" : "Cols") } as CalcCommand;
+        return [patch, inverse];
+      }
+      case "insertCells":
+      case "deleteCells": {
+        // A toy: the cells of the band move (references are not adjusted).
+        const s = this.sheet(cmd.sheet);
+        const ins = cmd.type === "insertCells";
+        const sideways = cmd.shift === "right" || cmd.shift === "left";
+        const count = sideways ? cmd.c1 - cmd.c0 + 1 : cmd.r1 - cmd.r0 + 1;
+        const at = sideways ? cmd.c0 : cmd.r0;
+        const moved = new Map<number, Map<number, FakeCell>>();
+        for (const [r, row] of s.cells) {
+          for (const [c, cell] of row) {
+            const inBand = sideways ? r >= cmd.r0 && r <= cmd.r1 : c >= cmd.c0 && c <= cmd.c1;
+            let [nr, nc] = [r, c];
+            const i = sideways ? c : r;
+            if (inBand && i >= at) {
+              if (!ins && i < at + count) continue;
+              const d = ins ? count : -count;
+              if (sideways) nc += d;
+              else nr += d;
+            }
+            if (!moved.has(nr)) moved.set(nr, new Map());
+            moved.get(nr)!.set(nc, cell);
+          }
+        }
+        s.cells = moved;
+        s.formulas = new Set([...moved].flatMap(([r, row]) => [...row].filter(([, x]) => x.input.startsWith("=")).map(([c]) => `${r},${c}`)));
+        const patch = this.emptyPatch();
+        patch.structural = [{ sheet: cmd.sheet, kind: "shiftCells", at, count }];
+        const rect = { sheet: cmd.sheet, r0: cmd.r0, c0: cmd.c0, r1: cmd.r1, c1: cmd.c1 };
+        const inverse: CalcCommand = ins
+          ? { type: "deleteCells", ...rect, shift: sideways ? "left" : "up" }
+          : { type: "insertCells", ...rect, shift: sideways ? "right" : "down" };
         return [patch, inverse];
       }
       case "sortRange":

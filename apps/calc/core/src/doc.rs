@@ -11,7 +11,10 @@ use model_sheet::{
     StyleId, Workbook, MAX_PATCH_CELLS,
 };
 
-use crate::command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect, SheetViewPatch};
+use crate::command::{
+    CalcCommand, ClipCell, DeleteShift, FillMode, InsertShift, PasteMode, Rect, SheetRect,
+    SheetViewPatch,
+};
 use crate::fill::{move_input, plan, shift_input, FillItem};
 use crate::patch::{
     CalcPatch, CellKind, CellView, ColView, FoundCell, RegionSnapshot, RowView, SheetCells,
@@ -86,6 +89,8 @@ impl CalcError {
             CalcError::Model(M::PivotOverlap { .. }) => "pivot_overlap",
             CalcError::Model(M::InvalidTable(_)) => "invalid_table",
             CalcError::Model(M::UnknownTable(_)) => "unknown_table",
+            CalcError::Model(M::ShiftMerged) => "shift_merged",
+            CalcError::Model(M::ShiftTable) => "shift_table",
             CalcError::Model(M::Engine(EngineError::InvalidName(_))) => "invalid_name",
             CalcError::Model(M::Engine(EngineError::DuplicateName(_))) => "duplicate_name",
             CalcError::Model(M::Engine(EngineError::UnknownName(_))) => "unknown_name",
@@ -112,6 +117,9 @@ pub struct CalcDocument {
     pub xlsx_context: Option<fmt_xlsx::XlsxContext>,
     /// The file name the document was opened from (no directory).
     pub source_name: Option<String>,
+    /// The cells of the last circular reference reported in a patch: later
+    /// patches keep reporting it while it exists (Excel's status bar).
+    last_cycle: std::cell::RefCell<Option<Vec<CellCoord>>>,
 }
 
 /// `A`, `B`, …, `Z`, `AA`, … for a 0-based column.
@@ -212,6 +220,7 @@ impl CalcDocument {
             workbook: out.workbook,
             xlsx_context: Some(out.context),
             source_name: Some(name.to_owned()),
+            ..Self::default()
         };
         Ok((doc, out.warnings))
     }
@@ -496,18 +505,47 @@ impl CalcDocument {
         self.cells_patch(coords, None)
     }
 
+    /// The patch's `cycle`: the address of the first cell of a circular
+    /// reference (`A1`; `Sheet2!A1` in a workbook with several sheets),
+    /// which the UI shows as Excel's "Circular reference: A1".
     fn cycle_text(&self, cycle: Option<&Cycle>) -> Option<String> {
         let cycle = cycle?;
-        let names: Vec<String> = cycle
-            .cells
-            .iter()
-            .chain(cycle.cells.first())
-            .map(|c| {
-                let sheet = self.workbook.engine().sheet_name(c.sheet).unwrap_or("?");
-                format!("{sheet}!{}{}", col_letters(c.col), c.row + 1)
-            })
+        let first = cycle.cells.first()?;
+        *self.last_cycle.borrow_mut() = Some(cycle.cells.clone());
+        let engine = self.workbook.engine();
+        let cell = format!("{}{}", col_letters(first.col), first.row + 1);
+        if engine.sheets().count() <= 1 {
+            return Some(cell);
+        }
+        let sheet = engine.sheet_name(first.sheet).unwrap_or("?");
+        let plain = sheet.chars().all(|ch| ch.is_alphanumeric() || ch == '_')
+            && !sheet.starts_with(|ch: char| ch.is_ascii_digit());
+        Some(if plain {
+            format!("{sheet}!{cell}")
+        } else {
+            format!("'{}'!{cell}", sheet.replace('\'', "''"))
+        })
+    }
+
+    /// Keeps reporting a circular reference found earlier while it exists
+    /// (a patch without `cycle` would hide the warning).
+    fn track_cycle(&self, patch: &mut CalcPatch) {
+        if patch.cycle.is_some() {
+            return;
+        }
+        let Some(cells) = self.last_cycle.borrow_mut().take() else {
+            return;
+        };
+        let engine = self.workbook.engine();
+        let live: Vec<CellCoord> = cells
+            .into_iter()
+            .filter(|c| engine.sheet_name(c.sheet).is_some())
             .collect();
-        Some(format!("Circular reference: {}", names.join(" → ")))
+        if live.is_empty() {
+            return;
+        }
+        let cycle = engine.cycle_through(&live);
+        patch.cycle = self.cycle_text(cycle.as_ref());
     }
 
     pub(crate) fn content_patch(
@@ -793,7 +831,7 @@ impl CalcDocument {
                         r1: row,
                         c1: col,
                         patch: CellStyle {
-                            number_format: Some(code.to_string()),
+                            number_format: Some(code.into_owned()),
                             ..Default::default()
                         },
                     })?;
@@ -875,6 +913,42 @@ impl CalcDocument {
                     inverse: Some(C::RestoreStyles { sheet, cells }),
                 })
             }
+            &C::SetBorders {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                ref edits,
+            } => {
+                let range = self.range(sheet, r0, c0, r1, c1)?;
+                let s = range.sheet;
+                let before = self.workbook.styles().len();
+                let mut prev = Vec::new();
+                let mut changed = Vec::new();
+                for row in r0..=r1 {
+                    for col in c0..=c1 {
+                        let c = CellCoord::new(s, row, col);
+                        let old = self.workbook.style_id(c);
+                        let mut style = self.workbook.styles().get(old).clone();
+                        style.borders = edits.apply(style.borders, (row, col), (r0, c0, r1, c1));
+                        let new = self.workbook.intern_style(&style);
+                        if new != old {
+                            prev.push((row, col, self.workbook.cell_style_id(c).0));
+                            self.workbook.set_style(c, new)?;
+                            changed.push(c);
+                        }
+                    }
+                }
+                Ok(Applied {
+                    patch: CalcPatch {
+                        cells: self.cells_patch(changed, None),
+                        styles: self.styles_if_grew(before),
+                        ..Default::default()
+                    },
+                    inverse: Some(C::RestoreStyles { sheet, cells: prev }),
+                })
+            }
             C::RestoreStyles { sheet, cells } => {
                 let s = self.sheet(*sheet)?;
                 for &(row, col, style) in cells {
@@ -944,6 +1018,48 @@ impl CalcDocument {
             }
             &C::DeleteCols { sheet, at, count } => {
                 self.structural(sheet, StructuralOp::DeleteCols { at, count })
+            }
+            &C::InsertCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                shift,
+            } => {
+                let rect = Rect { r0, c0, r1, c1 };
+                let op = match shift {
+                    InsertShift::Right => StructuralOp::InsertCols {
+                        at: c0,
+                        count: c1.saturating_sub(c0) + 1,
+                    },
+                    InsertShift::Down => StructuralOp::InsertRows {
+                        at: r0,
+                        count: r1.saturating_sub(r0) + 1,
+                    },
+                };
+                self.shift_cells(sheet, rect, op)
+            }
+            &C::DeleteCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                shift,
+            } => {
+                let rect = Rect { r0, c0, r1, c1 };
+                let op = match shift {
+                    DeleteShift::Left => StructuralOp::DeleteCols {
+                        at: c0,
+                        count: c1.saturating_sub(c0) + 1,
+                    },
+                    DeleteShift::Up => StructuralOp::DeleteRows {
+                        at: r0,
+                        count: r1.saturating_sub(r0) + 1,
+                    },
+                };
+                self.shift_cells(sheet, rect, op)
             }
             C::AddSheet { name, index } => {
                 let count = self.workbook.sheets().len();
@@ -2337,6 +2453,139 @@ impl CalcDocument {
         })
     }
 
+    /// Insert / Delete Cells with a shift ([`CalcCommand::InsertCells`],
+    /// [`CalcCommand::DeleteCells`]): `op` on the rect's rows (column
+    /// operations) or columns (row operations). The inverse is the
+    /// opposite command on the same rect, then (for a delete) the deleted
+    /// cells, and the original text of every rewritten formula, merges,
+    /// rules and charts as in [`structural`](Self::structural).
+    fn shift_cells(&mut self, sheet: u32, rect: Rect, op: StructuralOp) -> Result<CalcApplied> {
+        use CalcCommand as C;
+        let s = self.sheet(sheet)?;
+        let Rect { r0, c0, r1, c1 } = rect;
+        if r0 > r1 || c0 > c1 || r1 > MAX_ROW || c1 > MAX_COL {
+            return Err(CalcError::InvalidRange);
+        }
+        let (lo, hi) = if op.is_rows() { (c0, c1) } else { (r0, r1) };
+        let full = if op.is_rows() { MAX_COL } else { MAX_ROW };
+        if lo == 0 && hi == full {
+            // Whole rows / columns: Excel inserts or deletes them.
+            return self.structural(sheet, op);
+        }
+        let shift = engine_formula::CellShift::new(op, lo, hi);
+        let formulas = self.formulas();
+        let merges_before = self.workbook.merges(s).to_vec();
+        let rules_before = self.rules_state();
+        let charts_before = self.charts_state();
+        let span_cells: Vec<(u32, u32, String, u32)> = if op.is_insert() {
+            Vec::new()
+        } else {
+            let range = self.range(sheet, r0, c0, r1, c1)?;
+            self.workbook
+                .cells_in(range)
+                .map(|(c, content, style)| (c.row, c.col, content_to_input(content), style.0))
+                .collect()
+        };
+        let recalc = self.workbook.shift_cells(s, op, lo, hi)?;
+        let opposite = match op {
+            StructuralOp::InsertCols { .. } => C::DeleteCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                shift: DeleteShift::Left,
+            },
+            StructuralOp::InsertRows { .. } => C::DeleteCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                shift: DeleteShift::Up,
+            },
+            StructuralOp::DeleteCols { .. } => C::InsertCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                shift: InsertShift::Right,
+            },
+            StructuralOp::DeleteRows { .. } => C::InsertCells {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                shift: InsertShift::Down,
+            },
+        };
+        let mut rewritten: BTreeMap<u32, Vec<(u32, u32, String, u32)>> = BTreeMap::new();
+        for (c, text, style) in formulas {
+            let now = if c.sheet == s {
+                shift.map_cell(c.row, c.col)
+            } else {
+                Some((c.row, c.col))
+            };
+            let Some((row, col)) = now else {
+                continue; // deleted: restored with the span
+            };
+            let current = self
+                .workbook
+                .formula_text(CellCoord::new(c.sheet, row, col));
+            if current != Some(text.as_str()) {
+                rewritten
+                    .entry(c.sheet.0)
+                    .or_default()
+                    .push((c.row, c.col, text, style.0));
+            }
+        }
+        let mut inverse = vec![opposite];
+        if !span_cells.is_empty() {
+            inverse.push(C::RestoreCells {
+                sheet,
+                cells: span_cells,
+            });
+        }
+        for (sheet, cells) in rewritten {
+            inverse.push(C::RestoreCells { sheet, cells });
+        }
+        let mut extra = CalcPatch::default();
+        if self.workbook.merges(s) != merges_before.as_slice() {
+            inverse.push(C::RestoreMerges {
+                sheet,
+                merges: merges_before.iter().map(rect_of).collect(),
+            });
+            extra.merge(self.merges_patch(s));
+        }
+        let (restore, changed) = self.rules_changed(rules_before);
+        inverse.extend(restore);
+        extra.cf_sheets = changed;
+        let (restore, changed) = self.charts_changed(charts_before);
+        inverse.extend(restore);
+        extra.chart_sheets = changed;
+        let inverse = if inverse.len() == 1 {
+            inverse.pop()
+        } else {
+            Some(C::Compound { commands: inverse })
+        };
+        let (at, count) = op.span();
+        let mut patch = CalcPatch {
+            cells: self.cells_patch(recalc.changed.iter().copied(), Some(s)),
+            cycle: self.cycle_text(recalc.cycle.as_ref()),
+            structural: vec![StructuralChange {
+                sheet,
+                kind: StructuralKind::ShiftCells,
+                at,
+                count,
+            }],
+            ..Default::default()
+        };
+        patch.merge(extra);
+        Ok(Applied { patch, inverse })
+    }
+
     /// Row/column insert or delete.
     ///
     /// The inverse is the opposite operation, followed (for a delete) by
@@ -2539,6 +2788,7 @@ impl Document for CalcDocument {
         self.mark_stale(stale, &mut applied);
         self.mark_cf_sheets(&mut applied.patch);
         self.mark_chart_sheets(&mut applied.patch);
+        self.track_cycle(&mut applied.patch);
         Ok(applied)
     }
 }
@@ -2551,12 +2801,28 @@ fn typed_entry<'a>(
     wb: &model_sheet::Workbook,
     c: CellCoord,
     input: &'a str,
-) -> (std::borrow::Cow<'a, str>, Option<&'static str>) {
+) -> (
+    std::borrow::Cow<'a, str>,
+    Option<std::borrow::Cow<'static, str>>,
+) {
     use std::borrow::Cow;
-    if input.is_empty() || input.starts_with(['=', '\'']) {
+    let style = wb.style(c);
+    let general = match style.number_format.as_deref() {
+        None => true,
+        Some(f) => f.eq_ignore_ascii_case("general"),
+    };
+    if input.starts_with('=') {
+        // Excel: a formula typed into a General cell takes the format of
+        // the cell it refers to (`=A1`, `=A1*2`, `=-A1+B1/2`, …).
+        let format = general
+            .then(|| inherited_format(wb, c.sheet, input))
+            .flatten()
+            .map(Cow::Owned);
+        return (Cow::Borrowed(input), format);
+    }
+    if input.is_empty() || input.starts_with('\'') {
         return (Cow::Borrowed(input), None);
     }
-    let style = wb.style(c);
     match style.number_format.as_deref() {
         Some("@") => match engine_formula::engine::parse_input(input) {
             Ok(CellContent::Value(Value::Text(_))) => (Cow::Borrowed(input), None),
@@ -2565,9 +2831,56 @@ fn typed_entry<'a>(
         Some(code) if !code.eq_ignore_ascii_case("general") => (Cow::Borrowed(input), None),
         _ => {
             let format = engine_formula::entry::recognize(input).and_then(|e| e.format);
-            (Cow::Borrowed(input), format)
+            (Cow::Borrowed(input), format.map(Cow::Borrowed))
         }
     }
+}
+
+/// The number format a formula typed into a General cell inherits, as in
+/// Excel: for a formula that is a single cell reference or simple
+/// arithmetic (`+ - * / ^`, unary `-`/`+`, numbers, parentheses) on cell
+/// references, the format of the first referenced cell that has one.
+/// Functions, ranges, comparisons and text make no format.
+fn inherited_format(wb: &model_sheet::Workbook, host: SheetId, input: &str) -> Option<String> {
+    use engine_formula::ast::{BinaryOp, RangeKind, UnaryOp};
+    use engine_formula::Expr;
+    fn cells(e: &Expr, out: &mut Vec<(Option<String>, u32, u32)>) -> bool {
+        match e {
+            Expr::Number(_) => true,
+            Expr::Reference(r) => match r.kind {
+                RangeKind::Cell(c) => {
+                    out.push((r.sheet.clone(), c.row, c.col));
+                    true
+                }
+                _ => false,
+            },
+            Expr::Unary {
+                op: UnaryOp::Neg | UnaryOp::Plus,
+                expr,
+            } => cells(expr, out),
+            Expr::Binary {
+                op: BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Pow,
+                lhs,
+                rhs,
+            } => cells(lhs, out) && cells(rhs, out),
+            _ => false,
+        }
+    }
+    let ast = engine_formula::parse(input).ok()?;
+    let mut refs = Vec::new();
+    if !cells(&ast, &mut refs) {
+        return None;
+    }
+    refs.into_iter().find_map(|(sheet, row, col)| {
+        let s = match sheet {
+            Some(name) => wb.engine().sheet_id(&name)?,
+            None => host,
+        };
+        wb.style(CellCoord::new(s, row, col))
+            .number_format
+            .clone()
+            .filter(|f| !f.eq_ignore_ascii_case("general"))
+    })
 }
 
 #[cfg(test)]

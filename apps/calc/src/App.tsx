@@ -58,8 +58,8 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
       {stale > 0 && <span data-testid="pivot-stale-status" className="text-amber-700">{t("calc.pivot.staleStatus", { count: stale })}</span>}
       {noteBy && <span data-testid="note-status">{noteBy}</span>}
       {cycle && (
-        <span role="status" className="font-medium text-red-700">
-          {cycle}
+        <span role="status" data-testid="cycle-status" className="font-medium text-red-700">
+          {t("calc.status.circular", { cell: cycle })}
         </span>
       )}
       <span className="ml-auto" data-testid="zoom">

@@ -22,7 +22,7 @@
 
 use core_model::RunProperties;
 use engine_formula::ast::{MAX_COL, MAX_ROW};
-use engine_formula::{evaluate, CellContent, CellCoord, Expr, SheetId, StructuralOp, Value};
+use engine_formula::{evaluate, CellContent, CellCoord, CellShift, Expr, SheetId, Value};
 use serde::{Deserialize, Serialize};
 
 use crate::workbook::Workbook;
@@ -609,7 +609,7 @@ impl Workbook {
     /// After a row/column insert or delete on `sheet`: notes and threads
     /// follow their cell (deleted cells lose them), hyperlink ranges move
     /// and clip like merges.
-    pub(crate) fn shift_annotations(&mut self, sheet: SheetId, op: StructuralOp) {
+    pub(crate) fn shift_annotations(&mut self, sheet: SheetId, op: CellShift) {
         let Ok(data) = self.sheet_data_mut(sheet) else {
             return;
         };
@@ -632,11 +632,7 @@ impl Workbook {
         data.hyperlinks = std::mem::take(&mut data.hyperlinks)
             .into_iter()
             .filter_map(|mut h| {
-                if op.is_rows() {
-                    (h.r0, h.r1) = op.map_interval(h.r0, h.r1)?;
-                } else {
-                    (h.c0, h.c1) = op.map_interval(h.c0, h.c1)?;
-                }
+                (h.r0, h.c0, h.r1, h.c1) = op.map_rect((h.r0, h.c0, h.r1, h.c1))?;
                 Some(h)
             })
             .collect();
