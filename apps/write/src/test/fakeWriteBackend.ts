@@ -20,6 +20,7 @@ import {
   applyParagraphPatch, applyRunPatch, blockKey, inlineLength, mergeRuns, paragraphLength, stableStringify, walkBlocks,
 } from "../sync/model";
 import template from "./newDocument.json";
+import { newAnchor } from "../features/floating";
 import { numberingDef } from "./fixtures";
 
 class Fail extends Error {
@@ -595,7 +596,28 @@ export class FakeWriteBackend implements WriteBackend {
         const props = { ...(t.props ?? {}) };
         if (c.patch.colWidths?.length) props.colWidths = [...c.patch.colWidths];
         if (c.patch.borders) props.borders = { ...(props.borders ?? {}), ...c.patch.borders };
+        if (c.patch.cellMargins) props.cellMargins = { ...(props.cellMargins ?? {}), ...c.patch.cellMargins };
+        if (c.patch.style != null) {
+          if (c.patch.style) props.style = c.patch.style;
+          else delete props.style;
+        }
+        for (const k of ["look", "alignment", "indent", "layout"] as const) if (c.patch[k] != null) (props as Record<string, unknown>)[k] = c.patch[k];
         t.props = props;
+        return null;
+      }
+      case "setImageAnchor":
+      case "setImageWrap": {
+        const p = this.para(c.block);
+        const [a, mid, z] = splitInlines(p.inlines, c.offset, c.offset + 1);
+        const img = mid[0];
+        if (mid.length !== 1 || img?.kind !== "image") throw new Fail("invalid_command", `no image at ${c.offset}`);
+        const value = { ...img.value };
+        if (c.type === "setImageAnchor") {
+          if (c.anchor) value.anchor = c.anchor;
+          else delete value.anchor;
+        } else if (value.anchor) value.anchor = { ...value.anchor, wrap: c.wrap };
+        else value.anchor = newAnchor(c.wrap);
+        p.inlines = [...a, { kind: "image", value }, ...z];
         return null;
       }
       case "setRowProps": {
@@ -605,6 +627,8 @@ export class FakeWriteBackend implements WriteBackend {
           if (!row) throw new Fail("invalid_command", `row ${r} out of range`);
           const props = { ...(row.props ?? {}) };
           if (c.header != null) props.header = c.header;
+          if (c.cantSplit != null) props.cantSplit = c.cantSplit;
+          if (!props.cantSplit) delete props.cantSplit;
           if (c.height != null) {
             if (c.height.value > 0) props.height = c.height;
             else delete props.height;

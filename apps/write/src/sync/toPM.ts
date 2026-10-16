@@ -64,7 +64,9 @@ export function inlinesToPM(schema: Schema, inlines: Inline[]): PMNode[] {
       case "image": {
         const img = inline.value;
         out.push(
-          schema.nodes.image!.create({ mediaId: img.media, width: img.width, height: img.height, alt: img.alt ?? null, name: img.name ?? null }),
+          schema.nodes.image!.create({
+            mediaId: img.media, width: img.width, height: img.height, alt: img.alt ?? null, name: img.name ?? null, anchor: img.anchor ? canonValue(img.anchor) : null,
+          }),
         );
         break;
       }
@@ -112,28 +114,82 @@ export function paragraphToPM(schema: Schema, p: Paragraph, inList = false): PMN
   return schema.nodes.paragraph!.create({ ...attrs, style: style ?? null }, content);
 }
 
+type Cell = Table["rows"][number]["cells"][number];
+
+/** Grid columns a cell spans (`gridSpan`, ≥ 1). */
+export const spanOf = (c: Cell): number => Math.max(1, c.gridSpan ?? 1);
+
+/**
+ * The vertical merges of a table: for every `restart` cell the
+ * `continue` cells below it (same grid column and span, docx semantics),
+ * keyed `"row:cell"`; `covered` holds the keys of those continue cells.
+ */
+export function verticalMerges(t: Table): { continues: Map<string, Cell[]>; covered: Set<string> } {
+  const continues = new Map<string, Cell[]>();
+  const covered = new Set<string>();
+  // Open regions by "gridStart:span" → the origin's key.
+  let open = new Map<string, string>();
+  t.rows.forEach((row, r) => {
+    const next = new Map<string, string>();
+    let col = 0;
+    row.cells.forEach((cell, i) => {
+      const slot = `${col}:${spanOf(cell)}`;
+      const key = `${r}:${i}`;
+      if (cell.vMerge === "continue" && open.has(slot)) {
+        const origin = open.get(slot)!;
+        continues.get(origin)!.push(cell);
+        covered.add(key);
+        next.set(slot, origin);
+      } else if (cell.vMerge === "restart") {
+        continues.set(key, []);
+        next.set(slot, key);
+      }
+      col += spanOf(cell);
+    });
+    open = next;
+  });
+  return { continues, covered };
+}
+
+/**
+ * A table as ProseMirror nodes: `gridSpan` → `colspan`, a vertical merge
+ * → `rowspan` on its first cell, which keeps the covered `continue` cells
+ * in its `continues` attribute (restored by `tableFromPM`).
+ */
 export function tableToPM(ctx: ToPMContext, t: Table): PMNode {
   const { schema } = ctx;
   const widths = t.props?.colWidths ?? [];
-  const rows = t.rows.map((row) =>
-    schema.nodes.tableRow!.create(
-      { id: row.id, props: emptyToNull(row.props) },
-      row.cells.map((cell, ci) => {
-        const { shading, width, ...rest } = cell.props ?? {};
-        const w = widths[ci];
-        return schema.nodes.tableCell!.create(
+  const { continues, covered } = verticalMerges(t);
+  const rows = t.rows.map((row, r) => {
+    let col = 0;
+    const cells: PMNode[] = [];
+    row.cells.forEach((cell, i) => {
+      const start = col;
+      const span = spanOf(cell);
+      col += span;
+      if (covered.has(`${r}:${i}`)) return;
+      const { shading, width, ...rest } = cell.props ?? {};
+      const w = widths.slice(start, start + span);
+      const below = continues.get(`${r}:${i}`) ?? [];
+      cells.push(
+        schema.nodes.tableCell!.create(
           {
             id: cell.id,
             shading: shading ?? null,
             width: width ?? null,
             extra: emptyToNull(rest),
-            colwidth: w ? [Math.round(w / TWIPS_PER_PX)] : null,
+            colspan: span,
+            rowspan: 1 + below.length,
+            colwidth: w.length === span && w.every((x) => x > 0) ? w.map((x) => Math.round(x / TWIPS_PER_PX)) : null,
+            vMerge: cell.vMerge ?? null,
+            continues: below.length ? canonValue(below) : null,
           },
           blocksToPM(ctx, cell.blocks),
-        );
-      }),
-    ),
-  );
+        ),
+      );
+    });
+    return schema.nodes.tableRow!.create({ id: row.id, props: emptyToNull(row.props) }, cells);
+  });
   return schema.nodes.table!.create({ id: t.id, props: emptyToNull(t.props) }, rows);
 }
 

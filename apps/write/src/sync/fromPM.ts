@@ -64,7 +64,7 @@ export function inlinesFromPM(node: PMNode): Inline[] {
       const a = child.attrs;
       out.push({
         kind: "image",
-        value: canonValue({ media: a.mediaId, width: a.width, height: a.height, alt: a.alt, name: a.name }) as never,
+        value: canonValue({ media: a.mediaId, width: a.width, height: a.height, alt: a.alt, name: a.name, anchor: a.anchor }) as never,
       });
     } else if (child.type.name === "hardBreak") {
       out.push({ kind: "break", value: "line" });
@@ -106,20 +106,64 @@ export function paragraphFromPM(node: PMNode, numbering?: NumberingRef): Paragra
   return p;
 }
 
+type Cell = Table["rows"][number]["cells"][number];
+
+let syntheticId = -1_000_000;
+/** A `continue` cell for a row a `rowspan` covers but whose cell is not known (spans grown in the editor). */
+function syntheticContinue(span: number): Cell {
+  const cell: Cell = { id: --syntheticId, vMerge: "continue", blocks: [{ kind: "paragraph", value: { id: --syntheticId, inlines: [] } }] };
+  if (span > 1) cell.gridSpan = span;
+  return cell;
+}
+
+/**
+ * A table node → `Table` (inverse of `tableToPM`): `colspan` → `gridSpan`,
+ * a `rowspan` > 1 → `vMerge: restart` with its `continue` cells put back
+ * into the rows below at the same grid column.
+ */
 export function tableFromPM(node: PMNode): Table {
   const t: Table = { id: node.attrs.id, rows: [] };
   if (node.attrs.props) t.props = node.attrs.props;
-  node.forEach((rowNode) => {
+  // Grid columns taken by rowspans from above, per row.
+  const taken: Set<number>[] = [];
+  const placed: { col: number; cell: Cell }[][] = [];
+  const nrows = node.childCount;
+  for (let r = 0; r < nrows; r++) {
+    taken[r] ??= new Set();
+    placed[r] ??= [];
+  }
+  node.forEach((rowNode, _o, r) => {
     const row: Table["rows"][number] = { id: rowNode.attrs.id, cells: [] };
     if (rowNode.attrs.props) row.props = rowNode.attrs.props;
+    let col = 0;
     rowNode.forEach((cellNode) => {
+      while (taken[r]!.has(col)) col++;
       const a = cellNode.attrs;
+      const span = Math.max(1, Number(a.colspan ?? 1));
+      const rowspan = Math.max(1, Math.min(Number(a.rowspan ?? 1), nrows - r));
       const props = canonValue({ ...(a.extra ?? {}), shading: a.shading, width: a.width }) as Record<string, unknown>;
-      const cell: Table["rows"][number]["cells"][number] = { id: a.id, blocks: nodesToBlocks(cellNode) };
+      const cell: Cell = { id: a.id, blocks: nodesToBlocks(cellNode) };
       if (Object.keys(props).length) cell.props = props;
-      row.cells.push(cell);
+      if (span > 1) cell.gridSpan = span;
+      const vMerge = rowspan > 1 ? "restart" : (a.vMerge as Cell["vMerge"] | null);
+      if (vMerge) cell.vMerge = vMerge;
+      placed[r]!.push({ col, cell });
+      const below = (a.continues as Cell[] | null) ?? [];
+      for (let k = 1; k < rowspan; k++) {
+        const stored = below[k - 1];
+        const c: Cell = stored ? (structuredClone(stored) as Cell) : syntheticContinue(span);
+        c.vMerge = "continue";
+        if (span > 1) c.gridSpan = span;
+        else delete c.gridSpan;
+        placed[r + k]!.push({ col, cell: c });
+        for (let j = col; j < col + span; j++) taken[r + k]!.add(j);
+      }
+      col += span;
     });
     t.rows.push(row);
+  });
+  t.rows.forEach((row, r) => {
+    row.cells = placed[r]!.sort((x, y) => x.col - y.col).map((p) => p.cell);
   });
   return t;
 }

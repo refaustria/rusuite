@@ -77,21 +77,24 @@ function caret(editor: Editor, id: number, offset = 0, toOffset = offset) {
 }
 
 describe("Table tab and context menu", () => {
-  it("the Table tab appears in a table; Insert below / Delete table are Rust commands", async () => {
+  it("the Table Design / Table Layout tabs appear in a table; Insert below / Delete table are Rust commands", async () => {
     const { backend, editor } = await mount([para(1, "x"), tableBlock()]);
-    expect(screen.queryByRole("tab", { name: "Table" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Table Layout" })).toBeNull();
     caret(editor, 20);
-    await waitFor(() => expect(tab("Table")).toBeTruthy());
-    fireEvent.click(tab("Table"));
+    await waitFor(() => expect(tab("Table Layout")).toBeTruthy());
+    expect(tab("Table Design")).toBeTruthy();
+    fireEvent.click(tab("Table Layout"));
     fireEvent.click(screen.getByRole("button", { name: "Insert below" }));
     await waitFor(() => expect(applied(backend)).toContainEqual({ type: "insertTableRow", table: 10, at: 1 }));
     await waitFor(() => expect(editor.view.dom.querySelectorAll("tr")).toHaveLength(3));
     fireEvent.click(screen.getByRole("button", { name: "Header row" }));
     await waitFor(() => expect(applied(backend)).toContainEqual({ type: "setRowProps", table: 10, rows: [0], header: true }));
     await waitFor(() => expect(editor.view.dom.querySelector("tr[data-header]")).toBeTruthy());
+    fireEvent.click(tab("Table Design"));
     fireEvent.click(screen.getByRole("button", { name: "Borders" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "No border" }));
-    await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "setTableProps", table: 10 })));
+    await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "setCellProps", cells: [12] })));
+    fireEvent.click(tab("Table Layout"));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete table" }));
     await waitFor(() => expect(applied(backend)).toContainEqual({ type: "deleteBlocks", ids: [10] }));
@@ -111,8 +114,8 @@ describe("Table tab and context menu", () => {
   it("row height dialog sends SetRowProps", async () => {
     const { backend, editor } = await mount([tableBlock()]);
     caret(editor, 22);
-    await waitFor(() => expect(tab("Table")).toBeTruthy());
-    fireEvent.click(tab("Table"));
+    await waitFor(() => expect(tab("Table Layout")).toBeTruthy());
+    fireEvent.click(tab("Table Layout"));
     fireEvent.click(screen.getByRole("button", { name: "Row height" }));
     const dlg = screen.getByRole("dialog", { name: "Row height" });
     fireEvent.change(within(dlg).getByLabelText("Row height is"), { target: { value: "exact" } });

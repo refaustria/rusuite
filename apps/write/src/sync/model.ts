@@ -11,6 +11,7 @@ import type { Note } from "../generated/Note";
 import type { Paragraph } from "../generated/Paragraph";
 import type { ParagraphProperties } from "../generated/ParagraphProperties";
 import type { Spacing } from "../generated/Spacing";
+import type { TabStop } from "../generated/TabStop";
 
 export type { RunProperties };
 
@@ -92,7 +93,13 @@ export function canonBlock(block: Block): Block {
       rows: t.rows.map((r) => ({
         id: r.id,
         props: r.props,
-        cells: r.cells.map((c) => ({ id: c.id, props: c.props, blocks: c.blocks.map(canonBlock) })),
+        cells: r.cells.map((c) => ({
+          id: c.id,
+          props: c.props,
+          gridSpan: (c.gridSpan ?? 1) > 1 ? c.gridSpan : undefined,
+          vMerge: c.vMerge,
+          blocks: c.blocks.map(canonBlock),
+        })),
       })),
     },
   }) as Block;
@@ -223,7 +230,30 @@ export function applyParagraphPatch(base: ParagraphProperties | undefined, over:
   if (over.keepNext != null) out.keepNext = over.keepNext;
   if (over.pageBreakBefore != null) out.pageBreakBefore = over.pageBreakBefore;
   if (over.runDefaults != null) out.runDefaults = applyRunPatch(out.runDefaults ?? {}, over.runDefaults, false);
+  if (over.borders != null) {
+    const b = out.borders ?? {};
+    out.borders = {
+      top: over.borders.top ?? b.top, bottom: over.borders.bottom ?? b.bottom, left: over.borders.left ?? b.left,
+      right: over.borders.right ?? b.right, between: over.borders.between ?? b.between,
+    };
+  }
+  if (over.shading != null) {
+    // `SetParagraphProps`: `auto` removes the direct shading.
+    if (over.shading.kind === "auto") delete out.shading;
+    else out.shading = over.shading;
+  }
+  if (over.tabs?.length) out.tabs = mergeTabs(out.tabs ?? [], over.tabs);
   return out;
+}
+
+/** `merge_tabs`: a stop replaces the one at its position; sorted by position. */
+export function mergeTabs(base: TabStop[], over: TabStop[]): TabStop[] {
+  let out = [...base];
+  for (const t of over) {
+    out = out.filter((b) => b.pos !== t.pos);
+    out.push(t);
+  }
+  return out.sort((a, b) => a.pos - b.pos);
 }
 
 /** Synthetic numbering ids of lists created in the editor (no `NumberingDef` yet). */

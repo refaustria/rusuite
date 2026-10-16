@@ -25,9 +25,12 @@ import {
 } from "../sync/editorCommands";
 import { clearFormatting, indentAt, setIndent, setSpacing, spacingAt, toggleScript } from "../features/formatting";
 import { insertImageFile, resetImageSize, selectedImage, setImageAttrs } from "../features/images";
-import {
-  deleteCols, deleteRows, deleteTable, insertCol, insertRow, setBorders, shadeCells, tableContext, toggleHeaderRow, type TableContext,
-} from "../features/tables";
+import { tableContext } from "../features/tables";
+import { tableInfo, tableTabs, type TableInfo } from "./tableTabs";
+import { paragraphBorderState, selectedParagraphs } from "../features/paragraphFormat";
+import { paragraphBordersMenu, paragraphShadingPicker } from "./paragraphControls";
+import { pictureArrangeItems } from "./pictureControls";
+import type { Anchor } from "../generated/Anchor";
 import type { WriteFeatures } from "../features/WriteFeatures";
 import { currentLayout } from "../features/pagination";
 import { formatDateTime, goToNextRef } from "../features/structure";
@@ -212,6 +215,7 @@ const TOC_ICON = svg(<><path d="M3 4h8M5 8h7M5 12h7M3 16h8" /><path d="M14 4h3M1
 const UPDATE_ICON = svg(<><path d="M15.5 8A6 6 0 004.6 6M4.5 12a6 6 0 0010.9 2" /><path d="M4.5 3v3h3M15.5 17v-3h-3" /></>);
 const MULTILEVEL_ICON = svg(<><path d="M3 4.5h1M7 4.5h10M5 10h1M9 10h8M7 15.5h1M11 15.5h6" /></>);
 const FIELD_ICON = svg(<><rect x="3" y="6" width="14" height="8" rx="1.5" /><path d="M6.5 10h7" strokeDasharray="1.5 1.2" /></>);
+const TABS_ICON = svg(<><path d="M3 5v6h5M10 5v6M7 11h6M17 5v6h-5" /><path d="M3 15h14" strokeDasharray="1.5 1.5" /></>);
 const NEXT_ICON = (down: boolean) => svg(<><path d="M4 5h7M4 9h7M4 13h4" /><path d={down ? "M15 6v8M12.5 11.5L15 14l2.5-2.5" : "M15 14V6M12.5 8.5L15 6l2.5 2.5"} /></>);
 
 /** Multilevel list presets (Word's gallery). */
@@ -263,8 +267,8 @@ export interface WriteRibbonProps {
 export const WRITE_ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 /** What the Table / Picture Format tabs need from the selection. */
-function selectionInfo(e: Editor): { table: TableContext | null; image: { node: PMNode; pos: number } | null } {
-  return { table: tableContext(e.state), image: selectedImage(e.state) };
+function selectionInfo(e: Editor): { table: TableInfo | null; image: { node: PMNode; pos: number } | null } {
+  return { table: tableInfo(tableContext(e.state)), image: selectedImage(e.state) };
 }
 
 export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSave, onFind, onReplace, onExportPdf, print, zoom, onZoom }: WriteRibbonProps) {
@@ -306,7 +310,16 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         indentRight: ind.right ?? null,
         table,
         sectionPage: sec?.page ?? null,
-        image: image ? { pos: image.pos, width: image.node.attrs.width as number, height: image.node.attrs.height as number, alt: (image.node.attrs.alt as string | null) ?? "" } : null,
+        image: image
+          ? {
+              pos: image.pos,
+              width: image.node.attrs.width as number,
+              height: image.node.attrs.height as number,
+              alt: (image.node.attrs.alt as string | null) ?? "",
+              anchor: (image.node.attrs.anchor as Anchor | null) ?? null,
+            }
+          : null,
+        borders: paragraphBorderState(selectedParagraphs(e.state)),
       };
     },
   });
@@ -542,6 +555,9 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
               {alignBtn("center", t("fmt.alignCenter"), <Icon name="alignCenter" />, "Mod+E")}
               {alignBtn("right", t("fmt.alignRight"), <Icon name="alignRight" />, "Mod+R")}
               {alignBtn("justify", t("write.justify"), <RibbonIcon name="alignJustify" />, "Mod+J")}
+              {paragraphShadingPicker(editor, ctl)}
+              {paragraphBordersMenu(editor, ctl, features, s.borders)}
+              <RibbonButton label={t("write.tabsDots")} icon={TABS_ICON} tooltip={t("write.tabsTip")} onClick={() => features.ui.openDialog("tabs")} />
             </RibbonRow>
           </RibbonStack>
         ),
@@ -820,6 +836,15 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         ),
       },
       {
+        label: t("write.show"),
+        items: (
+          <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
+            <input type="checkbox" checked={ui.ruler} onChange={() => features.ui.set({ ruler: !ui.ruler })} />
+            {t("write.ruler")}
+          </label>
+        ),
+      },
+      {
         label: t("write.proofing"),
         items: (
           <RibbonButton
@@ -840,77 +865,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
     ],
   };
 
-  const tbl = s.table;
-  const runT = (cmd: Parameters<SyncController["run"]>[0] | null) => () => {
-    if (cmd) void ctl.run(cmd);
-  };
-  // Commands are built from the live selection when clicked (the throttled one may lag).
-  const live = () => tableContext(editor.state);
-  const firstRow = tbl?.node.firstChild?.attrs.props as { header?: boolean } | null | undefined;
-  const tableTab: RibbonTab | null = tbl
-    ? {
-        id: "table",
-        label: t("write.table"),
-        toolbarLabel: t("write.table"),
-        groups: [
-          {
-            label: t("write.rowsCols"),
-            items: (
-              <>
-                <RibbonButton label={t("write.insertAbove")} icon="insertRows" size="large" onClick={() => runT(live() && insertRow(live()!, false))()} />
-                <RibbonButton label={t("write.insertBelow")} icon="insertRows" size="large" onClick={() => runT(live() && insertRow(live()!, true))()} />
-                <RibbonButton label={t("write.insertLeft")} icon="insertCols" size="large" onClick={() => runT(live() && insertCol(live()!, false))()} />
-                <RibbonButton label={t("write.insertRight")} icon="insertCols" size="large" onClick={() => runT(live() && insertCol(live()!, true))()} />
-                <RibbonMenuButton
-                  label={t("cmd.delete")}
-                  icon="trash"
-                  size="large"
-                  menu={[
-                    { id: "rows", label: t("write.deleteRows"), icon: "deleteRows", onSelect: () => runT(live() && deleteRows(live()!))() },
-                    { id: "cols", label: t("write.deleteCols"), icon: "deleteCols", onSelect: () => runT(live() && deleteCols(live()!))() },
-                    { id: "table", label: t("write.deleteTable"), icon: "table", onSelect: () => runT(live() && deleteTable(live()!))() },
-                  ]}
-                />
-              </>
-            ),
-          },
-          {
-            label: t("write.styleOptions"),
-            items: (
-              <RibbonButton
-                label={t("write.headerRow")}
-                icon="insertRows"
-                size="large"
-                pressed={!!firstRow?.header}
-                tooltip={t("write.headerRowTip")}
-                onClick={() => runT(live() && toggleHeaderRow(live()!))()}
-              />
-            ),
-          },
-          {
-            label: t("write.tableStyles"),
-            items: (
-              <RibbonStack>
-                <ColorPicker label={t("write.shading")} kind="fill" onSelect={(c) => runT(live() && shadeCells(live()!, c))()} />
-                <RibbonMenuButton
-                  label={t("fmt.borders")}
-                  icon={<Icon name="borders" />}
-                  menu={[
-                    { id: "all", label: t("fmt.border.all"), icon: <Icon name="borderAll" />, onSelect: () => runT(live() && setBorders(live()!, "all"))() },
-                    { id: "outside", label: t("fmt.border.outline"), icon: <Icon name="borderOutline" />, onSelect: () => runT(live() && setBorders(live()!, "outside"))() },
-                    { id: "none", label: t("fmt.border.none"), icon: <Icon name="borderNone" />, onSelect: () => runT(live() && setBorders(live()!, "none"))() },
-                  ]}
-                />
-              </RibbonStack>
-            ),
-          },
-          {
-            label: t("write.cellSize"),
-            items: <RibbonButton label={t("write.rowHeight")} icon="rowHeight" size="large" tooltip={t("write.rowHeightDots")} onClick={() => features.ui.openDialog("rowHeight")} />,
-          },
-        ],
-      }
-    : null;
+  const tableTabList = s.table ? tableTabs({ editor, ctl, features, info: s.table, styles: ctl.styles?.styles ?? [] }) : [];
 
   const img = s.image;
   const setImageSize = (w: number | null, h: number | null) => {
@@ -936,11 +891,16 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
           {
             label: t("write.arrange"),
             items: (
-              <RibbonRow>
-                {alignBtn("left", t("write.picAlignLeft"), <Icon name="alignLeft" />, "Mod+L")}
-                {alignBtn("center", t("write.picAlignCenter"), <Icon name="alignCenter" />, "Mod+E")}
-                {alignBtn("right", t("write.picAlignRight"), <Icon name="alignRight" />, "Mod+R")}
-              </RibbonRow>
+              <>
+                {pictureArrangeItems(editor, img.anchor)}
+                <RibbonStack>
+                  <RibbonRow>
+                    {alignBtn("left", t("write.picAlignLeft"), <Icon name="alignLeft" />, "Mod+L")}
+                    {alignBtn("center", t("write.picAlignCenter"), <Icon name="alignCenter" />, "Mod+E")}
+                    {alignBtn("right", t("write.picAlignRight"), <Icon name="alignRight" />, "Mod+R")}
+                  </RibbonRow>
+                </RibbonStack>
+              </>
             ),
           },
           {
@@ -979,7 +939,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       appName="Rusuite Write"
       documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#2b579a"
-      tabs={[home, insert, layout, references, view, ...(tableTab ? [tableTab] : []), ...(pictureTab ? [pictureTab] : [])]}
+      tabs={[home, insert, layout, references, view, ...tableTabList, ...(pictureTab ? [pictureTab] : [])]}
       backstage={{
         session,
         onNew: () => triggerShortcut("Mod+N"),
