@@ -10,17 +10,20 @@ import { Ellipse, Group, Image as KImage, Line as KLine, Path, Rect, Text } from
 import type Konva from "konva";
 import type { ThemePalette } from "@rusuite/ui-shared";
 import type { Connector } from "../generated/Connector";
-import type { Layout } from "../generated/Layout";
 import type { NodeId } from "../generated/NodeId";
 import type { PlaceholderDef } from "../generated/PlaceholderDef";
 import type { Shape } from "../generated/Shape";
 import type { Slide } from "../generated/Slide";
-import type { SlideSize } from "../generated/SlideSize";
 import type { TextBody } from "../generated/TextBody";
 import type { Table } from "../generated/Table";
-import type { Theme } from "../generated/Theme";
 import { boxAttrs, emuToPx, EMU_PER_PX, slidePx } from "../geometry";
 import { bodyText, css, effectiveParagraph, fillCss, themePalette } from "../model";
+import { backdropShapes, designBackground, designShapes, levelDefaults, placeholderFor, slideBackground, slideNumberOf, type DeckContext } from "../design/deck";
+import { konvaFill, resolveColor } from "../design/color";
+import { fieldText } from "../design/fields";
+import { cropSource, processedImage, shadowOffset } from "../design/picture";
+import type { PictureProps } from "../generated/PictureProps";
+import type { TextParagraphProps } from "../generated/TextParagraphProps";
 import { arrowHead, endDirections } from "../shapes/connectors";
 import { pathCache, pathPoints, pathQueryOf, svgPath, usePathVersion } from "../shapes/paths";
 import { textRect } from "../shapes/presets";
@@ -30,13 +33,7 @@ import { runStyleFor, tableLayout } from "./tableLayout";
 import { useT } from "../i18n";
 
 export { runStyleFor };
-
-/** What a slide needs from the presentation besides the slide itself. */
-export interface DeckContext {
-  slideSize: SlideSize;
-  layouts: Layout[];
-  theme: Theme;
-}
+export type { DeckContext };
 
 export interface SlideViewProps {
   deck: DeckContext;
@@ -55,6 +52,12 @@ export interface SlideViewProps {
   overrides?: ReadonlyMap<NodeId, Shape>;
   /** Shows "Click to add …" in empty placeholders (editor only). */
   prompts?: boolean;
+  /**
+   * The master view: `slide` is a design target's placeholders (`master`:
+   * the slide master's, else the layout `slide.layout`'s), drawn over that
+   * target's background and decorative shapes.
+   */
+  design?: "master" | "layout";
   /** Called when a top-level shape was dragged (editor only). */
   onShapeDragEnd?: (node: Konva.Node) => void;
   /** Called when dragging a top-level shape starts (editor only). */
@@ -72,6 +75,10 @@ interface Ctx {
   hiddenText: NodeId | null;
   hiddenCell: { row: number; col: number } | null;
   prompts: boolean;
+  /** Placeholders resolve against the master's own (master view). */
+  asMaster: boolean;
+  /** 1-based number of the slide (`null` on layouts / unknown: `‹#›`). */
+  slideNumber: number | null;
   onShapeDragEnd?: (node: Konva.Node) => void;
   onShapeDragStart?: (node: Konva.Node) => void;
   shapeDragBound?: SlideViewProps["shapeDragBound"];
@@ -131,14 +138,26 @@ export function preloadImages(urls: readonly string[]): Promise<void> {
 }
 
 function placeholderOf(ctx: Ctx, shape: Shape): PlaceholderDef | undefined {
-  if (!shape.placeholder) return undefined;
-  const layout = ctx.deck.layouts.find((l) => l.kind === ctx.slide.layout);
-  return layout?.placeholders.find((p) => p.kind === shape.placeholder);
+  return placeholderFor(ctx.deck, ctx.slide.layout, shape, ctx.asMaster);
+}
+
+/** The placeholder defaults of each outline level (level 1 = the placeholder's own). */
+function levelDefs(ctx: Ctx, def: PlaceholderDef | undefined): (level: number) => PlaceholderDef | undefined {
+  const cache = new Map<number, PlaceholderDef | undefined>();
+  return (level) => {
+    if (!def || level <= 0) return def;
+    if (!cache.has(level)) {
+      const lv = levelDefaults(ctx.deck, def, level);
+      cache.set(level, { ...def, runDefaults: lv.run, paragraphDefaults: lv.paragraph });
+    }
+    return cache.get(level);
+  };
 }
 
 function TextNodes({ body, shape, w, h, ctx }: { body: TextBody; shape: Shape; w: number; h: number; ctx: Ctx }) {
   const def = placeholderOf(ctx, shape);
-  const empty = bodyText(body) === "";
+  // a field (date, slide number) is text even while its stored text is empty
+  const empty = bodyText(body) === "" && !body.paragraphs.some((p) => p.runs.some((r) => r.field));
   const t = useT();
   const promptKey = empty && ctx.prompts && shape.placeholder ? PROMPTS[shape.placeholder] : undefined;
   const prompt = promptKey ? t(promptKey) : undefined;
@@ -146,14 +165,21 @@ function TextNodes({ body, shape, w, h, ctx }: { body: TextBody; shape: Shape; w
     const shown: TextBody = prompt
       ? { ...body, paragraphs: [{ props: body.paragraphs[0]?.props, runs: [{ text: prompt }] }] }
       : body;
+    const at = levelDefs(ctx, def);
+    const styles = new Map<number, ReturnType<typeof runStyleFor>>();
+    const styleAt = (level: number) => {
+      if (!styles.has(level)) styles.set(level, runStyleFor(at(level), ctx.deck.theme, ctx.palette));
+      return styles.get(level)!;
+    };
     return layoutText(shown, {
       width: w,
       height: h,
       measure: measureText,
-      runStyle: runStyleFor(def, ctx.deck.theme, ctx.palette),
-      paragraphProps: (p) => effectiveParagraph(def, p),
+      runStyle: (props, level = 0) => styleAt(level)(props),
+      paragraphProps: (p: TextParagraphProps | undefined) => effectiveParagraph(at(p?.level ?? 0), p),
+      fieldText: (field, stored) => fieldText(field, ctx.slideNumber, stored),
     });
-  }, [body, w, h, def, ctx.deck.theme, ctx.palette, prompt]);
+  }, [body, w, h, def, ctx.deck, ctx.palette, prompt, ctx.slideNumber]);
   if (empty && !prompt) return null;
   return <Fragments fragments={layout.fragments} opacity={prompt ? 0.45 : 1} />;
 }
@@ -183,12 +209,65 @@ function Fragments({ fragments, opacity = 1, x = 0, y = 0 }: { fragments: Return
   );
 }
 
-function Picture({ media, w, h, stroke }: { media: string | undefined; w: number; h: number; stroke: Record<string, unknown> }) {
+/**
+ * A picture with its adjustments (docs/pptx-suite.md): the crop's source
+ * rectangle, recolour and brightness/contrast (a processed bitmap when a
+ * canvas is available), transparency as opacity, the outer shadow under
+ * the picture clipped to its outline shape, the border on top.
+ */
+function Picture({ shape, media, w, h, ctx }: { shape: Shape; media: string | undefined; w: number; h: number; ctx: Ctx }) {
+  usePathVersion();
   const img = useImage(media);
-  return img ? (
-    <KImage image={img} width={w} height={h} {...stroke} />
-  ) : (
-    <Rect width={w} height={h} fill="#e5e7eb" {...stroke} />
+  const props: PictureProps | undefined = shape.kind.kind === "picture" ? shape.kind.value.props : undefined;
+  const s = strokeOf(shape, ctx.palette);
+  const geometry = props?.geometry && props.geometry !== "rect" ? props.geometry : null;
+  const q = pathQueryOf(shape);
+  const outline = geometry && q ? (pathCache.get(q)?.paths ?? null) : null;
+  const sh = props?.shadow;
+  const shadow = sh
+    ? (() => {
+        const [dx, dy] = shadowOffset(sh);
+        return { shadowColor: `#${resolveColor(ctx.deck.theme, sh.color)}`, shadowOpacity: sh.alpha, shadowBlur: emuToPx(sh.blur), shadowOffsetX: emuToPx(dx), shadowOffsetY: emuToPx(dy), shadowForStrokeEnabled: false };
+      })()
+    : {};
+  const opacity = 1 - Math.max(0, Math.min(1, props?.transparency ?? 0));
+  const data = outline ? outline.map((p) => svgPath(p.commands)).join(" ") : null;
+  const clip = data
+    ? (c: Konva.Context): [Path2D] | void => {
+        if (typeof Path2D !== "undefined") return [new Path2D(data)];
+        c.rect(0, 0, w, h);
+      }
+    : geometry === "ellipse"
+      ? (c: Konva.Context) => {
+          c.beginPath();
+          c.ellipse(w / 2, h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+          c.closePath();
+        }
+      : undefined;
+  let image: React.ReactNode;
+  if (!img) image = <Rect width={w} height={h} fill="#e5e7eb" />;
+  else {
+    const processed = processedImage(img, media ?? "", props);
+    image = processed ? (
+      <KImage name="picture-image" image={processed} width={w} height={h} />
+    ) : (
+      <KImage name="picture-image" image={img} width={w} height={h} crop={props?.crop ? cropSource(props.crop, img.naturalWidth, img.naturalHeight) : undefined} />
+    );
+  }
+  // The shadow is cast by an opaque copy of the outline under the clipped picture.
+  const silhouette = sh ? (
+    data ? <Path data={data} fill="#000000" {...shadow} listening={false} /> : geometry === "ellipse" ? <Ellipse x={w / 2} y={h / 2} radiusX={w / 2} radiusY={h / 2} fill="#000000" {...shadow} listening={false} /> : <Rect width={w} height={h} fill="#000000" {...shadow} listening={false} />
+  ) : null;
+  const border = s.color
+    ? data ? <Path data={data} {...s.attrs} listening={false} /> : geometry === "ellipse" ? <Ellipse x={w / 2} y={h / 2} radiusX={w / 2} radiusY={h / 2} {...s.attrs} listening={false} /> : <Rect width={w} height={h} {...s.attrs} listening={false} />
+    : null;
+  return (
+    <Group opacity={opacity} name="picture" data-filter={props ? "1" : undefined}>
+      {silhouette && <Group opacity={1}>{silhouette}</Group>}
+      <Group clipFunc={clip}>{image}</Group>
+      <Rect width={w} height={h} fill="rgba(0,0,0,0)" />
+      {border}
+    </Group>
   );
 }
 
@@ -314,7 +393,7 @@ function TableGeometry({ shape, table, ctx }: { shape: Shape; table: Table; ctx:
 
 function Geometry({ shape, w, h, ctx }: { shape: Shape; w: number; h: number; ctx: Ctx }) {
   const k = shape.kind;
-  if (k.kind === "picture") return <Picture media={ctx.media.get(k.value.media)} w={w} h={h} stroke={strokeOf(shape, ctx.palette).attrs} />;
+  if (k.kind === "picture") return <Picture shape={shape} media={ctx.media.get(k.value.media)} w={w} h={h} ctx={ctx} />;
   if (k.kind === "connector") return <ConnectorGeometry shape={shape} c={k.value} ctx={ctx} />;
   if (k.kind === "table") return <TableGeometry shape={shape} table={k.value} ctx={ctx} />;
   if (k.kind !== "auto") return null;
@@ -373,15 +452,27 @@ function ShapeNode({ shape, ctx, top }: { shape: Shape; ctx: Ctx; top: boolean }
 
 /** The slide's background and shapes, in slide px (the parent `Stage` scales). */
 export const SlideView = memo(function SlideView({
-  deck, slide, media, interactive = false, hiddenText = null, hiddenCell = null, overrides, prompts = false, onShapeDragEnd, onShapeDragStart, shapeDragBound,
+  deck, slide, media, interactive = false, hiddenText = null, hiddenCell = null, overrides, prompts = false, design, onShapeDragEnd, onShapeDragStart, shapeDragBound,
 }: SlideViewProps) {
   const palette = useMemo(() => themePalette(deck.theme), [deck.theme]);
   const size = slidePx(deck.slideSize);
-  const ctx: Ctx = { deck, slide, palette, media, interactive, hiddenText, hiddenCell, prompts, onShapeDragEnd, onShapeDragStart, shapeDragBound };
-  const bg = fillCss(slide.background ?? null, palette) ?? "#ffffff";
+  const slideNumber = design ? null : slideNumberOf(deck, slide.id);
+  const ctx: Ctx = { deck, slide, palette, media, interactive, hiddenText, hiddenCell, prompts, asMaster: design === "master", slideNumber, onShapeDragEnd, onShapeDragStart, shapeDragBound };
+  const target = design === "master" ? null : slide.layout;
+  const bg = design ? designBackground(deck, target) : slideBackground(deck, slide);
+  const backdrop = design ? designShapes(deck, target) : backdropShapes(deck, slide);
+  const bctx: Ctx = { ...ctx, interactive: false, prompts: false, hiddenText: null, asMaster: design === "master" };
+  const fill = bg.kind === "none" ? { fill: "#ffffff" } : konvaFill(bg, size.width, size.height);
   return (
     <>
-      <Rect name="slide-background" x={0} y={0} width={size.width} height={size.height} fill={bg} />
+      <Rect name="slide-background" x={0} y={0} width={size.width} height={size.height} {...fill} data-bg={bg.kind === "solid" ? bg.value.color : bg.kind} />
+      {backdrop.length > 0 && (
+        <Group name="master-shapes" listening={false}>
+          {backdrop.map((s) => (
+            <ShapeNode key={`m${s.id}`} shape={s} ctx={bctx} top={false} />
+          ))}
+        </Group>
+      )}
       {slide.shapes.map((s) => (
         <ShapeNode key={s.id} shape={overrides?.get(s.id) ?? s} ctx={ctx} top />
       ))}

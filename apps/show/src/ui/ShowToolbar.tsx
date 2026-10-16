@@ -6,7 +6,6 @@
 // editor.
 
 import { useMemo, useRef, type ReactNode } from "react";
-import { LAYOUT_LABELS } from "../canvas/menus";
 import {
   ColorPicker, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
   RibbonRow, RibbonSplitButton, RibbonStack, StyleToggles, bytesToBase64, formatCombo, triggerShortcut, languageRibbonGroup, withLabel,
@@ -19,17 +18,22 @@ import type { AlignMode } from "../generated/AlignMode";
 import type { LayoutKind } from "../generated/LayoutKind";
 import type { Shape } from "../generated/Shape";
 import type { ZOp } from "../generated/ZOp";
-import { charLen, effectiveParagraph, effectiveRun, findShape, placeholderDef, textOf, themePalette } from "../model";
+import { charLen, effectiveParagraph, effectiveRun, findShape, textOf, themePalette } from "../model";
 import { LINE_SPACINGS, lineSpacingOf, textPos } from "../state/commands";
 import { QUICK_SHAPES, shapeItems } from "./ShapeGallery";
 import { shapeFormatGroups, shapesMenu, tableDesignTab, tableLayoutTab, tableMenu } from "./ShapeTabs";
-import { useShow, type ShowState, type ShowStore } from "../state/store";
+import { useShow, viewSlide, type ShowState, type ShowStore } from "../state/store";
+import { placeholderFor, stableDeck } from "../design/deck";
 import { useT } from "../i18n";
 import { animationsTab, transitionsTab } from "./AnimTabs";
+import { LayoutGallery, designTab } from "./DesignTab";
+import { slideMasterTab } from "./MasterView";
+import { pictureFormatTab } from "./PictureTab";
+import { DI } from "./designIcons";
 
 /** The shape the formatting controls reflect: the edited one, else the first selected. */
 function focusShape(s: ShowState): Shape | null {
-  const slide = s.pres?.slides.find((x) => x.id === s.current);
+  const slide = viewSlide(s);
   if (!slide) return null;
   const id = s.editing?.shape ?? s.selection[0];
   return id === undefined ? null : (findShape(slide.shapes, id)?.shape ?? null);
@@ -37,10 +41,10 @@ function focusShape(s: ShowState): Shape | null {
 
 /** Formatting state shown by the ribbon. */
 export function formattingOf(s: ShowState) {
-  const slide = s.pres?.slides.find((x) => x.id === s.current);
+  const slide = viewSlide(s);
   const shape = focusShape(s);
   if (!s.pres || !slide || !shape) return null;
-  const def = placeholderDef(s.pres, slide, shape);
+  const def = placeholderFor(stableDeck(s.pres), slide.layout, shape, s.masterView?.kind === "master");
   const body = textOf(shape);
   let pi = 0;
   let runProps: RunProperties | undefined = body?.paragraphs[0]?.runs[0]?.props;
@@ -142,6 +146,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
   const hasSlide = state.current !== null;
   const slideCount = state.pres?.slides.length ?? 0;
   const palette = themePalette(theme);
+  const masterView = state.masterView !== null;
 
   const value: CellStyleView = fmt
     ? {
@@ -189,21 +194,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
       tooltip={t("show.newSlideTip")}
       onClick={() => addSlide("titleContent")}
       menuLabel={t("show.slideLayouts")}
-      menu={(close) => (
-        <div className="w-max">
-          <RibbonGallery
-            label={t("show.slideLayouts")}
-            items={LAYOUTS}
-            columns={3}
-            itemClassName="h-16 w-24 p-1"
-            autoFocus
-            onSelect={(id) => {
-              close();
-              addSlide(id);
-            }}
-          />
-        </div>
-      )}
+      menu={(close) => <LayoutGallery store={store} label={t("show.slideLayouts")} close={close} onSelect={(k) => addSlide(k)} />}
     />
   );
   const quickKeyboard = { current: false };
@@ -235,12 +226,9 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
   ];
 
   const currentSlide = state.pres?.slides.find((x) => x.id === state.current) ?? null;
-  const layoutMenu: RibbonMenuItem[] = LAYOUT_LABELS.map((l) => ({
-    id: l.id,
-    label: l.label,
-    checked: currentSlide?.layout === l.id,
-    onSelect: () => void store.setSlideLayout(l.id),
-  }));
+  const layoutMenu = (close: () => void) => (
+    <LayoutGallery store={store} label={t("tab.layout")} selected={currentSlide?.layout} close={close} onSelect={(k) => void store.setSlideLayout(k)} />
+  );
   const spacing = lineSpacingOf(fmt?.para.lineSpacing);
   const spacingMenu: RibbonMenuItem[] = LINE_SPACINGS.map((m) => ({
     id: String(m),
@@ -292,16 +280,20 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
           <>
             {newSlide("large")}
             <RibbonStack>
-              <RibbonMenuButton label={t("tab.layout")} icon="format" showLabel disabled={!hasSlide} menu={layoutMenu} />
-              <RibbonButton label={t("show.hideSlide")} icon="close" showLabel pressed={!!currentSlide?.hidden} disabled={!hasSlide} onClick={() => void store.toggleHidden()} />
+              <RibbonMenuButton label={t("tab.layout")} icon="format" showLabel disabled={!hasSlide || masterView} menu={layoutMenu} />
+              <RibbonButton label={t("show.resetSlide")} icon={DI.reset} showLabel disabled={!hasSlide || masterView} tooltip={t("show.resetSlideTip")} onClick={() => void store.resetSlide()} />
             </RibbonStack>
             <RibbonStack>
-              <RibbonButton label={t("show.duplicateSlide")} icon="duplicate" showLabel disabled={!hasSlide} onClick={() => state.current !== null && void store.duplicateSlide(state.current)} />
+              <RibbonButton label={t("show.section.add")} icon={DI.section} showLabel disabled={!hasSlide || masterView} onClick={() => void store.addSection()} />
+              <RibbonButton label={t("show.hideSlide")} icon="close" showLabel pressed={!!currentSlide?.hidden} disabled={!hasSlide || masterView} onClick={() => void store.toggleHidden()} />
+            </RibbonStack>
+            <RibbonStack>
+              <RibbonButton label={t("show.duplicateSlide")} icon="duplicate" showLabel disabled={!hasSlide || masterView} onClick={() => state.current !== null && void store.duplicateSlide(state.current)} />
               <RibbonButton
                 label={t("show.deleteSlide")}
                 icon="trash"
                 showLabel
-                disabled={!hasSlide || slideCount <= 1}
+                disabled={!hasSlide || slideCount <= 1 || masterView}
                 onClick={() => state.current !== null && void store.deleteSlides([state.current])}
               />
             </RibbonStack>
@@ -423,30 +415,21 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
       },
       {
         label: t("show.text"),
-        items: <RibbonButton label={t("show.shape.textBox")} icon="textBox" size="large" disabled={!hasSlide} onClick={() => void store.insertChoice("textBox")} />,
-      },
-    ],
-  };
-
-  const background = currentSlide?.background?.kind === "solid" ? currentSlide.background.value : undefined;
-  const design: RibbonTab = {
-    id: "design",
-    label: t("tab.design"),
-    groups: [
-      {
-        label: t("show.background"),
         items: (
           <>
-            <ColorPicker label={t("show.bgColor")} kind="fill" value={background} theme={palette} disabled={!hasSlide} onSelect={(c) => void store.setBackground(c)} />
+            <RibbonButton label={t("show.shape.textBox")} icon="textBox" size="large" disabled={!hasSlide} onClick={() => void store.insertChoice("textBox")} />
+            <RibbonButton label={t("show.hf.titleDots")} icon={DI.headerFooter} size="large" showLabel disabled={!hasSlide} onClick={() => store.openDialog({ kind: "headerFooter" })} />
             <RibbonStack>
-              <RibbonButton label={t("show.applyAll")} icon="duplicate" showLabel disabled={!hasSlide} onClick={() => void store.setBackground(background ?? null, true)} />
-              <RibbonButton label={t("show.resetBg")} icon="clear" showLabel disabled={!currentSlide?.background} onClick={() => void store.setBackground(null)} />
+              <RibbonButton label={t("show.hf.insertDate")} icon={DI.dateTime} showLabel disabled={!hasSlide} tooltip={t("show.hf.insertFieldTip")} onClick={() => void store.insertField({ kind: "dateTime", value: { format: 1 } })} />
+              <RibbonButton label={t("show.hf.insertNumber")} icon={DI.slideNumber} showLabel disabled={!hasSlide} tooltip={t("show.hf.insertFieldTip")} onClick={() => void store.insertField({ kind: "slideNumber" })} />
             </RibbonStack>
           </>
         ),
       },
     ],
   };
+
+  const design = designTab(store, state, t);
 
   const shapeFormat: RibbonTab = {
     id: "shapeFormat",
@@ -481,12 +464,28 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
   };
   const tableDesign = tableDesignTab(store, palette, t);
   const tableLayout = tableLayoutTab(store, t);
-  const contextual = tableDesign && tableLayout ? [tableDesign, tableLayout] : selCount > 0 ? [shapeFormat] : [];
+  const pictures = sel.filter((x) => x.kind.kind === "picture");
+  const contextual = masterView
+    ? []
+    : tableDesign && tableLayout
+      ? [tableDesign, tableLayout]
+      : pictures.length > 0 && pictures.length === sel.length
+        ? [pictureFormatTab(store, state, t, pictures)]
+        : selCount > 0 ? [shapeFormat] : [];
 
   const view: RibbonTab = {
     id: "view",
     label: t("tab.view"),
     groups: [
+      {
+        label: t("show.master.views"),
+        items: (
+          <>
+            <RibbonButton label={t("show.master.normal")} icon="newSlide" size="large" showLabel pressed={!masterView} onClick={() => store.closeMasterView()} />
+            <RibbonButton label={t("show.master.tab")} icon={DI.master} size="large" showLabel pressed={masterView} disabled={!state.pres} onClick={() => (masterView ? store.closeMasterView() : store.openMasterView())} />
+          </>
+        ),
+      },
       {
         label: t("group.show"),
         items: <RibbonButton label={t("show.notes")} icon="textBox" size="large" pressed={state.notesVisible} tooltip={t("show.notesTip")} onClick={() => store.toggleNotes()} />,
@@ -543,7 +542,8 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         appName="Rusuite Show"
         documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
         accent="#c2410c"
-        tabs={[home, insert, design, transitions, animations, view, ...contextual]}
+        tabs={masterView ? [slideMasterTab(store, state, t), home, view] : [home, insert, design, transitions, animations, view, ...contextual]}
+        activeTab={state.ribbonTab}
         onTabChange={(id) => store.setRibbonTab(id)}
         rightSlot={
           <button

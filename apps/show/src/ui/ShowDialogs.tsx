@@ -11,6 +11,8 @@ import { textOf, themePalette } from "../model";
 import { formatValuesOf, type FormatValues } from "../state/commands";
 import { useShow, type ShowStore } from "../state/store";
 import { useT } from "../i18n";
+import { HeaderFooterDialog, RenameSectionDialog, SlideSizeDialog } from "./DesignDialogs";
+import type { ShowPrintOptions } from "../print/showPrintDoc";
 
 const INPUT = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-ui-fg";
 const BUTTON = "h-7 rounded border border-ui-border bg-ui-bg px-3 hover:bg-ui-hover";
@@ -206,7 +208,7 @@ function InsertTableDialog({ store }: { store: ShowStore }) {
 }
 
 /** Mounts the open dialog; Change Picture opens the file picker. */
-export function ShowDialogs({ store }: { store: ShowStore }) {
+export function ShowDialogs({ store, printOptions, onPrintOptions }: { store: ShowStore; printOptions?: ShowPrintOptions; onPrintOptions?: (o: ShowPrintOptions) => void }) {
   const dialog = useShow(store, (s) => s.dialog);
   const input = useRef<HTMLInputElement>(null);
   const target = useRef<number | null>(null);
@@ -223,6 +225,9 @@ export function ShowDialogs({ store }: { store: ShowStore }) {
       {dialog?.kind === "format" && <FormatShapeDialog store={store} />}
       {dialog?.kind === "alt" && <AltTextDialog store={store} shape={dialog.shape} />}
       {dialog?.kind === "insertTable" && <InsertTableDialog store={store} />}
+      {dialog?.kind === "headerFooter" && <HeaderFooterDialog store={store} tab={dialog.tab} print={printOptions} onPrint={onPrintOptions} />}
+      {dialog?.kind === "slideSize" && <SlideSizeDialog store={store} />}
+      {dialog?.kind === "renameSection" && <RenameSectionDialog store={store} index={dialog.index} />}
       <input
         ref={input}
         type="file"

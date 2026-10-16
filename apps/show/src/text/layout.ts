@@ -15,6 +15,7 @@ import type { RunProperties } from "../../../../packages/ui-shared/src/generated
 import type { AutoNumScheme } from "../generated/AutoNumScheme";
 import type { Bullet } from "../generated/Bullet";
 import type { TextBody } from "../generated/TextBody";
+import type { TextField } from "../generated/TextField";
 import type { TextParagraphProps } from "../generated/TextParagraphProps";
 import type { TextSpacing } from "../generated/TextSpacing";
 import { emuToPx, PX_PER_PT } from "../geometry";
@@ -65,10 +66,12 @@ export interface LayoutOptions {
   width: number;
   height: number;
   measure: Measure;
-  /** Resolves a run's style (placeholder defaults, theme fonts, colours). */
-  runStyle: (props: RunProperties | undefined) => RunStyle;
+  /** Resolves a run's style (placeholder defaults of the paragraph's outline `level`, theme fonts, colours). */
+  runStyle: (props: RunProperties | undefined, level?: number) => RunStyle;
   /** Effective paragraph properties (placeholder defaults merged). */
   paragraphProps: (props: TextParagraphProps | undefined) => TextParagraphProps;
+  /** The text a field run shows (slide number, date); absent = the run's stored text. */
+  fieldText?: (field: TextField, stored: string) => string;
 }
 
 const LEVEL_INDENT_PX = 48; // 0.5"
@@ -167,8 +170,9 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number): TextLayout {
   let y = 0;
 
   paras.forEach(({ p, props }, pi) => {
-    const runs = p.runs.map((r) => ({ text: r.text, style: o.runStyle(r.props) }));
-    const firstStyle = runs[0]?.style ?? o.runStyle(undefined);
+    const level = props.level ?? p.props?.level ?? 0;
+    const runs = p.runs.map((r) => ({ text: r.field && o.fieldText ? o.fieldText(r.field, r.text) : r.text, style: o.runStyle(r.props, level) }));
+    const firstStyle = runs[0]?.style ?? o.runStyle(undefined, level);
     const baseSize = firstStyle.sizePx * scale;
     const lineFactor = props.lineSpacing?.kind === "percent" ? props.lineSpacing.value / 100000 : 1;
     const fixedLine = props.lineSpacing?.kind === "points" ? (props.lineSpacing.value / 100) * PX_PER_PT * scale : null;

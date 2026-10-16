@@ -9,6 +9,7 @@ import type Konva from "konva";
 import type { Slide } from "../generated/Slide";
 import { slidePx } from "../geometry";
 import { pathCache, slideQueries } from "../shapes/paths";
+import { withDesignShapes } from "../design/deck";
 import { SlideView, preloadImages, type DeckContext } from "../canvas/SlideView";
 
 /** Rendering quality of the printed slides (device pixels per slide px). */
@@ -24,7 +25,7 @@ export async function renderSlideImages(deck: DeckContext, slides: readonly Slid
   if (missing.length) {
     await preloadImages([...media.values()]);
     // the shapes' outlines from the core first, so the pictures show them (not the fallbacks)
-    await pathCache.ensure(slideQueries(missing));
+    await pathCache.ensure(slideQueries(withDesignShapes(deck, missing)));
     const px = slidePx(deck.slideSize);
     const host = document.createElement("div");
     host.setAttribute("aria-hidden", "true");

@@ -7,6 +7,7 @@ import { PrintCheck, PrintNumber, PrintPanel, PrintSection, PrintSelect, printDo
 import { useShow, type ShowStore } from "../state/store";
 import type { ShowBackend } from "../backend";
 import { renderSlideImages } from "./slideImages";
+import { stableDeck } from "../design/deck";
 import {
   SHOW_LAYOUT_CHOICES, SHOW_ORIENTATION_CHOICES, SHOW_PAPER_CHOICES, buildShowPrintDoc, printedSlides, type ShowPrintLayout, type ShowPrintOptions,
 } from "./showPrintDoc";
@@ -17,7 +18,7 @@ export async function buildShowDoc(store: ShowStore, o: ShowPrintOptions): Promi
   const pres = store.getState().pres;
   if (!pres) return { widthIn: 8.27, heightIn: 11.69, css: "", pages: [] };
   const slides = printedSlides(pres.slides, o.hidden);
-  const images = await renderSlideImages(pres, slides.map((s) => s.slide), store.media);
+  const images = await renderSlideImages(stableDeck(pres), slides.map((s) => s.slide), store.media);
   return buildShowPrintDoc(slides, images, pres.slideSize, o);
 }
 
@@ -33,11 +34,11 @@ export async function printShow(store: ShowStore, backend: ShowBackend, doc: Pri
 export function ShowPrintPage({ store, backend, options, onChange }: { store: ShowStore; backend: ShowBackend; options: ShowPrintOptions; onChange: (o: ShowPrintOptions) => void }) {
   const t = useT();
   const pres = useShow(store, (s) => s.pres);
-  const { range, layout, paper, orientation, frame, fit, scale, hidden } = options;
+  const { range, layout, paper, orientation, frame, fit, scale, hidden, notesHf } = options;
   const build = useCallback(
-    () => buildShowDoc(store, { range: "", layout, paper, orientation, frame, fit, scale, hidden }),
+    () => buildShowDoc(store, { range: "", layout, paper, orientation, frame, fit, scale, hidden, notesHf }),
     // `pres` changes with every edit: the preview follows the presentation.
-    [store, pres, layout, paper, orientation, frame, fit, scale, hidden],
+    [store, pres, layout, paper, orientation, frame, fit, scale, hidden, notesHf],
   );
   const { doc, busy, error } = usePrintDoc(build);
   const set = <K extends keyof ShowPrintOptions>(k: K, v: ShowPrintOptions[K]) => onChange({ ...options, [k]: v });

@@ -15,6 +15,7 @@ import type { TextBody } from "./generated/TextBody";
 import type { TextParagraph } from "./generated/TextParagraph";
 import type { TextParagraphProps } from "./generated/TextParagraphProps";
 import type { Theme } from "./generated/Theme";
+import { findPlaceholder } from "./design/deck";
 
 export type { Color, RunProperties };
 
@@ -93,7 +94,7 @@ export function fontFamily(face: FontFace | null | undefined, theme: Theme | und
 export function placeholderDef(pres: Presentation, slide: Slide, shape: Shape): PlaceholderDef | undefined {
   if (!shape.placeholder) return undefined;
   const layout = pres.layouts.find((l) => l.kind === slide.layout);
-  return layout?.placeholders.find((p) => p.kind === shape.placeholder);
+  return layout ? findPlaceholder(layout.placeholders, shape.placeholder, shape.placeholderIdx) : undefined;
 }
 
 /** Merges the set (non-null) fields of `over` into `base`. */
