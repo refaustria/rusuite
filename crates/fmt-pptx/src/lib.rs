@@ -39,6 +39,7 @@ mod parts;
 mod props;
 mod read;
 mod table;
+mod tablestyle;
 mod theme;
 mod write;
 mod xml;

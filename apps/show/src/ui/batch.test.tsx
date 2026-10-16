@@ -196,7 +196,7 @@ describe("P6-5 UI through the app", () => {
 
   it("Design › Format Background › Apply to all copies the background to every slide; Reset", async () => {
     const pres = fixture();
-    const fill = { kind: "solid", value: { kind: "rgb", value: "FFEEDD" } } as const;
+    const fill = { kind: "fill", value: { kind: "solid", value: { kind: "rgb", value: "FFEEDD" } } } as const;
     pres.slides[0]!.background = fill;
     const { backend } = await mount(new FakeBackend(pres));
     fireEvent.click(screen.getByRole("tab", { name: "Design" }));
@@ -204,7 +204,7 @@ describe("P6-5 UI through the app", () => {
     const pane = screen.getByRole("complementary", { name: "Format Background" });
     fireEvent.click(within(pane).getByRole("button", { name: "Apply to all" }));
     await flush();
-    expect(last(backend.commands)).toEqual({ type: "setBackground", target: { kind: "slides", value: [1, 4, 7] }, fill: { kind: "fill", value: fill }, hideMasterShapes: false });
+    expect(last(backend.commands)).toEqual({ type: "setBackground", target: { kind: "slides", value: [1, 4, 7] }, fill, hideMasterShapes: false });
     fireEvent.click(within(pane).getByRole("button", { name: "Reset background" }));
     await flush();
     expect(last(backend.commands)).toEqual({ type: "setBackground", target: { kind: "slides", value: [1] }, fill: null, hideMasterShapes: false });

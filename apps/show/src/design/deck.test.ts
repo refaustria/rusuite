@@ -32,7 +32,7 @@ describe("what slides inherit from the design", () => {
     expect(slideBackground(deck, pres.slides[0]!)).toEqual({ kind: "solid", value: { color: "FFFFFF", alpha: 1 } });
     const layouts = pres.layouts.map((l) => (l.kind === "title" ? { ...l, background: { kind: "fill" as const, value: { kind: "solid" as const, value: { kind: "rgb" as const, value: "00FF00" } } } } : l));
     expect(slideBackground({ ...deck, layouts }, pres.slides[0]!)).toEqual({ kind: "solid", value: { color: "00FF00", alpha: 1 } });
-    expect(slideBackground(deck, { ...pres.slides[0]!, background: { kind: "solid", value: { kind: "rgb", value: "123456" } } })).toEqual({ kind: "solid", value: { color: "123456", alpha: 1 } });
+    expect(slideBackground(deck, { ...pres.slides[0]!, background: { kind: "fill", value: { kind: "solid", value: { kind: "rgb", value: "123456" } } } })).toEqual({ kind: "solid", value: { color: "123456", alpha: 1 } });
     expect(backdropShapes(deck, pres.slides[0]!).map((s) => s.name)).toEqual(["Accent bar"]);
     expect(backdropShapes(deck, { ...pres.slides[0]!, showMasterShapes: false })).toEqual([]);
     const hidden = pres.layouts.map((l) => ({ ...l, showMasterShapes: false }));

@@ -1,10 +1,10 @@
-// Tables in slides: the built-in table styles (as the core draws Medium
-// Style 2, for any accent), the cell grid with merged cells, keyboard
+// Tables in slides: the table styles (PowerPoint's 74 built-ins from the
+// core's family rules, generated, plus the presentation's own) and how
+// their parts format a cell, the cell grid with merged cells, keyboard
 // navigation between cells, cell ranges, and the commands of the Table
 // Design / Layout tabs (pure, unit-tested).
 
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
-import type { ThemeColorSlot } from "../../../../packages/ui-shared/src/generated/ThemeColorSlot";
 import type { Alignment } from "../generated/Alignment";
 import type { Anchor } from "../generated/Anchor";
 import type { Fill } from "../generated/Fill";
@@ -15,18 +15,34 @@ import type { ShowCommand } from "../generated/ShowCommand";
 import type { Table } from "../generated/Table";
 import type { TableCell } from "../generated/TableCell";
 import type { TableLook } from "../generated/TableLook";
+import type { TableStyleDef } from "../generated/TableStyleDef";
+import type { TableStylePart } from "../generated/TableStylePart";
+import builtinStyles from "../generated/tableStyles.json";
 
 // ----- styles ---------------------------------------------------------------------
 
-/** PowerPoint's "Medium Style 2 – Accent 1…6" (the first is the default of new tables). */
-export const TABLE_STYLES: { id: string; accent: 1 | 2 | 3 | 4 | 5 | 6 }[] = [
-  { id: "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}", accent: 1 },
-  { id: "{21E4AEA4-8DFA-4A89-87EB-49C32662AFE8}", accent: 2 },
-  { id: "{F5AB1C69-6EDB-4FF4-983F-18BD219EF322}", accent: 3 },
-  { id: "{00A15C55-8517-42AA-B614-E9B94910E393}", accent: 4 },
-  { id: "{7DF18680-E054-41AD-8BC1-D1AEF772440D}", accent: 5 },
-  { id: "{93296810-A885-4BE3-A3E7-6D5BEEA58F35}", accent: 6 },
-];
+/** PowerPoint's 74 built-in table styles (the core's family rules, written by `cargo test -p show-core`). */
+export const BUILTIN_TABLE_STYLES = builtinStyles as unknown as TableStyleDef[];
+
+/** The style of new tables: Medium Style 2 – Accent 1. */
+export const DEFAULT_TABLE_STYLE = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}";
+
+/** The gallery groups of Table Design › Table Styles: style ids by family. */
+export function tableStyleGroups(): { id: "light" | "medium" | "dark"; styles: TableStyleDef[] }[] {
+  const of = (re: RegExp) => BUILTIN_TABLE_STYLES.filter((s) => re.test(s.name));
+  return [
+    { id: "light", styles: of(/^(No Style|Themed Style|Light Style)/) },
+    { id: "medium", styles: of(/^Medium Style/) },
+    { id: "dark", styles: of(/^Dark Style/) },
+  ];
+}
+
+/** A style by id (the presentation's own first, then the built-ins; case-insensitive). */
+export function tableStyleOf(id: string | null | undefined, custom: readonly TableStyleDef[] = []): TableStyleDef | undefined {
+  if (!id) return undefined;
+  const up = id.toUpperCase();
+  return custom.find((s) => s.id.toUpperCase() === up) ?? BUILTIN_TABLE_STYLES.find((s) => s.id.toUpperCase() === up);
+}
 
 /** A border as drawn: colour and width (EMU). */
 export interface StyleLine {
@@ -42,56 +58,92 @@ export interface StyleCell {
   textColor: Color | null;
 }
 
-const theme = (slot: ThemeColorSlot, tint = 0): Color => ({ kind: "theme", value: { slot, tint } });
+type Region = [number, number, number, number];
+type Edge = [number, Line | undefined];
 
-/** The accent (1–6) of a known style id, else `null` (unknown styles and no style draw nothing). */
-export const styleAccent = (id: string | undefined | null): number | null => TABLE_STYLES.find((s) => s.id === id)?.accent ?? null;
+/** The parts applying to a cell, in order, with their regions and ranks (mirror of `TableStyleDef::regions`). */
+function regions(s: TableStyleDef, look: TableLook, rows: number, cols: number, row: number, col: number): [TableStylePart, Region, number][] {
+  const lr = Math.max(0, rows - 1);
+  const lc = Math.max(0, cols - 1);
+  const out: [TableStylePart, Region, number][] = [[s.whole, [0, 0, lr, lc], 1]];
+  const r0 = look.firstRow ? 1 : 0;
+  const r1 = look.lastRow && rows > 1 ? lr - 1 : lr;
+  const c0 = look.firstCol ? 1 : 0;
+  const c1 = look.lastCol && cols > 1 ? lc - 1 : lc;
+  if (look.bandCols && col >= c0 && col <= c1) out.push([((col - c0) % 2 === 0 ? s.band1V : s.band2V) ?? {}, [r0, col, r1, col], 2]);
+  if (look.bandRows && row >= r0 && row <= r1) out.push([((row - r0) % 2 === 0 ? s.band1H : s.band2H) ?? {}, [row, c0, row, c1], 3]);
+  if (look.lastCol && col === lc && cols > 1) out.push([s.lastCol ?? {}, [0, lc, lr, lc], 4]);
+  if (look.firstCol && col === 0) out.push([s.firstCol ?? {}, [0, 0, lr, 0], 5]);
+  if (look.lastRow && row === lr && rows > 1) out.push([s.lastRow ?? {}, [lr, 0, lr, lc], 6]);
+  if (look.firstRow && row === 0) out.push([s.firstRow ?? {}, [0, 0, 0, lc], 7]);
+  return out;
+}
+
+/** Fill, text and ranked borders (left, right, top, bottom) of a cell before shared edges settle. */
+function rawCell(s: TableStyleDef, look: TableLook, rows: number, cols: number, row: number, col: number): { fill: Fill | undefined; bold: boolean; textColor: Color | null; edges: Edge[] } {
+  let fill: Fill | undefined;
+  let bold = false;
+  let textColor: Color | null = null;
+  const edges: Edge[] = [[0, undefined], [0, undefined], [0, undefined], [0, undefined]];
+  for (const [part, [t, l, b, r], rank] of regions(s, look, rows, cols, row, col)) {
+    if (part.fill) fill = part.fill;
+    if (part.bold !== undefined) bold = part.bold;
+    if (part.textColor) textColor = part.textColor;
+    const set = [
+      col === l ? part.left : part.insideV,
+      col === r ? part.right : part.insideV,
+      row === t ? part.top : part.insideH,
+      row === b ? part.bottom : part.insideH,
+    ];
+    set.forEach((v, i) => {
+      if (v) edges[i] = [rank, v];
+    });
+  }
+  return { fill, bold, textColor, edges };
+}
+
+const asLine = (l: Line | undefined): StyleLine | null => (l && l.fill.kind === "solid" ? { color: l.fill.value, width: l.width } : null);
 
 /**
- * The formatting the table style gives cell `row`, `col` (mirror of
- * `Table::style_cell`): accent header/total rows and first/last columns
- * with bold light text, banded rows/columns at 40 % / 20 % tint, white
- * 1 pt grid (3 pt under the header and above the total row).
+ * The formatting the table's style gives cell `row`, `col` (mirror of
+ * `TableStyleDef::cell` in the core): parts apply in PowerPoint's order
+ * (whole table, banded columns, banded rows, last/first column, total /
+ * header row); a shared edge takes the border of the later part. Unknown
+ * styles (and no style) draw nothing.
  */
-export function styleCell(table: Table, row: number, col: number): StyleCell {
-  const accentN = styleAccent(table.styleId);
-  if (accentN === null) return { fill: null, borders: { left: null, right: null, top: null, bottom: null }, bold: false, textColor: null };
-  const slot = `accent${accentN}` as ThemeColorSlot;
-  const nr = table.rows.length;
-  const nc = table.cols.length;
+export function styleCell(table: Table, row: number, col: number, custom: readonly TableStyleDef[] = []): StyleCell {
+  const s = tableStyleOf(table.styleId, custom);
+  if (!s) return { fill: null, borders: { left: null, right: null, top: null, bottom: null }, bold: false, textColor: null };
+  const rows = table.rows.length;
+  const cols = table.cols.length;
   const look = table.look;
-  let fill = theme(slot, 0.8);
-  if (look.bandCols) {
-    const i = col - (look.firstCol ? 1 : 0);
-    if (i >= 0 && i % 2 === 0) fill = theme(slot, 0.6);
-  }
-  if (look.bandRows) {
-    const i = row - (look.firstRow ? 1 : 0);
-    if (i >= 0 && i % 2 === 0) fill = theme(slot, 0.6);
-  }
-  const emphasis = (!!look.lastCol && col + 1 === nc) || (!!look.firstCol && col === 0) || (!!look.lastRow && row + 1 === nr) || (!!look.firstRow && row === 0);
-  if (emphasis) fill = theme(slot, 0);
-  const light = theme("light1");
-  const thin = { color: light, width: 12700 };
-  const thick = { color: light, width: 38100 };
-  const borders = { left: thin, right: thin, top: thin, bottom: thin } as StyleCell["borders"];
-  if (look.firstRow && row === 0) borders.bottom = thick;
-  if (look.firstRow && row === 1) borders.top = thick;
-  if (look.lastRow && row + 1 === nr) borders.top = thick;
-  if (look.lastRow && nr >= 2 && row + 2 === nr) borders.bottom = thick;
-  return { fill, borders, bold: emphasis, textColor: emphasis ? light : theme("dark1") };
+  const me = rawCell(s, look, rows, cols, row, col);
+  const e = me.edges.slice();
+  const settle = (i: number, theirs: Edge) => {
+    if (theirs[0] > e[i]![0]) e[i] = theirs;
+  };
+  if (col > 0) settle(0, rawCell(s, look, rows, cols, row, col - 1).edges[1]!);
+  if (col + 1 < cols) settle(1, rawCell(s, look, rows, cols, row, col + 1).edges[0]!);
+  if (row > 0) settle(2, rawCell(s, look, rows, cols, row - 1, col).edges[3]!);
+  if (row + 1 < rows) settle(3, rawCell(s, look, rows, cols, row + 1, col).edges[2]!);
+  return {
+    fill: me.fill?.kind === "solid" ? me.fill.value : null,
+    borders: { left: asLine(e[0]![1]), right: asLine(e[1]![1]), top: asLine(e[2]![1]), bottom: asLine(e[3]![1]) },
+    bold: me.bold,
+    textColor: me.textColor,
+  };
 }
 
 /** The fill a cell is drawn with (its own, else the style's; `null` = none). */
-export function effectiveFill(table: Table, row: number, col: number): Color | null {
+export function effectiveFill(table: Table, row: number, col: number, custom: readonly TableStyleDef[] = []): Color | null {
   const own = table.cells[row]?.[col]?.fill;
   if (own) return own.kind === "solid" ? own.value : null;
-  return styleCell(table, row, col).fill;
+  return styleCell(table, row, col, custom).fill;
 }
 
 /** The borders a cell is drawn with (its own where set, else the style's; `null` = none). */
-export function effectiveBorders(table: Table, row: number, col: number): StyleCell["borders"] {
-  const style = styleCell(table, row, col).borders;
+export function effectiveBorders(table: Table, row: number, col: number, custom: readonly TableStyleDef[] = []): StyleCell["borders"] {
+  const style = styleCell(table, row, col, custom).borders;
   const own = table.cells[row]?.[col]?.borders ?? {};
   const pick = (l: Line | undefined, s: StyleLine | null): StyleLine | null => {
     if (!l) return s;
@@ -252,6 +304,26 @@ export function splitCommand(shape: NodeId, table: Table, row: number, col: numb
   const [ar, ac] = anchorOf(table, row, col);
   const [rs, cs] = spanOf(table.cells[ar]?.[ac]);
   return rs * cs > 1 ? { type: "splitTableCell", shape, row: ar, col: ac } : null;
+}
+
+/**
+ * Split Cells… (rows × cols for the cell at `row`, `col`): `null` when
+ * nothing changes (1 × 1 of a single cell) or a merged cell's spans are
+ * not multiples of the counts (the core refuses those).
+ */
+export function splitGridCommand(shape: NodeId, table: Table, row: number, col: number, rows: number, cols: number): ShowCommand | null {
+  const [ar, ac] = anchorOf(table, row, col);
+  const [rs, cs] = spanOf(table.cells[ar]?.[ac]);
+  if (rows < 1 || cols < 1) return null;
+  if (rs * cs > 1 ? rs % rows !== 0 || cs % cols !== 0 : rows * cols === 1) return null;
+  return { type: "splitTableCellGrid", shape, row: ar, col: ac, rows, cols };
+}
+
+/** The Split Cells dialog's starting counts: a merged cell's spans (back to single cells), else 2 columns × 1 row. */
+export function splitDefaults(table: Table, row: number, col: number): { rows: number; cols: number } {
+  const [ar, ac] = anchorOf(table, row, col);
+  const [rs, cs] = spanOf(table.cells[ar]?.[ac]);
+  return rs * cs > 1 ? { rows: rs, cols: cs } : { rows: 1, cols: 2 };
 }
 
 /** Insert Above/Below: as many rows as the range spans. */

@@ -42,11 +42,14 @@ pub mod link;
 pub mod master;
 pub mod picture;
 pub mod presentation;
+pub mod presets;
+pub mod route;
 pub mod section;
 pub mod shape;
 pub mod slide;
 pub mod snapshot;
 pub mod table;
+pub mod tablestyle;
 pub mod text;
 pub mod theme;
 pub mod themes;
@@ -61,7 +64,10 @@ pub use connector::{ArrowEnd, ArrowKind, ArrowSize, Attach, Connector};
 pub use core_model::media::{Media, MediaId, MediaStore};
 pub use core_model::units::Emu;
 pub use core_model::{Color, RunProperties};
-pub use geometry::{flatten, Adjust, ConnectorKind, GeomPath, PathCmd, Site, SubPath};
+pub use geometry::{
+    flatten, Adjust, AdjustHandle, ConnectorKind, GeomPath, HandleAxis, PathCmd, Site, SubPath,
+    TextRect,
+};
 pub use layout::{Layout, LayoutKind, PlaceholderDef, PlaceholderKind};
 pub use link::{Action, Hyperlink, LinkTarget, SlideRef};
 pub use master::{ColorMap, HeaderFooter, HfDate, LevelStyle, SlideMaster, TextClass, TextStyles};
@@ -75,6 +81,7 @@ pub use shape::{
 pub use slide::Slide;
 pub use snapshot::PresentationSnapshot;
 pub use table::{CellBorders, ColSpec, RowSpec, StyleCell, Table, TableCell, TableLook};
+pub use tablestyle::{builtin_table_style, builtin_table_styles, TableStyleDef, TableStylePart};
 pub use text::{
     date_format_pattern, run_diff, Alignment, Anchor, AutoNumScheme, Autofit, BodyProps, Bullet,
     Insets, TextBody, TextDirection, TextField, TextParagraph, TextParagraphProps, TextRun,
@@ -82,7 +89,8 @@ pub use text::{
 };
 pub use theme::{
     Background, ColorBase, ColorMod, EffectStyle, FormatScheme, Gradient, GradientShape,
-    GradientStop, ResolvedFill, ResolvedStop, StyleColor, StyleFill, StyleLine, StyleShadow, Theme,
+    GradientStop, PictureFill, ResolvedFill, ResolvedStop, StyleColor, StyleFill, StyleLine,
+    StyleShadow, Theme,
 };
 pub use themes::{builtin_theme, builtin_themes, BuiltinTheme, BUILTIN_THEME_IDS};
 pub use view::{Guide, GuideOrient, ShowSettings, SlideRange, ViewKind, ViewProps};

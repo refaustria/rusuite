@@ -606,7 +606,8 @@ test.describe("Show", () => {
     expect(chart).toMatch(/<c:externalData r:id="rId\d+">/);
     const xlsx = files.get("ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx")!;
     expect(xlsx.subarray(0, 2).toString()).toBe("PK");
-    expect(zipText(xlsx, "xl/sharedStrings.xml")).toContain("Series 1");
+    // the minimal workbook: inline strings in Sheet1 (P8-32)
+    expect(zipText(xlsx, "xl/worksheets/sheet1.xml")).toContain("Series 1");
     expect(files.get("ppt/slides/slide1.xml")!.toString()).toContain('uri="http://schemas.openxmlformats.org/drawingml/2006/chart"');
     errors.expectNone();
   });
@@ -857,5 +858,115 @@ test.describe("Show", () => {
     await page.keyboard.press("g");
     await page.getByTestId("see-all").getByRole("button", { name: "Slide 3" }).click();
     await expect(page.getByTestId("presenter-counter")).toHaveText("3 / 6");
+  });
+
+  // ----- P8-32: layouts and master text styles, picture backgrounds, table styles, presets -----
+
+  test("Slide Master › Rename: the layout's new name shows in New Slide and is saved as p:cSld name", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await page.getByRole("tab", { name: "View" }).click();
+    await page.getByRole("button", { name: "Slide Master" }).click();
+    await expect(stage(page)).toHaveAttribute("data-master-view", "title");
+    await page.getByRole("button", { name: "Rename", exact: true }).click();
+    const dlg = page.getByRole("dialog", { name: "Rename Layout" });
+    await dlg.getByLabel("Layout name").fill("Opening");
+    await dlg.getByRole("button", { name: "Rename" }).click();
+    await expect(page.getByTestId("master-panel").getByRole("button", { name: "Opening" })).toBeVisible();
+    await page.getByRole("button", { name: "Close Master View" }).click();
+    await page.getByRole("tab", { name: "Home" }).click();
+    await page.getByRole("button", { name: "Slide layouts" }).first().click();
+    await expect(page.getByRole("group", { name: "Slide layouts" }).getByRole("button", { name: "Opening" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    const layouts = [...unzip(await saveViaBackstage(page))].filter(([n]) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(n)).map(([, b]) => b.toString());
+    expect(layouts.some((x) => x.includes('type="title"') && x.includes('<p:cSld name="Opening">'))).toBe(true);
+    errors.expectNone();
+  });
+
+  test("Format Background › Picture or texture fill is saved as a:blipFill in p:bg", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await page.getByRole("tab", { name: "Design" }).click();
+    await page.getByRole("button", { name: "Format Background" }).click();
+    const pane = page.getByRole("complementary", { name: "Format Background" });
+    await pane.getByLabel("Picture or texture fill").check();
+    // a 2 × 2 PNG
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP4z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==", "base64");
+    await pane.getByTestId("bg-picture-file").setInputFiles({ name: "paper.png", mimeType: "image/png", buffer: png });
+    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+    await pane.getByTestId("bg-tile").check();
+    await expect(pane.getByTestId("bg-tile")).toBeChecked();
+    const pptx = unzip(await saveViaBackstage(page));
+    const slide1 = pptx.get("ppt/slides/slide1.xml")!.toString();
+    const bg = slide1.slice(slide1.indexOf("<p:bg>"), slide1.indexOf("</p:bg>"));
+    expect(bg).toContain("<a:blipFill");
+    expect(bg).toContain("<a:tile");
+    const rid = /<a:blip r:embed="(rId\d+)"/.exec(bg)![1];
+    expect(pptx.get("ppt/slides/_rels/slide1.xml.rels")!.toString()).toMatch(new RegExp(`Id="${rid}"[^>]*Target="../media/image\\d+\\.png"`));
+    errors.expectNone();
+  });
+
+  test("Table Design › Medium Style 2 – Accent 3 writes its GUID and tableStyles.xml defines it", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await insertTable(page, 3, 3);
+    await page.getByRole("tab", { name: "Table Design" }).click();
+    await page.getByRole("button", { name: "More table styles" }).click();
+    const menu = page.getByTestId("table-styles-menu");
+    await expect(menu.getByRole("heading")).toHaveText(["Light", "Medium", "Dark"]);
+    await menu.getByRole("group", { name: "Medium" }).getByRole("button", { name: "Medium Style 2 – Accent 3" }).click();
+    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+    const pptx = unzip(await saveViaBackstage(page));
+    const guid = "{F5AB1C69-6EDB-4FF4-983F-18BD219EF322}";
+    expect(pptx.get("ppt/slides/slide1.xml")!.toString()).toContain(`<a:tableStyleId>${guid}</a:tableStyleId>`);
+    const styles = pptx.get("ppt/tableStyles.xml")!.toString();
+    expect(styles).toContain(`styleId="${guid}" styleName="Medium Style 2 - Accent 3"`);
+    // the cells carry no spelled-out style fills any more
+    expect(pptx.get("ppt/slides/slide1.xml")!.toString()).not.toContain("<a:tcPr><a:solidFill>");
+    errors.expectNone();
+  });
+
+  test("Insert › Shapes › Arrow: U-turn inserts and saves prst=uturnArrow", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await page.getByRole("tab", { name: "Insert" }).click();
+    await page.getByRole("button", { name: "Shapes" }).click();
+    await page.getByRole("dialog", { name: "Shapes" }).getByRole("group", { name: "Block arrows" }).getByRole("button", { name: "Arrow: U-turn" }).press("Enter");
+    await expect(page.getByRole("tab", { name: "Shape Format" })).toBeVisible();
+    // the core's handles: five yellow diamonds once the outline arrived
+    await expect(stage(page)).toHaveAttribute("data-adjust-handles", "5");
+    const slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    expect(slide1).toContain('prst="uturnArrow"');
+    expect(slide1).toContain('name="U-Turn Arrow');
+    errors.expectNone();
+  });
+
+  test("Slide Master › Text level 2 colour goes to the master's body style; slides' level-2 text inherits it", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    // a Title and Content slide with a level-2 bullet
+    await page.getByRole("button", { name: "New Slide" }).first().click();
+    await expect(page.getByTestId("slide-count")).toHaveText("Slide 2 of 2");
+    await page.getByRole("tab", { name: "View" }).click();
+    await page.getByRole("button", { name: "Slide Master" }).click();
+    await page.getByTestId("master-panel").getByRole("button", { name: "Slide master" }).click();
+    await expect(stage(page)).toHaveAttribute("data-master-view", "master");
+    const c = await stageCentre(page);
+    await page.mouse.click(c.x, c.y + c.h * 0.15); // the body placeholder
+    await page.getByTestId("master-level").selectOption("1");
+    await page.getByRole("tab", { name: "Home" }).click();
+    await page.getByRole("button", { name: "Text color" }).click();
+    await page.getByRole("button", { name: "Standard color C00000" }).click();
+    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+    const pptx = unzip(await saveViaBackstage(page));
+    const master = pptx.get("ppt/slideMasters/slideMaster1.xml")!.toString();
+    const body = master.slice(master.indexOf("<p:bodyStyle>"), master.indexOf("</p:bodyStyle>"));
+    const lvl1 = body.slice(body.indexOf("<a:lvl1pPr"), body.indexOf("</a:lvl1pPr>"));
+    const lvl2 = body.slice(body.indexOf("<a:lvl2pPr"), body.indexOf("</a:lvl2pPr>"));
+    expect(lvl2).toContain('<a:srgbClr val="C00000"/>');
+    expect(lvl1).not.toContain("C00000");
+    // the slide's body placeholder states no colour of its own: level 2 comes from the master
+    expect(pptx.get("ppt/slides/slide2.xml")!.toString()).not.toContain("C00000");
+    errors.expectNone();
   });
 });

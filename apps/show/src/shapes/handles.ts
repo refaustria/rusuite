@@ -1,105 +1,31 @@
 // Adjust handles (PowerPoint's yellow diamonds) of the presets: where a
 // handle sits for the current adjust values and which values a drag to a
-// point gives. Positions are in the shape's own box (EMU, unflipped,
-// unrotated), following the presets' `a:ahXY` of ECMA-376 (linear in the
-// adjust value along one axis; callout tails move on both).
+// point gives. The handles come from the core's `shapePaths` (ECMA-376
+// `a:ahXY` / `a:ahPolar` of each preset, P8-32): positions in the shape's
+// own box (EMU, unflipped, unrotated), and per axis the adjust value it
+// drives with samples of the coordinate over the value's range, so a drag
+// inverts the real (possibly bent or pinned) curve. Polar handles turn
+// around the box centre.
 
+import type { AdjustHandle } from "../generated/AdjustHandle";
+import type { HandleAxis } from "../generated/HandleAxis";
 import type { Preset } from "../generated/Preset";
+import type { Shape } from "../generated/Shape";
 import { adjustDefaults } from "./presets";
+import { pathCache, pathQueryOf } from "./paths";
 
-/** One coordinate driven by an adjust value: `coord = base + k · value`, value clamped to `min..max`. */
-export interface AxisDef {
-  adj: string;
-  base: number;
-  k: number;
-  min: number;
-  max: number;
+/** A handle: the core's handle plus the box it lives in (polar handles turn around its centre). */
+export interface HandleDef extends AdjustHandle {
+  w: number;
+  h: number;
 }
 
-/** A handle: each coordinate is fixed or driven by an adjust value. */
-export interface HandleDef {
-  x: AxisDef | number;
-  y: AxisDef | number;
-}
-
-const ax = (adj: string, base: number, k: number, min: number, max: number): AxisDef => ({ adj, base, k, min, max });
-
-/** The adjust handles of a preset in a `w` × `h` box (none for presets without adjust values). */
-export function handlesOf(p: Preset, w: number, h: number): HandleDef[] {
-  const ss = Math.max(1, Math.min(w, h));
-  const s = ss / 100000;
-  const maxW = (f: number) => Math.round((f * w) / ss);
-  const maxH = (f: number) => Math.round((f * h) / ss);
-  switch (p) {
-    case "roundRect":
-      return [{ x: ax("adj", 0, s, 0, 50000), y: 0 }];
-    case "snip1Rect":
-    case "round1Rect":
-      return [{ x: ax("adj", w, -s, 0, 50000), y: 0 }];
-    case "snip2SameRect":
-    case "round2SameRect":
-      return [
-        { x: ax("adj1", w, -s, 0, 50000), y: 0 },
-        { x: ax("adj2", 0, s, 0, 50000), y: h },
-      ];
-    case "triangle":
-      return [{ x: ax("adj", 0, w / 100000, 0, 100000), y: 0 }];
-    case "parallelogram":
-      return [{ x: ax("adj", 0, s, 0, maxW(100000)), y: 0 }];
-    case "trapezoid":
-    case "hexagon":
-      return [{ x: ax("adj", 0, s, 0, maxW(50000)), y: 0 }];
-    case "octagon":
-      return [{ x: ax("adj", 0, s, 0, 50000), y: 0 }];
-    case "chevron":
-    case "homePlate":
-      return [{ x: ax("adj", w, -s, 0, maxW(100000)), y: 0 }];
-    case "rightArrow":
-      return [
-        { x: 0, y: ax("adj1", h / 2, -h / 200000, 0, 100000) },
-        { x: ax("adj2", w, -s, 0, maxW(100000)), y: 0 },
-      ];
-    case "leftArrow":
-      return [
-        { x: w, y: ax("adj1", h / 2, -h / 200000, 0, 100000) },
-        { x: ax("adj2", 0, s, 0, maxW(100000)), y: 0 },
-      ];
-    case "upArrow":
-      return [
-        { x: ax("adj1", w / 2, -w / 200000, 0, 100000), y: h },
-        { x: 0, y: ax("adj2", 0, s, 0, maxH(100000)) },
-      ];
-    case "downArrow":
-      return [
-        { x: ax("adj1", w / 2, -w / 200000, 0, 100000), y: 0 },
-        { x: 0, y: ax("adj2", h, -s, 0, maxH(100000)) },
-      ];
-    case "leftRightArrow":
-      return [
-        { x: w / 2, y: ax("adj1", h / 2, -h / 200000, 0, 100000) },
-        { x: ax("adj2", 0, s, 0, maxW(50000)), y: 0 },
-      ];
-    case "upDownArrow":
-      return [
-        { x: ax("adj1", w / 2, -w / 200000, 0, 100000), y: h / 2 },
-        { x: 0, y: ax("adj2", 0, s, 0, maxH(50000)) },
-      ];
-    case "star4":
-    case "star5":
-    case "star6":
-    case "star8":
-      return [{ x: w / 2, y: ax("adj", h / 2, -h / 100000, 0, 50000) }];
-    case "wedgeRectCallout":
-    case "wedgeEllipseCallout":
-      return [{ x: ax("adj1", w / 2, w / 100000, -1000000, 1000000), y: ax("adj2", h / 2, h / 100000, -1000000, 1000000) }];
-    case "wedgeRoundRectCallout":
-      return [
-        { x: ax("adj1", w / 2, w / 100000, -1000000, 1000000), y: ax("adj2", h / 2, h / 100000, -1000000, 1000000) },
-        { x: ax("adj3", 0, s, 0, 50000), y: 0 },
-      ];
-    default:
-      return [];
-  }
+/** The adjust handles of an auto shape (empty for other shapes and until its outline is cached). */
+export function handlesOf(shape: Shape): HandleDef[] {
+  if (shape.kind.kind !== "auto") return [];
+  const q = pathQueryOf(shape);
+  const p = q ? pathCache.get(q) : null;
+  return (p?.handles ?? []).map((h) => ({ ...h, w: shape.transform.w, h: shape.transform.h }));
 }
 
 /** The adjust values in effect: the defaults overridden by the shape's own. */
@@ -107,23 +33,86 @@ export function effectiveAdjust(p: Preset, own: Record<string, number> | undefin
   return { ...adjustDefaults(p), ...(own ?? {}) };
 }
 
-const coord = (a: AxisDef | number, adjust: Record<string, number>) => (typeof a === "number" ? a : a.base + a.k * (adjust[a.adj] ?? 0));
+/** The coordinate an axis gives for value `v` (between samples linear; outside them `base + k·v`). */
+export function axisCoord(a: HandleAxis, v: number): number {
+  const s = a.samples ?? [];
+  if (s.length >= 2 && v >= s[0]![0] && v <= s[s.length - 1]![0]) {
+    for (let i = 0; i + 1 < s.length; i++) {
+      const [v0, c0] = s[i]!;
+      const [v1, c1] = s[i + 1]!;
+      if (v >= v0 && v <= v1) return v1 === v0 ? c0 : c0 + ((v - v0) / (v1 - v0)) * (c1 - c0);
+    }
+  }
+  return a.base + a.k * v;
+}
+
+const clamp = (v: number, a: HandleAxis) => Math.min(a.max, Math.max(a.min, v));
+
+/** The value of an axis whose coordinate is `c` (inverting the samples; clamped to the range). */
+export function axisValue(a: HandleAxis, c: number): number {
+  const s = a.samples ?? [];
+  if (s.length < 2) {
+    const v = a.k === 0 ? 0 : (c - a.base) / a.k;
+    return Math.round(clamp(v, a));
+  }
+  for (let i = 0; i + 1 < s.length; i++) {
+    const [v0, c0] = s[i]!;
+    const [v1, c1] = s[i + 1]!;
+    if (c >= Math.min(c0, c1) && c <= Math.max(c0, c1)) {
+      const v = c1 === c0 ? v0 : v0 + ((c - c0) / (c1 - c0)) * (v1 - v0);
+      return Math.round(clamp(v, a));
+    }
+  }
+  // outside the sampled curve: extrapolate past its ends, else the nearest sample
+  const lin = a.k === 0 ? NaN : (c - a.base) / a.k;
+  if (Number.isFinite(lin) && (lin < s[0]![0] || lin > s[s.length - 1]![0])) return Math.round(clamp(lin, a));
+  let best = s[0]!;
+  for (const p of s) if (Math.abs(p[1] - c) < Math.abs(best[1] - c)) best = p;
+  return Math.round(clamp(best[0], a));
+}
+
+/** Angle (60000ths of a degree, clockwise from the right, 0 … 21600000) of `p` around the box centre. */
+const angleAt = (h: HandleDef, p: { x: number; y: number }) => {
+  const deg = (Math.atan2(p.y - h.h / 2, p.x - h.w / 2) * 180) / Math.PI;
+  return Math.round((((deg % 360) + 360) % 360) * 60000);
+};
 
 /** Where a handle sits (box EMU) for `adjust` (effective values). */
 export function handlePos(h: HandleDef, adjust: Record<string, number>): { x: number; y: number } {
-  return { x: coord(h.x, adjust), y: coord(h.y, adjust) };
+  const val = (a: HandleAxis | undefined) => (a ? adjust[a.adj] : undefined);
+  if (h.polar) {
+    const cx = h.w / 2;
+    const cy = h.h / 2;
+    const rv = val(h.xAxis);
+    const r = h.xAxis && rv !== undefined ? axisCoord(h.xAxis, rv) : Math.hypot(h.x - cx, h.y - cy);
+    const av = val(h.yAxis);
+    const ang = av !== undefined ? (av / 60000) * (Math.PI / 180) : Math.atan2(h.y - cy, h.x - cx);
+    return { x: cx + r * Math.cos(ang), y: cy + r * Math.sin(ang) };
+  }
+  const xv = val(h.xAxis);
+  const yv = val(h.yAxis);
+  return {
+    x: h.xAxis && xv !== undefined ? axisCoord(h.xAxis, xv) : h.x,
+    y: h.yAxis && yv !== undefined ? axisCoord(h.yAxis, yv) : h.y,
+  };
 }
-
-const valueAt = (a: AxisDef, c: number) => {
-  const v = a.k === 0 ? 0 : (c - a.base) / a.k;
-  return Math.round(Math.min(a.max, Math.max(a.min, v)));
-};
 
 /** The adjust values a drag of handle `h` to the box point `p` sets (only the handle's own names). */
 export function dragHandle(h: HandleDef, p: { x: number; y: number }): Record<string, number> {
   const out: Record<string, number> = {};
-  if (typeof h.x !== "number") out[h.x.adj] = valueAt(h.x, p.x);
-  if (typeof h.y !== "number") out[h.y.adj] = valueAt(h.y, p.y);
+  if (h.polar) {
+    if (h.yAxis) {
+      let a = angleAt(h, p);
+      // a range past 360° (or below 0) takes the equivalent angle inside it
+      if (a < h.yAxis.min && a + 21600000 <= h.yAxis.max) a += 21600000;
+      if (a > h.yAxis.max && a - 21600000 >= h.yAxis.min) a -= 21600000;
+      out[h.yAxis.adj] = Math.round(clamp(a, h.yAxis));
+    }
+    if (h.xAxis) out[h.xAxis.adj] = axisValue(h.xAxis, Math.hypot(p.x - h.w / 2, p.y - h.h / 2));
+    return out;
+  }
+  if (h.xAxis) out[h.xAxis.adj] = axisValue(h.xAxis, p.x);
+  if (h.yAxis) out[h.yAxis.adj] = axisValue(h.yAxis, p.y);
   return out;
 }
 
@@ -133,6 +122,6 @@ export function dragHandle(h: HandleDef, p: { x: number; y: number }): Record<st
  * and the value for a box point.
  */
 export function elbowHandle(w: number, h: number, adjust: Record<string, number> | undefined): HandleDef {
-  void adjust;
-  return { x: ax("adj1", 0, w / 100000, -1000000, 1000000), y: h / 2 };
+  const v = adjust?.adj1 ?? 50000;
+  return { x: (w * v) / 100000, y: h / 2, w, h, xAxis: { adj: "adj1", base: 0, k: w / 100000, min: -1000000, max: 1000000 } };
 }

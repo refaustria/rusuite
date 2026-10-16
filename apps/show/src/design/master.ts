@@ -66,13 +66,24 @@ export function sampleParagraphs(kind: PlaceholderKind): TextParagraph[] {
   }
 }
 
+/**
+ * The text a placeholder shows in the master view: its custom prompt (one
+ * paragraph per line; on body placeholders line N is outline level N),
+ * else PowerPoint's sample text.
+ */
+export function placeholderText(def: PlaceholderDef): TextParagraph[] {
+  if (def.prompt === undefined || def.prompt === null || def.kind === "dateTime" || def.kind === "slideNumber") return sampleParagraphs(def.kind);
+  const body = def.kind === "body";
+  return def.prompt.split("\n").map((text, i) => ({ props: body && i > 0 && i < 9 ? { level: i } : undefined, runs: text ? [{ text }] : [] }));
+}
+
 /** A pseudo shape for placeholder `def` (index `i` of its target). */
 export function designShape(def: PlaceholderDef, i: number): Shape {
   return {
     id: DESIGN_SHAPE_BASE + i,
     name: def.kind,
     transform: def.transform,
-    kind: { kind: "auto", value: { geometry: "rect", text: { props: def.bodyDefaults, paragraphs: sampleParagraphs(def.kind) } } },
+    kind: { kind: "auto", value: { geometry: "rect", text: { props: def.bodyDefaults, paragraphs: placeholderText(def) } } },
     fill: { kind: "none" },
     line: { fill: { kind: "solid", value: gray }, width: 9525, dash: "dash" },
     placeholder: def.kind,
@@ -111,22 +122,45 @@ export function placeholderCommand(target: DesignTarget, def: PlaceholderDef, pa
   return c;
 }
 
+/** Commands the master view sends as they are (everything else is translated from the pseudo slide). */
+export const DESIGN_COMMANDS = new Set<ShowCommand["type"]>([
+  "setMasterPlaceholderProps", "setBackground", "addLayout", "duplicateLayout", "deleteLayout", "applyTheme", "setThemeColors",
+  "setThemeFonts", "setSlideSize", "setHeaderFooter", "restoreSections", "renameLayout", "addPlaceholder", "removePlaceholder",
+  "setMasterTextStyle", "setPlaceholderPrompt", "setBackgroundPicture",
+]);
+
+/** Plain text of paragraphs, one line each. */
+const plainText = (paras: TextParagraph[]) => paras.map((p) => p.runs.map((r) => r.text).join("")).join("\n");
+
 /**
  * Translates an editor command on the pseudo slide into design commands:
- * `setTransform` → placeholder transforms, `setRunProps` / `setParagraphProps`
- * on the first paragraph (level 1) → run / paragraph defaults. Returns the
- * commands and whether something could not be translated (deeper levels,
- * text, adding or deleting shapes).
+ * `setTransform` → placeholder transforms; `setRunProps` /
+ * `setParagraphProps` on paragraph 1 → the placeholder's run / paragraph
+ * defaults, on deeper paragraphs of the master's body placeholder → that
+ * outline level of the master's body text style (`setMasterTextStyle`;
+ * with `level` set – the Slide Master tab's text level – only that level
+ * changes); `setTextBody` → the placeholder's custom prompt (back to the
+ * sample text: no prompt); `deleteShapes` → `removePlaceholder`. Returns
+ * the commands and whether something could not be translated (deeper
+ * levels of layout placeholders, adding shapes).
  */
 export function translateDesignCommand(
   pres: Pick<Presentation, "master" | "layouts">,
   target: DesignTarget,
   cmd: ShowCommand,
+  opts: { level?: number | null } = {},
 ): { commands: ShowCommand[]; dropped: boolean } {
   const out: ShowCommand[] = [];
   let dropped = false;
   const def = (id: number) => placeholderOfShape(pres, target, id);
+  const level = opts.level ?? null;
+  // outline levels: only the master's body placeholder has them
+  const levelled = (d: PlaceholderDef) => target.kind === "master" && d.kind === "body";
   const visit = (c: ShowCommand) => {
+    if (DESIGN_COMMANDS.has(c.type)) {
+      out.push(c);
+      return;
+    }
     switch (c.type) {
       case "compound":
         c.commands.forEach(visit);
@@ -140,21 +174,70 @@ export function translateDesignCommand(
         return;
       case "setRunProps": {
         const d = def(c.shape);
-        if (d && c.paragraph === 0) out.push(placeholderCommand(target, d, { run: c.patch }));
+        if (!d) {
+          dropped = true;
+          return;
+        }
+        if (d && levelled(d)) {
+          // with a chosen level, the first paragraph's change goes to it
+          if (level !== null) {
+            if (c.paragraph === 0) out.push({ type: "setMasterTextStyle", which: "body", level, run: c.patch });
+          } else if (c.paragraph === 0) out.push(placeholderCommand(target, d, { run: c.patch }));
+          else out.push({ type: "setMasterTextStyle", which: "body", level: Math.min(8, c.paragraph), run: c.patch });
+          return;
+        }
+        if (c.paragraph === 0) out.push(placeholderCommand(target, d, { run: c.patch }));
         else dropped = true;
         return;
       }
       case "setParagraphProps": {
         const d = def(c.shape);
-        if (d && c.paragraphs.includes(0)) {
-          const { level: _level, ...rest } = c.patch;
-          out.push(placeholderCommand(target, d, { paragraph: rest }));
+        if (!d) {
+          dropped = true;
+          return;
         }
-        if (!d || c.paragraphs.some((p) => p !== 0)) dropped = true;
+        const { level: _level, ...rest } = c.patch;
+        if (levelled(d)) {
+          if (level !== null) {
+            if (c.paragraphs.includes(0)) out.push({ type: "setMasterTextStyle", which: "body", level, paragraph: rest });
+            return;
+          }
+          for (const p of c.paragraphs) {
+            if (p === 0) out.push(placeholderCommand(target, d, { paragraph: rest }));
+            else out.push({ type: "setMasterTextStyle", which: "body", level: Math.min(8, p), paragraph: rest });
+          }
+          return;
+        }
+        if (c.paragraphs.includes(0)) out.push(placeholderCommand(target, d, { paragraph: rest }));
+        if (c.paragraphs.some((p) => p !== 0)) dropped = true;
         return;
       }
-      case "setTextBody":
-        // the sample text is not stored; editing it changes nothing
+      case "setTextBody": {
+        // typed text becomes the placeholder's prompt (the sample text: none)
+        const d = def(c.shape);
+        if (!d) return;
+        if (d.kind === "dateTime" || d.kind === "slideNumber") return;
+        const text = plainText(c.body.paragraphs);
+        const sample = plainText(sampleParagraphs(d.kind));
+        const prompt = text === sample || text.trim() === "" ? null : text;
+        if ((d.prompt ?? null) !== prompt) {
+          const pc: ShowCommand = { type: "setPlaceholderPrompt", target, placeholder: d.kind, prompt };
+          if (d.idx) pc.idx = d.idx;
+          out.push(pc);
+        }
+        return;
+      }
+      case "deleteShapes":
+        for (const id of c.ids) {
+          const d = def(id);
+          if (!d) {
+            dropped = true;
+            continue;
+          }
+          const rc: ShowCommand = { type: "removePlaceholder", target, placeholder: d.kind };
+          if (d.idx) rc.idx = d.idx;
+          out.push(rc);
+        }
         return;
       default:
         dropped = true;

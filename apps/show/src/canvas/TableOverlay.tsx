@@ -30,7 +30,7 @@ export function TableOverlay({ store, scale, onMenu }: { store: ShowStore; scale
   const shape = selection.length === 1 ? (slide?.shapes.find((s) => s.id === selection[0]) ?? null) : null;
   const table = tableOf(shape);
   const palette = useMemo(() => themePalette(pres?.theme), [pres?.theme]);
-  const layout = useMemo(() => (table && pres ? tableLayout(table, pres.theme, palette) : null), [table, pres, palette]);
+  const layout = useMemo(() => (table && pres ? tableLayout(table, pres.theme, palette, pres.tableStyles) : null), [table, pres, palette]);
   const drag = useRef<{ from: [number, number]; moved: boolean; id: number } | null>(null);
   const [resize, setResize] = useState<{ axis: "rows" | "cols"; index: number; start: number; delta: number } | null>(null);
   if (!shape || !table || !layout || drawMode || !pres) return null;

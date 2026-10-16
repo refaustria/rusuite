@@ -7,10 +7,10 @@ use core_model::Color;
 use fmt_ooxml::{Package, PartName, TargetMode};
 use model_show::clip::media_content_type;
 use model_show::{
-    Adjust, Attach, BodyProps, Connector, ConnectorKind, Crop, Emu, Fill, Layout, LayoutKind, Line,
-    MediaClip, MediaId, MediaKind, NodeId, PictureProps, PlaceholderDef, PlaceholderKind,
-    Presentation, Preset, Recolor, Section, Shadow, Shape, ShapeKind, Slide, SlideMaster,
-    SlideSize, TextBody, TextField, Transform,
+    Adjust, Attach, Background, BodyProps, Connector, ConnectorKind, Crop, Emu, Fill, Layout,
+    LayoutKind, Line, MediaClip, MediaId, MediaKind, NodeId, PictureFill, PictureProps,
+    PlaceholderDef, PlaceholderKind, Presentation, Preset, Recolor, Section, Shadow, Shape,
+    ShapeKind, Slide, SlideMaster, SlideSize, TextBody, TextField, Transform,
 };
 
 use crate::anim::{read_media_timing, read_slide_transition, read_timing};
@@ -158,11 +158,17 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         }
     }
 
-    // the default table style (for tables that name none)
-    let default_table_style = related(&pkg, &main, "tableStyles")
+    // the default table style (for tables that name none) and the styles
+    // that are not built-ins
+    let table_styles_root = related(&pkg, &main, "tableStyles")
         .and_then(|name| pkg.part(&name))
-        .and_then(|part| parse(&part.data, "tableStyles").ok())
+        .and_then(|part| parse(&part.data, "tableStyles").ok());
+    let default_table_style = table_styles_root
+        .as_ref()
         .and_then(|root| root.attr("def").map(str::to_owned));
+    if let Some(root) = &table_styles_root {
+        p.table_styles = crate::tablestyle::read_table_styles(root, &mut w);
+    }
     let mut reader = Reader {
         pkg: &pkg,
         p: &mut p,
@@ -453,6 +459,23 @@ fn without_placeholders(tree: &El) -> El {
 }
 
 /// The plain text and first field of a placeholder's text body.
+/// The custom prompt of a master/layout placeholder (`hasCustomPrompt`):
+/// its paragraphs' text joined by `\n`.
+fn custom_prompt(sp: &El, ph: &El) -> Option<String> {
+    if ph.attr("hasCustomPrompt").and_then(parse_bool) != Some(true) {
+        return None;
+    }
+    let tx = sp.child("txBody")?;
+    let body = read_text_body(tx, BodyProps::default(), &mut Warnings::default());
+    let text = body
+        .paragraphs
+        .iter()
+        .map(|p| p.runs.iter().map(|r| r.text.as_str()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(text)
+}
+
 fn text_and_field(sp: &El, w: &mut Warnings) -> (String, Option<TextField>) {
     let Some(tx) = sp.child("txBody") else {
         return (String::new(), None);
@@ -486,12 +509,13 @@ impl Reader<'_> {
         let size = self.p.slide_size;
         let builtin = SlideMaster::builtin(size);
         let c_sld = root.child("cSld");
+        let background = c_sld
+            .and_then(|c| c.child("bg"))
+            .and_then(|bg| self.read_background(bg, part))
+            .unwrap_or_default();
         let mut m = SlideMaster {
             name: c_sld.and_then(|c| c.attr("name")).unwrap_or("").to_owned(),
-            background: c_sld
-                .and_then(|c| c.child("bg"))
-                .and_then(|bg| read_bg(bg, self.w))
-                .unwrap_or_default(),
+            background,
             placeholders: Vec::new(),
             shapes: Vec::new(),
             text_styles: read_text_styles(root.child("txStyles"), self.w),
@@ -536,6 +560,7 @@ impl Reader<'_> {
                     paragraph_defaults: sp_para.merged_with(&lp),
                     text_only: ty == "body",
                     vertical,
+                    prompt: custom_prompt(sp, ph),
                 });
             }
             m.shapes = self.read_part_shapes(part, tree);
@@ -665,7 +690,7 @@ impl Reader<'_> {
         layout.show_master_shapes = root.attr("showMasterSp").and_then(parse_bool) != Some(false);
         layout.background = c_sld
             .and_then(|c| c.child("bg"))
-            .and_then(|bg| read_bg(bg, self.w));
+            .and_then(|bg| self.read_background(bg, part));
         let mut texts = Vec::new();
         if let Some(tree) = c_sld.and_then(|c| c.child("spTree")) {
             for sp in tree
@@ -710,6 +735,7 @@ impl Reader<'_> {
                     paragraph_defaults: bp.merged_with(&lp),
                     text_only: pty == "body",
                     vertical,
+                    prompt: custom_prompt(sp, ph),
                 });
             }
             layout.shapes = self.read_part_shapes(part, tree);
@@ -791,7 +817,7 @@ impl Reader<'_> {
         slide.show_master_shapes = root.attr("showMasterSp").and_then(parse_bool) != Some(false);
         slide.notes = self.read_notes(part);
         if let Some(bg) = c_sld.child("bg") {
-            slide.background = self.read_background(bg);
+            slide.background = self.read_background(bg, part);
         }
         let ctx = SlideCtx {
             part,
@@ -878,14 +904,55 @@ impl Reader<'_> {
         (!trimmed.is_empty()).then(|| trimmed.to_owned())
     }
 
-    fn read_background(&mut self, bg: &El) -> Option<Fill> {
-        if let Some(pr) = bg.child("bgPr") {
-            return read_fill(pr, self.w);
+    /// The media id of image relationship `rid` of `part` (the image is
+    /// added to the media store once); `what` names the dropped thing in
+    /// warnings.
+    fn image_of(&mut self, part: &PartName, rid: &str, what: &str) -> Option<MediaId> {
+        let Some(part_name) = target_of(self.pkg, part, rid) else {
+            self.w
+                .add(format!("{what} with dangling relationship {rid} dropped"));
+            return None;
+        };
+        if let Some(id) = self.media.get(&part_name) {
+            return Some(*id);
         }
-        if let Some(r) = bg.child("bgRef") {
-            return read_color(r, self.w).map(Fill::Solid);
+        let Some(data) = self.pkg.part(&part_name) else {
+            self.w
+                .add(format!("image part {part_name} missing; {what} dropped"));
+            return None;
+        };
+        let id = self
+            .p
+            .media
+            .insert(data.content_type.clone(), data.data.clone());
+        self.consumed.insert(part_name.clone());
+        self.media.insert(part_name, id);
+        Some(id)
+    }
+
+    /// `p:bg` of a slide, layout or master: `p:bgPr` with a fill or a
+    /// picture (`a:blipFill`: `a:tile` → tiled, `a:alphaModFix` →
+    /// transparency), or `p:bgRef`.
+    fn read_background(&mut self, bg: &El, part: &PartName) -> Option<Background> {
+        if let Some(blip_fill) = bg.child("bgPr").and_then(|pr| pr.child("blipFill")) {
+            let blip = blip_fill.child("blip");
+            let Some(rid) = blip.and_then(|b| b.attr("embed")) else {
+                self.w.add("background picture without image dropped");
+                return None;
+            };
+            let media = self.image_of(part, rid, "background picture")?;
+            let transparency = blip
+                .and_then(|b| b.child("alphaModFix"))
+                .and_then(|a| a.attr("amt"))
+                .and_then(|v| v.parse::<f64>().ok())
+                .map_or(0.0, |amt| (1.0 - amt / 100_000.0).clamp(0.0, 1.0));
+            return Some(Background::Picture(PictureFill {
+                media,
+                tile: blip_fill.child("tile").is_some(),
+                transparency,
+            }));
         }
-        None
+        read_bg(bg, self.w)
     }
 
     /// Children of a shape tree or group, bottom to top.
@@ -949,6 +1016,18 @@ impl Reader<'_> {
             .and_then(|nv| nv.child("cNvPr"));
         shape.hidden = c_nv_pr
             .and_then(|c| c.attr("hidden"))
+            .and_then(parse_bool)
+            .unwrap_or(false);
+        // `p:cNvSpPr/a:spLocks`, `p:cNvPicPr/a:picLocks`, … `@noChangeAspect`
+        shape.lock_aspect = el
+            .elements()
+            .find(|e| e.name.starts_with("nv"))
+            .and_then(|nv| {
+                nv.elements()
+                    .find(|e| e.name.starts_with("cNv") && e.name != "cNvPr")
+            })
+            .and_then(|c| c.elements().find(|e| e.name.ends_with("Locks")))
+            .and_then(|l| l.attr("noChangeAspect"))
             .and_then(parse_bool)
             .unwrap_or(false);
         if let Some(h) = c_nv_pr.and_then(|c| c.child("hlinkClick")) {
@@ -1081,6 +1160,7 @@ impl Reader<'_> {
             placeholder_idx: None,
             click_action: None,
             hidden: false,
+            lock_aspect: false,
         })
     }
 
@@ -1256,6 +1336,7 @@ impl Reader<'_> {
             placeholder_idx: kind.and(ph_idx),
             click_action: None,
             hidden: false,
+            lock_aspect: false,
         })
     }
 
@@ -1341,6 +1422,7 @@ impl Reader<'_> {
             placeholder_idx: None,
             click_action: None,
             hidden: false,
+            lock_aspect: false,
         })
     }
 
@@ -1377,6 +1459,7 @@ impl Reader<'_> {
             placeholder_idx: None,
             click_action: None,
             hidden: false,
+            lock_aspect: false,
         })
     }
 
@@ -1426,6 +1509,7 @@ impl Reader<'_> {
                 placeholder_idx: None,
                 click_action: None,
                 hidden: false,
+                lock_aspect: false,
             });
         }
         let Some(rid) = blip.and_then(|b| b.attr("embed")) else {
@@ -1436,28 +1520,7 @@ impl Reader<'_> {
             }
             return None;
         };
-        let Some(part_name) = target_of(self.pkg, ctx.part, rid) else {
-            self.w
-                .add(format!("picture with dangling relationship {rid} dropped"));
-            return None;
-        };
-        let media = match self.media.get(&part_name) {
-            Some(id) => *id,
-            None => {
-                let Some(part) = self.pkg.part(&part_name) else {
-                    self.w
-                        .add(format!("image part {part_name} missing; picture dropped"));
-                    return None;
-                };
-                let id = self
-                    .p
-                    .media
-                    .insert(part.content_type.clone(), part.data.clone());
-                self.consumed.insert(part_name.clone());
-                self.media.insert(part_name, id);
-                id
-            }
-        };
+        let media = self.image_of(ctx.part, rid, "picture")?;
         let sp_pr = el.child("spPr");
         let ph = ph_of(el);
         let ph_kind = ph.and_then(|ph| placeholder_kind(ph_type(ph), &ctx.layout.kind));
@@ -1490,6 +1553,7 @@ impl Reader<'_> {
             placeholder_idx: ph_kind.and(ph_idx),
             click_action: None,
             hidden: false,
+            lock_aspect: false,
         })
     }
 
@@ -1626,6 +1690,7 @@ impl Reader<'_> {
             placeholder_idx: None,
             click_action: None,
             hidden: false,
+            lock_aspect: false,
         })
     }
 }

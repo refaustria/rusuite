@@ -45,4 +45,10 @@ textOnly?: boolean,
 /**
  * Vertical text (`orient="vert"`, `a:bodyPr vert="eaVert"`).
  */
-vertical?: boolean, };
+vertical?: boolean, 
+/**
+ * Custom prompt text (`p:ph/@hasCustomPrompt` + the placeholder's
+ * text; paragraphs separated by `\n`): what empty slide placeholders
+ * show instead of "Click to add title" (`None`: the standard prompt).
+ */
+prompt?: string, };

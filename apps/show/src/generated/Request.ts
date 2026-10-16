@@ -3,9 +3,15 @@ import type { MediaId } from "./MediaId";
 import type { PathQuery } from "./PathQuery";
 import type { Presentation } from "./Presentation";
 import type { ShowCommand } from "./ShowCommand";
+import type { ViewKind } from "./ViewKind";
 
 /**
  * A request from the UI. JSON: `{"type":"apply","command":{...}}`,
  * `{"type":"undo"}`, `{"type":"getMedia","id":3}`.
  */
-export type Request = { "type": "apply", command: ShowCommand, } | { "type": "undo" } | { "type": "redo" } | { "type": "load", presentation: Presentation, } | { "type": "getPresentation" } | { "type": "newPresentation" } | { "type": "getMedia", id: MediaId, } | { "type": "openPptx", bytesBase64: string, name: string, } | { "type": "savePptx" } | { "type": "recoverySnapshot" } | { "type": "restoreRecovery", json: string, name?: string, } | { "type": "documentState" } | { "type": "markSaved", name?: string | null, } | { "type": "shapePaths", queries: Array<PathQuery>, } | { "type": "getThemes" } | { "type": "peekPresentation", bytesBase64: string, };
+export type Request = { "type": "apply", command: ShowCommand, } | { "type": "undo" } | { "type": "redo" } | { "type": "load", presentation: Presentation, } | { "type": "getPresentation" } | { "type": "newPresentation" } | { "type": "getMedia", id: MediaId, } | { "type": "openPptx", bytesBase64: string, name: string, } | { "type": "savePptx", 
+/**
+ * The view the user is in (Normal, Slide Sorter …), stamped into
+ * `viewProps.xml` `lastView` without an undo step.
+ */
+lastView?: ViewKind, } | { "type": "recoverySnapshot" } | { "type": "restoreRecovery", json: string, name?: string, } | { "type": "documentState" } | { "type": "markSaved", name?: string | null, } | { "type": "shapePaths", queries: Array<PathQuery>, } | { "type": "getThemes" } | { "type": "peekPresentation", bytesBase64: string, };

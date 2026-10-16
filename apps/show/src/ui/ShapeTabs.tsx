@@ -16,10 +16,13 @@ import type { Anchor } from "../generated/Anchor";
 import type { ArrowSize } from "../generated/ArrowSize";
 import type { ConnectorKind } from "../generated/ConnectorKind";
 import type { Preset } from "../generated/Preset";
+import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
+import type { Table } from "../generated/Table";
 import type { TableLook } from "../generated/TableLook";
+import type { TableStyleDef } from "../generated/TableStyleDef";
 import { css } from "../model";
 import { ARROW_PRESETS } from "../shapes/connectors";
-import { singleCell, splitCommand, TABLE_STYLES, type BorderKind } from "../shapes/tables";
+import { singleCell, styleCell, tableStyleGroups, tableStyleOf, type BorderKind } from "../shapes/tables";
 import { sitesOf } from "../canvas/EditHandles";
 import type { ShowState, ShowStore } from "../state/store";
 import { ShapeLibrary } from "./ShapeGallery";
@@ -235,18 +238,96 @@ export function shapeFormatGroups(store: ShowStore, state: ShowState, palette: T
 }
 
 /** A small table picture of a table style (header row, banded rows). */
-function TableStylePreview({ accent, palette }: { accent: number; palette: ThemePalette }) {
-  const slot = `accent${accent}` as ThemeColorSlot;
-  const c = (tint: number) => css({ kind: "theme", value: { slot, tint } }, palette);
-  const rows = [c(0), c(0.6), c(0.8), c(0.6)];
+/** A 5 × 4 sample table drawn with `style` and the selected table's options (gallery previews). */
+export function TableStylePreview({ style, look, palette }: { style: TableStyleDef; look: TableLook; palette: ThemePalette }) {
+  const rows = 5;
+  const cols = 4;
+  const sample: Table = {
+    rows: Array.from({ length: rows }, () => ({ height: 1 })),
+    cols: Array.from({ length: cols }, () => ({ width: 1 })),
+    cells: Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ text: { props: { anchor: "top", wrap: true, insets: { left: 0, top: 0, right: 0, bottom: 0 }, autofit: "none" }, paragraphs: [] } }))),
+    styleId: style.id,
+    look,
+  };
+  const cw = 42 / cols;
+  const rh = 28 / rows;
+  const out: ReactNode[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const s = styleCell(sample, r, c, [style]);
+      const x = 1 + c * cw;
+      const y = 1 + r * rh;
+      out.push(<rect key={`f${r}-${c}`} x={x} y={y} width={cw} height={rh} fill={s.fill ? css(s.fill, palette) : "#ffffff"} />);
+      const line = (k: string, l: { color: Color; width: number } | null, x1: number, y1: number, x2: number, y2: number) =>
+        l && out.push(<line key={`${k}${r}-${c}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={css(l.color, palette)} strokeWidth={l.width > 20000 ? 1.4 : 0.6} />);
+      line("t", s.borders.top, x, y, x + cw, y);
+      line("b", s.borders.bottom, x, y + rh, x + cw, y + rh);
+      line("l", s.borders.left, x, y, x, y + rh);
+      line("r", s.borders.right, x + cw, y, x + cw, y + rh);
+      if (s.textColor) out.push(<rect key={`t${r}-${c}`} x={x + cw * 0.25} y={y + rh * 0.4} width={cw * 0.5} height={0.9} fill={css(s.textColor, palette)} />);
+    }
+  }
   return (
     <svg aria-hidden="true" width="44" height="30" viewBox="0 0 44 30">
-      {rows.map((fill, i) => (
-        <rect key={i} x="1" y={1 + i * 7} width="42" height="7" fill={fill} stroke="#fff" strokeWidth="0.8" />
-      ))}
-      <path d="M15 1v28M29 1v28" stroke="#fff" strokeWidth="0.8" />
+      {out}
     </svg>
   );
+}
+
+/** The localized name of a built-in table style ("Medium Style 2 – Accent 3"); other styles keep their own. */
+export function tableStyleLabel(style: TableStyleDef, t: T): string {
+  const m = /^(?:(No Style, No Grid)|(No Style, Table Grid)|(Themed|Light|Medium|Dark) Style (\d))(?: - Accent (\d)(?:\/Accent (\d))?)?$/.exec(style.name);
+  if (!m) return style.name;
+  const base = m[1] ? t("show.tableStyle.noGrid") : m[2] ? t("show.tableStyle.tableGrid") : t(`show.tableStyle.${m[3]!.toLowerCase()}`, { n: m[4]! });
+  if (m[6]) return t("show.tableStyle.accentPair", { name: base, a: m[5]!, b: m[6] });
+  if (m[5]) return t("show.tableStyle.accent", { name: base, a: m[5] });
+  return base;
+}
+
+/** Table Styles ▾: every built-in style grouped Light / Medium / Dark (and the presentation's own). */
+function TableStylesMenu({ store, table, palette, t, close }: { store: ShowStore; table: Table; palette: ThemePalette; t: T; close: () => void }) {
+  const custom = store.getState().pres?.tableStyles ?? [];
+  const groups: { id: string; label: string; styles: TableStyleDef[] }[] = [
+    ...(custom.length ? [{ id: "custom", label: t("show.tableStyleGroup.custom"), styles: custom }] : []),
+    ...tableStyleGroups().map((g) => ({ id: g.id, label: t(`show.tableStyleGroup.${g.id}`), styles: g.styles })),
+  ];
+  return (
+    <div className="flex max-h-[70vh] w-[22rem] flex-col gap-2 overflow-y-auto p-2" data-testid="table-styles-menu">
+      {groups.map((g) => (
+        <section key={g.id} className="flex flex-col gap-1">
+          <h3 className="px-1 text-[11px] font-medium text-ui-muted">{g.label}</h3>
+          <div role="group" aria-label={g.label} className="grid grid-cols-7 gap-1">
+            {g.styles.map((s) => {
+              const label = tableStyleLabel(s, t);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  title={label}
+                  aria-label={label}
+                  aria-pressed={table.styleId?.toUpperCase() === s.id.toUpperCase()}
+                  className={`flex h-9 w-11 items-center justify-center rounded border ${table.styleId?.toUpperCase() === s.id.toUpperCase() ? "border-ui-focus bg-ui-active" : "border-transparent hover:bg-ui-hover"}`}
+                  onClick={() => {
+                    close();
+                    void store.setTableStyle(s.id);
+                  }}
+                >
+                  <TableStylePreview style={s} look={table.look} palette={palette} />
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** The styles shown inline in Table Design: Medium Style 2, plain and accents 1–6 (PowerPoint's best matches). */
+function quickTableStyles(): TableStyleDef[] {
+  return ["{073A0DAA-6AF3-43AB-8588-CEC1D06C72B9}", "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}", "{21E4AEA4-8DFA-4A89-87EB-49C32662AFE0}", "{F5AB1C69-6EDB-4FF4-983F-18BD219EF322}", "{00A15C55-8517-42AA-B614-E9B94910E393}", "{7DF18680-E054-41AD-8BC1-D1AEF772440D}", "{93296810-A885-4BE3-A3E7-6D5BEEA58F35}"]
+    .map((id) => tableStyleOf(id)!)
+    .filter(Boolean);
 }
 
 const LOOK: { key: keyof TableLook; label: string }[] = [
@@ -290,12 +371,13 @@ export function tableDesignTab(store: ShowStore, palette: ThemePalette, t: T): R
           <>
             <RibbonGallery
               label={t("show.tableStyles")}
-              items={TABLE_STYLES.map((s) => ({ id: s.id, label: t("show.tableStyle.medium2", { n: s.accent }), preview: <TableStylePreview accent={s.accent} palette={palette} /> }))}
+              items={quickTableStyles().map((s) => ({ id: s.id, label: tableStyleLabel(s, t), preview: <TableStylePreview style={s} look={table.look} palette={palette} /> }))}
               selected={table.styleId ?? ""}
               hideLabels
               itemClassName="h-9 w-12"
               onSelect={(id) => void store.setTableStyle(id)}
             />
+            <RibbonMenuButton label={t("show.tableStyle.more")} icon="table" size="large" showLabel menu={(close) => <TableStylesMenu store={store} table={table} palette={palette} t={t} close={close} />} />
             <RibbonButton label={t("show.table.clearStyle")} icon="clear" size="large" disabled={!table.styleId} onClick={() => void store.setTableStyle(null)} />
           </>
         ),
@@ -347,7 +429,6 @@ export function tableLayoutTab(store: ShowStore, t: T): RibbonTab | null {
   if (!sel) return null;
   const range = store.cellRange();
   const multi = !!range && !singleCell(sel.table, range);
-  const merged = !!range && splitCommand(sel.shape.id, sel.table, range.r0, range.c0) !== null;
   const anchorBtn = (a: Anchor, label: string, icon: string) => (
     <RibbonButton label={t(label)} icon={<span aria-hidden="true" className="text-[11px]">{icon}</span>} onClick={() => void store.setCellAnchor(a)} />
   );
@@ -385,7 +466,7 @@ export function tableLayoutTab(store: ShowStore, t: T): RibbonTab | null {
         items: (
           <RibbonStack>
             <RibbonButton label={t("show.table.merge")} icon="insertCells" showLabel disabled={!multi} onClick={() => void store.mergeCells()} />
-            <RibbonButton label={t("show.table.split")} icon="deleteCells" showLabel disabled={!merged} onClick={() => void store.splitCell()} />
+            <RibbonButton label={t("show.table.splitDots")} icon="deleteCells" showLabel disabled={!range} onClick={() => store.openDialog({ kind: "splitCells" })} />
           </RibbonStack>
         ),
       },

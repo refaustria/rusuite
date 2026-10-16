@@ -57,4 +57,10 @@ clickAction?: Hyperlink,
  * Hidden on the slide (Selection pane eye; `p:cNvPr/@hidden`): not
  * drawn in the editor, the show or print, still saved.
  */
-hidden?: boolean, };
+hidden?: boolean, 
+/**
+ * Lock aspect ratio (Format Shape › Size; `a:spLocks`/`a:picLocks`/…
+ * `@noChangeAspect`): corner drags keep the proportions. Pictures and
+ * media start locked, as in PowerPoint.
+ */
+lockAspect?: boolean, };

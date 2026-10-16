@@ -10,14 +10,15 @@ repository.workspace = true
 fmt-ooxml = { path = "../fmt-ooxml" }
 model-show = { path = "../model-show" }
 core-model = { path = "../core-model" }
-engine-formula = { path = "../engine-formula" }
-fmt-xlsx = { path = "../fmt-xlsx" }
-model-sheet = { path = "../model-sheet" }
 quick-xml.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+# the generated chart workbook is checked by reading it with the spreadsheet stack
+engine-formula = { path = "../engine-formula" }
+fmt-xlsx = { path = "../fmt-xlsx" }
+model-sheet = { path = "../model-sheet" }
 insta.workspace = true
 serde_json.workspace = true
 

@@ -191,7 +191,7 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
         {blank === "none" && slide && (
           <ShowSlide deck={deck} slides={slides} visit={visit} step={show.step} media={media} mediaVersion={mediaVersion} width={size.width} height={size.height} />
         )}
-        {blank === "none" && slide && !show.ended && <ShowOverlay key={slide.id} deck={deck} slide={slide} media={media} width={size.width} height={size.height} onLink={follow} />}
+        {blank === "none" && slide && !show.ended && <ShowOverlay key={slide.id} deck={deck} slide={slide} step={show.step} media={media} width={size.width} height={size.height} onLink={follow} />}
         {toolsOn && blank === "none" && slide && !show.ended && (
           <InkLayer tools={tools} setTools={setTools} slide={slide} box={slideBox(deck, size.width, size.height)} scale={slideBox(deck, size.width, size.height).scale} />
         )}

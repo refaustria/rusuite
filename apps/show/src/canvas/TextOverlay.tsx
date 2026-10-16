@@ -75,12 +75,12 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
   let base: { color?: string; bold?: boolean } = {};
   if (table && editing.cell) {
     // the cell's box on the slide (rows grown with their text, as drawn)
-    const box = tableLayout(table, pres.theme, palette).cells.find((c) => c.row === editing.cell!.row && c.col === editing.cell!.col);
+    const box = tableLayout(table, pres.theme, palette, pres.tableStyles).cells.find((c) => c.row === editing.cell!.row && c.col === editing.cell!.col);
     if (box) tf = { ...tf, x: tf.x + Math.round(box.x * 9525), y: tf.y + Math.round(box.y * 9525), w: Math.round(box.w * 9525), h: Math.round(box.h * 9525), rotationDeg: 0 };
     base = cellRunBase(table, editing.cell.row, editing.cell.col, palette);
   } else if (hit.shape.kind.kind === "auto" && body) {
     // the preset's text rectangle (inside ellipses, diamonds, triangles …)
-    const r = textRect(hit.shape.kind.value.geometry, tf.w, tf.h);
+    const r = textRect(hit.shape, tf.w, tf.h);
     if (r.x || r.y || r.w !== tf.w || r.h !== tf.h) {
       const cx = tf.x + tf.w / 2;
       const cy = tf.y + tf.h / 2;

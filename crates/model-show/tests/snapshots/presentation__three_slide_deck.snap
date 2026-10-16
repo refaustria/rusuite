@@ -422,6 +422,7 @@ expression: "serde_json::json!({\n    \"slideSize\": json[\"slideSize\"], \"slid
             },
             "width": 12700
           },
+          "lockAspect": true,
           "name": "Picture 11",
           "transform": {
             "h": 1371600,

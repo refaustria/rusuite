@@ -473,16 +473,17 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   adjust values, so a patch that changes any of them makes a new entry (LRU, 5000 entries); missing outlines are fetched
   in one batch per tick and the renderers re-render when they arrive (a rectangle / ellipse fallback meanwhile). The editor,
   thumbnails, presenter and print use the same cache (print awaits `ensure`); the audience window gets the slides'
-  entries with the `deck` message. Text inside non-rectangular presets uses an approximate text rectangle
-  (`shapes/presets.ts` `textRect`: inscribed rectangle for ellipses, middle half for diamonds, lower middle for triangles …).
+  entries with the `deck` message. Text sits in the preset's own text rectangle (ECMA `a:rect`, from the same
+  `shapePaths` reply, scaled to the drawn box; the whole box until it arrives).
 - **Insert › Shapes** (`ui/ShapeGallery.tsx`): Recently used (kept in `localStorage`), Lines (straight / elbow / curved
   connectors with and without arrowheads), Rectangles, Basic shapes, Block arrows, Flowchart, Stars and banners, Callouts;
   icons from the same outlines. A pointer click arms drawing (`ShowState.drawMode`, crosshair, `data-draw-mode` on the
   stage): drag a box (Shift: square) or click for the default 1-inch size at the click; Esc or a right-click cancels.
   Enter / Space on an item inserts it centred at once. Home › Drawing has a compact gallery plus More shapes ▾.
-- **Adjust handles** (`shapes/handles.ts`, `canvas/EditHandles.tsx`): yellow diamonds for the presets' `a:ahXY` handles
-  (linear in the adjust value along one axis; callout tails on both), live preview while dragging, one `SetGeometry` on
-  release (all adjust values of the shape).
+- **Adjust handles** (`shapes/handles.ts`, `canvas/EditHandles.tsx`): yellow diamonds for the presets' `a:ahXY` /
+  `a:ahPolar` handles as the core computes them (`shapePaths` `handles`: position, the adjust value per axis with samples of
+  the coordinate over its range, inverted piecewise-linearly while dragging; polar handles turn around the box centre),
+  live preview while dragging, one `SetGeometry` on release (all adjust values of the shape).
 - **Connectors** (`shapes/connectors.ts`): drawing or dragging an end over a shape shows its connection sites (grey, red
   when within 12 px); releasing on one glues it (`AddShape` with `start`/`end`, or `SetTransform` + `SetConnector`: the
   core lets go of ends whose shape did not move and re-glues them from the patch, then reroutes). End handles are green
@@ -490,8 +491,9 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   Large), Connector type (Straight / Elbow / Curved) and Reroute connectors (each glued end to the site nearest to the
   other end). Duplicating / pasting keeps a connector glued only to shapes copied with it.
 - **Tables** (`shapes/tables.ts`, `canvas/tableLayout.ts`, `canvas/TableOverlay.tsx`): drawn on the canvas (fills, text,
-  borders; rows grow with their text), with the six built-in styles Medium Style 2 – Accent 1…6 computed like the core's
-  `Table::style_cell` (unknown style ids draw no style formatting). While one table is selected a DOM layer (pointer
+  borders; rows grow with their text), with PowerPoint's 74 built-in styles (generated from the core's family rules,
+  `generated/tableStyles.json`) and the presentation's own (`tableStyles`), parts applied like the core's
+  `TableStyleDef::cell` (unknown style ids draw no style formatting). While one table is selected a DOM layer (pointer
   events, inset 5 px so the Transformer handles and the frame for moving stay reachable) takes clicks (edit the cell in
   the text overlay), drags across cells (cell selection, highlighted) and drags on column / row borders (`SetTableGrid`;
   neighbouring columns share the change, rows grow); right-click opens the table menu. In a cell Tab / Shift+Tab and the
@@ -556,13 +558,12 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   sample title slide with its fonts, colours and master background) → `ApplyTheme`; Variants (the current theme's accents
   rotated, four variants) and Colors ▾ (the built-ins' palettes) → `SetThemeColors`; Fonts ▾ (ten own heading / body
   pairings) → `SetThemeFonts`; Background Styles ▾ (styles 1–3 × Light 1, Light 2, Dark 2, Dark 1 on the master);
-  Slide Size ▾ (Standard 4:3, Widescreen 16:9, Custom… in cm) → `SetSlideSize` (no scale / ensure-fit prompt: the
-  command keeps slide shapes as they are); Format Background opens the pane.
+  Slide Size ▾ (Standard 4:3, Widescreen 16:9, Custom… in cm) → `SetSlideSize` (with content on the slides PowerPoint's prompt: Maximize or Ensure Fit, P8-32); Format Background opens the pane.
 - **Format Background pane** (right of the stage): Solid fill (colour) or Gradient fill (the theme's gradient background
   style in a theme colour), Hide background graphics, Apply to All (every slide gets the current slide's fill and
   graphics setting), Reset Background. Slides take explicit fills only (`SetBackground`), so a gradient chosen in the
   normal view goes to the master (and the current slide's own fill is removed); in the master view the pane edits the
-  selected master or layout. Picture fills are not offered (the model has no picture background).
+  selected master or layout. Picture or texture fill (P8-32): Insert… a picture file, Tile picture as texture, Transparency.
 - **Layouts**: Home / Insert › New Slide ▾ and Home › Layout ▾ show the presentation's layouts as thumbnails (the
   master view's pseudo slides), → `AddSlide` / `SetSlideLayout`; Home › Reset → `ResetSlide`. Context menus list every
   layout.
@@ -573,8 +574,7 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   the Home tab become `SetMasterPlaceholderProps` (the core passes them on to layouts and slides that still inherit);
   other edits (text, deeper levels, deleting) show a status message. Slide Master tab: Insert Layout, Delete (unused
   layouts only), Duplicate, Themes ▾ / Colors ▾ / Fonts ▾, Format Background, Background Styles ▾, Hide Background
-  Graphics (layouts), Slide Size, Close Master View. Not offered (no command in the core): renaming layouts and Insert
-  Placeholder.
+  Graphics (layouts), Slide Size, Close Master View. Rename, Insert Placeholder, Title / Footers and the text level: see P8-32 below.
 - **Header & Footer** (Insert, `ui/DesignDialogs.tsx`): Slide tab – Date and time (update automatically in one of the
   13 formats, or fixed text), Slide number, Footer, Don't show on title slide; Apply (current slide) / Apply to All →
   `SetHeaderFooter`. Notes and Handouts tab – date, header, page number and footer of printed notes pages and handouts
@@ -592,6 +592,44 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   the CSS filter. Crop mode (`canvas/CropOverlay.tsx`): the whole image dimmed under a dark veil, the cropped part bright
   in a frame with eight black handles (32 px hit areas, pointer events); Enter or a click outside → `CropPicture` with the
   new box, Esc cancels. Compress Pictures is not offered.
+
+## Show: master and layout editing, picture backgrounds, table styles, preset data (P8-32)
+
+- **Slide Master tab** (`ui/MasterView.tsx`, `design/master.ts`): Rename (also in the panel's context menu: the Rename Layout
+  dialog → `RenameLayout`; standard layouts keep their kind and show the name, custom ones become `custom:<name>`), Master
+  Layout group: Insert Placeholder ▾ (Content, Picture, Title, Date, Footer, Slide Number → `AddPlaceholder` centred at half
+  the slide; date / footer / number / title at the master's position; the master holds one per kind), Title and Footers
+  check boxes of a layout (add / remove those placeholders), Text level (All levels, Level 1–9). Delete on a pseudo shape →
+  `RemovePlaceholder`. Text formatting of the master's body placeholder goes to the outline level of its sample paragraph
+  (`SetMasterTextStyle`; paragraph 1 through `SetMasterPlaceholderProps`), with a chosen Text level only to that level (also
+  levels 6–9, which the sample text does not show); Tab / Shift+Tab with the body placeholder selected step the level (status
+  message "Formatting applies to text level N"). Layout placeholders keep level 1 only (deeper levels: status message). Typing
+  in a pseudo shape stores its text as the placeholder's custom prompt (`SetPlaceholderPrompt`; the sample text again or
+  nothing removes it); slides show a layout's custom prompt in empty placeholders, the master view shows it instead of the
+  sample text (on the master's body one line per level).
+- **Format Background › Picture or texture fill** (`ui/DesignTab.tsx`): Insert… opens a file picker (images only, else a
+  status message) → `SetBackgroundPicture` (the core adds the image to the media store) for the current slide / the selected
+  master or layout; Tile picture as texture and Transparency (0–100 %) change it (`SetBackground` with the same image).
+  Rendering (`canvas/SlideView.tsx`): white, then the image stretched over the slide or as a repeating pattern at its pixel
+  size, with its opacity; images of picture backgrounds are fetched like pictures (`getMedia`).
+- **Slide size prompt** (`ui/DesignDialogs.tsx`): choosing a size while slides have content asks Maximize (content as large as
+  possible, scaled by the larger ratio) or Ensure Fit (the smaller ratio) → `SetSlideSize { scale }`; Cancel keeps the size.
+- **Table Design › Table Styles**: the inline gallery shows Medium Style 2 (plain and accents 1–6); More table styles ▾ lists
+  all 74 built-ins grouped Light (with No Style, Themed Style 1/2), Medium, Dark (and the presentation's own as Document),
+  each preview a 5 × 4 sample drawn with the selected table's options. Names are localized from the family and accent.
+  **Layout › Split Cells…**: number of columns and rows for the selected cell (a merged cell starts with its spans; merged
+  cells split only into divisors of their spans) → `SplitTableCellGrid`; the context menu keeps Split cells (undo a merge).
+- **Lock aspect ratio** (Format Shape › Size) is the shape's `lockAspect` (`SetLockAspect`, saved as `noChangeAspect`);
+  corner drags of locked shapes keep their proportions (pictures and media start locked).
+- **Last view**: Save sends the current view (`savePptx { lastView }`), stamped into `viewProps.xml` without an undo step;
+  files open in it.
+- **Shape library**: 110 presets in PowerPoint's groups (Basic shapes with pie, chord, teardrop, frame, half frame, L-shape,
+  diagonal stripe, cross, cylinder, cube, bevel, donut, "not allowed", block arc, folded corner, smiley, lightning bolt, sun,
+  moon; Block arrows with quad, left-right-up, bent and U-turn arrows; Equation shapes; the whole Flowchart group (28 and
+  offline storage); ribbons and waves under Stars and banners; cloud and line callouts). Adjust defaults come from the core
+  (`generated/presetInfo.json`).
+- **Media in the click sequence** (`anim/playback.ts`, `present/ShowOverlay.tsx`): every clip "In Click Sequence" is a click
+  step after the slide's animations (as the core writes the timing); its click starts it, going back stops it.
 
 ## Show: charts, links, action buttons, audio/video, Reuse Slides (P8-24)
 
@@ -619,7 +657,7 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   (mobile guardrail) – and a button per jump (`linkAction`: go to the slide (if it is in the show), first, last, next,
   previous, the slide shown before, end the show). Regions: the boxes of top-level shapes with a click action and the
   text fragments of linked runs (unrotated boxes). A click on a link does not advance the show.
-- **Audio / video** (`apps/show/src/media/`): Insert › Video / Audio pick a file (mp4, webm, ogv / mp3, wav, ogg, m4a;
+- **Audio / video** (`apps/show/src/media/`; PowerPoint plays MP4 (H.264/AAC); WebM/Ogg play in the browser only): Insert › Video / Audio pick a file (mp4, webm, ogv / mp3, wav, ogg, m4a;
   other types are refused with a message) → `insertMedia` (video: half the slide at 16:9, centred; audio: a 1.27 cm icon),
   selected, Playback shown. The editor shows the poster frame, else a dark frame with a play button (video) or a speaker
   (audio); print shows the same. Playback: Start (When Clicked On / Automatically / In Click Sequence), Loop until Stopped,

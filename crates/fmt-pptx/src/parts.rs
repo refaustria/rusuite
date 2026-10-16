@@ -259,19 +259,6 @@ pub fn notes_slide_xml(notes: &str) -> Vec<u8> {
     x.finish()
 }
 
-/// `ppt/tableStyles.xml` (no styles, PowerPoint's default style id).
-pub fn table_styles_xml() -> Vec<u8> {
-    let mut x = XmlOut::new();
-    x.empty(
-        "a:tblStyleLst",
-        &[
-            ("xmlns:a", NS_A),
-            ("def", "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"),
-        ],
-    );
-    x.finish()
-}
-
 /// `docProps/core.xml`: empty (no timestamps: core crates have no clock).
 pub fn core_xml() -> Vec<u8> {
     let mut x = XmlOut::new();

@@ -1,0 +1,16 @@
+---
+source: crates/fmt-pptx/tests/fidelity.rs
+expression: bg
+---
+<p:bg>
+   <p:bgPr>
+    <a:blipFill dpi="0" rotWithShape="1">
+     <a:blip r:embed="rId2">
+      <a:alphaModFix amt="50000"/>
+     </a:blip>
+     <a:srcRect/>
+     <a:tile tx="0" ty="0" sx="100000" sy="100000" flip="none" algn="tl"/>
+    </a:blipFill>
+    <a:effectLst/>
+   </p:bgPr>
+  </p:bg>
