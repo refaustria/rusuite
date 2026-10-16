@@ -14,6 +14,9 @@ import type { DataValidation } from "../generated/DataValidation";
 import type { FilterValue } from "../generated/FilterValue";
 import type { FoundCell } from "../generated/FoundCell";
 import type { NameRow } from "../generated/NameRow";
+import type { PivotAt } from "../generated/PivotAt";
+import type { PivotInfo } from "../generated/PivotInfo";
+import type { PivotItemInfo } from "../generated/PivotItemInfo";
 import type { Rect } from "../generated/Rect";
 import type { SheetRect } from "../generated/SheetRect";
 import type { SheetThreads } from "../generated/SheetThreads";
@@ -282,5 +285,21 @@ export class CalcApi {
   /** The threads of `sheet`, or of every sheet with any (`null`). */
   async allComments(sheet: number | null): Promise<SheetThreads[]> {
     return (await this.call({ type: "allComments", sheet }, "comments")).sheets;
+  }
+
+  /** The field list and layout of pivot table `id` (the field pane). */
+  async pivotInfo(id: number): Promise<PivotInfo> {
+    return (await this.call({ type: "pivotInfo", id }, "pivotInfo")).info;
+  }
+
+  /** The pivot table at a cell and the cell's role (`null`: none). */
+  async pivotAt(sheet: number, row: number, col: number): Promise<PivotAt | null> {
+    const { pivot } = await this.call({ type: "pivotAt", sheet, row, col }, "pivotAt");
+    return pivot && typeof pivot === "object" ? pivot : null;
+  }
+
+  /** The items of a field of pivot table `id` in display order (filter dropdowns). */
+  async pivotItems(id: number, field: number): Promise<PivotItemInfo[]> {
+    return (await this.call({ type: "pivotItems", id, field }, "pivotItems")).items;
   }
 }

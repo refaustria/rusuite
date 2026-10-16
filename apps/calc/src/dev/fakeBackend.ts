@@ -47,6 +47,7 @@ import type { SheetAnnotations } from "../generated/SheetAnnotations";
 import { parseRange, rangeFormula } from "../charts/refs";
 import { findRefs } from "../formula/refs";
 import { nameProblem } from "../names/names";
+import { FakePivots } from "./fakePivot";
 
 interface FakeCell {
   input: string;
@@ -134,6 +135,22 @@ export class FakeCalcCore {
   /** Deleted sheets by id (ids are never reused; undo brings them back whole). */
   private removed = new Map<number, FakeSheet>();
   private nextId = 0;
+  /** Toy pivot tables (P8-33). */
+  readonly pivots = new FakePivots({
+    read: (sheet, r, c) => {
+      const v = this.value(this.sheet(sheet), r, c);
+      return typeof v === "number" || typeof v === "string" ? v : typeof v === "boolean" ? (v ? "TRUE" : "FALSE") : v.error;
+    },
+    write: (sheet, r, c, input) => this.setCell(this.sheet(sheet), r, c, input),
+    sheetName: (sheet) => this.sheet(sheet).name,
+    addSheet: (before) => {
+      let n = this.sheets.length + 1;
+      while (this.sheets.some((x) => x.name.toLowerCase() === `sheet${n}`)) n++;
+      const sh = this.newSheet(this.nextId++, `Sheet${n}`);
+      this.sheets.splice(Math.max(0, this.sheets.findIndex((x) => x.id === before)), 0, sh);
+      return sh.id;
+    },
+  });
 
   /** `sheetNames`: the sheets of a new document (default one, "Sheet1"). */
   constructor(private readonly sheetNames: string[] = ["Sheet1"]) {
@@ -148,6 +165,7 @@ export class FakeCalcCore {
     this.styles = [{}];
     this.names = [];
     this.persons = [];
+    this.pivots?.reset();
     this.undoStack = [];
     this.redoStack = [];
     this.revision++;
@@ -255,6 +273,8 @@ export class FakeCalcCore {
     const th = s.threads.find((x) => x.row === r && x.col === c);
     if (th) view.comment = th.resolved ? "resolved" : "open";
     if (s.hyperlinks.some((h) => r >= h.r0 && r <= h.r1 && c >= h.c0 && c <= h.c1) || /^=HYPERLINK\(/i.test(view.input)) view.link = true;
+    const pivot = this.pivots.role(s.id, r, c);
+    if (pivot) view.pivot = { ...pivot };
     return view;
   }
 
@@ -725,9 +745,23 @@ export class FakeCalcCore {
       case "movePivot":
       case "expandCollapse":
       case "setPageFilter":
-      case "restorePivots":
-        // Pivot tables are computed by the Rust core only (P8-30).
-        throw new Fail("internal", "pivot tables are not supported by the fake backend");
+      case "restorePivots": {
+        // A toy (dev/fakePivot.ts); the real tables are the Rust core's (P8-30).
+        let res: ReturnType<FakePivots["exec"]>;
+        try {
+          res = this.pivots.exec(cmd, this.sheets[0]?.id ?? 0);
+        } catch (e) {
+          throw new Fail("invalid_pivot", String(e instanceof Error ? e.message : e));
+        }
+        const patch = this.cellsPatch(this.sheet(res.sheet), res.coords);
+        patch.pivotSheets = [res.sheet];
+        patch.stalePivots = this.pivots.stale();
+        if (res.activate !== undefined) {
+          patch.sheets = this.sheetInfos();
+          patch.activateSheet = res.activate;
+        }
+        return [patch, res.inverse];
+      }
       default: {
         const unknown: never = cmd;
         throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
@@ -1588,6 +1622,12 @@ export class FakeCalcCore {
         case "apply": {
           const [patch, inv] = this.withAnnotations(() => this.exec(req.command));
           this.markCf(patch);
+          if (!patch.pivotSheets && this.pivots.tables.size > 0) {
+            // Edited source cells make their caches stale (as the core does).
+            let changed = false;
+            for (const g of patch.cells) if (this.pivots.touched(g.sheet, g.cells.map((c) => [c.row, c.col]))) changed = true;
+            if (changed) patch.stalePivots = this.pivots.stale();
+          }
           this.revision++;
           if (inv) this.undoStack.push(inv);
           this.redoStack = [];
@@ -1618,8 +1658,10 @@ export class FakeCalcCore {
             if (x.row < req.r0 || x.row > req.r1 || x.col < req.c0 || x.col > req.c1 || cells.some((c) => c.row === x.row && c.col === x.col)) continue;
             cells.push(this.view(s, x.row, x.col));
           }
+          for (const [r, c] of this.pivots.cellsIn(s.id, req)) if (!cells.some((x) => x.row === r && x.col === c)) cells.push(this.view(s, r, c));
           cells.sort((a, b) => a.row - b.row || a.col - b.col);
           const merges = s.merges.filter((m) => intersects(m, req)).map((m) => ({ ...m }));
+          const pivots = this.pivots.summaries(s.id);
           const cf: CellCf[] = [];
           if (s.cfRules.length > 0) {
             for (let r = req.r0; r <= Math.min(req.r1, req.r0 + 199); r++) {
@@ -1643,6 +1685,7 @@ export class FakeCalcCore {
                 ...(cf.length ? { cf } : {}),
                 ...(validations.length ? { validations: JSON.parse(JSON.stringify(validations)) as DataValidation[] } : {}),
                 ...(s.charts.length ? { charts: JSON.parse(JSON.stringify(s.charts)) as ChartObject[] } : {}),
+                ...(pivots.length ? { pivots } : {}),
               },
             },
           };
@@ -1799,7 +1842,15 @@ export class FakeCalcCore {
           return { ok: { type: "comments", sheets: list.map((s) => ({ sheet: s.id, threads: JSON.parse(JSON.stringify(s.threads)) as Thread[] })) } };
         }
         case "pivotAt":
-          return { ok: { type: "pivotAt", pivot: null } };
+          return { ok: { type: "pivotAt", pivot: this.pivots.at(req.sheet, req.row, req.col) } };
+        case "pivotInfo":
+          try {
+            return { ok: { type: "pivotInfo", info: this.pivots.info(req.id) } };
+          } catch {
+            throw new Fail("unknown_pivot", `unknown pivot ${req.id}`);
+          }
+        case "pivotItems":
+          return { ok: { type: "pivotItems", items: this.pivots.items(req.id, req.field) } };
         case "precedents":
           return { ok: { type: "trace", refs: this.precedents(req.sheet, req.row, req.col) } };
         case "dependents":

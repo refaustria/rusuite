@@ -158,6 +158,17 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       "Mod+F3": { label: t("calc.names.manager"), group: t("calc.tab.formulas"), when: inGrid, run: () => store.openDialog({ kind: "nameManager" }) },
       "Mod+Shift+F3": { label: t("calc.names.createFromSelection"), group: t("calc.tab.formulas"), when: inGrid, run: () => store.openDialog({ kind: "createNames" }) },
       "Alt+=": { label: t("calc.fn.autoSum"), group: t("calc.tab.formulas"), when: inGrid, run: () => store.autoSum("SUM") },
+      // PivotTable Analyze › Refresh / Refresh All (Excel's keys).
+      "Alt+F5": {
+        label: t("calc.pivot.refresh"),
+        group: t("calc.pivot.pivotTable"),
+        when: inGrid,
+        run: () => {
+          const p = store.pivots.active();
+          if (p) void store.pivots.refresh(p.id);
+        },
+      },
+      "Mod+Alt+F5": { label: t("calc.pivot.refreshAll"), group: t("calc.pivot.pivotTable"), when: inGrid, run: () => void store.pivots.refresh(null) },
     };
   }, [store, guard, t]);
 

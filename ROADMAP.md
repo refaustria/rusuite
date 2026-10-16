@@ -95,6 +95,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Locale-aware formula input/display (German `;`/`,`, function names) – owner decision pending; translated core messages via error codes; unused-key catalog check; wider gallery tiles for long German labels ("Überschri…"); Write Clipboard group overflow.
 
 ## Calc parity follow-ups
+- Pivot UI (P8-33): Recommended PivotTables, Group, slicers/timelines, PivotChart, Fields/Items & Sets, Blank Rows; subtotal position + banded columns + ChangePivotSource + style table in patches + Show Details + pivot styles in print → P8-35 item 5.
 - Pivot (P8-30): date/number grouping, calculated fields/items, value/label filters, sort by value, distinct count, pivot charts, slicers/timelines, "Show Report Filter Pages"; redo after undoing DuplicateSheet loses the copy's pivots; verify the pivot workbooks in real Excel.
 - Comments (P8-26): `allComments` request for an across-sheets Comments pane; @mentions; threaded-comment extLst/person ids/initials kept; Remove Hyperlink should also clear link formatting (ui-shared style patch cannot unset); hyperlink colour slots in ui-shared's Office theme; print "as displayed" for a printed selection.
 - Names/formats (P8-23): print backstage should pre-fill repeat rows/area from `Print_Titles`/`Print_Area`; Apply Names / Paste Names (F3); manual calculation mode + Calculate Now (F9); Excel-exact `_x` padding widths; trace arrows that follow edits; Error Checking / Evaluate Formula; German decimal display pending the owner's decision.

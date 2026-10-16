@@ -174,5 +174,83 @@ labels with `collapsed` set, dropdown buttons on `Row Labels`/`Column Labels` he
 cells. Patches: `pivotSheets` (refetch the region snapshot and an open `pivotInfo`), `stalePivots`
 (e.g. a "Refresh" hint); `WorkbookInfo.stalePivots` on open.
 
+## UI (P8-33, `apps/calc/src/pivot`)
+
+- **Insert › Tables › PivotTable** opens Create PivotTable: Table/Range (the current region of the active
+  cell, `Sheet1!$A$1:$D$7`, with the range picker that collapses the dialog; a defined name works too) and
+  New Worksheet / Existing Worksheet + Location. OK sends `createPivot` with no fields, switches to the
+  patch's `activateSheet` (or the target sheet), selects the table's first cell, opens the field pane and
+  shows PivotTable Analyze. Recommended PivotTables and the data model are not offered.
+- **PivotTable Fields pane** (right of the grid while a cell of a table is selected and Analyze › Field List
+  is on): search box, the source fields with checkboxes (ticking: numbers → Values as Sum, everything else
+  → Rows; unticking removes the field everywhere), the four areas Filters / Columns / Rows / Values with
+  `Σ Values` on the axis of `valuesIn` at `valuesPosition` when two or more data fields exist. Entries are
+  32 px rows dragged with pointer events (`elementFromPoint` finds the area, the row midpoints the index;
+  a field is on one axis only, a data field dragged to an axis or an axis field dragged to Values moves,
+  dropping outside the areas removes the entry). Each entry's ▾ menu: Move Up / Down / to Beginning / to
+  End, Move to Report Filter / Row Labels / Column Labels / Values, Remove Field, Field Settings… or Value
+  Field Settings…. Every change is one `updatePivot` with the changed lists (`model.ts` `patchOf`; options
+  are always sent in full because the core replaces them); Defer Layout Update keeps a draft until Update.
+- **Value Field Settings**: custom name (kept only when it differs from the default caption, so changing
+  the function renames `Sum of Sales` → `Average of Sales`), Summarize Values By (the 11 functions), Show
+  Values As (No Calculation, % of Grand / Column / Row / Parent Row Total, Difference From with base field
+  and base item incl. (previous) / (next), Running Total In, Rank Largest to Smallest), Number Format
+  (common codes or a custom code). **Field Settings**: subtotals Automatic / None / Custom (functions),
+  Compact / Outline / Tabular for the field, Repeat item labels (the table option), Show items with no
+  data (`showAllItems`). Insert blank line is not offered (no model support).
+- **Grid**: the core writes plain cells; the grid draws the table style from `CellView.pivot` and the
+  snapshot's `PivotSummary` (`styles.ts`): the header rows (above the first row label / value) get the
+  style's header fill and bold text with a line under them, subtotal lines (subtotal values) are bold, a
+  grand total line is bold with a line over it, the last row has a line under it, Banded Rows alternate
+  the band fill, Row Headers make items with inner items bold. All 84 built-in styles (Light / Medium /
+  Dark 1–28) are derived from the Office theme accents; unknown ids draw as Light16. The cell's own fill
+  and font colour win. Compact indents (`alignment.indent`, 9 px per level, now drawn for every cell) and
+  the −/+ buttons (items with `collapsed`; press → `expandCollapse`, double-click on the label toggles)
+  shift the label; dropdown buttons sit on `Row Labels` / `Column Labels`, on field headers inside the
+  table and on page cells (a funnel when filtered). An empty table shows Excel's placeholder box with
+  the table's name and "To build a report, choose fields from the PivotTable Field List". Blank pivot
+  cells stay in the view cache (they carry the look). `window.__calcPivotButtons` lists the last frame's
+  buttons for the e2e tests.
+- **Filter dropdown**: Select field (compact headers with several fields), Sort A to Z / Z to A (the
+  field's `sort`), Clear Filter From, search, (Select All) and the items from `pivotItems` (items without
+  data greyed) → `updatePivot` `hiddenItems` (while searching only the ticked results stay, as in
+  Excel); page fields: (All) or one item, or Select Multiple Items → `setPageFilter`.
+- **Read-only cells**: typing, F2, double-click and the formula bar refuse with "We can't change this part
+  of a PivotTable." (the editor stays closed; the core's `pivot_cell` error shows the same text); Delete on
+  a selection covering whole tables asks and sends `deletePivot` (plus a `clearRange` of the rest), on part
+  of a table it is refused. Ctrl+A / Ctrl+Shift+* inside a table selects the table; Alt+↓ opens a header's
+  dropdown.
+- **PivotTable Analyze**: PivotTable Name, Options ▾ (PivotTable Options…: name, for error values / empty
+  cells show, grand totals for rows / columns, repeat item labels, field headers; Generate GetPivotData,
+  on by default), Active Field (the active cell's field or data caption, Field Settings… / Value Field
+  Settings…, Expand / Collapse Field = `expandCollapse` with `item: null`), Refresh ▾ (Refresh, Refresh
+  All = `refreshPivot` `null`), Change Data Source… (the core has no command: the table is recreated at its
+  place with the same fields – `deletePivot` + `createPivot` in one compound – and its name and options
+  are restored with a second `updatePivot`), Clear ▾ (Clear All, Clear Filters), Select ▾ (Labels, Values,
+  Entire PivotTable), Move PivotTable…, Field List, +/- Buttons (a view setting), Field Headers. Group,
+  Insert Slicer / Timeline, Fields, Items & Sets, OLAP tools, Relationships and PivotChart are not offered.
+  **Design**: Subtotals ▾ (Do Not Show; Show at Top = automatic; Show at Bottom is disabled – the model has
+  no position option), Grand Totals ▾ (the four choices), Report Layout ▾ (Compact / Outline / Tabular =
+  `layout`, Repeat / Do Not Repeat All Item Labels), PivotTable Style Options (Row Headers, Column Headers,
+  Banded Rows; Banded Columns disabled – no model option), PivotTable Styles gallery (84 previews, the id is
+  stored in `options.style`). Blank Rows is not offered. The tabs come under "PivotTable Tools" and follow
+  the active cell.
+- **Autofit on update** (Excel's default): after a pivot command the columns of the written pivot cells
+  widen to fit (bold text, indent, −/+ button and dropdown room; never narrower) – a second undo step.
+- **Stale**: `WorkbookInfo.stalePivots` / patch `stalePivots` feed a status-bar hint ("1 PivotTable needs a
+  refresh") and, on a sheet with a stale table, the yellow bar "Data changed – Refresh" whose button
+  refreshes that sheet's stale tables.
+- **GETPIVOTDATA**: while a formula is edited in point mode, a click on a value / subtotal / grand total cell
+  inserts `GETPIVOTDATA("<caption>",$A$3,"<field>",<item>,…)` instead of the address (`model.ts`
+  `pivotDataKey`: the labels of the cell's row in the label columns and of its column in the header rows; an
+  outer item missing on the line comes from the nearest line before it with a label at that depth; a
+  grand total line contributes nothing; a data caption on an axis names the data field; numeric items are
+  written as numbers; another sheet's table gets the sheet prefix). Analyze › Options ▾ › Generate
+  GetPivotData turns it off.
+- The core does not send the grown style table with pivot patches (new number formats / indents): the store
+  fetches `info` again when a patch or snapshot names an unknown style id.
+- The fake backend (`dev/fakePivot.ts`) has a toy compact-form pivot (first column field only) for the unit
+  tests and `?fake=1`.
+
 Not yet (ideas): grouping dates/numbers, calculated fields, value/label filters, sort by value,
 slicers, pivot charts, "Show Report Filter Pages", distinct count.

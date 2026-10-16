@@ -17,6 +17,7 @@ import { intersects, mergeAt } from "./merges";
 import { axisSegments, type PaneLayout } from "./panes";
 import { isWholeCols, isWholeRows, LAST_COL, type Range } from "./Selection";
 import { approxMeasure, fitNumber, lineHeightPx, wrapLines, type Measure } from "./textLayout";
+import type { PivotLook } from "../pivot/styles";
 import {
   colorCss, fontCss, horizontalAlign, styleAt, verticalAlign, type TextAlign, type VAlignKind,
 } from "./style";
@@ -44,6 +45,24 @@ export interface SheetData {
   barAxes?: ReadonlyMap<string, number>;
   /** Formulas › Show Formulas: cells show their input (formulas left-aligned, values unformatted). */
   showFormulas?: boolean;
+  /** The pivot table style of a cell (header band, totals, bands, room for a +/- button); absent: none. */
+  pivotLook?: (cell: CellView | undefined, row: number, col: number) => PivotLook | undefined;
+}
+
+/** Width of one indent level (Format Cells › Alignment › Indent, compact pivot labels), px. */
+export const INDENT_PX = 9;
+
+/** A cell style with a pivot table's look under it: the cell's own fill and font colour win (Excel). */
+export function withLook(style: CellStyle, look: PivotLook | undefined): CellStyle {
+  if (!look) return style;
+  const out: CellStyle = { ...style };
+  if (look.fill && style.fill?.kind !== "solid") out.fill = { kind: "solid", color: { kind: "rgb", value: look.fill.replace("#", "").toUpperCase() } };
+  if (look.bold || (look.color && !style.font?.color)) {
+    out.font = { ...(style.font ?? {}) };
+    if (look.bold) out.font.bold = true;
+    if (look.color && !style.font?.color) out.font.color = { kind: "rgb", value: look.color.replace("#", "").toUpperCase() };
+  }
+  return out;
 }
 
 /** What a cell shows with Show Formulas on: its input, formulas as text. */
@@ -261,8 +280,13 @@ export function computeRenderOps(
       const styleId = styleIdAt(rowCells, rowStyle, c);
       const cf = cfAt(r, c);
       if (styleId === 0 && !cell && !cf) continue;
-      const style = cfStyle(styleAt(styles, styleId), cf);
+      const look = cell?.pivot ? sheet.pivotLook?.(cell, r, c) : undefined;
+      const style = withLook(cfStyle(styleAt(styles, styleId), cf), look);
       if (cf) decorate(r, c, cf, x, y, w, h);
+      if (look?.top && !style.borders?.top) lines.push({ op: "line", x1: x, y1: y, x2: x + w, y2: y, color: look.top, width: 1, dash: [] });
+      if (look?.bottom && !style.borders?.bottom) lines.push({ op: "line", x1: x, y1: y + h, x2: x + w, y2: y + h, color: look.bottom, width: 1, dash: [] });
+      if (look?.left && !style.borders?.left) lines.push({ op: "line", x1: x, y1: y, x2: x, y2: y + h, color: look.left, width: 1, dash: [] });
+      if (look?.right && !style.borders?.right) lines.push({ op: "line", x1: x + w, y1: y, x2: x + w, y2: y + h, color: look.right, width: 1, dash: [] });
       if (style.fill?.kind === "solid") {
         const color = colorCss(style.fill.color);
         if (color) fills.push({ op: "fill", x, y, w, h, color });
@@ -285,15 +309,17 @@ export function computeRenderOps(
       if (rowMerges.length > 0 && merged(c)) continue;
       const cf = cfAt(r, c);
       if (cf?.hideValue) continue;
-      // An icon sits at the left edge: the text starts after it.
-      const shift = cf?.icon !== undefined && cf.iconSet ? ICON_SIZE + 2 : 0;
+      const look = raw.pivot ? sheet.pivotLook?.(raw, r, c) : undefined;
+      const styleId = cell.style;
+      const style = styleAt(styles, styleId);
+      const align = horizontalAlign(style, cell.kind);
+      // An icon sits at the left edge: the text starts after it (and after a pivot label's +/- button and the indent).
+      const indent = align === "left" ? (style.alignment?.indent ?? 0) * INDENT_PX : 0;
+      const shift = (cf?.icon !== undefined && cf.iconSet ? ICON_SIZE + 2 : 0) + (look?.shift ?? 0) + indent;
       const x = xOf(c) + shift;
       const w = colGeo.size(c) - shift;
       if (w <= 0) continue;
-      const styleId = cell.style;
-      const style = styleAt(styles, styleId);
-      const t = withFormatColor(textAttrs(styleId, style, cf), cell, cf);
-      const align = horizontalAlign(style, cell.kind);
+      const t = withFormatColor(look ? resolveText(cfStyle(withLook(style, look), cf)) : textAttrs(styleId, style, cf), cell, cf);
       const avail = w - 2 * CELL_PADDING;
       const base = { op: "text" as const, row: r, col: c, x, y, w, h, align, ...t };
       const filled = fillText(cell, avail, t.font, measure);
