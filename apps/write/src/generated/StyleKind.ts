@@ -3,4 +3,4 @@
 /**
  * Kind of a style.
  */
-export type StyleKind = "paragraph" | "character" | "table";
+export type StyleKind = "paragraph" | "character" | "linked" | "table" | "numbering";

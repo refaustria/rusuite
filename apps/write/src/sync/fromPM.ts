@@ -12,6 +12,7 @@ import type { NumberingRef } from "../generated/NumberingRef";
 import type { Paragraph } from "../generated/Paragraph";
 import type { ParagraphProperties } from "../generated/ParagraphProperties";
 import type { Table } from "../generated/Table";
+import type { Run } from "../generated/Run";
 import type { Toc } from "../generated/Toc";
 import { listContext, numberingOf, type ListContext } from "./listMapping";
 import { canonValue, mergeRuns, type RunProperties } from "./model";
@@ -54,12 +55,21 @@ export function propsFromMarks(marks: readonly Mark[]): RunProperties {
   return p;
 }
 
+/** The character style of a text node (its `charStyle` mark). */
+export function styleFromMarks(marks: readonly Mark[]): string | undefined {
+  const m = marks.find((x) => x.type.name === "charStyle");
+  return m?.attrs.id ? String(m.attrs.id) : undefined;
+}
+
 export function inlinesFromPM(node: PMNode): Inline[] {
   const out: Inline[] = [];
   node.forEach((child) => {
     if (child.isText) {
       const props = propsFromMarks(child.marks);
-      out.push({ kind: "run", value: Object.keys(props).length ? { props, text: child.text! } : { text: child.text! } });
+      const style = styleFromMarks(child.marks);
+      const value: Run = Object.keys(props).length ? { props, text: child.text! } : { text: child.text! };
+      if (style) value.style = style;
+      out.push({ kind: "run", value });
     } else if (child.type.name === "image") {
       const a = child.attrs;
       out.push({

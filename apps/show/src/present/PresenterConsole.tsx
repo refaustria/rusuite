@@ -90,6 +90,12 @@ export function PresenterConsole({ deck, slides, media, mediaVersion, show, onAc
   useShowKeys(onAction);
 
   const slide = slides[show.index];
+  // Section names before the first shown slide of each section.
+  const sectionStart = new Map<number, string>();
+  for (const sec of deck.sections ?? []) {
+    const first = slides.find((x) => sec.slideIds.includes(x.id));
+    if (first && !sectionStart.has(first.id)) sectionStart.set(first.id, sec.name);
+  }
   // "Next": the current slide after its next click while it has steps left (as the audience will see it).
   const moreSteps = !show.ended && show.step < (show.steps[show.index] ?? 0);
   const next = show.ended ? undefined : moreSteps ? slide : slides[show.index + 1];
@@ -192,7 +198,12 @@ export function PresenterConsole({ deck, slides, media, mediaVersion, show, onAc
       </div>
 
       <nav aria-label={t("show.slides")} className="flex gap-2 overflow-x-auto border-t border-white/10 p-2">
-        {slides.map((s, i) => (
+        {slides.map((s, i) => [
+          sectionStart.get(s.id) !== undefined && (
+            <span key={`sec-${s.id}`} data-testid="console-section" className="flex shrink-0 items-center px-1 text-[10px] uppercase tracking-wide text-white/60 [writing-mode:vertical-rl]">
+              {sectionStart.get(s.id)}
+            </span>
+          ),
           <button
             key={s.id}
             ref={i === show.index ? stripItem : undefined}
@@ -205,8 +216,8 @@ export function PresenterConsole({ deck, slides, media, mediaVersion, show, onAc
           >
             <SlideImage deck={deck} slide={s} media={media} mediaVersion={mediaVersion} width={112} height={63} />
             <span className="absolute bottom-0 left-0 bg-black/60 px-1 text-[10px]">{i + 1}</span>
-          </button>
-        ))}
+          </button>,
+        ])}
       </nav>
     </div>
   );

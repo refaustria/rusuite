@@ -18,10 +18,13 @@ import { AdjustHandles, ConnectorHandles, PreviewLine, SiteDots, connectorTarget
 import { TableOverlay } from "./TableOverlay";
 import { findShape } from "../model";
 import { gestureCommand } from "../state/commands";
-import { useShow, type ShowStore } from "../state/store";
+import { useShow, viewSlide, type ShowStore } from "../state/store";
+import { CropOverlay } from "./CropOverlay";
+import { masterMenu } from "./menus";
 import { shapeMenu, slideMenu, tableMenu } from "./menus";
 import { NO_GUIDES, SNAP_PX, anchorAxes, sameGuides, snapBox, snapPoint, snapTargets, type Guides, type SnapTargets } from "./snap";
 import { SlideView } from "./SlideView";
+import { stableDeck } from "../design/deck";
 import { TextOverlay } from "./TextOverlay";
 import { AnimBadges, StagePreview } from "./AnimOverlay";
 import { useT } from "../i18n";
@@ -61,7 +64,6 @@ function shapeTargets(target: Konva.Node): { top: NodeId | null; leaf: NodeId | 
 export function EditorStage({ store, width, height }: { store: ShowStore; width: number; height: number }) {
   const t = useT();
   const pres = useShow(store, (s) => s.pres);
-  const current = useShow(store, (s) => s.current);
   const selection = useShow(store, (s) => s.selection);
   const editing = useShow(store, (s) => s.editing);
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
@@ -84,7 +86,9 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   /** A shape drawn instead of the model's while a handle is dragged. */
   const [preview, setPreview] = useState<Shape | null>(null);
 
-  const slide = pres?.slides.find((s) => s.id === current) ?? null;
+  const masterView = useShow(store, (s) => s.masterView);
+  const cropping = useShow(store, (s) => s.crop);
+  const slide = useShow(store, (s) => viewSlide(s));
   const size = pres ? slidePx(pres.slideSize) : { width: 1280, height: 720 };
   const scale = pres ? fitScale(width, height, pres.slideSize) : 0;
 
@@ -95,12 +99,12 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
     if (!stage || !tr) return;
     const sl = store.currentSlide();
     const only = selection.length === 1 ? sl?.shapes.find((x) => x.id === selection[0]) : undefined;
-    const nodes = drawMode || only?.kind.kind === "connector"
+    const nodes = drawMode || cropping || only?.kind.kind === "connector"
       ? []
       : selection.map((id) => stage.findOne(`#shape-${id}`)).filter((n): n is Konva.Node => !!n);
     tr.nodes(nodes);
     tr.getLayer()?.batchDraw();
-  }, [selection, slide, drawMode, store]);
+  }, [selection, slide, drawMode, cropping, store]);
 
   const setGuides = useCallback((g: Guides) => {
     if (sameGuides(g, guidesRef.current)) return;
@@ -321,7 +325,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       store.setDrawMode(null);
       return;
     }
-    setMenu({ at: { x: e.evt.clientX, y: e.evt.clientY }, items: top === null ? slideMenu(store) : shapeMenu(store) });
+    setMenu({ at: { x: e.evt.clientX, y: e.evt.clientY }, items: masterView ? masterMenu(store) : top === null ? slideMenu(store) : shapeMenu(store) });
   };
 
   // Pictures keep their aspect ratio on corner handles (Shift frees it); other shapes keep it with Shift.
@@ -338,6 +342,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       data-testid="editor-stage"
       data-guides={guides.v.length + guides.h.length}
       data-draw-mode={drawMode ?? undefined}
+      data-master-view={masterView ? (masterView.kind === "master" ? "master" : masterView.value) : undefined}
     >
       <Stage
         ref={stageRef}
@@ -356,12 +361,13 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       >
         <Layer>
           <SlideView
-            deck={pres}
+            deck={stableDeck(pres)}
             slide={slide}
             media={store.media}
             mediaVersion={mediaVersion}
             interactive={!drawMode}
             prompts
+            design={masterView ? (masterView.kind === "master" ? "master" : "layout") : undefined}
             hiddenText={editing?.shape ?? null}
             hiddenCell={editing?.cell ?? null}
             overrides={overrides}
@@ -420,8 +426,9 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       </Stage>
       <TableOverlay store={store} scale={scale} onMenu={(at) => setMenu({ at, items: tableMenu(store) })} />
       {editing && <TextOverlay store={store} scale={scale} />}
-      <AnimBadges store={store} slide={slide} scale={scale} />
-      <StagePreview store={store} deck={pres} slides={pres.slides} index={pres.slides.indexOf(slide)} width={size.width * scale} height={size.height * scale} />
+      {!masterView && <AnimBadges store={store} slide={slide} scale={scale} />}
+      {!masterView && <StagePreview store={store} deck={stableDeck(pres)} slides={pres.slides} index={pres.slides.indexOf(slide)} width={size.width * scale} height={size.height * scale} />}
+      {cropping && <CropOverlay store={store} scale={scale} />}
       <ContextMenu at={menu?.at ?? null} label={t("show.slideEditor")} items={menu?.items ?? []} onClose={() => setMenu(null)} />
     </div>
   );

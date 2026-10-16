@@ -225,6 +225,7 @@ pub fn run() -> (Report, Vec<u8>) {
                 offset: 3,
                 text: "x".into(),
                 props: None,
+                style: None,
             };
             host.apply(cmd).expect("insert");
         },
@@ -239,6 +240,9 @@ pub fn run() -> (Report, Vec<u8>) {
         match_case: false,
         whole_word: true,
         all: true,
+        wildcards: false,
+        format: None,
+        replace_format: None,
     };
     let env = r.time(
         "FindReplace all (\"revenue\" → \"turnover\", Host::apply)",

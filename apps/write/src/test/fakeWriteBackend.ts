@@ -11,7 +11,9 @@ import type { Block } from "../generated/Block";
 import type { Document } from "../generated/Document";
 import type { Inline } from "../generated/Inline";
 import type { NumberingDef } from "../generated/NumberingDef";
+import type { FindQuery } from "../generated/FindQuery";
 import type { Paragraph } from "../generated/Paragraph";
+import type { Run } from "../generated/Run";
 import type { Request } from "../generated/Request";
 import type { ResponseBody } from "../generated/ResponseBody";
 import type { WriteCommand } from "../generated/WriteCommand";
@@ -54,6 +56,18 @@ export function splitInlines(inlines: Inline[], from: number, to: number): [Inli
     pos += len;
   }
   return parts;
+}
+
+function inheritedStyle(p: Paragraph, offset: number): string | undefined {
+  let pos = 0;
+  let last: Inline | undefined;
+  for (const i of p.inlines) {
+    if (pos >= offset) break;
+    if (i.kind === "run" && i.value.text) last = i;
+    pos += inlineLength(i);
+  }
+  const r = offset > 0 && last?.kind === "run" ? last : p.inlines.find((i) => i.kind === "run");
+  return r?.kind === "run" ? (r.value.style ?? undefined) : undefined;
 }
 
 function inheritedProps(p: Paragraph, offset: number) {
@@ -188,6 +202,18 @@ export class FakeWriteBackend implements WriteBackend {
       }
       case "documentState":
         return { type: "documentState", dirty: this.revision !== this.savedRevision, revision: this.revision, name: this.name };
+      case "blocksWithStyle": {
+        const ids: number[] = [];
+        const def = this.doc.styles.styles.find((s) => (s.kind === "paragraph" || s.kind === "linked") && s.isDefault)?.id ?? "Normal";
+        for (const b of walkBlocks(this.doc.body)) {
+          if (b.kind !== "paragraph") continue;
+          const ps = b.value.props?.style ?? def;
+          if (ps === request.id || b.value.inlines.some((i) => i.kind === "run" && i.value.style === request.id)) ids.push(b.value.id);
+        }
+        return { type: "blockIds", ids };
+      }
+      case "find":
+        return { type: "findMatches", matches: this.findMatches(request.query), revision: this.revision };
       case "markSaved":
         if (request.name) this.name = request.name;
         this.savedRevision = this.revision;
@@ -259,6 +285,7 @@ export class FakeWriteBackend implements WriteBackend {
     if (JSON.stringify(before.numbering) !== JSON.stringify(after.numbering)) patch.numbering = structuredClone(after.numbering);
     if (stableStringify(before.notes ?? []) !== stableStringify(after.notes ?? [])) patch.notes = structuredClone(after.notes ?? []);
     if (stableStringify(before.sections ?? []) !== stableStringify(after.sections ?? [])) patch.sections = structuredClone(after.sections ?? []);
+    if (stableStringify(before.styles) !== stableStringify(after.styles)) patch.styles = structuredClone(after.styles);
     return patch;
   }
 
@@ -335,6 +362,70 @@ export class FakeWriteBackend implements WriteBackend {
     };
   }
 
+  /** Simplified find: text (case, whole words) and direct bold / italic / style constraints. */
+  private findMatches(q: FindQuery): { block: number; from: number; to: number }[] {
+    const out: { block: number; from: number; to: number }[] = [];
+    const f = q.format;
+    const okAt = (p: Paragraph, at: number): boolean => {
+      if (!f) return true;
+      if (f.style && (p.props?.style ?? "Normal") !== f.style) {
+        let pos = 0;
+        let hit = false;
+        for (const i of p.inlines) {
+          const len = inlineLength(i);
+          if (at >= pos && at < pos + len && i.kind === "run" && i.value.style === f.style) hit = true;
+          pos += len;
+        }
+        if (!hit) return false;
+      }
+      let pos = 0;
+      for (const i of p.inlines) {
+        const len = inlineLength(i);
+        if (at >= pos && at < pos + len) {
+          const props = i.kind === "run" ? (i.value.props ?? {}) : {};
+          if (f.run?.bold != null && !!props.bold !== f.run.bold) return false;
+          if (f.run?.italic != null && !!props.italic !== f.run.italic) return false;
+          return true;
+        }
+        pos += len;
+      }
+      return false;
+    };
+    for (const b of walkBlocks(this.doc.body)) {
+      if (b.kind !== "paragraph") continue;
+      const p = b.value;
+      const chars = [...p.inlines.map((i) => (i.kind === "run" ? i.value.text : "\uFFFC")).join("")];
+      const pat = [...q.text];
+      const eq = (a: string, c: string) => (q.matchCase ? a === c : a.toLowerCase() === c.toLowerCase());
+      if (!pat.length) {
+        let start = -1;
+        for (let i = 0; i <= chars.length; i++) {
+          const good = i < chars.length && okAt(p, i);
+          if (good && start < 0) start = i;
+          if (!good && start >= 0) {
+            out.push({ block: p.id, from: start, to: i });
+            start = -1;
+          }
+        }
+        continue;
+      }
+      for (let i = 0; i + pat.length <= chars.length; ) {
+        const hit = pat.every((c, k) => eq(chars[i + k]!, c)) && pat.every((_c, k) => okAt(p, i + k));
+        if (hit) {
+          out.push({ block: p.id, from: i, to: i + pat.length });
+          i += pat.length;
+        } else i++;
+      }
+    }
+    return out;
+  }
+
+  private style(id: string) {
+    const s = this.doc.styles.styles.find((x) => x.id === id);
+    if (!s) throw new Fail("unknown_style", `unknown style "${id}"`);
+    return s;
+  }
+
   private numberingOf(p: Paragraph) {
     const n = p.props?.numbering;
     return n && n.numId !== 0 ? n : null;
@@ -348,7 +439,10 @@ export class FakeWriteBackend implements WriteBackend {
         if (/[\n\r]/.test(c.text)) throw new Fail("invalid_command", "text must not contain line feeds");
         const props = c.props ?? inheritedProps(p, c.offset);
         const [a, , z] = splitInlines(p.inlines, c.offset, c.offset);
-        p.inlines = [...a, { kind: "run", value: Object.keys(props).length ? { props, text: c.text } : { text: c.text } }, ...z];
+        const value: Run = Object.keys(props).length ? { props, text: c.text } : { text: c.text };
+        const style = c.props ? c.style : inheritedStyle(p, c.offset);
+        if (style) value.style = style;
+        p.inlines = mergeRuns([...a, { kind: "run", value }, ...z]);
         return null;
       }
       case "deleteText": {
@@ -523,6 +617,76 @@ export class FakeWriteBackend implements WriteBackend {
         if (at === list.length - 1) list.push({ kind: "paragraph", value: { id: this.alloc(), inlines: [] } });
         return null;
       }
+      case "applyCharacterStyle": {
+        const p = this.para(c.block);
+        this.range(p, c.from, c.to);
+        let style = c.style || null;
+        if (style) {
+          const s = this.style(style);
+          if (s.kind === "linked") style = s.link ?? s.id;
+          else if (s.kind !== "character") throw new Fail("unknown_style", `not a character style "${style}"`);
+        }
+        const [a, mid, z] = splitInlines(p.inlines, c.from, c.to);
+        const changed = mid.map((i): Inline => {
+          if (i.kind !== "run") return i;
+          const value = { ...i.value };
+          if (style) value.style = style;
+          else delete value.style;
+          return { kind: "run", value };
+        });
+        p.inlines = mergeRuns([...a, ...changed, ...z]);
+        return null;
+      }
+      case "addStyle":
+        if (this.doc.styles.styles.some((s) => s.id === c.style.id)) throw new Fail("invalid_command", "duplicate style id");
+        this.doc.styles.styles.push(structuredClone(c.style));
+        return null;
+      case "updateStyle": {
+        const s = this.style(c.id);
+        const pt = c.patch;
+        if (pt.name) s.name = pt.name;
+        if (pt.basedOn != null) s.basedOn = pt.basedOn || null;
+        if (pt.next != null) s.next = pt.next || null;
+        if (pt.run) s.run = pt.replaceFormatting ? pt.run : { ...(s.run ?? {}), ...pt.run };
+        if (pt.paragraph) s.paragraph = pt.replaceFormatting ? pt.paragraph : applyParagraphPatch(s.paragraph, pt.paragraph);
+        if (pt.quickFormat != null) s.quickFormat = pt.quickFormat;
+        if (pt.autoRedefine != null) s.autoRedefine = pt.autoRedefine;
+        return null;
+      }
+      case "renameStyle":
+        this.style(c.id).name = c.name;
+        return null;
+      case "setDefaultStyle":
+        for (const s of this.doc.styles.styles) if ((s.kind === "linked" ? "paragraph" : s.kind) === (c.kind === "linked" ? "paragraph" : c.kind)) s.isDefault = s.id === c.id;
+        return null;
+      case "deleteStyle": {
+        const s = this.style(c.id);
+        if (!s.custom) throw new Fail("invalid_command", "built-in styles cannot be deleted");
+        this.doc.styles.styles = this.doc.styles.styles.filter((x) => x.id !== c.id);
+        for (const b of walkBlocks(this.doc.body)) {
+          if (b.kind !== "paragraph") continue;
+          if (b.value.props?.style === c.id) {
+            b.value.props = { ...b.value.props };
+            if (c.replacement && c.replacement !== "Normal") b.value.props.style = c.replacement;
+            else delete b.value.props.style;
+          }
+          for (const i of b.value.inlines) if (i.kind === "run" && i.value.style === c.id) delete i.value.style;
+        }
+        return null;
+      }
+      case "updateStyleFromSelection": {
+        const s = this.style(c.id);
+        const p = this.para(c.block);
+        const run = p.inlines.find((i) => i.kind === "run");
+        const { style: _st, numbering: _n, sectionEnd: _e, ...direct } = p.props ?? {};
+        s.run = { ...(s.run ?? {}), ...(run?.kind === "run" ? (run.value.props ?? {}) : {}) };
+        if (s.kind !== "character") {
+          s.paragraph = applyParagraphPatch(s.paragraph, direct);
+          p.props = { ...(p.props?.numbering ? { numbering: p.props.numbering } : {}), ...(c.id === "Normal" ? {} : { style: c.id }) };
+        }
+        for (const i of p.inlines) if (i.kind === "run") delete i.value.props;
+        return null;
+      }
       case "findReplace": {
         if (!c.find) throw new Fail("invalid_command", "nothing to find");
         let count = 0;
@@ -659,7 +823,8 @@ export class FakeWriteBackend implements WriteBackend {
         const [a, mid, z] = splitInlines(p.inlines, c.from, c.to);
         const plain = mid.map((i) => (i.kind === "run" ? ({ kind: "run", value: { text: i.value.text } } as Inline) : i));
         p.inlines = mergeRuns([...a, ...plain, ...z]);
-        if (c.paragraph) delete p.props;
+        if (c.paragraph && c.keepStyle) p.props = p.props?.style ? { style: p.props.style } : {};
+        else if (c.paragraph) delete p.props;
         return null;
       }
       case "setPage": {

@@ -70,6 +70,13 @@ describe("print layouts", () => {
     expect(h6.pages[0]).toContain(">6</div>");
     expect(buildShowPrintDoc(deck(6), imgs, WIDE, { ...D, layout: "handout4" }).pages).toHaveLength(2);
     expect(buildShowPrintDoc(deck(7), imgs, WIDE, { ...D, layout: "handout3" }).pages[0]).toContain("rs-show-lines");
+    // Header & Footer › Notes and Handouts: header, date, footer, page number
+    const hf = buildShowPrintDoc(deck(2), imgs, WIDE, { ...D, layout: "notes", notesHf: { date: 1, header: "Board <deck>", footer: "Internal", pageNumber: false } }, new Date(2026, 9, 16));
+    expect(hf.pages[1]).toContain("Board &lt;deck&gt;");
+    expect(hf.pages[1]).toContain("10/16/2026");
+    expect(hf.pages[1]).toContain("Internal");
+    expect(hf.pages[1]).not.toMatch(/bottom:0.3in">2</);
+    expect(buildShowPrintDoc(deck(2), imgs, WIDE, { ...D, layout: "notes" }).pages[1]).toMatch(/bottom:0.3in">2</);
   });
   it("notes pages: the slide and its notes", () => {
     const doc = buildShowPrintDoc(printedSlides([slide(1, { notes: "Say <hello>" })], false), ["x"], WIDE, { ...D, layout: "notes" });

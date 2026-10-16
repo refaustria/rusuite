@@ -26,8 +26,8 @@ const emptyToNull = (v: unknown) => {
   return c && typeof c === "object" && Object.keys(c).length === 0 ? null : (c ?? null);
 };
 
-/** Run properties → marks (inverse of `propsFromMarks`). */
-export function marksFromProps(schema: Schema, props: RunProperties | undefined): Mark[] {
+/** Run properties (and a character style) → marks (inverse of `propsFromMarks` / `styleFromMarks`). */
+export function marksFromProps(schema: Schema, props: RunProperties | undefined, charStyle?: string | null): Mark[] {
   const p = (canonValue(props ?? {}) ?? {}) as RunProperties;
   const marks: Mark[] = [];
   const extra: RunProperties = {};
@@ -51,6 +51,7 @@ export function marksFromProps(schema: Schema, props: RunProperties | undefined)
     extra: Object.keys(extra).length ? extra : null,
   };
   if (Object.values(attrs).some((v) => v !== null)) marks.push(m.textStyle!.create(attrs));
+  if (charStyle) marks.push(m.charStyle!.create({ id: charStyle }));
   return Mark.setFrom(marks) as Mark[];
 }
 
@@ -59,7 +60,7 @@ export function inlinesToPM(schema: Schema, inlines: Inline[]): PMNode[] {
   for (const inline of inlines) {
     switch (inline.kind) {
       case "run":
-        if (inline.value.text !== "") out.push(schema.text(inline.value.text, marksFromProps(schema, inline.value.props)));
+        if (inline.value.text !== "") out.push(schema.text(inline.value.text, marksFromProps(schema, inline.value.props, inline.value.style)));
         break;
       case "image": {
         const img = inline.value;

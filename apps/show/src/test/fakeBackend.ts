@@ -14,9 +14,10 @@ import type { Shape } from "../generated/Shape";
 import type { ShowCommand } from "../generated/ShowCommand";
 import type { ShowPatch } from "../generated/ShowPatch";
 import type { Slide } from "../generated/Slide";
+import type { TextField } from "../generated/TextField";
 import { findShape } from "../model";
 import { applyAnimationPatch } from "../anim/effects";
-import { fixture } from "./fixture";
+import { FAKE_THEMES, fixture } from "./fixture";
 
 /** Outlines like the core's for tests: a box (filled presets) or a line (connectors, `line`), rectangle sites. */
 export function fakePaths(q: PathQuery): ShapePaths {
@@ -56,6 +57,9 @@ export class FakeBackend implements ShowBackend {
   saved: { name: string; bytesBase64: string }[] = [];
 
   private fresh: Presentation;
+  /** The command changed the theme, master or layouts / the sections (sent with the patch). */
+  private design = false;
+  private sections = false;
 
   constructor(pres: Presentation = fixture()) {
     this.pres = clone(pres);
@@ -198,6 +202,177 @@ export class FakeBackend implements ShowBackend {
         touched.add(s);
         return;
       }
+      // ----- design (P8-22): just enough of the core's behaviour for the UI tests
+      case "applyTheme": {
+        const b = FAKE_THEMES.find((x) => c.theme.kind === "builtin" && x.id === c.theme.value);
+        if (b) {
+          p.theme = clone(b.theme);
+          if (p.master) p.master.background = clone(b.background);
+        } else if (c.theme.kind === "custom") p.theme = clone(c.theme.value);
+        this.design = true;
+        return;
+      }
+      case "setThemeColors":
+        p.theme = { ...p.theme, colors: clone(c.colors) };
+        this.design = true;
+        return;
+      case "setThemeFonts":
+        p.theme = { ...p.theme, fonts: clone(c.fonts) };
+        this.design = true;
+        return;
+      case "setBackground": {
+        const t = c.target;
+        if (t.kind === "slides") {
+          for (const id of t.value) {
+            const s = this.slideOf(id);
+            s.background = c.fill?.kind === "fill" ? c.fill.value : null;
+            if (c.hideMasterShapes !== undefined) s.showMasterShapes = !c.hideMasterShapes;
+            touched.add(s);
+          }
+        } else if (t.kind === "layout") {
+          const l = p.layouts.find((x) => x.kind === t.value)!;
+          l.background = c.fill ?? undefined;
+          if (c.hideMasterShapes !== undefined) l.showMasterShapes = !c.hideMasterShapes;
+          this.design = true;
+        } else if (p.master) {
+          p.master.background = c.fill ?? { kind: "style", value: { index: 1001, color: { kind: "theme", value: { slot: "light1", tint: 0 } } } };
+          this.design = true;
+        }
+        return;
+      }
+      case "setMasterPlaceholderProps": {
+        const defs = c.target.kind === "master" ? (p.master?.placeholders ?? []) : (p.layouts.find((l) => c.target.kind === "layout" && l.kind === c.target.value)?.placeholders ?? []);
+        const d = defs.find((x) => x.kind === c.placeholder && (c.idx === undefined || (x.idx ?? 0) === c.idx));
+        if (!d) throw new Error("no placeholder");
+        if (c.patch.transform) d.transform = c.patch.transform;
+        if (c.patch.run) d.runDefaults = { ...d.runDefaults, ...c.patch.run };
+        if (c.patch.paragraph) d.paragraphDefaults = { ...d.paragraphDefaults, ...(c.patch.paragraph as object) } as typeof d.paragraphDefaults;
+        this.design = true;
+        return;
+      }
+      case "addLayout":
+        p.layouts.push({ kind: `custom:${c.name}`, placeholders: [] });
+        this.design = true;
+        return;
+      case "duplicateLayout": {
+        const i = p.layouts.findIndex((l) => l.kind === c.layout);
+        const copy = clone(p.layouts[i]!);
+        copy.kind = `custom:1_${c.layout}`;
+        p.layouts.splice(i + 1, 0, copy);
+        this.design = true;
+        return;
+      }
+      case "deleteLayout":
+        p.layouts = p.layouts.filter((l) => l.kind !== c.layout);
+        this.design = true;
+        return;
+      case "resetSlide":
+        for (const id of c.slides) touched.add(this.slideOf(id));
+        return;
+      case "setHeaderFooter": {
+        const ids = c.applyTo.kind === "all" ? p.slides.map((s) => s.id) : c.applyTo.value;
+        for (const id of ids) {
+          const s = this.slideOf(id);
+          s.shapes = s.shapes.filter((x) => x.placeholder !== "dateTime" && x.placeholder !== "footer" && x.placeholder !== "slideNumber");
+          if (!(c.notOnTitle && s.layout === "title")) {
+            const at = (kind: "dateTime" | "footer" | "slideNumber", x: number, text: string, field?: TextField) => {
+              s.shapes.push({
+                id: this.nextId++, name: kind, transform: { x, y: 6356350, w: 2743200, h: 365125 },
+                kind: { kind: "auto", value: { geometry: "rect", text: { props: { anchor: "middle", wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" }, paragraphs: [{ runs: [field ? { text, field } : { text }] }] } } },
+                fill: { kind: "none" }, line: { fill: { kind: "none" }, width: 12700, dash: "solid" }, placeholder: kind,
+              });
+            };
+            if (c.date.kind === "auto") at("dateTime", 838200, "", { kind: "dateTime", value: { format: c.date.value.format } });
+            else if (c.date.kind === "fixed") at("dateTime", 838200, c.date.value.text);
+            if (c.footer !== null && c.footer !== undefined) at("footer", 4038600, c.footer);
+            if (c.slideNumber) at("slideNumber", 8610600, "‹#›", { kind: "slideNumber" });
+          }
+          touched.add(s);
+        }
+        if (c.applyTo.kind === "all" && p.master) {
+          p.master.headerFooter = { date: c.date, footer: c.footer ?? undefined, slideNumber: c.slideNumber, notOnTitle: c.notOnTitle };
+          this.design = true;
+        }
+        return;
+      }
+      case "addSection": {
+        const secs = p.sections ?? [];
+        if (!c.firstSlide) secs.push({ name: c.name, slideIds: [] });
+        else if (!secs.length) {
+          const i = p.slides.findIndex((s) => s.id === c.firstSlide);
+          const ids = p.slides.map((s) => s.id);
+          if (i > 0) secs.push({ name: "Default Section", slideIds: ids.slice(0, i) });
+          secs.push({ name: c.name, slideIds: ids.slice(i) });
+        } else {
+          const si = secs.findIndex((x) => x.slideIds.includes(c.firstSlide!));
+          const at = secs[si]!.slideIds.indexOf(c.firstSlide);
+          const moved = secs[si]!.slideIds.splice(at);
+          secs.splice(si + 1, 0, { name: c.name, slideIds: moved });
+        }
+        p.sections = secs;
+        this.sections = true;
+        return;
+      }
+      case "renameSection":
+        p.sections![c.index]!.name = c.name;
+        this.sections = true;
+        return;
+      case "removeSection": {
+        const [gone] = p.sections!.splice(c.index, 1);
+        if (c.keepSlides) {
+          const into = p.sections![Math.max(0, c.index - 1)];
+          if (into) into.slideIds.push(...gone!.slideIds);
+        } else {
+          p.slides = p.slides.filter((s) => !gone!.slideIds.includes(s.id));
+          order.changed = true;
+        }
+        this.sections = true;
+        return;
+      }
+      case "moveSection": {
+        const [sec] = p.sections!.splice(c.index, 1);
+        p.sections!.splice(c.toIndex, 0, sec!);
+        const byId = new Map(p.slides.map((s) => [s.id, s]));
+        p.slides = p.sections!.flatMap((x) => x.slideIds).map((id) => byId.get(id)!);
+        order.changed = true;
+        this.sections = true;
+        return;
+      }
+      case "restoreSections":
+        p.sections = clone(c.sections);
+        this.sections = true;
+        return;
+      case "setPictureProps":
+        for (const id of c.shapes) {
+          const s = this.slideOf(id);
+          const sh = findShape(s.shapes, id)!.shape;
+          if (sh.kind.kind === "picture") {
+            const props = { ...(sh.kind.value.props ?? {}) } as Record<string, unknown>;
+            for (const [k, v] of Object.entries(c.patch)) {
+              if (v === null) delete props[k];
+              else if (v !== undefined) props[k] = v;
+            }
+            sh.kind.value.props = props;
+          }
+          touched.add(s);
+        }
+        return;
+      case "cropPicture": {
+        const s = this.slideOf(c.shape);
+        const sh = findShape(s.shapes, c.shape)!.shape;
+        if (sh.kind.kind === "picture") sh.kind.value.props = { ...(sh.kind.value.props ?? {}), crop: c.crop };
+        if (c.transform) sh.transform = c.transform;
+        touched.add(s);
+        return;
+      }
+      case "resetPicture":
+        for (const id of c.shapes) {
+          const s = this.slideOf(id);
+          const sh = findShape(s.shapes, id)!.shape;
+          if (sh.kind.kind === "picture") sh.kind.value.props = {};
+          touched.add(s);
+        }
+        return;
       case "setSlideBackground": {
         const s = this.slideOf(c.slide);
         s.background = c.fill;
@@ -396,6 +571,8 @@ export class FakeBackend implements ShowBackend {
         this.dirty = false;
         if (request.name) this.name = request.name;
         return ok({ type: "documentState", dirty: false, revision: this.revision, name: this.name });
+      case "getThemes":
+        return ok({ type: "themes", themes: clone(FAKE_THEMES) });
       case "shapePaths":
         return ok({ type: "shapePaths", shapes: request.queries.map((q) => fakePaths(q)) });
       case "getMedia": {
@@ -417,14 +594,24 @@ export class FakeBackend implements ShowBackend {
         const touched = new Set<Slide>();
         const idMap: [number, number][] = [];
         const order = { changed: false };
-        this.exec(request.command, touched, idMap, order);
+        this.design = false;
+        this.sections = false;
+        try {
+          this.exec(request.command, touched, idMap, order);
+        } catch (e) {
+          this.pres = this.history.pop()!;
+          return { err: { code: "invalid_command", message: String(e) } };
+        }
         this.revision++;
+        const design = this.design ? { theme: clone(this.pres.theme), master: clone(this.pres.master), layouts: clone(this.pres.layouts) } : {};
         return ok({
           type: "patch",
           envelope: this.envelope({
             slides: clone([...touched].filter((s) => this.pres.slides.includes(s))),
             idMap,
             slidesOrder: order.changed ? this.pres.slides.map((s) => s.id) : null,
+            ...design,
+            ...(this.sections ? { sections: clone(this.pres.sections ?? []) } : {}),
           }),
         });
       }

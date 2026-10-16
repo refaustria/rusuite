@@ -14,10 +14,11 @@ import { WriteDialogs } from "./ui/dialogs";
 import { PageFrame, useWriteChrome } from "./ui/PageFrame";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { Toasts } from "./ui/Toasts";
-import { Ruler } from "./ui/Ruler";
+import { Ruler, rulerReserve } from "./ui/Ruler";
 import { LayoutOptions } from "./ui/LayoutOptions";
 import { countDocWords, countWords } from "./wordCount";
 import { WriteRibbon } from "./ui/WriteToolbar";
+import { ApplyStylesBox, NavigationPane, StyleDialogsHost, StylesPane } from "./ui/stylesPane";
 import { t, useT } from "./i18n";
 
 function useSync<T>(ctl: SyncController, select: (s: SyncState) => T): T {
@@ -127,6 +128,19 @@ export default function App({ backend }: { backend: WriteBackend }) {
     [ctl],
   );
   const chrome = useWriteChrome(features, editor);
+  // The sticky ruler covers the top of the scroll container: ProseMirror's scrollIntoView keeps the caret below it.
+  const reserve = rulerReserve(chrome.ruler, zoom);
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const margin = { top: reserve, bottom: 8, left: 8, right: 8 };
+    editor.setOptions({ editorProps: { ...editor.options.editorProps, scrollMargin: margin, scrollThreshold: margin } });
+    // The ruler just appeared (or the zoom changed): bring the caret out from under it.
+    if (!reserve) return;
+    const frame = requestAnimationFrame(() => {
+      if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.scrollIntoView().setMeta("addToHistory", false));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editor, reserve]);
   // ctl.page is replaced before the state change that announces it.
   const page = useSync(ctl, () => ctl.page);
   // The frame (first page) uses the first section's page setup.
@@ -223,17 +237,28 @@ export default function App({ backend }: { backend: WriteBackend }) {
           onZoom={setZoom}
         />
       )}
-      <div className="write-scroll min-h-0 flex-1 overflow-auto bg-ui-panel p-6">
-        <div className="write-zoom" data-testid="write-zoom" style={zoom !== 1 ? { zoom } : undefined}>
-          {editor && chrome.ruler && <Ruler editor={editor} ctl={ctl} features={features} page={firstPage} />}
-          <PageFrame page={firstPage} view={chrome.view} pages={chrome.pages} frame={chrome.frame} onEditHeaderFooter={chrome.onEditHeaderFooter}>
-            <EditorContent editor={editor} />
-          </PageFrame>
+      <div className="flex min-h-0 flex-1">
+        {editor && <NavigationPane editor={editor} ctl={ctl} features={features} />}
+        <div
+          className="write-scroll min-h-0 min-w-0 flex-1 overflow-auto bg-ui-panel p-6"
+          data-testid="write-scroll"
+          // No scroll anchoring: showing / hiding the ruler must not shift the text under it.
+          style={{ scrollPaddingTop: `${rulerReserve(!!editor && chrome.ruler, zoom)}px`, overflowAnchor: "none" }}
+        >
+          <div className="write-zoom" data-testid="write-zoom" style={zoom !== 1 ? { zoom } : undefined}>
+            {editor && chrome.ruler && <Ruler editor={editor} ctl={ctl} features={features} page={firstPage} />}
+            <PageFrame page={firstPage} view={chrome.view} pages={chrome.pages} frame={chrome.frame} onEditHeaderFooter={chrome.onEditHeaderFooter}>
+              <EditorContent editor={editor} />
+            </PageFrame>
+          </div>
         </div>
+        {editor && <StylesPane editor={editor} ctl={ctl} features={features} />}
       </div>
       {editor && <StatusBar ctl={ctl} editor={editor} backend={backend} session={session} />}
       <FindBar ctl={ctl} editor={editor} ui={features.ui} />
       <WriteDialogs ui={features.ui} ctl={ctl} editor={editor} />
+      {editor && <StyleDialogsHost editor={editor} ctl={ctl} features={features} />}
+      {editor && <ApplyStylesBox editor={editor} ctl={ctl} features={features} />}
       <EditorContextMenu editor={editor} ctl={ctl} features={features} />
       <LayoutOptions editor={editor} />
       <Toasts ctl={ctl} />

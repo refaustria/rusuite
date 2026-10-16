@@ -3,6 +3,7 @@
 
 import { escapeHtml, paperSize, withLabel, type PageOrientation, type PaperName, type PrintChoice, type PrintDoc } from "@rusuite/ui-shared";
 import { t } from "../i18n";
+import { formatDate } from "../design/fields";
 import type { Slide } from "../generated/Slide";
 import type { SlideSize } from "../generated/SlideSize";
 
@@ -23,7 +24,23 @@ export interface ShowPrintOptions {
   scale: number;
   /** Print hidden slides too. */
   hidden: boolean;
+  /** Header & Footer › Notes and Handouts: what notes pages and handouts show (absent = the page number only). */
+  notesHf?: NotesHf;
 }
+
+/** Header and footer of notes pages and handouts (Insert › Header & Footer › Notes and Handouts). */
+export interface NotesHf {
+  /** `datetimeN` format of today's date top right, or `off`. */
+  date: number | "off";
+  /** Header text top left (`null` = none). */
+  header: string | null;
+  /** Footer text bottom left (`null` = none). */
+  footer: string | null;
+  /** Page number bottom right. */
+  pageNumber: boolean;
+}
+
+export const DEFAULT_NOTES_HF: NotesHf = { date: "off", header: null, footer: null, pageNumber: true };
 
 export const DEFAULT_SHOW_PRINT: ShowPrintOptions = { range: "", layout: "full", paper: "slide", orientation: "auto", frame: false, fit: true, scale: 100, hidden: false };
 
@@ -128,7 +145,15 @@ function slideImg(src: string, r: Rect, number: number, frame: boolean): string 
   return `<img class="rs-show-slide${frame ? " rs-frame" : ""}" alt="${escapeHtml(t("show.slideN", { n: number }))}" src="${escapeHtml(src)}" style="${box(r)}">`;
 }
 
-const pageNumber = (n: number) => `<div class="rs-show-pageno" style="right:0.5in;bottom:0.3in">${n}</div>`;
+/** Header, date, footer and page number of a notes page or handout (`date` = today's text, if shown). */
+function pageMarks(n: number, hf: NotesHf, date: string | null): string {
+  const out: string[] = [];
+  if (hf.header) out.push(`<div class="rs-show-pageno" style="left:0.5in;top:0.3in">${escapeHtml(hf.header)}</div>`);
+  if (date !== null) out.push(`<div class="rs-show-pageno" style="right:0.5in;top:0.3in">${escapeHtml(date)}</div>`);
+  if (hf.footer) out.push(`<div class="rs-show-pageno" style="left:0.5in;bottom:0.3in">${escapeHtml(hf.footer)}</div>`);
+  if (hf.pageNumber) out.push(`<div class="rs-show-pageno" style="right:0.5in;bottom:0.3in">${n}</div>`);
+  return out.join("");
+}
 
 export const SHOW_PRINT_CSS = `.rs-show-slide { position: absolute; display: block; object-fit: fill; box-sizing: border-box; }
 .rs-show-slide.rs-frame { outline: 1px solid #000; }
@@ -139,7 +164,10 @@ export const SHOW_PRINT_CSS = `.rs-show-slide { position: absolute; display: blo
 .rs-show-pageno { position: absolute; font: 10pt Calibri, Carlito, Arial, sans-serif; color: #000; }`;
 
 /** Builds the pages; `images[i]` is the picture of `slides[i]` (the printed slides, see `printedSlides`). */
-export function buildShowPrintDoc(slides: readonly { slide: Slide; number: number }[], images: readonly string[], size: SlideSize, o: ShowPrintOptions): PrintDoc {
+export function buildShowPrintDoc(slides: readonly { slide: Slide; number: number }[], images: readonly string[], size: SlideSize, o: ShowPrintOptions, today: Date = new Date()): PrintDoc {
+  const hf = o.notesHf ?? DEFAULT_NOTES_HF;
+  const date = hf.date === "off" ? null : formatDate(hf.date, today);
+  const pageNumber = (n: number) => pageMarks(n, hf, date);
   const page = showPageSize(o, size);
   const aspect = size.width / size.height;
   const slideIn = { w: size.width / EMU_PER_IN, h: size.height / EMU_PER_IN };

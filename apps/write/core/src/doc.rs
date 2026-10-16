@@ -15,12 +15,15 @@ use model_text::{
 };
 
 use crate::command::{
-    ListKind, NewBlock, NewCell, NewParagraph, NewRow, NewTable, PageSetupPatch, SectionPatch,
-    WriteCommand,
+    FindFormat, FindMatch, FindQuery, ListKind, NewBlock, NewCell, NewParagraph, NewRow, NewTable,
+    PageSetupPatch, SectionPatch, WriteCommand,
 };
-use crate::find::find_matches;
+use crate::find::{find_matches_where, stretches, Wildcard};
 use crate::patch::{InsertedBlock, WritePatch};
-use crate::text::{for_each_run_in, inherited_props, inlines_len, props_at, replace_range, slice};
+use crate::text::{
+    for_each_run_in, for_each_run_mut_in, inherited_props, inherited_run, inline_len, inlines_len,
+    replace_range, run_format_at, slice,
+};
 use crate::tree::{
     all_ids, ancestors, collect_ids, container, container_mut, enclosing_table, find_cell,
     find_cell_mut, find_table_mut, for_each_paragraph_mut, position, Pos,
@@ -88,10 +91,19 @@ impl From<WriteError> for DispatchError {
 }
 
 type R<T> = Result<T, WriteError>;
+/// The matches (`from..to` char offsets) in one paragraph.
+type Hits = (NodeId, Vec<(usize, usize)>);
 type C = WriteCommand;
 
 fn invalid(msg: impl Into<String>) -> WriteError {
     WriteError::Invalid(msg.into())
+}
+
+fn style_err(e: model_text::StyleError) -> WriteError {
+    match e {
+        model_text::StyleError::Unknown(id) => WriteError::UnknownStyle(id),
+        e => invalid(e.to_string()),
+    }
 }
 
 /// The Write document: owns a [`Document`] and applies [`WriteCommand`]s.
@@ -480,15 +492,23 @@ impl WriteDocument {
                 offset,
                 text,
                 props,
+                style,
             } => {
                 if text.contains(['\n', '\r']) {
                     return Err(invalid("text must not contain line feeds"));
                 }
                 let (at, _) = self.range(*block, *offset, *offset)?;
                 let p = self.para(*block)?;
-                let props = props.clone().unwrap_or_else(|| inherited_props(p, at));
+                let mut run = match props {
+                    Some(props) => Run::styled("", style.clone(), props.clone()),
+                    None => inherited_run(p, at),
+                };
+                run.style = run
+                    .style
+                    .filter(|s| !s.is_empty() && self.doc.styles.get(s).is_some());
+                run.text.clone_from(text);
                 let n = text.chars().count();
-                let inline = Inline::Run(Run::with_props(text.clone(), props));
+                let inline = Inline::Run(run);
                 replace_range(self.para_mut(*block)?, at, at, vec![inline]);
                 ch.block(*block);
                 Ok(C::DeleteText {
@@ -511,15 +531,16 @@ impl WriteDocument {
                 }
                 let (f, t) = self.range(*block, *from, *to)?;
                 let p = self.para(*block)?;
-                let props = if f < t {
-                    props_at(p, f)
+                let mut run = if f < t {
+                    run_format_at(p, f)
                 } else {
-                    inherited_props(p, f)
+                    inherited_run(p, f)
                 };
                 let new = if text.is_empty() {
                     Vec::new()
                 } else {
-                    vec![Inline::Run(Run::with_props(text.clone(), props))]
+                    run.text.clone_from(text);
+                    vec![Inline::Run(run)]
                 };
                 self.restore_inlines(*block, *from, *to, new, ch)
             }
@@ -598,13 +619,77 @@ impl WriteDocument {
             }
             C::SetStyle { blocks, style } => {
                 match self.doc.styles.get(style) {
-                    Some(s) if s.kind == StyleKind::Paragraph => {}
+                    Some(s) if s.kind.is_paragraph() => {}
                     _ => return Err(WriteError::UnknownStyle(style.clone())),
                 }
                 self.paras(blocks)?;
                 let value = (self.default_style().as_deref() != Some(style.as_str()))
                     .then(|| style.clone());
                 self.edit_paragraph_props(blocks, ch, |_, props| props.style.clone_from(&value))
+            }
+            C::ApplyCharacterStyle {
+                block,
+                from,
+                to,
+                style,
+            } => {
+                let style = match style.as_deref().filter(|s| !s.is_empty()) {
+                    None => None,
+                    Some(id) => match self.doc.styles.get(id) {
+                        Some(s) if s.kind == StyleKind::Character => Some(s.id.clone()),
+                        Some(s) if s.kind == StyleKind::Linked => {
+                            Some(s.link.clone().unwrap_or_else(|| s.id.clone()))
+                        }
+                        _ => return Err(WriteError::UnknownStyle(id.to_owned())),
+                    },
+                };
+                let (f, t) = self.range(*block, *from, *to)?;
+                let old = slice(self.para(*block)?, f, t);
+                for_each_run_mut_in(self.para_mut(*block)?, f, t, |r| r.style.clone_from(&style));
+                ch.block(*block);
+                Ok(C::RestoreInlines {
+                    block: *block,
+                    from: *from,
+                    to: *to,
+                    inlines: old,
+                })
+            }
+            C::AddStyle { style } => {
+                let old = self.doc.styles.clone();
+                self.doc.styles.add(style.clone()).map_err(style_err)?;
+                ch.styles = true;
+                Ok(C::RestoreStyles { styles: old })
+            }
+            C::UpdateStyle { id, patch } => {
+                let old = self.doc.styles.clone();
+                self.doc.styles.update(id, patch).map_err(style_err)?;
+                ch.styles = true;
+                self.report_style_users(id, ch);
+                Ok(C::RestoreStyles { styles: old })
+            }
+            C::RenameStyle { id, name } => {
+                let old = self.doc.styles.clone();
+                self.doc.styles.rename(id, name).map_err(style_err)?;
+                ch.styles = true;
+                Ok(C::RestoreStyles { styles: old })
+            }
+            C::SetDefaultStyle { kind, id } => {
+                let old = self.doc.styles.clone();
+                self.doc.styles.set_default(*kind, id).map_err(style_err)?;
+                ch.styles = true;
+                // Unstyled paragraphs now use the new default.
+                self.report_style_users(id, ch);
+                if let Some(prev) = old.default_style(*kind) {
+                    let prev = prev.id.clone();
+                    for b in self.doc.blocks_with_style(&prev) {
+                        ch.block(b);
+                    }
+                }
+                Ok(C::RestoreStyles { styles: old })
+            }
+            C::DeleteStyle { id, replacement } => self.delete_style(id, replacement.as_deref(), ch),
+            C::UpdateStyleFromSelection { id, block, offset } => {
+                self.update_style_from_selection(id, *block, *offset, ch)
             }
             C::ApplyList { blocks, kind } => self.apply_list(blocks, *kind, ch),
             C::IndentList { blocks, delta } => {
@@ -903,15 +988,29 @@ impl WriteDocument {
                 from,
                 to,
                 paragraph,
+                keep_style,
             } => {
                 let (f, t) = self.range(*block, *from, *to)?;
                 let p = self.para(*block)?;
                 let old_inlines = slice(p, f, t);
                 let old_props = p.props.clone();
                 let p = self.para_mut(*block)?;
-                for_each_run_in(p, f, t, |props| *props = RunProperties::default());
-                if *paragraph {
-                    p.props = ParagraphProperties::default();
+                for_each_run_mut_in(p, f, t, |r| {
+                    r.props = RunProperties::default();
+                    r.style = None;
+                });
+                if *paragraph && *keep_style {
+                    p.props = ParagraphProperties {
+                        style: p.props.style.take(),
+                        numbering: p.props.numbering,
+                        section_end: p.props.section_end,
+                        ..Default::default()
+                    };
+                } else if *paragraph {
+                    p.props = ParagraphProperties {
+                        section_end: p.props.section_end,
+                        ..Default::default()
+                    };
                 }
                 ch.block(*block);
                 let restore = C::RestoreInlines {
@@ -939,7 +1038,19 @@ impl WriteDocument {
                 match_case,
                 whole_word,
                 all,
-            } => self.find_replace(find, replace, *match_case, *whole_word, *all, ch),
+                wildcards,
+                format,
+                replace_format,
+            } => {
+                let query = FindQuery {
+                    text: find.clone(),
+                    match_case: *match_case,
+                    whole_word: *whole_word,
+                    wildcards: *wildcards,
+                    format: format.clone(),
+                };
+                self.find_replace(&query, replace, replace_format.as_ref(), *all, ch)
+            }
             C::InsertField {
                 block,
                 offset,
@@ -1213,6 +1324,7 @@ impl WriteDocument {
             run,
             is_default: false,
             table: None,
+            ..Style::new("", "", StyleKind::Paragraph)
         });
         for level in 1..=to {
             self.ensure_style(Style {
@@ -1235,6 +1347,7 @@ impl WriteDocument {
                 run: RunProperties::default(),
                 is_default: false,
                 table: None,
+                ..Style::new("", "", StyleKind::Paragraph)
             });
         }
     }
@@ -1277,6 +1390,7 @@ impl WriteDocument {
             },
             is_default: false,
             table: None,
+            ..Style::new("", "", StyleKind::Paragraph)
         });
         self.ensure_style(Style {
             id: reference.into(),
@@ -1291,6 +1405,7 @@ impl WriteDocument {
             },
             is_default: false,
             table: None,
+            ..Style::new("", "", StyleKind::Paragraph)
         });
         text.to_owned()
     }
@@ -2251,51 +2366,196 @@ impl WriteDocument {
         Ok(C::RestoreCellProps { items: inverse })
     }
 
+    /// The matches of `q` in the body paragraphs (table cells included),
+    /// in document order, as `(paragraph, [(from, to)])`.
+    pub(crate) fn find_hits(&self, q: &FindQuery) -> R<Vec<Hits>> {
+        let format = q.format.as_ref().filter(|f| !f.is_empty());
+        if q.text.is_empty() && format.is_none() {
+            return Err(invalid("nothing to find"));
+        }
+        let wildcard = if q.wildcards && !q.text.is_empty() {
+            Some(Wildcard::compile(&q.text).map_err(|e| invalid(format!("wildcards: {}", e.0)))?)
+        } else {
+            None
+        };
+        let pattern: Vec<char> = q.text.chars().collect();
+        let mut hits = Vec::new();
+        for p in self.doc.paragraphs() {
+            let text: Vec<char> = p.text().chars().collect();
+            let ok = match format {
+                Some(f) => self.format_mask(p, f, text.len()),
+                None => vec![true; text.len()],
+            };
+            let accept = |s: usize, e: usize| ok[s..e].iter().all(|&b| b);
+            let m = if let Some(w) = &wildcard {
+                w.find(&text, accept)
+            } else if pattern.is_empty() {
+                // Formatting only: the stretches of text (no images) that have it.
+                let is_text: Vec<bool> = p
+                    .inlines
+                    .iter()
+                    .flat_map(|i| {
+                        std::iter::repeat(matches!(i, Inline::Run(_))).take(inline_len(i))
+                    })
+                    .collect();
+                stretches(text.len(), |i| ok[i] && is_text[i])
+            } else {
+                find_matches_where(&text, &pattern, q.match_case, q.whole_word, accept)
+            };
+            if !m.is_empty() {
+                hits.push((p.id, m));
+            }
+        }
+        Ok(hits)
+    }
+
+    /// The matches of `q` (the `find` request).
+    pub fn find(&self, q: &FindQuery) -> Result<Vec<FindMatch>, WriteError> {
+        Ok(self
+            .find_hits(q)?
+            .into_iter()
+            .flat_map(|(block, m)| {
+                m.into_iter().map(move |(f, t)| FindMatch {
+                    block,
+                    from: to_u32(f),
+                    to: to_u32(t),
+                })
+            })
+            .collect())
+    }
+
+    /// Per char position of `p`: whether it has the formatting `f`.
+    fn format_mask(&self, p: &Paragraph, f: &FindFormat, len: usize) -> Vec<bool> {
+        let pp = self.doc.resolve_paragraph_props(p);
+        let para_ok = f.paragraph.as_ref().map_or(true, |want| {
+            (want.alignment.is_none() || want.alignment == pp.alignment)
+                && want.indent.map_or(true, |w| {
+                    let have = pp.indent.unwrap_or_default();
+                    (w.left.is_none() || w.left == have.left)
+                        && (w.right.is_none() || w.right == have.right)
+                        && (w.first_line.is_none() || w.first_line == have.first_line)
+                        && (w.hanging.is_none() || w.hanging == have.hanging)
+                })
+                && want.spacing.map_or(true, |w| {
+                    let have = pp.spacing.unwrap_or_default();
+                    (w.before.is_none() || w.before == have.before)
+                        && (w.after.is_none() || w.after == have.after)
+                        && (w.line.is_none() || w.line == have.line)
+                })
+                && (want.keep_next.is_none()
+                    || want.keep_next.unwrap_or(false) == pp.keep_next.unwrap_or(false))
+                && (want.page_break_before.is_none()
+                    || want.page_break_before.unwrap_or(false)
+                        == pp.page_break_before.unwrap_or(false))
+        });
+        let style = f.style.as_deref().filter(|s| !s.is_empty());
+        let style_kind = style.and_then(|s| self.doc.styles.get(s)).map(|s| s.kind);
+        // A paragraph style constrains the paragraph; a character style the runs.
+        let para_style_ok = match (style, style_kind) {
+            (Some(s), Some(StyleKind::Paragraph)) => pp.style.as_deref() == Some(s),
+            (Some(s), Some(StyleKind::Linked)) => pp.style.as_deref() == Some(s),
+            (Some(_), None) => false,
+            _ => true,
+        };
+        if !para_ok || !para_style_ok {
+            return vec![false; len];
+        }
+        let char_style: Option<Vec<&str>> = match (style, style_kind) {
+            (Some(s), Some(StyleKind::Character)) => Some(vec![s]),
+            _ => None,
+        };
+        let mut out = Vec::with_capacity(len);
+        for inline in &p.inlines {
+            let n = inline_len(inline);
+            let good = match inline {
+                Inline::Run(r) => {
+                    let props = self.doc.resolve_run_props(p, r);
+                    run_matches(&props, f)
+                        && char_style.as_ref().map_or(true, |ids| {
+                            r.style.as_deref().is_some_and(|s| ids.contains(&s))
+                        })
+                }
+                // Atoms only pass when no character constraint applies.
+                _ => {
+                    f.run.as_ref().map_or(true, RunProperties::is_empty)
+                        && f.highlight.is_none()
+                        && char_style.is_none()
+                }
+            };
+            out.extend(std::iter::repeat(good).take(n));
+        }
+        out.resize(len, false);
+        out
+    }
+
     fn find_replace(
         &mut self,
-        find: &str,
+        q: &FindQuery,
         replace: &str,
-        match_case: bool,
-        whole_word: bool,
+        replace_format: Option<&FindFormat>,
         all: bool,
         ch: &mut Changes,
     ) -> R<C> {
-        if find.is_empty() {
-            return Err(invalid("nothing to find"));
-        }
         if replace.contains(['\n', '\r']) {
             return Err(invalid("replacement must not contain line feeds"));
         }
-        let pattern: Vec<char> = find.chars().collect();
-        let mut hits: Vec<(NodeId, Vec<(usize, usize)>)> = Vec::new();
-        for p in self.doc.paragraphs() {
-            let text: Vec<char> = p.text().chars().collect();
-            let mut m = find_matches(&text, &pattern, match_case, whole_word);
-            if m.is_empty() {
-                continue;
+        let rf = replace_format.filter(|f| !f.is_empty());
+        if let Some(id) = rf
+            .and_then(|f| f.style.as_deref())
+            .filter(|s| !s.is_empty())
+        {
+            if self.doc.styles.get(id).is_none() {
+                return Err(WriteError::UnknownStyle(id.to_owned()));
             }
-            if !all {
+        }
+        let mut hits = self.find_hits(q)?;
+        if !all {
+            hits.truncate(1);
+            if let Some((_, m)) = hits.first_mut() {
                 m.truncate(1);
-                hits.push((p.id, m));
-                break;
             }
-            hits.push((p.id, m));
         }
         let count: usize = hits.iter().map(|(_, m)| m.len()).sum();
+        // Formatting only: keep the matched text.
+        let keep_text = replace.is_empty() && rf.is_some();
         let mut inverse = Vec::with_capacity(hits.len());
         for (id, matches) in hits {
-            let p = self.para_mut(id)?;
-            let old = p.inlines.clone();
+            let p = self.para(id)?;
+            let (old, old_props) = (p.inlines.clone(), p.props.clone());
+            let mut para_style = None;
             for &(s, e) in matches.iter().rev() {
-                let props = props_at(p, s);
-                let new = if replace.is_empty() {
-                    Vec::new()
+                let p = self.para_mut(id)?;
+                let (start, end) = if keep_text {
+                    (s, e)
                 } else {
-                    vec![Inline::Run(Run::with_props(replace, props))]
+                    let mut run = run_format_at(p, s);
+                    let new = if replace.is_empty() {
+                        Vec::new()
+                    } else {
+                        run.text = replace.to_owned();
+                        vec![Inline::Run(run)]
+                    };
+                    replace_range(p, s, e, new);
+                    (s, s + replace.chars().count())
                 };
-                replace_range(p, s, e, new);
+                if let Some(f) = rf {
+                    para_style = self.apply_format(id, start, end, f)?.or(para_style);
+                }
             }
+            if let Some(f) = rf.and_then(|f| f.paragraph.as_ref()) {
+                let p = self.para_mut(id)?;
+                let mut patch = f.clone();
+                patch.style = None;
+                patch.numbering = None;
+                patch.section_end = None;
+                p.props.apply(&patch);
+            }
+            if let Some(style) = para_style {
+                self.para_mut(id)?.props.style = style;
+            }
+            let p = self.para(id)?;
             let len = p.len();
+            let props_changed = p.props != old_props;
             ch.block(id);
             inverse.push(C::RestoreInlines {
                 block: id,
@@ -2303,12 +2563,216 @@ impl WriteDocument {
                 to: to_u32(len),
                 inlines: old,
             });
+            if props_changed {
+                inverse.push(C::RestoreParagraphProps {
+                    items: vec![(id, old_props)],
+                });
+            }
         }
         inverse.reverse();
         ch.info = Some(match count {
             1 => "1 replacement".to_owned(),
             n => format!("{n} replacements"),
         });
+        Ok(C::Compound { commands: inverse })
+    }
+
+    /// Applies a replacement format to `from..to` of paragraph `id`: run
+    /// properties and highlight merge into the runs, a character style is
+    /// set on them. Returns the paragraph style to set (`Some(None)` = the
+    /// default), if the format names a paragraph style.
+    fn apply_format(
+        &mut self,
+        id: NodeId,
+        from: usize,
+        to: usize,
+        f: &FindFormat,
+    ) -> R<Option<Option<String>>> {
+        let style = f.style.as_deref().filter(|s| !s.is_empty());
+        let kind = style.and_then(|s| self.doc.styles.get(s)).map(|s| s.kind);
+        let default = self.default_style();
+        let char_style = match (style, kind) {
+            (Some(s), Some(StyleKind::Character)) => Some(s.to_owned()),
+            _ => None,
+        };
+        let mut patch = f.run.clone().unwrap_or_default();
+        match f.highlight {
+            Some(true) if patch.highlight.is_none() => {
+                patch.highlight = Some(Color::Rgb(core_model::Rgb::new(0xFF, 0xFF, 0)));
+            }
+            Some(false) => patch.highlight = Some(Color::Auto),
+            _ => {}
+        }
+        for_each_run_mut_in(self.para_mut(id)?, from, to, |r| {
+            r.props.apply(&patch);
+            if r.props.highlight == Some(Color::Auto) {
+                r.props.highlight = None;
+            }
+            if char_style.is_some() {
+                r.style.clone_from(&char_style);
+            }
+        });
+        Ok(match (style, kind) {
+            (Some(s), Some(k)) if k.is_paragraph() => {
+                Some((default.as_deref() != Some(s)).then(|| s.to_owned()))
+            }
+            _ => None,
+        })
+    }
+
+    // ----- styles --------------------------------------------------------
+
+    /// Reports every paragraph that uses `id` or a style based on it.
+    fn report_style_users(&self, id: &str, ch: &mut Changes) {
+        for s in &self.doc.styles.styles {
+            if self.doc.styles.ancestors(&s.id).iter().any(|a| a == id) {
+                for b in self.doc.blocks_with_style(&s.id) {
+                    ch.block(b);
+                }
+            }
+        }
+    }
+
+    /// `RestoreInlines` + `RestoreParagraphProps` for paragraph `id` as it
+    /// is now (taken before changing it).
+    fn paragraph_state(&self, id: NodeId) -> R<Vec<C>> {
+        let p = self.para(id)?;
+        Ok(vec![
+            C::RestoreInlines {
+                block: id,
+                from: 0,
+                to: to_u32(p.len()),
+                inlines: p.inlines.clone(),
+            },
+            C::RestoreParagraphProps {
+                items: vec![(id, p.props.clone())],
+            },
+        ])
+    }
+
+    fn delete_style(&mut self, id: &str, replacement: Option<&str>, ch: &mut Changes) -> R<C> {
+        let old_styles = self.doc.styles.clone();
+        let users = self.doc.blocks_with_style(id);
+        let mut doc = self.doc.clone();
+        let changed = doc.delete_style(id, replacement).map_err(style_err)?;
+        // Inverses from the state before (paragraph text and props, tables).
+        let mut inverse = Vec::new();
+        for &b in &changed {
+            match self.doc.find_block(b) {
+                Some(Block::Paragraph(_)) => {
+                    // The lengths do not change: restoring 0..len is exact.
+                    inverse.extend(self.paragraph_state(b)?);
+                }
+                Some(Block::Table(t)) => inverse.push(C::RestoreTableProps {
+                    table: b,
+                    props: t.props.clone(),
+                }),
+                _ => {}
+            }
+        }
+        self.doc = doc;
+        for b in changed.iter().chain(&users) {
+            ch.block(*b);
+        }
+        ch.styles = true;
+        inverse.push(C::RestoreStyles { styles: old_styles });
+        inverse.reverse();
+        Ok(C::Compound { commands: inverse })
+    }
+
+    fn update_style_from_selection(
+        &mut self,
+        id: &str,
+        block: NodeId,
+        offset: u32,
+        ch: &mut Changes,
+    ) -> R<C> {
+        let style = self
+            .doc
+            .styles
+            .get(id)
+            .ok_or_else(|| WriteError::UnknownStyle(id.to_owned()))?
+            .clone();
+        if !matches!(
+            style.kind,
+            StyleKind::Paragraph | StyleKind::Linked | StyleKind::Character
+        ) {
+            return Err(WriteError::UnknownStyle(id.to_owned()));
+        }
+        let (at, _) = self.range(block, offset, offset)?;
+        let p = self.para(block)?.clone();
+        let sample = {
+            let r = if at >= p.len() {
+                inherited_run(&p, at)
+            } else {
+                run_format_at(&p, at)
+            };
+            self.doc.resolve_run_props(&p, &r)
+        };
+        let old_styles = self.doc.styles.clone();
+        let mut inverse = self.paragraph_state(block)?;
+        inverse.push(C::RestoreStyles {
+            styles: old_styles.clone(),
+        });
+        let mut patch = model_text::StylePatch::default();
+        if style.kind == StyleKind::Character {
+            // What the character style must add on top of the paragraph.
+            let mut base = self.doc.resolve_run_props(&p, &Run::default());
+            base.apply(&self.doc.styles.resolve_character(id));
+            patch.run = Some(run_diff(&sample, &base));
+        } else {
+            let mut probe = p.clone();
+            probe.props = ParagraphProperties {
+                style: Some(id.to_owned()),
+                numbering: p.props.numbering,
+                ..Default::default()
+            };
+            let have = self.doc.resolve_paragraph_props(&p);
+            let target = self.doc.resolve_paragraph_props(&probe);
+            patch.paragraph = Some(para_diff(&have, &target));
+            let base = self.doc.resolve_run_props(&probe, &Run::default());
+            patch.run = Some(run_diff(&sample, &base));
+        }
+        self.doc.styles.update(id, &patch).map_err(style_err)?;
+        ch.styles = true;
+        // The paragraph takes the style; formatting now in the style goes.
+        let default = self.default_style();
+        let styles = self.doc.styles.clone();
+        let doc = &self.doc;
+        let mut np = p.clone();
+        if style.kind != StyleKind::Character {
+            np.props = ParagraphProperties {
+                style: (default.as_deref() != Some(id)).then(|| id.to_owned()),
+                numbering: p.props.numbering,
+                section_end: p.props.section_end,
+                ..Default::default()
+            };
+        }
+        let mut probe = np.clone();
+        for inline in &mut probe.inlines {
+            if let Inline::Run(r) = inline {
+                let char_style = if style.kind == StyleKind::Character {
+                    // The sample run (and runs like it) take the character style.
+                    let resolved = doc.resolve_run_props(&p, r);
+                    (resolved == sample)
+                        .then(|| id.to_owned())
+                        .or(r.style.clone())
+                } else {
+                    r.style.clone()
+                };
+                let bare = Run::styled("", char_style.clone(), RunProperties::default());
+                let base = resolve_with(&styles, &np, &bare);
+                r.props = strip_same(&r.props, &base);
+                r.style = char_style;
+            }
+        }
+        let new_inlines = probe.inlines;
+        let p = self.para_mut(block)?;
+        p.props = np.props;
+        p.inlines = new_inlines;
+        ch.block(block);
+        self.report_style_users(id, ch);
+        inverse.reverse();
         Ok(C::Compound { commands: inverse })
     }
 
@@ -2486,7 +2950,9 @@ fn affects_labels(cmd: &WriteCommand) -> bool {
         | C::RestoreCellProps { .. }
         | C::SetTableProps { .. }
         | C::RestoreTableProps { .. }
-        | C::SetRowProps { .. } => false,
+        | C::SetRowProps { .. }
+        | C::ApplyCharacterStyle { .. }
+        | C::RenameStyle { .. } => false,
         _ => true,
     }
 }
@@ -2511,6 +2977,140 @@ fn field_index(p: &Paragraph, offset: u32) -> Option<usize> {
         pos += len;
     }
     None
+}
+
+/// Whether resolved run properties satisfy the run part of a find format.
+fn run_matches(have: &RunProperties, f: &FindFormat) -> bool {
+    let highlighted = have.highlight.is_some_and(|c| c != Color::Auto);
+    if f.highlight.is_some_and(|want| want != highlighted) {
+        return false;
+    }
+    let Some(want) = &f.run else {
+        return true;
+    };
+    let toggle = |w: Option<bool>, h: Option<bool>| w.map_or(true, |w| w == h.unwrap_or(false));
+    toggle(want.bold, have.bold)
+        && toggle(want.italic, have.italic)
+        && toggle(want.strike, have.strike)
+        && want.underline.map_or(true, |w| {
+            w == have.underline.unwrap_or(core_model::Underline::None)
+        })
+        && (want.font.is_none() || want.font == have.font)
+        && (want.size.is_none() || want.size == have.size)
+        && (want.color.is_none() || want.color == have.color)
+        && (want.highlight.is_none() || want.highlight == have.highlight)
+        && (want.vertical_align.is_none() || want.vertical_align == have.vertical_align)
+}
+
+/// The fields of `want` that differ from `have` (for "update style to
+/// match": what the style must say so that it gives `want`).
+fn run_diff(want: &RunProperties, have: &RunProperties) -> RunProperties {
+    macro_rules! d {
+        ($($f:ident),*) => {
+            RunProperties { $($f: if want.$f != have.$f { want.$f.clone() } else { None },)* }
+        };
+    }
+    d!(
+        font,
+        size,
+        bold,
+        italic,
+        underline,
+        strike,
+        color,
+        highlight,
+        vertical_align
+    )
+}
+
+/// `p` without the fields equal to `base` (direct formatting the style
+/// now provides).
+fn strip_same(p: &RunProperties, base: &RunProperties) -> RunProperties {
+    macro_rules! s {
+        ($($f:ident),*) => {
+            RunProperties { $($f: if p.$f == base.$f { None } else { p.$f.clone() },)* }
+        };
+    }
+    s!(
+        font,
+        size,
+        bold,
+        italic,
+        underline,
+        strike,
+        color,
+        highlight,
+        vertical_align
+    )
+}
+
+/// The paragraph fields of `want` that differ from `have`.
+fn para_diff(want: &ParagraphProperties, have: &ParagraphProperties) -> ParagraphProperties {
+    ParagraphProperties {
+        alignment: want.alignment.filter(|_| want.alignment != have.alignment),
+        // "Not set" means 0 / single here, which must be said explicitly
+        // when the style has a value.
+        indent: (want.indent != have.indent).then(|| {
+            let (w, h) = (
+                want.indent.unwrap_or_default(),
+                have.indent.unwrap_or_default(),
+            );
+            let zero = |w: Option<Twips>, h: Option<Twips>| w.or(h.map(|_| Twips(0)));
+            model_text::Indent {
+                left: zero(w.left, h.left),
+                right: zero(w.right, h.right),
+                first_line: zero(w.first_line, h.first_line.filter(|_| w.hanging.is_none())),
+                hanging: zero(w.hanging, h.hanging.filter(|_| w.first_line.is_none())),
+            }
+        }),
+        spacing: (want.spacing != have.spacing).then(|| {
+            let (w, h) = (
+                want.spacing.unwrap_or_default(),
+                have.spacing.unwrap_or_default(),
+            );
+            Spacing {
+                before: w.before.or(h.before.map(|_| Twips(0))),
+                after: w.after.or(h.after.map(|_| Twips(0))),
+                line: w.line.or(h.line.map(|_| LineSpacing::Multiple(1.0))),
+            }
+        }),
+        keep_next: want.keep_next.filter(|_| want.keep_next != have.keep_next),
+        page_break_before: want
+            .page_break_before
+            .filter(|_| want.page_break_before != have.page_break_before),
+        borders: want.borders.filter(|_| want.borders != have.borders),
+        shading: want.shading.filter(|_| want.shading != have.shading),
+        tabs: if want.tabs != have.tabs {
+            want.tabs.clone()
+        } else {
+            Vec::new()
+        },
+        ..Default::default()
+    }
+}
+
+/// Run formatting of `run` in `p` against the style sheet `styles` (the
+/// document's, possibly already changed).
+fn resolve_with(styles: &model_text::StyleSheet, p: &Paragraph, run: &Run) -> RunProperties {
+    let style = p
+        .props
+        .style
+        .as_deref()
+        .filter(|s| styles.get(s).is_some())
+        .map(str::to_owned)
+        .or_else(|| {
+            styles
+                .default_style(StyleKind::Paragraph)
+                .map(|s| s.id.clone())
+        });
+    let mut base = match style {
+        Some(id) => styles.resolve_run(&id),
+        None => styles.defaults.run.clone(),
+    };
+    if let Some(cs) = &run.style {
+        base.apply(&styles.resolve_character(cs));
+    }
+    base.merged_with(&run.props)
 }
 
 /// `base` overlaid with `over`, side by side.

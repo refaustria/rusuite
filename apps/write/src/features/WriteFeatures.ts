@@ -18,6 +18,7 @@ import { caretToCell, inLastCell, tableContext } from "./tables";
 import { paragraphBoxPlugin } from "./paragraphBox";
 import { refreshTables, tableRenderPlugin } from "./tableRender";
 import { refreshTabs, tabStopsPlugin } from "./tabStops";
+import { installStyleSheetCss } from "./styleCss";
 import type { SyncController } from "../sync/SyncPlugin";
 
 export type WriteView = "print" | "draft";
@@ -25,8 +26,30 @@ export type WriteDialog =
   | "rowHeight" | "altText" | "pageSetup" | "headerFooter" | "paragraph" | "pageNumbers"
   | "splitCells" | "cellMargins" | "tableProps" | "bordersShading" | "tabs" | null;
 
+/** The style dialog the UI shows: Modify Style (`id`), a new style (Styles pane › New Style), Create a Style (from the selection), Rename. */
+export type StyleDialog =
+  | { mode: "modify"; id: string }
+  | { mode: "new"; basedOn: string }
+  | { mode: "create" }
+  | { mode: "rename"; id: string }
+  | { mode: "delete"; id: string };
+
 export interface WriteUiState {
   view: WriteView;
+  /** Home › Styles pane (Alt+Ctrl+Shift+S) and its options. */
+  stylesPane: boolean;
+  styleFilter: "recommended" | "inUse" | "all";
+  stylePreview: boolean;
+  linkedDisabled: boolean;
+  /** The Style Inspector section of the pane. */
+  styleInspector: boolean;
+  /** View › Navigation pane. */
+  navigation: boolean;
+  /** The Apply Styles box (Ctrl+Shift+S). */
+  applyStyles: boolean;
+  styleDialog: StyleDialog | null;
+  /** "Select All N Instances": the paragraphs the next style applies to. */
+  styleInstances: number[] | null;
   spellcheck: boolean;
   /** View › Ruler. */
   ruler: boolean;
@@ -43,6 +66,15 @@ export interface WriteUiState {
 export class WriteUi {
   private state: WriteUiState = {
     view: "print",
+    stylesPane: false,
+    styleFilter: "recommended",
+    stylePreview: true,
+    linkedDisabled: false,
+    styleInspector: false,
+    navigation: false,
+    applyStyles: false,
+    styleDialog: null,
+    styleInstances: null,
     spellcheck: true,
     ruler: true,
     find: { open: false, replace: false, seed: 0 },
@@ -153,6 +185,15 @@ export class WriteFeatures {
             painter.cancel(this.editor as Editor);
             return true;
           },
+          // Word: Ctrl+Shift+S is Apply Styles (not Tiptap's strikethrough).
+          "Mod-Shift-s": () => {
+            ui.set({ applyStyles: true });
+            return true;
+          },
+          "Mod-Alt-Shift-s": () => {
+            ui.set({ stylesPane: !ui.getState().stylesPane });
+            return true;
+          },
           "Mod-Space": () => {
             void clearFormatting(this.editor as Editor, ctl, false);
             return true;
@@ -217,6 +258,11 @@ export class WriteFeatures {
                 return true;
               },
               handleDOMEvents: {
+                mousedown: () => {
+                  // A click in the text ends "Select All N Instances".
+                  if (ui.getState().styleInstances) ui.set({ styleInstances: null });
+                  return false;
+                },
                 mouseup: () => {
                   if (painter.active) setTimeout(() => painter.paste(editor), 0);
                   return false;
@@ -228,11 +274,13 @@ export class WriteFeatures {
               let page = ctl.page;
               let sections = ctl.sections;
               let styles = ctl.styles;
+              installStyleSheetCss(styles, view.dom.ownerDocument);
               let name = ctl.getState().name;
               let mode = ui.getState().view;
               const offCtl = ctl.subscribe(() => {
                 if (ctl.styles !== styles) {
                   styles = ctl.styles;
+                  installStyleSheetCss(styles, view.dom.ownerDocument);
                   refreshTables(view);
                   refreshTabs(view);
                 }

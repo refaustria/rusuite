@@ -428,6 +428,23 @@ export const Subscript = Mark.create({
 });
 
 /**
+ * A character style on a run (`Run.style`); the look comes from the
+ * generated style sheet CSS (`span[data-cstyle]`, features/styleCss.ts).
+ */
+export const CharStyle = Mark.create({
+  name: "charStyle",
+  addAttributes() {
+    return { id: { default: null, parseHTML: () => null, renderHTML: () => ({}) } };
+  },
+  parseHTML() {
+    return [{ tag: "span[data-cstyle]", getAttrs: (el) => ({ id: (el as HTMLElement).getAttribute("data-cstyle") }) }];
+  },
+  renderHTML({ mark }) {
+    return ["span", { class: "char-style", "data-cstyle": String(mark.attrs.id ?? "") }, 0];
+  },
+});
+
+/**
  * Run properties without a toggle mark: `font`, `size` (hundredths of a
  * point), `color`, `highlight`, plus `extra` (explicit `false` toggles,
  * `underline: none`, `verticalAlign: baseline`).
@@ -634,6 +651,7 @@ export function writeExtensions(options: WriteExtensionsOptions = {}): Extension
     Superscript,
     Subscript,
     TextStyle,
+    CharStyle,
     WriteTable,
     WriteTableRow,
     WriteTableCell,

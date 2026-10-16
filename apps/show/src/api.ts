@@ -3,6 +3,7 @@
 
 import type { Envelope } from "../../../packages/ui-shared/src/generated/Envelope";
 import type { ShowBackend } from "./backend";
+import type { BuiltinTheme } from "./generated/BuiltinTheme";
 import type { PathQuery } from "./generated/PathQuery";
 import type { Presentation } from "./generated/Presentation";
 import type { Request } from "./generated/Request";
@@ -146,6 +147,13 @@ export class ShowApi {
       throw new ShowApiError("bad_response", "shapePaths reply has the wrong number of entries");
     }
     return body.shapes;
+  }
+
+  /** The built-in themes in gallery order (Design › Themes). */
+  async getThemes(): Promise<BuiltinTheme[]> {
+    const body = await this.call({ type: "getThemes" }, "themes");
+    if (!Array.isArray(body.themes)) throw new ShowApiError("bad_response", "themes reply lacks themes");
+    return body.themes;
   }
 
   /** The presentation as `.pptx`; does not mark it saved. */

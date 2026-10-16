@@ -435,4 +435,142 @@ test.describe("Show", () => {
     await expect(presenter).toHaveCount(0);
     errors.expectNone();
   });
+
+  // ----- P8-22: design, layouts, master view, footers, sections, pictures -----
+
+  test("Design › Themes › Harbor re-colours the title on the canvas and is saved in theme1.xml", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    const c = await stageCentre(page);
+    // type a title into the new presentation's title placeholder
+    await page.mouse.dblclick(c.x, c.y - c.h * 0.12);
+    await page.keyboard.type("Harbor");
+    await page.mouse.click(c.x - c.w * 0.45, c.y + c.h * 0.45);
+    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+    /** The darkest pixel of the title's band (glyph strokes carry the full text colour). */
+    const darkest = () =>
+      page.evaluate(() => {
+        const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="editor-stage"] canvas')!;
+        const ctx = canvas.getContext("2d")!;
+        const d = ctx.getImageData(0, Math.round(canvas.height * 0.2), canvas.width, Math.round(canvas.height * 0.3)).data;
+        let best = [255, 255, 255];
+        for (let i = 0; i < d.length; i += 4) if (d[i]! + d[i + 1]! + d[i + 2]! < best[0]! + best[1]! + best[2]!) best = [d[i]!, d[i + 1]!, d[i + 2]!];
+        return best;
+      });
+    expect(await darkest()).toEqual([0, 0, 0]);
+    await page.getByRole("tab", { name: "Design" }).click();
+    await page.getByRole("group", { name: "Themes" }).last().getByRole("button", { name: "Harbor" }).click();
+    await expect(page.getByRole("group", { name: "Themes" }).last().getByRole("button", { name: "Harbor" })).toHaveAttribute("aria-pressed", "true");
+    // Harbor's Dark 1 is 1B1F24
+    await expect.poll(async () => { const [r, g, b] = await darkest(); return r! > 10 && b! > r!; }).toBe(true);
+    const files = unzip(await saveViaBackstage(page));
+    const theme = [...files].find(([n]) => /^ppt\/theme\/theme\d+\.xml$/.test(n))![1].toString();
+    expect(theme).toContain('name="Harbor"');
+    expect(theme).toContain("1B1F24");
+    errors.expectNone();
+  });
+
+  test("New Slide ▾ › Two content saves a slide with two content placeholders", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await page.getByRole("button", { name: "Slide layouts" }).first().click();
+    await page.getByRole("group", { name: "Slide layouts" }).getByRole("button", { name: "Two content" }).click();
+    await expect(page.getByTestId("slide-count")).toHaveText("Slide 2 of 2");
+    const slide2 = zipText(await saveViaBackstage(page), "ppt/slides/slide2.xml");
+    const content = [...slide2.matchAll(/<p:ph\b[^>]*>/g)].map((m) => m[0]).filter((ph) => !/type="(title|dt|ftr|sldNum)"/.test(ph));
+    expect(content).toHaveLength(2);
+    errors.expectNone();
+  });
+
+  test("Insert › Header & Footer › Apply to all puts slide-number fields on every slide", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openDeck(page);
+    await page.getByRole("tab", { name: "Insert" }).click();
+    await page.getByRole("button", { name: "Header & Footer…" }).click();
+    const dlg = page.getByRole("dialog", { name: "Header and Footer" });
+    await dlg.getByLabel("Slide number").check();
+    await dlg.getByLabel("Footer", { exact: true }).check();
+    await dlg.getByLabel("Footer text").fill("Pitch");
+    await dlg.getByRole("button", { name: "Apply to all" }).click();
+    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+    const files = unzip(await saveViaBackstage(page));
+    const slides = [...files].filter(([n]) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
+    expect(slides).toHaveLength(6);
+    for (const [, xml] of slides) {
+      expect(xml.toString()).toContain('type="slidenum"');
+      expect(xml.toString()).toContain("Pitch");
+    }
+    errors.expectNone();
+  });
+
+  test("Add Section shows a section header and is saved as p14:sectionLst", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openDeck(page);
+    await page.getByTestId("thumbnail").nth(2).click();
+    await page.getByRole("button", { name: "Add Section" }).click();
+    const dlg = page.getByRole("dialog", { name: "Rename Section" });
+    await dlg.getByLabel("Section name").fill("Market");
+    await dlg.getByRole("button", { name: "Rename" }).click();
+    await expect(page.getByTestId("section-name")).toHaveText(["Default Section", "Market"]);
+    const pres = zipText(await saveViaBackstage(page), "ppt/presentation.xml");
+    expect(pres).toContain("p14:sectionLst");
+    expect(pres).toContain('name="Market"');
+    errors.expectNone();
+  });
+
+  test("Picture Format › Crop: dragging a crop handle and Enter is saved as a:srcRect", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await openViaBackstage(page, testdata("pptx/provisional-31-picture-adjustments.pptx"));
+    await expect(page.getByTestId("slide-count")).toHaveText("Slide 1 of 2");
+    await page.getByTestId("thumbnail").nth(1).click();
+    const before = (zipText(await saveViaBackstage(page), "ppt/slides/slide2.xml").match(/<a:srcRect/g) ?? []).length;
+    // the first picture of slide 2 (left half, not cropped)
+    const c = await stageCentre(page);
+    await page.mouse.click(c.x - c.w * 0.25, c.y - c.h * 0.1);
+    await page.getByRole("tab", { name: "Picture Format" }).click();
+    await page.getByRole("button", { name: "Crop", exact: true }).click();
+    const h = (await page.getByTestId("crop-handle-r").boundingBox())!;
+    await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(h.x + h.width / 2 - 80, h.y + h.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("crop-overlay")).toHaveCount(0);
+    const slide2 = zipText(await saveViaBackstage(page), "ppt/slides/slide2.xml");
+    expect((slide2.match(/<a:srcRect/g) ?? []).length).toBe(before + 1);
+    expect(slide2).toMatch(/<a:srcRect[^>]*\br="\d+"/);
+    errors.expectNone();
+  });
+
+  test("Slide Master: moving the layout's title placeholder moves the title of slides that follow it", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    const titleY = (xml: string) => Number(/<p:sp>(?:(?!<\/p:sp>).)*?type="(?:ctrTitle|title)"(?:(?!<\/p:sp>).)*?<a:off x="\d+" y="(\d+)"/s.exec(xml)?.[1]);
+    const before = unzip(await saveViaBackstage(page));
+    const slideBefore = titleY(before.get("ppt/slides/slide1.xml")!.toString());
+    await page.getByRole("tab", { name: "View" }).click();
+    await page.getByRole("button", { name: "Slide Master" }).click();
+    await expect(stage(page)).toHaveAttribute("data-master-view", "title");
+    const c = await stageCentre(page);
+    // the centred title (upper half of the Title Slide layout)
+    await page.mouse.click(c.x, c.y - c.h * 0.12);
+    await page.mouse.move(c.x, c.y - c.h * 0.12);
+    await page.mouse.down();
+    await page.mouse.move(c.x, c.y - c.h * 0.12 + 40, { steps: 5 });
+    await page.mouse.move(c.x, c.y - c.h * 0.12 + 80, { steps: 5 });
+    await page.mouse.up();
+    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+    await page.getByRole("button", { name: "Close Master View" }).click();
+    await expect(stage(page)).not.toHaveAttribute("data-master-view", /.+/);
+    const after = unzip(await saveViaBackstage(page));
+    const slideAfter = after.get("ppt/slides/slide1.xml")!.toString();
+    // the slide's title follows the layout's
+    expect(titleY(slideAfter)).toBeGreaterThan(slideBefore + 500000);
+    const layouts = [...after].filter(([n]) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(n)).map(([, b]) => b.toString());
+    const titleLayout = layouts.find((x) => x.includes('type="title"') && x.includes('type="ctrTitle"'))!;
+    expect(titleY(titleLayout)).toBeGreaterThan(slideBefore + 500000);
+    errors.expectNone();
+  });
 });
+
