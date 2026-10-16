@@ -5,6 +5,7 @@
 // account (CSS `zoom` on an ancestor).
 
 import type { Node as PMNode } from "@tiptap/pm/model";
+import { NodeSelection } from "@tiptap/pm/state";
 import type { EditorView, NodeView } from "@tiptap/pm/view";
 import type { Anchor } from "../generated/Anchor";
 import type { Crop } from "../generated/Crop";
@@ -290,7 +291,9 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
       const pos = getPos();
       if (pos === undefined || Math.hypot(d.x, d.y) < 3) return;
       const next = movedAnchor(current.attrs.anchor as Anchor, x, y, d.x, d.y);
-      view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, anchor: next }));
+      // The picture stays selected after the move (W-12).
+      const tr = view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, anchor: next });
+      view.dispatch(tr.setSelection(NodeSelection.create(tr.doc, pos)));
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -328,7 +331,7 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
         width: Math.round(next.w * opts.emuPerPx),
         height: Math.round(next.h * opts.emuPerPx),
       });
-      view.dispatch(tr);
+      view.dispatch(tr.setSelection(NodeSelection.create(tr.doc, pos)));
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -353,7 +356,11 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
     const format: PictureFormat = { ...f };
     if (c.left || c.top || c.right || c.bottom) format.crop = c;
     else delete format.crop;
-    view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, ...sz, format: Object.keys(format).length ? format : null }));
+    const tr = view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, ...sz, format: Object.keys(format).length ? format : null });
+    // Still selected (Enter / Escape): it stays so; a click elsewhere keeps its caret.
+    const sel = view.state.selection;
+    if (sel instanceof NodeSelection && sel.from === pos) tr.setSelection(NodeSelection.create(tr.doc, pos));
+    view.dispatch(tr);
   };
   const onCropEvent = (e: Event) => {
     const on = (e as CustomEvent<{ on?: boolean }>).detail?.on ?? !cropping;

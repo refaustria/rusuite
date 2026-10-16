@@ -34,6 +34,7 @@ mod find;
 mod patch;
 mod text;
 mod tree;
+mod undo_groups;
 
 pub use command::{
     CommentPoint, FieldRefresh, FindFormat, FindMatch, FindQuery, ListKind, MarginsPatch, NewBlock,

@@ -2,7 +2,9 @@
 
 All three apps use the same Office-style ribbon from `packages/ui-shared/src/ribbon` (P6-1): a tab strip with the app name and
 document title on the left, **File** + the app's tabs, a right slot (Show: Present) and the collapse toggle, over the active
-tab's groups. Expanded it is ≤ 96 px tall (28 px strip + 64 px groups); collapsed it is the strip only.
+tab's groups. Expanded it is ≤ 96 px tall (28 px strip + 64 px groups, so at most two rows of small controls per stack);
+collapsed it is the strip only. On a narrow window the groups that do not fit collapse from the right, each into one button
+with the group's name and ▾ whose popup shows the group as in the ribbon (a command closes it; P8-38).
 
 
 ### Write additions (P6-4)
@@ -261,6 +263,23 @@ The algorithm is in `docs/write-layout.md`.
   makes a linked pair ("Name" + "Name Char"). Table Layout › Insert left / right and Delete column respect merged cells
   (a cell spanning the column grows / shrinks). References › Footnotes › Endnotes ▾ (end of the document / of each
   section) and Layout › Hyphenation ▾ › Hyphenation zone (0.63 / 0.75 / 1.27 cm) are document settings.
+
+### Write quality pass (P8-38)
+Corrections from the exploratory test (docs/qa/write-2026-10.md):
+- **Undo** steps follow Word: characters typed in a row at one place (and Backspaces / Deletes in a row) are one step;
+  Enter, a caret move or any other command starts the next (`write-core` groups the host's entries per step).
+- **Paste** of plain text: one paragraph per line, empty lines kept, the destination paragraph's formatting; inside a list
+  each line is a list item. Home › Paste inserts the clipboard text the same way (never as HTML).
+- **Insert › Table**: a "Table Grid" table (no direct borders; compact cell paragraphs), the caret in its first cell.
+- **Pictures** stay selected after a move, resize or crop. **Breaks** › section breaks put the caret into the new section.
+- **Paragraph dialog** and Layout › Paragraph show the values in effect (style chain + direct); OK sends only what changed.
+  The Font dialog shows the font and size in effect.
+- **Table of contents** / table of figures: inserted with their page numbers (an Update Table after the layout).
+- **Multilevel list** with the caret in a list (no selection) applies to the whole list.
+- **Highlight** is a split button: the button applies the last colour (yellow at first), ▾ chooses one.
+- **Ctrl+Enter** inserts a page break (Shift+Enter a line break).
+- **Print layout** keeps the page width on narrow windows and next to the panes (the view scrolls sideways); draft view
+  wraps to the window. Picture Format › Size holds Crop, Height, Width.
 
 ## Building blocks (`@rusuite/ui-shared`)
 

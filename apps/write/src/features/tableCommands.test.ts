@@ -14,7 +14,7 @@ import {
 } from "./paragraphFormat";
 import {
   cellAlignmentCommands, cellBordersCommand, closeRect, distributeCols, distributeRows, inLastCell, mergeCellsCommand, selectInTable, setSelectedColWidth, setTableStyle,
-  splitCellCommand, splitRowsValid, tableContext, tablePropsCommands, tablePropsValues, toggleLook, WORD_DEFAULT_LOOK,
+  caretIntoNewTable, splitCellCommand, splitRowsValid, tableContext, tableIds, tablePropsCommands, tablePropsValues, toggleLook, WORD_DEFAULT_LOOK,
 } from "./tables";
 import { borderGroups, groupMemberCss } from "./paragraphBox";
 import { paragraphBoxCss } from "../sync/schema";
@@ -234,5 +234,16 @@ describe("paragraph borders, shading and tabs", () => {
     expect(groupMemberCss(0, 3, b, null)).toBe("border-bottom: 1px solid #000; margin-bottom: 0; padding-bottom: 10.67px");
     expect(groupMemberCss(2, 3, b, { before: 120 })).toBe("border-top: none; padding-top: 8.00px; margin-top: 0");
     expect(groupMemberCss(0, 1, b, null)).toBeNull();
+  });
+});
+
+describe("Insert › Table (W-09)", () => {
+  it("puts the caret into the first cell of the table that was not there before", () => {
+    editor = makeEditor(makeDoc([para(1, "before"), table()]));
+    expect([...tableIds(editor.state.doc)]).toEqual([10]);
+    expect(caretIntoNewTable(editor.view, new Set())).toBe(true);
+    const $from = editor.state.selection.$from;
+    expect($from.parent.attrs.id).toBe(120);
+    expect(caretIntoNewTable(editor.view, new Set([10]))).toBe(false);
   });
 });

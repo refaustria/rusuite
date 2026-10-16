@@ -23,6 +23,8 @@ const nativeRows = (t: (key: string) => string): HelpRow[] => [
   { combo: "Mod+=", label: t("write.subscript"), group: t("sc.format") },
   { combo: "Mod+Shift+=", label: t("write.superscript"), group: t("sc.format") },
   { combo: "Mod+Space", label: t("write.sc.clearChar"), group: t("sc.format") },
+  { combo: "Mod+Enter", label: t("write.pageBreak"), group: t("sc.edit") },
+  { combo: "Shift+Enter", label: t("write.lineBreak"), group: t("sc.edit") },
   { combo: "Tab", label: t("write.sc.nextCell"), group: t("write.tables") },
   { combo: "Shift+Tab", label: t("write.sc.prevCell"), group: t("write.tables") },
   { combo: "Enter", label: t("write.sc.findNext"), group: t("sc.edit") },

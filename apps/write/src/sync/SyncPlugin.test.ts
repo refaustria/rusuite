@@ -5,7 +5,8 @@ import type { Block } from "../generated/Block";
 import type { Document } from "../generated/Document";
 import { backendsUnderTest, type TestBackend } from "../test/backends";
 import { FakeWriteBackend } from "../test/fakeWriteBackend";
-import { FIXTURES, makeDoc, para, run } from "../test/fixtures";
+import { FIXTURES, li, makeDoc, para, run } from "../test/fixtures";
+import { plainTextSlice } from "../features/plainPaste";
 import { posOf, press, select, type } from "../test/harness";
 import { setParagraphStyle } from "./editorCommands";
 import { fromPM } from "./fromPM";
@@ -107,6 +108,27 @@ describe.each(BACKENDS)("sync against the $name backend", ({ make }) => {
     expect(e.getText()).toContain("alpha beta");
     expect(e.getText()).not.toContain("gamma");
     expect(e.state.doc.child(0).type.name).toBe("heading");
+  });
+
+  it("W-07: undoing a paste into a list keeps the labels of the other items", async () => {
+    const s = await setup(make(), makeDoc([li(1, "one", 1), li(2, "two", 1)]));
+    const e = s.editor;
+    select(e, 2, 3);
+    press(e, "Enter");
+    await expectConverged(s);
+    e.view.dispatch(e.state.tr.replaceSelection(plainTextSlice("A\nB", e.state.selection.$from, e.state.schema)));
+    await expectConverged(s);
+    const labels = () => {
+      const out: (string | null)[] = [];
+      e.state.doc.descendants((n) => {
+        if (n.isTextblock) out.push(n.attrs.listLabel ?? null);
+      });
+      return out;
+    };
+    expect(labels()).toEqual(["•", "•", "•", "•"]);
+    s.ctl.undo();
+    await expectConverged(s);
+    expect(labels()).toEqual(["•", "•", "•"]);
   });
 
   it("undo and redo apply Rust's patches", async () => {

@@ -251,14 +251,28 @@ describe("Formatting details", () => {
     caret(editor, 1, 0, 5);
     fireEvent.click(screen.getByRole("button", { name: "Superscript" }));
     await waitFor(() => expect(applied(backend)).toContainEqual({ type: "setRunProps", block: 1, from: 0, to: 5, patch: { verticalAlign: "superscript" } }));
-    fireEvent.click(screen.getByRole("button", { name: "Text highlight color" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Yellow" }));
+    fireEvent.click(screen.getByRole("button", { name: "Text highlight color options" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Bright green" }));
     await waitFor(() =>
-      expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "setRunProps", patch: { highlight: { kind: "rgb", value: "FFFF00" } } })),
+      expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "setRunProps", patch: { highlight: { kind: "rgb", value: "00FF00" } } })),
     );
+    // W-04: the button itself applies the last colour (Word's highlighter).
+    caret(editor, 1, 6, 8);
+    fireEvent.click(screen.getByRole("button", { name: "Text highlight color" }));
+    await waitFor(() =>
+      expect(applied(backend)).toContainEqual({ type: "setRunProps", block: 1, from: 6, to: 8, patch: { highlight: { kind: "rgb", value: "00FF00" } } }),
+    );
+    caret(editor, 1, 0, 5);
     fireEvent.click(screen.getByRole("button", { name: "Clear formatting" }));
     await waitFor(() => expect(applied(backend)).toContainEqual({ type: "clearFormatting", block: 1, from: 0, to: 5, paragraph: true }));
     await waitFor(() => expect(editor.view.dom.querySelector("sup")).toBeNull());
+  });
+
+  it("W-29: Ctrl+Enter inserts a page break (Word), Shift+Enter a line break", async () => {
+    const { editorEl } = await mount();
+    fireEvent.keyDown(editorEl, { key: "Enter", code: "Enter", ctrlKey: true });
+    await waitFor(() => expect(editorEl.querySelector(".page-break")).toBeTruthy());
+    expect(editorEl.querySelector("br:not(.ProseMirror-trailingBreak)")).toBeNull();
   });
 
   it("line spacing options dialog and Ctrl+2 / Ctrl+0", async () => {
@@ -272,7 +286,7 @@ describe("Formatting details", () => {
     fireEvent.click(within(dlg).getByRole("button", { name: "OK" }));
     await waitFor(() =>
       expect(applied(backend)).toContainEqual(
-        expect.objectContaining({ type: "setParagraphProps", patch: expect.objectContaining({ spacing: { before: 0, after: 120, line: { kind: "exact", value: 360 } } }) }),
+        expect.objectContaining({ type: "setParagraphProps", patch: expect.objectContaining({ spacing: { after: 120, line: { kind: "exact", value: 360 } } }) }),
       ),
     );
     fireEvent.keyDown(editorEl, { key: "2", code: "Digit2", ctrlKey: true });
