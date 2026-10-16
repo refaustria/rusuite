@@ -74,4 +74,15 @@ annotations?: Array<SheetAnnotations>,
 /**
  * The document's comment authors, when they changed.
  */
-persons?: Array<Person>, };
+persons?: Array<Person>, 
+/**
+ * Sheets whose pivot tables changed (definition, layout or place):
+ * the UI refetches their region snapshot and the `pivotInfo` it
+ * shows; absent = none.
+ */
+pivotSheets?: Array<number>, 
+/**
+ * The pivot tables whose source changed since their last refresh,
+ * when that list changed; absent = unchanged.
+ */
+stalePivots?: Array<number>, };

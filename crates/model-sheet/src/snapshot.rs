@@ -29,6 +29,9 @@ pub struct WorkbookSnapshot {
     /// Authors of threaded comments.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub persons: Vec<Person>,
+    /// Pivot caches (the tables are in [`SheetSnapshot::pivots`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pivot_caches: Vec<crate::pivot::PivotCache>,
 }
 
 /// A defined name in a [`WorkbookSnapshot`].
@@ -96,6 +99,9 @@ pub struct SheetSnapshot {
     pub threads: Vec<Thread>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hyperlinks: Vec<Hyperlink>,
+    /// Pivot tables (their cells are in `cells`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pivots: Vec<crate::pivot::PivotTable>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -194,6 +200,7 @@ impl Workbook {
             styles: self.styles().iter().map(|(_, s)| s.clone()).collect(),
             names,
             persons: self.persons().to_vec(),
+            pivot_caches: self.pivot_caches().to_vec(),
         }
     }
 
@@ -238,6 +245,7 @@ impl Workbook {
             notes: self.notes(id).to_vec(),
             threads: self.threads(id).to_vec(),
             hyperlinks: self.hyperlinks(id).to_vec(),
+            pivots: self.pivots(id).to_vec(),
         }
     }
 
@@ -290,6 +298,7 @@ impl Workbook {
                 builtin: n.builtin,
             })?;
         }
+        wb.set_pivot_caches(snapshot.pivot_caches.clone());
         wb.begin_batch();
         let loaded = (|| -> Result<(), Error> {
             for (sheet, &id) in snapshot.sheets.iter().zip(&ids) {
@@ -326,6 +335,7 @@ impl Workbook {
                     }
                     wb.set_style(c, style(cell.style)?)?;
                 }
+                wb.set_pivots(id, sheet.pivots.clone())?;
             }
             Ok(())
         })();

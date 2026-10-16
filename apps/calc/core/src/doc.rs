@@ -77,6 +77,10 @@ impl CalcError {
             CalcError::Model(M::InvalidChart(_)) => "invalid_chart",
             CalcError::Model(M::UnknownChart(_)) => "unknown_chart",
             CalcError::Model(M::InvalidAnnotation(_)) => "invalid_annotation",
+            CalcError::Model(M::PivotCell) => "pivot_cell",
+            CalcError::Model(M::UnknownPivot(_)) => "unknown_pivot",
+            CalcError::Model(M::InvalidPivot(_)) => "invalid_pivot",
+            CalcError::Model(M::PivotOverlap { .. }) => "pivot_overlap",
             CalcError::Model(M::Engine(EngineError::InvalidName(_))) => "invalid_name",
             CalcError::Model(M::Engine(EngineError::DuplicateName(_))) => "duplicate_name",
             CalcError::Model(M::Engine(EngineError::UnknownName(_))) => "unknown_name",
@@ -270,6 +274,7 @@ impl CalcDocument {
             revision: Revision(0),
             names: self.name_infos(),
             persons: self.workbook.persons().to_vec(),
+            stale_pivots: self.workbook.stale_pivots(),
         }
     }
 
@@ -296,6 +301,7 @@ impl CalcDocument {
                 let mut at: BTreeSet<(u32, u32)> =
                     wb.cells_in(range).map(|(c, _, _)| (c.row, c.col)).collect();
                 at.extend(self.annotated_cells(range));
+                at.extend(wb.pivot_cells_in(range));
                 at.into_iter()
                     .map(|(r, c)| self.cell_view(CellCoord::new(s, r, c)))
                     .collect()
@@ -324,6 +330,7 @@ impl CalcDocument {
                 .map(|(_, dv)| dv.clone())
                 .collect(),
             charts: wb.charts(s).to_vec(),
+            pivots: self.pivot_summaries(s),
         })
     }
 
@@ -383,6 +390,7 @@ impl CalcDocument {
                 || matches!(wb.content(c), CellContent::Formula { text, .. }
                     if text.to_ascii_uppercase().starts_with("=HYPERLINK(")),
             spilled: engine.spill_anchor(c).map(|a| (a.row, a.col)),
+            pivot: self.pivot_cell_view(c),
             spill: engine.spill(c).map(|s| Rect {
                 r0: c.row,
                 c0: c.col,
@@ -714,6 +722,7 @@ impl CalcDocument {
 
     pub(crate) fn apply_cmd(&mut self, cmd: &CalcCommand) -> Result<CalcApplied> {
         use CalcCommand as C;
+        self.check_pivot_edit(cmd)?;
         match cmd {
             &C::SetInput {
                 sheet,
@@ -1207,6 +1216,14 @@ impl CalcDocument {
             | C::RemoveHyperlink { .. }
             | C::RestoreAnnotations { .. }
             | C::RestorePersons { .. } => self.annotations_cmd(cmd),
+            C::CreatePivot { .. }
+            | C::UpdatePivot { .. }
+            | C::RefreshPivot { .. }
+            | C::DeletePivot { .. }
+            | C::MovePivot { .. }
+            | C::ExpandCollapse { .. }
+            | C::SetPageFilter { .. }
+            | C::RestorePivots { .. } => self.pivot_cmd(cmd),
             C::Compound { commands } => {
                 let mut patch = CalcPatch::default();
                 let mut inverses = Vec::with_capacity(commands.len());
@@ -2108,9 +2125,13 @@ impl Document for CalcDocument {
     fn apply(&mut self, cmd: &CalcCommand) -> Result<CalcApplied> {
         let names = self.workbook.names();
         let annotations = self.annotations_state();
+        let pivots = self.may_touch_pivots(cmd).then(|| self.pivot_state());
+        let stale = self.workbook.stale_pivots();
         let mut applied = self.apply_cmd(cmd)?;
         self.mark_names(names, cmd, &mut applied);
         self.mark_annotations(annotations, &mut applied);
+        self.mark_pivots(pivots, &mut applied);
+        self.mark_stale(stale, &mut applied);
         self.mark_cf_sheets(&mut applied.patch);
         self.mark_chart_sheets(&mut applied.patch);
         Ok(applied)

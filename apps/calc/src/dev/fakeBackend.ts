@@ -718,6 +718,16 @@ export class FakeCalcCore {
       case "restoreAnnotations":
       case "restorePersons":
         return this.annotCmd(cmd);
+      case "createPivot":
+      case "updatePivot":
+      case "refreshPivot":
+      case "deletePivot":
+      case "movePivot":
+      case "expandCollapse":
+      case "setPageFilter":
+      case "restorePivots":
+        // Pivot tables are computed by the Rust core only (P8-30).
+        throw new Fail("internal", "pivot tables are not supported by the fake backend");
       default: {
         const unknown: never = cmd;
         throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
@@ -1788,6 +1798,8 @@ export class FakeCalcCore {
           const list = req.sheet === null ? this.sheets.filter((s) => s.threads.length) : [this.sheet(req.sheet)];
           return { ok: { type: "comments", sheets: list.map((s) => ({ sheet: s.id, threads: JSON.parse(JSON.stringify(s.threads)) as Thread[] })) } };
         }
+        case "pivotAt":
+          return { ok: { type: "pivotAt", pivot: null } };
         case "precedents":
           return { ok: { type: "trace", refs: this.precedents(req.sheet, req.row, req.col) } };
         case "dependents":

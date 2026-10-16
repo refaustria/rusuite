@@ -91,6 +91,10 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     trace: { refs: "array" },
     annotations: { annotations: "object" },
     comments: { sheets: "array" },
+    pivotInfo: { info: "object" },
+    // `pivot` is null outside pivot tables.
+    pivotAt: {},
+    pivotItems: { items: "array" },
   };
   for (const [field, kind] of Object.entries(shapes[expected])) {
     const value = body[field];

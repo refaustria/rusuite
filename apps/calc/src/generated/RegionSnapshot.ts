@@ -4,6 +4,7 @@ import type { CellView } from "./CellView";
 import type { ChartObject } from "./ChartObject";
 import type { ColView } from "./ColView";
 import type { DataValidation } from "./DataValidation";
+import type { PivotSummary } from "./PivotSummary";
 import type { Rect } from "./Rect";
 import type { RowView } from "./RowView";
 import type { SheetFormat } from "./SheetFormat";
@@ -35,4 +36,8 @@ validations?: Array<DataValidation>,
  * Every chart of the sheet (not only those over the region), back to
  * front; absent = none.
  */
-charts?: Array<ChartObject>, };
+charts?: Array<ChartObject>, 
+/**
+ * Every pivot table of the sheet; absent = none.
+ */
+pivots?: Array<PivotSummary>, };

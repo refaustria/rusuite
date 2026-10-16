@@ -8,8 +8,8 @@
 //! sheet views (frozen panes, zoom), hidden sheets, merged cells, sorting
 //! and AutoFilter ([`sortfilter`]), conditional formatting ([`condfmt`])
 //! data validation ([`validation`]), charts ([`chart`]), defined names
-//! ([`names`]) and notes, threaded comments and hyperlinks
-//! ([`annotations`]).
+//! ([`names`]), notes, threaded comments and hyperlinks
+//! ([`annotations`]) and pivot tables ([`pivot`]).
 //! [`WorkbookSnapshot`] is the serializable form (camelCase JSON) used by
 //! serde, the IPC layer and `fmt-xlsx`.
 
@@ -18,6 +18,7 @@ pub mod chart;
 pub mod condfmt;
 pub mod names;
 pub mod numfmt;
+pub mod pivot;
 mod rules;
 pub mod sheet;
 pub mod snapshot;
@@ -37,6 +38,7 @@ pub use engine_formula::CellRect;
 
 pub use engine_formula::{CellContent, CellCoord, EngineError, NameScope, Recalc, SheetId};
 pub use names::{BuiltinName, DefinedName};
+pub use pivot::{PivotCache, PivotTable};
 pub use sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView, MAX_ZOOM, MIN_ZOOM};
 pub use snapshot::{
     content_to_input, CellSnapshot, ColSnapshot, NameSnapshot, RowSnapshot, SheetSnapshot,
@@ -108,4 +110,18 @@ pub enum Error {
     /// A malformed note, comment or hyperlink.
     #[error("invalid annotation: {0}")]
     InvalidAnnotation(String),
+    /// A direct edit of a pivot table cell (or a row/column insert or
+    /// delete cutting through a pivot table).
+    #[error("cannot change this part of a pivot table")]
+    PivotCell,
+    /// No pivot table with this id.
+    #[error("unknown pivot table {0}")]
+    UnknownPivot(u32),
+    /// A malformed pivot table or source.
+    #[error("invalid pivot table: {0}")]
+    InvalidPivot(String),
+    /// Writing the pivot table would overwrite these cells (inclusive),
+    /// which have content or belong to another pivot table.
+    #[error("a pivot table cannot overwrite the cells R{}C{}:R{}C{}", r0 + 1, c0 + 1, r1 + 1, c1 + 1)]
+    PivotOverlap { r0: u32, c0: u32, r1: u32, c1: u32 },
 }

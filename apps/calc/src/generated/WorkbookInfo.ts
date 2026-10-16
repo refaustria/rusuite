@@ -25,4 +25,9 @@ names?: Array<NameInfo>,
 /**
  * The document's comment authors; absent = none.
  */
-persons?: Array<Person>, };
+persons?: Array<Person>, 
+/**
+ * Pivot tables whose source changed since their last refresh;
+ * absent = none.
+ */
+stalePivots?: Array<number>, };

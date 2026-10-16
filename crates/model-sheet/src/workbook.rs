@@ -66,6 +66,11 @@ pub struct Workbook {
     pub(crate) name_meta: std::collections::HashMap<crate::names::NameKey, crate::names::NameMeta>,
     /// Authors of threaded comments (`personList`).
     pub(crate) persons: Vec<crate::annotations::Person>,
+    /// Pivot caches (the tables live on the sheets).
+    pub(crate) pivot_caches: Vec<crate::pivot::PivotCache>,
+    /// While recording: the previous content and own style of every cell
+    /// a pivot table operation wrote (see [`Workbook::start_pivot_journal`]).
+    pub(crate) pivot_journal: Option<crate::pivot::PivotJournal>,
 }
 
 impl Default for Workbook {
@@ -108,6 +113,8 @@ impl Workbook {
             styles: StyleTable::new(),
             name_meta: std::collections::HashMap::new(),
             persons: Vec::new(),
+            pivot_caches: Vec::new(),
+            pivot_journal: None,
         }
     }
 
@@ -134,6 +141,7 @@ impl Workbook {
         self.engine.rename_sheet(id, new_name)?;
         if let Some(old) = old.filter(|o| o != new_name) {
             self.rename_chart_refs(None, &old, new_name);
+            self.rename_pivot_sources(&old, new_name);
         }
         Ok(())
     }
@@ -154,6 +162,7 @@ impl Workbook {
         if let Some(data) = self.sheets.get_mut(id.0 as usize) {
             *data = SheetData::default();
         }
+        self.drop_pivot_engine(id);
         self.sync_name_meta(None);
         Ok(recalc)
     }
@@ -195,6 +204,7 @@ impl Workbook {
         }
         self.sync_name_meta(Some((id, new)));
         self.renew_thread_ids(new);
+        self.renew_pivot_ids(new);
         Ok((new, recalc))
     }
 
@@ -718,6 +728,7 @@ impl Workbook {
     /// mapped to `None` are dropped), and maps merges and frozen panes with
     /// [`StructuralOp::map_interval`] (see the module docs).
     fn structural(&mut self, sheet: SheetId, op: StructuralOp) -> Result<Recalc, Error> {
+        self.check_pivot_structural(sheet, op)?;
         let recalc = match op {
             StructuralOp::InsertRows { at, count } => self.engine.insert_rows(sheet, at, count),
             StructuralOp::DeleteRows { at, count } => self.engine.delete_rows(sheet, at, count),
@@ -832,6 +843,7 @@ impl Workbook {
         self.shift_rules(sheet, op);
         self.shift_charts(sheet, op);
         self.shift_annotations(sheet, op);
+        self.shift_pivots(sheet, op);
         Ok(recalc)
     }
 

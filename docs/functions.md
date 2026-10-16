@@ -1,7 +1,7 @@
 # Function list
 
-The 220 functions the formula evaluator implements (the 62 MVP functions of Phase 1 plus the Phase 8
-library growth, tasks P8-1, P8-4 and the dynamic array functions of P8-6). Behaviour is Microsoft Excel's; the reference cases live in
+The 221 functions the formula evaluator implements (the 62 MVP functions of Phase 1 plus the Phase 8
+library growth, tasks P8-1, P8-4 and the dynamic array functions of P8-6, `GETPIVOTDATA` of P8-30). Behaviour is Microsoft Excel's; the reference cases live in
 `testdata/formulas/*.tsv` (see [formula-suite.md](formula-suite.md)).
 Status `planned` means no implementation exists yet.
 
@@ -154,7 +154,7 @@ General rules that apply to every function below:
 | `FIXED` | `FIXED(number, [decimals=2], [no_commas=FALSE])` | Format a number as text | Rounds half away from zero; negative decimals round left of the point; thousands separators unless `no_commas` | implemented |
 | `TEXTJOIN` | `TEXTJOIN(delimiter, ignore_empty, text1, ...)` | Join with a delimiter | Stored as `_xlfn.TEXTJOIN`; ranges flattened row-major; a delimiter range is cycled; errors propagate; result above 32767 characters `#VALUE!` | implemented |
 
-## Lookup / reference (17)
+## Lookup / reference (18)
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
@@ -175,6 +175,7 @@ General rules that apply to every function below:
 | `ADDRESS` | `ADDRESS(row, col, [abs=1], [a1=TRUE], [sheet])` | Cell address as text | `abs` 1 `$A$1`, 2 `A$1`, 3 `$A1`, 4 `A1`; R1C1 style when `a1` is FALSE; sheet names are quoted when needed; invalid row, column or `abs` `#VALUE!` | implemented |
 | `TRANSPOSE` | `TRANSPOSE(array)` | Swap rows and columns | Whole-column or row references are limited to the used range; spills | implemented |
 | `HYPERLINK` | `HYPERLINK(link_location, [friendly_name])` | Cell showing a link | Returns `friendly_name` if given, else the location; the link itself is a UI feature | implemented |
+| `GETPIVOTDATA` | `GETPIVOTDATA(data_field, pivot_table, [field1, item1], ...)` | Value shown by a pivot table | Volatile; `data_field` is the caption (`"Sum of Sales"`) or the source field; `pivot_table` any cell of the pivot table; the pairs must name exactly the row/column fields of a visible cell (page fields with one selected item may be named too); items by value or label, text ignoring case; no pairs = grand total; not shown (hidden subtotal, grand total off, filtered item, empty cell) or no pivot table `#REF!` (see `docs/pivot.md`) | implemented |
 
 ## Dynamic arrays (6)
 

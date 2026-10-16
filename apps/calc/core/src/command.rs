@@ -543,6 +543,66 @@ pub enum CalcCommand {
         r1: u32,
         c1: u32,
     },
+    /// Creates a pivot table (Insert › PivotTable): a cache of `source`
+    /// (a single cell: its current region; the first row holds the field
+    /// names) and a table at `target` with the initial `fields` (indices
+    /// are source columns, 0 = first). A new sheet is inserted before the
+    /// source sheet with the table at A3 (the patch's `activateSheet`).
+    /// Fails with `invalid_pivot` (empty header cell, bad field) or
+    /// `pivot_overlap` (cells with content in the way). The patch lists
+    /// the sheet in `pivotSheets`.
+    CreatePivot {
+        source: crate::pivots::PivotSourceSpec,
+        target: crate::pivots::PivotTarget,
+        #[ts(as = "crate::wire_pivot::PivotFields")]
+        fields: model_sheet::pivot::PivotFields,
+    },
+    /// Changes the fields, options or layout of pivot table `id` and
+    /// rewrites it (from its cache: no refresh). `pivot_overlap` when the
+    /// new layout would overwrite cells.
+    UpdatePivot {
+        id: u32,
+        patch: crate::pivots::PivotPatch,
+    },
+    /// Re-reads the source of pivot table `id` (`null` = every cache) and
+    /// rewrites the tables using it (Excel's Refresh / Refresh All).
+    RefreshPivot {
+        #[serde(default)]
+        id: Option<u32>,
+    },
+    /// Deletes pivot table `id` and clears its cells.
+    DeletePivot {
+        id: u32,
+    },
+    /// Moves pivot table `id` (Move PivotTable).
+    MovePivot {
+        id: u32,
+        target: crate::pivots::PivotTarget,
+    },
+    /// Collapses (`−`) or expands (`+`) an item of row/column field
+    /// `field` (a shared item index; `null` = every item of the field).
+    ExpandCollapse {
+        id: u32,
+        field: u32,
+        #[serde(default)]
+        item: Option<u32>,
+        collapsed: bool,
+    },
+    /// Sets the selection of page (filter) field `field`: shared item
+    /// indices, `null` = (All).
+    SetPageFilter {
+        id: u32,
+        field: u32,
+        #[serde(default)]
+        selected: Option<Vec<u32>>,
+    },
+    /// *Internal.* Replaces every pivot cache and table (no cells are
+    /// written).
+    RestorePivots {
+        #[ts(as = "Vec<crate::wire_pivot::PivotCache>")]
+        caches: Vec<model_sheet::pivot::PivotCache>,
+        sheets: Vec<crate::pivots::SheetPivots>,
+    },
     /// *Internal.* Replaces the notes, threads and hyperlinks of a sheet
     /// (a deleted sheet with empty lists is a no-op).
     RestoreAnnotations {

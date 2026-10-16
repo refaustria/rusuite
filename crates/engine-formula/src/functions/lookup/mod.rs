@@ -5,6 +5,7 @@ use super::FunctionRegistry;
 pub mod address;
 pub mod choose;
 pub mod column;
+pub mod getpivotdata;
 pub mod hlookup;
 pub mod hyperlink;
 pub mod index;
@@ -41,4 +42,5 @@ pub fn register(r: &mut FunctionRegistry) {
     r.register(Box::new(address::Address));
     r.register(Box::new(transpose::Transpose));
     r.register(Box::new(hyperlink::Hyperlink));
+    r.register(Box::new(getpivotdata::GetPivotData));
 }
