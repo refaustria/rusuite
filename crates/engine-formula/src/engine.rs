@@ -79,6 +79,21 @@
 //! does not exist evaluate to `#REF!` and start working once a sheet of
 //! that name is added (or another sheet is renamed to it).
 //!
+//! # Defined names
+//!
+//! [`Engine::set_name`] and friends keep a list of [`NameEntry`]s (a
+//! name, a [`NameScope`], the definition). Formulas resolve an identifier
+//! through [`CellProvider::defined_name`]: the formula's sheet's own name
+//! first, then the workbook's (`Sheet1!Name` asks that sheet). For the
+//! dependency graph and the volatility check a formula is registered with
+//! its names expanded to their definitions, so cells read through a name
+//! are edges; changing, adding or removing a name re-registers and
+//! recalculates every formula that uses it (directly or through other
+//! names). Definitions follow row/column inserts and deletes (a
+//! sheet-level name's unqualified references follow its sheet) and sheet
+//! renames; removing a sheet removes its own names and turns references
+//! to it into `#REF!`; duplicating a sheet copies its names.
+//!
 //! # Sheet order and removal
 //!
 //! [`Engine::sheets`] lists the sheets in display order, which

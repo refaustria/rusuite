@@ -139,6 +139,13 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       "Shift+F11": { label: t("calc.sc.insertSheet"), group: t("calc.sheets"), when: inGrid, run: () => void store.insertSheet() },
       "Mod+Plus": { label: t("calc.sc.insertRowsCols"), group: grid, when: inGrid, run: structural("insert") },
       "Mod+Minus": { label: t("calc.sc.deleteRowsCols"), group: grid, when: inGrid, run: structural("delete") },
+      "Mod+`": { label: t("calc.audit.showFormulas"), group: t("calc.tab.formulas"), when: inGrid, run: () => store.toggleShowFormulas() },
+      "Mod+G": { label: t("calc.goTo.title"), group: t("sc.navigation"), when: inGrid, run: () => store.openDialog({ kind: "goTo" }) },
+      F5: { label: t("calc.goTo.title"), group: t("sc.navigation"), when: inGrid, run: () => store.openDialog({ kind: "goTo" }) },
+      "Shift+F3": { label: t("calc.fn.insert"), group: t("calc.tab.formulas"), inField: true, run: () => store.openDialog({ kind: "insertFunction" }) },
+      "Mod+F3": { label: t("calc.names.manager"), group: t("calc.tab.formulas"), when: inGrid, run: () => store.openDialog({ kind: "nameManager" }) },
+      "Mod+Shift+F3": { label: t("calc.names.createFromSelection"), group: t("calc.tab.formulas"), when: inGrid, run: () => store.openDialog({ kind: "createNames" }) },
+      "Alt+=": { label: t("calc.fn.autoSum"), group: t("calc.tab.formulas"), when: inGrid, run: () => store.autoSum("SUM") },
     };
   }, [store, guard, t]);
 

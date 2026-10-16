@@ -1,5 +1,6 @@
 // The dialogs Calc opens through the store (`store.openDialog`): Format
-// Cells (number format, Ctrl+1), Find & Replace (Ctrl+F / Ctrl+H), the
+// Cells (number format, Ctrl+1, numfmt/NumberFormatDialog.tsx), the name
+// dialogs (names/NameDialogs.tsx), Insert Function, Find & Replace (Ctrl+F / Ctrl+H), the
 // row height / column width prompts, the sheet dialogs (confirm
 // delete, rename, tab colour, unhide), the merge warning and the sort /
 // AutoFilter dialogs (sortFilter/SortFilterDialogs.tsx), conditional
@@ -8,9 +9,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { cssColor, Dialog, OFFICE_THEME, PromptDialog, STANDARD_COLORS, THEME_SLOTS, type Color } from "@rusuite/ui-shared";
-import {
-  buildCode, CATEGORIES, DATE_CODES, parseCode, previewValue, SYMBOLS, TIME_CODES, type CurrencySymbol, type FormatChoice,
-} from "./numberFormat";
+import { NumberFormatDialog } from "./numfmt/NumberFormatDialog";
+import { CreateNamesDialog, DefineNameDialog, GoToDialog, NameManagerDialog } from "./names/NameDialogs";
+import { InsertFunctionDialog } from "./formulas/InsertFunctionDialog";
 import type { FindOptions } from "./state/find";
 import { unhideableSheets, useCalc, type CalcStore } from "./state/store";
 import { useT } from "./i18n";
@@ -21,136 +22,6 @@ import { CustomFilterDialog, CustomSortDialog, FilterPanel, SortExpandDialog, To
 
 const BTN = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover disabled:opacity-40";
 const FIELD = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";
-
-function NumberFormatDialog({ store }: { store: CalcStore }) {
-  const t = useT();
-  const [choice, setChoice] = useState<FormatChoice>(() => parseCode(store.activeStyle().numberFormat));
-  const [preview, setPreview] = useState("");
-  const code = buildCode(choice);
-  const cell = store.activeCell();
-  const value = previewValue(cell);
-  useEffect(() => {
-    let live = true;
-    if (value === null) {
-      setPreview(cell?.display ?? "");
-      return;
-    }
-    store.formatPreview(value, code).then(
-      (t) => live && setPreview(t),
-      () => live && setPreview("—"),
-    );
-    return () => {
-      live = false;
-    };
-  }, [store, code, value, cell?.display]);
-  const set = (p: Partial<FormatChoice>) => setChoice((c) => ({ ...c, ...p }));
-  const close = () => {
-    store.closeDialog();
-    store.focusGrid();
-  };
-  const c = choice.category;
-  return (
-    <Dialog open title={t("calc.fmt.title")} onClose={close}>
-      <form
-        className="flex w-[30rem] flex-col gap-3 text-sm"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void store.applyStyle({ numberFormat: code });
-          close();
-        }}
-      >
-        <div className="flex gap-3">
-          <div role="listbox" aria-label={t("calc.fmt.category")} className="flex w-32 flex-col rounded border border-ui-border bg-ui-bg py-1">
-            {CATEGORIES.map((k) => (
-              <button
-                key={k.id}
-                type="button"
-                role="option"
-                aria-selected={c === k.id}
-                className={`px-2 py-0.5 text-left ${c === k.id ? "bg-ui-active font-medium" : "hover:bg-ui-hover"}`}
-                onClick={() => set({ category: k.id, custom: k.id === "custom" ? code : choice.custom })}
-              >
-                {k.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-1 flex-col gap-2">
-            <div className="rounded border border-ui-border bg-ui-bg px-2 py-1">
-              <div className="text-xs text-ui-muted">{t("calc.fmt.sample")}</div>
-              <div data-testid="format-preview" className="min-h-5 font-mono">
-                {preview}
-              </div>
-            </div>
-            {(c === "number" || c === "currency" || c === "percentage") && (
-              <label className="flex items-center gap-2">
-                {t("calc.fmt.decimals")}
-                <input
-                  type="number"
-                  min={0}
-                  max={30}
-                  className={`${FIELD} w-16`}
-                  value={choice.decimals}
-                  onChange={(e) => set({ decimals: Math.max(0, Math.min(30, Number(e.target.value) || 0)) })}
-                />
-              </label>
-            )}
-            {c === "number" && (
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={choice.thousands} onChange={(e) => set({ thousands: e.target.checked })} />
-                {t("calc.fmt.thousands")}
-              </label>
-            )}
-            {c === "currency" && (
-              <label className="flex items-center gap-2">
-                {t("calc.fmt.symbol")}
-                <select className={FIELD} value={choice.symbol} onChange={(e) => set({ symbol: e.target.value as CurrencySymbol })}>
-                  {SYMBOLS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {(c === "date" || c === "time") && (
-              <label className="flex flex-col gap-1">
-                {t("calc.fmt.type")}
-                <select
-                  className={FIELD}
-                  size={5}
-                  value={c === "date" ? choice.date : choice.time}
-                  onChange={(e) => set(c === "date" ? { date: e.target.value } : { time: e.target.value })}
-                >
-                  {(c === "date" ? DATE_CODES : TIME_CODES).map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {c === "custom" && (
-              <label className="flex flex-col gap-1">
-                {t("calc.fmt.code")}
-                <input className={FIELD} aria-label={t("calc.fmt.code")} value={choice.custom} onChange={(e) => set({ custom: e.target.value })} />
-              </label>
-            )}
-            {c === "general" && <p className="text-xs text-ui-muted">{t("calc.fmt.generalNote")}</p>}
-            {c === "text" && <p className="text-xs text-ui-muted">{t("calc.fmt.textNote")}</p>}
-          </div>
-        </div>
-        <div className="flex justify-end gap-2">
-          <button type="button" className={BTN} onClick={close}>
-            {t("common.cancel")}
-          </button>
-          <button type="submit" className={BTN}>
-            {t("common.ok")}
-          </button>
-        </div>
-      </form>
-    </Dialog>
-  );
-}
 
 /** Non-modal Find & Replace panel (the grid stays usable while it is open). */
 function FindPanel({ store, replace }: { store: CalcStore; replace: boolean }) {
@@ -437,6 +308,16 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       return <ChartDialog store={store} dialog={dialog} />;
     case "dataValidation":
       return <ValidationDialog store={store} />;
+    case "nameManager":
+      return <NameManagerDialog store={store} />;
+    case "defineName":
+      return <DefineNameDialog key={JSON.stringify(dialog.edit ?? null)} store={store} edit={dialog.edit} back={dialog.back} />;
+    case "createNames":
+      return <CreateNamesDialog store={store} />;
+    case "goTo":
+      return <GoToDialog store={store} />;
+    case "insertFunction":
+      return <InsertFunctionDialog store={store} category={dialog.category} />;
     case "mergeConfirm":
       return (
         <Dialog open title={t("calc.mergeCells")} onClose={close}>

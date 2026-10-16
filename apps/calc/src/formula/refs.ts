@@ -6,6 +6,7 @@
 
 import { colName } from "../grid/address";
 import type { Range } from "../grid/Selection";
+import { nameSpans } from "../names/names";
 import { tokenize, type LexError, type Tok } from "./tokenize";
 
 export const MAX_COL = 16_383;
@@ -100,6 +101,8 @@ export interface RefSpan {
   nextTok: number;
   /** A spilled-range reference `A1#` (`range` is A1 itself until resolved, see `colorRefs`). */
   spill?: boolean;
+  /** A defined name (`colorRefs` with a resolver): the name as written; `range` is what it refers to. */
+  name?: string;
 }
 
 /**
@@ -242,11 +245,31 @@ export interface ColoredRef extends RefSpan {
  * colour. `spillRange` resolves a spilled-range reference `A1#` to the
  * spill range of A1's array formula (unresolved: A1 alone).
  */
-export function colorRefs(text: string, spillRange?: (ref: RefSpan) => Range | null): ColoredRef[] {
+export function colorRefs(
+  text: string,
+  spillRange?: (ref: RefSpan) => Range | null,
+  resolveName?: (name: string, sheet: string | null) => { sheet: string | null; range: Range } | null,
+): ColoredRef[] {
   const keys: string[] = [];
-  return findRefs(text).map((found) => {
-    const resolved = found.spill ? spillRange?.(found) : null;
-    const r = resolved ? { ...found, range: { ...resolved } } : found;
+  const found: RefSpan[] = findRefs(text);
+  if (resolveName) {
+    // Defined names are coloured like references, over the range they refer to.
+    for (const n of nameSpans(text)) {
+      const hit = resolveName(n.name, n.sheet);
+      if (!hit) continue;
+      const { r0, c0, r1, c1 } = hit.range;
+      const cellAtom = (row: number, col: number): Atom => ({ kind: "cell", row, col, colAbs: true, rowAbs: true });
+      const single = r0 === r1 && c0 === c1;
+      found.push({
+        start: n.start, end: n.end, sheet: hit.sheet, kind: single ? "cell" : "area", range: { ...hit.range },
+        a: cellAtom(r0, c0), b: single ? null : cellAtom(r1, c1), prefix: "", middle: ":", nextTok: -1, name: n.name,
+      });
+    }
+    found.sort((a, b) => a.start - b.start);
+  }
+  return found.map((f) => {
+    const resolved = f.spill ? spillRange?.(f) : null;
+    const r = resolved ? { ...f, range: { ...resolved } } : f;
     const key = `${(r.sheet ?? "").toLowerCase()}|${r.range.r0},${r.range.c0},${r.range.r1},${r.range.c1}`;
     let k = keys.indexOf(key);
     if (k < 0) k = keys.push(key) - 1;

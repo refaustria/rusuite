@@ -339,14 +339,14 @@ export function selectionRefText(store: CalcStore): string {
   return `=${rangeFormula({ sheet: name, r0: r.r0, c0: r.c0, r1: r.r1, c1: r.c1 })}`;
 }
 
-interface Picker {
+export interface Picker {
   label: string;
   value: string;
   set: (text: string) => void;
 }
 
 /** A reference field with a collapse button: the dialog shrinks to a bar and the grid selection fills the field. */
-function RangeField({ label, value, onChange, onPick, testId }: { label: string; value: string; onChange: (v: string) => void; onPick: (p: Picker) => void; testId?: string }) {
+export function RangeField({ label, value, onChange, onPick, testId }: { label: string; value: string; onChange: (v: string) => void; onPick: (p: Picker) => void; testId?: string }) {
   const t = useT();
   return (
     <label className="flex flex-col gap-0.5">
@@ -362,7 +362,7 @@ function RangeField({ label, value, onChange, onPick, testId }: { label: string;
 }
 
 /** The collapsed dialog while picking a range: the field, follows the grid selection. */
-function PickBar({ store, picker, onDone }: { store: CalcStore; picker: Picker; onDone: () => void }) {
+export function PickBar({ store, picker, onDone }: { store: CalcStore; picker: Picker; onDone: () => void }) {
   const t = useT();
   const [text, setText] = useState(picker.value);
   const selection = useCalc(store, (s) => s.selection);

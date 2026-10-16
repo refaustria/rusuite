@@ -11,6 +11,7 @@ import { normalize } from "./grid/Selection";
 import { isSingleCell } from "./grid/merges";
 import { useCalc, type CalcStore } from "./state/store";
 import { useT } from "./i18n";
+import { NameBox } from "./names/NameBox";
 
 export function FormulaBar({ store }: { store: CalcStore }) {
   const t = useT();
@@ -60,9 +61,7 @@ export function FormulaBar({ store }: { store: CalcStore }) {
 
   return (
     <div className="flex items-center gap-2 border-b border-ui-border bg-ui-bg px-2 py-1 text-sm text-ui-fg">
-      <output aria-label={t("calc.cellAddress")} data-testid="cell-address" className="w-28 shrink-0 truncate rounded border border-ui-border px-2 py-0.5 font-mono">
-        {address}
-      </output>
+      <NameBox store={store} address={address} />
       <button
         type="button"
         aria-label={t("calc.insertFunction")}
@@ -70,8 +69,8 @@ export function FormulaBar({ store }: { store: CalcStore }) {
         className="select-none rounded px-1 italic text-ui-muted hover:bg-ui-hover"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
-          store.openFunctionList();
-          store.focusEditor();
+          // Excel's fx: the Insert Function dialog.
+          store.openDialog({ kind: "insertFunction" });
         }}
       >
         fx

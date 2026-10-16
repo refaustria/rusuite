@@ -95,9 +95,10 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
 
 - **Calc**: Home (Undo; Clipboard: Paste ▾ values, Cut, Copy – `calcActions`; Font incl. borders; Alignment incl. wrap and
   Merge & Center ▾ (Merge & Center – a toggle that unmerges a merged selection –, Merge Across, Merge Cells, Unmerge Cells);
-  Number: format, %, comma, decimals ±; Styles: Conditional Formatting ▾; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide
+  Number: the Number Format box (Excel's eleven entries with previews), Accounting ▾, %, Comma Style, decimals ±
+  (see [number-formats.md](number-formats.md)); Styles: Conditional Formatting ▾; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide
   rows and columns, Hide Sheet / Unhide Sheet…, Format cells…); Editing: Clear, Find ▾ Replace, Sort & Filter ▾ (Sort A
-  to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (New sheet, rows/columns), Data (Sort & Filter: A→Z,
+  to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (New sheet, rows/columns), Formulas (see below), Data (Sort & Filter: A→Z,
   Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Data Validation…), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
   scaled; Window: Freeze Panes ▾ (Freeze/Unfreeze Panes, Freeze Top Row, Freeze First Column); shortcuts help). Zoom,
   gridlines, headings and frozen panes are the active sheet's `SheetView` (`setSheetView` / `setFreeze`, undoable, saved in
@@ -170,6 +171,29 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   drag, resized with 8 handles (Alt snaps to cells), deleted with Delete, copied with Ctrl+C/V; Esc deselects;
   double-click opens the Format pane; a click on the selected title edits it inline; right-click has the chart menu.
   Details: [charts.md](charts.md) "Calc UI".
+- **Calc names and Formulas tab** (P8-23, `apps/calc/src/names`, `formulas`, `audit`, `numfmt`): the **Name Box** left of the
+  formula bar is a combobox: it shows the active cell (or the name of a selected named range); typing a reference
+  (`B7`, `A1:C3`, `A:A`, `Sheet2!B2`) or a name and Enter goes there, any other valid name is defined (workbook scope)
+  for the selection – an invalid one toasts Excel's rule; ▾ (or ↓) lists the names of the sheet and the workbook and
+  navigates. **Go To** (Ctrl+G, F5) lists them too and accepts references. **Formulas**: Function Library (Insert
+  Function… – Shift+F3 and the formula bar's fx –: search by name and description, a category list, the signature and
+  arguments of the selected function, OK inserts `NAME()` at the caret or starts a formula; AutoSum ▾ (Alt+=: Sum,
+  Average, Count Numbers, Max, Min of the numbers above, else left of the active cell, pointed at; More Functions…);
+  Recently Used, Financial, Logical, Text, Date & Time, Lookup & Reference, Math & Trig, More Functions (Statistical,
+  Information) ▾ menus from `functions.json` (category = the section of functions.md); the recent list is kept in
+  `localStorage` `rusuite.calc.recentFunctions`), Defined Names (Name Manager… – Ctrl+F3: name, value, refers to, scope,
+  comment; New / Edit / Delete; Filter (scope, errors, defined); the selected name's Refers to edited in place with ✓ / ✕
+  and the range picker that collapses the dialog –; Define Name ▾ (New Name: name with live validation, scope,
+  comment, refers to – the selection by default, range picker); Use in Formula ▾ (inserts a name at the caret); Create
+  from Selection… – Ctrl+Shift+F3: top row / left column / bottom row / right column, Excel's defaults guessed from the
+  selection), Formula Auditing (Trace Precedents / Trace Dependents: blue arrows from the engine's dependency graph
+  (`precedents` / `dependents` requests) with a dot at the start and a box around precedent ranges, a dashed arrow from a
+  sheet icon for other sheets; each click adds the arrows; Remove Arrows ▾ (all, precedent, dependent arrows); Show
+  Formulas – Ctrl+` (the key left of 1) –: cells show their input, formulas left-aligned, spilled cells blank). Error
+  Checking, Evaluate Formula and Calculation Options are not offered: the core always recalculates automatically (no
+  manual mode). In formulas, names autocomplete with the functions (accepting inserts the name without `(`), are coloured
+  over the range they refer to and outlined on the grid while editing (point mode shows the name's range), and
+  `Sheet1!Name` is accepted by the editor's syntax check.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).

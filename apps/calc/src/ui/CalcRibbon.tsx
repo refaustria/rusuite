@@ -1,4 +1,4 @@
-// Calc's ribbon: File (backstage) / Home / Insert / Data / View. The commands
+// Calc's ribbon: File (backstage) / Home / Insert / Formulas / Data / View. The commands
 // reuse `calcActions` (shared with the shortcuts and context menus, whose
 // dialogs CalcDialogs renders) and, for the dialogs owned by the
 // ShortcutLayer (Save As, New with its discard prompt, shortcut help), the
@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  AlignmentControls, BordersDropdown, ColorControls, FontControls, NumberFormatSelect, RIBBON_SELECT, Ribbon, RibbonButton,
+  AlignmentControls, BordersDropdown, ColorControls, FontControls, RIBBON_SELECT, Ribbon, RibbonButton,
   RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack, StyleToggles, triggerShortcut, type AnySession, type CellStylePatch,
   type FormatControlProps, type RibbonTab, languageRibbonGroup,
 } from "@rusuite/ui-shared";
@@ -17,6 +17,8 @@ import { toolbarValue } from "../grid/style";
 import { useCalc, type CalcStore } from "../state/store";
 import { CfMenu } from "../condFormat/CfMenu";
 import { chartDesignTab, chartFormatTab, chartsInsertGroup } from "../charts/ChartRibbon";
+import { formulasTab } from "../formulas/FormulasRibbon";
+import { NumberGroup } from "./NumberGroup";
 import {
   clearFilterIcon, condFormatIcon, filterIcon, freezeIcon, headingsIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon, validationIcon,
 } from "./icons";
@@ -32,23 +34,7 @@ export interface CalcView {
 export const DEFAULT_CALC_VIEW: CalcView = { zoom: 1, gridlines: true, headings: true, formulaBar: true };
 export const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
-/**
- * Adds (`delta` 1) or removes (-1) one decimal place in every section of a
- * number format code: `General`/`0` → `0.0`, `#,##0.00` → `#,##0.0`.
- */
-export function changeDecimals(code: string, delta: 1 | -1): string {
-  const base = code === "General" || code === "" ? "0" : code;
-  return base
-    .split(";")
-    .map((section) => {
-      const m = /0(?:\.(0+))?(?![\s\S]*0)/.exec(section);
-      if (!m) return section;
-      const places = Math.max(0, (m[1]?.length ?? 0) + delta);
-      const digits = places > 0 ? `0.${"0".repeat(places)}` : "0";
-      return section.slice(0, m.index) + digits + section.slice(m.index + m[0].length);
-    })
-    .join(";");
-}
+export { changeDecimals } from "../numberFormat";
 
 export interface CalcRibbonProps {
   store: CalcStore;
@@ -93,7 +79,6 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
       done();
     },
   };
-  const numberFormat = fmt.value.numberFormat ?? "General";
 
   const filterOn = actions.hasAutoFilter();
   const filtered = actions.hasFilters();
@@ -190,29 +175,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
       },
       {
         label: t("fmt.number"),
-        items: (
-          <RibbonStack>
-            <RibbonRow>
-              <NumberFormatSelect {...fmt} />
-            </RibbonRow>
-            <RibbonRow>
-              <RibbonButton label={t("calc.percentStyle")} icon="percent" disabled={off} onClick={() => fmt.onChange({ numberFormat: "0%" })} />
-              <RibbonButton label={t("calc.commaStyle")} icon="comma" disabled={off} onClick={() => fmt.onChange({ numberFormat: "#,##0.00" })} />
-              <RibbonButton
-                label={t("calc.decimalMore")}
-                icon="decimalMore"
-                disabled={off}
-                onClick={() => fmt.onChange({ numberFormat: changeDecimals(numberFormat, 1) })}
-              />
-              <RibbonButton
-                label={t("calc.decimalLess")}
-                icon="decimalLess"
-                disabled={off}
-                onClick={() => fmt.onChange({ numberFormat: changeDecimals(numberFormat, -1) })}
-              />
-            </RibbonRow>
-          </RibbonStack>
-        ),
+        items: <NumberGroup store={store} disabled={off} onChange={fmt.onChange} />,
       },
       {
         label: t("calc.styles"),
@@ -447,7 +410,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
       appName="Rusuite Calc"
       documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#217346"
-      tabs={[home, insert, data, viewTab, ...contextual]}
+      tabs={[home, insert, formulasTab(store, t, off), data, viewTab, ...contextual]}
       activeTab={tab}
       onTabChange={setTab}
       backstage={{

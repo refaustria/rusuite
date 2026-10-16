@@ -29,7 +29,7 @@ function fileCommand(name: string) {
 }
 
 const applied = (log: Request[]) => log.flatMap((r) => (r.type === "apply" ? [r.command] : []));
-const address = () => screen.getByTestId("cell-address").textContent;
+const address = () => (screen.getByTestId("cell-address") as HTMLInputElement).value;
 
 describe("App", () => {
   it("starts with NewDocument, Info and a first snapshot", async () => {
