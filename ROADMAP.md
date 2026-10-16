@@ -1,5 +1,7 @@
 # Roadmap – ideas beyond the README scope
 
+> What comes after v0.1.0 is planned in [docs/plan-after-0.1.0.md](docs/plan-after-0.1.0.md).
+
 Captured here, **not implemented** unless essential to the current phase. README is the authority on scope.
 
 ## Tooling / DX
@@ -108,6 +110,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Store the pane top-left cell (freeze while scrolled like Excel); grid mouse handlers → pointer events; Ctrl+PageUp/Down skipping hidden sheets; unhide several sheets; sort by colour/custom lists, colour/date-group filters, AutoFilter range growth, left-to-right sort, AGGREGATE, "sort warning" for adjacent data; hidden-by-hand rows inside a filtered range read back as filtered (xlsx cannot distinguish).
 
 ## Show parity follow-ups
+- Pre-release (P8-45): PowerPoint swatch names in the shared colour picker (S-08, ui-shared ColorPicker); docs/charts.md z-order sentence; master-view in-place text editing; master marL/indent per level in layoutText; spAutoFit for new text boxes; Shift+Enter line breaks in the editor; Show tab bar cut off at 1024 px ("Ans…").
 - QA deferred (P8-40): S-01 rich in-place text editor (bullets/indents while typing); S-10 combo chart draws columns behind the area (shared renderer); S-14 Insert › Text box click-or-drag; S-17 default Effect Options for Push/Split/Zoom vs PowerPoint; colour swatch names, duotone previews, group numbering.
 - Fidelity (P8-32): prompt text with formatting; exact PowerPoint table style definitions + "Best match" row; freeform tool on the preset path data; share preset data with Write; deeper text levels on layout placeholders; measure Show wasm load time in perf.
 - Views (P8-28): save lock-aspect (`a:spLocks`) and last view on save → P8-32; outline view with rich text; per-layout guides (p15); ink layer under zoom; vertical text edited horizontally; custom shows.

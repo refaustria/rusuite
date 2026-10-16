@@ -10,6 +10,7 @@ import App from "./App";
 import { ShowApi } from "./api";
 import { ShowStore } from "./state/store";
 import { FakeBackend } from "./test/fakeBackend";
+import { replaceAll, select } from "./test/editor";
 
 afterEach(() => {
   cleanup();
@@ -155,10 +156,9 @@ describe("Show shortcuts", () => {
   it("Ctrl+B and Ctrl+K work while typing in the text overlay (P8-40 S-15)", async () => {
     const { backend, store } = await mount();
     act(() => store.startEdit(3));
-    const ta = screen.getByTestId("text-overlay") as HTMLTextAreaElement;
-    fireEvent.change(ta, { target: { value: "Hello" } });
-    ta.setSelectionRange(0, 5);
-    fireEvent.select(ta);
+    const ta = screen.getByTestId("text-overlay");
+    replaceAll(ta, "Hello");
+    select(ta, 0, 5);
     fireEvent.keyDown(ta, ctrl("b"));
     await flush();
     fireEvent.keyDown(screen.getByTestId("text-overlay"), ctrl("k"));

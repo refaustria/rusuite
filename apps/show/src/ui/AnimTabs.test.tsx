@@ -65,7 +65,7 @@ describe("Transitions tab", () => {
     expect(screen.queryAllByTestId("effects-star")).toHaveLength(0);
     fireEvent.click(within(gallery).getByRole("button", { name: "Push" }));
     await flush();
-    expect(last(backend)).toEqual({ type: "setTransition", slides: [1], transition: { kind: "push", durationMs: 1000, advanceOnClick: true } });
+    expect(last(backend)).toEqual({ type: "setTransition", slides: [1], transition: { kind: "push", durationMs: 1000, advanceOnClick: true, direction: "up" } });
     expect(within(gallery).getByRole("button", { name: "Push" }).getAttribute("aria-pressed")).toBe("true");
     expect(within(screen.getAllByTestId("thumbnail")[0]!).getByTestId("effects-star")).toBeTruthy();
     fireEvent.click(within(gallery).getByRole("button", { name: "None" }));

@@ -22,7 +22,7 @@ const types = {
 
 // The same security headers as production: the policy is read from the nginx vhost (ADR 0009), so the
 // local suite fails on anything the live CSP would block.
-const vhost = fs.readFileSync(path.resolve(root, "../deploy/nginx/resuite.inceptum.at.conf"), "utf8");
+const vhost = fs.readFileSync(path.resolve(root, "../deploy/nginx/rusuit.es.conf"), "utf8");
 const nginxVar = (name) => vhost.match(new RegExp(`set \\$${name} "([^"]*)";`))?.[1] ?? "";
 const connect = nginxVar("csp_connect");
 const securityHeaders = {

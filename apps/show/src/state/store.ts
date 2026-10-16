@@ -41,6 +41,7 @@ import { moveSlidesCommand, sorterSelect, type SorterDrop } from "../views/sorte
 import { bodyWithLines, outlinePlan, outlineSlide } from "../views/outline";
 import { allCommand, hideCommand, moveToZ, renameCommand } from "../ui/selection";
 import { autofitProps, fitHeight, withScale } from "../text/autofit";
+import { cleanBody, spliceBody, textDiff } from "../text/editing";
 import type { ChartData } from "../generated/ChartData";
 import type { ChartShape } from "../generated/ChartShape";
 import type { Hyperlink } from "../generated/Hyperlink";
@@ -107,9 +108,14 @@ export interface EditSession {
   /** A table cell being edited (`shape` is the table). */
   cell?: { row: number; col: number };
   text: string;
-  /** Textarea selection (UTF-16 offsets). */
+  /** Editor selection (UTF-16 offsets into `text`). */
   start: number;
   end: number;
+  /**
+   * The rich body `text` stands for, once the editor spliced it (typing
+   * keeps the runs' formatting); absent = `bodyFromText(text, model body)`.
+   */
+  body?: TextBody;
 }
 
 export interface ShowState {
@@ -412,6 +418,12 @@ export class ShowStore {
       const tb = tableOf(slide ? (findShape(slide.shapes, editing.shape)?.shape ?? null) : null);
       const cell = tb?.cells[editing.cell.row]?.[editing.cell.col];
       if (!cell || cell.covered) editing = null;
+    }
+    if (editing?.body && slide) {
+      // the session's text went to the core with this change: the model's body (with the formatting just applied) is the session's again
+      const sh = findShape(slide.shapes, editing.shape)?.shape ?? null;
+      const now = editing.cell ? tableOf(sh)?.cells[editing.cell.row]?.[editing.cell.col]?.text : sh ? textOf(sh) : null;
+      if (now && bodyText(now) === editing.text) editing = { ...editing, body: undefined };
     }
     let cellSel = s.cellSel;
     if (cellSel) {
@@ -1003,8 +1015,41 @@ export class ShowStore {
     this.set({ editing: { shape: id, text: t, start: t.length, end: t.length }, selection: [top] });
   }
 
+  /** The editor's text and selection; a changed text is spliced into the session's body (one edit, found by diffing). */
   updateEdit(text: string, start: number, end: number): void {
-    if (this.state.editing) this.set({ editing: { ...this.state.editing, text, start, end } });
+    const e = this.state.editing;
+    if (!e) return;
+    if (text === e.text) {
+      if (start !== e.start || end !== e.end) this.set({ editing: { ...e, start, end } });
+      return;
+    }
+    const d = textDiff(e.text, text, end);
+    const body = spliceBody(this.sessionBody(e), d.from, d.to, d.insert);
+    this.set({ editing: { ...e, text, body, start, end } });
+  }
+
+  /** Replaces `from`…`to` of the edited text by `insert` (`\n` = new paragraph); the caret goes after it. */
+  editText(from: number, to: number, insert: string): void {
+    const e = this.state.editing;
+    if (!e) return;
+    const lo = Math.max(0, Math.min(from, to, e.text.length));
+    const hi = Math.min(e.text.length, Math.max(from, to));
+    const clean = insert.replace(/\r\n?/g, "\n");
+    const text = e.text.slice(0, lo) + clean + e.text.slice(hi);
+    const body = spliceBody(this.sessionBody(e), lo, hi, clean);
+    const at = lo + clean.length;
+    this.set({ editing: { ...e, text, body, start: at, end: at } });
+  }
+
+  /** Restores an editor state (its own undo / redo). */
+  restoreEdit(text: string, body: TextBody | undefined, start: number, end: number): void {
+    const e = this.state.editing;
+    if (e) this.set({ editing: { ...e, text, body, start, end } });
+  }
+
+  /** The rich body of an editor session. */
+  sessionBody(e: EditSession): TextBody {
+    return e.body ?? bodyFromText(e.text, this.oldBody(e.shape, e.cell));
   }
 
   private oldBody(id: NodeId, cell?: { row: number; col: number }): TextBody {
@@ -1021,15 +1066,17 @@ export class ShowStore {
 
   /** `SetTextBody` for the session's text, when it changed. */
   private textCommand(e: EditSession): ShowCommand | null {
+    const same = (old: TextBody, body: TextBody) => (e.body ? JSON.stringify(old) === JSON.stringify(body) : bodyText(old) === e.text);
     if (e.cell) {
       const old = this.oldBody(e.shape, e.cell);
-      if (bodyText(old) === e.text) return null;
-      return { type: "setTableCellText", shape: e.shape, row: e.cell.row, col: e.cell.col, body: bodyFromText(e.text, old) };
+      const body = cleanBody(this.sessionBody(e));
+      if (same(old, body)) return null;
+      return { type: "setTableCellText", shape: e.shape, row: e.cell.row, col: e.cell.col, body };
     }
     const old = this.oldBody(e.shape);
     const shape = this.shape(e.shape);
-    if (shape && textOf(shape) && bodyText(old) === e.text) return null;
-    let body = bodyFromText(e.text, old);
+    let body = cleanBody(this.sessionBody(e));
+    if (shape && textOf(shape) && same(old, body)) return null;
     // Shrink text on overflow: the scale for the new text goes with it (P8-28)
     const pres = this.state.pres;
     const slide = this.currentSlide();
@@ -1110,7 +1157,7 @@ export class ShowStore {
     const e = this.state.editing;
     return this.textTargets().map((shape) => {
       if (e && shape.id === e.shape) {
-        const body = bodyFromText(e.text, this.oldBody(e.shape));
+        const body = cleanBody(this.sessionBody(e));
         return { shape, body, paragraphs: selectedParagraphs(body, e.text, e), pre: this.textCommand(e) };
       }
       const body = textOf(shape)!;
@@ -1724,7 +1771,7 @@ export class ShowStore {
       return;
     }
     const pos = textPosOf(e.text, e.start);
-    const base = bodyFromText(e.text, this.oldBody(e.shape));
+    const base = cleanBody(this.sessionBody(e));
     const pres = this.state.pres;
     const n = pres ? pres.slides.findIndex((s) => s.id === this.state.current) + 1 : 0;
     const text = fieldText(field, n || null, "");

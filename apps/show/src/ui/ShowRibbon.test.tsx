@@ -111,6 +111,26 @@ describe("Show ribbon", () => {
     expect(backend.commands[backend.commands.length - 1]).toMatchObject({ type: "addShape", shape: { kind: { kind: "connector", value: { kind: "straight" } } } });
   });
 
+  it("Insert › Text box: a click arms drawing (pressed; click again disarms), Enter inserts at once (P8-45 S-14)", async () => {
+    const { backend, store } = await mount();
+    fireEvent.click(tab("Insert"));
+    const button = () => screen.getByRole("button", { name: "Text box" });
+    fireEvent.click(button(), { detail: 1 });
+    await flush();
+    expect(store.getState().drawMode).toBe("textBox");
+    expect(button().getAttribute("aria-pressed")).toBe("true");
+    expect(backend.commands).toEqual([]);
+    expect(screen.getByTestId("editor-stage").getAttribute("data-draw-mode")).toBe("textBox");
+    fireEvent.click(button(), { detail: 1 });
+    expect(store.getState().drawMode).toBeNull();
+    // drawn: the dragged box, the editor opens on it
+    fireEvent.click(button(), { detail: 1 });
+    await act(() => store.insertChoice("textBox", { x: 914400, y: 457200, w: 3657600, h: 914400, rotationDeg: 0 }));
+    expect(backend.commands[0]).toMatchObject({ type: "addShape", shape: { transform: { x: 914400, y: 457200, w: 3657600, h: 914400 }, fill: { kind: "none" } } });
+    expect(store.getState().drawMode).toBeNull();
+    expect(store.getState().editing).not.toBeNull();
+  });
+
   it("View: zoom and present from the beginning", async () => {
     HTMLElement.prototype.requestFullscreen = vi.fn().mockResolvedValue(undefined);
     await mount();

@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" data-i18n-content="portal.description" content="Rusuite – a small office suite with a Rust core: Calc, Write and Show, in your browser and on the desktop." />
     <meta name="color-scheme" content="light dark" />
-    <title data-i18n="portal.title">Rusuite – Calc, Write and Show</title>
+    <title data-i18n="portal.title">rusuit.es – Rusuite: free, open-source office suite</title>
     <link rel="icon" href="logos/rusuite-mono.svg" type="image/svg+xml" />
+    <link rel="canonical" href="https://rusuit.es/" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -22,9 +23,10 @@
     <header class="hero">
       <div class="brand">
         <img src="logos/rusuite.svg" width="64" height="64" data-i18n-alt="portal.logo" alt="Rusuite logo" />
-        <h1>Rusuite</h1>
+        <h1 class="wordmark" data-i18n-aria-label="portal.wordmark.label" aria-label="Rusuite"><span class="wm-a">rusuit</span><span class="wm-b">.es</span></h1>
       </div>
       <p class="lead" data-i18n="portal.lead">A small office suite with a Rust core – runs in your browser and on the desktop.</p>
+      <p class="statement" data-i18n-html="portal.statement">Rusuite is free to use and open source (<a href="https://github.com/refaustria/rusuite/blob/main/LICENSE">MIT licence</a>) – and it will stay that way. No accounts, <a href="privacy.html">no tracking</a>, no server-side documents.</p>
       <p class="sub" data-i18n-html="portal.sub">Opens and saves real <code>.xlsx</code>, <code>.docx</code> and <code>.pptx</code> files. Nothing to install, no account, your files stay on your machine.</p>
       <p class="sub privacy" data-i18n-html="portal.privacy.sentence">Your documents never leave your device: there is no server-side storage, no tracking and no analytics. <a href="privacy.html">Privacy details</a></p>
     </header>
@@ -60,6 +62,32 @@
           </div>
         </li>
       </ul>
+      <section class="opensource" aria-labelledby="os-h">
+        <h2 id="os-h" data-i18n="portal.os.h">Open source, free, and it stays that way</h2>
+        <p data-i18n-html="portal.os.mit">Rusuite is published under the <a href="https://github.com/refaustria/rusuite/blob/main/LICENSE">MIT licence</a>. That means you may:</p>
+        <ul>
+          <li data-i18n="portal.os.use">use it – at home, at work, in class, at no cost</li>
+          <li data-i18n="portal.os.keep">keep it – download the desktop apps or the source; nobody can switch it off</li>
+          <li data-i18n="portal.os.modify">modify it – change the code to fit your needs</li>
+          <li data-i18n="portal.os.share">share it – pass it on, with or without changes</li>
+        </ul>
+        <p data-i18n-html="portal.os.code">The code lives on <a href="https://github.com/refaustria/rusuite">GitHub</a>.</p>
+        <p data-i18n-html="portal.os.report">Found a problem? Use the ? Help menu in the app (Report a problem…) or open an <a href="https://github.com/refaustria/rusuite/issues">issue on GitHub</a>.</p>
+      </section>
+      <section id="soon" class="opensource soon" aria-labelledby="soon-h">
+        <h2 id="soon-h" data-i18n="portal.soon.h">Coming soon</h2>
+        <p data-i18n="portal.soon.intro">What the next releases are planned to bring – no dates, and plans can change:</p>
+        <ul>
+          <li data-i18n-html="portal.soon.item1"><strong>Mobile</strong> – Android and iOS apps for Calc, Write and Show are planned.</li>
+          <li data-i18n-html="portal.soon.item2"><strong>Cloud</strong> – More cloud connections in the desktop apps are planned: Google Drive, OneDrive, Dropbox and S3.</li>
+          <li data-i18n-html="portal.soon.item3"><strong>AI assistant</strong> – Image input and faster whole-document context are planned.</li>
+          <li data-i18n-html="portal.soon.item4"><strong>Calc</strong> – Slicers, sparklines, sheet protection and Flash Fill are planned.</li>
+          <li data-i18n-html="portal.soon.item5"><strong>Write</strong> – Linked text boxes, grouped shapes and templates are planned.</li>
+          <li data-i18n-html="portal.soon.item6"><strong>Show</strong> – More table styles, freeform drawing and media trimming are planned.</li>
+          <li data-i18n-html="portal.soon.item7"><strong>Languages</strong> – More interface languages are planned.</li>
+        </ul>
+        <p data-i18n="portal.soon.close">Your feedback shapes the order: tell us what you need via the ? Help menu in the app (Report a problem…).</p>
+      </section>
     </main>
 
     <footer>
@@ -70,6 +98,8 @@
         <a href="https://github.com/refaustria/rusuite/releases" data-i18n="portal.releases">All releases</a>
         <span aria-hidden="true">·</span>
         <a href="privacy.html" data-i18n="portal.privacy">Privacy</a>
+        <span aria-hidden="true">·</span>
+        <a href="#soon" data-i18n="portal.soon.link">What's coming soon</a>
         <span aria-hidden="true">·</span>
         <span id="version" data-testid="version">Version unknown</span>
       </p>

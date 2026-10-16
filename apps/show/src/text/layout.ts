@@ -62,8 +62,37 @@ export interface Fragment {
   link?: Hyperlink;
 }
 
+/**
+ * Where and how a paragraph is laid out (local px of the text box, from
+ * the left inset): what the in-place editor needs to draw the same text
+ * with CSS (P8-45 S-01).
+ */
+export interface ParagraphMetrics {
+  /** Outline level (`0..=8`). */
+  level: number;
+  /** Start of the bullet (the outline indent). */
+  indent: number;
+  /** Start of the text (after the bullet's hanging indent). */
+  textX: number;
+  /** The bullet or number (`null` = none; drawn only on paragraphs with text). */
+  label: string | null;
+  /** Style of the bullet: the paragraph's first run (size before autofit scaling). */
+  bulletStyle: RunStyle;
+  /** Font size of the first run (autofit scale applied). */
+  baseSize: number;
+  /** Space before / after the paragraph (px). */
+  spaceBefore: number;
+  spaceAfter: number;
+  /** Line height: fixed px, or a factor of the line's largest font (line spacing reduction applied). */
+  lineHeight: { kind: "fixed"; px: number } | { kind: "factor"; value: number };
+  /** Alignment as drawn (justify draws left; no wrap: left). */
+  alignment: "left" | "center" | "right";
+}
+
 export interface TextLayout {
   fragments: Fragment[];
+  /** Per paragraph: indents, bullet, spacing, line height (the in-place editor's CSS). */
+  paragraphs?: ParagraphMetrics[];
   /** Height of the text (unscaled box coordinates, before anchoring). */
   height: number;
   /** Autofit font scale (1 = none). */
@@ -189,6 +218,7 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
   const paras = body.paragraphs.map((p) => ({ p, props: o.paragraphProps(p.props) }));
   const labels = bulletLabels(paras.map(({ props }) => ({ bullet: props.bullet, level: props.level ?? 0 })));
   const fragments: Fragment[] = [];
+  const metrics: ParagraphMetrics[] = [];
   let y = 0;
 
   paras.forEach(({ p, props }, pi) => {
@@ -202,21 +232,31 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
     const lineFactor = props.lineSpacing?.kind === "percent" ? props.lineSpacing.value / 100000 : 1;
     const fixedLine = props.lineSpacing?.kind === "points" ? (props.lineSpacing.value / 100) * PX_PER_PT * scale : null;
     const indent = (props.level ?? 0) * LEVEL_INDENT_PX;
-    y += spacingPx(props.spacingBefore, baseSize * 1.2) * (props.spacingBefore?.kind === "points" ? scale : 1);
+    const spaceBefore = spacingPx(props.spacingBefore, baseSize * 1.2) * (props.spacingBefore?.kind === "points" ? scale : 1);
+    const spaceAfter = spacingPx(props.spacingAfter, baseSize * 1.2) * (props.spacingAfter?.kind === "points" ? scale : 1);
+    y += spaceBefore;
 
-    const label = labels[pi];
+    const label = labels[pi] ?? null;
     let textX = indent;
     let bulletFrag: Fragment | null = null;
-    if (label !== null && label !== undefined && runs.some((r) => r.text.length > 0)) {
+    if (label !== null) {
       const font = cssFont(firstStyle, baseSize, firstStyle.fontFamily);
       const w = o.measure(label, font);
       const hang = Math.max(w + baseSize * 0.4, baseSize * 1.1);
-      bulletFrag = {
-        x: indent, y: 0, text: label, fontFamily: firstStyle.fontFamily, fontSize: baseSize,
-        fontStyle: konvaStyle(firstStyle), textDecoration: "", fill: firstStyle.color, width: w,
-      };
+      if (runs.some((r) => r.text.length > 0)) {
+        bulletFrag = {
+          x: indent, y: 0, text: label, fontFamily: firstStyle.fontFamily, fontSize: baseSize,
+          fontStyle: konvaStyle(firstStyle), textDecoration: "", fill: firstStyle.color, width: w,
+        };
+      }
       textX = indent + hang;
     }
+    const drawnAlign = props.alignment === "center" || props.alignment === "right" ? props.alignment : "left";
+    metrics.push({
+      level, indent, textX, label, bulletStyle: firstStyle, baseSize, spaceBefore, spaceAfter,
+      lineHeight: fixedLine !== null ? { kind: "fixed", px: fixedLine * (1 - reduction) } : { kind: "factor", value: 1.2 * lineFactor * (1 - reduction) },
+      alignment: wrap ? drawnAlign : "left",
+    });
     const lineWidth = Math.max(1, avail - textX);
 
     // Greedy line breaking.
@@ -296,10 +336,10 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
       }
       y += lh;
     });
-    y += spacingPx(props.spacingAfter, baseSize * 1.2) * (props.spacingAfter?.kind === "points" ? scale : 1);
+    y += spaceAfter;
   });
 
-  return { fragments, height: y + top + emuToPx(ins.bottom), scale, lineReduction: reduction };
+  return { fragments, paragraphs: metrics, height: y + top + emuToPx(ins.bottom), scale, lineReduction: reduction };
 }
 
 /** PowerPoint's shrink steps: line spacing reduced first (10 %, 20 %), then the font (92.5 % … 25 %). */

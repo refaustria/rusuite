@@ -81,7 +81,7 @@ their download links work only for repository members).
 
 ## Report relay URL (P8-43)
 The desktop apps post "Report a problem" to the relay URL baked in at build time: `REPORT_RELAY_URL` (Vite exposes it
-through the apps' `envPrefix`), default `https://resuite.inceptum.at/api/report`. Set it in the environment of the
+through the apps' `envPrefix`), default `https://rusuit.es/api/report`. Set it in the environment of the
 release build to point a build at another relay (`REPORT_RELAY_URL=https://example.org/api/report pnpm --filter calc
 tauri build`). The web builds always use the relative `/api/report` of the site they are served from. The relay
 itself is deployed separately (`scripts/deploy-relay.sh`, docs/setup.md "Report relay").
@@ -95,3 +95,6 @@ release notes say so plainly. Code signing, notarization and auto-update are on 
 - **RPM**: RPM versions cannot contain `-`; the bundler has to map `0.1.0-rc.1` to an RPM version/release. If the
   `ubuntu-22.04` build fails in the rpm step, the test run of section 2 shows it before tagging.
 - **macOS** shows the version string as is in *About*; Apple's numeric-only rule applies to the App Store only.
+
+
+Test run 2026-10-16: https://github.com/refaustria/rusuite/actions/runs/38911314761 – 12 builds + 4 smoke jobs green (RPM accepted `0.1.0-rc.1` as `0.1.0-rc.1-1`, MSI uses `0.1.0.1`); the smoke job is blocking since then.

@@ -1,11 +1,11 @@
 // The report transport: the only `fetch` of "Report a problem" (scripts/privacy-check.sh allow-list). It runs only
 // when the user submits the dialog (`ReportController.submit`), never at start-up or in the background. Web: the
 // site's own relay (`/api/report`, same origin – the CSP stays `connect-src 'self'`); desktop: the URL baked in at
-// build time (`REPORT_RELAY_URL`, default `https://resuite.inceptum.at/api/report`). No cookies, no referrer.
+// build time (`REPORT_RELAY_URL`, default `https://rusuit.es/api/report`). No cookies, no referrer.
 
 import type { ReportPayload, ReportPlatform } from "./types";
 
-export const DEFAULT_RELAY_URL = "https://resuite.inceptum.at/api/report";
+export const DEFAULT_RELAY_URL = "https://rusuit.es/api/report";
 
 export type SendResult =
   | { kind: "ok"; number: number; url: string; warnings: string[] }

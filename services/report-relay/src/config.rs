@@ -3,7 +3,7 @@
 use std::net::SocketAddr;
 
 /// The site whose pages call the relay (the web apps; same origin as `/api/report`).
-pub const DEFAULT_SITE_ORIGIN: &str = "https://resuite.inceptum.at";
+pub const DEFAULT_SITE_ORIGIN: &str = "https://rusuit.es";
 /// The desktop apps' webview origins (Tauri 2: Linux/macOS, Windows).
 pub const DESKTOP_ORIGINS: [&str; 2] = ["tauri://localhost", "https://tauri.localhost"];
 pub const DEFAULT_LISTEN: &str = "127.0.0.1:8787";
@@ -29,7 +29,7 @@ pub struct Config {
     pub github_api: String,
     /// `REPORT_LISTEN` (default `127.0.0.1:8787`).
     pub listen: SocketAddr,
-    /// `REPORT_SITE_ORIGIN` (default `https://resuite.inceptum.at`).
+    /// `REPORT_SITE_ORIGIN` (default `https://rusuit.es`).
     pub site_origin: String,
     /// `REPORT_EXTRA_ORIGINS`: comma-separated additional allowed origins (e.g. a local dev server), default none.
     pub extra_origins: Vec<String>,
@@ -179,7 +179,7 @@ mod tests {
         assert_eq!(
             c.allowed_origins(),
             [
-                "https://resuite.inceptum.at",
+                "https://rusuit.es",
                 "tauri://localhost",
                 "https://tauri.localhost",
                 "http://localhost:1420",

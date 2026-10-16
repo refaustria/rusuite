@@ -70,6 +70,23 @@ const rgbOf = (hex: string) => {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255] as const;
 };
 
+/**
+ * An SVG `feColorMatrix` (sRGB) doing the duotone / sepia recolour of
+ * `processPixels` exactly – `dark + L·(light − dark)` with L the
+ * luminance – for the gallery previews (P8-45 S-18: the CSS `sepia()`
+ * approximation showed every duotone in sepia); `null` for other recolours.
+ */
+export function recolorMatrix(rc: Recolor | undefined): string | null {
+  if (!rc || (rc.kind !== "duotone" && rc.kind !== "sepia")) return null;
+  const dark = rc.kind === "duotone" ? rgbOf(rc.value.dark) : ([0, 0, 0] as const);
+  const light = rc.kind === "duotone" ? rgbOf(rc.value.light) : rgbOf("D9C3A5");
+  const rows = [0, 1, 2].map((c) => {
+    const span = (light[c]! - dark[c]!) / 255;
+    return [0.299 * span, 0.587 * span, 0.114 * span, 0, dark[c]! / 255].map(num).join(" ");
+  });
+  return [...rows, "0 0 0 1 0"].join(" ");
+}
+
 /** Whether the pixel pipeline changes anything (recolour, brightness or contrast). */
 export function needsPixels(p: PictureProps | undefined): boolean {
   return !!p && ((p.recolor?.kind ?? "none") !== "none" || !!p.brightness || !!p.contrast);
