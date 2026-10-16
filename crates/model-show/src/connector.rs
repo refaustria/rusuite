@@ -256,6 +256,148 @@ impl Transform {
     }
 }
 
+impl Transform {
+    /// The inverse of [`map_local`](Self::map_local): a point of the
+    /// parent's space in the box's own space.
+    pub fn to_local(&self, x: f64, y: f64) -> Point {
+        let (w, h) = (self.w.0 as f64, self.h.0 as f64);
+        let (cx, cy) = (self.x.0 as f64 + w / 2.0, self.y.0 as f64 + h / 2.0);
+        let (dx, dy) = (x - cx, y - cy);
+        let (sin, cos) = self.rotation_deg.to_radians().sin_cos();
+        let (rx, ry) = (dx * cos + dy * sin, -dx * sin + dy * cos);
+        let (fx, fy) = (rx + w / 2.0, ry + h / 2.0);
+        (
+            if self.flip_h { w - fx } else { fx },
+            if self.flip_v { h - fy } else { fy },
+        )
+    }
+
+    /// The axis-aligned bounds `(left, top, right, bottom)` of the box
+    /// after rotation.
+    pub fn bounds(&self) -> crate::route::Bounds {
+        let (w, h) = (self.w.0 as f64, self.h.0 as f64);
+        let pts = [
+            self.map_local(0.0, 0.0),
+            self.map_local(w, 0.0),
+            self.map_local(w, h),
+            self.map_local(0.0, h),
+        ];
+        let mut b = (
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        );
+        for (x, y) in pts {
+            b = (b.0.min(x), b.1.min(y), b.2.max(x), b.3.max(y));
+        }
+        b
+    }
+}
+
+/// Where a ray from `p` in axis direction `dir` (index of 0°, 90°, 180°,
+/// 270°) leaves `b` (`p` itself when it is not inside).
+fn exit_point(p: Point, dir: usize, b: crate::route::Bounds) -> Point {
+    let inside = p.0 > b.0 + 0.5 && p.0 < b.2 - 0.5 && p.1 > b.1 + 0.5 && p.1 < b.3 - 0.5;
+    if !inside {
+        return p;
+    }
+    match dir {
+        0 => (b.2, p.1),
+        1 => (p.0, b.3),
+        2 => (b.0, p.1),
+        _ => (p.0, b.1),
+    }
+}
+
+/// The elbow route between two glued ends (corners in slide space, start
+/// and end included; see [`crate::route::route`]), as the connector's box,
+/// number of turns and adjust values; `None` when the route does not fit
+/// the `bentConnector` geometries (or is straight).
+fn routed(
+    start: Point,
+    start_dir: f64,
+    start_box: crate::route::Bounds,
+    end: Point,
+    end_dir: f64,
+    end_box: crate::route::Bounds,
+    origin: Point,
+) -> Option<(Transform, u8, Adjust)> {
+    use crate::route::{axis_dir, route};
+    let (sd, ed) = (axis_dir(start_dir), axis_dir(end_dir));
+    let s1 = exit_point(start, sd, start_box);
+    let e1 = exit_point(end, ed, end_box);
+    let mid = route(s1, sd, e1, ed, &[start_box, end_box])?;
+    let mut pts: Vec<Point> = vec![start];
+    pts.extend(mid);
+    pts.push(end);
+    let near = |a: Point, b: Point| (a.0 - b.0).abs() < 0.5 && (a.1 - b.1).abs() < 0.5;
+    let mut corners: Vec<Point> = Vec::new();
+    for p in pts {
+        if corners.last().is_some_and(|q| near(*q, p)) {
+            continue;
+        }
+        if corners.len() >= 2 {
+            let (a, b) = (corners[corners.len() - 2], corners[corners.len() - 1]);
+            let same_x = (a.0 - b.0).abs() < 0.5 && (b.0 - p.0).abs() < 0.5;
+            let same_y = (a.1 - b.1).abs() < 0.5 && (b.1 - p.1).abs() < 0.5;
+            if same_x || same_y {
+                corners.pop();
+            }
+        }
+        corners.push(p);
+    }
+    let turns = corners.len().checked_sub(2)?;
+    if !(1..=4).contains(&turns) {
+        return None;
+    }
+    let vertical = (corners[0].0 - corners[1].0).abs() < 0.5;
+    let rel = |p: Point| (p.0 - origin.0, p.1 - origin.1);
+    let t = Transform::from_line_ends(rel(start), rel(end), vertical);
+    let (w, h) = (t.w.0 as f64, t.h.0 as f64);
+    let local: Vec<Point> = corners
+        .iter()
+        .map(|&p| {
+            let (x, y) = rel(p);
+            t.to_local(x, y)
+        })
+        .collect();
+    let frac = |v: f64, size: f64| -> Option<i64> {
+        if size < 1.0 {
+            // a detour in a box without width (or height) cannot be stored
+            return (v.abs() < 1.0).then_some(50_000);
+        }
+        Some((v / size * 100_000.0).round() as i64)
+    };
+    let mut adj = Adjust::new();
+    let mut set = |name: &str, v: i64| {
+        if v != 50_000 {
+            adj.insert(name.to_owned(), v);
+        }
+    };
+    match turns {
+        2 => set("adj1", frac(local[1].0, w)?),
+        3 => {
+            set("adj1", frac(local[1].0, w)?);
+            set("adj2", frac(local[2].1, h)?);
+        }
+        4 => {
+            set("adj1", frac(local[1].0, w)?);
+            set("adj2", frac(local[2].1, h)?);
+            set("adj3", frac(local[3].0, w)?);
+        }
+        _ => {}
+    }
+    // the stored geometry must give the route back
+    let model = ConnectorKind::Elbow.points(turns as u8, w, h, &adj);
+    let fits = model.len() == local.len()
+        && model
+            .iter()
+            .zip(&local)
+            .all(|(a, b)| (a.0 - b.0).abs() < 50.0 && (a.1 - b.1).abs() < 50.0);
+    fits.then_some((t, turns as u8, adj))
+}
+
 impl Shape {
     /// The connection sites of the shape in its own box (rectangle sites
     /// for pictures and tables; none for groups and connectors).
@@ -423,6 +565,31 @@ impl Slide {
             Some((p, d)) => (p, Some(d)),
             None => ((e0.0 + ox, e0.1 + oy), None),
         };
+        // both ends glued: PowerPoint's elbow routes with up to four turns,
+        // around the shapes' boxes
+        if c.kind != ConnectorKind::Straight {
+            let boxes = (
+                c.start.and_then(|a| self.absolute_transform(a.shape)),
+                c.end.and_then(|a| self.absolute_transform(a.shape)),
+            );
+            if let ((Some(sb), Some(eb)), Some(sd), Some(ed)) = (boxes, start_dir, end_dir) {
+                if let Some((t, bends, adjust)) =
+                    routed(start, sd, sb.bounds(), end, ed, eb.bounds(), (ox, oy))
+                {
+                    if t == old && bends == c.bends && adjust == c.adjust {
+                        return false;
+                    }
+                    if let Some(s) = self.find_shape_mut(id) {
+                        s.transform = t;
+                        if let ShapeKind::Connector(c) = &mut s.kind {
+                            c.bends = bends;
+                            c.adjust = adjust;
+                        }
+                    }
+                    return true;
+                }
+            }
+        }
         let is_vertical = |d: f64| d.to_radians().sin().abs() > d.to_radians().cos().abs();
         // perpendicular sites: one turn (L); otherwise two (Z)
         let (vertical, bends) = match (c.kind, start_dir.map(is_vertical), end_dir.map(is_vertical))
@@ -590,6 +757,104 @@ mod tests {
         assert_eq!(slide.detach_missing(), [NodeId(4), NodeId(5)]);
         let c = slide.find_shape(NodeId(4)).unwrap().connector().unwrap();
         assert_eq!((c.start, c.end), (at(2, 3), None));
+    }
+
+    /// The corners of a connector's route in slide space.
+    fn route_of(slide: &Slide, id: u64) -> Vec<(i64, i64)> {
+        let s = slide.find_shape(NodeId(id)).unwrap();
+        let c = s.connector().unwrap();
+        let (w, h) = (s.transform.w.0 as f64, s.transform.h.0 as f64);
+        ConnectorKind::Elbow
+            .points(c.bends, w, h, &c.adjust)
+            .into_iter()
+            .map(|(x, y)| {
+                let p = s.transform.map_local(x, y);
+                (p.0.round() as i64, p.1.round() as i64)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn detours_with_three_and_four_turns() {
+        const M: i64 = crate::route::DETOUR_MARGIN as i64;
+        let mut slide = Slide::new(NodeId(1), LayoutKind::Blank);
+        slide.shapes = vec![
+            rect(2, tr(1_000_000, 0, 1_000_000, 1_000_000)),
+            rect(3, tr(0, 2_000_000, 1_000_000, 1_000_000)),
+            // right of 2 → top of 3 (below left): right, down, left, down
+            conn(4, ConnectorKind::Elbow, at(2, 3), at(3, 0)),
+            // right of 2 → left of 3 (behind it): around both boxes
+            conn(5, ConnectorKind::Elbow, at(2, 3), at(3, 1)),
+            // right of 2 → right of 3: a U around the right
+            conn(6, ConnectorKind::Elbow, at(2, 3), at(3, 3)),
+        ];
+        slide.reroute_connectors();
+        let r4 = route_of(&slide, 4);
+        assert_eq!(
+            slide
+                .find_shape(NodeId(4))
+                .unwrap()
+                .connector()
+                .unwrap()
+                .bends,
+            3
+        );
+        assert_eq!(r4.first(), Some(&(2_000_000, 500_000)));
+        assert_eq!(r4.last(), Some(&(500_000, 2_000_000)));
+        // adjust values are integers: corners are exact to a few EMU
+        let close = |a: i64, b: i64| (a - b).abs() <= 20;
+        assert!(
+            close(r4[1].0, 2_000_000 + M) && r4[1].1 == 500_000,
+            "{r4:?}"
+        );
+        // the horizontal run passes between the boxes
+        assert!(close(r4[2].1, 1_500_000), "{r4:?}");
+        let r5 = route_of(&slide, 5);
+        assert_eq!(
+            slide
+                .find_shape(NodeId(5))
+                .unwrap()
+                .connector()
+                .unwrap()
+                .bends,
+            4
+        );
+        assert_eq!(r5.len(), 6);
+        assert!(close(r5[1].0, 2_000_000 + M), "{r5:?}");
+        assert!(close(r5[4].0, -M), "enters 3 from the left: {r5:?}");
+        assert_eq!(r5.last(), Some(&(0, 2_500_000)));
+        let c6 = slide.find_shape(NodeId(6)).unwrap().connector().unwrap();
+        assert_eq!(c6.bends, 2);
+        // the box runs from 2 to 3 (flipped): the run lies outside it
+        assert!(
+            !(0..=100_000).contains(&c6.adjust["adj1"]),
+            "{:?}",
+            c6.adjust
+        );
+        let r6 = route_of(&slide, 6);
+        assert!(
+            close(r6[1].0, 2_000_000 + M) && close(r6[2].0, 2_000_000 + M),
+            "{r6:?}"
+        );
+        // nothing moved: stable
+        assert!(slide.reroute_connectors().is_empty());
+        // every route avoids the boxes' insides
+        for id in [4, 5, 6] {
+            let r = route_of(&slide, id);
+            for w in r.windows(2) {
+                for b in [
+                    (1_000_000, 0, 2_000_000, 1_000_000),
+                    (0, 2_000_000, 1_000_000, 3_000_000),
+                ] {
+                    let (x0, x1) = (w[0].0.min(w[1].0), w[0].0.max(w[1].0));
+                    let (y0, y1) = (w[0].1.min(w[1].1), w[0].1.max(w[1].1));
+                    assert!(
+                        !(x0 < b.2 - 1 && x1 > b.0 + 1 && y0 < b.3 - 1 && y1 > b.1 + 1),
+                        "connector {id} crosses {b:?}: {r:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

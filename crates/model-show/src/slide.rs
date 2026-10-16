@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::anim::{Animation, Transition};
 use crate::layout::{Layout, LayoutKind, PlaceholderDef};
 use crate::shape::{Fill, Shape, ShapeKind};
+use crate::theme::Background;
 use crate::{Error, NodeId};
 
 /// A slide.
@@ -23,9 +24,15 @@ pub struct Slide {
     /// Shapes; vector order is the z-order (first = bottom).
     #[serde(default)]
     pub shapes: Vec<Shape>,
-    /// Background; `None` inherits the master's (white).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub background: Option<Fill>,
+    /// Background; `None` inherits the layout's (else the master's).
+    /// Older snapshots stored a plain [`Fill`] here; it is read as
+    /// [`Background::Fill`].
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "background_compat"
+    )]
+    pub background: Option<Background>,
     /// Hidden in the slide show (`p:sld/@show="0"`); still edited and saved.
     #[serde(default, skip_serializing_if = "is_false")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
@@ -48,6 +55,23 @@ pub struct Slide {
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
     pub show_master_shapes: bool,
+}
+
+/// A background, or (older snapshots) a plain fill.
+fn background_compat<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Background>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Either {
+        Background(Background),
+        Fill(Fill),
+    }
+    Ok(match Option::<Either>::deserialize(d)? {
+        None => None,
+        Some(Either::Background(b)) => Some(b),
+        Some(Either::Fill(f)) => Some(Background::Fill(f)),
+    })
 }
 
 fn is_false(v: &bool) -> bool {

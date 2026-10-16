@@ -107,6 +107,56 @@ fn table_slide_snapshot() {
 }
 
 #[test]
+fn table_styles_part_snapshot() {
+    let bytes = fmt_pptx::write(&shapes_deck::shapes_deck()).unwrap();
+    let xml = part(&bytes, "/ppt/tableStyles.xml");
+    // tables reference their style by GUID; the part defines the default
+    // and the styles the tables use
+    let slide = part(&bytes, "/ppt/slides/slide3.xml");
+    assert!(
+        slide.contains("<a:tableStyleId>{72833802-FEF1-4C79-8D5D-14CF1EAF98D9}</a:tableStyleId>")
+    );
+    assert!(xml.contains(r#"styleId="{72833802-FEF1-4C79-8D5D-14CF1EAF98D9}""#));
+    insta::assert_snapshot!("table_styles_xml", xml.replace("><", ">\n<"));
+}
+
+#[test]
+fn unknown_table_styles_are_interpreted() {
+    use core_model::ThemeColorSlot;
+    use model_show::{Color, Emu, Fill, Line, TableStyleDef};
+    let mut deck = shapes_deck::shapes_deck();
+    let mut own = TableStyleDef::new("{12345678-1234-1234-1234-123456789ABC}", "My Style");
+    own.whole.fill = Some(Fill::Solid(Color::theme(ThemeColorSlot::Accent6)));
+    own.whole.inside_h = Some(Line::solid(
+        Color::theme(ThemeColorSlot::Light1),
+        Emu(25_400),
+    ));
+    own.first_row.bold = Some(true);
+    deck.table_styles.push(own.clone());
+    let t = deck.slides[2]
+        .shapes
+        .iter_mut()
+        .find_map(|s| s.table_mut())
+        .unwrap();
+    t.style_id = Some(own.id.clone());
+    let bytes = fmt_pptx::write(&deck).unwrap();
+    assert!(part(&bytes, "/ppt/tableStyles.xml").contains("styleName=\"My Style\""));
+    let back = fmt_pptx::read(&bytes).unwrap();
+    assert_eq!(back.table_styles, [own]);
+    let t = back.slides[2]
+        .shapes
+        .iter()
+        .find_map(|s| s.table_data())
+        .unwrap();
+    let cell = t.style_cell_with(&back.table_styles, 1, 1);
+    assert_eq!(
+        cell.fill,
+        Fill::Solid(Color::theme(ThemeColorSlot::Accent6))
+    );
+    assert_eq!(cell.borders.top.map(|l| l.width), Some(Emu(25_400)));
+}
+
+#[test]
 fn connectors_moved_by_their_shapes() {
     let mut deck = shapes_deck::shapes_deck();
     let slide = &mut deck.slides[1];

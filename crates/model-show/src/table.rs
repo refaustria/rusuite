@@ -3,10 +3,11 @@
 //! cells, and a PowerPoint table style.
 
 use core_model::units::Emu;
-use core_model::{Color, ThemeColorSlot};
+use core_model::Color;
 use serde::{Deserialize, Serialize};
 
 use crate::shape::{Fill, Line};
+use crate::tablestyle::{builtin_table_style, TableStyleDef};
 use crate::text::{TextBody, TextParagraph};
 
 /// PowerPoint's default table style, "Medium Style 2 – Accent 1".
@@ -624,82 +625,135 @@ impl Table {
         Ok(())
     }
 
-    /// The formatting the table style gives cell `row`, `col`. Only
-    /// PowerPoint's default style ([`MEDIUM_STYLE_2_ACCENT_1`]) is known:
-    /// accent 1 header/total rows and first/last columns with bold
-    /// light text, banded rows/columns alternating accent 1 at 40 % and
-    /// 20 % tint, white 1 pt grid lines (3 pt under the header row and
-    /// above the total row). Other styles (and no style) give no fill, no
-    /// borders and plain text.
+    /// PowerPoint's Split Cells: cell `row`, `col` becomes `rows` × `cols`
+    /// cells. A merged cell whose spans are multiples of the counts is
+    /// split into equal merged blocks; a single cell splits its column(s)
+    /// and row(s) into equal parts, and the other cells of those columns
+    /// and rows are merged across the new grid lines so that they stay
+    /// whole. The text stays in the top-left part.
+    pub fn split_grid(
+        &mut self,
+        row: usize,
+        col: usize,
+        rows: usize,
+        cols: usize,
+    ) -> Result<(), String> {
+        let cell = self
+            .cell(row, col)
+            .ok_or_else(|| format!("cell {row},{col} out of the table"))?;
+        if cell.covered {
+            return Err(format!("cell {row},{col} is covered by a merged cell"));
+        }
+        if rows == 0 || cols == 0 || rows > 50 || cols > 50 {
+            return Err("split into 1–50 rows and columns".into());
+        }
+        let (rs, cs) = (cell.row_span as usize, cell.col_span as usize);
+        if rs > 1 || cs > 1 {
+            if rs % rows != 0 || cs % cols != 0 {
+                return Err(format!(
+                    "a merged cell of {rs} × {cs} cannot be split into {rows} × {cols}"
+                ));
+            }
+            self.split(row, col)?;
+            let (br, bc) = (rs / rows, cs / cols);
+            for i in 0..rows {
+                for j in 0..cols {
+                    if br > 1 || bc > 1 {
+                        self.merge(row + i * br, col + j * bc, br, bc)?;
+                    }
+                }
+            }
+            return Ok(());
+        }
+        // columns: `cols − 1` new grid columns right of `col`
+        if cols > 1 {
+            let parts = split_evenly(self.cols[col].width.0, cols);
+            self.cols[col].width = parts[0];
+            for (k, w) in parts.iter().enumerate().skip(1) {
+                self.cols.insert(col + k, ColSpec { width: *w });
+            }
+            let mut grow = Vec::new();
+            for r in 0..self.rows.len() {
+                let (ar, ac) = self.anchor_of(r, col);
+                let tpl = self.cells[r][col].blank_like();
+                for k in 1..cols {
+                    let mut c = tpl.clone();
+                    c.covered = r != row;
+                    self.cells[r].insert(col + k, c);
+                }
+                if r != row && !grow.contains(&(ar, ac)) {
+                    grow.push((ar, ac));
+                }
+            }
+            for (ar, ac) in grow {
+                self.cells[ar][ac].col_span += (cols - 1) as u32;
+            }
+        }
+        // rows: `rows − 1` new grid rows below `row`
+        if rows > 1 {
+            let parts = split_evenly(self.rows[row].height.0, rows);
+            self.rows[row].height = parts[0];
+            for (k, h) in parts.iter().enumerate().skip(1) {
+                self.rows.insert(row + k, RowSpec { height: *h });
+            }
+            let nc = self.cols.len();
+            let mut grow = Vec::new();
+            let mut new_rows: Vec<Vec<TableCell>> = Vec::new();
+            for _ in 1..rows {
+                let mut cells = Vec::with_capacity(nc);
+                for c in 0..nc {
+                    let mut cell = self.cells[row][c].blank_like();
+                    let inside = c >= col && c < col + cols;
+                    cell.covered = !inside;
+                    if !inside {
+                        let a = self.anchor_of(row, c);
+                        if !grow.contains(&a) {
+                            grow.push(a);
+                        }
+                    }
+                    cells.push(cell);
+                }
+                new_rows.push(cells);
+            }
+            for (k, cells) in new_rows.into_iter().enumerate() {
+                self.cells.insert(row + 1 + k, cells);
+            }
+            for (ar, ac) in grow {
+                self.cells[ar][ac].row_span += (rows - 1) as u32;
+            }
+        }
+        self.validate()
+    }
+
+    /// The formatting the table style gives cell `row`, `col`, for
+    /// PowerPoint's built-in styles ([`crate::tablestyle`]); unknown style
+    /// ids (and no style) give no fill, no borders and plain text. See
+    /// [`style_cell_with`](Self::style_cell_with) for a presentation's own
+    /// styles.
     pub fn style_cell(&self, row: usize, col: usize) -> StyleCell {
+        self.style_cell_with(&[], row, col)
+    }
+
+    /// The style's formatting of cell `row`, `col`, looking the style up in
+    /// `custom` (the presentation's imported styles) and then among the
+    /// built-ins.
+    pub fn style_cell_with(&self, custom: &[TableStyleDef], row: usize, col: usize) -> StyleCell {
         let plain = StyleCell {
             fill: Fill::None,
             borders: CellBorders::default(),
             bold: false,
             text_color: None,
         };
-        if self.style_id.as_deref() != Some(MEDIUM_STYLE_2_ACCENT_1) {
+        let Some(id) = self.style_id.as_deref() else {
             return plain;
-        }
-        let accent = |tint: f64| Color::Theme {
-            slot: ThemeColorSlot::Accent1,
-            tint,
         };
-        let light = Color::theme(ThemeColorSlot::Light1);
-        let (nr, nc) = (self.rows.len(), self.cols.len());
-        let look = self.look;
-        let mut fill = accent(0.8);
-        if look.band_cols {
-            let i = col as i64 - i64::from(look.first_col);
-            if i >= 0 && i % 2 == 0 {
-                fill = accent(0.6);
-            }
-        }
-        if look.band_rows {
-            let i = row as i64 - i64::from(look.first_row);
-            if i >= 0 && i % 2 == 0 {
-                fill = accent(0.6);
-            }
-        }
-        let mut emphasis = false;
-        if (look.last_col && col + 1 == nc) || (look.first_col && col == 0) {
-            emphasis = true;
-        }
-        if (look.last_row && row + 1 == nr) || (look.first_row && row == 0) {
-            emphasis = true;
-        }
-        if emphasis {
-            fill = accent(0.0);
-        }
-        let thin = Line::solid(light, Emu(12_700));
-        let thick = Line::solid(light, Emu(38_100));
-        let mut borders = CellBorders {
-            left: Some(thin),
-            right: Some(thin),
-            top: Some(thin),
-            bottom: Some(thin),
-        };
-        if look.first_row && row == 0 {
-            borders.bottom = Some(thick);
-        }
-        if look.first_row && row == 1 {
-            borders.top = Some(thick);
-        }
-        if look.last_row && row + 1 == nr {
-            borders.top = Some(thick);
-        }
-        if look.last_row && nr >= 2 && row + 2 == nr {
-            borders.bottom = Some(thick);
-        }
-        StyleCell {
-            fill: Fill::Solid(fill),
-            borders,
-            bold: emphasis,
-            text_color: Some(if emphasis {
-                light
-            } else {
-                Color::theme(ThemeColorSlot::Dark1)
-            }),
+        let def = custom
+            .iter()
+            .find(|s| s.id.eq_ignore_ascii_case(id))
+            .or_else(|| builtin_table_style(id));
+        match def {
+            Some(d) => d.cell(self.look, self.rows.len(), self.cols.len(), row, col),
+            None => plain,
         }
     }
 
@@ -751,6 +805,35 @@ mod tests {
                     .collect()
             })
             .collect()
+    }
+
+    #[test]
+    fn split_grid_single_and_merged() {
+        let mut t = filled(3, 3);
+        // the middle cell into 2 × 3: its column becomes three, its row two
+        t.split_grid(1, 1, 2, 3).unwrap();
+        assert_eq!((t.rows.len(), t.cols.len()), (4, 5));
+        assert_eq!(
+            text(&t),
+            [
+                ["00", "01", "-", "-", "02"],
+                ["10", "11", "", "", "12"],
+                ["-", "", "", "", "-"],
+                ["20", "21", "-", "-", "22"],
+            ]
+        );
+        assert_eq!(t.cells[0][1].col_span, 3);
+        assert_eq!(t.cells[1][0].row_span, 2);
+        // widths and heights are shared, the totals stay
+        assert_eq!(t.width(), Emu(3_000));
+        assert_eq!(t.height(), Emu(1_000));
+        // a merged 2 × 2 block into 2 × 1: two cells merged across
+        let mut m = filled(2, 2);
+        m.merge(0, 0, 2, 2).unwrap();
+        m.split_grid(0, 0, 2, 1).unwrap();
+        assert_eq!((m.cells[0][0].col_span, m.cells[1][0].col_span), (2, 2));
+        assert!(m.split_grid(0, 0, 3, 1).is_err());
+        assert!(m.split_grid(0, 1, 1, 1).is_err(), "covered");
     }
 
     fn filled(rows: usize, cols: usize) -> Table {

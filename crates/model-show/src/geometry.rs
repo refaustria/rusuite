@@ -163,12 +163,11 @@ pub struct Site {
     pub angle_deg: f64,
 }
 
-/// Preset geometry of an auto shape (`a:prstGeom/@prst`), or a custom
-/// geometry (`a:custGeom`).
-///
-/// Unit variants serialize as their DrawingML name (`"rect"`,
-/// `"wedgeRectCallout"`); a custom geometry as
-/// `{"custom":{"paths":[…]}}`.
+/// One coordinate of an adjust handle driven by an adjust value: near
+/// the current value the coordinate is `base + k · value` (for the angle of a polar handle:
+/// the value is the angle itself, `base` 0 and `k` 1, in 60000ths of a
+/// degree clockwise from the right around the box centre); the value is
+/// kept in `min..=max`; `samples` give the coordinate over the range.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(
@@ -176,182 +175,365 @@ pub struct Site {
     derive(ts_rs::TS),
     ts(export, export_to = "apps/show/src/generated/")
 )]
-pub enum Preset {
+pub struct HandleAxis {
+    /// The adjust value (`adj`, `adj1`, …).
+    pub adj: String,
+    /// Coordinate at value 0.
+    pub base: f64,
+    /// Change of the coordinate per unit of the value.
+    pub k: f64,
+    /// Smallest value.
+    pub min: f64,
+    /// Largest value.
+    pub max: f64,
+    /// `[value, coordinate]` pairs along the range (ascending values; the
+    /// current value included; empty for angles): a drag inverts this
+    /// piecewise-linear curve, which is exact where the definition pins
+    /// or bends the handle's path. Huge ranges are sampled near 0 and
+    /// extrapolated with `base`/`k`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<[f64; 2]>>"))]
+    pub samples: Vec<[f64; 2]>,
+}
+
+/// An adjust handle of a preset (`a:ahXY` / `a:ahPolar`), PowerPoint's
+/// yellow diamond, in the shape's box (EMU, unflipped, unrotated).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub struct AdjustHandle {
+    /// Where the handle sits for the current adjust values.
+    pub x: f64,
+    /// Where the handle sits.
+    pub y: f64,
+    /// A polar handle: `x_axis` is the distance from the box centre,
+    /// `y_axis` the angle around it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
+    pub polar: bool,
+    /// What a horizontal drag changes (polar: the radius).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub x_axis: Option<HandleAxis>,
+    /// What a vertical drag changes (polar: the angle).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub y_axis: Option<HandleAxis>,
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
+/// The text rectangle of a preset (`a:rect`) in the shape's box.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub struct TextRect {
+    /// Left edge.
+    pub l: f64,
+    /// Top edge.
+    pub t: f64,
+    /// Right edge.
+    pub r: f64,
+    /// Bottom edge.
+    pub b: f64,
+}
+
+/// Counts the identifiers given to it.
+macro_rules! count {
+    () => { 0usize };
+    ($head:ident $($tail:ident)*) => { 1usize + count!($($tail)*) };
+}
+
+/// Declares [`Preset`] with its named variants, their DrawingML names and
+/// PowerPoint's default shape names.
+macro_rules! presets {
+    ($( $(#[$doc:meta])* $v:ident = $prst:literal, $name:literal; )*) => {
+        /// Preset geometry of an auto shape (`a:prstGeom/@prst`), or a
+        /// custom geometry (`a:custGeom`). Outlines, adjust values and
+        /// their handles, connection sites and text rectangles follow
+        /// ECMA-376's preset shape definitions (see [`crate::presets`]).
+        ///
+        /// Unit variants serialize as their DrawingML name (`"rect"`,
+        /// `"wedgeRectCallout"`); a custom geometry as
+        /// `{"custom":{"paths":[…]}}`.
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        #[cfg_attr(
+            feature = "ts",
+            derive(ts_rs::TS),
+            ts(export, export_to = "apps/show/src/generated/")
+        )]
+        pub enum Preset {
+            $( $(#[$doc])* $v, )*
+            /// A custom geometry (`a:custGeom`): its paths, each scaled to the box.
+            #[serde(rename_all = "camelCase")]
+            Custom {
+                /// The paths, bottom to top.
+                paths: Vec<GeomPath>,
+            },
+        }
+
+        impl Preset {
+            /// Every named preset (all but [`Custom`](Self::Custom)), in
+            /// declaration order.
+            pub const ALL: [Preset; count!($($v)*)] = [ $( Preset::$v, )* ];
+
+            /// The DrawingML `prst` name (`"custom"` for a custom geometry,
+            /// which is written as `a:custGeom`).
+            pub fn prst(&self) -> &'static str {
+                match self {
+                    $( Preset::$v => $prst, )*
+                    Preset::Custom { .. } => "custom",
+                }
+            }
+
+            /// PowerPoint's default shape name for this geometry
+            /// (`"Rounded Rectangle"`; the full name appends the shape
+            /// number).
+            pub fn default_name(&self) -> &'static str {
+                match self {
+                    $( Preset::$v => $name, )*
+                    Preset::Custom { .. } => "Freeform",
+                }
+            }
+        }
+    };
+}
+
+presets! {
     /// Rectangle (`rect`); also text boxes and placeholders.
-    Rect,
-    /// Rounded rectangle (`roundRect`; `adj` = corner radius, 1/100000 of
-    /// the shorter side, default 16667, 0–50000).
-    RoundRect,
-    /// Rectangle with one snipped corner (`snip1Rect`; `adj`).
-    Snip1Rect,
-    /// Rectangle with the two top corners snipped (`snip2SameRect`;
-    /// `adj1` top, `adj2` bottom).
-    Snip2SameRect,
-    /// Rectangle with one rounded corner (`round1Rect`; `adj`).
-    Round1Rect,
-    /// Rectangle with the two top corners rounded (`round2SameRect`;
-    /// `adj1` top, `adj2` bottom).
-    Round2SameRect,
+    Rect = "rect", "Rectangle";
+    /// Rounded rectangle (`roundRect`; `adj` = corner radius, 1/100000 of the shorter side).
+    RoundRect = "roundRect", "Rounded Rectangle";
+    /// Rectangle with one snipped corner (`snip1Rect`).
+    Snip1Rect = "snip1Rect", "Snip Single Corner Rectangle";
+    /// Rectangle with the two top corners snipped (`snip2SameRect`).
+    Snip2SameRect = "snip2SameRect", "Snip Same Side Corner Rectangle";
+    /// Rectangle with one rounded corner (`round1Rect`).
+    Round1Rect = "round1Rect", "Round Single Corner Rectangle";
+    /// Rectangle with the two top corners rounded (`round2SameRect`).
+    Round2SameRect = "round2SameRect", "Round Same Side Corner Rectangle";
     /// Ellipse (`ellipse`).
-    Ellipse,
-    /// Isosceles triangle (`triangle`; `adj` = apex position, 1/100000 of
-    /// the width, default 50000).
-    Triangle,
+    Ellipse = "ellipse", "Oval";
+    /// Isosceles triangle (`triangle`; `adj` = apex position).
+    Triangle = "triangle", "Isosceles Triangle";
     /// Right triangle (`rtTriangle`).
-    RtTriangle,
+    RtTriangle = "rtTriangle", "Right Triangle";
     /// Diamond (`diamond`).
-    Diamond,
-    /// Regular pentagon (`pentagon`; `hf`, `vf` scale factors).
-    Pentagon,
-    /// Hexagon (`hexagon`; `adj` = side inset, `vf`).
-    Hexagon,
-    /// Octagon (`octagon`; `adj` = corner cut).
-    Octagon,
-    /// Parallelogram (`parallelogram`; `adj` = slant).
-    Parallelogram,
-    /// Trapezoid, wide at the bottom (`trapezoid`; `adj` = inset).
-    Trapezoid,
+    Diamond = "diamond", "Diamond";
+    /// Regular pentagon (`pentagon`).
+    Pentagon = "pentagon", "Regular Pentagon";
+    /// Hexagon (`hexagon`).
+    Hexagon = "hexagon", "Hexagon";
+    /// Octagon (`octagon`).
+    Octagon = "octagon", "Octagon";
+    /// Parallelogram (`parallelogram`).
+    Parallelogram = "parallelogram", "Parallelogram";
+    /// Trapezoid, wide at the bottom (`trapezoid`).
+    Trapezoid = "trapezoid", "Trapezoid";
     /// Heart (`heart`).
-    Heart,
-    /// Cloud (`cloud`).
-    Cloud,
-    /// Right block arrow (`rightArrow`; `adj1` = shaft thickness, 1/100000
-    /// of the height; `adj2` = head length, 1/100000 of the shorter side).
-    RightArrow,
-    /// Left block arrow (`leftArrow`; as `rightArrow`).
-    LeftArrow,
-    /// Up block arrow (`upArrow`; `adj1` shaft width, `adj2` head length).
-    UpArrow,
+    Heart = "heart", "Heart";
+    /// Cloud (`cloud`; the inner arcs are a stroke-only path).
+    Cloud = "cloud", "Cloud";
+    /// Right block arrow (`rightArrow`).
+    RightArrow = "rightArrow", "Right Arrow";
+    /// Left block arrow (`leftArrow`).
+    LeftArrow = "leftArrow", "Left Arrow";
+    /// Up block arrow (`upArrow`).
+    UpArrow = "upArrow", "Up Arrow";
     /// Down block arrow (`downArrow`).
-    DownArrow,
+    DownArrow = "downArrow", "Down Arrow";
     /// Left-right block arrow (`leftRightArrow`).
-    LeftRightArrow,
+    LeftRightArrow = "leftRightArrow", "Left-Right Arrow";
     /// Up-down block arrow (`upDownArrow`).
-    UpDownArrow,
-    /// Chevron (`chevron`; `adj` = point depth).
-    Chevron,
-    /// Pentagon arrow (`homePlate`; `adj` = point depth).
-    HomePlate,
-    /// 4-point star (`star4`; `adj` = inner radius, 1/100000 × 2).
-    Star4,
-    /// 5-point star (`star5`; `adj`, `hf`, `vf`).
-    Star5,
-    /// 6-point star (`star6`; `adj`, `hf`).
-    Star6,
-    /// 8-point star (`star8`; `adj`).
-    Star8,
-    /// Rectangular callout (`wedgeRectCallout`; `adj1`/`adj2` = tail tip
-    /// relative to the center, 1/100000 of the width/height).
-    WedgeRectCallout,
-    /// Rounded rectangular callout (`wedgeRoundRectCallout`; `adj1`,
-    /// `adj2` tail tip, `adj3` corner radius).
-    WedgeRoundRectCallout,
-    /// Oval callout (`wedgeEllipseCallout`; `adj1`/`adj2` tail tip).
-    WedgeEllipseCallout,
+    UpDownArrow = "upDownArrow", "Up-Down Arrow";
+    /// Chevron (`chevron`).
+    Chevron = "chevron", "Chevron";
+    /// Pentagon arrow (`homePlate`).
+    HomePlate = "homePlate", "Pentagon";
+    /// 4-point star (`star4`).
+    Star4 = "star4", "4-Point Star";
+    /// 5-point star (`star5`).
+    Star5 = "star5", "5-Point Star";
+    /// 6-point star (`star6`).
+    Star6 = "star6", "6-Point Star";
+    /// 8-point star (`star8`).
+    Star8 = "star8", "8-Point Star";
+    /// Rectangular callout (`wedgeRectCallout`; `adj1`/`adj2` = tail tip).
+    WedgeRectCallout = "wedgeRectCallout", "Rectangular Callout";
+    /// Rounded rectangular callout (`wedgeRoundRectCallout`).
+    WedgeRoundRectCallout = "wedgeRoundRectCallout", "Rounded Rectangular Callout";
+    /// Oval callout (`wedgeEllipseCallout`).
+    WedgeEllipseCallout = "wedgeEllipseCallout", "Oval Callout";
     /// Flowchart process (`flowChartProcess`).
-    FlowChartProcess,
+    FlowChartProcess = "flowChartProcess", "Flowchart: Process";
     /// Flowchart decision (`flowChartDecision`).
-    FlowChartDecision,
+    FlowChartDecision = "flowChartDecision", "Flowchart: Decision";
     /// Flowchart terminator (`flowChartTerminator`).
-    FlowChartTerminator,
+    FlowChartTerminator = "flowChartTerminator", "Flowchart: Terminator";
     /// Flowchart document (`flowChartDocument`).
-    FlowChartDocument,
+    FlowChartDocument = "flowChartDocument", "Flowchart: Document";
     /// Flowchart connector, a circle (`flowChartConnector`).
-    FlowChartConnector,
+    FlowChartConnector = "flowChartConnector", "Flowchart: Connector";
     /// Flowchart data (`flowChartInputOutput`).
-    FlowChartInputOutput,
-    /// Straight line from the top-left to the bottom-right corner of the
-    /// box (`line`; flips select the other diagonals).
-    Line,
+    FlowChartInputOutput = "flowChartInputOutput", "Flowchart: Data";
+    /// Straight line from the top-left to the bottom-right corner of the box (`line`; flips select the other diagonals).
+    Line = "line", "Straight Connector";
     /// Action button (`actionButtonBlank`).
-    ActionButtonBlank,
+    ActionButtonBlank = "actionButtonBlank", "Action Button: Blank";
     /// Action button (`actionButtonHome`).
-    ActionButtonHome,
+    ActionButtonHome = "actionButtonHome", "Action Button: Go Home";
     /// Action button (`actionButtonHelp`).
-    ActionButtonHelp,
+    ActionButtonHelp = "actionButtonHelp", "Action Button: Help";
     /// Action button (`actionButtonInformation`).
-    ActionButtonInformation,
+    ActionButtonInformation = "actionButtonInformation", "Action Button: Get Information";
     /// Action button (`actionButtonBackPrevious`).
-    ActionButtonBackPrevious,
+    ActionButtonBackPrevious = "actionButtonBackPrevious", "Action Button: Go Back or Previous";
     /// Action button (`actionButtonForwardNext`).
-    ActionButtonForwardNext,
+    ActionButtonForwardNext = "actionButtonForwardNext", "Action Button: Go Forward or Next";
     /// Action button (`actionButtonBeginning`).
-    ActionButtonBeginning,
+    ActionButtonBeginning = "actionButtonBeginning", "Action Button: Go to Beginning";
     /// Action button (`actionButtonEnd`).
-    ActionButtonEnd,
+    ActionButtonEnd = "actionButtonEnd", "Action Button: Go to End";
     /// Action button (`actionButtonReturn`).
-    ActionButtonReturn,
+    ActionButtonReturn = "actionButtonReturn", "Action Button: Return";
     /// Action button (`actionButtonDocument`).
-    ActionButtonDocument,
+    ActionButtonDocument = "actionButtonDocument", "Action Button: Document";
     /// Action button (`actionButtonSound`).
-    ActionButtonSound,
+    ActionButtonSound = "actionButtonSound", "Action Button: Sound";
     /// Action button (`actionButtonMovie`).
-    ActionButtonMovie,
-    /// A custom geometry (`a:custGeom`): its paths, each scaled to the box.
-    #[serde(rename_all = "camelCase")]
-    Custom {
-        /// The paths, bottom to top.
-        paths: Vec<GeomPath>,
-    },
+    ActionButtonMovie = "actionButtonMovie", "Action Button: Video";
+    /// Bent arrow (`bentArrow`).
+    BentArrow = "bentArrow", "Bent Arrow";
+    /// U-turn arrow (`uturnArrow`).
+    UturnArrow = "uturnArrow", "U-Turn Arrow";
+    /// Left-right-up arrow (`leftRightUpArrow`).
+    LeftRightUpArrow = "leftRightUpArrow", "Left-Right-Up Arrow";
+    /// Quad arrow (`quadArrow`).
+    QuadArrow = "quadArrow", "Quad Arrow";
+    /// Ribbon tilted down (`ribbon`).
+    Ribbon = "ribbon", "Down Ribbon";
+    /// Ribbon tilted up (`ribbon2`).
+    Ribbon2 = "ribbon2", "Up Ribbon";
+    /// Wave (`wave`).
+    Wave = "wave", "Wave";
+    /// Double wave (`doubleWave`).
+    DoubleWave = "doubleWave", "Double Wave";
+    /// Cross (`plus`).
+    Plus = "plus", "Cross";
+    /// Plus sign (`mathPlus`).
+    MathPlus = "mathPlus", "Plus";
+    /// Minus sign (`mathMinus`).
+    MathMinus = "mathMinus", "Minus";
+    /// Multiplication sign (`mathMultiply`).
+    MathMultiply = "mathMultiply", "Multiply";
+    /// Division sign (`mathDivide`).
+    MathDivide = "mathDivide", "Division";
+    /// Equal sign (`mathEqual`).
+    MathEqual = "mathEqual", "Equal";
+    /// Not-equal sign (`mathNotEqual`).
+    MathNotEqual = "mathNotEqual", "Not Equal";
+    /// Frame (`frame`).
+    Frame = "frame", "Frame";
+    /// Half frame (`halfFrame`).
+    HalfFrame = "halfFrame", "Half Frame";
+    /// L-shape (`corner`).
+    Corner = "corner", "L-Shape";
+    /// Diagonal stripe (`diagStripe`).
+    DiagStripe = "diagStripe", "Diagonal Stripe";
+    /// Chord (`chord`).
+    Chord = "chord", "Chord";
+    /// Teardrop (`teardrop`).
+    Teardrop = "teardrop", "Teardrop";
+    /// Pie (`pie`).
+    Pie = "pie", "Pie";
+    /// Block arc (`blockArc`).
+    BlockArc = "blockArc", "Block Arc";
+    /// Donut (`donut`).
+    Donut = "donut", "Donut";
+    /// "No" symbol (`noSmoking`).
+    NoSmoking = "noSmoking", "\"No\" Symbol";
+    /// Folded corner (`foldedCorner`).
+    FoldedCorner = "foldedCorner", "Folded Corner";
+    /// Bevel (`bevel`).
+    Bevel = "bevel", "Bevel";
+    /// Cube (`cube`).
+    Cube = "cube", "Cube";
+    /// Can, a cylinder (`can`).
+    Can = "can", "Can";
+    /// Lightning bolt (`lightningBolt`).
+    LightningBolt = "lightningBolt", "Lightning Bolt";
+    /// Sun (`sun`).
+    Sun = "sun", "Sun";
+    /// Moon (`moon`).
+    Moon = "moon", "Moon";
+    /// Smiley face (`smileyFace`).
+    SmileyFace = "smileyFace", "Smiley Face";
+    /// Cloud callout (`cloudCallout`).
+    CloudCallout = "cloudCallout", "Cloud Callout";
+    /// Line callout with one segment (`borderCallout1`).
+    BorderCallout1 = "borderCallout1", "Line Callout 1";
+    /// Line callout with two segments (`borderCallout2`).
+    BorderCallout2 = "borderCallout2", "Line Callout 2";
+    /// Flowchart alternate process (`flowChartAlternateProcess`).
+    FlowChartAlternateProcess = "flowChartAlternateProcess", "Flowchart: Alternate Process";
+    /// Flowchart predefined process (`flowChartPredefinedProcess`).
+    FlowChartPredefinedProcess = "flowChartPredefinedProcess", "Flowchart: Predefined Process";
+    /// Flowchart internal storage (`flowChartInternalStorage`).
+    FlowChartInternalStorage = "flowChartInternalStorage", "Flowchart: Internal Storage";
+    /// Flowchart multidocument (`flowChartMultidocument`).
+    FlowChartMultidocument = "flowChartMultidocument", "Flowchart: Multidocument";
+    /// Flowchart preparation (`flowChartPreparation`).
+    FlowChartPreparation = "flowChartPreparation", "Flowchart: Preparation";
+    /// Flowchart manual input (`flowChartManualInput`).
+    FlowChartManualInput = "flowChartManualInput", "Flowchart: Manual Input";
+    /// Flowchart manual operation (`flowChartManualOperation`).
+    FlowChartManualOperation = "flowChartManualOperation", "Flowchart: Manual Operation";
+    /// Flowchart off-page connector (`flowChartOffpageConnector`).
+    FlowChartOffpageConnector = "flowChartOffpageConnector", "Flowchart: Off-page Connector";
+    /// Flowchart card (`flowChartPunchedCard`).
+    FlowChartPunchedCard = "flowChartPunchedCard", "Flowchart: Card";
+    /// Flowchart punched tape (`flowChartPunchedTape`).
+    FlowChartPunchedTape = "flowChartPunchedTape", "Flowchart: Punched Tape";
+    /// Flowchart summing junction (`flowChartSummingJunction`).
+    FlowChartSummingJunction = "flowChartSummingJunction", "Flowchart: Summing Junction";
+    /// Flowchart or (`flowChartOr`).
+    FlowChartOr = "flowChartOr", "Flowchart: Or";
+    /// Flowchart collate (`flowChartCollate`).
+    FlowChartCollate = "flowChartCollate", "Flowchart: Collate";
+    /// Flowchart sort (`flowChartSort`).
+    FlowChartSort = "flowChartSort", "Flowchart: Sort";
+    /// Flowchart extract (`flowChartExtract`).
+    FlowChartExtract = "flowChartExtract", "Flowchart: Extract";
+    /// Flowchart merge (`flowChartMerge`).
+    FlowChartMerge = "flowChartMerge", "Flowchart: Merge";
+    /// Flowchart stored data (`flowChartOnlineStorage`).
+    FlowChartOnlineStorage = "flowChartOnlineStorage", "Flowchart: Stored Data";
+    /// Flowchart delay (`flowChartDelay`).
+    FlowChartDelay = "flowChartDelay", "Flowchart: Delay";
+    /// Flowchart sequential access storage (`flowChartMagneticTape`).
+    FlowChartMagneticTape = "flowChartMagneticTape", "Flowchart: Sequential Access Storage";
+    /// Flowchart magnetic disk, the database cylinder (`flowChartMagneticDisk`).
+    FlowChartMagneticDisk = "flowChartMagneticDisk", "Flowchart: Magnetic Disk";
+    /// Flowchart direct access storage (`flowChartMagneticDrum`).
+    FlowChartMagneticDrum = "flowChartMagneticDrum", "Flowchart: Direct Access Storage";
+    /// Flowchart display (`flowChartDisplay`).
+    FlowChartDisplay = "flowChartDisplay", "Flowchart: Display";
+    /// Flowchart offline storage (`flowChartOfflineStorage`).
+    FlowChartOfflineStorage = "flowChartOfflineStorage", "Flowchart: Offline Storage";
 }
 
 impl Preset {
-    /// Every named preset (all but [`Custom`](Self::Custom)), in gallery
-    /// order.
-    pub const ALL: [Preset; 51] = [
-        Preset::Rect,
-        Preset::RoundRect,
-        Preset::Snip1Rect,
-        Preset::Snip2SameRect,
-        Preset::Round1Rect,
-        Preset::Round2SameRect,
-        Preset::Ellipse,
-        Preset::Triangle,
-        Preset::RtTriangle,
-        Preset::Diamond,
-        Preset::Pentagon,
-        Preset::Hexagon,
-        Preset::Octagon,
-        Preset::Parallelogram,
-        Preset::Trapezoid,
-        Preset::Heart,
-        Preset::Cloud,
-        Preset::RightArrow,
-        Preset::LeftArrow,
-        Preset::UpArrow,
-        Preset::DownArrow,
-        Preset::LeftRightArrow,
-        Preset::UpDownArrow,
-        Preset::Chevron,
-        Preset::HomePlate,
-        Preset::Star4,
-        Preset::Star5,
-        Preset::Star6,
-        Preset::Star8,
-        Preset::WedgeRectCallout,
-        Preset::WedgeRoundRectCallout,
-        Preset::WedgeEllipseCallout,
-        Preset::FlowChartProcess,
-        Preset::FlowChartDecision,
-        Preset::FlowChartTerminator,
-        Preset::FlowChartDocument,
-        Preset::FlowChartConnector,
-        Preset::FlowChartInputOutput,
-        Preset::Line,
-        Preset::ActionButtonBlank,
-        Preset::ActionButtonHome,
-        Preset::ActionButtonHelp,
-        Preset::ActionButtonInformation,
-        Preset::ActionButtonBackPrevious,
-        Preset::ActionButtonForwardNext,
-        Preset::ActionButtonBeginning,
-        Preset::ActionButtonEnd,
-        Preset::ActionButtonReturn,
-        Preset::ActionButtonDocument,
-        Preset::ActionButtonSound,
-        Preset::ActionButtonMovie,
-    ];
-
     /// The twelve action buttons, in PowerPoint's gallery order.
     pub const ACTION_BUTTONS: [Preset; 12] = [
         Preset::ActionButtonBackPrevious,
@@ -389,65 +571,6 @@ impl Preset {
         Some(Hyperlink::slide(to))
     }
 
-    /// The DrawingML `prst` name (`"custom"` for a custom geometry, which
-    /// is written as `a:custGeom`).
-    pub fn prst(&self) -> &'static str {
-        match self {
-            Preset::Rect => "rect",
-            Preset::RoundRect => "roundRect",
-            Preset::Snip1Rect => "snip1Rect",
-            Preset::Snip2SameRect => "snip2SameRect",
-            Preset::Round1Rect => "round1Rect",
-            Preset::Round2SameRect => "round2SameRect",
-            Preset::Ellipse => "ellipse",
-            Preset::Triangle => "triangle",
-            Preset::RtTriangle => "rtTriangle",
-            Preset::Diamond => "diamond",
-            Preset::Pentagon => "pentagon",
-            Preset::Hexagon => "hexagon",
-            Preset::Octagon => "octagon",
-            Preset::Parallelogram => "parallelogram",
-            Preset::Trapezoid => "trapezoid",
-            Preset::Heart => "heart",
-            Preset::Cloud => "cloud",
-            Preset::RightArrow => "rightArrow",
-            Preset::LeftArrow => "leftArrow",
-            Preset::UpArrow => "upArrow",
-            Preset::DownArrow => "downArrow",
-            Preset::LeftRightArrow => "leftRightArrow",
-            Preset::UpDownArrow => "upDownArrow",
-            Preset::Chevron => "chevron",
-            Preset::HomePlate => "homePlate",
-            Preset::Star4 => "star4",
-            Preset::Star5 => "star5",
-            Preset::Star6 => "star6",
-            Preset::Star8 => "star8",
-            Preset::WedgeRectCallout => "wedgeRectCallout",
-            Preset::WedgeRoundRectCallout => "wedgeRoundRectCallout",
-            Preset::WedgeEllipseCallout => "wedgeEllipseCallout",
-            Preset::FlowChartProcess => "flowChartProcess",
-            Preset::FlowChartDecision => "flowChartDecision",
-            Preset::FlowChartTerminator => "flowChartTerminator",
-            Preset::FlowChartDocument => "flowChartDocument",
-            Preset::FlowChartConnector => "flowChartConnector",
-            Preset::FlowChartInputOutput => "flowChartInputOutput",
-            Preset::Line => "line",
-            Preset::ActionButtonBlank => "actionButtonBlank",
-            Preset::ActionButtonHome => "actionButtonHome",
-            Preset::ActionButtonHelp => "actionButtonHelp",
-            Preset::ActionButtonInformation => "actionButtonInformation",
-            Preset::ActionButtonBackPrevious => "actionButtonBackPrevious",
-            Preset::ActionButtonForwardNext => "actionButtonForwardNext",
-            Preset::ActionButtonBeginning => "actionButtonBeginning",
-            Preset::ActionButtonEnd => "actionButtonEnd",
-            Preset::ActionButtonReturn => "actionButtonReturn",
-            Preset::ActionButtonDocument => "actionButtonDocument",
-            Preset::ActionButtonSound => "actionButtonSound",
-            Preset::ActionButtonMovie => "actionButtonMovie",
-            Preset::Custom { .. } => "custom",
-        }
-    }
-
     /// The preset with DrawingML name `prst` (`straightConnector1` is a
     /// line), if we support it.
     pub fn from_prst(prst: &str) -> Option<Preset> {
@@ -457,94 +580,19 @@ impl Preset {
         Preset::ALL.into_iter().find(|p| p.prst() == prst)
     }
 
-    /// The adjust values this preset understands, with their defaults
-    /// (ECMA-376 `presetShapeDefinitions.xml`).
-    pub fn adjust_defaults(&self) -> &'static [(&'static str, i64)] {
+    /// The ECMA-376 definition of a named preset (`None` for lines and
+    /// custom geometry).
+    fn def(&self) -> Option<&'static crate::presets::Def> {
         match self {
-            Preset::RoundRect | Preset::Snip1Rect | Preset::Round1Rect => &[("adj", 16_667)],
-            Preset::Snip2SameRect | Preset::Round2SameRect => &[("adj1", 16_667), ("adj2", 0)],
-            Preset::Triangle | Preset::Chevron | Preset::HomePlate => &[("adj", 50_000)],
-            Preset::Parallelogram | Preset::Trapezoid => &[("adj", 25_000)],
-            Preset::Pentagon => &[("hf", 105_146), ("vf", 110_557)],
-            Preset::Hexagon => &[("adj", 25_000), ("vf", 115_470)],
-            Preset::Octagon => &[("adj", 29_289)],
-            Preset::RightArrow
-            | Preset::LeftArrow
-            | Preset::UpArrow
-            | Preset::DownArrow
-            | Preset::LeftRightArrow
-            | Preset::UpDownArrow => &[("adj1", 50_000), ("adj2", 50_000)],
-            Preset::Star4 => &[("adj", 12_500)],
-            Preset::Star5 => &[("adj", 19_098), ("hf", 105_146), ("vf", 110_557)],
-            Preset::Star6 => &[("adj", 28_868), ("hf", 115_470)],
-            Preset::Star8 => &[("adj", 38_250)],
-            Preset::WedgeRectCallout | Preset::WedgeEllipseCallout => {
-                &[("adj1", -20_833), ("adj2", 62_500)]
-            }
-            Preset::WedgeRoundRectCallout => {
-                &[("adj1", -20_833), ("adj2", 62_500), ("adj3", 16_667)]
-            }
-            _ => &[],
+            Preset::Line | Preset::Custom { .. } => None,
+            p => crate::presets::def(p.prst()),
         }
     }
 
-    /// PowerPoint's default shape name for this geometry (`"Rounded
-    /// Rectangle"`; the full name appends the shape number).
-    pub fn default_name(&self) -> &'static str {
-        match self {
-            Preset::Rect => "Rectangle",
-            Preset::RoundRect => "Rounded Rectangle",
-            Preset::Snip1Rect => "Snip Single Corner Rectangle",
-            Preset::Snip2SameRect => "Snip Same Side Corner Rectangle",
-            Preset::Round1Rect => "Round Single Corner Rectangle",
-            Preset::Round2SameRect => "Round Same Side Corner Rectangle",
-            Preset::Ellipse => "Oval",
-            Preset::Triangle => "Isosceles Triangle",
-            Preset::RtTriangle => "Right Triangle",
-            Preset::Diamond => "Diamond",
-            Preset::Pentagon => "Regular Pentagon",
-            Preset::Hexagon => "Hexagon",
-            Preset::Octagon => "Octagon",
-            Preset::Parallelogram => "Parallelogram",
-            Preset::Trapezoid => "Trapezoid",
-            Preset::Heart => "Heart",
-            Preset::Cloud => "Cloud",
-            Preset::RightArrow => "Right Arrow",
-            Preset::LeftArrow => "Left Arrow",
-            Preset::UpArrow => "Up Arrow",
-            Preset::DownArrow => "Down Arrow",
-            Preset::LeftRightArrow => "Left-Right Arrow",
-            Preset::UpDownArrow => "Up-Down Arrow",
-            Preset::Chevron => "Chevron",
-            Preset::HomePlate => "Pentagon",
-            Preset::Star4 => "4-Point Star",
-            Preset::Star5 => "5-Point Star",
-            Preset::Star6 => "6-Point Star",
-            Preset::Star8 => "8-Point Star",
-            Preset::WedgeRectCallout => "Rectangular Callout",
-            Preset::WedgeRoundRectCallout => "Rounded Rectangular Callout",
-            Preset::WedgeEllipseCallout => "Oval Callout",
-            Preset::FlowChartProcess => "Flowchart: Process",
-            Preset::FlowChartDecision => "Flowchart: Decision",
-            Preset::FlowChartTerminator => "Flowchart: Terminator",
-            Preset::FlowChartDocument => "Flowchart: Document",
-            Preset::FlowChartConnector => "Flowchart: Connector",
-            Preset::FlowChartInputOutput => "Flowchart: Data",
-            Preset::Line => "Straight Connector",
-            Preset::ActionButtonBlank => "Action Button: Blank",
-            Preset::ActionButtonHome => "Action Button: Go Home",
-            Preset::ActionButtonHelp => "Action Button: Help",
-            Preset::ActionButtonInformation => "Action Button: Get Information",
-            Preset::ActionButtonBackPrevious => "Action Button: Go Back or Previous",
-            Preset::ActionButtonForwardNext => "Action Button: Go Forward or Next",
-            Preset::ActionButtonBeginning => "Action Button: Go to Beginning",
-            Preset::ActionButtonEnd => "Action Button: Go to End",
-            Preset::ActionButtonReturn => "Action Button: Return",
-            Preset::ActionButtonDocument => "Action Button: Document",
-            Preset::ActionButtonSound => "Action Button: Sound",
-            Preset::ActionButtonMovie => "Action Button: Video",
-            Preset::Custom { .. } => "Freeform",
-        }
+    /// The adjust values this preset understands, with their defaults
+    /// (ECMA-376 `presetShapeDefinitions.xml` `a:avLst`).
+    pub fn adjust_defaults(&self) -> &'static [(&'static str, i64)] {
+        self.def().map_or(&[], |d| d.av.as_slice())
     }
 
     /// The outline of the shape in a `w` × `h` box: the commands of all
@@ -558,375 +606,96 @@ impl Preset {
 
     /// The paths of the shape in a `w` × `h` box (EMU), computed from the
     /// ECMA-376 preset definition with the adjust values `adj` (missing
-    /// ones take the defaults; values are clamped as the definitions pin
-    /// them).
+    /// ones take the defaults; values are pinned as the definitions pin
+    /// them). Paths with `fill="none"` (the cloud's inner arcs, the
+    /// can's rim) are stroked only; action button icons are filled
+    /// darker (`darken`).
     pub fn paths(&self, w: f64, h: f64, adj: &Adjust) -> Vec<SubPath> {
-        let g = Guides::new(w, h, adj, self.adjust_defaults());
-        let mut b = Builder::new(1.0, 1.0);
         match self {
-            Preset::Custom { paths } => {
-                return paths
-                    .iter()
-                    .map(|p| {
-                        let sx = if p.w > 0.0 { w / p.w } else { 1.0 };
-                        let sy = if p.h > 0.0 { h / p.h } else { 1.0 };
-                        let mut b = Builder::new(sx, sy);
-                        for c in &p.commands {
-                            b.cmd(c);
-                        }
-                        SubPath {
-                            fill: p.fill,
-                            stroke: p.stroke,
-                            commands: b.cmds,
-                            darken: 0.0,
-                        }
-                    })
-                    .collect();
-            }
+            Preset::Custom { paths } => paths
+                .iter()
+                .map(|p| {
+                    let sx = if p.w > 0.0 { w / p.w } else { 1.0 };
+                    let sy = if p.h > 0.0 { h / p.h } else { 1.0 };
+                    let mut b = Builder::new(sx, sy);
+                    for c in &p.commands {
+                        b.cmd(c);
+                    }
+                    SubPath {
+                        fill: p.fill,
+                        stroke: p.stroke,
+                        commands: b.cmds,
+                        darken: 0.0,
+                    }
+                })
+                .collect(),
             Preset::Line => {
+                let mut b = Builder::new(1.0, 1.0);
                 b.m(0.0, 0.0);
                 b.l(w, h);
-                return vec![SubPath::stroked(b.cmds)];
+                vec![SubPath::stroked(b.cmds)]
             }
-            Preset::ActionButtonBlank
-            | Preset::ActionButtonHome
-            | Preset::ActionButtonHelp
-            | Preset::ActionButtonInformation
-            | Preset::ActionButtonBackPrevious
-            | Preset::ActionButtonForwardNext
-            | Preset::ActionButtonBeginning
-            | Preset::ActionButtonEnd
-            | Preset::ActionButtonReturn
-            | Preset::ActionButtonDocument
-            | Preset::ActionButtonSound
-            | Preset::ActionButtonMovie => return action_button_paths(self, w, h),
-            Preset::Rect | Preset::FlowChartProcess => g.rect(&mut b),
-            Preset::RoundRect => g.round_rect(&mut b),
-            Preset::Snip1Rect => g.snip1_rect(&mut b),
-            Preset::Snip2SameRect => g.snip2_same_rect(&mut b),
-            Preset::Round1Rect => g.round1_rect(&mut b),
-            Preset::Round2SameRect => g.round2_same_rect(&mut b),
-            Preset::Ellipse | Preset::FlowChartConnector => g.ellipse(&mut b),
-            Preset::Triangle => g.triangle(&mut b),
-            Preset::RtTriangle => b.poly(&[(0.0, h), (0.0, 0.0), (w, h)]),
-            Preset::Diamond | Preset::FlowChartDecision => {
-                b.poly(&[(0.0, h / 2.0), (w / 2.0, 0.0), (w, h / 2.0), (w / 2.0, h)])
-            }
-            Preset::Pentagon => g.pentagon(&mut b),
-            Preset::Hexagon => g.hexagon(&mut b),
-            Preset::Octagon => g.octagon(&mut b),
-            Preset::Parallelogram => g.parallelogram(&mut b),
-            Preset::Trapezoid => g.trapezoid(&mut b),
-            Preset::Heart => g.heart(&mut b),
-            Preset::Cloud => cloud(&mut b, w, h),
-            Preset::RightArrow => g.right_arrow(&mut b),
-            Preset::LeftArrow => g.left_arrow(&mut b),
-            Preset::UpArrow => g.up_arrow(&mut b),
-            Preset::DownArrow => g.down_arrow(&mut b),
-            Preset::LeftRightArrow => g.left_right_arrow(&mut b),
-            Preset::UpDownArrow => g.up_down_arrow(&mut b),
-            Preset::Chevron => g.chevron(&mut b),
-            Preset::HomePlate => g.home_plate(&mut b),
-            Preset::Star4 => g.star4(&mut b),
-            Preset::Star5 => g.star5(&mut b),
-            Preset::Star6 => g.star6(&mut b),
-            Preset::Star8 => g.star8(&mut b),
-            Preset::WedgeRectCallout => g.wedge_rect_callout(&mut b, 0.0),
-            Preset::WedgeRoundRectCallout => {
-                let r = g.ss * g.adj("adj3") / 100_000.0;
-                g.wedge_rect_callout(&mut b, r)
-            }
-            Preset::WedgeEllipseCallout => g.wedge_ellipse_callout(&mut b),
-            Preset::FlowChartTerminator => {
-                let mut s = Builder::new(w / 21_600.0, h / 21_600.0);
-                s.m(3_475.0, 0.0);
-                s.l(18_125.0, 0.0);
-                s.a(3_475.0, 10_800.0, 270.0, 180.0);
-                s.l(3_475.0, 21_600.0);
-                s.a(3_475.0, 10_800.0, 90.0, 180.0);
-                s.z();
-                b = s;
-            }
-            Preset::FlowChartDocument => {
-                let mut s = Builder::new(w / 21_600.0, h / 21_600.0);
-                s.m(0.0, 0.0);
-                s.l(21_600.0, 0.0);
-                s.l(21_600.0, 17_322.0);
-                s.c(10_800.0, 17_322.0, 10_800.0, 23_922.0, 0.0, 20_172.0);
-                s.z();
-                b = s;
-            }
-            Preset::FlowChartInputOutput => {
-                b.poly(&[(0.0, h), (w / 5.0, 0.0), (w, 0.0), (w * 4.0 / 5.0, h)])
-            }
+            p => match p.def() {
+                Some(d) => crate::presets::paths(d, w, h, adj),
+                None => Preset::Rect.paths(w, h, adj),
+            },
         }
-        vec![SubPath::filled(b.cmds)]
     }
 
     /// The connection sites of the shape in a `w` × `h` box, in
-    /// PowerPoint's order (the `idx` of `a:stCxn`). Rectangles, flowchart
-    /// shapes and most others have four (top, left, bottom, right: the
-    /// edge midpoints of the box, or of the slanted sides of
-    /// parallelograms, trapezoids and flowchart data), ellipses and
-    /// flowchart connectors eight (counter-clockwise from the top),
-    /// triangles six. Every shape has its center as the last site.
+    /// PowerPoint's order (the `idx` of `a:stCxn`; ECMA-376 `a:cxnLst`),
+    /// plus the box centre as the last site. Custom geometry uses the
+    /// rectangle's; a line its two ends.
     pub fn connection_sites(&self, w: f64, h: f64, adj: &Adjust) -> Vec<Site> {
         let site = |x: f64, y: f64, angle_deg: f64| Site { x, y, angle_deg };
-        let (hc, vc) = (w / 2.0, h / 2.0);
         let mut out = match self {
-            Preset::Ellipse | Preset::FlowChartConnector => {
-                let (dx, dy) = (hc * (PI / 4.0).cos(), vc * (PI / 4.0).sin());
-                let (il, ir, it, ib) = (hc - dx, hc + dx, vc - dy, vc + dy);
-                vec![
-                    site(hc, 0.0, 270.0),
-                    site(il, it, 270.0),
-                    site(0.0, vc, 180.0),
-                    site(il, ib, 90.0),
-                    site(hc, h, 90.0),
-                    site(ir, ib, 90.0),
-                    site(w, vc, 0.0),
-                    site(ir, it, 270.0),
-                ]
-            }
-            Preset::Triangle => {
-                let g = Guides::new(w, h, adj, self.adjust_defaults());
-                let a = g.adj("adj").clamp(0.0, 100_000.0);
-                let x1 = w * a / 200_000.0;
-                let x2 = w * a / 100_000.0;
-                vec![
-                    site(x2, 0.0, 270.0),
-                    site(x1, vc, 180.0),
-                    site(0.0, h, 90.0),
-                    site(x2, h, 90.0),
-                    site(w, h, 90.0),
-                    site(x1 + hc, vc, 0.0),
-                ]
-            }
-            Preset::RtTriangle => vec![
-                site(0.0, 0.0, 270.0),
-                site(0.0, vc, 180.0),
-                site(0.0, h, 90.0),
-                site(hc, h, 90.0),
-                site(w, h, 90.0),
-                site(hc, vc, 0.0),
-            ],
-            Preset::FlowChartDocument => vec![
-                site(hc, 0.0, 270.0),
-                site(0.0, vc, 180.0),
-                site(hc, h * 20_172.0 / 21_600.0, 90.0),
-                site(w, vc, 0.0),
-            ],
-            Preset::FlowChartInputOutput => vec![
-                site(w * 3.0 / 5.0, 0.0, 270.0),
-                site(w / 10.0, vc, 180.0),
-                site(w * 2.0 / 5.0, h, 90.0),
-                site(w * 9.0 / 10.0, vc, 0.0),
-            ],
-            Preset::Parallelogram | Preset::Trapezoid => {
-                // the middles of the slanted sides
-                let g = Guides::new(w, h, adj, self.adjust_defaults());
-                let max = if *self == Preset::Trapezoid {
-                    50_000.0
-                } else {
-                    100_000.0
-                };
-                let x2 = g.ss * g.pin("adj", 0.0, max * w / g.ss) / 100_000.0;
-                vec![
-                    site(hc, 0.0, 270.0),
-                    site(x2 / 2.0, vc, 180.0),
-                    site(hc, h, 90.0),
-                    site(w - x2 / 2.0, vc, 0.0),
-                ]
-            }
             Preset::Line => vec![site(0.0, 0.0, 180.0), site(w, h, 0.0)],
-            _ => vec![
-                site(hc, 0.0, 270.0),
-                site(0.0, vc, 180.0),
-                site(hc, h, 90.0),
-                site(w, vc, 0.0),
-            ],
+            p => match p.def().or_else(|| Preset::Rect.def()) {
+                Some(d) => crate::presets::sites(d, w, h, adj),
+                None => Vec::new(),
+            },
         };
-        out.push(site(hc, vc, 0.0));
+        out.push(site(w / 2.0, h / 2.0, 0.0));
         out
     }
-}
 
-/// The paths of an action button (ECMA-376's `actionButton*`: the frame,
-/// the icon filled with a darkened fill, then the outlines). The icons
-/// sit in a square of 3/4 of the shorter side around the centre; Help,
-/// Return, Document, Sound and Movie are simplified drawings.
-fn action_button_paths(p: &Preset, w: f64, h: f64) -> Vec<SubPath> {
-    let (hc, vc) = (w / 2.0, h / 2.0);
-    let u = w.min(h) * 3.0 / 8.0;
-    let pt = |dx: f64, dy: f64| (hc + dx * u, vc + dy * u);
-    let poly = |pts: &[(f64, f64)]| {
-        let mut b = Builder::new(1.0, 1.0);
-        let pts: Vec<(f64, f64)> = pts.iter().map(|&(x, y)| pt(x, y)).collect();
-        b.poly(&pts);
-        b.cmds
-    };
-    let circle = |dx: f64, dy: f64, r: f64| {
-        let mut b = Builder::new(1.0, 1.0);
-        let (cx, cy) = pt(dx, dy);
-        b.m(cx + r * u, cy);
-        b.a(r * u, r * u, 0.0, 180.0);
-        b.a(r * u, r * u, 180.0, 180.0);
-        b.z();
-        b.cmds
-    };
-    let frame = {
-        let mut b = Builder::new(1.0, 1.0);
-        b.poly(&[(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]);
-        b.cmds
-    };
-    // (commands, darken) of the icon's filled parts; strokes drawn on top
-    let mut icon: Vec<(Vec<PathCmd>, f64)> = Vec::new();
-    let mut strokes: Vec<Vec<PathCmd>> = Vec::new();
-    match p {
-        Preset::ActionButtonForwardNext => {
-            icon.push((poly(&[(1.0, 0.0), (-1.0, -1.0), (-1.0, 1.0)]), 0.4))
-        }
-        Preset::ActionButtonBackPrevious => {
-            icon.push((poly(&[(-1.0, 0.0), (1.0, -1.0), (1.0, 1.0)]), 0.4))
-        }
-        Preset::ActionButtonEnd => {
-            icon.push((poly(&[(0.5, 0.0), (-1.0, -1.0), (-1.0, 1.0)]), 0.4));
-            icon.push((
-                poly(&[(0.625, -1.0), (1.0, -1.0), (1.0, 1.0), (0.625, 1.0)]),
-                0.4,
-            ));
-        }
-        Preset::ActionButtonBeginning => {
-            icon.push((poly(&[(-0.5, 0.0), (1.0, -1.0), (1.0, 1.0)]), 0.4));
-            icon.push((
-                poly(&[(-1.0, -1.0), (-0.625, -1.0), (-0.625, 1.0), (-1.0, 1.0)]),
-                0.4,
-            ));
-        }
-        Preset::ActionButtonHome => {
-            icon.push((
-                poly(&[
-                    (0.0, -1.0),
-                    (1.0, 0.0),
-                    (0.75, 0.0),
-                    (0.75, 1.0),
-                    (-0.75, 1.0),
-                    (-0.75, 0.0),
-                    (-1.0, 0.0),
-                ]),
-                0.4,
-            ));
-            icon.push((
-                poly(&[(-0.2, 0.3), (0.2, 0.3), (0.2, 1.0), (-0.2, 1.0)]),
-                0.2,
-            ));
-        }
-        Preset::ActionButtonInformation => {
-            icon.push((circle(0.0, 0.0, 1.0), 0.4));
-            icon.push((circle(0.0, -0.55, 0.15), -0.4));
-            icon.push((
-                poly(&[(-0.15, -0.25), (0.15, -0.25), (0.15, 0.7), (-0.15, 0.7)]),
-                -0.4,
-            ));
-        }
-        Preset::ActionButtonHelp => {
-            let mut b = Builder::new(1.0, 1.0);
-            let m = |x: f64, y: f64| pt(x, y);
-            let (x, y) = m(-0.5, -0.45);
-            b.m(x, y);
-            let (x1, y1) = m(-0.5, -1.0);
-            let (x2, y2) = m(0.5, -1.0);
-            let (x3, y3) = m(0.5, -0.45);
-            b.c(x1, y1, x2, y2, x3, y3);
-            let (x1, y1) = m(0.5, -0.1);
-            let (x2, y2) = m(0.0, 0.0);
-            let (x3, y3) = m(0.0, 0.35);
-            b.c(x1, y1, x2, y2, x3, y3);
-            let (x, y) = m(0.0, 0.5);
-            b.l(x, y);
-            strokes.push(b.cmds);
-            icon.push((circle(0.0, 0.8, 0.15), 0.4));
-        }
-        Preset::ActionButtonReturn => {
-            icon.push((
-                poly(&[
-                    (-0.5, -0.6),
-                    (1.0, -0.6),
-                    (1.0, 1.0),
-                    (-0.6, 1.0),
-                    (-0.6, 0.6),
-                    (0.6, 0.6),
-                    (0.6, -0.2),
-                    (-0.5, -0.2),
-                ]),
-                0.4,
-            ));
-            icon.push((poly(&[(-1.0, -0.4), (-0.5, -0.9), (-0.5, 0.1)]), 0.4));
-        }
-        Preset::ActionButtonDocument => {
-            icon.push((
-                poly(&[
-                    (-0.7, -1.0),
-                    (0.3, -1.0),
-                    (0.7, -0.6),
-                    (0.7, 1.0),
-                    (-0.7, 1.0),
-                ]),
-                0.2,
-            ));
-            icon.push((poly(&[(0.3, -1.0), (0.3, -0.6), (0.7, -0.6)]), 0.4));
-        }
-        Preset::ActionButtonSound => {
-            icon.push((
-                poly(&[
-                    (-1.0, -0.35),
-                    (-0.4, -0.35),
-                    (0.2, -1.0),
-                    (0.2, 1.0),
-                    (-0.4, 0.35),
-                    (-1.0, 0.35),
-                ]),
-                0.4,
-            ));
-            for (y0, y1) in [(-0.5, -0.8), (0.0, 0.0), (0.5, 0.8)] {
-                let mut b = Builder::new(1.0, 1.0);
-                let (x, y) = pt(0.45, y0);
-                b.m(x, y);
-                let (x, y) = pt(1.0, y1);
-                b.l(x, y);
-                strokes.push(b.cmds);
-            }
-        }
-        Preset::ActionButtonMovie => {
-            icon.push((
-                poly(&[(-1.0, -0.5), (0.4, -0.5), (0.4, 0.5), (-1.0, 0.5)]),
-                0.4,
-            ));
-            icon.push((
-                poly(&[(0.4, -0.15), (1.0, -0.5), (1.0, 0.5), (0.4, 0.15)]),
-                0.4,
-            ));
-        }
-        _ => {}
+    /// The rectangle text is laid out in (`a:rect`; the box for lines,
+    /// custom geometry and presets without one).
+    pub fn text_rect(&self, w: f64, h: f64, adj: &Adjust) -> TextRect {
+        let [l, t, r, b] = match self.def() {
+            Some(d) => crate::presets::text_rect(d, w, h, adj),
+            None => [0.0, 0.0, w, h],
+        };
+        TextRect { l, t, r, b }
     }
-    let mut out = vec![SubPath {
-        stroke: false,
-        ..SubPath::filled(frame.clone())
-    }];
-    for (cmds, darken) in &icon {
-        out.push(SubPath {
-            fill: true,
-            stroke: false,
-            commands: cmds.clone(),
-            darken: *darken,
-        });
+
+    /// The adjust handles of the shape in a `w` × `h` box with `adj`
+    /// (`a:ahLst`; none for presets without adjust values).
+    pub fn handles(&self, w: f64, h: f64, adj: &Adjust) -> Vec<AdjustHandle> {
+        let Some(d) = self.def() else {
+            return Vec::new();
+        };
+        let axis = |a: Option<crate::presets::Axis>| {
+            a.map(|a| HandleAxis {
+                adj: a.adj.to_owned(),
+                base: a.base,
+                k: a.k,
+                min: a.min,
+                max: a.max,
+                samples: a.samples.iter().map(|&(v, c)| [v, c]).collect(),
+            })
+        };
+        crate::presets::handles(d, w, h, adj)
+            .into_iter()
+            .map(|r| AdjustHandle {
+                x: r.x,
+                y: r.y,
+                polar: r.polar,
+                x_axis: axis(r.a),
+                y_axis: axis(r.b),
+            })
+            .collect()
     }
-    for (cmds, _) in icon {
-        out.push(SubPath::stroked(cmds));
-    }
-    out.extend(strokes.into_iter().map(SubPath::stroked));
-    out.push(SubPath::stroked(frame));
-    out
 }
 
 /// The geometry of a connector (`p:cxnSp`). Elbow and curved connectors
@@ -993,7 +762,7 @@ impl ConnectorKind {
 
     /// The corners of the connector's route in its `w` × `h` box, start
     /// and end included.
-    fn points(self, turns: u8, w: f64, h: f64, adj: &Adjust) -> Vec<(f64, f64)> {
+    pub(crate) fn points(self, turns: u8, w: f64, h: f64, adj: &Adjust) -> Vec<(f64, f64)> {
         let a = |n: &str| adj.get(n).copied().unwrap_or(50_000) as f64 / 100_000.0;
         match (self, turns.clamp(1, 4) + 1) {
             (ConnectorKind::Straight, _) => vec![(0.0, 0.0), (w, h)],
@@ -1058,10 +827,10 @@ impl ConnectorKind {
 
 /// Builds a path in a coordinate space scaled by `sx`/`sy` into EMU,
 /// tracking the current point for arcs.
-struct Builder {
+pub(crate) struct Builder {
     sx: f64,
     sy: f64,
-    cmds: Vec<PathCmd>,
+    pub(crate) cmds: Vec<PathCmd>,
     /// Current point (unscaled) and sub-path start.
     cur: (f64, f64),
     start: (f64, f64),
@@ -1106,7 +875,7 @@ fn arc_params(wr: f64, hr: f64, start_deg: f64, sweep_deg: f64) -> (f64, f64) {
 }
 
 impl Builder {
-    fn new(sx: f64, sy: f64) -> Self {
+    pub(crate) fn new(sx: f64, sy: f64) -> Self {
         Builder {
             sx,
             sy,
@@ -1116,7 +885,7 @@ impl Builder {
         }
     }
 
-    fn m(&mut self, x: f64, y: f64) {
+    pub(crate) fn m(&mut self, x: f64, y: f64) {
         self.cur = (x, y);
         self.start = (x, y);
         self.cmds.push(PathCmd::MoveTo {
@@ -1125,7 +894,7 @@ impl Builder {
         });
     }
 
-    fn l(&mut self, x: f64, y: f64) {
+    pub(crate) fn l(&mut self, x: f64, y: f64) {
         self.cur = (x, y);
         self.cmds.push(PathCmd::LineTo {
             x: x * self.sx,
@@ -1133,7 +902,7 @@ impl Builder {
         });
     }
 
-    fn c(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, x: f64, y: f64) {
+    pub(crate) fn c(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, x: f64, y: f64) {
         self.cur = (x, y);
         let (sx, sy) = (self.sx, self.sy);
         self.cmds.push(PathCmd::CubicTo {
@@ -1146,7 +915,7 @@ impl Builder {
         });
     }
 
-    fn q(&mut self, x1: f64, y1: f64, x: f64, y: f64) {
+    pub(crate) fn q(&mut self, x1: f64, y1: f64, x: f64, y: f64) {
         self.cur = (x, y);
         let (sx, sy) = (self.sx, self.sy);
         self.cmds.push(PathCmd::QuadTo {
@@ -1159,7 +928,7 @@ impl Builder {
 
     /// `a:arcTo` in unscaled coordinates; the emitted arc has scaled radii
     /// and the visual angles of the scaled ellipse.
-    fn a(&mut self, wr: f64, hr: f64, start_deg: f64, sweep_deg: f64) {
+    pub(crate) fn a(&mut self, wr: f64, hr: f64, start_deg: f64, sweep_deg: f64) {
         let (p1, d) = arc_params(wr, hr, start_deg, sweep_deg);
         let (cx, cy) = (self.cur.0 - wr * p1.cos(), self.cur.1 - hr * p1.sin());
         let p2 = p1 + d;
@@ -1194,21 +963,9 @@ impl Builder {
         });
     }
 
-    fn z(&mut self) {
+    pub(crate) fn z(&mut self) {
         self.cur = self.start;
         self.cmds.push(PathCmd::Close);
-    }
-
-    /// A closed polygon.
-    fn poly(&mut self, pts: &[(f64, f64)]) {
-        for (i, &(x, y)) in pts.iter().enumerate() {
-            if i == 0 {
-                self.m(x, y);
-            } else {
-                self.l(x, y);
-            }
-        }
-        self.z();
     }
 
     /// Replays a command given in unscaled coordinates.
@@ -1345,562 +1102,6 @@ pub fn path_bounds(cmds: &[PathCmd]) -> Option<(f64, f64, f64, f64)> {
     b
 }
 
-// --- presets ----------------------------------------------------------------------
-
-/// The ECMA built-in guides of a `w` × `h` box plus the adjust values.
-struct Guides<'a> {
-    w: f64,
-    h: f64,
-    ss: f64,
-    adj: &'a Adjust,
-    defaults: &'static [(&'static str, i64)],
-}
-
-impl<'a> Guides<'a> {
-    fn new(w: f64, h: f64, adj: &'a Adjust, defaults: &'static [(&'static str, i64)]) -> Self {
-        Guides {
-            w,
-            h,
-            ss: w.min(h),
-            adj,
-            defaults,
-        }
-    }
-
-    /// Adjust value `name` (or its default).
-    fn adj(&self, name: &str) -> f64 {
-        self.adj
-            .get(name)
-            .copied()
-            .or_else(|| self.defaults.iter().find(|(n, _)| *n == name).map(|d| d.1))
-            .unwrap_or(0) as f64
-    }
-
-    /// `pin lo adj hi`.
-    fn pin(&self, name: &str, lo: f64, hi: f64) -> f64 {
-        self.adj(name).max(lo).min(hi.max(lo))
-    }
-
-    fn rect(&self, b: &mut Builder) {
-        b.poly(&[(0.0, 0.0), (self.w, 0.0), (self.w, self.h), (0.0, self.h)]);
-    }
-
-    fn round_rect(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let x1 = self.ss * self.pin("adj", 0.0, 50_000.0) / 100_000.0;
-        b.m(0.0, x1);
-        b.a(x1, x1, 180.0, 90.0);
-        b.l(w - x1, 0.0);
-        b.a(x1, x1, 270.0, 90.0);
-        b.l(w, h - x1);
-        b.a(x1, x1, 0.0, 90.0);
-        b.l(x1, h);
-        b.a(x1, x1, 90.0, 90.0);
-        b.z();
-    }
-
-    fn snip1_rect(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let d = self.ss * self.pin("adj", 0.0, 50_000.0) / 100_000.0;
-        b.poly(&[(0.0, 0.0), (w - d, 0.0), (w, d), (w, h), (0.0, h)]);
-    }
-
-    fn snip2_same_rect(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let t = self.ss * self.pin("adj1", 0.0, 50_000.0) / 100_000.0;
-        let d = self.ss * self.pin("adj2", 0.0, 50_000.0) / 100_000.0;
-        b.poly(&[
-            (t, 0.0),
-            (w - t, 0.0),
-            (w, t),
-            (w, h - d),
-            (w - d, h),
-            (d, h),
-            (0.0, h - d),
-            (0.0, t),
-        ]);
-    }
-
-    fn round1_rect(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let d = self.ss * self.pin("adj", 0.0, 50_000.0) / 100_000.0;
-        b.m(0.0, 0.0);
-        b.l(w - d, 0.0);
-        b.a(d, d, 270.0, 90.0);
-        b.l(w, h);
-        b.l(0.0, h);
-        b.z();
-    }
-
-    fn round2_same_rect(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let t = self.ss * self.pin("adj1", 0.0, 50_000.0) / 100_000.0;
-        let d = self.ss * self.pin("adj2", 0.0, 50_000.0) / 100_000.0;
-        b.m(t, 0.0);
-        b.l(w - t, 0.0);
-        b.a(t, t, 270.0, 90.0);
-        b.l(w, h - d);
-        b.a(d, d, 0.0, 90.0);
-        b.l(d, h);
-        b.a(d, d, 90.0, 90.0);
-        b.l(0.0, t);
-        b.a(t, t, 180.0, 90.0);
-        b.z();
-    }
-
-    fn ellipse(&self, b: &mut Builder) {
-        let (wd2, hd2) = (self.w / 2.0, self.h / 2.0);
-        b.m(0.0, hd2);
-        for st in [180.0, 270.0, 0.0, 90.0] {
-            b.a(wd2, hd2, st, 90.0);
-        }
-        b.z();
-    }
-
-    fn triangle(&self, b: &mut Builder) {
-        let x2 = self.w * self.pin("adj", 0.0, 100_000.0) / 100_000.0;
-        b.poly(&[(0.0, self.h), (x2, 0.0), (self.w, self.h)]);
-    }
-
-    fn pentagon(&self, b: &mut Builder) {
-        let (hc, vc) = (self.w / 2.0, self.h / 2.0);
-        let swd2 = hc * self.adj("hf") / 100_000.0;
-        let shd2 = vc * self.adj("vf") / 100_000.0;
-        let svc = vc * self.adj("vf") / 100_000.0;
-        let (dx1, dy1) = (
-            swd2 * 18f64.to_radians().cos(),
-            shd2 * 18f64.to_radians().sin(),
-        );
-        let (dx2, dy2) = (
-            swd2 * 306f64.to_radians().cos(),
-            shd2 * 306f64.to_radians().sin(),
-        );
-        let (y1, y2) = (svc - dy1, svc - dy2);
-        b.poly(&[
-            (hc - dx1, y1),
-            (hc, 0.0),
-            (hc + dx1, y1),
-            (hc + dx2, y2),
-            (hc - dx2, y2),
-        ]);
-    }
-
-    fn hexagon(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let max = 50_000.0 * w / self.ss;
-        let x1 = self.ss * self.pin("adj", 0.0, max) / 100_000.0;
-        let shd2 = h / 2.0 * self.adj("vf") / 100_000.0;
-        let dy1 = shd2 * 60f64.to_radians().sin();
-        let vc = h / 2.0;
-        b.poly(&[
-            (0.0, vc),
-            (x1, vc - dy1),
-            (w - x1, vc - dy1),
-            (w, vc),
-            (w - x1, vc + dy1),
-            (x1, vc + dy1),
-        ]);
-    }
-
-    fn octagon(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let x1 = self.ss * self.pin("adj", 0.0, 50_000.0) / 100_000.0;
-        b.poly(&[
-            (0.0, x1),
-            (x1, 0.0),
-            (w - x1, 0.0),
-            (w, x1),
-            (w, h - x1),
-            (w - x1, h),
-            (x1, h),
-            (0.0, h - x1),
-        ]);
-    }
-
-    fn parallelogram(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let max = 100_000.0 * w / self.ss;
-        let x2 = self.ss * self.pin("adj", 0.0, max) / 100_000.0;
-        b.poly(&[(0.0, h), (x2, 0.0), (w, 0.0), (w - x2, h)]);
-    }
-
-    fn trapezoid(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let max = 50_000.0 * w / self.ss;
-        let x2 = self.ss * self.pin("adj", 0.0, max) / 100_000.0;
-        b.poly(&[(0.0, h), (x2, 0.0), (w - x2, 0.0), (w, h)]);
-    }
-
-    fn heart(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let hc = w / 2.0;
-        let (dx1, dx2) = (w * 49.0 / 48.0, w * 10.0 / 48.0);
-        let (x1, x2, x3, x4) = (hc - dx1, hc - dx2, hc + dx2, hc + dx1);
-        let y1 = -h / 3.0;
-        let hd4 = h / 4.0;
-        b.m(hc, hd4);
-        b.c(x3, y1, x4, hd4, hc, h);
-        b.c(x1, hd4, x2, y1, hc, hd4);
-        b.z();
-    }
-
-    /// Shaft half-thickness `dy1` and head length `dx` of a horizontal
-    /// arrow; `heads` is 1 or 2.
-    fn h_arrow(&self, heads: f64) -> (f64, f64) {
-        let max2 = 100_000.0 / heads * self.w / self.ss;
-        let a1 = self.pin("adj1", 0.0, 100_000.0);
-        let a2 = self.pin("adj2", 0.0, max2);
-        (self.h * a1 / 200_000.0, self.ss * a2 / 100_000.0)
-    }
-
-    /// Shaft half-width and head length of a vertical arrow.
-    fn v_arrow(&self, heads: f64) -> (f64, f64) {
-        let max2 = 100_000.0 / heads * self.h / self.ss;
-        let a1 = self.pin("adj1", 0.0, 100_000.0);
-        let a2 = self.pin("adj2", 0.0, max2);
-        (self.w * a1 / 200_000.0, self.ss * a2 / 100_000.0)
-    }
-
-    fn right_arrow(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let (dy1, dx) = self.h_arrow(1.0);
-        let (vc, x1) = (h / 2.0, w - dx);
-        b.poly(&[
-            (0.0, vc - dy1),
-            (x1, vc - dy1),
-            (x1, 0.0),
-            (w, vc),
-            (x1, h),
-            (x1, vc + dy1),
-            (0.0, vc + dy1),
-        ]);
-    }
-
-    fn left_arrow(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let (dy1, x2) = self.h_arrow(1.0);
-        let vc = h / 2.0;
-        b.poly(&[
-            (0.0, vc),
-            (x2, 0.0),
-            (x2, vc - dy1),
-            (w, vc - dy1),
-            (w, vc + dy1),
-            (x2, vc + dy1),
-            (x2, h),
-        ]);
-    }
-
-    fn up_arrow(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let (dx1, y2) = self.v_arrow(1.0);
-        let hc = w / 2.0;
-        b.poly(&[
-            (0.0, y2),
-            (hc, 0.0),
-            (w, y2),
-            (hc + dx1, y2),
-            (hc + dx1, h),
-            (hc - dx1, h),
-            (hc - dx1, y2),
-        ]);
-    }
-
-    fn down_arrow(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let (dx1, dy) = self.v_arrow(1.0);
-        let (hc, y1) = (w / 2.0, h - dy);
-        b.poly(&[
-            (0.0, y1),
-            (hc - dx1, y1),
-            (hc - dx1, 0.0),
-            (hc + dx1, 0.0),
-            (hc + dx1, y1),
-            (w, y1),
-            (hc, h),
-        ]);
-    }
-
-    fn left_right_arrow(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let (dy, x2) = self.h_arrow(2.0);
-        let (vc, x3) = (h / 2.0, w - x2);
-        b.poly(&[
-            (0.0, vc),
-            (x2, 0.0),
-            (x2, vc - dy),
-            (x3, vc - dy),
-            (x3, 0.0),
-            (w, vc),
-            (x3, h),
-            (x3, vc + dy),
-            (x2, vc + dy),
-            (x2, h),
-        ]);
-    }
-
-    fn up_down_arrow(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let (dx1, y2) = self.v_arrow(2.0);
-        let (hc, y3) = (w / 2.0, h - y2);
-        b.poly(&[
-            (0.0, y2),
-            (hc, 0.0),
-            (w, y2),
-            (hc + dx1, y2),
-            (hc + dx1, y3),
-            (w, y3),
-            (hc, h),
-            (0.0, y3),
-            (hc - dx1, y3),
-            (hc - dx1, y2),
-        ]);
-    }
-
-    fn chevron(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let max = 100_000.0 * w / self.ss;
-        let x1 = self.ss * self.pin("adj", 0.0, max) / 100_000.0;
-        let vc = h / 2.0;
-        b.poly(&[
-            (0.0, 0.0),
-            (w - x1, 0.0),
-            (w, vc),
-            (w - x1, h),
-            (0.0, h),
-            (x1, vc),
-        ]);
-    }
-
-    fn home_plate(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let max = 100_000.0 * w / self.ss;
-        let x1 = w - self.ss * self.pin("adj", 0.0, max) / 100_000.0;
-        b.poly(&[(0.0, 0.0), (x1, 0.0), (w, h / 2.0), (x1, h), (0.0, h)]);
-    }
-
-    fn star4(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let (hc, vc) = (w / 2.0, h / 2.0);
-        let a = self.pin("adj", 0.0, 50_000.0);
-        let (iwd2, ihd2) = (hc * a / 50_000.0, vc * a / 50_000.0);
-        let c45 = 45f64.to_radians();
-        let (sdx, sdy) = (iwd2 * c45.cos(), ihd2 * c45.sin());
-        b.poly(&[
-            (0.0, vc),
-            (hc - sdx, vc - sdy),
-            (hc, 0.0),
-            (hc + sdx, vc - sdy),
-            (w, vc),
-            (hc + sdx, vc + sdy),
-            (hc, h),
-            (hc - sdx, vc + sdy),
-        ]);
-    }
-
-    fn star5(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let (hc, vc) = (w / 2.0, h / 2.0);
-        let a = self.pin("adj", 0.0, 50_000.0);
-        let (hf, vf) = (self.adj("hf") / 100_000.0, self.adj("vf") / 100_000.0);
-        let (swd2, shd2, svc) = (hc * hf, vc * vf, vc * vf);
-        let r = f64::to_radians;
-        let (dx1, dx2) = (swd2 * r(18.0).cos(), swd2 * r(306.0).cos());
-        let (dy1, dy2) = (shd2 * r(18.0).sin(), shd2 * r(306.0).sin());
-        let (x1, x2, x3, x4) = (hc - dx1, hc - dx2, hc + dx2, hc + dx1);
-        let (y1, y2) = (svc - dy1, svc - dy2);
-        let (iwd2, ihd2) = (swd2 * a / 50_000.0, shd2 * a / 50_000.0);
-        let (sdx1, sdx2) = (iwd2 * r(342.0).cos(), iwd2 * r(54.0).cos());
-        let (sdy1, sdy2) = (ihd2 * r(54.0).sin(), ihd2 * r(342.0).sin());
-        let (sx1, sx2, sx3, sx4) = (hc - sdx1, hc - sdx2, hc + sdx2, hc + sdx1);
-        let (sy1, sy2, sy3) = (svc - sdy1, svc - sdy2, svc + ihd2);
-        b.poly(&[
-            (x1, y1),
-            (sx2, sy1),
-            (hc, 0.0),
-            (sx3, sy1),
-            (x4, y1),
-            (sx4, sy2),
-            (x3, y2),
-            (hc, sy3),
-            (x2, y2),
-            (sx1, sy2),
-        ]);
-    }
-
-    fn star6(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let (hc, vc) = (w / 2.0, h / 2.0);
-        let a = self.pin("adj", 0.0, 50_000.0);
-        let swd2 = hc * self.adj("hf") / 100_000.0;
-        let dx1 = swd2 * 30f64.to_radians().cos();
-        let (x1, x2) = (hc - dx1, hc + dx1);
-        let hd4 = h / 4.0;
-        let y2 = vc + hd4;
-        let (iwd2, ihd2) = (swd2 * a / 50_000.0, vc * a / 50_000.0);
-        let sdx2 = iwd2 / 2.0;
-        let sdy1 = ihd2 * 60f64.to_radians().sin();
-        let (sy1, sy2) = (vc - sdy1, vc + sdy1);
-        b.poly(&[
-            (x1, hd4),
-            (hc - sdx2, sy1),
-            (hc, 0.0),
-            (hc + sdx2, sy1),
-            (x2, hd4),
-            (hc + iwd2, vc),
-            (x2, y2),
-            (hc + sdx2, sy2),
-            (hc, h),
-            (hc - sdx2, sy2),
-            (x1, y2),
-            (hc - iwd2, vc),
-        ]);
-    }
-
-    fn star8(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let (hc, vc) = (w / 2.0, h / 2.0);
-        let a = self.pin("adj", 0.0, 50_000.0);
-        let c45 = 45f64.to_radians();
-        let (dx1, dy1) = (hc * c45.cos(), vc * c45.sin());
-        let (x1, x2, y1, y2) = (hc - dx1, hc + dx1, vc - dy1, vc + dy1);
-        let (iwd2, ihd2) = (hc * a / 50_000.0, vc * a / 50_000.0);
-        let (sdx1, sdx2) = (iwd2 * 0.923_88, iwd2 * 0.382_68);
-        let (sdy1, sdy2) = (ihd2 * 0.923_88, ihd2 * 0.382_68);
-        let (sx1, sx2, sx3, sx4) = (hc - sdx1, hc - sdx2, hc + sdx2, hc + sdx1);
-        let (sy1, sy2, sy3, sy4) = (vc - sdy1, vc - sdy2, vc + sdy2, vc + sdy1);
-        b.poly(&[
-            (0.0, vc),
-            (sx1, sy2),
-            (x1, y1),
-            (sx2, sy1),
-            (hc, 0.0),
-            (sx3, sy1),
-            (x2, y1),
-            (sx4, sy2),
-            (w, vc),
-            (sx4, sy3),
-            (x2, y2),
-            (sx3, sy4),
-            (hc, h),
-            (sx2, sy4),
-            (x1, y2),
-            (sx1, sy3),
-        ]);
-    }
-
-    /// `wedgeRectCallout` (`r` = 0) and `wedgeRoundRectCallout` (corner
-    /// radius `r`): the tail leaves the side facing its tip, from the
-    /// 2/12–5/12 or 7/12–10/12 stretch of that side.
-    fn wedge_rect_callout(&self, b: &mut Builder, r: f64) {
-        let (w, h) = (self.w, self.h);
-        let (hc, vc) = (w / 2.0, h / 2.0);
-        let dx_pos = w * self.adj("adj1") / 100_000.0;
-        let dy_pos = h * self.adj("adj2") / 100_000.0;
-        let (x_pos, y_pos) = (hc + dx_pos, vc + dy_pos);
-        let horizontal = (dx_pos * h).abs() > (dy_pos * w).abs();
-        let (xg1, xg2) = if dx_pos > 0.0 {
-            (7.0, 10.0)
-        } else {
-            (2.0, 5.0)
-        };
-        let (yg1, yg2) = if dy_pos > 0.0 {
-            (7.0, 10.0)
-        } else {
-            (2.0, 5.0)
-        };
-        let (x1, x2) = (w * xg1 / 12.0, w * xg2 / 12.0);
-        let (y1, y2) = (h * yg1 / 12.0, h * yg2 / 12.0);
-        let tail_left = horizontal && dx_pos <= 0.0;
-        let tail_right = horizontal && dx_pos > 0.0;
-        let tail_top = !horizontal && dy_pos <= 0.0;
-        let tail_bottom = !horizontal && dy_pos > 0.0;
-        let corner = |b: &mut Builder, st: f64| {
-            if r > 0.0 {
-                b.a(r, r, st, 90.0);
-            }
-        };
-        b.m(0.0, r);
-        corner(b, 180.0);
-        if tail_top {
-            b.l(x1, 0.0);
-            b.l(x_pos, y_pos);
-            b.l(x2, 0.0);
-        }
-        b.l(w - r, 0.0);
-        corner(b, 270.0);
-        if tail_right {
-            b.l(w, y1);
-            b.l(x_pos, y_pos);
-            b.l(w, y2);
-        }
-        b.l(w, h - r);
-        corner(b, 0.0);
-        if tail_bottom {
-            b.l(x2, h);
-            b.l(x_pos, y_pos);
-            b.l(x1, h);
-        }
-        b.l(r, h);
-        corner(b, 90.0);
-        if tail_left {
-            b.l(0.0, y2);
-            b.l(x_pos, y_pos);
-            b.l(0.0, y1);
-        }
-        b.z();
-    }
-
-    fn wedge_ellipse_callout(&self, b: &mut Builder) {
-        let (w, h) = (self.w, self.h);
-        let (hc, vc) = (w / 2.0, h / 2.0);
-        let dx_pos = w * self.adj("adj1") / 100_000.0;
-        let dy_pos = h * self.adj("adj2") / 100_000.0;
-        let (x_pos, y_pos) = (hc + dx_pos, vc + dy_pos);
-        // the tail's base spans ±11° (parametric) around the tip's direction
-        let pang = (dy_pos * w).atan2(dx_pos * h);
-        let (st, en) = (pang + 11f64.to_radians(), pang - 11f64.to_radians());
-        let (x1, y1) = (hc + hc * st.cos(), vc + vc * st.sin());
-        let (x2, y2) = (hc + hc * en.cos(), vc + vc * en.sin());
-        let st1 = (y1 - vc).atan2(x1 - hc).to_degrees();
-        let en1 = (y2 - vc).atan2(x2 - hc).to_degrees();
-        // from the base's end the long way round to its start
-        let mut sw = st1 - en1;
-        while sw > 0.0 {
-            sw -= 360.0;
-        }
-        b.m(x1, y1);
-        b.l(x_pos, y_pos);
-        b.l(x2, y2);
-        b.a(hc, vc, en1, sw);
-        b.z();
-    }
-}
-
-/// `cloud`: eleven arcs in a 43200 × 43200 path space.
-fn cloud(b: &mut Builder, w: f64, h: f64) {
-    let mut s = Builder::new(w / 43_200.0, h / 43_200.0);
-    const ARCS: [(f64, f64, f64, f64); 11] = [
-        (6_753.0, 9_190.0, -11_429_249.0, 7_426_832.0),
-        (5_333.0, 7_267.0, -8_646_143.0, 5_396_714.0),
-        (4_365.0, 5_945.0, -8_748_475.0, 5_983_381.0),
-        (4_857.0, 6_595.0, -7_859_164.0, 7_034_504.0),
-        (5_333.0, 7_273.0, -4_722_533.0, 6_541_615.0),
-        (6_775.0, 9_220.0, -2_776_035.0, 7_816_140.0),
-        (5_785.0, 7_867.0, 37_501.0, 6_842_000.0),
-        (6_752.0, 9_215.0, 1_347_096.0, 6_910_353.0),
-        (7_720.0, 10_543.0, 3_974_558.0, 4_542_661.0),
-        (4_360.0, 5_918.0, -16_496_525.0, 8_804_134.0),
-        (4_345.0, 5_945.0, -14_809_710.0, 9_151_131.0),
-    ];
-    s.m(3_900.0, 14_370.0);
-    for (wr, hr, st, sw) in ARCS {
-        s.a(wr, hr, st / 60_000.0, sw / 60_000.0);
-    }
-    s.z();
-    *b = s;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1940,7 +1141,9 @@ mod tests {
             );
         }
         assert_eq!(Preset::from_prst("straightConnector1"), Some(Preset::Line));
-        assert_eq!(Preset::from_prst("lightningBolt"), None);
+        assert_eq!(Preset::from_prst("gear6"), None);
+        assert_eq!(Preset::from_prst("uturnArrow"), Some(Preset::UturnArrow));
+        assert_eq!(Preset::ALL.len(), 110);
         let c = Preset::Custom {
             paths: vec![GeomPath {
                 w: 10.0,
@@ -1966,13 +1169,16 @@ mod tests {
             assert!(p.is_action_button());
             assert!(p.default_name().starts_with("Action Button: "));
             let paths = p.paths(W, H, &Adjust::new());
-            // frame fill first, frame outline last
+            if p == Preset::ActionButtonBlank {
+                assert!(paths.len() == 1 && paths[0].fill && paths[0].stroke);
+                continue;
+            }
+            // ECMA: the frame filled without outline first, the icon parts
+            // filled darker / lighter, the outlines last
             assert!(paths[0].fill && !paths[0].stroke, "{p:?}");
             let last = paths.last().unwrap();
             assert!(!last.fill && last.stroke, "{p:?}");
-            if p != Preset::ActionButtonBlank {
-                assert!(paths.iter().any(|sp| sp.darken != 0.0), "{p:?} has an icon");
-            }
+            assert!(paths.iter().any(|sp| sp.darken != 0.0), "{p:?} has an icon");
         }
         assert_eq!(
             Preset::ActionButtonForwardNext.default_action(),
@@ -1991,41 +1197,158 @@ mod tests {
     #[test]
     fn every_preset_fills_its_box() {
         // Shapes whose outline touches all four sides of the box.
-        for p in Preset::ALL {
+        for p in [
+            Preset::Rect,
+            Preset::RoundRect,
+            Preset::Ellipse,
+            Preset::Triangle,
+            Preset::Diamond,
+            Preset::Hexagon,
+            Preset::RightArrow,
+            Preset::UpDownArrow,
+            Preset::Star4,
+            Preset::Star6,
+            Preset::FlowChartProcess,
+            Preset::FlowChartTerminator,
+            Preset::BentArrow,
+            Preset::UturnArrow,
+            Preset::QuadArrow,
+            Preset::Plus,
+            Preset::Frame,
+            Preset::Can,
+            Preset::Cube,
+            Preset::Sun,
+            Preset::SmileyFace,
+            Preset::FlowChartMagneticDisk,
+        ] {
             let (x0, y0, x1, y1) = bounds(&p, W, H);
-            // cubic approximations of arcs not split at the quadrants
-            // bulge by up to 0.03 % of the radius
-            let tol = if p == Preset::WedgeEllipseCallout {
-                300.0
-            } else {
-                2.0
-            };
-            match p {
-                // the tail reaches below the box
-                Preset::WedgeRectCallout
-                | Preset::WedgeRoundRectCallout
-                | Preset::WedgeEllipseCallout => {
-                    assert!(near(y1, H * 1.125, tol), "{p:?} {y1}");
-                    assert!(near(x0, 0.0, tol) && near(x1, W, tol), "{p:?} {x0} {x1}");
-                    assert!(near(y0, 0.0, tol), "{p:?} {y0}");
+            let tol = 2.0;
+            assert!(near(x0, 0.0, tol) && near(y0, 0.0, tol), "{p:?} {x0} {y0}");
+            assert!(near(x1, W, tol) && near(y1, H, tol), "{p:?} {x1} {y1}");
+        }
+    }
+
+    /// Bounding box, text rectangle, handles and sites of every preset in
+    /// two boxes and with adjusted values.
+    #[test]
+    fn preset_data_sanity() {
+        // presets whose outline may leave the box (tails, leaders)
+        let tails = [
+            Preset::WedgeRectCallout,
+            Preset::WedgeRoundRectCallout,
+            Preset::WedgeEllipseCallout,
+            Preset::CloudCallout,
+            Preset::BorderCallout1,
+            Preset::BorderCallout2,
+            // the slash keeps its angle in narrow boxes
+            Preset::MathNotEqual,
+        ];
+        for (w, h) in [(W, H), (400_000.0, 900_000.0)] {
+            for p in Preset::ALL {
+                let adj = Adjust::new();
+                let (x0, y0, x1, y1) = bounds(&p, w, h);
+                if !tails.contains(&p) {
+                    let (tx, ty) = (w * 0.01, h * 0.02);
+                    assert!(x0 >= -tx && y0 >= -ty, "{p:?} {x0} {y0}");
+                    assert!(x1 <= w + tx && y1 <= h + ty, "{p:?} {x1} {y1}");
                 }
-                // the document's wave stays above the bottom edge
-                Preset::FlowChartDocument => {
-                    assert!(near(y1, H * 0.987, 1_000.0), "{y1}");
-                    assert!(near(x0, 0.0, tol) && near(x1, W, tol) && near(y0, 0.0, tol));
+                assert!(
+                    (x1 - x0) > w * 0.3 || (y1 - y0) > h * 0.3,
+                    "{p:?} is tiny: {x0} {y0} {x1} {y1}"
+                );
+                let r = p.text_rect(w, h, &adj);
+                assert!(r.l <= r.r && r.t <= r.b, "{p:?} {r:?}");
+                assert!(
+                    r.l >= -1.0 && r.t >= -1.0 && r.r <= w + 1.0 && r.b <= h + 1.0,
+                    "{p:?} text rect {r:?} outside the box"
+                );
+                let sites = p.connection_sites(w, h, &adj);
+                assert!(sites.len() >= 2, "{p:?}");
+                for s in &sites {
+                    assert!(s.x.is_finite() && s.y.is_finite(), "{p:?}");
+                    assert!((0.0..360.0).contains(&s.angle_deg), "{p:?} {s:?}");
                 }
-                // ECMA's cloud and heart stay (almost) inside the box
-                Preset::Cloud | Preset::Heart => {
-                    assert!(x0 >= -W * 0.01 && y0 >= -H * 0.01, "{p:?} {x0} {y0}");
-                    assert!(x1 <= W * 1.01 && y1 <= H * 1.01, "{p:?} {x1} {y1}");
-                    assert!(x1 - x0 > W * 0.9 && y1 - y0 > H * 0.9, "{p:?}");
+                let names: Vec<&str> = p.adjust_defaults().iter().map(|d| d.0).collect();
+                let handles = p.handles(w, h, &adj);
+                for hd in &handles {
+                    assert!(hd.x.is_finite() && hd.y.is_finite(), "{p:?}");
+                    assert!(hd.x_axis.is_some() || hd.y_axis.is_some(), "{p:?}");
+                    for a in hd.x_axis.iter().chain(hd.y_axis.iter()) {
+                        assert!(names.contains(&a.adj.as_str()), "{p:?} {}", a.adj);
+                        assert!(a.min <= a.max, "{p:?} {a:?}");
+                    }
+                    // linear XY handles: the model gives the position
+                    if !hd.polar {
+                        for (a, pos) in [(&hd.x_axis, hd.x), (&hd.y_axis, hd.y)] {
+                            if let Some(a) = a {
+                                let v = adj_value(&p, &a.adj);
+                                if v >= a.min && v <= a.max {
+                                    let want = a.base + a.k * v;
+                                    let s = a.samples.iter().find(|s| (s[0] - v).abs() < 1.0);
+                                    assert!(
+                                        s.is_some_and(|s| (s[1] - pos).abs() < 1.0),
+                                        "{p:?} {}",
+                                        a.adj
+                                    );
+                                    assert!(
+                                        (want - pos).abs() <= w.max(h) * 0.02,
+                                        "{p:?} {} at {v}: {want} vs {pos}",
+                                        a.adj
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
-                _ => {
-                    assert!(near(x0, 0.0, tol) && near(y0, 0.0, tol), "{p:?} {x0} {y0}");
-                    assert!(near(x1, W, tol) && near(y1, H, tol), "{p:?} {x1} {y1}");
+                // every preset with an adjust value but `hf`/`vf` has a handle
+                if names.iter().any(|n| n.starts_with("adj")) {
+                    assert!(!handles.is_empty(), "{p:?} has no handles");
                 }
             }
         }
+        // a drag along a handle's axis changes the outline
+        let h = &Preset::UturnArrow.handles(W, H, &Adjust::new())[0];
+        let a = h.x_axis.as_ref().or(h.y_axis.as_ref()).unwrap();
+        let moved: Adjust = [(a.adj.clone(), (a.min + (a.max - a.min) / 3.0) as i64)].into();
+        assert_ne!(
+            Preset::UturnArrow.path(W, H, &moved),
+            Preset::UturnArrow.path(W, H, &Adjust::new())
+        );
+        // polar handles turn around the centre: pie's start angle
+        let pie = Preset::Pie.handles(W, H, &Adjust::new());
+        assert!(pie[0].polar);
+        let ang = pie[0].y_axis.as_ref().unwrap();
+        assert_eq!((ang.adj.as_str(), ang.k), ("adj1", 1.0));
+    }
+
+    fn adj_value(p: &Preset, name: &str) -> f64 {
+        p.adjust_defaults()
+            .iter()
+            .find(|d| d.0 == name)
+            .map_or(0.0, |d| d.1 as f64)
+    }
+
+    #[test]
+    fn text_rects_and_inner_strokes() {
+        let none = Adjust::new();
+        // ellipse: the inscribed rectangle of ECMA's `a:rect`
+        let r = Preset::Ellipse.text_rect(W, H, &none);
+        assert!(near(r.l, W * (1.0 - 0.5f64.sqrt()) / 2.0, 1.0), "{r:?}");
+        // right arrow: the shaft
+        let r = Preset::RightArrow.text_rect(W, H, &none);
+        assert_eq!((r.t, r.b), (150_000.0, 450_000.0));
+        // the cloud's inner arcs are a stroke-only path
+        let cloud = Preset::Cloud.paths(W, H, &none);
+        assert_eq!(cloud.len(), 2);
+        assert!(!cloud[1].fill && cloud[1].stroke);
+        // the can's top ellipse is drawn lighter
+        assert!(Preset::Can
+            .paths(W, H, &none)
+            .iter()
+            .any(|p| p.darken < 0.0));
+        // site lists follow PowerPoint: the hexagon has six, the star five ten
+        assert_eq!(Preset::Hexagon.connection_sites(W, H, &none).len(), 7);
+        assert_eq!(Preset::Star5.connection_sites(W, H, &none).len(), 6);
     }
 
     #[test]

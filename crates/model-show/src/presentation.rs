@@ -12,6 +12,7 @@ use crate::master::{HeaderFooter, HfDate, SlideMaster, TextClass};
 use crate::section::Section;
 use crate::shape::{Shape, ShapeKind};
 use crate::slide::{find_in, Slide};
+use crate::tablestyle::TableStyleDef;
 use crate::text::{TextBody, TextField, TextParagraph, TextParagraphProps, TextRun};
 use crate::theme::{Background, ResolvedFill, Theme};
 use crate::view::{ShowSettings, ViewProps};
@@ -97,6 +98,12 @@ pub struct Presentation {
     #[serde(default, skip_serializing_if = "is_default")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<ShowSettings>"))]
     pub show_settings: ShowSettings,
+    /// Table styles of the file that are not PowerPoint built-ins
+    /// (`ppt/tableStyles.xml`; tables find their style here first, then
+    /// among [`crate::builtin_table_styles`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<TableStyleDef>>"))]
+    pub table_styles: Vec<TableStyleDef>,
     #[serde(skip)]
     pub(crate) next_id: u64,
 }
@@ -185,6 +192,7 @@ impl Presentation {
             media: MediaStore::new(),
             view: ViewProps::default(),
             show_settings: ShowSettings::default(),
+            table_styles: Vec::new(),
             next_id: 1,
         }
     }
@@ -266,8 +274,8 @@ impl Presentation {
     /// The effective background of slide `slide`: its own, else its
     /// layout's, else the master's.
     pub fn background_of(&self, slide: &Slide) -> Background {
-        if let Some(f) = slide.background {
-            return Background::Fill(f);
+        if let Some(b) = slide.background {
+            return b;
         }
         self.layout(&slide.layout)
             .and_then(|l| l.background)

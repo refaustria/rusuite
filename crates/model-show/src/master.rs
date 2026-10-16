@@ -73,7 +73,13 @@ impl Default for TextStyles {
 }
 
 /// Which text style a placeholder kind uses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
 pub enum TextClass {
     /// Titles.
     Title,
@@ -393,6 +399,7 @@ impl SlideMaster {
                 paragraph_defaults: lvl.paragraph,
                 text_only: kind == PlaceholderKind::Body,
                 vertical: false,
+                prompt: None,
             }
         };
         let hf = |kind: PlaceholderKind, idx: u32, transform: Transform, algn: Alignment| {

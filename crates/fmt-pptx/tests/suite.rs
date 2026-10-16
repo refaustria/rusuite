@@ -99,7 +99,10 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
     }
     for slide in &p.slides {
         add(format!("layout:{}", slide.layout.key()));
-        if matches!(slide.background, Some(Fill::Solid(_))) {
+        if matches!(
+            slide.background,
+            Some(model_show::Background::Fill(Fill::Solid(_)))
+        ) {
             add("background:solid".into());
         }
         if let Some(t) = &slide.transition {
