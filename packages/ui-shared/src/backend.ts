@@ -10,6 +10,8 @@ import { TauriDocStorage } from "./recent/tauri";
 import { t } from "./i18n/locale";
 import { Connectors } from "./connectors/controller";
 import { extensionsOf, tauriConnectorPlatform, webConnectorPlatform } from "./connectors/platform";
+import { Assistant } from "./ai/controller";
+import { BrowserAiStore, TauriAiStore } from "./ai/settings";
 
 export type { DispatchError };
 // Recent files, autosave and crash recovery (P5-3).
@@ -97,6 +99,11 @@ export interface Backend<Req = unknown, Body = unknown> {
    */
   readonly connectors?: Connectors;
   /**
+   * The AI assistant (P8-37): off by default; requests go from this page / webview straight to the provider the
+   * user configured, only when the user runs an AI action. Absent in test fakes.
+   */
+  readonly ai?: Assistant;
+  /**
    * Opens the system print dialog for the current page (the user picks a
    * printer or "Save as PDF"). Web: `window.print()`. Desktop: the shell's
    * `print_webview` command (`WebviewWindow::print`: the native WebKitGTK /
@@ -133,6 +140,8 @@ export interface WasmFileOptions {
   fileTypeLabel?: () => string;
   /** Cloud connections (P8-36; default on – nothing is contacted until the user adds one). */
   connectors?: boolean;
+  /** The AI assistant (P8-37; default available – off until the user enables it in Settings › AI). */
+  ai?: boolean;
 }
 
 /** Desktop shell: the Tauri commands of `apps/<app>/src-tauri`. */
@@ -140,6 +149,7 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
   readonly kind = "tauri" as const;
   readonly storage: DocStorage = new TauriDocStorage();
   readonly connectors: Connectors;
+  readonly ai: Assistant = new Assistant({ store: new TauriAiStore() });
   private title = new TitleDecorator((title) => getCurrentWindow().setTitle(title));
 
   /**
@@ -216,6 +226,7 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
   private readonly ext: string;
   readonly storage?: DocStorage;
   readonly connectors?: Connectors;
+  readonly ai?: Assistant;
   private title = new TitleDecorator(async (title) => {
     document.title = title;
   });
@@ -240,6 +251,7 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
       this.connectors = new Connectors(webConnectorPlatform(extensionsOf(this.accept)));
       this.title.follow(this.connectors);
     }
+    if (o.ai !== false) this.ai = new Assistant({ store: new BrowserAiStore() });
   }
 
   async ping(): Promise<string> {

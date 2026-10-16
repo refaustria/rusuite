@@ -12,3 +12,4 @@ apps/*/dist-web/
 apps/write/src-tauri/gen/
 apps/show/src-tauri/gen/
 .task/
+shots/

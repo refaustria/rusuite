@@ -1,0 +1,8 @@
+data: {"id":"c2","model":"llama3.2","choices":[{"index":0,"delta":{"role":"assistant","content":"{\"slides\":[{\"title\":\"Intro\","},"finish_reason":null}]}
+
+data: {"id":"c2","model":"llama3.2","choices":[{"index":0,"delta":{"content":"\"bullets\":[\"One\",\"Two\"],\"notes\":\"\"}]}"},"finish_reason":null}]}
+
+data: {"id":"c2","model":"llama3.2","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":20}}
+
+data: [DONE]
+
