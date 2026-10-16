@@ -14,6 +14,8 @@ import { slidePx } from "./geometry";
 import { ShowRibbon, type ShowZoom } from "./ui/ShowToolbar";
 import { NotesPane } from "./ui/NotesPane";
 import { AnimationPane } from "./ui/AnimationPane";
+import { BackgroundPane } from "./ui/DesignTab";
+import { MasterPanel } from "./ui/MasterView";
 import { ShowDialogs } from "./ui/ShowDialogs";
 import { Toasts } from "./ui/Toasts";
 import { t, useT } from "./i18n";
@@ -105,9 +107,10 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   const pres = useShow(store, (s) => s.pres);
   const dirty = useShow(store, (s) => s.dirty);
   const name = useShow(store, (s) => s.name);
+  const masterView = useShow(store, (s) => s.masterView !== null);
 
   useEffect(() => {
-    void store.init().then(() => store.probeFileIo());
+    void store.init().then(() => store.probeFileIo()).then(() => store.loadThemes());
     if (import.meta.env.DEV) (window as unknown as { __showStore?: ShowStore }).__showStore = store;
   }, [store]);
 
@@ -174,7 +177,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
         onZoom={setZoom}
       />
       <div className="flex min-h-0 flex-1">
-        <SlideList store={store} />
+        {masterView ? <MasterPanel store={store} /> : <SlideList store={store} />}
         <div className="flex min-w-0 flex-1 flex-col">
         <div
           ref={canvasRef}
@@ -188,10 +191,11 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
         <NotesPane store={store} />
         </div>
         <AnimationPane store={store} />
+        <BackgroundPane store={store} />
       </div>
       <StatusBar store={store} backend={backend} session={session} zoom={zoom} />
       <Toasts store={store} />
-      <ShowDialogs store={store} />
+      <ShowDialogs store={store} printOptions={printOptions} onPrintOptions={setPrintOptions} />
       <ShortcutLayer store={store} guard={guard} enabled={!presenting} onPresent={presentFrom} onPresenterView={presenterView} />
       <ConfirmDiscard guard={guard} />
       {presenting && pres && <SlideShow store={store} mode={presenting.mode} link={presenting.link} onEnd={exit} />}

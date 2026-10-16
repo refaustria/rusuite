@@ -171,7 +171,7 @@ describe("P6-5 UI through the app", () => {
     const { backend } = await mount();
     const slides = within(screen.getByRole("toolbar", { name: "Formatting" })).getByRole("group", { name: "Slides" });
     fireEvent.click(within(slides).getByRole("button", { name: "Layout" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Blank" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Layout" })).getByRole("button", { name: "Blank" }));
     await flush();
     expect(last(backend.commands)).toEqual({ type: "setSlideLayout", slide: 1, layout: "blank" });
     fireEvent.click(within(slides).getByRole("button", { name: "Hide slide" }));
@@ -194,18 +194,20 @@ describe("P6-5 UI through the app", () => {
     expect(last(backend.commands)).toMatchObject({ type: "setParagraphProps", shape: 6, patch: { lineSpacing: { kind: "percent", value: 150000 } } });
   });
 
-  it("Design › Apply to all copies the background to every slide", async () => {
+  it("Design › Format Background › Apply to all copies the background to every slide; Reset", async () => {
     const pres = fixture();
-    pres.slides[0]!.background = { kind: "solid", value: { kind: "rgb", value: "FFEEDD" } };
+    const fill = { kind: "solid", value: { kind: "rgb", value: "FFEEDD" } } as const;
+    pres.slides[0]!.background = fill;
     const { backend } = await mount(new FakeBackend(pres));
     fireEvent.click(screen.getByRole("tab", { name: "Design" }));
-    fireEvent.click(screen.getByRole("button", { name: "Apply to all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Format Background" }));
+    const pane = screen.getByRole("complementary", { name: "Format Background" });
+    fireEvent.click(within(pane).getByRole("button", { name: "Apply to all" }));
     await flush();
-    const c = last(backend.commands)!;
-    expect(c.type === "compound" && c.commands.length).toBe(3);
-    fireEvent.click(screen.getByRole("button", { name: "Reset background" }));
+    expect(last(backend.commands)).toEqual({ type: "setBackground", target: { kind: "slides", value: [1, 4, 7] }, fill: { kind: "fill", value: fill }, hideMasterShapes: false });
+    fireEvent.click(within(pane).getByRole("button", { name: "Reset background" }));
     await flush();
-    expect(last(backend.commands)).toEqual({ type: "setSlideBackground", slide: 1, fill: null });
+    expect(last(backend.commands)).toEqual({ type: "setBackground", target: { kind: "slides", value: [1] }, fill: null, hideMasterShapes: false });
   });
 
   it("the text overlay follows the anchor; Tab indents, Shift+Tab outdents", async () => {

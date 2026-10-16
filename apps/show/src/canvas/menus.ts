@@ -8,12 +8,34 @@ import type { LayoutKind } from "../generated/LayoutKind";
 import type { NodeId } from "../generated/NodeId";
 import type { ShowStore } from "../state/store";
 import { singleCell, splitCommand } from "../shapes/tables";
+import { layoutName } from "../design/layouts";
 
 export const LAYOUT_LABELS: { id: LayoutKind; readonly label: string }[] = [
   withLabel({ id: "title" as LayoutKind }, "show.layout.title"),
   withLabel({ id: "titleContent" as LayoutKind }, "show.layout.titleContent"),
   withLabel({ id: "blank" as LayoutKind }, "show.layout.blank"),
 ];
+
+/** The presentation's layouts with their display names (the three basic ones before a presentation is loaded). */
+export function layoutEntries(store: ShowStore): { id: LayoutKind; label: string }[] {
+  const layouts = store.getState().pres?.layouts;
+  return layouts?.length ? layouts.map((l) => ({ id: l.kind, label: layoutName(l) })) : LAYOUT_LABELS;
+}
+
+/** Right-click in the Slide Master view (stage and panel). */
+export function masterMenu(store: ShowStore): ContextMenuItem[] {
+  const mv = store.getState().masterView;
+  const layout = mv?.kind === "layout" ? mv.value : null;
+  return [
+    { id: "insertLayout", label: t("show.master.insertLayout"), onSelect: () => void store.addLayout() },
+    { id: "duplicateLayout", label: t("show.master.duplicateLayout"), disabled: layout === null, onSelect: () => void store.duplicateLayout() },
+    { id: "deleteLayout", label: t("show.master.deleteLayout"), disabled: layout === null || store.layoutInUse(layout), onSelect: () => void store.deleteLayout() },
+    { separator: true },
+    { id: "formatBackground", label: t("show.bg.formatDots"), onSelect: () => store.toggleBgPane(true) },
+    { separator: true },
+    { id: "closeMaster", label: t("show.master.close"), onSelect: () => store.closeMasterView() },
+  ];
+}
 
 const key = (spec: string) => formatCombo(spec);
 
@@ -63,12 +85,14 @@ export function slideMenu(store: ShowStore): ContextMenuItem[] {
   return [
     { id: "paste", label: t("cmd.paste"), shortcut: key("Mod+V"), disabled: st.clipboard === null, onSelect: () => void store.paste() },
     { separator: true },
-    ...LAYOUT_LABELS.map((l) => ({
+    ...layoutEntries(store).map((l) => ({
       id: `layout-${l.id}`,
       label: `${t("show.layoutPrefix", { layout: l.label })}${slide?.layout === l.id ? " ✓" : ""}`,
       disabled: !slide,
       onSelect: () => void store.setSlideLayout(l.id),
     })),
+    { id: "resetSlide", label: t("show.resetSlide"), disabled: !slide, onSelect: () => void store.resetSlide() },
+    { id: "formatBackground", label: t("show.bg.formatDots"), disabled: !slide, onSelect: () => store.toggleBgPane(true) },
     { separator: true },
     { id: "hide", label: slide?.hidden ? t("show.showSlide") : t("show.hideSlide"), disabled: !slide, onSelect: () => void store.toggleHidden() },
     { id: "notes", label: st.notesVisible ? t("show.hideNotes") : t("show.showNotes"), onSelect: () => store.toggleNotes() },
@@ -88,11 +112,13 @@ export function thumbnailMenu(store: ShowStore, id: NodeId): ContextMenuItem[] {
     { id: "copySlide", label: t("cmd.copy"), shortcut: key("Mod+C"), onSelect: () => store.copySlides([id]) },
     { id: "pasteSlide", label: t("cmd.paste"), shortcut: key("Mod+V"), disabled: st.clipboard === null, onSelect: () => void store.paste() },
     { separator: true },
-    ...LAYOUT_LABELS.map((l) => ({
+    ...layoutEntries(store).map((l) => ({
       id: `layout-${l.id}`,
       label: `${t("show.layoutPrefix", { layout: l.label })}${slide?.layout === l.id ? " ✓" : ""}`,
       onSelect: () => void store.setSlideLayout(l.id, [id]),
     })),
+    { separator: true },
+    { id: "addSection", label: t("show.section.add"), onSelect: () => void store.addSection() },
     { separator: true },
     { id: "hide", label: slide?.hidden ? t("show.showSlide") : t("show.hideSlide"), onSelect: () => void store.toggleHidden([id]) },
   ];

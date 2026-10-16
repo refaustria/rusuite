@@ -349,6 +349,62 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   message carries `step`, so the audience window and the presenter console's Next preview (the current slide after its
   next click while steps are left) follow. The show element has `data-step`, the slide `data-hidden-shapes`.
 
+## Show: themes, layouts, master view, footers, sections, pictures (P8-22)
+
+- **Rendering** (`apps/show/src/design/`): `color.ts` is a TS port of `model_show::Theme::resolve` / `apply_mods`
+  (DrawingML tint, shade, lumMod/lumOff, satMod/satOff, hueMod, alpha; `p:bgRef` 1001… into `bgFillStyles`, 1… into
+  `fillStyles`) – a port rather than a request because thumbnails, print and the audience window render synchronously
+  without a core round trip. `deck.ts` resolves what a slide inherits: background slide → layout → master (solid or
+  linear / radial gradient on the Konva background), the master's and layout's decorative shapes under the slide unless
+  the slide (or, for the master's, the layout) hides background graphics, placeholders by `idx` / kind / class
+  (`Layout::find`), and text defaults per outline level (level 1 = the placeholder's effective defaults, deeper levels the
+  master's body text style). Field runs show the live slide number (the slide's position; `‹#›` on layouts) and today's
+  date in the field's `datetimeN` format written in the app's locale (`fields.ts`, `Intl.DateTimeFormat`). Pictures
+  (`picture.ts`): the crop's source rectangle, recolour then brightness / contrast per pixel into a cached bitmap,
+  transparency as opacity, the outer shadow cast by the outline under the picture, the outline shape as a clip (from
+  `shapePaths`), the border on top; DOM previews use `cssFilter` (= the core's `css_filter`). `DeckContext` carries the
+  master, the slide order and the sections, so editor, thumbnails, presenter, audience window and print agree.
+- **Design tab** (`ui/DesignTab.tsx`): Themes (the core's eight built-ins from `getThemes`, each a live thumbnail of a
+  sample title slide with its fonts, colours and master background) → `ApplyTheme`; Variants (the current theme's accents
+  rotated, four variants) and Colors ▾ (the built-ins' palettes) → `SetThemeColors`; Fonts ▾ (ten own heading / body
+  pairings) → `SetThemeFonts`; Background Styles ▾ (styles 1–3 × Light 1, Light 2, Dark 2, Dark 1 on the master);
+  Slide Size ▾ (Standard 4:3, Widescreen 16:9, Custom… in cm) → `SetSlideSize` (no scale / ensure-fit prompt: the
+  command keeps slide shapes as they are); Format Background opens the pane.
+- **Format Background pane** (right of the stage): Solid fill (colour) or Gradient fill (the theme's gradient background
+  style in a theme colour), Hide background graphics, Apply to All (every slide gets the current slide's fill and
+  graphics setting), Reset Background. Slides take explicit fills only (`SetBackground`), so a gradient chosen in the
+  normal view goes to the master (and the current slide's own fill is removed); in the master view the pane edits the
+  selected master or layout. Picture fills are not offered (the model has no picture background).
+- **Layouts**: Home / Insert › New Slide ▾ and Home › Layout ▾ show the presentation's layouts as thumbnails (the
+  master view's pseudo slides), → `AddSlide` / `SetSlideLayout`; Home › Reset → `ResetSlide`. Context menus list every
+  layout.
+- **Slide Master view** (View › Slide Master; `ui/MasterView.tsx`, `design/master.ts`): the panel shows the master and
+  its layouts (with how many slides use each); the stage shows the selected one as a pseudo slide – one shape per
+  placeholder with PowerPoint's sample text (five body levels, date / footer / `‹#›`) over its background and decorative
+  shapes. Moving / resizing a placeholder with the normal selection tools and level-1 run / paragraph formatting from
+  the Home tab become `SetMasterPlaceholderProps` (the core passes them on to layouts and slides that still inherit);
+  other edits (text, deeper levels, deleting) show a status message. Slide Master tab: Insert Layout, Delete (unused
+  layouts only), Duplicate, Themes ▾ / Colors ▾ / Fonts ▾, Format Background, Background Styles ▾, Hide Background
+  Graphics (layouts), Slide Size, Close Master View. Not offered (no command in the core): renaming layouts and Insert
+  Placeholder.
+- **Header & Footer** (Insert, `ui/DesignDialogs.tsx`): Slide tab – Date and time (update automatically in one of the
+  13 formats, or fixed text), Slide number, Footer, Don't show on title slide; Apply (current slide) / Apply to All →
+  `SetHeaderFooter`. Notes and Handouts tab – date, header, page number and footer of printed notes pages and handouts
+  (stored in the print options). Insert › Slide Number / Date & Time insert a field run at the caret of the text being
+  edited (without an editor they open the dialog).
+- **Sections** (`design/sections.ts`, slide panel): collapsible headers with the slide count when collapsed; right-click
+  → Rename Section… (also right after Home › Add Section), Remove Section, Remove Section & Slides, Remove All Sections,
+  Move Section Up / Down, Collapse / Expand All. Dropping a slide on a header or between another section's slides moves
+  it there: `MoveSlide` plus `RestoreSections` with the wanted membership in one undo step (the core's `MoveSlide` alone
+  joins the section of the slide before). The presenter console's slide strip shows section names.
+- **Picture Format tab** (`ui/PictureTab.tsx`, for selected pictures): Corrections ▾ (brightness × contrast −40…+40 %),
+  Color ▾ (no recolour, grayscale, sepia, black and white 25 / 50 / 75 %, duotone per accent; transparency 0–80 %),
+  Change Picture…, Reset Picture ▾ (picture / picture & size), Picture Styles (ten combinations of outline shape,
+  border and shadow), Picture Border (colour, weight), Shadow ▾ (presets), Crop, Alt Text. Previews are the picture with
+  the CSS filter. Crop mode (`canvas/CropOverlay.tsx`): the whole image dimmed under a dark veil, the cropped part bright
+  in a frame with eight black handles (32 px hit areas, pointer events); Enter or a click outside → `CropPicture` with the
+  new box, Esc cancels. Compress Pictures is not offered.
+
 ## Printing (P7-9)
 
 **File › Print** (Ctrl+P) is the Office print page: on the left the **Print** button, a note that copies, printer and

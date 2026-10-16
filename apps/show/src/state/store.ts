@@ -29,7 +29,7 @@ import type { ZOp } from "../generated/ZOp";
 import { bodyText, effectiveParagraph, findShape, placeholderDef, textOf } from "../model";
 import {
   alignCommand, alignmentCommand, bodyFromText, bulletCommand, compound, duplicateCommand, formatCommands, indentCommands,
-  lineSpacingCommand, newShape, nudgeCommand, pasteOffset, runPropsRange, runPropsWhole, selectedParagraphs, stepFontSize,
+  lineSpacingCommand, newShape, nudgeCommand, pasteOffset, runPropsRange, runPropsWhole, selectedParagraphs, stepFontSize, textPos as textPosOf,
   type FormatValues, type InsertKind,
 } from "./commands";
 import type { ShortcutAction } from "./shortcuts";
@@ -45,6 +45,23 @@ import type { Preset } from "../generated/Preset";
 import type { Table } from "../generated/Table";
 import type { TableLook } from "../generated/TableLook";
 import { pathCache } from "../shapes/paths";
+import type { Background } from "../generated/Background";
+import type { BackgroundTarget } from "../generated/BackgroundTarget";
+import type { BuiltinTheme } from "../generated/BuiltinTheme";
+import type { ColorScheme } from "../generated/ColorScheme";
+import type { Crop } from "../generated/Crop";
+import type { DesignTarget } from "../generated/DesignTarget";
+import type { Fill } from "../generated/Fill";
+import type { FontScheme } from "../generated/FontScheme";
+import type { PicturePatch } from "../generated/PicturePatch";
+import type { SlideSize } from "../generated/SlideSize";
+import type { TextField } from "../generated/TextField";
+import { designSlide, translateDesignCommand, validTarget } from "../design/master";
+import { hfCommand, insertField, type HfValues } from "../design/hf";
+import { moveToSectionCommand, removeAllSectionsCommand } from "../design/sections";
+import { fieldText } from "../design/fields";
+import { NO_CROP, stylePatch, type PictureStyle } from "../design/picture";
+import { t } from "../i18n";
 import { centredTransform } from "../geometry";
 import { choiceOf, choiceShape, clickBox, pushRecent } from "../shapes/presets";
 import type { ThemeColorSlot } from "../../../../packages/ui-shared/src/generated/ThemeColorSlot";
@@ -114,6 +131,14 @@ export interface ShowState {
   recentShapes: string[];
   /** Selected cells of the selected table. */
   cellSel: { shape: NodeId; range: CellRange } | null;
+  /** View › Slide Master: the master or layout being edited (`null` = normal view). */
+  masterView: DesignTarget | null;
+  /** The built-in themes (`getThemes`, loaded once for the Design tab). */
+  themes: BuiltinTheme[] | null;
+  /** The Format Background pane on the right is open. */
+  bgPane: boolean;
+  /** Picture Format › Crop: the picture being cropped, its crop and box so far. */
+  crop: { shape: NodeId; crop: Crop; box: Transform } | null;
 }
 
 /** Theme shape styles of Shape Format › Shape Styles: fill and outline per accent. */
@@ -124,7 +149,10 @@ export type ShowDialog =
   | { kind: "format" }
   | { kind: "alt"; shape: NodeId }
   | { kind: "replacePicture"; shape: NodeId }
-  | { kind: "insertTable" };
+  | { kind: "insertTable" }
+  | { kind: "headerFooter"; tab?: "slide" | "notes" }
+  | { kind: "slideSize" }
+  | { kind: "renameSection"; index: number };
 
 /** The internal clipboard: shapes (with the slide they came from) or slide ids. */
 type Clip = { kind: "shapes"; shapes: Shape[]; slide: NodeId | null; pastes: number } | { kind: "slides"; ids: NodeId[] };
@@ -142,7 +170,12 @@ export function applyPatch(pres: Presentation, patch: ShowPatch): Presentation {
     const byId = new Map(slides.map((s) => [s.id, s]));
     slides = patch.slidesOrder.map((id) => byId.get(id)).filter((s): s is Slide => !!s);
   }
-  return { ...pres, slides, slideSize: patch.slideSize ?? pres.slideSize };
+  const out: Presentation = { ...pres, slides, slideSize: patch.slideSize ?? pres.slideSize };
+  if (patch.theme) out.theme = patch.theme;
+  if (patch.master) out.master = patch.master;
+  if (patch.layouts) out.layouts = patch.layouts;
+  if (patch.sections) out.sections = patch.sections;
+  return out;
 }
 
 /** Rewrites temporary ids by the patch's `idMap`. */
@@ -179,6 +212,10 @@ export class ShowStore {
     drawMode: null,
     recentShapes: loadRecent(),
     cellSel: null,
+    masterView: null,
+    themes: null,
+    bgPane: false,
+    crop: null,
   };
   private clip: Clip | null = null;
   private listeners = new Set<() => void>();
@@ -228,8 +265,7 @@ export class ShowStore {
   // --- model access ---------------------------------------------------------
 
   currentSlide(): Slide | null {
-    const { pres, current } = this.state;
-    return pres?.slides.find((s) => s.id === current) ?? null;
+    return viewSlide(this.state);
   }
 
   /** Selected top-level shapes, in z-order. */
@@ -264,6 +300,10 @@ export class ShowStore {
       mediaVersion: this.state.mediaVersion + 1,
       animSelection: null,
       preview: null,
+      masterView: null,
+      crop: null,
+      cellSel: null,
+      ribbonTab: this.state.ribbonTab === "slideMaster" ? "home" : this.state.ribbonTab,
       ...extra,
     });
   }
@@ -285,7 +325,8 @@ export class ShowStore {
       const oldIndex = Math.max(0, s.pres.slides.findIndex((x) => x.id === s.current));
       current = pres.slides[Math.min(oldIndex, pres.slides.length - 1)]?.id ?? null;
     }
-    const slide = pres.slides.find((x) => x.id === current);
+    const masterView = s.masterView && p.layouts ? validTarget(pres, s.masterView) : s.masterView;
+    const slide = masterView ? designSlide(pres, masterView) : pres.slides.find((x) => x.id === current);
     const top = new Set(slide?.shapes.map((x) => x.id) ?? []);
     const selection = mapIds(s.selection, idMap).filter((id) => top.has(id));
     let editing = s.editing ? { ...s.editing, shape: idMap.get(s.editing.shape) ?? s.editing.shape } : null;
@@ -303,6 +344,7 @@ export class ShowStore {
     }
     let animSelection = s.animSelection === null ? null : (idMap.get(s.animSelection) ?? s.animSelection);
     if (animSelection !== null && !slide?.animations?.some((a) => a.id === animSelection)) animSelection = null;
+    const crop = s.crop && top.has(s.crop.shape) ? s.crop : null;
     this.set({
       pres,
       current,
@@ -310,6 +352,8 @@ export class ShowStore {
       editing,
       cellSel,
       animSelection,
+      masterView,
+      crop,
       revision: env.revision,
       canUndo: env.canUndo,
       canRedo: env.canRedo,
@@ -356,6 +400,14 @@ export class ShowStore {
   /** Sends a command and applies its patch; errors become toasts (`null`). */
   async run(command: ShowCommand | null): Promise<{ env: PatchEnvelope; idMap: Map<number, number> } | null> {
     if (!command) return null;
+    const mv = this.state.masterView;
+    if (mv && this.state.pres && !DESIGN_COMMANDS.has(command.type)) {
+      // the master view's pseudo slide: placeholder edits become design commands
+      const tr = translateDesignCommand(this.state.pres, mv, command);
+      if (tr.dropped) this.set({ info: t("show.master.notHere") });
+      command = compound(tr.commands);
+      if (!command) return null;
+    }
     try {
       const env = await this.enqueue(() => this.api.apply(command));
       const idMap = this.applyEnvelope(env) ?? new Map();
@@ -1222,6 +1274,300 @@ export class ShowStore {
     await this.run(axis === "cols" ? resizeColCommand(shape, table, index, delta) : resizeRowCommand(shape, table, index, delta));
   }
 
+  // --- design: themes, backgrounds, layouts, master view, header & footer, sections, pictures (P8-22) ---------
+
+  /** Loads the built-in themes once (Design tab). */
+  async loadThemes(): Promise<void> {
+    if (this.state.themes) return;
+    try {
+      const themes = await this.enqueue(() => this.api.getThemes());
+      this.set({ themes });
+    } catch {
+      // an older core without built-in themes: the gallery stays empty
+      this.set({ themes: [] });
+    }
+  }
+
+  /** Design › Themes: applies built-in theme `id`. */
+  async applyTheme(id: string): Promise<void> {
+    if (this.state.editing) await this.commitEdit();
+    await this.run({ type: "applyTheme", theme: { kind: "builtin", value: id } });
+  }
+
+  /** Variants / Colors ▾: replaces the theme's colours. */
+  async setThemeColors(colors: ColorScheme): Promise<void> {
+    await this.run({ type: "setThemeColors", colors });
+  }
+
+  /** Fonts ▾: replaces the theme's fonts. */
+  async setThemeFonts(fonts: FontScheme): Promise<void> {
+    await this.run({ type: "setThemeFonts", fonts });
+  }
+
+  /** Design › Slide Size. */
+  async setSlideSize(size: SlideSize): Promise<void> {
+    const cur = this.state.pres?.slideSize;
+    if (cur && cur.width === size.width && cur.height === size.height) return;
+    await this.run({ type: "setSlideSize", size });
+  }
+
+  toggleBgPane(open = !this.state.bgPane): void {
+    this.set({ bgPane: open });
+  }
+
+  /** What Format Background changes: the master view's target, else the current slide. */
+  backgroundTarget(): BackgroundTarget | null {
+    const mv = this.state.masterView;
+    if (mv) return mv.kind === "master" ? { kind: "master" } : { kind: "layout", value: mv.value };
+    return this.state.current === null ? null : { kind: "slides", value: [this.state.current] };
+  }
+
+  /** Format Background: sets (or with `null` resets) the background of the target; `hide` = Hide background graphics. */
+  async setBackgroundOf(target: BackgroundTarget | null, fill: Background | null, hide?: boolean): Promise<void> {
+    if (!target) return;
+    const c: ShowCommand = { type: "setBackground", target, fill };
+    if (hide !== undefined && target.kind !== "master") c.hideMasterShapes = hide;
+    await this.run(c);
+  }
+
+  /**
+   * A gradient (theme background style) in the normal view: slides only
+   * take explicit fills, so it goes to the master and the current slide's
+   * own fill is removed (one undo step).
+   */
+  async setMasterBackgroundStyle(bg: Background): Promise<void> {
+    const cur = this.state.current;
+    const commands: ShowCommand[] = [{ type: "setBackground", target: { kind: "master" }, fill: bg }];
+    if (cur !== null && this.currentSlide()?.background) commands.push({ type: "setBackground", target: { kind: "slides", value: [cur] }, fill: null });
+    await this.run(compound(commands));
+  }
+
+  /** Format Background › Apply to All: every slide gets the current slide's fill and background graphics setting. */
+  async applyBackgroundToAll(): Promise<void> {
+    const pres = this.state.pres;
+    const slide = this.currentSlide();
+    if (!pres || !slide || this.state.masterView) return;
+    const fill: Fill | null = slide.background ?? null;
+    await this.run({
+      type: "setBackground",
+      target: { kind: "slides", value: pres.slides.map((s) => s.id) },
+      fill: fill ? { kind: "fill", value: fill } : null,
+      hideMasterShapes: slide.showMasterShapes === false,
+    });
+  }
+
+  /** Home › Reset: the current slide's placeholders back to the layout. */
+  async resetSlide(): Promise<void> {
+    const cur = this.state.current;
+    if (cur === null) return;
+    if (this.state.editing) await this.commitEdit();
+    await this.run({ type: "resetSlide", slides: [cur] });
+  }
+
+  // ----- master view
+
+  /** View › Slide Master: shows the master (or the current slide's layout). */
+  openMasterView(): void {
+    if (this.state.editing) void this.commitEdit();
+    const pres = this.state.pres;
+    if (!pres) return;
+    const layout = this.currentSlide()?.layout;
+    const target: DesignTarget = layout && pres.layouts.some((l) => l.kind === layout) ? { kind: "layout", value: layout } : { kind: "master" };
+    this.set({ masterView: target, selection: [], editing: null, animSelection: null, preview: null, crop: null, cellSel: null, ribbonTab: "slideMaster", drawMode: null });
+  }
+
+  closeMasterView(): void {
+    if (!this.state.masterView) return;
+    if (this.state.editing) void this.commitEdit();
+    this.set({ masterView: null, selection: [], editing: null, ribbonTab: "home" });
+  }
+
+  /** Selects the master or a layout in the master view's panel. */
+  selectDesignTarget(target: DesignTarget): void {
+    if (this.state.editing) void this.commitEdit();
+    this.set({ masterView: target, selection: [], editing: null });
+  }
+
+  /** Insert Layout: a custom layout (title and footers) after the last one, selected. */
+  async addLayout(): Promise<void> {
+    const pres = this.state.pres;
+    if (!pres) return;
+    const names = new Set(pres.layouts.map((l) => l.name || l.kind.replace(/^custom:/, "")));
+    let n = 1;
+    let name = t("show.master.customLayout");
+    while (names.has(name)) name = `${n++}_${t("show.master.customLayout")}`;
+    const res = await this.run({ type: "addLayout", name });
+    const added = res?.env.patch.layouts?.find((l) => !pres.layouts.some((o) => o.kind === l.kind));
+    if (added && this.state.masterView) this.selectDesignTarget({ kind: "layout", value: added.kind });
+  }
+
+  /** Duplicate Layout: copies the selected layout and selects the copy. */
+  async duplicateLayout(): Promise<void> {
+    const pres = this.state.pres;
+    const mv = this.state.masterView;
+    if (!pres || mv?.kind !== "layout") return;
+    const res = await this.run({ type: "duplicateLayout", layout: mv.value });
+    const added = res?.env.patch.layouts?.find((l) => !pres.layouts.some((o) => o.kind === l.kind));
+    if (added) this.selectDesignTarget({ kind: "layout", value: added.kind });
+  }
+
+  /** Whether layout `kind` is used by a slide (the core refuses to delete those). */
+  layoutInUse(kind: string): boolean {
+    return !!this.state.pres?.slides.some((s) => s.layout === kind);
+  }
+
+  /** Delete Layout (unused layouts only); the master becomes selected. */
+  async deleteLayout(): Promise<void> {
+    const mv = this.state.masterView;
+    if (mv?.kind !== "layout" || this.layoutInUse(mv.value)) return;
+    const res = await this.run({ type: "deleteLayout", layout: mv.value });
+    if (res) this.selectDesignTarget({ kind: "master" });
+  }
+
+  // ----- header & footer, fields
+
+  /** Insert › Header & Footer › Apply (current slide) / Apply to All. */
+  async setHeaderFooter(values: HfValues, all: boolean): Promise<void> {
+    const cur = this.state.current;
+    if (!all && cur === null) return;
+    if (this.state.editing) await this.commitEdit();
+    await this.run(hfCommand(values, all ? { kind: "all" } : { kind: "slides", value: [cur!] }));
+  }
+
+  /**
+   * Insert › Slide Number / Date & Time: a field run at the editor's caret
+   * (the edited text is committed with it); without an editor the dialog
+   * of Header & Footer opens, like PowerPoint.
+   */
+  async insertField(field: TextField): Promise<void> {
+    const e = this.state.editing;
+    if (!e || e.cell) {
+      this.openDialog({ kind: "headerFooter" });
+      return;
+    }
+    const pos = textPosOf(e.text, e.start);
+    const base = bodyFromText(e.text, this.oldBody(e.shape));
+    const pres = this.state.pres;
+    const n = pres ? pres.slides.findIndex((s) => s.id === this.state.current) + 1 : 0;
+    const text = fieldText(field, n || null, "");
+    const body = insertField(base, pos.paragraph, pos.offset, field, text);
+    const shape = e.shape;
+    this.set({ editing: null });
+    const res = await this.run({ type: "setTextBody", shape, body });
+    if (!res) return;
+    // back into the editor, caret after the field
+    const after = e.start + text.length;
+    const sh = this.shape(shape);
+    const full = sh && textOf(sh) ? bodyText(textOf(sh)!) : "";
+    this.set({ editing: { shape, text: full, start: Math.min(after, full.length), end: Math.min(after, full.length) } });
+  }
+
+  // ----- sections
+
+  /** Add Section at the current slide (PowerPoint then asks for the name: the rename dialog opens). */
+  async addSection(): Promise<void> {
+    const cur = this.state.current;
+    const res = await this.run(cur === null ? { type: "addSection", name: t("show.section.untitled") } : { type: "addSection", name: t("show.section.untitled"), firstSlide: cur });
+    const secs = res?.env.patch.sections;
+    if (!secs) return;
+    const index = cur === null ? secs.length - 1 : secs.findIndex((s) => s.slideIds[0] === cur);
+    if (index >= 0) this.openDialog({ kind: "renameSection", index });
+  }
+
+  async renameSection(index: number, name: string): Promise<void> {
+    const old = this.state.pres?.sections?.[index]?.name;
+    if (old === undefined || old === name || !name.trim()) return;
+    await this.run({ type: "renameSection", index, name: name.trim() });
+  }
+
+  /** Remove Section (`keepSlides` false: Remove Section & Slides). */
+  async removeSection(index: number, keepSlides = true): Promise<void> {
+    await this.run({ type: "removeSection", index, keepSlides });
+  }
+
+  async removeAllSections(): Promise<void> {
+    if (this.state.pres?.sections?.length) await this.run(removeAllSectionsCommand());
+  }
+
+  async moveSection(index: number, delta: -1 | 1): Promise<void> {
+    const n = this.state.pres?.sections?.length ?? 0;
+    const to = index + delta;
+    if (index < 0 || index >= n || to < 0 || to >= n) return;
+    await this.run({ type: "moveSection", index, toIndex: to });
+  }
+
+  /** Drags a slide into section `section` at position `at` among its slides. */
+  async moveSlideToSection(id: NodeId, section: number, at: number): Promise<void> {
+    const pres = this.state.pres;
+    if (pres) await this.run(moveToSectionCommand(pres, id, section, at));
+  }
+
+  // ----- pictures
+
+  /** The selected pictures. */
+  selectedPictures(): Shape[] {
+    return this.selectedShapes().filter((s) => s.kind.kind === "picture");
+  }
+
+  /** Corrections, Color, Shadow, outline shape of the selected pictures. */
+  async setPictureProps(patch: PicturePatch): Promise<void> {
+    const shapes = this.selectedPictures().map((s) => s.id);
+    if (shapes.length) await this.run({ type: "setPictureProps", shapes, patch });
+  }
+
+  /** Picture Styles: outline shape, shadow and border (one undo step). */
+  async applyPictureStyle(style: PictureStyle): Promise<void> {
+    const shapes = this.selectedPictures().map((s) => s.id);
+    if (!shapes.length) return;
+    await this.run(compound([
+      { type: "setPictureProps", shapes, patch: stylePatch(style) },
+      { type: "setShapeStyle", shapes, line: style.line.fill.kind === "none" ? null : style.line },
+    ]));
+  }
+
+  /** Picture Border: colour (`null` = none), keeping or setting width / dash. */
+  async setPictureBorder(line: Line | null): Promise<void> {
+    const shapes = this.selectedPictures().map((s) => s.id);
+    if (shapes.length) await this.run({ type: "setShapeStyle", shapes, line });
+  }
+
+  /** Reset Picture (`size`: & Size). */
+  async resetPicture(size: boolean): Promise<void> {
+    const shapes = this.selectedPictures().map((s) => s.id);
+    if (shapes.length) await this.run({ type: "resetPicture", shapes, size });
+  }
+
+  /** Crop: enters crop mode for the one selected picture. */
+  startCrop(): void {
+    const pics = this.selectedPictures();
+    if (pics.length !== 1 || this.state.selection.length !== 1) return;
+    const p = pics[0]!;
+    const props = p.kind.kind === "picture" ? p.kind.value.props : undefined;
+    this.set({ crop: { shape: p.id, crop: { ...NO_CROP, ...(props?.crop ?? {}) }, box: p.transform } });
+  }
+
+  /** A crop handle drag (live, not sent yet). */
+  updateCrop(crop: Crop, box: Transform): void {
+    const c = this.state.crop;
+    if (c) this.set({ crop: { ...c, crop, box } });
+  }
+
+  /** Enter / a click outside: sends the crop (`CropPicture` with the box). */
+  async commitCrop(): Promise<void> {
+    const c = this.state.crop;
+    if (!c) return;
+    this.set({ crop: null });
+    const shape = this.shape(c.shape);
+    const old = shape?.kind.kind === "picture" ? { ...NO_CROP, ...(shape.kind.value.props?.crop ?? {}) } : NO_CROP;
+    if (JSON.stringify(old) === JSON.stringify(c.crop) && shape && JSON.stringify(shape.transform) === JSON.stringify(c.box)) return;
+    await this.run({ type: "cropPicture", shape: c.shape, crop: c.crop, transform: c.box });
+  }
+
+  /** Esc: leaves crop mode without changes. */
+  cancelCrop(): void {
+    if (this.state.crop) this.set({ crop: null });
+  }
+
   // --- keyboard -----------------------------------------------------------------
 
   /** Executes a shortcut of the slide editor. Returns false when it did nothing applicable. */
@@ -1336,6 +1682,19 @@ export class ShowStore {
       this.pushError(e);
     }
   }
+}
+
+/** Commands the master view sends as they are (everything else is translated from the pseudo slide). */
+const DESIGN_COMMANDS = new Set<ShowCommand["type"]>([
+  "setMasterPlaceholderProps", "setBackground", "addLayout", "duplicateLayout", "deleteLayout", "applyTheme", "setThemeColors",
+  "setThemeFonts", "setSlideSize", "setHeaderFooter", "restoreSections",
+]);
+
+/** The slide the editor shows: the master view's pseudo slide, else the current slide. */
+export function viewSlide(s: Pick<ShowState, "pres" | "current" | "masterView">): Slide | null {
+  if (!s.pres) return null;
+  if (s.masterView) return designSlide(s.pres, s.masterView);
+  return s.pres.slides.find((x) => x.id === s.current) ?? null;
 }
 
 /** The table of a table shape. */
