@@ -164,6 +164,9 @@ impl Workbook {
         }
         self.drop_pivot_engine(id);
         self.sync_name_meta(None);
+        let tables = self.sync_tables();
+        let mut recalc = recalc;
+        recalc.changed.extend(tables.changed);
         Ok(recalc)
     }
 
@@ -205,6 +208,7 @@ impl Workbook {
         self.sync_name_meta(Some((id, new)));
         self.renew_thread_ids(new);
         self.renew_pivot_ids(new);
+        self.copy_tables(id, new);
         Ok((new, recalc))
     }
 
@@ -844,6 +848,13 @@ impl Workbook {
         self.shift_charts(sheet, op);
         self.shift_annotations(sheet, op);
         self.shift_pivots(sheet, op);
+        self.shift_page_breaks(sheet, op);
+        self.shift_pictures(sheet, op);
+        let tables = self.shift_tables(sheet, op);
+        let mut recalc = recalc;
+        recalc.changed.extend(tables.changed);
+        recalc.changed.sort_unstable();
+        recalc.changed.dedup();
         Ok(recalc)
     }
 

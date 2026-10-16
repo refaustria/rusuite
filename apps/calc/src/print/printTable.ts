@@ -4,6 +4,9 @@ import type { CSSProperties } from "react";
 import type { BorderSide } from "../generated/BorderSide";
 import type { BorderStyle } from "../generated/BorderStyle";
 import type { CellStyle } from "../generated/CellStyle";
+import type { CellView } from "../generated/CellView";
+import type { PivotLook } from "../pivot/styles";
+import { withLook } from "../grid/render";
 import type { IconSetKind } from "../generated/IconSetKind";
 import { barSpan, cfKey, cfStyle, dataBarAxes, NEGATIVE_BAR } from "../grid/cf";
 import { colWidthPx, rowHeightPx } from "../grid/geometry";
@@ -74,7 +77,24 @@ export function cellCss(style: CellStyle, kind: Parameters<typeof horizontalAlig
  * are left out. Cell style resolution is as on the canvas (cell → row →
  * column → default).
  */
-export function buildPrintTable(cache: SheetCache, styles: readonly CellStyle[], lastRow: number, lastCol: number, firstRow = 0, firstCol = 0): PrintTable {
+/** The pivot table / table look of a cell for print (`undefined`: none). */
+export type PrintLook = (cell: CellView | undefined, row: number, col: number) => PivotLook | undefined;
+
+/** A cell's CSS with a pivot / table look under its own style (its lines where the cell has no border). */
+function lookCss(style: CellStyle, kind: Parameters<typeof horizontalAlign>[1], look: PivotLook | undefined): CSSProperties {
+  const css = cellCss(withLook(style, look), kind);
+  if (look) {
+    const line = (c: string | undefined) => (c ? `1px solid ${c}` : undefined);
+    if (look.top && !style.borders?.top) css.borderTop = line(look.top);
+    if (look.bottom && !style.borders?.bottom) css.borderBottom = line(look.bottom);
+    if (look.left && !style.borders?.left) css.borderLeft = line(look.left);
+    if (look.right && !style.borders?.right) css.borderRight = line(look.right);
+    if (look.shift && kind !== "number") css.paddingLeft = 3 + look.shift;
+  }
+  return css;
+}
+
+export function buildPrintTable(cache: SheetCache, styles: readonly CellStyle[], lastRow: number, lastCol: number, firstRow = 0, firstCol = 0, looks?: PrintLook): PrintTable {
   const cols: PrintTable["cols"] = [];
   for (let c = firstCol; c <= lastCol; c++) {
     const v = cache.cols.get(c);
@@ -94,7 +114,8 @@ export function buildPrintTable(cache: SheetCache, styles: readonly CellStyle[],
       const cell = rowCells?.get(col);
       const id = cell ? cell.style : (v?.style ?? cache.cols.get(col)?.style ?? 0);
       const cf = cfMap.get(cfKey(r, col));
-      if (!cf) return { col, text: cell?.display ?? "", style: cellCss(styleAt(styles, id), cell?.kind ?? "empty") };
+      const look = looks?.(cell, r, col);
+      if (!cf) return { col, text: cell?.display ?? "", style: lookCss(styleAt(styles, id), cell?.kind ?? "empty", look) };
       // Conditional formatting: the highlight format / colour scale fill, a data bar as a background, an icon.
       const style = cellCss(cfStyle(styleAt(styles, id), cf), cell?.kind ?? "empty");
       if (cf.bar !== undefined && cf.barColor) {

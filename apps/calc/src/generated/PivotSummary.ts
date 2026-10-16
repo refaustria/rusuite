@@ -16,7 +16,11 @@ table: Rect,
 /**
  * The pivot style (`PivotStyleLight16`) and its options.
  */
-style: string, banded: boolean, rowHeaders: boolean, colHeaders: boolean, 
+style: string, banded: boolean, 
+/**
+ * Banded columns.
+ */
+bandedCols?: boolean, rowHeaders: boolean, colHeaders: boolean, 
 /**
  * The source changed since the last refresh.
  */

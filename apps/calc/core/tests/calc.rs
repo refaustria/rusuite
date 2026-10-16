@@ -352,7 +352,9 @@ fn style_and_dimension_patches() {
             col: 3,
             width: Some(12.0),
             hidden: false,
-            style: None
+            style: None,
+            outline_level: 0,
+            collapsed: false,
         }]
     );
     let env = host

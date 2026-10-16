@@ -5,6 +5,8 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "@rusuite/ui-shared";
+import type { CellKind } from "../generated/CellKind";
+import type { Filter } from "../generated/Filter";
 import type { FilterOp } from "../generated/FilterOp";
 import type { FilterValue } from "../generated/FilterValue";
 import type { SortKind } from "../generated/SortKind";
@@ -264,15 +266,45 @@ function TriCheckbox({ state, onChange, label }: { state: "all" | "none" | "some
   );
 }
 
+/** What a filter dropdown works on: the sheet's AutoFilter or a table's (P8-35). */
+export function filterTarget(store: CalcStore, table?: number) {
+  if (table === undefined) {
+    return {
+      af: store.autoFilter(),
+      values: (col: number) => store.filterValues(col),
+      set: (col: number, f: Filter | null) => store.setColumnFilter(col, f),
+      sort: (col: number, asc: boolean) => store.sortFilterColumn(col, asc),
+      kinds: (col: number) => store.filterColumnKinds(col),
+    };
+  }
+  const af = store.tables.get(table)?.table.autoFilter ?? null;
+  return {
+    af,
+    values: (col: number) => store.api.tableFilterValues(table, col).catch((e: unknown) => (store.pushError(e), [] as FilterValue[])),
+    set: (col: number, f: Filter | null) => store.tables.setFilter(table, col, f),
+    sort: (col: number, asc: boolean) => store.tables.sortColumn(table, col, asc),
+    kinds: (col: number) => {
+      const out: CellKind[] = [];
+      if (!af) return out;
+      for (const [r, row] of store.cache(store.getState().activeSheet).cells) {
+        const c = r > af.r0 && r <= af.r1 ? row.get(col) : undefined;
+        if (c) out.push(c.kind);
+      }
+      return out;
+    },
+  };
+}
+
 /**
  * The AutoFilter dropdown of column `col`: sort, clear, Text / Number
  * Filters, a search box and the value check-list (from `filterValues`)
  * with (Select All) and counts; OK → `setFilterColumn`.
  */
-export function FilterPanel({ store, col, at }: { store: CalcStore; col: number; at: { x: number; y: number } }) {
+export function FilterPanel({ store, col, at, table }: { store: CalcStore; col: number; at: { x: number; y: number }; table?: number }) {
   const t = useT();
   const close = useClose(store);
-  const af = store.autoFilter();
+  const target = filterTarget(store, table);
+  const af = target.af;
   const current = columnFilter(af, col);
   const [values, setValues] = useState<FilterValue[] | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -285,15 +317,15 @@ export function FilterPanel({ store, col, at }: { store: CalcStore; col: number;
 
   useEffect(() => {
     let live = true;
-    void store.filterValues(col).then((v) => {
+    void filterTarget(store, table).values(col).then((v) => {
       if (!live) return;
       setValues(v);
-      setChecked(initialChecked(v, columnFilter(store.autoFilter(), col)));
+      setChecked(initialChecked(v, columnFilter(filterTarget(store, table).af, col)));
     });
     return () => {
       live = false;
     };
-  }, [store, col]);
+  }, [store, col, table]);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -312,7 +344,7 @@ export function FilterPanel({ store, col, at }: { store: CalcStore; col: number;
 
   if (!af) return null;
   const name = store.columnLabel(col, af.r0);
-  const kind = filterMenuKind(store.filterColumnKinds(col));
+  const kind = filterMenuKind(target.kinds(col));
   const presets = kind === "number" ? NUMBER_PRESETS : TEXT_PRESETS;
   const shown = values ? visibleValues(values, search) : [];
   const listed = shown.slice(0, MAX_LISTED);
@@ -321,7 +353,7 @@ export function FilterPanel({ store, col, at }: { store: CalcStore; col: number;
     close();
     void fn();
   };
-  const openCustom = (preset: CustomPreset) => store.openDialog({ kind: "customFilter", col, preset });
+  const openCustom = (preset: CustomPreset) => store.openDialog({ kind: "customFilter", col, preset, ...(table !== undefined ? { table } : {}) });
   return (
     <div
       ref={ref}
@@ -339,14 +371,14 @@ export function FilterPanel({ store, col, at }: { store: CalcStore; col: number;
         }
       }}
     >
-      <button type="button" className={ITEM} onClick={run(() => store.sortFilterColumn(col, true))}>
+      <button type="button" className={ITEM} onClick={run(() => target.sort(col, true))}>
         {t("calc.sortAsc")}
       </button>
-      <button type="button" className={ITEM} onClick={run(() => store.sortFilterColumn(col, false))}>
+      <button type="button" className={ITEM} onClick={run(() => target.sort(col, false))}>
         {t("calc.sortDesc")}
       </button>
       <div role="separator" className="my-0.5 border-t border-ui-border" />
-      <button type="button" className={ITEM} disabled={!current} onClick={run(() => store.setColumnFilter(col, null))}>
+      <button type="button" className={ITEM} disabled={!current} onClick={run(() => target.set(col, null))}>
         {t("calc.filter.clearFrom", { col: name })}
       </button>
       <button type="button" className={`${ITEM} justify-between`} aria-expanded={submenu} onClick={() => setSubmenu((s) => !s)}>
@@ -362,13 +394,13 @@ export function FilterPanel({ store, col, at }: { store: CalcStore; col: number;
           ))}
           {kind === "number" && (
             <>
-              <button type="button" role="menuitem" className={ITEM} onClick={() => store.openDialog({ kind: "top10", col })}>
+              <button type="button" role="menuitem" className={ITEM} onClick={() => store.openDialog({ kind: "top10", col, ...(table !== undefined ? { table } : {}) })}>
                 {t("calc.filter.top10")}
               </button>
-              <button type="button" role="menuitem" className={ITEM} onClick={run(() => store.setColumnFilter(col, dynamicFilter("aboveAverage")))}>
+              <button type="button" role="menuitem" className={ITEM} onClick={run(() => target.set(col, dynamicFilter("aboveAverage")))}>
                 {t("calc.filter.aboveAverage")}
               </button>
-              <button type="button" role="menuitem" className={ITEM} onClick={run(() => store.setColumnFilter(col, dynamicFilter("belowAverage")))}>
+              <button type="button" role="menuitem" className={ITEM} onClick={run(() => target.set(col, dynamicFilter("belowAverage")))}>
                 {t("calc.filter.belowAverage")}
               </button>
             </>
@@ -419,7 +451,7 @@ export function FilterPanel({ store, col, at }: { store: CalcStore; col: number;
           onClick={() => {
             if (result === undefined) return;
             close();
-            if (result !== null || current) void store.setColumnFilter(col, result);
+            if (result !== null || current) void target.set(col, result);
           }}
         >
           {t("common.ok")}
@@ -433,19 +465,20 @@ export function FilterPanel({ store, col, at }: { store: CalcStore; col: number;
 }
 
 /** Custom AutoFilter: two criteria (operator + value) joined by And / Or. */
-export function CustomFilterDialog({ store, col, preset }: { store: CalcStore; col: number; preset: CustomPreset }) {
+export function CustomFilterDialog({ store, col, preset, table }: { store: CalcStore; col: number; preset: CustomPreset; table?: number }) {
   const t = useT();
   const close = useClose(store);
-  const af = store.autoFilter();
+  const target = filterTarget(store, table);
+  const af = target.af;
   const [s, setS] = useState<CustomFilterState>(() => customInitial(preset, columnFilter(af, col)));
   const [values, setValues] = useState<FilterValue[]>([]);
   useEffect(() => {
     let live = true;
-    void store.filterValues(col).then((v) => live && setValues(v));
+    void filterTarget(store, table).values(col).then((v) => live && setValues(v));
     return () => {
       live = false;
     };
-  }, [store, col]);
+  }, [store, col, table]);
   const set = (p: Partial<CustomFilterState>) => setS((x) => ({ ...x, ...p }));
   const listId = `calc-filter-values-${col}`;
   const opSelect = (value: FilterOp | null, onChange: (op: FilterOp | null) => void, label: string, optional: boolean) => (
@@ -467,7 +500,7 @@ export function CustomFilterDialog({ store, col, preset }: { store: CalcStore; c
         onSubmit={(e) => {
           e.preventDefault();
           close();
-          void store.setColumnFilter(col, customFilter(s));
+          void target.set(col, customFilter(s));
         }}
       >
         <p>{t("calc.filter.showRows", { col: name })}</p>
@@ -516,7 +549,7 @@ export function CustomFilterDialog({ store, col, preset }: { store: CalcStore; c
 }
 
 /** Top 10 AutoFilter: top / bottom, a count, items / percent. */
-export function Top10Dialog({ store, col }: { store: CalcStore; col: number }) {
+export function Top10Dialog({ store, col, table }: { store: CalcStore; col: number; table?: number }) {
   const t = useT();
   const close = useClose(store);
   const [top, setTop] = useState(true);
@@ -534,7 +567,7 @@ export function Top10Dialog({ store, col }: { store: CalcStore; col: number }) {
             return;
           }
           close();
-          void store.setColumnFilter(col, f);
+          void filterTarget(store, table).set(col, f);
         }}
       >
         <div className="flex gap-2">

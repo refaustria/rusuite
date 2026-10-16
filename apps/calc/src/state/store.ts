@@ -62,6 +62,11 @@ import { NamesController } from "../names/controller";
 import { TraceController } from "../audit/trace";
 import { CommentsController, type UserNext } from "../comments/controller";
 import { PivotController } from "../pivot/controller";
+import { TableController } from "../tables/controller";
+import { PictureController } from "../pictures/controller";
+import { parseStruct, structCompletion, structInsert, structItems, structRange } from "../tables/structured";
+import type { OutlineProps } from "../generated/OutlineProps";
+import type { PasteSpecial } from "../generated/PasteSpecial";
 import type { DropTarget } from "../pivot/buttons";
 
 /** Snapshot blocks: 64 rows × 32 columns. */
@@ -181,12 +186,12 @@ export type CalcDialog =
   | { kind: "sortExpand"; sel: Range; expandTo: Range; next: "custom" | { ascending: boolean } }
   /** Custom Sort: levels, headers, case sensitivity over `range`. */
   | { kind: "customSort"; range: Range; hasHeader: boolean }
-  /** The AutoFilter dropdown of column `col`, at viewport point `at`. */
-  | { kind: "filterMenu"; col: number; at: { x: number; y: number } }
+  /** The AutoFilter dropdown of column `col` (of table `table`), at viewport point `at`. */
+  | { kind: "filterMenu"; col: number; at: { x: number; y: number }; table?: number }
   /** Custom AutoFilter (two criteria) for column `col`, started from `preset`. */
-  | { kind: "customFilter"; col: number; preset: CustomPreset }
+  | { kind: "customFilter"; col: number; preset: CustomPreset; table?: number }
   /** Top 10 AutoFilter for column `col`. */
-  | { kind: "top10"; col: number }
+  | { kind: "top10"; col: number; table?: number }
   /** Home › Conditional Formatting: one of the small quick-rule dialogs (Greater Than…, Top 10 Items…). */
   | { kind: "cfQuick"; quick: QuickRuleKind }
   /** New Formatting Rule (`rule` null) or a rule to start from. */
@@ -232,7 +237,33 @@ export type CalcDialog =
   /** Change Data Source. */
   | { kind: "pivotSource"; id: number }
   /** The filter dropdown of a pivot table header or page cell, at viewport point `at`. */
-  | { kind: "pivotFilter"; id: number; target: DropTarget; at: { x: number; y: number } };
+  | { kind: "pivotFilter"; id: number; target: DropTarget; at: { x: number; y: number } }
+  /** Insert › Table (Ctrl+T): the range and "My table has headers". */
+  | { kind: "createTable"; range: Range; hasHeaders: boolean }
+  /** Table Design › Resize Table. */
+  | { kind: "resizeTable"; id: number }
+  /** The totals row dropdown of a table column, at viewport point `at`. */
+  | { kind: "totalsMenu"; id: number; col: number; at: { x: number; y: number } }
+  /** Data › Remove Duplicates (columns checklist, headers). */
+  | { kind: "removeDuplicates"; range: Range; hasHeader: boolean }
+  /** Remove Duplicates' result message. */
+  | { kind: "duplicatesResult"; removed: number; remaining: number }
+  /** Data › Text to Columns wizard over a single column. */
+  | { kind: "textToColumns"; range: Range }
+  /** What-If Analysis › Goal Seek. */
+  | { kind: "goalSeek" }
+  /** Goal Seek Status (the found value is applied; Cancel undoes it). */
+  | { kind: "goalSeekStatus"; cell: string; target: number; result: number; found: boolean }
+  /** Data › Subtotal. */
+  | { kind: "subtotal"; range: Range }
+  /** Home › Paste › Paste Special (Ctrl+Alt+V). */
+  | { kind: "pasteSpecial" }
+  /** Opening a `.csv` / `.txt` file: the Text Import Wizard. */
+  | { kind: "textImport"; name: string; bytesBase64: string }
+  /** File › Save As › CSV: separator, BOM, quotes (after "some features may be lost"). */
+  | { kind: "saveCsv"; name?: string }
+  /** Page Layout › Print Titles (rows / columns to repeat, print area). */
+  | { kind: "printTitles" };
 
 /** The failed check of a committed edit (Excel's Stop / Warning / Information alert). */
 export interface ValidationAlert {
@@ -272,6 +303,8 @@ export interface CalcState {
   ribbonRequest: { tab: string; seq: number } | null;
   /** Formulas › Show Formulas (Ctrl+`): cells show their formulas. */
   showFormulas: boolean;
+  /** View › Page Break Preview (P8-35). */
+  pageBreakPreview: boolean;
 }
 
 export function emptyCache(): SheetCache {
@@ -298,12 +331,12 @@ function putCell(cache: SheetCache, c: CellView): void {
 }
 
 function putCol(cache: SheetCache, c: ColView): void {
-  if (c.width === null && !c.hidden && c.style === null) cache.cols.delete(c.col);
+  if (c.width === null && !c.hidden && c.style === null && !c.outlineLevel && !c.collapsed) cache.cols.delete(c.col);
   else cache.cols.set(c.col, c);
 }
 
 function putRow(cache: SheetCache, r: RowView): void {
-  if (r.height === null && !r.hidden && r.style === null) cache.rows.delete(r.row);
+  if (r.height === null && !r.hidden && r.style === null && !r.outlineLevel && !r.collapsed && !r.filtered) cache.rows.delete(r.row);
   else cache.rows.set(r.row, r);
 }
 
@@ -381,6 +414,7 @@ export class CalcStore {
     validationAlert: null,
     ribbonRequest: null,
     showFormulas: false,
+    pageBreakPreview: false,
   };
   private listeners = new Set<() => void>();
   private caches = new Map<number, SheetCache>();
@@ -419,6 +453,10 @@ export class CalcStore {
   readonly comments: CommentsController = new CommentsController(this);
   /** Pivot tables: lists, field lists, the field pane, looks and buttons, commands (P8-33). */
   readonly pivots: PivotController = new PivotController(this);
+  /** Excel tables: looks, filter buttons, totals, formula helpers, commands (P8-35). */
+  readonly tables: TableController = new TableController(this);
+  /** Pictures in sheets (P8-35). */
+  readonly pictures: PictureController = new PictureController(this);
 
   constructor(readonly api: CalcApi) {}
 
@@ -589,6 +627,7 @@ export class CalcStore {
     this.charts.reset();
     this.comments.reset();
     this.pivots.reset(info.stalePivots ?? []);
+    this.pictures.reset();
     const shown = visibleSheets(info.sheets);
     const active = shown.some((s) => s.id === this.state.activeSheet) ? this.state.activeSheet : (shown[0]?.id ?? info.sheets[0]?.id ?? 0);
     this.bump({ info, activeSheet: active, revision: info.revision, edit: null });
@@ -644,6 +683,7 @@ export class CalcStore {
         this.charts.dropSheet(id);
         this.comments.dropSheet(id);
         this.pivots.dropSheet(id);
+        this.pictures.dropSheet(id);
         for (const key of [...this.inflight.keys()]) if (key.startsWith(`${id}:`)) this.inflight.delete(key);
       }
       if (!live.has(activeSheet)) {
@@ -683,7 +723,112 @@ export class CalcStore {
       this.pivots.invalidate(patch.pivotSheets);
     }
     if (patch.stalePivots) this.pivots.setStale(patch.stalePivots);
-    if (unknownStyle) this.refetchStyles();
+    if (patch.pictureSheets?.length) this.pictures.invalidate(patch.pictureSheets);
+    // Remove Duplicates reports what it did (Excel's message box).
+    if (patch.duplicates) this.set({ dialog: { kind: "duplicatesResult", removed: patch.duplicates.removed, remaining: patch.duplicates.remaining } });
+    // Patches carry a grown style table (P8-35); an unknown id still refetches it.
+    if (unknownStyle && !patch.styles) this.refetchStyles();
+  }
+
+  /** "Column" as the column lists label unnamed columns (`Column B`). */
+  columnWord(): string {
+    return t("calc.column");
+  }
+
+  /**
+   * Goal Seek: asks the core for the changing cell's value, applies it
+   * (one undo step) and shows the status (Cancel undoes it).
+   */
+  goalSeek(set: { row: number; col: number }, target: number, changing: { row: number; col: number }): Promise<void> {
+    return this.guard(async () => {
+      const sheet = this.state.activeSheet;
+      const r = await this.api.goalSeek(sheet, set, target, changing);
+      this.applyEnvelope(await this.api.apply({ type: "setInput", sheet, row: changing.row, col: changing.col, input: String(r.value) }));
+      this.set({ dialog: { kind: "goalSeekStatus", cell: `${colName(set.col)}${set.row + 1}`, target, result: r.result, found: r.found } });
+    });
+  }
+
+  /** Replaces the document by a text file split per the import wizard. */
+  openText(text: string, name: string, options: import("../generated/TextImportOptions").TextImportOptions): Promise<void> {
+    return this.guard(async () => {
+      this.cancelEdit();
+      const opened = await this.api.openText(text, name, options);
+      this.lastViewport.clear();
+      this.setInfo(opened.info);
+      const env = opened.envelope;
+      this.set({ selection: cellSelection(0, 0), name, warnings: [], cycle: null, revision: env.revision, canUndo: env.canUndo, canRedo: env.canRedo, dirty: env.dirty });
+      await this.ensureRegion(this.state.activeSheet, 0, 0, BLOCK_ROWS - 1, BLOCK_COLS - 1);
+    });
+  }
+
+  /** Save As CSV: the active sheet as a `.csv` download / file (the workbook itself stays unsaved). */
+  saveCsv(options: import("../generated/CsvOptions").CsvOptions, name?: string): Promise<void> {
+    return this.guard(async () => {
+      await this.commitEdit(0, 0);
+      const saved = await this.api.saveCsv(this.state.activeSheet, options);
+      await this.api.backend.saveFile(name?.trim() || saved.suggestedName, saved.bytesBase64, { saveAs: true });
+    });
+  }
+
+  /** Page Layout › Print Titles: the sheet's Print_Area / Print_Titles names (empty texts remove them). */
+  setPrintNames(area: string, rows: string, cols: string): Promise<void> {
+    const sheet = this.state.activeSheet;
+    const name = this.state.info?.sheets.find((s) => s.id === sheet)?.name ?? "";
+    const prefix = sheetPrefix(name);
+    const names = this.state.info?.names ?? [];
+    const commands: CalcCommand[] = [];
+    const set = (builtin: "printArea" | "printTitles", label: string, refersTo: string) => {
+      const old = names.find((n) => n.builtin === builtin && n.sheet === sheet);
+      if (refersTo === "") {
+        if (old) commands.push({ type: "deleteName", name: old.name, sheet });
+        return;
+      }
+      const def = { name: label, sheet, refersTo, builtin };
+      commands.push(old ? { type: "updateName", name: old.name, sheet, def } : { type: "defineName", def });
+    };
+    const abs = (r: string) => r.replace(/\$/g, "").replace(/([A-Za-z]+)(\d+)/g, "$$$1$$$2").replace(/^(\d+):(\d+)$/, "$$$1:$$$2").replace(/^([A-Za-z]+):([A-Za-z]+)$/, "$$$1:$$$2");
+    set("printArea", "Print_Area", area ? `${prefix}${abs(area)}` : "");
+    const titles = [rows, cols].filter((x) => x !== "").map((x) => `${prefix}${abs(x)}`).join(",");
+    set("printTitles", "Print_Titles", titles);
+    if (commands.length === 0) return Promise.resolve();
+    return this.apply(commands.length === 1 ? commands[0]! : { type: "compound", commands });
+  }
+
+  /** The deepest outline level of the active sheet's rows and columns. */
+  outlineMax(sheet = this.state.activeSheet): [number, number] {
+    const m = this.state.info?.sheets.find((s) => s.id === sheet)?.maxOutline;
+    return m ? [m[0], m[1]] : [0, 0];
+  }
+
+  /** Where the active sheet's outline summary lines sit. */
+  outlineProps(sheet = this.state.activeSheet): OutlineProps {
+    return this.state.info?.sheets.find((s) => s.id === sheet)?.outline ?? { summaryBelow: true, summaryRight: true };
+  }
+
+  /**
+   * Paste Special from our own copy (not a cut): the options of the
+   * dialog; a transposed block lands rows-for-columns.
+   */
+  pasteSpecial(special: PasteSpecial): Promise<void> {
+    const clip = this.clip;
+    if (!clip || clip.cut) {
+      this.pushError(new Error(t("calc.paste.needCopy")));
+      return Promise.resolve();
+    }
+    const sheet = this.state.activeSheet;
+    const sel = normalize(this.state.selection);
+    const rows = clip.range.r1 - clip.range.r0 + 1;
+    const cols = clip.range.c1 - clip.range.c0 + 1;
+    const [h, w] = special.transpose ? [cols, rows] : [rows, cols];
+    const at = special.transpose || special.link ? { r0: sel.r0, c0: sel.c0, repeatRows: 1, repeatCols: 1 } : pasteTarget(sel, h, w);
+    const r1 = Math.min(LAST_ROW, at.r0 + h * at.repeatRows - 1);
+    const c1 = Math.min(LAST_COL, at.c0 + w * at.repeatCols - 1);
+    if (this.refuseMergeSplit({ r0: at.r0, c0: at.c0, r1, c1 }) || this.refuseArrayChange({ r0: at.r0, c0: at.c0, r1, c1 })) return Promise.resolve();
+    this.select({ anchor: { row: at.r0, col: at.c0 }, focus: { row: r1, col: c1 } });
+    return this.apply({
+      type: "pasteRange", sheet, r0: at.r0, c0: at.c0, src: { sheet: clip.sheet, ...clip.range },
+      cells: clip.cells, mode: "all", cut: false, repeatRows: at.repeatRows, repeatCols: at.repeatCols, special,
+    });
   }
 
   private stylesFetch: Promise<void> | null = null;
@@ -826,7 +971,13 @@ export class CalcStore {
     return this.guard(async () => {
       this.cancelEdit();
       const file = await this.api.backend.openFile();
-      if (file) await this.openBytesUnguarded(file);
+      if (!file) return;
+      // A text file: the Text Import Wizard (the document is replaced when it finishes).
+      if (/\.(csv|txt|tsv)$/i.test(file.name)) {
+        this.set({ dialog: { kind: "textImport", name: file.name, bytesBase64: file.bytesBase64 } });
+        return;
+      }
+      await this.openBytesUnguarded(file);
     });
   }
 
@@ -835,6 +986,11 @@ export class CalcStore {
     let ok = false;
     await this.guard(async () => {
       this.cancelEdit();
+      if (/\.(csv|txt|tsv)$/i.test(file.name)) {
+        this.set({ dialog: { kind: "textImport", name: file.name, bytesBase64: file.bytesBase64 } });
+        ok = true;
+        return;
+      }
       await this.openBytesUnguarded(file);
       ok = true;
     });
@@ -1112,12 +1268,32 @@ export class CalcStore {
       };
       // Defined names are coloured over the range they refer to.
       const named = (name: string, qualifier: string | null) => {
+        // A table name is its data.
+        const tb = qualifier === null ? this.tables.byName(name) : null;
+        if (tb) {
+          const sheetName = this.state.info?.sheets.find((x) => x.id === tb.sheet)?.name ?? null;
+          const range = structRange(tb.table, { table: name, items: [], columns: null, thisRow: false }, e.cell.row);
+          return range ? { sheet: sheetName, range } : null;
+        }
         const n = this.names.resolve(name, qualifier, e.sheet);
         const r = n?.range;
         const sheetName = r ? this.state.info?.sheets.find((x) => x.id === r.sheet)?.name : undefined;
         return r && sheetName !== undefined ? { sheet: sheetName, range: { r0: r.r0, c0: r.c0, r1: r.r1, c1: r.c1 } } : null;
       };
-      this.refsMemo = { text: e.text, version, refs: colorRefs(e.text, spill, named) };
+      // Structured references over the table cells they mean.
+      const structured = (token: string) => {
+        const spec = parseStruct(token);
+        if (!spec) return null;
+        const hit = spec.table !== null ? this.tables.byName(spec.table) : (() => {
+          const tb = this.tables.at(e.cell.row, e.cell.col, e.sheet);
+          return tb ? { sheet: e.sheet, table: tb } : null;
+        })();
+        if (!hit) return null;
+        const range = structRange(hit.table, spec, e.cell.row);
+        const sheetName = this.state.info?.sheets.find((x) => x.id === hit.sheet)?.name ?? null;
+        return range ? { sheet: hit.sheet === e.sheet ? null : sheetName, range } : null;
+      };
+      this.refsMemo = { text: e.text, version, refs: colorRefs(e.text, spill, named, structured) };
     }
     return this.refsMemo.refs;
   }
@@ -1135,6 +1311,16 @@ export class CalcStore {
   completion(): Completion | null {
     const e = this.state.edit;
     if (!e || e.menuDismissed || !isFormula(e.text) || e.selStart !== e.selEnd) return null;
+    // After `[`: the table's columns and special items (Excel's structured reference autocomplete).
+    const sc = structCompletion(e.text, e.selEnd);
+    if (sc) {
+      const table = sc.table !== null ? this.tables.byName(sc.table)?.table : this.tables.at(e.cell.row, e.cell.col, e.sheet);
+      if (!table) return null;
+      const entries = structItems(table.columns.map((c) => c.name), sc.prefix, sc.thisRow);
+      if (entries.length === 0) return null;
+      const items: FunctionInfo[] = entries.map((name) => ({ name, signature: table.name, description: "", kind: "column" }));
+      return { items, index: Math.min(e.menuIndex, items.length - 1), span: { start: sc.start, end: sc.end } };
+    }
     const typed = functionPrefix(e.text, e.selEnd);
     let items: FunctionInfo[];
     let span: Completion["span"];
@@ -1144,7 +1330,11 @@ export class CalcStore {
       const names: FunctionInfo[] = this.names
         .formulaNames()
         .filter((n) => n.name.toLowerCase().startsWith(p))
-        .map((n) => ({ name: n.name, signature: `=${n.refersTo}`, description: n.comment ?? "", kind: "name" }));
+        .map((n): FunctionInfo => ({ name: n.name, signature: `=${n.refersTo}`, description: n.comment ?? "", kind: "name" }));
+      // Table names complete like defined names.
+      for (const tb of this.tables.names()) {
+        if (tb.toLowerCase().startsWith(p)) names.push({ name: tb, signature: t("calc.table.table"), description: "", kind: "name" });
+      }
       items = [...matchFunctions(typed.prefix), ...names].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
       // A name typed in full needs no menu (Enter commits).
       if (items.length === 1 && items[0]!.kind === "name" && items[0]!.name.toLowerCase() === p) return null;
@@ -1169,6 +1359,13 @@ export class CalcStore {
     const e = this.state.edit;
     if (!c || !e) return false;
     const f = c.items[index ?? c.index];
+    if (f.kind === "column") {
+      const sc = structCompletion(e.text, e.selEnd);
+      const before = e.text.slice(0, c.span.start);
+      const r = replaceSpan(e.text, c.span, structInsert(f.name, !!sc?.thisRow, /\[@\[$|\[\[$/.test(before) || /\[$/.test(before) && !sc?.thisRow));
+      this.setEditText(r.text, r.caret);
+      return true;
+    }
     if (f.kind === "name") {
       const r = replaceSpan(e.text, c.span, f.name);
       this.setEditText(r.text, r.caret);
@@ -1406,6 +1603,11 @@ export class CalcStore {
   /** Formulas › Show Formulas (Ctrl+`). */
   toggleShowFormulas(): void {
     this.bump({ showFormulas: !this.state.showFormulas });
+  }
+
+  /** View › Normal / Page Break Preview. */
+  setPageBreakPreview(on: boolean): void {
+    if (on !== this.state.pageBreakPreview) this.bump({ pageBreakPreview: on });
   }
 
   /** Inserts or deletes the rows/columns spanned by the selection. */

@@ -168,6 +168,7 @@ export function pivotLooks(summaries: readonly PivotSummary[], at: CellAt, butto
     if (def.bodyFill) look.fill = def.bodyFill;
     if (def.bodyColor !== "#000000") look.color = def.bodyColor;
     if (s.banded && (row - g.body) % 2 === 1) look.fill = def.band;
+    if (s.bandedCols && !s.banded && col >= g.dataCol && (col - g.dataCol) % 2 === 1) look.fill = def.band;
     // A line with a grand total label is the grand total row; with a subtotal role, a subtotal line.
     let lineKind = g.rows.get(row);
     if (lineKind === undefined) g.rows.set(row, (lineKind = rowKind(at, s, row, g.dataCol)));

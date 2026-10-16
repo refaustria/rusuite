@@ -21,9 +21,11 @@ import { chartDesignTab, chartFormatTab, chartsInsertGroup } from "../charts/Cha
 import { formulasTab } from "../formulas/FormulasRibbon";
 import { linksInsertGroup, reviewTab } from "../comments/ReviewRibbon";
 import { pivotAnalyzeTab, pivotDesignTab, pivotInsertGroup } from "../pivot/PivotRibbon";
+import { tableDesignTab, tableInsertButton } from "../tables/TableRibbon";
+import { dataTabGroups, getDataGroup, pageLayoutTab, pasteMenu, PicturesButton, workbookViewsGroup } from "../datatools/DataRibbon";
 import { NumberGroup } from "./NumberGroup";
 import {
-  clearFilterIcon, condFormatIcon, filterIcon, freezeIcon, headingsIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon, validationIcon,
+  clearFilterIcon, condFormatIcon, filterIcon, freezeIcon, headingsIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon,
 } from "./icons";
 
 /** View options of the grid (View tab): zoom (1 = 100 %), gridlines and headings are the active sheet's. */
@@ -121,10 +123,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
               shortcut="Mod+V"
               disabled={off}
               onClick={run(actions.paste)}
-              menu={[
-                { id: "all", label: t("cmd.paste"), icon: "paste", shortcut: "Mod+V", onSelect: run(actions.paste) },
-                { id: "values", label: t("calc.pasteValues"), shortcut: "Mod+Shift+V", onSelect: run(actions.pasteValues) },
-              ]}
+              menu={pasteMenu(store, t, actions.paste, run)}
             />
             <RibbonStack>
               <RibbonButton label={t("cmd.cut")} icon="cut" shortcut="Mod+X" showLabel disabled={off} onClick={run(actions.cut)} />
@@ -274,7 +273,19 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
     id: "insert",
     label: t("tab.insert"),
     groups: [
-      pivotInsertGroup(store, t, off),
+      {
+        ...pivotInsertGroup(store, t, off),
+        items: (
+          <>
+            {pivotInsertGroup(store, t, off).items}
+            {tableInsertButton(store, t, off)}
+          </>
+        ),
+      },
+      {
+        label: t("calc.illustrations"),
+        items: <PicturesButton store={store} t={t} off={off} />,
+      },
       {
         label: t("calc.sheets"),
         items: (
@@ -309,8 +320,12 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
   const pivotTabs = chartTabs.length
     ? []
     : contextualTabs([pivotAnalyzeTab(store, t), pivotDesignTab(store, t)].filter((x): x is RibbonTab => x !== null), t("calc.pivot.tools"), CONTEXT_COLORS.table);
-  const contextual = [...chartTabs, ...pivotTabs];
-  const contextualTab = tab !== undefined && ["chartDesign", "chartFormat", "pivotAnalyze", "pivotDesign"].includes(tab);
+  // Table Design while a cell of an Excel table is selected (P8-35).
+  const tableTabs = chartTabs.length || pivotTabs.length
+    ? []
+    : contextualTabs([tableDesignTab(store, t)].filter((x): x is RibbonTab => x !== null), t("calc.table.tools"), CONTEXT_COLORS.table);
+  const contextual = [...chartTabs, ...pivotTabs, ...tableTabs];
+  const contextualTab = tab !== undefined && ["chartDesign", "chartFormat", "pivotAnalyze", "pivotDesign", "tableDesign"].includes(tab);
   const available = contextual.some((x) => x.id === tab);
   // A new pivot table's tab is requested before its sheet and field list have arrived.
   const pending = tab !== undefined && store.pivots.pendingTab === tab;
@@ -325,6 +340,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
     id: "data",
     label: t("calc.tab.data"),
     groups: [
+      getDataGroup(store, t, off),
       {
         label: t("calc.sortFilter"),
         items: (
@@ -350,10 +366,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
           </>
         ),
       },
-      {
-        label: t("calc.dataTools"),
-        items: <RibbonButton label={t("calc.dv.button")} icon={validationIcon()} size="large" tooltip={t("calc.dv.title")} disabled={off} onClick={actions.dataValidation} />,
-      },
+      ...dataTabGroups(store, t, off, actions.dataValidation),
     ],
   };
 
@@ -372,6 +385,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
     id: "view",
     label: t("tab.view"),
     groups: [
+      workbookViewsGroup(store, t, off),
       {
         label: t("group.show"),
         items: (
@@ -426,7 +440,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
       appName="Rusuite Calc"
       documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#217346"
-      tabs={[home, insert, formulasTab(store, t, off), data, reviewTab(store, t, off), viewTab, ...contextual]}
+      tabs={[home, insert, pageLayoutTab(store, t, off), formulasTab(store, t, off), data, reviewTab(store, t, off), viewTab, ...contextual]}
       activeTab={tab}
       onTabChange={setTab}
       backstage={{

@@ -31,6 +31,9 @@ pub enum Expr {
         sheet: String,
         name: String,
     },
+    /// A structured reference to an Excel table (`Table1[Sales]`,
+    /// `[@Qty]`); see [`crate::structured`].
+    Structured(crate::structured::StructRef),
     /// Array constant `{1,2;3,4}`: rows of constants (Number/Text/Bool/Error).
     Array(Vec<Vec<Expr>>),
     /// Function call; `name` is stored uppercase.
@@ -505,6 +508,7 @@ impl Expr {
             | Expr::Error(_)
             | Expr::Name(_)
             | Expr::QualifiedName { .. }
+            | Expr::Structured(_)
             | Expr::Missing => {}
         }
     }
@@ -578,6 +582,7 @@ impl fmt::Display for Expr {
                 write_sheet_prefix(f, sheet)?;
                 f.write_str(name)
             }
+            Expr::Structured(s) => write!(f, "{s}"),
             Expr::Missing => Ok(()),
             Expr::Array(rows) => {
                 f.write_str("{")?;

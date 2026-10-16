@@ -27,6 +27,7 @@ mod annotations;
 mod cfdv;
 mod charts;
 mod command;
+mod datatools;
 mod dispatch;
 mod display;
 mod doc;
@@ -34,14 +35,19 @@ mod fill;
 mod names;
 mod patch;
 mod pivots;
+mod tables;
 pub mod wire;
 pub mod wire_annot;
 pub mod wire_cf;
 pub mod wire_chart;
 pub mod wire_pivot;
+pub mod wire_tables;
 
 pub use annotations::{CellAnnotations, FormulaLink, SheetAnnotations, SheetThreads};
-pub use command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect, SheetViewPatch};
+pub use command::{
+    CalcCommand, ClipCell, FillMode, PasteMode, PasteOperation, PasteParts, PasteSpecial,
+    RangeFormat, Rect, SheetRect, SheetViewPatch, SubtotalFunction,
+};
 pub use dispatch::{dispatch, CalcHost, Request, Response, ResponseBody};
 pub use display::{display_value, UNDISPLAYABLE};
 pub use doc::{CalcDocument, CalcError};

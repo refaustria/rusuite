@@ -126,14 +126,15 @@ export function calcScale(o: Pick<CalcPrintOptions, "scale" | "percent">, conten
  * run) or `rest` (every later one); an item larger than the space gets a
  * run of its own. Returns `[start, end)` index pairs.
  */
-export function splitRuns(sizes: readonly number[], first: number, rest: number = first): [number, number][] {
+export function splitRuns(sizes: readonly number[], first: number, rest: number = first, breaks: ReadonlySet<number> = new Set()): [number, number][] {
   const out: [number, number][] = [];
   let start = 0;
   let sum = 0;
   const eps = 0.01;
   for (let i = 0; i < sizes.length; i++) {
     const avail = out.length === 0 ? first : rest;
-    if (i > start && sum + sizes[i]! > avail + eps) {
+    // A manual page break starts a page before item `i`.
+    if (i > start && (breaks.has(i) || sum + sizes[i]! > avail + eps)) {
       out.push([start, i]);
       start = i;
       sum = 0;
@@ -162,7 +163,10 @@ export interface CalcPagination {
  * of `area` px: scale per the options, column runs (page columns) and row
  * runs (page rows), ordered down, then over.
  */
-export function paginate(colWidths: readonly number[], rowHeights: readonly number[], o: Pick<CalcPrintOptions, "scale" | "percent" | "headings" | "repeatRows">, area: { width: number; height: number }): CalcPagination {
+export function paginate(
+  colWidths: readonly number[], rowHeights: readonly number[], o: Pick<CalcPrintOptions, "scale" | "percent" | "headings" | "repeatRows">, area: { width: number; height: number },
+  breaks: { rows?: readonly number[]; cols?: readonly number[] } = {},
+): CalcPagination {
   const headW = o.headings ? HEADING_COL_PX : 0;
   const headH = o.headings ? HEADING_ROW_PX : 0;
   const totalW = colWidths.reduce((a, b) => a + b, 0) + headW;
@@ -173,8 +177,8 @@ export function paginate(colWidths: readonly number[], rowHeights: readonly numb
   const h = area.height / scale - headH - 2;
   const repeat = Math.max(0, Math.min(o.repeatRows, rowHeights.length));
   const repeatH = rowHeights.slice(0, repeat).reduce((a, b) => a + b, 0);
-  const colRuns = colWidths.length ? splitRuns(colWidths, w) : [[0, 0] as [number, number]];
-  const rowRuns = rowHeights.length ? splitRuns(rowHeights, h, repeatH < h ? h - repeatH : h) : [[0, 0] as [number, number]];
+  const colRuns = colWidths.length ? splitRuns(colWidths, w, w, new Set(breaks.cols ?? [])) : [[0, 0] as [number, number]];
+  const rowRuns = rowHeights.length ? splitRuns(rowHeights, h, repeatH < h ? h - repeatH : h, new Set(breaks.rows ?? [])) : [[0, 0] as [number, number]];
   const pages: PageSlice[] = [];
   for (const cols of colRuns) {
     for (const rows of rowRuns) pages.push({ rows, cols, repeat: rows[0] >= repeat && repeatH < h ? repeat : 0 });

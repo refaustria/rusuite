@@ -243,3 +243,17 @@ describe("merged cells in print (P8-3)", () => {
     expect(right.match(/<td><\/td>/g)).toHaveLength(2);
   });
 });
+
+describe("Page Layout names in print (P8-35)", () => {
+  it("reads the sheet's print area and title rows", async () => {
+    const { sheetPrintNames } = await import("./calcPrintDoc");
+    const names = [
+      { name: "Print_Area", sheet: 0, builtin: "printArea" as const, refersTo: "Sheet1!$A$1:$C$9", range: { sheet: 0, r0: 0, c0: 0, r1: 8, c1: 2 } },
+      { name: "Print_Titles", sheet: 0, builtin: "printTitles" as const, refersTo: "Sheet1!$1:$2,Sheet1!$A:$A" },
+      { name: "Print_Titles", sheet: 1, builtin: "printTitles" as const, refersTo: "Sheet2!$3:$4" },
+    ];
+    expect(sheetPrintNames(names, 0)).toEqual({ area: { r0: 0, c0: 0, r1: 8, c1: 2 }, titleRows: 2 });
+    expect(sheetPrintNames(names, 1)).toEqual({ area: null, titleRows: 0 });
+    expect(sheetPrintNames([], 0)).toEqual({ area: null, titleRows: 0 });
+  });
+});

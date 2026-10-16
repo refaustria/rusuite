@@ -163,6 +163,10 @@ mirror! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         pub layout: Option<PivotLayout>,
+        /// Subtotals at the bottom of the group (compact / outline).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub subtotal_bottom: bool,
     }
 
     /// Mirror of `model_sheet::pivot::PageSelection`.
@@ -255,6 +259,9 @@ mirror! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         pub banded: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub banded_cols: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         pub style: Option<String>,
@@ -416,6 +423,7 @@ mod tests {
                 collapsed_items: BTreeSet::from([1]),
                 hidden_items: BTreeSet::from([2, 3]),
                 layout: m::PivotLayout::Tabular,
+                subtotal_bottom: true,
             },
             m::AxisField {
                 sort: m::SortOrder::Descending,
@@ -475,6 +483,7 @@ mod tests {
             row_headers_bold: false,
             col_headers_bold: false,
             banded: true,
+            banded_cols: true,
             style: "PivotStyleDark2".into(),
             values_in: m::ValuesAxis::Rows,
             values_position: Some(1),
