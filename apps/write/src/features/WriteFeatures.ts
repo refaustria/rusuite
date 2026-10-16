@@ -417,6 +417,13 @@ export class WriteFeatures {
               let sections = ctl.sections;
               let styles = ctl.styles;
               installStyleSheetCss(styles, view.dom.ownerDocument);
+              // Shortcuts that read the selection (Ctrl+K, Ctrl+Alt+M, F9…) must see the one the browser shows: a
+              // Shift+Arrow just before may not have reached the editor state yet (ProseMirror reads it on
+              // `selectionchange`, which a busy frame – a page layout – delays).
+              const flushBeforeShortcut = (e: KeyboardEvent) => {
+                if (e.ctrlKey || e.metaKey || e.altKey || /^F\d+$/.test(e.key)) syncDomSelection(view);
+              };
+              view.dom.addEventListener("keydown", flushBeforeShortcut, true);
               let name = ctl.getState().name;
               let mode = ui.getState().view;
               let comments = ctl.comments;
@@ -476,6 +483,7 @@ export class WriteFeatures {
               });
               return {
                 destroy() {
+                  view.dom.removeEventListener("keydown", flushBeforeShortcut, true);
                   offCtl();
                   offUi();
                 },

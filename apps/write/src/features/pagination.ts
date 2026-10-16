@@ -758,6 +758,7 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
         const st = paginationKey.getState(view.state);
         if (!opts.enabled()) {
           if (st?.layout) {
+            flushDomSelection(view);
             view.dispatch(view.state.tr.setMeta(paginationKey, "clear").setMeta("addToHistory", false));
             opts.onLayout?.(null);
           }
@@ -822,6 +823,9 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
         force = false;
         if (sig === last && st?.layout && !wasForced) return;
         last = sig;
+        // A selection the browser has changed but ProseMirror not yet read (Shift+Arrow just before Ctrl+K) would be
+        // overwritten by this transaction's redraw with the old one: take it over first.
+        flushDomSelection(view);
         view.dispatch(view.state.tr.setMeta(paginationKey, { layout, spacers }).setMeta("addToHistory", false));
         opts.onLayout?.(layout);
         view.dom.dispatchEvent(new Event("rusuite-layout"));
@@ -878,6 +882,13 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
       };
     },
   });
+}
+
+/** Reads a pending DOM selection change into the editor state (ProseMirror otherwise waits for `selectionchange`). */
+function flushDomSelection(view: EditorView): void {
+  const observer = (view as unknown as { domObserver?: { forceFlush?: () => void; flush?: () => void } }).domObserver;
+  observer?.forceFlush?.();
+  observer?.flush?.();
 }
 
 /** Client px per frame px and the frame's client top (the page frame is the editor's parent's parent). */

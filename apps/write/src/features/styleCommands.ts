@@ -113,6 +113,11 @@ export function applyStyleAction(state: EditorState, sheet: StyleSheet | null, i
 
 /** Applies style `id` (see `applyStyleAction`). */
 export async function applyStyle(editor: Editor, ctl: SyncController, id: string, opts: ApplyStyleOptions = {}): Promise<void> {
+  // A click into the text just before the gallery click may not have reached the editor state yet
+  // (ProseMirror reads the DOM selection on `selectionchange`): take it over, or the style lands on the old paragraph.
+  const observer = (editor.view as unknown as { domObserver?: { forceFlush?: () => void; flush?: () => void } }).domObserver;
+  observer?.forceFlush?.();
+  observer?.flush?.();
   const a = applyStyleAction(editor.state, ctl.styles, id, opts);
   if (a.kind === "paragraph") {
     editor.commands.focus();
