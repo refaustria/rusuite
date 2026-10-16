@@ -2,6 +2,8 @@
 
 - Status: **v1 implemented (P8-37, 2026-10-16)** – see "v1 as built" below. Owner decision 2026-10-15: **Anthropic first** (Claude Messages API, user's own key); OpenAI-compatible and local endpoints later. Must respect ADR 0009: data leaves the device only when the user explicitly invokes an AI action, directly to the provider the user configured with the user's own API key. No Rusuite-side proxy, no telemetry.
 
+**Decision 2026-10-16: desktop only.** The website keeps `connect-src 'self'`; this feature is offered in the desktop apps only and hidden on the web (see ADR 0009 decision).
+
 ## Shape
 - **Settings → AI**: provider (Anthropic Claude, OpenAI-compatible endpoint, local/self-hosted OpenAI-compatible e.g. Ollama/LM Studio), API key (stored like other settings: browser storage / app data, never in URLs), model selection, a visible note "Content you select is sent to <provider> when you use an AI action". CSP `connect-src` gets the enabled provider origin (`https://api.anthropic.com`, `https://api.openai.com`, user-entered local URL) – same mechanism as the cloud connectors.
 - **Assistant panel** (ribbon: Home › "AI" / Ctrl+Shift+A) with a prompt box and context-aware actions:

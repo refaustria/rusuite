@@ -18,7 +18,7 @@
 The owner clarified: documents live on the user's local drive **or in the user's own cloud account** (Google Drive, iCloud, OneDrive, Dropbox, …), never on Rusuite infrastructure. Connectors therefore talk **directly from the client to the provider** with the user's own authorization (OAuth PKCE in the browser, native dialogs on desktop), tokens stay in the user's browser/app data, no Rusuite proxy or server component is involved, and the CSP `connect-src` is extended only with the explicit provider API origins the user enabled. Design and plan: `docs/cloud-connectors-plan.md`.
 
 
-## Amendment 2026-10-16 – cloud connectors v1 (WebDAV) and the web CSP (proposed; owner decision pending)
+## Amendment 2026-10-16 – cloud connectors v1 (WebDAV) and the web CSP (DECIDED 2026-10-16: desktop only – the web CSP stays `connect-src 'self'`; connectors and the AI assistant are desktop-app features; the website keeps the strict policy)
 P8-36 implements the owner's "generic and opt-in" direction: a connection is a WebDAV server URL plus the user's own
 credentials, entered by the user and stored only on the device (web: IndexedDB, the password only with "Remember
 password on this device"; desktop: the app data directory and the OS keyring). Rusuite offers no cloud service,
@@ -42,7 +42,7 @@ registers no provider apps and runs no proxy.
    header, the connections live in each user's browser). Alternative: keep the CSP and offer connections in the
    desktop apps only (the current state).
 
-## Amendment 2026-10-16 – AI assistant v1 (proposed; owner decision pending for the web CSP)
+## Amendment 2026-10-16 – AI assistant v1 (DECIDED 2026-10-16: desktop only – the web CSP stays `connect-src 'self'`; connectors and the AI assistant are desktop-app features; the website keeps the strict policy for the web CSP)
 P8-37 implements the owner's "AI connection via API" direction (`docs/ai-plan.md`) inside the same rules as the cloud
 connectors: the user's own provider account and API key, requests **directly from the page / webview to the provider
 the user configured**, no Rusuite proxy, no telemetry, nothing in the background.
@@ -68,3 +68,8 @@ the user configured**, no Rusuite proxy, no telemetry, nothing in the background
    apps only. The connectors' broader `connect-src 'self' https:` (amendment above) would cover the hosted providers
    and any HTTPS endpoint as well; if the owner chooses it for WebDAV, the AI needs no separate change. Either way the
    code contacts only the origin the user configured, and only on an explicit action.
+
+
+## Decision 2026-10-16 (owner): desktop only
+
+The owner chose option (c): the web CSP stays `connect-src 'self'`. Cloud connectors and the AI assistant are available in the desktop apps only; the web apps hide those entry points and say so ("available in the desktop apps"). ADR 0009's original guarantee for the website is unchanged.
