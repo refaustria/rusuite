@@ -98,11 +98,7 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
         add("size:4x3".into());
     }
     for slide in &p.slides {
-        add(match slide.layout {
-            LayoutKind::Title => "layout:title".into(),
-            LayoutKind::TitleContent => "layout:titleContent".into(),
-            LayoutKind::Blank => "layout:blank".into(),
-        });
+        add(format!("layout:{}", slide.layout.key()));
         if matches!(slide.background, Some(Fill::Solid(_))) {
             add("background:solid".into());
         }
@@ -687,12 +683,17 @@ fn powerpoint_style_inheritance() {
         ),
         (Emu(5), Emu(6), Emu(7), Emu(8))
     );
-    // placeholder body props come from the built-in layout when not given
-    assert_eq!(title.text().unwrap().props.anchor, Anchor::Middle);
+    // placeholder body props come from the file's layout and master
+    // (which state none here: the DrawingML defaults)
+    assert_eq!(title.text().unwrap().props.anchor, Anchor::Top);
     assert_eq!(
         title.text().unwrap().props.autofit,
-        model_show::Autofit::Shrink
+        model_show::Autofit::None
     );
+    // the file's layout became our Title and Content layout
+    let l = p.layout(&LayoutKind::TitleContent).unwrap();
+    assert_eq!(l.placeholders[0].transform.x, Emu(838_200));
+    assert_eq!(p.master.placeholders[1].transform.w, Emu(7));
     // style references resolve to explicit fill, outline and text color
     use core_model::ThemeColorSlot as S;
     assert_eq!(oval.fill, Fill::Solid(Color::theme(S::Accent1)));

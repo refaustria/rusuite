@@ -1,0 +1,204 @@
+---
+source: crates/fmt-pptx/tests/design.rs
+expression: "pretty_part(&bytes, \"/ppt/slides/slide2.xml\")"
+---
+
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+ <p:cSld>
+  <p:spTree>
+   <p:nvGrpSpPr>
+    <p:cNvPr id="1" name=""/>
+    <p:cNvGrpSpPr/>
+    <p:nvPr/>
+   </p:nvGrpSpPr>
+   <p:grpSpPr>
+    <a:xfrm>
+     <a:off x="0" y="0"/>
+     <a:ext cx="0" cy="0"/>
+     <a:chOff x="0" y="0"/>
+     <a:chExt cx="0" cy="0"/>
+    </a:xfrm>
+   </p:grpSpPr>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="2" name="Title 6"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph type="title"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr>
+     <a:xfrm>
+      <a:off x="838200" y="365125"/>
+      <a:ext cx="10515600" cy="1325563"/>
+     </a:xfrm>
+     <a:prstGeom prst="rect">
+      <a:avLst/>
+     </a:prstGeom>
+     <a:noFill/>
+     <a:ln w="12700">
+      <a:noFill/>
+      <a:prstDash val="solid"/>
+     </a:ln>
+    </p:spPr>
+    <p:txBody>
+     <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
+      <a:normAutofit/>
+     </a:bodyPr>
+     <a:lstStyle/>
+     <a:p>
+      <a:r>
+       <a:t>Title and content</a:t>
+      </a:r>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="3" name="Content Placeholder 7"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph idx="1"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr>
+     <a:xfrm>
+      <a:off x="838200" y="1825625"/>
+      <a:ext cx="10515600" cy="4351338"/>
+     </a:xfrm>
+     <a:prstGeom prst="rect">
+      <a:avLst/>
+     </a:prstGeom>
+     <a:noFill/>
+     <a:ln w="12700">
+      <a:noFill/>
+      <a:prstDash val="solid"/>
+     </a:ln>
+    </p:spPr>
+    <p:txBody>
+     <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="t">
+      <a:normAutofit/>
+     </a:bodyPr>
+     <a:lstStyle/>
+     <a:p/>
+    </p:txBody>
+   </p:sp>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="4" name="Footer Placeholder 9"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph type="ftr" idx="11"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr>
+     <a:xfrm>
+      <a:off x="4038600" y="6356350"/>
+      <a:ext cx="4114800" cy="365125"/>
+     </a:xfrm>
+     <a:prstGeom prst="rect">
+      <a:avLst/>
+     </a:prstGeom>
+     <a:noFill/>
+     <a:ln w="12700">
+      <a:noFill/>
+      <a:prstDash val="solid"/>
+     </a:ln>
+    </p:spPr>
+    <p:txBody>
+     <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
+      <a:noAutofit/>
+     </a:bodyPr>
+     <a:lstStyle/>
+     <a:p>
+      <a:r>
+       <a:t>Rusuite design deck</a:t>
+      </a:r>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="5" name="Slide Number Placeholder 10"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph type="sldNum" idx="12"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr>
+     <a:xfrm>
+      <a:off x="8610600" y="6356350"/>
+      <a:ext cx="2743200" cy="365125"/>
+     </a:xfrm>
+     <a:prstGeom prst="rect">
+      <a:avLst/>
+     </a:prstGeom>
+     <a:noFill/>
+     <a:ln w="12700">
+      <a:noFill/>
+      <a:prstDash val="solid"/>
+     </a:ln>
+    </p:spPr>
+    <p:txBody>
+     <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
+      <a:noAutofit/>
+     </a:bodyPr>
+     <a:lstStyle/>
+     <a:p>
+      <a:fld id="{9D3A5A06-5E21-4C21-9D1E-4F8B8A0E2C3D}" type="slidenum">
+       <a:rPr/>
+       <a:t>‹#›</a:t>
+      </a:fld>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="6" name="Date Placeholder 57"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph type="dt" idx="10"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr>
+     <a:xfrm>
+      <a:off x="838200" y="6356350"/>
+      <a:ext cx="2743200" cy="365125"/>
+     </a:xfrm>
+     <a:prstGeom prst="rect">
+      <a:avLst/>
+     </a:prstGeom>
+     <a:noFill/>
+     <a:ln w="12700">
+      <a:noFill/>
+      <a:prstDash val="solid"/>
+     </a:ln>
+    </p:spPr>
+    <p:txBody>
+     <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
+      <a:noAutofit/>
+     </a:bodyPr>
+     <a:lstStyle/>
+     <a:p>
+      <a:r>
+       <a:t>16 October 2026</a:t>
+      </a:r>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+  </p:spTree>
+ </p:cSld>
+ <p:clrMapOvr>
+  <a:masterClrMapping/>
+ </p:clrMapOvr>
+</p:sld>

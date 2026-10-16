@@ -225,6 +225,66 @@ impl TextParagraphProps {
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
+
+    /// `self` overlaid with the fields `over` sets (the level is
+    /// `self`'s).
+    #[must_use]
+    pub fn merged_with(&self, over: &TextParagraphProps) -> TextParagraphProps {
+        TextParagraphProps {
+            alignment: over.alignment.or(self.alignment),
+            level: self.level,
+            bullet: over.bullet.clone().or_else(|| self.bullet.clone()),
+            spacing_before: over.spacing_before.or(self.spacing_before),
+            spacing_after: over.spacing_after.or(self.spacing_after),
+            line_spacing: over.line_spacing.or(self.line_spacing),
+        }
+    }
+
+    /// The fields of `self` that differ from `base` (level 0): what a
+    /// list style must state so that `base` overlaid with it gives `self`.
+    #[must_use]
+    pub fn diff_from(&self, base: &TextParagraphProps) -> TextParagraphProps {
+        fn d<T: PartialEq + Clone>(v: &Option<T>, b: &Option<T>) -> Option<T> {
+            if v == b {
+                None
+            } else {
+                v.clone()
+            }
+        }
+        TextParagraphProps {
+            alignment: d(&self.alignment, &base.alignment),
+            level: 0,
+            bullet: d(&self.bullet, &base.bullet),
+            spacing_before: d(&self.spacing_before, &base.spacing_before),
+            spacing_after: d(&self.spacing_after, &base.spacing_after),
+            line_spacing: d(&self.line_spacing, &base.line_spacing),
+        }
+    }
+}
+
+/// The fields of `value` that differ from `base` (see
+/// [`TextParagraphProps::diff_from`]).
+#[allow(clippy::needless_update)] // stays correct when RunProperties grows
+pub fn run_diff(value: &RunProperties, base: &RunProperties) -> RunProperties {
+    fn d<T: PartialEq + Clone>(v: &Option<T>, b: &Option<T>) -> Option<T> {
+        if v == b {
+            None
+        } else {
+            v.clone()
+        }
+    }
+    RunProperties {
+        font: d(&value.font, &base.font),
+        size: d(&value.size, &base.size),
+        bold: d(&value.bold, &base.bold),
+        italic: d(&value.italic, &base.italic),
+        underline: d(&value.underline, &base.underline),
+        strike: d(&value.strike, &base.strike),
+        color: d(&value.color, &base.color),
+        highlight: d(&value.highlight, &base.highlight),
+        vertical_align: d(&value.vertical_align, &base.vertical_align),
+        ..RunProperties::default()
+    }
 }
 
 /// A run of text with uniform formatting (`a:r`).
@@ -240,8 +300,12 @@ pub struct TextRun {
     #[serde(default, skip_serializing_if = "RunProperties::is_empty")]
     #[cfg_attr(feature = "ts", ts(as = "app_common::wire::RunProperties"))]
     pub props: RunProperties,
-    /// The text.
+    /// The text (for a field: its current text, e.g. `"3"` or `"‹#›"`).
     pub text: String,
+    /// A field (`a:fld`) whose text the application fills in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub field: Option<TextField>,
 }
 
 impl TextRun {
@@ -250,7 +314,102 @@ impl TextRun {
         Self {
             props: RunProperties::default(),
             text: text.into(),
+            field: None,
         }
+    }
+
+    /// A field run with its current text.
+    pub fn field(field: TextField, text: impl Into<String>) -> Self {
+        Self {
+            props: RunProperties::default(),
+            text: text.into(),
+            field: Some(field),
+        }
+    }
+}
+
+/// A text field (`a:fld/@type`).
+///
+/// Serializes as `{"kind":"slideNumber"}`,
+/// `{"kind":"dateTime","value":{"format":1}}` or
+/// `{"kind":"other","value":{"type":"datetimeFigureOut"}}`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub enum TextField {
+    /// The slide number (`slidenum`).
+    SlideNumber,
+    /// The current date/time (`datetime` = format 0, `datetime1` …
+    /// `datetime13`, see [`date_format_pattern`]).
+    #[serde(rename_all = "camelCase")]
+    DateTime {
+        /// The format number.
+        format: u8,
+    },
+    /// Any other field type, kept as is.
+    #[serde(rename_all = "camelCase")]
+    Other {
+        /// `a:fld/@type`.
+        #[serde(rename = "type")]
+        #[cfg_attr(feature = "ts", ts(rename = "type"))]
+        kind: String,
+    },
+}
+
+impl TextField {
+    /// The field from `a:fld/@type`.
+    pub fn from_ooxml(ty: &str) -> TextField {
+        if ty == "slidenum" {
+            return TextField::SlideNumber;
+        }
+        if let Some(n) = ty.strip_prefix("datetime") {
+            if n.is_empty() {
+                return TextField::DateTime { format: 0 };
+            }
+            if let Ok(f) = n.parse::<u8>() {
+                if (1..=13).contains(&f) {
+                    return TextField::DateTime { format: f };
+                }
+            }
+        }
+        TextField::Other {
+            kind: ty.to_owned(),
+        }
+    }
+
+    /// `a:fld/@type`.
+    pub fn ooxml_type(&self) -> String {
+        match self {
+            TextField::SlideNumber => "slidenum".to_owned(),
+            TextField::DateTime { format: 0 } => "datetime".to_owned(),
+            TextField::DateTime { format } => format!("datetime{format}"),
+            TextField::Other { kind } => kind.clone(),
+        }
+    }
+}
+
+/// The (US English) pattern of PowerPoint's date/time format `n`
+/// (`datetimeN`; 0 and unknown numbers = 1), in Unicode date pattern
+/// syntax.
+pub fn date_format_pattern(n: u8) -> &'static str {
+    match n {
+        2 => "EEEE, MMMM d, yyyy",
+        3 => "d MMMM yyyy",
+        4 => "MMMM d, yyyy",
+        5 => "d-MMM-yy",
+        6 => "MMMM yy",
+        7 => "MMM-yy",
+        8 => "M/d/yyyy h:mm a",
+        9 => "M/d/yyyy h:mm:ss a",
+        10 => "H:mm",
+        11 => "H:mm:ss",
+        12 => "h:mm a",
+        13 => "h:mm:ss a",
+        _ => "M/d/yyyy",
     }
 }
 
@@ -405,6 +564,19 @@ mod tests {
         // empty props and missing fields round-trip
         let p: TextParagraph = serde_json::from_str("{}").unwrap();
         assert_eq!(p, TextParagraph::new());
+        let f = TextRun::field(TextField::DateTime { format: 3 }, "1 May 2026");
+        assert_eq!(
+            serde_json::to_string(&f).unwrap(),
+            r#"{"text":"1 May 2026","field":{"kind":"dateTime","value":{"format":3}}}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&TextField::from_ooxml("datetimeFigureOut")).unwrap(),
+            r#"{"kind":"other","value":{"type":"datetimeFigureOut"}}"#
+        );
+        for t in ["slidenum", "datetime", "datetime13", "datetime14", "x"] {
+            assert_eq!(TextField::from_ooxml(t).ooxml_type(), t);
+        }
+        assert_eq!(date_format_pattern(10), "H:mm");
         let b: TextBody = serde_json::from_str(r#"{"props":{"anchor":"middle"}}"#).unwrap();
         assert_eq!(b.props.anchor, Anchor::Middle);
         assert!(b.props.wrap);

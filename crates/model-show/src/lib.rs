@@ -13,8 +13,14 @@
 //! of [`TextParagraph`]s (level, bullet, alignment) holding [`TextRun`]s
 //! formatted with [`core_model::RunProperties`].
 //!
-//! Layouts are three fixed built-ins ([`LayoutKind`]); their placeholder
-//! positions and text defaults come from [`Layout::builtin`]. Slides and
+//! A presentation has one [`SlideMaster`] (background, placeholders, text
+//! styles per level, header/footer settings) and a list of [`Layout`]s
+//! (the eleven PowerPoint standard layouts plus custom ones); slides
+//! reference a layout by [`LayoutKind`] and their placeholders inherit
+//! position and text defaults from it
+//! ([`Presentation::resolve_placeholder`]). The [`Theme`] adds a format
+//! scheme to colours and fonts; [`themes`] ships eight built-in themes.
+//! [`Section`]s group slides. Slides and
 //! shapes carry presentation-unique [`NodeId`]s (same scheme as
 //! `model-text`, ADR 0006). Images live in the presentation's
 //! [`core_model::MediaStore`].
@@ -30,12 +36,17 @@ pub mod anim;
 pub mod connector;
 pub mod geometry;
 pub mod layout;
+pub mod master;
+pub mod picture;
 pub mod presentation;
+pub mod section;
 pub mod shape;
 pub mod slide;
 pub mod snapshot;
 pub mod table;
 pub mod text;
+pub mod theme;
+pub mod themes;
 #[cfg(feature = "ts")]
 pub mod ts;
 
@@ -43,10 +54,13 @@ pub use anim::{Animation, AnimationKind, Direction, Effect, Transition, Transiti
 pub use connector::{ArrowEnd, ArrowKind, ArrowSize, Attach, Connector};
 pub use core_model::media::{Media, MediaId, MediaStore};
 pub use core_model::units::Emu;
-pub use core_model::{Color, RunProperties, Theme};
+pub use core_model::{Color, RunProperties};
 pub use geometry::{flatten, Adjust, ConnectorKind, GeomPath, PathCmd, Site, SubPath};
 pub use layout::{Layout, LayoutKind, PlaceholderDef, PlaceholderKind};
-pub use presentation::{Presentation, SlideSize};
+pub use master::{ColorMap, HeaderFooter, HfDate, LevelStyle, SlideMaster, TextClass, TextStyles};
+pub use picture::{Crop, PictureProps, Recolor, Shadow};
+pub use presentation::{FooterDate, Presentation, ResolvedFooter, ResolvedPlaceholder, SlideSize};
+pub use section::Section;
 pub use shape::{
     align_shapes, distribute, AlignMode, Axis, Fill, Line, LineDash, Preset, Shape, ShapeKind,
     Transform,
@@ -55,9 +69,14 @@ pub use slide::Slide;
 pub use snapshot::PresentationSnapshot;
 pub use table::{CellBorders, ColSpec, RowSpec, StyleCell, Table, TableCell, TableLook};
 pub use text::{
-    Alignment, Anchor, AutoNumScheme, Autofit, BodyProps, Bullet, Insets, TextBody, TextParagraph,
-    TextParagraphProps, TextRun, TextSpacing,
+    date_format_pattern, run_diff, Alignment, Anchor, AutoNumScheme, Autofit, BodyProps, Bullet,
+    Insets, TextBody, TextField, TextParagraph, TextParagraphProps, TextRun, TextSpacing,
 };
+pub use theme::{
+    Background, ColorBase, ColorMod, EffectStyle, FormatScheme, Gradient, GradientShape,
+    GradientStop, ResolvedFill, ResolvedStop, StyleColor, StyleFill, StyleLine, StyleShadow, Theme,
+};
+pub use themes::{builtin_theme, builtin_themes, BuiltinTheme, BUILTIN_THEME_IDS};
 
 use serde::{Deserialize, Serialize};
 
@@ -93,6 +112,13 @@ pub enum Error {
         /// What is wrong.
         reason: String,
     },
+    /// Layouts are inconsistent (duplicate kinds, a slide on a missing
+    /// custom layout).
+    #[error("invalid layouts: {0}")]
+    InvalidLayout(String),
+    /// Sections do not partition the slides in order.
+    #[error("invalid sections: {0}")]
+    InvalidSections(String),
     /// A slide index is past the end of the slide list.
     #[error("slide index {index} out of range (0..{len})")]
     SlideIndexOutOfRange {

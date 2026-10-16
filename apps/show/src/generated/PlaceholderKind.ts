@@ -3,4 +3,4 @@
 /**
  * A placeholder type (`p:ph/@type`).
  */
-export type PlaceholderKind = "title" | "centeredTitle" | "subtitle" | "body";
+export type PlaceholderKind = "title" | "centeredTitle" | "subtitle" | "body" | "picture" | "dateTime" | "footer" | "slideNumber";

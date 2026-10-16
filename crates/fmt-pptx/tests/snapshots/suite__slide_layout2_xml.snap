@@ -21,7 +21,7 @@ expression: "pretty_part(&bytes, \"/ppt/slideLayouts/slideLayout2.xml\")"
    </p:grpSpPr>
    <p:sp>
     <p:nvSpPr>
-     <p:cNvPr id="2" name="Title 1"/>
+     <p:cNvPr id="2" name="Title Placeholder 1"/>
      <p:cNvSpPr>
       <a:spLocks noGrp="1"/>
      </p:cNvSpPr>
@@ -29,26 +29,10 @@ expression: "pretty_part(&bytes, \"/ppt/slideLayouts/slideLayout2.xml\")"
       <p:ph type="title"/>
      </p:nvPr>
     </p:nvSpPr>
-    <p:spPr>
-     <a:xfrm>
-      <a:off x="838200" y="365125"/>
-      <a:ext cx="10515600" cy="1325563"/>
-     </a:xfrm>
-     <a:prstGeom prst="rect">
-      <a:avLst/>
-     </a:prstGeom>
-    </p:spPr>
+    <p:spPr/>
     <p:txBody>
-     <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
-      <a:normAutofit/>
-     </a:bodyPr>
-     <a:lstStyle>
-      <a:lvl1pPr algn="l">
-       <a:defRPr sz="4400">
-        <a:latin typeface="+mj-lt"/>
-       </a:defRPr>
-      </a:lvl1pPr>
-     </a:lstStyle>
+     <a:bodyPr/>
+     <a:lstStyle/>
      <a:p>
       <a:r>
        <a:rPr lang="en-US"/>
@@ -68,33 +52,81 @@ expression: "pretty_part(&bytes, \"/ppt/slideLayouts/slideLayout2.xml\")"
       <p:ph idx="1"/>
      </p:nvPr>
     </p:nvSpPr>
-    <p:spPr>
-     <a:xfrm>
-      <a:off x="838200" y="1825625"/>
-      <a:ext cx="10515600" cy="4351338"/>
-     </a:xfrm>
-     <a:prstGeom prst="rect">
-      <a:avLst/>
-     </a:prstGeom>
-    </p:spPr>
+    <p:spPr/>
     <p:txBody>
-     <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="t">
-      <a:normAutofit/>
-     </a:bodyPr>
-     <a:lstStyle>
-      <a:lvl1pPr marL="228600" indent="-228600" algn="l">
-       <a:buFont typeface="Arial"/>
-       <a:buChar char="•"/>
-       <a:defRPr sz="2800">
-        <a:latin typeface="+mn-lt"/>
-       </a:defRPr>
-      </a:lvl1pPr>
-     </a:lstStyle>
+     <a:bodyPr/>
+     <a:lstStyle/>
      <a:p>
       <a:r>
        <a:rPr lang="en-US"/>
        <a:t>Click to edit Master text styles</a:t>
       </a:r>
+      <a:endParaRPr lang="en-US"/>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="4" name="Date Placeholder 3"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph type="dt" idx="10"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr/>
+    <p:txBody>
+     <a:bodyPr/>
+     <a:lstStyle/>
+     <a:p>
+      <a:fld id="{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}" type="datetimeFigureOut">
+       <a:rPr lang="en-US"/>
+       <a:t>
+       </a:t>
+      </a:fld>
+      <a:endParaRPr lang="en-US"/>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="5" name="Footer Placeholder 4"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph type="ftr" idx="11"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr/>
+    <p:txBody>
+     <a:bodyPr/>
+     <a:lstStyle/>
+     <a:p>
+      <a:endParaRPr lang="en-US"/>
+     </a:p>
+    </p:txBody>
+   </p:sp>
+   <p:sp>
+    <p:nvSpPr>
+     <p:cNvPr id="6" name="Slide Number Placeholder 5"/>
+     <p:cNvSpPr>
+      <a:spLocks noGrp="1"/>
+     </p:cNvSpPr>
+     <p:nvPr>
+      <p:ph type="sldNum" idx="12"/>
+     </p:nvPr>
+    </p:nvSpPr>
+    <p:spPr/>
+    <p:txBody>
+     <a:bodyPr/>
+     <a:lstStyle/>
+     <a:p>
+      <a:fld id="{9D3A5A06-5E21-4C21-9D1E-4F8B8A0E2C3D}" type="slidenum">
+       <a:rPr lang="en-US"/>
+       <a:t>‹#›</a:t>
+      </a:fld>
       <a:endParaRPr lang="en-US"/>
      </a:p>
     </p:txBody>

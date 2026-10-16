@@ -7,12 +7,15 @@ use app_common::{Applied, DispatchError, Document as AppDocument};
 use core_model::media::{base64_decode, base64_encode, Media};
 use core_model::units::Emu;
 use model_show::{
-    align_shapes, distribute, AlignMode, Attach, Connector, Fill, Layout, LayoutKind, Line, NodeId,
-    Presentation, Shape, ShapeKind, Site, Slide, Table, Transform,
+    align_shapes, distribute, presentation::header_footer_shapes, AlignMode, Attach, Background,
+    Connector, Crop, Fill, HeaderFooter, Layout, LayoutKind, Line, NodeId, PictureProps,
+    PlaceholderDef, PlaceholderKind, Presentation, Shape, ShapeKind, Site, Slide, SlideMaster,
+    Table, TextClass, Transform,
 };
 
 use crate::command::{
-    AlignTarget, AnimationPatch, NewAttach, NewShape, NewShapeKind, ShowCommand, ZOp,
+    AlignTarget, AnimationPatch, BackgroundTarget, DesignTarget, HfTarget, NewAttach, NewShape,
+    NewShapeKind, PlaceholderPatch, ShowCommand, ThemeChoice, ZOp,
 };
 use crate::image::pixel_size;
 use crate::patch::ShowPatch;
@@ -116,9 +119,14 @@ struct Changes {
     slides: Vec<NodeId>,
     id_map: Vec<(i64, NodeId)>,
     slide_size: bool,
+    /// Theme, master or layouts changed.
+    design: bool,
+    /// Sections changed.
+    sections: bool,
 }
 
-/// Every slide, shape and animation id of `p`.
+/// Every slide, shape and animation id of `p` (master and layout shapes
+/// included).
 fn all_ids(p: &Presentation) -> HashSet<NodeId> {
     let mut out = HashSet::new();
     for slide in &p.slides {
@@ -127,6 +135,14 @@ fn all_ids(p: &Presentation) -> HashSet<NodeId> {
             out.insert(s.id);
         });
         out.extend(slide.animations.iter().map(|a| a.id));
+    }
+    for_each_shape(&p.master.shapes, &mut |s| {
+        out.insert(s.id);
+    });
+    for l in &p.layouts {
+        for_each_shape(&l.shapes, &mut |s| {
+            out.insert(s.id);
+        });
     }
     out
 }
@@ -381,6 +397,91 @@ fn table_of(s: &mut Shape) -> R<&mut Table> {
         .ok_or_else(|| invalid(format!("shape {id} is not a table")))
 }
 
+/// Layout placeholder `d` inherits master change `old` → `new`: every
+/// field that still had the master's old value takes the new one.
+fn inherit(d: &mut PlaceholderDef, old: &PlaceholderDef, new: &PlaceholderDef) {
+    if d.transform == old.transform {
+        d.transform = new.transform;
+    }
+    if d.body_defaults == old.body_defaults {
+        d.body_defaults = new.body_defaults;
+    }
+    let diff = model_show::run_diff(&new.run_defaults, &old.run_defaults);
+    let own = model_show::run_diff(&d.run_defaults, &old.run_defaults);
+    // only fields the layout did not override
+    let mut r = d.run_defaults.clone();
+    r.apply(&diff);
+    r.apply(&own);
+    d.run_defaults = r;
+    let pdiff = new.paragraph_defaults.diff_from(&old.paragraph_defaults);
+    let pown = d.paragraph_defaults.diff_from(&old.paragraph_defaults);
+    let level = d.paragraph_defaults.level;
+    d.paragraph_defaults = d.paragraph_defaults.merged_with(&pdiff).merged_with(&pown);
+    d.paragraph_defaults.level = level;
+}
+
+/// The box of a picture whose crop changes from `old` to `new`: the image
+/// stays where it is, the box follows the visible part.
+fn recrop_box(t: &Transform, old: &Crop, new: &Crop) -> Transform {
+    let (vw, vh) = (old.visible_w(), old.visible_h());
+    if vw <= 0.0 || vh <= 0.0 {
+        return *t;
+    }
+    let full_w = t.w.0 as f64 / vw;
+    let full_h = t.h.0 as f64 / vh;
+    let x0 = t.x.0 as f64 - full_w * old.left;
+    let y0 = t.y.0 as f64 - full_h * old.top;
+    Transform {
+        x: Emu((x0 + full_w * new.left).round() as i64),
+        y: Emu((y0 + full_h * new.top).round() as i64),
+        w: Emu((full_w * new.visible_w()).round().max(0.0) as i64),
+        h: Emu((full_h * new.visible_h()).round().max(0.0) as i64),
+        ..*t
+    }
+}
+
+/// Master and layouts for slide size `size`: the Office ones when the
+/// presentation has exactly the Office design for its current size, else
+/// its own with every placeholder and shape box scaled.
+fn resized_design(p: &Presentation, size: model_show::SlideSize) -> (SlideMaster, Vec<Layout>) {
+    let builtin = Presentation::empty(p.slide_size);
+    if p.master == builtin.master && p.layouts == builtin.layouts {
+        let fresh = Presentation::empty(size);
+        return (fresh.master, fresh.layouts);
+    }
+    let sx = size.width.0 as f64 / p.slide_size.width.0.max(1) as f64;
+    let sy = size.height.0 as f64 / p.slide_size.height.0.max(1) as f64;
+    let sc = |t: &mut Transform| {
+        t.x = Emu((t.x.0 as f64 * sx).round() as i64);
+        t.y = Emu((t.y.0 as f64 * sy).round() as i64);
+        t.w = Emu((t.w.0 as f64 * sx).round() as i64);
+        t.h = Emu((t.h.0 as f64 * sy).round() as i64);
+    };
+    let mut master = p.master.clone();
+    let mut layouts = p.layouts.clone();
+    for d in master
+        .placeholders
+        .iter_mut()
+        .chain(layouts.iter_mut().flat_map(|l| l.placeholders.iter_mut()))
+    {
+        sc(&mut d.transform);
+    }
+    for s in master
+        .shapes
+        .iter_mut()
+        .chain(layouts.iter_mut().flat_map(|l| l.shapes.iter_mut()))
+    {
+        sc(&mut s.transform);
+        let (w, h) = (s.transform.w, s.transform.h);
+        match &mut s.kind {
+            ShapeKind::Group { children } => scale_shapes(children, sx, sy),
+            ShapeKind::Table(t) => t.scale_to(w, h),
+            _ => {}
+        }
+    }
+    (master, layouts)
+}
+
 impl ShowDocument {
     /// A new presentation: 16:9, one title slide.
     pub fn new() -> Self {
@@ -627,14 +728,41 @@ impl ShowDocument {
     }
 
     /// Applies `cmd` and returns its inverse. On error the presentation is
-    /// unchanged (compound commands roll back).
+    /// unchanged (compound commands roll back). Sections follow slide
+    /// additions, removals and moves; when they change, the inverse puts
+    /// them back too.
     fn exec(&mut self, cmd: &ShowCommand, ch: &mut Changes) -> R<C> {
+        let own = matches!(
+            cmd,
+            C::Compound { .. }
+                | C::RestoreSections { .. }
+                | C::AddSection { .. }
+                | C::RenameSection { .. }
+                | C::RemoveSection { .. }
+                | C::MoveSection { .. }
+        );
+        let before = (!own).then(|| self.pres.sections.clone());
+        let inverse = self.exec_inner(cmd, ch)?;
+        let Some(before) = before else {
+            return Ok(inverse);
+        };
+        self.pres.fix_sections();
+        if self.pres.sections == before {
+            return Ok(inverse);
+        }
+        ch.sections = true;
+        Ok(C::Compound {
+            commands: vec![inverse, C::RestoreSections { sections: before }],
+        })
+    }
+
+    fn exec_inner(&mut self, cmd: &ShowCommand, ch: &mut Changes) -> R<C> {
         match cmd {
             C::AddSlide {
                 after,
                 layout,
                 new_ids,
-            } => self.add_slide(*after, *layout, new_ids, ch),
+            } => self.add_slide(*after, layout, new_ids, ch),
             C::DeleteSlides { ids } => {
                 let set: HashSet<NodeId> = ids.iter().copied().collect();
                 if set.len() != ids.len() {
@@ -946,13 +1074,13 @@ impl ShowDocument {
                 if size.width.0 <= 0 || size.height.0 <= 0 {
                     return Err(invalid("slide size must be positive"));
                 }
-                let layouts = LayoutKind::ALL.map(|k| Layout::builtin(k, *size));
-                Ok(self.set_size(*size, layouts, ch))
+                let (master, layouts) = resized_design(&self.pres, *size);
+                Ok(self.set_size(*size, master, layouts, ch))
             }
             C::SetSlideLayout { slide, layout } => {
-                let old_kind = self.pres.slides[self.slide_index(*slide)?].layout;
-                let old = self.pres.layout(old_kind).clone();
-                let new = self.pres.layout(*layout).clone();
+                let old_kind = self.pres.slides[self.slide_index(*slide)?].layout.clone();
+                let old = self.pres.layout_or_builtin(&old_kind);
+                let new = self.known_layout(layout)?;
                 self.edit_slides(&[*slide], ch, |d| {
                     let s = d.slide_mut(*slide)?;
                     s.apply_layout(&old, &new);
@@ -1005,7 +1133,7 @@ impl ShowDocument {
                 let mut boxes = Vec::with_capacity(shapes.len());
                 for &id in shapes {
                     let s = self.shape(id)?;
-                    let ShapeKind::Picture { media } = s.kind else {
+                    let ShapeKind::Picture { media, .. } = s.kind else {
                         return Err(invalid(format!("shape {} is not a picture", id.0)));
                     };
                     let bytes = &self
@@ -1025,8 +1153,273 @@ impl ShowDocument {
                     Ok(())
                 })
             }
-            C::RestoreSlideSize { size, layouts } => {
-                Ok(self.set_size(*size, (**layouts).clone(), ch))
+            C::RestoreSlideSize {
+                size,
+                master,
+                layouts,
+            } => Ok(self.set_size(*size, (**master).clone(), layouts.clone(), ch)),
+            C::RestoreDesign {
+                theme,
+                master,
+                layouts,
+            } => {
+                let inverse = self.design_snapshot();
+                self.pres.theme = (**theme).clone();
+                self.pres.master = (**master).clone();
+                self.pres.layouts = layouts.clone();
+                let ids: Vec<NodeId> = std::iter::once(&self.pres.master.shapes)
+                    .chain(self.pres.layouts.iter().map(|l| &l.shapes))
+                    .flat_map(|l| shape_ids(l))
+                    .collect();
+                for id in ids {
+                    self.pres.reserve_id(id);
+                }
+                ch.design = true;
+                Ok(inverse)
+            }
+            C::RestoreSections { sections } => {
+                let old = std::mem::replace(&mut self.pres.sections, sections.clone());
+                self.pres
+                    .validate_sections()
+                    .map_err(|e| invalid(e.to_string()))
+                    .inspect_err(|_| self.pres.sections = old.clone())?;
+                ch.sections = true;
+                Ok(C::RestoreSections { sections: old })
+            }
+            C::ApplyTheme { theme } => {
+                let inverse = self.design_snapshot();
+                match theme {
+                    ThemeChoice::Builtin(id) => {
+                        let b = model_show::builtin_theme(id)
+                            .ok_or_else(|| invalid(format!("unknown theme {id:?}")))?;
+                        self.pres.theme = b.theme;
+                        self.pres.master.background = b.background;
+                    }
+                    ThemeChoice::Custom(t) => self.pres.theme = (**t).clone(),
+                }
+                ch.design = true;
+                Ok(inverse)
+            }
+            C::SetThemeColors { colors } => {
+                let inverse = self.design_snapshot();
+                self.pres.theme.colors = colors.clone();
+                ch.design = true;
+                Ok(inverse)
+            }
+            C::SetThemeFonts { fonts } => {
+                let inverse = self.design_snapshot();
+                self.pres.theme.fonts = fonts.clone();
+                ch.design = true;
+                Ok(inverse)
+            }
+            C::AddLayout { name } => {
+                let kind = LayoutKind::Custom(name.clone());
+                if name.is_empty() || self.pres.layout(&kind).is_some() {
+                    return Err(invalid(format!("layout name {name:?} is empty or taken")));
+                }
+                let inverse = self.design_snapshot();
+                let l = Layout::from_master(kind, &self.pres.master, self.pres.slide_size);
+                self.pres.layouts.push(l);
+                ch.design = true;
+                Ok(inverse)
+            }
+            C::DuplicateLayout { layout } => {
+                let i = self.layout_index(layout)?;
+                let mut copy = self.pres.layouts[i].clone();
+                let base = copy.display_name().to_owned();
+                let mut n = 1;
+                let kind = loop {
+                    let k = LayoutKind::Custom(format!("{n}_{base}"));
+                    if self.pres.layout(&k).is_none() {
+                        break k;
+                    }
+                    n += 1;
+                };
+                let inverse = self.design_snapshot();
+                copy.kind = kind;
+                copy.name.clear();
+                let old = shape_ids(&copy.shapes);
+                for sh in &mut copy.shapes {
+                    self.pres.assign_ids(sh);
+                }
+                let map: std::collections::HashMap<NodeId, NodeId> =
+                    old.into_iter().zip(shape_ids(&copy.shapes)).collect();
+                model_show::presentation::remap_attachments(&mut copy.shapes, &map);
+                self.pres.layouts.insert(i + 1, copy);
+                ch.design = true;
+                Ok(inverse)
+            }
+            C::DeleteLayout { layout } => {
+                let i = self.layout_index(layout)?;
+                if self.pres.slides.iter().any(|s| &s.layout == layout) {
+                    return Err(invalid(format!("layout {layout} is used by slides")));
+                }
+                let inverse = self.design_snapshot();
+                self.pres.layouts.remove(i);
+                ch.design = true;
+                Ok(inverse)
+            }
+            C::SetMasterPlaceholderProps {
+                target,
+                placeholder,
+                idx,
+                patch,
+            } => self.set_placeholder_props(target, *placeholder, *idx, patch, ch),
+            C::SetBackground {
+                target,
+                fill,
+                hide_master_shapes,
+            } => self.set_background(target, fill.as_ref(), *hide_master_shapes, ch),
+            C::ResetSlide { slides } => {
+                let mut layouts = Vec::new();
+                for &id in slides {
+                    let s = &self.pres.slides[self.slide_index(id)?];
+                    layouts.push((id, self.pres.layout_or_builtin(&s.layout)));
+                }
+                self.edit_slides(slides, ch, |d| {
+                    for (id, layout) in &layouts {
+                        d.slide_mut(*id)?.reset_to_layout(layout);
+                    }
+                    for (id, _) in &layouts {
+                        d.fresh_ids(*id)?;
+                    }
+                    Ok(())
+                })
+            }
+            C::SetHeaderFooter {
+                date,
+                footer,
+                slide_number,
+                apply_to,
+                not_on_title,
+            } => {
+                let hf = HeaderFooter {
+                    date: date.clone(),
+                    footer: footer.clone(),
+                    slide_number: *slide_number,
+                    not_on_title: *not_on_title,
+                };
+                self.set_header_footer(&hf, apply_to, ch)
+            }
+            C::AddSection { name, first_slide } => {
+                let old = self.pres.sections.clone();
+                self.pres
+                    .add_section(name, *first_slide)
+                    .map_err(|e| invalid(e.to_string()))?;
+                ch.sections = true;
+                Ok(C::RestoreSections { sections: old })
+            }
+            C::RenameSection { index, name } => {
+                let s = self
+                    .pres
+                    .sections
+                    .get_mut(*index as usize)
+                    .ok_or_else(|| invalid(format!("no section {index}")))?;
+                let old = std::mem::replace(&mut s.name, name.clone());
+                ch.sections = true;
+                Ok(C::RenameSection {
+                    index: *index,
+                    name: old,
+                })
+            }
+            C::RemoveSection { index, keep_slides } => {
+                let old = self.pres.sections.clone();
+                let removed = self
+                    .pres
+                    .remove_section(*index as usize, *keep_slides)
+                    .map_err(|e| invalid(e.to_string()))?;
+                ch.sections = true;
+                let restore = C::RestoreSections { sections: old };
+                if removed.is_empty() {
+                    return Ok(restore);
+                }
+                let slides: Vec<(u32, Slide)> =
+                    removed.into_iter().map(|(i, s)| (i as u32, s)).collect();
+                Ok(C::Compound {
+                    commands: vec![C::RestoreSlides { slides }, restore],
+                })
+            }
+            C::MoveSection { index, to_index } => {
+                self.pres
+                    .move_section(*index as usize, *to_index as usize)
+                    .map_err(|e| invalid(e.to_string()))?;
+                ch.sections = true;
+                Ok(C::MoveSection {
+                    index: *to_index,
+                    to_index: *index,
+                })
+            }
+            C::SetPictureProps { shapes, patch } => {
+                for &id in shapes {
+                    if self.shape(id)?.picture_props().is_none() {
+                        return Err(invalid(format!("shape {} is not a picture", id.0)));
+                    }
+                }
+                self.edit_shapes(shapes, ch, |s| {
+                    if let Some(p) = s.picture_props_mut() {
+                        patch.apply_to(p);
+                    }
+                    Ok(())
+                })
+            }
+            C::CropPicture {
+                shape,
+                crop,
+                transform,
+            } => {
+                let s = self.shape(*shape)?;
+                let old = s
+                    .picture_props()
+                    .ok_or_else(|| invalid(format!("shape {} is not a picture", shape.0)))?
+                    .crop;
+                if crop.visible_w() <= 0.0 || crop.visible_h() <= 0.0 {
+                    return Err(invalid("the crop leaves nothing visible"));
+                }
+                let t = match transform {
+                    Some(t) => {
+                        check_transform(t)?;
+                        *t
+                    }
+                    None => recrop_box(&s.transform, &old, crop),
+                };
+                self.edit_shapes(&[*shape], ch, |s| {
+                    s.transform = t;
+                    if let Some(p) = s.picture_props_mut() {
+                        p.crop = *crop;
+                    }
+                    Ok(())
+                })
+            }
+            C::ResetPicture { shapes, size } => {
+                let mut boxes = Vec::with_capacity(shapes.len());
+                for &id in shapes {
+                    let s = self.shape(id)?;
+                    let ShapeKind::Picture { media, props } = &s.kind else {
+                        return Err(invalid(format!("shape {} is not a picture", id.0)));
+                    };
+                    let mut t = recrop_box(&s.transform, &props.crop, &Crop::default());
+                    if *size {
+                        let bytes = &self
+                            .pres
+                            .media
+                            .get(*media)
+                            .ok_or(ShowError::UnknownMedia(media.0))?
+                            .data;
+                        let natural = self.natural_box(bytes);
+                        t.w = natural.w;
+                        t.h = natural.h;
+                    }
+                    boxes.push((id, t));
+                }
+                self.edit_shapes(shapes, ch, |s| {
+                    if let Some((_, t)) = boxes.iter().find(|(id, _)| *id == s.id) {
+                        s.transform = *t;
+                    }
+                    if let Some(p) = s.picture_props_mut() {
+                        *p = PictureProps::default();
+                    }
+                    Ok(())
+                })
             }
             C::RemoveMedia { id } => {
                 let media = self
@@ -1442,7 +1835,7 @@ impl ShowDocument {
     fn add_slide(
         &mut self,
         after: Option<NodeId>,
-        layout: LayoutKind,
+        layout: &LayoutKind,
         new_ids: &[i64],
         ch: &mut Changes,
     ) -> R<C> {
@@ -1450,7 +1843,13 @@ impl ShowDocument {
             None => 0,
             Some(a) => self.slide_index(a)? + 1,
         };
-        let mut shapes = self.pres.layout(layout).placeholder_shapes();
+        let l = self.known_layout(layout)?;
+        let mut shapes = l.placeholder_shapes();
+        shapes.extend(header_footer_shapes(
+            &self.pres.master.header_footer,
+            &l,
+            &self.pres.master,
+        ));
         let layout_ids = id_layout(new_ids, 1 + shapes.len())?;
         let mut ids = Ids::new(&self.pres);
         let id = ids.resolve(&mut self.pres, ch, layout_ids[0])?;
@@ -1458,7 +1857,7 @@ impl ShowDocument {
             s.id = ids.resolve(&mut self.pres, ch, *new)?;
             s.fill_default_name();
         }
-        let mut slide = Slide::new(id, layout);
+        let mut slide = Slide::new(id, layout.clone());
         slide.shapes = shapes;
         self.pres.slides.insert(index, slide);
         ch.slides.push(id);
@@ -1512,11 +1911,14 @@ impl ShowDocument {
                 t.validate().map_err(invalid)?;
                 ShapeKind::Table(t.clone())
             }
-            NewShapeKind::Picture { media } => {
+            NewShapeKind::Picture { media, props } => {
                 if self.pres.media.get(*media).is_none() {
                     return Err(ShowError::UnknownMedia(media.0));
                 }
-                ShapeKind::Picture { media: *media }
+                ShapeKind::Picture {
+                    media: *media,
+                    props: props.clone(),
+                }
             }
             NewShapeKind::Group { children } => ShapeKind::Group {
                 children: children
@@ -1533,6 +1935,7 @@ impl ShowDocument {
             fill: ns.fill,
             line: ns.line,
             placeholder: ns.placeholder,
+            placeholder_idx: ns.placeholder_idx,
             alt: ns.alt.clone().filter(|a| !a.is_empty()),
         };
         shape.fill_default_name();
@@ -1648,7 +2051,8 @@ impl ShowDocument {
         let media = self.pres.media.insert(content_type.to_owned(), bytes);
         let added = self.pres.media.len() > count;
         let restore = self.edit_shapes(&[shape], ch, |s| {
-            s.kind = ShapeKind::Picture { media };
+            let props = s.picture_props().cloned().unwrap_or_default();
+            s.kind = ShapeKind::Picture { media, props };
             s.transform = fitted;
             Ok(())
         });
@@ -1688,16 +2092,294 @@ impl ShowDocument {
     fn set_size(
         &mut self,
         size: model_show::SlideSize,
-        layouts: [Layout; 3],
+        master: SlideMaster,
+        layouts: Vec<Layout>,
         ch: &mut Changes,
     ) -> C {
         let old_size = std::mem::replace(&mut self.pres.slide_size, size);
+        let old_master = std::mem::replace(&mut self.pres.master, master);
         let old_layouts = std::mem::replace(&mut self.pres.layouts, layouts);
         ch.slide_size = true;
+        ch.design = true;
         C::RestoreSlideSize {
             size: old_size,
-            layouts: Box::new(old_layouts),
+            master: Box::new(old_master),
+            layouts: old_layouts,
         }
+    }
+
+    // ----- design ----------------------------------------------------------
+
+    /// The inverse of a design change: the current theme, master and
+    /// layouts.
+    fn design_snapshot(&self) -> C {
+        C::RestoreDesign {
+            theme: Box::new(self.pres.theme.clone()),
+            master: Box::new(self.pres.master.clone()),
+            layouts: self.pres.layouts.clone(),
+        }
+    }
+
+    /// Layout `kind` (standard kinds the presentation lacks: the built-in
+    /// one); unknown custom layouts are an error.
+    fn known_layout(&self, kind: &LayoutKind) -> R<Layout> {
+        if !kind.is_standard() && self.pres.layout(kind).is_none() {
+            return Err(invalid(format!("unknown layout {kind}")));
+        }
+        Ok(self.pres.layout_or_builtin(kind))
+    }
+
+    fn layout_index(&self, kind: &LayoutKind) -> R<usize> {
+        self.pres
+            .layouts
+            .iter()
+            .position(|l| &l.kind == kind)
+            .ok_or_else(|| invalid(format!("unknown layout {kind}")))
+    }
+
+    /// Gives the shapes of slide `id` that have id 0 (just added) fresh
+    /// ids and default names.
+    fn fresh_ids(&mut self, id: NodeId) -> R<()> {
+        let n = self.slide_mut(id)?.shapes.len();
+        for i in 0..n {
+            if self.slide_mut(id)?.shapes[i].id == NodeId(0) {
+                let new = self.pres.alloc_id();
+                let shape = &mut self.slide_mut(id)?.shapes[i];
+                shape.id = new;
+                shape.fill_default_name();
+            }
+        }
+        Ok(())
+    }
+
+    fn set_placeholder_props(
+        &mut self,
+        target: &DesignTarget,
+        kind: PlaceholderKind,
+        idx: Option<u32>,
+        patch: &PlaceholderPatch,
+        ch: &mut Changes,
+    ) -> R<C> {
+        if let Some(t) = &patch.transform {
+            check_transform(t)?;
+        }
+        let design = self.design_snapshot();
+        let apply = |d: &mut PlaceholderDef| {
+            if let Some(t) = patch.transform {
+                d.transform = t;
+            }
+            if let Some(b) = patch.body {
+                d.body_defaults = b;
+            }
+            if let Some(r) = &patch.run {
+                d.run_defaults.apply(r);
+            }
+            if let Some(pp) = &patch.paragraph {
+                pp.apply_to(&mut d.paragraph_defaults);
+            }
+        };
+        // (layout kind, old def, new def) of every layout placeholder that changed
+        let mut changed: Vec<(LayoutKind, PlaceholderDef, PlaceholderDef)> = Vec::new();
+        match target {
+            DesignTarget::Master => {
+                let m = &mut self.pres.master;
+                let i = m
+                    .placeholders
+                    .iter()
+                    .position(|d| d.kind == kind && idx.map_or(true, |x| d.idx == x))
+                    .ok_or_else(|| invalid(format!("the master has no {kind:?} placeholder")))?;
+                let old = m.placeholders[i].clone();
+                apply(&mut m.placeholders[i]);
+                let new = m.placeholders[i].clone();
+                // level 1 of the title/body text style follows
+                let class = kind.text_class();
+                if class != TextClass::Other {
+                    if let Some(l) = m.text_styles.of_mut(class).first_mut() {
+                        if let Some(r) = &patch.run {
+                            l.run.apply(r);
+                        }
+                        if let Some(pp) = &patch.paragraph {
+                            pp.apply_to(&mut l.paragraph);
+                        }
+                    }
+                }
+                let master = self.pres.master.clone();
+                for layout in &mut self.pres.layouts {
+                    for d in &mut layout.placeholders {
+                        if master.placeholder_for(d.kind).map(|x| x.kind) != Some(new.kind) {
+                            continue;
+                        }
+                        let before = d.clone();
+                        inherit(d, &old, &new);
+                        if *d != before {
+                            changed.push((layout.kind.clone(), before, d.clone()));
+                        }
+                    }
+                }
+            }
+            DesignTarget::Layout(lk) => {
+                let li = self.layout_index(lk)?;
+                let layout = &mut self.pres.layouts[li];
+                let i = layout
+                    .placeholders
+                    .iter()
+                    .position(|d| d.kind == kind && idx.map_or(true, |x| d.idx == x))
+                    .ok_or_else(|| invalid(format!("layout {lk} has no {kind:?} placeholder")))?;
+                let old = layout.placeholders[i].clone();
+                apply(&mut layout.placeholders[i]);
+                changed.push((lk.clone(), old, layout.placeholders[i].clone()));
+            }
+        }
+        // slide placeholders that sat at their layout placeholder's
+        // position (or had its body properties) follow it
+        let mut slides = Vec::new();
+        for s in &self.pres.slides {
+            if changed.iter().any(|(k, ..)| *k == s.layout) {
+                slides.push(s.id);
+            }
+        }
+        let content = self.edit_slides(&slides, ch, |d| {
+            for &id in &slides {
+                let s = d.slide_mut(id)?;
+                for (lk, old, new) in &changed {
+                    if &s.layout != lk {
+                        continue;
+                    }
+                    for shape in &mut s.shapes {
+                        let Some(k) = shape.placeholder else { continue };
+                        if !k.same_class(old.kind) || shape.placeholder_idx.unwrap_or(0) != old.idx
+                        {
+                            continue;
+                        }
+                        if shape.transform == old.transform {
+                            shape.transform = new.transform;
+                        }
+                        if let Some(body) = shape.text_mut() {
+                            if body.props == old.body_defaults {
+                                body.props = new.body_defaults;
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(())
+        })?;
+        ch.design = true;
+        Ok(C::Compound {
+            commands: vec![content, design],
+        })
+    }
+
+    fn set_background(
+        &mut self,
+        target: &BackgroundTarget,
+        fill: Option<&Background>,
+        hide: Option<bool>,
+        ch: &mut Changes,
+    ) -> R<C> {
+        match target {
+            BackgroundTarget::Slides(slides) => {
+                let fill = match fill {
+                    None => None,
+                    Some(Background::Fill(f)) => Some(*f),
+                    Some(Background::Style { .. }) => {
+                        return Err(invalid("slides take explicit background fills"))
+                    }
+                };
+                for &id in slides {
+                    self.slide_index(id)?;
+                }
+                let mut unique = slides.clone();
+                unique.dedup();
+                self.edit_slides(&unique, ch, |d| {
+                    for &id in &unique {
+                        let s = d.slide_mut(id)?;
+                        s.background = fill;
+                        if let Some(h) = hide {
+                            s.show_master_shapes = !h;
+                        }
+                    }
+                    Ok(())
+                })
+            }
+            BackgroundTarget::Layout(kind) => {
+                let i = self.layout_index(kind)?;
+                let inverse = self.design_snapshot();
+                let l = &mut self.pres.layouts[i];
+                l.background = fill.copied();
+                if let Some(h) = hide {
+                    l.show_master_shapes = !h;
+                }
+                ch.design = true;
+                Ok(inverse)
+            }
+            BackgroundTarget::Master => {
+                if hide.is_some() {
+                    return Err(invalid("the master has no master graphics to hide"));
+                }
+                let inverse = self.design_snapshot();
+                self.pres.master.background = fill.copied().unwrap_or_default();
+                ch.design = true;
+                Ok(inverse)
+            }
+        }
+    }
+
+    fn set_header_footer(
+        &mut self,
+        hf: &HeaderFooter,
+        target: &HfTarget,
+        ch: &mut Changes,
+    ) -> R<C> {
+        let slides: Vec<NodeId> = match target {
+            HfTarget::All => self.order(),
+            HfTarget::Slides(list) => {
+                for &id in list {
+                    self.slide_index(id)?;
+                }
+                let mut u = list.clone();
+                u.dedup();
+                u
+            }
+        };
+        let master = self.pres.master.clone();
+        let mut plans = Vec::new();
+        for &id in &slides {
+            let s = &self.pres.slides[self.slide_index(id)?];
+            let layout = self.pres.layout_or_builtin(&s.layout);
+            plans.push((id, header_footer_shapes(hf, &layout, &master)));
+        }
+        let design = matches!(target, HfTarget::All).then(|| self.design_snapshot());
+        let content = self.edit_slides(&slides, ch, |d| {
+            for (id, add) in &plans {
+                let s = d.slide_mut(*id)?;
+                let old: Vec<Shape> = s
+                    .shapes
+                    .iter()
+                    .filter(|x| x.placeholder.is_some_and(PlaceholderKind::is_header_footer))
+                    .cloned()
+                    .collect();
+                s.shapes
+                    .retain(|x| !x.placeholder.is_some_and(PlaceholderKind::is_header_footer));
+                for mut shape in add.clone() {
+                    // a moved placeholder keeps its box
+                    if let Some(o) = old.iter().find(|o| o.placeholder == shape.placeholder) {
+                        shape.transform = o.transform;
+                    }
+                    s.shapes.push(shape);
+                }
+                d.fresh_ids(*id)?;
+            }
+            Ok(())
+        })?;
+        let Some(design) = design else {
+            return Ok(content);
+        };
+        self.pres.master.header_footer = hf.clone();
+        ch.design = true;
+        Ok(C::Compound {
+            commands: vec![content, design],
+        })
     }
 
     // ----- patch ---------------------------------------------------------
@@ -1737,6 +2419,10 @@ impl ShowDocument {
             id_map: ch.id_map,
             slide_size: ch.slide_size.then_some(self.pres.slide_size),
             info: None,
+            theme: ch.design.then(|| self.pres.theme.clone()),
+            master: ch.design.then(|| self.pres.master.clone()),
+            layouts: ch.design.then(|| self.pres.layouts.clone()),
+            sections: ch.sections.then(|| self.pres.sections.clone()),
         }
     }
 }

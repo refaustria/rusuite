@@ -3,7 +3,7 @@
 //! whole (shapes are small).
 
 use app_common::Patch;
-use model_show::{NodeId, Slide, SlideSize};
+use model_show::{Layout, NodeId, Section, Slide, SlideMaster, SlideSize, Theme};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -11,7 +11,9 @@ use ts_rs::TS;
 ///
 /// The UI removes `deletedSlides`, then replaces (or adds) every slide of
 /// `slides` by id, then, when `slidesOrder` is present, reorders its
-/// slides to exactly that list.
+/// slides to exactly that list. `theme`, `master` and `layouts` come
+/// together whenever any of them changed; `sections` whenever they
+/// changed.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "apps/show/src/generated/")]
@@ -27,6 +29,22 @@ pub struct ShowPatch {
     pub id_map: Vec<(i64, NodeId)>,
     /// The slide size, when it changed.
     pub slide_size: Option<SlideSize>,
+    /// The theme, when it (or the master or a layout) changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub theme: Option<Theme>,
+    /// The master, when the design changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub master: Option<SlideMaster>,
+    /// All layouts, when the design changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub layouts: Option<Vec<Layout>>,
+    /// All sections, when they changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sections: Option<Vec<Section>>,
     /// A message for the status bar.
     pub info: Option<String>,
 }
@@ -61,6 +79,14 @@ impl Patch for ShowPatch {
         self.id_map.extend(other.id_map);
         if other.slide_size.is_some() {
             self.slide_size = other.slide_size;
+        }
+        if other.theme.is_some() {
+            self.theme = other.theme;
+            self.master = other.master;
+            self.layouts = other.layouts;
+        }
+        if other.sections.is_some() {
+            self.sections = other.sections;
         }
         if other.info.is_some() {
             self.info = other.info;
