@@ -48,7 +48,8 @@ export function formattingOf(s: ShowState) {
   const shape = focusShape(s);
   if (!s.pres || !slide || !shape) return null;
   const def = placeholderFor(stableDeck(s.pres), slide.layout, shape, s.masterView?.kind === "master");
-  const body = textOf(shape);
+  // while editing: the session's body (typed text keeps the formatting of the run before the caret)
+  const body = s.editing?.body && !s.editing.cell ? s.editing.body : textOf(shape);
   let pi = 0;
   let runProps: RunProperties | undefined = body?.paragraphs[0]?.runs[0]?.props;
   if (s.editing && body) {

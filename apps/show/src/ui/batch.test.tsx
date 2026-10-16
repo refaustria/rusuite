@@ -220,8 +220,9 @@ describe("P6-5 UI through the app", () => {
     act(() => store.startEdit(5));
     const box = screen.getByTestId("text-overlay-box");
     expect(box.getAttribute("data-anchor")).toBe("middle");
-    expect(box.style.justifyContent).toBe("center");
-    expect(box.style.transform).toBe("rotate(15deg)");
+    expect(screen.getByTestId("text-overlay-frame").style.justifyContent).toBe("center");
+    expect(box.getAttribute("data-rotation")).toBe("15");
+    expect(box.style.transform).toContain("rotate(15deg)");
     fireEvent.keyDown(screen.getByTestId("text-overlay"), { key: "Escape" });
     await flush();
     act(() => store.startEdit(6));

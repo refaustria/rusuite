@@ -975,6 +975,26 @@ Corrections from the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md))
   scroll; the tab strip scrolls instead of running under the right slot (Present) on narrow windows.
 - **Notes Page**: the slide picture's frame is drawn over the picture (all four edges visible).
 
+## Show pre-release fixes (P8-45)
+
+Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)):
+- **In-place text editor (S-01)** (`canvas/TextOverlay.tsx`, `canvas/richEditor.ts`, `text/editing.ts`): editing a shape's
+  or a table cell's text shows it as the slide draws it. The editor is a `contenteditable` over the shape's text rectangle,
+  at the slide's px size and scaled with the zoom (rotated with the shape, vertical text turned like the slide); its content
+  is rebuilt after every edit from the session's rich body laid out by the slide's own `layoutText` – one block per
+  paragraph (the layout's indent, hanging bullet or number from the master's level styles as CSS `::before`, spacing
+  before / after, line spacing, alignment), one span per run (font, size, bold, italic, underline, colour, highlight,
+  super / subscript, hyperlinks) and the shrink-on-overflow scale computed live, so the text does not move when editing
+  starts or ends (an empty bulleted paragraph shows its bullet while editing, like PowerPoint). Typing, Enter, Backspace /
+  Delete (also by word), paste (plain text, lines become paragraphs) and cut arrive as `beforeinput` / clipboard events and
+  splice the rich body: typed text takes the formatting of the run before the caret (a paragraph's first run at its start;
+  an empty paragraph keeps the formatting of the text it had), fields are never continued and links only inside them;
+  Enter's new paragraph keeps the level, bullet and alignment. IME composition is left to the browser and read back when it
+  ends. Tab / Shift+Tab change the level, Ctrl+Shift+> / < the font size, Ctrl+Z / Ctrl+Y undo and redo the typing of the
+  session; Ctrl+B / I / U / K go to the shortcut map as before. The session's body goes to the core as one `SetTextBody`
+  (ADR 0008; no ProseMirror). Not covered: tabs inside a paragraph (Tab always changes the level), Shift+Enter makes a new
+  paragraph (no line break), the slide number field shows its stored text while editing.
+
 ## Printing (P7-9)
 
 **File › Print** (Ctrl+P) is the Office print page: on the left the **Print** button, a note that copies, printer and
