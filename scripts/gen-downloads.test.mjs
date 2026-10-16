@@ -60,21 +60,45 @@ test("the page lists every installer with its size and SHA-256, in English and G
     assert.match(html, /data-i18n="portal\.dl\.prerelease"/);
   }
   const en = render(fixture());
-  assert.match(en, /Unsigned alpha builds – expect warnings from your operating system/);
+  assert.match(en, /These builds are not signed yet – your system will warn once/);
   assert.match(en, /Rusuite v0\.1\.0-rc\.1 for Windows, macOS and Linux/);
   assert.match(en, /<code>certutil -hashfile &lt;file&gt; SHA256<\/code>/);
-  assert.match(render(fixture(), loadCatalog("de")), /Nicht signierte Alpha-Versionen/);
+  assert.match(render(fixture(), loadCatalog("de")), /Diese Versionen sind noch nicht signiert/);
+});
+
+test("the page explains Gatekeeper and SmartScreen next to the buttons, in English and German", () => {
+  const en = render(fixture());
+  assert.match(en, /These builds are not signed yet – your system will warn once/);
+  assert.ok(en.indexOf('class="unsigned"') < en.indexOf('class="dl-list"'), "notice above the buttons");
+  for (const id of ["windows", "macos15", "macos14", "linux"]) assert.match(en, new RegExp(`data-steps="${id}"`));
+  assert.match(en, /macOS 15 Sequoia and later/);
+  assert.match(en, /click <strong>Done<\/strong> \(not “Move to Bin”\)/);
+  assert.match(en, /<strong>Open Anyway<\/strong>/);
+  assert.match(en, /macOS 14 and earlier/);
+  assert.match(en, /<strong>Run anyway<\/strong>/);
+  assert.match(en, /chmod \+x/);
+  for (const app of ["Calc", "Write", "Show"]) {
+    const cmd = `xattr -dr com.apple.quarantine &quot;/Applications/Rusuite ${app}.app&quot;`;
+    assert.ok(en.includes(`<code>${cmd}</code>`), app);
+    assert.ok(en.includes(`data-copy="${cmd}"`), app);
+  }
+  assert.equal(en.match(/class="copy"/g).length, 3);
+  assert.equal(en.match(/<dd><code>/g).length, 21, "checksum table kept");
+  const de = render(fixture(), loadCatalog("de"));
+  assert.match(de, /macOS 15 Sequoia und neuer/);
+  assert.match(de, /Dennoch öffnen/);
+  assert.match(de, /Trotzdem ausführen/);
 });
 
 test("the page loads nothing from other sites (ADR 0009)", () => {
   const html = render(fixture());
-  const srcs = [...html.matchAll(/\b(?:src|href)="([^"]+)"/g)].map((m) => m[1]);
+  const srcs = [...html.replace(/<link rel="canonical"[^>]*>/, "").matchAll(/\b(?:src|href)="([^"]+)"/g)].map((m) => m[1]);
   for (const s of srcs) {
     const external = /^https?:/.test(s);
     if (external) assert.match(s, /^https:\/\/github\.com\/refaustria\/rusuite\/releases(\/|$)/, s);
   }
   // Scripts and styles are the portal's own files; GitHub links are only anchors.
-  for (const m of html.matchAll(/<(script|link)\b[^>]*\b(?:src|href)="([^"]+)"/g)) assert.doesNotMatch(m[2], /^https?:/);
+  for (const m of html.replace(/<link rel="canonical"[^>]*>/, "").matchAll(/<(script|link)\b[^>]*\b(?:src|href)="([^"]+)"/g)) assert.doesNotMatch(m[2], /^https?:/);
 });
 
 test("release data is escaped; missing assets and digests are handled", () => {

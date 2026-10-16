@@ -123,9 +123,9 @@ test.describe("Downloads page", () => {
     await expect(page).toHaveURL(/\/downloads\.html$/);
     await expect(page.getByRole("heading", { level: 1, name: "Desktop downloads" })).toBeVisible();
     await expect(page.getByRole("link", { name: "GitHub Releases" })).toHaveAttribute("href", /github\.com\/refaustria\/rusuite\/releases$/);
-    await page.getByRole("button", { name: "DE" }).click();
+    await page.getByRole("button", { name: "DE", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Desktop-Downloads" })).toBeVisible();
-    await page.getByRole("button", { name: "EN" }).click();
+    await page.getByRole("button", { name: "EN", exact: true }).click();
     errors.expectNone();
   });
 
@@ -140,18 +140,33 @@ test.describe("Downloads page", () => {
     await expect(sections).toHaveCount(3);
     await expect(sections.first()).toHaveAttribute("data-os", "linux");
     await expect(sections.first().getByText("Recommended for this device")).toBeVisible();
-    await expect(page.getByText("Unsigned alpha builds – expect warnings from your operating system")).toBeVisible();
+    await expect(page.getByText("These builds are not signed yet – your system will warn once")).toBeVisible();
     const calc = sections.first().locator('[data-app="calc"]');
     await expect(calc.getByRole("link", { name: /Debian, Ubuntu \(\.deb\)/ })).toHaveAttribute("href", /Rusuite\.Calc_0\.1\.0-rc\.1_amd64\.deb$/);
     await expect(calc.getByRole("link", { name: /\.rpm/ })).toBeVisible();
     await expect(calc.getByRole("link", { name: /\.AppImage/ })).toBeVisible();
     await sections.first().getByText("SHA-256 checksums").click();
     await expect(sections.first().locator("dd code").first()).toHaveText(/^[0-9a-f]{64}$/);
-    await page.getByRole("button", { name: "DE" }).click();
+    await page.getByRole("button", { name: "DE", exact: true }).click();
     await expect(page.getByText("Empfohlen für dieses Gerät")).toBeVisible();
     await expect(calc.locator("small").first()).toHaveText(/^4,2 MB$/);
     await expect(page.getByText("Veröffentlicht am 20. Oktober 2026")).toBeVisible();
-    await page.getByRole("button", { name: "EN" }).click();
+    await page.getByRole("button", { name: "EN", exact: true }).click();
+    // P8-50: Gatekeeper / SmartScreen steps next to the buttons.
+    const mac = page.locator('section[data-os="macos"]');
+    await expect(page.getByText("These builds are not signed yet – your system will warn once")).toBeVisible();
+    await expect(mac.getByRole("heading", { name: "macOS 15 Sequoia and later" })).toBeVisible();
+    await expect(mac.locator('[data-steps="macos15"]')).toContainText("Done");
+    await expect(mac.locator('[data-steps="macos15"]')).toContainText("Open Anyway");
+    await expect(mac.locator('[data-steps="macos15"] code').first()).toHaveText('xattr -dr com.apple.quarantine "/Applications/Rusuite Calc.app"');
+    await expect(mac.getByRole("heading", { name: "macOS 14 and earlier" })).toBeVisible();
+    await expect(page.locator('section[data-os="windows"]')).toContainText("Run anyway");
+    await page.getByRole("button", { name: "DE", exact: true }).click();
+    await expect(mac.getByRole("heading", { name: "macOS 15 Sequoia und neuer" })).toBeVisible();
+    await expect(mac.locator('[data-steps="macos15"]')).toContainText("Dennoch öffnen");
+    await expect(mac.locator('[data-steps="macos14"]')).toContainText("rechten Maustaste");
+    await expect(page.locator('section[data-os="windows"]')).toContainText("Trotzdem ausführen");
+    await page.getByRole("button", { name: "EN", exact: true }).click();
     // Windows first for a Windows visitor.
     await page.goto("./downloads.html?os=windows");
     await expect(sections.first()).toHaveAttribute("data-os", "windows");
