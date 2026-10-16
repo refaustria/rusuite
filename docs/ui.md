@@ -27,7 +27,7 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
 - **Rendering**: fields are grey-shaded with their cached result, or the live value (page numbers from the pagination, date,
   time, file name); note references are superscript numbers in reference order (footnotes 1, 2…, endnotes i, ii…); the notes
   area after the body holds the editable notes (footnotes, then endnotes; double-click a reference to jump to its note and the
-  note's number to jump back); in print layout each page also shows its footnotes at the bottom. A table of contents is a
+  note's number to jump back); in print layout the footnotes sit at the bottom of their page instead (P8-31). A table of contents is a
   non-editable block (click an entry to go to the heading). List labels come from Rust (`listLabel`). A section end shows a
   dotted "Section break (Next page)" line; in print layout a new section starts a new page with its own page size, margins,
   headers/footers (first-page / even) and page numbering. Saving first sends `UpdateFields` for fields whose live value
@@ -58,7 +58,8 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
   selected picture offers the same wrap choices. A selected floating picture is moved by dragging (offsets from the column and
   the paragraph). Square/Tight float (one side: the side with more room, `wrapSide` respected), Top and Bottom is a block,
   Behind / In Front are positioned outside the flow relative to the anchor paragraph (z-order below / above the text).
-  Vertical positions relative to the margin or page stay at the anchor paragraph (no fixed page boxes in the editor).
+  Vertical positions relative to the margin or page are resolved against the anchor paragraph's page in print layout
+  (P8-31; draft view: at the paragraph).
 - **Home › Paragraph**: Shading ▾ (fill), Borders ▾ (bottom/top/left/right toggle, no border, all, outside, inside = between,
   Borders and Shading… with setting, style, colour, width, sides and shading), Tabs… (position, alignment, leader, Set /
   Clear / Clear All). Paragraphs with equal borders form one box (top above the first, bottom below the last, "between"
@@ -67,7 +68,7 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
   the corner selector's kind, drag moves, drag off removes. Tab characters are laid out from the stops in effect (style chain +
   direct, `clear` entries; Word's default every 1.27 cm): left, centre, right, decimal, with dot / hyphen / underscore leaders.
   Tab outside tables and lists types a tab character.
-- Print and Export PDF clone the editor DOM, so they show all of it.
+- Print and Export PDF print the print layout's pages (P8-31), so they show all of it.
 
 ### Write styles (P8-21)
 - **Styles gallery** (Home › Styles): the document's quick styles (`qFormat`, Word's order by `uiPriority`; Heading *N* ≥ 3
@@ -167,7 +168,7 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
   document, preview. Breaks ▾ › Column inserts `Break(column)`. The editor wraps a multi-column section's blocks in a
   `columns` box (a display node built from the sections like the list containers, flattened by `fromPM`, re-wrapped after
   section changes) rendered with CSS columns (balanced; a column break ends its column, an empty section-end paragraph
-  spans the columns); print layout keeps the box on one page (approximate); a column break outside multi-column sections
+  spans the columns); print layout flows the box over pages (P8-31); a column break outside multi-column sections
   ends the page. The ruler shows the section's columns (white) and the gaps.
 - **Document properties**: File › Info (a generic Info page of the shared backstage): Title, Subject, Author, Tags,
   Categories, Comments (commit on blur / Enter → `SetProperties`, an empty field clears) and read-only Created, Last
@@ -183,14 +184,39 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
   Update automatically → a `DATE` / `TIME` field with the picture, else the text.
 - **Paragraph flow**: the Paragraph dialog's Line and Page Breaks tab: Widow/Orphan control, Keep with next, Keep lines
   together, Page break before, Suppress line numbers (stored), Don't hyphenate (effective values, changes sent as direct
-  formatting). Print layout honours page break before and keep with next (a block chained by keep with next moves to the
-  next page with the following one, unless that would empty the page); blocks are never split, so keep lines together and
-  widow/orphan control hold by construction. Layout › Hyphenation ▾ None / Automatic → `SetSettings { autoHyphenation }`
+  formatting). Print layout honours all four (P8-31). Layout › Hyphenation ▾ None / Automatic → `SetSettings { autoHyphenation }`
   (`w:autoHyphenation`): CSS `hyphens: auto` with the UI language as `lang`; "Don't hyphenate" paragraphs (style or direct)
   stay `hyphens: manual`.
 - **Font box**: Home › Font shows the font and size in effect at the caret — direct formatting, the character style, the
   paragraph style chain, the defaults; theme fonts by name (+Headings Calibri Light, +Body Calibri) — updating on caret moves
   and style changes; the Style Inspector shows the same ("In effect: Calibri Light, 16 pt").
+
+### Write print layout: true pagination (P8-31)
+The algorithm is in `docs/write-layout.md`.
+- **Pages break between lines**: a paragraph continues on the next page; widow/orphan control (two lines, Word's
+  default on), keep lines together, keep with next (the last lines of the paragraph go along), page break before, page
+  breaks, section breaks (next page / even / odd with a blank page) per Word. Headers and footers are measured: a tall
+  header pushes the body down.
+- **Tables** break between rows; rows marked Header row (`w:tblHeader`) are repeated at the top of every page the table
+  continues on (drawn copies), never left alone at a page bottom; a row taller than a page continues its cells on the next
+  page at line boundaries unless "Allow row to break across pages" is off.
+- **Columns**: a multi-column section fills column 1, then column 2… and continues on the next page; its last page is
+  balanced; column breaks start the next column; the line between columns is drawn per page.
+- **Footnotes** are at the bottom of the page of their reference (separator line), editable there (the notes area keeps
+  only the endnotes in print layout; draft view keeps the notes area); a footnote too long for its page continues on the
+  next one (full-width continuation separator, a read-only copy).
+- **Page gaps**: a grey band between sheets; hovering it shows "Page N"; double-click hides / shows the white space
+  between pages (Word's Hide White Space: the margins, headers and footers disappear, a thin line separates the pages).
+  A click in the margins of a gap puts the caret on the nearest line (the last line above, the first line below). The
+  caret moves across gaps with the arrow keys; PageDown / PageUp move it by one page (same place on the next / previous
+  page; with Shift the selection grows); selections and drag-selection run across pages.
+- **Status bar**: "Page X of Y" (the caret's page) in print layout. Page and NUMPAGES fields, PAGEREF, the TOC page
+  numbers, Go To › Page and the saved page count come from the same layout.
+- **One layout for every surface**: File › Print's preview and Export PDF print the editor's pages as they are (the same
+  lines on the same pages) with the document's page setup at 100 %; other paper, margins, scale or Print markup lay the
+  document out again at the printed width with the same rules.
+- Zoom and window resizes lay the pages out again (60 ms); long documents re-measure only changed blocks, resume the
+  pagination at the page before the first change and draw only the pages near the viewport (docs/perf.md).
 
 ## Building blocks (`@rusuite/ui-shared`)
 
@@ -688,9 +714,10 @@ the current settings, straight to the system dialog (desktop and browser alike: 
   one page, fit all columns, fit all rows); wide sheets paginate into page columns, ordered down, then over; gridlines, row
   and column headings, rows to repeat at the top; header and footer as left/center/right slots with `&P &N &D &T &A &F`. Merged
   cells print as one cell (`colspan`/`rowspan`, cut at page breaks).
-- **Write** (`apps/write/src/print`): the editor's top-level blocks cloned onto pages, measured at the printed text width and
-  packed with the print layout's `computeBreaks` – with the document's own page setup at 100 % the pages are the editor's
-  pages; overrides for paper, orientation, margins and a content scale; headers/footers with `{PAGE}` on every page.
+- **Write** (`apps/write/src/print`): the print layout's pages (P8-31): every fragment of a page is a slice of a cloned
+  block cut between two lines, plus repeated table headers and the page's footnotes – with the document's own page setup
+  at 100 % the pages are the editor's pages; overrides for paper, orientation, margins and a content scale measure the
+  clones at the printed width and paginate them with the same engine; headers/footers with `{PAGE}` on every page.
 - **Show** (`apps/show/src/print`): slide pictures from the editor's `SlideView` on off-screen Konva stages (cached per
   slide); layouts full-page slides (paper "Slide size" or a paper size), notes pages (slide + speaker notes), handouts with
   2/3/4/6 numbered, framed slides per page (3: with note lines); frame slides, scale to fit (or a percentage), print hidden

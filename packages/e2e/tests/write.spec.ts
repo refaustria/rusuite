@@ -134,7 +134,7 @@ test.describe("Write", () => {
       await page.keyboard.press("Enter");
     }
     await expect(page.locator(".page-gap").first()).toBeVisible();
-    const editorPages = (await page.locator(".page-gap").count()) + 1;
+    const editorPages = Number(await page.getByTestId("page-chrome").getAttribute("data-pages"));
     await page.keyboard.press("Control+p");
     await expect(page.getByTestId("print-panel")).toBeVisible();
     await expect(page.getByTestId("print-page-count")).toHaveText(`Page 1 of ${editorPages}`);
@@ -741,5 +741,272 @@ test.describe("Write links, fields and columns (P8-27)", () => {
     await expect(editor(page).locator("h1")).toHaveText("Chapter one");
     await expect(font).toHaveValue("Calibri Light");
     await expect(size).toHaveValue("16");
+  });
+});
+
+// ----- P8-31: pagination ------------------------------------------------------------------
+
+test.describe("Write pagination (P8-31)", () => {
+  const LOREM =
+    "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. ";
+
+  /** The body box of every sheet (page frame px). */
+  async function bodies(page: Page): Promise<[number, number][]> {
+    const raw = (await page.getByTestId("page-chrome").getAttribute("data-bodies")) ?? "";
+    return raw.split(";").map((s) => s.split(",").map(Number) as [number, number]);
+  }
+
+  /** Lines (text rects merged by row) of the elements matching `selector`, counted per page. */
+  async function linesPerPage(page: Page, selector: string, nth = 0): Promise<number[]> {
+    const b = await bodies(page);
+    return page.evaluate(
+      ({ selector, nth, b }) => {
+        const frame = document.querySelector("[data-testid=write-page]") as HTMLElement;
+        const fr = frame.getBoundingClientRect();
+        const z = fr.width / frame.offsetWidth;
+        const el = document.querySelectorAll(selector)[nth]!;
+        const tops = new Set<number>();
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        const r = document.createRange();
+        for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+          r.selectNodeContents(t);
+          for (const rc of Array.from(r.getClientRects())) tops.add(Math.round((rc.top + rc.bottom) / 2 / z - fr.top / z));
+        }
+        const out = b.map(() => 0);
+        for (const y of tops) {
+          const k = b.findIndex(([top, bottom]) => y >= top && y <= bottom);
+          if (k >= 0) out[k]!++;
+        }
+        return out;
+      },
+      { selector, nth, b },
+    );
+  }
+
+  async function typeLorem(page: Page, paragraphs: number, repeat = 3) {
+    await editor(page).click();
+    await editor(page).evaluate((el) => el.focus());
+    for (let i = 0; i < paragraphs; i++) {
+      await page.keyboard.insertText(`${i + 1}. ${LOREM.repeat(repeat)}`.trim());
+      if (i < paragraphs - 1) await page.keyboard.press("Enter");
+    }
+  }
+
+  const pages = async (page: Page) => Number(await page.getByTestId("page-chrome").getAttribute("data-pages"));
+
+  test("a 3-page document breaks inside paragraphs: one paragraph straddles pages 1 and 2", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openWrite(page);
+    await typeLorem(page, 14);
+    await expect.poll(() => pages(page)).toBe(3);
+    await expect(page.getByTestId("page-status")).toHaveText("Page 3 of 3");
+    // Some paragraph has lines on page 1 and on page 2.
+    const count = await editor(page).locator("p").count();
+    let straddle: number[] | null = null;
+    for (let i = 0; i < count && !straddle; i++) {
+      const per = await linesPerPage(page, ".ProseMirror > p", i);
+      if (per[0]! > 0 && per[1]! > 0) straddle = per;
+    }
+    expect(straddle).not.toBeNull();
+    expect(straddle![0]).toBeGreaterThanOrEqual(2);
+    expect(straddle![1]).toBeGreaterThanOrEqual(2);
+    // Every line of the document lies inside a page body.
+    const b = await bodies(page);
+    const outside = await page.evaluate((b) => {
+      const frame = document.querySelector("[data-testid=write-page]") as HTMLElement;
+      const fr = frame.getBoundingClientRect();
+      const r = document.createRange();
+      const walker = document.createTreeWalker(document.querySelector(".ProseMirror")!, NodeFilter.SHOW_TEXT);
+      let n = 0;
+      for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+        r.selectNodeContents(t);
+        for (const rc of Array.from(r.getClientRects())) {
+          const y = (rc.top + rc.bottom) / 2 - fr.top;
+          if (!b.some(([top, bottom]) => y >= top && y <= bottom)) n++;
+        }
+      }
+      return n;
+    }, b);
+    expect(outside).toBe(0);
+    await page.getByTestId("write-scroll").evaluate((el) => (el.scrollTop = 800));
+    await page.screenshot({ path: `${SHOTS}/p8-31-lines-across-pages.png` });
+    errors.expectNone();
+  });
+
+  test("widow control moves the last line: a 4-line paragraph splits 2/2, without widow control 3/1", async ({ page }) => {
+    await openWrite(page);
+    await editor(page).click();
+    // Paragraph A: one-line rows (Shift+Enter), paragraph B: 4 lines.
+    for (let i = 0; i < 40; i++) {
+      await page.keyboard.insertText(`a${i}`);
+      await page.keyboard.press("Shift+Enter");
+    }
+    await page.keyboard.insertText("a-last");
+    await page.keyboard.press("Enter");
+    for (let i = 0; i < 3; i++) {
+      await page.keyboard.insertText(`b${i}`);
+      await page.keyboard.press("Shift+Enter");
+    }
+    await page.keyboard.insertText("b-last");
+    const B = ".ProseMirror > p";
+    // Lines added to A push B down until it no longer fits on page 1.
+    let per = await linesPerPage(page, B, 1);
+    for (let k = 0; k < 40 && (per[1] ?? 0) === 0; k++) {
+      await editor(page).locator("p").first().evaluate((el) => el.scrollIntoView({ block: "end" }));
+      await page.keyboard.press("Control+Home");
+      await page.keyboard.insertText("a+");
+      await page.keyboard.press("Shift+Enter");
+      await page.waitForTimeout(250);
+      per = await linesPerPage(page, B, 1);
+    }
+    // Without widow control it would be 3 + 1; Word keeps two lines together.
+    expect(per.slice(0, 2)).toEqual([2, 2]);
+    await page.keyboard.press("Control+End");
+    await page.getByRole("tab", { name: "Home" }).click();
+    await page.getByRole("button", { name: "Paragraph settings" }).click();
+    const dialog = page.getByRole("dialog", { name: "Paragraph" });
+    await dialog.getByRole("tab", { name: "Line and Page Breaks" }).click();
+    await dialog.getByRole("checkbox", { name: "Widow/Orphan control" }).uncheck();
+    await dialog.getByRole("button", { name: "OK" }).click();
+    await expect.poll(async () => (await linesPerPage(page, B, 1)).slice(0, 2)).toEqual([3, 1]);
+  });
+
+  test("a long table repeats its header row on page 2 (saved w:tblHeader)", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openWrite(page);
+    await editor(page).click();
+    await page.keyboard.type("Before the table");
+    await page.getByRole("tab", { name: "Insert" }).click();
+    await page.getByRole("button", { name: "Table", exact: true }).click();
+    await page.getByRole("button", { name: "2 × 2 table" }).click();
+    await editor(page).locator("table td").first().click();
+    await page.keyboard.type("Head A");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("Head B");
+    await page.getByRole("tab", { name: "Table Layout" }).click();
+    await page.getByRole("button", { name: "Header row", exact: true }).click();
+    await expect(editor(page).locator("tr[data-header]")).toHaveCount(1);
+    for (let i = 1; i < 45; i++) {
+      await page.keyboard.press("Tab");
+      await page.keyboard.type(`Row ${i}`);
+      await page.keyboard.press("Tab");
+      await page.keyboard.type(`Value ${i}`);
+    }
+    await expect.poll(() => pages(page)).toBe(2);
+    const repeat = page.getByTestId("page-repeat-header");
+    await expect(repeat).toHaveCount(1);
+    await expect(repeat).toContainText("Head A");
+    // The repeated header sits at the top of page 2's body, right above the first row there.
+    const [, second] = await bodies(page);
+    const top = await repeat.evaluate((el) => parseFloat((el as HTMLElement).style.top));
+    expect(Math.abs(top - second![0])).toBeLessThan(1);
+    await repeat.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${SHOTS}/p8-31-table-header.png` });
+    const docx = await saveViaBackstage(page);
+    expect(zipText(docx, "word/document.xml")).toContain("<w:tblHeader");
+    errors.expectNone();
+  });
+
+  test("a footnote is at the bottom of its page in print layout and in the print preview", async ({ page }) => {
+    // (Opening the preview of a document with notes logs Chromium's sandbox notice for the preview frame – also before P8-31.)
+    await openWrite(page);
+    await typeLorem(page, 10);
+    await expect.poll(() => pages(page)).toBe(2);
+    const p5 = editor(page).locator("p", { hasText: "5. Lorem" });
+    // The caret into paragraph 5 (retried: the pages may still be settling after typing).
+    await expect
+      .poll(async () => {
+        await p5.evaluate((el) => el.scrollIntoView({ block: "center" }));
+        await page.waitForTimeout(200);
+        await p5.click({ position: { x: 30, y: 5 } });
+        return page.evaluate(() => window.getSelection()?.anchorNode?.textContent?.startsWith("5. Lorem") ?? false);
+      })
+      .toBe(true);
+    await page.keyboard.press("End");
+    await page.keyboard.press("Control+Alt+f");
+    await page.keyboard.type("Footnote at the foot of page one.");
+    const note = editor(page).locator(".note[data-note-kind='foot']");
+    await expect(note).toHaveClass(/note-paged/);
+    const [first] = await bodies(page);
+    // The note's bottom is at the bottom of page 1's body (one editable copy, no notes area duplicate).
+    await expect
+      .poll(async () => {
+        const box = await note.evaluate((el) => {
+          const fr = document.querySelector("[data-testid=write-page]")!.getBoundingClientRect();
+          const r = el.getBoundingClientRect();
+          return [r.top - fr.top, r.bottom - fr.top];
+        });
+        return box[1]! <= first![1] + 1 && box[1]! > first![1] - 30 && box[0]! > first![0] + 400;
+      })
+      .toBe(true);
+    await expect(page.getByTestId("page-note-separator")).toHaveAttribute("data-page", "1");
+    await note.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${SHOTS}/p8-31-footnote.png` });
+    await page.keyboard.press("Control+p");
+    await expect(page.getByTestId("print-panel")).toBeVisible();
+    await expect(page.getByTestId("print-page-count")).toHaveText("Page 1 of 2");
+    const html = (await page.getByTestId("print-preview").getAttribute("srcdoc"))!;
+    const pageOne = html.split('data-page="2"')[0]!;
+    expect(pageOne).toContain("Footnote at the foot of page one.");
+    expect(pageOne).toContain("rs-write-note-sep");
+  });
+
+  test("a two-column section flows across pages: both columns filled on page 1, the rest on page 2", async ({ page }) => {
+    await openWrite(page);
+    await typeLorem(page, 16, 2);
+    await page.getByRole("tab", { name: "Layout" }).click();
+    await page.getByRole("button", { name: "Columns" }).click();
+    await page.getByRole("menuitemradio", { name: "Two" }).click();
+    await expect(editor(page).locator(".section-columns")).toHaveAttribute("data-columns", "2");
+    await expect.poll(() => pages(page)).toBe(2);
+    const b = await bodies(page);
+    // Lines per page and column (left / right half of the body).
+    const cols = await page.evaluate((b) => {
+      const frame = document.querySelector("[data-testid=write-page]") as HTMLElement;
+      const fr = frame.getBoundingClientRect();
+      const mid = fr.width / 2;
+      const out = b.map(() => [0, 0]);
+      const r = document.createRange();
+      const walker = document.createTreeWalker(document.querySelector(".section-columns")!, NodeFilter.SHOW_TEXT);
+      for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+        r.selectNodeContents(t);
+        for (const rc of Array.from(r.getClientRects())) {
+          const y = (rc.top + rc.bottom) / 2 - fr.top;
+          const k = b.findIndex(([top, bottom]) => y >= top && y <= bottom);
+          if (k >= 0) out[k]![rc.left - fr.left < mid ? 0 : 1]!++;
+        }
+      }
+      return out;
+    }, b);
+    expect(cols[0]![0]).toBeGreaterThan(40);
+    // Page 1's columns are full (within a line or two of each other), page 2 continues in both columns (balanced).
+    expect(Math.abs(cols[0]![0]! - cols[0]![1]!)).toBeLessThanOrEqual(3);
+    expect(cols[1]![0]).toBeGreaterThan(0);
+    expect(cols[1]![1]).toBeGreaterThan(0);
+    expect(Math.abs(cols[1]![0]! - cols[1]![1]!)).toBeLessThanOrEqual(3);
+    await page.getByTestId("write-scroll").evaluate((el) => (el.scrollTop = 700));
+    await page.screenshot({ path: `${SHOTS}/p8-31-columns.png` });
+  });
+
+  test("Export PDF: the printed PDF has as many pages as the editor", async ({ page }) => {
+    // Keep the print root mounted while the PDF is made.
+    await page.addInitScript(() => {
+      (window as unknown as { __printed: number }).__printed = -1;
+      window.print = () => {
+        (window as unknown as { __printed: number }).__printed = document.querySelectorAll("#rusuite-print-root .rs-print-page").length;
+      };
+    });
+    await openWrite(page);
+    await typeLorem(page, 16);
+    await page.keyboard.press("Control+Alt+f");
+    await page.keyboard.type("A note.");
+    await expect.poll(() => pages(page)).toBeGreaterThanOrEqual(3);
+    await page.waitForTimeout(500);
+    const editorPages = await pages(page);
+    await fileCommand(page, /^Export PDF/);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __printed: number }).__printed)).toBe(editorPages);
+    await page.emulateMedia({ media: "print" });
+    const pdf = await page.pdf({ preferCSSPageSize: true, printBackground: true });
+    expect((pdf.toString("latin1").match(/\/Type\s*\/Page(?!s)/g) ?? []).length).toBe(editorPages);
   });
 });
