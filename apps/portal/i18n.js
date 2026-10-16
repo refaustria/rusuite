@@ -3,7 +3,8 @@
 // stored under the same `localStorage` key as the apps' choice, so the
 // apps open in it too) or of the browser (de* → German). Elements name
 // their message with `data-i18n` (text), `data-i18n-html` (markup from the
-// catalog), `data-i18n-alt`, `data-i18n-content`, `data-i18n-aria-label`.
+// catalog), `data-i18n-alt`, `data-i18n-content`, `data-i18n-aria-label`;
+// `data-i18n-params` (JSON) fills `{name}` placeholders (escaped in markup).
 (() => {
   const KEY = "rusuite.locale";
   const LOCALES = ["en", "de"];
@@ -29,6 +30,16 @@
   const t = (key, params) => interpolate(messages[key] ?? FALLBACK[key] ?? key, params);
   window.rusuiteI18n = { locale: "en", t };
 
+  const escapeHtml = (v) => String(v).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  const params = (el, map = (v) => v) => {
+    if (!el.dataset.i18nParams) return undefined;
+    try {
+      return Object.fromEntries(Object.entries(JSON.parse(el.dataset.i18nParams)).map(([k, v]) => [k, map(v)]));
+    } catch {
+      return undefined;
+    }
+  };
+
   const ATTRS = [
     ["data-i18n-alt", "alt"],
     ["data-i18n-content", "content"],
@@ -42,9 +53,9 @@
       return; // the page stays as it is (English)
     }
     document.documentElement.lang = locale;
-    for (const el of document.querySelectorAll("[data-i18n]")) el.textContent = t(el.dataset.i18n);
-    // Markup from our own static catalogs (code/strong tags), never user input.
-    for (const el of document.querySelectorAll("[data-i18n-html]")) el.innerHTML = t(el.dataset.i18nHtml);
+    for (const el of document.querySelectorAll("[data-i18n]")) el.textContent = t(el.dataset.i18n, params(el));
+    // Markup from our own static catalogs (code/strong tags), never user input; parameters are escaped.
+    for (const el of document.querySelectorAll("[data-i18n-html]")) el.innerHTML = t(el.dataset.i18nHtml, params(el, escapeHtml));
     for (const [data, attr] of ATTRS) for (const el of document.querySelectorAll(`[${data}]`)) el.setAttribute(attr, t(el.getAttribute(data)));
     for (const b of document.querySelectorAll("[data-lang]")) b.setAttribute("aria-pressed", String(b.dataset.lang === locale));
     window.rusuiteI18n = { locale, t };

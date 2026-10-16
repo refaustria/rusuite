@@ -7,6 +7,40 @@ collapsed it is the strip only. On a narrow window the groups that do not fit co
 with the group's name and ▾ whose popup shows the group as in the ribbon (a command closes it; P8-38).
 
 
+## Contents
+
+Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app); the sections below add the details.
+
+- [Write](#write)
+  - [Write additions (P6-4)](#write-additions-p6-4)
+  - [Write structure (P8-10)](#write-structure-p8-10)
+  - [Write tables, pictures, paragraph borders and tabs (P8-17)](#write-tables-pictures-paragraph-borders-and-tabs-p8-17)
+  - [Write styles (P8-21)](#write-styles-p8-21)
+  - [Write comments (P8-25)](#write-comments-p8-25)
+  - [Write links, references, columns, properties (P8-27)](#write-links-references-columns-properties-p8-27)
+  - [Write print layout: true pagination (P8-31)](#write-print-layout-true-pagination-p8-31)
+  - [Write shapes, text boxes, picture formatting, character formatting (P8-34)](#write-shapes-text-boxes-picture-formatting-character-formatting-p8-34)
+  - [Write quality pass (P8-38)](#write-quality-pass-p8-38)
+- [Building blocks (@rusuite/ui-shared)](#building-blocks-rusuiteui-shared)
+- [Keyboard](#keyboard)
+- [Tabs per app](#tabs-per-app)
+- [Cloud connections (P8-36)](#cloud-connections-p8-36)
+- [AI assistant (P8-37)](#ai-assistant-p8-37)
+- [Save and Save As on the desktop (P7-7)](#save-and-save-as-on-the-desktop-p7-7)
+- [Unsaved changes (P7-6)](#unsaved-changes-p7-6)
+- [Show: slide show and presenter view (P7-8)](#show-slide-show-and-presenter-view-p7-8)
+- [Show: shape library, connectors and tables (P8-16)](#show-shape-library-connectors-and-tables-p8-16)
+- [Show: transitions and animations (P8-8)](#show-transitions-and-animations-p8-8)
+- [Show: themes, layouts, master view, footers, sections, pictures (P8-22)](#show-themes-layouts-master-view-footers-sections-pictures-p8-22)
+- [Show: master and layout editing, picture backgrounds, table styles, preset data (P8-32)](#show-master-and-layout-editing-picture-backgrounds-table-styles-preset-data-p8-32)
+- [Show: charts, links, action buttons, audio/video, Reuse Slides (P8-24)](#show-charts-links-action-buttons-audiovideo-reuse-slides-p8-24)
+- [Show: views, rulers, guides, Selection pane, text options, slide-show tools (P8-28)](#show-views-rulers-guides-selection-pane-text-options-slide-show-tools-p8-28)
+- [Printing (P7-9)](#printing-p7-9)
+- [Logos and the portal (P7-10)](#logos-and-the-portal-p7-10)
+- [Privacy (P7-12, ADR 0009)](#privacy-p7-12-adr-0009)
+
+## Write
+
 ### Write additions (P6-4)
 Contextual **Table** tab (insert/delete rows and columns, shading, borders, header row, row height), contextual **Picture Format** tab (alt text, align, size, reset, delete), **Print layout** view with page gaps, greyed headers/footers (double-click to edit) and Draft view, non-modal find bar with highlighted matches, Paragraph dialog, format painter, highlight/font colour menus, View › Spelling.
 

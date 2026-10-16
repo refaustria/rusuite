@@ -3,6 +3,8 @@
 //! `dispatch` command plus the native file dialogs and the recent-files /
 //! crash-recovery store (`SessionState`). No document logic lives here.
 
+pub mod smoke;
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -453,6 +455,21 @@ async fn save_file(
     Ok(Some(file))
 }
 
+/// `--smoke` (P8-41, [`smoke`]): the page's report of its IPC round trip;
+/// prints the result and exits. Ignored unless started with `--smoke`.
+#[tauri::command]
+fn smoke_report(
+    window: tauri::WebviewWindow,
+    smoke: tauri::State<'_, smoke::Smoke>,
+    report: smoke::Report,
+) {
+    smoke.finish(
+        "Rusuite Write",
+        &window.title().unwrap_or_default(),
+        &report,
+    );
+}
+
 /// Builds and runs the Tauri application.
 ///
 /// # Panics
@@ -460,6 +477,16 @@ async fn save_file(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(smoke::Smoke::from_args())
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Finished
+                && webview.label() == "main"
+                && webview.state::<smoke::Smoke>().start()
+            {
+                smoke::watchdog();
+                let _ = webview.eval(smoke::SCRIPT);
+            }
+        })
         .manage(CloseGuard::default())
         .manage(DocPath::default())
         .on_window_event(|window, event| {
@@ -483,6 +510,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ping,
+            smoke_report,
             dispatch,
             open_file_dialog,
             save_file,

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build the Calc, Write and Show web targets and publish them, plus the portal (apps/portal) at the root,
-# to /var/www/resuite (ADR 0005).
+# to /var/www/resuite (ADR 0005). The portal's downloads.html is generated from the GitHub release
+# (scripts/gen-downloads.sh).
 # Usage: scripts/deploy-web.sh [--no-build] [--e2e]
 #   --e2e  after publishing, run the Playwright smoke suite (packages/e2e) against the live site
 #          (base URL from E2E_BASE_URL, default <scheme>://$DEPLOY_HOST).
@@ -41,7 +42,10 @@ done
 # Portal: static files, no build step. No --delete at the root (it holds the app folders).
 [ -f apps/portal/index.html ] || { echo "missing apps/portal/index.html" >&2; exit 1; }
 mkdir -p "$TARGET/logos" "$TARGET/locales"
-rsync -a apps/portal/index.html apps/portal/privacy.html apps/portal/styles.css apps/portal/i18n.js apps/portal/version.js "$TARGET/"
+rsync -a apps/portal/index.html apps/portal/privacy.html apps/portal/styles.css apps/portal/i18n.js apps/portal/version.js apps/portal/downloads.js "$TARGET/"
+# Downloads page: generated from the GitHub release now (gh), so the page itself fetches nothing (P8-41, ADR 0009).
+# DOWNLOADS_TAG picks the release (default: the newest published one); without gh it is the "no release yet" page.
+scripts/gen-downloads.sh --out "$TARGET/downloads.html"
 rsync -a --delete apps/portal/logos/ "$TARGET/logos/"
 rsync -a --delete apps/portal/locales/ "$TARGET/locales/"
 printf '{"commit":"%s","builtAt":"%s"}\n' "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TARGET/version.json"

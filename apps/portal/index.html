@@ -15,6 +15,10 @@
       <button type="button" data-lang="en" lang="en" aria-pressed="true" title="English">EN</button>
       <button type="button" data-lang="de" lang="de" aria-pressed="false" title="Deutsch">DE</button>
     </div>
+    <nav class="topnav" data-i18n-aria-label="portal.nav" aria-label="Site">
+      <a href="downloads.html" data-i18n="portal.dl.nav">Downloads</a>
+      <a href="privacy.html" data-i18n="portal.privacy">Privacy</a>
+    </nav>
     <header class="hero">
       <div class="brand">
         <img src="logos/rusuite.svg" width="64" height="64" data-i18n-alt="portal.logo" alt="Rusuite logo" />
@@ -34,7 +38,7 @@
           <p data-i18n-html="portal.calc.text">Formulas with an Excel-compatible engine, cell styles, number formats and fill – saved as <code>.xlsx</code>.</p>
           <div class="actions">
             <a class="button" href="/calc/" data-i18n="portal.calc.open">Open Calc in browser</a>
-            <a class="more" href="https://github.com/refaustria/rusuite/releases" data-i18n="portal.downloads">Desktop downloads</a>
+            <a class="more" href="downloads.html" data-i18n="portal.downloads">Desktop downloads</a>
           </div>
         </li>
         <li class="card" data-app="write">
@@ -43,7 +47,7 @@
           <p data-i18n-html="portal.write.text">Styles, lists, tables, images, headers and footers with a page view – saved as <code>.docx</code>.</p>
           <div class="actions">
             <a class="button" href="/write/" data-i18n="portal.write.open">Open Write in browser</a>
-            <a class="more" href="https://github.com/refaustria/rusuite/releases" data-i18n="portal.downloads">Desktop downloads</a>
+            <a class="more" href="downloads.html" data-i18n="portal.downloads">Desktop downloads</a>
           </div>
         </li>
         <li class="card" data-app="show">
@@ -52,7 +56,7 @@
           <p data-i18n-html="portal.show.text">Layouts, shapes, pictures, speaker notes and a presenter view – saved as <code>.pptx</code>.</p>
           <div class="actions">
             <a class="button" href="/show/" data-i18n="portal.show.open">Open Show in browser</a>
-            <a class="more" href="https://github.com/refaustria/rusuite/releases" data-i18n="portal.downloads">Desktop downloads</a>
+            <a class="more" href="downloads.html" data-i18n="portal.downloads">Desktop downloads</a>
           </div>
         </li>
       </ul>
@@ -69,7 +73,7 @@
         <span aria-hidden="true">·</span>
         <span id="version" data-testid="version">Version unknown</span>
       </p>
-      <p class="legal">Microsoft, Word, Excel and PowerPoint are trademarks of Microsoft Corporation. Rusuite is not affiliated with Microsoft.</p>
+      <p class="legal" data-i18n="portal.legal">Microsoft, Word, Excel and PowerPoint are trademarks of Microsoft Corporation. Rusuite is not affiliated with Microsoft.</p>
 </footer>
 
     <script src="i18n.js"></script>

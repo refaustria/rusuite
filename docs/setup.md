@@ -85,6 +85,17 @@ The vhost `deploy/nginx/resuite.inceptum.at.conf` is symlinked into `/etc/nginx/
 
 `sudo apt-get install -y ffmpeg` (Debian 13: 7.1). Used only to generate the small MP4/H.264 test clip for the pptx media reference deck (`scripts/testdata-src/pptx/gen.py`); PowerPoint plays MP4/H.264, not WebM.
 
+## Licence list for NOTICE (P8-41)
+```
+cargo install cargo-license --locked     # cargo-license 0.7.0, lands in ~/.cargo/bin
+```
+`scripts/gen-notice.sh` combines `cargo license --avoid-dev-deps --avoid-build-deps --avoid-proc-macros --json` with
+pnpm's built-in `pnpm -r licenses list --prod --json` into `NOTICE` (details: docs/legal-notes.md). `cargo about`
+would also work but needs a template and a licence allow-list config; the list format is enough for NOTICE.
+
+## Release tooling (P8-41)
+`scripts/set-version.sh <version>` / `scripts/check-versions.sh` need only bash, awk and node; `scripts/gen-downloads.sh`
+needs an authenticated `gh` (GitHub CLI 2.46 from Debian; read access to the repository is enough).
 ## Report relay (P8-43)
 
 `services/report-relay` (binary `rusuite-report-relay`, axum + tokio + reqwest/rustls) turns the apps' "Report a

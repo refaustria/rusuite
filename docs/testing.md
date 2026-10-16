@@ -42,23 +42,67 @@ publishing (`E2E_BASE_URL` overrides the URL).
 
 ## Desktop shells (real windows)
 
-`scripts/desktop-smoke.sh [calc|write|show ...]` runs the release binaries (`pnpm --filter <app> tauri build --no-bundle`)
-under `xvfb-run` + `dbus-run-session`, driven by `tauri-driver` → `WebKitWebDriver` (setup: docs/setup.md). The driver,
-`scripts/desktop-smoke.mjs`, speaks plain W3C WebDriver over `fetch`; data/config/cache dirs are private temp dirs. Per app:
+`scripts/desktop-smoke.sh [--start-only] [calc|write|show ...]` runs the release binaries (`pnpm --filter <app> tauri build
+--no-bundle`; `SMOKE_BIN_DIR` points elsewhere). Data/config/cache dirs are private temp dirs. Per app:
 
-- **Close guard**: an edit (Calc: type + Enter on the grid; Write: Enter in the editor; Show: New slide) puts `•` in the native
-  window title → a close request (`Window.close()`, which raises `CloseRequested` like the window manager's close button) →
-  the "Save changes to …?" dialog → **Don't save** → the process exits.
-- **Save to the remembered file**: the app data dir is seeded with a recent entry for a copy of a `testdata/` file; File › that
-  entry opens it by path, an edit, **Ctrl+S** must rewrite the file without a dialog, the title shows the file name and the
-  clean window closes without asking.
+- **Start check** (every OS, P8-41): `app-<name> --smoke` opens the window; the page renders, calls `ping` and
+  `dispatch` (`documentState`) over the real IPC bridge; the binary checks the reply, the native window title and that
+  `ping` reports the version in `tauri.conf.json`, prints `ok Rusuite Calc 0.1.0-rc.1 | Untitled – Rusuite Calc` and
+  exits 0 (`apps/*/src-tauri/src/smoke.rs`; also written to `$RUSUITE_SMOKE_OUT`). Under xvfb on Linux without a
+  display. `--start-only` stops after this step: that is what the release workflow's `smoke` job runs on Linux,
+  Windows and macOS (docs/release.md).
+- **Close guard** (Linux, WebDriver): an edit (Calc: type + Enter on the grid; Write: Enter in the editor; Show: New
+  slide) puts `•` in the native window title → a close request (`Window.close()`, which raises `CloseRequested` like the
+  window manager's close button) → the "Save changes to …?" dialog → **Don't save** → the process exits.
+- **Open → edit → Save → reopen** (Linux, WebDriver): the app data dir is seeded with a recent entry for a copy of a
+  `testdata/` file; File › that entry opens it by path, an edit, **Ctrl+S** must rewrite the file without a dialog, the
+  title shows the file name and the clean window closes without asking. A second start opens the saved file the same way
+  and must show the edit: one more cell showing `7` (Calc, `findCells` through `dispatch`), one more paragraph (Write,
+  `getDocument`), one more slide (Show, the status bar).
 
-Limitations: GTK's native file dialogs cannot be driven through WebDriver, so Save As and saving an untitled document are
-covered by unit tests only (the shells' `DocPath` in `apps/*/src-tauri/src/lib.rs`, the stores' save flows with a desktop-like
-fake backend). WebKitWebDriver's key events reach `keydown` handlers but insert no text (no `beforeinput`), hence the edits
-above. A run takes ~10 s; it is not part of CI (no display server there).
+The WebDriver steps run under `xvfb-run` + `dbus-run-session`, driven by `tauri-driver` → `WebKitWebDriver` (setup:
+docs/setup.md); the driver, `scripts/desktop-smoke.mjs`, speaks plain W3C WebDriver over `fetch`. Limitations: GTK's
+native file dialogs cannot be driven through WebDriver, so Save As and saving an untitled document are covered by unit
+tests only (the shells' `DocPath` in `apps/*/src-tauri/src/lib.rs`, the stores' save flows with a desktop-like fake
+backend). WebKitWebDriver's key events reach `keydown` handlers but insert no text (no `beforeinput`), hence the edits
+above. A full run takes ~30 s. The start check runs in the release workflow; the WebDriver steps are not part of CI yet.
+
+## Before tagging (owner checklist)
+
+What only the owner can check (real Office, Windows, macOS). Do it on the build from the `workflow_dispatch` test run
+(docs/release.md, section 2) – its draft has every installer – and report each line as OK or with a screenshot.
+
+**Office: reopen what Rusuite wrote.** `scripts/office-check-pack.sh` builds `target/office-check/rusuite-office-check-<version>.zip`
+(68 files: every reference workbook and deck, the feature-rich documents 47–64, all rewritten by Rusuite's writers, plus
+the decks built in code). On Windows or macOS with Microsoft 365:
+- [ ] **Excel**: open each file in `excel/` – no repair dialog; values, formats, charts, PivotTables (refresh one),
+  comments/notes, tables and names are there. Edit a cell, save, reopen in Rusuite Calc.
+- [ ] **Word**: open each file in `word/` – no repair dialog; numbering, sections, headers/footers, footnotes, TOC,
+  merged tables, floating pictures, comments as in the source. Save in Word, reopen in Rusuite Write.
+- [ ] **PowerPoint**: open each file in `powerpoint/` – no repair dialog; layouts, themes, shapes, connectors, tables,
+  charts, media; play `rusuite-anim_deck.pptx` (transitions and animations, push/cover directions). Save, reopen in
+  Rusuite Show.
+- [ ] One of your own real Office files per app: open in Rusuite (desktop), edit, Save, reopen in Office.
+
+**Installers** (from the test draft; unsigned, so expect the warnings the downloads page describes):
+- [ ] **Windows 10/11**: the `.exe` installs per user and starts from the Start menu; the `.msi` installs; uninstall
+  removes the app. Open/Save/Save As with the native dialogs, print, PDF export, close with unsaved changes asks.
+- [ ] **macOS Apple Silicon** and **macOS Intel**: the `.dmg` mounts, drag to Applications, right-click › Open starts it;
+  the same file and print checks; the presenter view opens a second window on a second screen (Show).
+- [ ] **Linux** (Ubuntu 22.04+): `.deb` via `sudo apt install ./…deb`, the `.AppImage` after `chmod +x`.
+- [ ] Desktop-only features once: Settings › AI with your own key (one action), a WebDAV connection (open + save).
+
+**Web** (<https://resuite.inceptum.at/> after the PM's deploy):
+- [ ] **Chrome**, **Firefox** and **Safari** (macOS): open one reference file per app, edit, save (download), reopen;
+  print preview; the language switch; File › Privacy › remove local copies. Firefox/Safari are not covered by the e2e
+  suite (Chromium only).
+- [ ] The portal: the Downloads page lists the release's installers with checksums and puts your OS first.
 
 ## CI
 
 The `frontend` job packs the three `dist-web` directories as an artifact; the `e2e` job (needs `frontend`) installs Chromium,
 runs `pnpm e2e` with 2 workers and one retry, and uploads `test-results` (screenshots, traces) and the HTML report on failure.
+
+The `frontend` job also runs `scripts/check-versions.sh` (every version string equal) and the Downloads page generator's
+tests (`node --test scripts/gen-downloads.test.mjs`). The release workflow checks the tag against the versions and
+starts every built app once per OS (`smoke` job, see Desktop shells above).

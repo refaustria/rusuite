@@ -7,11 +7,16 @@
 //     request (`Window.close()`, which raises CloseRequested exactly like
 //     the window manager's close button) → the "Save changes to …?" dialog
 //     → "Don't save" → the process exits.
-//  2. Save to the remembered file: the app data dir is seeded with a recent
-//     entry for a copy of a testdata file; File › recent entry opens it by
-//     path, an edit, then Ctrl+S must rewrite that file without any dialog
-//     (a GTK save dialog would block and time out), the title shows the file
-//     name, and closing the now clean window needs no question.
+//  2. Open → edit → Save → reopen (P8-41): the app data dir is seeded with a
+//     recent entry for a copy of a testdata file; File › recent entry opens
+//     it by path, an edit, then Ctrl+S must rewrite that file without any
+//     dialog (a GTK save dialog would block and time out), the title shows
+//     the file name, and closing the now clean window needs no question. A
+//     second start opens the saved file the same way and must show the edit
+//     (`app.count`, read through the real `dispatch` IPC or the UI, is one
+//     more than in the original file).
+// The `--smoke` start check of each binary (no WebDriver) runs before these,
+// from desktop-smoke.sh.
 // GTK's native file dialogs cannot be driven through WebDriver, so Save As
 // itself is covered by the unit tests (shell `DocPath`, the stores' flows).
 
@@ -43,6 +48,9 @@ const APPS = [
       await s.click(grid);
       await s.keys(["7", ENTER]);
     },
+    // Cells showing exactly 7: the edit adds one.
+    count: async (s) =>
+      (await s.dispatch({ type: "findCells", sheet: null, query: "7", matchCase: false, wholeCell: true })).cells.length,
   },
   {
     app: "write",
@@ -56,6 +64,8 @@ const APPS = [
       await s.click(editor);
       await s.keys([ENTER]);
     },
+    // Top-level blocks: Enter adds a paragraph.
+    count: async (s) => (await s.dispatch({ type: "getDocument" })).doc.body.length,
   },
   {
     app: "show",
@@ -63,6 +73,8 @@ const APPS = [
     fixture: "pptx/provisional-25-pitch-deck.pptx",
     ready: '[data-testid="editor-stage"]',
     edit: async (s) => s.click(await s.find('button[aria-label="New slide"]')),
+    // "Slide i of n" in the status bar.
+    count: async (s) => Number((await s.text(await s.find('[data-testid="slide-count"]'))).match(/(\d+)\D*$/)?.[1]),
   },
 ];
 
@@ -157,6 +169,18 @@ class Session {
     });
   }
 
+  /** The element's rendered text. */
+  text(el) {
+    return this.cmd("GET", `/element/${el}/text`);
+  }
+
+  /** A real `dispatch` round trip to the app's core; returns the `ok` body. */
+  async dispatch(request) {
+    const reply = JSON.parse(await this.ipc("dispatch", { request: JSON.stringify(request) }));
+    if (!reply.ok) throw new Error(`dispatch ${request.type}: ${JSON.stringify(reply).slice(0, 200)}`);
+    return reply.ok;
+  }
+
   /** The native window title (the apps put "•" there while dirty). */
   windowTitle() {
     return this.ipc("plugin:window|title", { label: "main" });
@@ -236,18 +260,25 @@ async function closeGuard(app) {
   }
 }
 
-async function saveToRememberedFile(app) {
+/** File › the (only) recent entry; waits until the title shows `name`. */
+async function openRecent(s, name) {
+  await s.click(await s.findXPath('//*[@role="tab" and normalize-space(.)="File"]'));
+  await s.click(await until("the recent entry", () => s.find('[data-testid="recent-entry"]')));
+  await until(`the title "${name}"`, async () => (await s.windowTitle()).includes(name));
+}
+
+async function openSaveReopen(app) {
   const file = path.join(WORK, "docs", `smoke-${app.app}${path.extname(app.fixture)}`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.copyFileSync(path.join(ROOT, "testdata", app.fixture), file);
   const before = sha(file);
+  const name = path.basename(file);
   resetData(app, file);
-  const { s, binary } = await launch(app);
+  let { s, binary } = await launch(app);
+  let original;
   try {
-    await s.click(await s.findXPath('//*[@role="tab" and normalize-space(.)="File"]'));
-    await s.click(await until("the recent entry", () => s.find('[data-testid="recent-entry"]')));
-    const name = path.basename(file);
-    await until(`the title "${name}"`, async () => (await s.windowTitle()).includes(name));
+    await openRecent(s, name);
+    original = await until("the document's content", () => app.count(s).then((n) => (Number.isFinite(n) ? { n } : null)));
     await app.edit(s);
     await until("the dirty marker", async () => (await s.windowTitle()).includes("•"));
     await s.ctrl("s");
@@ -264,6 +295,21 @@ async function saveToRememberedFile(app) {
     await s.end();
     throw e;
   }
+  // Second start: the saved file opens and carries the edit.
+  resetData(app, file);
+  ({ s, binary } = await launch(app));
+  try {
+    await openRecent(s, name);
+    const expected = original.n + 1;
+    await until(`the reopened file to show the edit (count ${expected})`, async () => (await app.count(s)) === expected);
+    const state = await s.dispatch({ type: "documentState" });
+    if (state.dirty) throw new Error("the reopened document is dirty");
+    await s.requestClose();
+    await waitExit(binary, s);
+  } catch (e) {
+    await s.end();
+    throw e;
+  }
 }
 
 // --- main --------------------------------------------------------------------
@@ -274,7 +320,7 @@ let failed = 0;
 for (const app of APPS.filter((a) => only.length === 0 || only.includes(a.app))) {
   for (const [label, test] of [
     ["close guard: dirty → close → Don't save → closed", closeGuard],
-    ["Save writes the remembered file without a dialog", saveToRememberedFile],
+    ["open → edit → Save (no dialog) → reopen shows the edit", openSaveReopen],
   ]) {
     const t0 = Date.now();
     try {
