@@ -22,5 +22,10 @@ export default defineConfig(({ mode }) => ({
   },
   test: {
     environment: "jsdom",
+    // The App-level UI tests mount the whole editor and wait for each step (`findBy…`/`waitFor` with their own
+    // timeouts); alone they take 1–3 s, but under CPU load (the whole repo's `pnpm test` next to a `cargo build`)
+    // several exceeded vitest's default 5 s test deadline although every step was still progressing. The waits
+    // decide what is checked; the test deadline only guards against hangs.
+    testTimeout: 30_000,
   },
 }));
