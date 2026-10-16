@@ -1,7 +1,7 @@
 // Ribbon controls: buttons (large/small, toggle), split buttons, menu
 // buttons, dividers and layout helpers for group contents.
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { FOCUS_RING } from "../Popover";
 import { formatCombo } from "../shortcuts/keys";
 import { RibbonIcon, type RibbonIconName } from "./icons";
@@ -157,8 +157,17 @@ const PANEL = "absolute left-0 top-full z-50 mt-0.5 rounded border border-ui-bor
 export type RibbonPopupContent = RibbonMenuItem[] | ((close: () => void) => ReactNode);
 
 function PopupPanel({ id, label, content, close }: { id: string; label: string; content: RibbonPopupContent; close: () => void }) {
+  // A panel under a button near the window's right edge moves left to stay visible.
+  const ref = useRef<HTMLDivElement>(null);
+  const [dx, setDx] = useState(0);
+  useLayoutEffect(() => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r) return;
+    const over = r.right - (window.innerWidth - 4);
+    if (over > 0) setDx(-Math.min(over, Math.max(0, r.left - 4)));
+  }, []);
   return (
-    <div id={id} className={PANEL}>
+    <div ref={ref} id={id} className={PANEL} style={dx ? { left: dx } : undefined}>
       {Array.isArray(content) ? (
         <RibbonMenu label={label} items={content} onDone={close} />
       ) : (

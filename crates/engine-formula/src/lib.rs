@@ -42,6 +42,7 @@
 pub mod ast;
 pub mod coord;
 pub mod engine;
+pub mod entry;
 pub mod eval;
 pub mod functions;
 pub mod graph;

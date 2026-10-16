@@ -29,11 +29,12 @@ describe("clipboard", () => {
     await put(store, 0, 0, "3");
     await put(store, 0, 1, "=A1*2");
     store.select(cellSelection(0, 1));
-    expect(store.copy()).toBe("=A1*2");
+    // The system clipboard gets the value (Excel); the internal copy keeps the formula.
+    expect(store.copy()).toBe("6");
     expect(store.getState().clipMark).toEqual({ sheet: 0, range: { r0: 0, c0: 1, r1: 0, c1: 1 }, cut: false });
     core.log.length = 0;
     store.select(cellSelection(2, 2));
-    await store.paste("=A1*2");
+    await store.paste("6");
     expect(applied(core.log)).toEqual([{
       type: "pasteRange", sheet: 0, r0: 2, c0: 2, src: { sheet: 0, r0: 0, c0: 1, r1: 0, c1: 1 },
       cells: [{ dr: 0, dc: 0, input: "=A1*2", style: 0 }], mode: "all", cut: false, repeatRows: 1, repeatCols: 1, annotations: true,

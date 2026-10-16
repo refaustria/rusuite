@@ -10,7 +10,7 @@ import { calcActions } from "./calcActions";
 import { CalcDialogs } from "./CalcDialogs";
 import { ValidationAlertDialog } from "./validation/ValidationDialogs";
 import { t as translate, useT } from "./i18n";
-import type { CalcStore } from "./state/store";
+import { visibleSheets, type CalcStore } from "./state/store";
 import { openCreateTable } from "./tables/TableRibbon";
 
 const inGrid = (e: KeyboardEvent) => (e.target as HTMLElement | null)?.hasAttribute?.("data-calc-grid") ?? false;
@@ -98,7 +98,39 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       else if (isWholeCols(r)) void store.structure(kind, "cols");
       else setStructure(kind);
     };
+    /** Ctrl+Shift+1…6 / ~: Excel's number format keys. */
+    const numberFormat = (code: string) => () => void store.applyStyle({ numberFormat: code });
+    /** Ctrl+; / Ctrl+Shift+;: today's date or the current time in the cell editor (Enter stores it as a date/time). */
+    const stamp = (time: boolean) => () => {
+      const d = new Date();
+      const h = d.getHours() % 12 || 12;
+      store.beginEdit(time ? `${h}:${String(d.getMinutes()).padStart(2, "0")} ${d.getHours() < 12 ? "AM" : "PM"}` : `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`);
+    };
+    /** Ctrl+PageDown / PageUp: the next / previous visible sheet. */
+    const nextSheet = (step: number) => () => {
+      const list = visibleSheets(store.getState().info?.sheets ?? []);
+      const i = list.findIndex((s) => s.id === store.getState().activeSheet);
+      const next = list[i + step];
+      if (next) store.setActiveSheet(next.id);
+    };
     return {
+      "Mod+Shift+`": { label: t("calc.quick.general"), group: t("sc.format"), when: inGrid, run: numberFormat("General") },
+      "Mod+Shift+1": { label: t("calc.quick.number"), group: t("sc.format"), when: inGrid, run: numberFormat("#,##0.00") },
+      "Mod+Shift+2": { label: t("calc.quick.time"), group: t("sc.format"), when: inGrid, run: numberFormat("h:mm AM/PM") },
+      "Mod+Shift+3": { label: t("calc.quick.shortDate"), group: t("sc.format"), when: inGrid, run: numberFormat("d-mmm-yy") },
+      "Mod+Shift+4": { label: t("calc.quick.currency"), group: t("sc.format"), when: inGrid, run: numberFormat('"$"#,##0.00_);\\("$"#,##0.00\\)') },
+      "Mod+Shift+5": { label: t("calc.quick.percentage"), group: t("sc.format"), when: inGrid, run: numberFormat("0%") },
+      "Mod+Shift+6": { label: t("calc.quick.scientific"), group: t("sc.format"), when: inGrid, run: numberFormat("0.00E+00") },
+      "Mod+5": {
+        label: t("fmt.strike"),
+        group: t("sc.format"),
+        when: inGrid,
+        run: () => void store.applyStyle({ font: { strike: !store.activeStyle().font?.strike } }),
+      },
+      "Mod+;": { label: t("calc.sc.insertDate"), group: t("sc.edit"), when: inGrid, run: stamp(false) },
+      "Mod+Shift+:": { label: t("calc.sc.insertTime"), group: t("sc.edit"), when: inGrid, run: stamp(true) },
+      "Mod+PageDown": { label: t("calc.sc.nextSheet"), group: t("calc.sheets"), when: inGrid, run: nextSheet(1) },
+      "Mod+PageUp": { label: t("calc.sc.prevSheet"), group: t("calc.sheets"), when: inGrid, run: nextSheet(-1) },
       "Mod+N": { label: t("calc.sc.newWorkbook"), group: File, inField: true, run: () => void guard.run(() => store.newFile()) },
       "Mod+O": { label: t("cmd.open"), group: File, inField: true, run: () => void guard.run(() => store.openFile()) },
       "Mod+S": { label: t("cmd.save"), group: File, inField: true, run: () => void store.saveFile() },

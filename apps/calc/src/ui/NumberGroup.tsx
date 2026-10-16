@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { RibbonButton, RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack, useLocale, type CellStylePatch } from "@rusuite/ui-shared";
 import {
-  accountingCode, changeDecimals, previewValue, QUICK_FORMATS, quickCode, quickOf, SAMPLE_VALUE, type CurrencySymbol, type QuickFormat,
+  accountingCode, changeDecimals, previewValue, shownDecimals, QUICK_FORMATS, quickCode, quickOf, SAMPLE_VALUE, type CurrencySymbol, type QuickFormat,
 } from "../numberFormat";
 import { useT } from "../i18n";
 import type { CalcStore } from "../state/store";
@@ -106,8 +106,8 @@ export function NumberGroup({ store, disabled, onChange }: { store: CalcStore; d
         />
         <RibbonButton label={t("calc.percentStyle")} icon="percent" shortcut="Mod+Shift+5" disabled={disabled} onClick={() => onChange({ numberFormat: "0%" })} />
         <RibbonButton label={t("calc.commaStyle")} icon="comma" disabled={disabled} onClick={() => onChange({ numberFormat: COMMA_STYLE })} />
-        <RibbonButton label={t("calc.decimalMore")} icon="decimalMore" disabled={disabled} onClick={() => onChange({ numberFormat: changeDecimals(code, 1) })} />
-        <RibbonButton label={t("calc.decimalLess")} icon="decimalLess" disabled={disabled} onClick={() => onChange({ numberFormat: changeDecimals(code, -1) })} />
+        <RibbonButton label={t("calc.decimalMore")} icon="decimalMore" disabled={disabled} onClick={() => onChange({ numberFormat: changeDecimals(code, 1, shownDecimals(store.activeCell()?.display)) })} />
+        <RibbonButton label={t("calc.decimalLess")} icon="decimalLess" disabled={disabled} onClick={() => onChange({ numberFormat: changeDecimals(code, -1, shownDecimals(store.activeCell()?.display)) })} />
       </RibbonRow>
     </RibbonStack>
   );

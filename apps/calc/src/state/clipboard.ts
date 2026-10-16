@@ -50,7 +50,7 @@ export function captureClip(
         values.push({ ...at, input: c.display, style: c.style });
         continue;
       }
-      fields.push(c?.input ?? "");
+      fields.push(c ? tsvField(c) : "");
       if (c && (c.input !== "" || c.style !== 0)) {
         clip.push({ ...at, input: c.input, style: c.style });
         values.push({ ...at, input: c.input, style: c.style });
@@ -61,11 +61,54 @@ export function captureClip(
   return { sheet, range: { ...range }, cells: clip, cut, tsv: lines.join("\n"), ...(spilled ? { values } : {}) };
 }
 
-/** Parses TSV (Excel's clipboard format) into rows of cells. */
+/**
+ * A cell as Excel puts it on the clipboard: the displayed text (a formula's
+ * value, a number as formatted – without the alignment padding of `_)`),
+ * quoted when it holds a line break, a tab or starts with a quote.
+ */
+function tsvField(c: CellView): string {
+  const text = c.kind === "number" ? c.display.trim() : c.display;
+  return /[\n\t]|^"/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/** Parses TSV (Excel's clipboard format) into rows of cells; `"…"` fields may hold line breaks and tabs (`""` is a quote). */
 export function parseTsv(text: string): string[][] {
-  const lines = text.replace(/\r\n?/g, "\n").split("\n");
-  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
-  return lines.map((l) => l.split("\t"));
+  const src = text.replace(/\r\n?/g, "\n");
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let i = 0;
+  for (;;) {
+    let field: string | null = null;
+    if (src[i] === '"') {
+      // A quoted field ends at a quote followed by a tab, a line break or the end.
+      for (let j = i + 1; j < src.length; j++) {
+        if (src[j] !== '"') continue;
+        if (src[j + 1] === '"') j++;
+        else if (j + 1 === src.length || src[j + 1] === "\t" || src[j + 1] === "\n") {
+          field = src.slice(i + 1, j).replace(/""/g, '"');
+          i = j + 1;
+          break;
+        }
+      }
+    }
+    if (field === null) {
+      // Unquoted (or an unclosed quote): up to the next tab or line break.
+      let j = i;
+      while (j < src.length && src[j] !== "\t" && src[j] !== "\n") j++;
+      field = src.slice(i, j);
+      i = j;
+    }
+    row.push(field);
+    if (i >= src.length) break;
+    if (src[i] === "\n") {
+      rows.push(row);
+      row = [];
+      i++;
+      if (i >= src.length) return rows.length ? rows : [[""]];
+    } else i++;
+  }
+  rows.push(row);
+  return rows;
 }
 
 /** Plain text from another program as a clip block: inputs only (destination formats kept). */
