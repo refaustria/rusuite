@@ -20,6 +20,7 @@ members = [
     "apps/show/core",
     "apps/show/src-tauri",
     "apps/show/src-wasm",
+    "services/report-relay",
 ]
 
 [workspace.package]

@@ -29,6 +29,12 @@ Owner question 2026-10-15: "Can we face copyright infringement if we offer pptx/
    (MIT/Apache-2.0), `dbus`/`libdbus-sys` (MIT/Apache-2.0; already used by Tauri). The web apps add no
    dependency (the browser's `fetch`).
 
+8. **Report relay (P8-43).** `services/report-relay` is a server program (not shipped in the apps). New crates, all
+   permissive: `axum`, `axum-core` (MIT), `matchit` (MIT AND BSD-3-Clause), `httpdate`, `serde_path_to_error`
+   (MIT/Apache-2.0); it also uses `tokio`, `reqwest`, `rustls`/`ring`, `uuid`, `sha2`, `base64` (already listed or
+   MIT/Apache-2.0). The apps add `html-to-image` 1.11.13 (MIT) for "Capture this window". Reports are posted publicly
+   to GitHub under GitHub's terms; the dialog tells the user before they submit.
+
 ## Recommendations before a public release
 - Keep the non-affiliation statement in README, portal, about dialogs and store listings.
 - Run a trademark search for "Rusuite" and the app names in the target markets.

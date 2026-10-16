@@ -18,6 +18,13 @@
 The workflow can also be started manually (Actions > Release > Run workflow) with a `ref` and a `tag`
 (default `v0.0.0-test`); delete the resulting draft with `gh release delete <tag>`.
 
+## Report relay URL (P8-43)
+The desktop apps post "Report a problem" to the relay URL baked in at build time: `REPORT_RELAY_URL` (Vite exposes it
+through the apps' `envPrefix`), default `https://resuite.inceptum.at/api/report`. Set it in the environment of the
+release build to point a build at another relay (`REPORT_RELAY_URL=https://example.org/api/report pnpm --filter calc
+tauri build`). The web builds always use the relative `/api/report` of the site they are served from. The relay
+itself is deployed separately (`scripts/deploy-relay.sh`, docs/setup.md "Report relay").
+
 ## Signing caveats
 Builds are **not code-signed**. Windows SmartScreen shows "unknown publisher" (More info > Run anyway);
 macOS Gatekeeper blocks the app on first launch (right-click > Open, or `xattr -dr com.apple.quarantine <app>`).

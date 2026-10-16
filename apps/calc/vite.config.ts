@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => ({
         // Tauri bundle (the import is unreachable there and gets dropped).
         build: { rollupOptions: { external: [/src-wasm\/pkg\//] } },
       }),
-  envPrefix: ["VITE_", "TAURI_"],
+  envPrefix: ["VITE_", "TAURI_", "REPORT_RELAY_"], // REPORT_RELAY_URL: the desktop report relay (P8-43)
   server: {
     port: 1420,
     strictPort: true,

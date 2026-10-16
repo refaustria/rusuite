@@ -1007,3 +1007,36 @@ and stores the choice where the apps read it; a German browser gets German by de
 - `scripts/privacy-check.sh` (CI) rejects `fetch(`, `XMLHttpRequest`, `WebSocket`, `sendBeacon`, `EventSource`, `navigator.share` outside the portal's `version.js`/`i18n.js`, and HTTP clients in `apps/*/src-tauri/Cargo.toml`.
 - e2e `privacy.spec.ts` records all requests of each app while opening, editing, autosaving and saving and asserts they are the page's own static files; it also covers the Privacy entry (EN/DE; `PRIVACY_SHOTS=<dir>` saves screenshots).
 - The portal says it in one sentence and links `privacy.html`.
+
+## Report a problem (P8-43)
+
+The one server endpoint of Rusuite (ADR 0009 amendment "Report a problem"): the dialog posts to the site's relay
+(`POST /api/report`, `services/report-relay`), which creates a **public** GitHub issue. Code:
+`packages/ui-shared/src/report` (`reportProblem` controller per window, dialog, `client.ts` – the only `fetch`, in the
+privacy-check allow-list, reachable only from the controller's `submit`).
+
+- **Entry points**: the **?** Help menu at the right end of the ribbon's tab strip (all apps; `HelpMenu` in the
+  ribbon's `rightSlot`, items Report a problem… and Keyboard shortcuts – in the strip rather than a Home group, so
+  no tab panel loses width and no group collapses because of it) and File › **Report a problem…** (backstage, under
+  Options…). The backstage mounts the dialog (`ReportOverlay`, attached to the session's backend).
+- **Dialog**: Type (Bug / Feature request / Question), Title (≤ 120, counter), Description (20–4000, a placeholder per
+  type), Steps to reproduce (bugs only); Screenshots: Add screenshot… (PNG/JPEG, ≤ 3, 2 MB each, 5 MB together;
+  thumbnail, Remove) and Capture this window (`html-to-image`, the dialog excluded; JPEG fallback over 2 MB; the note
+  says it includes the visible document content); "Include diagnostics" (on) with "Show exactly what is sent" – the
+  JSON taken when the dialog opened (user agent, viewport, `docStats` counts – Calc cells of the active sheet, Write
+  blocks, Show slides –, the last uncaught error message), sent unchanged; the amber notice "Your report, including
+  screenshots, will be posted publicly at github.com/refaustria/rusuite/issues. Do not include confidential
+  content." with **I understand** (required: Submit is disabled without it). Submit → "Sending…" → success card
+  "Thank you! Your report is issue #N." with **Open the issue on GitHub** (an `<a target="_blank">`), the
+  screenshots-not-attached warning when the relay says so, and "You can send another report in 60 min."
+- **Errors**: 429 "Too many reports – you can send another report in N min." (Submit disabled until then), offline,
+  relay unreachable, 502 "GitHub did not accept the report – try again later.", 413, 400 with the relay's message.
+  The fields stay filled after an error (also when the dialog is closed and reopened); a sent report clears them.
+- **Who sends**: app and version from `Backend.ping()`, platform (web/desktop), OS name, UI language, and
+  `instanceId` – a random v4 UUID made once in `localStorage` `rusuite.report.instance` (desktop: the webview's storage
+  in the app data directory; never from hardware). The client gate (`rusuite.report.nextAllowedAt`) allows one report
+  per hour; the relay enforces the same limit. URL: web `/api/report` (same origin, CSP unchanged); desktop
+  `REPORT_RELAY_URL` at build time (Vite `envPrefix`), default `https://resuite.inceptum.at/api/report`.
+- **Privacy**: nothing is sent before Submit (e2e `report.spec.ts` audits the requests); the payload has no document
+  content (the relay also refuses unknown fields); File › Home › Privacy has the paragraph `privacy.report`; the portal's
+  privacy page has a "Reporting a problem" section.

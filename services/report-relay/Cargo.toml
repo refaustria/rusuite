@@ -1,0 +1,33 @@
+[package]
+name = "report-relay"
+description = "Rusuite's \"Report a problem\" relay: POST /api/report → a GitHub issue (P8-43, ADR 0009 amendment)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "rusuite-report-relay"
+path = "src/main.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+# rustls with the `ring` provider (no aws-lc / cmake), as app-common's WebDAV client; the platform verifier uses the
+# OS trust store.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+base64 = "=0.23.1"
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
