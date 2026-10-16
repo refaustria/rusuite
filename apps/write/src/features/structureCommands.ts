@@ -94,7 +94,7 @@ export async function insertToc(editor: Editor, ctl: SyncController, toLevel = 3
   const after = atStart ? before : current;
   await ctl.run({ type: "insertToc", after, fromLevel: 1, toLevel, title, newId: nextTempId() });
   await withPageNumbers(editor, ctl);
-  editor.commands.focus();
+  if (!editor.isDestroyed) editor.commands.focus();
   return true;
 }
 
@@ -127,7 +127,7 @@ export async function insertTableOfFigures(editor: Editor, ctl: SyncController, 
   const after = atStart ? before : current;
   await ctl.run({ type: "insertToc", after, fromLevel: 1, toLevel: 1, title: null, newId: nextTempId(), caption: label.replace(/\s+/g, "_") });
   await withPageNumbers(editor, ctl);
-  editor.commands.focus();
+  if (!editor.isDestroyed) editor.commands.focus();
   return true;
 }
 

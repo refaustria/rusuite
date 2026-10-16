@@ -163,7 +163,7 @@ export function GroupBar({ groups, label, tabId }: { groups: GroupBarGroup[]; la
       {groups.map((g, i) =>
         i < fit ? (
           // Labels may repeat within a tab (two "Size" groups): keyed by position too.
-          <div key={`${tabId}:${i}:${g.label}`} role="group" aria-label={g.label} className="flex shrink-0 flex-col border-r border-ui-border px-1.5 last:border-r-0">
+          <div key={`${tabId}:${i}:${g.label}`} role="group" aria-label={g.label} className="flex shrink-0 flex-col border-r border-ui-border px-1 last:border-r-0">
             <Group label={g.label}>{g.items}</Group>
           </div>
         ) : (
