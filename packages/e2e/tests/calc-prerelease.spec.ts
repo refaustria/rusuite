@@ -1,8 +1,19 @@
 // P8-44 Calc pre-release fixes: regression tests for the deferred QA items (ids from docs/qa/calc-2026-10.md).
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { ribbonCommand, saveViaBackstage, trackErrors } from "../support/common";
 import { zipText } from "../support/zip";
 import { Grid, openCalc } from "../support/calc";
+
+test.use({ permissions: ["clipboard-read", "clipboard-write"] });
+
+/** The displayed text of a cell (Ctrl+C puts the displayed values on the system clipboard). */
+async function shown(page: Page, grid: Grid, row: number, col: number) {
+  await grid.click(row, col);
+  await page.evaluate(() => navigator.clipboard.writeText(""));
+  await page.keyboard.press("Control+c");
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).not.toBe("");
+  return (await page.evaluate(() => navigator.clipboard.readText())).trim();
+}
 
 test.describe("Calc pre-release fixes (P8-44)", () => {
   test("C-13 Insert Cells shifting right moves a formula and its references; undo restores", async ({ page }) => {
@@ -89,6 +100,19 @@ test.describe("Calc pre-release fixes (P8-44)", () => {
     await grid.type(7, 1, "=B7+1");
     await expect(status).toHaveCount(0);
     expect(await grid.display(7, 1)).toBe("6");
+    errors.expectNone();
+  });
+
+  test("C-19 a formula on a formatted cell takes its number format (=A1*2 on 12% shows 24%)", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "12%");
+    await grid.type(0, 1, "=A1*2");
+    await grid.type(1, 0, "$1,234.50");
+    await grid.type(1, 1, "=A2");
+    expect(await shown(page, grid, 0, 1)).toBe("24%");
+    expect(await shown(page, grid, 1, 1)).toBe("$1,234.50");
     errors.expectNone();
   });
 });

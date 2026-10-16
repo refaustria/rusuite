@@ -528,7 +528,9 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   today's date / the current time; Ctrl+PageDown / PageUp switch sheets (desktop; browsers keep some of these keys).
   Renaming a sheet rewrites the formulas that name it (`=Sheet2!A1` → `='Data 2'!A1`). The fill handle continues
   weekdays and months (`Mon`, `January`; the source's letter case). Not done: German decimal commas in typed numbers
-  (pending the locale decision of number-formats.md), formula results inheriting the format of the cells they refer to.
+  (pending the locale decision of number-formats.md). A formula typed into a General cell takes the number format of
+  the first formatted cell it refers to when it is a single reference or simple arithmetic on references (`=A1`,
+  `=A1*2`, `=-(A2)+1`; not functions, comparisons, text or ranges), as Excel (P8-44).
 - **Calc Insert / Delete Cells** (P8-44, `state/shiftCells.ts`): Home › Insert ▾ › Insert Cells…, Delete ▾ › Delete
   Cells…, the cell menu's Insert… / Delete… and Ctrl++ / Ctrl+- on a cell selection open Excel's dialog (Shift cells
   right / down – left / up –, Entire row, Entire column) → `insertCells` / `deleteCells` (`engine_formula::CellShift`:

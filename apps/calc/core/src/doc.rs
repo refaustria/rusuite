@@ -831,7 +831,7 @@ impl CalcDocument {
                         r1: row,
                         c1: col,
                         patch: CellStyle {
-                            number_format: Some(code.to_string()),
+                            number_format: Some(code.into_owned()),
                             ..Default::default()
                         },
                     })?;
@@ -2801,12 +2801,28 @@ fn typed_entry<'a>(
     wb: &model_sheet::Workbook,
     c: CellCoord,
     input: &'a str,
-) -> (std::borrow::Cow<'a, str>, Option<&'static str>) {
+) -> (
+    std::borrow::Cow<'a, str>,
+    Option<std::borrow::Cow<'static, str>>,
+) {
     use std::borrow::Cow;
-    if input.is_empty() || input.starts_with(['=', '\'']) {
+    let style = wb.style(c);
+    let general = match style.number_format.as_deref() {
+        None => true,
+        Some(f) => f.eq_ignore_ascii_case("general"),
+    };
+    if input.starts_with('=') {
+        // Excel: a formula typed into a General cell takes the format of
+        // the cell it refers to (`=A1`, `=A1*2`, `=-A1+B1/2`, …).
+        let format = general
+            .then(|| inherited_format(wb, c.sheet, input))
+            .flatten()
+            .map(Cow::Owned);
+        return (Cow::Borrowed(input), format);
+    }
+    if input.is_empty() || input.starts_with('\'') {
         return (Cow::Borrowed(input), None);
     }
-    let style = wb.style(c);
     match style.number_format.as_deref() {
         Some("@") => match engine_formula::engine::parse_input(input) {
             Ok(CellContent::Value(Value::Text(_))) => (Cow::Borrowed(input), None),
@@ -2815,9 +2831,56 @@ fn typed_entry<'a>(
         Some(code) if !code.eq_ignore_ascii_case("general") => (Cow::Borrowed(input), None),
         _ => {
             let format = engine_formula::entry::recognize(input).and_then(|e| e.format);
-            (Cow::Borrowed(input), format)
+            (Cow::Borrowed(input), format.map(Cow::Borrowed))
         }
     }
+}
+
+/// The number format a formula typed into a General cell inherits, as in
+/// Excel: for a formula that is a single cell reference or simple
+/// arithmetic (`+ - * / ^`, unary `-`/`+`, numbers, parentheses) on cell
+/// references, the format of the first referenced cell that has one.
+/// Functions, ranges, comparisons and text make no format.
+fn inherited_format(wb: &model_sheet::Workbook, host: SheetId, input: &str) -> Option<String> {
+    use engine_formula::ast::{BinaryOp, RangeKind, UnaryOp};
+    use engine_formula::Expr;
+    fn cells(e: &Expr, out: &mut Vec<(Option<String>, u32, u32)>) -> bool {
+        match e {
+            Expr::Number(_) => true,
+            Expr::Reference(r) => match r.kind {
+                RangeKind::Cell(c) => {
+                    out.push((r.sheet.clone(), c.row, c.col));
+                    true
+                }
+                _ => false,
+            },
+            Expr::Unary {
+                op: UnaryOp::Neg | UnaryOp::Plus,
+                expr,
+            } => cells(expr, out),
+            Expr::Binary {
+                op: BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Pow,
+                lhs,
+                rhs,
+            } => cells(lhs, out) && cells(rhs, out),
+            _ => false,
+        }
+    }
+    let ast = engine_formula::parse(input).ok()?;
+    let mut refs = Vec::new();
+    if !cells(&ast, &mut refs) {
+        return None;
+    }
+    refs.into_iter().find_map(|(sheet, row, col)| {
+        let s = match sheet {
+            Some(name) => wb.engine().sheet_id(&name)?,
+            None => host,
+        };
+        wb.style(CellCoord::new(s, row, col))
+            .number_format
+            .clone()
+            .filter(|f| !f.eq_ignore_ascii_case("general"))
+    })
 }
 
 #[cfg(test)]
