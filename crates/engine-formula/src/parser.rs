@@ -7,7 +7,8 @@
 use thiserror::Error;
 
 use crate::ast::{
-    letters_to_col, parse_row, BinaryOp, CellRef, Expr, RangeKind, Reference, UnaryOp, MAX_COL,
+    is_valid_name, letters_to_col, parse_row, BinaryOp, CellRef, Expr, RangeKind, Reference,
+    UnaryOp, MAX_COL,
 };
 use crate::lexer::{tokenize, Token, TokenKind};
 
@@ -283,7 +284,20 @@ impl<'a> Parser<'a> {
             TokenKind::SheetName(sheet) => {
                 self.pos += 1;
                 self.expect(&TokenKind::Bang, "`!`")?;
-                match self.reference(Some(sheet))? {
+                let reference = self.reference(Some(sheet.clone()));
+                if let Ok(Some(e)) = reference {
+                    return Ok(e);
+                }
+                // `Sheet1!Tax`: a sheet-level defined name.
+                if let Some(TokenKind::Ident(name)) = self.peek().cloned() {
+                    if self.peek_at(self.pos + 1) != Some(&TokenKind::LParen)
+                        && is_valid_name(&name)
+                    {
+                        self.pos += 1;
+                        return Ok(Expr::QualifiedName { sheet, name });
+                    }
+                }
+                match reference? {
                     Some(e) => Ok(e),
                     None => Err(ParseError::new(
                         self.here(),
@@ -699,6 +713,25 @@ mod tests {
     fn long_letter_idents_are_names() {
         assert_eq!(parse("ABCD1").unwrap(), Expr::Name("ABCD1".into()));
         assert_eq!(parse("abc").unwrap(), Expr::Name("abc".into()));
+        assert_eq!(parse("\\x.y?").unwrap(), Expr::Name("\\x.y?".into()));
+    }
+
+    #[test]
+    fn sheet_qualified_names() {
+        let q = |sheet: &str, name: &str| Expr::QualifiedName {
+            sheet: sheet.into(),
+            name: name.into(),
+        };
+        assert_eq!(parse("Sheet1!Tax").unwrap(), q("Sheet1", "Tax"));
+        assert_eq!(parse("'My Sheet'!Rate").unwrap(), q("My Sheet", "Rate"));
+        assert_eq!(parse("Sheet1!ABC").unwrap(), q("Sheet1", "ABC"));
+        assert_eq!(
+            parse("'My Sheet'!Rate").unwrap().to_string(),
+            "'My Sheet'!Rate"
+        );
+        // Cell references still win.
+        assert!(matches!(parse("Sheet1!A1").unwrap(), Expr::Reference(_)));
+        assert!(parse("Sheet1!A1:Other!B2").is_err());
     }
 
     #[test]

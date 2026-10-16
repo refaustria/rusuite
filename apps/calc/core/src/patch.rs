@@ -51,6 +51,26 @@ pub struct CellView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub spill: Option<Rect>,
+    /// The number format's colour (`[Red]`, `[Color 10]`) as `#RRGGBB`;
+    /// absent = none (the font colour applies).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub color: Option<String>,
+    /// `*x` in the number format: `display` is split at this char index
+    /// and `fillChar` repeats there to fill the cell. Absent = no fill.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fill_at: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fill_char: Option<String>,
+    /// A number that does not fit its column (Excel's `####`): estimated
+    /// from the column width in character units and the font size (a
+    /// General number counts as fitting while fewer decimals or
+    /// scientific notation fit). Absent = fits.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub narrow: bool,
 }
 
 /// A match of the `findCells` request.
@@ -238,6 +258,12 @@ pub struct CalcPatch {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<u32>>")]
     pub chart_sheets: Vec<u32>,
+    /// The full list of defined names, when it changed (a name command,
+    /// or a structural edit / sheet rename or delete that rewrote a
+    /// definition); absent = unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub names: Option<Vec<crate::names::NameInfo>>,
 }
 
 /// Merges `other` into `list`, replacing entries with the same key.
@@ -263,6 +289,9 @@ impl app_common::Patch for CalcPatch {
         }
         if other.activate_sheet.is_some() {
             self.activate_sheet = other.activate_sheet;
+        }
+        if other.names.is_some() {
+            self.names = other.names;
         }
         merge_keyed(&mut self.merges, other.merges, |m| m.sheet);
         for s in other.cf_sheets {
@@ -368,4 +397,8 @@ pub struct WorkbookInfo {
     /// The host revision ([`CalcDocument::info`](crate::CalcDocument::info)
     /// alone reports 0; [`dispatch`](crate::dispatch) fills it in).
     pub revision: Revision,
+    /// The defined names; absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<crate::names::NameInfo>>")]
+    pub names: Vec<crate::names::NameInfo>,
 }

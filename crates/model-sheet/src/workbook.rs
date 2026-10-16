@@ -61,6 +61,9 @@ pub struct Workbook {
     /// [`Workbook::engine_mut`].
     sheets: Vec<SheetData>,
     styles: StyleTable,
+    /// Comment, hidden flag and built-in kind of the defined names (the
+    /// definitions live in the engine).
+    pub(crate) name_meta: std::collections::HashMap<crate::names::NameKey, crate::names::NameMeta>,
 }
 
 impl Default for Workbook {
@@ -101,6 +104,7 @@ impl Workbook {
             engine: Engine::new(),
             sheets: vec![SheetData::default()],
             styles: StyleTable::new(),
+            name_meta: std::collections::HashMap::new(),
         }
     }
 
@@ -147,6 +151,7 @@ impl Workbook {
         if let Some(data) = self.sheets.get_mut(id.0 as usize) {
             *data = SheetData::default();
         }
+        self.sync_name_meta(None);
         Ok(recalc)
     }
 
@@ -184,6 +189,7 @@ impl Workbook {
         if let Some(source) = source {
             self.rename_chart_refs(Some(new), &source, name);
         }
+        self.sync_name_meta(Some((id, new)));
         Ok((new, recalc))
     }
 
