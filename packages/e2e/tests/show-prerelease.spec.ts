@@ -126,7 +126,6 @@ test.describe("Show pre-release fixes (P8-45)", () => {
     await overlay(page).evaluate((el) => (el.style.caretColor = "transparent"));
     const editing = await inkBox(page, await page.screenshot({ clip }));
     await page.screenshot({ path: "../../shots/P8-45-parity.png" });
-    console.log(JSON.stringify({ drawn, editing }));
     for (const k of ["x0", "y0", "x1", "y1"] as const) expect(Math.abs(editing[k] - drawn[k]), k).toBeLessThanOrEqual(2);
     errors.expectNone();
   });
@@ -187,6 +186,34 @@ test.describe("Show pre-release fixes (P8-45)", () => {
     const ext = /<a:ext cx="(\d+)" cy="(\d+)"/.exec(sp)!;
     expect(Number(ext[1]) / 12192000).toBeCloseTo(0.4, 1);
     expect(Number(ext[2]) / 6858000).toBeCloseTo(0.15, 1);
+    errors.expectNone();
+  });
+
+  test("S-10: Combo › Stacked Area – Clustered Column draws the columns in front of the area (pixel probe)", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openShow(page);
+    await page.getByRole("tab", { name: "Insert" }).click();
+    await page.getByRole("button", { name: "Chart", exact: true }).click();
+    const dlg = page.getByTestId("insert-chart-dialog");
+    await dlg.getByRole("option", { name: "Combo" }).click();
+    await dlg.getByRole("radio", { name: "Stacked Area – Clustered Column" }).click();
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(page.getByRole("tab", { name: "Chart Design" })).toHaveAttribute("aria-selected", "true");
+    await page.waitForTimeout(300);
+    // pixels of each accent colour on the stage canvas
+    const counts = await page.evaluate(() => {
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="editor-stage"] canvas')!;
+      const d = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+      const accents: Record<string, [number, number, number]> = { a1: [0x44, 0x72, 0xc4], a2: [0xed, 0x7d, 0x31], a3: [0xa5, 0xa5, 0xa5] };
+      const out: Record<string, number> = { a1: 0, a2: 0, a3: 0 };
+      for (let i = 0; i < d.length; i += 4)
+        for (const [k, c] of Object.entries(accents)) if (Math.abs(d[i]! - c[0]) + Math.abs(d[i + 1]! - c[1]) + Math.abs(d[i + 2]! - c[2]) < 12) out[k]!++;
+      return out;
+    });
+    // the four grey columns (series 3) lie inside the stacked area: drawn behind it only the legend swatch would be grey
+    expect(counts.a3).toBeGreaterThan(5000);
+    expect(counts.a1).toBeGreaterThan(5000);
+    await page.screenshot({ path: "../../shots/P8-45-combo.png" });
     errors.expectNone();
   });
 });

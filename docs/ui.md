@@ -997,6 +997,9 @@ Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)
 - **Insert › Text box (S-14)** arms drawing like Shapes (the button stays pressed; a second click disarms it): a click on
   the slide inserts a text box of the default size with its top-left at the click, a drag draws it; the editor opens in it.
   Activated with Enter / Space it inserts at once in the slide centre (keyboard).
+- **Combo charts (S-10)**: the shared renderer (`packages/ui-shared/src/chart/layout.ts`) draws the series in Excel's /
+  PowerPoint's z-order – areas at the back, then bars / columns, then lines, then scatter – so Stacked Area – Clustered
+  Column shows its columns in front of the area (hit testing follows: a click on a column picks the column).
 
 ## Printing (P7-9)
 
