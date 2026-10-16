@@ -11,4 +11,12 @@ width: number | null, hidden: boolean,
 /**
  * Style of the column's cells without own style; `null` = none.
  */
-style: number | null, };
+style: number | null, 
+/**
+ * Outline level 1–7 (absent = 0).
+ */
+outlineLevel?: number, 
+/**
+ * The summary column of a collapsed group.
+ */
+collapsed?: boolean, };

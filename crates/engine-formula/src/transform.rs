@@ -205,6 +205,7 @@ fn map_references(expr: &Expr, f: &dyn Fn(&Reference) -> Option<Reference>) -> E
         | Expr::Error(_)
         | Expr::Name(_)
         | Expr::QualifiedName { .. }
+        | Expr::Structured(_)
         | Expr::Missing => expr.clone(),
     }
 }

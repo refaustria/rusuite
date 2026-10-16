@@ -106,6 +106,7 @@ fn describe(kind: &TokenKind) -> String {
         TokenKind::Ident(s) => format!("identifier `{s}`"),
         TokenKind::Error(e) => format!("error literal `{e}`"),
         TokenKind::SheetName(s) => format!("sheet name `{s}`"),
+        TokenKind::Structured { .. } => "structured reference".into(),
         other => {
             let s = match other {
                 TokenKind::Bang => "!",
@@ -281,6 +282,18 @@ impl<'a> Parser<'a> {
                 Ok(e)
             }
             TokenKind::LBrace => self.array(),
+            TokenKind::Structured { table, body } => {
+                let pos = self.here();
+                self.pos += 1;
+                if table.as_deref().is_some_and(|t| !is_valid_name(t)) {
+                    return Err(ParseError::new(pos, "invalid table name"));
+                }
+                Ok(Expr::Structured(crate::structured::StructRef::parse(
+                    table.as_deref(),
+                    &body,
+                    pos,
+                )?))
+            }
             TokenKind::SheetName(sheet) => {
                 self.pos += 1;
                 self.expect(&TokenKind::Bang, "`!`")?;

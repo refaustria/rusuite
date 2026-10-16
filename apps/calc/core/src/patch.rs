@@ -148,6 +148,30 @@ pub struct SheetInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<crate::wire::SortState>")]
     pub sort_state: Option<SortState>,
+    /// Excel tables of the sheet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<crate::wire_tables::Table>>")]
+    pub tables: Vec<model_sheet::Table>,
+    /// Outline settings; absent = summary rows below, columns right.
+    #[serde(default, skip_serializing_if = "model_sheet::OutlineProps::is_default")]
+    #[ts(optional, as = "Option<crate::wire_tables::OutlineProps>")]
+    pub outline: model_sheet::OutlineProps,
+    /// Manual page breaks before these rows / columns.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<u32>>")]
+    pub row_breaks: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<u32>>")]
+    pub col_breaks: Vec<u32>,
+    /// The deepest outline level of the rows and of the columns (the
+    /// outline bars show `level + 1` buttons).
+    #[serde(default, skip_serializing_if = "no_outline")]
+    #[ts(optional, as = "Option<(u8, u8)>")]
+    pub max_outline: (u8, u8),
+}
+
+fn no_outline(m: &(u8, u8)) -> bool {
+    *m == (0, 0)
 }
 
 /// The complete list of merged ranges of `sheet`.
@@ -170,6 +194,18 @@ pub struct ColView {
     pub hidden: bool,
     /// Style of the column's cells without own style; `null` = none.
     pub style: Option<u32>,
+    /// Outline level 1–7 (absent = 0).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[ts(optional, as = "Option<u8>")]
+    pub outline_level: u8,
+    /// The summary column of a collapsed group.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub collapsed: bool,
+}
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
 }
 
 /// Properties of one row; all defaults when not listed.
@@ -189,6 +225,14 @@ pub struct RowView {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]
     pub filtered: bool,
+    /// Outline level 1–7 (absent = 0).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[ts(optional, as = "Option<u8>")]
+    pub outline_level: u8,
+    /// The summary row of a collapsed group.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub collapsed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -314,6 +358,14 @@ pub struct CalcPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub stale_pivots: Option<Vec<u32>>,
+    /// Remove Duplicates: what was removed and what remains.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub duplicates: Option<crate::datatools::DuplicatesResult>,
+    /// Sheets whose pictures changed (the UI fetches `sheetPictures`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<u32>>")]
+    pub picture_sheets: Vec<u32>,
 }
 
 /// Merges `other` into `list`, replacing entries with the same key.
@@ -348,6 +400,14 @@ impl app_common::Patch for CalcPatch {
         }
         if other.stale_pivots.is_some() {
             self.stale_pivots = other.stale_pivots;
+        }
+        if other.duplicates.is_some() {
+            self.duplicates = other.duplicates;
+        }
+        for s in other.picture_sheets {
+            if !self.picture_sheets.contains(&s) {
+                self.picture_sheets.push(s);
+            }
         }
         for s in other.pivot_sheets {
             if !self.pivot_sheets.contains(&s) {

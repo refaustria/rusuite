@@ -524,6 +524,9 @@ fn table_xml(wb: &Workbook, t: &PivotTable, cache: &PivotCache, out: &PivotOutpu
             fa.push(("showAll", "0".into()));
         }
         if let Some(a) = on_rows {
+            if a.subtotal_bottom {
+                fa.push(("subtotalTop", "0".into()));
+            }
             match a.layout {
                 PivotLayout::Compact => {}
                 PivotLayout::Outline => fa.push(("compact", "0".into())),
@@ -732,7 +735,7 @@ fn table_xml(wb: &Workbook, t: &PivotTable, cache: &PivotCache, out: &PivotOutpu
             ("showRowHeaders", bool_attr(o.row_headers_bold)),
             ("showColHeaders", bool_attr(o.col_headers_bold)),
             ("showRowStripes", bool_attr(o.banded)),
-            ("showColStripes", "0"),
+            ("showColStripes", bool_attr(o.banded_cols)),
             ("showLastColumn", "1"),
         ],
     );
@@ -1134,6 +1137,7 @@ fn read_field(f: &El, index: u32, cache: &PivotCache) -> FieldInfo {
             collapsed_items: collapsed,
             hidden_items: hidden.clone(),
             layout,
+            subtotal_bottom: !attr_bool(f, "subtotalTop", true),
         },
         order,
         hidden,
@@ -1343,6 +1347,7 @@ fn read_table(
         o.row_headers_bold = attr_bool(s, "showRowHeaders", true);
         o.col_headers_bold = attr_bool(s, "showColHeaders", true);
         o.banded = attr_bool(s, "showRowStripes", false);
+        o.banded_cols = attr_bool(s, "showColStripes", false);
     }
     t.options = o;
     if let Err(e) = t.validate(cache) {

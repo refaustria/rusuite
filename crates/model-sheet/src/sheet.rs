@@ -23,6 +23,16 @@ pub struct ColInfo {
     /// Style of the cells of this column that have no own style.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<StyleId>,
+    /// Outline (Group) level, 0–7.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub outline_level: u8,
+    /// The summary column of a collapsed group.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub collapsed: bool,
+}
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
 }
 
 impl ColInfo {
@@ -48,6 +58,12 @@ pub struct RowInfo {
     /// filter shows it again, `SUBTOTAL(1..11)` skips it.
     #[serde(default, skip_serializing_if = "is_false")]
     pub filtered: bool,
+    /// Outline (Group) level, 0–7.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub outline_level: u8,
+    /// The summary row of a collapsed group.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub collapsed: bool,
 }
 
 impl RowInfo {
@@ -193,6 +209,16 @@ pub(crate) struct SheetData {
     pub pivots: Vec<crate::pivot::PivotTable>,
     /// The layout of each pivot table as last rendered, by id.
     pub pivot_outputs: HashMap<u32, crate::pivot::PivotOutput>,
+    /// Excel tables, pairwise disjoint.
+    pub tables: Vec<crate::tables::Table>,
+    /// Where outline summary rows/columns sit.
+    pub outline: crate::outline::OutlineProps,
+    /// Manual page breaks: a new page starts before these rows / columns
+    /// (ascending, > 0).
+    pub row_breaks: Vec<u32>,
+    pub col_breaks: Vec<u32>,
+    /// Pictures, back to front.
+    pub pictures: Vec<crate::picture::Picture>,
 }
 
 impl SheetData {

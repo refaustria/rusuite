@@ -541,6 +541,17 @@ impl CalcDocument {
                 c1,
             } => {
                 let range = self.range(sheet, r0, c0, r1, c1)?;
+                // A cell of a table: the table (Excel names it as the source).
+                if r0 == r1 && c0 == c1 {
+                    if let Some(t) =
+                        self.workbook()
+                            .table_at(model_sheet::CellCoord::new(range.sheet, r0, c0))
+                    {
+                        return Ok(PivotSource::Table {
+                            name: t.name.clone(),
+                        });
+                    }
+                }
                 let range = if r0 == r1 && c0 == c1 {
                     self.workbook().current_region(range.sheet, r0, c0)
                 } else {
@@ -553,6 +564,9 @@ impl CalcDocument {
                     .unwrap_or_default()
                     .to_owned();
                 PivotSource::range(&name, range.r0, range.c0, range.r1, range.c1)
+            }
+            PivotSourceSpec::Name { name } if self.workbook().table_by_name(name).is_some() => {
+                PivotSource::Table { name: name.clone() }
             }
             PivotSourceSpec::Name { name } => PivotSource::Name { name: name.clone() },
         })
@@ -620,11 +634,23 @@ impl CalcDocument {
                 }),
             });
         }
+        let styles_before = self.workbook().styles().len();
         self.workbook_mut().start_pivot_journal();
         let result = self.pivot_cmd_inner(cmd);
         match result {
             Ok((recalc, extra, extra_patch)) => {
                 let mut applied = self.pivot_applied(before, recalc, extra);
+                // Layouts intern number formats and indents: the grown
+                // style table comes with the patch.
+                if self.workbook().styles().len() != styles_before {
+                    applied.patch.styles = Some(
+                        self.workbook()
+                            .styles()
+                            .iter()
+                            .map(|(_, s)| s.clone())
+                            .collect(),
+                    );
+                }
                 if let Some(p) = extra_patch {
                     let mut p = p;
                     p.merge(std::mem::take(&mut applied.patch));
@@ -804,6 +830,50 @@ impl CalcDocument {
                     },
                 };
                 Ok((self.workbook_mut().update_pivot(*id, def)?, none(), None))
+            }
+            C::ChangePivotSource { id, source } => {
+                let src = self.source_of(source)?;
+                Ok((
+                    self.workbook_mut().change_pivot_source(*id, src)?,
+                    none(),
+                    None,
+                ))
+            }
+            &C::ShowPivotDetails { id, row, col } => {
+                let (names, rows) = self.workbook().pivot_details(id, row, col)?;
+                let here = self.workbook().pivot(id).map(|(s, _)| s);
+                let (s, inv, mut patch) = self.new_pivot_sheet(here)?;
+                patch.activate_sheet = Some(s.0);
+                let mut cells: Vec<(u32, u32, String, u32)> = Vec::new();
+                for (c, n) in names.iter().enumerate() {
+                    cells.push((0, c as u32, model_sheet::tables::header_input(n), 0));
+                }
+                for (r, rec) in rows.iter().enumerate() {
+                    for (c, v) in rec.iter().enumerate() {
+                        let input =
+                            content_to_input(&engine_formula::CellContent::Value(v.clone()));
+                        if !input.is_empty() {
+                            cells.push((r as u32 + 1, c as u32, input, 0));
+                        }
+                    }
+                }
+                let a = self.apply_cmd(&C::RestoreCells { sheet: s.0, cells })?;
+                patch.merge(a.patch);
+                // The records as a table, as Excel shows them.
+                let last_row = rows.len() as u32 + u32::from(rows.is_empty());
+                let width = names.len().max(1) as u32;
+                let a = self.apply_cmd(&C::CreateTable {
+                    sheet: s.0,
+                    r0: 0,
+                    c0: 0,
+                    r1: last_row,
+                    c1: width - 1,
+                    has_headers: true,
+                    style: None,
+                })?;
+                patch.merge(a.patch);
+                patch.sheets = Some(self.sheet_infos());
+                Ok((model_sheet::Recalc::default(), vec![inv], Some(patch)))
             }
             _ => unreachable!("not a pivot command: {cmd:?}"),
         }

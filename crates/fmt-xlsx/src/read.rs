@@ -158,6 +158,8 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         })
         .collect();
     load_names(&mut wb, &book.defined_names, &by_index, &mut warnings);
+    // Tables before the cells: structured references register edges.
+    warnings.extend(crate::tables::load(&pkg, &mut wb, &sheets, &mut consumed)?);
 
     wb.begin_batch();
     let mut drawings: Vec<(SheetId, String, PartName)> = Vec::new();
@@ -562,7 +564,6 @@ struct CellBuf {
 
 /// Elements we drop, with the wording used in the warning.
 const DROPPED: &[(&[u8], &str)] = &[
-    (b"tableParts", "tables"),
     (b"sheetProtection", "sheet protection"),
     (b"picture", "background picture"),
     (b"oleObjects", "OLE objects"),
@@ -625,6 +626,10 @@ impl SheetLoader<'_> {
         // (only the first view is read).
         let mut view_state = 0u8;
         let mut filter = FilterReader::default();
+        // `<rowBreaks>` / `<colBreaks>` being read, and the breaks.
+        let mut breaks_axis: Option<model_sheet::Axis> = None;
+        let mut row_breaks: Vec<u32> = Vec::new();
+        let mut col_breaks: Vec<u32> = Vec::new();
         // `<conditionalFormatting>`, `<dataValidations>`, `<extLst>`.
         let mut rules: Vec<fmt_ooxml::xml::El> = Vec::new();
         loop {
@@ -636,6 +641,23 @@ impl SheetLoader<'_> {
                         b"tabColor" => {
                             let color = crate::styles::color_of_el(el);
                             self.wb.set_tab_color(self.sheet, color)?;
+                        }
+                        b"outlinePr" => {
+                            let props = model_sheet::OutlineProps {
+                                summary_below: attr_bool(el, "summaryBelow").unwrap_or(true),
+                                summary_right: attr_bool(el, "summaryRight").unwrap_or(true),
+                            };
+                            self.wb.set_outline_props(self.sheet, props)?;
+                        }
+                        b"rowBreaks" if !empty => breaks_axis = Some(model_sheet::Axis::Rows),
+                        b"colBreaks" if !empty => breaks_axis = Some(model_sheet::Axis::Cols),
+                        b"brk" => {
+                            let id = attr_parse::<u32>(el, "id").filter(|&i| i > 0);
+                            match (breaks_axis, id) {
+                                (Some(model_sheet::Axis::Rows), Some(i)) => row_breaks.push(i),
+                                (Some(model_sheet::Axis::Cols), Some(i)) => col_breaks.push(i),
+                                _ => {}
+                            }
                         }
                         b"sheetFormatPr" => {
                             if let Some(w) = attr_parse::<f64>(el, "defaultColWidth") {
@@ -767,6 +789,7 @@ impl SheetLoader<'_> {
                             }
                         }
                         b"rPh" => in_rph = false,
+                        b"rowBreaks" | b"colBreaks" => breaks_axis = None,
                         b"sheetView" if view_state == 1 => view_state = 2,
                         b"filterColumn" | b"sortState" => filter.end(name),
                         b"f" | b"v" | b"t" if capture != Capture::None => {
@@ -795,6 +818,10 @@ impl SheetLoader<'_> {
             }
         }
         self.wb.set_sheet_view(self.sheet, view)?;
+        self.wb
+            .set_page_breaks(self.sheet, model_sheet::Axis::Rows, row_breaks)?;
+        self.wb
+            .set_page_breaks(self.sheet, model_sheet::Axis::Cols, col_breaks)?;
         let mut bad: Vec<String> = Vec::new();
         for r in merged {
             let rect = r.split_once(':').and_then(|(a, b)| {
@@ -884,6 +911,8 @@ impl SheetLoader<'_> {
             style: attr_parse::<usize>(el, "style")
                 .map(|s| self.style(s))
                 .filter(|s| !s.is_default()),
+            outline_level: attr_parse::<u8>(el, "outlineLevel").unwrap_or(0).min(7),
+            collapsed: attr_bool(el, "collapsed").unwrap_or(false),
         };
         if info.is_default() {
             return Ok(());
@@ -909,6 +938,8 @@ impl SheetLoader<'_> {
             hidden: attr_bool(el, "hidden").unwrap_or(false),
             style,
             filtered: false,
+            outline_level: attr_parse::<u8>(el, "outlineLevel").unwrap_or(0).min(7),
+            collapsed: attr_bool(el, "collapsed").unwrap_or(false),
         };
         if !info.is_default() {
             self.wb.set_row_info(self.sheet, row, info)?;
@@ -954,6 +985,14 @@ impl SheetLoader<'_> {
                 // intersect implicitly where Excel 2019 did. Array formulas
                 // (dynamic or CSE) spill over their `ref`.
                 let mut ast = from_file_ast(&parsed);
+                let structured = crate::tables::has_structured(&ast);
+                if structured {
+                    let own = self
+                        .wb
+                        .table_at(CellCoord::new(self.sheet, cell.row, cell.col))
+                        .map(|t| t.name.clone());
+                    ast = crate::tables::to_display_refs(&ast, own.as_deref());
+                }
                 if f.kind == "array" {
                     let (r0, c0, r1, c1) = f
                         .range
@@ -964,7 +1003,7 @@ impl SheetLoader<'_> {
                 } else {
                     ast = legacy_intersection(&ast);
                 }
-                let input = if ast == parsed {
+                let input = if ast == parsed && !structured {
                     input
                 } else {
                     format!("={ast}")
@@ -1054,14 +1093,14 @@ impl SheetLoader<'_> {
 /// Collects `<autoFilter>` (with its `<filterColumn>`s) and `<sortState>`
 /// (top level or inside `<autoFilter>`) while a sheet is streamed.
 #[derive(Default)]
-struct FilterReader {
-    auto_filter: Option<AutoFilter>,
+pub(crate) struct FilterReader {
+    pub(crate) auto_filter: Option<AutoFilter>,
     /// The `<filterColumn>` being read: absolute column, filter so far,
     /// and whether it holds something unsupported.
     column: Option<(u32, Option<Filter>, bool)>,
     sort_state: Option<SortState>,
     in_sort: bool,
-    warnings: Vec<String>,
+    pub(crate) warnings: Vec<String>,
 }
 
 /// The literal text of a wildcard pattern without unescaped wildcards
@@ -1115,7 +1154,7 @@ fn filter_op(op: &str, val: &str) -> Option<(FilterOp, String)> {
 
 impl FilterReader {
     /// Handles an opening tag; `false` if it is not a filter element.
-    fn start(&mut self, name: &[u8], el: &BytesStart<'_>, empty: bool) -> bool {
+    pub(crate) fn start(&mut self, name: &[u8], el: &BytesStart<'_>, empty: bool) -> bool {
         let range = |el: &BytesStart<'_>| attr(el, "ref").and_then(|r| parse_range(&r));
         match name {
             b"autoFilter" => match range(el) {
@@ -1235,7 +1274,7 @@ impl FilterReader {
     }
 
     /// Handles a closing `</filterColumn>` or `</sortState>`.
-    fn end(&mut self, name: &[u8]) {
+    pub(crate) fn end(&mut self, name: &[u8]) {
         if name == b"sortState" {
             self.in_sort = false;
             return;

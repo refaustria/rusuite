@@ -15,4 +15,4 @@ grandTotalRows?: boolean,
 /**
  * Excel's `colGrandTotals`: the Grand Total row at the bottom.
  */
-grandTotalCols?: boolean, rowHeadersBold?: boolean, colHeadersBold?: boolean, banded?: boolean, style?: string, valuesIn?: ValuesAxis, valuesPosition?: number, emptyAs?: string, errorAs?: string, repeatLabels?: boolean, showFieldHeaders?: boolean, compactRowsIndent?: number, };
+grandTotalCols?: boolean, rowHeadersBold?: boolean, colHeadersBold?: boolean, banded?: boolean, bandedCols?: boolean, style?: string, valuesIn?: ValuesAxis, valuesPosition?: number, emptyAs?: string, errorAs?: string, repeatLabels?: boolean, showFieldHeaders?: boolean, compactRowsIndent?: number, };

@@ -160,6 +160,7 @@ fn build() -> Workbook {
                 width: Some(4.0),
                 hidden: false,
                 style: Some(ids[1]),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -174,6 +175,7 @@ fn build() -> Workbook {
             hidden: false,
             style: Some(ids[3]),
             filtered: false,
+            ..Default::default()
         },
     )
     .unwrap();

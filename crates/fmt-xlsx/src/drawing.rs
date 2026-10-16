@@ -2,8 +2,9 @@
 //! (`xdr:wsDr` anchors) and the chart parts they reference
 //! (`xl/charts/chartN.xml`, read and written by [`fmt_ooxml::chart`]).
 //!
-//! Only chart graphic frames are modelled; pictures, shapes, groups and
-//! other graphic frames in a drawing are dropped with a warning.
+//! Chart graphic frames and pictures (`xdr:pic`, the image in
+//! `xl/media/`) are modelled; shapes, groups and other graphic frames in
+//! a drawing are dropped with a warning.
 
 use std::collections::BTreeSet;
 
@@ -110,6 +111,7 @@ pub(crate) fn load(
     let rels = pkg.relationships(drawing);
     let mut dropped: BTreeSet<&'static str> = BTreeSet::new();
     let mut charts: Vec<ChartObject> = Vec::new();
+    let mut pictures: Vec<model_sheet::Picture> = Vec::new();
     for anchor_el in root.elements() {
         let anchor = match anchor_el.name.as_str() {
             "twoCellAnchor" => {
@@ -193,7 +195,45 @@ pub(crate) fn load(
                     });
                 }
                 "pic" => {
-                    dropped.insert("pictures");
+                    let rid = obj
+                        .find("blip")
+                        .and_then(|b| b.attr("embed"))
+                        .map(str::to_owned);
+                    let target = rid.as_deref().and_then(|rid| {
+                        rels.and_then(|r| r.get(rid))
+                            .filter(|r| r.target_mode == TargetMode::Internal)
+                            .and_then(|r| drawing.resolve(&r.target).ok())
+                    });
+                    let Some(media) = target.as_ref().and_then(|t| pkg.part(t)) else {
+                        warnings.push(format!("a picture of {drawing} has no image; dropped"));
+                        continue;
+                    };
+                    let content_type = if model_sheet::picture::PICTURE_TYPES
+                        .contains(&media.content_type.as_str())
+                    {
+                        media.content_type.clone()
+                    } else {
+                        dropped.insert("pictures of unsupported image types");
+                        continue;
+                    };
+                    consumed.insert(target.expect("checked"));
+                    let props = obj.find("cNvPr");
+                    pictures.push(model_sheet::Picture {
+                        id: pictures.len() as u32 + 1,
+                        name: props
+                            .and_then(|c| c.attr("name"))
+                            .unwrap_or_default()
+                            .to_owned(),
+                        descr: props
+                            .and_then(|c| c.attr("descr"))
+                            .unwrap_or_default()
+                            .to_owned(),
+                        anchor,
+                        media: core_model::Media {
+                            content_type,
+                            data: media.data.clone(),
+                        },
+                    });
                 }
                 "sp" | "cxnSp" => {
                     dropped.insert("shapes");
@@ -212,6 +252,9 @@ pub(crate) fn load(
     }
     if let Err(e) = wb.set_charts(sheet, charts) {
         warnings.push(format!("charts dropped: {e}"));
+    }
+    if let Err(e) = wb.set_pictures(sheet, pictures) {
+        warnings.push(format!("pictures dropped: {e}"));
     }
     Ok(warnings)
 }
@@ -237,6 +280,53 @@ impl ChartData for WorkbookData<'_> {
 pub(crate) struct DrawingParts {
     drawings: usize,
     charts: usize,
+    images: usize,
+}
+
+fn offset_xml(x: &mut XmlOut, name: &str, c: &CellOffset) {
+    x.start(name, &[]);
+    x.text_el("xdr:col", &[], &c.col.to_string());
+    x.text_el("xdr:colOff", &[], &c.col_offset.to_string());
+    x.text_el("xdr:row", &[], &c.row.to_string());
+    x.text_el("xdr:rowOff", &[], &c.row_offset.to_string());
+    x.end(name);
+}
+
+/// Opens the anchor element of `anchor`; returns its name for the end tag.
+fn anchor_start(x: &mut XmlOut, anchor: &ChartAnchor, edit_as: Option<&str>) -> &'static str {
+    let ext = |x: &mut XmlOut, w: i64, h: i64| {
+        x.empty("xdr:ext", &[("cx", &w.to_string()), ("cy", &h.to_string())]);
+    };
+    match anchor {
+        ChartAnchor::TwoCell { from, to } => {
+            let a: Vec<(&str, &str)> = edit_as.map(|e| vec![("editAs", e)]).unwrap_or_default();
+            x.start("xdr:twoCellAnchor", &a);
+            offset_xml(x, "xdr:from", from);
+            offset_xml(x, "xdr:to", to);
+            "xdr:twoCellAnchor"
+        }
+        ChartAnchor::OneCell {
+            from,
+            width,
+            height,
+        } => {
+            x.start("xdr:oneCellAnchor", &[]);
+            offset_xml(x, "xdr:from", from);
+            ext(x, *width, *height);
+            "xdr:oneCellAnchor"
+        }
+        ChartAnchor::Absolute {
+            x: px,
+            y: py,
+            width,
+            height,
+        } => {
+            x.start("xdr:absoluteAnchor", &[]);
+            x.empty("xdr:pos", &[("x", &px.to_string()), ("y", &py.to_string())]);
+            ext(x, *width, *height);
+            "xdr:absoluteAnchor"
+        }
+    }
 }
 
 impl DrawingParts {
@@ -333,6 +423,49 @@ impl DrawingParts {
             x.end("xdr:graphicFrame");
             x.empty("xdr:clientData", &[]);
             x.end(anchor);
+        }
+        let base = wb.charts(sheet).len() + 2;
+        for (j, p) in wb.pictures(sheet).iter().enumerate() {
+            self.images += 1;
+            let ext = model_sheet::picture::picture_extension(&p.media.content_type);
+            let media = PartName::new(format!("/xl/media/image{}.{ext}", self.images))?;
+            pkg.insert_part(media, &p.media.content_type, p.media.data.clone());
+            let rid = rels
+                .add(rel::IMAGE, format!("../media/image{}.{ext}", self.images))
+                .id
+                .clone();
+            let tag = anchor_start(&mut x, &p.anchor, None);
+            x.start("xdr:pic", &[]);
+            x.start("xdr:nvPicPr", &[]);
+            let id = (base + j).to_string();
+            let name = if p.name.is_empty() {
+                format!("Picture {}", p.id)
+            } else {
+                p.name.clone()
+            };
+            let mut a: Vec<(&str, &str)> = vec![("id", &id), ("name", &name)];
+            if !p.descr.is_empty() {
+                a.push(("descr", &p.descr));
+            }
+            x.empty("xdr:cNvPr", &a);
+            x.start("xdr:cNvPicPr", &[]);
+            x.empty("a:picLocks", &[("noChangeAspect", "1")]);
+            x.end("xdr:cNvPicPr");
+            x.end("xdr:nvPicPr");
+            x.start("xdr:blipFill", &[]);
+            x.empty("a:blip", &[("xmlns:r", rel::NS), ("r:embed", &rid)]);
+            x.start("a:stretch", &[]);
+            x.empty("a:fillRect", &[]);
+            x.end("a:stretch");
+            x.end("xdr:blipFill");
+            x.start("xdr:spPr", &[]);
+            x.start("a:prstGeom", &[("prst", "rect")]);
+            x.empty("a:avLst", &[]);
+            x.end("a:prstGeom");
+            x.end("xdr:spPr");
+            x.end("xdr:pic");
+            x.empty("xdr:clientData", &[]);
+            x.end(tag);
         }
         x.end("xdr:wsDr");
         pkg.insert_part(drawing.clone(), ct::DRAWING, x.finish());

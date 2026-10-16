@@ -64,7 +64,7 @@ pub enum ChartAnchor {
 impl ChartAnchor {
     /// Moves cell corners for a row/column insert or delete on the
     /// chart's sheet: corners inside a deleted span go to its start.
-    fn shift(&mut self, op: StructuralOp) {
+    pub(crate) fn shift(&mut self, op: StructuralOp) {
         let (at, _) = op.span();
         let map = |c: &mut CellOffset| {
             let i = if op.is_rows() { c.row } else { c.col };
@@ -95,7 +95,7 @@ impl ChartAnchor {
         }
     }
 
-    fn check(&self) -> Result<(), Error> {
+    pub(crate) fn check(&self) -> Result<(), Error> {
         let cell = |c: &CellOffset| {
             c.row <= MAX_ROW && c.col <= MAX_COL && c.row_offset >= 0 && c.col_offset >= 0
         };

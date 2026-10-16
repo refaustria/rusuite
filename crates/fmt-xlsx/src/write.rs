@@ -39,6 +39,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     let mut drawings = crate::drawing::DrawingParts::default();
     let mut comments = crate::comments::CommentParts::default();
     let mut pivots = crate::pivot::PivotParts::default();
+    let mut tables = crate::tables::TableParts::default();
     let persons = crate::comments::persons_of(wb);
     let default_font = ctx
         .default_font
@@ -61,7 +62,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
         // Relationships first: the sheet XML names their ids.
         let mut sheet_rels = Relationships::new();
         let mut ids = SheetRelIds::default();
-        if !wb.charts(id).is_empty() {
+        if !wb.charts(id).is_empty() || !wb.pictures(id).is_empty() {
             let drawing = drawings.write(&mut pkg, wb, id)?;
             ids.drawing = Some(sheet_rels.add(rel::DRAWING, drawing).id.clone());
         }
@@ -77,6 +78,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
             ids.legacy = Some(comments.write(&mut pkg, &mut sheet_rels, wb, id, &persons)?);
         }
         pivots.write_tables(&mut pkg, &mut sheet_rels, wb, id)?;
+        ids.tables = tables.write(&mut pkg, &mut sheet_rels, wb, id)?;
         let xml = sheet_xml(wb, id, i == active, &mut sst, &dxfs, &mut dynamic, &ids);
         pkg.insert_part(part.clone(), ct::WORKSHEET, xml);
         rels.add(rel::WORKSHEET, target);
@@ -317,6 +319,8 @@ struct SheetRelIds {
     legacy: Option<String>,
     /// Per hyperlink, in order: the id of its external target.
     links: Vec<Option<String>>,
+    /// The table parts (`<tableParts>`).
+    tables: Vec<String>,
 }
 
 fn sheet_xml(
@@ -337,14 +341,26 @@ fn sheet_xml(
     } else {
         &[]
     };
-    match wb.tab_color(id) {
-        Some(color) => {
-            x.start("sheetPr", pr);
+    let outline = wb.outline_props(id);
+    let tab = wb.tab_color(id);
+    if tab.is_some() || !outline.is_default() {
+        x.start("sheetPr", pr);
+        if let Some(color) = tab {
             color_el(&mut x, "tabColor", color);
-            x.end("sheetPr");
         }
-        None if filter_mode => x.empty("sheetPr", pr),
-        None => {}
+        if !outline.is_default() {
+            let flag = |b: bool| if b { "1" } else { "0" };
+            x.empty(
+                "outlinePr",
+                &[
+                    ("summaryBelow", flag(outline.summary_below)),
+                    ("summaryRight", flag(outline.summary_right)),
+                ],
+            );
+        }
+        x.end("sheetPr");
+    } else if filter_mode {
+        x.empty("sheetPr", pr);
     }
     let dim = wb
         .used_range(id)
@@ -359,6 +375,18 @@ fn sheet_xml(
     ];
     if format.default_row_height != 15.0 {
         fmt_attrs.push(("customHeight", "1"));
+    }
+    let level_row = wb
+        .max_outline_level(id, model_sheet::Axis::Rows)
+        .to_string();
+    let level_col = wb
+        .max_outline_level(id, model_sheet::Axis::Cols)
+        .to_string();
+    if level_row != "0" {
+        fmt_attrs.push(("outlineLevelRow", &level_row));
+    }
+    if level_col != "0" {
+        fmt_attrs.push(("outlineLevelCol", &level_col));
     }
     x.empty("sheetFormatPr", &fmt_attrs);
 
@@ -379,6 +407,13 @@ fn sheet_xml(
             }
             if info.width.is_some() {
                 a.push(("customWidth", "1"));
+            }
+            let level = info.outline_level.to_string();
+            if info.outline_level > 0 {
+                a.push(("outlineLevel", &level));
+            }
+            if info.collapsed {
+                a.push(("collapsed", "1"));
             }
             x.empty("col", &a);
         }
@@ -419,6 +454,13 @@ fn sheet_xml(
         }
         if info.hidden {
             a.push(("hidden", "1"));
+        }
+        let level = info.outline_level.to_string();
+        if info.outline_level > 0 {
+            a.push(("outlineLevel", &level));
+        }
+        if info.collapsed {
+            a.push(("collapsed", "1"));
         }
         if cells.last().is_some_and(|(c, _)| c.row == row) {
             x.start("row", &a);
@@ -480,14 +522,45 @@ fn sheet_xml(
             ("footer", "0.3"),
         ],
     );
+    page_breaks_xml(
+        &mut x,
+        "rowBreaks",
+        wb.page_breaks(id, model_sheet::Axis::Rows),
+        MAX_COL,
+    );
+    page_breaks_xml(
+        &mut x,
+        "colBreaks",
+        wb.page_breaks(id, model_sheet::Axis::Cols),
+        MAX_ROW,
+    );
     if let Some(rid) = &rel_ids.drawing {
         x.empty("drawing", &[("r:id", rid)]);
     }
     if let Some(rid) = &rel_ids.legacy {
         x.empty("legacyDrawing", &[("r:id", rid)]);
     }
+    crate::tables::table_parts_xml(&mut x, &rel_ids.tables);
     x.end("worksheet");
     x.finish()
+}
+
+/// `<rowBreaks>` / `<colBreaks>`: manual breaks before the listed
+/// rows/columns (`max` = the last column/row the break spans).
+fn page_breaks_xml(x: &mut XmlOut, name: &str, breaks: &[u32], max: u32) {
+    if breaks.is_empty() {
+        return;
+    }
+    let n = breaks.len().to_string();
+    x.start(name, &[("count", &n), ("manualBreakCount", &n)]);
+    let max = max.to_string();
+    for b in breaks {
+        x.empty(
+            "brk",
+            &[("id", &b.to_string()), ("max", &max), ("man", "1")],
+        );
+    }
+    x.end(name);
 }
 
 /// `$A$1:$B$2` (absolute, as in defined names).
@@ -499,7 +572,7 @@ fn abs_range(r0: u32, c0: u32, r1: u32, c1: u32) -> String {
 /// `<autoFilter>` with one `<filterColumn>` per filtered column (`colId`
 /// relative to the range). Text conditions of the contains family are
 /// stored as `equal`/`notEqual` wildcard patterns, as Excel does.
-fn auto_filter_xml(x: &mut XmlOut, af: &AutoFilter) {
+pub(crate) fn auto_filter_xml(x: &mut XmlOut, af: &AutoFilter) {
     let r = range_name(af.r0, af.c0, af.r1, af.c1);
     if af.columns.is_empty() {
         x.empty("autoFilter", &[("ref", &r)]);
@@ -696,6 +769,11 @@ fn write_cell(
         a.push(("t", t));
     }
     let formula = match content {
+        CellContent::Formula { ast, .. } if crate::tables::has_structured(ast) => {
+            let refs = crate::tables::to_file_refs(ast, crate::tables::table_name_at(wb, c));
+            let file = to_file_ast(&refs).unwrap_or(refs);
+            Some(add_xlfn_prefixes(&file.to_string()))
+        }
         CellContent::Formula { text, ast } => Some(match to_file_ast(ast) {
             Some(file) => add_xlfn_prefixes(&file.to_string()),
             None => add_xlfn_prefixes(text.strip_prefix('=').unwrap_or(text)),
