@@ -228,6 +228,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 4. 2026-10-15: Roundtrip harness verification = LibreOffice headless `--convert-to` of the rewritten file succeeds and the output is non-empty, plus a structural diff of the ZIP part list and XML against the original. (LibreOffice has no "repair dialog" counter in headless mode; a failed/empty conversion is the proxy.)
 
 ## Open questions
+- 2026-10-16: new domain **rusuit.es** (owner) live with TLS; www → apex redirect; resuite.inceptum.at still serves (deploy/e2e use it). Front page to state free + open source (MIT) and stays so (P8-47).
 - **Owner action (release test run):** open https://github.com/refaustria/rusuite/actions/workflows/release.yml → Run workflow → branch main, tag `v0.0.0-test`. Then send me the run URL. I check the 4 smoke jobs; if green I set them to blocking and delete the test release.
 - 2026-10-16 "Report a problem" (P8-43) is LIVE: relay service `rusuite-report-relay` (systemd, 127.0.0.1:8787, nginx `/api/report`), token only in /etc/rusuite/report-relay.env (root:root 600). End-to-end test: issue #1 created from the live endpoint and closed. Screenshot attachment returned 403 → the fine-grained token still needs "Contents: read & write" (owner). Reports are public (dialog warns).
 - Decided 2026-10-16 (owner): web CSP stays `'self'` – connectors and AI are **desktop only**; the web apps hide those entry points (P8-42). Office re-check of the regenerated pivot workbooks and the MP4 deck: works (owner).
