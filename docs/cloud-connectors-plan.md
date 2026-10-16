@@ -10,7 +10,7 @@
 - Providers (web and desktop share the implementation; the webview just needs the OAuth redirect to be a page we serve, e.g. `/oauth/callback.html`):
   | Provider | Mechanism | Needs from the owner |
   |---|---|---|
-  | Google Drive | OAuth 2.0 PKCE (`drive.file` scope – only files the user picked or we created), Google Picker API for choosing, Drive API v3 `files.get?alt=media` / `files.create|update` (multipart) | a Google Cloud project with an OAuth client ID (type Web) and the Picker API key; authorized origins `https://resuite.inceptum.at` and the desktop redirect |
+  | Google Drive | OAuth 2.0 PKCE (`drive.file` scope – only files the user picked or we created), Google Picker API for choosing, Drive API v3 `files.get?alt=media` / `files.create|update` (multipart) | a Google Cloud project with an OAuth client ID (type Web) and the Picker API key; authorized origins `https://rusuit.es` and the desktop redirect |
   | OneDrive / SharePoint | MSAL (browser, PKCE) + Microsoft Graph `/me/drive` (`Files.ReadWrite` scope), OneDrive File Picker v8 | an Entra app registration (SPA) |
   | Dropbox | OAuth PKCE + Dropbox API v2 (`files/download`, `files/upload`), Chooser/Saver for picking | a Dropbox app key |
   | iCloud Drive | **No public web API** for third-party files. On macOS/iOS/Windows (iCloud for Windows) it is a folder in the native file dialog – covered by the local provider; on the web it is not possible. Document this honestly in the UI. |
@@ -62,14 +62,14 @@ The owner's direction: connectors must be **generic** – the user decides wheth
   a conflict asks Overwrite / Save a copy / Reload theirs; recent files remember connection + path. Autosave stays
   local.
 - **CORS** (web): the server must answer the preflight for this site's origin – `Access-Control-Allow-Origin:
-  https://resuite.inceptum.at`, methods `GET, PUT, PROPFIND, MKCOL, DELETE, MOVE, OPTIONS`, headers `Authorization,
+  https://rusuit.es`, methods `GET, PUT, PROPFIND, MKCOL, DELETE, MOVE, OPTIONS`, headers `Authorization,
   Depth, Destination, Overwrite, If-Match, If-None-Match, Content-Type`, `Access-Control-Expose-Headers: ETag`.
   Nextcloud/ownCloud: a CORS app or the web server config. Chromium additionally asks the user before a public site
   contacts a LAN address (Local Network Access).
 - **CSP – owner decision pending** (ADR 0009 amendment 2026-10-16, proposed): the live `connect-src 'self'` blocks
   every user-configured host, so on the web the connection is shown disabled with "This site's security policy does
   not allow connections to other servers" (detected via `securitypolicyviolation`). Prepared, not applied –
-  `deploy/nginx/resuite.inceptum.at.conf`: `set $csp_connect "'self' https:";` (i.e. `connect-src 'self' https:;`).
+  `deploy/nginx/rusuit.es.conf`: `set $csp_connect "'self' https:";` (i.e. `connect-src 'self' https:;`).
   Desktop needs no CSP change (requests are made in Rust).
 - **Tests**: Rust – `app_common::{connector, webdav, connectors_tauri}` (paths, multistatus parsing, a hand-rolled
   HTTP mock for PROPFIND/GET/PUT/MKCOL/DELETE/MOVE, conflicts, redirects, secrets stripped); TS – the provider

@@ -1037,7 +1037,7 @@ and stores the choice where the apps read it; since P8-47 the header shows the t
 
 ## Privacy (P7-12, ADR 0009)
 
-- nginx sends a `Content-Security-Policy` (`connect-src 'self'`, no third-party origins; `style-src 'unsafe-inline'` stays because React `style` props and the print preview `srcdoc` need it), `Referrer-Policy: no-referrer` and a minimal `Permissions-Policy`. The policy is defined once in `deploy/nginx/resuite.inceptum.at.conf`; the `$csp_connect` line is the single place for future provider origins (`docs/cloud-connectors-plan.md`). `packages/e2e/serve.mjs` reads the same policy, so the local e2e run enforces it too. Pages must not use inline scripts (the portal's version script is `version.js`).
+- nginx sends a `Content-Security-Policy` (`connect-src 'self'`, no third-party origins; `style-src 'unsafe-inline'` stays because React `style` props and the print preview `srcdoc` need it), `Referrer-Policy: no-referrer` and a minimal `Permissions-Policy`. The policy is defined once in `deploy/nginx/rusuit.es.conf`; the `$csp_connect` line is the single place for future provider origins (`docs/cloud-connectors-plan.md`). `packages/e2e/serve.mjs` reads the same policy, so the local e2e run enforces it too. Pages must not use inline scripts (the portal's version script is `version.js`).
 - `scripts/privacy-check.sh` (CI) rejects `fetch(`, `XMLHttpRequest`, `WebSocket`, `sendBeacon`, `EventSource`, `navigator.share` outside the portal's `version.js`/`i18n.js`, and HTTP clients in `apps/*/src-tauri/Cargo.toml`.
 - e2e `privacy.spec.ts` records all requests of each app while opening, editing, autosaving and saving and asserts they are the page's own static files; it also covers the Privacy entry (EN/DE; `PRIVACY_SHOTS=<dir>` saves screenshots).
 - The portal says it in one sentence and links `privacy.html`.
@@ -1070,7 +1070,7 @@ privacy-check allow-list, reachable only from the controller's `submit`).
   `instanceId` – a random v4 UUID made once in `localStorage` `rusuite.report.instance` (desktop: the webview's storage
   in the app data directory; never from hardware). The client gate (`rusuite.report.nextAllowedAt`) allows one report
   per hour; the relay enforces the same limit. URL: web `/api/report` (same origin, CSP unchanged); desktop
-  `REPORT_RELAY_URL` at build time (Vite `envPrefix`), default `https://resuite.inceptum.at/api/report`.
+  `REPORT_RELAY_URL` at build time (Vite `envPrefix`), default `https://rusuit.es/api/report`.
 - **Privacy**: nothing is sent before Submit (e2e `report.spec.ts` audits the requests); the payload has no document
   content (the relay also refuses unknown fields); File › Home › Privacy has the paragraph `privacy.report`; the portal's
   privacy page has a "Reporting a problem" section.

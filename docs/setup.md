@@ -79,7 +79,7 @@ rustup target add wasm32-unknown-unknown
 `wasm-pack` comes from the npm devDependency `wasm-pack@0.15.0` in `apps/calc` (its postinstall downloads the prebuilt binary from github.com/wasm-bindgen/wasm-pack; pnpm needs `allowBuilds: wasm-pack` in `pnpm-workspace.yaml`). Versions before 0.15.0 download from a dead URL (404). wasm-pack fetches the `wasm-bindgen` CLI matching the pinned crate version itself. Output: `apps/calc/src-wasm/pkg/` (wasm package, gitignored) and `apps/calc/dist-web/` (static site, base path `/calc/`, gitignored). Quick check: `cargo check --target wasm32-unknown-unknown -p app-calc-wasm`.
 
 ## Web deployment (nginx + certbot, P2-W3)
-The vhost `deploy/nginx/resuite.inceptum.at.conf` is symlinked into `/etc/nginx/sites-enabled/`, static root `/var/www/resuite` (owned by the deploy user). TLS: `sudo certbot --nginx -d resuite.inceptum.at --non-interactive --agree-tos -m bojan@referee.at --redirect` (nginx plugin is installed; renewal is automatic). Deploy with `scripts/deploy-web.sh`; details in `deploy/README.md`.
+The vhost `deploy/nginx/rusuit.es.conf` is symlinked into `/etc/nginx/sites-enabled/`, static root `/var/www/resuite` (owned by the deploy user). TLS: `sudo certbot --nginx -d rusuit.es -d www.rusuit.es -d resuite.inceptum.at --non-interactive --agree-tos -m bojan@referee.at --redirect` (nginx plugin is installed; renewal is automatic). Deploy with `scripts/deploy-web.sh`; details in `deploy/README.md`.
 
 ## ffmpeg (test media clips, 2026-10-16)
 
@@ -108,18 +108,18 @@ problem" into GitHub issues. It listens on `127.0.0.1:8787`; nginx forwards `loc
   GITHUB_TOKEN=<fine-grained token: Issues read/write, Contents read/write (screenshots) on the repository>
   GITHUB_REPO=refaustria/rusuite
   ```
-  Optional: `REPORT_LISTEN` (default `127.0.0.1:8787`), `REPORT_SITE_ORIGIN` (default `https://resuite.inceptum.at`),
+  Optional: `REPORT_LISTEN` (default `127.0.0.1:8787`), `REPORT_SITE_ORIGIN` (default `https://rusuit.es`),
   `REPORT_EXTRA_ORIGINS` (comma-separated, e.g. a dev server), `REPORT_ATTACHMENT_BRANCH` (default
   `issue-attachments`), `GITHUB_API` (tests). Without Contents permission issues are created without screenshots and
   the app says so.
 - **Install / update**: `scripts/deploy-relay.sh` (release build → `/usr/local/bin/rusuite-report-relay`; system user
   `rusuite-relay`; unit `/etc/systemd/system/rusuite-report-relay.service` with `EnvironmentFile=` and systemd
   sandboxing; the nginx snippet and the vhost include (backup `<vhost>.bak-<time>`, restored if `nginx -t` fails);
-  reload; health checks on `127.0.0.1:8787` and `https://resuite.inceptum.at/api/report/health`). Idempotent;
+  reload; health checks on `127.0.0.1:8787` and `https://rusuit.es/api/report/health`). Idempotent;
   `--build-only` just builds, `--no-build` installs an existing build. Needs `sudo`.
 - **Operations**: `systemctl status rusuite-report-relay`, `journalctl -u rusuite-report-relay` (one line per request:
   status, app, kind, an 8-character hash of the instance, duration – never text, images or IP addresses).
-  `curl -s https://resuite.inceptum.at/api/report/health` → `{"ok":true,"version":"0.1.0"}`.
+  `curl -s https://rusuit.es/api/report/health` → `{"ok":true,"version":"0.1.0"}`.
 - **Limits** (in memory, reset by a restart): 1 report per app instance, 5 per client IP (`X-Forwarded-For`, set by
   nginx to `$remote_addr` and trusted from loopback only), 100 in total per hour; body ≤ 8 MB, ≤ 3 screenshots of
   ≤ 2 MB (5 MB together). CORS: the site, `tauri://localhost` and `https://tauri.localhost` only.
@@ -130,4 +130,4 @@ problem" into GitHub issues. It listens on `127.0.0.1:8787`; nginx forwards `loc
 
 ## Domain rusuit.es (2026-10-16)
 
-The owner bought `rusuit.es`; `rusuit.es` and `www.rusuit.es` point to this server. The resuite vhost serves `resuite.inceptum.at rusuit.es`; `www.rusuit.es` redirects (301) to `https://rusuit.es`. The Let's Encrypt certificate `resuite.inceptum.at` was expanded to cover all three names (`certbot --nginx --expand`). Canonical public address: **https://rusuit.es**. The repo copy is `deploy/nginx/resuite.inceptum.at.conf`.
+The owner bought `rusuit.es`; `rusuit.es`, `www.rusuit.es` and `resuite.inceptum.at` point to this server. The vhost (`deploy/nginx/rusuit.es.conf`) serves only `rusuit.es`; `www.rusuit.es` and `resuite.inceptum.at` answer 301 to `https://rusuit.es$request_uri` (HTTP and HTTPS, same certificate; the Let's Encrypt lineage is still named `resuite.inceptum.at` and covers all three names). Canonical public address: **https://rusuit.es** (P8-49).

@@ -122,6 +122,8 @@ function foot(cat) {
         <a href="${RELEASES_URL}" ${i18n(cat, "portal.dl.all")}</a>
         <span aria-hidden="true">·</span>
         <a href="privacy.html" ${i18n(cat, "portal.privacy")}</a>
+        <span aria-hidden="true">·</span>
+        <a href="./#soon" ${i18n(cat, "portal.soon.link")}</a>
       </p>
       <p class="note" ${i18n(cat, "portal.dl.privacy")}</p>
       <p class="legal" ${i18n(cat, "portal.legal")}</p>

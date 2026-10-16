@@ -213,21 +213,14 @@ async fn health() {
 async fn creates_an_issue_with_labels_and_a_screenshot() {
     let h = start(Mock::default()).await;
     let (status, v, headers) = h
-        .post(
-            &with_shot(report()),
-            Some("https://resuite.inceptum.at"),
-            None,
-        )
+        .post(&with_shot(report()), Some("https://rusuit.es"), None)
         .await;
     assert_eq!(status, 201, "{v}");
     assert_eq!(
         v,
         json!({ "number": 42, "url": "https://github.com/o/r/issues/42" })
     );
-    assert_eq!(
-        headers["access-control-allow-origin"],
-        "https://resuite.inceptum.at"
-    );
+    assert_eq!(headers["access-control-allow-origin"], "https://rusuit.es");
     let calls = h.mock.calls();
     assert!(calls
         .iter()

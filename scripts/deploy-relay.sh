@@ -11,13 +11,13 @@
 # Usage: scripts/deploy-relay.sh [--build-only | --no-build]
 #   --build-only  build the release binary and stop (prints its path)
 #   --no-build    install an existing target/release/rusuite-report-relay
-# Env: SITE (default https://resuite.inceptum.at), VHOST (default /etc/nginx/sites-available/resuite.inceptum.at),
+# Env: SITE (default https://rusuit.es), VHOST (default /etc/nginx/sites-available/rusuit.es),
 #      RELAY_LISTEN (default 127.0.0.1:8787).
 set -euo pipefail
 
 export PATH="$HOME/.cargo/bin:$PATH"
-SITE="${SITE:-https://resuite.inceptum.at}"
-VHOST="${VHOST:-/etc/nginx/sites-available/resuite.inceptum.at}"
+SITE="${SITE:-https://rusuit.es}"
+VHOST="${VHOST:-/etc/nginx/sites-available/rusuit.es}"
 LISTEN="${RELAY_LISTEN:-127.0.0.1:8787}"
 NAME=rusuite-report-relay
 BIN=/usr/local/bin/$NAME

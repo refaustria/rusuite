@@ -83,5 +83,16 @@
   "portal.os.modify": "es verändern – den Code an Ihre Bedürfnisse anpassen",
   "portal.os.share": "es weitergeben – mit oder ohne Änderungen",
   "portal.os.code": "Den Code finden Sie auf <a href=\"https://github.com/refaustria/rusuite\">GitHub</a>.",
-  "portal.os.report": "Problem gefunden? Nutzen Sie das Hilfe-Menü ? in der App (Problem melden…) oder eröffnen Sie ein <a href=\"https://github.com/refaustria/rusuite/issues\">Issue auf GitHub</a>."
+  "portal.os.report": "Problem gefunden? Nutzen Sie das Hilfe-Menü ? in der App (Problem melden…) oder eröffnen Sie ein <a href=\"https://github.com/refaustria/rusuite/issues\">Issue auf GitHub</a>.",
+  "portal.soon.h": "Demnächst",
+  "portal.soon.intro": "Das sollen die nächsten Versionen bringen – ohne Termine, und Pläne können sich ändern:",
+  "portal.soon.item1": "<strong>Mobil</strong> – Apps für Android und iOS für Calc, Write und Show sind geplant.",
+  "portal.soon.item2": "<strong>Cloud</strong> – Weitere Cloud-Verbindungen in den Desktop-Apps sind geplant: Google Drive, OneDrive, Dropbox und S3.",
+  "portal.soon.item3": "<strong>KI-Assistent</strong> – Bildeingabe und schnellerer Kontext für das ganze Dokument sind geplant.",
+  "portal.soon.item4": "<strong>Calc</strong> – Datenschnitte, Sparklines, Blattschutz und Blitzvorschau sind geplant.",
+  "portal.soon.item5": "<strong>Write</strong> – Verknüpfte Textfelder, gruppierte Formen und Vorlagen sind geplant.",
+  "portal.soon.item6": "<strong>Show</strong> – Weitere Tabellenformate, Freihandzeichnen und Medien kürzen sind geplant.",
+  "portal.soon.item7": "<strong>Sprachen</strong> – Weitere Oberflächensprachen sind geplant.",
+  "portal.soon.close": "Dein Feedback bestimmt die Reihenfolge: Sag uns über das Hilfe-Menü ? in der App (Problem melden…), was du brauchst.",
+  "portal.soon.link": "Was demnächst kommt"
 }
