@@ -1,4 +1,4 @@
-"""Generator for the PROVISIONAL docx reference suite (58 documents).
+"""Generator for the PROVISIONAL docx reference suite (59 documents).
 
 Emits one flat ODT (.fodt) per topic plus manifest.json. Conversion to .docx is done by
 scripts/gen-docx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
@@ -25,6 +25,8 @@ NS = (
     'xmlns:loext="urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0" '
     'xmlns:xlink="http://www.w3.org/1999/xlink" '
     'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" '
+    'xmlns:dc="http://purl.org/dc/elements/1.1/" '
+    'xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" '
     'office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.text"'
 )
 
@@ -316,7 +318,10 @@ class Doc:
     def finalize(self):
         body = "\n".join(self.body)
         # Note bodies end up in footnotes.xml / endnotes.xml, not in the body.
-        paragraphs = len(re.findall(r"<text:(?:p|h)[ >]", re.sub(r"<text:note-body>.*?</text:note-body>", "", body)))
+        # Comment texts end up in comments.xml.
+        counted = re.sub(r"<text:note-body>.*?</text:note-body>", "", body)
+        counted = re.sub(r"<office:annotation[ >].*?</office:annotation>", "", counted)
+        paragraphs = len(re.findall(r"<text:(?:p|h)[ >]", counted))
         if self.imgs:
             self.feat(f"image:count={self.imgs}")
         if "<svg:title>" in body:
@@ -1057,13 +1062,50 @@ def _(d):
         d.feat(f)
 
 
+# ---------------- 59 comments ----------------
+def _annotation(d, name, author, date, paras, initials=None, parent=None, resolved=False):
+    """An ODF annotation (a docx comment); LibreOffice writes threads and "done" to commentsExtended.xml."""
+    attrs = f' office:name="{name}"'
+    if parent:
+        attrs += f' loext:parent-name="{parent}"'
+        d.feat("comment:reply")
+    if resolved:
+        attrs += ' loext:resolved="true"'
+        d.feat("comment:resolved")
+    ini = f"<meta:creator-initials>{escape(initials)}</meta:creator-initials>" if initials else ""
+    text = "".join(f'<text:p text:style-name="Standard">{escape(t)}</text:p>' for t in paras)
+    return X(f"<office:annotation{attrs}><dc:creator>{escape(author)}</dc:creator>{ini}<dc:date>{date}</dc:date>{text}</office:annotation>")
+
+
+def _annotation_end(name):
+    return X(f'<office:annotation-end office:name="{name}"/>')
+
+
+@topic(59, "comments", "Comments on words, a whole paragraph and a table cell; a reply thread, a resolved comment, two authors with initials and dates")
+def _(d):
+    d.h(1, "Review comments")
+    d.p(["The ", _annotation(d, "c1", "Anna Berg", "2026-10-01T09:30:00", ["Is \"quick\" the right word?"], initials="AB"),
+         "quick brown", _annotation_end("c1"), " fox jumps over the lazy dog."])
+    d.p([_annotation(d, "c2", "Ben Cole", "2026-10-02T10:00:00", ["This whole paragraph needs a source.", "Second paragraph of the comment."], initials="BC"),
+         txt(1, 1), _annotation_end("c2"),
+         _annotation(d, "c3", "Anna Berg", "2026-10-02T11:15:00", ["Added in the appendix."], initials="AB", parent="c2"), _annotation_end("c3")])
+    d.p(["A ", _annotation(d, "c4", "Ben Cole", "2026-10-03T08:00:00", ["Fixed the spelling."], initials="BC", resolved=True),
+         "resolved", _annotation_end("c4"), " comment and plain text."])
+    d.table([[X('<text:p text:style-name="Standard">Cell '
+                + _annotation(d, "c5", "Anna Berg", "2026-10-04T14:45:00", ["A comment in a table."], initials="AB")
+                + "with a note" + _annotation_end("c5") + "</text:p>"), "Plain cell"]])
+    d.feat("comment:in-table")
+    d.feat("comment:count=5")
+    d.feat("comment:authors=2")
+
+
 def emit(outdir, pngdir):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     for k in range(3):
         IMAGES[k] = (Path(pngdir) / f"img{k}.png").read_bytes()
     manifest = []
-    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 59)), "need exactly topics 1..58"
+    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 60)), "need exactly topics 1..59"
     for n, slug, desc, fn in sorted(TOPICS):
         d = Doc(n, slug, desc)
         fn(d)
@@ -1171,6 +1213,21 @@ def check(manifest_path, docxdir):
                 errs.append("tabs not found")
             elif ft == "style:custom-character" and "<w:rStyle " not in doc:
                 errs.append("rStyle not found")
+            elif ft.startswith("comment:count="):
+                with zipfile.ZipFile(f) as z:
+                    comments = z.read("word/comments.xml").decode("utf-8")
+                want = int(ft.split("=")[1])
+                if comments.count("<w:comment ") != want:
+                    errs.append(f"{ft}: found {comments.count('<w:comment ')}")
+                if "<w:commentRangeStart" not in doc:
+                    errs.append("commentRangeStart not found")
+            elif ft in ("comment:reply", "comment:resolved"):
+                with zipfile.ZipFile(f) as z:
+                    ext = z.read("word/commentsExtended.xml").decode("utf-8")
+                if ft == "comment:reply" and "paraIdParent" not in ext:
+                    errs.append("paraIdParent not found")
+                if ft == "comment:resolved" and 'w15:done="1"' not in ext:
+                    errs.append("w15:done not found")
         n = len(re.findall(r"<w:p[ >]", doc))
         if n < e["paragraphs"]:
             errs.append(f"paragraphs: manifest {e['paragraphs']}, docx {n}")

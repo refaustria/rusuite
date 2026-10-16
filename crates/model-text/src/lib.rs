@@ -4,10 +4,12 @@
 //! The model follows WordprocessingML's block/inline shape (ADR 0006): a
 //! [`Document`] body is a list of [`Block`]s ([`Paragraph`], [`Table`] or
 //! [`Toc`]); paragraphs hold [`Inline`]s (text [`Run`]s, [`InlineImage`]s,
-//! [`BreakKind`] breaks, [`Field`]s and [`NoteRef`]s). Lists are paragraphs
+//! [`BreakKind`] breaks, [`Field`]s, [`NoteRef`]s and the range markers
+//! of [`Comment`]s). Lists are paragraphs
 //! with a [`NumberingRef`], headings are paragraphs with a heading style.
 //! The document is divided into [`Section`]s (page setup, headers and
-//! footers); footnotes and endnotes live in [`Document::notes`]. Every
+//! footers); footnotes and endnotes live in [`Document::notes`], comments
+//! in [`Document::comments`]. Every
 //! paragraph, table, row and cell (also inside headers, footers and notes)
 //! carries a document-unique [`NodeId`].
 //!
@@ -20,6 +22,7 @@
 //! IPC payloads. Lengths use [`core_model::units`].
 
 pub mod block;
+pub mod comment;
 pub mod document;
 pub mod inline;
 pub mod media;
@@ -32,6 +35,7 @@ pub mod style;
 pub mod table;
 
 pub use block::{Block, NodeId, Paragraph, Table, TableCell, TableRow, Toc, TocEntry};
+pub use comment::{marker_of, Comment, CommentFix, CommentId, CommentRange};
 pub use core_model::units::{Emu, Pt, Twips};
 pub use core_model::RunProperties;
 pub use document::Document;
