@@ -19,6 +19,7 @@ import type { EditorView } from "@tiptap/pm/view";
 import { base64ToBytes, savedName, type SaveResult } from "@rusuite/ui-shared";
 import { WriteApiError, type EditRequest, type PatchEnvelope, type WriteApi } from "../backend";
 import type { Block } from "../generated/Block";
+import type { Comment } from "../generated/Comment";
 import type { Document } from "../generated/Document";
 import type { Note } from "../generated/Note";
 import type { Section } from "../generated/Section";
@@ -286,6 +287,10 @@ export class SyncController {
   sections: Section[] = [];
   /** Footnotes and endnotes as Rust last reported them. */
   notes: Note[] = [];
+  /** Comments and replies as Rust last reported them (a new array on every change). */
+  comments: Comment[] = [];
+  /** The author of new comments (`SetUser`), as last sent. */
+  user: { name: string; initials: string } | null = null;
   /** Runs before `SaveDocx` (fields update: `UpdateFields`); its command is applied first. */
   beforeSave: (() => WriteCommand | null) | null = null;
   readonly stats: SyncStats = { sent: 0, mismatches: 0, applied: 0, listIdUpdates: 0, reloads: 0, stale: 0 };
@@ -398,6 +403,7 @@ export class SyncController {
     this.page = doc.page;
     this.sections = doc.sections ?? [];
     this.notes = doc.notes ?? [];
+    this.comments = doc.comments ?? [];
     this.tempMap.clear();
     const view = this.view;
     if (view) {
@@ -493,6 +499,18 @@ export class SyncController {
     }
   }
 
+  /** Sets the author of new comments in the core (kept across documents there); an empty name clears it. */
+  async setUser(name: string, initials = ""): Promise<void> {
+    const n = name.trim();
+    this.user = n ? { name: n, initials: initials.trim() } : null;
+    try {
+      await this.api.setUser(n, initials.trim());
+    } catch (e) {
+      this.pushError(e);
+    }
+    this.set({});
+  }
+
   /** Replaces the editor content by Rust's document (after an error). */
   async reload(): Promise<void> {
     this.stats.reloads++;
@@ -564,6 +582,7 @@ export class SyncController {
     if (patch.page) this.page = patch.page;
     if (patch.sections) this.sections = patch.sections;
     if (patch.notes) this.notes = patch.notes;
+    if (patch.comments) this.comments = patch.comments;
     this.set({
       revision: env.revision, dirty: env.dirty, canUndo: env.canUndo, canRedo: env.canRedo, info: patch.info ?? this.state.info,
     });

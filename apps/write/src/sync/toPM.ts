@@ -86,6 +86,10 @@ export function inlinesToPM(schema: Schema, inlines: Inline[]): PMNode[] {
       case "noteRef":
         out.push(schema.nodes.noteRef!.create({ id: inline.value.id, kind: inline.value.kind }, null, marksFromProps(schema, inline.value.props)));
         break;
+      case "commentStart":
+      case "commentEnd":
+        out.push(schema.nodes[inline.kind]!.create({ id: inline.value.id }));
+        break;
     }
   }
   return out;

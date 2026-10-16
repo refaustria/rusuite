@@ -143,3 +143,8 @@ body,
     .write-paged .tiptap-content > * { content-visibility: visible; }
   }
 }
+/* Comments (P8-25): invisible range markers; ranges in the author's light colour, the selected one darker. */
+.tiptap-content .comment-mark { display: inline; }
+.tiptap-content .comment-range { background: color-mix(in srgb, var(--comment-bg, #fde68a) 60%, transparent); border-radius: 1px; }
+.tiptap-content .comment-range-active { background: color-mix(in srgb, var(--comment-bg, #d97706) 40%, transparent); }
+.tiptap-content .comment-range-draft { background: #c7d7f2; }

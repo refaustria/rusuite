@@ -12,7 +12,7 @@ import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import {
   ColorPicker, ContextMenu, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
-  RibbonRow, RibbonStack, RibbonTableSizePicker, StyleToggles, triggerShortcut, languageRibbonGroup, withLabel,
+  RibbonRow, RibbonSplitButton, RibbonStack, RibbonTableSizePicker, StyleToggles, triggerShortcut, languageRibbonGroup, withLabel,
   type AnySession, type CellStylePatch, type CellStyleView, type FormatControlProps, type RibbonGalleryItem, type RibbonMenuItem, type RibbonTab,
 } from "@rusuite/ui-shared";
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
@@ -50,6 +50,10 @@ import { styleFromMarks } from "../sync/fromPM";
 import type { Style } from "../generated/Style";
 import { useT } from "../i18n";
 import { getLocale } from "@rusuite/ui-shared";
+import { deleteAllComments, deleteComment, goToComment, resolveComment } from "../comments/commands";
+import {
+  DELETE_COMMENT_ICON, NEW_COMMENT_ICON, NEXT_COMMENT_ICON, PANE_ICON, PREV_COMMENT_ICON, RESOLVE_ICON, SHOW_COMMENTS_ICON,
+} from "../comments/CommentsUi";
 
 // ----- page setup ---------------------------------------------------------------
 
@@ -874,6 +878,92 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
     ],
   };
 
+  const cui = ui.comments;
+  const activeComment = cui.active != null ? ctl.comments.find((c) => c.id === cui.active) ?? null : null;
+  const goTo = (dir: 1 | -1) => {
+    const id = goToComment(editor.view, dir);
+    if (id != null) features.ui.setComments({ active: id, show: true });
+  };
+  const review: RibbonTab = {
+    id: "review",
+    label: t("write.tab.review"),
+    groups: [
+      {
+        label: t("write.comments.title"),
+        items: (
+          <>
+            <RibbonButton
+              label={t("write.comments.new")}
+              icon={NEW_COMMENT_ICON}
+              size="large"
+              shortcut="Mod+Alt+M"
+              tooltip={t("write.comments.newTip")}
+              onClick={() => features.newComment()}
+            />
+            <RibbonSplitButton
+              label={t("write.comments.delete")}
+              icon={DELETE_COMMENT_ICON}
+              size="large"
+              tooltip={t("write.comments.deleteTip")}
+              disabled={ctl.comments.length === 0}
+              onClick={() => {
+                if (activeComment) {
+                  features.ui.setComments({ active: null });
+                  void deleteComment(ctl, activeComment.id);
+                }
+              }}
+              menu={[
+                {
+                  id: "delete",
+                  label: t("write.comments.delete"),
+                  disabled: !activeComment,
+                  onSelect: () => {
+                    if (!activeComment) return;
+                    features.ui.setComments({ active: null });
+                    void deleteComment(ctl, activeComment.id);
+                  },
+                },
+                { id: "deleteAll", label: t("write.comments.deleteAll"), onSelect: () => void deleteAllComments(ctl) },
+                {
+                  id: "deleteResolved",
+                  label: t("write.comments.deleteResolved"),
+                  disabled: !ctl.comments.some((c) => c.resolved),
+                  onSelect: () => void deleteAllComments(ctl, true),
+                },
+              ]}
+            />
+            <RibbonStack>
+              <RibbonButton label={t("write.comments.previous")} icon={PREV_COMMENT_ICON} showLabel disabled={ctl.comments.length === 0} onClick={() => goTo(-1)} />
+              <RibbonButton label={t("write.comments.next")} icon={NEXT_COMMENT_ICON} showLabel disabled={ctl.comments.length === 0} onClick={() => goTo(1)} />
+              <RibbonButton
+                label={activeComment?.resolved ? t("write.comments.reopen") : t("write.comments.resolve")}
+                icon={RESOLVE_ICON}
+                showLabel
+                disabled={!activeComment}
+                pressed={!!activeComment?.resolved}
+                onClick={() => activeComment && void resolveComment(ctl, activeComment.id, !activeComment.resolved)}
+              />
+            </RibbonStack>
+            <RibbonButton
+              label={t("write.comments.show")}
+              icon={SHOW_COMMENTS_ICON}
+              size="large"
+              pressed={cui.show}
+              onClick={() => features.ui.setComments({ show: !cui.show })}
+            />
+            <RibbonButton
+              label={t("write.comments.pane")}
+              icon={PANE_ICON}
+              size="large"
+              pressed={cui.pane}
+              onClick={() => features.ui.setComments(cui.pane ? { pane: false } : { pane: true, show: true })}
+            />
+          </>
+        ),
+      },
+    ],
+  };
+
   const view: RibbonTab = {
     id: "view",
     label: t("tab.view"),
@@ -1012,7 +1102,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       appName="Rusuite Write"
       documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#2b579a"
-      tabs={[home, insert, layout, references, view, ...tableTabList, ...(pictureTab ? [pictureTab] : [])]}
+      tabs={[home, insert, layout, references, review, view, ...tableTabList, ...(pictureTab ? [pictureTab] : [])]}
       backstage={{
         session,
         onNew: () => triggerShortcut("Mod+N"),
@@ -1023,6 +1113,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         onExportPdf,
         print,
         onCloseDocument: () => triggerShortcut("Mod+N"),
+        onOptions: () => features.ui.openDialog("userName"),
       }}
     />
   );
