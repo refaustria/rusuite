@@ -6,7 +6,7 @@
 
 import type { ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
-import { ColorPicker, Icon, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonStack, type RibbonGalleryItem, type RibbonTab } from "@rusuite/ui-shared";
+import { ColorPicker, Icon, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonRow, RibbonStack, type RibbonGalleryItem, type RibbonTab } from "@rusuite/ui-shared";
 import type { StyleSheet } from "../generated/StyleSheet";
 import type { TableLook } from "../generated/TableLook";
 import type { VAlign } from "../generated/VAlign";
@@ -133,12 +133,13 @@ const BORDER_PRESETS: { id: CellBorderPreset; key: string; icon: ReactNode }[] =
   { id: "insideV", key: "write.border.insideV", icon: <Icon name="borders" /> },
 ];
 
+// Two rows of three (Word's order: header/total/banded rows, then the columns).
 const LOOK_KEYS: { key: keyof TableLook; label: string }[] = [
   { key: "firstRow", label: "write.look.headerRow" },
-  { key: "firstCol", label: "write.look.firstColumn" },
   { key: "lastRow", label: "write.look.totalRow" },
-  { key: "lastCol", label: "write.look.lastColumn" },
   { key: "bandedRows", label: "write.look.bandedRows" },
+  { key: "firstCol", label: "write.look.firstColumn" },
+  { key: "lastCol", label: "write.look.lastColumn" },
   { key: "bandedCols", label: "write.look.bandedColumns" },
 ];
 
@@ -184,9 +185,9 @@ export function tableTabs({ editor, ctl, features, info, styles }: TableTabsArgs
       {
         label: t("write.styleOptions"),
         items: (
-          <div className="grid grid-cols-2 gap-x-3 text-[11px] leading-4 text-ui-fg" role="group" aria-label={t("write.styleOptions")}>
+          <div className="grid grid-cols-3 gap-x-3 gap-y-1 text-[11px] leading-4 text-ui-fg" role="group" aria-label={t("write.styleOptions")}>
             {LOOK_KEYS.map(({ key, label }) => (
-              <label key={key} className="flex min-h-4 items-center gap-1 whitespace-nowrap">
+              <label key={key} className="flex h-5 items-center gap-1 whitespace-nowrap">
                 <input type="checkbox" checked={info.look[key]} onChange={run((tc) => toggleLook(tc, key))} />
                 {t(label)}
               </label>
@@ -217,9 +218,15 @@ export function tableTabs({ editor, ctl, features, info, styles }: TableTabsArgs
         label: t("write.borders"),
         items: (
           <RibbonStack>
-            <ColorPicker label={t("write.shading")} kind="fill" onSelect={(c) => run((tc) => shadeCells(tc, c))()} />
+            <RibbonRow>
+              <ColorPicker label={t("write.shading")} kind="fill" onSelect={(c) => run((tc) => shadeCells(tc, c))()} />
+              <span aria-hidden="true" className="whitespace-nowrap pr-1 text-xs">
+                {t("write.shading")}
+              </span>
+            </RibbonRow>
             <RibbonMenuButton
               label={t("fmt.borders")}
+              showLabel
               icon={<Icon name="borders" />}
               menu={BORDER_PRESETS.map((b) => ({ id: b.id, label: t(b.key), icon: b.icon, onSelect: run((tc) => cellBordersCommand(tc, b.id)) }))}
             />
