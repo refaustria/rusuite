@@ -20,6 +20,8 @@ import { base64ToBytes, savedName, type SaveResult } from "@rusuite/ui-shared";
 import { WriteApiError, type EditRequest, type PatchEnvelope, type WriteApi } from "../backend";
 import type { Block } from "../generated/Block";
 import type { Comment } from "../generated/Comment";
+import type { CoreProperties } from "../generated/CoreProperties";
+import type { DocumentSettings } from "../generated/DocumentSettings";
 import type { Document } from "../generated/Document";
 import type { Note } from "../generated/Note";
 import type { Section } from "../generated/Section";
@@ -28,10 +30,10 @@ import type { PageSetup } from "../generated/PageSetup";
 import type { StyleSheet } from "../generated/StyleSheet";
 import type { WriteCommand } from "../generated/WriteCommand";
 import type { WritePatch } from "../generated/WritePatch";
-import { blockAt, notesFromPM, notesNode } from "./fromPM";
+import { blockAt, fromPM, notesFromPM, notesNode } from "./fromPM";
 import { blockKey, canonNote, stableStringify, substituteBlock, walkBlocks } from "./model";
 import { ID_NODE_TYPES, LIST_TYPES } from "./schema";
-import { blocksToPM, notesToPM, orderNotes, toPM } from "./toPM";
+import { blocksToPM, notesToPM, orderNotes, sectionIndexes, toPM } from "./toPM";
 import { mapDocChange, topBlocks, type MapperOptions, type MapResult } from "./transactionMapper";
 
 /** Transaction meta key: `"remote"` marks changes that come from Rust. */
@@ -291,8 +293,14 @@ export class SyncController {
   comments: Comment[] = [];
   /** The author of new comments (`SetUser`), as last sent. */
   user: { name: string; initials: string } | null = null;
+  /** Document properties (File › Info) as Rust last reported them. */
+  properties: CoreProperties = {};
+  /** Document settings (Layout › Hyphenation). */
+  settings: DocumentSettings = {};
   /** Runs before `SaveDocx` (fields update: `UpdateFields`); its command is applied first. */
   beforeSave: (() => WriteCommand | null) | null = null;
+  /** What `SaveDocx` stamps into the properties: the page count of the pagination (the clock and the user come from here). */
+  saveStats: (() => { pages?: number }) | null = null;
   readonly stats: SyncStats = { sent: 0, mismatches: 0, applied: 0, listIdUpdates: 0, reloads: 0, stale: 0 };
   private queue: Pending[] = [];
   private busy = false;
@@ -404,6 +412,8 @@ export class SyncController {
     this.sections = doc.sections ?? [];
     this.notes = doc.notes ?? [];
     this.comments = doc.comments ?? [];
+    this.properties = doc.properties ?? {};
+    this.settings = doc.settings ?? {};
     this.tempMap.clear();
     const view = this.view;
     if (view) {
@@ -486,7 +496,14 @@ export class SyncController {
     try {
       const update = this.beforeSave?.() ?? null;
       if (update) await this.run(update);
-      const file = await this.api.saveDocx();
+      const stamp: { modified?: string; user?: string; pages?: number } = {
+        modified: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+        ...(this.saveStats?.() ?? {}),
+      };
+      if (this.user) stamp.user = this.user.name;
+      const file = await this.api.saveDocx(stamp);
+      // The stamp changed the properties in the core (not an edit): mirror it.
+      this.properties = stampProperties(this.properties, stamp);
       const suggested = asName ?? file.suggestedName;
       const result = await save(suggested, file.bytesBase64);
       if (!result) return false;
@@ -583,6 +600,8 @@ export class SyncController {
     if (patch.sections) this.sections = patch.sections;
     if (patch.notes) this.notes = patch.notes;
     if (patch.comments) this.comments = patch.comments;
+    if (patch.properties) this.properties = patch.properties;
+    if (patch.settings) this.settings = patch.settings;
     this.set({
       revision: env.revision, dirty: env.dirty, canUndo: env.canUndo, canRedo: env.canRedo, info: patch.info ?? this.state.info,
     });
@@ -719,6 +738,55 @@ export class SyncController {
     }
     if (patch.notes) this.reconcileNotes(patch.notes, skip, kind);
     this.applyLabels(patch);
+    if (patch.sections || this.sections.some((s) => (s.columns?.count ?? 1) > 1)) this.rewrapColumns();
+  }
+
+  /** The `columns` boxes the sections ask for: `[section id, first block id]` per box, from the editor's blocks. */
+  private wantedColumns(body: Block[]): string {
+    const idx = sectionIndexes(body, this.sections);
+    const out: string[] = [];
+    let last = -1;
+    body.forEach((b, i) => {
+      const sec = this.sections[idx[i]!];
+      if ((sec?.columns?.count ?? 1) > 1 && idx[i] !== last) out.push(`${sec!.id}:${stableStringify(sec!.columns)}:${b.value.id}`);
+      last = idx[i]!;
+    });
+    return out.join("|");
+  }
+
+  /** The `columns` boxes of the editor: `[section id, first block id]` per box. */
+  private shownColumns(doc: PMNode): string {
+    const out: string[] = [];
+    doc.forEach((n) => {
+      if (n.type.name !== "columns") return;
+      const first = topBlocks(n)[0];
+      out.push(`${n.attrs.section}:${stableStringify(n.attrs.columns)}:${first?.value.id}`);
+    });
+    return out.join("|");
+  }
+
+  /** Re-wraps the multi-column sections when the sections or their blocks changed (Layout › Columns, a section break). */
+  rewrapColumns(): void {
+    const view = this.view;
+    if (!view) return;
+    const doc = view.state.doc;
+    const body = fromPM(doc);
+    if (this.wantedColumns(body) === this.shownColumns(doc)) return;
+    const area = notesNode(doc);
+    const end = area ? doc.content.size - area.nodeSize : doc.content.size;
+    const fresh = blocksToPM({ schema: view.state.schema, numbering: this.numbering, sections: { list: this.sections, start: 0 } }, body);
+    const { anchor, head } = view.state.selection;
+    const pa = pointAt(doc, anchor);
+    const ph = pointAt(doc, head);
+    const tr = view.state.tr.replaceWith(0, end, fresh);
+    const an = resolvePoint(tr.doc, pa, tr.mapping.map(anchor));
+    const hd = resolvePoint(tr.doc, ph, tr.mapping.map(head));
+    try {
+      tr.setSelection(TextSelection.between(tr.doc.resolve(an), tr.doc.resolve(hd)));
+    } catch {
+      // Keep the mapped selection.
+    }
+    this.dispatchRemote(tr);
   }
 
   /** Re-renders the notes area when Rust's notes differ from the editor's (not while queued edits touch them). */
@@ -809,9 +877,10 @@ export class SyncController {
     let s0 = a >= oldBody.length ? last : nodeOf(a);
     let e0 = Math.max(s0, nodeOf(Math.max(a, oldBody.length - z - 1)));
     e0 = Math.min(e0, last);
-    // Lists may merge with or split from their neighbours.
-    if (s0 > 0 && LIST_TYPES.has(nodes[s0 - 1]!.type.name)) s0--;
-    if (e0 < last && LIST_TYPES.has(nodes[e0 + 1]!.type.name)) e0++;
+    // Lists (and multi-column boxes) may merge with or split from their neighbours.
+    const merges = (n: PMNode) => LIST_TYPES.has(n.type.name) || n.type.name === "columns";
+    if (s0 > 0 && merges(nodes[s0 - 1]!)) s0--;
+    if (e0 < last && merges(nodes[e0 + 1]!)) e0++;
     const mStart = starts[s0]!;
     const mEndOld = starts[e0]! + counts[e0]!;
     const mEndNew = mEndOld + (newBody.length - oldBody.length);
@@ -819,7 +888,11 @@ export class SyncController {
     for (let i = 0; i < s0; i++) from += nodes[i]!.nodeSize;
     let to = from;
     for (let i = s0; i <= e0; i++) to += nodes[i]!.nodeSize;
-    const fresh = blocksToPM({ schema: view.state.schema, numbering: this.numbering }, newBody.slice(mStart, mEndNew));
+    const start = sectionIndexes(newBody.slice(0, mStart + 1), this.sections)[mStart] ?? 0;
+    const fresh = blocksToPM(
+      { schema: view.state.schema, numbering: this.numbering, sections: { list: this.sections, start } },
+      newBody.slice(mStart, mEndNew),
+    );
     const { anchor, head } = view.state.selection;
     const pa = pointAt(doc, anchor);
     const ph = pointAt(doc, head);
@@ -833,6 +906,22 @@ export class SyncController {
     }
     this.dispatchRemote(tr);
   }
+}
+
+/** What `SaveDocx` with `stamp` does to the properties (mirror of `WriteDocument::stamp_save`). */
+export function stampProperties(p: CoreProperties, stamp: { modified?: string; user?: string; pages?: number }): CoreProperties {
+  const out: CoreProperties = { ...p };
+  if (stamp.modified) {
+    out.modified = stamp.modified;
+    out.created ??= stamp.modified;
+  }
+  if (stamp.user?.trim()) {
+    out.lastModifiedBy = stamp.user;
+    out.author ??= stamp.user;
+  }
+  if (stamp.pages != null) out.pages = stamp.pages;
+  out.revision = (out.revision ?? 0) + 1;
+  return out;
 }
 
 const numIdOf = (b: Block): number | undefined => (b.kind === "paragraph" ? b.value.props?.numbering?.numId : undefined);

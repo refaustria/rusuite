@@ -496,9 +496,6 @@ fn toggle_el(x: &mut XmlOut, name: &str, on: bool) {
 /// `w:pPr` children that are dropped silently (no visible effect in our
 /// layout, or defaults).
 const SILENT_PPR: &[&str] = &[
-    "widowControl",
-    "suppressAutoHyphens",
-    "suppressLineNumbers",
     "outlineLvl",
     "snapToGrid",
     "autoSpaceDE",
@@ -601,6 +598,10 @@ pub(crate) fn read_ppr(ppr: &El, ctx: &str, w: &mut Warnings) -> ParagraphProper
         match el.name.as_str() {
             "pStyle" => p.style = el.val().map(str::to_owned),
             "keepNext" => p.keep_next = Some(toggle(el)),
+            "keepLines" => p.keep_lines = Some(toggle(el)),
+            "widowControl" => p.widow_control = Some(toggle(el)),
+            "suppressLineNumbers" => p.suppress_line_numbers = Some(toggle(el)),
+            "suppressAutoHyphens" => p.suppress_auto_hyphens = Some(toggle(el)),
             "pageBreakBefore" => p.page_break_before = Some(toggle(el)),
             "numPr" => {
                 if el.child("ins").is_some() {
@@ -673,14 +674,23 @@ pub(crate) fn write_ppr_sect(
     if let Some(k) = p.keep_next {
         toggle_el(x, "w:keepNext", k);
     }
+    if let Some(k) = p.keep_lines {
+        toggle_el(x, "w:keepLines", k);
+    }
     if let Some(k) = p.page_break_before {
         toggle_el(x, "w:pageBreakBefore", k);
+    }
+    if let Some(k) = p.widow_control {
+        toggle_el(x, "w:widowControl", k);
     }
     if let Some(n) = p.numbering {
         x.start("w:numPr", &[]);
         x.val("w:ilvl", &n.level.to_string());
         x.val("w:numId", &n.num_id.to_string());
         x.end("w:numPr");
+    }
+    if let Some(k) = p.suppress_line_numbers {
+        toggle_el(x, "w:suppressLineNumbers", k);
     }
     if let Some(b) = &p.borders {
         write_pbdr(x, b, scheme);
@@ -689,6 +699,9 @@ pub(crate) fn write_ppr_sect(
         write_shading(x, c, scheme);
     }
     write_tabs(x, &p.tabs);
+    if let Some(k) = p.suppress_auto_hyphens {
+        toggle_el(x, "w:suppressAutoHyphens", k);
+    }
     if let Some(s) = &p.spacing {
         write_spacing(x, s);
     }

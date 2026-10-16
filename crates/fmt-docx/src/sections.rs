@@ -2,7 +2,10 @@
 //! reader and writer handle as separate parts).
 
 use core_model::units::Twips;
-use model_text::{HeaderSlot, Margins, Orientation, PageSetup, Section, SectionId, SectionKind};
+use model_text::{
+    ColumnWidth, Columns, HeaderSlot, Margins, Orientation, PageSetup, Section, SectionId,
+    SectionKind,
+};
 
 use crate::numbering::{number_format, number_format_name};
 use crate::xml::{parse_twips, parse_u32, toggle, El, WriteVal, XmlOut};
@@ -89,17 +92,38 @@ pub(crate) fn read_sect_pr(s: &El, id: SectionId, w: &mut Warnings) -> (Section,
                 }
             }
             "cols" => {
-                sec.columns = el
+                let widths: Vec<ColumnWidth> = el
+                    .elements()
+                    .filter(|c| c.name == "col")
+                    .map(|c| ColumnWidth {
+                        width: tw(c, "w").unwrap_or(Twips(0)),
+                        space: tw(c, "space").unwrap_or(Twips(0)),
+                    })
+                    .collect();
+                let num = el
                     .attr("num")
                     .and_then(parse_u32)
-                    .map_or(1, |n| n.clamp(1, 45) as u8);
-                sec.column_space = tw(el, "space");
-                if el.elements().any(|c| c.name == "col") {
-                    w.add("section: unequal column widths dropped");
-                }
-                if el.attr("sep").and_then(crate::xml::parse_bool) == Some(true) {
-                    w.add("section: column separator line dropped");
-                }
+                    .map(|n| n.clamp(1, 45) as u8);
+                let equal = el
+                    .attr("equalWidth")
+                    .and_then(crate::xml::parse_bool)
+                    .unwrap_or(widths.is_empty());
+                let count = num.unwrap_or(if equal || widths.is_empty() {
+                    1
+                } else {
+                    widths.len().clamp(1, 45) as u8
+                });
+                sec.columns = Columns {
+                    count,
+                    spacing: tw(el, "space"),
+                    equal: equal || widths.len() != usize::from(count),
+                    widths: if equal || widths.len() != usize::from(count) {
+                        Vec::new()
+                    } else {
+                        widths
+                    },
+                    separator: el.attr("sep").and_then(crate::xml::parse_bool) == Some(true),
+                };
             }
             "titlePg" => sec.title_page = toggle(el),
             "pgNumType" => {
@@ -176,17 +200,37 @@ pub(crate) fn write_sect_pr(s: &Section, refs: &[HeaderRef]) -> Vec<u8> {
         }
         x.empty("w:pgNumType", &attrs);
     }
-    if s.columns > 1 || s.column_space.is_some() {
-        let num = s.columns.max(1).to_string();
-        let space = s.column_space.map(|t| t.0.to_string());
+    let c = &s.columns;
+    if !c.is_single() {
+        let num = c.count.max(1).to_string();
+        let space = c.spacing.map(|t| t.0.to_string());
         let mut attrs = Vec::new();
         if let Some(sp) = &space {
             attrs.push(("w:space", sp.as_str()));
         }
-        if s.columns > 1 {
+        if c.count > 1 {
             attrs.push(("w:num", num.as_str()));
         }
-        x.empty("w:cols", &attrs);
+        if c.separator {
+            attrs.push(("w:sep", "1"));
+        }
+        let unequal = !c.equal && c.widths.len() == usize::from(c.count) && c.count > 1;
+        if unequal {
+            attrs.push(("w:equalWidth", "0"));
+            x.start("w:cols", &attrs);
+            for (i, col) in c.widths.iter().enumerate() {
+                let w = col.width.0.to_string();
+                let sp = col.space.0.to_string();
+                let mut a = vec![("w:w", w.as_str())];
+                if i + 1 < c.widths.len() {
+                    a.push(("w:space", sp.as_str()));
+                }
+                x.empty("w:col", &a);
+            }
+            x.end("w:cols");
+        } else {
+            x.empty("w:cols", &attrs);
+        }
     }
     if s.title_page {
         x.empty("w:titlePg", &[]);
@@ -216,7 +260,7 @@ mod tests {
         assert_eq!(s.kind, SectionKind::Continuous);
         assert_eq!(s.page.orientation, Orientation::Landscape);
         assert_eq!(s.page.margins.left, Twips(1300));
-        assert_eq!((s.columns, s.column_space), (2, Some(Twips(708))));
+        assert_eq!((s.columns.count, s.columns.spacing), (2, Some(Twips(708))));
         assert!(s.title_page);
         assert_eq!(s.page_number_start, Some(3));
         assert_eq!(

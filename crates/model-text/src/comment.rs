@@ -392,7 +392,7 @@ fn strip_markers(b: &mut Block, changed: &mut bool) {
     match b {
         Block::Paragraph(p) => {
             let n = p.inlines.len();
-            p.inlines.retain(|i| marker_of(i).is_none());
+            p.inlines.retain(|i| !i.is_comment_marker());
             *changed |= p.inlines.len() != n;
         }
         Block::Table(t) => {

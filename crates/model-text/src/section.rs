@@ -158,13 +158,14 @@ pub struct Section {
     /// Footers.
     #[serde(default, skip_serializing_if = "HeaderFooterSet::is_empty")]
     pub footers: HeaderFooterSet,
-    /// Number of text columns (1 = no columns).
-    #[serde(default = "one")]
-    pub columns: u8,
-    /// Space between columns (docx `w:cols/@w:space`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "ts", ts(optional, as = "Option<i32>"))]
-    pub column_space: Option<Twips>,
+    /// Text columns (docx `w:cols`). Also reads the older plain number.
+    #[serde(
+        default,
+        skip_serializing_if = "Columns::is_single",
+        deserialize_with = "columns_compat"
+    )]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Columns>"))]
+    pub columns: Columns,
     /// The first page has its own header/footer (docx `w:titlePg`).
     #[serde(default)]
     pub title_page: bool,
@@ -178,8 +179,124 @@ pub struct Section {
     pub page_number_format: Option<LevelKind>,
 }
 
-fn one() -> u8 {
-    1
+/// One column of unequal-width columns: its width and the space after it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct ColumnWidth {
+    /// Width (docx `w:col/@w:w`).
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
+    pub width: Twips,
+    /// Space to the next column (`w:space`; 0 for the last).
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
+    pub space: Twips,
+}
+
+/// The text columns of a section (Layout › Columns).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct Columns {
+    /// Number of columns (1 = no columns, at most 45; docx `w:num`).
+    pub count: u8,
+    /// Space between equal columns (docx `w:space`; `None` = Word's 0.5").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<i32>"))]
+    pub spacing: Option<Twips>,
+    /// Equal column width (docx `w:equalWidth`; unequal columns take
+    /// `widths`).
+    #[serde(default = "yes")]
+    pub equal: bool,
+    /// Width and following space of each column when not `equal`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub widths: Vec<ColumnWidth>,
+    /// A line between the columns (docx `w:sep`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub separator: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for Columns {
+    fn default() -> Self {
+        Self::equal(1)
+    }
+}
+
+/// Word's default space between columns: 0.5" (720 twips).
+pub const DEFAULT_COLUMN_SPACE: Twips = Twips(720);
+
+impl Columns {
+    /// `count` equal columns with the default spacing.
+    pub fn equal(count: u8) -> Self {
+        Self {
+            count: count.max(1),
+            spacing: None,
+            equal: true,
+            widths: Vec::new(),
+            separator: false,
+        }
+    }
+
+    /// One column, nothing else set (the docx default).
+    pub fn is_single(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// The width and following space of every column for a text width of
+    /// `content` twips: equal columns share what is left after the
+    /// spacing; unequal ones use `widths` (scaled to fit `content`).
+    pub fn layout(&self, content: Twips) -> Vec<ColumnWidth> {
+        let n = i32::from(self.count.max(1));
+        if !self.equal && self.widths.len() == n as usize {
+            let total: i32 = self.widths.iter().map(|c| c.width.0 + c.space.0).sum();
+            if total > 0 && total != content.0 {
+                let k = f64::from(content.0) / f64::from(total);
+                return self
+                    .widths
+                    .iter()
+                    .map(|c| ColumnWidth {
+                        width: Twips((f64::from(c.width.0) * k).round() as i32),
+                        space: Twips((f64::from(c.space.0) * k).round() as i32),
+                    })
+                    .collect();
+            }
+            return self.widths.clone();
+        }
+        let space = self.spacing.unwrap_or(DEFAULT_COLUMN_SPACE).0.max(0);
+        let width = ((content.0 - space * (n - 1)) / n).max(0);
+        (0..n)
+            .map(|i| ColumnWidth {
+                width: Twips(width),
+                space: Twips(if i + 1 < n { space } else { 0 }),
+            })
+            .collect()
+    }
+}
+
+/// Reads [`Columns`] or the older plain column count.
+fn columns_compat<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Columns, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Compat {
+        Count(u8),
+        Full(Columns),
+    }
+    Ok(match Compat::deserialize(d)? {
+        Compat::Count(n) => Columns::equal(n),
+        Compat::Full(c) => c,
+    })
 }
 
 impl Section {
@@ -191,8 +308,7 @@ impl Section {
             kind: SectionKind::NextPage,
             headers: HeaderFooterSet::default(),
             footers: HeaderFooterSet::default(),
-            columns: 1,
-            column_space: None,
+            columns: Columns::default(),
             title_page: false,
             page_number_start: None,
             page_number_format: None,

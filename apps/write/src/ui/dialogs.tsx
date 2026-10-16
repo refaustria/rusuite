@@ -35,6 +35,7 @@ import { nextTempId, type SyncController } from "../sync/SyncPlugin";
 import { blocksText, sectionHf } from "../features/pagination";
 import { currentSection } from "../features/structureCommands";
 import { useT } from "../i18n";
+import { paragraphStyleId, resolveParagraph } from "../features/styleCss";
 
 // ----- units ------------------------------------------------------------------------
 
@@ -403,6 +404,39 @@ export interface ParagraphValues {
   alignment: Alignment | null;
   indent: Indent;
   spacing: Spacing;
+  /** Line and Page Breaks (effective values: style chain + direct). */
+  flow?: FlowValues;
+}
+
+/** The Line and Page Breaks tab (Word's Pagination and Formatting exceptions). */
+export interface FlowValues {
+  widowControl: boolean;
+  keepNext: boolean;
+  keepLines: boolean;
+  pageBreakBefore: boolean;
+  suppressLineNumbers: boolean;
+  suppressAutoHyphens: boolean;
+}
+
+export const FLOW_KEYS: (keyof FlowValues)[] = ["widowControl", "keepNext", "keepLines", "pageBreakBefore", "suppressLineNumbers", "suppressAutoHyphens"];
+
+/** The flow values of the resolved paragraph properties `p` (Word's defaults: widow control on, the rest off). */
+export function flowValues(p: Partial<Record<keyof FlowValues, boolean | null | undefined>>): FlowValues {
+  return {
+    widowControl: p.widowControl ?? true,
+    keepNext: !!p.keepNext,
+    keepLines: !!p.keepLines,
+    pageBreakBefore: !!p.pageBreakBefore,
+    suppressLineNumbers: !!p.suppressLineNumbers,
+    suppressAutoHyphens: !!p.suppressAutoHyphens,
+  };
+}
+
+/** The direct properties changed between `before` and `after` (what `SetParagraphProps` gets). */
+export function flowPatch(before: FlowValues, after: FlowValues): Partial<FlowValues> {
+  const out: Partial<FlowValues> = {};
+  for (const k of FLOW_KEYS) if (before[k] !== after[k]) out[k] = after[k];
+  return out;
 }
 
 type LineRule = "single" | "1.5" | "double" | "multiple" | "atLeast" | "exact";
@@ -437,14 +471,20 @@ export function lineSpacingOf(rule: LineRule, value: string): LineSpacing | null
   }
 }
 
-export function ParagraphDialog({ open, initial, onSubmit, onClose }: {
+export function ParagraphDialog({ open, initial, tab = "indents", onTab, onSubmit, onClose }: {
   open: boolean;
   initial: ParagraphValues;
+  tab?: "indents" | "breaks";
+  onTab?: (tab: "indents" | "breaks") => void;
   onSubmit: (v: ParagraphValues) => void;
   onClose: () => void;
 }) {
   const t = useT();
   const [f, setF] = useState({ align: "left", left: "", right: "", first: "", before: "", after: "", rule: "single" as LineRule, at: "1" });
+  const [flow, setFlow] = useState<FlowValues>(flowValues({}));
+  useEffect(() => {
+    if (open) setFlow(initial.flow ?? flowValues({}));
+  }, [open, initial]);
   useEffect(() => {
     if (!open) return;
     const l = lineRuleOf(initial.spacing.line);
@@ -472,9 +512,35 @@ export function ParagraphDialog({ open, initial, onSubmit, onClose }: {
           if (!valid) return;
           const [left, right, first, before, after] = nums as number[];
           const indent: Indent = first! >= 0 ? { left: left!, right: right!, firstLine: first!, hanging: null } : { left: left!, right: right!, firstLine: null, hanging: -first! };
-          onSubmit({ alignment: f.align as Alignment, indent, spacing: { before: Math.max(0, before!), after: Math.max(0, after!), line: line! } });
+          onSubmit({ alignment: f.align as Alignment, indent, spacing: { before: Math.max(0, before!), after: Math.max(0, after!), line: line! }, flow });
         }}
       >
+        <div className="flex gap-2 border-b border-ui-border" role="tablist">
+          {(["indents", "breaks"] as const).map((k) => (
+            <button key={k} type="button" role="tab" aria-selected={tab === k} className={`px-2 py-1 text-xs ${tab === k ? "border-b-2 border-ui-focus font-medium" : ""}`} onClick={() => onTab?.(k)}>
+              {t(k === "indents" ? "write.para.tabIndents" : "write.para.tabBreaks")}
+            </button>
+          ))}
+        </div>
+        {tab === "breaks" ? (
+          <div className="flex flex-col gap-1" data-testid="paragraph-breaks">
+            <p className="font-medium">{t("write.para.pagination")}</p>
+            {(["widowControl", "keepNext", "keepLines", "pageBreakBefore"] as const).map((k) => (
+              <label key={k} className="flex items-center gap-2">
+                <input type="checkbox" aria-label={t(`write.para.${k}`)} checked={flow[k]} onChange={(e) => setFlow({ ...flow, [k]: e.target.checked })} />
+                {t(`write.para.${k}`)}
+              </label>
+            ))}
+            <p className="mt-1 font-medium">{t("write.para.exceptions")}</p>
+            {(["suppressLineNumbers", "suppressAutoHyphens"] as const).map((k) => (
+              <label key={k} className="flex items-center gap-2">
+                <input type="checkbox" aria-label={t(`write.para.${k}`)} checked={flow[k]} onChange={(e) => setFlow({ ...flow, [k]: e.target.checked })} />
+                {t(`write.para.${k}`)}
+              </label>
+            ))}
+          </div>
+        ) : (
+          <>
         <Row label={t("fmt.alignment")}>
           <select aria-label={t("fmt.alignment")} className={INPUT} value={f.align} onChange={set("align")}>
             <option value="left">{t("write.left")}</option>
@@ -515,10 +581,35 @@ export function ParagraphDialog({ open, initial, onSubmit, onClose }: {
             <input aria-label={t("write.para.at")} className={INPUT} value={f.at} onChange={set("at")} />
           </Row>
         )}
+          </>
+        )}
         <Buttons onClose={onClose} disabled={!valid} />
       </form>
     </Dialog>
   );
+}
+
+/** The flow values of the caret's paragraph: its style chain, then its direct formatting. */
+export function flowAt(editor: Editor, ctl: SyncController): FlowValues {
+  const node = selectedTextblocks(editor)[0]?.[0];
+  if (!node) return flowValues({});
+  const style = resolveParagraph(ctl.styles, paragraphStyleId(ctl.styles, node));
+  const direct = (node.attrs.extra ?? {}) as Partial<Record<keyof FlowValues, boolean>>;
+  const merged: Partial<Record<keyof FlowValues, boolean | null | undefined>> = {};
+  for (const k of FLOW_KEYS) merged[k] = direct[k] ?? style[k];
+  return flowValues(merged);
+}
+
+/** Sets flow options as direct formatting of the selected paragraphs (their `extra`; the mapper sends `SetParagraphProps`). */
+export function setFlow(editor: Editor, patch: Partial<FlowValues>): boolean {
+  if (!Object.keys(patch).length) return false;
+  const tr = editor.state.tr;
+  for (const [node, pos] of selectedTextblocks(editor)) {
+    tr.setNodeMarkup(pos, undefined, { ...node.attrs, extra: { ...(node.attrs.extra ?? {}), ...patch } });
+  }
+  if (!tr.docChanged) return false;
+  editor.view.dispatch(tr);
+  return true;
 }
 
 // ----- wiring -----------------------------------------------------------------------
@@ -527,7 +618,7 @@ const EMPTY_PARAGRAPH: ParagraphValues = { alignment: null, indent: {}, spacing:
 
 /** The dialog the UI store asks for, applied to the editor / Rust. */
 export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncController; editor: Editor | null }) {
-  const { dialog, headerFooterFocus } = useSyncExternalStore(ui.subscribe, ui.getState);
+  const { dialog, headerFooterFocus, paragraphTab } = useSyncExternalStore(ui.subscribe, ui.getState);
   const page = useSyncExternalStore(ctl.subscribe, () => ctl.page);
   const sections = useSyncExternalStore(ctl.subscribe, () => ctl.sections);
   // The caret's section, captured when a section dialog opens.
@@ -571,6 +662,7 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
             alignment: (selectedTextblocks(editor)[0]?.[0].attrs.align as Alignment | null) ?? null,
             indent: indentAt(editor),
             spacing: spacingAt(editor),
+            flow: flowAt(editor, ctl),
           }
         : null,
     [editor, dialog],
@@ -680,12 +772,15 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
       <ParagraphDialog
         open={dialog === "paragraph" && !!para}
         initial={para ?? EMPTY_PARAGRAPH}
+        tab={paragraphTab}
+        onTab={(tab) => ui.set({ paragraphTab: tab })}
         onClose={close}
         onSubmit={(v) => {
           if (editor) {
             if (v.alignment) setAlignment(editor, v.alignment);
             setIndent(editor, v.indent);
             setSpacing(editor, v.spacing);
+            if (v.flow && para?.flow) setFlow(editor, flowPatch(para.flow, v.flow));
           }
           close();
         }}

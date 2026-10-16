@@ -36,8 +36,9 @@ mod text;
 mod tree;
 
 pub use command::{
-    CommentPoint, FindFormat, FindMatch, FindQuery, ListKind, MarginsPatch, NewBlock, NewCell,
-    NewParagraph, NewRow, NewTable, NewToc, PageSetupPatch, SectionPatch, WriteCommand,
+    CommentPoint, FieldRefresh, FindFormat, FindMatch, FindQuery, ListKind, MarginsPatch, NewBlock,
+    NewCell, NewParagraph, NewRow, NewTable, NewToc, PageSetupPatch, RefShow, RefTarget,
+    SectionPatch, WriteCommand,
 };
 pub use dispatch::{dispatch_with, Request, Response, ResponseBody, WriteHost};
 pub use doc::{WriteDocument, WriteError};

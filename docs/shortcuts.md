@@ -105,6 +105,9 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Mod+Shift+S | Apply Styles box: type a style name (autocomplete from the document's styles), Enter applies it; an unknown name creates a style from the selection; Esc closes (bound in the editor too, so it is no longer strikethrough) |
 | Mod+Alt+Shift+S | Show / hide the Styles pane |
 | Mod+H › More | Find and Replace with formatting: Use wildcards, Format ▾ (Font…, Paragraph…, Style…, Highlight) for the Find and the Replace field, No Formatting |
+| Mod+K | Insert Hyperlink (on a link: edit it; Remove Link in the dialog) — bound in the editor |
+| Mod+G, F5 | Go To: a page (print layout), a bookmark or a heading — bound in the editor (F5 does not reload the page while the editor has the focus) |
+| F9 | Update Field: the fields of the selection (REF, PAGEREF, NOTEREF, SEQ, TITLE, AUTHOR computed by the core, page/date/time/file name by the UI); Mod+A then F9 updates every field |
 
 ### Mouse
 
@@ -118,6 +121,7 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 - **Headers and footers** are shown greyed in the page margins (print layout); double-click one to edit both in the Header and footer dialog (`{PAGE}` = page number).
 - **Notes**: double-click a footnote/endnote reference to jump to its note; double-click the note's number (or a footnote at the bottom of a page) to jump back / into the note.
 - **Table of contents**: click an entry to go to its heading.
+- **Links**: Ctrl+click (Cmd+click) follows a link — a place in the document scrolls there, a web or e-mail address opens in a new tab; the tooltip shows the ScreenTip and "Ctrl+Click to follow link". Right-click on a link: Edit Link…, Open Link, Remove Link; elsewhere Link…; on a field (or a selection): Update Field.
 - **Right-click in a list**: Restart at 1, Continue numbering.
 - **Styles gallery** (Home › Styles): click applies the style (a character style to the selection or the word at the caret, a linked style to a partial selection as its character half); right-click (or the context-menu key) for Update *style* to Match Selection, Modify…, Select All *n* Instances, Rename…, Remove from Style Gallery.
 - **Styles pane**: click a style to apply it; the ▾ next to each style opens the same menu plus Delete…; right-click works too.

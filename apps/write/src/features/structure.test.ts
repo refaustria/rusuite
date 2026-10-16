@@ -26,7 +26,7 @@ afterEach(() => {
 
 const A4 = { width: 11906, height: 16838, orientation: "portrait" as const, margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 708, footer: 708 } };
 const LANDSCAPE = { ...A4, width: 16838, height: 11906, orientation: "landscape" as const };
-const section = (id: number, extra: Partial<Section> = {}): Section => ({ id, page: A4, kind: "nextPage", columns: 1, titlePage: false, ...extra });
+const section = (id: number, extra: Partial<Section> = {}): Section => ({ id, page: A4, kind: "nextPage", titlePage: false, ...extra });
 const hfPara = (id: number, text: string, page = false) => para(id, page ? [run(text), field({ kind: "page" }, "1")] : text);
 
 const ctx = (over: Partial<FieldContext> = {}): FieldContext => ({

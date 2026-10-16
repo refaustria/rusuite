@@ -154,6 +154,7 @@ fn footnotes_insert_edit_delete() {
             text: " Page 4.".into(),
             props: None,
             style: None,
+            link: None,
         },
     );
     assert!(patch.replaced.is_empty());
@@ -224,6 +225,7 @@ fn table_of_contents() {
             to_level: Some(2),
             title: Some("Contents".into()),
             new_id: Some(-5),
+            caption: None,
         },
     );
     let real = patch.id_map[0].1;
@@ -249,6 +251,7 @@ fn table_of_contents() {
             text: "s".into(),
             props: None,
             style: None,
+            link: None,
         },
     );
     let patch = apply(
@@ -423,7 +426,7 @@ fn sections_and_headers() {
             section: s2,
             patch: SectionPatch {
                 kind: Some(SectionKind::OddPage),
-                columns: Some(2),
+                columns: Some(model_text::Columns::equal(2)),
                 title_page: Some(true),
                 page_number_start: Some(1),
                 page: Some(PageSetupPatch {
@@ -459,6 +462,7 @@ fn sections_and_headers() {
             text: " A".into(),
             props: None,
             style: None,
+            link: None,
         },
     );
     assert!(patch.replaced.is_empty());
@@ -481,7 +485,7 @@ fn sections_and_headers() {
     assert_eq!(back.sections.len(), 2);
     let b2 = &back.sections[1];
     assert_eq!(
-        (b2.kind, b2.columns, b2.title_page),
+        (b2.kind, b2.columns.count, b2.title_page),
         (SectionKind::OddPage, 2, true)
     );
     assert_eq!(b2.page_number_start, Some(1));
@@ -535,6 +539,7 @@ fn update_fields_sets_cached_results_and_undoes() {
         &mut h,
         C::UpdateFields {
             values: vec![(id(1), 5, "7".into())],
+            refresh: None,
         },
     );
     assert_eq!(patch.replaced.len(), 1);
@@ -548,6 +553,7 @@ fn update_fields_sets_cached_results_and_undoes() {
         &mut h,
         C::UpdateFields {
             values: vec![(id(1), 5, "9".into()), (id(1), 0, "x".into())],
+            refresh: None,
         },
     );
     assert_eq!(code, "invalid_command");

@@ -65,7 +65,12 @@ export function mergeRuns(inlines: Inline[]): Inline[] {
     if (inline.kind === "run") {
       if (inline.value.text === "") continue;
       const prev = out[out.length - 1];
-      if (prev?.kind === "run" && propsKey(prev.value.props) === propsKey(inline.value.props) && (prev.value.style ?? null) === (inline.value.style ?? null)) {
+      if (
+        prev?.kind === "run" &&
+        propsKey(prev.value.props) === propsKey(inline.value.props) &&
+        (prev.value.style ?? null) === (inline.value.style ?? null) &&
+        stableStringify(canonValue(prev.value.link ?? null)) === stableStringify(canonValue(inline.value.link ?? null))
+      ) {
         out[out.length - 1] = { kind: "run", value: { ...prev.value, text: prev.value.text + inline.value.text } };
         continue;
       }
@@ -82,8 +87,8 @@ export function canonBlock(block: Block): Block {
     return canonValue({ kind: "paragraph", value: { id: p.id, props: p.props, inlines: mergeRuns(p.inlines ?? []) } }) as Block;
   }
   if (block.kind === "toc") {
-    const { id, fromLevel, toLevel, title, entries } = block.value;
-    return canonValue({ kind: "toc", value: { id, fromLevel, toLevel, title, entries } }) as Block;
+    const { id, fromLevel, toLevel, title, entries, caption } = block.value;
+    return canonValue({ kind: "toc", value: { id, fromLevel, toLevel, title, entries, caption } }) as Block;
   }
   const t = block.value;
   return canonValue({
@@ -229,6 +234,10 @@ export function applyParagraphPatch(base: ParagraphProperties | undefined, over:
   if (over.spacing != null) out.spacing = out.spacing ? mergeSpacing(out.spacing, over.spacing) : over.spacing;
   if (over.numbering != null) out.numbering = over.numbering;
   if (over.keepNext != null) out.keepNext = over.keepNext;
+  if (over.keepLines != null) out.keepLines = over.keepLines;
+  if (over.widowControl != null) out.widowControl = over.widowControl;
+  if (over.suppressLineNumbers != null) out.suppressLineNumbers = over.suppressLineNumbers;
+  if (over.suppressAutoHyphens != null) out.suppressAutoHyphens = over.suppressAutoHyphens;
   if (over.pageBreakBefore != null) out.pageBreakBefore = over.pageBreakBefore;
   if (over.runDefaults != null) out.runDefaults = applyRunPatch(out.runDefaults ?? {}, over.runDefaults, false);
   if (over.borders != null) {

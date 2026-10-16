@@ -2,7 +2,10 @@
 //! redo (ADR 0007 §1).
 
 use app_common::Patch;
-use model_text::{Block, Comment, NodeId, Note, Numbering, PageSetup, Section, StyleSheet};
+use model_text::{
+    Block, Comment, CoreProperties, DocumentSettings, NodeId, Note, Numbering, PageSetup, Section,
+    StyleSheet,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -67,6 +70,14 @@ pub struct WritePatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub comments: Option<Vec<Comment>>,
+    /// The document properties, when they changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub properties: Option<CoreProperties>,
+    /// The document settings, when they changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub settings: Option<DocumentSettings>,
     /// A message for the status bar (e.g. `"3 replacements"`).
     pub info: Option<String>,
 }
@@ -126,6 +137,12 @@ impl Patch for WritePatch {
         }
         if other.comments.is_some() {
             self.comments = other.comments;
+        }
+        if other.properties.is_some() {
+            self.properties = other.properties;
+        }
+        if other.settings.is_some() {
+            self.settings = other.settings;
         }
         if other.info.is_some() {
             self.info = other.info;

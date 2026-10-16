@@ -11,6 +11,8 @@ import type { Schema } from "@tiptap/pm/model";
 import { applyTint } from "@rusuite/ui-shared";
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
 import type { FontFace } from "../../../../packages/ui-shared/src/generated/FontFace";
+import type { Columns } from "../generated/Columns";
+import type { Hyperlink } from "../generated/Hyperlink";
 import type { BorderSide } from "../generated/BorderSide";
 import type { Indent } from "../generated/Indent";
 import type { ParagraphBorders } from "../generated/ParagraphBorders";
@@ -310,6 +312,134 @@ export const CommentEndNode = commentMark("commentEnd");
 /** The comment marker node types. */
 export const COMMENT_MARKS = new Set(["commentStart", "commentEnd"]);
 
+/**
+ * A bookmark marker (`Inline::BookmarkStart` with its name /
+ * `BookmarkEnd`): an invisible inline atom like the comment markers. Never
+ * parsed from HTML (pasted text does not copy bookmarks).
+ */
+function bookmarkMark(name: "bookmarkStart" | "bookmarkEnd") {
+  return Node.create({
+    name,
+    group: "inline",
+    inline: true,
+    atom: true,
+    selectable: false,
+    draggable: false,
+    addAttributes() {
+      return name === "bookmarkStart" ? { id: { ...jsonAttrPlain }, name: { ...jsonAttrPlain, default: "" } } : { id: { ...jsonAttrPlain } };
+    },
+    parseHTML() {
+      return [];
+    },
+    renderText() {
+      return "";
+    },
+    renderHTML({ node }) {
+      const side = name === "bookmarkStart" ? "start" : "end";
+      return [
+        "span",
+        {
+          class: `bookmark-mark bookmark-${side}`,
+          "data-bookmark-id": String(node.attrs.id),
+          ...(side === "start" ? { "data-bookmark": String(node.attrs.name ?? "") } : {}),
+          contenteditable: "false",
+        },
+      ];
+    },
+  });
+}
+
+export const BookmarkStartNode = bookmarkMark("bookmarkStart");
+export const BookmarkEndNode = bookmarkMark("bookmarkEnd");
+
+/** The bookmark marker node types. */
+export const BOOKMARK_MARKS = new Set(["bookmarkStart", "bookmarkEnd"]);
+/** Every invisible range marker (comments and bookmarks). */
+export const RANGE_MARKS = new Set([...COMMENT_MARKS, ...BOOKMARK_MARKS]);
+
+/** A column break (`Break(column)`): an inline atom that ends the column (a page outside multi-column sections). */
+export const ColumnBreak = Node.create({
+  name: "columnBreak",
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: true,
+  parseHTML() {
+    return [{ tag: "span.column-break" }];
+  },
+  renderHTML() {
+    return ["span", { class: "column-break", contenteditable: "false" }];
+  },
+});
+
+/** The ScreenTip of a link: its tooltip (or target) and Word's hint. */
+export function linkTitle(link: Hyperlink | null | undefined): string {
+  if (!link) return "";
+  const target = link.target.kind === "url" ? link.target.value : link.target.kind === "email" ? `mailto:${link.target.value.address}` : `#${link.target.value}`;
+  return `${link.tooltip || target}\n${t("write.link.followTip")}`;
+}
+
+/** The `href` of a link (internal links as `#bookmark`). */
+export function linkHref(link: Hyperlink | null | undefined): string {
+  if (!link) return "";
+  const tg = link.target;
+  if (tg.kind === "url") return tg.value;
+  if (tg.kind === "bookmark") return `#${tg.value}`;
+  const subject = tg.value.subject ? `?subject=${encodeURIComponent(tg.value.subject)}` : "";
+  return `mailto:${tg.value.address}${subject}`;
+}
+
+/**
+ * A hyperlink on text (`Run.link`): attr `link` (`Hyperlink` JSON). Not
+ * inclusive: typing at its end does not extend it (Word). Rendered as an
+ * anchor with Word's tooltip; Ctrl+click follows it (features/links.ts).
+ */
+export const LinkMark = Mark.create({
+  name: "link",
+  inclusive: false,
+  excludes: "link",
+  addAttributes() {
+    return { link: { default: null, parseHTML: () => null, renderHTML: () => ({}) } };
+  },
+  parseHTML() {
+    return [];
+  },
+  renderHTML({ mark }) {
+    const link = mark.attrs.link as Hyperlink | null;
+    return ["a", { class: "doc-link", href: linkHref(link), title: linkTitle(link), "data-link": link?.target.kind ?? "", rel: "noopener noreferrer" }, 0];
+  },
+});
+
+/**
+ * A multi-column section's blocks (Layout › Columns): a display wrapper
+ * built from the sections by `toPM` (like the list containers, it has no id
+ * and `fromPM` flattens it). Rendered with CSS columns (balanced).
+ */
+export const ColumnsNode = Node.create({
+  name: "columns",
+  group: "block",
+  content: "block+",
+  addAttributes() {
+    return { section: { ...jsonAttrPlain }, columns: { ...jsonAttrPlain } };
+  },
+  parseHTML() {
+    return [];
+  },
+  renderHTML({ node }) {
+    const c = node.attrs.columns as Columns | null;
+    return ["div", { class: "section-columns", "data-columns": String(c?.count ?? 1), style: columnsCss(c) }, 0];
+  },
+});
+
+/** CSS of a multi-column section box: column count, gap, separator line. */
+export function columnsCss(c: Columns | null | undefined): string {
+  if (!c || c.count <= 1) return "";
+  const gap = (c.spacing ?? 720) / TWIPS_PER_PX;
+  const css = [`column-count: ${c.count}`, `column-gap: ${gap.toFixed(1)}px`, "column-fill: balance"];
+  if (c.separator) css.push("column-rule: 1px solid currentColor");
+  return css.join("; ");
+}
+
 export interface TocEntryAttr {
   text: string;
   level: number;
@@ -334,6 +464,7 @@ export const TocNode = Node.create({
       toLevel: { ...jsonAttrPlain, default: 3 },
       title: { ...jsonAttrPlain },
       entries: { ...jsonAttrPlain, default: [] },
+      caption: { ...jsonAttrPlain },
     };
   },
   parseHTML() {
@@ -526,8 +657,13 @@ const ParagraphCss = Extension.create({
             parseHTML: () => null,
             renderHTML: (attrs: Record<string, unknown>) => {
               const style = paragraphStyle(attrs);
-              const end = (attrs.extra as { sectionEnd?: number } | null)?.sectionEnd;
-              return { ...(style ? { style } : {}), ...(end != null ? { "data-section-end": String(end) } : {}) };
+              const extra = attrs.extra as { sectionEnd?: number; suppressAutoHyphens?: boolean } | null;
+              const end = extra?.sectionEnd;
+              return {
+                ...(style ? { style } : {}),
+                ...(end != null ? { "data-section-end": String(end) } : {}),
+                ...(extra?.suppressAutoHyphens ? { "data-no-hyphens": "" } : {}),
+              };
             },
           },
         },
@@ -694,6 +830,11 @@ export function writeExtensions(options: WriteExtensionsOptions = {}): Extension
     NoteRefNode,
     CommentStartNode,
     CommentEndNode,
+    BookmarkStartNode,
+    BookmarkEndNode,
+    ColumnBreak,
+    LinkMark,
+    ColumnsNode,
     TocNode,
     NotesNode,
     NoteNode,

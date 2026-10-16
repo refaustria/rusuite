@@ -399,7 +399,6 @@ expression: "serde_json::to_value(&doc).unwrap()"
   },
   "sections": [
     {
-      "columns": 1,
       "id": 1,
       "kind": "nextPage",
       "page": {

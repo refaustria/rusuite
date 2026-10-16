@@ -27,6 +27,10 @@ const nativeRows = (t: (key: string) => string): HelpRow[] => [
   { combo: "Shift+Tab", label: t("write.sc.prevCell"), group: t("write.tables") },
   { combo: "Enter", label: t("write.sc.findNext"), group: t("sc.edit") },
   { combo: "Escape", label: t("write.sc.stop"), group: t("sc.edit") },
+  { combo: "Mod+K", label: t("write.link.title"), group: t("write.links") },
+  { combo: "Mod+G", label: t("write.goTo.title"), group: t("write.links") },
+  { combo: "F5", label: t("write.goTo.title"), group: t("write.links") },
+  { combo: "F9", label: t("write.updateFields"), group: t("write.links") },
 ];
 
 export interface WriteShortcutProps {

@@ -7,6 +7,7 @@ use app_common::{Applied, DispatchError, Document as AppDocument};
 use core_model::Color;
 use model_text::media::{base64_decode, base64_encode};
 use model_text::{marker_of, Comment, CommentId};
+use model_text::{valid_bookmark_name, BookmarkId, FieldKind, Hyperlink, LinkTarget};
 use model_text::{
     Anchor, Block, BorderSide, BorderStyle, CellProperties, Document, Field, Indent, Inline,
     InlineImage, LevelKind, LevelOverride, LineSpacing, Media, NodeId, Note, NoteKind, NoteRef,
@@ -16,8 +17,8 @@ use model_text::{
 };
 
 use crate::command::{
-    CommentPoint, FindFormat, FindMatch, FindQuery, ListKind, NewBlock, NewCell, NewParagraph,
-    NewRow, NewTable, PageSetupPatch, SectionPatch, WriteCommand,
+    CommentPoint, FieldRefresh, FindFormat, FindMatch, FindQuery, ListKind, NewBlock, NewCell,
+    NewParagraph, NewRow, NewTable, PageSetupPatch, RefShow, RefTarget, SectionPatch, WriteCommand,
 };
 use crate::find::{find_matches_where, stretches, Wildcard};
 use crate::patch::{InsertedBlock, WritePatch};
@@ -165,6 +166,8 @@ struct Changes {
     sections: bool,
     notes: bool,
     comments: bool,
+    properties: bool,
+    settings: bool,
     info: Option<String>,
 }
 
@@ -256,6 +259,7 @@ impl Ids {
                 to_level: t.to_level.clamp(t.from_level.clamp(1, 9), 9),
                 title: t.title.clone(),
                 entries: t.entries.clone(),
+                caption: t.caption.clone(),
             }),
             NewBlock::Table(t) => {
                 let id = self.resolve(doc, ch, Some(t.id))?;
@@ -516,6 +520,7 @@ impl WriteDocument {
                 text,
                 props,
                 style,
+                link,
             } => {
                 if text.contains(['\n', '\r']) {
                     return Err(invalid("text must not contain line feeds"));
@@ -523,8 +528,18 @@ impl WriteDocument {
                 let (at, _) = self.range(*block, *offset, *offset)?;
                 let p = self.para(*block)?;
                 let mut run = match props {
-                    Some(props) => Run::styled("", style.clone(), props.clone()),
-                    None => inherited_run(p, at),
+                    Some(props) => {
+                        let mut r = Run::styled("", style.clone(), props.clone());
+                        r.link.clone_from(link);
+                        r
+                    }
+                    None => {
+                        let mut r = inherited_run(p, at);
+                        if link.is_some() {
+                            r.link.clone_from(link);
+                        }
+                        r
+                    }
                 };
                 run.style = run
                     .style
@@ -1151,21 +1166,29 @@ impl WriteDocument {
                 to_level,
                 title,
                 new_id,
+                caption,
             } => {
                 let from = from_level.unwrap_or(1).clamp(1, 9);
                 let to = to_level.unwrap_or(3).clamp(from, 9);
                 let index = self.insert_index(*after, None)?;
                 let old_styles = self.doc.styles.clone();
-                self.ensure_toc_styles(to);
+                let caption = caption.clone().filter(|c| !c.trim().is_empty());
+                if caption.is_some() {
+                    self.ensure_builtin_style("TableofFigures");
+                } else {
+                    self.ensure_toc_styles(to);
+                }
                 let mut ids = Ids::new(&self.doc, &[]);
                 let id = ids.resolve(&mut self.doc, ch, *new_id)?;
-                let toc = Toc {
+                let mut toc = Toc {
                     id,
                     from_level: from,
                     to_level: to,
                     title: title.clone().filter(|t| !t.is_empty()),
-                    entries: self.doc.build_toc(from, to),
+                    entries: Vec::new(),
+                    caption,
                 };
+                toc.entries = self.doc.toc_entries(&toc);
                 self.doc.body.insert(index, Block::Toc(toc));
                 ch.structural(&self.doc, None, &[id], &[]);
                 Ok(self.with_styles(C::DeleteBlocks { ids: vec![id] }, old_styles, ch))
@@ -1178,7 +1201,7 @@ impl WriteDocument {
                     });
                 };
                 let pages: HashMap<NodeId, u32> = pages.iter().copied().collect();
-                let mut entries = self.doc.build_toc(old.from_level, old.to_level);
+                let mut entries = self.doc.toc_entries(&old);
                 for e in &mut entries {
                     e.page = pages.get(&e.target).copied();
                 }
@@ -1229,7 +1252,14 @@ impl WriteDocument {
                 ch.sections = true;
                 Ok(old)
             }
-            C::UpdateFields { values } => {
+            C::UpdateFields {
+                values,
+                refresh: Some(refresh),
+            } => self.refresh_fields(values, refresh, ch),
+            C::UpdateFields {
+                values,
+                refresh: None,
+            } => {
                 // Validate everything first: on error nothing changes.
                 for (block, offset, _) in values {
                     let p = self.para(*block)?;
@@ -1255,7 +1285,59 @@ impl WriteDocument {
                     ch.block(*block);
                 }
                 old.reverse();
-                Ok(C::UpdateFields { values: old })
+                Ok(C::UpdateFields {
+                    values: old,
+                    refresh: None,
+                })
+            }
+            C::SetHyperlink {
+                block,
+                from,
+                to,
+                link,
+                text,
+            } => self.set_hyperlink(*block, *from, *to, Some(link), text.as_deref(), ch),
+            C::RemoveHyperlink { block, from, to } => {
+                self.set_hyperlink(*block, *from, *to, None, None, ch)
+            }
+            C::AddBookmark { name, start, end } => self.add_bookmark(name, *start, *end, ch),
+            C::DeleteBookmark { name } => {
+                let b = self
+                    .doc
+                    .bookmark(name)
+                    .ok_or_else(|| invalid(format!("no bookmark {name:?}")))?;
+                self.remove_bookmark_markers(b.id, ch)
+            }
+            C::InsertCrossReference {
+                block,
+                offset,
+                target,
+                show,
+                hyperlink,
+                page,
+            } => self.insert_cross_reference(*block, *offset, target, *show, *hyperlink, *page, ch),
+            C::InsertCaption {
+                anchor,
+                below,
+                label,
+                text,
+                new_id,
+            } => self.insert_caption(*anchor, *below, label, text, *new_id, ch),
+            C::SetProperties { patch } => {
+                let old = self.doc.properties.clone();
+                self.doc.properties.apply(patch);
+                ch.properties = true;
+                Ok(C::RestoreProperties { properties: old })
+            }
+            C::RestoreProperties { properties } => {
+                let old = std::mem::replace(&mut self.doc.properties, properties.clone());
+                ch.properties = true;
+                Ok(C::RestoreProperties { properties: old })
+            }
+            C::SetSettings { settings } => {
+                let old = std::mem::replace(&mut self.doc.settings, *settings);
+                ch.settings = true;
+                Ok(C::SetSettings { settings: old })
             }
             C::AddComment {
                 start,
@@ -1364,6 +1446,556 @@ impl WriteDocument {
                 Ok(C::Compound { commands: inverses })
             }
         }
+    }
+
+    // ----- hyperlinks, bookmarks, cross-references, captions -------------
+
+    /// Whether any paragraph holds a bookmark marker.
+    fn has_bookmarks(&self) -> bool {
+        self.doc
+            .containers()
+            .flat_map(|c| model_text::document::paragraphs_in(c))
+            .any(|p| p.inlines.iter().any(Inline::is_bookmark_marker))
+    }
+
+    /// Adds Word's built-in style `id` (from the default style set, or
+    /// `table of figures`) when missing.
+    fn ensure_builtin_style(&mut self, id: &str) {
+        if self.doc.styles.get(id).is_some() {
+            return;
+        }
+        if let Some(s) = model_text::StyleSheet::office_defaults().get(id) {
+            let mut s = s.clone();
+            if s.based_on
+                .as_deref()
+                .is_some_and(|b| self.doc.styles.get(b).is_none())
+            {
+                s.based_on = self.default_style();
+            }
+            if s.next
+                .as_deref()
+                .is_some_and(|b| self.doc.styles.get(b).is_none())
+            {
+                s.next = None;
+            }
+            self.doc.styles.insert(s);
+            return;
+        }
+        if id == "TableofFigures" {
+            let normal = self.default_style();
+            let mut s = Style::new("TableofFigures", "table of figures", StyleKind::Paragraph);
+            s.based_on.clone_from(&normal);
+            s.next = normal;
+            s.priority = Some(99);
+            s.unhide_when_used = true;
+            s.paragraph.spacing = Some(Spacing {
+                after: Some(Twips(0)),
+                ..Default::default()
+            });
+            self.doc.styles.insert(s);
+        }
+    }
+
+    /// The inverse restoring the inlines of `paragraphs` as they were
+    /// (`old`), for paragraphs changed in place.
+    fn restore_paragraphs(&self, old: Vec<(NodeId, Vec<Inline>)>, ch: &mut Changes) -> R<C> {
+        let mut cmds = Vec::with_capacity(old.len());
+        for (b, inlines) in old {
+            ch.block(b);
+            let len = self.para(b)?.len();
+            cmds.push(C::RestoreInlines {
+                block: b,
+                from: 0,
+                to: to_u32(len),
+                inlines,
+            });
+        }
+        Ok(C::Compound { commands: cmds })
+    }
+
+    /// Snapshot of the inlines of `blocks` (distinct, validated).
+    fn snapshot_inlines(&self, blocks: &[NodeId]) -> R<Vec<(NodeId, Vec<Inline>)>> {
+        let mut out: Vec<(NodeId, Vec<Inline>)> = Vec::new();
+        for &b in blocks {
+            if !out.iter().any(|(x, _)| *x == b) {
+                out.push((b, self.para(b)?.inlines.clone()));
+            }
+        }
+        Ok(out)
+    }
+
+    /// `SetHyperlink` (`link` = `Some`) / `RemoveHyperlink`.
+    fn set_hyperlink(
+        &mut self,
+        block: NodeId,
+        from: u32,
+        to: u32,
+        link: Option<&Hyperlink>,
+        text: Option<&str>,
+        ch: &mut Changes,
+    ) -> R<C> {
+        let (f, t) = self.range(block, from, to)?;
+        if let Some(l) = link {
+            let empty = match &l.target {
+                LinkTarget::Url(u) => u.trim().is_empty(),
+                LinkTarget::Bookmark(b) => b.trim().is_empty(),
+                LinkTarget::Email { address, .. } => address.trim().is_empty(),
+            };
+            if empty {
+                return Err(invalid("a hyperlink needs an address"));
+            }
+        }
+        let text = text.filter(|s| !s.is_empty());
+        if text.is_some_and(|s| s.contains(['\n', '\r'])) {
+            return Err(invalid("text must not contain line feeds"));
+        }
+        if f == t && text.is_none() {
+            return Err(invalid("nothing to link"));
+        }
+        let old = self.snapshot_inlines(&[block])?;
+        let old_styles = self.doc.styles.clone();
+        if link.is_some() {
+            self.ensure_builtin_style("Hyperlink");
+        }
+        let (mut s, mut e) = (f, t);
+        if let Some(text) = text {
+            let p = self.para(block)?;
+            let mut run = if f < t {
+                run_format_at(p, f)
+            } else {
+                inherited_run(p, f)
+            };
+            run.text = text.to_owned();
+            let p = self.para_mut(block)?;
+            let (_, kept) = replace_keeping_markers(p, f, t, vec![Inline::Run(run)]);
+            let lead = kept_ends_before(p, f, kept);
+            s = f + lead;
+            e = s + text.chars().count();
+        }
+        let style = self
+            .doc
+            .styles
+            .get("Hyperlink")
+            .filter(|s| s.kind == StyleKind::Character)
+            .map(|s| s.id.clone());
+        for_each_run_mut_in(self.para_mut(block)?, s, e, |r| match link {
+            Some(l) => {
+                r.link = Some(l.clone());
+                if r.style.is_none() {
+                    r.style.clone_from(&style);
+                }
+            }
+            None => {
+                r.link = None;
+                if r.style.as_deref() == Some("Hyperlink") {
+                    r.style = None;
+                }
+            }
+        });
+        let inverse = self.restore_paragraphs(old, ch)?;
+        Ok(self.with_styles(inverse, old_styles, ch))
+    }
+
+    /// Document order of the paragraph `id` among the paragraphs of the
+    /// text containers (body, notes, headers, footers).
+    fn text_order(&self, id: NodeId) -> R<usize> {
+        let mut n = 0;
+        for c in self.doc.containers() {
+            for p in model_text::document::paragraphs_in(c) {
+                if p.id == id {
+                    if self.doc.comments.iter().any(|cm| {
+                        model_text::document::paragraphs_in(&cm.content).any(|x| x.id == id)
+                    }) {
+                        return Err(invalid("bookmarks cannot be added to comments"));
+                    }
+                    return Ok(n);
+                }
+                n += 1;
+            }
+        }
+        self.para(id)?;
+        Err(invalid(format!("block {} is not a paragraph", id.0)))
+    }
+
+    fn add_bookmark(
+        &mut self,
+        name: &str,
+        start: CommentPoint,
+        end: CommentPoint,
+        ch: &mut Changes,
+    ) -> R<C> {
+        if !valid_bookmark_name(name) {
+            return Err(invalid(format!("invalid bookmark name {name:?}")));
+        }
+        let (s, _) = self.range(start.block, start.offset, start.offset)?;
+        let (e, _) = self.range(end.block, end.offset, end.offset)?;
+        if (self.text_order(start.block)?, s) > (self.text_order(end.block)?, e) {
+            return Err(invalid("the bookmark's start is after its end"));
+        }
+        let existing = self.doc.bookmark(name);
+        let mut touched = vec![start.block, end.block];
+        if let Some(b) = &existing {
+            touched.extend([b.start_block, b.end_block]);
+        }
+        let old = self.snapshot_inlines(&touched)?;
+        let (mut s, mut e) = (s, e);
+        if let Some(b) = &existing {
+            // Moving an existing bookmark: its markers go first, shifting
+            // the new positions behind them.
+            for (pid, at) in [(b.start_block, b.start), (b.end_block, b.end)] {
+                if pid == start.block && at < s {
+                    s -= 1;
+                }
+                if pid == end.block && at < e {
+                    e -= 1;
+                }
+            }
+            for c in self.doc.containers_mut() {
+                strip_bookmark(c, b.id);
+            }
+        }
+        let id = self.doc.next_bookmark_id();
+        replace_range(
+            self.para_mut(end.block)?,
+            e,
+            e,
+            vec![Inline::BookmarkEnd { id }],
+        );
+        replace_range(
+            self.para_mut(start.block)?,
+            s,
+            s,
+            vec![Inline::BookmarkStart {
+                id,
+                name: name.to_owned(),
+            }],
+        );
+        self.restore_paragraphs(old, ch)
+    }
+
+    /// Removes the markers of bookmark `id`.
+    fn remove_bookmark_markers(&mut self, id: BookmarkId, ch: &mut Changes) -> R<C> {
+        let blocks: Vec<NodeId> = self
+            .doc
+            .containers()
+            .flat_map(|c| model_text::document::paragraphs_in(c))
+            .filter(|p| {
+                p.inlines
+                    .iter()
+                    .any(|i| model_text::bookmark_marker_of(i).is_some_and(|(b, _)| b == id))
+            })
+            .map(|p| p.id)
+            .collect();
+        let old = self.snapshot_inlines(&blocks)?;
+        for c in self.doc.containers_mut() {
+            strip_bookmark(c, id);
+        }
+        self.restore_paragraphs(old, ch)
+    }
+
+    /// The hidden `_Ref` bookmark for a cross-reference to `target`
+    /// (created if needed) → its name, and the paragraphs it changed.
+    fn reference_bookmark(&mut self, target: &RefTarget) -> R<(String, Option<NewMarks>)> {
+        let (pid, s, e) = match target {
+            RefTarget::Bookmark(name) => {
+                let b = self
+                    .doc
+                    .bookmark(name)
+                    .ok_or_else(|| invalid(format!("no bookmark {name:?}")))?;
+                return Ok((b.name, None));
+            }
+            RefTarget::Paragraph(pid) => (*pid, 0, self.para(*pid)?.len()),
+            RefTarget::CaptionLabel(pid) => {
+                let p = self.para(*pid)?;
+                let mut pos = 0;
+                let mut end = None;
+                for i in &p.inlines {
+                    pos += inline_len(i);
+                    if matches!(i, Inline::Field(f) if matches!(f.kind, FieldKind::Seq { .. })) {
+                        end = Some(pos);
+                        break;
+                    }
+                }
+                let end =
+                    end.ok_or_else(|| invalid(format!("block {} is not a caption", pid.0)))?;
+                (*pid, 0, end)
+            }
+            RefTarget::Note(id) => {
+                let mut found = None;
+                for p in self.doc.paragraphs() {
+                    let mut pos = 0;
+                    for i in &p.inlines {
+                        if matches!(i, Inline::NoteRef(r) if r.id == *id) {
+                            found = Some((p.id, pos, pos + 1));
+                            break;
+                        }
+                        pos += inline_len(i);
+                    }
+                    if found.is_some() {
+                        break;
+                    }
+                }
+                found.ok_or_else(|| invalid(format!("no reference to note {id}")))?
+            }
+        };
+        // Reuse a hidden bookmark that marks exactly this text.
+        let p = self.para(pid)?.clone();
+        let want = model_text::link::display_text_of(&p, s, e);
+        for b in self.doc.bookmarks() {
+            if b.hidden()
+                && b.name.starts_with("_Ref")
+                && b.start_block == pid
+                && b.end_block == pid
+                && self.doc.bookmark_text(&b) == want.trim()
+                && b.start <= s
+                && b.end <= e + 2
+            {
+                let covers_note = !matches!(target, RefTarget::Note(_)) || b.end == b.start + 2;
+                if covers_note {
+                    return Ok((b.name, None));
+                }
+            }
+        }
+        let name = self.doc.next_ref_name();
+        let id = self.doc.next_bookmark_id();
+        let para = self.para_mut(pid)?;
+        replace_range(para, e, e, vec![Inline::BookmarkEnd { id }]);
+        replace_range(
+            para,
+            s,
+            s,
+            vec![Inline::BookmarkStart {
+                id,
+                name: name.clone(),
+            }],
+        );
+        Ok((name, Some((pid, s, e))))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn insert_cross_reference(
+        &mut self,
+        block: NodeId,
+        offset: u32,
+        target: &RefTarget,
+        show: RefShow,
+        hyperlink: bool,
+        page: Option<u32>,
+        ch: &mut Changes,
+    ) -> R<C> {
+        let (mut at, _) = self.range(block, offset, offset)?;
+        let mut touched = vec![block];
+        match target {
+            RefTarget::Paragraph(p) | RefTarget::CaptionLabel(p) => touched.push(*p),
+            RefTarget::Note(id) => {
+                if let Some(p) = self.doc.paragraphs().find(|p| {
+                    p.inlines
+                        .iter()
+                        .any(|i| matches!(i, Inline::NoteRef(r) if r.id == *id))
+                }) {
+                    touched.push(p.id);
+                }
+            }
+            RefTarget::Bookmark(_) => {}
+        }
+        let old = self.snapshot_inlines(&touched)?;
+        let (name, added) = self.reference_bookmark(target)?;
+        if let Some((pid, s, e)) = added {
+            if pid == block {
+                at += usize::from(s <= at) + usize::from(e <= at);
+            }
+        }
+        let note = matches!(target, RefTarget::Note(_));
+        let kind = match show {
+            RefShow::Text => FieldKind::Ref {
+                bookmark: name.clone(),
+                hyperlink,
+                number: false,
+            },
+            RefShow::Page => FieldKind::PageRef {
+                bookmark: name.clone(),
+                hyperlink,
+            },
+            RefShow::Number if !note => FieldKind::Ref {
+                bookmark: name.clone(),
+                hyperlink,
+                number: true,
+            },
+            RefShow::Number | RefShow::NoteFormatted => FieldKind::NoteRef {
+                bookmark: name.clone(),
+                hyperlink,
+                formatted: show == RefShow::NoteFormatted,
+            },
+        };
+        let mut props = inherited_props(self.para(block)?, at);
+        if show == RefShow::NoteFormatted {
+            props.vertical_align = Some(core_model::VerticalAlign::Superscript);
+        }
+        replace_range(
+            self.para_mut(block)?,
+            at,
+            at,
+            vec![Inline::Field(Field {
+                kind,
+                cached: String::new(),
+                props,
+            })],
+        );
+        let mut pages = HashMap::new();
+        if let (Some(page), Some(b)) = (page, self.doc.bookmark(&name)) {
+            pages.insert(b.start_block, page);
+        }
+        let value = self
+            .doc
+            .computed_fields(&pages)
+            .into_iter()
+            .find(|(b, o, _)| *b == block && *o == at)
+            .map(|v| v.2);
+        if let Some(v) = value {
+            self.doc.set_field_results(&[(block, at, v)]);
+        }
+        self.restore_paragraphs(old, ch)
+    }
+
+    fn insert_caption(
+        &mut self,
+        anchor: NodeId,
+        below: bool,
+        label: &str,
+        text: &str,
+        new_id: Option<i64>,
+        ch: &mut Changes,
+    ) -> R<C> {
+        let label = label.trim();
+        if label.is_empty() {
+            return Err(invalid("a caption needs a label"));
+        }
+        if text.contains(['\n', '\r']) {
+            return Err(invalid("text must not contain line feeds"));
+        }
+        let pos = self.pos(anchor)?;
+        let old_styles = self.doc.styles.clone();
+        self.ensure_builtin_style("Caption");
+        let mut ids = Ids::new(&self.doc, &[]);
+        let id = ids.resolve(&mut self.doc, ch, new_id)?;
+        let mut p = Paragraph::new(id);
+        p.props.style = self.doc.styles.get("Caption").map(|s| s.id.clone());
+        p.inlines.push(Inline::Run(Run::new(format!("{label} "))));
+        p.inlines.push(Inline::Field(Field {
+            cached: "1".into(),
+            ..Field::new(FieldKind::Seq {
+                identifier: label.replace(char::is_whitespace, "_"),
+                format: None,
+                reset: None,
+            })
+        }));
+        if !text.is_empty() {
+            p.inlines.push(Inline::Run(Run::new(text)));
+        }
+        let blocks =
+            container_mut(&mut self.doc, pos.parent).ok_or(WriteError::UnknownBlock(anchor.0))?;
+        blocks.insert(pos.index + usize::from(below), Block::Paragraph(p));
+        ch.structural(&self.doc, pos.parent, &[id], &[]);
+        // Renumber every sequence (later captions move up by one).
+        let seq: Vec<model_text::FieldValue> = self
+            .doc
+            .computed_fields(&HashMap::new())
+            .into_iter()
+            .filter(|(b, o, _)| {
+                self.doc
+                    .find_paragraph(*b)
+                    .and_then(|p| field_index(p, to_u32(*o)).map(|i| &p.inlines[i]))
+                    .is_some_and(|i| matches!(i, Inline::Field(f) if matches!(f.kind, FieldKind::Seq { .. })))
+            })
+            .collect();
+        let old = self.doc.set_field_results(&seq);
+        let mut old_values = Vec::new();
+        for (b, o, v) in old {
+            if b != id {
+                ch.block(b);
+                old_values.push((b, to_u32(o), v));
+            }
+        }
+        let inverse = C::Compound {
+            commands: vec![
+                C::UpdateFields {
+                    values: old_values,
+                    refresh: None,
+                },
+                C::DeleteBlocks { ids: vec![id] },
+            ],
+        };
+        Ok(self.with_styles(inverse, old_styles, ch))
+    }
+
+    /// `UpdateFields` with `refresh`: the computed results (in `blocks`
+    /// only, if given), then `values` on top.
+    fn refresh_fields(
+        &mut self,
+        values: &[(NodeId, u32, String)],
+        refresh: &FieldRefresh,
+        ch: &mut Changes,
+    ) -> R<C> {
+        for (block, offset, _) in values {
+            let p = self.para(*block)?;
+            if field_index(p, *offset).is_none() {
+                return Err(invalid(format!(
+                    "no field at {offset} in block {}",
+                    block.0
+                )));
+            }
+        }
+        let pages: HashMap<NodeId, u32> = refresh.pages.iter().copied().collect();
+        let scope: Option<HashSet<NodeId>> =
+            refresh.blocks.as_ref().map(|b| b.iter().copied().collect());
+        let explicit: HashSet<(NodeId, usize)> =
+            values.iter().map(|(b, o, _)| (*b, *o as usize)).collect();
+        let mut all: Vec<model_text::FieldValue> = self
+            .doc
+            .computed_fields(&pages)
+            .into_iter()
+            .filter(|(b, o, _)| {
+                scope.as_ref().map_or(true, |s| s.contains(b)) && !explicit.contains(&(*b, *o))
+            })
+            .collect();
+        all.extend(values.iter().map(|(b, o, v)| (*b, *o as usize, v.clone())));
+        let old = self.doc.set_field_results(&all);
+        let mut inverse = Vec::with_capacity(old.len());
+        for (b, o, v) in old {
+            ch.block(b);
+            inverse.push((b, to_u32(o), v));
+        }
+        Ok(C::UpdateFields {
+            values: inverse,
+            refresh: None,
+        })
+    }
+
+    /// Records a save in the document properties (not an edit: no undo
+    /// step): `modified`, `created` when unset, `lastModifiedBy` and the
+    /// author when unset, the page count, revision + 1.
+    pub fn stamp_save(&mut self, modified: Option<&str>, user: Option<&str>, pages: Option<u32>) {
+        let p = &mut self.doc.properties;
+        if let Some(m) = modified.filter(|m| !m.is_empty()) {
+            p.modified = Some(m.to_owned());
+            if p.created.is_none() {
+                p.created = Some(m.to_owned());
+            }
+        }
+        let user = user
+            .filter(|u| !u.trim().is_empty())
+            .map(str::to_owned)
+            .or_else(|| self.user.as_ref().map(|u| u.name.clone()));
+        if let Some(u) = user {
+            p.last_modified_by = Some(u.clone());
+            if p.author.is_none() {
+                p.author = Some(u);
+            }
+        }
+        if pages.is_some() {
+            p.pages = pages;
+        }
+        p.revision = Some(p.revision.unwrap_or(0) + 1);
     }
 
     // ----- comments ------------------------------------------------------
@@ -1576,11 +2208,19 @@ impl WriteDocument {
     /// ([`Document::fix_comments`]); returns the inverse of the fix.
     fn fix_comments(&mut self, ch: &mut Changes) -> Option<C> {
         let fix = self.doc.fix_comments();
-        if fix.is_empty() {
+        let bookmarks = self.doc.fix_bookmarks();
+        if fix.is_empty() && bookmarks.is_empty() {
             return None;
         }
         let mut cmds = Vec::new();
-        for (pid, old) in fix.paragraphs {
+        // Restored last-fixed first (the inverse runs in reverse order).
+        let mut paragraphs = fix.paragraphs;
+        for (pid, old) in bookmarks {
+            if !paragraphs.iter().any(|(p, _)| *p == pid) {
+                paragraphs.push((pid, old));
+            }
+        }
+        for (pid, old) in paragraphs {
             let len = self.doc.find_paragraph(pid).map_or(0, Paragraph::len);
             ch.block(pid);
             cmds.push(C::RestoreInlines {
@@ -2092,14 +2732,18 @@ impl WriteDocument {
         if let Some(p) = &patch.page {
             Self::patch_page(&mut page, p)?;
         }
-        if patch.columns.is_some_and(|c| c == 0 || c > 45) {
-            return Err(invalid("columns must be 1..=45"));
+        if let Some(c) = &patch.columns {
+            if c.count == 0 || c.count > 45 {
+                return Err(invalid("columns must be 1..=45"));
+            }
+            if !c.equal && c.widths.len() != usize::from(c.count) {
+                return Err(invalid("unequal columns need one width per column"));
+            }
         }
         let s = &mut self.doc.sections[i];
         s.kind = patch.kind.unwrap_or(s.kind);
-        s.columns = patch.columns.unwrap_or(s.columns);
-        if patch.column_space.is_some() {
-            s.column_space = patch.column_space;
+        if let Some(c) = &patch.columns {
+            s.columns = c.clone();
         }
         s.title_page = patch.title_page.unwrap_or(s.title_page);
         match patch.page_number_start {
@@ -2741,11 +3385,11 @@ impl WriteDocument {
                 .collect();
             // Comment markers are invisible: matched across, never part of
             // a match's text.
-            let marks = p.inlines.iter().any(Inline::is_comment_marker);
+            let marks = p.inlines.iter().any(Inline::is_marker);
             let idx: Vec<usize> = if marks {
                 p.inlines
                     .iter()
-                    .flat_map(|i| std::iter::repeat(!i.is_comment_marker()).take(inline_len(i)))
+                    .flat_map(|i| std::iter::repeat(!i.is_marker()).take(inline_len(i)))
                     .enumerate()
                     .filter_map(|(k, visible)| visible.then_some(k))
                     .collect()
@@ -3288,6 +3932,8 @@ impl WriteDocument {
             sections: sections.then(|| self.doc.sections.clone()),
             notes: notes.then(|| self.doc.notes.clone()),
             comments: ch.comments.then(|| self.doc.comments.clone()),
+            properties: ch.properties.then(|| self.doc.properties.clone()),
+            settings: ch.settings.then_some(self.doc.settings),
             info: ch.info,
         }
     }
@@ -3335,7 +3981,15 @@ fn affects_labels(cmd: &WriteCommand) -> bool {
         | C::DeleteAllComments { .. }
         | C::ResolveComment { .. }
         | C::ReopenComment { .. }
-        | C::RestoreComments { .. } => false,
+        | C::RestoreComments { .. }
+        | C::SetHyperlink { .. }
+        | C::RemoveHyperlink { .. }
+        | C::AddBookmark { .. }
+        | C::DeleteBookmark { .. }
+        | C::InsertCrossReference { .. }
+        | C::SetProperties { .. }
+        | C::RestoreProperties { .. }
+        | C::SetSettings { .. } => false,
         _ => true,
     }
 }
@@ -3377,7 +4031,11 @@ fn may_touch_markers(cmd: &WriteCommand) -> bool {
         | C::RestoreStyles { .. }
         | C::RestoreNumbering { .. }
         | C::RemoveMedia { .. }
-        | C::RestoreMedia { .. } => false,
+        | C::RestoreMedia { .. }
+        | C::RemoveHyperlink { .. }
+        | C::SetProperties { .. }
+        | C::RestoreProperties { .. }
+        | C::SetSettings { .. } => false,
         _ => true,
     }
 }
@@ -3387,7 +4045,7 @@ fn may_touch_markers(cmd: &WriteCommand) -> bool {
 fn carries_markers(cmd: &WriteCommand) -> bool {
     fn in_blocks(blocks: &[NewBlock]) -> bool {
         blocks.iter().any(|b| match b {
-            NewBlock::Paragraph(p) => p.inlines.iter().any(Inline::is_comment_marker),
+            NewBlock::Paragraph(p) => p.inlines.iter().any(Inline::is_marker),
             NewBlock::Table(t) => t
                 .rows
                 .iter()
@@ -3398,7 +4056,8 @@ fn carries_markers(cmd: &WriteCommand) -> bool {
     }
     match cmd {
         C::Compound { commands } => commands.iter().any(carries_markers),
-        C::RestoreInlines { inlines, .. } => inlines.iter().any(Inline::is_comment_marker),
+        C::RestoreInlines { inlines, .. } => inlines.iter().any(Inline::is_marker),
+        C::AddBookmark { .. } | C::InsertCrossReference { .. } | C::InsertCaption { .. } => true,
         C::InsertBlocks { blocks, .. }
         | C::ReplaceBlocks { blocks, .. }
         | C::ReplaceNote { blocks, .. } => in_blocks(blocks),
@@ -3422,13 +4081,34 @@ fn kept_ends_before(p: &Paragraph, at: usize, kept: usize) -> usize {
     for inline in &p.inlines {
         if pos >= at {
             match inline {
-                Inline::CommentEnd { .. } if n < kept => n += 1,
+                Inline::CommentEnd { .. } | Inline::BookmarkEnd { .. } if n < kept => n += 1,
                 _ => break,
             }
         }
         pos += inline_len(inline);
     }
     n
+}
+
+/// A bookmark added for a cross-reference: paragraph, start and end
+/// offset (before the markers were inserted).
+type NewMarks = (NodeId, usize, usize);
+
+/// Removes the markers of bookmark `id` from `blocks` (cells included).
+fn strip_bookmark(blocks: &mut [Block], id: BookmarkId) {
+    for b in blocks {
+        match b {
+            Block::Paragraph(p) => p
+                .inlines
+                .retain(|i| model_text::bookmark_marker_of(i).map_or(true, |(b, _)| b != id)),
+            Block::Table(t) => {
+                for cell in t.rows.iter_mut().flat_map(|r| &mut r.cells) {
+                    strip_bookmark(&mut cell.blocks, id);
+                }
+            }
+            Block::Toc(_) => {}
+        }
+    }
 }
 
 /// Index in `p.inlines` of the field at char position `offset`.
@@ -3622,7 +4302,9 @@ impl AppDocument for WriteDocument {
             ch.page = true;
         }
         // Comments follow their markers (a deleted range, a lone marker).
-        if may_touch_markers(cmd) && (!self.doc.comments.is_empty() || carries_markers(cmd)) {
+        if may_touch_markers(cmd)
+            && (!self.doc.comments.is_empty() || carries_markers(cmd) || self.has_bookmarks())
+        {
             if let Some(fix) = self.fix_comments(&mut ch) {
                 inverse = C::Compound {
                     commands: vec![fix, inverse],

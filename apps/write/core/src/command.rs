@@ -17,7 +17,7 @@ use model_text::{
     StyleSheet, Table, TableCell, TableProperties, TableRow, Toc, TocEntry, Twips, VMerge,
     WrapKind,
 };
-use model_text::{Comment, CommentId};
+use model_text::{Columns, Comment, CommentId, CoreProperties, DocumentSettings, Hyperlink};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -94,11 +94,9 @@ pub struct PageSetupPatch {
 pub struct SectionPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<SectionKind>,
+    /// The text columns (Layout › Columns), replaced as a whole.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub columns: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(as = "Option<i32>")]
-    pub column_space: Option<Twips>,
+    pub columns: Option<Columns>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_page: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -117,6 +115,62 @@ pub struct SectionPatch {
 pub struct CommentPoint {
     pub block: NodeId,
     pub offset: u32,
+}
+
+/// What a cross-reference points at (Insert › Cross-reference "For
+/// which"): a bookmark by name, or a paragraph / note that gets a hidden
+/// `_Ref` bookmark (reused when one already marks exactly that).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind",
+    content = "value"
+)]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub enum RefTarget {
+    /// An existing bookmark.
+    Bookmark(String),
+    /// A heading, numbered item or caption paragraph (the whole text).
+    Paragraph(NodeId),
+    /// A caption's label and number only (`Figure 1`: up to its `SEQ`).
+    CaptionLabel(NodeId),
+    /// A footnote or endnote (its reference mark in the text).
+    Note(u32),
+}
+
+/// What a cross-reference shows (Insert › Cross-reference "Insert
+/// reference to").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub enum RefShow {
+    /// The text (`REF`).
+    Text,
+    /// The page number (`PAGEREF`).
+    Page,
+    /// The paragraph number of a numbered item (`REF \n`); the note
+    /// number of a note (`NOTEREF`).
+    Number,
+    /// The note number formatted like a note reference (`NOTEREF \f`).
+    NoteFormatted,
+}
+
+/// What the UI knows when it asks the core to recompute fields
+/// ([`WriteCommand::UpdateFields`] `refresh`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub struct FieldRefresh {
+    /// `[paragraph, page]` from the pagination (for `PAGEREF`).
+    #[ts(type = "Array<[NodeId, number]>")]
+    #[serde(default)]
+    pub pages: Vec<(NodeId, u32)>,
+    /// Only the fields in these paragraphs (F9 on a selection); `None` =
+    /// all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub blocks: Option<Vec<NodeId>>,
 }
 
 /// Formatting a find (or replace) is restricted to (Word's Find › Format):
@@ -220,6 +274,12 @@ pub enum WriteCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         style: Option<String>,
+        /// The hyperlink of the new text (typing inside a link; with
+        /// `props` absent the link of the text before is inherited only
+        /// inside a link, never at its end, as in Word).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        link: Option<Hyperlink>,
     },
     /// Deletes positions `from..to` (text, images and breaks).
     DeleteText { block: NodeId, from: u32, to: u32 },
@@ -565,6 +625,11 @@ pub enum WriteCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(type = "number")]
         new_id: Option<i64>,
+        /// A table of figures: the captions of this sequence (`Figure`)
+        /// instead of the headings.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        caption: Option<String>,
     },
     /// Rebuilds the entries of table of contents `id` from the headings;
     /// `pages` (`[heading, page]`, from the UI's pagination) fills in page
@@ -616,10 +681,80 @@ pub enum WriteCommand {
     /// headers and footers). The UI computes them (page numbers from its
     /// pagination, date and time from the clock, the file name from the
     /// document name) before saving.
+    ///
+    /// With `refresh`, the core also recomputes the fields it can (`REF`,
+    /// `PAGEREF` from `refresh.pages`, `NOTEREF`, `SEQ`, `TITLE`,
+    /// `AUTHOR`; Word's Update Field, F9); `values` win over them.
     UpdateFields {
         #[ts(type = "Array<[NodeId, number, string]>")]
         values: Vec<(NodeId, u32, String)>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        refresh: Option<FieldRefresh>,
     },
+    /// Insert › Link: makes `from..to` of paragraph `block` a hyperlink
+    /// (replacing any link there) in the `Hyperlink` character style
+    /// (added when missing). With `text` the range is first replaced by it
+    /// (Word's "Text to display"; an empty range inserts it).
+    SetHyperlink {
+        block: NodeId,
+        from: u32,
+        to: u32,
+        link: Hyperlink,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        text: Option<String>,
+    },
+    /// Remove Link: the text of `from..to` loses its hyperlink (and the
+    /// `Hyperlink` character style).
+    RemoveHyperlink { block: NodeId, from: u32, to: u32 },
+    /// Insert › Bookmark › Add: bookmark `name` from `start` to `end`
+    /// (body, notes, headers and footers; an existing bookmark of that name
+    /// is moved, as in Word). The name must be valid (letters, digits, `_`,
+    /// starting with a letter or `_` for hidden ones, ≤ 40 chars).
+    AddBookmark {
+        name: String,
+        start: CommentPoint,
+        end: CommentPoint,
+    },
+    /// Removes bookmark `name` (its markers; the text stays).
+    DeleteBookmark { name: String },
+    /// Insert › Cross-reference: a `REF`/`PAGEREF`/`NOTEREF` field at
+    /// `offset` of paragraph `block` for `target` (creating the hidden
+    /// `_Ref` bookmark it needs), `hyperlink` = `\h`. The result is
+    /// computed by the core; `page` is the target's page for `RefShow::Page`.
+    InsertCrossReference {
+        block: NodeId,
+        offset: u32,
+        target: RefTarget,
+        show: RefShow,
+        hyperlink: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        page: Option<u32>,
+    },
+    /// Insert › Caption: a `Caption` paragraph `label N` + `text` (N a
+    /// `SEQ label` field) above (`below: false`) or below the body block
+    /// `anchor` (a paragraph or table, also inside a cell); every `SEQ`
+    /// field is renumbered. Adds the `Caption` style when missing.
+    InsertCaption {
+        anchor: NodeId,
+        below: bool,
+        label: String,
+        #[serde(default)]
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(type = "number", optional)]
+        new_id: Option<i64>,
+    },
+    /// File › Info: sets the document properties given (`Some`; an empty
+    /// string clears a text property).
+    SetProperties { patch: CoreProperties },
+    /// Puts back all document properties (the inverse of
+    /// [`SetProperties`](Self::SetProperties)).
+    RestoreProperties { properties: CoreProperties },
+    /// Replaces the document settings (Layout › Hyphenation).
+    SetSettings { settings: DocumentSettings },
     /// Word's New Comment: a thread on the text from `start` to `end`
     /// (body paragraphs, table cells included; `start` before or equal to
     /// `end`; equal = a comment on a point). Marks the range with
@@ -758,6 +893,8 @@ pub struct NewToc {
     pub title: Option<String>,
     #[serde(default)]
     pub entries: Vec<TocEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
 }
 
 impl From<&Toc> for NewToc {
@@ -768,6 +905,7 @@ impl From<&Toc> for NewToc {
             to_level: t.to_level,
             title: t.title.clone(),
             entries: t.entries.clone(),
+            caption: t.caption.clone(),
         }
     }
 }

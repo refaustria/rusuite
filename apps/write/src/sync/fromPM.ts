@@ -4,6 +4,7 @@ import type { Mark, Node as PMNode } from "@tiptap/pm/model";
 import type { Block } from "../generated/Block";
 import type { Field } from "../generated/Field";
 import type { FieldKind } from "../generated/FieldKind";
+import type { Hyperlink } from "../generated/Hyperlink";
 import type { Inline } from "../generated/Inline";
 import type { Note } from "../generated/Note";
 import type { NoteKind } from "../generated/NoteKind";
@@ -55,6 +56,12 @@ export function propsFromMarks(marks: readonly Mark[]): RunProperties {
   return p;
 }
 
+/** The hyperlink of a text node (its `link` mark). */
+export function linkFromMarks(marks: readonly Mark[]): Hyperlink | undefined {
+  const m = marks.find((x) => x.type.name === "link");
+  return m?.attrs.link ? (m.attrs.link as Hyperlink) : undefined;
+}
+
 /** The character style of a text node (its `charStyle` mark). */
 export function styleFromMarks(marks: readonly Mark[]): string | undefined {
   const m = marks.find((x) => x.type.name === "charStyle");
@@ -69,6 +76,8 @@ export function inlinesFromPM(node: PMNode): Inline[] {
       const style = styleFromMarks(child.marks);
       const value: Run = Object.keys(props).length ? { props, text: child.text! } : { text: child.text! };
       if (style) value.style = style;
+      const link = linkFromMarks(child.marks);
+      if (link) value.link = canonValue(link) as Hyperlink;
       out.push({ kind: "run", value });
     } else if (child.type.name === "image") {
       const a = child.attrs;
@@ -80,6 +89,12 @@ export function inlinesFromPM(node: PMNode): Inline[] {
       out.push({ kind: "break", value: "line" });
     } else if (child.type.name === "pageBreak") {
       out.push({ kind: "break", value: "page" });
+    } else if (child.type.name === "columnBreak") {
+      out.push({ kind: "break", value: "column" });
+    } else if (child.type.name === "bookmarkStart") {
+      out.push({ kind: "bookmarkStart", value: { id: child.attrs.id as number, name: String(child.attrs.name ?? "") } });
+    } else if (child.type.name === "bookmarkEnd") {
+      out.push({ kind: "bookmarkEnd", value: { id: child.attrs.id as number } });
     } else if (child.type.name === "field") {
       const props = propsFromMarks(child.marks);
       const value: Field = { kind: child.attrs.kind as FieldKind, cached: String(child.attrs.cached ?? "") };
@@ -202,6 +217,7 @@ export function nodeToBlocks(node: PMNode, out: Block[] = [], parentList: ListCo
   else if (LIST_TYPES.has(name)) listToBlocks(node, parentList, out);
   else if (name === "table") out.push({ kind: "table", value: tableFromPM(node) });
   else if (name === "toc") out.push({ kind: "toc", value: tocFromPM(node) });
+  else if (name === "columns") node.forEach((child) => nodeToBlocks(child, out));
   return out;
 }
 
@@ -210,6 +226,7 @@ export function tocFromPM(node: PMNode): Toc {
   const a = node.attrs;
   const t: Toc = { id: a.id, fromLevel: a.fromLevel, toLevel: a.toLevel, entries: (a.entries ?? []) as Toc["entries"] };
   if (a.title) t.title = a.title;
+  if (a.caption) t.caption = a.caption;
   return t;
 }
 
