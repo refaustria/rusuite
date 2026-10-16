@@ -150,6 +150,14 @@ pub enum Request {
     /// The threads of `sheet` or (`null`) of every sheet that has any
     /// (the Comments pane) → `comments`.
     AllComments { sheet: Option<u32> },
+    /// Pivot table `id`: its definition, source and field list (the
+    /// PivotTable Fields pane) → `pivotInfo`.
+    PivotInfo { id: u32 },
+    /// The pivot table containing the cell, if any → `pivotAt`.
+    PivotAt { sheet: u32, row: u32, col: u32 },
+    /// The items of cache field `field` of pivot table `id` in display
+    /// order, with their checked state (filter dropdowns) → `pivotItems`.
+    PivotItems { id: u32, field: u32 },
 }
 
 /// The successful part of a [`Response`].
@@ -270,6 +278,18 @@ pub enum ResponseBody {
     /// The reply to `allComments`, in sheet order.
     Comments {
         sheets: Vec<crate::annotations::SheetThreads>,
+    },
+    /// The reply to `pivotInfo`.
+    PivotInfo {
+        info: Box<crate::pivots::PivotInfo>,
+    },
+    /// The reply to `pivotAt` (`null`: no pivot table there).
+    PivotAt {
+        pivot: Option<crate::pivots::PivotAt>,
+    },
+    /// The reply to `pivotItems`.
+    PivotItems {
+        items: Vec<crate::pivots::PivotItemInfo>,
     },
     /// The reply to `sheetRules`.
     SheetRules {
@@ -477,6 +497,15 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
         },
         Request::AllComments { sheet } => ResponseBody::Comments {
             sheets: host.doc().all_comments(sheet)?,
+        },
+        Request::PivotInfo { id } => ResponseBody::PivotInfo {
+            info: Box::new(host.doc().pivot_info(id)?),
+        },
+        Request::PivotAt { sheet, row, col } => ResponseBody::PivotAt {
+            pivot: host.doc().pivot_at(sheet, row, col)?,
+        },
+        Request::PivotItems { id, field } => ResponseBody::PivotItems {
+            items: host.doc().pivot_items(id, field)?,
         },
     })
 }

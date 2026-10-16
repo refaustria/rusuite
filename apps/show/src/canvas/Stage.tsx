@@ -1,13 +1,16 @@
 // The slide editor: the current slide scaled to the viewport, selection
 // (click, shift-click, marquee), a Transformer for move/resize/rotate
 // (one `SetTransform` per gesture) with smart guides (snapping to the
-// slide and the other shapes; Alt turns it off), double-click text
-// editing (also of a group's child) and the right-click menus.
+// slide and the other shapes, equal spacing; red dashed lines), drawing
+// guides and the grid (P8-28; Alt turns snapping off), double-click text
+// editing (also of a group's child) and the right-click menus. Drawing
+// guides are draggable lines (Ctrl+drag copies, off the slide deletes,
+// right-click: add / delete / colour).
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Layer, Line as KLine, Rect, Stage, Transformer } from "react-konva";
+import { Group, Layer, Line as KLine, Rect, Shape as KShape, Stage, Transformer } from "react-konva";
 import type Konva from "konva";
-import { ContextMenu, type ContextMenuItem } from "@rusuite/ui-shared";
+import { ContextMenu, formatNumber, useLocale, type ContextMenuItem } from "@rusuite/ui-shared";
 import type { NodeId } from "../generated/NodeId";
 import type { Shape } from "../generated/Shape";
 import { boundsPx, boxAttrs, EMU_PER_PX, fitScale, rectFromPoints, shapesInRect, slidePx, type Rect as R } from "../geometry";
@@ -18,14 +21,17 @@ import { AdjustHandles, ConnectorHandles, PreviewLine, SiteDots, connectorTarget
 import { TableOverlay } from "./TableOverlay";
 import { findShape } from "../model";
 import { gestureCommand } from "../state/commands";
-import { useShow, viewSlide, type ShowStore } from "../state/store";
+import { DEFAULT_VIEW, useShow, viewSlide, type ShowStore } from "../state/store";
 import { CropOverlay } from "./CropOverlay";
-import { masterMenu } from "./menus";
+import { guideMenu, masterMenu } from "./menus";
 import { shapeMenu, slideMenu, tableMenu } from "./menus";
-import { NO_GUIDES, SNAP_PX, anchorAxes, sameGuides, snapBox, snapPoint, snapTargets, type Guides, type SnapTargets } from "./snap";
+import { NO_GUIDES, SNAP_PX, anchorAxes, sameGuides, snapPoint, snapTargets, type Guides, type SnapTargets } from "./snap";
+import { guideLabel, guideTargets, rulerUnit, snapMove, snapToGrid } from "./guides";
+import type { Guide } from "../generated/Guide";
 import { SlideView } from "./SlideView";
 import { stableDeck } from "../design/deck";
 import { TextOverlay } from "./TextOverlay";
+import { AutofitButton } from "./AutofitButton";
 import { AnimBadges, StagePreview } from "./AnimOverlay";
 import { useT } from "../i18n";
 
@@ -39,13 +45,25 @@ function union(rects: R[]): R | null {
   return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
 }
 
+/** What a drag can snap to: the slide and other shapes, the drawing guides, the other shapes' boxes. */
+interface SnapLines {
+  shapes: SnapTargets;
+  guides: SnapTargets;
+  others: R[];
+}
+
 /** State of a drag of the selection: where it started and what it can snap to. */
 interface DragSnap {
   pointer: { x: number; y: number };
   starts: Map<Konva.Node, { x: number; y: number }>;
   box: R;
-  targets: SnapTargets;
+  lines: SnapLines;
 }
+
+/** Smart guides: PowerPoint's red dashed lines. */
+export const SMART_GUIDE_COLOR = "#e3242b";
+/** Drawing guides' default colour. */
+export const GUIDE_COLOR = "#a6a6a6";
 
 /** The top-level shape group a Konva event target belongs to, and the innermost shape group. */
 function shapeTargets(target: Konva.Node): { top: NodeId | null; leaf: NodeId | null } {
@@ -61,6 +79,45 @@ function shapeTargets(target: Konva.Node): { top: NodeId | null; leaf: NodeId | 
   return { top, leaf };
 }
 
+/** View › Gridlines: dotted lines every `step` slide px. */
+function GridLines({ width, height, step, scale }: { width: number; height: number; step: number; scale: number }) {
+  // at least 6 screen px between lines (PowerPoint thins the grid when zoomed out)
+  const k = Math.max(1, Math.ceil(6 / Math.max(0.01, step * scale)));
+  const s = step * k;
+  return (
+    <KShape
+      name="gridlines"
+      listening={false}
+      sceneFunc={(c, shape) => {
+        c.beginPath();
+        for (let x = s; x < width; x += s) {
+          c.moveTo(x, 0);
+          c.lineTo(x, height);
+        }
+        for (let y = s; y < height; y += s) {
+          c.moveTo(0, y);
+          c.lineTo(width, y);
+        }
+        c.strokeShape(shape);
+      }}
+      stroke="rgba(0,0,0,0.28)"
+      strokeWidth={1 / scale}
+      dash={[1 / scale, 3 / scale]}
+    />
+  );
+}
+
+/** The distance from the slide centre shown next to a guide being dragged. */
+function GuideLabel({ guide, text, scale }: { guide: Guide; text: string; scale: number }) {
+  const at = (guide.pos / EMU_PER_PX) * scale;
+  const style = guide.orient === "vertical" ? { left: at + 6, top: 8 } : { left: 8, top: at + 6 };
+  return (
+    <span data-testid="guide-label" className="pointer-events-none absolute rounded bg-black/75 px-1 text-[11px] text-white" style={style}>
+      {text}
+    </span>
+  );
+}
+
 export function EditorStage({ store, width, height }: { store: ShowStore; width: number; height: number }) {
   const t = useT();
   const pres = useShow(store, (s) => s.pres);
@@ -74,7 +131,13 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   const [guides, setGuidesState] = useState<Guides>(NO_GUIDES);
   const guidesRef = useRef<Guides>(NO_GUIDES);
   const drag = useRef<DragSnap | null>(null);
-  const resizeTargets = useRef<SnapTargets | null>(null);
+  const resizeTargets = useRef<SnapLines | null>(null);
+  const view = useShow(store, (s) => s.pres?.view) ?? DEFAULT_VIEW;
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  /** A drawing guide being dragged: its index and position (EMU) so far. */
+  const [guideDrag, setGuideDrag] = useState<{ index: number; pos: number } | null>(null);
+  const locale = useLocale();
   /** Pointer at the last mouse-down (a drag's start: Konva fires `dragstart` only after the first move). */
   const downPointer = useRef<{ x: number; y: number } | null>(null);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: ContextMenuItem[] } | null>(null);
@@ -112,16 +175,19 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
     setGuidesState(g);
   }, []);
 
-  /** Snap lines of the slide and of the shapes not in `moving`. */
+  /** Snap lines of the slide, of the shapes not in `moving` (visible ones) and of the drawing guides. */
   const targetsFor = useCallback(
-    (moving: Set<NodeId>): SnapTargets | null => {
+    (moving: Set<NodeId>): SnapLines | null => {
       const sl = store.currentSlide();
       const p = store.getState().pres;
       if (!sl || !p) return null;
-      return snapTargets(slidePx(p.slideSize), sl.shapes.filter((s) => !moving.has(s.id)).map((s) => boundsPx(s.transform)));
+      const others = sl.shapes.filter((s) => !moving.has(s.id) && !s.hidden).map((s) => boundsPx(s.transform));
+      return { shapes: snapTargets(slidePx(p.slideSize), others), guides: guideTargets(p.view), others };
     },
     [store],
   );
+  /** Grid step in slide px while "Snap objects to grid" is on (else 0). */
+  const gridStep = () => (viewRef.current.snapToGrid ? viewRef.current.gridSpacing / EMU_PER_PX : 0);
 
   const onShapeDragStart = useCallback(
     (node: Konva.Node) => {
@@ -135,9 +201,9 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       const nodes = trNodes.includes(node) ? trNodes : [node];
       const ids = new Set(nodes.map((n) => n.getAttr("shapeId") as NodeId));
       const box = union(sl.shapes.filter((s) => ids.has(s.id)).map((s) => boundsPx(s.transform)));
-      const targets = targetsFor(ids);
-      if (!box || !targets) return;
-      drag.current = { pointer, starts: new Map(nodes.map((n) => [n, n.getAbsolutePosition()])), box, targets };
+      const lines = targetsFor(ids);
+      if (!box || !lines) return;
+      drag.current = { pointer, starts: new Map(nodes.map((n) => [n, n.getAbsolutePosition()])), box, lines };
     },
     [store, targetsFor],
   );
@@ -156,7 +222,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
         return { x: start.x + dx, y: start.y + dy };
       }
       const moved = { ...d.box, x: d.box.x + dx / scale, y: d.box.y + dy / scale };
-      const snap = snapBox(moved, d.targets, SNAP_PX / scale);
+      const snap = snapMove(moved, d.lines, d.lines.others, { shapes: viewRef.current.snapToShapes, grid: gridStep(), threshold: SNAP_PX / scale });
       setGuides(snap.guides);
       return { x: start.x + dx + snap.dx * scale, y: start.y + dy + snap.dy * scale };
     },
@@ -173,11 +239,18 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
         return pos;
       }
       if (!resizeTargets.current) resizeTargets.current = targetsFor(new Set([nodes[0]!.getAttr("shapeId") as NodeId]));
-      const t = resizeTargets.current;
-      if (!t) return pos;
-      const p = snapPoint({ x: pos.x / scale, y: pos.y / scale }, t, SNAP_PX / scale, anchorAxes(tr.getActiveAnchor()));
+      const l = resizeTargets.current;
+      if (!l) return pos;
+      const smart = viewRef.current.snapToShapes;
+      const t: SnapTargets = { xs: [...(smart ? l.shapes.xs : []), ...l.guides.xs], ys: [...(smart ? l.shapes.ys : []), ...l.guides.ys] };
+      const axes = anchorAxes(tr.getActiveAnchor());
+      const p = snapPoint({ x: pos.x / scale, y: pos.y / scale }, t, SNAP_PX / scale, axes);
+      // the grid where no guide caught the handle
+      const g = gridStep();
+      const x = g > 0 && axes.x && !p.guides.v.length ? snapToGrid(p.x, g) : p.x;
+      const y = g > 0 && axes.y && !p.guides.h.length ? snapToGrid(p.y, g) : p.y;
       setGuides(p.guides);
-      return { x: p.x * scale, y: p.y * scale };
+      return { x: x * scale, y: y * scale };
     },
     [scale, setGuides, targetsFor],
   );
@@ -213,7 +286,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
         node.setAttrs({ x: b.x, y: b.y, rotation: b.rotation, scaleX: 1, scaleY: 1 });
         return [{ shape, attrs }];
       });
-      void store.run(gestureCommand(items));
+      void store.run(store.withAutofit(gestureCommand(items)));
     });
   }, [store, endSnap]);
 
@@ -341,6 +414,9 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       style={{ width: size.width * scale, height: size.height * scale, cursor: drawMode ? "crosshair" : undefined }}
       data-testid="editor-stage"
       data-guides={guides.v.length + guides.h.length}
+      data-spacing-guides={guides.spacing?.length ?? 0}
+      data-drawing-guides={view.showGuides ? view.guides.length : 0}
+      data-grid={view.showGrid ? "true" : undefined}
       data-draw-mode={drawMode ?? undefined}
       data-master-view={masterView ? (masterView.kind === "master" ? "master" : masterView.value) : undefined}
     >
@@ -375,6 +451,50 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
             onShapeDragStart={onShapeDragStart}
             shapeDragBound={shapeDragBound}
           />
+          {view.showGrid && <GridLines width={size.width} height={size.height} step={view.gridSpacing / EMU_PER_PX} scale={scale} />}
+          {view.showGuides &&
+            view.guides.map((g, i) => {
+              const vertical = g.orient === "vertical";
+              const at = (guideDrag?.index === i ? guideDrag.pos : g.pos) / EMU_PER_PX;
+              return (
+                <KLine
+                  key={`g${i}-${g.orient}-${g.pos}`}
+                  name="drawing-guide"
+                  points={vertical ? [at, 0, at, size.height] : [0, at, size.width, at]}
+                  stroke={g.color ? `#${g.color}` : GUIDE_COLOR}
+                  strokeWidth={1 / scale}
+                  dash={[6 / scale, 3 / scale]}
+                  hitStrokeWidth={10 / scale}
+                  draggable={!drawMode}
+                  dragBoundFunc={function (this: Konva.Node, pos: { x: number; y: number }) {
+                    return vertical ? { x: pos.x, y: this.getAbsolutePosition().y } : { x: this.getAbsolutePosition().x, y: pos.y };
+                  }}
+                  onMouseEnter={(e) => {
+                    const c = e.target.getStage()?.container();
+                    if (c) c.style.cursor = vertical ? "ew-resize" : "ns-resize";
+                  }}
+                  onMouseLeave={(e) => {
+                    const c = e.target.getStage()?.container();
+                    if (c) c.style.cursor = "";
+                  }}
+                  onDragMove={(e) => {
+                    const off = vertical ? e.target.x() : e.target.y();
+                    setGuideDrag({ index: i, pos: Math.round(g.pos + off * EMU_PER_PX) });
+                  }}
+                  onDragEnd={(e) => {
+                    const off = vertical ? e.target.x() : e.target.y();
+                    e.target.position({ x: 0, y: 0 });
+                    setGuideDrag(null);
+                    void store.dropGuide(i, Math.round(g.pos + off * EMU_PER_PX), e.evt.ctrlKey || e.evt.metaKey);
+                  }}
+                  onContextMenu={(e) => {
+                    e.evt.preventDefault();
+                    e.cancelBubble = true;
+                    setMenu({ at: { x: e.evt.clientX, y: e.evt.clientY }, items: guideMenu(store, i) });
+                  }}
+                />
+              );
+            })}
           <Transformer
             ref={trRef}
             flipEnabled={false}
@@ -387,11 +507,24 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
             onTransformEnd={() => commitGesture()}
           />
           {guides.v.map((x) => (
-            <KLine key={`v${x}`} name="guide" points={[x, 0, x, size.height]} stroke="#e8590c" strokeWidth={1 / scale} dash={[4 / scale, 3 / scale]} listening={false} />
+            <KLine key={`v${x}`} name="guide" points={[x, 0, x, size.height]} stroke={SMART_GUIDE_COLOR} strokeWidth={1 / scale} dash={[4 / scale, 3 / scale]} listening={false} />
           ))}
           {guides.h.map((y) => (
-            <KLine key={`h${y}`} name="guide" points={[0, y, size.width, y]} stroke="#e8590c" strokeWidth={1 / scale} dash={[4 / scale, 3 / scale]} listening={false} />
+            <KLine key={`h${y}`} name="guide" points={[0, y, size.width, y]} stroke={SMART_GUIDE_COLOR} strokeWidth={1 / scale} dash={[4 / scale, 3 / scale]} listening={false} />
           ))}
+          {(guides.spacing ?? []).flatMap((m, mi) =>
+            m.segments.map(([a, b], si) => {
+              const t = 4 / scale;
+              const pts = m.axis === "x" ? [a, m.at, b, m.at] : [m.at, a, m.at, b];
+              const ends = m.axis === "x" ? [[a, m.at - t, a, m.at + t], [b, m.at - t, b, m.at + t]] : [[m.at - t, a, m.at + t, a], [m.at - t, b, m.at + t, b]];
+              return (
+                <Group key={`s${mi}-${si}`} name="spacing-guide" listening={false}>
+                  <KLine points={pts} stroke={SMART_GUIDE_COLOR} strokeWidth={1 / scale} />
+                  {ends.map((e, k) => <KLine key={k} points={e} stroke={SMART_GUIDE_COLOR} strokeWidth={1 / scale} />)}
+                </Group>
+              );
+            }),
+          )}
           {one?.kind.kind === "auto" && (
             <AdjustHandles shape={preview?.id === one.id ? preview : one} scale={scale} onPreview={setPreview} onCommit={(id, adjust) => void store.setAdjust(id, adjust)} />
           )}
@@ -424,7 +557,15 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
           )}
         </Layer>
       </Stage>
+      {guideDrag && view.guides[guideDrag.index] && (
+        <GuideLabel
+          guide={{ ...view.guides[guideDrag.index]!, pos: guideDrag.pos }}
+          text={guideLabel({ orient: view.guides[guideDrag.index]!.orient, pos: guideDrag.pos }, pres.slideSize, rulerUnit(locale), (n) => formatNumber(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
+          scale={scale}
+        />
+      )}
       <TableOverlay store={store} scale={scale} onMenu={(at) => setMenu({ at, items: tableMenu(store) })} />
+      {one?.kind.kind === "auto" && !masterView && !cropping && <AutofitButton store={store} shape={one} scale={scale} />}
       {editing && <TextOverlay store={store} scale={scale} />}
       {!masterView && <AnimBadges store={store} slide={slide} scale={scale} />}
       {!masterView && <StagePreview store={store} deck={stableDeck(pres)} slides={pres.slides} index={pres.slides.indexOf(slide)} width={size.width * scale} height={size.height * scale} />}

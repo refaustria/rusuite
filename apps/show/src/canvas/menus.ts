@@ -74,7 +74,11 @@ export function shapeMenu(store: ShowStore): ContextMenuItem[] {
   items.push(
     { id: "alt", label: t("show.editAltDots"), disabled: !one, onSelect: () => one && store.openDialog({ kind: "alt", shape: one.id }) },
     { id: "format", label: t("show.formatShapeDots"), disabled: none, onSelect: () => store.openDialog({ kind: "format" }) },
+    { id: "sizePosition", label: t("show.sizePositionDots"), disabled: none, onSelect: () => store.openFormatPane("size") },
   );
+  if (sel.some((s) => s.kind.kind === "auto")) {
+    items.push({ id: "textOptions", label: t("show.textOptionsDots"), onSelect: () => store.openFormatPane("text") });
+  }
   return items;
 }
 
@@ -96,6 +100,48 @@ export function slideMenu(store: ShowStore): ContextMenuItem[] {
     { separator: true },
     { id: "hide", label: slide?.hidden ? t("show.showSlide") : t("show.hideSlide"), disabled: !slide, onSelect: () => void store.toggleHidden() },
     { id: "notes", label: st.notesVisible ? t("show.hideNotes") : t("show.showNotes"), onSelect: () => store.toggleNotes() },
+    { separator: true },
+    ...gridGuideItems(store),
+  ];
+}
+
+/** Grid and Guides entries of the slide menu (P8-28). */
+export function gridGuideItems(store: ShowStore): ContextMenuItem[] {
+  const v = store.viewProps();
+  const on = (b: boolean, label: string) => `${label}${b ? " ✓" : ""}`;
+  return [
+    { id: "guides", label: on(v.showGuides, t("show.view.guides")), shortcut: key("Alt+F9"), onSelect: () => void store.toggleGuides() },
+    { id: "gridlines", label: on(v.showGrid, t("show.view.gridlines")), shortcut: key("Shift+F9"), onSelect: () => void store.toggleGrid() },
+    { id: "smartGuides", label: on(v.snapToShapes, t("show.view.smartGuides")), onSelect: () => void store.updateView({ snapToShapes: !v.snapToShapes }) },
+    { id: "addVGuide", label: t("show.guide.addVertical"), onSelect: () => void store.addGuide("vertical") },
+    { id: "addHGuide", label: t("show.guide.addHorizontal"), onSelect: () => void store.addGuide("horizontal") },
+    { id: "gridGuidesDialog", label: t("show.view.gridGuidesDots"), onSelect: () => store.openDialog({ kind: "gridGuides" }) },
+  ];
+}
+
+/** Guide colours of the guide menu. */
+export const GUIDE_COLORS: { color: string | null; readonly label: string }[] = [
+  withLabel({ color: null }, "show.guide.color.default"),
+  withLabel({ color: "E3242B" }, "show.guide.color.red"),
+  withLabel({ color: "F28C28" }, "show.guide.color.orange"),
+  withLabel({ color: "2E8B57" }, "show.guide.color.green"),
+  withLabel({ color: "1E6FD9" }, "show.guide.color.blue"),
+];
+
+/** Right-click on drawing guide `index`: add guides, delete it, its colour. */
+export function guideMenu(store: ShowStore, index: number): ContextMenuItem[] {
+  const g = store.viewProps().guides[index];
+  return [
+    { id: "addVGuide", label: t("show.guide.addVertical"), onSelect: () => void store.addGuide("vertical") },
+    { id: "addHGuide", label: t("show.guide.addHorizontal"), onSelect: () => void store.addGuide("horizontal") },
+    { id: "deleteGuide", label: t("show.guide.delete"), disabled: !g, onSelect: () => void store.deleteGuide(index) },
+    { separator: true },
+    ...GUIDE_COLORS.map((c) => ({
+      id: `guideColor-${c.color ?? "default"}`,
+      label: `${t("show.guide.colorPrefix", { color: c.label })}${(g?.color ?? null) === c.color ? " ✓" : ""}`,
+      disabled: !g,
+      onSelect: () => void store.setGuideColor(index, c.color),
+    })),
   ];
 }
 
@@ -104,12 +150,14 @@ export function thumbnailMenu(store: ShowStore, id: NodeId): ContextMenuItem[] {
   const st = store.getState();
   const slide = st.pres?.slides.find((s) => s.id === id);
   const count = st.pres?.slides.length ?? 0;
+  // the sorter's multi-selection when the clicked slide is part of it
+  const ids = st.slideSel.includes(id) ? store.selectedSlides() : [id];
   return [
     { id: "newSlide", label: t("show.newSlide"), onSelect: () => void store.addSlide("titleContent") },
-    { id: "duplicateSlide", label: t("show.duplicateSlide"), onSelect: () => void store.duplicateSlide(id) },
-    { id: "deleteSlide", label: t("show.deleteSlide"), disabled: count <= 1, onSelect: () => void store.deleteSlides([id]) },
+    { id: "duplicateSlide", label: t("show.duplicateSlide"), onSelect: () => void store.duplicateSlides(ids) },
+    { id: "deleteSlide", label: t("show.deleteSlide"), disabled: count <= ids.length, onSelect: () => void store.deleteSlides(ids) },
     { separator: true },
-    { id: "copySlide", label: t("cmd.copy"), shortcut: key("Mod+C"), onSelect: () => store.copySlides([id]) },
+    { id: "copySlide", label: t("cmd.copy"), shortcut: key("Mod+C"), onSelect: () => store.copySlides(ids) },
     { id: "pasteSlide", label: t("cmd.paste"), shortcut: key("Mod+V"), disabled: st.clipboard === null, onSelect: () => void store.paste() },
     { separator: true },
     ...layoutEntries(store).map((l) => ({
@@ -120,7 +168,7 @@ export function thumbnailMenu(store: ShowStore, id: NodeId): ContextMenuItem[] {
     { separator: true },
     { id: "addSection", label: t("show.section.add"), onSelect: () => void store.addSection() },
     { separator: true },
-    { id: "hide", label: slide?.hidden ? t("show.showSlide") : t("show.hideSlide"), onSelect: () => void store.toggleHidden([id]) },
+    { id: "hide", label: slide?.hidden ? t("show.showSlide") : t("show.hideSlide"), onSelect: () => void store.toggleHidden(ids) },
   ];
 }
 

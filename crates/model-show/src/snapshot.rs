@@ -13,6 +13,7 @@ use crate::presentation::{Presentation, SlideSize};
 use crate::section::Section;
 use crate::slide::Slide;
 use crate::theme::Theme;
+use crate::view::{ShowSettings, ViewProps};
 use crate::Error;
 
 /// The serializable form of a [`Presentation`] (identical to it).
@@ -39,6 +40,10 @@ pub(crate) struct PresentationData {
     sections: Vec<Section>,
     #[serde(default)]
     media: MediaStore,
+    #[serde(default)]
+    view: ViewProps,
+    #[serde(default)]
+    show_settings: ShowSettings,
 }
 
 impl From<PresentationData> for Presentation {
@@ -60,6 +65,8 @@ impl From<PresentationData> for Presentation {
         p.theme = d.theme;
         p.sections = d.sections;
         p.media = d.media;
+        p.view = d.view;
+        p.show_settings = d.show_settings;
         p.next_id = p.max_node_id() + 1;
         p
     }

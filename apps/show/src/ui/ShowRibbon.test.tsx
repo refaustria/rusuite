@@ -34,7 +34,7 @@ const tab = (name: string) => screen.getByRole("tab", { name });
 describe("Show ribbon", () => {
   it("has File, Home, Insert, Design, Transitions, Animations and View, and Present in the strip", async () => {
     await mount();
-    expect(screen.getAllByRole("tab").filter((t) => !t.closest("[data-testid=slide-list]")).map((t) => t.textContent)).toEqual(["File", "Home", "Insert", "Design", "Transitions", "Animations", "View"]);
+    expect(screen.getAllByRole("tab").filter((t) => !t.closest("[data-testid=slide-list]")).map((t) => t.textContent)).toEqual(["File", "Home", "Insert", "Design", "Transitions", "Animations", "Slide Show", "View"]);
     const toolbar = screen.getByRole("toolbar", { name: "Formatting" });
     for (const g of ["Clipboard", "Slides", "Font", "Paragraph", "Drawing"]) expect(within(toolbar).getByRole("group", { name: g })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Present" })).toBeTruthy();

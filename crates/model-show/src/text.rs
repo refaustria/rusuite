@@ -92,6 +92,117 @@ pub struct BodyProps {
     pub insets: Insets,
     /// Autofit behaviour.
     pub autofit: Autofit,
+    /// Text direction (`vert`).
+    #[serde(skip_serializing_if = "TextDirection::is_horizontal")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<TextDirection>"))]
+    pub vert: TextDirection,
+    /// Number of text columns (`numCol`, 1–16).
+    #[serde(skip_serializing_if = "is_one")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<u32>"))]
+    pub columns: u32,
+    /// Space between text columns (`spcCol`).
+    #[serde(skip_serializing_if = "is_zero_emu")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<f64>"))]
+    pub column_spacing: Emu,
+    /// Shrink on overflow: the font scale applied, in 1/1000 % (`normAutofit/@fontScale`;
+    /// 100000 = 100 %). Computed by the editor, kept so the file round-trips.
+    #[serde(skip_serializing_if = "is_full_scale")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<u32>"))]
+    pub font_scale: u32,
+    /// Shrink on overflow: the line spacing reduction, in 1/1000 % (`lnSpcReduction`; 20000 = 20 %).
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<u32>"))]
+    pub line_reduction: u32,
+}
+
+fn is_one(v: &u32) -> bool {
+    *v == 1
+}
+
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
+}
+
+fn is_zero_emu(v: &Emu) -> bool {
+    v.0 == 0
+}
+
+fn is_full_scale(v: &u32) -> bool {
+    *v == FULL_SCALE
+}
+
+/// `fontScale` of unscaled text (100 %).
+pub const FULL_SCALE: u32 = 100_000;
+
+/// Text direction of a text body (`a:bodyPr/@vert`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub enum TextDirection {
+    /// Horizontal (`horz`).
+    #[default]
+    Horizontal,
+    /// Rotate all text 90° (`vert`).
+    Rotate90,
+    /// Rotate all text 270° (`vert270`).
+    Rotate270,
+    /// Stacked: one character per line (`wordArtVert`).
+    Stacked,
+}
+
+impl TextDirection {
+    fn is_horizontal(&self) -> bool {
+        *self == Self::Horizontal
+    }
+
+    /// The `vert` attribute value.
+    pub fn as_ooxml(self) -> &'static str {
+        match self {
+            Self::Horizontal => "horz",
+            Self::Rotate90 => "vert",
+            Self::Rotate270 => "vert270",
+            Self::Stacked => "wordArtVert",
+        }
+    }
+
+    /// Parses `vert` (`eaVert`/`mongolianVert` read as rotated 90°/270°,
+    /// `wordArtVertRtl` as stacked); `None` for unknown values.
+    pub fn from_ooxml(v: &str) -> Option<Self> {
+        Some(match v {
+            "horz" => Self::Horizontal,
+            "vert" | "eaVert" => Self::Rotate90,
+            "vert270" | "mongolianVert" => Self::Rotate270,
+            "wordArtVert" | "wordArtVertRtl" => Self::Stacked,
+            _ => return None,
+        })
+    }
+}
+
+impl BodyProps {
+    /// Checks columns (1–16), the spacing and the autofit scale values
+    /// (font scale 1–100 %, line reduction 0–100 %).
+    pub fn validate(&self) -> Result<(), String> {
+        if !(1..=16).contains(&self.columns) {
+            return Err(format!("{} text columns (1–16)", self.columns));
+        }
+        if self.column_spacing.0 < 0 {
+            return Err("negative column spacing".into());
+        }
+        if !(1_000..=FULL_SCALE).contains(&self.font_scale) {
+            return Err(format!("font scale {} out of range", self.font_scale));
+        }
+        if self.line_reduction > FULL_SCALE {
+            return Err(format!(
+                "line reduction {} out of range",
+                self.line_reduction
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Default for BodyProps {
@@ -102,6 +213,11 @@ impl Default for BodyProps {
             wrap: true,
             insets: Insets::default(),
             autofit: Autofit::None,
+            vert: TextDirection::Horizontal,
+            columns: 1,
+            column_spacing: Emu(0),
+            font_scale: FULL_SCALE,
+            line_reduction: 0,
         }
     }
 }

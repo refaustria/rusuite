@@ -222,7 +222,7 @@ The algorithm is in `docs/write-layout.md`.
 
 | Export | Use |
 | --- | --- |
-| `Ribbon` | `tabs: RibbonTab[]` (`{ id, label, groups: { label, items }[], toolbarLabel? }`); empty groups and tabs without groups are omitted. Active tab controlled (`activeTab`/`onTabChange`) or not (`defaultTab`); collapse likewise (`collapsed`/`defaultCollapsed`/`onCollapsedChange`). `backstage` adds the File tab; `accent` colors it. |
+| `Ribbon` | `tabs: RibbonTab[]` (`{ id, label, groups: { label, items }[], toolbarLabel? }`); empty groups and tabs without groups are omitted. Active tab controlled (`activeTab`/`onTabChange`) or not (`defaultTab`); collapse likewise (`collapsed`/`defaultCollapsed`/`onCollapsedChange`). `backstage` adds the File tab; `accent` colors it. Contextual tabs (P8-28) carry `contextual: { group, color }` (`contextualTabs(tabs, group, color)`, `CONTEXT_COLORS` drawing / picture / table / chart / media / master): they follow the standard tabs, consecutive tabs of one group share a coloured header naming the context ("Table Tools", `ribbon.ctx.*` in the shared catalog) above their labels on a tinted background, the selected one is drawn in the group colour, and the panel's top border takes it. Calc's Chart Design / Format (Chart Tools) and Write's Table Design / Layout (Table Tools) and Picture Format (Picture Tools) use it as well. |
 | `Backstage` | Full-pane File view: Home, New, Open…, Save, Save As…, Print, Export PDF…, Close; the Home page lists the session's recent files (re-opened through `DocumentSession.openRecent`), the Print page shows `print` (see Printing). Commands without a handler are not shown; `fileDisabledReason` disables the file commands with a note. Esc / Back returns. `openBackstage(page)` opens it from anywhere (Ctrl+P). The Home page ends with the **Privacy** entry (P7-12, ADR 0009): where data is kept, the "Keep autosave copies in this browser" checkbox (default on; `DocumentSession.setKeepAutosave`, stored in `localStorage` `rusuite.keepAutosave`; off = no recovery entries, recent entries without content) and "Remove local copies from this browser" (`DocumentSession.clearLocalData` → `DocStorage.clearAll`: IndexedDB recent list, snapshots and recovery entries; desktop: recovery entries only, the recent list holds paths). |
 | `RibbonButton` | Large (24 px icon over the label) or small (icon, optional label); `pressed` makes it a toggle (`aria-pressed`); tooltip = label + formatted `shortcut`. |
 | `RibbonSplitButton`, `RibbonMenuButton` | Main action + arrow, or a button that only opens; the popup is a keyboard menu (`RibbonMenuItem[]`, with separators/section labels and radio items) or any panel. |
@@ -389,7 +389,11 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   colour, Apply to all, Reset), Transitions (Preview; gallery None/Fade/Push/Wipe/Cover/Split/Cut/Zoom + Effect Options ▾;
   Timing: Duration, Apply to all, Advance slide On mouse click / After mm:ss), Animations (Preview; Animation styles ▾ grouped
   Entrance/Emphasis/Exit + None, Effect Options ▾; Add animation ▾, Animation pane; Timing: Start, Duration, Delay, Move
-  earlier/later), View (Notes pane, present from beginning/current, Presenter view, zoom Fit/50–200 %, shortcuts help),
+  earlier/later), Slide Show (From Beginning / Current Slide, Set Up Slide Show, Hide Slide, Rehearse Timings, Use
+  Timings, Loop until Esc, Presenter View; P8-28), View (Presentation Views: Normal, Outline View, Slide Sorter, Notes
+  Page, Reading View; Slide Master; Show: Ruler, Gridlines, Guides, Notes, Grid and Guides…; present from
+  beginning/current, Presenter view, zoom Fit/50–200 %, shortcuts help), Home › Editing › Select ▾ (Select All, Select
+  Objects, Selection Pane),
   contextual Shape Format while shapes are selected (Format shape…, Alt text…, Change picture…/Reset size; Insert shapes:
   Shapes ▾, Change shape ▾; Shape styles ▾, fill, outline, Arrows ▾, Connector type ▾ + Reroute; Arrange ▾, Rotate ▾), or
   Table Design + Layout while one table is selected, Chart Design + Format while one chart is selected, Playback (+ Shape
@@ -617,6 +621,65 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   slide takes this presentation's layout of the same kind (custom layouts: inferred from the placeholders) and its
   placeholders are re-mapped like a layout change. Media are copied (identical ones shared), links to slides that are
   not inserted are dropped.
+
+## Show: views, rulers, guides, Selection pane, text options, slide-show tools (P8-28)
+
+- **Views** (View › Presentation Views; `ShowState.view`; a file opens in its saved `lastView`): *Normal*. *Outline View*
+  (`views/OutlinePane.tsx`, `outline.ts`): the left pane lists every slide's number, an icon and its outline – the title
+  placeholder, then the body placeholder's paragraphs indented by level – as one text field per slide (first line = title,
+  each body paragraph indented by level + 1 tabs). Leaving a field writes the placeholders (`SetTextBody`, old run and
+  paragraph formatting kept by index); Tab / Shift+Tab demote / promote the selected lines at once: a body line without
+  tabs becomes a new Title and Content slide after this one, a demoted title joins the previous slide's body (the slide is
+  removed). *Slide Sorter* (`views/SlideSorter.tsx`, `sorter.ts`): all slides as thumbnails in a grid with section
+  headers and the slide's time when it has an After timing; click selects, Ctrl+click toggles, Shift+click a range;
+  dragging (pointer events) moves the selection before the slide under the pointer – also into another section or onto a
+  section header – as one undo step (`MoveSlide`s + `RestoreSections`); Delete, Ctrl+D, Ctrl+C/X/V, Ctrl+A, the
+  thumbnail menu and Slide Show › Hide Slide act on the selection; a zoom slider sets the thumbnail size; double-click or
+  Enter opens the slide in Normal. *Notes Page* (`views/NotesPageView.tsx`): the page as printed (portrait 7.5 × 10",
+  slide picture in the upper half, the notes editable below; printing's Notes Pages layout is the same). *Reading View*
+  (`views/ReadingView.tsx`): the show inside the window with transitions and animations and a status bar (slide x of n,
+  Previous, Menu with every slide and End Show, Next, Normal, Slide Sorter, Slide Show); Esc returns to Normal.
+- **Rulers, grid, guides** (View › Show, `canvas/guides.ts`, `Rulers.tsx`; stored with the presentation in
+  `ViewProps` → `ppt/viewProps.xml`; guides in 1/8 pt, grid / ruler display in a Rusuite extension): *Ruler* – a horizontal and a vertical ruler in inches
+  (English UI) or centimetres, counted from the slide centre like PowerPoint's, with the pointer's position marked.
+  *Gridlines* (Shift+F9) – a dotted grid; *Grid and Guides…* (View, slide menu): Snap objects to grid, spacing 1/8, 1/6,
+  1/5, 1/4, 1/3, 1/2, 1 or 2 cm / in, display grid, display drawing guides, smart guides. *Guides* (Alt+F9) – turning
+  them on without any adds the two centre guides; drag a guide to move it (its distance from the centre is shown),
+  Ctrl+drag copies it, dragging it off the slide deletes it; right-click: Add Vertical / Horizontal Guide, Delete Guide,
+  colour. Every change is one `SetViewProps` (undoable). *Smart guides*: while dragging or resizing, red dashed lines at
+  the edges / centres of other shapes and the slide, gap marks for equal spacing between three objects (`equalSpacing`:
+  continuing two neighbours' gap or centring between two), snapping within 4 screen px; drawing guides always snap while
+  shown; otherwise the box goes to the grid when Snap objects to grid is on (also resize handles); Alt moves freely.
+  Arrow keys move by the grid step onto the grid while snapping (else 1 px), Ctrl+arrows always 1 px, Shift+arrows 10 px.
+- **Selection & arrange**: Home › Select ▾ / Shape Format › Arrange › *Selection Pane* (`ui/SelectionPane.tsx`,
+  `selection.ts`): the slide's shapes top to bottom (group children indented); click selects, Ctrl/Shift+click adds,
+  double-click or F2 renames (`SetName`), the eye hides / shows (`SetShapesHidden`; hidden shapes are not drawn in the
+  editor, show, thumbnails or print and are saved as `p:cNvPr/@hidden`), Show All / Hide All, ▲ / ▼ and dragging a row by
+  its grip reorder (`ZOrder` steps, one undo step). Arrange ▾: order, align (left / centre / right / top / middle /
+  bottom), distribute, *Align to Slide* / *Align Selected Objects*, Group / Ungroup / *Regroup* (the last ungrouped
+  shapes), Rotate (90° right / left, flips, *More Rotation Options…*). Several selected shapes resize and rotate as one
+  box (the Transformer). *Format Shape pane* (`ui/FormatShapePane.tsx`, right of the stage; shape menu Size and
+  Position… / Text Options…): Size & Properties – height, width, rotation, lock aspect ratio (for the session; pictures
+  locked by default), position from the top-left corner; Text Options › Text Box – vertical alignment, text direction
+  (horizontal, rotate all text 90° / 270°, stacked), Do not Autofit / Shrink text on overflow / Resize shape to fit text,
+  margins, wrap text in shape, columns (number, spacing) → `SetBodyProps`.
+- **Autofit** (`text/autofit.ts`, `text/layout.ts`): Shrink text on overflow computes PowerPoint's steps (line spacing −10
+  / −20 %, then the font 92.5 … 25 %) and stores them as `fontScale` / `lineReduction` (written as
+  `a:normAutofit/@fontScale`, `@lnSpcReduction`), recomputed when the text is committed, the box is resized or the
+  setting changes; the canvas draws the stored scale. Resize shape to fit text grows the box to the text when it is
+  committed (horizontal text). The *AutoFit Options* button (`canvas/AutofitButton.tsx`) appears under the selected shape
+  while its text overflows or is shrunk: the three choices and the Format pane's text options.
+- **Slide-show tools** (`present/ShowTools.tsx`, `tools.ts`; the full-window show): a tool bar in the lower left on
+  pointer movement (Previous, Next, Pointer Options ▾, See All Slides, Zoom), laser pointer (Ctrl+L), pen (Ctrl+P),
+  highlighter (Ctrl+I) in six colours, eraser (Ctrl+E), arrow (Ctrl+A), E erases the slide's ink, Ctrl+M shows / hides
+  ink; ink lives for the session only (never saved). G or − (at 100 %) shows *See all slides*, + / − zoom into the slide
+  about the pointer (1.5 … 4 ×), Esc first leaves zoom / see all / the pen. B / W, number + Enter, presenter notes A− / A+,
+  timer reset as before. *Set Up Slide Show* (`ui/ViewDialogs.tsx` → `SetShowSettings`, `ppt/presProps.xml`
+  `p:showPr`): loop continuously until Esc, show without narration / animation, all slides or from … to …, advance
+  manually or using timings (custom shows are not offered). *Rehearse Timings*: the show from the start with a Recording
+  bar (next, pause, the slide's time, repeat, total); at the end "keep the new slide timings?" – Yes sets each slide's
+  After (whole seconds, `SetTransition`) and Use Timings in one undo step. Hidden slides are skipped (crossed-out number
+  in the panel and the sorter).
 
 ## Printing (P7-9)
 

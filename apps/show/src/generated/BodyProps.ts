@@ -2,6 +2,7 @@
 import type { Anchor } from "./Anchor";
 import type { Autofit } from "./Autofit";
 import type { Insets } from "./Insets";
+import type { TextDirection } from "./TextDirection";
 
 /**
  * Text body properties (`a:bodyPr`).
@@ -22,4 +23,25 @@ insets: Insets,
 /**
  * Autofit behaviour.
  */
-autofit: Autofit, };
+autofit: Autofit, 
+/**
+ * Text direction (`vert`).
+ */
+vert?: TextDirection, 
+/**
+ * Number of text columns (`numCol`, 1–16).
+ */
+columns?: number, 
+/**
+ * Space between text columns (`spcCol`).
+ */
+columnSpacing?: number, 
+/**
+ * Shrink on overflow: the font scale applied, in 1/1000 % (`normAutofit/@fontScale`;
+ * 100000 = 100 %). Computed by the editor, kept so the file round-trips.
+ */
+fontScale?: number, 
+/**
+ * Shrink on overflow: the line spacing reduction, in 1/1000 % (`lnSpcReduction`; 20000 = 20 %).
+ */
+lineReduction?: number, };

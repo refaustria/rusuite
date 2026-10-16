@@ -125,6 +125,10 @@ struct Changes {
     design: bool,
     /// Sections changed.
     sections: bool,
+    /// View settings changed.
+    view: bool,
+    /// Slide-show settings changed.
+    show_settings: bool,
 }
 
 /// Every slide, shape and animation id of `p` (master and layout shapes
@@ -1128,6 +1132,36 @@ impl ShowDocument {
                     Ok(())
                 })
             }
+            C::SetViewProps { view } => {
+                view.validate().map_err(invalid)?;
+                let old = std::mem::replace(&mut self.pres.view, view.clone());
+                ch.view = true;
+                Ok(C::SetViewProps { view: old })
+            }
+            C::SetShowSettings { settings } => {
+                settings.validate().map_err(invalid)?;
+                let old = std::mem::replace(&mut self.pres.show_settings, *settings);
+                ch.show_settings = true;
+                Ok(C::SetShowSettings { settings: old })
+            }
+            C::SetShapesHidden { shapes, hidden } => self.edit_shapes(shapes, ch, |s| {
+                s.hidden = *hidden;
+                Ok(())
+            }),
+            C::SetBodyProps { shapes, props } => {
+                props.validate().map_err(invalid)?;
+                self.edit_shapes(shapes, ch, |s| match &mut s.kind {
+                    ShapeKind::Auto { text, .. } => {
+                        let body = text.get_or_insert_with(|| model_show::TextBody {
+                            props: *props,
+                            paragraphs: vec![model_show::TextParagraph::default()],
+                        });
+                        body.props = *props;
+                        Ok(())
+                    }
+                    _ => Err(invalid(format!("shape {} cannot hold text", s.id.0))),
+                })
+            }
             C::SetAltText { shape, alt } => {
                 let alt = alt.clone().filter(|a| !a.is_empty());
                 self.edit_shapes(&[*shape], ch, |s| {
@@ -2050,6 +2084,7 @@ impl ShowDocument {
                 .click_action
                 .clone()
                 .filter(model_show::Hyperlink::is_valid),
+            hidden: ns.hidden,
         };
         shape.fill_default_name();
         normalize_shape(&mut shape);
@@ -2536,6 +2571,8 @@ impl ShowDocument {
             master: ch.design.then(|| self.pres.master.clone()),
             layouts: ch.design.then(|| self.pres.layouts.clone()),
             sections: ch.sections.then(|| self.pres.sections.clone()),
+            view: ch.view.then(|| self.pres.view.clone()),
+            show_settings: ch.show_settings.then_some(self.pres.show_settings),
         }
     }
 }

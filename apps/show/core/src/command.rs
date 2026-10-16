@@ -18,8 +18,8 @@ use model_show::{
     Background, BodyProps, Bullet, ChartData, ChartShape, Connector, ConnectorKind, Crop,
     Direction, Effect, Fill, HfDate, Hyperlink, Insets, Layout, LayoutKind, Line, MediaClip,
     MediaStart, NodeId, PictureProps, PlaceholderKind, Preset, Recolor, Section, Shadow, Shape,
-    ShapeKind, Slide, SlideMaster, SlideSize, Table, TableLook, TextBody, TextSpacing, Theme,
-    Transform, Transition, Trigger,
+    ShapeKind, ShowSettings, Slide, SlideMaster, SlideSize, Table, TableLook, TextBody,
+    TextSpacing, Theme, Transform, Transition, Trigger, ViewProps,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
@@ -1014,6 +1014,20 @@ pub enum ShowCommand {
         #[serde(default)]
         keep_source_formatting: bool,
     },
+    /// Sets the view settings: guides, grid, snapping, ruler, last view
+    /// (stored in `viewProps.xml`; undoable like PowerPoint's guide moves).
+    SetViewProps { view: ViewProps },
+    /// Sets the Set Up Slide Show options (`presProps.xml`).
+    SetShowSettings { settings: ShowSettings },
+    /// Hides shapes on their slide or shows them again (Selection pane).
+    SetShapesHidden { shapes: Vec<NodeId>, hidden: bool },
+    /// Replaces the text body properties (Format Shape › Text Box:
+    /// alignment, direction, autofit with its scale, wrap, margins,
+    /// columns) of auto shapes; a shape without text gets an empty body.
+    SetBodyProps {
+        shapes: Vec<NodeId>,
+        props: BodyProps,
+    },
     /// Applies the commands in order as one undo step; all or nothing.
     Compound { commands: Vec<ShowCommand> },
     /// *Internal.* Inserts slides at the given indices (ascending).
@@ -1115,6 +1129,8 @@ pub struct NewShape {
     pub alt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub click_action: Option<Action>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 /// [`ShapeKind`] with [`NewShape`] children.
@@ -1208,6 +1224,7 @@ impl From<&Shape> for NewShape {
             placeholder_idx: s.placeholder_idx,
             alt: s.alt.clone(),
             click_action: s.click_action.clone(),
+            hidden: s.hidden,
         }
     }
 }

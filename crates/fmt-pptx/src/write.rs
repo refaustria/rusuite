@@ -139,12 +139,12 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
     pkg.insert_part(
         pn("/ppt/presProps.xml")?,
         ct::PRES_PROPS,
-        parts::pres_props_xml(),
+        crate::props::pres_props_xml(&p.show_settings),
     );
     pkg.insert_part(
         pn("/ppt/viewProps.xml")?,
         ct::VIEW_PROPS,
-        parts::view_props_xml(),
+        crate::props::view_props_xml(&p.view),
     );
     pkg.insert_part(
         pn("/ppt/tableStyles.xml")?,
@@ -608,6 +608,9 @@ impl SlideWriter<'_> {
         let mut attrs = vec![("id", id.as_str()), ("name", name.as_str())];
         if let Some(alt) = s.alt.as_deref().filter(|a| !a.is_empty()) {
             attrs.push(("descr", alt));
+        }
+        if s.hidden {
+            attrs.push(("hidden", "1"));
         }
         let link = match &s.click_action {
             Some(a) => self.link_xml(a),

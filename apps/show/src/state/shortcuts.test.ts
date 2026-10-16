@@ -8,7 +8,7 @@ describe("shortcuts", () => {
   it("maps keys to actions", () => {
     expect(shortcutFor({ key: "Delete" })).toEqual({ kind: "delete" });
     expect(shortcutFor({ key: "ArrowLeft" })).toEqual({ kind: "nudge", dx: -1, dy: 0 });
-    expect(shortcutFor({ key: "ArrowDown", shiftKey: true })).toEqual({ kind: "nudge", dx: 0, dy: 10 });
+    expect(shortcutFor({ key: "ArrowDown", shiftKey: true })).toEqual({ kind: "nudge", dx: 0, dy: 10, shift: true });
     expect(shortcutFor({ key: "d", ctrlKey: true })).toEqual({ kind: "duplicate" });
     expect(shortcutFor({ key: "G", ctrlKey: true, shiftKey: true })).toEqual({ kind: "ungroup" });
     expect(shortcutFor({ key: "}", code: "BracketRight", ctrlKey: true, shiftKey: true })).toEqual({ kind: "zOrder", op: "bringToFront" });

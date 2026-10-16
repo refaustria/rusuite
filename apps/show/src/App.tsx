@@ -10,7 +10,7 @@ import { launchAudience, type AudienceLink } from "./present/sync";
 import { SlideList } from "./sidebar/SlideList";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { ShowStore, useShow } from "./state/store";
-import { slidePx } from "./geometry";
+import { fitScale, slidePx } from "./geometry";
 import { ShowRibbon, type ShowZoom } from "./ui/ShowToolbar";
 import { NotesPane } from "./ui/NotesPane";
 import { AnimationPane } from "./ui/AnimationPane";
@@ -22,6 +22,14 @@ import { ReusePane } from "./reuse/ReusePane";
 import { PosterInput } from "./media/PlaybackTab";
 import { Toasts } from "./ui/Toasts";
 import { t, useT } from "./i18n";
+import { SlideSorter } from "./views/SlideSorter";
+import { OutlinePane } from "./views/OutlinePane";
+import { NotesPageView } from "./views/NotesPageView";
+import { ReadingView } from "./views/ReadingView";
+import { SelectionPane } from "./ui/SelectionPane";
+import { FormatShapePane } from "./ui/FormatShapePane";
+import { RULER_PX, RulerFrame } from "./canvas/Rulers";
+import { rulerUnit } from "./canvas/guides";
 
 /** Observes an element's client size. A callback ref, so a remounted element is measured and observed again. */
 function useElementSize<T extends HTMLElement>() {
@@ -103,7 +111,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       }),
     [backend, store],
   );
-  const [presenting, setPresenting] = useState<{ mode: "single" | "presenter"; link?: AudienceLink } | null>(null);
+  const [presenting, setPresenting] = useState<{ mode: "single" | "presenter"; link?: AudienceLink; rehearse?: boolean } | null>(null);
   const [printOptions, setPrintOptions] = useState<ShowPrintOptions>(DEFAULT_SHOW_PRINT);
   const [zoom, setZoom] = useState<ShowZoom>("fit");
   const [canvasRef, size] = useElementSize<HTMLDivElement>();
@@ -111,6 +119,9 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   const dirty = useShow(store, (s) => s.dirty);
   const name = useShow(store, (s) => s.name);
   const masterView = useShow(store, (s) => s.masterView !== null);
+  const view = useShow(store, (s) => s.view);
+  const showRuler = useShow(store, (s) => !!s.pres?.view?.showRuler);
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     void store.init().then(() => store.probeFileIo()).then(() => store.loadThemes());
@@ -135,11 +146,12 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   }, [backend, guard, dirty, name, locale]);
 
   const startPresenting = useCallback(
-    (mode: "single" | "presenter" = "single") => {
+    (mode: "single" | "presenter" = "single", rehearse = false) => {
       if (!store.getState().pres?.slides.length) return;
       void store.commitEdit();
+      if (store.getState().view === "reading") store.setView("normal");
       // The audience window opens right here, inside the key / click handler (popup blockers).
-      setPresenting(mode === "presenter" ? { mode, link: launchAudience() } : { mode });
+      setPresenting(mode === "presenter" ? { mode, link: launchAudience() } : { mode, rehearse });
     },
     [store],
   );
@@ -152,10 +164,16 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     })().catch((e) => store.pushError(e));
   }, [backend, store, printOptions]);
   const presentFrom = useCallback(
-    (fromStart: boolean) => {
-      const first = store.getState().pres?.slides[0]?.id;
-      if (fromStart && first !== undefined) store.selectSlide(store.getState().pres?.slides.find((s) => !s.hidden)?.id ?? first);
-      startPresenting();
+    (fromStart: boolean, rehearse = false) => {
+      const pres = store.getState().pres;
+      const first = pres?.slides[0]?.id;
+      if (fromStart && pres && first !== undefined) {
+        // Set Up Slide Show › From … To …: the first slide of the range
+        const range = pres.showSettings?.range;
+        const pool = range ? pres.slides.slice(range.start - 1, range.end) : pres.slides;
+        store.selectSlide(pool.find((s) => !s.hidden)?.id ?? pool[0]?.id ?? first);
+      }
+      startPresenting("single", rehearse);
     },
     [store, startPresenting],
   );
@@ -165,46 +183,78 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   }, [store, startPresenting]);
   const exit = useCallback(() => setPresenting(null), []);
 
-  // Fit: the canvas area minus its padding; a fixed zoom: the slide at that scale.
+  // Fit: the canvas area minus its padding (and the rulers); a fixed zoom: the slide at that scale.
+  const rulers = showRuler && !masterView ? RULER_PX : 0;
   const stageSize =
     zoom === "fit" || !pres
-      ? { width: Math.max(0, size.width - 32), height: Math.max(0, size.height - 32) }
+      ? { width: Math.max(0, size.width - 32 - rulers), height: Math.max(0, size.height - 32 - rulers) }
       : { width: slidePx(pres.slideSize).width * zoom, height: slidePx(pres.slideSize).height * zoom };
+  const stageScale = pres ? fitScale(stageSize.width, stageSize.height, pres.slideSize) : 0;
+  const stage = <EditorStage store={store} width={stageSize.width} height={stageSize.height} />;
+  const sorter = view === "sorter" && !masterView;
 
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
       <RecoveryBanner session={session} />
-      <ShowRibbon store={store} session={session} onPresent={presentFrom} onPresenterView={presenterView} onExportPdf={exportPdf}
+      <ShowRibbon store={store} session={session} onPresent={presentFrom} onPresenterView={presenterView} onExportPdf={exportPdf} onRehearse={() => presentFrom(true, true)}
         print={<ShowPrintPage store={store} backend={backend} options={printOptions} onChange={setPrintOptions} />}
         zoom={zoom}
         onZoom={setZoom}
       />
       <div className="flex min-h-0 flex-1">
-        {masterView ? <MasterPanel store={store} /> : <SlideList store={store} />}
+        {masterView ? <MasterPanel store={store} /> : view === "outline" ? <OutlinePane store={store} /> : sorter ? null : <SlideList store={store} />}
+        {sorter ? (
+          <SlideSorter store={store} />
+        ) : (
         <div className="flex min-w-0 flex-1 flex-col">
         <div
           ref={canvasRef}
-          className={`flex min-w-0 flex-1 bg-ui-hover p-4 ${zoom === "fit" ? "items-center justify-center overflow-hidden" : "overflow-auto"}`}
+          className={`flex min-w-0 flex-1 bg-ui-hover p-4 ${zoom === "fit" || view === "notesPage" ? "items-center justify-center overflow-hidden" : "overflow-auto"}`}
           data-testid="canvas-area"
+          data-view={masterView ? "master" : view}
         >
-          <div className="m-auto shrink-0 shadow-lg" data-testid="stage-host">
-            <EditorStage store={store} width={stageSize.width} height={stageSize.height} />
-          </div>
+          {view === "notesPage" && !masterView ? (
+            <NotesPageView store={store} width={size.width} height={size.height} />
+          ) : (
+            <div
+              className="m-auto shrink-0 shadow-lg"
+              data-testid="stage-host"
+              onPointerMove={(e) => {
+                if (!rulers || stageScale <= 0) return;
+                const host = e.currentTarget.querySelector("[data-testid=editor-stage]");
+                const r = host?.getBoundingClientRect();
+                if (r) setCursor({ x: (e.clientX - r.left) / stageScale, y: (e.clientY - r.top) / stageScale });
+              }}
+              onPointerLeave={() => setCursor(null)}
+            >
+              {rulers && pres ? (
+                <RulerFrame size={pres.slideSize} scale={stageScale} unit={rulerUnit(locale)} cursor={cursor}>
+                  {stage}
+                </RulerFrame>
+              ) : (
+                stage
+              )}
+            </div>
+          )}
         </div>
-        <NotesPane store={store} />
+        {view !== "notesPage" && <NotesPane store={store} />}
         </div>
+        )}
         <AnimationPane store={store} />
         <BackgroundPane store={store} />
         <ChartFormatPane store={store} />
         <ReusePane store={store} />
+        {!sorter && <SelectionPane store={store} />}
+        {!sorter && <FormatShapePane store={store} />}
       </div>
+      {view === "reading" && !masterView && !presenting && <ReadingView store={store} onPresent={() => presentFrom(false)} />}
       <PosterInput store={store} />
       <StatusBar store={store} backend={backend} session={session} zoom={zoom} />
       <Toasts store={store} />
       <ShowDialogs store={store} printOptions={printOptions} onPrintOptions={setPrintOptions} />
       <ShortcutLayer store={store} guard={guard} enabled={!presenting} onPresent={presentFrom} onPresenterView={presenterView} />
       <ConfirmDiscard guard={guard} />
-      {presenting && pres && <SlideShow store={store} mode={presenting.mode} link={presenting.link} onEnd={exit} />}
+      {presenting && pres && <SlideShow store={store} mode={presenting.mode} link={presenting.link} rehearse={presenting.rehearse} onEnd={exit} />}
     </main>
   );
 }

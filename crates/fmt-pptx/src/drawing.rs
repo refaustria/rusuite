@@ -5,10 +5,11 @@ use core_model::{
     apply_tint, Color, FontFace, FontSize, Rgb, RunProperties, ThemeColorSlot, ThemeFontSlot,
     Underline, VerticalAlign,
 };
+use model_show::text::FULL_SCALE;
 use model_show::{
     Alignment, Anchor, ArrowEnd, ArrowKind, ArrowSize, AutoNumScheme, Autofit, BodyProps, Bullet,
-    Emu, Fill, Hyperlink, Line, LineDash, TextBody, TextField, TextParagraph, TextParagraphProps,
-    TextRun, TextSpacing, Transform,
+    Emu, Fill, Hyperlink, Line, LineDash, TextBody, TextDirection, TextField, TextParagraph,
+    TextParagraphProps, TextRun, TextSpacing, Transform,
 };
 
 use crate::link::{read_hlink, write_hlink, LinkSink, LinkXml};
@@ -579,11 +580,17 @@ pub fn read_body_pr(bp: &El, props: &mut BodyProps, w: &mut Warnings) {
         Some(other) => w.add(format!("text anchor {other} read as top")),
         None => {}
     }
-    if bp.attr("vert").is_some_and(|v| v != "horz") {
-        w.add("vertical text direction dropped");
+    if let Some(v) = bp.attr("vert") {
+        match TextDirection::from_ooxml(v) {
+            Some(d) => props.vert = d,
+            None => w.add(format!("text direction {v} read as horizontal")),
+        }
     }
-    if bp.attr("numCol").and_then(parse_u32).is_some_and(|n| n > 1) {
-        w.add("text columns dropped");
+    if let Some(n) = bp.attr("numCol").and_then(parse_u32) {
+        props.columns = n.clamp(1, 16);
+    }
+    if let Some(v) = bp.attr("spcCol").and_then(parse_i64) {
+        props.column_spacing = Emu(v.max(0));
     }
     if bp.attr("rot").and_then(parse_i64).is_some_and(|r| r != 0) {
         w.add("text rotation (a:bodyPr rot) dropped");
@@ -591,12 +598,54 @@ pub fn read_body_pr(bp: &El, props: &mut BodyProps, w: &mut Warnings) {
     for el in bp.elements() {
         match el.name.as_str() {
             "noAutofit" => props.autofit = Autofit::None,
-            "normAutofit" => props.autofit = Autofit::Shrink,
+            "normAutofit" => {
+                props.autofit = Autofit::Shrink;
+                props.font_scale = el
+                    .attr("fontScale")
+                    .and_then(parse_percent)
+                    .map_or(FULL_SCALE, |v| v.clamp(1_000, FULL_SCALE));
+                props.line_reduction = el
+                    .attr("lnSpcReduction")
+                    .and_then(parse_percent)
+                    .map_or(0, |v| v.min(FULL_SCALE));
+            }
             "spAutoFit" => props.autofit = Autofit::Resize,
             "prstTxWarp" => w.add("text warp (WordArt) dropped"),
             "scene3d" | "sp3d" | "flatTx" => w.add("3-D text dropped"),
             _ => {}
         }
+    }
+}
+
+/// An `ST_Percentage`: 1/1000 % (`62500`) or a percent string (`62.5%`).
+fn parse_percent(v: &str) -> Option<u32> {
+    match v.strip_suffix('%') {
+        Some(p) => p
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .map(|f| (f * 1000.0).round().max(0.0) as u32),
+        None => v.trim().parse::<i64>().ok().map(|n| n.max(0) as u32),
+    }
+}
+
+/// Writes the autofit child of `a:bodyPr` (`normAutofit` with its scale).
+pub fn write_autofit(x: &mut XmlOut, p: &BodyProps) {
+    match p.autofit {
+        Autofit::None => x.empty("a:noAutofit", &[]),
+        Autofit::Shrink => {
+            let scale = p.font_scale.to_string();
+            let red = p.line_reduction.to_string();
+            let mut attrs = Vec::new();
+            if p.font_scale != FULL_SCALE {
+                attrs.push(("fontScale", scale.as_str()));
+            }
+            if p.line_reduction != 0 {
+                attrs.push(("lnSpcReduction", red.as_str()));
+            }
+            x.empty("a:normAutofit", &attrs);
+        }
+        Autofit::Resize => x.empty("a:spAutoFit", &[]),
     }
 }
 
@@ -625,13 +674,19 @@ pub fn write_body_pr_with(x: &mut XmlOut, p: &BodyProps, vertical: bool) {
     ];
     if vertical {
         attrs.insert(0, ("vert", "eaVert"));
+    } else if p.vert != TextDirection::Horizontal {
+        attrs.insert(0, ("vert", p.vert.as_ooxml()));
+    }
+    let cols = p.columns.to_string();
+    let spc = p.column_spacing.0.to_string();
+    if p.columns > 1 {
+        attrs.push(("numCol", &cols));
+        if p.column_spacing.0 > 0 {
+            attrs.push(("spcCol", &spc));
+        }
     }
     x.start("a:bodyPr", &attrs);
-    match p.autofit {
-        Autofit::None => x.empty("a:noAutofit", &[]),
-        Autofit::Shrink => x.empty("a:normAutofit", &[]),
-        Autofit::Resize => x.empty("a:spAutoFit", &[]),
-    }
+    write_autofit(x, p);
     x.end("a:bodyPr");
 }
 
@@ -1594,6 +1649,7 @@ mod tests {
                 bottom: Emu(4),
             },
             autofit: Autofit::Resize,
+            ..BodyProps::default()
         };
         let body = TextBody {
             props,
@@ -1604,6 +1660,41 @@ mod tests {
             read_text_body(&el(&s), BodyProps::default(), &mut Warnings::default()),
             body
         );
+        // direction, columns and the shrink scale (P8-28)
+        let shrunk = TextBody {
+            props: BodyProps {
+                autofit: Autofit::Shrink,
+                font_scale: 62_500,
+                line_reduction: 20_000,
+                vert: TextDirection::Rotate270,
+                columns: 2,
+                column_spacing: Emu(91_440),
+                ..BodyProps::default()
+            },
+            paragraphs: vec![TextParagraph::plain("x")],
+        };
+        let s = written(|x| write_text_body(x, "p:txBody", &shrunk, &mut crate::link::NoLinks));
+        assert!(
+            s.contains(r#"<a:normAutofit fontScale="62500" lnSpcReduction="20000"/>"#),
+            "{s}"
+        );
+        assert!(
+            s.contains(r#"vert="vert270""#) && s.contains(r#"numCol="2""#),
+            "{s}"
+        );
+        assert_eq!(
+            read_text_body(&el(&s), BodyProps::default(), &mut Warnings::default()),
+            shrunk
+        );
+        let pct = read_text_body(
+            &el(
+                r#"<p:txBody><a:bodyPr vert="wordArtVert"><a:normAutofit fontScale="77.5%"/></a:bodyPr><a:p/></p:txBody>"#,
+            ),
+            BodyProps::default(),
+            &mut Warnings::default(),
+        );
+        assert_eq!(pct.props.font_scale, 77_500);
+        assert_eq!(pct.props.vert, TextDirection::Stacked);
         // absent attributes keep the base
         let base = BodyProps {
             anchor: Anchor::Middle,
