@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import anthropicText from "./fixtures/anthropic-text.sse?raw";
 import anthropicTool from "./fixtures/anthropic-tool.sse?raw";
 import anthropicError from "./fixtures/anthropic-error.sse?raw";
@@ -7,7 +7,11 @@ import openaiText from "./fixtures/openai-text.sse?raw";
 import openaiJson from "./fixtures/openai-json.sse?raw";
 import { AnthropicProvider, acceptsTemperature, anthropicBody } from "./anthropic";
 import { OpenAiCompatibleProvider, normalizeOpenAiBase, openAiBody } from "./openai";
-import { noteAiCspViolation, retryAfterSeconds, sseEvents, type FetchLike } from "./http";
+import { noteAiCspViolation, resetUnsupportedParams, retryAfterSeconds, sseEvents, type FetchLike } from "./http";
+import reject400Fallbacks from "./fixtures/anthropic-400-fallbacks.json";
+import reject400ToolChoice from "./fixtures/anthropic-400-tool-choice.json";
+import reject400Other from "./fixtures/anthropic-400-other.json";
+import openai400Temperature from "./fixtures/openai-400-temperature.json";
 import { AiError, type AiRequest, type Delta } from "../types";
 import { FORMULA_TOOL, SLIDES_TOOL } from "../schemas";
 
@@ -191,5 +195,62 @@ describe("OpenAI-compatible adapter", () => {
     expect(normalizeOpenAiBase("https://x.example/openai/v1/")).toBe("https://x.example/openai/v1");
     expect(() => normalizeOpenAiBase("ftp://x")).toThrow(AiError);
     expect(openAiBody(req({ model: "llama3" }), false).stream_options).toEqual({ include_usage: true });
+  });
+});
+
+/** Replies in order (the last one repeats); records every request body. */
+function sequence(replies: { status: number; body: string }[]) {
+  const bodies: Record<string, unknown>[] = [];
+  const headers: Record<string, string>[] = [];
+  const f: FetchLike = async (_url, init) => {
+    bodies.push(JSON.parse(init.body as string));
+    headers.push(init.headers as Record<string, string>);
+    const r = replies[Math.min(bodies.length - 1, replies.length - 1)]!;
+    return new Response(r.status >= 400 ? r.body : chunked(r.body), { status: r.status });
+  };
+  return { f, bodies, headers };
+}
+
+describe("rejected optional parameters (HTTP 400)", () => {
+  beforeEach(() => resetUnsupportedParams());
+
+  it("Anthropic: a 400 naming `fallbacks` is retried once without it (and its beta header), remembered per model", async () => {
+    const s = sequence([{ status: 400, body: JSON.stringify(reject400Fallbacks) }, { status: 200, body: anthropicText }]);
+    const p = new AnthropicProvider("k", undefined, s.f);
+    expect(text(await collect(p.complete(req())))).toBe("The report was finished on time.");
+    expect(s.bodies).toHaveLength(2);
+    expect(s.bodies[0]!.fallbacks).toBe("default");
+    expect(s.bodies[1]!.fallbacks).toBeUndefined();
+    expect(s.headers[1]!["anthropic-beta"]).toBeUndefined();
+    // The next request for this model leaves it out from the start; another model still sends it.
+    await collect(p.complete(req()));
+    expect(s.bodies[2]!.fallbacks).toBeUndefined();
+    await collect(p.complete(req({ model: "claude-opus-5-5" })));
+    expect(s.bodies[3]!.fallbacks).toBe("default");
+  });
+
+  it("Anthropic: the forced-tool-choice 400 drops tool_choice (the tool stays)", async () => {
+    const s = sequence([{ status: 400, body: JSON.stringify(reject400ToolChoice) }, { status: 200, body: anthropicTool }]);
+    const ds = await collect(new AnthropicProvider("k", undefined, s.f).complete(req({ tools: [FORMULA_TOOL] })));
+    expect(ds.some((d) => d.type === "toolUse")).toBe(true);
+    expect(s.bodies[1]!.tool_choice).toBeUndefined();
+    expect(s.bodies[1]!.tools).toBeDefined();
+  });
+
+  it("other 400s are not retried; a second rejection is not retried again", async () => {
+    const other = sequence([{ status: 400, body: JSON.stringify(reject400Other) }]);
+    await expect(collect(new AnthropicProvider("k", undefined, other.f).complete(req()))).rejects.toMatchObject({ kind: "invalid", status: 400 });
+    expect(other.bodies).toHaveLength(1);
+    const twice = sequence([{ status: 400, body: JSON.stringify(reject400Fallbacks) }]);
+    await expect(collect(new AnthropicProvider("k", undefined, twice.f).complete(req()))).rejects.toMatchObject({ status: 400 });
+    expect(twice.bodies).toHaveLength(2);
+  });
+
+  it("OpenAI-compatible: `temperature` rejected → retried without it", async () => {
+    const s = sequence([{ status: 400, body: JSON.stringify(openai400Temperature) }, { status: 200, body: openaiText }]);
+    const ds = await collect(new OpenAiCompatibleProvider("", "http://localhost:1234", s.f).complete(req({ model: "some-model" })));
+    expect(text(ds)).toBe("Hallo Welt.");
+    expect(s.bodies[0]!.temperature).toBe(0.5);
+    expect(s.bodies[1]!.temperature).toBeUndefined();
   });
 });

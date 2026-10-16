@@ -5,7 +5,10 @@
 
 import type { AiProvider, AiRequest, Delta, ModelInfo } from "../types";
 import { AiError } from "../types";
-import { aiFetch, errorFromResponse, parseToolJson, sseEvents, type FetchLike } from "./http";
+import { aiFetch, errorFromResponse, markUnsupported, parseToolJson, rejectedParam, sseEvents, unsupportedParams, type FetchLike } from "./http";
+
+/** Optional parameters dropped (and retried once) when a server rejects them with a 400. */
+export const OPENAI_OPTIONAL = ["temperature", "stream_options"] as const;
 
 export const OPENAI_BASE_URL = "https://api.openai.com/v1";
 export const OPENAI_DEFAULT_MODEL = "gpt-5-mini";
@@ -26,7 +29,7 @@ export function normalizeOpenAiBase(url: string): string {
 /** OpenAI's reasoning models take no `temperature`. */
 const reasoningModel = (model: string) => /^(o\d|gpt-5)/.test(model);
 
-export function openAiBody(req: AiRequest, official: boolean): Record<string, unknown> {
+export function openAiBody(req: AiRequest, official: boolean, skip: ReadonlySet<string> = new Set()): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.model,
     messages: [{ role: "system", content: req.system }, ...req.messages.map((m) => ({ role: m.role, content: m.content }))],
@@ -37,6 +40,7 @@ export function openAiBody(req: AiRequest, official: boolean): Record<string, un
   if (req.temperature !== undefined && !reasoningModel(req.model)) body.temperature = req.temperature;
   const tool = req.tools?.[0];
   if (tool) body.response_format = { type: "json_schema", json_schema: { name: tool.name, description: tool.description, schema: tool.schema, strict: true } };
+  for (const p of skip) delete body[p];
   return body;
 }
 
@@ -111,17 +115,25 @@ export class OpenAiCompatibleProvider implements AiProvider {
   }
 
   async *complete(req: AiRequest): AsyncGenerator<Delta> {
-    const res = await aiFetch(
-      `${this.base}/chat/completions`,
-      {
-        method: "POST",
-        headers: this.headers({ "content-type": "application/json", accept: "text/event-stream" }),
-        body: JSON.stringify(openAiBody(req, this.official)),
-        signal: req.signal ?? null,
-      },
-      this.fetchImpl,
-    );
-    if (!res.ok) throw await errorFromResponse(res, this.name);
+    let res: Response;
+    for (let attempt = 0; ; attempt++) {
+      const body = openAiBody(req, this.official, unsupportedParams(this.origin, req.model));
+      res = await aiFetch(
+        `${this.base}/chat/completions`,
+        {
+          method: "POST",
+          headers: this.headers({ "content-type": "application/json", accept: "text/event-stream" }),
+          body: JSON.stringify(body),
+          signal: req.signal ?? null,
+        },
+        this.fetchImpl,
+      );
+      if (res.ok) break;
+      const err = await errorFromResponse(res, this.name);
+      const param = attempt === 0 ? rejectedParam(err, OPENAI_OPTIONAL.filter((p) => p in body)) : null;
+      if (!param) throw err;
+      markUnsupported(this.origin, req.model, param);
+    }
     if (!res.body) throw new AiError("badResponse", `${this.name} sent no answer`);
     yield* openAiDeltas(sseEvents(res.body, req.signal), req.tools?.[0]?.name ?? null);
   }

@@ -6,7 +6,10 @@
 
 import type { AiProvider, AiRequest, AiTool, Delta, ModelInfo } from "../types";
 import { AiError } from "../types";
-import { aiFetch, errorFromResponse, parseToolJson, sseEvents, type FetchLike } from "./http";
+import { aiFetch, errorFromResponse, markUnsupported, parseToolJson, rejectedParam, sseEvents, unsupportedParams, type FetchLike } from "./http";
+
+/** Optional parameters dropped (and retried once) when a model rejects them with a 400. */
+export const ANTHROPIC_OPTIONAL = ["fallbacks", "temperature", "tool_choice"] as const;
 
 export const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
 export const ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-5-5";
@@ -28,7 +31,7 @@ export function supportsFallback(model: string): boolean {
 
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
-export function anthropicBody(req: AiRequest, official: boolean): Record<string, unknown> {
+export function anthropicBody(req: AiRequest, official: boolean, skip: ReadonlySet<string> = new Set()): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.model,
     max_tokens: req.maxTokens,
@@ -42,6 +45,7 @@ export function anthropicBody(req: AiRequest, official: boolean): Record<string,
     body.tool_choice = { type: "auto" };
   }
   if (official && supportsFallback(req.model)) body.fallbacks = "default";
+  for (const p of skip) delete body[p];
   return body;
 }
 
@@ -159,15 +163,23 @@ export class AnthropicProvider implements AiProvider {
   }
 
   async *complete(req: AiRequest): AsyncGenerator<Delta> {
-    const body = anthropicBody(req, this.official);
-    const headers = this.headers({ "content-type": "application/json", accept: "text/event-stream" });
-    if (body.fallbacks) headers["anthropic-beta"] = FALLBACK_BETA;
-    const res = await aiFetch(
-      `${this.base}/v1/messages`,
-      { method: "POST", headers, body: JSON.stringify(body), signal: req.signal ?? null },
-      this.fetchImpl,
-    );
-    if (!res.ok) throw await errorFromResponse(res, this.name);
+    let res: Response;
+    for (let attempt = 0; ; attempt++) {
+      const body = anthropicBody(req, this.official, unsupportedParams(this.origin, req.model));
+      const headers = this.headers({ "content-type": "application/json", accept: "text/event-stream" });
+      if (body.fallbacks) headers["anthropic-beta"] = FALLBACK_BETA;
+      res = await aiFetch(
+        `${this.base}/v1/messages`,
+        { method: "POST", headers, body: JSON.stringify(body), signal: req.signal ?? null },
+        this.fetchImpl,
+      );
+      if (res.ok) break;
+      const err = await errorFromResponse(res, this.name);
+      // A model that rejects an optional parameter: retry once without it and remember that for the session.
+      const param = attempt === 0 ? rejectedParam(err, ANTHROPIC_OPTIONAL.filter((p) => p in body)) : null;
+      if (!param) throw err;
+      markUnsupported(this.origin, req.model, param);
+    }
     if (!res.body) throw new AiError("badResponse", "Anthropic sent no answer");
     yield* anthropicDeltas(sseEvents(res.body, req.signal));
   }

@@ -116,6 +116,36 @@ export async function errorFromResponse(res: Response, provider: string): Promis
   return new AiError("invalid", `${provider} refused the request (${s})${suffix}`, s, null, detail);
 }
 
+/**
+ * Optional request parameters a provider rejected for a model in this session (`<origin> <model>` → names). A
+ * request drops them up front; a 400 naming one of them is retried once without it (`rejectedParam`).
+ */
+const rejected = new Map<string, Set<string>>();
+
+export function unsupportedParams(origin: string, model: string): ReadonlySet<string> {
+  return rejected.get(`${origin} ${model}`) ?? new Set();
+}
+
+export function markUnsupported(origin: string, model: string, param: string): void {
+  const key = `${origin} ${model}`;
+  const set = rejected.get(key) ?? new Set<string>();
+  set.add(param);
+  rejected.set(key, set);
+}
+
+/** Forgets what was learned (tests). */
+export function resetUnsupportedParams(): void {
+  rejected.clear();
+}
+
+/** The optional parameter (of `candidates`) a 400 reply says is unexpected / unknown / unsupported, if any. */
+export function rejectedParam(err: AiError, candidates: readonly string[]): string | null {
+  if (err.status !== 400 || !err.detail) return null;
+  const msg = err.detail;
+  if (!/unexpected|unknown|unrecognized|unsupported|not supported|not permitted|not allowed|extra inputs|deprecated|invalid/i.test(msg)) return null;
+  return candidates.find((p) => new RegExp(`(^|[^\\w.])${p}([^\\w]|$)`).test(msg)) ?? null;
+}
+
 export interface SseEvent {
   event: string;
   data: string;
