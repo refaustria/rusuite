@@ -249,9 +249,26 @@ export function colorRefs(
   text: string,
   spillRange?: (ref: RefSpan) => Range | null,
   resolveName?: (name: string, sheet: string | null) => { sheet: string | null; range: Range } | null,
+  resolveStruct?: (token: string) => { sheet: string | null; range: Range } | null,
 ): ColoredRef[] {
   const keys: string[] = [];
   const found: RefSpan[] = findRefs(text);
+  if (resolveStruct) {
+    // Structured references (`Table1[Qty]`) are coloured over the cells they mean.
+    for (const tok of tokenize(text).tokens) {
+      if (tok.kind !== "struct") continue;
+      const hit = resolveStruct(tok.text);
+      if (!hit) continue;
+      const { r0, c0, r1, c1 } = hit.range;
+      const cellAtom = (row: number, col: number): Atom => ({ kind: "cell", row, col, colAbs: true, rowAbs: true });
+      const single = r0 === r1 && c0 === c1;
+      found.push({
+        start: tok.start, end: tok.end, sheet: hit.sheet, kind: single ? "cell" : "area", range: { ...hit.range },
+        a: cellAtom(r0, c0), b: single ? null : cellAtom(r1, c1), prefix: "", middle: ":", nextTok: -1, name: tok.text,
+      });
+    }
+    found.sort((a, b) => a.start - b.start);
+  }
   if (resolveName) {
     // Defined names are coloured like references, over the range they refer to.
     for (const n of nameSpans(text)) {

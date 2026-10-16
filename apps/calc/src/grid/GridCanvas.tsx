@@ -37,6 +37,17 @@ import { ChartTextEditor } from "../charts/ChartTextEditor";
 import { AnnotationLayer } from "../comments/AnnotationLayer";
 import { drawIndicators, indicators } from "../comments/model";
 import { drawPivotButtons, drawPlaceholder, type PivotButton } from "../pivot/buttons";
+import { drawOutlineBar, gutterSize, outlineGroups, outlineHitAt, type BarLayout, type OutlineGroup, type OutlineHit } from "../outline/bar";
+import { paintPictures } from "../pictures/controller";
+import { filterButton as afButton, type FilterButton } from "../sortFilter/filter";
+import type { AxisGeometry } from "./geometry";
+
+/** The totals cell dropdown: just right of the active cell (Excel), so the total stays readable. */
+function totalsButton(colGeo: AxisGeometry, rowGeo: AxisGeometry, row: number, col: number): FilterButton | null {
+  const b = afButton(colGeo, rowGeo, { r0: row, c0: col, r1: row, c1: col }, col);
+  return b && { ...b, x: colGeo.offset(col) + colGeo.size(col) + 1 };
+}
+import { breakLineAt, drawBreakPreview, previewBreaks, withBreak, withoutBreak, type BreakLine } from "../datatools/pageBreaks";
 
 /** Hit zone around a header boundary for resizing, px. */
 const RESIZE_SLOP = 4;
@@ -92,6 +103,16 @@ type Hit =
   | { kind: "chartHandle"; id: number; handle: Handle }
   /** A −/+ or dropdown button of a pivot table. */
   | { kind: "pivotButton"; button: PivotButton }
+  /** A filter button of a table header. */
+  | { kind: "tableFilter"; table: number; col: number }
+  /** The totals row dropdown of the active cell. */
+  | { kind: "totalsButton"; table: number; col: number }
+  /** A level or −/+ button of an outline bar. */
+  | { kind: "outline"; hit: OutlineHit }
+  /** A picture (`handle`: a resize handle of the selected one). */
+  | { kind: "picture"; id: number; handle: Handle | null }
+  /** A page break line of Page Break Preview. */
+  | { kind: "pageBreak"; line: BreakLine }
   | { kind: "none" };
 
 export function GridCanvas({ store, showPerf = false }: { store: CalcStore; showPerf?: boolean }) {
@@ -100,6 +121,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const sheetView = useCalc(store, (s) => sheetViewOf(s.info, s.activeSheet));
   const zoom = sheetView.zoom / 100;
   const headings = sheetView.showHeadings;
+  // The outline bars move the cell canvas right / down.
+  const bars = useCalc(store, () => store.outlineMax().join(","));
   const scroller = useRef<HTMLDivElement>(null);
   const spacer = useRef<HTMLDivElement>(null);
   const cellsCanvas = useRef<HTMLCanvasElement>(null);
@@ -134,14 +157,23 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       cf: cache.cf, barAxes: cache.cf.size > 0 ? store.barAxes(sheet) : undefined,
       showFormulas: store.getState().showFormulas,
       pivotLook: store.pivots.looks(sheet),
+      tableLook: store.tables.looks(sheet),
     };
   }, [store]);
 
-  /** Header sizes (0 when the sheet hides its headings). */
+  /** The outline bars' sizes (with the headings only): row bar width, column bar height. */
+  const gutter = useCallback(() => {
+    if (!store.sheetView().showHeadings) return { gw: 0, gh: 0 };
+    const [r, c] = store.outlineMax();
+    return { gw: gutterSize(r), gh: gutterSize(c) };
+  }, [store]);
+
+  /** Header sizes (0 when the sheet hides its headings), outline bars included. */
   const headerSize = useCallback(() => {
     const on = store.sheetView().showHeadings;
-    return { hw: on ? HEADER_W : 0, hh: on ? HEADER_H : 0 };
-  }, [store]);
+    const { gw, gh } = gutter();
+    return { hw: (on ? HEADER_W : 0) + gw, hh: (on ? HEADER_H : 0) + gh };
+  }, [store, gutter]);
 
   /** The split of the cell area: frozen sizes, scroll offsets, size. */
   const layout = useCallback((): PaneLayout => {
@@ -162,6 +194,38 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   /** Canvas position of a sheet offset (scrolled under the frozen part: where it would be). */
   const screenX = (l: PaneLayout, x: number) => axisToScreen(l.frozenW, l.scrollX, x) ?? x - l.scrollX;
   const screenY = (l: PaneLayout, y: number) => axisToScreen(l.frozenH, l.scrollY, y) ?? y - l.scrollY;
+
+  /** Page Break Preview's break lines of the active sheet (`[]` when off). */
+  const breakLines = (data: SheetData): { lines: BreakLine[]; lastRow: number; lastCol: number } => {
+    const st = store.getState();
+    if (!st.pageBreakPreview) return { lines: [], lastRow: -1, lastCol: -1 };
+    const used = store.usedExtent(st.activeSheet);
+    const info = st.info?.sheets.find((x) => x.id === st.activeSheet);
+    const lastRow = Math.max(0, used.lastRow), lastCol = Math.max(0, used.lastCol);
+    return { lines: previewBreaks(data.colGeo, data.rowGeo, lastRow, lastCol, info?.rowBreaks ?? [], info?.colBreaks ?? []), lastRow, lastCol };
+  };
+
+  /** The outline bars: layout and the visible groups of both axes. */
+  const outlineBars = (l: PaneLayout, data: SheetData): { layout: BarLayout; rows: { groups: OutlineGroup[]; max: number; geo: typeof data.rowGeo }; cols: { groups: OutlineGroup[]; max: number; geo: typeof data.colGeo } } => {
+    const { gw, gh } = gutter();
+    const [rmax, cmax] = store.outlineMax();
+    const props = store.outlineProps();
+    const layout: BarLayout = { gw, gh, headerW: HEADER_W, headerH: HEADER_H, screenX: (x) => screenX(l, x), screenY: (y) => screenY(l, y), width: l.width, height: l.height };
+    const vis = visibleRange(mainPane(l).vp, data.colGeo, data.rowGeo);
+    const rowLine = (i: number) => {
+      const r = data.rows.get(i);
+      return { level: r?.outlineLevel ?? 0, collapsed: r?.collapsed ?? false };
+    };
+    const colLine = (i: number) => {
+      const c = data.cols.get(i);
+      return { level: c?.outlineLevel ?? 0, collapsed: c?.collapsed ?? false };
+    };
+    return {
+      layout,
+      rows: { groups: rmax > 0 ? outlineGroups(rowLine, vis.r0, vis.r1, rmax, props.summaryBelow, LAST_ROW) : [], max: rmax, geo: data.rowGeo },
+      cols: { groups: cmax > 0 ? outlineGroups(colLine, vis.c0, vis.c1, cmax, props.summaryRight, LAST_COL) : [], max: cmax, geo: data.colGeo },
+    };
+  };
 
   /** The fill handle's square in cell-canvas coordinates (`null`: off screen or whole rows/columns). */
   const handleRect = useCallback(
@@ -261,6 +325,16 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           }
         }
         {
+          // Table headers' filter buttons; the totals dropdown of the active totals cell.
+          const vis = visibleRange(vp, data.colGeo, data.rowGeo);
+          const tb = store.tables.filterButtons(state.activeSheet, data.colGeo, data.rowGeo, vis);
+          if (tb.length) drawFilterButtons(cctx, tb, vp.scrollX, vp.scrollY);
+          const a = state.selection.anchor;
+          const tc = !edit ? store.tables.totalsCellAt(a.row, a.col) : null;
+          const btn = tc && totalsButton(data.colGeo, data.rowGeo, a.row, a.col);
+          if (btn) drawFilterButtons(cctx, [btn], vp.scrollX, vp.scrollY);
+        }
+        {
           // Pivot tables: −/+ buttons on item labels, dropdowns on the headers and page fields.
           const vis = visibleRange(vp, data.colGeo, data.rowGeo);
           const pb = store.pivots.buttonsIn(state.activeSheet, data.colGeo, data.rowGeo, vis);
@@ -302,6 +376,11 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         const arrows = store.trace.on(state.activeSheet);
         if (arrows.length > 0) paintArrows(cctx, data.colGeo, data.rowGeo, arrows, vp.scrollX, vp.scrollY);
         paintCharts(cctx, frames, vp, chartSel);
+        paintPictures(cctx, store.pictures.frames(state.activeSheet), vp, (p) => store.pictures.image(p), store.pictures.selected?.sheet === state.activeSheet ? store.pictures.selected.id : null);
+        if (state.pageBreakPreview) {
+          const b = breakLines(data);
+          drawBreakPreview(cctx, data.colGeo, data.rowGeo, b.lines, b.lastRow, b.lastCol, vp, (n) => t("calc.view.page", { n }));
+        }
         cctx.restore();
       }
       // Hook for the end-to-end tests: the charts of the last frame (sheet px rectangles and scenes).
@@ -321,8 +400,12 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         }
       }
     }
-    const hctx = hw > 0 && headerCanvas.current && prepareCanvas(headerCanvas.current, l.width + HEADER_W, l.height + HEADER_H, zoomNow);
+    const { gw, gh } = gutter();
+    const hctx = hw > 0 && headerCanvas.current && prepareCanvas(headerCanvas.current, l.width + hw, l.height + hh, zoomNow);
     if (hctx) {
+      hctx.clearRect(0, 0, l.width + hw, l.height + hh);
+      hctx.save();
+      hctx.translate(gw, gh);
       drawHeaders(hctx, l, data, sel, { bg: "#f3f3f3", fg: "#444", line: "#c8c8c8", active: "#d3e3d8" }, filteredRowSpan(store.autoFilter()));
       const p = resizePreview.current;
       if (p) {
@@ -339,6 +422,12 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           hctx.lineTo(HEADER_W + l.width, y + 0.5);
         }
         hctx.stroke();
+      }
+      hctx.restore();
+      if (gw > 0 || gh > 0) {
+        const bars = outlineBars(l, data);
+        if (gw > 0) drawOutlineBar(hctx, "rows", bars.rows.groups, bars.rows.max, data.rowGeo, bars.layout);
+        if (gh > 0) drawOutlineBar(hctx, "cols", bars.cols.groups, bars.cols.max, data.colGeo, bars.layout);
       }
     }
 
@@ -407,7 +496,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         perf.current = { frames: 0, totalMs: 0, maxMs: 0, lastFrameAt: 0, intervals: 0, intervalSum: 0 };
       };
     }
-  }, [store, sheetData, layout, headerSize, handleRect]);
+  }, [store, sheetData, layout, headerSize, handleRect, gutter]);
 
   const schedule = useCallback(() => {
     if (raf.current !== null) return;
@@ -501,11 +590,25 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     if (x > el.clientWidth || y > el.clientHeight) return { kind: "none" }; // scrollbars
     const data = sheetData();
     const { hw, hh } = headerSize();
+    const { gw, gh } = gutter();
+    if (x < gw || y < gh) {
+      const bars = outlineBars(layout(), data);
+      const hit = outlineHitAt(x, y, bars.rows, bars.cols, bars.layout);
+      return hit ? { kind: "outline", hit } : { kind: "none" };
+    }
     // Per quadrant: frozen parts map 1:1, the rest is scrolled.
     const { x: cx, y: cy } = toSheet(layout(), x - hw, y - hh);
     if (x < hw && y < hh) return { kind: "corner" };
     if (x >= hw && y >= hh) {
       const sheet = store.getState().activeSheet;
+      const psel = store.pictures.selected;
+      if (psel && psel.sheet === sheet) {
+        const f = store.pictures.frames(sheet).find((fr) => fr.pic.id === psel.id);
+        const handle = f ? handleAt(f.rect, cx, cy) : null;
+        if (f && handle) return { kind: "picture", id: f.pic.id, handle };
+      }
+      const pf = store.pictures.frameAt(sheet, cx, cy);
+      if (pf) return { kind: "picture", id: pf.pic.id, handle: null };
       const sel = store.charts.selected;
       if (sel && sel.sheet === sheet) {
         const f = store.charts.frames(sheet).find((fr) => fr.obj.id === sel.id);
@@ -537,10 +640,23 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       if (cy - start <= RESIZE_SLOP / 2 && row > 0) return { kind: "rowEdge", row: row - 1 };
       return { kind: "rowHeader", row };
     }
+    if (store.getState().pageBreakPreview && !store.getState().edit) {
+      const line = breakLineAt(data.colGeo, data.rowGeo, breakLines(data).lines, cx, cy);
+      if (line) return { kind: "pageBreak", line };
+    }
     const pivotButton = store.pivots.buttonAt(store.getState().activeSheet, data.colGeo, data.rowGeo, cx, cy);
     if (pivotButton) return { kind: "pivotButton", button: pivotButton };
     const filterCol = filterButtonAt(data.colGeo, data.rowGeo, store.autoFilter(), cx, cy);
     if (filterCol !== null) return { kind: "filterButton", col: filterCol };
+    const sheetNow = store.getState().activeSheet;
+    const tf = store.tables.filterButtonAt(sheetNow, data.colGeo, data.rowGeo, cx, cy);
+    if (tf) return { kind: "tableFilter", table: tf.table, col: tf.col };
+    {
+      const a = store.getState().selection.anchor;
+      const tc = store.tables.totalsCellAt(a.row, a.col);
+      const b = tc && totalsButton(data.colGeo, data.rowGeo, a.row, a.col);
+      if (tc && b && cx >= b.x - 2 && cx <= b.x + b.size + 2 && cy >= b.y - 2 && cy <= b.y + b.size + 2) return { kind: "totalsButton", table: tc.table.id, col: a.col };
+    }
     return { kind: "cell", cell: { row: data.rowGeo.indexAt(cy), col: data.colGeo.indexAt(cx) } };
   };
 
@@ -617,13 +733,117 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     store.openDialog({ kind: "pivotFilter", id: b.id, target: b.target, at: { x: Math.max(0, x), y: Math.max(0, y) } });
   };
 
+  /** Opens the filter dropdown of a table header (or the totals menu) under the cell. */
+  const openCellMenu = (row: number, col: number, open: (at: { x: number; y: number }) => void) => {
+    const el = scroller.current;
+    if (!el) return;
+    const data = sheetData();
+    const l = layout();
+    const { hw, hh } = headerSize();
+    const rect = el.getBoundingClientRect();
+    const scale = screenScale(el);
+    const x = rect.left + (hw + screenX(l, data.colGeo.offset(col))) * scale;
+    const y = rect.top + (hh + screenY(l, data.rowGeo.offset(row + 1))) * scale;
+    open({ x: Math.max(0, x), y: Math.max(0, y) });
+  };
+
+  /** Click / drag on a picture: select, move, or resize with a handle (Alt snaps to cell edges). */
+  const picturePointer = (hit: Extract<Hit, { kind: "picture" }>, e: ReactPointerEvent<HTMLDivElement>) => {
+    if (store.getState().edit) {
+      void store.commitEdit(0, 0);
+      if (store.getState().edit) return;
+    }
+    scroller.current?.focus({ preventScroll: true });
+    const sheet = store.getState().activeSheet;
+    const pics = store.pictures;
+    if (pics.selected?.id !== hit.id) pics.select(sheet, hit.id);
+    const frame = pics.frames(sheet).find((f) => f.pic.id === hit.id);
+    if (!frame) return;
+    const geo = store.geometry(sheet);
+    const start = frame.rect;
+    const scale = scroller.current ? screenScale(scroller.current) : 1;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      const dx = (ev.clientX - x0) / scale;
+      const dy = (ev.clientY - y0) / scale;
+      if (!moved && Math.hypot(dx, dy) < 3) return;
+      moved = true;
+      const snap = ev.altKey ? { col: geo.col, row: geo.row } : undefined;
+      const rect = hit.handle ? resizeRect(start, hit.handle, dx, dy, snap) : moveRect(start, dx, dy, snap);
+      pics.preview = { id: hit.id, rect };
+      schedule();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const p = pics.preview;
+      if (moved && p) void pics.setRect(p.rect).finally(() => (pics.preview = null));
+      else pics.preview = null;
+      schedule();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   // Pointer events (mobile guardrail): a press on a filter button opens its dropdown; the rest is the mouse path below.
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const hit = hitTest(e.clientX, e.clientY);
     if (hit.kind === "chart" || hit.kind === "chartHandle") {
+      store.pictures.deselect();
       e.preventDefault();
       chartPointer(hit, e);
+      return;
+    }
+    if (hit.kind === "picture") {
+      e.preventDefault();
+      picturePointer(hit, e);
+      return;
+    }
+    if (hit.kind === "pageBreak") {
+      // Dragging a break line moves it (an automatic one becomes manual, as in Excel).
+      e.preventDefault();
+      const line = hit.line;
+      let to = line.index;
+      const move = (ev: PointerEvent) => {
+        const h = hitTest(ev.clientX, ev.clientY);
+        if (h.kind === "cell") to = Math.max(1, line.axis === "rows" ? h.cell.row : h.cell.col);
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        if (to === line.index) return;
+        const sheet = store.getState().activeSheet;
+        const info = store.getState().info?.sheets.find((x) => x.id === sheet);
+        const list = (line.axis === "rows" ? info?.rowBreaks : info?.colBreaks) ?? [];
+        void store.apply({ type: "setPageBreaks", sheet, axis: line.axis, breaks: withBreak(withoutBreak(list, line.index), to) });
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      return;
+    }
+    if (hit.kind === "outline") {
+      e.preventDefault();
+      scroller.current?.focus({ preventScroll: true });
+      const sheet = store.getState().activeSheet;
+      const h = hit.hit;
+      void (h.kind === "level"
+        ? store.apply({ type: "showOutlineLevel", sheet, axis: h.axis, level: h.level })
+        : store.apply({ type: "setOutlineCollapsed", sheet, axis: h.axis, index: h.index, collapsed: h.collapsed }));
+      return;
+    }
+    if (hit.kind === "tableFilter") {
+      e.preventDefault();
+      const t0 = store.tables.get(hit.table)?.table;
+      if (t0) openCellMenu(t0.r0, hit.col, (at) => store.openDialog({ kind: "filterMenu", col: hit.col, at, table: hit.table }));
+      return;
+    }
+    if (hit.kind === "totalsButton") {
+      e.preventDefault();
+      const a = store.getState().selection.anchor;
+      openCellMenu(a.row, a.col, (at) => store.openDialog({ kind: "totalsMenu", id: hit.table, col: hit.col, at }));
       return;
     }
     if (hit.kind === "pivotButton") {
@@ -683,7 +903,10 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     if (e.button !== 0) return;
     let hit = hitTest(e.clientX, e.clientY);
     if (hit.kind === "none") return;
-    if (hit.kind === "filterButton" || hit.kind === "chart" || hit.kind === "chartHandle" || (hit.kind === "pivotButton" && !store.getState().edit)) {
+    if (
+      hit.kind === "filterButton" || hit.kind === "chart" || hit.kind === "chartHandle" || hit.kind === "picture" || hit.kind === "outline" || hit.kind === "pageBreak"
+      || hit.kind === "tableFilter" || hit.kind === "totalsButton" || (hit.kind === "pivotButton" && !store.getState().edit)
+    ) {
       // Handled on pointerdown; keep the selection and the focus where they are.
       e.preventDefault();
       return;
@@ -691,6 +914,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     // While editing, a pivot button is just its cell (point mode).
     if (hit.kind === "pivotButton") hit = { kind: "cell", cell: { row: hit.button.row, col: hit.button.col } };
     e.preventDefault();
+    store.pictures.deselect();
     const edit = store.getState().edit;
     if (store.comments.selectedNote) {
       store.comments.selectedNote = null;
@@ -821,6 +1045,13 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         store.focusEditor();
         return;
       }
+      // A cell of a table on the edited cell's row: `[@Col]` (Excel's "this row" reference).
+      const sheetNow = store.getState().activeSheet;
+      const tref = sheetNow === edit.sheet ? store.tables.pointRef(sheetNow, edit.cell, hit.cell) : null;
+      if (tref && store.insertAtPoint(tref)) {
+        store.focusEditor();
+        return;
+      }
     }
     const point = store.getState().edit?.point;
     const anchor = extend && point && store.getState().edit?.selEnd === point.end ? point.anchor : a;
@@ -845,7 +1076,9 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     // Notes, threads and links show their box / card / tip on hover (also reachable from the Review tab and the context menu).
     if (e.buttons === 0) store.comments.hoverAt(hit.kind === "cell" ? hit.cell : null);
     const cursor =
-      hit.kind === "colEdge" ? "col-resize" : hit.kind === "rowEdge" ? "row-resize" : hit.kind === "fillHandle" ? "crosshair" : hit.kind === "filterButton" || hit.kind === "pivotButton" ? "default"
+      hit.kind === "colEdge" ? "col-resize" : hit.kind === "rowEdge" ? "row-resize" : hit.kind === "fillHandle" ? "crosshair" : hit.kind === "filterButton" || hit.kind === "pivotButton" || hit.kind === "tableFilter" || hit.kind === "totalsButton" || hit.kind === "outline" ? "default"
+        : hit.kind === "picture" ? (hit.handle ? handleCursor(hit.handle) : "move")
+        : hit.kind === "pageBreak" ? (hit.line.axis === "rows" ? "row-resize" : "col-resize")
         : hit.kind === "chartHandle" ? handleCursor(hit.handle) : hit.kind === "chart" ? (store.charts.selected?.id === hit.id ? "move" : "default") : "cell";
     if (scroller.current && scroller.current.style.cursor !== cursor) scroller.current.style.cursor = cursor;
   };
@@ -860,14 +1093,15 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       store.notify();
       return;
     }
-    if (hit.kind === "chartHandle") return;
+    if (hit.kind === "chartHandle" || hit.kind === "picture" || hit.kind === "outline" || hit.kind === "pageBreak") return;
     if (hit.kind === "colEdge") void store.autofitCols([hit.col]);
     else if (hit.kind === "rowEdge") void store.autofitRow(hit.row);
     else if (hit.kind === "fillHandle") void store.fillToData(e.ctrlKey || e.metaKey ? "alternate" : "auto");
     else if (hit.kind === "cell" && !store.getState().edit) {
       store.select(cellSelection(hit.cell.row, hit.cell.col));
-      // Double-click on a pivot item with inner items expands / collapses it; other pivot cells are not edited.
+      // Double-click on a pivot item with inner items expands / collapses it; on a value it shows the details.
       if (store.pivots.toggleLabel(hit.cell.row, hit.cell.col)) return;
+      if (store.pivots.showDetailsAt(hit.cell.row, hit.cell.col)) return;
       store.beginEdit(null);
     }
   };
@@ -886,6 +1120,19 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const ctrl = e.ctrlKey || e.metaKey;
     const key = e.key;
     if (key === "Delete" || key === "Backspace" || key === "F2") return;
+    if (store.pictures.selected) {
+      // A selected picture: Esc deselects; Delete removes it (ShortcutLayer); typing does not edit cells.
+      if (key === "Escape") {
+        e.preventDefault();
+        store.pictures.deselect();
+        return;
+      }
+      if (key.length === 1 && !ctrl && !e.altKey) {
+        e.preventDefault();
+        return;
+      }
+      store.pictures.deselect();
+    }
     if (store.charts.selected) {
       // A selected chart: Esc goes up (element → chart → cells); typing does not edit cells.
       if (key === "Escape") {
@@ -977,7 +1224,10 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
   const onContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
-    if (hit.kind === "none" || hit.kind === "corner" || hit.kind === "filterButton" || hit.kind === "pivotButton" || store.getState().edit) return;
+    if (
+      hit.kind === "none" || hit.kind === "corner" || hit.kind === "filterButton" || hit.kind === "pivotButton" || hit.kind === "tableFilter" || hit.kind === "totalsButton"
+      || hit.kind === "outline" || hit.kind === "picture" || hit.kind === "pageBreak" || store.getState().edit
+    ) return;
     e.preventDefault();
     if (hit.kind === "chart" || hit.kind === "chartHandle") {
       const sheet = store.getState().activeSheet;
@@ -1009,7 +1259,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         <canvas
           ref={cellsCanvas}
           className="absolute"
-          style={{ left: headings ? HEADER_W : 0, top: headings ? HEADER_H : 0 }}
+          style={{ left: headings ? HEADER_W + gutterSize(Number(bars.split(",")[0])) : 0, top: headings ? HEADER_H + gutterSize(Number(bars.split(",")[1])) : 0 }}
           aria-hidden="true"
           data-testid="grid-cells"
           data-frozen={`${sheetView.frozenRows},${sheetView.frozenCols}`}

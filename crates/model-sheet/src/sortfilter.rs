@@ -816,6 +816,70 @@ impl Workbook {
             .auto_filter(sheet)
             .cloned()
             .ok_or(Error::NoAutoFilter)?;
+        self.apply_filter(sheet, &af)
+    }
+
+    /// Sets (`Some`) or removes the filter of column `col` of table `id`'s
+    /// AutoFilter (rows untouched; see [`apply_table_filter`](Self::apply_table_filter)).
+    pub fn set_table_filter_column(
+        &mut self,
+        sheet: SheetId,
+        id: u32,
+        col: u32,
+        filter: Option<Filter>,
+    ) -> Result<(), Error> {
+        let mut tables = self.tables(sheet).to_vec();
+        let t = tables
+            .iter_mut()
+            .find(|t| t.id == id)
+            .ok_or(Error::UnknownTable(id))?;
+        let af = t.auto_filter.as_mut().ok_or(Error::NoAutoFilter)?;
+        if !af.contains_col(col) {
+            return Err(Error::InvalidRange);
+        }
+        af.columns.retain(|c| c.col != col);
+        if let Some(filter) = filter {
+            af.columns.push(FilterColumn { col, filter });
+            af.columns.sort_by_key(|c| c.col);
+        }
+        self.set_tables(sheet, tables).map(drop)
+    }
+
+    /// Applies the AutoFilter of table `id` to its data rows (like
+    /// [`apply_auto_filter`](Self::apply_auto_filter)).
+    pub fn apply_table_filter(&mut self, sheet: SheetId, id: u32) -> Result<FilterChange, Error> {
+        let af = self
+            .tables(sheet)
+            .iter()
+            .find(|t| t.id == id)
+            .ok_or(Error::UnknownTable(id))?
+            .auto_filter
+            .clone()
+            .ok_or(Error::NoAutoFilter)?;
+        self.apply_filter(sheet, &af)
+    }
+
+    /// The filter dropdown values of column `col` of table `id`.
+    pub fn table_filter_values(
+        &self,
+        sheet: SheetId,
+        id: u32,
+        col: u32,
+    ) -> Result<Vec<FilterValue>, Error> {
+        let af = self
+            .tables(sheet)
+            .iter()
+            .find(|t| t.id == id)
+            .ok_or(Error::UnknownTable(id))?
+            .auto_filter
+            .clone()
+            .ok_or(Error::NoAutoFilter)?;
+        self.filter_values_of(sheet, &af, col)
+    }
+
+    /// Applies `af` to its data rows (see [`apply_auto_filter`](Self::apply_auto_filter)).
+    fn apply_filter(&mut self, sheet: SheetId, af: &AutoFilter) -> Result<FilterChange, Error> {
+        let af = af.clone();
         let matchers = self.matchers(sheet, &af);
         let mut updates = Vec::new();
         for row in self.data_rows(sheet, &af) {
@@ -875,6 +939,15 @@ impl Workbook {
     /// are one entry.
     pub fn filter_values(&self, sheet: SheetId, col: u32) -> Result<Vec<FilterValue>, Error> {
         let af = self.auto_filter(sheet).ok_or(Error::NoAutoFilter)?;
+        self.filter_values_of(sheet, af, col)
+    }
+
+    fn filter_values_of(
+        &self,
+        sheet: SheetId,
+        af: &AutoFilter,
+        col: u32,
+    ) -> Result<Vec<FilterValue>, Error> {
         if !af.contains_col(col) {
             return Err(Error::InvalidRange);
         }

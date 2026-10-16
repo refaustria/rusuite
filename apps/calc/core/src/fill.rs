@@ -19,6 +19,78 @@ pub fn shift_input(input: &str, d_row: i64, d_col: i64) -> String {
     }
 }
 
+/// The formula of source cell `from` pasted transposed into `to` (Paste
+/// Special › Transpose): a reference relative in both parts keeps its
+/// offset with rows and columns swapped (`=A1*3` in B1 becomes `=A6*3`
+/// in A7); a part that is relative in one direction only shifts as in a
+/// plain paste; absolute references stay. Other inputs come back as
+/// they are.
+pub fn transpose_input(input: &str, from: (u32, u32), to: (u32, u32)) -> String {
+    use engine_formula::ast::{CellRef, Expr, RangeKind, Reference, MAX_COL, MAX_ROW};
+    if !input.starts_with('=') {
+        return input.to_owned();
+    }
+    let Ok(ast) = engine_formula::parse(input) else {
+        return input.to_owned();
+    };
+    let (fr, fc) = (i64::from(from.0), i64::from(from.1));
+    let (tr, tc) = (i64::from(to.0), i64::from(to.1));
+    let cell = |c: CellRef| -> Option<CellRef> {
+        let (row, col) = match (c.row_abs, c.col_abs) {
+            (false, false) => (tr + (i64::from(c.col) - fc), tc + (i64::from(c.row) - fr)),
+            (true, true) => (i64::from(c.row), i64::from(c.col)),
+            (false, true) => (i64::from(c.row) + tr - fr, i64::from(c.col)),
+            (true, false) => (i64::from(c.row), i64::from(c.col) + tc - fc),
+        };
+        (row >= 0 && col >= 0 && row <= i64::from(MAX_ROW) && col <= i64::from(MAX_COL)).then_some(
+            CellRef {
+                row: row as u32,
+                col: col as u32,
+                ..c
+            },
+        )
+    };
+    fn walk(e: &Expr, f: &dyn Fn(&Reference) -> Option<Expr>) -> Expr {
+        match e {
+            Expr::Reference(r) => f(r).unwrap_or(Expr::Error(engine_formula::ErrorKind::Ref)),
+            Expr::Call { name, args } => Expr::Call {
+                name: name.clone(),
+                args: args.iter().map(|a| walk(a, f)).collect(),
+            },
+            Expr::Unary { op, expr } => Expr::Unary {
+                op: *op,
+                expr: Box::new(walk(expr, f)),
+            },
+            Expr::Binary { op, lhs, rhs } => Expr::Binary {
+                op: *op,
+                lhs: Box::new(walk(lhs, f)),
+                rhs: Box::new(walk(rhs, f)),
+            },
+            Expr::Array(rows) => Expr::Array(
+                rows.iter()
+                    .map(|r| r.iter().map(|x| walk(x, f)).collect())
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
+    }
+    let out = walk(&ast, &|r: &Reference| {
+        let kind = match r.kind {
+            RangeKind::Cell(c) => RangeKind::Cell(cell(c)?),
+            RangeKind::Area(a, b) => RangeKind::area(cell(a)?, cell(b)?),
+            _ => {
+                let moved = offset_relative(&Expr::Reference(r.clone()), tr - fr, tc - fc);
+                return Some(moved);
+            }
+        };
+        Some(Expr::Reference(Reference {
+            sheet: r.sheet.clone(),
+            kind,
+        }))
+    });
+    format!("={out}")
+}
+
 /// Rewrites a formula input (`=…`) for a cut-and-paste move (see
 /// [`adjust_references_for_move`]); `None` when it is not a formula, does
 /// not parse or does not reference the moved cells.

@@ -138,7 +138,8 @@ fn dimensions() {
         ColInfo {
             width: Some(20.5),
             hidden: true,
-            style: None
+            style: None,
+            ..Default::default()
         }
     );
     wb.set_row_height(s, 0, Some(30.0)).unwrap();

@@ -210,6 +210,10 @@ pub enum CalcCommand {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         #[ts(optional, as = "Option<bool>")]
         annotations: bool,
+        /// Paste Special (absent: `mode` alone decides).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        special: Option<PasteSpecial>,
     },
     /// The fill handle: fills `dst` (adjacent to `src`: below, above, to
     /// the right or to the left, spanning the same columns/rows) from
@@ -596,6 +600,279 @@ pub enum CalcCommand {
         #[serde(default)]
         selected: Option<Vec<u32>>,
     },
+    /// Changes the source of pivot table `id` (Change Data Source) and
+    /// refreshes it; fields that no longer exist leave the table.
+    ChangePivotSource {
+        id: u32,
+        source: crate::pivots::PivotSourceSpec,
+    },
+    /// Show Details (double-click on a value): a new sheet before the
+    /// pivot table's sheet with the source records behind the value cell
+    /// `(row, col)` of pivot table `id` (header row, then the records).
+    /// The patch carries `activateSheet`.
+    ShowPivotDetails {
+        id: u32,
+        row: u32,
+        col: u32,
+    },
+    /// Insert › Table (Ctrl+T): a table on the range (a single cell: its
+    /// current region). `hasHeaders` false inserts a header row above the
+    /// range (`Column1`, `Column2`, …; the data moves down one row). The
+    /// header cells become unique texts. Fails with `invalid_table` over
+    /// merged cells, another table or a pivot table. Default style
+    /// `TableStyleMedium2` (or `style`), banded rows, filter buttons; an
+    /// AutoFilter of the sheet on the range is taken over. The sheet list
+    /// in the patch carries the tables.
+    CreateTable {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+        has_headers: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        style: Option<String>,
+    },
+    /// Renames table `id`; formulas follow (`invalid_table` for an invalid
+    /// or taken name).
+    RenameTable {
+        id: u32,
+        name: String,
+    },
+    /// Table Styles gallery (`style`, `""` = none) and Table Style Options
+    /// (`look`); absent fields stay.
+    SetTableStyle {
+        id: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        style: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, as = "Option<crate::wire_tables::TableLook>")]
+        look: Option<model_sheet::TableLook>,
+    },
+    /// Header Row / Total Row / Filter Button of the Table Design tab.
+    /// Turning the totals row on adds a row below the data (shifting the
+    /// cells below the table down when they are not empty) with `Total`
+    /// in the first column and a `SUBTOTAL` in the last (sum of numbers,
+    /// else count), or the totals kept from before; off clears that row.
+    /// Turning the header row off clears the header cells (the names
+    /// stay); on writes them back (shifting cells above down if needed).
+    SetTableOptions {
+        id: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        header_row: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        totals_row: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        filter_button: Option<bool>,
+    },
+    /// The totals row dropdown of column `col` (sheet column): a
+    /// function (`=SUBTOTAL(109,[Qty])`), a label, a custom formula or
+    /// none (`null`); the totals cell is rewritten.
+    SetTotalsFunction {
+        id: u32,
+        col: u32,
+        #[ts(as = "Option<crate::wire_tables::TotalsCell>")]
+        totals: Option<model_sheet::TotalsCell>,
+    },
+    /// Resize Table: the header row must stay in its row and the new
+    /// range overlap the old one; new columns get names from their header
+    /// cells (or `Column<n>`), new rows the calculated columns' formulas.
+    ResizeTable {
+        id: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+    },
+    /// Convert to Range: structured references to the table become A1
+    /// references and the table disappears; `formats` (the table style's
+    /// look, computed by the UI) are applied to the cells.
+    ConvertToRange {
+        id: u32,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<RangeFormat>>")]
+        formats: Vec<RangeFormat>,
+    },
+    /// Insert Table Rows Above: `count` rows before sheet row `at` (a
+    /// data row, or `r1 + 1` below the data) inside the table's columns;
+    /// the cells below in those columns shift down. New rows get the
+    /// calculated columns' formulas.
+    InsertTableRows {
+        id: u32,
+        at: u32,
+        count: u32,
+    },
+    /// Delete Table Rows `at..at + count` (data rows); the cells below in
+    /// the table's columns shift up.
+    DeleteTableRows {
+        id: u32,
+        at: u32,
+        count: u32,
+    },
+    /// Insert Table Columns to the Left of sheet column `at` (or `c1 + 1`):
+    /// the cells right of it in the table's rows shift right.
+    InsertTableCols {
+        id: u32,
+        at: u32,
+        count: u32,
+    },
+    /// Delete Table Columns `at..at + count`; the cells right of them in
+    /// the table's rows shift left. Formulas using them show `#REF!`.
+    DeleteTableCols {
+        id: u32,
+        at: u32,
+        count: u32,
+    },
+    /// The filter dropdown of a table header (`null` removes the column's
+    /// filter); the table's filters are applied.
+    SetTableFilter {
+        id: u32,
+        col: u32,
+        #[ts(as = "Option<crate::wire::Filter>")]
+        filter: Option<model_sheet::Filter>,
+    },
+    /// Data › Remove Duplicates on the range (a single cell: its current
+    /// region, or the table it is in): rows whose values in `columns`
+    /// (sheet columns) repeat an earlier row are removed (text ignoring
+    /// case), the remaining rows move up inside the range. The patch's
+    /// `duplicates` carries the counts.
+    RemoveDuplicates {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+        columns: Vec<u32>,
+        has_header: bool,
+    },
+    /// Data › Text to Columns on cells `r0..=r1` of column `c0`: the texts
+    /// are split with `options` and written from `dest` (absent: the
+    /// cells themselves) rightwards.
+    TextToColumns {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        #[ts(as = "crate::wire_tables::TextImportOptions")]
+        options: model_sheet::textio::TextImportOptions,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        dest: Option<(u32, u32)>,
+    },
+    /// Data › Group (`ungroup` false) / Ungroup of rows or columns
+    /// `i0..=i1`.
+    GroupOutline {
+        sheet: u32,
+        #[ts(as = "crate::wire_tables::LineAxis")]
+        axis: model_sheet::Axis,
+        i0: u32,
+        i1: u32,
+        ungroup: bool,
+    },
+    /// The `−` / `+` button of the outline bar on summary line `index`.
+    SetOutlineCollapsed {
+        sheet: u32,
+        #[ts(as = "crate::wire_tables::LineAxis")]
+        axis: model_sheet::Axis,
+        index: u32,
+        collapsed: bool,
+    },
+    /// The level buttons `1..=8` of the outline bar.
+    ShowOutlineLevel {
+        sheet: u32,
+        #[ts(as = "crate::wire_tables::LineAxis")]
+        axis: model_sheet::Axis,
+        level: u8,
+    },
+    /// Ungroup › Clear Outline (`axis` absent = both).
+    ClearOutline {
+        sheet: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, as = "Option<crate::wire_tables::LineAxis>")]
+        axis: Option<model_sheet::Axis>,
+    },
+    /// Outline settings (summary rows below, summary columns right).
+    SetOutlineProps {
+        sheet: u32,
+        #[ts(as = "crate::wire_tables::OutlineProps")]
+        props: model_sheet::OutlineProps,
+    },
+    /// Data › Subtotal on the range (header row first): at each change in
+    /// sheet column `groupBy`, a row with `SUBTOTAL(function, …)` of the
+    /// `columns` and the label `<item> Total`, then a `Grand Total` row;
+    /// the rows are grouped (details level 2, subtotals level 1).
+    /// `replace` removes earlier subtotals first.
+    Subtotal {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+        group_by: u32,
+        function: SubtotalFunction,
+        columns: Vec<u32>,
+        replace: bool,
+        summary_below: bool,
+    },
+    /// Subtotal › Remove All: deletes the subtotal rows of the range and
+    /// its row outline.
+    RemoveSubtotals {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+    },
+    /// Replaces the manual page breaks of `sheet` on `axis` (Page Layout ›
+    /// Breaks, dragging in Page Break Preview).
+    SetPageBreaks {
+        sheet: u32,
+        #[ts(as = "crate::wire_tables::LineAxis")]
+        axis: model_sheet::Axis,
+        breaks: Vec<u32>,
+    },
+    /// Insert › Pictures: adds a picture in front (id 0 = new id). The
+    /// patch lists the sheet in `pictureSheets`.
+    AddPicture {
+        sheet: u32,
+        #[ts(as = "crate::wire_tables::Picture")]
+        picture: model_sheet::Picture,
+    },
+    /// Moves / resizes picture `id`.
+    SetPictureAnchor {
+        sheet: u32,
+        id: u32,
+        #[ts(as = "crate::wire_chart::ChartAnchor")]
+        anchor: ChartAnchor,
+    },
+    RemovePicture {
+        sheet: u32,
+        id: u32,
+    },
+    /// *Internal.* Replaces the pictures of a sheet.
+    RestorePictures {
+        sheet: u32,
+        #[ts(as = "Vec<crate::wire_tables::Picture>")]
+        pictures: Vec<model_sheet::Picture>,
+    },
+    /// *Internal.* Replaces the tables of a sheet (no cells are written).
+    RestoreTables {
+        sheet: u32,
+        #[ts(as = "Vec<crate::wire_tables::Table>")]
+        tables: Vec<model_sheet::Table>,
+    },
+    /// *Internal.* Renames column `index` of table `id` and rewrites the
+    /// structured references to it (the header cell is not written).
+    RenameTableColumn {
+        id: u32,
+        index: u32,
+        name: String,
+    },
     /// *Internal.* Replaces every pivot cache and table (no cells are
     /// written).
     RestorePivots {
@@ -779,6 +1056,110 @@ pub struct ClipCell {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub style: Option<u32>,
+}
+
+/// A cell format of [`CalcCommand::ConvertToRange`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct RangeFormat {
+    pub r0: u32,
+    pub c0: u32,
+    pub r1: u32,
+    pub c1: u32,
+    #[ts(as = "crate::wire::CellStyle")]
+    pub patch: CellStyle,
+}
+
+/// The functions of Data › Subtotal (`SUBTOTAL` 1–11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum SubtotalFunction {
+    Sum,
+    Count,
+    Average,
+    Max,
+    Min,
+    Product,
+    CountNums,
+    StdDev,
+    StdDevP,
+    Var,
+    VarP,
+}
+
+impl SubtotalFunction {
+    /// The `SUBTOTAL` function number Excel's Subtotal command writes.
+    pub fn code(self) -> u32 {
+        match self {
+            SubtotalFunction::Average => 1,
+            SubtotalFunction::CountNums => 2,
+            SubtotalFunction::Count => 3,
+            SubtotalFunction::Max => 4,
+            SubtotalFunction::Min => 5,
+            SubtotalFunction::Product => 6,
+            SubtotalFunction::StdDev => 7,
+            SubtotalFunction::StdDevP => 8,
+            SubtotalFunction::Sum => 9,
+            SubtotalFunction::Var => 10,
+            SubtotalFunction::VarP => 11,
+        }
+    }
+}
+
+/// What Paste Special pastes (Excel's Paste choices).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum PasteParts {
+    #[default]
+    All,
+    Formulas,
+    Values,
+    Formats,
+    /// Comments and notes.
+    Comments,
+    Validation,
+    AllExceptBorders,
+    ColumnWidths,
+    FormulasAndNumberFormats,
+    ValuesAndNumberFormats,
+    /// All, keeping the source column widths.
+    AllAndColumnWidths,
+}
+
+/// The arithmetic of Paste Special › Operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum PasteOperation {
+    #[default]
+    None,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+}
+
+/// Paste Special options of [`CalcCommand::PasteRange`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct PasteSpecial {
+    #[ts(optional, as = "Option<PasteParts>")]
+    pub parts: PasteParts,
+    #[ts(optional, as = "Option<PasteOperation>")]
+    pub operation: PasteOperation,
+    /// Blank source cells leave the destination alone.
+    #[ts(optional, as = "Option<bool>")]
+    pub skip_blanks: bool,
+    /// Rows become columns.
+    #[ts(optional, as = "Option<bool>")]
+    pub transpose: bool,
+    /// Paste Link: formulas referencing the source cells.
+    #[ts(optional, as = "Option<bool>")]
+    pub link: bool,
 }
 
 /// What a paste writes.

@@ -55,6 +55,13 @@ pub enum TokenKind {
     /// `#` that does not start an error literal (spilled-range operator,
     /// `A1#`).
     Hash,
+    /// A structured reference: an optional table name immediately
+    /// followed by a balanced `[...]` (`body`, brackets included; `'`
+    /// escapes a bracket, `#` or `'`).
+    Structured {
+        table: Option<String>,
+        body: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -114,6 +121,16 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseError> {
                 _ => simple(TokenKind::Gt, 1),
             },
             '"' => lex_string(src, start)?,
+            '[' => {
+                let end = bracket_end(src, start)?;
+                (
+                    TokenKind::Structured {
+                        table: None,
+                        body: src[start..end].to_string(),
+                    },
+                    end,
+                )
+            }
             '\'' => lex_quoted_sheet(src, start)?,
             '#' => lex_error(src, start).unwrap_or((TokenKind::Hash, start + 1)),
             c if c.is_ascii_digit()
@@ -127,7 +144,16 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseError> {
                     .find(|&(_, c)| !is_ident_continue(c))
                     .map_or(src.len(), |(o, _)| start + o);
                 let text = src[start..end].to_string();
-                if bytes.get(end) == Some(&b'!') {
+                if bytes.get(end) == Some(&b'[') {
+                    let close = bracket_end(src, end)?;
+                    (
+                        TokenKind::Structured {
+                            table: Some(text),
+                            body: src[end..close].to_string(),
+                        },
+                        close,
+                    )
+                } else if bytes.get(end) == Some(&b'!') {
                     (TokenKind::SheetName(text), end)
                 } else {
                     (TokenKind::Ident(text), end)
@@ -147,6 +173,28 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseError> {
         i = end;
     }
     Ok(tokens)
+}
+
+/// The end (exclusive) of the bracket group opening at `start`.
+fn bracket_end(src: &str, start: usize) -> Result<usize, ParseError> {
+    let mut depth = 0u32;
+    let mut chars = src[start..].char_indices();
+    while let Some((o, c)) = chars.next() {
+        match c {
+            '\'' => {
+                chars.next();
+            }
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Ok(start + o + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    Err(ParseError::new(start, "unterminated structured reference"))
 }
 
 fn lex_number(src: &str, start: usize) -> Result<(TokenKind, usize), ParseError> {

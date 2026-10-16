@@ -44,6 +44,9 @@ import type { Note } from "../generated/Note";
 import type { Person } from "../generated/Person";
 import type { Thread } from "../generated/Thread";
 import type { SheetAnnotations } from "../generated/SheetAnnotations";
+import type { Table } from "../generated/Table";
+import type { Picture } from "../generated/Picture";
+import type { TextImportOptions } from "../generated/TextImportOptions";
 import { parseRange, rangeFormula } from "../charts/refs";
 import { findRefs } from "../formula/refs";
 import { nameProblem } from "../names/names";
@@ -77,6 +80,11 @@ interface FakeSheet {
   notes: Note[];
   threads: Thread[];
   hyperlinks: Hyperlink[];
+  /** Excel tables (P8-35; a toy: no structured references). */
+  tables: Table[];
+  rowBreaks: number[];
+  colBreaks: number[];
+  pictures: Picture[];
 }
 
 const DEFAULT_VIEW: SheetView = { frozenRows: 0, frozenCols: 0, zoom: 100, showGridlines: true, showHeadings: true };
@@ -173,7 +181,10 @@ export class FakeCalcCore {
   }
 
   private newSheet(id: number, name: string): FakeSheet {
-    return { id, name, cells: new Map(), cols: new Map(), rows: new Map(), formulas: new Set(), view: { ...DEFAULT_VIEW }, merges: [], cfRules: [], validations: [], charts: [], notes: [], threads: [], hyperlinks: [] };
+    return {
+      id, name, cells: new Map(), cols: new Map(), rows: new Map(), formulas: new Set(), view: { ...DEFAULT_VIEW }, merges: [], cfRules: [], validations: [], charts: [], notes: [], threads: [], hyperlinks: [],
+      tables: [], rowBreaks: [], colBreaks: [], pictures: [],
+    };
   }
 
   private sheet(id: number): FakeSheet {
@@ -183,8 +194,14 @@ export class FakeCalcCore {
   }
 
   private sheetInfos(): SheetInfo[] {
-    return this.sheets.map(({ id, name, tabColor, hidden, veryHidden, view, autoFilter, sortState }) => {
+    return this.sheets.map(({ id, name, tabColor, hidden, veryHidden, view, autoFilter, sortState, tables, rowBreaks, colBreaks, rows, cols }) => {
       const info: SheetInfo = { id, name };
+      if (tables.length) info.tables = JSON.parse(JSON.stringify(tables)) as Table[];
+      if (rowBreaks.length) info.rowBreaks = [...rowBreaks];
+      if (colBreaks.length) info.colBreaks = [...colBreaks];
+      const maxLevel = (m: Map<number, { outlineLevel?: number }>) => Math.max(0, ...[...m.values()].map((x) => x.outlineLevel ?? 0));
+      const ml: [number, number] = [maxLevel(rows), maxLevel(cols)];
+      if (ml[0] || ml[1]) info.maxOutline = ml;
       if (autoFilter) info.autoFilter = JSON.parse(JSON.stringify(autoFilter)) as AutoFilter;
       if (sortState) info.sortState = JSON.parse(JSON.stringify(sortState)) as SortState;
       if (tabColor) info.tabColor = tabColor;
@@ -762,9 +779,268 @@ export class FakeCalcCore {
         }
         return [patch, res.inverse];
       }
+      case "createTable":
+      case "renameTable":
+      case "renameTableColumn":
+      case "setTableStyle":
+      case "setTableOptions":
+      case "setTotalsFunction":
+      case "resizeTable":
+      case "convertToRange":
+      case "setTableFilter":
+      case "restoreTables":
+        return this.tableCmd(cmd);
+      case "groupOutline":
+      case "setOutlineCollapsed":
+      case "showOutlineLevel":
+      case "clearOutline":
+      case "setOutlineProps":
+        return this.outlineCmd(cmd);
+      case "removeDuplicates":
+      case "textToColumns":
+      case "setPageBreaks":
+      case "addPicture":
+      case "setPictureAnchor":
+      case "removePicture":
+      case "restorePictures":
+        return this.dataCmd(cmd);
+      case "insertTableRows":
+      case "deleteTableRows":
+      case "insertTableCols":
+      case "deleteTableCols":
+      case "subtotal":
+      case "removeSubtotals":
+      case "changePivotSource":
+      case "showPivotDetails":
+        throw new Fail("unsupported", `${cmd.type} is not in the fake backend`);
       default: {
         const unknown: never = cmd;
         throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
+      }
+    }
+  }
+
+  // --- tables, outlines, data tools (P8-35; toys) ---------------------------
+
+  private tablesPatch(): CalcPatch {
+    return this.sheetsPatch();
+  }
+
+  private findTable(id: number): [FakeSheet, Table] {
+    for (const sh of this.sheets) {
+      const t = sh.tables.find((x) => x.id === id);
+      if (t) return [sh, t];
+    }
+    throw new Fail("unknown_table", `unknown table ${id}`);
+  }
+
+  private tableCmd(cmd: Extract<CalcCommand, { type: "createTable" | "renameTable" | "renameTableColumn" | "setTableStyle" | "setTableOptions" | "setTotalsFunction" | "resizeTable" | "convertToRange" | "setTableFilter" | "restoreTables" }>): [CalcPatch, CalcCommand | null] {
+    const snapshot = (sh: FakeSheet): CalcCommand => ({ type: "restoreTables", sheet: sh.id, tables: JSON.parse(JSON.stringify(sh.tables)) as Table[] });
+    if (cmd.type === "restoreTables") {
+      const sh = this.sheet(cmd.sheet);
+      const inv = snapshot(sh);
+      sh.tables = JSON.parse(JSON.stringify(cmd.tables)) as Table[];
+      return [this.tablesPatch(), inv];
+    }
+    if (cmd.type === "createTable") {
+      const sh = this.sheet(cmd.sheet);
+      let { r0, c0, r1, c1 } = cmd;
+      if (r0 === r1 && c0 === c1) {
+        // The current region: grow while the next row / column has content.
+        while (this.cell(sh, r1 + 1, c0)) r1++;
+        while (this.cell(sh, r0, c1 + 1)) c1++;
+      }
+      if (sh.tables.some((t) => intersects(t, { r0, c0, r1, c1 }))) throw new Fail("invalid_table", "tables cannot overlap");
+      const inv = snapshot(sh);
+      const names: string[] = [];
+      const writes: [number, number, string, number][] = [];
+      for (let c = c0; c <= c1; c++) {
+        let n = cmd.hasHeaders ? (this.cell(sh, r0, c)?.input ?? "") : "";
+        if (n === "") n = `Column${c - c0 + 1}`;
+        let u = n;
+        for (let k = 2; names.some((x) => x.toLowerCase() === u.toLowerCase()); k++) u = `${n}${k}`;
+        names.push(u);
+        if (!cmd.hasHeaders || this.cell(sh, r0, c)?.input !== u) writes.push([r0, c, u, this.cell(sh, r0, c)?.style ?? 0]);
+      }
+      if (r1 === r0) r1++;
+      const id = Math.max(0, ...this.sheets.flatMap((x) => x.tables.map((t) => t.id))) + 1;
+      let k = 1;
+      while (this.sheets.some((x) => x.tables.some((t) => t.name.toLowerCase() === `table${k}`))) k++;
+      const t: Table = {
+        id, name: `Table${k}`, r0, c0, r1, c1, headerRow: true, columns: names.map((name, i) => ({ id: i + 1, name })),
+        style: cmd.style ?? "TableStyleMedium2", look: { firstColumn: false, lastColumn: false, bandedRows: true, bandedColumns: false },
+        autoFilter: { r0, c0, r1, c1 },
+      };
+      sh.tables.push(t);
+      const [p, cellsInv] = this.exec({ type: "restoreCells", sheet: sh.id, cells: writes });
+      mergePatch(p, this.tablesPatch());
+      return [p, { type: "compound", commands: [cellsInv!, inv] }];
+    }
+    const id = cmd.id;
+    const [sh, t] = this.findTable(id);
+    const inv = snapshot(sh);
+    let cells: [number, number, string, number][] = [];
+    switch (cmd.type) {
+      case "renameTable":
+        if (!/^[A-Za-z_\\][A-Za-z0-9_.]*$/.test(cmd.name)) throw new Fail("invalid_table", "invalid name");
+        t.name = cmd.name;
+        break;
+      case "renameTableColumn":
+        t.columns[cmd.index]!.name = cmd.name;
+        break;
+      case "setTableStyle":
+        if (cmd.style !== undefined) t.style = cmd.style;
+        if (cmd.look) t.look = { ...cmd.look };
+        break;
+      case "setTableOptions":
+        if (cmd.totalsRow !== undefined && cmd.totalsRow !== !!t.totalsRow) {
+          if (cmd.totalsRow) {
+            t.r1++;
+            t.totalsRow = true;
+            if (t.columns.every((c) => !c.totals)) {
+              t.columns[0]!.totals = { kind: "label", text: "Total" };
+              t.columns[t.columns.length - 1]!.totals = { kind: "function", function: "sum" };
+            }
+            cells = t.columns.map((c, i) => [t.r1, t.c0 + i, c.totals?.kind === "label" ? c.totals.text : c.totals?.kind === "function" ? `=SUBTOTAL(109,[${c.name}])` : "", 0]);
+          } else {
+            cells = t.columns.map((_, i) => [t.r1, t.c0 + i, "", 0]);
+            t.r1--;
+            t.totalsRow = false;
+          }
+        }
+        if (cmd.headerRow !== undefined) t.headerRow = cmd.headerRow;
+        if (cmd.filterButton !== undefined) t.autoFilter = cmd.filterButton ? { r0: t.r0, c0: t.c0, r1: t.r1 - (t.totalsRow ? 1 : 0), c1: t.c1 } : undefined;
+        break;
+      case "setTotalsFunction": {
+        const col = t.columns[cmd.col - t.c0];
+        if (!col) throw new Fail("invalid_range", "not a table column");
+        col.totals = cmd.totals ?? undefined;
+        const codes: Record<string, number> = { average: 101, countNums: 102, count: 103, max: 104, min: 105, stdDev: 107, sum: 109, var: 110 };
+        const tc = cmd.totals;
+        const input = !tc ? "" : tc.kind === "label" ? tc.text : tc.kind === "custom" ? `=${tc.formula}` : `=SUBTOTAL(${codes[tc.function]},[${col.name}])`;
+        if (t.totalsRow) cells = [[t.r1, cmd.col, input, 0]];
+        break;
+      }
+      case "resizeTable":
+        Object.assign(t, { r0: cmd.r0, c0: cmd.c0, r1: cmd.r1, c1: cmd.c1 });
+        while (t.columns.length < t.c1 - t.c0 + 1) t.columns.push({ id: t.columns.length + 1, name: `Column${t.columns.length + 1}` });
+        t.columns.length = t.c1 - t.c0 + 1;
+        break;
+      case "convertToRange":
+        sh.tables = sh.tables.filter((x) => x.id !== id);
+        break;
+      case "setTableFilter":
+        if (t.autoFilter) {
+          t.autoFilter.columns = (t.autoFilter.columns ?? []).filter((c) => c.col !== cmd.col);
+          if (cmd.filter) t.autoFilter.columns.push({ col: cmd.col, filter: cmd.filter });
+        }
+        break;
+    }
+    const [p, cellsInv] = this.exec({ type: "restoreCells", sheet: sh.id, cells });
+    mergePatch(p, this.tablesPatch());
+    return [p, { type: "compound", commands: [cellsInv!, inv] }];
+  }
+
+  private outlineCmd(cmd: Extract<CalcCommand, { type: "groupOutline" | "setOutlineCollapsed" | "showOutlineLevel" | "clearOutline" | "setOutlineProps" }>): [CalcPatch, CalcCommand | null] {
+    const sh = this.sheet(cmd.sheet);
+    if (cmd.type === "setOutlineProps") return [this.sheetsPatch(), { type: "setOutlineProps", sheet: cmd.sheet, props: { summaryBelow: true, summaryRight: true } }];
+    const axis = cmd.type === "clearOutline" ? (cmd.axis ?? "rows") : cmd.axis;
+    const map = axis === "rows" ? sh.rows : sh.cols;
+    type Line = { outlineLevel?: number; hidden: boolean; collapsed?: boolean };
+    const get = (i: number): Line => (map.get(i) as Line | undefined) ?? { hidden: false };
+    const changes = new Map<number, Line>();
+    const set = (i: number, l: Line) => changes.set(i, l);
+    if (cmd.type === "groupOutline") {
+      for (let i = cmd.i0; i <= cmd.i1; i++) {
+        const l = get(i);
+        set(i, { ...l, outlineLevel: Math.max(0, Math.min(7, (l.outlineLevel ?? 0) + (cmd.ungroup ? -1 : 1))) });
+      }
+    } else if (cmd.type === "setOutlineCollapsed") {
+      const level = get(cmd.index).outlineLevel ?? 0;
+      for (let i = cmd.index - 1; i >= 0 && (get(i).outlineLevel ?? 0) > level; i--) set(i, { ...get(i), hidden: cmd.collapsed });
+      set(cmd.index, { ...get(cmd.index), collapsed: cmd.collapsed });
+    } else if (cmd.type === "showOutlineLevel") {
+      for (const [i, l] of map) if ((l as Line).outlineLevel) set(i, { ...(l as Line), hidden: ((l as Line).outlineLevel ?? 0) >= cmd.level });
+    } else {
+      for (const [i, l] of map) if ((l as Line).outlineLevel || (l as Line).collapsed) set(i, { ...(l as Line), outlineLevel: 0, collapsed: false });
+    }
+    if (axis === "rows") {
+      const rows: RowView[] = [...changes].map(([row, l]) => ({ row, height: null, style: null, ...(sh.rows.get(row) ?? {}), ...l }) as RowView);
+      return this.exec({ type: "restoreRows", sheet: cmd.sheet, rows }).map((x, k) => (k === 0 ? (mergePatch(x as CalcPatch, this.sheetsPatch()), x) : x)) as [CalcPatch, CalcCommand | null];
+    }
+    const cols: ColView[] = [...changes].map(([col, l]) => ({ col, width: null, style: null, ...(sh.cols.get(col) ?? {}), ...l }) as ColView);
+    return this.exec({ type: "restoreCols", sheet: cmd.sheet, cols });
+  }
+
+  private dataCmd(cmd: Extract<CalcCommand, { type: "removeDuplicates" | "textToColumns" | "setPageBreaks" | "addPicture" | "setPictureAnchor" | "removePicture" | "restorePictures" }>): [CalcPatch, CalcCommand | null] {
+    const sh = this.sheet(cmd.sheet);
+    const pics = (): CalcCommand => ({ type: "restorePictures", sheet: sh.id, pictures: JSON.parse(JSON.stringify(sh.pictures)) as Picture[] });
+    const picPatch = () => ({ ...this.emptyPatch(), pictureSheets: [sh.id] });
+    switch (cmd.type) {
+      case "removeDuplicates": {
+        const first = cmd.r0 + (cmd.hasHeader ? 1 : 0);
+        const cols = cmd.columns.length ? cmd.columns : Array.from({ length: cmd.c1 - cmd.c0 + 1 }, (_, i) => cmd.c0 + i);
+        const seen = new Set<string>();
+        const kept: number[] = [];
+        let total = 0;
+        for (let r = first; r <= cmd.r1; r++) {
+          if (cols.every((c) => !this.cell(sh, r, c)?.input)) continue;
+          total++;
+          const key = cols.map((c) => String(this.value(sh, r, c)).toLowerCase()).join("\u0000");
+          if (!seen.has(key)) {
+            seen.add(key);
+            kept.push(r);
+          }
+        }
+        const cells: [number, number, string, number][] = [];
+        kept.forEach((from, k) => {
+          for (let c = cmd.c0; c <= cmd.c1; c++) cells.push([first + k, c, this.cell(sh, from, c)?.input ?? "", this.cell(sh, from, c)?.style ?? 0]);
+        });
+        for (let r = first + kept.length; r < first + total; r++) for (let c = cmd.c0; c <= cmd.c1; c++) cells.push([r, c, "", 0]);
+        const [p, inv] = this.exec({ type: "restoreCells", sheet: sh.id, cells });
+        p.duplicates = { removed: total - kept.length, remaining: kept.length };
+        return [p, inv];
+      }
+      case "textToColumns": {
+        const seps = splitChars(cmd.options);
+        const cells: [number, number, string, number][] = [];
+        const [dr, dc] = cmd.dest ?? [cmd.r0, cmd.c0];
+        for (let r = cmd.r0; r <= cmd.r1; r++) {
+          const text = this.cell(sh, r, cmd.c0)?.input ?? "";
+          if (text === "") continue;
+          const parts = cmd.options.split.kind === "delimited" ? text.split(new RegExp(`[${seps.replace(/[\\\]^-]/g, "\\$&")}]`)) : [text];
+          parts.forEach((v, i) => cells.push([dr + r - cmd.r0, dc + i, v, 0]));
+        }
+        return this.exec({ type: "restoreCells", sheet: sh.id, cells });
+      }
+      case "setPageBreaks": {
+        const list = cmd.axis === "rows" ? "rowBreaks" : "colBreaks";
+        const old = [...sh[list]];
+        sh[list] = [...new Set(cmd.breaks.filter((b) => b > 0))].sort((a, b) => a - b);
+        return [this.sheetsPatch(), { type: "setPageBreaks", sheet: sh.id, axis: cmd.axis, breaks: old }];
+      }
+      case "addPicture": {
+        const inv = pics();
+        const id = Math.max(0, ...sh.pictures.map((p) => p.id)) + 1;
+        sh.pictures.push({ ...JSON.parse(JSON.stringify(cmd.picture)), id, name: cmd.picture.name || `Picture ${id}` });
+        return [picPatch(), inv];
+      }
+      case "setPictureAnchor": {
+        const inv = pics();
+        const p = sh.pictures.find((x) => x.id === cmd.id);
+        if (!p) throw new Fail("invalid_range", "no picture");
+        p.anchor = JSON.parse(JSON.stringify(cmd.anchor));
+        return [picPatch(), inv];
+      }
+      case "removePicture": {
+        const inv = pics();
+        sh.pictures = sh.pictures.filter((x) => x.id !== cmd.id);
+        return [picPatch(), inv];
+      }
+      case "restorePictures": {
+        const inv = pics();
+        sh.pictures = JSON.parse(JSON.stringify(cmd.pictures)) as Picture[];
+        return [picPatch(), inv];
       }
     }
   }
@@ -1909,6 +2185,13 @@ function mergePatch(into: CalcPatch, p: CalcPatch): void {
       else (into[key] as unknown[]).push(JSON.parse(JSON.stringify(g)));
     }
   }
+}
+
+/** The delimiter characters of a delimited text split. */
+function splitChars(o: TextImportOptions): string {
+  const sp = o.split;
+  if (sp.kind !== "delimited") return "";
+  return (sp.tab ? "\t" : "") + (sp.semicolon ? ";" : "") + (sp.comma ? "," : "") + (sp.space ? " " : "") + (sp.other ?? "");
 }
 
 /** Toy expression parser (see the module comment). */

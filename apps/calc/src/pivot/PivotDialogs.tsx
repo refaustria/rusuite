@@ -548,19 +548,9 @@ export function ChangeSourceDialog({ store, id }: { store: CalcStore; id: number
   );
 }
 
+/** Change Data Source: one step; the fields follow by name (P8-35). */
 async function changeSource(store: CalcStore, info: PivotInfo, source: PivotSourceSpec): Promise<void> {
-  const tbl = info.table;
-  const target: PivotTarget = { kind: "cell", sheet: info.sheet, row: tbl.location.r0, col: tbl.location.c0 };
-  const ok = await store.applyChecked({
-    type: "compound",
-    commands: [
-      { type: "deletePivot", id: tbl.id },
-      { type: "createPivot", source, target, fields: { rows: tbl.rows ?? [], cols: tbl.cols ?? [], values: tbl.values ?? [], filters: tbl.filters ?? [] } },
-    ],
-  });
-  if (!ok) return;
-  const at = await store.api.pivotAt(info.sheet, target.row, target.col).catch(() => null);
-  if (at) void store.pivots.update(at.id, { name: tbl.name, ...(tbl.options ? { options: tbl.options } : {}) });
+  await store.applyChecked({ type: "changePivotSource", id: info.table.id, source });
 }
 
 /** Delete on a whole table: Excel asks first. */

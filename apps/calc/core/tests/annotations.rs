@@ -349,6 +349,7 @@ fn paste(src: (u32, u32, u32, u32), to: (u32, u32), cut: bool) -> C {
         repeat_rows: 1,
         repeat_cols: 1,
         annotations: true,
+        special: None,
     }
 }
 

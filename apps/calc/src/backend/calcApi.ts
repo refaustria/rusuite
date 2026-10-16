@@ -24,6 +24,12 @@ import type { RegionSnapshot } from "../generated/RegionSnapshot";
 import type { Request } from "../generated/Request";
 import type { ResponseBody } from "../generated/ResponseBody";
 import type { ValidationResult } from "../generated/ValidationResult";
+import type { CsvOptions } from "../generated/CsvOptions";
+import type { DecodedText } from "../generated/DecodedText";
+import type { GoalSeekResult } from "../generated/GoalSeekResult";
+import type { Picture } from "../generated/Picture";
+import type { TextEncoding } from "../generated/TextEncoding";
+import type { TextImportOptions } from "../generated/TextImportOptions";
 import type { WorkbookInfo } from "../generated/WorkbookInfo";
 
 export type PatchEnvelope = Envelope<CalcPatch>;
@@ -98,6 +104,10 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     // `pivot` is null outside pivot tables.
     pivotAt: {},
     pivotItems: { items: "array" },
+    goalSeek: { result: "object" },
+    decoded: { decoded: "object" },
+    preview: { rows: "array" },
+    pictures: { pictures: "array" },
   };
   for (const [field, kind] of Object.entries(shapes[expected])) {
     const value = body[field];
@@ -296,6 +306,46 @@ export class CalcApi {
   async pivotAt(sheet: number, row: number, col: number): Promise<PivotAt | null> {
     const { pivot } = await this.call({ type: "pivotAt", sheet, row, col }, "pivotAt");
     return pivot && typeof pivot === "object" ? pivot : null;
+  }
+
+  /** The filter dropdown values of column `col` of table `id`. */
+  async tableFilterValues(id: number, col: number): Promise<FilterValue[]> {
+    return (await this.call({ type: "tableFilterValues", id, col }, "filterValues")).values;
+  }
+
+  /** Goal Seek: the value of the changing cell that makes the set cell `toValue` (nothing changes). */
+  async goalSeek(sheet: number, set: { row: number; col: number }, toValue: number, changing: { row: number; col: number }): Promise<GoalSeekResult> {
+    return (
+      await this.call(
+        { type: "goalSeek", sheet, setRow: set.row, setCol: set.col, toValue, changingRow: changing.row, changingCol: changing.col },
+        "goalSeek",
+      )
+    ).result;
+  }
+
+  /** Step 1 of the text import wizard: the decoded text and the guessed separators. */
+  async decodeText(bytesBase64: string, encoding?: TextEncoding): Promise<DecodedText> {
+    return (await this.call({ type: "decodeText", bytesBase64, encoding }, "decoded")).decoded;
+  }
+
+  /** The wizard's preview: the first `max` records split with `options`. */
+  async splitPreview(text: string, options: TextImportOptions, max: number): Promise<string[][]> {
+    return (await this.call({ type: "splitPreview", text, options, max }, "preview")).rows;
+  }
+
+  /** Replaces the document by a text file split with `options`. */
+  openText(text: string, name: string, options: TextImportOptions): Promise<BodyOf<"opened">> {
+    return this.call({ type: "openText", text, name, options }, "opened");
+  }
+
+  /** One sheet as CSV (base64) plus the file name to offer. */
+  saveCsv(sheet: number, options: CsvOptions): Promise<BodyOf<"saved">> {
+    return this.call({ type: "saveCsv", sheet, options }, "saved");
+  }
+
+  /** The pictures of `sheet` with their images. */
+  async sheetPictures(sheet: number): Promise<Picture[]> {
+    return (await this.call({ type: "sheetPictures", sheet }, "pictures")).pictures;
   }
 
   /** The items of a field of pivot table `id` in display order (filter dropdowns). */

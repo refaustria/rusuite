@@ -18,12 +18,16 @@ pub mod chart;
 pub mod condfmt;
 pub mod names;
 pub mod numfmt;
+pub mod outline;
+pub mod picture;
 pub mod pivot;
 mod rules;
 pub mod sheet;
 pub mod snapshot;
 pub mod sortfilter;
 pub mod style;
+pub mod tables;
+pub mod textio;
 pub mod validation;
 pub mod workbook;
 
@@ -38,6 +42,8 @@ pub use engine_formula::CellRect;
 
 pub use engine_formula::{CellContent, CellCoord, EngineError, NameScope, Recalc, SheetId};
 pub use names::{BuiltinName, DefinedName};
+pub use outline::{Axis, OutlineProps, OutlineState, MAX_OUTLINE_LEVEL};
+pub use picture::Picture;
 pub use pivot::{PivotCache, PivotTable};
 pub use sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView, MAX_ZOOM, MIN_ZOOM};
 pub use snapshot::{
@@ -52,6 +58,7 @@ pub use style::{
     Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, StyleId, StyleTable,
     VAlign,
 };
+pub use tables::{Table, TableColumn, TableLook, TotalsCell, TotalsFunction, DEFAULT_TABLE_STYLE};
 pub use validation::{
     DataValidation, ErrorStyle, ListSource, ValidationKind, ValidationResult, DEFAULT_ERROR_MESSAGE,
 };
@@ -124,4 +131,10 @@ pub enum Error {
     /// which have content or belong to another pivot table.
     #[error("a pivot table cannot overwrite the cells R{}C{}:R{}C{}", r0 + 1, c0 + 1, r1 + 1, c1 + 1)]
     PivotOverlap { r0: u32, c0: u32, r1: u32, c1: u32 },
+    /// A malformed table, name or table operation.
+    #[error("invalid table: {0}")]
+    InvalidTable(String),
+    /// No table with this id.
+    #[error("unknown table {0}")]
+    UnknownTable(u32),
 }

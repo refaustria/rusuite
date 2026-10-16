@@ -562,8 +562,12 @@ impl<'a> Ctx<'a> {
                 let subtotals = field_ref.map_or(&Subtotals::None, |a| &a.subtotals);
                 let has_sub = plan.deeper_field[depth] && *subtotals != Subtotals::None;
                 let auto = *subtotals == Subtotals::Automatic;
-                let sub_top =
-                    layout != PivotLayout::Tabular && auto && has_sub && !plan.deeper_values[depth];
+                let bottom = field_ref.is_some_and(|a| a.subtotal_bottom);
+                let sub_top = layout != PivotLayout::Tabular
+                    && auto
+                    && has_sub
+                    && !bottom
+                    && !plan.deeper_values[depth];
                 if layout != PivotLayout::Tabular {
                     out.push(Line {
                         key: key.clone(),
