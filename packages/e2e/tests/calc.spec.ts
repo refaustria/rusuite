@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 import { downloadBuffer, fileCommand, interceptPrint, openPrint, openViaBackstage, previewPages, previewPdf, printCount, saveViaBackstage, testdata, trackErrors } from "../support/common";
 import { Grid, openCalc } from "../support/calc";
 import { zipText } from "../support/zip";
+import fs from "node:fs";
+import path from "node:path";
 
 /** Name / Qty table in A1:B4: pear 3, apple 1, fig 2. */
 async function typeTable(grid: Grid) {
@@ -1266,6 +1268,265 @@ test.describe("Calc pivot tables", () => {
     // The table is a pivot table again: its cell shows the contextual tabs and the pane.
     await expect(page.getByRole("tab", { name: "PivotTable Analyze" })).toBeVisible();
     await expect(page.getByTestId("pivot-pane").getByRole("checkbox", { name: "Region" })).toBeChecked();
+    errors.expectNone();
+  });
+});
+
+test.describe("Calc tables and data tools (P8-35)", () => {
+  /** Screenshots for review when `SHOT_DIR` is set (`shots/P8-35-*.png`). */
+  const shot = async (page: import("@playwright/test").Page, name: string) => {
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/P8-35-${name}.png` });
+  };
+
+  /** Name / Qty table, Insert › Table via Ctrl+T on A1 (headers guessed). */
+  async function createTable(page: import("@playwright/test").Page, grid: Grid) {
+    await typeTable(grid);
+    await grid.click(1, 0);
+    await page.keyboard.press("Control+t");
+    const dlg = page.getByRole("dialog", { name: "Create Table" });
+    await expect(dlg.getByTestId("table-range")).toHaveValue("=$A$1:$B$4");
+    await expect(dlg.getByTestId("table-has-headers")).toBeChecked();
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(page.getByRole("tab", { name: "Table Design" })).toBeVisible();
+  }
+
+  test("Ctrl+T creates a banded table; the saved file has xl/tables/table1.xml", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await createTable(page, grid);
+    await page.getByRole("tab", { name: "Table Design" }).click();
+    await expect(page.getByRole("textbox", { name: "Table Name" })).toHaveValue("Table1");
+    await shot(page, "table-design");
+    const xlsx = await saveViaBackstage(page);
+    const table = zipText(xlsx, "xl/tables/table1.xml");
+    expect(table).toMatch(/<table [^>]*name="Table1"[^>]*ref="A1:B4"/);
+    expect(table).toContain('<tableStyleInfo name="TableStyleMedium2"');
+    expect(table).toContain('showRowStripes="1"');
+    expect(zipText(xlsx, "xl/worksheets/sheet1.xml")).toContain("<tableParts");
+    errors.expectNone();
+  });
+
+  test("=SUM(Table1[Qty]) works and follows a row typed below the table", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await createTable(page, grid);
+    await grid.type(0, 4, "=SUM(Table1[Qty])");
+    expect(await grid.display(0, 4)).toBe("6");
+    // Typing right below the table extends it (auto-expansion).
+    await grid.type(4, 0, "kiwi");
+    await grid.type(4, 1, "4");
+    expect(await grid.display(0, 4)).toBe("10");
+    expect(await grid.input(0, 4)).toBe("=SUM(Table1[Qty])");
+    errors.expectNone();
+  });
+
+  test("Total Row: the Qty totals cell switches to Average", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await createTable(page, grid);
+    await page.getByRole("tab", { name: "Table Design" }).click();
+    await page.getByTestId("table-total-row").click();
+    await expect.poll(() => grid.input(4, 1)).toBe("=SUBTOTAL(109,[Qty])");
+    expect(await grid.display(4, 1)).toBe("6");
+    await grid.click(4, 1);
+    // The dropdown button just right of the active totals cell.
+    const q = await grid.pos(4, 1, 64 / 2 + 8, 1);
+    await page.mouse.click(q.x, q.y);
+    const menu = page.getByTestId("totals-menu");
+    await expect(menu).toBeVisible();
+    await shot(page, "totals-menu");
+    await menu.getByRole("menuitemradio", { name: "Average" }).click();
+    await expect.poll(() => grid.input(4, 1)).toBe("=SUBTOTAL(101,[Qty])");
+    expect(await grid.display(4, 1)).toBe("2");
+    errors.expectNone();
+  });
+
+  test("Text to Columns splits a;b;c", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "a;b;c");
+    await grid.click(0, 0);
+    await page.getByRole("tab", { name: "Data" }).click();
+    await page.getByRole("button", { name: "Text to Columns" }).click();
+    const wizard = page.getByTestId("text-wizard");
+    await wizard.getByRole("button", { name: "Next >" }).click();
+    await wizard.getByTestId("wizard-tab").uncheck();
+    await wizard.getByTestId("wizard-semicolon").check();
+    await expect(wizard.getByTestId("wizard-preview").locator("tr").first().locator("td")).toHaveText(["a", "b", "c"]);
+    await shot(page, "text-wizard");
+    await wizard.getByRole("button", { name: "Next >" }).click();
+    await wizard.getByTestId("wizard-finish").click();
+    await expect(wizard).toHaveCount(0);
+    expect(await grid.input(0, 0)).toBe("a");
+    expect(await grid.input(0, 1)).toBe("b");
+    expect(await grid.input(0, 2)).toBe("c");
+    errors.expectNone();
+  });
+
+  test("Remove Duplicates reports what it removed", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    const rows = [["Name", "Qty"], ["pear", "3"], ["apple", "1"], ["pear", "3"], ["fig", "2"], ["apple", "1"]];
+    for (const [r, row] of rows.entries()) for (const [c, v] of row.entries()) await grid.type(r, c, v);
+    await grid.click(1, 0);
+    await page.getByRole("tab", { name: "Data" }).click();
+    await page.getByRole("button", { name: "Remove Duplicates" }).click();
+    const dlg = page.getByRole("dialog", { name: "Remove Duplicates" });
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(page.getByTestId("duplicates-result")).toHaveText("2 duplicate values found and removed; 3 unique values remain.");
+    await shot(page, "duplicates");
+    await page.getByRole("dialog", { name: "Remove Duplicates" }).getByRole("button", { name: "OK" }).click();
+    expect(await grid.input(3, 0)).toBe("fig");
+    expect(await grid.input(4, 0)).toBe("");
+    errors.expectNone();
+  });
+
+  test("Goal Seek sets B1 so that B3 is 100", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 1, "5");
+    await grid.type(1, 1, "=B1*3");
+    await grid.type(2, 1, "=B2+B1-20");
+    await grid.click(2, 1);
+    await page.getByRole("tab", { name: "Data" }).click();
+    await page.getByRole("button", { name: "What-If Analysis" }).click();
+    await page.getByRole("menuitem", { name: "Goal Seek…" }).click();
+    const dlg = page.getByRole("dialog", { name: "Goal Seek" });
+    await expect(dlg.getByTestId("goal-set")).toHaveValue("$B$3");
+    await dlg.getByTestId("goal-to").fill("100");
+    await dlg.getByTestId("goal-changing").fill("B1");
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(page.getByTestId("goal-status")).toHaveText("Goal Seeking with Cell B3 found a solution.");
+    await shot(page, "goal-seek");
+    await page.getByRole("dialog", { name: "Goal Seek Status" }).getByRole("button", { name: "OK" }).click();
+    expect(await grid.input(0, 1)).toBe("30");
+    expect(await grid.display(2, 1)).toBe("100");
+    errors.expectNone();
+  });
+
+  test("grouping rows 2–5 and collapsing the group hides them", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    for (let r = 0; r < 7; r++) await grid.type(r, 0, String(r + 1));
+    await grid.click(1, 0);
+    await grid.click(4, 0, { shift: true });
+    await page.getByRole("tab", { name: "Data" }).click();
+    await page.getByRole("button", { name: "Group", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Group Rows" }).click();
+    await shot(page, "outline");
+    await page.getByRole("button", { name: "Hide Detail" }).click();
+    await shot(page, "outline-collapsed");
+    const xlsx = await saveViaBackstage(page);
+    const sheet = zipText(xlsx, "xl/worksheets/sheet1.xml");
+    for (const r of [2, 3, 4, 5]) expect(sheet).toMatch(new RegExp(`<row r="${r}"[^>]*hidden="1"`));
+    expect(sheet).toMatch(/<row r="2"[^>]*outlineLevel="1"/);
+    expect(sheet).not.toMatch(/<row r="6"[^>]*hidden="1"/);
+    expect(sheet).toMatch(/<row r="6"[^>]*collapsed="1"/);
+    errors.expectNone();
+  });
+
+  test("typing Table1[ offers the columns; Tab completes the structured reference", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await createTable(page, grid);
+    await grid.click(0, 4);
+    await page.keyboard.type("=SUM(Table1[Q");
+    const list = page.getByTestId("function-list");
+    await expect(list.getByRole("option")).toHaveText([/^Qty/]);
+    await page.keyboard.press("Tab");
+    await page.keyboard.type(")");
+    await page.keyboard.press("Enter");
+    expect(await grid.input(0, 4)).toBe("=SUM(Table1[Qty])");
+    expect(await grid.display(0, 4)).toBe("6");
+    errors.expectNone();
+  });
+
+  test("opening a .csv file goes through the Text Import Wizard", async ({ page }, info) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const file = info.outputPath("P8-35-import.csv");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, "Name;Qty\npear;3\napple;1\n");
+    await openViaBackstage(page, file);
+    const wizard = page.getByTestId("text-wizard");
+    await expect(wizard).toBeVisible();
+    await shot(page, "csv-import");
+    await wizard.getByTestId("wizard-finish").click();
+    await expect(wizard).toHaveCount(0);
+    const grid = new Grid(page);
+    expect(await grid.input(0, 0)).toBe("Name");
+    expect(await grid.input(1, 1)).toBe("3");
+    expect(await grid.input(2, 0)).toBe("apple");
+    errors.expectNone();
+  });
+
+  test("Page Layout › Set Print Area limits what File › Print prints", async ({ page }) => {
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "inside");
+    await grid.type(9, 3, "outside");
+    await grid.click(0, 0);
+    await grid.click(1, 1, { shift: true });
+    await page.getByRole("tab", { name: "Page Layout" }).click();
+    await page.getByRole("button", { name: "Print Area" }).click();
+    await page.getByRole("menuitem", { name: "Set Print Area" }).click();
+    await openPrint(page);
+    const html = (await page.getByTestId("print-preview").getAttribute("srcdoc")) ?? "";
+    expect(html).toContain("inside");
+    expect(html).not.toContain("outside");
+  });
+
+  test("Save As with a .csv name saves the active sheet as CSV", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await typeTable(grid);
+    await grid.type(4, 0, "a,b");
+    await fileCommand(page, /^Save As/);
+    const prompt = page.getByRole("dialog", { name: "Save As" });
+    await prompt.getByRole("textbox").fill("export.csv");
+    await prompt.getByRole("button", { name: "Save" }).click();
+    const dlg = page.getByRole("dialog", { name: "Save As CSV" });
+    await expect(dlg.getByTestId("csv-warning")).toBeVisible();
+    await shot(page, "save-csv");
+    const [dl] = await Promise.all([page.waitForEvent("download"), dlg.getByRole("button", { name: "Save" }).click()]);
+    expect(dl.suggestedFilename()).toBe("export.csv");
+    const text = (await downloadBuffer(dl)).toString("utf8");
+    expect(text.replace(/^\uFEFF/, "")).toBe('Name,Qty\r\npear,3\r\napple,1\r\nfig,2\r\n"a,b",\r\n');
+    errors.expectNone();
+  });
+
+  test("Paste Special with Transpose and Values", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await grid.type(0, 0, "1");
+    await grid.type(0, 1, "2");
+    await grid.type(1, 0, "=A1+10");
+    await grid.type(1, 1, "4");
+    await grid.click(0, 0);
+    await grid.click(1, 1, { shift: true });
+    await page.keyboard.press("Control+c");
+    await grid.click(0, 3);
+    await page.keyboard.press("Control+Alt+v");
+    const dlg = page.getByTestId("paste-special");
+    await dlg.getByRole("radio", { name: "Values", exact: true }).check();
+    await dlg.getByTestId("ps-transpose").check();
+    await shot(page, "paste-special");
+    await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(dlg).toHaveCount(0);
+    expect(await grid.input(0, 3)).toBe("1");
+    expect(await grid.input(0, 4)).toBe("11");
+    expect(await grid.input(1, 3)).toBe("2");
+    expect(await grid.input(1, 4)).toBe("4");
     errors.expectNone();
   });
 });
