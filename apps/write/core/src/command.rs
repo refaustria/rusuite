@@ -286,7 +286,7 @@ pub enum WriteCommand {
     },
     /// Makes `id` the default style of `kind` (`StyleSheet::set_default`).
     SetDefaultStyle { kind: StyleKind, id: String },
-    /// Word's "Update <style> to Match Selection": the effective paragraph
+    /// Word's "Update `X` to Match Selection": the effective paragraph
     /// formatting of `block` and the effective run formatting at `offset`
     /// become the style's (where they differ from what the style gives),
     /// the paragraph gets the style (a character style: the run at

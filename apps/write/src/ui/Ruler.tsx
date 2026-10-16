@@ -22,6 +22,22 @@ import { useThrottledEditorState } from "./useThrottledEditorState";
 import { useT } from "../i18n";
 
 const PX_PER_CM = 96 / 2.54;
+/** Height of the sticky ruler row (`h-7` band + `mb-1`), unzoomed. */
+export const RULER_HEIGHT_PX = 32;
+/** The scroll container's top padding (`p-6`): the sticky ruler sticks below it. */
+export const SCROLL_PADDING_PX = 24;
+
+/**
+ * Space the scroll container keeps free at its top for the sticky ruler
+ * (below the container's padding; it sits inside the zoomed page area, so
+ * it scales with the zoom), plus a
+ * small gap: used as `scroll-padding-top` and as ProseMirror's top scroll
+ * margin, so neither a focus scroll nor `scrollIntoView` puts text under it.
+ */
+export function rulerReserve(ruler: boolean, zoom = 1): number {
+  return ruler ? SCROLL_PADDING_PX + Math.ceil(RULER_HEIGHT_PX * zoom) + 8 : 0;
+}
+
 /** Pointer distance below the ruler that removes a dragged stop. */
 const OFF_RULER_PX = 18;
 
