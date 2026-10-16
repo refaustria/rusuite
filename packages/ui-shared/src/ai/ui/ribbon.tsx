@@ -10,7 +10,7 @@ export function AiRibbonButton({ ai }: { ai: Assistant }) {
   return <RibbonButton label={t("ai.ribbon.button")} icon="sparkle" size="large" pressed={open} shortcut="Mod+Shift+A" tooltip={t("ai.ribbon.tip")} onClick={() => ai.togglePanel()} />;
 }
 
-/** The Home tab's AI group (omitted when the backend has no assistant, e.g. in tests). */
+/** The Home tab's AI group (empty – so not shown – when the backend has no assistant or it is unavailable: web build). */
 export function aiRibbonGroup(ai: Assistant | null | undefined): RibbonGroup {
-  return { label: t("ai.ribbon.group"), items: ai ? <AiRibbonButton ai={ai} /> : null };
+  return { label: t("ai.ribbon.group"), items: ai?.available ? <AiRibbonButton ai={ai} /> : null };
 }

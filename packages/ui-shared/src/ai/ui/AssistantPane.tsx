@@ -18,7 +18,7 @@ import { AI_BUTTON, AI_CHIP, AI_PRIMARY, useAssistant, useProviderName } from ".
 /** Mod+Shift+A toggles the panel (capture phase: before the apps' own shortcut layers). */
 export function useAssistantShortcut(ai: Assistant | null | undefined): void {
   useEffect(() => {
-    if (!ai) return;
+    if (!ai?.available) return;
     const onKey = (e: KeyboardEvent) => {
       if (eventCombo(e) !== "mod+shift+a") return;
       e.preventDefault();
@@ -109,7 +109,7 @@ export interface AssistantPaneProps {
 /** The panel; renders nothing while closed (the Ctrl+Shift+A shortcut is always installed). */
 export function AssistantPane({ ai, adapter }: AssistantPaneProps) {
   useAssistantShortcut(ai);
-  if (!ai) return null;
+  if (!ai?.available) return null;
   return <Pane ai={ai} adapter={adapter} />;
 }
 

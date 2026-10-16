@@ -252,4 +252,23 @@ describe("Backend.storage", () => {
     expect((await web.storage!.listRecovery()).map((e) => e.id)).toEqual(["x"]);
     expect(new WasmBackend(fake, { storage: null }).storage).toBeUndefined();
   });
+
+  it("web: connections and the AI assistant are desktop-app features (ADR 0009)", () => {
+    const web = new WasmBackend(fake);
+    expect(web.connectors).toBeUndefined();
+    expect(web.ai?.available).toBe(false);
+    expect(new WasmBackend(fake, { ai: false }).ai).toBeUndefined();
+  });
+
+  it("test hook: the simulated desktop platform enables both", () => {
+    vi.stubGlobal("__RUSUITE_PLATFORM__", "desktop");
+    try {
+      const sim = new WasmBackend(fake);
+      expect(sim.connectors).toBeDefined();
+      expect(sim.ai?.available).toBe(true);
+      expect(new WasmBackend(fake, { connectors: false }).connectors).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
