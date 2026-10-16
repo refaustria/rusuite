@@ -261,6 +261,13 @@ describe("Formatting details", () => {
     await waitFor(() => expect(editor.view.dom.querySelector("sup")).toBeNull());
   });
 
+  it("W-29: Ctrl+Enter inserts a page break (Word), Shift+Enter a line break", async () => {
+    const { editorEl } = await mount();
+    fireEvent.keyDown(editorEl, { key: "Enter", code: "Enter", ctrlKey: true });
+    await waitFor(() => expect(editorEl.querySelector(".page-break")).toBeTruthy());
+    expect(editorEl.querySelector("br:not(.ProseMirror-trailingBreak)")).toBeNull();
+  });
+
   it("line spacing options dialog and Ctrl+2 / Ctrl+0", async () => {
     const { backend, editorEl } = await mount();
     fireEvent.click(screen.getByRole("button", { name: "Line spacing" }));

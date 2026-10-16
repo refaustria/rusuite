@@ -289,6 +289,11 @@ export class WriteFeatures {
             painter.cancel(this.editor as Editor);
             return true;
           },
+          // Word: Ctrl+Enter is a page break (Tiptap's hard break keeps Shift+Enter; W-29).
+          "Mod-Enter": () => {
+            if (tableContext(this.editor.state) || !this.editor.state.selection.$from.parent.isTextblock) return false;
+            return this.editor.chain().insertContent({ type: "pageBreak" }).run();
+          },
           // Word: Ctrl+Shift+S is Apply Styles (not Tiptap's strikethrough).
           "Mod-Shift-s": () => {
             ui.set({ applyStyles: true });
