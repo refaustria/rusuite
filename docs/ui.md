@@ -452,6 +452,43 @@ a hosted drive); Rusuite offers no cloud and contacts nothing until then. Code: 
 - Apps wire one line: `SessionAdapter.saveAs(name)` = the guard's `doc.save(name)` (Save As under a name without a
   prompt), which Save As › a connection runs while `Connectors.pendingSave` points at the target.
 
+## AI assistant (P8-37)
+
+Opt-in, the user's own provider account and key, client-side (ADR 0009 amendment; design `docs/ai-plan.md`). Code:
+`packages/ui-shared/src/ai` (`Assistant` = `Backend.ai` = `session.ai`, providers, prompts, schemas, panel) and
+`packages/ui-shared/src/settings` (the Options dialog); per app `apps/*/src/ai/` (an `AiAppAdapter`: actions, context,
+selection summary, Insert / Replace buttons).
+
+- **File › Options…** opens the shared Options dialog (all apps; Write's own options – the comment author – are its
+  General page). **AI** page: "Enable the AI assistant" (off by default), the data notice "Text you select is sent to
+  <provider> only when you use an AI action", Provider (Anthropic (Claude) / OpenAI-compatible), API key (masked;
+  where it is kept: web – this browser's storage, unencrypted; desktop – the system keyring), Forget key, Base URL
+  (advanced for Anthropic), Model (known ids + Other… free text), Max tokens, Temperature ("used only where the model
+  accepts it"), "Include the whole document by default", the origin that will be contacted, **Test** (lists the
+  provider's models: "Connected. The provider lists N models." or the reason), Cancel / Save.
+- **Home › AI › Assistant** (all apps, toggle) or **Ctrl+Shift+A** opens the **Assistant** task pane on the right
+  (320 px): header with AI settings and Close; when off or without a key a short text and "AI settings…"; the data
+  notice; "Context: <selection summary>" (Write: selection or current paragraph with its length; Calc:
+  `Sheet1!B2:D9`; Show: "slide 2 of 6" or the selected text box) and **Include whole document** – with the size
+  ("about N characters, ~T tokens"), amber above 50 000 characters, cut at 400 000; the action chips (disabled with a
+  reason: "Select something first", "The active cell has no formula", …; chips that need text – Translate to…, Draft,
+  Formula, Transform, Outline – arm the prompt box); the turns of this document (prompt, context, streamed answer or a
+  preview of the structured result, errors, the apply buttons, Copy for text, tokens and model); the prompt box (Enter
+  sends, Shift+Enter new line), model picker, Send / **Stop**, "This document: N input · M output tokens", Clear
+  conversation. Esc closes the pane.
+- **Results are ordinary edits**: Write – Replace selection (the range captured when the request started; the
+  current selection if that text changed) and Insert (paragraphs after the selection's block), Insert draft
+  (headings + paragraphs) and Insert table (header row bold) – each one transaction → one undo step. Calc – Insert
+  formula (validated; into the active cell of the request), Apply (transform: writes the previewed rows from the
+  destination's top-left as one undo step, then selects them), Insert chart (selects the range, the chart insert),
+  Insert into active cell (free answers). Show – Insert slides (after the current slide, "Title and Content" with
+  the deck's theme, one undo step), Set as speaker notes, Replace slide text (the selected text box or the body,
+  levels kept when the line count matches), Apply layout.
+- **Status bar**: "AI: <provider>" while AI is enabled (click toggles the pane; "working…" while a request runs).
+- **Errors** in the turn, localized by kind with the provider's message: wrong key, rate limit ("Try again in N s"),
+  overloaded, offline / interrupted, CORS, **CSP** ("This site's security policy does not allow connections to the
+  AI provider…" – the live web CSP until the owner decides), refusal, cut off (raise Max tokens), no usable result.
+
 ## Save and Save As on the desktop (P7-7)
 
 The desktop shell remembers the document's file (`DocPath` in `apps/*/src-tauri/src/lib.rs`): Open (dialog or recent file)
