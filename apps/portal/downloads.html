@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title data-i18n="portal.dl.title">Downloads – Rusuite</title>
+    <link rel="icon" href="logos/rusuite-mono.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="downloads">
+    <div class="stripe" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="lang" role="group" data-i18n-aria-label="portal.language" aria-label="Language / Sprache">
+      <button type="button" data-lang="en" lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="de" lang="de" aria-pressed="false" title="Deutsch">DE</button>
+    </div>
+    <nav class="topnav"><a href="./" data-i18n="portal.dl.back">← Rusuite</a></nav>
+    <header class="hero">
+      <h1 data-i18n="portal.dl.heading">Desktop downloads</h1>
+      <p class="lead" data-i18n-html="portal.dl.none">No desktop release has been published yet. Builds appear on <a href="https://github.com/refaustria/rusuite/releases">GitHub Releases</a>.</p>
+      <p class="sub" data-i18n-html="portal.dl.web">Or use the web version, nothing to install: <a href="/calc/">Calc</a> · <a href="/write/">Write</a> · <a href="/show/">Show</a></p>
+    </header>
+    <main data-testid="downloads" data-release="none"></main>
+    <footer>
+      <p class="meta">
+        <a href="https://github.com/refaustria/rusuite/releases" data-i18n="portal.dl.all">All releases on GitHub</a>
+        <span aria-hidden="true">·</span>
+        <a href="privacy.html" data-i18n="portal.privacy">Privacy</a>
+      </p>
+      <p class="note" data-i18n="portal.dl.privacy">This page was generated when the site was published and loads nothing from GitHub or any other site; only a click on a download button takes you there.</p>
+      <p class="legal" data-i18n="portal.legal">Microsoft, Word, Excel and PowerPoint are trademarks of Microsoft Corporation. Rusuite is not affiliated with Microsoft.</p>
+    </footer>
+    <script src="i18n.js"></script>
+    <script src="downloads.js"></script>
+  </body>
+</html>

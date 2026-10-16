@@ -14,8 +14,8 @@
 //    opt out with a trailing `// i18n-ignore` comment.
 // 3. Every literal key passed to `t("…")` exists in the package's catalog
 //    (or the shared one).
-// 4. Portal: every `data-i18n*="key"` of apps/portal/index.html exists in
-//    its catalog.
+// 4. Portal: every `data-i18n*="key"` of the pages in apps/portal
+//    (index, privacy, downloads) exists in its catalog.
 //
 // Exit code 1 with a list of findings, else 0.
 
@@ -34,7 +34,7 @@ const PACKAGES = [
   { name: "write", src: "apps/write/src", locales: "apps/write/src/locales" },
   { name: "show", src: "apps/show/src", locales: "apps/show/src/locales" },
 ];
-const PORTAL = { name: "portal", html: "apps/portal/index.html", locales: "apps/portal/locales" };
+const PORTAL = { name: "portal", dir: "apps/portal", locales: "apps/portal/locales" };
 
 // --- 1. parity --------------------------------------------------------------
 
@@ -156,9 +156,12 @@ for (const pkg of PACKAGES) {
 
 {
   const en = catalogs(PORTAL.locales);
-  const html = fs.readFileSync(path.join(root, PORTAL.html), "utf8");
-  for (const m of html.matchAll(/data-i18n(?:-[a-z]+)?="([^"]+)"/g)) {
-    if (!(m[1] in en)) findings.push(`${PORTAL.html}:${lineOf(html, m.index)}: unknown key "${m[1]}"`);
+  for (const page of fs.readdirSync(path.join(root, PORTAL.dir)).filter((f) => f.endsWith(".html"))) {
+    const file = `${PORTAL.dir}/${page}`;
+    const html = fs.readFileSync(path.join(root, file), "utf8");
+    for (const m of html.matchAll(/data-i18n(?:-(?!params)[a-z]+)?="([^"]+)"/g)) {
+      if (!(m[1] in en)) findings.push(`${file}:${lineOf(html, m.index)}: unknown key "${m[1]}"`);
+    }
   }
 }
 

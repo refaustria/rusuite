@@ -49,6 +49,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Privacy check (ADR 0009)
         run: scripts/privacy-check.sh
+      - name: Version strings match (scripts/set-version.sh)
+        run: scripts/check-versions.sh
+      - name: Portal downloads page generator
+        run: node --test scripts/gen-downloads.test.mjs
       - run: pnpm i18n:check
       - run: pnpm test
       - run: pnpm --filter calc build
