@@ -1,11 +1,18 @@
 ---
 source: crates/model-show/tests/presentation.rs
-expression: p
+expression: "serde_json::json!({\n    \"slideSize\": json[\"slideSize\"], \"slides\": json[\"slides\"], \"media\":\n    json[\"media\"],\n})"
 ---
 {
+  "media": [
+    {
+      "contentType": "image/png",
+      "data": "iVBORyBmYWtl",
+      "id": 1
+    }
+  ],
   "slideSize": {
-    "width": 12192000,
-    "height": 6858000
+    "height": 6858000,
+    "width": 12192000
   },
   "slides": [
     {
@@ -13,30 +20,15 @@ expression: p
       "layout": "title",
       "shapes": [
         {
-          "id": 2,
-          "name": "Title 2",
-          "transform": {
-            "x": 1524000,
-            "y": 1122363,
-            "w": 9144000,
-            "h": 2387600
+          "fill": {
+            "kind": "none"
           },
+          "id": 2,
           "kind": {
             "kind": "auto",
             "value": {
               "geometry": "rect",
               "text": {
-                "props": {
-                  "anchor": "bottom",
-                  "wrap": true,
-                  "insets": {
-                    "left": 91440,
-                    "top": 45720,
-                    "right": 91440,
-                    "bottom": 45720
-                  },
-                  "autofit": "shrink"
-                },
                 "paragraphs": [
                   {
                     "runs": [
@@ -45,47 +37,47 @@ expression: p
                       }
                     ]
                   }
-                ]
+                ],
+                "props": {
+                  "anchor": "bottom",
+                  "autofit": "shrink",
+                  "insets": {
+                    "bottom": 45720,
+                    "left": 91440,
+                    "right": 91440,
+                    "top": 45720
+                  },
+                  "wrap": true
+                }
               }
             }
           },
-          "fill": {
-            "kind": "none"
-          },
           "line": {
+            "dash": "solid",
             "fill": {
               "kind": "none"
             },
-            "width": 12700,
-            "dash": "solid"
+            "width": 12700
           },
-          "placeholder": "centeredTitle"
+          "name": "Title 2",
+          "placeholder": "centeredTitle",
+          "transform": {
+            "h": 2387600,
+            "w": 9144000,
+            "x": 1524000,
+            "y": 1122363
+          }
         },
         {
-          "id": 3,
-          "name": "Subtitle 3",
-          "transform": {
-            "x": 1524000,
-            "y": 3602038,
-            "w": 9144000,
-            "h": 1655762
+          "fill": {
+            "kind": "none"
           },
+          "id": 3,
           "kind": {
             "kind": "auto",
             "value": {
               "geometry": "rect",
               "text": {
-                "props": {
-                  "anchor": "top",
-                  "wrap": true,
-                  "insets": {
-                    "left": 91440,
-                    "top": 45720,
-                    "right": 91440,
-                    "bottom": 45720
-                  },
-                  "autofit": "shrink"
-                },
                 "paragraphs": [
                   {
                     "runs": [
@@ -94,21 +86,37 @@ expression: p
                       }
                     ]
                   }
-                ]
+                ],
+                "props": {
+                  "anchor": "top",
+                  "autofit": "shrink",
+                  "insets": {
+                    "bottom": 45720,
+                    "left": 91440,
+                    "right": 91440,
+                    "top": 45720
+                  },
+                  "wrap": true
+                }
               }
             }
           },
-          "fill": {
-            "kind": "none"
-          },
           "line": {
+            "dash": "solid",
             "fill": {
               "kind": "none"
             },
-            "width": 12700,
-            "dash": "solid"
+            "width": 12700
           },
-          "placeholder": "subtitle"
+          "name": "Subtitle 3",
+          "placeholder": "subtitle",
+          "placeholderIdx": 1,
+          "transform": {
+            "h": 1655762,
+            "w": 9144000,
+            "x": 1524000,
+            "y": 3602038
+          }
         }
       ]
     },
@@ -117,30 +125,15 @@ expression: p
       "layout": "titleContent",
       "shapes": [
         {
-          "id": 5,
-          "name": "Title 5",
-          "transform": {
-            "x": 838200,
-            "y": 365125,
-            "w": 10515600,
-            "h": 1325563
+          "fill": {
+            "kind": "none"
           },
+          "id": 5,
           "kind": {
             "kind": "auto",
             "value": {
               "geometry": "rect",
               "text": {
-                "props": {
-                  "anchor": "middle",
-                  "wrap": true,
-                  "insets": {
-                    "left": 91440,
-                    "top": 45720,
-                    "right": 91440,
-                    "bottom": 45720
-                  },
-                  "autofit": "shrink"
-                },
                 "paragraphs": [
                   {
                     "runs": [
@@ -149,47 +142,47 @@ expression: p
                       }
                     ]
                   }
-                ]
+                ],
+                "props": {
+                  "anchor": "middle",
+                  "autofit": "shrink",
+                  "insets": {
+                    "bottom": 45720,
+                    "left": 91440,
+                    "right": 91440,
+                    "top": 45720
+                  },
+                  "wrap": true
+                }
               }
             }
           },
-          "fill": {
-            "kind": "none"
-          },
           "line": {
+            "dash": "solid",
             "fill": {
               "kind": "none"
             },
-            "width": 12700,
-            "dash": "solid"
+            "width": 12700
           },
-          "placeholder": "title"
+          "name": "Title 5",
+          "placeholder": "title",
+          "transform": {
+            "h": 1325563,
+            "w": 10515600,
+            "x": 838200,
+            "y": 365125
+          }
         },
         {
-          "id": 6,
-          "name": "Content Placeholder 6",
-          "transform": {
-            "x": 838200,
-            "y": 1825625,
-            "w": 10515600,
-            "h": 4351338
+          "fill": {
+            "kind": "none"
           },
+          "id": 6,
           "kind": {
             "kind": "auto",
             "value": {
               "geometry": "rect",
               "text": {
-                "props": {
-                  "anchor": "top",
-                  "wrap": true,
-                  "insets": {
-                    "left": 91440,
-                    "top": 45720,
-                    "right": 91440,
-                    "bottom": 45720
-                  },
-                  "autofit": "shrink"
-                },
                 "paragraphs": [
                   {
                     "props": {
@@ -206,11 +199,11 @@ expression: p
                   },
                   {
                     "props": {
-                      "level": 1,
                       "bullet": {
                         "kind": "char",
                         "value": "•"
-                      }
+                      },
+                      "level": 1
                     },
                     "runs": [
                       {
@@ -218,21 +211,37 @@ expression: p
                       }
                     ]
                   }
-                ]
+                ],
+                "props": {
+                  "anchor": "top",
+                  "autofit": "shrink",
+                  "insets": {
+                    "bottom": 45720,
+                    "left": 91440,
+                    "right": 91440,
+                    "top": 45720
+                  },
+                  "wrap": true
+                }
               }
             }
           },
-          "fill": {
-            "kind": "none"
-          },
           "line": {
+            "dash": "solid",
             "fill": {
               "kind": "none"
             },
-            "width": 12700,
-            "dash": "solid"
+            "width": 12700
           },
-          "placeholder": "body"
+          "name": "Content Placeholder 6",
+          "placeholder": "body",
+          "placeholderIdx": 1,
+          "transform": {
+            "h": 4351338,
+            "w": 10515600,
+            "x": 838200,
+            "y": 1825625
+          }
         }
       ]
     },
@@ -241,30 +250,22 @@ expression: p
       "layout": "blank",
       "shapes": [
         {
-          "id": 8,
-          "name": "Rectangle 8",
-          "transform": {
-            "x": 914400,
-            "y": 914400,
-            "w": 1828800,
-            "h": 914400
+          "fill": {
+            "kind": "solid",
+            "value": {
+              "kind": "theme",
+              "value": {
+                "slot": "accent1",
+                "tint": 0.0
+              }
+            }
           },
+          "id": 8,
           "kind": {
             "kind": "auto",
             "value": {
               "geometry": "rect",
               "text": {
-                "props": {
-                  "anchor": "middle",
-                  "wrap": true,
-                  "insets": {
-                    "left": 91440,
-                    "top": 45720,
-                    "right": 91440,
-                    "bottom": 45720
-                  },
-                  "autofit": "none"
-                },
                 "paragraphs": [
                   {
                     "props": {
@@ -272,21 +273,23 @@ expression: p
                     },
                     "runs": []
                   }
-                ]
-              }
-            }
-          },
-          "fill": {
-            "kind": "solid",
-            "value": {
-              "kind": "theme",
-              "value": {
-                "slot": "accent1",
-                "tint": 0.0
+                ],
+                "props": {
+                  "anchor": "middle",
+                  "autofit": "none",
+                  "insets": {
+                    "bottom": 45720,
+                    "left": 91440,
+                    "right": 91440,
+                    "top": 45720
+                  },
+                  "wrap": true
+                }
               }
             }
           },
           "line": {
+            "dash": "solid",
             "fill": {
               "kind": "solid",
               "value": {
@@ -297,35 +300,33 @@ expression: p
                 }
               }
             },
-            "width": 12700,
-            "dash": "solid"
+            "width": 12700
+          },
+          "name": "Rectangle 8",
+          "transform": {
+            "h": 914400,
+            "w": 1828800,
+            "x": 914400,
+            "y": 914400
           }
         },
         {
-          "id": 9,
-          "name": "Oval 9",
-          "transform": {
-            "x": 3657600,
-            "y": 914400,
-            "w": 914400,
-            "h": 914400
+          "fill": {
+            "kind": "solid",
+            "value": {
+              "kind": "theme",
+              "value": {
+                "slot": "accent1",
+                "tint": 0.0
+              }
+            }
           },
+          "id": 9,
           "kind": {
             "kind": "auto",
             "value": {
               "geometry": "ellipse",
               "text": {
-                "props": {
-                  "anchor": "middle",
-                  "wrap": true,
-                  "insets": {
-                    "left": 91440,
-                    "top": 45720,
-                    "right": 91440,
-                    "bottom": 45720
-                  },
-                  "autofit": "none"
-                },
                 "paragraphs": [
                   {
                     "props": {
@@ -333,21 +334,23 @@ expression: p
                     },
                     "runs": []
                   }
-                ]
-              }
-            }
-          },
-          "fill": {
-            "kind": "solid",
-            "value": {
-              "kind": "theme",
-              "value": {
-                "slot": "accent1",
-                "tint": 0.0
+                ],
+                "props": {
+                  "anchor": "middle",
+                  "autofit": "none",
+                  "insets": {
+                    "bottom": 45720,
+                    "left": 91440,
+                    "right": 91440,
+                    "top": 45720
+                  },
+                  "wrap": true
+                }
               }
             }
           },
           "line": {
+            "dash": "solid",
             "fill": {
               "kind": "solid",
               "value": {
@@ -358,29 +361,29 @@ expression: p
                 }
               }
             },
-            "width": 12700,
-            "dash": "solid"
+            "width": 12700
+          },
+          "name": "Oval 9",
+          "transform": {
+            "h": 914400,
+            "w": 914400,
+            "x": 3657600,
+            "y": 914400
           }
         },
         {
-          "id": 10,
-          "name": "Straight Connector 10",
-          "transform": {
-            "x": 914400,
-            "y": 2743200,
-            "w": 3657600,
-            "h": 0
+          "fill": {
+            "kind": "none"
           },
+          "id": 10,
           "kind": {
             "kind": "auto",
             "value": {
               "geometry": "line"
             }
           },
-          "fill": {
-            "kind": "none"
-          },
           "line": {
+            "dash": "solid",
             "fill": {
               "kind": "solid",
               "value": {
@@ -391,85 +394,52 @@ expression: p
                 }
               }
             },
-            "width": 6350,
-            "dash": "solid"
+            "width": 6350
+          },
+          "name": "Straight Connector 10",
+          "transform": {
+            "h": 0,
+            "w": 3657600,
+            "x": 914400,
+            "y": 2743200
           }
         },
         {
-          "id": 11,
-          "name": "Picture 11",
-          "transform": {
-            "x": 6400800,
-            "y": 914400,
-            "w": 1828800,
-            "h": 1371600
+          "fill": {
+            "kind": "none"
           },
+          "id": 11,
           "kind": {
             "kind": "picture",
             "value": {
               "media": 1
             }
           },
-          "fill": {
-            "kind": "none"
-          },
           "line": {
+            "dash": "solid",
             "fill": {
               "kind": "none"
             },
-            "width": 12700,
-            "dash": "solid"
+            "width": 12700
+          },
+          "name": "Picture 11",
+          "transform": {
+            "h": 1371600,
+            "w": 1828800,
+            "x": 6400800,
+            "y": 914400
           }
         },
         {
-          "id": 12,
-          "name": "Group 12",
-          "transform": {
-            "x": 914400,
-            "y": 4114800,
-            "w": 3657600,
-            "h": 914400
+          "fill": {
+            "kind": "none"
           },
+          "id": 12,
           "kind": {
             "kind": "group",
             "value": {
               "children": [
                 {
-                  "id": 13,
-                  "name": "Rounded Rectangle 13",
-                  "transform": {
-                    "x": 0,
-                    "y": 0,
-                    "w": 1371600,
-                    "h": 914400
-                  },
-                  "kind": {
-                    "kind": "auto",
-                    "value": {
-                      "geometry": "roundRect",
-                      "text": {
-                        "props": {
-                          "anchor": "middle",
-                          "wrap": true,
-                          "insets": {
-                            "left": 91440,
-                            "top": 45720,
-                            "right": 91440,
-                            "bottom": 45720
-                          },
-                          "autofit": "none"
-                        },
-                        "paragraphs": [
-                          {
-                            "props": {
-                              "alignment": "center"
-                            },
-                            "runs": []
-                          }
-                        ]
-                      }
-                    }
-                  },
                   "fill": {
                     "kind": "solid",
                     "value": {
@@ -480,7 +450,36 @@ expression: p
                       }
                     }
                   },
+                  "id": 13,
+                  "kind": {
+                    "kind": "auto",
+                    "value": {
+                      "geometry": "roundRect",
+                      "text": {
+                        "paragraphs": [
+                          {
+                            "props": {
+                              "alignment": "center"
+                            },
+                            "runs": []
+                          }
+                        ],
+                        "props": {
+                          "anchor": "middle",
+                          "autofit": "none",
+                          "insets": {
+                            "bottom": 45720,
+                            "left": 91440,
+                            "right": 91440,
+                            "top": 45720
+                          },
+                          "wrap": true
+                        }
+                      }
+                    }
+                  },
                   "line": {
+                    "dash": "solid",
                     "fill": {
                       "kind": "solid",
                       "value": {
@@ -491,35 +490,26 @@ expression: p
                         }
                       }
                     },
-                    "width": 12700,
-                    "dash": "solid"
+                    "width": 12700
+                  },
+                  "name": "Rounded Rectangle 13",
+                  "transform": {
+                    "h": 914400,
+                    "w": 1371600,
+                    "x": 0,
+                    "y": 0
                   }
                 },
                 {
-                  "id": 14,
-                  "name": "TextBox 14",
-                  "transform": {
-                    "x": 1828800,
-                    "y": 457200,
-                    "w": 1828800,
-                    "h": 457200
+                  "fill": {
+                    "kind": "none"
                   },
+                  "id": 14,
                   "kind": {
                     "kind": "auto",
                     "value": {
                       "geometry": "rect",
                       "text": {
-                        "props": {
-                          "anchor": "top",
-                          "wrap": true,
-                          "insets": {
-                            "left": 91440,
-                            "top": 45720,
-                            "right": 91440,
-                            "bottom": 45720
-                          },
-                          "autofit": "resize"
-                        },
                         "paragraphs": [
                           {
                             "runs": [
@@ -528,215 +518,55 @@ expression: p
                               }
                             ]
                           }
-                        ]
+                        ],
+                        "props": {
+                          "anchor": "top",
+                          "autofit": "resize",
+                          "insets": {
+                            "bottom": 45720,
+                            "left": 91440,
+                            "right": 91440,
+                            "top": 45720
+                          },
+                          "wrap": true
+                        }
                       }
                     }
                   },
-                  "fill": {
-                    "kind": "none"
-                  },
                   "line": {
+                    "dash": "solid",
                     "fill": {
                       "kind": "none"
                     },
-                    "width": 12700,
-                    "dash": "solid"
+                    "width": 12700
+                  },
+                  "name": "TextBox 14",
+                  "transform": {
+                    "h": 457200,
+                    "w": 1828800,
+                    "x": 1828800,
+                    "y": 457200
                   }
                 }
               ]
             }
           },
-          "fill": {
-            "kind": "none"
-          },
           "line": {
+            "dash": "solid",
             "fill": {
               "kind": "none"
             },
-            "width": 12700,
-            "dash": "solid"
+            "width": 12700
+          },
+          "name": "Group 12",
+          "transform": {
+            "h": 914400,
+            "w": 3657600,
+            "x": 914400,
+            "y": 4114800
           }
         }
       ]
-    }
-  ],
-  "layouts": [
-    {
-      "kind": "title",
-      "placeholders": [
-        {
-          "kind": "centeredTitle",
-          "transform": {
-            "x": 1524000,
-            "y": 1122363,
-            "w": 9144000,
-            "h": 2387600
-          },
-          "bodyDefaults": {
-            "anchor": "bottom",
-            "wrap": true,
-            "insets": {
-              "left": 91440,
-              "top": 45720,
-              "right": 91440,
-              "bottom": 45720
-            },
-            "autofit": "shrink"
-          },
-          "runDefaults": {
-            "font": {
-              "kind": "theme",
-              "value": "majorLatin"
-            },
-            "size": 6000
-          },
-          "paragraphDefaults": {
-            "alignment": "center"
-          }
-        },
-        {
-          "kind": "subtitle",
-          "transform": {
-            "x": 1524000,
-            "y": 3602038,
-            "w": 9144000,
-            "h": 1655762
-          },
-          "bodyDefaults": {
-            "anchor": "top",
-            "wrap": true,
-            "insets": {
-              "left": 91440,
-              "top": 45720,
-              "right": 91440,
-              "bottom": 45720
-            },
-            "autofit": "shrink"
-          },
-          "runDefaults": {
-            "font": {
-              "kind": "theme",
-              "value": "minorLatin"
-            },
-            "size": 2400
-          },
-          "paragraphDefaults": {
-            "alignment": "center",
-            "bullet": {
-              "kind": "none"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "kind": "titleContent",
-      "placeholders": [
-        {
-          "kind": "title",
-          "transform": {
-            "x": 838200,
-            "y": 365125,
-            "w": 10515600,
-            "h": 1325563
-          },
-          "bodyDefaults": {
-            "anchor": "middle",
-            "wrap": true,
-            "insets": {
-              "left": 91440,
-              "top": 45720,
-              "right": 91440,
-              "bottom": 45720
-            },
-            "autofit": "shrink"
-          },
-          "runDefaults": {
-            "font": {
-              "kind": "theme",
-              "value": "majorLatin"
-            },
-            "size": 4400
-          },
-          "paragraphDefaults": {
-            "alignment": "left"
-          }
-        },
-        {
-          "kind": "body",
-          "transform": {
-            "x": 838200,
-            "y": 1825625,
-            "w": 10515600,
-            "h": 4351338
-          },
-          "bodyDefaults": {
-            "anchor": "top",
-            "wrap": true,
-            "insets": {
-              "left": 91440,
-              "top": 45720,
-              "right": 91440,
-              "bottom": 45720
-            },
-            "autofit": "shrink"
-          },
-          "runDefaults": {
-            "font": {
-              "kind": "theme",
-              "value": "minorLatin"
-            },
-            "size": 2800
-          },
-          "paragraphDefaults": {
-            "alignment": "left",
-            "bullet": {
-              "kind": "char",
-              "value": "•"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "kind": "blank",
-      "placeholders": []
-    }
-  ],
-  "theme": {
-    "name": "Office",
-    "colors": {
-      "name": "Office",
-      "colors": [
-        "000000",
-        "FFFFFF",
-        "44546A",
-        "E7E6E6",
-        "4472C4",
-        "ED7D31",
-        "A5A5A5",
-        "FFC000",
-        "5B9BD5",
-        "70AD47",
-        "0563C1",
-        "954F72"
-      ]
-    },
-    "fonts": {
-      "name": "Office",
-      "majorLatin": "Calibri Light",
-      "minorLatin": "Calibri",
-      "majorEastAsian": "",
-      "minorEastAsian": "",
-      "majorComplexScript": "",
-      "minorComplexScript": ""
-    }
-  },
-  "media": [
-    {
-      "id": 1,
-      "contentType": "image/png",
-      "data": "iVBORyBmYWtl"
     }
   ]
 }

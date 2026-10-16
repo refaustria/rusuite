@@ -102,7 +102,11 @@ fn set_slide_layout_maps_placeholders_and_keeps_user_shapes() {
         [2, 3],
         "existing placeholders keep their ids"
     );
-    let def = pres(&h).layout(LayoutKind::TitleContent).placeholders[0].transform;
+    let def = pres(&h)
+        .layout(&LayoutKind::TitleContent)
+        .unwrap()
+        .placeholders[0]
+        .transform;
     assert_eq!(shape(&h, 2).transform, def);
 
     // the blank slide gets title + body placeholders below its rects
@@ -311,7 +315,7 @@ fn replace_picture_fits_the_old_box() {
     );
     let s = shape(&h, pic.0);
     assert_eq!(s.transform, tr(1000, 1000 + 100_000, 400_000, 200_000));
-    let ShapeKind::Picture { media } = s.kind else {
+    let ShapeKind::Picture { media, .. } = s.kind else {
         panic!()
     };
     assert_eq!(pres(&h).media.len(), 2);

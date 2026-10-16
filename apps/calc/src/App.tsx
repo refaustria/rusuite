@@ -4,6 +4,7 @@ import { CalcApi, type CalcBackend } from "./backend/calcApi";
 import { installDevTools, perfOverlayEnabled, pickBackend } from "./dev/devTools";
 import { FormulaBar } from "./FormulaBar";
 import { GridCanvas } from "./grid/GridCanvas";
+import { ChartFormatPane } from "./charts/FormatPane";
 import { buildCalcPrintDoc } from "./print/calcPrintDoc";
 import { CalcPrintPage, printCalc } from "./print/CalcPrintPage";
 import { DEFAULT_CALC_PRINT, type CalcPrintOptions } from "./print/layout";
@@ -125,7 +126,10 @@ export default function App({ backend }: { backend: CalcBackend }) {
         onViewChange={setView}
       />
       {view.formulaBar && <FormulaBar store={store} />}
-      <GridCanvas store={store} showPerf={perfOverlayEnabled()} />
+      <div className="flex min-h-0 flex-1">
+        <GridCanvas store={store} showPerf={perfOverlayEnabled()} />
+        <ChartFormatPane store={store} />
+      </div>
       <SheetTabs store={store} />
       <StatusBar store={store} session={session} zoom={view.zoom} />
       <Toasts store={store} />

@@ -19,6 +19,10 @@ fn split_at(runs: &mut Vec<TextRun>, offset: usize) -> usize {
             return i;
         }
         let len = runs[i].text.chars().count();
+        if offset < pos + len && runs[i].field.is_some() {
+            // fields are atomic: the boundary moves to the field's start
+            return i;
+        }
         if offset < pos + len {
             let run = &mut runs[i];
             let byte = run
@@ -28,7 +32,14 @@ fn split_at(runs: &mut Vec<TextRun>, offset: usize) -> usize {
                 .map_or(run.text.len(), |(b, _)| b);
             let tail = run.text.split_off(byte);
             let props = run.props.clone();
-            runs.insert(i + 1, TextRun { props, text: tail });
+            runs.insert(
+                i + 1,
+                TextRun {
+                    props,
+                    text: tail,
+                    field: None,
+                },
+            );
             return i + 1;
         }
         pos += len;
@@ -55,12 +66,17 @@ pub(crate) fn set_run_props(p: &mut TextParagraph, from: usize, to: usize, patch
 /// formatting.
 fn merge_runs(runs: &mut Vec<TextRun>) {
     if runs.iter().any(|r| !r.text.is_empty()) {
-        runs.retain(|r| !r.text.is_empty());
+        runs.retain(|r| !r.text.is_empty() || r.field.is_some());
     }
     let mut out: Vec<TextRun> = Vec::with_capacity(runs.len());
     for run in runs.drain(..) {
         match out.last_mut() {
-            Some(last) if last.props == run.props && !run.text.is_empty() => {
+            Some(last)
+                if last.props == run.props
+                    && !run.text.is_empty()
+                    && last.field.is_none()
+                    && run.field.is_none() =>
+            {
                 last.text.push_str(&run.text);
             }
             _ => out.push(run),
@@ -93,5 +109,19 @@ mod tests {
         assert_eq!(p.text(), "a😀bé");
         set_run_props(&mut p, 2, 2, &RunProperties::default());
         assert_eq!(p.runs.len(), 1);
+    }
+
+    #[test]
+    fn fields_stay_whole() {
+        let mut p = TextParagraph::plain("Slide ");
+        p.runs
+            .push(TextRun::field(model_show::TextField::SlideNumber, "12"));
+        set_run_props(&mut p, 7, 8, &bold());
+        // a range inside the field formats the whole field
+        assert_eq!(p.runs.len(), 2);
+        assert_eq!(p.runs[1].props, bold());
+        set_run_props(&mut p, 0, 8, &bold());
+        assert_eq!(p.runs.len(), 2, "a field never merges");
+        assert!(p.runs[1].field.is_some() && p.runs[1].props == bold());
     }
 }

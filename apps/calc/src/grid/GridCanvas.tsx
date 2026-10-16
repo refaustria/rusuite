@@ -28,6 +28,11 @@ import {
 } from "./Selection";
 import type { Measure } from "./textLayout";
 import { useT } from "../i18n";
+import { elementBounds, hitTestChart, type ChartElement } from "@rusuite/ui-shared";
+import { anchorRect, handleAt, handleCursor, moveRect, resizeRect, type Handle } from "../charts/anchor";
+import { chartRefMarks, paintCharts } from "../charts/paint";
+import { chartMenu } from "../charts/menus";
+import { ChartTextEditor } from "../charts/ChartTextEditor";
 
 /** Hit zone around a header boundary for resizing, px. */
 const RESIZE_SLOP = 4;
@@ -77,6 +82,10 @@ type Hit =
   | { kind: "fillHandle" }
   /** The AutoFilter dropdown button of a header cell. */
   | { kind: "filterButton"; col: number }
+  /** A chart (`element`: the part under the pointer). */
+  | { kind: "chart"; id: number; element: ChartElement | null }
+  /** A resize handle of the selected chart. */
+  | { kind: "chartHandle"; id: number; handle: Handle }
   | { kind: "none" };
 
 export function GridCanvas({ store, showPerf = false }: { store: CalcStore; showPerf?: boolean }) {
@@ -93,6 +102,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const editorBox = useRef<HTMLDivElement>(null);
   const spillBox = useRef<HTMLDivElement>(null);
   const validationBox = useRef<HTMLDivElement>(null);
+  const chartTextBox = useRef<HTMLDivElement>(null);
   const raf = useRef<number | null>(null);
   const grow = useRef({ rows: 0, cols: 0 });
   const resizePreview = useRef<{ axis: "col" | "row"; index: number; size: number } | null>(null);
@@ -106,6 +116,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const activeSheet = useCalc(store, (s) => s.activeSheet);
   // While pointing on another sheet the in-cell editor is hidden (the formula bar has the edit).
   const editing = useCalc(store, (s) => s.edit !== null && s.edit.sheet === s.activeSheet);
+  const chartTextEdit = useCalc(store, () => store.charts.textEdit !== null);
   const lastPoint = useRef<Cell | null>(null);
 
   const sheetData = useCallback((): SheetData => {
@@ -210,6 +221,14 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       // The spill range around the active cell: blue, dashed red when blocked (`#SPILL!`).
       const spill = edit ? null : store.activeSpill();
       const cfOps: RenderOp[] = [];
+      // Charts over the cells; the selected chart's source ranges are outlined (Excel).
+      const frames = store.charts.frames(state.activeSheet);
+      const chartSel = store.charts.selected?.sheet === state.activeSheet ? store.charts.selected : null;
+      const chartObj = chartSel ? store.charts.get(chartSel.sheet, chartSel.id) : undefined;
+      if (chartObj && !edit) {
+        const name = state.info?.sheets.find((x) => x.id === state.activeSheet)?.name ?? "";
+        marks.push(...chartRefMarks(chartObj.chart, name));
+      }
       for (const q of quads) {
         const vp = q.vp;
         cctx.save();
@@ -255,12 +274,15 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           }
         }
         if (marks.length > 0) drawRefHighlights(cctx, vp, data, marks);
+        paintCharts(cctx, frames, vp, chartSel);
         cctx.restore();
       }
+      // Hook for the end-to-end tests: the charts of the last frame (sheet px rectangles and scenes).
+      (window as unknown as { __calcCharts?: unknown }).__calcCharts = frames.map((f) => ({ id: f.obj.id, rect: f.rect, scene: f.scene }));
       // Render-op hook for the end-to-end tests: the data bars and icons of the last frame.
       (window as unknown as { __calcCfOps?: RenderOp[] }).__calcCfOps = cfOps;
       drawFreezeLines(cctx, l);
-      if (!edit) {
+      if (!edit && !chartSel) {
         const h = handleRect(sel);
         if (h) {
           cctx.fillStyle = "#ffffff";
@@ -309,6 +331,20 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       vbox.style.top = `${hh + screenY(l, data.rowGeo.offset(m.r0))}px`;
       vbox.style.width = `${data.colGeo.offset(m.c1 + 1) - data.colGeo.offset(m.c0)}px`;
       vbox.style.height = `${data.rowGeo.offset(m.r1 + 1) - data.rowGeo.offset(m.r0)}px`;
+    }
+
+    const tbox = chartTextBox.current;
+    const te = store.charts.textEdit;
+    const tsel = store.charts.selected;
+    if (tbox && te && tsel && tsel.sheet === state.activeSheet) {
+      const frame = store.charts.frames(state.activeSheet).find((f) => f.obj.id === tsel.id);
+      const b = frame?.scene ? elementBounds(frame.scene, te.element) : null;
+      if (frame && b) {
+        tbox.style.left = `${hw + screenX(l, frame.rect.x + b.x)}px`;
+        tbox.style.top = `${hh + screenY(l, frame.rect.y + b.y)}px`;
+        tbox.style.minWidth = `${Math.max(80, b.w)}px`;
+        tbox.style.height = `${Math.max(20, b.h)}px`;
+      }
     }
 
     const tag = spillBox.current;
@@ -435,6 +471,17 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     // Per quadrant: frozen parts map 1:1, the rest is scrolled.
     const { x: cx, y: cy } = toSheet(layout(), x - hw, y - hh);
     if (x < hw && y < hh) return { kind: "corner" };
+    if (x >= hw && y >= hh) {
+      const sheet = store.getState().activeSheet;
+      const sel = store.charts.selected;
+      if (sel && sel.sheet === sheet) {
+        const f = store.charts.frames(sheet).find((fr) => fr.obj.id === sel.id);
+        const handle = f ? handleAt(f.rect, cx, cy) : null;
+        if (f && handle) return { kind: "chartHandle", id: f.obj.id, handle };
+      }
+      const f = store.charts.frameAt(sheet, cx, cy);
+      if (f) return { kind: "chart", id: f.obj.id, element: f.scene ? hitTestChart(f.scene, cx - f.rect.x, cy - f.rect.y) : null };
+    }
     if (x >= hw && y >= hh && !store.getState().edit) {
       const h = handleRect(normalize(store.getState().selection));
       const hx = x - hw - (h?.x ?? 0) - HANDLE / 2;
@@ -517,16 +564,61 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const hit = hitTest(e.clientX, e.clientY);
+    if (hit.kind === "chart" || hit.kind === "chartHandle") {
+      e.preventDefault();
+      chartPointer(hit, e);
+      return;
+    }
     if (hit.kind !== "filterButton") return;
     e.preventDefault();
     openFilterMenu(hit.col);
+  };
+
+  /** Click / drag on a chart: select (element), move, or resize with a handle; Alt snaps to cell edges. */
+  const chartPointer = (hit: Extract<Hit, { kind: "chart" | "chartHandle" }>, e: ReactPointerEvent<HTMLDivElement>) => {
+    if (store.getState().edit) {
+      void store.commitEdit(0, 0);
+      if (store.getState().edit) return;
+    }
+    scroller.current?.focus({ preventScroll: true });
+    const sheet = store.getState().activeSheet;
+    const charts = store.charts;
+    if (hit.kind === "chart" && charts.click(sheet, hit.id, hit.element)) return;
+    const obj = charts.get(sheet, hit.id);
+    if (!obj) return;
+    const geo = store.geometry(sheet);
+    const start = anchorRect(obj.anchor, geo.col, geo.row);
+    const scale = scroller.current ? screenScale(scroller.current) : 1;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      const dx = (ev.clientX - x0) / scale;
+      const dy = (ev.clientY - y0) / scale;
+      if (!moved && Math.hypot(dx, dy) < 3) return;
+      moved = true;
+      const snap = ev.altKey ? { col: geo.col, row: geo.row } : undefined;
+      const rect = hit.kind === "chartHandle" ? resizeRect(start, hit.handle, dx, dy, snap) : moveRect(start, dx, dy, snap);
+      charts.preview = { id: hit.id, rect };
+      schedule();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const p = charts.preview;
+      charts.preview = null;
+      if (moved && p) void charts.setRect(p.rect);
+      schedule();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   };
 
   const onMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const hit = hitTest(e.clientX, e.clientY);
     if (hit.kind === "none") return;
-    if (hit.kind === "filterButton") {
+    if (hit.kind === "filterButton" || hit.kind === "chart" || hit.kind === "chartHandle") {
       // Handled on pointerdown; keep the selection and the focus where they are.
       e.preventDefault();
       return;
@@ -661,12 +753,22 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const onMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
     const cursor =
-      hit.kind === "colEdge" ? "col-resize" : hit.kind === "rowEdge" ? "row-resize" : hit.kind === "fillHandle" ? "crosshair" : hit.kind === "filterButton" ? "default" : "cell";
+      hit.kind === "colEdge" ? "col-resize" : hit.kind === "rowEdge" ? "row-resize" : hit.kind === "fillHandle" ? "crosshair" : hit.kind === "filterButton" ? "default"
+        : hit.kind === "chartHandle" ? handleCursor(hit.handle) : hit.kind === "chart" ? (store.charts.selected?.id === hit.id ? "move" : "default") : "cell";
     if (scroller.current && scroller.current.style.cursor !== cursor) scroller.current.style.cursor = cursor;
   };
 
   const onDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
+    if (hit.kind === "chart") {
+      // Double-click on a chart element opens the Format pane for it.
+      const charts = store.charts;
+      charts.select(store.getState().activeSheet, hit.id, hit.element && hit.element.type !== "chartArea" ? hit.element : null);
+      charts.pane = true;
+      store.notify();
+      return;
+    }
+    if (hit.kind === "chartHandle") return;
     if (hit.kind === "colEdge") void store.autofitCols([hit.col]);
     else if (hit.kind === "rowEdge") void store.autofitRow(hit.row);
     else if (hit.kind === "fillHandle") void store.fillToData(e.ctrlKey || e.metaKey ? "alternate" : "auto");
@@ -690,6 +792,20 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const ctrl = e.ctrlKey || e.metaKey;
     const key = e.key;
     if (key === "Delete" || key === "Backspace" || key === "F2") return;
+    if (store.charts.selected) {
+      // A selected chart: Esc goes up (element → chart → cells); typing does not edit cells.
+      if (key === "Escape") {
+        e.preventDefault();
+        store.charts.escape();
+        return;
+      }
+      if (key.length === 1 && !ctrl && !e.altKey) {
+        e.preventDefault();
+        return;
+      }
+      if (!ctrl && !key.startsWith("Arrow") && !["Tab", "Enter", "PageUp", "PageDown", "Home", "End"].includes(key)) return;
+      store.charts.deselect();
+    }
     if (key === "Escape" && store.getState().clipMark) {
       e.preventDefault();
       store.clearClip();
@@ -722,6 +838,14 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
   const onCopy = (e: ClipboardEvent<HTMLDivElement>, cut = false) => {
     if (store.getState().edit) return;
+    if (store.charts.selected) {
+      store.clearClip();
+      e.clipboardData?.setData("text/plain", store.charts.copy());
+      e.preventDefault();
+      if (cut) void store.charts.remove();
+      return;
+    }
+    store.charts.forgetClip();
     const tsv = store.copy(cut);
     e.clipboardData?.setData("text/plain", tsv);
     e.preventDefault();
@@ -731,6 +855,10 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     if (store.getState().edit) return;
     e.preventDefault();
     const text = e.clipboardData?.getData("text/plain") ?? "";
+    if (store.charts.hasClip() && (text === "" || text === store.charts.clipText)) {
+      void store.charts.paste();
+      return;
+    }
     // Our own copy (same text, or nothing readable) pastes with formats and shifted formulas.
     if (text === "" && store.hasClip()) void store.paste();
     else void store.paste(text || store.clipboard);
@@ -742,6 +870,12 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const hit = hitTest(e.clientX, e.clientY);
     if (hit.kind === "none" || hit.kind === "corner" || hit.kind === "filterButton" || store.getState().edit) return;
     e.preventDefault();
+    if (hit.kind === "chart" || hit.kind === "chartHandle") {
+      const sheet = store.getState().activeSheet;
+      if (store.charts.selected?.id !== hit.id) store.charts.select(sheet, hit.id, null);
+      setMenu({ at: { x: e.clientX, y: e.clientY }, items: chartMenu(store), label: t("calc.chart.chart") });
+      return;
+    }
     const sel = normalize(store.getState().selection);
     let items: ContextMenuItem[];
     let label: string;
@@ -799,6 +933,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         {editing && <CellEditor store={store} boxRef={editorBox} onMount={draw} />}
         <SpillIndicator store={store} boxRef={spillBox} onMount={draw} />
         <ValidationOverlay store={store} boxRef={validationBox} onMount={draw} />
+        {chartTextEdit && <ChartTextEditor store={store} boxRef={chartTextBox} onMount={draw} />}
         {showPerf && (
           <div
             ref={perfBox}

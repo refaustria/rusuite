@@ -1,14 +1,19 @@
-//! The [`Presentation`]: slide size, slides, layouts, theme and media.
+//! The [`Presentation`]: slide size, slides, master, layouts, theme,
+//! sections and media.
 
 use core_model::media::MediaStore;
 use core_model::units::Emu;
-use core_model::Theme;
+use core_model::RunProperties;
 use serde::{Deserialize, Serialize};
 
 use crate::anim::Animation;
-use crate::layout::{Layout, LayoutKind};
+use crate::layout::{Layout, LayoutKind, PlaceholderDef, PlaceholderKind};
+use crate::master::{HeaderFooter, HfDate, SlideMaster, TextClass};
+use crate::section::Section;
 use crate::shape::{Shape, ShapeKind};
 use crate::slide::{find_in, Slide};
+use crate::text::{TextBody, TextField, TextParagraph, TextParagraphProps, TextRun};
+use crate::theme::{Background, ResolvedFill, Theme};
 use crate::{Error, NodeId, Result};
 
 /// The slide size (`p:sldSz`).
@@ -68,11 +73,18 @@ pub struct Presentation {
     pub slide_size: SlideSize,
     /// Slides in order.
     pub slides: Vec<Slide>,
-    /// The built-in layouts, in [`LayoutKind::ALL`] order.
-    pub layouts: [Layout; 3],
-    /// Theme colors and fonts.
-    #[cfg_attr(feature = "ts", ts(as = "crate::ts::Theme"))]
+    /// The slide master (one per presentation).
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<SlideMaster>"))]
+    pub master: SlideMaster,
+    /// The master's layouts, in file order; kinds are unique. New
+    /// presentations have the eleven standard layouts.
+    pub layouts: Vec<Layout>,
+    /// Theme colours, fonts and format styles.
     pub theme: Theme,
+    /// Sections (empty = none); see [`crate::section`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Section>>"))]
+    pub sections: Vec<Section>,
     /// Images.
     #[cfg_attr(feature = "ts", ts(as = "Vec<crate::ts::MediaItem>"))]
     pub media: MediaStore,
@@ -86,9 +98,55 @@ impl Default for Presentation {
     }
 }
 
+/// What [`Presentation::resolve_placeholder`] returns: the effective
+/// geometry and text defaults of a slide placeholder.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedPlaceholder {
+    /// The layout (or master) placeholder it inherits from.
+    pub def: PlaceholderDef,
+    /// Whether `def` comes from the master (the layout has none).
+    pub from_master: bool,
+}
+
+/// The date of a slide's footer (see [`Presentation::resolved_footer`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub enum FooterDate {
+    /// Fixed text.
+    Fixed(String),
+    /// Today's date in format `format` ([`crate::text::date_format_pattern`]).
+    #[serde(rename_all = "camelCase")]
+    Auto {
+        /// `datetimeN`.
+        format: u8,
+    },
+}
+
+/// What a slide shows in its date, footer and slide-number placeholders.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub struct ResolvedFooter {
+    /// Date (`None` = no date placeholder).
+    pub date: Option<FooterDate>,
+    /// Footer text (`None` = no footer placeholder).
+    pub footer: Option<String>,
+    /// 1-based slide number (`None` = no slide-number placeholder).
+    pub slide_number: Option<u32>,
+}
+
 impl Presentation {
-    /// A new presentation: 16:9, Office theme, one Title slide with empty
-    /// title and subtitle placeholders.
+    /// A new presentation: 16:9, Office theme, the eleven standard
+    /// layouts, one Title slide with empty title and subtitle placeholders.
     pub fn new() -> Self {
         let mut p = Self::empty(SlideSize::widescreen());
         p.add_slide(LayoutKind::Title);
@@ -96,13 +154,21 @@ impl Presentation {
     }
 
     /// A presentation without slides (e.g. for importers), with the
-    /// built-in layouts for `slide_size`, Office theme and no media.
+    /// Office master and standard layouts for `slide_size`, Office theme
+    /// and no media.
     pub fn empty(slide_size: SlideSize) -> Self {
+        let master = SlideMaster::builtin(slide_size);
+        let layouts = LayoutKind::STANDARD
+            .iter()
+            .map(|k| Layout::from_master(k.clone(), &master, slide_size))
+            .collect();
         Self {
             slide_size,
             slides: Vec::new(),
-            layouts: LayoutKind::ALL.map(|k| Layout::builtin(k, slide_size)),
+            master,
+            layouts,
             theme: Theme::default(),
+            sections: Vec::new(),
             media: MediaStore::new(),
             next_id: 1,
         }
@@ -121,22 +187,146 @@ impl Presentation {
         self.next_id = self.next_id.max(id.0.saturating_add(1));
     }
 
-    /// The layout `kind`.
-    pub fn layout(&self, kind: LayoutKind) -> &Layout {
-        &self.layouts[kind.index()]
+    /// The layout `kind`, if the presentation has it.
+    pub fn layout(&self, kind: &LayoutKind) -> Option<&Layout> {
+        self.layouts.iter().find(|l| &l.kind == kind)
+    }
+
+    /// Mutable access to layout `kind`.
+    pub fn layout_mut(&mut self, kind: &LayoutKind) -> Option<&mut Layout> {
+        self.layouts.iter_mut().find(|l| &l.kind == kind)
+    }
+
+    /// The layout `kind`, or – for a standard kind the presentation lacks –
+    /// the built-in one for its master.
+    pub fn layout_or_builtin(&self, kind: &LayoutKind) -> Layout {
+        self.layout(kind)
+            .cloned()
+            .unwrap_or_else(|| Layout::from_master(kind.clone(), &self.master, self.slide_size))
+    }
+
+    /// The layout placeholder (or, when the layout has none, the master
+    /// placeholder) slide placeholder `shape` of slide `slide` inherits
+    /// position, body properties and text defaults from.
+    pub fn resolve_placeholder(&self, slide: &Slide, shape: &Shape) -> Option<ResolvedPlaceholder> {
+        let kind = shape.placeholder?;
+        let layout = self.layout_or_builtin(&slide.layout);
+        if let Some(def) = layout.find(kind, shape.placeholder_idx) {
+            return Some(ResolvedPlaceholder {
+                def: def.clone(),
+                from_master: false,
+            });
+        }
+        self.master
+            .placeholder_for(kind)
+            .map(|d| ResolvedPlaceholder {
+                def: PlaceholderDef { kind, ..d.clone() },
+                from_master: true,
+            })
+    }
+
+    /// The effective paragraph and run formatting of outline level
+    /// `level` (0-based) in placeholder `shape` of `slide`: level 1 is
+    /// the placeholder's defaults, deeper levels the master's text style
+    /// of the placeholder's class. Shapes that are not placeholders use
+    /// the master's "other" style.
+    pub fn resolve_level(
+        &self,
+        slide: &Slide,
+        shape: &Shape,
+        level: u8,
+    ) -> (TextParagraphProps, RunProperties) {
+        let class = shape
+            .placeholder
+            .map_or(TextClass::Other, |k| k.text_class());
+        if level == 0 {
+            if let Some(r) = self.resolve_placeholder(slide, shape) {
+                return (r.def.paragraph_defaults, r.def.run_defaults);
+            }
+        }
+        let l = self.master.text_styles.level(class, level);
+        (l.paragraph, l.run)
+    }
+
+    /// The effective background of slide `slide`: its own, else its
+    /// layout's, else the master's.
+    pub fn background_of(&self, slide: &Slide) -> Background {
+        if let Some(f) = slide.background {
+            return Background::Fill(f);
+        }
+        self.layout(&slide.layout)
+            .and_then(|l| l.background)
+            .unwrap_or(self.master.background)
+    }
+
+    /// [`background_of`](Self::background_of) resolved to colours.
+    pub fn resolved_background(&self, slide: &Slide) -> ResolvedFill {
+        self.theme.resolve_background(&self.background_of(slide))
+    }
+
+    /// What slide `slide` shows in its date, footer and slide-number
+    /// placeholders (for the UI, printing and the presenter view): the
+    /// date placeholder's text, or its date field's format; the footer's
+    /// text; the slide's 1-based position for a slide-number placeholder.
+    pub fn resolved_footer(&self, slide: NodeId) -> Option<ResolvedFooter> {
+        let index = self.slide_index(slide)?;
+        let s = &self.slides[index];
+        let mut out = ResolvedFooter::default();
+        for shape in &s.shapes {
+            let Some(kind) = shape.placeholder else {
+                continue;
+            };
+            let text = shape.text();
+            match kind {
+                PlaceholderKind::DateTime => {
+                    let field = text.and_then(|t| {
+                        t.paragraphs
+                            .iter()
+                            .flat_map(|p| &p.runs)
+                            .find_map(|r| match &r.field {
+                                Some(TextField::DateTime { format }) => Some(*format),
+                                _ => None,
+                            })
+                    });
+                    out.date = Some(match field {
+                        Some(format) => FooterDate::Auto { format },
+                        None => {
+                            FooterDate::Fixed(text.map(TextBody::plain_text).unwrap_or_default())
+                        }
+                    });
+                }
+                PlaceholderKind::Footer => {
+                    out.footer = Some(text.map(TextBody::plain_text).unwrap_or_default());
+                }
+                PlaceholderKind::SlideNumber => {
+                    out.slide_number = Some(index as u32 + 1);
+                }
+                _ => {}
+            }
+        }
+        Some(out)
     }
 
     /// Appends a slide with `layout`, holding one empty shape per layout
     /// placeholder (at the placeholder's position, with its body
-    /// properties). Returns the slide's id.
+    /// properties) and the master's header/footer placeholders. Returns
+    /// the slide's id.
     pub fn add_slide(&mut self, layout: LayoutKind) -> NodeId {
         let id = self.alloc_id();
-        let mut slide = Slide::new(id, layout);
-        for mut shape in self.layouts[layout.index()].placeholder_shapes() {
+        let mut slide = Slide::new(id, layout.clone());
+        let l = self.layout_or_builtin(&layout);
+        let mut shapes = l.placeholder_shapes();
+        shapes.extend(header_footer_shapes(
+            &self.master.header_footer,
+            &l,
+            &self.master,
+        ));
+        for mut shape in shapes {
             self.assign_ids(&mut shape);
             slide.shapes.push(shape);
         }
         self.slides.push(slide);
+        self.fix_sections();
         id
     }
 
@@ -162,11 +352,13 @@ impl Presentation {
         remap_attachments(&mut copy.shapes, &map);
         let new_id = copy.id;
         self.slides.insert(index + 1, copy);
+        self.fix_sections();
         Ok(new_id)
     }
 
     /// Moves slide `id` so that it ends up at position `to_index`
-    /// (`0..slides.len()`).
+    /// (`0..slides.len()`); with sections it joins the section of the
+    /// slide before its new position.
     pub fn move_slide(&mut self, id: NodeId, to_index: usize) -> Result<()> {
         let from = self.slide_index(id).ok_or(Error::UnknownSlide(id))?;
         let len = self.slides.len();
@@ -178,14 +370,19 @@ impl Presentation {
         }
         let slide = self.slides.remove(from);
         self.slides.insert(to_index, slide);
+        if from != to_index {
+            self.resection_moved(id);
+        }
         Ok(())
     }
 
     /// Removes slide `id` and returns it (a presentation may end up with
-    /// no slides).
+    /// no slides; its section stays, possibly empty).
     pub fn remove_slide(&mut self, id: NodeId) -> Result<Slide> {
         let index = self.slide_index(id).ok_or(Error::UnknownSlide(id))?;
-        Ok(self.slides.remove(index))
+        let s = self.slides.remove(index);
+        self.fix_sections();
+        Ok(s)
     }
 
     /// Position of slide `id`.
@@ -214,9 +411,29 @@ impl Presentation {
         })
     }
 
-    /// Checks every slide ([`Slide::validate`]).
+    /// Checks every slide ([`Slide::validate`]), that slides use layouts
+    /// of the presentation (standard kinds may be missing: they fall back
+    /// to the built-ins), that layout kinds are unique and the sections
+    /// ([`Presentation::validate_sections`]).
     pub fn validate(&self) -> Result<()> {
-        self.slides.iter().try_for_each(Slide::validate)
+        self.slides.iter().try_for_each(Slide::validate)?;
+        for (i, l) in self.layouts.iter().enumerate() {
+            if self.layouts[..i].iter().any(|o| o.kind == l.kind) {
+                return Err(Error::InvalidLayout(format!(
+                    "layout {} is listed twice",
+                    l.kind
+                )));
+            }
+        }
+        for s in &self.slides {
+            if !s.layout.is_standard() && self.layout(&s.layout).is_none() {
+                return Err(Error::InvalidLayout(format!(
+                    "slide {} uses the missing layout {}",
+                    s.id.0, s.layout
+                )));
+            }
+        }
+        self.validate_sections()
     }
 
     /// The shape with id `id` (searching inside groups) and its slide.
@@ -282,9 +499,14 @@ impl Presentation {
         for slide in &mut self.slides {
             walk(&mut slide.shapes);
         }
+        walk(&mut self.master.shapes);
+        for l in &mut self.layouts {
+            walk(&mut l.shapes);
+        }
     }
 
-    /// Largest node id in use (0 if none).
+    /// Largest node id in use (0 if none), including master and layout
+    /// shapes.
     pub(crate) fn max_node_id(&self) -> u64 {
         fn walk(shapes: &[Shape], max: &mut u64) {
             for s in shapes {
@@ -300,6 +522,10 @@ impl Presentation {
                 max = max.max(a.id.0);
             }
         }
+        walk(&self.master.shapes, &mut max);
+        for l in &self.layouts {
+            walk(&l.shapes, &mut max);
+        }
         max
     }
 
@@ -312,6 +538,65 @@ impl Presentation {
             .ok_or(Error::UnknownSlide(slide))?
             .reroute_connectors())
     }
+}
+
+/// The date/footer/slide-number placeholder shapes `hf` asks for on a
+/// slide with `layout` (positions from the layout, else the master; none
+/// on title slides with [`HeaderFooter::not_on_title`]). Ids are 0.
+pub fn header_footer_shapes(
+    hf: &HeaderFooter,
+    layout: &Layout,
+    master: &SlideMaster,
+) -> Vec<Shape> {
+    if hf.is_off() || (hf.not_on_title && layout.kind == LayoutKind::Title) {
+        return Vec::new();
+    }
+    let def = |k: PlaceholderKind| {
+        layout
+            .placeholder(k)
+            .or_else(|| master.placeholder_for(k))
+            .cloned()
+            .unwrap_or_else(|| {
+                let mut d = SlideMaster::builtin(SlideSize::widescreen())
+                    .placeholder_for(k)
+                    .cloned()
+                    .expect("built-in footer placeholders");
+                d.idx = k.default_idx();
+                d
+            })
+    };
+    let with_text = |k: PlaceholderKind, run: TextRun| {
+        let mut shape = def(k).empty_shape();
+        if let Some(body) = shape.text_mut() {
+            body.paragraphs = vec![TextParagraph {
+                props: TextParagraphProps::default(),
+                runs: vec![run],
+            }];
+        }
+        shape
+    };
+    let mut out = Vec::new();
+    match &hf.date {
+        HfDate::Off => {}
+        HfDate::Auto { format } => out.push(with_text(
+            PlaceholderKind::DateTime,
+            TextRun::field(TextField::DateTime { format: *format }, ""),
+        )),
+        HfDate::Fixed { text } => out.push(with_text(
+            PlaceholderKind::DateTime,
+            TextRun::new(text.clone()),
+        )),
+    }
+    if let Some(f) = &hf.footer {
+        out.push(with_text(PlaceholderKind::Footer, TextRun::new(f.clone())));
+    }
+    if hf.slide_number {
+        out.push(with_text(
+            PlaceholderKind::SlideNumber,
+            TextRun::field(TextField::SlideNumber, "‹#›"),
+        ));
+    }
+    out
 }
 
 /// Points connector attachments of `shapes` (recursively) at the shapes'

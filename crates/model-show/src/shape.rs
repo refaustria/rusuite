@@ -10,6 +10,7 @@ use crate::connector::Connector;
 pub use crate::geometry::Preset;
 use crate::geometry::{Adjust, ConnectorKind};
 use crate::layout::PlaceholderKind;
+use crate::picture::PictureProps;
 use crate::table::Table;
 use crate::text::{Alignment, Anchor, Autofit, BodyProps, TextBody, TextParagraph};
 use crate::NodeId;
@@ -217,6 +218,10 @@ pub enum ShapeKind {
         /// The image in the presentation's media store.
         #[cfg_attr(feature = "ts", ts(as = "crate::ts::MediaId"))]
         media: MediaId,
+        /// Crop, corrections, recolouring, transparency, shape, shadow.
+        #[serde(default, skip_serializing_if = "PictureProps::is_default")]
+        #[cfg_attr(feature = "ts", ts(optional, as = "Option<PictureProps>"))]
+        props: PictureProps,
     },
     /// A group (`p:grpSp`); children are positioned relative to the group's
     /// top-left corner, at scale 1 (`chOff` = 0, `chExt` = group size).
@@ -259,6 +264,11 @@ pub struct Shape {
     /// The layout placeholder this shape fills, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placeholder: Option<PlaceholderKind>,
+    /// The placeholder's `idx` (which of several placeholders of a kind
+    /// it fills, see [`crate::Layout::find`]); `None` = the kind's first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub placeholder_idx: Option<u32>,
     /// Alternative text (`p:cNvPr/@descr`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alt: Option<String>,
@@ -274,6 +284,7 @@ impl Shape {
             fill: Fill::None,
             line: Line::default(),
             placeholder: None,
+            placeholder_idx: None,
             alt: None,
         }
     }
@@ -362,7 +373,13 @@ impl Shape {
 
     /// A picture of media item `media`.
     pub fn picture(media: MediaId, transform: Transform) -> Self {
-        Self::new(ShapeKind::Picture { media }, transform)
+        Self::new(
+            ShapeKind::Picture {
+                media,
+                props: PictureProps::default(),
+            },
+            transform,
+        )
     }
 
     /// Groups `children` (given in absolute coordinates): the group's box is
@@ -409,6 +426,22 @@ impl Shape {
         }
     }
 
+    /// The adjustments of a picture.
+    pub fn picture_props(&self) -> Option<&PictureProps> {
+        match &self.kind {
+            ShapeKind::Picture { props, .. } => Some(props),
+            _ => None,
+        }
+    }
+
+    /// Mutable access to the adjustments of a picture.
+    pub fn picture_props_mut(&mut self) -> Option<&mut PictureProps> {
+        match &mut self.kind {
+            ShapeKind::Picture { props, .. } => Some(props),
+            _ => None,
+        }
+    }
+
     /// The children of a group (empty for other shapes).
     pub fn children(&self) -> &[Shape] {
         match &self.kind {
@@ -449,6 +482,10 @@ impl Shape {
                 PlaceholderKind::Title | PlaceholderKind::CenteredTitle => "Title",
                 PlaceholderKind::Subtitle => "Subtitle",
                 PlaceholderKind::Body => "Content Placeholder",
+                PlaceholderKind::Picture => "Picture Placeholder",
+                PlaceholderKind::DateTime => "Date Placeholder",
+                PlaceholderKind::Footer => "Footer Placeholder",
+                PlaceholderKind::SlideNumber => "Slide Number Placeholder",
             };
         }
         if self.is_text_box() {

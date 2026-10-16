@@ -39,6 +39,11 @@ line: Line,
  */
 placeholder?: PlaceholderKind | null, 
 /**
+ * The placeholder's `idx` (which of several placeholders of a kind
+ * it fills, see [`crate::Layout::find`]); `None` = the kind's first.
+ */
+placeholderIdx?: number, 
+/**
  * Alternative text (`p:cNvPr/@descr`).
  */
 alt?: string | null, };

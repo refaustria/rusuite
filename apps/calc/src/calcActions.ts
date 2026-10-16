@@ -39,12 +39,27 @@ export function calcActions(store: CalcStore) {
     if (text) return store.paste(text, mode);
   };
   return {
-    /** Ctrl+X: marks the selection for a move (marching ants). */
-    cut: () => void writeSystem(store.copy(true)),
-    /** Ctrl+C. */
-    copy: () => void writeSystem(store.copy()),
-    /** Ctrl+V from a menu: the internal clipboard, else the system clipboard's text. */
-    paste: () => pasteMode("all"),
+    /** Ctrl+X: marks the selection for a move (marching ants); a selected chart is cut. */
+    cut: () => {
+      if (store.charts.selected) {
+        store.clearClip();
+        void writeSystem(store.charts.copy());
+        return store.charts.remove();
+      }
+      store.charts.forgetClip();
+      void writeSystem(store.copy(true));
+    },
+    /** Ctrl+C (a selected chart: the chart). */
+    copy: () => {
+      if (store.charts.selected) {
+        store.clearClip();
+        return void writeSystem(store.charts.copy());
+      }
+      store.charts.forgetClip();
+      void writeSystem(store.copy());
+    },
+    /** Ctrl+V from a menu: a copied chart, the internal clipboard, else the system clipboard's text. */
+    paste: () => (store.charts.hasClip() && !store.hasClip() ? store.charts.paste() : pasteMode("all")),
     /** Ctrl+Shift+V: values only. */
     pasteValues: () => pasteMode("valuesOnly"),
     insertRows: () => store.structure("insert", "rows"),

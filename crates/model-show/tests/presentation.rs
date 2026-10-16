@@ -96,7 +96,20 @@ fn new_presentation_snapshot() {
 #[test]
 fn three_slide_deck_snapshot() {
     let p = three_slide_deck();
-    insta::assert_json_snapshot!("three_slide_deck", p);
+    // master, layouts and theme are those of `new_presentation`
+    let json = serde_json::to_value(&p).unwrap();
+    let new = serde_json::to_value(Presentation::new()).unwrap();
+    for key in ["master", "layouts", "theme"] {
+        assert_eq!(json[key], new[key], "{key}");
+    }
+    insta::assert_json_snapshot!(
+        "three_slide_deck",
+        serde_json::json!({
+            "slideSize": json["slideSize"],
+            "slides": json["slides"],
+            "media": json["media"],
+        })
+    );
     // ids are unique
     let mut ids = all_ids(&p);
     let n = ids.len();
@@ -136,7 +149,7 @@ fn add_slide_creates_placeholders() {
     assert_eq!(body.paragraphs, vec![TextParagraph::new()]);
     assert_eq!(
         body.props,
-        p.layout(LayoutKind::TitleContent).placeholders[1].body_defaults
+        p.layout(&LayoutKind::TitleContent).unwrap().placeholders[1].body_defaults
     );
 
     let blank = p.add_slide(LayoutKind::Blank);

@@ -114,8 +114,9 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       "Mod+D": { label: t("calc.sc.fillDown"), group: t("sc.edit"), when: inGrid, run: () => void actions.fillDown() },
       "Mod+R": { label: t("calc.sc.fillRight"), group: t("sc.edit"), when: inGrid, run: () => void actions.fillRight() },
       F2: { label: t("calc.sc.editCell"), group: t("sc.edit"), when: inGrid, run: () => store.beginEdit(null) },
-      Delete: { label: t("calc.sc.clearCells"), group: t("sc.edit"), when: inGrid, run: () => void store.clearSelection() },
-      Backspace: { label: t("calc.sc.clearCells"), group: t("sc.edit"), when: inGrid, run: () => void store.clearSelection() },
+      // A selected chart is deleted instead (Excel).
+      Delete: { label: t("calc.sc.clearCells"), group: t("sc.edit"), when: inGrid, run: () => void (store.charts.selected ? store.charts.remove() : store.clearSelection()) },
+      Backspace: { label: t("calc.sc.clearCells"), group: t("sc.edit"), when: inGrid, run: () => void (store.charts.selected ? store.charts.remove() : store.clearSelection()) },
       "Mod+Space": {
         label: t("calc.sc.selectCol"),
         group: grid,

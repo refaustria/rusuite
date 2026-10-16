@@ -7,8 +7,8 @@ use core_model::{
 };
 use model_show::{
     Alignment, Anchor, ArrowEnd, ArrowKind, ArrowSize, AutoNumScheme, Autofit, BodyProps, Bullet,
-    Emu, Fill, Line, LineDash, TextBody, TextParagraph, TextParagraphProps, TextRun, TextSpacing,
-    Transform,
+    Emu, Fill, Line, LineDash, TextBody, TextField, TextParagraph, TextParagraphProps, TextRun,
+    TextSpacing, Transform,
 };
 
 use crate::xml::{parse_bool, parse_i64, parse_u32, El, XmlOut};
@@ -175,7 +175,7 @@ pub fn scheme_val(slot: ThemeColorSlot) -> &'static str {
 }
 
 /// A few `a:prstClr` names.
-fn preset_color(name: &str) -> Option<Rgb> {
+pub(crate) fn preset_color(name: &str) -> Option<Rgb> {
     let hex = match name {
         "black" => "000000",
         "white" => "FFFFFF",
@@ -300,6 +300,24 @@ const COLOR_ELEMENTS: [&str; 6] = [
     "hslClr",
 ];
 
+/// The first color child of `parent` with its opacity (`a:alpha`, 1 when
+/// absent; the alpha is not part of [`Color`]).
+pub fn color_and_alpha(parent: &El, w: &mut Warnings) -> Option<(Color, f64)> {
+    let c = parent
+        .elements()
+        .find(|c| COLOR_ELEMENTS.contains(&c.name.as_str()))?;
+    let mut c = c.clone();
+    let mut alpha: f64 = 1.0;
+    c.children.retain(|n| match n {
+        fmt_ooxml::xml::Node::El(e) if e.name == "alpha" => {
+            alpha = e.attr("val").and_then(parse_i64).unwrap_or(100_000) as f64 / 100_000.0;
+            false
+        }
+        _ => true,
+    });
+    Some((color_of(&c, w)?, alpha.clamp(0.0, 1.0)))
+}
+
 /// The first color child of `parent` (e.g. of `a:solidFill`).
 pub fn read_color(parent: &El, w: &mut Warnings) -> Option<Color> {
     parent
@@ -310,27 +328,41 @@ pub fn read_color(parent: &El, w: &mut Warnings) -> Option<Color> {
 
 /// Writes a color element.
 pub fn write_color(x: &mut XmlOut, c: &Color) {
-    match *c {
-        Color::Auto => x.empty("a:schemeClr", &[("val", "tx1")]),
-        Color::Rgb(rgb) => x.empty("a:srgbClr", &[("val", &rgb.to_hex())]),
+    write_color_with_alpha(x, c, 1.0);
+}
+
+/// Writes a color element, with an `a:alpha` child when `alpha < 1`.
+pub fn write_color_with_alpha(x: &mut XmlOut, c: &Color, alpha: f64) {
+    let n = |v: f64| ((v * 100_000.0).round() as i64).to_string();
+    let mut mods: Vec<(&str, String)> = Vec::new();
+    let (name, val) = match *c {
+        Color::Auto => ("a:schemeClr", "tx1".to_owned()),
+        Color::Rgb(rgb) => ("a:srgbClr", rgb.to_hex()),
         Color::Theme { slot, tint } => {
-            let val = scheme_val(slot);
-            if tint == 0.0 || tint.is_nan() {
-                x.empty("a:schemeClr", &[("val", val)]);
-                return;
+            if tint != 0.0 && !tint.is_nan() {
+                let t = tint.clamp(-1.0, 1.0);
+                if t < 0.0 {
+                    mods.push(("a:lumMod", n(1.0 + t)));
+                } else {
+                    mods.push(("a:lumMod", n(1.0 - t)));
+                    mods.push(("a:lumOff", n(t)));
+                }
             }
-            let t = tint.clamp(-1.0, 1.0);
-            x.start("a:schemeClr", &[("val", val)]);
-            let n = |v: f64| ((v * 100_000.0).round() as i64).to_string();
-            if t < 0.0 {
-                x.empty("a:lumMod", &[("val", &n(1.0 + t))]);
-            } else {
-                x.empty("a:lumMod", &[("val", &n(1.0 - t))]);
-                x.empty("a:lumOff", &[("val", &n(t))]);
-            }
-            x.end("a:schemeClr");
+            ("a:schemeClr", scheme_val(slot).to_owned())
         }
+    };
+    if alpha < 1.0 {
+        mods.push(("a:alpha", n(alpha.clamp(0.0, 1.0))));
     }
+    if mods.is_empty() {
+        x.empty(name, &[("val", &val)]);
+        return;
+    }
+    x.start(name, &[("val", &val)]);
+    for (m, v) in &mods {
+        x.empty(m, &[("val", v)]);
+    }
+    x.end(name);
 }
 
 // --- fills and outlines ------------------------------------------------------------
@@ -568,6 +600,11 @@ pub fn read_body_pr(bp: &El, props: &mut BodyProps, w: &mut Warnings) {
 
 /// Writes `a:bodyPr` with every modelled attribute and the autofit child.
 pub fn write_body_pr(x: &mut XmlOut, p: &BodyProps) {
+    write_body_pr_with(x, p, false);
+}
+
+/// [`write_body_pr`], with `vert="eaVert"` first when `vertical`.
+pub fn write_body_pr_with(x: &mut XmlOut, p: &BodyProps, vertical: bool) {
     let ins =
         [p.insets.left, p.insets.top, p.insets.right, p.insets.bottom].map(|e| e.0.to_string());
     let anchor = match p.anchor {
@@ -575,18 +612,19 @@ pub fn write_body_pr(x: &mut XmlOut, p: &BodyProps) {
         Anchor::Middle => "ctr",
         Anchor::Bottom => "b",
     };
-    x.start(
-        "a:bodyPr",
-        &[
-            ("wrap", if p.wrap { "square" } else { "none" }),
-            ("lIns", &ins[0]),
-            ("tIns", &ins[1]),
-            ("rIns", &ins[2]),
-            ("bIns", &ins[3]),
-            ("rtlCol", "0"),
-            ("anchor", anchor),
-        ],
-    );
+    let mut attrs = vec![
+        ("wrap", if p.wrap { "square" } else { "none" }),
+        ("lIns", &ins[0]),
+        ("tIns", &ins[1]),
+        ("rIns", &ins[2]),
+        ("bIns", &ins[3]),
+        ("rtlCol", "0"),
+        ("anchor", anchor),
+    ];
+    if vertical {
+        attrs.insert(0, ("vert", "eaVert"));
+    }
+    x.start("a:bodyPr", &attrs);
     match p.autofit {
         Autofit::None => x.empty("a:noAutofit", &[]),
         Autofit::Shrink => x.empty("a:normAutofit", &[]),
@@ -872,13 +910,14 @@ pub fn write_rpr(x: &mut XmlOut, name: &str, p: &RunProperties, always: bool) {
 }
 
 /// Appends `text` with `props` to `runs`, merging with the previous run if
-/// it has the same formatting. Empty text is ignored.
+/// it has the same formatting (fields are never merged). Empty text is
+/// ignored.
 fn push_run(runs: &mut Vec<TextRun>, props: RunProperties, text: &str) {
     if text.is_empty() {
         return;
     }
     if let Some(last) = runs.last_mut() {
-        if last.props == props {
+        if last.props == props && last.field.is_none() {
             last.text.push_str(text);
             return;
         }
@@ -886,11 +925,12 @@ fn push_run(runs: &mut Vec<TextRun>, props: RunProperties, text: &str) {
     runs.push(TextRun {
         props,
         text: text.to_owned(),
+        field: None,
     });
 }
 
 /// `a:p` → paragraph. `a:br` becomes a `"\n"` in the run text; fields
-/// (`a:fld`) keep their current text.
+/// (`a:fld`) become field runs with their current text.
 pub fn read_paragraph(p: &El, w: &mut Warnings) -> TextParagraph {
     let mut para = TextParagraph::new();
     let props_of =
@@ -904,10 +944,14 @@ pub fn read_paragraph(p: &El, w: &mut Warnings) -> TextParagraph {
                 push_run(&mut para.runs, props, &text);
             }
             "fld" => {
-                w.add("fields (a:fld) flattened to their current text");
                 let props = props_of(el, w);
                 let text = el.child("t").map(El::text).unwrap_or_default();
-                push_run(&mut para.runs, props, &text);
+                let field = TextField::from_ooxml(el.attr("type").unwrap_or(""));
+                para.runs.push(TextRun {
+                    props,
+                    text,
+                    field: Some(field),
+                });
             }
             "br" => {
                 let props = props_of(el, w);
@@ -1035,9 +1079,27 @@ pub fn write_ppr(x: &mut XmlOut, name: &str, p: &TextParagraphProps) {
     x.end(name);
 }
 
+/// `a:fld/@id` of the fields we write (one GUID per field type).
+fn field_guid(f: &TextField) -> &'static str {
+    match f {
+        TextField::SlideNumber => crate::master::NUMBER_FIELD_GUID,
+        TextField::DateTime { .. } => crate::master::DATE_FIELD_GUID,
+        TextField::Other { .. } => "{3A7E6C1D-2B8F-4E59-9C1A-6D0F5B2E8A47}",
+    }
+}
+
 /// Writes one run: `\n` and U+000B become `a:br` (with the run's
-/// formatting), `\r` is dropped.
+/// formatting), `\r` is dropped; a field run becomes `a:fld`.
 fn write_run(x: &mut XmlOut, run: &TextRun) {
+    if let Some(f) = &run.field {
+        let ty = f.ooxml_type();
+        x.start("a:fld", &[("id", field_guid(f)), ("type", &ty)]);
+        write_rpr(x, "a:rPr", &run.props, true);
+        let text: String = run.text.chars().filter(|c| !c.is_control()).collect();
+        x.text_el("a:t", &[], &text);
+        x.end("a:fld");
+        return;
+    }
     let mut seg = String::new();
     let flush = |x: &mut XmlOut, seg: &mut String| {
         if seg.is_empty() {
@@ -1070,7 +1132,11 @@ fn write_run(x: &mut XmlOut, run: &TextRun) {
 
 /// Writes `a:p`.
 pub fn write_paragraph(x: &mut XmlOut, p: &TextParagraph) {
-    if p.props.is_empty() && p.runs.iter().all(|r| r.text.is_empty()) {
+    if p.props.is_empty()
+        && p.runs
+            .iter()
+            .all(|r| r.text.is_empty() && r.field.is_none())
+    {
         x.empty("a:p", &[]);
         return;
     }
@@ -1472,12 +1538,14 @@ mod tests {
         assert_eq!(p.runs.len(), 2);
         assert_eq!(p.runs[0].text, "one\ntwo ");
         assert_eq!(p.runs[1].text, "3");
-        assert_eq!(
-            w.into_vec(),
-            ["fields (a:fld) flattened to their current text"]
-        );
+        assert_eq!(p.runs[1].field, Some(TextField::SlideNumber));
+        assert!(w.into_vec().is_empty());
         let s = written(|x| write_paragraph(x, &p));
         assert!(s.contains(r#"<a:br><a:rPr b="1"/></a:br>"#), "{s}");
+        assert!(
+            s.contains(r#"<a:fld id="{9D3A5A06-5E21-4C21-9D1E-4F8B8A0E2C3D}" type="slidenum"><a:rPr/><a:t>3</a:t></a:fld>"#),
+            "{s}"
+        );
         assert_eq!(read_paragraph(&el(&s), &mut Warnings::default()), p);
         assert_eq!(
             written(|x| write_paragraph(x, &TextParagraph::new())),
