@@ -182,7 +182,7 @@ describe("layoutChart snapshots per kind", () => {
     // series 0 = stacked area, series 1 = clustered column, series 2 = line: drawn area, column, line
     const chart = chartOf({ type: "combo" }, 3);
     chart.series[0] = { ...chart.series[0]!, kind: { type: "area", grouping: "stacked" } };
-    chart.series[1] = { ...chart.series[1]!, kind: { type: "bar", direction: "col", grouping: "clustered" } };
+    chart.series[1] = { ...chart.series[1]!, kind: { type: "bar", direction: "column", grouping: "clustered" } };
     chart.series[2] = { ...chart.series[2]!, kind: { type: "line", grouping: "standard", markers: false } };
     const data: ResolvedChart = { series: [DATA.series[0]!, { name: "Cols", categories: CATS, values: [5, 6, 7, 8] }, { name: "Line", categories: CATS, values: [3, 4, 5, 6] }] };
     const scene = layoutChart(chart, data, W, H);
