@@ -283,6 +283,9 @@ Alt pressed and released alone focuses the active tab (again: back to where the 
 (File included), Enter/Space activate (File opens the backstage), ↓ enters the tab's commands, Esc returns to the document.
 Ctrl+F1 (or double-clicking a tab, or the chevron) collapses/expands; while collapsed, activating a tab shows its groups over the
 document until a command runs, Esc, or a click elsewhere. Menus and galleries use the arrow keys; Esc closes them.
+When the active tab's groups are wider than the window (1024 px, longer German labels), ‹ / › buttons at the edges of the
+groups row scroll it (also the mouse wheel; a control reached with the keyboard scrolls into view); dropdown panels near the
+right edge move left to stay in the window (P8-39).
 
 ## Tabs per app
 
@@ -461,6 +464,20 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   Delete removes a whole table, selects the table with Ctrl+A inside it, autofits the table's columns after
   each update, shows "Data changed – Refresh" over a sheet with a stale table (and a status-bar hint) and, in
   point mode, inserts `GETPIVOTDATA(…)` for a clicked value.
+- **Calc entry and clipboard** (P8-39): a typed constant is recognised as Excel does (`engine_formula::entry`): `1,234`,
+  `12%`, `$1,234.50` / `€12` / `12 €`, `(5)`, `1e3`, `1 1/2`, dates (`3/4/2024`, `2024-03-04`, `4.3.2024`, `4-Mar`,
+  `March 4, 2024`, `Mar 2024`), times (`13:45`, `1:30 PM`) and date + time; a General cell gets the matching format
+  (`#,##0`, `0%`, currency, `0.00E+00`, `# ?/?`, `m/d/yyyy`, `d-mmm`, `h:mm`, …), an `@` (Text) cell keeps the typed text.
+  The formula bar shows dates as `m/d/yyyy`, times as `h:mm:ss AM/PM` and percentages as `12%` (the raw number when that
+  form would not round-trip exactly). The formula bar is a one-line textarea (line breaks of Alt+Enter survive editing
+  there). Ctrl+Enter commits without moving and puts the entry into every cell of a selected range. Ctrl+C puts the
+  displayed values on the system clipboard (formulas as their results; cells with line breaks quoted, as Excel's TSV); the
+  internal copy keeps formulas and formats. Number format keys: Ctrl+Shift+~ General, ! `#,##0.00`, @ `h:mm AM/PM`,
+  # `d-mmm-yy`, $ currency, % `0%`, ^ `0.00E+00`; Ctrl+5 strikethrough; Ctrl+; / Ctrl+Shift+: start the editor with
+  today's date / the current time; Ctrl+PageDown / PageUp switch sheets (desktop; browsers keep some of these keys).
+  Renaming a sheet rewrites the formulas that name it (`=Sheet2!A1` → `='Data 2'!A1`). The fill handle continues
+  weekdays and months (`Mon`, `January`; the source's letter case). Not done: German decimal commas in typed numbers
+  (pending the locale decision of number-formats.md), formula results inheriting the format of the cells they refer to.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).
