@@ -23,6 +23,7 @@
 //! assert!(reply.contains(r#""display":"2""#));
 //! ```
 
+mod annotations;
 mod cfdv;
 mod charts;
 mod command;
@@ -33,9 +34,11 @@ mod fill;
 mod names;
 mod patch;
 pub mod wire;
+pub mod wire_annot;
 pub mod wire_cf;
 pub mod wire_chart;
 
+pub use annotations::{CellAnnotations, FormulaLink, SheetAnnotations, SheetThreads};
 pub use command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect, SheetViewPatch};
 pub use dispatch::{dispatch, CalcHost, Request, Response, ResponseBody};
 pub use display::{display_value, UNDISPLAYABLE};
@@ -43,6 +46,7 @@ pub use doc::{CalcDocument, CalcError};
 pub use fill::{plan as fill_plan, shift_input, FillItem, FillPlan};
 pub use names::{name_from_text, preview_value, NameDef, NameEdges, NameInfo, NameRow};
 pub use patch::{
-    CalcPatch, CellCf, CellKind, CellView, ColView, FoundCell, RegionSnapshot, RowView, SheetCells,
-    SheetCols, SheetInfo, SheetMerges, SheetRows, StructuralChange, StructuralKind, WorkbookInfo,
+    CalcPatch, CellCf, CellKind, CellView, ColView, CommentState, FoundCell, RegionSnapshot,
+    RowView, SheetCells, SheetCols, SheetInfo, SheetMerges, SheetRows, StructuralChange,
+    StructuralKind, WorkbookInfo,
 };

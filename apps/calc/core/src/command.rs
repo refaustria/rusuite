@@ -204,6 +204,12 @@ pub enum CalcCommand {
         cut: bool,
         repeat_rows: u32,
         repeat_cols: u32,
+        /// A paste of our own copy (mode `all`): a cut moves the notes,
+        /// threads and hyperlinks of `src`, a copy copies its notes and
+        /// hyperlinks. Absent = false (text from another program).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        annotations: bool,
     },
     /// The fill handle: fills `dst` (adjacent to `src`: below, above, to
     /// the right or to the left, spanning the same columns/rows) from
@@ -401,6 +407,157 @@ pub enum CalcCommand {
         r1: u32,
         c1: u32,
         edges: crate::names::NameEdges,
+    },
+    /// Adds or edits the note of a cell (Shift+F2). `author` and the
+    /// absent `visible`/`bounds` keep their old values on an existing
+    /// note (new notes: hidden, default box). The patch lists the sheet's
+    /// annotations in `annotations` and the cell (its `note` flag).
+    SetNote {
+        sheet: u32,
+        row: u32,
+        col: u32,
+        #[ts(as = "Vec<crate::wire_annot::NoteRun>")]
+        text: Vec<model_sheet::NoteRun>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        author: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        visible: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, as = "Option<crate::wire_annot::NoteBounds>")]
+        bounds: Option<model_sheet::NoteBounds>,
+    },
+    /// Deletes the notes of the range.
+    DeleteNote {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+    },
+    /// Shows (always visible) or hides the note of the cell; `visible`
+    /// absent = toggle. Fails with `invalid_annotation` without a note.
+    ShowHideNote {
+        sheet: u32,
+        row: u32,
+        col: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        visible: Option<bool>,
+    },
+    /// Excel's Convert to Comments: every note of the sheet becomes a
+    /// thread (the note's author, else `author`; the text without the
+    /// leading `Author:` line). Cells that already have a thread keep
+    /// their note.
+    ConvertNotesToComments {
+        sheet: u32,
+        #[ts(as = "crate::wire_annot::Person")]
+        author: model_sheet::Person,
+        date: String,
+    },
+    /// Starts a thread on the cell (the UI supplies author and date; the
+    /// id is generated). Fails with `invalid_annotation` when the cell
+    /// already has one (reply instead).
+    AddComment {
+        sheet: u32,
+        row: u32,
+        col: u32,
+        text: String,
+        #[ts(as = "crate::wire_annot::Person")]
+        author: model_sheet::Person,
+        date: String,
+    },
+    /// Adds a reply to the cell's thread.
+    ReplyComment {
+        sheet: u32,
+        row: u32,
+        col: u32,
+        text: String,
+        #[ts(as = "crate::wire_annot::Person")]
+        author: model_sheet::Person,
+        date: String,
+    },
+    /// Replaces the text of the thread's first comment or of a reply
+    /// (`id`).
+    EditComment {
+        sheet: u32,
+        row: u32,
+        col: u32,
+        id: String,
+        text: String,
+    },
+    /// Deletes one reply of the cell's thread.
+    DeleteReply {
+        sheet: u32,
+        row: u32,
+        col: u32,
+        id: String,
+    },
+    /// Deletes the threads of the range (Review › Delete).
+    DeleteThread {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+    },
+    /// Resolves (`true`) or reopens (`false`) the cell's thread.
+    ResolveThread {
+        sheet: u32,
+        row: u32,
+        col: u32,
+        resolved: bool,
+    },
+    /// Records the current user as a document person (the UI keeps the
+    /// name in local storage, ADR 0009); the patch carries `persons`.
+    SetUser {
+        name: String,
+        initials: String,
+    },
+    /// Sets a hyperlink on the range (replacing the links it intersects)
+    /// and gives its cells the Hyperlink style (theme hyperlink colour,
+    /// single underline). `text` (Text to Display) is written into the
+    /// top-left cell when present and different from its input.
+    SetHyperlink {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+        #[ts(as = "crate::wire_annot::LinkTarget")]
+        target: model_sheet::LinkTarget,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        tooltip: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        text: Option<String>,
+    },
+    /// Removes the hyperlinks intersecting the range (Excel's Clear
+    /// Hyperlinks: the cell formats stay).
+    RemoveHyperlink {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+    },
+    /// *Internal.* Replaces the notes, threads and hyperlinks of a sheet
+    /// (a deleted sheet with empty lists is a no-op).
+    RestoreAnnotations {
+        sheet: u32,
+        #[ts(as = "Vec<crate::wire_annot::Note>")]
+        notes: Vec<model_sheet::Note>,
+        #[ts(as = "Vec<crate::wire_annot::Thread>")]
+        threads: Vec<model_sheet::Thread>,
+        #[ts(as = "Vec<crate::wire_annot::Hyperlink>")]
+        hyperlinks: Vec<model_sheet::Hyperlink>,
+    },
+    /// *Internal.* Replaces the document's person list.
+    RestorePersons {
+        #[ts(as = "Vec<crate::wire_annot::Person>")]
+        persons: Vec<model_sheet::Person>,
     },
     /// *Internal.* Replaces every defined name (the undo of the name
     /// commands and of edits that rewrote names).

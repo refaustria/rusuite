@@ -55,6 +55,12 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Shift+F11 | Insert a sheet before the active one |
 | Mod+Shift+L | AutoFilter on / off (a single cell: its current region) |
 | Alt+ArrowDown | On an AutoFilter header cell: open its filter dropdown (Esc closes it) |
+| Shift+F2 | New note / edit the note of the active cell (in place; Esc or clicking away saves) |
+| Mod+Shift+F2 | New comment (a cell with a thread: open it to reply; Mod+Enter posts) |
+| Mod+K | Insert or edit a hyperlink |
+| Mod+click | Follow the hyperlink (or `HYPERLINK()` formula) of a cell |
+| Delete | With a note box selected: delete the note |
+| Esc | Deselect a note box, close a comment card |
 
 ### Mouse
 
@@ -66,6 +72,7 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 - **Sheet tabs**: Hide and Unhide… (lists the hidden sheets) are also in the tab menu, and in Home › Format.
 - **Frozen panes** (View › Freeze Panes ▾): frozen rows and columns stay in place while the rest scrolls; clicks and drags work across the divider.
 - Double-click a column boundary to autofit the column, a row boundary to autofit the row. Autofit measures the cells loaded in the view cache (the visible area plus prefetched blocks), not the whole sheet.
+- **Notes and comments**: hover a cell with a red triangle (note) or a purple bubble (comment) to see it; click a shown note box to select it, drag to move it, drag its handles to resize it, double-click to edit. Hover a link for its ScreenTip; Ctrl+click follows it.
 - Cut/paste moves the cells and their formulas keep their text; references to the moved cells (an area only when it lies entirely inside the moved block), in the moved formulas and anywhere in the workbook, follow them, as in Excel.
 
 ### Formula editing (point mode)

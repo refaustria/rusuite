@@ -18,6 +18,7 @@ import { useCalc, type CalcStore } from "../state/store";
 import { CfMenu } from "../condFormat/CfMenu";
 import { chartDesignTab, chartFormatTab, chartsInsertGroup } from "../charts/ChartRibbon";
 import { formulasTab } from "../formulas/FormulasRibbon";
+import { linksInsertGroup, reviewTab } from "../comments/ReviewRibbon";
 import { NumberGroup } from "./NumberGroup";
 import {
   clearFilterIcon, condFormatIcon, filterIcon, freezeIcon, headingsIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon, validationIcon,
@@ -295,6 +296,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
         ),
       },
       chartsInsertGroup(store, t, off),
+      linksInsertGroup(store, t, off),
     ],
   };
   // Chart Design and Format while a chart is selected.
@@ -410,7 +412,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
       appName="Rusuite Calc"
       documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#217346"
-      tabs={[home, insert, formulasTab(store, t, off), data, viewTab, ...contextual]}
+      tabs={[home, insert, formulasTab(store, t, off), data, reviewTab(store, t, off), viewTab, ...contextual]}
       activeTab={tab}
       onTabChange={setTab}
       backstage={{

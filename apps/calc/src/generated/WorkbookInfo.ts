@@ -2,6 +2,7 @@
 import type { Revision } from "../../../../packages/ui-shared/src/generated/Revision";
 import type { CellStyle } from "./CellStyle";
 import type { NameInfo } from "./NameInfo";
+import type { Person } from "./Person";
 import type { SheetInfo } from "./SheetInfo";
 
 /**
@@ -20,4 +21,8 @@ revision: Revision,
 /**
  * The defined names; absent = none.
  */
-names?: Array<NameInfo>, };
+names?: Array<NameInfo>, 
+/**
+ * The document's comment authors; absent = none.
+ */
+persons?: Array<Person>, };

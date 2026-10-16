@@ -7,11 +7,13 @@
 //! number formats ([`numfmt`]), column/row dimensions, sheet defaults,
 //! sheet views (frozen panes, zoom), hidden sheets, merged cells, sorting
 //! and AutoFilter ([`sortfilter`]), conditional formatting ([`condfmt`])
-//! data validation ([`validation`]), charts ([`chart`]) and defined names
-//! ([`names`]).
+//! data validation ([`validation`]), charts ([`chart`]), defined names
+//! ([`names`]) and notes, threaded comments and hyperlinks
+//! ([`annotations`]).
 //! [`WorkbookSnapshot`] is the serializable form (camelCase JSON) used by
 //! serde, the IPC layer and `fmt-xlsx`.
 
+pub mod annotations;
 pub mod chart;
 pub mod condfmt;
 pub mod names;
@@ -24,6 +26,9 @@ pub mod style;
 pub mod validation;
 pub mod workbook;
 
+pub use annotations::{
+    guid, initials_of, Hyperlink, LinkTarget, Note, NoteBounds, NoteRun, Person, Reply, Thread,
+};
 pub use chart::{CellOffset, ChartAnchor, ChartObject, ResolvedRef};
 pub use condfmt::{
     CfKind, CfResult, CfRule, CfValue, ColorPoint, CompareOp, DxfStyle, IconSetKind,
@@ -100,4 +105,7 @@ pub enum Error {
     /// No chart with this id on the sheet.
     #[error("unknown chart {0}")]
     UnknownChart(u32),
+    /// A malformed note, comment or hyperlink.
+    #[error("invalid annotation: {0}")]
+    InvalidAnnotation(String),
 }

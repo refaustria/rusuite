@@ -60,6 +60,7 @@ import { currentRegion, duplicateColumns, guessHeader, sortRangeCommand, sortSco
 import { ChartController } from "../charts/controller";
 import { NamesController } from "../names/controller";
 import { TraceController } from "../audit/trace";
+import { CommentsController, type UserNext } from "../comments/controller";
 
 /** Snapshot blocks: 64 rows × 32 columns. */
 export const BLOCK_ROWS = 64;
@@ -209,7 +210,11 @@ export type CalcDialog =
   /** Go To (Ctrl+G / F5). */
   | { kind: "goTo" }
   /** Insert Function (Shift+F3), optionally preselecting a category. */
-  | { kind: "insertFunction"; category?: string };
+  | { kind: "insertFunction"; category?: string }
+  /** Insert › Link (Ctrl+K): insert or edit the selection's hyperlink. */
+  | { kind: "link" }
+  /** Asks for the user name before the first comment (kept in this browser only). */
+  | { kind: "userName"; next: UserNext };
 
 /** The failed check of a committed edit (Excel's Stop / Warning / Information alert). */
 export interface ValidationAlert {
@@ -256,7 +261,8 @@ export function emptyCache(): SheetCache {
 }
 
 function isBlankCell(c: CellView): boolean {
-  return c.input === "" && c.display === "" && c.style === 0;
+  // An empty cell with a note or a comment stays: it carries the indicator.
+  return c.input === "" && c.display === "" && c.style === 0 && !c.note && !c.comment;
 }
 
 function putCell(cache: SheetCache, c: CellView): void {
@@ -390,6 +396,8 @@ export class CalcStore {
   readonly names: NamesController = new NamesController(this);
   /** Formula Auditing's trace arrows (P8-23). */
   readonly trace: TraceController = new TraceController(this);
+  /** Notes, threaded comments and hyperlinks (P8-26). */
+  readonly comments: CommentsController = new CommentsController(this);
 
   constructor(readonly api: CalcApi) {}
 
@@ -554,6 +562,7 @@ export class CalcStore {
     this.geo.clear();
     this.inflight.clear();
     this.charts.reset();
+    this.comments.reset();
     const shown = visibleSheets(info.sheets);
     const active = shown.some((s) => s.id === this.state.activeSheet) ? this.state.activeSheet : (shown[0]?.id ?? info.sheets[0]?.id ?? 0);
     this.bump({ info, activeSheet: active, revision: info.revision, edit: null });
@@ -567,6 +576,7 @@ export class CalcStore {
       sheets: patch.sheets ?? info.sheets,
       styles: patch.styles ?? info.styles,
       names: patch.names ?? info.names,
+      persons: patch.persons ?? info.persons,
     };
     const reload = new Set<number>();
     for (const s of patch.structural) {
@@ -587,6 +597,7 @@ export class CalcStore {
       for (const r of g.rows) putRow(cache, r);
     }
     for (const g of patch.merges ?? []) this.cache(g.sheet).merges = g.merges.map((m) => ({ ...m }));
+    if (patch.annotations?.length) this.comments.fromPatch(patch.annotations);
     let activeSheet = this.state.activeSheet;
     let edit = this.state.edit;
     let clipMark = this.state.clipMark;
@@ -600,6 +611,7 @@ export class CalcStore {
         this.extents.delete(id);
         this.lastViewport.delete(id);
         this.charts.dropSheet(id);
+        this.comments.dropSheet(id);
         for (const key of [...this.inflight.keys()]) if (key.startsWith(`${id}:`)) this.inflight.delete(key);
       }
       if (!live.has(activeSheet)) {
@@ -1464,6 +1476,8 @@ export class CalcStore {
       command = {
         type: "pasteRange", sheet, r0: at.r0, c0: at.c0, src: { sheet: clip.sheet, ...clip.range },
         cells: mode === "valuesOnly" && !clip.cut && clip.values ? clip.values : clip.cells, mode: clip.cut ? "all" : mode, cut: clip.cut, repeatRows: at.repeatRows, repeatCols: at.repeatCols,
+        // Our own copy: notes and links come along (a cut also moves the threads).
+        annotations: clip.cut || mode === "all",
       };
     } else {
       if (!text) return Promise.resolve();

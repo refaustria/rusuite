@@ -34,6 +34,8 @@ import { chartRefMarks, paintCharts } from "../charts/paint";
 import { paintArrows } from "../audit/trace";
 import { chartMenu } from "../charts/menus";
 import { ChartTextEditor } from "../charts/ChartTextEditor";
+import { AnnotationLayer } from "../comments/AnnotationLayer";
+import { drawIndicators, indicators } from "../comments/model";
 
 /** Hit zone around a header boundary for resizing, px. */
 const RESIZE_SLOP = 4;
@@ -242,6 +244,9 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         if (data.cf && data.cf.size > 0) for (const o of base) if (o.op === "bar" || o.op === "icon") cfOps.push(o);
         drawOps(cctx, store.sheetView().showGridlines ? base : base.filter((o) => o.op !== "gridlines"), null);
         drawSelection(cctx, vp, data, sel, state.selection.anchor);
+        // Note triangles and comment markers in the cells' top-right corners (over the selection, as in Excel).
+        const visCells = visibleRange(vp, data.colGeo, data.rowGeo);
+        drawIndicators(cctx, indicators(data.cells, data.colGeo, data.rowGeo, [visCells.r0, visCells.r1], [visCells.c0, visCells.c1]), vp.scrollX, vp.scrollY);
         if (spill) drawOps(cctx, spillOutlineOps(vp, data, spill), null);
         if (af) {
           // AutoFilter dropdowns on the header row (over the selection, as in Excel).
@@ -350,6 +355,10 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         tbox.style.height = `${Math.max(20, b.h)}px`;
       }
     }
+
+    // The annotation layer (note boxes, cards) follows the scroll position.
+    store.comments.screen = (x, y) => ({ x: screenX(l, x), y: screenY(l, y) });
+    store.comments.positioner?.();
 
     const tag = spillBox.current;
     if (tag) {
@@ -636,6 +645,20 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     }
     e.preventDefault();
     const edit = store.getState().edit;
+    if (store.comments.selectedNote) {
+      store.comments.selectedNote = null;
+      store.notify();
+    }
+    if (!edit && hit.kind === "cell" && (e.ctrlKey || e.metaKey)) {
+      // Ctrl+click follows a hyperlink (a plain click selects the cell).
+      const sheet = store.getState().activeSheet;
+      const at = { sheet, ...hit.cell };
+      if (store.comments.link(at) || store.cache(sheet).cells.get(hit.cell.row)?.get(hit.cell.col)?.link) {
+        scroller.current?.focus({ preventScroll: true });
+        void store.comments.follow(at);
+        return;
+      }
+    }
     if (edit && (hit.kind === "cell" || hit.kind === "colHeader" || hit.kind === "rowHeader") && store.canPoint()) {
       pointWithMouse(hit, e.shiftKey);
       return;
@@ -763,6 +786,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
   const onMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
+    // Notes, threads and links show their box / card / tip on hover (also reachable from the Review tab and the context menu).
+    if (e.buttons === 0) store.comments.hoverAt(hit.kind === "cell" ? hit.cell : null);
     const cursor =
       hit.kind === "colEdge" ? "col-resize" : hit.kind === "rowEdge" ? "row-resize" : hit.kind === "fillHandle" ? "crosshair" : hit.kind === "filterButton" ? "default"
         : hit.kind === "chartHandle" ? handleCursor(hit.handle) : hit.kind === "chart" ? (store.charts.selected?.id === hit.id ? "move" : "default") : "cell";
@@ -816,6 +841,13 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       }
       if (!ctrl && !key.startsWith("Arrow") && !["Tab", "Enter", "PageUp", "PageDown", "Home", "End"].includes(key)) return;
       store.charts.deselect();
+    }
+    if (key === "Escape" && (store.comments.selectedNote || store.comments.pinned || store.comments.composing)) {
+      e.preventDefault();
+      store.comments.selectedNote = null;
+      store.comments.pin(null);
+      store.comments.cancelCompose();
+      return;
     }
     if (key === "Escape" && store.getState().clipMark) {
       e.preventDefault();
@@ -900,7 +932,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       [items, label] = [rowHeaderMenu(actions), t("calc.row")];
     } else {
       if (hit.kind === "cell" && !contains(sel, hit.cell.row, hit.cell.col)) store.select(cellSelection(hit.cell.row, hit.cell.col));
-      [items, label] = [cellMenu(actions, store.selectionHasMerge()), t("calc.cell")];
+      [items, label] = [cellMenu(actions, store.selectionHasMerge(), actions.annotationState()), t("calc.cell")];
     }
     setMenu({ at: { x: e.clientX, y: e.clientY }, items, label });
   };
@@ -932,6 +964,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           onPointerDown={onPointerDown}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
+          onMouseLeave={() => store.comments.hoverAt(null)}
           onDoubleClick={onDoubleClick}
           onKeyDown={onKeyDown}
           onCopy={(e) => onCopy(e)}
@@ -945,6 +978,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         <SpillIndicator store={store} boxRef={spillBox} onMount={draw} />
         <ValidationOverlay store={store} boxRef={validationBox} onMount={draw} />
         {chartTextEdit && <ChartTextEditor store={store} boxRef={chartTextBox} onMount={draw} />}
+        <AnnotationLayer store={store} />
         {showPerf && (
           <div
             ref={perfBox}

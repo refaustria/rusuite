@@ -5,6 +5,7 @@ import type { Backend } from "@rusuite/ui-shared";
 import type { Envelope } from "../../../../packages/ui-shared/src/generated/Envelope";
 import type { CalcCommand } from "../generated/CalcCommand";
 import type { CalcPatch } from "../generated/CalcPatch";
+import type { CellAnnotations } from "../generated/CellAnnotations";
 import type { CfRule } from "../generated/CfRule";
 import type { Chart } from "../generated/Chart";
 import type { ChartObject } from "../generated/ChartObject";
@@ -15,6 +16,7 @@ import type { FoundCell } from "../generated/FoundCell";
 import type { NameRow } from "../generated/NameRow";
 import type { Rect } from "../generated/Rect";
 import type { SheetRect } from "../generated/SheetRect";
+import type { SheetThreads } from "../generated/SheetThreads";
 import type { RegionSnapshot } from "../generated/RegionSnapshot";
 import type { Request } from "../generated/Request";
 import type { ResponseBody } from "../generated/ResponseBody";
@@ -87,6 +89,8 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     // `name` is null when no name has exactly that range.
     nameAt: {},
     trace: { refs: "array" },
+    annotations: { annotations: "object" },
+    comments: { sheets: "array" },
   };
   for (const [field, kind] of Object.entries(shapes[expected])) {
     const value = body[field];
@@ -264,5 +268,15 @@ export class CalcApi {
   async recommendedChart(sheet: number, r0: number, c0: number, r1: number, c1: number): Promise<Chart | null> {
     const { chart } = await this.call({ type: "recommendedChart", sheet, r0, c0, r1, c1 }, "recommendedChart");
     return chart && typeof chart === "object" ? chart : null;
+  }
+
+  /** The notes, threads and hyperlinks intersecting a rectangle, with its `HYPERLINK()` targets. */
+  async cellAnnotations(sheet: number, r0: number, c0: number, r1: number, c1: number): Promise<CellAnnotations> {
+    return (await this.call({ type: "cellAnnotations", sheet, r0, c0, r1, c1 }, "annotations")).annotations;
+  }
+
+  /** The threads of `sheet`, or of every sheet with any (`null`). */
+  async allComments(sheet: number | null): Promise<SheetThreads[]> {
+    return (await this.call({ type: "allComments", sheet }, "comments")).sheets;
   }
 }

@@ -1,3 +1,4 @@
+import { sharedTest } from "../../vitest.shared";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -21,6 +22,7 @@ export default defineConfig(({ mode }) => ({
     strictPort: true,
   },
   test: {
-    environment: "jsdom",
+    ...sharedTest,
+    setupFiles: ["./src/test-setup.ts"],
   },
 }));
