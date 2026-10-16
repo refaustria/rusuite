@@ -231,7 +231,8 @@ export function designControls(store: ShowStore, state: ShowState, t: T) {
   const backgroundStyles = <RibbonMenuButton label={t("show.bg.styles")} icon={DI.bgStyles} showLabel disabled={!pres} menu={bgStyles} />;
   const slideSize = <RibbonMenuButton label={t("show.size.label")} icon={DI.slideSize} size="large" showLabel disabled={!pres} menu={sizeMenu} />;
   const formatBackground = <RibbonButton label={t("show.bg.format")} icon={DI.bgFormat} size="large" showLabel pressed={state.bgPane} disabled={!pres} onClick={() => store.toggleBgPane()} />;
-  return { pres, variants, variant, themesGallery, colors, fonts, backgroundStyles, slideSize, formatBackground };
+  const backgroundStylesLarge = <RibbonMenuButton label={t("show.bg.styles")} icon={DI.bgStyles} size="large" showLabel disabled={!pres} menu={bgStyles} />;
+  return { pres, variants, variant, themesGallery, colors, fonts, backgroundStyles, backgroundStylesLarge, slideSize, formatBackground };
 }
 
 export function designTab(store: ShowStore, state: ShowState, t: T): RibbonTab {
@@ -261,7 +262,6 @@ export function designTab(store: ShowStore, state: ShowState, t: T): RibbonTab {
             <RibbonStack>
               {c.colors}
               {c.fonts}
-              {c.backgroundStyles}
             </RibbonStack>
           </>
         ),
@@ -272,6 +272,7 @@ export function designTab(store: ShowStore, state: ShowState, t: T): RibbonTab {
           <>
             {c.slideSize}
             {c.formatBackground}
+            {c.backgroundStylesLarge}
           </>
         ),
       },

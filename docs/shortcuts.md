@@ -164,3 +164,14 @@ Mod+B/I/U also format the selected text inside the text overlay; there Tab / Shi
 selected paragraphs. While dragging or resizing, shapes snap to the slide and to other shapes (smart guides); hold Alt to
 move freely. Shift keeps the aspect ratio while resizing a shape (pictures keep it by default; Shift frees it). Arrow-key
 nudges never snap.
+
+### Pictures, master view and sections (P8-22)
+
+| Keys / mouse | Action |
+| --- | --- |
+| Picture Format › Crop, then drag a black handle | Move that edge of the crop (outwards pads); drag inside the frame to move the image under it |
+| Enter, or a click outside the picture (crop mode) | Apply the crop |
+| Esc (crop mode) | Leave crop mode without changes |
+| ↑ / ↓ in the Slide Master panel | Select the master / the previous or next layout |
+| Click a section header in the slide panel | Collapse / expand the section (right-click: rename, remove, move, collapse / expand all) |
+| Drag a slide onto a section header | Move the slide to the start of that section |
