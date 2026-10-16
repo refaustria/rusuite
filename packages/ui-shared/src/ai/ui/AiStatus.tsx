@@ -9,7 +9,7 @@ export function AiStatus({ ai, className }: { ai: Assistant; className?: string 
   const enabled = useAssistant(ai, (s) => s.settings.enabled);
   const running = useAssistant(ai, (s) => s.running);
   const provider = useProviderName(ai);
-  if (!enabled) return null;
+  if (!enabled || !ai.available) return null;
   return (
     <button
       type="button"

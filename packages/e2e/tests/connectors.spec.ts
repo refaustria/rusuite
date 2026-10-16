@@ -6,7 +6,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
-import { testdata, trackErrors } from "../support/common";
+import { simulateDesktop, testdata, trackErrors } from "../support/common";
 import { Grid } from "../support/calc";
 import { zipText } from "../support/zip";
 import { DAV_BASE, WebDavServer } from "../support/webdav";
@@ -27,7 +27,8 @@ test.beforeAll(async ({ baseURL }) => {
   await dav.start();
 });
 test.afterAll(async () => dav?.stop());
-test.beforeEach(() => {
+test.beforeEach(async ({ page }) => {
+  await simulateDesktop(page);
   for (const k of [...dav.nodes.keys()]) if (k !== "/") dav.nodes.delete(k);
   dav.log.length = 0;
 });

@@ -14,6 +14,15 @@ import { Assistant } from "./ai/controller";
 import { BrowserAiStore, TauriAiStore } from "./ai/settings";
 
 export type { DispatchError };
+
+/**
+ * Test hook: the e2e suite pretends the web build is a desktop app (`window.__RUSUITE_PLATFORM__ = "desktop"`, set
+ * with `addInitScript`) to exercise connections and the AI assistant against local servers. It is read from the
+ * production bundle too, but it only reveals UI: the site's CSP (`connect-src 'self'`) still blocks every other host.
+ */
+export function simulatedDesktop(): boolean {
+  return (globalThis as { __RUSUITE_PLATFORM__?: unknown }).__RUSUITE_PLATFORM__ === "desktop";
+}
 // Recent files, autosave and crash recovery (P5-3).
 export * from "./recent";
 
@@ -247,11 +256,14 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
           ? new IdbDocStorage(() => dbNameFromPing(this.module.ping()))
           : null;
     if (storage) this.storage = storage;
-    if (o.connectors !== false) {
+    // ADR 0009 (owner decision 2026-10-16): the web CSP stays `connect-src 'self'`, so connections and the AI
+    // assistant are desktop-app features; the web build keeps only a note in File › Options….
+    const desktop = simulatedDesktop();
+    if (o.connectors !== false && desktop) {
       this.connectors = new Connectors(webConnectorPlatform(extensionsOf(this.accept)));
       this.title.follow(this.connectors);
     }
-    if (o.ai !== false) this.ai = new Assistant({ store: new BrowserAiStore() });
+    if (o.ai !== false) this.ai = new Assistant({ store: new BrowserAiStore(), available: desktop });
   }
 
   async ping(): Promise<string> {
