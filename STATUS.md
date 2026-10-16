@@ -230,9 +230,14 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 3. 2026-10-15: `core-model` Phase 0 scope implemented by Opus against a PM-written type spec, not Fable (scope is a well-understood OOXML mapping; escalate only if design questions arise).
 4. 2026-10-15: Roundtrip harness verification = LibreOffice headless `--convert-to` of the rewritten file succeeds and the output is non-empty, plus a structural diff of the ZIP part list and XML against the original. (LibreOffice has no "repair dialog" counter in headless mode; a failed/empty conversion is the proxy.)
 
+## Milestone 2026-10-16: v0.1.0 released
+- Tag `v0.1.0` (commit 19028bf): release run 38928489076 green on all 4 runners incl. blocking smoke jobs; published as pre-release with 27 assets; alpha.3 draft deleted; web at https://rusuit.es (live e2e 261/261); Downloads page regenerated from the release.
+- Verified on main at the tag: 1879 Rust tests, formula suite 1622/0, harnesses xlsx 10/10 · docx 64/64 · pptx 34/34, frontend suites green, rustdoc/wasm/privacy/i18n (informal du) checks clean.
+- Next: docs/plan-after-0.1.0.md (owner starts follow-up activities the week of 2026-10-19).
+
 ## Open questions
 - 2026-10-16: **rusuit.es is the only public address** (owner: trash resuite.inceptum.at – it becomes a 301 after P8-49). Live relay already accepts the rusuit.es origin. German must be informal "du" (P8-48). Owner wants a written plan for after v0.1.0 (docs/plan-after-0.1.0.md) – they start follow-up activities next week.
-- **Owner action (release test run):** open https://github.com/refaustria/rusuite/actions/workflows/release.yml → Run workflow → branch main, tag `v0.0.0-test`. Then send me the run URL. I check the 4 smoke jobs; if green I set them to blocking and delete the test release.
+- Done 2026-10-16: release test run green (38911314761); smoke jobs blocking; v0.1.0 released.
 - 2026-10-16 "Report a problem" (P8-43) is LIVE: relay service `rusuite-report-relay` (systemd, 127.0.0.1:8787, nginx `/api/report`), token only in /etc/rusuite/report-relay.env (root:root 600). End-to-end test: issue #1 created from the live endpoint and closed. Screenshot attachment returned 403 → the fine-grained token still needs "Contents: read & write" (owner). Reports are public (dialog warns).
 - Decided 2026-10-16 (owner): web CSP stays `'self'` – connectors and AI are **desktop only**; the web apps hide those entry points (P8-42). Office re-check of the regenerated pivot workbooks and the MP4 deck: works (owner).
 - Decided 2026-10-16: formula locale stays English functions/separators (no German names for now). Cloud connectors: generic + opt-in, no Rusuite service, no provider app registration by us (see docs/cloud-connectors-plan.md amendment).
