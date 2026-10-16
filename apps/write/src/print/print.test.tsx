@@ -68,11 +68,15 @@ describe("print document", () => {
   it("builds pages from the editor DOM without the pagination widgets", () => {
     const dom = document.createElement("div");
     dom.className = "tiptap ProseMirror tiptap-content ProseMirror-focused";
-    dom.innerHTML = '<p>One</p><div class="page-gap">gap</div><p contenteditable="false">Two</p><div class="page-end"></div>';
+    dom.innerHTML = '<p>One</p><div class="page-spacer">gap</div><p contenteditable="false">Two</p><div class="page-end"></div>';
     expect(editorBlocks(dom).map((e) => e.textContent)).toEqual(["One", "Two"]);
     const doc = buildWritePrintDoc(dom, page({}), DEFAULT_WRITE_PRINT);
     expect(doc.pages).toHaveLength(1);
-    expect(doc.pages[0]).toContain("<p>One</p><p>Two</p>");
+    // Every block is a positioned slice of its clone; the spacers are gone.
+    expect(doc.pages[0]).toContain(">One</p>");
+    expect(doc.pages[0]).toContain(">Two</p>");
+    expect(doc.pages[0]).not.toContain("gap");
+    expect(doc.pages[0]).not.toContain('contenteditable');
     expect(doc.pages[0]).not.toContain("ProseMirror-focused");
     expect(doc.widthIn).toBeCloseTo(11906 / 1440, 3);
     expect(doc.head).toContain("<style>");
