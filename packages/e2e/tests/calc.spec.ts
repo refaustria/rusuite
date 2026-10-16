@@ -1490,9 +1490,7 @@ test.describe("Calc tables and data tools (P8-35)", () => {
     const grid = new Grid(page);
     await typeTable(grid);
     await grid.type(4, 0, "a,b");
-    // File › Save As › This device (the page lists the connections next to it, P8-36).
     await fileCommand(page, /^Save As/);
-    await page.getByTestId("save-page").getByRole("button", { name: /^This device/ }).click();
     const prompt = page.getByRole("dialog", { name: "Save As" });
     await prompt.getByRole("textbox").fill("export.csv");
     await prompt.getByRole("button", { name: "Save" }).click();

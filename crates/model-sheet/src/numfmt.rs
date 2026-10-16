@@ -107,6 +107,72 @@ pub fn is_date_format(code: &str) -> bool {
     engine_formula::numfmt::is_date_code(code)
 }
 
+/// The letters of `code` outside quotes, `[...]`, escapes and `_x`/`*x`
+/// (lower-cased), for classifying date, time and percent codes.
+fn code_letters(code: &str) -> String {
+    let mut out = String::new();
+    let mut it = code.chars();
+    while let Some(c) = it.next() {
+        match c {
+            '"' => {
+                for d in it.by_ref() {
+                    if d == '"' {
+                        break;
+                    }
+                }
+            }
+            '[' => {
+                let inner: String = it.by_ref().take_while(|&d| d != ']').collect();
+                // Elapsed time stays visible as `[`.
+                if matches!(
+                    inner.chars().next(),
+                    Some('h' | 'H' | 'm' | 'M' | 's' | 'S')
+                ) {
+                    out.push('[');
+                }
+            }
+            '\\' | '_' | '*' => {
+                it.next();
+            }
+            c => out.push(c.to_ascii_lowercase()),
+        }
+    }
+    out
+}
+
+/// The text the formula bar shows for a number in a cell formatted with
+/// `code` (Excel's edit form): dates as `m/d/yyyy` (with
+/// ` h:mm:ss AM/PM` when there is a time part), times as `h:mm:ss AM/PM`,
+/// percentages as `12%`. `None` for other formats, elapsed times, values
+/// a date cannot show, and whenever typing the text back would not give
+/// exactly `value` (the raw number is shown then).
+pub fn edit_input(value: f64, code: Option<&str>) -> Option<String> {
+    let code = code?;
+    let letters = code_letters(code);
+    let text = if is_date_format(code) {
+        if letters.contains('[') || !(0.0..=2_958_465.999_999).contains(&value) {
+            return None;
+        }
+        let has_date = letters.contains(['y', 'd']) || letters.contains("mmm");
+        let time = "h:mm:ss AM/PM";
+        let pattern = if !has_date && value < 1.0 {
+            time.to_string()
+        } else if value.fract() == 0.0 {
+            "m/d/yyyy".to_string()
+        } else {
+            format!("m/d/yyyy {time}")
+        };
+        engine_formula::numfmt::format_number(value, &pattern).ok()?
+    } else if letters.contains('%') {
+        let pct = engine_formula::value::round_15(value * 100.0);
+        format!("{}%", engine_formula::value::format_general(pct))
+    } else {
+        return None;
+    };
+    let back = engine_formula::entry::recognize(&text)?;
+    (back.value.to_bits() == value.to_bits()).then_some(text)
+}
+
 /// Shown when a number cannot be rendered with its format (e.g. a
 /// negative date), as Excel does.
 pub const UNDISPLAYABLE: &str = "#####";
@@ -246,6 +312,35 @@ mod tests {
         // Aliases are read-only.
         assert_eq!(builtin_id("m/d/yyyy"), None);
         assert!(is_locale_builtin(44) && !is_locale_builtin(4));
+    }
+
+    #[test]
+    fn edit_input_forms() {
+        let date = engine_formula::functions::datetime::serial::ymd_to_serial(2024, 3, 4).unwrap();
+        let t = (13.0 * 3600.0 + 45.0 * 60.0) / 86_400.0;
+        assert_eq!(
+            edit_input(date, Some("m/d/yyyy")).as_deref(),
+            Some("3/4/2024")
+        );
+        assert_eq!(edit_input(date, Some("d-mmm")).as_deref(), Some("3/4/2024"));
+        assert_eq!(
+            edit_input(date, Some("dd.mm.yyyy")).as_deref(),
+            Some("3/4/2024")
+        );
+        assert_eq!(edit_input(t, Some("h:mm")).as_deref(), Some("1:45:00 PM"));
+        assert_eq!(
+            edit_input(date + t, Some("m/d/yyyy h:mm")).as_deref(),
+            Some("3/4/2024 1:45:00 PM")
+        );
+        assert_eq!(edit_input(0.12, Some("0%")).as_deref(), Some("12%"));
+        assert_eq!(edit_input(0.125, Some("0.00%")).as_deref(), Some("12.5%"));
+        // Not exact at whole seconds, elapsed time, other formats: the raw number.
+        assert_eq!(edit_input(0.123_456_789, Some("h:mm")), None);
+        assert_eq!(edit_input(1.5, Some("[h]:mm:ss")), None);
+        assert_eq!(edit_input(-1.0, Some("m/d/yyyy")), None);
+        assert_eq!(edit_input(1234.5, Some("#,##0.00")), None);
+        assert_eq!(edit_input(5.0, Some("\"%\"0")), None);
+        assert_eq!(edit_input(5.0, None), None);
     }
 
     #[test]

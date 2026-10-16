@@ -437,6 +437,8 @@
   "sc.format": "Format",
   "sc.navigation": "Navigation",
   "sc.printTip": "Print (File › Print: settings and preview)",
+  "ai.settings.desktopOnly": "The AI assistant is available in the desktop apps.",
+  "ai.settings.desktopDownloads": "Download the desktop apps",
   "settings.ai": "AI",
   "settings.appOptions": "Open the app's options…",
   "settings.general": "General",

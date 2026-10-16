@@ -131,8 +131,8 @@ fn cross_sheet_rename_and_late_sheets() {
     assert_eq!(e.sheet_name(data), Some("Facts"));
     assert_eq!(set(&mut e, at(data, "A1"), "4"), cells(&["A1"]));
     assert_eq!(e.value(c("A1")), n(8.0));
-    // The stored text is not rewritten (yet).
-    assert_eq!(e.formula_text(c("A1")), Some("=Data!A1*2"));
+    // The stored text follows the new name (P8-39, as in Excel).
+    assert_eq!(e.formula_text(c("A1")), Some("=Facts!A1*2"));
     assert_eq!(
         e.rename_sheet(data, "sheet1"),
         Err(EngineError::DuplicateSheet("sheet1".into()))

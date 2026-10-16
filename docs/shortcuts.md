@@ -38,6 +38,7 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Delete, Backspace | Clear the selection |
 | Alt+Enter | Line break in the cell editor (stored as `\n`; committing turns wrap text on and grows the row) |
 | Enter, Tab (Shift: reverse) | Commit the edit and move down / right |
+| Mod+Enter | Commit the edit without moving; a selected range gets the entry in every cell (relative references shift, formats stay) |
 | Esc | Cancel the edit (first closes the function list) |
 | Arrows | Enter mode (editing started by typing): point at cells in a formula, otherwise commit and move. Edit mode (F2, double-click, formula bar): move the caret |
 | Shift+Arrows | While pointing: extend the pointed reference to a range |
@@ -46,6 +47,10 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Mod+Space, Shift+Space | Select the column(s), the row(s) |
 | Mod+Plus, Mod+Minus | Insert, delete rows or columns (dialog unless whole rows/columns are selected) |
 | Mod+1 | Format cells: number format dialog (General, Number, Currency, Percentage, Date, Time, Text, Custom) with a live preview |
+| Mod+Shift+~, Mod+Shift+!, Mod+Shift+@, Mod+Shift+#, Mod+Shift+$, Mod+Shift+%, Mod+Shift+^ | Number format General, `#,##0.00`, `h:mm AM/PM`, `d-mmm-yy`, currency, `0%`, `0.00E+00` (the Shift+digit keys of a US layout) |
+| Mod+5 | Strikethrough |
+| Mod+;, Mod+Shift+: | Start the cell editor with today's date / the current time (Enter stores it as a date / time) |
+| Mod+PageDown, Mod+PageUp | Next / previous sheet (desktop; browsers keep these keys for their tabs) |
 | Mod+C, Mod+X | Copy, cut: the range gets a marching-ants outline; a cut moves the cells on the next paste |
 | Mod+V | Paste at the selection's top-left (relative references shift; the block repeats over a selection that is a multiple of it). Text from other programs is pasted as plain values (TSV) |
 | Mod+Shift+V | Paste values only (formulas paste their current values; destination formats kept) |

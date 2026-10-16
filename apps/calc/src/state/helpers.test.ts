@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { CellView } from "../generated/CellView";
 import type { FoundCell } from "../generated/FoundCell";
 import { buildCode, DEFAULT_CHOICE, parseCode, previewValue, SAMPLE_VALUE, type FormatChoice } from "../numberFormat";
-import { captureClip, fillDownEnd, fillTarget, pasteTarget, tsvClip } from "./clipboard";
+import { captureClip, fillDownEnd, fillTarget, parseTsv, pasteTarget, tsvClip } from "./clipboard";
 import { findStep, replaceInInput } from "./find";
 
 const cell = (row: number, col: number, input: string, style = 0): CellView => ({ row, col, input, display: input, kind: "text", style });
@@ -27,6 +27,25 @@ describe("clipboard helpers", () => {
     ]);
     expect(clip.tsv).toBe("=A1\t\n\tx");
     expect(clip.cut).toBe(true);
+  });
+
+  it("puts the displayed values on the system clipboard, as Excel does (P8-39 C-01)", () => {
+    const list: CellView[] = [
+      { row: 0, col: 0, input: "=B1*2", display: "84", kind: "number", style: 0 },
+      { row: 0, col: 1, input: "0.5", display: " $0.50 ", kind: "number", style: 1 },
+      { row: 1, col: 0, input: "a\nb", display: "a\nb", kind: "text", style: 0 },
+      { row: 1, col: 1, input: 'say "hi"', display: '"hi"', kind: "text", style: 0 },
+    ];
+    const clip = captureClip(cells(list), 0, { r0: 0, c0: 0, r1: 1, c1: 1 }, false);
+    expect(clip.tsv).toBe('84\t$0.50\n"a\nb"\t"""hi"""');
+    expect(clip.cells[0]).toEqual({ dr: 0, dc: 0, input: "=B1*2", style: 0 });
+    expect(parseTsv(clip.tsv)).toEqual([["84", "$0.50"], ["a\nb", '"hi"']]);
+  });
+
+  it("parses quoted TSV fields with line breaks, tabs and quotes", () => {
+    expect(parseTsv('"x\ty"\t2\r\n"un"closed\n')).toEqual([["x\ty", "2"], ['"un"closed']]);
+    expect(parseTsv('a\t')).toEqual([["a", ""]]);
+    expect(parseTsv("")).toEqual([[""]]);
   });
 
   it("turns system TSV into a block of plain inputs", () => {

@@ -122,6 +122,54 @@ test.describe("Privacy (ADR 0009)", () => {
     });
   }
 
+  // P8-42 (owner decision 2026-10-16): the web CSP stays strict, so connections and the AI assistant are desktop-only.
+  for (const a of APPS) {
+    test(`${a.app}: web build has no connections and no AI entry points; Options says so; no extra requests`, async ({ page, baseURL }) => {
+      const errors = trackErrors(page);
+      const rec = recordRequests(page);
+      await page.goto(`${a.app}/`);
+      await a.ready(page).first().waitFor();
+      // A stored "enabled" AI setting (an older version) changes nothing on the web.
+      await page.evaluate(() => localStorage.setItem("rusuite.ai.settings", JSON.stringify({ enabled: true })));
+      await page.reload();
+      await a.ready(page).first().waitFor();
+      await expect(page.getByTestId("ai-status")).toHaveCount(0);
+      await page.keyboard.press("Control+Shift+a");
+      await expect(page.getByTestId("ai-pane")).toHaveCount(0);
+      await expect(page.getByTestId("ai-off")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "AI", exact: true })).toHaveCount(0);
+
+      // File: no Home/Open/Save As pages, no connections, no "Forget all connections".
+      await page.getByRole("tab", { name: "File", exact: true }).click();
+      const backstage = page.getByTestId("backstage");
+      await expect(backstage.getByText("Add a connection…")).toHaveCount(0);
+      await expect(backstage.getByTestId("privacy-connections")).toHaveCount(0);
+      await expect(backstage.getByRole("button", { name: "Forget all connections" })).toHaveCount(0);
+      // Open goes straight to the device dialog.
+      const [chooser] = await Promise.all([
+        page.waitForEvent("filechooser"),
+        backstage.getByRole("button", { name: /^Open/ }).click(),
+      ]);
+      expect(chooser.isMultiple()).toBe(false);
+      await expect(page.getByTestId("open-page")).toHaveCount(0);
+
+      // Options: the note and the downloads link instead of the form.
+      await page.getByRole("tab", { name: "File", exact: true }).click();
+      await page.getByTestId("backstage").getByRole("button", { name: "Options…" }).click();
+      const dlg = page.getByRole("dialog", { name: "Options" });
+      await expect(dlg.getByTestId("ai-desktop-only")).toContainText("The AI assistant is available in the desktop apps.");
+      await expect(dlg.getByRole("link", { name: "Download the desktop apps" })).toHaveAttribute("href", /^https:\/\/github\.com\/refaustria\/rusuite\/releases/);
+      await expect(dlg.getByLabel(/API key/)).toHaveCount(0);
+      await expect(dlg.getByRole("button", { name: "Test" })).toHaveCount(0);
+      await page.screenshot({ path: path.join("shots", `P8-42-options-${a.app}.png`) });
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      // The request audit is the unchanged one: own static files only.
+      rec.expectOnlyOwnFiles(baseURL!);
+      errors.expectNone();
+    });
+  }
+
   test("portal: only its own files and /version.json; security headers", async ({ page, baseURL }) => {
     const rec = recordRequests(page);
     const errors = trackErrors(page);

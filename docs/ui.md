@@ -302,6 +302,7 @@ Alt pressed and released alone focuses the active tab (again: back to where the 
 (File included), Enter/Space activate (File opens the backstage), ↓ enters the tab's commands, Esc returns to the document.
 Ctrl+F1 (or double-clicking a tab, or the chevron) collapses/expands; while collapsed, activating a tab shows its groups over the
 document until a command runs, Esc, or a click elsewhere. Menus and galleries use the arrow keys; Esc closes them.
+Ribbon dropdown panels near the window's right edge move left to stay in the window (P8-39).
 
 ## Tabs per app
 
@@ -480,6 +481,20 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   Delete removes a whole table, selects the table with Ctrl+A inside it, autofits the table's columns after
   each update, shows "Data changed – Refresh" over a sheet with a stale table (and a status-bar hint) and, in
   point mode, inserts `GETPIVOTDATA(…)` for a clicked value.
+- **Calc entry and clipboard** (P8-39): a typed constant is recognised as Excel does (`engine_formula::entry`): `1,234`,
+  `12%`, `$1,234.50` / `€12` / `12 €`, `(5)`, `1e3`, `1 1/2`, dates (`3/4/2024`, `2024-03-04`, `4.3.2024`, `4-Mar`,
+  `March 4, 2024`, `Mar 2024`), times (`13:45`, `1:30 PM`) and date + time; a General cell gets the matching format
+  (`#,##0`, `0%`, currency, `0.00E+00`, `# ?/?`, `m/d/yyyy`, `d-mmm`, `h:mm`, …), an `@` (Text) cell keeps the typed text.
+  The formula bar shows dates as `m/d/yyyy`, times as `h:mm:ss AM/PM` and percentages as `12%` (the raw number when that
+  form would not round-trip exactly). The formula bar is a one-line textarea (line breaks of Alt+Enter survive editing
+  there). Ctrl+Enter commits without moving and puts the entry into every cell of a selected range. Ctrl+C puts the
+  displayed values on the system clipboard (formulas as their results; cells with line breaks quoted, as Excel's TSV); the
+  internal copy keeps formulas and formats. Number format keys: Ctrl+Shift+~ General, ! `#,##0.00`, @ `h:mm AM/PM`,
+  # `d-mmm-yy`, $ currency, % `0%`, ^ `0.00E+00`; Ctrl+5 strikethrough; Ctrl+; / Ctrl+Shift+: start the editor with
+  today's date / the current time; Ctrl+PageDown / PageUp switch sheets (desktop; browsers keep some of these keys).
+  Renaming a sheet rewrites the formulas that name it (`=Sheet2!A1` → `='Data 2'!A1`). The fill handle continues
+  weekdays and months (`Mon`, `January`; the source's letter case). Not done: German decimal commas in typed numbers
+  (pending the locale decision of number-formats.md), formula results inheriting the format of the cells they refer to.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).
@@ -515,6 +530,13 @@ backstage. The UI language follows the browser by default and switches in place;
 
 ## Cloud connections (P8-36)
 
+**Desktop apps only (P8-42, owner decision 2026-10-16):** the web CSP stays `connect-src 'self'`, so the web build has no
+connections: `WasmBackend` creates no `Connectors`, File › Open / Save As go straight to the device dialogs (no Connections
+section, no "Add a connection…") and the Privacy entry has no "Forget all connections". The web code paths (IndexedDB
+store, `fetch` provider, CSP detection) stay for the e2e suite, which pretends to be a desktop app with
+`window.__RUSUITE_PLATFORM__ = "desktop"` (`simulatedDesktop()` in `backend.ts`, set via `addInitScript`; it only reveals
+UI, the CSP still blocks other hosts). The text below describes the desktop apps.
+
 Generic and opt-in (owner 2026-10-16; ADR 0009 amendment): the user adds a WebDAV server (Nextcloud, ownCloud, a NAS,
 a hosted drive); Rusuite offers no cloud and contacts nothing until then. Code: `packages/ui-shared/src/connectors`
 (`FileProvider`, `Connectors` controller = `Backend.connectors` = `session.connectors`, transports, stores, UI).
@@ -547,6 +569,10 @@ a hosted drive); Rusuite offers no cloud and contacts nothing until then. Code: 
   prompt), which Save As › a connection runs while `Connectors.pendingSave` points at the target.
 
 ## AI assistant (P8-37)
+
+**Desktop apps only (P8-42):** on the web build `Backend.ai` exists with `available: false` – no Home › AI group, no
+Ctrl+Shift+A, no pane, no status-bar item, no requests – and File › Options… › AI shows only "The AI assistant is available
+in the desktop apps." with a "Download the desktop apps" link (`AiDesktopOnly`). The text below describes the desktop apps.
 
 Opt-in, the user's own provider account and key, client-side (ADR 0009 amendment; design `docs/ai-plan.md`). Code:
 `packages/ui-shared/src/ai` (`Assistant` = `Backend.ai` = `session.ai`, providers, prompts, schemas, panel) and
@@ -581,7 +607,7 @@ selection summary, Insert / Replace buttons).
 - **Status bar**: "AI: <provider>" while AI is enabled (click toggles the pane; "working…" while a request runs).
 - **Errors** in the turn, localized by kind with the provider's message: wrong key, rate limit ("Try again in N s"),
   overloaded, offline / interrupted, CORS, **CSP** ("This site's security policy does not allow connections to the
-  AI provider…" – the live web CSP until the owner decides), refusal, cut off (raise Max tokens), no usable result.
+  AI provider…" – only when the page has a CSP; the desktop apps have none and the web build does not offer the assistant), refusal, cut off (raise Max tokens), no usable result.
 
 ## Save and Save As on the desktop (P7-7)
 

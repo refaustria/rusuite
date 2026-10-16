@@ -15,7 +15,7 @@ import { NameBox } from "./names/NameBox";
 
 export function FormulaBar({ store }: { store: CalcStore }) {
   const t = useT();
-  const input = useRef<HTMLInputElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
   const edit = useCalc(store, (s) => s.edit);
   const selection = useCalc(store, (s) => s.selection);
   useCalc(store, (s) => s.version);
@@ -51,7 +51,7 @@ export function FormulaBar({ store }: { store: CalcStore }) {
     else store.beginEdit(null, "bar");
   };
 
-  const onBlur = (e: FocusEvent<HTMLInputElement>) => {
+  const onBlur = (e: FocusEvent<HTMLTextAreaElement>) => {
     // Leaving the bar keeps the edit open; only the in-cell editor takes it over.
     const to = e.relatedTarget as HTMLElement | null;
     if (to?.getAttribute("data-testid") === "cell-editor") store.setEditOrigin("cell");
@@ -81,13 +81,16 @@ export function FormulaBar({ store }: { store: CalcStore }) {
             <FormulaOverlay text={value} refs={refs} className="whitespace-pre" style={{ transform: `translateX(${-scrollX}px)` }} />
           </div>
         )}
-        <input
+        {/* A one-line textarea (not an <input>, which drops line breaks): Alt+Enter line breaks survive editing here. */}
+        <textarea
           ref={input}
+          rows={1}
+          wrap="off"
           {...{ [FORMULA_BAR_ATTR]: "" }}
           aria-label={t("calc.formulaBar")}
           spellCheck={false}
           autoComplete="off"
-          className={`relative w-full rounded border border-ui-border px-2 py-0.5 font-mono outline-none focus:border-ui-focus ${
+          className={`relative block h-[26px] w-full resize-none overflow-hidden whitespace-pre rounded border border-ui-border px-2 py-0.5 font-mono leading-5 outline-none focus:border-ui-focus ${
             colored ? "bg-transparent text-transparent" : ghost ? "bg-ui-bg text-ui-muted" : "bg-ui-bg"
           }`}
           readOnly={!!ghost}

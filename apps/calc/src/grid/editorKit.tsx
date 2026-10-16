@@ -93,6 +93,14 @@ export function handleEditorKey(store: CalcStore, e: KeyboardEvent<Field>): void
     store.setEditText(el.value.slice(0, s) + "\n" + el.value.slice(el.selectionEnd ?? s), s + 1);
     return;
   }
+  if (e.key === "Enter" && ctrl && !e.altKey && !e.shiftKey) {
+    // Ctrl+Enter: commit without moving; a range selection gets the entry in every cell (Excel).
+    e.preventDefault();
+    void store.commitEditInSelection();
+    if (store.getState().edit) store.focusEditor();
+    else store.focusGrid();
+    return;
+  }
   if (e.key === "Enter" || e.key === "Tab") {
     e.preventDefault();
     const back = e.shiftKey ? -1 : 1;

@@ -6,7 +6,7 @@
 
 import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
-import { trackErrors, saveViaBackstage } from "../support/common";
+import { simulateDesktop, trackErrors, saveViaBackstage } from "../support/common";
 import { Grid, openCalc } from "../support/calc";
 import { unzip, zipText } from "../support/zip";
 import { AiMockServer } from "../support/aiMock";
@@ -28,7 +28,10 @@ test.beforeAll(async ({ baseURL }) => {
   await mock.start();
 });
 test.afterAll(async () => mock?.stop());
-test.beforeEach(() => mock.reset());
+test.beforeEach(async ({ page }) => {
+  await simulateDesktop(page);
+  mock.reset();
+});
 
 /** The prepared narrow policy (provider origins), here plus the plain-http mock. */
 async function preparedCsp(page: Page, baseURL: string) {
