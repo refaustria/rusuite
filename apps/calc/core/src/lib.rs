@@ -33,10 +33,12 @@ mod doc;
 mod fill;
 mod names;
 mod patch;
+mod pivots;
 pub mod wire;
 pub mod wire_annot;
 pub mod wire_cf;
 pub mod wire_chart;
+pub mod wire_pivot;
 
 pub use annotations::{CellAnnotations, FormulaLink, SheetAnnotations, SheetThreads};
 pub use command::{CalcCommand, ClipCell, FillMode, PasteMode, Rect, SheetRect, SheetViewPatch};
@@ -49,4 +51,8 @@ pub use patch::{
     CalcPatch, CellCf, CellKind, CellView, ColView, CommentState, FoundCell, RegionSnapshot,
     RowView, SheetCells, SheetCols, SheetInfo, SheetMerges, SheetRows, StructuralChange,
     StructuralKind, WorkbookInfo,
+};
+pub use pivots::{
+    PivotArea, PivotAt, PivotCellView, PivotFieldInfo, PivotInfo, PivotItemInfo, PivotPatch,
+    PivotSourceSpec, PivotSummary, PivotTarget, SheetPivots,
 };

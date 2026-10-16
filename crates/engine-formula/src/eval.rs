@@ -51,6 +51,19 @@ pub trait CellProvider {
         let _ = (name, sheet);
         None
     }
+    /// `GETPIVOTDATA`: the value of data field `data_field` at the
+    /// field/item `pairs` of the pivot table containing `at` (see
+    /// [`PivotData::lookup`](crate::PivotData::lookup)); `None` = not found
+    /// (`#REF!`). The default: no pivot tables.
+    fn pivot_data(
+        &self,
+        at: CellCoord,
+        data_field: &str,
+        pairs: &[(String, Value)],
+    ) -> Option<Value> {
+        let _ = (at, data_field, pairs);
+        None
+    }
 }
 
 /// Nesting of names being evaluated (names referring to names); a name

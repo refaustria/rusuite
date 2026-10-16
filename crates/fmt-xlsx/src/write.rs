@@ -38,6 +38,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     let mut dynamic = false;
     let mut drawings = crate::drawing::DrawingParts::default();
     let mut comments = crate::comments::CommentParts::default();
+    let mut pivots = crate::pivot::PivotParts::default();
     let persons = crate::comments::persons_of(wb);
     let default_font = ctx
         .default_font
@@ -50,7 +51,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     pkg.insert_part(
         main.clone(),
         ct::WORKBOOK,
-        workbook_xml(wb, &sheets, active),
+        workbook_xml(wb, &sheets, active, &[]),
     );
     let mut rels = Relationships::new();
     for (i, (id, _)) in sheets.iter().enumerate() {
@@ -75,6 +76,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
         if !wb.notes(id).is_empty() || !wb.threads(id).is_empty() {
             ids.legacy = Some(comments.write(&mut pkg, &mut sheet_rels, wb, id, &persons)?);
         }
+        pivots.write_tables(&mut pkg, &mut sheet_rels, wb, id)?;
         let xml = sheet_xml(wb, id, i == active, &mut sst, &dxfs, &mut dynamic, &ids);
         pkg.insert_part(part.clone(), ct::WORKSHEET, xml);
         rels.add(rel::WORKSHEET, target);
@@ -110,6 +112,15 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     }
     if crate::comments::has_threads(wb) || !persons.is_empty() {
         crate::comments::write_persons(&mut pkg, &mut rels, &persons)?;
+    }
+    let caches = pivots.write_caches(&mut pkg, &mut rels, wb)?;
+    if !caches.is_empty() {
+        // In place: the part order stays.
+        pkg.insert_part(
+            main.clone(),
+            ct::WORKBOOK,
+            workbook_xml(wb, &sheets, active, &caches),
+        );
     }
     pkg.set_relationships(main, rels);
     pkg.insert_part(pn("/docProps/core.xml")?, ct::CORE_PROPERTIES, core_xml());
@@ -166,7 +177,12 @@ impl SharedStrings {
     }
 }
 
-fn workbook_xml(wb: &Workbook, sheets: &[(SheetId, String)], active: usize) -> Vec<u8> {
+fn workbook_xml(
+    wb: &Workbook,
+    sheets: &[(SheetId, String)],
+    active: usize,
+    pivot_caches: &[(u32, String)],
+) -> Vec<u8> {
     let mut x = XmlOut::new();
     x.start("workbook", &[("xmlns", MAIN_NS), ("xmlns:r", rel::NS)]);
     x.empty("workbookPr", &[]);
@@ -242,6 +258,7 @@ fn workbook_xml(wb: &Workbook, sheets: &[(SheetId, String)], active: usize) -> V
         x.end("definedNames");
     }
     x.empty("calcPr", &[("fullCalcOnLoad", "1")]);
+    crate::pivot::pivot_caches_xml(&mut x, pivot_caches);
     x.end("workbook");
     x.finish()
 }

@@ -85,6 +85,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     let mut wb = Workbook::new();
     let mut xf_ids: Vec<StyleId> = Vec::new();
     let mut dxfs: Vec<model_sheet::DxfStyle> = Vec::new();
+    let mut num_fmts: HashMap<u32, String> = HashMap::new();
     if let Some(styles) = pkg.related_part(&main, rel::STYLES) {
         let parsed = parse_styles(part_data(&styles)?, styles.as_str(), &mut |w| {
             warnings.push(w)
@@ -92,6 +93,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         xf_ids = parsed.xfs.iter().map(|s| wb.intern_style(s)).collect();
         context.default_font = Some(parsed.default_font);
         dxfs = parsed.dxfs;
+        num_fmts = parsed.num_fmts;
         consumed.insert(styles);
     }
 
@@ -220,6 +222,21 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         }
     }
 
+    // Pivot tables: the cells are loaded; definitions attach to them.
+    if !book.pivot_caches.is_empty() {
+        warnings.extend(crate::pivot::load(
+            &pkg,
+            &main,
+            &mut wb,
+            &book.pivot_caches,
+            &sheets,
+            &num_fmts,
+            &mut consumed,
+        )?);
+        // GETPIVOTDATA reads the tables.
+        wb.recalc_all();
+    }
+
     // Visibility last: hiding needs another visible sheet.
     for &(id, is_hidden, very) in &hidden {
         if is_hidden && wb.set_sheet_visibility(id, true, very).is_err() {
@@ -316,6 +333,8 @@ struct BookInfo {
     sheets: Vec<SheetEntry>,
     date1904: bool,
     defined_names: Vec<RawName>,
+    /// `<pivotCaches>`: `(cacheId, r:id)`.
+    pivot_caches: Vec<(u32, String)>,
 }
 
 fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
@@ -324,6 +343,7 @@ fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
         sheets: Vec::new(),
         date1904: false,
         defined_names: Vec::new(),
+        pivot_caches: Vec::new(),
     };
     let mut name: Option<RawName> = None;
     loop {
@@ -354,6 +374,13 @@ fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
             }
             Event::Start(el) | Event::Empty(el) => match name_of(&el) {
                 b"workbookPr" => info.date1904 = attr_bool(&el, "date1904").unwrap_or(false),
+                b"pivotCache" => {
+                    if let (Some(id), Some(rid)) =
+                        (attr_parse::<u32>(&el, "cacheId"), attr(&el, "id"))
+                    {
+                        info.pivot_caches.push((id, rid.into_owned()));
+                    }
+                }
                 b"sheet" => {
                     let (Some(name), Some(rid)) = (attr(&el, "name"), attr(&el, "id")) else {
                         return Err(Error::Malformed {

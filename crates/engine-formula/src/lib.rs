@@ -48,6 +48,7 @@ pub mod graph;
 pub mod lexer;
 pub mod numfmt;
 pub mod parser;
+pub mod pivot;
 pub mod transform;
 pub mod value;
 
@@ -60,6 +61,7 @@ pub use eval::{
 pub use functions::{Arity, CallContext, Function, FunctionRegistry};
 pub use graph::Cycle;
 pub use parser::{parse, ParseError};
+pub use pivot::{find_pivot_value, PivotData, PivotEntry, PivotItemName};
 pub use transform::{
     adjust_references, adjust_references_for_move, offset_relative, AdjustContext, CellRect,
     MoveContext, StructuralOp,

@@ -1,0 +1,37 @@
+---
+source: crates/fmt-xlsx/tests/pivot.rs
+expression: "pretty(&part(&bytes, \"/xl/pivotCache/pivotCacheDefinition1.xml\"))"
+---
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pivotCacheDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1" createdVersion="6" refreshedVersion="6" minRefreshableVersion="3" recordCount="6">
+<cacheSource type="worksheet">
+<worksheetSource ref="A1:E7" sheet="Data"/>
+</cacheSource>
+<cacheFields count="5">
+<cacheField name="Region" numFmtId="0">
+<sharedItems count="3">
+<s v="East"/>
+<s v="West"/>
+<s v="North"/>
+</sharedItems>
+</cacheField>
+<cacheField name="Product" numFmtId="0">
+<sharedItems count="2">
+<s v="Apple"/>
+<s v="Pear"/>
+</sharedItems>
+</cacheField>
+<cacheField name="Qtr" numFmtId="0">
+<sharedItems count="2">
+<s v="Q1"/>
+<s v="Q2"/>
+</sharedItems>
+</cacheField>
+<cacheField name="Sales" numFmtId="0">
+<sharedItems containsSemiMixedTypes="0" containsString="0" containsNumber="1" containsInteger="1" minValue="10" maxValue="60"/>
+</cacheField>
+<cacheField name="Units" numFmtId="0">
+<sharedItems containsSemiMixedTypes="0" containsString="0" containsNumber="1" containsInteger="1" minValue="1" maxValue="6"/>
+</cacheField>
+</cacheFields>
+</pivotCacheDefinition>
