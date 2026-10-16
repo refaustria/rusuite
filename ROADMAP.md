@@ -131,6 +131,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## AI assistant – docs/ai-plan.md
 
 ## Cloud connectors (user-owned accounts) – see docs/cloud-connectors-plan.md
+- v1 (WebDAV) merged 2026-10-16. Next: S3 connector; generic OAuth PKCE connector with the user's own client id (Google Drive/OneDrive/Dropbox); shared desktop connection records across the three apps (per-app data dirs today); CORS setup guide for Nextcloud/ownCloud on the portal; desktop smoke test for the connector commands (keyring untested at runtime).
 - `FileProvider` abstraction + backstage provider tabs; Google Drive (PKCE + Picker + Drive v3), OneDrive (MSAL + Graph), Dropbox, optional WebDAV; iCloud only through the native file system; CSP connect-src per enabled provider; tokens client-side only (ADR 0009). Needs the owner's OAuth app registrations.
 
 ## Mobile (Android, iOS) – after v0.1.0, see docs/mobile-plan.md
