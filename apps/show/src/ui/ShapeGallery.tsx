@@ -100,4 +100,5 @@ export function ShapeLibrary({ recent = [], presetsOnly, onPick, autoFocus }: Sh
 }
 
 /** Items of the compact gallery in Home › Drawing. */
-export const QUICK_SHAPES = ["textBox", "line", "lineArrow", "rect", "roundRect", "ellipse", "triangle", "rightArrow", "elbowArrow", "star5", "wedgeRectCallout", "flowChartProcess"];
+/** Home › Drawing's quick shapes (two rows of five; the rest under More shapes ▾). */
+export const QUICK_SHAPES = ["textBox", "line", "lineArrow", "rect", "roundRect", "ellipse", "triangle", "rightArrow", "star5", "wedgeRectCallout"];

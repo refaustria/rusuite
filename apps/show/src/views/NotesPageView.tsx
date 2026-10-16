@@ -68,7 +68,7 @@ export function NotesPageView({ store, width, height }: { store: ShowStore; widt
         e.preventDefault();
       }}
     >
-      <div className="absolute border border-gray-300" style={{ left: box.x, top: box.y, width: box.w, height: box.h }} data-testid="notes-page-slide">
+      <div className="absolute outline outline-1 outline-gray-300" style={{ left: box.x, top: box.y, width: box.w, height: box.h }} data-testid="notes-page-slide">
         {fitScale(box.w, box.h, pres.slideSize) > 0 && <SlideImage deck={deck} slide={slide} media={store.media} mediaVersion={mediaVersion} width={box.w} height={box.h} />}
       </div>
       <textarea

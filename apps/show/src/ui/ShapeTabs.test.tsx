@@ -175,6 +175,33 @@ describe("tables", () => {
     expect(screen.getByTestId("text-overlay-box").getAttribute("data-cell")).toBe("0,1");
   });
 
+  it("Tab / Shift+Tab select the text of the cell they move to; → enters at its start (P8-40 S-09)", async () => {
+    const { backend, store } = await mount();
+    await insertTable(backend);
+    act(() => store.startCellEdit(100, 0, 1));
+    let ta = screen.getByTestId("text-overlay") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "Q2" } });
+    fireEvent.keyDown(ta, { key: "Tab", shiftKey: true });
+    await flush();
+    act(() => store.startCellEdit(100, 0, 0));
+    ta = screen.getByTestId("text-overlay") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "Q1" } });
+    fireEvent.keyDown(ta, { key: "Tab" });
+    await flush();
+    const e = store.getState().editing!;
+    expect(e.cell).toEqual({ row: 0, col: 1 });
+    expect([e.start, e.end]).toEqual([0, 2]);
+    ta = screen.getByTestId("text-overlay") as HTMLTextAreaElement;
+    expect([ta.selectionStart, ta.selectionEnd]).toEqual([0, 2]);
+    act(() => store.startCellEdit(100, 0, 0));
+    ta = screen.getByTestId("text-overlay") as HTMLTextAreaElement;
+    ta.setSelectionRange(2, 2);
+    fireEvent.select(ta);
+    fireEvent.keyDown(ta, { key: "ArrowRight" });
+    await flush();
+    expect(store.getState().editing).toMatchObject({ cell: { row: 0, col: 1 }, start: 0, end: 0 });
+  });
+
   it("Merge and Split with a cell selection (also from the context menu)", async () => {
     const { backend, store } = await mount();
     await insertTable(backend);

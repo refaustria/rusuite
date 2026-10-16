@@ -663,3 +663,48 @@ fn new_shapes_have_the_json_of_shapes() {
         assert_eq!(back, NewShape::from(s));
     }
 }
+
+/// P8-40 S-05: moving a connector together with both shapes it is glued to
+/// (one drag of the selection, a nudge) moves its route along instead of
+/// rerouting it (a route read from a file stays as it was drawn).
+#[test]
+fn a_connector_moved_with_its_shapes_keeps_its_route() {
+    let mut p = Presentation::new();
+    let s = p.add_slide(LayoutKind::Blank);
+    let a = p
+        .add_shape(s, Shape::auto(Preset::Rect, tr(0, 0, 100, 100)))
+        .unwrap();
+    let b = p
+        .add_shape(s, Shape::auto(Preset::Rect, tr(300, 300, 100, 100)))
+        .unwrap();
+    let mut c = model_show::Connector::new(ConnectorKind::Straight);
+    c.start = Some(Attach { shape: a, site: 2 });
+    c.end = Some(Attach { shape: b, site: 0 });
+    // as a file may store it: not the route the core would compute
+    let cid = p
+        .add_shape(s, Shape::connector_shape(c, tr(40, 100, 280, 200)))
+        .unwrap();
+    let mut h: ShowHost = Host::new(ShowDocument::from_presentation(p).unwrap());
+    let before = shape(&h, cid.0).clone();
+    let moved = |h: &ShowHost, n: NodeId| {
+        let mut t = shape(h, n.0).transform;
+        t.x.0 += 500;
+        t.y.0 += 300;
+        (n, t)
+    };
+    let shapes = vec![moved(&h, a), moved(&h, b), moved(&h, cid)];
+    apply(&mut h, C::SetTransform { shapes });
+    let after = shape(&h, cid.0);
+    assert_eq!(after.kind, before.kind, "still glued, same route");
+    assert_eq!(after.transform, tr(540, 400, 280, 200));
+    // moving one of the shapes alone reroutes it (bottom of a → top of b)
+    let mut t = shape(&h, b.0).transform;
+    t.x.0 += 1_000;
+    apply(
+        &mut h,
+        C::SetTransform {
+            shapes: vec![(b, t)],
+        },
+    );
+    assert_eq!(ends(&h, cid.0), ((550.0, 400.0), (1850.0, 600.0)));
+}

@@ -312,7 +312,7 @@ export function Ribbon({
         <div
           role="tablist"
           aria-label={t("ribbon.tabs")}
-          className="ml-2 flex min-w-0 items-stretch"
+          className="ml-2 flex min-w-0 items-stretch overflow-x-auto [scrollbar-width:none]"
           onKeyDown={onStripKey}
           onMouseDown={rememberFocus}
         >
@@ -378,7 +378,7 @@ export function Ribbon({
             );
           })}
         </div>
-        <div className="ml-auto flex items-center gap-1 pr-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1 pl-1 pr-1">
           {rightSlot}
           <button
             type="button"

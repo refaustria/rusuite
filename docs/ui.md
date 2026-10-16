@@ -676,7 +676,8 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   live preview while dragging, one `SetGeometry` on release (all adjust values of the shape).
 - **Connectors** (`shapes/connectors.ts`): drawing or dragging an end over a shape shows its connection sites (grey, red
   when within 12 px); releasing on one glues it (`AddShape` with `start`/`end`, or `SetTransform` + `SetConnector`: the
-  core lets go of ends whose shape did not move and re-glues them from the patch, then reroutes). End handles are green
+  core lets go of ends whose shape did not move and re-glues them from the patch, then reroutes; a connector moved together
+  with every shape it is glued to – one drag or nudge of the selection – keeps its route, P8-40). End handles are green
   when glued. An elbow with two turns has a middle handle (`adj1`). Shape Format › Arrows (9 presets + Small / Medium /
   Large), Connector type (Straight / Elbow / Curved) and Reroute connectors (each glued end to the site nearest to the
   other end). Duplicating / pasting keeps a connector glued only to shapes copied with it.
@@ -687,7 +688,8 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   events, inset 5 px so the Transformer handles and the frame for moving stay reachable) takes clicks (edit the cell in
   the text overlay), drags across cells (cell selection, highlighted) and drags on column / row borders (`SetTableGrid`;
   neighbouring columns share the change, rows grow); right-click opens the table menu. In a cell Tab / Shift+Tab and the
-  arrows at the text's edges move between cells (Tab in the last cell adds a row), Enter makes a new paragraph; the text is
+  arrows at the text's edges move between cells (Tab in the last cell adds a row; Tab / Shift+Tab select the text of the
+  cell they move to, ← enters at its end, → at its start, P8-40), Enter makes a new paragraph; the text is
   committed with `SetTableCellText`. Table Design: style options (header / total row, banded rows / columns, first / last
   column → `SetTableStyle`), table styles gallery + Clear table, Shading and Borders (all, outside, inside, none, each
   side; explicit lines in `SetTableCellProps`) for the cell selection (else the edited cell, else the whole table).
@@ -922,6 +924,22 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
   bar (next, pause, the slide's time, repeat, total); at the end "keep the new slide timings?" – Yes sets each slide's
   After (whole seconds, `SetTransition`) and Use Timings in one undo step. Hidden slides are skipped (crossed-out number
   in the panel and the sorter).
+
+## Show quality pass (P8-40)
+
+Corrections from the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)):
+- **Text editing**: while typing in a shape, Ctrl/Cmd combinations reach the shortcut map – Ctrl+B / I / U format the
+  selected text, Ctrl+K opens Insert Hyperlink for it (the overlay keeps Tab, arrows, Esc, Ctrl+Enter and
+  Ctrl+Shift+> / < for itself).
+- **Placeholders**: an empty picture placeholder shows "Picture" centred without a bullet; vertical placeholders
+  (Title and Vertical Text, Vertical Title and Text: the layout's `vertical`) draw their text turned 90° like `vert="eaVert"`.
+- **Home**: Clipboard › Duplicate is a small button next to Copy and Drawing shows ten quick shapes (two rows of five; the
+  rest under More shapes ▾), so the Home tab fits a 1400 px window without collapsing a group; Arrange ▾ › Ungroup is
+  enabled only when a group is selected.
+- **Ribbon (all apps, `ui-shared`)**: a large button's label wraps at 80 px but is never narrower than its longest word (German
+  compounds no longer run into the neighbouring button); menu items stay on one line and menus taller than the window
+  scroll; the tab strip scrolls instead of running under the right slot (Present) on narrow windows.
+- **Notes Page**: the slide picture's frame is drawn over the picture (all four edges visible).
 
 ## Printing (P7-9)
 
