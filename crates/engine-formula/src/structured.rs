@@ -1,7 +1,7 @@
 //! Excel tables in formulas: structured references (`Table1[Sales]`,
 //! `[@Qty]`, `Table1[[#Headers],[Q1]:[Q3]]`).
 //!
-//! The parser turns a reference into an [`Expr::Structured`] holding a
+//! The parser turns a reference into an [`Expr::Structured`](crate::ast::Expr::Structured) holding a
 //! [`StructRef`]; the document model registers its tables with the engine
 //! ([`Engine::set_tables`](crate::Engine::set_tables)) as [`TableDef`]s,
 //! and [`TableDef::resolve`] turns a reference into the cells it means at

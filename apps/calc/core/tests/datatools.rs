@@ -264,7 +264,8 @@ fn goal_seek() {
     let before = snap(&h);
     let r = goal(&mut h, (2, 1), 100.0, (0, 1));
     assert_eq!(r["found"], true);
-    assert!((r["value"].as_f64().unwrap() - 12.0).abs() < 1e-3, "{r}");
+    // A linear target lands on the round value (`12`, not `11.999999999999`).
+    assert_eq!(r["value"].as_f64().unwrap(), 12.0, "{r}");
     assert!((r["result"].as_f64().unwrap() - 100.0).abs() < 1e-3);
     // Nothing changed.
     assert_eq!(snap(&h), before);

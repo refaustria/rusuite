@@ -262,10 +262,12 @@ export function pivotDesignTab(store: CalcStore, t: T): RibbonTab | null {
   const rows = table.rows ?? [];
   const cols = table.cols ?? [];
   const subtotalsNone = [...rows, ...cols].length > 0 && [...rows, ...cols].every((a) => a.subtotals?.kind === "none");
-  const setSubtotals = (none: boolean) => () => {
-    const map = (a: (typeof rows)[number]) => (none ? { ...a, subtotals: { kind: "none" as const } } : (({ subtotals: _s, ...rest }) => rest)(a));
+  const setSubtotals = (mode: "none" | "top" | "bottom") => () => {
+    const map = (a: (typeof rows)[number]) =>
+      mode === "none" ? { ...a, subtotals: { kind: "none" as const } } : { ...(({ subtotals: _s, ...rest }) => rest)(a), subtotalBottom: mode === "bottom" };
     void pivots.update(id, { rows: rows.map(map), cols: cols.map(map) });
   };
+  const subtotalsBottom = !subtotalsNone && rows.length > 0 && rows.every((a) => a.subtotalBottom);
   const gtRows = opts.grandTotalRows !== false;
   const gtCols = opts.grandTotalCols !== false;
   const layout: PivotLayout = rows[0]?.layout ?? "compact";
@@ -285,10 +287,9 @@ export function pivotDesignTab(store: CalcStore, t: T): RibbonTab | null {
               size="large"
               disabled={ro}
               menu={[
-                { id: "none", label: t("calc.pivot.subtotalsNone"), checked: subtotalsNone, onSelect: setSubtotals(true) },
-                // Subtotals below the group need a model option (compact/outline subtotals sit on the item's row).
-                { id: "bottom", label: t("calc.pivot.subtotalsBottom"), disabled: true, onSelect: () => undefined },
-                { id: "top", label: t("calc.pivot.subtotalsTop"), checked: !subtotalsNone, onSelect: setSubtotals(false) },
+                { id: "none", label: t("calc.pivot.subtotalsNone"), checked: subtotalsNone, onSelect: setSubtotals("none") },
+                { id: "bottom", label: t("calc.pivot.subtotalsBottom"), checked: subtotalsBottom, onSelect: setSubtotals("bottom") },
+                { id: "top", label: t("calc.pivot.subtotalsTop"), checked: !subtotalsNone && !subtotalsBottom, onSelect: setSubtotals("top") },
               ]}
             />
             <RibbonMenuButton
@@ -330,8 +331,7 @@ export function pivotDesignTab(store: CalcStore, t: T): RibbonTab | null {
             </RibbonStack>
             <RibbonStack>
               <Check label={t("calc.pivot.bandedRows")} checked={!!opts.banded} disabled={ro} onChange={set({ banded: !opts.banded })} />
-              {/* Banded columns need a model option (pivotTableStyleInfo showColStripes). */}
-              <Check label={t("calc.pivot.bandedCols")} checked={false} disabled onChange={() => undefined} />
+              <Check label={t("calc.pivot.bandedCols")} checked={!!opts.bandedCols} disabled={ro} onChange={set({ bandedCols: !opts.bandedCols })} />
             </RibbonStack>
           </>
         ),

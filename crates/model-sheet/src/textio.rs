@@ -1,7 +1,7 @@
 //! Text import and export: Excel's Text Import Wizard / Text to Columns
 //! (delimited or fixed width, text qualifier, column data formats,
 //! decimal and thousands separators) and Save As CSV. Pure functions on
-//! strings; [`Workbook::import_rows`] and [`Workbook::to_csv`] apply them
+//! strings; [`Workbook::import_records`] and [`Workbook::to_csv`] apply them
 //! to a sheet.
 
 use engine_formula::{CellCoord, SheetId, Value};

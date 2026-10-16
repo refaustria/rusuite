@@ -768,7 +768,7 @@ pub enum CalcCommand {
     /// `i0..=i1`.
     GroupOutline {
         sheet: u32,
-        #[ts(as = "crate::wire_tables::Axis")]
+        #[ts(as = "crate::wire_tables::LineAxis")]
         axis: model_sheet::Axis,
         i0: u32,
         i1: u32,
@@ -777,7 +777,7 @@ pub enum CalcCommand {
     /// The `−` / `+` button of the outline bar on summary line `index`.
     SetOutlineCollapsed {
         sheet: u32,
-        #[ts(as = "crate::wire_tables::Axis")]
+        #[ts(as = "crate::wire_tables::LineAxis")]
         axis: model_sheet::Axis,
         index: u32,
         collapsed: bool,
@@ -785,7 +785,7 @@ pub enum CalcCommand {
     /// The level buttons `1..=8` of the outline bar.
     ShowOutlineLevel {
         sheet: u32,
-        #[ts(as = "crate::wire_tables::Axis")]
+        #[ts(as = "crate::wire_tables::LineAxis")]
         axis: model_sheet::Axis,
         level: u8,
     },
@@ -793,7 +793,7 @@ pub enum CalcCommand {
     ClearOutline {
         sheet: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, as = "Option<crate::wire_tables::Axis>")]
+        #[ts(optional, as = "Option<crate::wire_tables::LineAxis>")]
         axis: Option<model_sheet::Axis>,
     },
     /// Outline settings (summary rows below, summary columns right).
@@ -832,7 +832,7 @@ pub enum CalcCommand {
     /// Breaks, dragging in Page Break Preview).
     SetPageBreaks {
         sheet: u32,
-        #[ts(as = "crate::wire_tables::Axis")]
+        #[ts(as = "crate::wire_tables::LineAxis")]
         axis: model_sheet::Axis,
         breaks: Vec<u32>,
     },

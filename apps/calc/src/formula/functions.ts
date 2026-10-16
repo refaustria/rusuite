@@ -11,8 +11,8 @@ export interface FunctionInfo {
   signature: string;
   description: string;
   category?: FunctionCategory | string;
-  /** An autocomplete entry for a defined name (accepting inserts the name only). */
-  kind?: "name";
+  /** An autocomplete entry for a defined name (accepting inserts the name only) or a table column (after `[`). */
+  kind?: "name" | "column";
 }
 
 export const FUNCTIONS: FunctionInfo[] = list;

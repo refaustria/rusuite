@@ -170,9 +170,9 @@ mirror! {
         pub summary_right: bool,
     }
 
-    /// Mirror of `model_sheet::Axis`.
+    /// Mirror of `model_sheet::Axis` (rows or columns).
     #[serde(rename_all = "camelCase")]
-    pub enum Axis {
+    pub enum LineAxis {
         Rows,
         Cols,
     }
@@ -291,6 +291,6 @@ mod tests {
             },
         });
         same_shape::<_, super::TextEncoding>(&m::textio::TextEncoding::Utf16Be);
-        same_shape::<_, super::Axis>(&m::Axis::Cols);
+        same_shape::<_, super::LineAxis>(&m::Axis::Cols);
     }
 }

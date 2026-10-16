@@ -141,6 +141,10 @@ pub struct PivotSummary {
     /// The pivot style (`PivotStyleLight16`) and its options.
     pub style: String,
     pub banded: bool,
+    /// Banded columns.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub banded_cols: bool,
     pub row_headers: bool,
     pub col_headers: bool,
     /// The source changed since the last refresh.
@@ -379,6 +383,7 @@ impl CalcDocument {
                     table: rect(table),
                     style: p.options.style.clone(),
                     banded: p.options.banded,
+                    banded_cols: p.options.banded_cols,
                     row_headers: p.options.row_headers_bold,
                     col_headers: p.options.col_headers_bold,
                     stale: wb.pivot_cache(p.cache_id).is_some_and(|c| c.stale),

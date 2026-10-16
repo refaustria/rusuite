@@ -616,3 +616,29 @@ fn snapshot_json_roundtrip_keeps_tables() {
     };
     assert_eq!(back, snap(&h));
 }
+
+#[test]
+fn totals_row_patch_carries_the_values() {
+    let mut h = book();
+    let id = create(&mut h);
+    let applied = h
+        .apply(C::SetTableOptions {
+            id,
+            header_row: None,
+            totals_row: Some(true),
+            filter_button: None,
+        })
+        .unwrap();
+    let json = serde_json::to_value(&applied).unwrap();
+    let cells = json["patch"]["cells"].as_array().unwrap();
+    let mut hit = None;
+    for g in cells {
+        for c in g["cells"].as_array().unwrap() {
+            if c["row"] == 5 && c["col"] == 2 {
+                hit = Some(c.clone());
+            }
+        }
+    }
+    let hit = hit.expect("totals cell in the patch");
+    assert_eq!(hit["display"], "11.5", "{hit}");
+}

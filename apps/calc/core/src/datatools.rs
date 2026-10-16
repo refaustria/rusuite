@@ -844,7 +844,21 @@ impl CalcDocument {
             fa = fb;
             xb = next;
         }
-        let value = best.0;
+        let mut value = best.0;
+        if found {
+            // Prefer the shortest decimal that is at least as close (`30`, not `29.99999999999956`).
+            for digits in 0..=12 {
+                let m = 10f64.powi(digits);
+                let c = (value * m).round() / m;
+                if c == value {
+                    break;
+                }
+                if eval(self, c).is_some_and(|f| f.abs() <= best.1) {
+                    value = c;
+                    break;
+                }
+            }
+        }
         let result = eval(self, value).map_or(f64::NAN, |f| f + goal);
         // Back to the original content.
         let _ = self.workbook_mut().set_input(var, &original);

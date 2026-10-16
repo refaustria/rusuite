@@ -11,6 +11,7 @@ import { CalcDialogs } from "./CalcDialogs";
 import { ValidationAlertDialog } from "./validation/ValidationDialogs";
 import { t as translate, useT } from "./i18n";
 import type { CalcStore } from "./state/store";
+import { openCreateTable } from "./tables/TableRibbon";
 
 const inGrid = (e: KeyboardEvent) => (e.target as HTMLElement | null)?.hasAttribute?.("data-calc-grid") ?? false;
 
@@ -80,7 +81,15 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
         store.comments.selectedNote = null;
         return store.apply({ type: "deleteNote", sheet: note.sheet, r0: note.row, c0: note.col, r1: note.row, c1: note.col });
       }
+      if (store.pictures.selected) return store.pictures.remove();
       return store.charts.selected ? store.charts.remove() : store.clearSelection();
+    };
+    /** Data › Group / Ungroup (Alt+Shift+→ / ←): whole columns group columns, anything else rows. */
+    const group = (ungroup: boolean) => () => {
+      const r = normalize(store.getState().selection);
+      const cols = isWholeCols(r) && !isWholeRows(r);
+      const sheet = store.getState().activeSheet;
+      void store.apply({ type: "groupOutline", sheet, axis: cols ? "cols" : "rows", i0: cols ? r.c0 : r.r0, i1: cols ? r.c1 : r.r1, ungroup });
     };
     /** Insert/delete: whole-row or whole-column selections skip the dialog. */
     const structural = (kind: "insert" | "delete") => () => {
@@ -158,6 +167,12 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       "Mod+F3": { label: t("calc.names.manager"), group: t("calc.tab.formulas"), when: inGrid, run: () => store.openDialog({ kind: "nameManager" }) },
       "Mod+Shift+F3": { label: t("calc.names.createFromSelection"), group: t("calc.tab.formulas"), when: inGrid, run: () => store.openDialog({ kind: "createNames" }) },
       "Alt+=": { label: t("calc.fn.autoSum"), group: t("calc.tab.formulas"), when: inGrid, run: () => store.autoSum("SUM") },
+      // Insert › Table (Excel: Ctrl+T and Ctrl+L).
+      "Mod+T": { label: t("calc.table.create"), group: t("tab.insert"), when: inGrid, run: () => openCreateTable(store) },
+      "Mod+L": { label: t("calc.table.create"), group: t("tab.insert"), when: inGrid, run: () => openCreateTable(store) },
+      "Mod+Alt+V": { label: t("calc.ps.title"), group: t("sc.edit"), when: inGrid, run: () => store.openDialog({ kind: "pasteSpecial" }) },
+      "Alt+Shift+ArrowRight": { label: t("calc.outline.group"), group: t("calc.tab.data"), when: inGrid, run: group(false) },
+      "Alt+Shift+ArrowLeft": { label: t("calc.outline.ungroup"), group: t("calc.tab.data"), when: inGrid, run: group(true) },
       // PivotTable Analyze › Refresh / Refresh All (Excel's keys).
       "Alt+F5": {
         label: t("calc.pivot.refresh"),
@@ -186,7 +201,9 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
         onClose={() => setSaveAsOpen(false)}
         onSubmit={(name) => {
           setSaveAsOpen(false);
-          void store.saveFile(withExtension(name, ".xlsx"));
+          // A `.csv` name saves the active sheet as CSV (with its options and Excel's warning).
+          if (/\.csv$/i.test(name.trim())) store.openDialog({ kind: "saveCsv", name: name.trim() });
+          else void store.saveFile(withExtension(name, ".xlsx"));
         }}
       />
       <StructureDialog kind={structure} store={store} onClose={() => setStructure(null)} />
