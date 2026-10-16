@@ -100,6 +100,8 @@ fn sample() -> Document {
         alt: Some("Company logo".into()),
         name: Some("Picture 1".into()),
         anchor: None,
+        format: Default::default(),
+        link: None,
     }));
 
     doc.body = vec![
@@ -202,6 +204,8 @@ fn plain_text_with_image_break_and_tab() {
         alt: None,
         name: None,
         anchor: None,
+        format: Default::default(),
+        link: None,
     }));
     p.inlines.push(Inline::Break(BreakKind::Page));
     doc.body.push(Block::Paragraph(p));

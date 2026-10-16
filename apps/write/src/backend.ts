@@ -7,6 +7,8 @@ import type { Document } from "./generated/Document";
 import type { FindQuery } from "./generated/FindQuery";
 import type { Request } from "./generated/Request";
 import type { ResponseBody } from "./generated/ResponseBody";
+import type { ShapeOutline } from "./generated/ShapeOutline";
+import type { ShapePathQuery } from "./generated/ShapePathQuery";
 import type { WriteCommand } from "./generated/WriteCommand";
 import type { WritePatch } from "./generated/WritePatch";
 
@@ -59,6 +61,7 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     recoverySnapshot: { json: "string", revision: "number", dirty: "boolean" },
     blockIds: { ids: "array" },
     findMatches: { matches: "array", revision: "number" },
+    shapePaths: { shapes: "array" },
   };
   for (const [field, kind] of Object.entries(shapes[expected])) {
     const value = body[field];
@@ -162,6 +165,11 @@ export class WriteApi {
   /** The author of new comments for this document (not an edit). */
   setUser(name: string, initials?: string): Promise<BodyOf<"documentState">> {
     return this.call({ type: "setUser", name, initials: initials || undefined }, "documentState");
+  }
+
+  /** Outlines of shape presets (changes nothing). */
+  async shapePaths(queries: ShapePathQuery[]): Promise<ShapeOutline[]> {
+    return (await this.call({ type: "shapePaths", queries }, "shapePaths")).shapes;
   }
 
   markSaved(name?: string): Promise<BodyOf<"documentState">> {

@@ -960,7 +960,8 @@ expression: "serde_json::to_value(&doc).unwrap()"
               "slot": "dark1",
               "tint": 0.35
             }
-          }
+          },
+          "smallCaps": true
         }
       },
       {
@@ -972,13 +973,15 @@ expression: "serde_json::to_value(&doc).unwrap()"
         "quickFormat": true,
         "run": {
           "bold": true,
+          "charSpacing": 5,
           "color": {
             "kind": "theme",
             "value": {
               "slot": "accent1",
               "tint": 0.0
             }
-          }
+          },
+          "smallCaps": true
         }
       },
       {
@@ -990,6 +993,7 @@ expression: "serde_json::to_value(&doc).unwrap()"
         "quickFormat": true,
         "run": {
           "bold": true,
+          "charSpacing": 5,
           "italic": true
         }
       },

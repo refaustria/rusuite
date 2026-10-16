@@ -84,6 +84,57 @@ body,
 .inline-image-wrap.block { width: fit-content; }
 .inline-image-wrap.floating.selected img { cursor: move; touch-action: none; }
 .inline-image-wrap.moving img { opacity: 0.7; }
+/* Pictures (P8-34): crop window, border, shadow, outline shape; crop mode shows Word's black crop handles. */
+.inline-image-wrap .picture-frame { display: inline-block; overflow: hidden; line-height: 0; vertical-align: baseline; box-sizing: border-box; }
+.inline-image-wrap .picture-frame img.inline-image { display: block; max-width: none; }
+.inline-image-wrap.cropping .picture-frame { overflow: visible; }
+.inline-image-wrap.cropping .picture-frame img.inline-image { opacity: 0.45; }
+.inline-image-wrap .crop-window { display: none; position: absolute; outline: 1px solid #000; pointer-events: none; }
+.inline-image-wrap.cropping .crop-window { display: block; }
+.crop-handle { display: none; position: absolute; background: #000; z-index: 2; touch-action: none; }
+.inline-image-wrap.cropping .crop-handle { display: block; }
+.inline-image-wrap.cropping .image-handle { display: none; }
+.crop-handle-n, .crop-handle-s { width: 16px; height: 4px; cursor: ns-resize; }
+.crop-handle-e, .crop-handle-w { width: 4px; height: 16px; cursor: ew-resize; }
+.crop-handle-nw, .crop-handle-ne, .crop-handle-sw, .crop-handle-se { width: 10px; height: 10px; }
+.crop-handle-nw, .crop-handle-se { cursor: nwse-resize; }
+.crop-handle-ne, .crop-handle-sw { cursor: nesw-resize; }
+
+/* Shapes and text boxes (P8-34): SVG outline, text in a nested editor, handles while selected. */
+.drawing-wrap { position: relative; display: inline-block; vertical-align: bottom; line-height: normal; white-space: normal; user-select: none; }
+.drawing-wrap .drawing-box { position: absolute; inset: 0; display: block; }
+.drawing-wrap .drawing-shape { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.drawing-wrap .drawing-text { position: absolute; inset: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; user-select: text; cursor: text; }
+.drawing-wrap .drawing-text > div { width: 100%; }
+.drawing-wrap .drawing-text .ProseMirror { outline: none; min-height: 1em; white-space: pre-wrap; }
+.drawing-wrap .drawing-text .ProseMirror p { color: inherit; }
+.drawing-wrap.ProseMirror-selectednode { outline: none; }
+.drawing-wrap.selected .drawing-box, .drawing-wrap.editing .drawing-box { outline: 1px solid #4472c4; }
+.drawing-wrap.editing .drawing-box { outline-style: dashed; }
+.drawing-wrap.selected .image-handle, .drawing-wrap.editing .image-handle { display: block; }
+.drawing-rotate { display: none; position: absolute; left: calc(50% - 6px); top: -24px; width: 12px; height: 12px; border-radius: 50%; border: 1px solid #4472c4; background: #fff; cursor: grab; z-index: 1; touch-action: none; }
+.drawing-wrap.selected .drawing-rotate, .drawing-wrap.editing .drawing-rotate { display: block; }
+.drawing-adjust { display: none; position: absolute; width: 10px; height: 10px; border-radius: 50%; background: #ffd500; border: 1px solid #7a6000; box-sizing: border-box; cursor: pointer; z-index: 2; touch-action: none; }
+.drawing-wrap.selected .drawing-adjust { display: block; }
+.drawing-wrap.floating.selected { cursor: move; touch-action: none; }
+/* Touch-sized hit areas around the small handles (docs/mobile-plan.md guardrails: ≥ 32 px). */
+/* They grow outwards only, so the text next to the box edge stays clickable. */
+.drawing-handle::before, .drawing-rotate::before, .drawing-adjust::before { content: ""; position: absolute; inset: -12px; }
+.drawing-handle.image-handle-n::before { inset: -12px -12px 4px -12px; }
+.drawing-handle.image-handle-s::before { inset: 4px -12px -12px -12px; }
+.drawing-handle.image-handle-e::before { inset: -12px -12px -12px 4px; }
+.drawing-handle.image-handle-w::before { inset: -12px 4px -12px -12px; }
+.drawing-handle.image-handle-nw::before { inset: -12px 4px 4px -12px; }
+.drawing-handle.image-handle-ne::before { inset: -12px -12px 4px 4px; }
+.drawing-handle.image-handle-se::before { inset: 4px -12px -12px 4px; }
+.drawing-handle.image-handle-sw::before { inset: 4px 4px -12px -12px; }
+.drawing-adjust::before { inset: -6px; }
+.drawing-wrap.moving, .drawing-wrap.resizing { opacity: 0.8; }
+.tiptap-content :is(p, h1, h2, h3, h4, h5, h6):has(> .drawing-wrap.behind, > .drawing-wrap.front) { position: relative; }
+/* Hidden text (w:vanish): not shown, not printed; View › Hidden Text shows it dotted. */
+.tiptap-content .hidden-text { display: none; }
+.tiptap-content.show-hidden .hidden-text { display: inline; text-decoration: underline dotted #7f7f7f; }
+
 /* Tab characters sized by the tab-stop layout, with their leaders. */
 .tiptap-content .tab-char { display: inline-block; tab-size: 0; white-space: pre; overflow: hidden; vertical-align: baseline; }
 .tiptap-content .tab-leader-dot { background-image: radial-gradient(circle, currentColor 0.7px, transparent 1px); background-size: 4px 4px; background-repeat: repeat-x; background-position: 0 calc(100% - 0.2em); }

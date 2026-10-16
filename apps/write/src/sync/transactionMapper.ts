@@ -20,7 +20,7 @@ import type { ParagraphProperties } from "../generated/ParagraphProperties";
 import type { WriteCommand } from "../generated/WriteCommand";
 import { nodesToBlocks, nodeToBlocks, notesNode } from "./fromPM";
 import {
-  applyParagraphPatch, applyRunPatch, blockKey, canonValue, noteRefIds, propsKey, RUN_KEYS, stableStringify,
+  applyParagraphPatch, applyRunPatch, blockKey, canonBlock, canonDrawing, canonValue, noteRefIds, propsKey, RUN_KEYS, RUN_TOGGLES, stableStringify,
   SYNTHETIC_BULLET, SYNTHETIC_DECIMAL, type RunProperties,
 } from "./model";
 
@@ -80,7 +80,8 @@ function positions(inlines: Inline[]): Pos[] {
       const lk = link ? stableStringify(canonValue(link)) : "";
       for (const ch of inline.value.text) out.push({ key: `${ch}\u0000${pk}\u0000${style}\u0000${lk}`, ch, props, style, link });
     } else {
-      out.push({ key: stableStringify(inline), inline });
+      const canon = inline.kind === "drawing" ? ({ kind: "drawing", value: canonDrawing(inline.value) } as Inline) : inline;
+      out.push({ key: stableStringify(canon), inline: canon });
     }
   }
   return out;
@@ -134,7 +135,7 @@ function runPatch(old: Pos[], next: Pos[]): RunProperties | null {
     if (values.size !== 1) return null;
     const v = next[0]!.props![k];
     if (v === undefined) {
-      if (k === "bold" || k === "italic" || k === "strike") patch[k] = false;
+      if ((RUN_TOGGLES as readonly string[]).includes(k)) patch[k] = false;
       else return null;
     } else patch[k] = v;
   }
@@ -157,11 +158,99 @@ function imageCommand(block: number, offset: number, a: Inline | undefined, b: I
   if (stableStringify(canonValue(x.anchor ?? null)) !== stableStringify(canonValue(y.anchor ?? null))) {
     cmds.push({ type: "setImageAnchor", block, offset, anchor: y.anchor ?? null });
   }
+  if (stableStringify(canonValue(x.format ?? {})) !== stableStringify(canonValue(y.format ?? {}))) {
+    cmds.push({ type: "setImageFormat", block, offset, format: (canonValue(y.format ?? {}) ?? {}) as never });
+  }
+  if (stableStringify(canonValue(x.link ?? null)) !== stableStringify(canonValue(y.link ?? null))) {
+    cmds.push({ type: "setImageLink", block, offset, link: y.link ?? null });
+  }
   return cmds.length ? one(cmds) : null;
 }
 
+type DrawingValue = Extract<Inline, { kind: "drawing" }>["value"];
+
+/** A drawing without its text blocks (what `SetDrawingProps` carries; Rust keeps the blocks). */
+export function drawingShell(d: DrawingValue): DrawingValue {
+  const out = canonDrawing(d);
+  return out.text ? { ...out, text: { ...out.text, blocks: [] } } : out;
+}
+
+/** Commands allowed for the paragraphs inside a drawing's text (addressed by their ids). */
+const IN_DRAWING = new Set<WriteCommand["type"]>(["splitParagraph", "joinWithPrevious"]);
+const inDrawing = (c: WriteCommand): boolean =>
+  c.type === "compound" ? c.commands.every(inDrawing) : IN_PLACE.has(c.type) || IN_DRAWING.has(c.type);
+
+/**
+ * The same drawing changed: `SetDrawingProps` for its shape / placement
+ * (Rust keeps the text blocks), then the edit of its text — in-place
+ * commands (typing, formatting, Enter / Backspace) addressed to the
+ * paragraphs inside, else `SetDrawingText` with all its blocks.
+ */
+function drawingCommand(block: number, offset: number, a: Inline | undefined, b: Inline | undefined, opts: MapperOptions): WriteCommand | null {
+  if (a?.kind !== "drawing" || b?.kind !== "drawing" || a.value.id !== b.value.id) return null;
+  const [x, y] = [a.value, b.value];
+  const cmds: WriteCommand[] = [];
+  const hadText = !!x.text;
+  if (stableStringify(drawingShell(x)) !== stableStringify(drawingShell(y))) {
+    cmds.push({ type: "setDrawingProps", block, offset, drawing: drawingShell(y) });
+  }
+  const ob = (x.text?.blocks ?? []).map(canonBlock);
+  const nb = (y.text?.blocks ?? []).map(canonBlock);
+  if (hadText && y.text && stableStringify(ob) !== stableStringify(nb)) {
+    let s = 0;
+    while (s < ob.length && s < nb.length && blockKey(ob[s]!) === blockKey(nb[s]!)) s++;
+    let e = 0;
+    while (e < ob.length - s && e < nb.length - s && blockKey(ob[ob.length - 1 - e]!) === blockKey(nb[nb.length - 1 - e]!)) e++;
+    const os = ob.slice(s, ob.length - e);
+    const ns = nb.slice(s, nb.length - e);
+    const r = os.length && ns.length && os.every(isPara) && ns.every(isPara) ? classify(os, ns, s > 0 ? ob[s - 1]! : null, opts) : null;
+    if (r && !r.followUp && inDrawing(r.command)) cmds.push(r.command);
+    else cmds.push({ type: "setDrawingText", block, offset, blocks: nb });
+  } else if (!hadText && y.text && cmds.length === 0) {
+    cmds.push({ type: "setDrawingText", block, offset, blocks: nb });
+  }
+  return cmds.length ? one(cmds) : null;
+}
+
+/** Negative (temporary) ids inside drawings → 0 (the core gives them fresh ids). */
+export function sanitizeDrawingIds(blocks: Block[]): Block[] {
+  const fix = (bs: Block[]): Block[] =>
+    bs.map((b) => {
+      if (b.kind === "paragraph") {
+        const v = { ...b.value, id: b.value.id < 0 ? 0 : b.value.id };
+        v.inlines = (v.inlines ?? []).map((i) =>
+          i.kind === "drawing"
+            ? ({ kind: "drawing", value: { ...i.value, id: i.value.id < 0 ? 0 : i.value.id, ...(i.value.text ? { text: { ...i.value.text, blocks: fix(i.value.text.blocks ?? []) } } : {}) } } as Inline)
+            : i,
+        );
+        return { kind: "paragraph", value: v } as Block;
+      }
+      if (b.kind === "table") {
+        return {
+          kind: "table",
+          value: {
+            ...b.value,
+            id: Math.max(0, b.value.id),
+            rows: b.value.rows.map((r) => ({ ...r, id: Math.max(0, r.id), cells: r.cells.map((c) => ({ ...c, id: Math.max(0, c.id), blocks: fix(c.blocks) })) })),
+          },
+        } as Block;
+      }
+      return b;
+    });
+  // Top-level ids may be temporary (the core maps them); only those inside drawings are reset.
+  return blocks.map((b) => {
+    if (b.kind !== "paragraph" || !(b.value.inlines ?? []).some((i) => i.kind === "drawing")) return b;
+    const inlines = (b.value.inlines ?? []).map((i) =>
+      i.kind === "drawing"
+        ? ({ kind: "drawing", value: { ...i.value, id: i.value.id < 0 ? 0 : i.value.id, ...(i.value.text ? { text: { ...i.value.text, blocks: fix(i.value.text.blocks ?? []) } } : {}) } } as Inline)
+        : i,
+    );
+    return { kind: "paragraph", value: { ...b.value, inlines } } as Block;
+  });
+}
+
 /** Inline-level change of one paragraph, or null when not expressible. */
-function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): WriteCommand | null {
+function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[], opts: MapperOptions = {}): WriteCommand | null {
   const a = positions(oldInlines);
   const b = positions(newInlines);
   let pre = 0;
@@ -198,6 +287,8 @@ function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[]): 
   if (oldMid.length === 1 && newMid.length === 1) {
     const img = imageCommand(id, pre, oldMid[0]!.inline, newMid[0]!.inline);
     if (img) return img;
+    const dr = drawingCommand(id, pre, oldMid[0]!.inline, newMid[0]!.inline, opts);
+    if (dr) return dr;
   }
   if (!allText(newMid)) return null;
   const inserts = (at: number): WriteCommand[] => {
@@ -354,7 +445,7 @@ function resolveSynthetic(blocks: Block[], opts: MapperOptions): { blocks: Block
 }
 
 function replaceBlocks(ids: number[], blocks: Block[], opts: MapperOptions): MapResult {
-  const r = resolveSynthetic(blocks, opts);
+  const r = resolveSynthetic(sanitizeDrawingIds(blocks), opts);
   const command: WriteCommand = blocks.length ? { type: "replaceBlocks", ids, blocks: r.blocks } : { type: "deleteBlocks", ids };
   return r.followUp ? { command, followUp: r.followUp } : { command };
 }
@@ -362,6 +453,7 @@ function replaceBlocks(ids: number[], blocks: Block[], opts: MapperOptions): Map
 /** Commands addressed to existing paragraphs only (valid inside a table cell as well). */
 const IN_PLACE = new Set<WriteCommand["type"]>([
   "insertText", "deleteText", "replaceText", "setRunProps", "setParagraphProps", "setStyle", "setImageSize", "setImageAlt", "setImageAnchor",
+  "setImageFormat", "setImageLink", "setDrawingProps", "setDrawingText",
 ]);
 const inPlace = (c: WriteCommand): boolean =>
   c.type === "compound" ? c.commands.every(inPlace) : IN_PLACE.has(c.type);
@@ -420,7 +512,7 @@ export function classify(ob: Block[], nb: Block[], prev: Block | null, opts: Map
     }
   }
   if (!ob.length) {
-    const r = resolveSynthetic(nb, opts);
+    const r = resolveSynthetic(sanitizeDrawingIds(nb), opts);
     const command: WriteCommand = { type: "insertBlocks", after, blocks: r.blocks };
     return r.followUp ? { command, followUp: r.followUp } : { command };
   }
@@ -440,7 +532,7 @@ export function classify(ob: Block[], nb: Block[], prev: Block | null, opts: Map
       cmds.push(...propsCmds);
       if (inlineChanged.length === 1) {
         const i = o.indexOf(inlineChanged[0]!);
-        const c = inlineCommand(o[i]!.value.id, o[i]!.value.inlines, n[i]!.value.inlines);
+        const c = inlineCommand(o[i]!.value.id, o[i]!.value.inlines, n[i]!.value.inlines, opts);
         if (!c) return replaceBlocks(o.map((b) => b.value.id), nb, opts);
         cmds.push(c);
       }

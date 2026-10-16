@@ -218,6 +218,50 @@ The algorithm is in `docs/write-layout.md`.
 - Zoom and window resizes lay the pages out again (60 ms); long documents re-measure only changed blocks, resume the
   pagination at the page before the first change and draw only the pages near the viewport (docs/perf.md).
 
+### Write shapes, text boxes, picture formatting, character formatting (P8-34)
+- **Insert › Shapes** (`ui/drawingTabs.tsx`): Word's groups (Lines, Rectangles, Basic Shapes with the text box, Block
+  Arrows, Flowchart, Stars, Callouts); icons are the presets' outlines from the core (`shapePaths`, the same ECMA-376
+  preset geometry as Show). A choice inserts the shape at the caret at Word's default size (2.5 cm; arrows 3.5 × 1.8 cm)
+  with Word's look (accent 1 fill, darker 1 pt outline, white centred text) and selects it. **Insert › Text Box ▾**:
+  Simple Text Box (inline, white, black 0.75 pt outline, 5 × 2.5 cm) and Text Box with Text Wrapping (floating, square).
+- **Drawings in the text** (`features/drawings/`): an inline atom; the outline is SVG (rectangle until the core's path
+  arrives), the text a nested editor (the Write schema; Enter, Backspace, Ctrl+B/I/U, Tab, Ctrl+Z/Y; Escape selects the
+  shape). Double-click a shape to edit its text; a click in a text box's text puts the caret there. Selected: eight
+  resize handles (corners free, Shift keeps the proportions), a rotation handle above (Shift snaps to 15°), the preset's
+  yellow adjust handles (touch-sized hit areas that grow outwards only); a floating drawing moves by dragging. Inline drawings take part in the measurement like
+  pictures (one box per drawing; the text inside is not part of the page's lines); floating ones are placed like
+  floating pictures (square/tight float, top and bottom, behind / in front; page and margin positions follow the print
+  layout) and the page cover never hides what hangs below the last line. Prints and exports to PDF as shown.
+- **Shape Format tab** (Drawing Tools; also while the text of a shape is edited): Insert Shapes (Shapes ▾, Text Box ▾,
+  Change Shape ▾), Shape Styles (18 presets: colored fill / light fill / colored outline × accents 1–6), Shape Fill,
+  Shape Outline colour, Outline weight and dashes ▾ (No Outline, 0.25–6 pt, seven dash styles), Text: Align Text ▾
+  (top / middle / bottom), Resize shape to fit text; Alt text; Arrange: Position ▾, Wrap Text ▾ (as for pictures),
+  Align ▾ (left / center / right / top / middle / bottom on the margin; an inline shape starts floating), Rotate ▾ (right / left 90°, flip vertical / horizontal); Size (height, width in cm). Each change is one
+  `SetDrawingProps` (the text blocks stay in Rust); typing in the text sends the ordinary text commands for the paragraphs
+  inside (`InsertText`, `SplitParagraph`, …, addressed by their ids), anything else one `SetDrawingText`.
+- **Picture Format** (P8-34 additions): Adjust: Corrections ▾ (brightness × contrast −40…+40 %, 25 previews), Color ▾
+  (No Recolor, Grayscale, Sepia, Washout, Black and White), Reset Picture (all formatting off); Picture Styles ▾ (10:
+  simple frame white / black, thick matte black, drop shadow rectangle, rounded rectangle (+ shadow), oval, oval frame,
+  metal frame, snip corner), Picture Border colour and weight/dashes ▾; Size › Crop: crop mode with Word's black handles
+  on the sides and corners (the whole image shown dimmed, the crop window outlined; Enter, Escape or a click elsewhere ends it;
+  the picture keeps its scale, the box follows the visible part). Rendering: crop as a window over the image, border as
+  an outline, shadow, rounded / oval outline shapes, corrections and recolouring as CSS filters. Insert › Link with a
+  picture selected links the picture (`SetImageLink`); Remove Link removes it.
+- **Character formatting**: Home › Font gains Change Case ▾ (Sentence case., lowercase, UPPERCASE, Capitalize Each Word,
+  tOGGLE cASE — `ChangeCase` per paragraph, the formatting kept; a caret changes its word), Text Effects ▾ (Outline,
+  Shadow, Emboss, Engrave, No Effects) and Font… (**Ctrl+D**): the Font tab (font, style, size, colour, underline and the
+  effects Strikethrough, Double strikethrough, Superscript, Subscript, Small caps, All caps, Hidden, Outline, Shadow,
+  Emboss, Engrave — exclusive pairs as in Word) and the Advanced tab (Scale %, Spacing pt (+ expanded / − condensed),
+  Position pt (+ raised / − lowered), Kerning for fonts of N pt and above). Inside a text box the Font group and the
+  dialog format the text box's text. Small caps, all caps, spacing and position are exact; outline, shadow, emboss and
+  engrave are approximations; scale widens the letter spacing. Hidden text is not shown (and not printed);
+  **View › Hidden text** shows it with a dotted underline. Subtle / Intense Reference and Book Title have Word's small
+  caps and spacing; the style gallery, the Styles pane and the style CSS show the effects.
+- **Lists and styles**: Home › Multilevel list sends one `ApplyNumbering` (the core allocates the list); Create a Style
+  makes a linked pair ("Name" + "Name Char"). Table Layout › Insert left / right and Delete column respect merged cells
+  (a cell spanning the column grows / shrinks). References › Footnotes › Endnotes ▾ (end of the document / of each
+  section) and Layout › Hyphenation ▾ › Hyphenation zone (0.63 / 0.75 / 1.27 cm) are document settings.
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |

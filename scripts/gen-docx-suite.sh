@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate the 60 PROVISIONAL docx reference files (testdata/docx/provisional-NN-*.docx) with headless
+# Generate the 62 PROVISIONAL docx reference files (testdata/docx/provisional-NN-*.docx) with headless
 # LibreOffice, plus testdata/docx/manifest.json describing their contents (docs/docx-suite.md).
 #   gen-docx-suite.sh            generate (flat ODT from scripts/testdata-src/docx/gen.py -> docx)
 #   gen-docx-suite.sh --verify   check the committed files against the manifest
@@ -30,7 +30,7 @@ verify_dir() {
   local dir="$1" fail=0 f pdf n
   mkdir -p "$TMP/pdf"
   n="$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$dir/manifest.json")"
-  if [[ "$n" != 60 ]]; then echo "FAIL manifest has $n entries, expected 60"; fail=1; fi
+  if [[ "$n" != 62 ]]; then echo "FAIL manifest has $n entries, expected 62"; fail=1; fi
   while IFS= read -r f; do
     if [[ ! -s "$dir/$f" ]]; then echo "FAIL $f: missing"; fail=1; continue; fi
     if ! unzip -l "$dir/$f" | grep -q '\[Content_Types\].xml'; then echo "FAIL $f: no [Content_Types].xml"; fail=1; continue; fi

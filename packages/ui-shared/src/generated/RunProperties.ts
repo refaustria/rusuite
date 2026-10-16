@@ -9,4 +9,20 @@ import type { VerticalAlign } from "./VerticalAlign";
  * Mirror of `core_model::RunProperties`: every field optional
  * (absent = inherit).
  */
-export type RunProperties = { font?: FontFace | null, size?: FontSize | null, bold?: boolean | null, italic?: boolean | null, underline?: Underline | null, strike?: boolean | null, color?: Color | null, highlight?: Color | null, verticalAlign?: VerticalAlign | null, };
+export type RunProperties = { font?: FontFace | null, size?: FontSize | null, bold?: boolean | null, italic?: boolean | null, underline?: Underline | null, strike?: boolean | null, color?: Color | null, highlight?: Color | null, verticalAlign?: VerticalAlign | null, smallCaps?: boolean | null, allCaps?: boolean | null, doubleStrike?: boolean | null, 
+/**
+ * Twips (positive = expanded).
+ */
+charSpacing?: number | null, 
+/**
+ * Percent (100 = normal).
+ */
+scale?: number | null, 
+/**
+ * Half-points (0 = off).
+ */
+kerning?: number | null, 
+/**
+ * Half-points (positive = raised).
+ */
+position?: number | null, outline?: boolean | null, shadow?: boolean | null, emboss?: boolean | null, imprint?: boolean | null, hidden?: boolean | null, rtl?: boolean | null, };

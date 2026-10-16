@@ -1036,7 +1036,8 @@ export function ReferenceDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncCo
         places={places}
         onClose={close}
         onRemove={() => {
-          if (linkInit?.link) run([{ type: "removeHyperlink", block: linkInit.block, from: linkInit.from, to: linkInit.to }]);
+          if (linkInit?.link && linkInit.picture) run([{ type: "setImageLink", block: linkInit.block, offset: linkInit.from, link: null }]);
+          else if (linkInit?.link) run([{ type: "removeHyperlink", block: linkInit.block, from: linkInit.from, to: linkInit.to }]);
           close();
         }}
         onSubmit={(v) => {
