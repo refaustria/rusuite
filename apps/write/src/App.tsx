@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
-import { applyPageRange, AutosaveStatus, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { applyPageRange, AutosaveStatus, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { buildWritePrintDoc, DEFAULT_WRITE_PRINT, type WritePrintOptions } from "./print/writePrintDoc";
 import { printWrite, WritePrintPage } from "./print/WritePrintPage";
 import { WriteApi, type WriteBackend } from "./backend";
@@ -143,8 +143,8 @@ const StatusBar = memo(function StatusBar({ ctl, editor, backend, session, featu
       <AutosaveStatus session={session} />
       {info && <span data-testid="info">{info}</span>}
       {warnings.length > 0 && (
-        <span data-testid="warnings" title={warnings.join("\n")} className="truncate text-amber-600">
-          {t("status.warnings", { count: warnings.length, first: warnings[0] ?? "" })}
+        <span data-testid="warnings" title={warnings.map((w) => readerWarningText(w)).join("\n")} className="truncate text-amber-600">
+          {t("status.warnings", { count: warnings.length, first: warnings[0] ? readerWarningText(warnings[0]) : "" })}
         </span>
       )}
       <span className="ml-auto" data-testid="backend-kind">

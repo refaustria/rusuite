@@ -112,9 +112,11 @@ fn level_kind(fmt: &str, w: &mut Warnings) -> LevelKind {
         "decimalZero" => LevelKind::DecimalZero,
         "none" => LevelKind::None,
         other => {
-            w.add(format!(
-                "word/numbering.xml: number format {other:?} read as decimal"
-            ));
+            w.warn(
+                "docx.numbering.formatAsDecimal",
+                "word/numbering.xml: number format {format} read as decimal",
+                &[("format", &format!("{other:?}"))],
+            );
             LevelKind::Decimal
         }
     }
@@ -174,11 +176,16 @@ fn read_level(lvl: &El, w: &mut Warnings) -> Level {
                 level.font = run.font.take();
                 level.run = (!run.is_empty()).then_some(run);
             }
-            "lvlPicBulletId" | "legacy" => w.add(format!(
-                "word/numbering.xml: list level property {} dropped",
-                el.qname()
-            )),
-            "pStyle" => w.add("word/numbering.xml: list level linked to a style; link dropped"),
+            "lvlPicBulletId" | "legacy" => w.warn(
+                "docx.numbering.levelPropertyDropped",
+                "word/numbering.xml: list level property {name} dropped",
+                &[("name", &el.qname())],
+            ),
+            "pStyle" => w.warn(
+                "docx.numbering.levelStyleLink",
+                "word/numbering.xml: list level linked to a style; link dropped",
+                &[],
+            ),
             _ => {}
         }
     }
@@ -210,11 +217,19 @@ pub(crate) fn read_numbering(xml: &[u8], part: &str, w: &mut Warnings) -> Result
                     continue;
                 };
                 if out.numbering.get_abstract(id).is_some() {
-                    w.add(format!("{part}: duplicate abstractNum {id} dropped"));
+                    w.warn(
+                        "docx.numbering.duplicateAbstract",
+                        "{part}: duplicate abstractNum {id} dropped",
+                        &[("part", &part), ("id", &id)],
+                    );
                     continue;
                 }
                 if el.child("numStyleLink").is_some() || el.child("styleLink").is_some() {
-                    w.add(format!("{part}: numbering style links dropped"));
+                    w.warn(
+                        "docx.numbering.styleLinks",
+                        "{part}: numbering style links dropped",
+                        &[("part", &part)],
+                    );
                 }
                 let mut levels: BTreeMap<usize, Level> = BTreeMap::new();
                 for lvl in el.elements().filter(|e| e.name == "lvl") {
@@ -239,9 +254,11 @@ pub(crate) fn read_numbering(xml: &[u8], part: &str, w: &mut Warnings) -> Result
                     .and_then(El::val)
                     .and_then(parse_u32)
                 else {
-                    w.add(format!(
-                        "{part}: num {num_id} without abstractNumId dropped"
-                    ));
+                    w.warn(
+                        "docx.numbering.numWithoutAbstract",
+                        "{part}: num {id} without abstractNumId dropped",
+                        &[("part", &part), ("id", &num_id)],
+                    );
                     continue;
                 };
                 let mut overrides = Vec::new();
@@ -293,9 +310,11 @@ pub(crate) fn read_numbering(xml: &[u8], part: &str, w: &mut Warnings) -> Result
             .get(id)
             .and_then(|d| d.abstract_id)
             .unwrap_or(0);
-        w.add(format!(
-            "{part}: num {id} references missing abstractNum {a}; dropped"
-        ));
+        w.warn(
+            "docx.numbering.missingAbstract",
+            "{part}: num {id} references missing abstractNum {abstract}; dropped",
+            &[("part", &part), ("id", &id), ("abstract", &a)],
+        );
         out.numbering.defs.retain(|d| d.id != id);
         out.instances.retain(|i| i.num_id != id);
     }

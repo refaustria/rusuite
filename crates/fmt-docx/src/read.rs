@@ -42,8 +42,12 @@ pub struct ReadOutput {
     pub document: Document,
     /// File-level data to pass to [`write_with_context`](crate::write_with_context).
     pub context: DocxContext,
-    /// Human-readable notes about content that was dropped or approximated.
+    /// Human-readable notes about content that was dropped or approximated
+    /// (English; the lines of [`details`](Self::details)).
     pub warnings: Vec<String>,
+    /// The same notes with their stable codes and parameters (for a
+    /// translated UI).
+    pub details: Vec<crate::ReaderWarning>,
 }
 
 /// Reads a `.docx` file. Unsupported content is dropped silently; use
@@ -116,9 +120,11 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     if let Some((name, data)) = data_of("theme") {
         context.theme = Some(parse_theme(data, name.as_str()).map_err(xml_error)?);
         if pkg.relationships(name).is_some_and(|r| !r.is_empty()) {
-            w.add(format!(
-                "{name}: theme has its own relationships; replaced by the built-in theme"
-            ));
+            w.warn(
+                "docx.package.themeRelationships",
+                "{part}: theme has its own relationships; replaced by the built-in theme",
+                &[("part", &name)],
+            );
         } else {
             context.theme_xml = Some(data.to_vec());
         }
@@ -126,9 +132,11 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     }
     if let Some((name, data)) = data_of("settings") {
         if pkg.relationships(name).is_some_and(|r| !r.is_empty()) {
-            w.add(format!(
-                "{name}: settings have their own relationships; replaced by default settings"
-            ));
+            w.warn(
+                "docx.package.settingsRelationships",
+                "{part}: settings have their own relationships; replaced by default settings",
+                &[("part", &name)],
+            );
         } else {
             let settings = parse(data, name.as_str())?;
             context.footnote_separators = separator_ids(&settings, "footnotePr", "footnote");
@@ -224,18 +232,41 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     });
     for (section, refs) in &mut sections {
         for (footer, slot, rid) in refs.iter() {
-            let what = if *footer { "footer" } else { "header" };
             let part = pkg
                 .relationships(&main)
                 .and_then(|r| r.get(rid))
                 .filter(|r| r.target_mode == TargetMode::Internal)
                 .and_then(|r| main.resolve(&r.target).ok());
             let Some(part) = part else {
-                w.add(format!("{what} with dangling relationship {rid} dropped"));
+                if *footer {
+                    w.warn(
+                        "docx.footer.danglingRelationship",
+                        "footer with dangling relationship {rid} dropped",
+                        &[("rid", rid)],
+                    );
+                } else {
+                    w.warn(
+                        "docx.header.danglingRelationship",
+                        "header with dangling relationship {rid} dropped",
+                        &[("rid", rid)],
+                    );
+                }
                 continue;
             };
             let Some(data) = pkg.part(&part).map(|p| p.data.as_slice()) else {
-                w.add(format!("{what} part {part} missing; dropped"));
+                if *footer {
+                    w.warn(
+                        "docx.footer.partMissing",
+                        "footer part {part} missing; dropped",
+                        &[("part", &part)],
+                    );
+                } else {
+                    w.warn(
+                        "docx.header.partMissing",
+                        "header part {part} missing; dropped",
+                        &[("part", &part)],
+                    );
+                }
                 continue;
             };
             let root = parse(data, part.as_str())?;
@@ -373,13 +404,18 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
 
     for (name, part) in pkg.parts() {
         if !consumed.contains(name) {
-            w.add(format!("part {name} ({}) dropped", part.content_type));
+            w.warn(
+                "docx.package.partDropped",
+                "part {part} ({type}) dropped",
+                &[("part", name), ("type", &part.content_type)],
+            );
         }
     }
     Ok(ReadOutput {
         document: doc,
         context,
-        warnings: w.into_vec(),
+        warnings: w.lines(),
+        details: w.into_warnings(),
     })
 }
 
@@ -451,7 +487,11 @@ fn assign_note_ids(doc: &mut Document, notes: Vec<(NoteKind, i64, Vec<Block>)>, 
         for_each_paragraph(c, &mut fix);
     }
     if dangling {
-        w.add("footnote/endnote references without a note dropped");
+        w.warn(
+            "docx.notes.orphanReferences",
+            "footnote/endnote references without a note dropped",
+            &[],
+        );
     }
 }
 
@@ -583,7 +623,11 @@ impl<'a> BodyReader<'a> {
             match rel {
                 Some(r) => LinkTarget::from_url(&r.target),
                 None => {
-                    self.w.add("hyperlink with a dangling relationship dropped");
+                    self.w.warn(
+                        "docx.link.danglingRelationship",
+                        "hyperlink with a dangling relationship dropped",
+                        &[],
+                    );
                     return None;
                 }
             }
@@ -655,7 +699,10 @@ impl BodyReader<'_> {
                     self.collect_blocks(c, out);
                 }
                 "customXml" | "ins" | "moveTo" => self.collect_blocks(el, out),
-                "del" | "moveFrom" => self.w.add("tracked deletions dropped"),
+                "del" | "moveFrom" => {
+                    self.w
+                        .warn("docx.tracking.deletions", "tracked deletions dropped", &[])
+                }
                 "tcPr" | "trPr" | "tblPr" => {}
                 "AlternateContent" => {
                     if let Some(c) = el.child("Choice") {
@@ -688,7 +735,11 @@ impl BodyReader<'_> {
                     }
                 }
                 name if SILENT_BLOCK.contains(&name) => {}
-                _ => self.w.add(format!("block element {} dropped", el.qname())),
+                _ => self.w.warn(
+                    "docx.body.blockDropped",
+                    "block element {name} dropped",
+                    &[("name", &el.qname())],
+                ),
             }
         }
     }
@@ -701,7 +752,11 @@ impl BodyReader<'_> {
                 if self.in_main_body() {
                     self.section_marks.push((para.id, sect.clone()));
                 } else {
-                    self.w.add("section break outside the main text dropped");
+                    self.w.warn(
+                        "docx.section.outsideBody",
+                        "section break outside the main text dropped",
+                        &[],
+                    );
                 }
             }
         }
@@ -746,7 +801,11 @@ impl BodyReader<'_> {
                             match inline {
                                 Inline::Run(run) => run.link = Some(link.clone()),
                                 Inline::Field(_) | Inline::Image(_) => {
-                                    self.w.add("hyperlinks on fields and pictures dropped");
+                                    self.w.warn(
+                                        "docx.link.onFieldOrPicture",
+                                        "hyperlinks on fields and pictures dropped",
+                                        &[],
+                                    );
                                 }
                                 _ => {}
                             }
@@ -775,7 +834,7 @@ impl BodyReader<'_> {
                         }
                         _ => {
                             if kind.is_none() {
-                                self.w.add(FLATTENED);
+                                self.w.warn("docx.field.flattened", FLATTENED, &[]);
                             }
                             self.read_content(el, out);
                         }
@@ -794,7 +853,10 @@ impl BodyReader<'_> {
                         self.read_content(c, out);
                     }
                 }
-                "del" | "moveFrom" => self.w.add("tracked deletions dropped"),
+                "del" | "moveFrom" => {
+                    self.w
+                        .warn("docx.tracking.deletions", "tracked deletions dropped", &[])
+                }
                 "bookmarkStart" | "bookmarkEnd" => {
                     if let Some(m) = self.bookmark(el) {
                         out.push(m);
@@ -810,11 +872,16 @@ impl BodyReader<'_> {
                         });
                     }
                 }
-                "oMath" | "oMathPara" => self.w.add("equations dropped"),
+                "oMath" | "oMathPara" => {
+                    self.w
+                        .warn("docx.content.equations", "equations dropped", &[]);
+                }
                 "proofErr" | "permStart" | "permEnd" => {}
-                _ => self
-                    .w
-                    .add(format!("paragraph content {} dropped", el.qname())),
+                _ => self.w.warn(
+                    "docx.paragraph.contentDropped",
+                    "paragraph content {name} dropped",
+                    &[("name", &el.qname())],
+                ),
             }
         }
     }
@@ -898,7 +965,7 @@ impl BodyReader<'_> {
                         FieldKind::parse(&f.instr)
                     };
                     if f.kind.is_none() && !outer {
-                        self.w.add(FLATTENED);
+                        self.w.warn("docx.field.flattened", FLATTENED, &[]);
                     }
                 }
             }
@@ -912,7 +979,7 @@ impl BodyReader<'_> {
                         f.kind = FieldKind::parse(&f.instr);
                     }
                     if f.kind.is_none() && self.capturing().is_none() {
-                        self.w.add(FLATTENED);
+                        self.w.warn("docx.field.flattened", FLATTENED, &[]);
                     }
                 }
                 if f.kind.is_some() && self.capturing().is_none() {
@@ -969,7 +1036,11 @@ impl BodyReader<'_> {
                     if let Some(c) = c {
                         self.text(&c.to_string(), props, text);
                     }
-                    self.w.add("symbol characters (w:sym) lose their font");
+                    self.w.warn(
+                        "docx.run.symbolFont",
+                        "symbol characters (w:sym) lose their font",
+                        &[],
+                    );
                 }
                 "drawing" => {
                     flush(text, props, out);
@@ -982,7 +1053,11 @@ impl BodyReader<'_> {
                         self.run_children(c, props, text, out);
                     }
                 }
-                "pict" | "object" => self.w.add("VML pictures and embedded objects dropped"),
+                "pict" | "object" => self.w.warn(
+                    "docx.content.vmlObjects",
+                    "VML pictures and embedded objects dropped",
+                    &[],
+                ),
                 "fldChar" => self.fld_char(el, props, text, out),
                 "instrText" => {
                     if let Some(f) = self.fields.last_mut().filter(|f| !f.result) {
@@ -1030,7 +1105,11 @@ impl BodyReader<'_> {
                 | "annotationRef"
                 | "separator"
                 | "continuationSeparator" => {}
-                _ => self.w.add(format!("run content {} dropped", el.qname())),
+                _ => self.w.warn(
+                    "docx.run.contentDropped",
+                    "run content {name} dropped",
+                    &[("name", &el.qname())],
+                ),
             }
         }
     }
@@ -1048,15 +1127,27 @@ impl BodyReader<'_> {
                 .map(|d| Inline::Drawing(Box::new(d)));
         }
         if data.and_then(|g| g.child("wgp")).is_some() {
-            self.w.add("grouped drawing objects dropped");
+            self.w.warn(
+                "docx.drawing.groups",
+                "grouped drawing objects dropped",
+                &[],
+            );
             return None;
         }
         let blip = data.and_then(|g| g.find("blip"));
         let Some(rid) = blip.and_then(|b| b.attr("embed")) else {
             if blip.and_then(|b| b.attr("link")).is_some() {
-                self.w.add("linked (external) images dropped");
+                self.w.warn(
+                    "docx.image.external",
+                    "linked (external) images dropped",
+                    &[],
+                );
             } else {
-                self.w.add("drawing objects other than pictures dropped");
+                self.w.warn(
+                    "docx.drawing.otherObjects",
+                    "drawing objects other than pictures dropped",
+                    &[],
+                );
             }
             return None;
         };
@@ -1067,16 +1158,22 @@ impl BodyReader<'_> {
             .filter(|r| r.target_mode == TargetMode::Internal)
             .and_then(|r| self.part.resolve(&r.target).ok());
         let Some(part_name) = target else {
-            self.w
-                .add(format!("image with dangling relationship {rid} dropped"));
+            self.w.warn(
+                "docx.image.danglingRelationship",
+                "image with dangling relationship {rid} dropped",
+                &[("rid", &rid)],
+            );
             return None;
         };
         let media = match self.media.get(&part_name) {
             Some(id) => *id,
             None => {
                 let Some(part) = self.pkg.part(&part_name) else {
-                    self.w
-                        .add(format!("image part {part_name} missing; dropped"));
+                    self.w.warn(
+                        "docx.image.partMissing",
+                        "image part {part} missing; dropped",
+                        &[("part", &part_name)],
+                    );
                     return None;
                 };
                 let id = self
@@ -1186,8 +1283,11 @@ impl BodyReader<'_> {
         } else if let Some(g) = sp.and_then(|s| s.child("custGeom")) {
             d.preset = "rect".into();
             d.custom_geometry = Some(el_to_xml(g));
-            self.w
-                .add("custom shape geometry drawn as its bounding box");
+            self.w.warn(
+                "docx.drawing.customGeometry",
+                "custom shape geometry drawn as its bounding box",
+                &[],
+            );
         }
         // Fill and outline: explicit, else from the style references.
         d.fill = match sp.and_then(read_fill) {
@@ -1264,7 +1364,11 @@ impl BodyReader<'_> {
             strip_drawings(b, &mut nested);
         }
         if nested {
-            self.w.add("drawing objects inside text boxes dropped");
+            self.w.warn(
+                "docx.drawing.insideTextBox",
+                "drawing objects inside text boxes dropped",
+                &[],
+            );
         }
         blocks
     }
@@ -1338,9 +1442,11 @@ impl BodyReader<'_> {
                     "tblHeader" => row.props.header = toggle(el),
                     "cantSplit" => row.props.cant_split = toggle(el),
                     "cnfStyle" | "trPrChange" => {}
-                    _ => self
-                        .w
-                        .add(format!("table row property {} dropped", el.qname())),
+                    _ => self.w.warn(
+                        "docx.table.rowPropertyDropped",
+                        "table row property {name} dropped",
+                        &[("name", &el.qname())],
+                    ),
                 }
             }
         }
@@ -1385,9 +1491,11 @@ impl BodyReader<'_> {
                             _ => VMerge::Continue,
                         });
                     }
-                    "hMerge" => self
-                        .w
-                        .add("legacy horizontal merges (hMerge) read as separate cells"),
+                    "hMerge" => self.w.warn(
+                        "docx.table.hMerge",
+                        "legacy horizontal merges (hMerge) read as separate cells",
+                        &[],
+                    ),
                     _ => {}
                 }
             }
@@ -1436,7 +1544,11 @@ pub(crate) fn read_tbl_pr(pr: &El, ctx: &str, w: &mut Warnings) -> TableProperti
             "jc" => {
                 p.alignment = el.val().and_then(read_table_jc);
                 if p.alignment.is_none() {
-                    w.add(format!("{ctx}: table alignment dropped"));
+                    w.warn(
+                        "docx.table.alignmentDropped",
+                        "{ctx}: table alignment dropped",
+                        &[("ctx", &ctx)],
+                    );
                 }
             }
             "tblInd" => {
@@ -1452,7 +1564,11 @@ pub(crate) fn read_tbl_pr(pr: &El, ctx: &str, w: &mut Warnings) -> TableProperti
                 })
             }
             "tblStyleRowBandSize" | "tblStyleColBandSize" | "tblPrChange" => {}
-            _ => w.add(format!("{ctx}: table property {} dropped", el.qname())),
+            _ => w.warn(
+                "docx.table.propertyDropped",
+                "{ctx}: table property {name} dropped",
+                &[("ctx", &ctx), ("name", &el.qname())],
+            ),
         }
     }
     p
@@ -1477,7 +1593,11 @@ pub(crate) fn read_tc_pr(pr: &El, ctx: &str, w: &mut Warnings) -> CellProperties
                 }
             }
             "gridSpan" | "vMerge" | "hMerge" | "cnfStyle" | "hideMark" | "tcPrChange" => {}
-            _ => w.add(format!("{ctx}: table cell property {} dropped", el.qname())),
+            _ => w.warn(
+                "docx.table.cellPropertyDropped",
+                "{ctx}: table cell property {name} dropped",
+                &[("ctx", &ctx), ("name", &el.qname())],
+            ),
         }
     }
     props
@@ -1524,7 +1644,11 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
     };
     anchor.allow_overlap = flag("allowOverlap");
     if flag("simplePos") {
-        w.add("floating image: simple positioning read as offset from the page");
+        w.warn(
+            "docx.float.simplePosition",
+            "floating image: simple positioning read as offset from the page",
+            &[],
+        );
         let sp = a.child("simplePos");
         let at = |n: &str| {
             sp.and_then(|e| e.attr(n))
@@ -1547,9 +1671,11 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
                 "column" => HRelative::Column,
                 "character" => HRelative::Character,
                 other => {
-                    w.add(format!(
-                        "floating image: horizontal position relative to {other} read as relative to the margin"
-                    ));
+                    w.warn(
+                        "docx.float.horizontalRelative",
+                        "floating image: horizontal position relative to {relative} read as relative to the margin",
+                        &[("relative", &other)],
+                    );
                     HRelative::Margin
                 }
             };
@@ -1573,9 +1699,11 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
                 "paragraph" => VRelative::Paragraph,
                 "line" => VRelative::Line,
                 other => {
-                    w.add(format!(
-                        "floating image: vertical position relative to {other} read as relative to the margin"
-                    ));
+                    w.warn(
+                        "docx.float.verticalRelative",
+                        "floating image: vertical position relative to {relative} read as relative to the margin",
+                        &[("relative", &other)],
+                    );
                     VRelative::Margin
                 }
             };
@@ -1621,13 +1749,17 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
         }
     }
     if behind && anchor.wrap != WrapKind::Behind {
-        w.add("floating image: behind-text flag on a wrapping image dropped");
+        w.warn(
+            "docx.float.behindText",
+            "floating image: behind-text flag on a wrapping image dropped",
+            &[],
+        );
     }
     anchor
 }
 
 /// Warning for fields that are not modelled.
-const FLATTENED: &str =
+pub(crate) const FLATTENED: &str =
     "fields other than PAGE, NUMPAGES, DATE, TIME, FILENAME, AUTHOR, TITLE, REF, PAGEREF, NOTEREF and SEQ flattened to their current result";
 
 /// `docProps/core.xml` (Dublin Core) or `docProps/app.xml` (`Pages`) →

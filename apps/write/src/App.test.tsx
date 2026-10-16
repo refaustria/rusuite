@@ -47,6 +47,33 @@ describe("Write app in German", () => {
   });
 });
 
+describe("Write app in German", () => {
+  it("translates the reader's warnings by their code; unknown codes keep the English text (W-26)", async () => {
+    setLocale("de", { persist: false });
+    try {
+      const { backend, editor } = await mount();
+      backend.openWarnings = [
+        { code: "docx.numbering.levelStyleLink", params: {}, text: "word/numbering.xml: list level linked to a style; link dropped", count: 3 },
+        { code: "docx.run.propertyDropped", params: { ctx: "word/document.xml", name: "w:foo" }, text: "word/document.xml: run property w:foo dropped", count: 1 },
+        { code: "docx.someday", params: {}, text: "something new dropped", count: 1 },
+      ];
+      vi.spyOn(backend, "openFile").mockResolvedValue({ name: "r.docx", bytesBase64: b64(makeDoc([para(1, "x")])) });
+      fireEvent.click(screen.getByRole("tab", { name: "Datei" }));
+      fireEvent.click(within(screen.getByRole("dialog", { name: "Datei" })).getByRole("button", { name: "Öffnen…" }));
+      await waitFor(() => expect(editor.textContent).toBe("x"));
+      const w = await screen.findByTestId("warnings", {}, { timeout: 10000 });
+      expect(w.textContent).toContain("word/numbering.xml: Listenebene mit einer Formatvorlage verknüpft; Verknüpfung verworfen (3×)");
+      expect(w.title).toContain("word/document.xml: Zeicheneigenschaft w:foo verworfen");
+      expect(w.title).toContain("something new dropped");
+      // Switching back to English re-renders the status bar.
+      act(() => setLocale("en", { persist: false }));
+      await waitFor(() => expect(screen.getByTestId("warnings").textContent).toContain("list level linked to a style; link dropped (3×)"));
+    } finally {
+      setLocale("en", { persist: false });
+    }
+  });
+});
+
 describe("Write app", () => {
   it("mounts the ribbon, editor and status bar on a new document", async () => {
     const { editor, setTitle } = await mount();

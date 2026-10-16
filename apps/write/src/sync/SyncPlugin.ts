@@ -27,6 +27,7 @@ import type { Note } from "../generated/Note";
 import type { Section } from "../generated/Section";
 import type { Numbering } from "../generated/Numbering";
 import type { PageSetup } from "../generated/PageSetup";
+import type { ReaderWarning } from "../generated/ReaderWarning";
 import type { StyleSheet } from "../generated/StyleSheet";
 import type { WriteCommand } from "../generated/WriteCommand";
 import type { WritePatch } from "../generated/WritePatch";
@@ -302,8 +303,8 @@ export interface SyncState {
   name: string | null;
   /** Last `info` message of a patch (e.g. "3 replacements"). */
   info: string | null;
-  /** Reader warnings of the last opened file. */
-  warnings: string[];
+  /** Reader warnings of the last opened file (codes for the translated status bar, W-26). */
+  warnings: ReaderWarning[];
   toasts: Toast[];
 }
 

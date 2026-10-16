@@ -443,12 +443,25 @@ impl WriteDocument {
     /// was dropped or approximated. The file's [`fmt_docx::DocxContext`]
     /// is kept for [`save_docx`](Self::save_docx).
     pub fn open_docx(bytes: &[u8], name: &str) -> Result<(Self, Vec<String>), WriteError> {
+        let (doc, warnings) = Self::open_docx_coded(bytes, name)?;
+        Ok((
+            doc,
+            warnings.iter().map(fmt_docx::ReaderWarning::line).collect(),
+        ))
+    }
+
+    /// [`open_docx`](Self::open_docx) with the warnings' stable codes and
+    /// parameters (the UI translates them).
+    pub fn open_docx_coded(
+        bytes: &[u8],
+        name: &str,
+    ) -> Result<(Self, Vec<fmt_docx::ReaderWarning>), WriteError> {
         let out =
             fmt_docx::read_with_context(bytes).map_err(|e| WriteError::ReadDocx(e.to_string()))?;
         let mut doc = Self::from_document(out.document)?;
         doc.docx_context = Some(out.context);
         doc.source_name = Some(name.to_owned());
-        Ok((doc, out.warnings))
+        Ok((doc, out.details))
     }
 
     /// Writes the document as `.docx`, with the file-level data it was

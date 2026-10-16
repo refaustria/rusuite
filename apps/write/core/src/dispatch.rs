@@ -13,6 +13,31 @@ use crate::command::{
 use crate::doc::WriteDocument;
 use crate::patch::WritePatch;
 
+/// A reader warning on the wire (`openDocx`): a stable code (the UI's
+/// catalog key is `reader.<code>`), the values of its `{name}`
+/// placeholders, the English text (the fallback) and how often it
+/// occurred.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub struct ReaderWarning {
+    pub code: String,
+    pub params: std::collections::BTreeMap<String, String>,
+    pub text: String,
+    pub count: usize,
+}
+
+impl From<fmt_docx::ReaderWarning> for ReaderWarning {
+    fn from(w: fmt_docx::ReaderWarning) -> Self {
+        Self {
+            code: w.code,
+            params: w.params,
+            text: w.text,
+            count: w.count,
+        }
+    }
+}
+
 /// The document host the shells keep (one per open document).
 pub type WriteHost = Host<WriteDocument>;
 
@@ -130,7 +155,7 @@ pub enum ResponseBody {
     /// (empty patch, new revision, clean, no undo).
     Opened {
         doc: Box<Document>,
-        warnings: Vec<String>,
+        warnings: Vec<ReaderWarning>,
         envelope: Box<Envelope<WritePatch>>,
     },
     /// The reply to `saveDocx`: the file (standard base64) and the file
@@ -276,7 +301,8 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
         Request::OpenDocx { bytes_base64, name } => {
             let bytes = base64_decode(&bytes_base64)
                 .map_err(|e| DispatchError::new("bad_request", format!("invalid base64: {e}")))?;
-            let (doc, warnings) = WriteDocument::open_docx(&bytes, &name)?;
+            let (doc, warnings) = WriteDocument::open_docx_coded(&bytes, &name)?;
+            let warnings = warnings.into_iter().map(ReaderWarning::from).collect();
             host.replace(doc);
             ResponseBody::Opened {
                 doc: Box::new(host.doc().snapshot()),

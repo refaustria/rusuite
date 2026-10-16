@@ -23,6 +23,7 @@ import {
   applyParagraphPatch, applyRunPatch, blockKey, inlineLength, mergeRuns, paragraphLength, stableStringify, walkBlocks,
 } from "../sync/model";
 import template from "./newDocument.json";
+import type { ReaderWarning } from "../generated/ReaderWarning";
 import { newAnchor } from "../features/floating";
 import { numberingDef } from "./fixtures";
 import { caseChar } from "../features/changeCase";
@@ -199,7 +200,7 @@ export class FakeWriteBackend implements WriteBackend {
         const doc = JSON.parse(new TextDecoder().decode(base64ToBytes(request.bytesBase64))) as Document;
         const r = this.reset(doc);
         this.name = request.name;
-        return { type: "opened", doc: r.doc, warnings: ["fake reader: JSON instead of docx"], envelope: r.envelope };
+        return { type: "opened", doc: r.doc, warnings: structuredClone(this.openWarnings), envelope: r.envelope };
       }
       case "saveDocx": {
         if (request.modified || request.user || request.pages != null) {
@@ -498,6 +499,9 @@ export class FakeWriteBackend implements WriteBackend {
     }
     return out;
   }
+
+  /** What `openDocx` reports (tests set real reader codes). */
+  openWarnings: ReaderWarning[] = [{ code: "fake.json", params: {}, text: "fake reader: JSON instead of docx", count: 1 }];
 
   private style(id: string) {
     const s = this.doc.styles.styles.find((x) => x.id === id);
