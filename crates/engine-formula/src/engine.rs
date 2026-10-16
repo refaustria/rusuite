@@ -117,6 +117,7 @@ use crate::eval::{
 use crate::functions::FunctionRegistry;
 use crate::graph::{Cycle, DependencyGraph, Precedent, SheetResolver};
 use crate::parser::{parse, ParseError};
+use crate::structured::{StructRef, TableDef};
 use crate::transform::{adjust_references, AdjustContext, StructuralOp};
 use crate::value::{parse_number_text, Value};
 
@@ -469,7 +470,7 @@ fn map_expr(e: &Expr, f: &dyn Fn(&Expr) -> Option<Expr>) -> Expr {
 /// Whether `e` uses a defined name (any name, any qualifier).
 fn uses_names(e: &Expr) -> bool {
     match e {
-        Expr::Name(_) | Expr::QualifiedName { .. } => true,
+        Expr::Name(_) | Expr::QualifiedName { .. } | Expr::Structured(_) => true,
         Expr::Call { args, .. } => args.iter().any(uses_names),
         Expr::Unary { expr, .. } => uses_names(expr),
         Expr::Binary { lhs, rhs, .. } => uses_names(lhs) || uses_names(rhs),
@@ -486,6 +487,20 @@ fn mentions(e: &Expr, names: &HashSet<String>) -> bool {
         Expr::Unary { expr, .. } => mentions(expr, names),
         Expr::Binary { lhs, rhs, .. } => mentions(lhs, names) || mentions(rhs, names),
         Expr::Array(rows) => rows.iter().flatten().any(|a| mentions(a, names)),
+        _ => false,
+    }
+}
+
+/// Whether `e` uses a structured reference or one of the table `names`
+/// (lower case) as a plain name.
+fn uses_tables(e: &Expr, names: &HashSet<String>) -> bool {
+    match e {
+        Expr::Structured(_) => true,
+        Expr::Name(n) => names.contains(&n.to_lowercase()),
+        Expr::Call { args, .. } => args.iter().any(|a| uses_tables(a, names)),
+        Expr::Unary { expr, .. } => uses_tables(expr, names),
+        Expr::Binary { lhs, rhs, .. } => uses_tables(lhs, names) || uses_tables(rhs, names),
+        Expr::Array(rows) => rows.iter().flatten().any(|a| uses_tables(a, names)),
         _ => false,
     }
 }
@@ -508,13 +523,51 @@ fn lookup_name<'a>(names: &'a [NameEntry], name: &str, sheet: SheetId) -> Option
 fn expand_names(
     e: &Expr,
     names: &[NameEntry],
+    tables: &[TableDef],
     sheets: &[Sheet],
     at: CellCoord,
     depth: u32,
 ) -> Expr {
+    // A structured reference (or a table name) as the cells it means.
+    let table_cells = |s: &StructRef| -> Option<Expr> {
+        let t = crate::structured::table_for(tables, s, at)?;
+        Some(match t.resolve(s, at) {
+            Ok(r) => Expr::Reference(crate::ast::Reference {
+                sheet: Some(sheets[t.sheet.0 as usize].name.clone()),
+                kind: crate::ast::RangeKind::area(
+                    crate::ast::CellRef {
+                        col: r.c0,
+                        row: r.r0,
+                        col_abs: true,
+                        row_abs: true,
+                    },
+                    crate::ast::CellRef {
+                        col: r.c1,
+                        row: r.r1,
+                        col_abs: true,
+                        row_abs: true,
+                    },
+                ),
+            }),
+            Err(e) => Expr::Error(e),
+        })
+    };
     map_expr(e, &|x| {
         let (name, sheet) = match x {
-            Expr::Name(n) => (n, Some(at.sheet)),
+            Expr::Structured(s) => {
+                return Some(table_cells(s).unwrap_or(Expr::Error(ErrorKind::Ref)));
+            }
+            Expr::Name(n) => {
+                if let Some(t) = table_cells(&StructRef {
+                    table: Some(n.clone()),
+                    items: Vec::new(),
+                    columns: None,
+                    keyword_form: false,
+                }) {
+                    return Some(t);
+                }
+                (n, Some(at.sheet))
+            }
             Expr::QualifiedName { sheet, name } => (name, find_sheet(sheets, sheet)),
             _ => return None,
         };
@@ -522,7 +575,7 @@ fn expand_names(
         Some(match def {
             Some(d) if depth < 32 => {
                 let d = name_definition_at(&d.ast, at);
-                expand_names(&d, names, sheets, at, depth + 1)
+                expand_names(&d, names, tables, sheets, at, depth + 1)
             }
             _ => Expr::Error(ErrorKind::Name),
         })
@@ -531,18 +584,20 @@ fn expand_names(
 
 /// Registers the formula of `c` in the graph (with its names expanded)
 /// and records whether it is volatile.
+#[allow(clippy::too_many_arguments)]
 fn register(
     graph: &mut DependencyGraph,
     volatile: &mut HashSet<CellCoord>,
     sheets: &[Sheet],
     names: &[NameEntry],
+    tables: &[TableDef],
     registry: &FunctionRegistry,
     c: CellCoord,
     ast: &Expr,
 ) {
     let expanded;
     let e = if uses_names(ast) {
-        expanded = expand_names(ast, names, sheets, c, 0);
+        expanded = expand_names(ast, names, tables, sheets, c, 0);
         &expanded
     } else {
         ast
@@ -682,6 +737,8 @@ pub struct Engine {
     names: Vec<NameEntry>,
     /// The pivot tables `GETPIVOTDATA` reads, by sheet.
     pivots: crate::pivot::PivotRegistry,
+    /// The Excel tables structured references resolve against.
+    tables: Vec<TableDef>,
 }
 
 impl Default for Engine {
@@ -710,6 +767,7 @@ impl Engine {
             visibility_dirty: false,
             names: Vec::new(),
             pivots: Default::default(),
+            tables: Vec::new(),
         }
     }
 
@@ -794,6 +852,7 @@ impl Engine {
                 &mut self.volatile,
                 &self.sheets,
                 &self.names,
+                &self.tables,
                 &self.registry,
                 c,
                 ast,
@@ -1040,6 +1099,7 @@ impl Engine {
                     &mut self.volatile,
                     &self.sheets,
                     &self.names,
+                    &self.tables,
                     &self.registry,
                     c,
                     ast,
@@ -1358,6 +1418,261 @@ impl Engine {
         self.structural(sheet, StructuralOp::DeleteCols { at, count })
     }
 
+    // --- tables -----------------------------------------------------------
+
+    /// The Excel tables structured references resolve against.
+    pub fn tables(&self) -> &[TableDef] {
+        &self.tables
+    }
+
+    /// The table named `name` (case-insensitive).
+    pub fn table(&self, name: &str) -> Option<&TableDef> {
+        crate::structured::find_table(&self.tables, name)
+    }
+
+    /// The table whose range holds `c`.
+    pub fn table_at(&self, c: CellCoord) -> Option<&TableDef> {
+        self.tables.iter().find(|t| t.contains(c))
+    }
+
+    /// Replaces the tables (the document model keeps them). Every formula
+    /// with a structured reference, a table name or a name defined
+    /// through one is re-registered and recalculated (deferred inside a
+    /// batch).
+    pub fn set_tables(&mut self, tables: Vec<TableDef>) -> Recalc {
+        if tables == self.tables {
+            return Recalc::default();
+        }
+        let names: HashSet<String> = self
+            .tables
+            .iter()
+            .chain(&tables)
+            .map(|t| t.name.to_lowercase())
+            .collect();
+        self.tables = tables;
+        let users = self.table_users(&names);
+        self.reregister(users)
+    }
+
+    /// Formula cells using a structured reference, one of the table
+    /// `names` (lower case) or a defined name that does, sorted.
+    fn table_users(&self, names: &HashSet<String>) -> Vec<CellCoord> {
+        let via: Vec<String> = self
+            .names
+            .iter()
+            .filter(|n| uses_tables(&n.ast, names))
+            .map(|n| n.name.clone())
+            .collect();
+        let mut out = self.name_users(&via);
+        for (i, sheet) in self.sheets.iter().enumerate() {
+            for (&(row, col), content) in &sheet.cells {
+                if let CellContent::Formula { ast, .. } = content {
+                    if uses_tables(ast, names) {
+                        out.push(CellCoord::new(SheetId(i as u32), row, col));
+                    }
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Re-registers the formulas of `cells` and recalculates them.
+    fn reregister(&mut self, cells: Vec<CellCoord>) -> Recalc {
+        for &c in &cells {
+            let Some(CellContent::Formula { ast, .. }) =
+                self.sheets[c.sheet.0 as usize].cells.get(&(c.row, c.col))
+            else {
+                continue;
+            };
+            register(
+                &mut self.graph,
+                &mut self.volatile,
+                &self.sheets,
+                &self.names,
+                &self.tables,
+                &self.registry,
+                c,
+                ast,
+            );
+        }
+        match &mut self.pending {
+            Some(pending) => {
+                pending.extend(cells);
+                Recalc::default()
+            }
+            None => {
+                let mut r = self.recalc(&cells);
+                r.changed.extend(cells);
+                r.changed.sort_unstable();
+                r.changed.dedup();
+                r
+            }
+        }
+    }
+
+    /// Rewrites every formula (cells and defined names) with `f(node,
+    /// formula cell)`: `Some(replacement)` for the nodes it rewrites.
+    /// Names are rewritten as seen from `A1` of their sheet (workbook
+    /// names: of the first sheet). The rewritten cells' text is
+    /// regenerated; they and the users of rewritten names are
+    /// re-registered and recalculated. Returns that recalculation
+    /// (`changed` lists the rewritten cells).
+    fn rewrite_formulas(
+        &mut self,
+        only: Option<SheetId>,
+        f: &dyn Fn(&Expr, CellCoord) -> Option<Expr>,
+    ) -> Recalc {
+        let mut rewritten = Vec::new();
+        for (i, sheet) in self.sheets.iter_mut().enumerate() {
+            if only.is_some_and(|o| o.0 as usize != i) {
+                continue;
+            }
+            for (&(row, col), content) in sheet.cells.iter_mut() {
+                let CellContent::Formula { text, ast } = content else {
+                    continue;
+                };
+                let at = CellCoord::new(SheetId(i as u32), row, col);
+                let new = map_expr(ast, &|x| f(x, at));
+                if new != *ast {
+                    *text = format!("={new}");
+                    *ast = new;
+                    rewritten.push(at);
+                }
+            }
+        }
+        let first = self.order.first().copied().unwrap_or(SheetId(0));
+        let mut changed_names = Vec::new();
+        for n in self.names.iter_mut().filter(|_| only.is_none()) {
+            let host = match n.scope {
+                NameScope::Sheet(id) => id,
+                NameScope::Workbook => first,
+            };
+            let at = CellCoord::new(host, 0, 0);
+            let new = map_expr(&n.ast, &|x| f(x, at));
+            if new != n.ast {
+                n.formula = name_formula_text(&new);
+                n.ast = new;
+                changed_names.push(n.name.clone());
+            }
+        }
+        let mut cells = rewritten;
+        cells.extend(self.name_users(&changed_names));
+        cells.sort_unstable();
+        cells.dedup();
+        self.reregister(cells)
+    }
+
+    /// A table was renamed from `old` to `new`: structured references
+    /// and plain uses of the name follow (call before
+    /// [`set_tables`](Self::set_tables) with the renamed table).
+    pub fn rename_table_refs(&mut self, old: &str, new: &str) -> Recalc {
+        self.rename_table_refs_in(None, old, new)
+    }
+
+    /// [`rename_table_refs`](Self::rename_table_refs) for the formulas of
+    /// one sheet only (`None`: every formula and name).
+    pub fn rename_table_refs_in(&mut self, only: Option<SheetId>, old: &str, new: &str) -> Recalc {
+        let (old, new) = (old.to_string(), new.to_string());
+        let is_table = |n: &str| same_name(n, &old);
+        self.rewrite_formulas(only, &|x, _| match x {
+            Expr::Structured(s) if s.table.as_deref().is_some_and(is_table) => {
+                Some(Expr::Structured(StructRef {
+                    table: Some(new.clone()),
+                    ..s.clone()
+                }))
+            }
+            Expr::Name(n) if is_table(n) => Some(Expr::Name(new.clone())),
+            _ => None,
+        })
+    }
+
+    /// Column `old` of table `table` was renamed to `new`: structured
+    /// references to it follow (call before [`set_tables`](Self::set_tables)).
+    pub fn rename_table_column_refs(&mut self, table: &str, old: &str, new: &str) -> Recalc {
+        let Some(def) = self.table(table).cloned() else {
+            return Recalc::default();
+        };
+        let (old, new) = (old.to_lowercase(), new.to_string());
+        let rename = |c: &String| {
+            if c.to_lowercase() == old {
+                new.clone()
+            } else {
+                c.clone()
+            }
+        };
+        self.rewrite_formulas(None, &|x, at| match x {
+            Expr::Structured(s) => {
+                let ours = match &s.table {
+                    Some(t) => same_name(t, &def.name),
+                    None => def.contains(at),
+                };
+                let (a, b) = s.columns.as_ref()?;
+                let renamed = (rename(a), b.as_ref().map(rename));
+                (ours && (renamed.0 != *a || renamed.1 != *b)).then(|| {
+                    Expr::Structured(StructRef {
+                        columns: Some(renamed),
+                        ..s.clone()
+                    })
+                })
+            }
+            _ => None,
+        })
+    }
+
+    /// Convert to Range: every structured reference to `table` (and its
+    /// plain name) becomes an A1 reference to the cells it means (`$C$2:$C$9`;
+    /// "this row" `$C2`), sheet-qualified outside the table's sheet.
+    pub fn table_refs_to_a1(&mut self, table: &str) -> Recalc {
+        let Some(def) = self.table(table).cloned() else {
+            return Recalc::default();
+        };
+        let sheet_name = self.sheets[def.sheet.0 as usize].name.clone();
+        self.rewrite_formulas(None, &|x, at| {
+            let s = match x {
+                Expr::Structured(s) => {
+                    let ours = match &s.table {
+                        Some(t) => same_name(t, &def.name),
+                        None => def.contains(at),
+                    };
+                    if !ours {
+                        return None;
+                    }
+                    s.clone()
+                }
+                Expr::Name(n) if same_name(n, &def.name) => StructRef {
+                    table: Some(n.clone()),
+                    items: Vec::new(),
+                    columns: None,
+                    keyword_form: false,
+                },
+                _ => return None,
+            };
+            Some(match def.resolve(&s, at) {
+                Ok(r) => {
+                    let this_row = s.is_this_row();
+                    let cell = |row: u32, col: u32| crate::ast::CellRef {
+                        col,
+                        row,
+                        col_abs: true,
+                        row_abs: !this_row,
+                    };
+                    let kind = if (r.r0, r.c0) == (r.r1, r.c1) {
+                        crate::ast::RangeKind::Cell(cell(r.r0, r.c0))
+                    } else {
+                        crate::ast::RangeKind::area(cell(r.r0, r.c0), cell(r.r1, r.c1))
+                    };
+                    Expr::Reference(crate::ast::Reference {
+                        sheet: (at.sheet != def.sheet).then(|| sheet_name.clone()),
+                        kind,
+                    })
+                }
+                Err(e) => Expr::Error(e),
+            })
+        })
+    }
+
     // --- defined names ----------------------------------------------------
 
     /// The defined names in definition order.
@@ -1565,6 +1880,7 @@ impl Engine {
                 &mut self.volatile,
                 &self.sheets,
                 &self.names,
+                &self.tables,
                 &self.registry,
                 c,
                 ast,
@@ -1759,6 +2075,7 @@ impl Engine {
                 &mut self.volatile,
                 &self.sheets,
                 &self.names,
+                &self.tables,
                 &self.registry,
                 c,
                 ast,
@@ -1829,6 +2146,7 @@ impl Engine {
                         &mut self.volatile,
                         &self.sheets,
                         &self.names,
+                        &self.tables,
                         &self.registry,
                         c,
                         ast,
@@ -2041,6 +2359,10 @@ impl CellProvider for Engine {
 
     fn defined_name(&self, name: &str, sheet: SheetId) -> Option<&Expr> {
         lookup_name(&self.names, name, sheet).map(|n| &n.ast)
+    }
+
+    fn structured_ref(&self, s: &StructRef, at: CellCoord) -> Option<Result<RangeRef, ErrorKind>> {
+        crate::structured::table_for(&self.tables, s, at).map(|t| t.resolve(s, at))
     }
 
     fn pivot_data(

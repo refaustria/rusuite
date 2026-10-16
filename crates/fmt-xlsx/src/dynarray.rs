@@ -170,6 +170,15 @@ pub(crate) fn from_file_ast(e: &Expr) -> Expr {
     })
 }
 
+/// Whether a structured reference always means one cell: this row of
+/// one column, or the header or totals cell of one column.
+fn single_cell(s: &engine_formula::StructRef) -> bool {
+    use engine_formula::TableItem as I;
+    let one_col = matches!(&s.columns, Some((_, None)));
+    s.is_this_row() && one_col
+        || one_col && matches!(s.items.as_slice(), [I::Headers] | [I::Totals])
+}
+
 fn at(e: Expr) -> Expr {
     Expr::Unary {
         op: UnaryOp::ImplicitIntersection,
@@ -194,6 +203,7 @@ pub(crate) fn legacy_intersection(e: &Expr) -> Expr {
             ..
         } => at(e.clone()),
         Expr::Array(rows) if rows.len() * rows.first().map_or(0, Vec::len) > 1 => at(e.clone()),
+        Expr::Structured(s) if !single_cell(s) => at(e.clone()),
         Expr::Call { name, .. } if ARRAY_FUNCTIONS.contains(&name.as_str()) => at(e.clone()),
         Expr::Unary { op, expr } if op.is_arithmetic() => Expr::Unary {
             op: *op,

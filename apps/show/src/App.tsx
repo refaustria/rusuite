@@ -30,6 +30,8 @@ import { SelectionPane } from "./ui/SelectionPane";
 import { FormatShapePane } from "./ui/FormatShapePane";
 import { RULER_PX, RulerFrame } from "./canvas/Rulers";
 import { rulerUnit } from "./canvas/guides";
+import { AssistantPane } from "@rusuite/ui-shared";
+import { showAiAdapter } from "./ai/showAi";
 
 /** Observes an element's client size. A callback ref, so a remounted element is measured and observed again. */
 function useElementSize<T extends HTMLElement>() {
@@ -95,6 +97,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   // Recent files, autosave, crash recovery: the store talks through the session's backend.
   const session = useMemo(() => new DocumentSession(backend), [backend]);
   const store = useMemo(() => given ?? new ShowStore(new ShowApi(session.backend)), [session, given]);
+  const aiAdapter = useMemo(() => showAiAdapter(store), [store]);
   // Unsaved-changes question before New / Open / recent / Restore / Close and closing the window (P7-6).
   const guard = useMemo(
     () =>
@@ -248,6 +251,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
         <ReusePane store={store} />
         {!sorter && <SelectionPane store={store} />}
         {!sorter && <FormatShapePane store={store} />}
+        <AssistantPane ai={session.ai} adapter={aiAdapter} />
       </div>
       {view === "reading" && !masterView && !presenting && <ReadingView store={store} onPresent={() => presentFrom(false)} />}
       <PosterInput store={store} />

@@ -158,6 +158,48 @@ pub enum Request {
     /// The items of cache field `field` of pivot table `id` in display
     /// order, with their checked state (filter dropdowns) → `pivotItems`.
     PivotItems { id: u32, field: u32 },
+    /// The filter dropdown values of column `col` of table `id`.
+    TableFilterValues { id: u32, col: u32 },
+    /// What-If Analysis › Goal Seek (nothing changes; apply the value
+    /// with `setInput`).
+    GoalSeek {
+        sheet: u32,
+        set_row: u32,
+        set_col: u32,
+        to_value: f64,
+        changing_row: u32,
+        changing_col: u32,
+    },
+    /// Step 1 of the text import wizard: decode the bytes (encoding
+    /// absent = detect) and guess the separators.
+    DecodeText {
+        bytes_base64: String,
+        #[serde(default)]
+        #[ts(optional, as = "Option<crate::wire_tables::TextEncoding>")]
+        encoding: Option<model_sheet::textio::TextEncoding>,
+    },
+    /// The wizard's preview: the first `max` records split with `options`.
+    SplitPreview {
+        text: String,
+        #[ts(as = "crate::wire_tables::TextImportOptions")]
+        options: model_sheet::textio::TextImportOptions,
+        max: u32,
+    },
+    /// Opens a text file as a new document (replaces the document).
+    OpenText {
+        text: String,
+        name: String,
+        #[ts(as = "crate::wire_tables::TextImportOptions")]
+        options: model_sheet::textio::TextImportOptions,
+    },
+    /// Save As CSV of one sheet.
+    SaveCsv {
+        sheet: u32,
+        #[ts(as = "crate::wire_tables::CsvOptions")]
+        options: model_sheet::textio::CsvOptions,
+    },
+    /// The pictures of a sheet (with their images).
+    SheetPictures { sheet: u32 },
 }
 
 /// The successful part of a [`Response`].
@@ -292,6 +334,19 @@ pub enum ResponseBody {
         items: Vec<crate::pivots::PivotItemInfo>,
     },
     /// The reply to `sheetRules`.
+    GoalSeek {
+        result: crate::datatools::GoalSeekResult,
+    },
+    Decoded {
+        decoded: crate::datatools::DecodedText,
+    },
+    Preview {
+        rows: Vec<Vec<String>>,
+    },
+    Pictures {
+        #[ts(as = "Vec<crate::wire_tables::Picture>")]
+        pictures: Vec<model_sheet::Picture>,
+    },
     SheetRules {
         #[ts(as = "Vec<crate::wire_cf::CfRule>")]
         rules: Vec<model_sheet::CfRule>,
@@ -506,6 +561,78 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
         },
         Request::PivotItems { id, field } => ResponseBody::PivotItems {
             items: host.doc().pivot_items(id, field)?,
+        },
+        Request::TableFilterValues { id, col } => {
+            let doc = host.doc();
+            let (s, _) = doc.workbook().table(id).ok_or_else(|| {
+                DispatchError::from(crate::CalcError::Model(model_sheet::Error::UnknownTable(
+                    id,
+                )))
+            })?;
+            ResponseBody::FilterValues {
+                values: doc
+                    .workbook()
+                    .table_filter_values(s, id, col)
+                    .map_err(|e| DispatchError::from(crate::CalcError::from(e)))?,
+            }
+        }
+        Request::GoalSeek {
+            sheet,
+            set_row,
+            set_col,
+            to_value,
+            changing_row,
+            changing_col,
+        } => ResponseBody::GoalSeek {
+            result: host.doc_mut().goal_seek(
+                sheet,
+                (set_row, set_col),
+                to_value,
+                (changing_row, changing_col),
+            )?,
+        },
+        Request::DecodeText {
+            bytes_base64,
+            encoding,
+        } => {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(bytes_base64.as_bytes())
+                .map_err(|e| DispatchError::new("bad_request", format!("invalid base64: {e}")))?;
+            ResponseBody::Decoded {
+                decoded: crate::datatools::decode_text(&bytes, encoding),
+            }
+        }
+        Request::SplitPreview { text, options, max } => ResponseBody::Preview {
+            rows: crate::datatools::split_preview(&text, &options, max as usize),
+        },
+        Request::OpenText {
+            text,
+            name,
+            options,
+        } => {
+            let doc = CalcDocument::open_text(&text, &name, &options)?;
+            host.replace(doc);
+            ResponseBody::Opened {
+                info: workbook_info(host),
+                warnings: Vec::new(),
+                envelope: Box::new(host.envelope(CalcPatch::default())),
+            }
+        }
+        Request::SaveCsv { sheet, options } => {
+            let bytes = host.doc().save_csv(sheet, &options)?;
+            let stem = host
+                .doc()
+                .source_name
+                .as_deref()
+                .map(|n| n.rsplit_once('.').map_or(n, |(s, _)| s).to_owned())
+                .unwrap_or_else(|| "Untitled".into());
+            ResponseBody::Saved {
+                bytes_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+                suggested_name: format!("{stem}.csv"),
+            }
+        }
+        Request::SheetPictures { sheet } => ResponseBody::Pictures {
+            pictures: host.doc().sheet_pictures(sheet)?,
         },
     })
 }

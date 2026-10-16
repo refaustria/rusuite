@@ -7,6 +7,7 @@
 // structure, page setup and clear formatting are Rust-first commands
 // (`InsertTable`, `InsertImage`, `InsertTableRow`, `SetPage`, …).
 
+import { aiRibbonGroup } from "@rusuite/ui-shared";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
@@ -736,6 +737,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
           </RibbonStack>
         ),
       },
+      aiRibbonGroup(session.ai),
     ],
   };
 

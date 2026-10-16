@@ -47,6 +47,8 @@ export interface SheetData {
   showFormulas?: boolean;
   /** The pivot table style of a cell (header band, totals, bands, room for a +/- button); absent: none. */
   pivotLook?: (cell: CellView | undefined, row: number, col: number) => PivotLook | undefined;
+  /** The Excel table style of a cell (header, bands, totals, lines); absent: none. */
+  tableLook?: (row: number, col: number) => PivotLook | undefined;
 }
 
 /** Width of one indent level (Format Cells › Alignment › Indent, compact pivot labels), px. */
@@ -279,8 +281,9 @@ export function computeRenderOps(
       const cell = rowCells?.get(c);
       const styleId = styleIdAt(rowCells, rowStyle, c);
       const cf = cfAt(r, c);
-      if (styleId === 0 && !cell && !cf) continue;
-      const look = cell?.pivot ? sheet.pivotLook?.(cell, r, c) : undefined;
+      const tlook = cell?.pivot ? undefined : sheet.tableLook?.(r, c);
+      if (styleId === 0 && !cell && !cf && !tlook) continue;
+      const look = cell?.pivot ? sheet.pivotLook?.(cell, r, c) : tlook;
       const style = withLook(cfStyle(styleAt(styles, styleId), cf), look);
       if (cf) decorate(r, c, cf, x, y, w, h);
       if (look?.top && !style.borders?.top) lines.push({ op: "line", x1: x, y1: y, x2: x + w, y2: y, color: look.top, width: 1, dash: [] });
@@ -309,7 +312,7 @@ export function computeRenderOps(
       if (rowMerges.length > 0 && merged(c)) continue;
       const cf = cfAt(r, c);
       if (cf?.hideValue) continue;
-      const look = raw.pivot ? sheet.pivotLook?.(raw, r, c) : undefined;
+      const look = raw.pivot ? sheet.pivotLook?.(raw, r, c) : sheet.tableLook?.(r, c);
       const styleId = cell.style;
       const style = styleAt(styles, styleId);
       const align = horizontalAlign(style, cell.kind);

@@ -17,4 +17,12 @@ style: number | null,
  * Hidden by the AutoFilter (with `hidden`), not by hand; absent =
  * false.
  */
-filtered?: boolean, };
+filtered?: boolean, 
+/**
+ * Outline level 1–7 (absent = 0).
+ */
+outlineLevel?: number, 
+/**
+ * The summary row of a collapsed group.
+ */
+collapsed?: boolean, };

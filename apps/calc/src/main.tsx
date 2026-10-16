@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { createBackend, I18nProvider, type WasmModule } from "@rusuite/ui-shared";
+import { createBackend, I18nProvider, XLSX_MIME, type WasmModule } from "@rusuite/ui-shared";
 import App from "./App";
 import { t } from "./i18n";
 import type { Request } from "./generated/Request";
@@ -19,7 +19,10 @@ async function loadWasm(): Promise<WasmModule> {
   return mod as WasmModule;
 }
 
-createBackend<Request, ResponseBody>(loadWasm, { fileTypeLabel: () => t("calc.fileType") }).then((backend) => {
+// `.xlsx` first (downloads of that extension get its MIME type); text files open through the import wizard (P8-35).
+const ACCEPT = `.xlsx,${XLSX_MIME},.csv,text/csv,.txt,text/plain`;
+
+createBackend<Request, ResponseBody>(loadWasm, { accept: ACCEPT, fileTypeLabel: () => t("calc.fileType") }).then((backend) => {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <I18nProvider>

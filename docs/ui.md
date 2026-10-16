@@ -310,8 +310,8 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   Number: the Number Format box (Excel's eleven entries with previews), Accounting ▾, %, Comma Style, decimals ±
   (see [number-formats.md](number-formats.md)); Styles: Conditional Formatting ▾; Cells: Insert ▾, Delete ▾, Format ▾ (row height, column width, autofit, hide/unhide
   rows and columns, Hide Sheet / Unhide Sheet…, Format cells…); Editing: Clear, Find ▾ Replace, Sort & Filter ▾ (Sort A
-  to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (Tables › PivotTable, New sheet, rows/columns, Charts, Links › Link), Formulas (see below), Data (Sort & Filter: A→Z,
-  Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Data Validation…), Review (Comments, Notes ▾; see below), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
+  to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (Tables › PivotTable, Table; Illustrations › Pictures; New sheet, rows/columns, Charts, Links › Link), Page Layout (P8-35), Formulas (see below), Data (Get & Transform › From Text/CSV; Sort & Filter: A→Z,
+  Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Text to Columns, Remove Duplicates, Data Validation…; Forecast › What-If Analysis › Goal Seek…; Outline: Group ▾, Ungroup ▾, Subtotal, Show/Hide Detail), Review (Comments, Notes ▾; see below), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
   scaled; Window: Freeze Panes ▾ (Freeze/Unfreeze Panes, Freeze Top Row, Freeze First Column); shortcuts help). Zoom,
   gridlines, headings and frozen panes are the active sheet's `SheetView` (`setSheetView` / `setFreeze`, undoable, saved in
   the file's `<sheetView>`); the formula bar toggle is the app's.
@@ -435,6 +435,37 @@ document until a command runs, Esc, or a click elsewhere. Menus and galleries us
   manual mode). In formulas, names autocomplete with the functions (accepting inserts the name without `(`), are coloured
   over the range they refer to and outlined on the grid while editing (point mode shows the name's range), and
   `Sheet1!Name` is accepted by the editor's syntax check.
+- **Calc tables and data tools** (P8-35, `apps/calc/src/tables`, `datatools`, `outline`, `pictures`): Insert › Table
+  (Ctrl+T / Ctrl+L) opens Create Table (the range – the current region of a single cell, `=$A$1:$B$4` –, "My table has
+  headers" guessed like Excel; a range overlapping a table is refused). Tables draw with their style (Excel's 60 built-in
+  Light/Medium/Dark styles, `tables/styles.ts`), header filter buttons (the AutoFilter dropdown, per table), and the
+  contextual **Table Design** tab (Table Tools): Table Name (renames, references follow), Resize Table…, Summarize with
+  PivotTable, Remove Duplicates, Convert to Range (the look stays as formats); Style Options (Header Row, Total Row, Banded
+  Rows/Columns, First/Last Column, Filter Button); Quick Styles gallery. The active totals cell has a dropdown just right of
+  it (None, Average, Count, Count Numbers, Max, Min, Sum, StdDev, Var, More Functions…). Typing below or right of a table
+  extends it; a formula typed in an empty column fills the column (calculated column). Point mode inserts `[@Col]` for a
+  cell of the same row of a table; the formula editor colours structured references over their cells and completes table
+  names, columns and `#All`/`#Data`/`#Headers`/`#Totals`/`#This Row` after `[`. **Paste** ▾ has Excel's gallery (Paste,
+  Formulas, Formulas & Number Formatting, Keep Source Formatting, No Borders, Keep Source Column Widths, Transpose, Values,
+  Values & Number Formatting, Values & Source Formatting, Formatting, Paste Link) and Paste Special… (Ctrl+Alt+V: what,
+  operation None/Add/Subtract/Multiply/Divide, Skip blanks, Transpose, Paste Link). Data › **Text to Columns** is a
+  three-step wizard (delimited / fixed width with a ruler to click, drag and double-click break lines; delimiters, text
+  qualifier, consecutive delimiters; column formats General/Text/Date (order)/Skip, destination, decimal and thousands
+  separators); opening a `.csv`/`.txt` (File › Open or Data › From Text/CSV) runs the same wizard as the **Text Import
+  Wizard** (file origin UTF-8/Windows-1252/UTF-16 detected) and makes a new document. Save As with a `.csv` name asks for the
+  separator (comma, semicolon, tab), quoting and BOM and warns that only the active sheet's values are kept. **Remove
+  Duplicates** (columns, "My data has headers") reports "n duplicate values found and removed; m unique values remain.".
+  **Goal Seek** (Set cell, To value, By changing cell; secant with bisection, 100 steps, 0.001) shows its status and
+  applies the value on OK (undoable). **Outline**: Group/Ungroup rows or columns (Alt+Shift+→/←), the outline bars left
+  of the row headers / above the column headers with level buttons and −/+ at the summary line (below/right; Settings
+  in the core's `OutlineProps`), Show/Hide Detail, Clear Outline, and **Subtotal** (at each change in, use function, add
+  subtotal to, replace current, summary below data; Remove All) with its outline. **Pictures** (Insert › Pictures:
+  PNG/JPEG/GIF/BMP/SVG/WebP, scaled to 640 px, moved and resized on the grid like charts, Delete removes the selected one;
+  saved as `xdr:pic`). **Page Layout**: Print Area ▾ (Set / Clear), Breaks ▾ (Insert / Remove Page Break at the active
+  cell, Reset All), Print Titles… (print area, rows to repeat at top, columns to repeat at left – the built-in names
+  `Print_Area` / `Print_Titles`, used by File › Print); View › Workbook Views › Normal / **Page Break Preview** (grey
+  outside the printed area, automatic breaks dashed, manual ones solid, "Page n" watermarks; drag a line to move a break).
+  Not done (per the brief): Flash Fill, Consolidate, Auto Outline, slicers.
 - **Calc pivot tables** (P8-33, `apps/calc/src/pivot`, details in [pivot.md](pivot.md) "UI"): Insert › Tables › PivotTable
   (Create PivotTable: Table/Range from the current region with the range picker, New / Existing Worksheet +
   Location; Recommended PivotTables not offered) creates an empty table (Excel's placeholder box) and opens the
@@ -514,6 +545,43 @@ a hosted drive); Rusuite offers no cloud and contacts nothing until then. Code: 
   remote recent entries); "Remove local copies" also clears the remote recent entries.
 - Apps wire one line: `SessionAdapter.saveAs(name)` = the guard's `doc.save(name)` (Save As under a name without a
   prompt), which Save As › a connection runs while `Connectors.pendingSave` points at the target.
+
+## AI assistant (P8-37)
+
+Opt-in, the user's own provider account and key, client-side (ADR 0009 amendment; design `docs/ai-plan.md`). Code:
+`packages/ui-shared/src/ai` (`Assistant` = `Backend.ai` = `session.ai`, providers, prompts, schemas, panel) and
+`packages/ui-shared/src/settings` (the Options dialog); per app `apps/*/src/ai/` (an `AiAppAdapter`: actions, context,
+selection summary, Insert / Replace buttons).
+
+- **File › Options…** opens the shared Options dialog (all apps; Write's own options – the comment author – are its
+  General page). **AI** page: "Enable the AI assistant" (off by default), the data notice "Text you select is sent to
+  <provider> only when you use an AI action", Provider (Anthropic (Claude) / OpenAI-compatible), API key (masked;
+  where it is kept: web – this browser's storage, unencrypted; desktop – the system keyring), Forget key, Base URL
+  (advanced for Anthropic), Model (known ids + Other… free text), Max tokens, Temperature ("used only where the model
+  accepts it"), "Include the whole document by default", the origin that will be contacted, **Test** (lists the
+  provider's models: "Connected. The provider lists N models." or the reason), Cancel / Save.
+- **Home › AI › Assistant** (all apps, toggle) or **Ctrl+Shift+A** opens the **Assistant** task pane on the right
+  (320 px): header with AI settings and Close; when off or without a key a short text and "AI settings…"; the data
+  notice; "Context: <selection summary>" (Write: selection or current paragraph with its length; Calc:
+  `Sheet1!B2:D9`; Show: "slide 2 of 6" or the selected text box) and **Include whole document** – with the size
+  ("about N characters, ~T tokens"), amber above 50 000 characters, cut at 400 000; the action chips (disabled with a
+  reason: "Select something first", "The active cell has no formula", …; chips that need text – Translate to…, Draft,
+  Formula, Transform, Outline – arm the prompt box); the turns of this document (prompt, context, streamed answer or a
+  preview of the structured result, errors, the apply buttons, Copy for text, tokens and model); the prompt box (Enter
+  sends, Shift+Enter new line), model picker, Send / **Stop**, "This document: N input · M output tokens", Clear
+  conversation. Esc closes the pane.
+- **Results are ordinary edits**: Write – Replace selection (the range captured when the request started; the
+  current selection if that text changed) and Insert (paragraphs after the selection's block), Insert draft
+  (headings + paragraphs) and Insert table (header row bold) – each one transaction → one undo step. Calc – Insert
+  formula (validated; into the active cell of the request), Apply (transform: writes the previewed rows from the
+  destination's top-left as one undo step, then selects them), Insert chart (selects the range, the chart insert),
+  Insert into active cell (free answers). Show – Insert slides (after the current slide, "Title and Content" with
+  the deck's theme, one undo step), Set as speaker notes, Replace slide text (the selected text box or the body,
+  levels kept when the line count matches), Apply layout.
+- **Status bar**: "AI: <provider>" while AI is enabled (click toggles the pane; "working…" while a request runs).
+- **Errors** in the turn, localized by kind with the provider's message: wrong key, rate limit ("Try again in N s"),
+  overloaded, offline / interrupted, CORS, **CSP** ("This site's security policy does not allow connections to the
+  AI provider…" – the live web CSP until the owner decides), refusal, cut off (raise Max tokens), no usable result.
 
 ## Save and Save As on the desktop (P7-7)
 

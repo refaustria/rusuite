@@ -39,6 +39,9 @@ pub enum CalcError {
     /// Create from Selection found no label to make a name of.
     #[error("no names to create from the selection")]
     NothingToName,
+    /// Goal Seek cannot work with these cells.
+    #[error("goal seek: {0}")]
+    GoalSeek(String),
 }
 
 impl From<EngineError> for CalcError {
@@ -81,10 +84,13 @@ impl CalcError {
             CalcError::Model(M::UnknownPivot(_)) => "unknown_pivot",
             CalcError::Model(M::InvalidPivot(_)) => "invalid_pivot",
             CalcError::Model(M::PivotOverlap { .. }) => "pivot_overlap",
+            CalcError::Model(M::InvalidTable(_)) => "invalid_table",
+            CalcError::Model(M::UnknownTable(_)) => "unknown_table",
             CalcError::Model(M::Engine(EngineError::InvalidName(_))) => "invalid_name",
             CalcError::Model(M::Engine(EngineError::DuplicateName(_))) => "duplicate_name",
             CalcError::Model(M::Engine(EngineError::UnknownName(_))) => "unknown_name",
             CalcError::NothingToName => "no_names",
+            CalcError::GoalSeek(_) => "goal_seek",
             CalcError::ReadXlsx(_) => "invalid_file",
             CalcError::WriteXlsx(_) => "internal",
         }
@@ -139,6 +145,8 @@ fn col_view(col: u32, info: ColInfo) -> ColView {
         width: info.width,
         hidden: info.hidden,
         style: info.style.map(|s| s.0),
+        outline_level: info.outline_level,
+        collapsed: info.collapsed,
     }
 }
 
@@ -158,6 +166,8 @@ fn row_view(row: u32, info: RowInfo) -> RowView {
         hidden: info.hidden,
         style: info.style.map(|s| s.0),
         filtered: info.filtered,
+        outline_level: info.outline_level,
+        collapsed: info.collapsed,
     }
 }
 
@@ -241,7 +251,7 @@ impl CalcDocument {
         self.workbook
     }
 
-    fn sheet_infos(&self) -> Vec<SheetInfo> {
+    pub(crate) fn sheet_infos(&self) -> Vec<SheetInfo> {
         self.workbook
             .sheets()
             .into_iter()
@@ -254,6 +264,20 @@ impl CalcDocument {
                 view: self.workbook.sheet_view(id),
                 auto_filter: self.workbook.auto_filter(id).cloned(),
                 sort_state: self.workbook.sort_state(id).cloned(),
+                tables: self.workbook.tables(id).to_vec(),
+                outline: self.workbook.outline_props(id),
+                row_breaks: self
+                    .workbook
+                    .page_breaks(id, model_sheet::Axis::Rows)
+                    .to_vec(),
+                col_breaks: self
+                    .workbook
+                    .page_breaks(id, model_sheet::Axis::Cols)
+                    .to_vec(),
+                max_outline: (
+                    self.workbook.max_outline_level(id, model_sheet::Axis::Rows),
+                    self.workbook.max_outline_level(id, model_sheet::Axis::Cols),
+                ),
             })
             .collect()
     }
@@ -502,7 +526,7 @@ impl CalcDocument {
     }
 
     /// Every formula cell: `(coord, text, own style)`.
-    fn formulas(&self) -> Vec<(CellCoord, String, StyleId)> {
+    pub(crate) fn formulas(&self) -> Vec<(CellCoord, String, StyleId)> {
         let engine = self.workbook.engine();
         engine
             .sheets()
@@ -730,6 +754,9 @@ impl CalcDocument {
                 col,
                 ref input,
             } => {
+                if let Some(applied) = self.table_set_input(sheet, row, col, input) {
+                    return applied;
+                }
                 let c = CellCoord::new(self.sheet(sheet)?, row, col);
                 let prev = content_to_input(self.workbook.content(c));
                 let recalc = self.workbook.set_input(c, input)?;
@@ -1085,7 +1112,21 @@ impl CalcDocument {
                 repeat_rows,
                 repeat_cols,
                 annotations,
+                special,
             } => {
+                if let Some(sp) = special {
+                    if cut {
+                        return Err(CalcError::InvalidRange);
+                    }
+                    return self.paste_special(
+                        sheet,
+                        (r0, c0),
+                        src,
+                        cells,
+                        sp,
+                        (repeat_rows, repeat_cols),
+                    );
+                }
                 let applied = self.paste_range(
                     sheet,
                     (r0, c0),
@@ -1223,7 +1264,37 @@ impl CalcDocument {
             | C::MovePivot { .. }
             | C::ExpandCollapse { .. }
             | C::SetPageFilter { .. }
+            | C::ChangePivotSource { .. }
+            | C::ShowPivotDetails { .. }
             | C::RestorePivots { .. } => self.pivot_cmd(cmd),
+            C::CreateTable { .. }
+            | C::RenameTable { .. }
+            | C::RenameTableColumn { .. }
+            | C::SetTableStyle { .. }
+            | C::SetTableOptions { .. }
+            | C::SetTotalsFunction { .. }
+            | C::ResizeTable { .. }
+            | C::ConvertToRange { .. }
+            | C::InsertTableRows { .. }
+            | C::DeleteTableRows { .. }
+            | C::InsertTableCols { .. }
+            | C::DeleteTableCols { .. }
+            | C::SetTableFilter { .. }
+            | C::RestoreTables { .. } => self.table_cmd(cmd),
+            C::RemoveDuplicates { .. }
+            | C::TextToColumns { .. }
+            | C::GroupOutline { .. }
+            | C::SetOutlineCollapsed { .. }
+            | C::ShowOutlineLevel { .. }
+            | C::ClearOutline { .. }
+            | C::SetOutlineProps { .. }
+            | C::Subtotal { .. }
+            | C::RemoveSubtotals { .. }
+            | C::SetPageBreaks { .. }
+            | C::AddPicture { .. }
+            | C::SetPictureAnchor { .. }
+            | C::RemovePicture { .. }
+            | C::RestorePictures { .. } => self.data_cmd(cmd),
             C::Compound { commands } => {
                 let mut patch = CalcPatch::default();
                 let mut inverses = Vec::with_capacity(commands.len());
@@ -1482,6 +1553,300 @@ impl CalcDocument {
         self.write_cells(writes)
     }
 
+    /// Paste Special (see [`crate::PasteSpecial`]): parts, operation,
+    /// skip blanks, transpose and paste link, as one undo step.
+    fn paste_special(
+        &mut self,
+        sheet: u32,
+        (r0, c0): (u32, u32),
+        src: SheetRect,
+        cells: &[ClipCell],
+        sp: crate::command::PasteSpecial,
+        (rep_rows, rep_cols): (u32, u32),
+    ) -> Result<CalcApplied> {
+        use crate::command::{PasteOperation as Op, PasteParts as P};
+        let source = self.range(src.sheet, src.r0, src.c0, src.r1, src.c1)?;
+        let s = self.sheet(sheet)?;
+        let (h, w) = (source.rows(), source.cols());
+        if rep_rows == 0 || rep_cols == 0 || cells.iter().any(|c| c.dr >= h || c.dc >= w) {
+            return Err(CalcError::InvalidRange);
+        }
+        let (bh, bw) = if sp.transpose { (w, h) } else { (h, w) };
+        let r1 = u64::from(r0) + u64::from(bh) * u64::from(rep_rows) - 1;
+        let c1 = u64::from(c0) + u64::from(bw) * u64::from(rep_cols) - 1;
+        if r1 > u64::from(MAX_ROW) || c1 > u64::from(MAX_COL) {
+            return Err(CalcError::InvalidRange);
+        }
+        self.range(sheet, r0, c0, r1 as u32, c1 as u32)?;
+        let by_pos: HashMap<(u32, u32), &ClipCell> =
+            cells.iter().map(|c| ((c.dr, c.dc), c)).collect();
+        let src_name = self
+            .workbook
+            .engine()
+            .sheet_name(source.sheet)
+            .unwrap_or_default()
+            .to_owned();
+        let styles_before = self.workbook.styles().len();
+        let mut writes = Vec::new();
+        let mut extra: Vec<CalcCommand> = Vec::new();
+        let content_part = matches!(
+            sp.parts,
+            P::All
+                | P::Formulas
+                | P::Values
+                | P::AllExceptBorders
+                | P::FormulasAndNumberFormats
+                | P::ValuesAndNumberFormats
+                | P::AllAndColumnWidths
+        );
+        for ti in 0..rep_rows {
+            for tj in 0..rep_cols {
+                for dr in 0..h {
+                    for dc in 0..w {
+                        let clip = by_pos.get(&(dr, dc)).copied();
+                        let blank = clip.map_or(true, |c| c.input.is_empty());
+                        if sp.skip_blanks && blank && !sp.link {
+                            continue;
+                        }
+                        let (pr, pc) = if sp.transpose { (dc, dr) } else { (dr, dc) };
+                        let at = CellCoord::new(s, r0 + ti * bh + pr, c0 + tj * bw + pc);
+                        let from = CellCoord::new(source.sheet, src.r0 + dr, src.c0 + dc);
+                        if sp.link {
+                            let rf = engine_formula::ast::CellRef::new(from.col, from.row).to_a1();
+                            let prefix = if source.sheet == s {
+                                String::new()
+                            } else {
+                                model_sheet::names::sheet_prefix(&src_name)
+                            };
+                            writes.push(Write {
+                                at,
+                                content: Some(WriteContent::Input(format!("={prefix}{rf}"))),
+                                style: None,
+                            });
+                            continue;
+                        }
+                        let input = clip.map(|c| c.input.clone()).unwrap_or_default();
+                        let is_formula = input.starts_with('=');
+                        let src_style = clip.and_then(|c| c.style).map(StyleId);
+                        let dest_style = self.workbook.cell_style_id(at);
+                        // The content.
+                        let shifted = || {
+                            if sp.transpose {
+                                crate::fill::transpose_input(
+                                    &input,
+                                    (from.row, from.col),
+                                    (at.row, at.col),
+                                )
+                            } else {
+                                shift_input(
+                                    &input,
+                                    i64::from(at.row) - i64::from(from.row),
+                                    i64::from(at.col) - i64::from(from.col),
+                                )
+                            }
+                        };
+                        let value_of_source = || {
+                            if is_formula {
+                                self.workbook.value(from).into_scalar()
+                            } else {
+                                match engine_formula::engine::parse_input(&input) {
+                                    Ok(CellContent::Value(v)) => v,
+                                    _ => Value::Empty,
+                                }
+                            }
+                        };
+                        let mut content = match sp.parts {
+                            P::All
+                            | P::AllExceptBorders
+                            | P::Formulas
+                            | P::FormulasAndNumberFormats
+                            | P::AllAndColumnWidths => Some(WriteContent::Input(shifted())),
+                            P::Values | P::ValuesAndNumberFormats => Some(if is_formula {
+                                WriteContent::Value(value_of_source())
+                            } else {
+                                WriteContent::Input(input.clone())
+                            }),
+                            _ => None,
+                        };
+                        if sp.operation != Op::None && content_part {
+                            let sv = value_of_source();
+                            let operand = match sv {
+                                Value::Number(n) => Some(n),
+                                Value::Empty => Some(0.0),
+                                Value::Bool(_)
+                                | Value::Text(_)
+                                | Value::Error(_)
+                                | Value::Array(_) => None,
+                            };
+                            let symbol = match sp.operation {
+                                Op::Add => "+",
+                                Op::Subtract => "-",
+                                Op::Multiply => "*",
+                                Op::Divide => "/",
+                                Op::None => "",
+                            };
+                            content = match (operand, self.workbook.content(at)) {
+                                (None, _) => None,
+                                (Some(x), CellContent::Formula { text, .. }) => {
+                                    Some(WriteContent::Input(format!(
+                                        "=({}){symbol}{}",
+                                        text.trim_start_matches('='),
+                                        engine_formula::Expr::Number(x)
+                                    )))
+                                }
+                                (Some(x), CellContent::Empty)
+                                | (Some(x), CellContent::Value(Value::Number(_))) => {
+                                    let d = match self.workbook.content(at) {
+                                        CellContent::Value(Value::Number(n)) => *n,
+                                        _ => 0.0,
+                                    };
+                                    let v = match sp.operation {
+                                        Op::Add => Value::Number(d + x),
+                                        Op::Subtract => Value::Number(d - x),
+                                        Op::Multiply => Value::Number(d * x),
+                                        Op::Divide if x == 0.0 => {
+                                            Value::Error(engine_formula::ErrorKind::Div0)
+                                        }
+                                        Op::Divide => Value::Number(d / x),
+                                        Op::None => Value::Number(d),
+                                    };
+                                    Some(WriteContent::Value(v))
+                                }
+                                // Text, logical and error destinations stay.
+                                _ => None,
+                            };
+                        }
+                        // The style.
+                        let style = match sp.parts {
+                            P::All | P::Formats | P::AllAndColumnWidths => {
+                                Some(src_style.unwrap_or_default())
+                            }
+                            P::AllExceptBorders => {
+                                let mut st = self
+                                    .workbook
+                                    .styles()
+                                    .get(src_style.unwrap_or_default())
+                                    .clone();
+                                st.borders = self.workbook.styles().get(dest_style).borders;
+                                Some(self.workbook.intern_style(&st))
+                            }
+                            P::FormulasAndNumberFormats | P::ValuesAndNumberFormats => {
+                                let mut st = self.workbook.styles().get(dest_style).clone();
+                                st.number_format = self
+                                    .workbook
+                                    .styles()
+                                    .get(src_style.unwrap_or_default())
+                                    .number_format
+                                    .clone();
+                                Some(self.workbook.intern_style(&st))
+                            }
+                            _ => None,
+                        };
+                        let style = if sp.operation != Op::None {
+                            None
+                        } else {
+                            style
+                        };
+                        if content.is_some() || style.is_some() {
+                            writes.push(Write { at, content, style });
+                        }
+                        if sp.parts == P::Validation {
+                            if let Some((_, dv)) = self.workbook.validation_at(from) {
+                                let mut dv = dv.clone();
+                                dv.ranges = vec![CellRect {
+                                    r0: at.row,
+                                    c0: at.col,
+                                    r1: at.row,
+                                    c1: at.col,
+                                }];
+                                extra.push(CalcCommand::SetValidation {
+                                    sheet,
+                                    validation: dv,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if sp.parts == P::Comments {
+            let wb = &mut self.workbook;
+            let notes: Vec<model_sheet::Note> = wb
+                .notes(source.sheet)
+                .iter()
+                .filter(|n| source.contains(CellCoord::new(source.sheet, n.row, n.col)))
+                .cloned()
+                .collect();
+            let threads: Vec<model_sheet::Thread> = wb
+                .threads(source.sheet)
+                .iter()
+                .filter(|t| source.contains(CellCoord::new(source.sheet, t.row, t.col)))
+                .cloned()
+                .collect();
+            for ti in 0..rep_rows {
+                for tj in 0..rep_cols {
+                    let place = |row: u32, col: u32| {
+                        let (dr, dc) = (row - src.r0, col - src.c0);
+                        let (pr, pc) = if sp.transpose { (dc, dr) } else { (dr, dc) };
+                        (r0 + ti * bh + pr, c0 + tj * bw + pc)
+                    };
+                    for n in &notes {
+                        let (row, col) = place(n.row, n.col);
+                        wb.set_note(
+                            s,
+                            model_sheet::Note {
+                                row,
+                                col,
+                                ..n.clone()
+                            },
+                        )?;
+                    }
+                    for t in &threads {
+                        let (row, col) = place(t.row, t.col);
+                        let seed = format!("{}:{}:{}", s.0, row, col);
+                        let mut copy = t.clone();
+                        copy.row = row;
+                        copy.col = col;
+                        copy.id = wb.fresh_comment_id(&seed);
+                        for (k, r) in copy.replies.iter_mut().enumerate() {
+                            r.id = wb.fresh_comment_id(&format!("{seed}:{k}"));
+                        }
+                        wb.set_thread(s, copy)?;
+                    }
+                }
+            }
+        }
+        if matches!(sp.parts, P::ColumnWidths | P::AllAndColumnWidths) {
+            let cols: Vec<ColView> = (0..rep_cols)
+                .flat_map(|tj| (0..w).map(move |dc| (tj, dc)))
+                .filter(|_| !sp.transpose)
+                .map(|(tj, dc)| {
+                    let info = self.workbook.col_info(source.sheet, src.c0 + dc);
+                    let dest = c0 + tj * bw + dc;
+                    col_view(
+                        dest,
+                        ColInfo {
+                            width: info.width,
+                            ..self.workbook.col_info(s, dest)
+                        },
+                    )
+                })
+                .collect();
+            if !cols.is_empty() {
+                extra.push(CalcCommand::RestoreCols { sheet, cols });
+            }
+        }
+        let mut applied = self.write_cells(writes)?;
+        for cmd in extra {
+            let a = self.apply_cmd(&cmd)?;
+            crate::tables::chain(&mut applied, a);
+        }
+        if self.workbook.styles().len() != styles_before {
+            applied.patch.styles = Some(self.style_list());
+        }
+        Ok(applied)
+    }
+
     /// [`CalcCommand::FillRange`].
     fn fill_range(
         &mut self,
@@ -1570,7 +1935,7 @@ impl CalcDocument {
     /// Runs a filter operation `f` on sheet `sheet`. The inverse restores
     /// the rows it showed or hid and the previous AutoFilter; the patch
     /// lists those rows, the sheet list and the changed `SUBTOTAL`s.
-    fn filter_op(
+    pub(crate) fn filter_op(
         &mut self,
         sheet: u32,
         f: impl FnOnce(&mut Workbook, SheetId) -> Result<FilterChange, model_sheet::Error>,
@@ -1860,6 +2225,8 @@ impl CalcDocument {
                     width: v.width,
                     hidden: v.hidden,
                     style: v.style.map(StyleId),
+                    outline_level: v.outline_level,
+                    collapsed: v.collapsed,
                 };
                 wb.set_col_info(s, v.col, info)
             })
@@ -1909,6 +2276,8 @@ impl CalcDocument {
                     hidden: v.hidden,
                     style: v.style.map(StyleId),
                     filtered: v.filtered,
+                    outline_level: v.outline_level,
+                    collapsed: v.collapsed,
                 };
                 wb.set_row_info(s, v.row, info).map(drop)
             })
@@ -2127,7 +2496,9 @@ impl Document for CalcDocument {
         let annotations = self.annotations_state();
         let pivots = self.may_touch_pivots(cmd).then(|| self.pivot_state());
         let stale = self.workbook.stale_pivots();
+        let tables = self.tables_state();
         let mut applied = self.apply_cmd(cmd)?;
+        self.mark_tables(tables, cmd, &mut applied);
         self.mark_names(names, cmd, &mut applied);
         self.mark_annotations(annotations, &mut applied);
         self.mark_pivots(pivots, &mut applied);

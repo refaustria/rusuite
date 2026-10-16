@@ -254,3 +254,17 @@ cells. Patches: `pivotSheets` (refetch the region snapshot and an open `pivotInf
 
 Not yet (ideas): grouping dates/numbers, calculated fields, value/label filters, sort by value,
 slicers, pivot charts, "Show Report Filter Pages", distinct count.
+
+## Follow-ups (P8-35)
+
+- **Subtotals at the bottom**: `AxisField::subtotal_bottom` puts an outer field's subtotal row below its
+  group (tabular/outline layouts; `pivotField subtotalTop="0"`); PivotTable Design › Subtotals ›
+  Show all Subtotals at Bottom / at Top of Group.
+- **Banded columns**: `PivotOptions::banded_cols` (`pivotTableStyleInfo showColStripes`), Design ›
+  Banded Columns.
+- **Change Data Source**: `ChangePivotSource { id, source }` keeps the fields whose names still exist
+  (the cache is rebuilt; missing fields are dropped from the areas), undoable.
+- **Table sources**: a pivot source may be a table name (`Table1`): it follows the table's size
+  (`worksheetSource name="Table1"`); Table Design › Summarize with PivotTable starts from it.
+- **Show Details**: double-clicking a value cell (or `ShowPivotDetails`) adds a sheet with the source
+  records behind it (header row + matching rows, as a table), like Excel's drill-down.

@@ -1,0 +1,19 @@
+---
+source: crates/fmt-xlsx/tests/tables.rs
+expression: "pretty(&part(&out, \"/xl/tables/table1.xml\"))"
+---
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="3" name="Orders" displayName="Orders" ref="B2:E6" totalsRowCount="1">
+<autoFilter ref="B2:E5"/>
+<tableColumns count="4">
+<tableColumn id="1" name="Item" totalsRowLabel="Sum"/>
+<tableColumn id="2" name="Units"/>
+<tableColumn id="3" name="Unit Price" totalsRowFunction="custom">
+<totalsRowFormula>MAX(Orders[Unit Price])</totalsRowFormula>
+</tableColumn>
+<tableColumn id="4" name="Total" totalsRowFunction="sum">
+<calculatedColumnFormula>Orders[[#This Row],[Units]]*Orders[[#This Row],[Unit Price]]</calculatedColumnFormula>
+</tableColumn>
+</tableColumns>
+<tableStyleInfo name="TableStyleDark3" showFirstColumn="0" showLastColumn="0" showRowStripes="1" showColumnStripes="1"/>
+</table>

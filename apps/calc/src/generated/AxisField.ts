@@ -26,4 +26,8 @@ collapsedItems?: Array<number>, hiddenItems?: Array<number>,
 /**
  * Absent = compact.
  */
-layout?: PivotLayout, };
+layout?: PivotLayout, 
+/**
+ * Subtotals at the bottom of the group (compact / outline).
+ */
+subtotalBottom?: boolean, };

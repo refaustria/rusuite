@@ -8,8 +8,9 @@ import { isWholeCols, isWholeRows, normalize, type Range } from "../grid/Selecti
 import type { CalcStore } from "../state/store";
 import { loadUsedRange } from "./loadUsed";
 import { CALC_MARGINS, HEADING_COL_PX, HEADING_ROW_PX, colLetters, paginate, printableArea, type CalcPrintOptions, type PageSlice } from "./layout";
-import { buildPrintTable, type PrintTable } from "./printTable";
+import { buildPrintTable, type PrintLook, type PrintTable } from "./printTable";
 import type { IconSetKind } from "../generated/IconSetKind";
+import type { NameInfo } from "../generated/NameInfo";
 import { iconGlyph } from "../grid/cf";
 import { cellAddress } from "../grid/address";
 import { noteBoxRect, runsText } from "../comments/model";
@@ -39,6 +40,8 @@ export interface CalcPrintPart {
   charts?: PrintChart[];
   /** Notes and comments listed on pages after the sheet. */
   annotations?: PrintAnnotation[];
+  /** Manual page breaks: indices into the table's rows / columns that start a page. */
+  breaks?: { rows: number[]; cols: number[] };
 }
 
 /** Inline CSS text of React style properties (`fontWeight` → `font-weight`; numbers as px). */
@@ -134,7 +137,7 @@ export function calcPrintDocument(parts: CalcPrintPart[], o: CalcPrintOptions, c
   const size = paperSize(o.paper, o.orientation);
   const m = CALC_MARGINS[o.margins];
   const area = printableArea(o);
-  const laid = parts.map((p) => ({ part: p, ...paginate(p.table.cols.map((c) => c.width), p.table.rows.map((r) => r.height), o, area) }));
+  const laid = parts.map((p) => ({ part: p, ...paginate(p.table.cols.map((c) => c.width), p.table.rows.map((r) => r.height), o, area, p.breaks) }));
   const total = laid.reduce((s, l) => s + (l.part.table.rows.length && l.part.table.cols.length ? l.pages.length : 0), 0);
   const date = ctx.date ?? new Date();
   const pages: string[] = [];
@@ -199,13 +202,63 @@ export function selectionRange(sel: Range, used: { lastRow: number; lastCol: num
   return r;
 }
 
+/** The pivot table and table looks of a sheet for print (the grid's looks). */
+export function printLooks(store: CalcStore, sheet: number): PrintLook {
+  const pivot = store.pivots.looks(sheet);
+  const table = store.tables.looks(sheet);
+  return (cell, row, col) => (cell?.pivot ? pivot?.(cell, row, col) : table?.(row, col));
+}
+
+/** The sheet's manual page breaks as indices into the printed rows / columns. */
+export function tableBreaks(store: CalcStore, sheet: number, table: PrintTable): { rows: number[]; cols: number[] } {
+  const info = store.getState().info?.sheets.find((s) => s.id === sheet);
+  const idx = <T extends { row?: number; col?: number }>(list: readonly T[], key: "row" | "col", breaks: readonly number[]) =>
+    breaks.map((b) => list.findIndex((x) => (x[key] ?? -1) >= b)).filter((i) => i > 0);
+  return { rows: idx(table.rows, "row", info?.rowBreaks ?? []), cols: idx(table.cols, "col", info?.colBreaks ?? []) };
+}
+
 /** Loads what the options print from the store and builds the document. */
+/**
+ * A sheet's Page Layout names (P8-35): the print area (`Print_Area`, a
+ * single area) and the number of rows repeated at the top
+ * (`Print_Titles` rows `$1:$k`; titles further down are not supported by
+ * the layout and ignored).
+ */
+export function sheetPrintNames(names: readonly NameInfo[], sheet: number): { area: Range | null; titleRows: number } {
+  const own = (b: string) => names.find((n) => n.builtin === b && n.sheet === sheet);
+  const a = own("printArea")?.range;
+  const area = a && a.sheet === sheet ? { r0: a.r0, c0: a.c0, r1: a.r1, c1: a.c1 } : null;
+  let titleRows = 0;
+  for (const part of (own("printTitles")?.refersTo ?? "").split(",")) {
+    const m = /(?:^|!)\$?(\d+):\$?(\d+)$/.exec(part.trim());
+    if (m && Number(m[1]) === 1) titleRows = Number(m[2]);
+  }
+  return { area, titleRows };
+}
+
 export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): Promise<PrintDoc> {
   const st = store.getState();
+  const printNames = (id: number) => sheetPrintNames(st.info?.names ?? [], id);
   const sheets = st.info?.sheets ?? [{ id: st.activeSheet, name: "Sheet1" }];
   const nameOf = (id: number) => sheets.find((s) => s.id === id)?.name ?? "";
   const parts: CalcPrintPart[] = [];
+  const rangePart = async (id: number, r: Range) => {
+    await store.ensureRegion(id, r.r0, r.c0, r.r1, r.c1);
+    // Charts intersecting the range print with it (cut at its edges).
+    const geo = store.geometry(id);
+    const x0 = geo.col.offset(r.c0);
+    const y0 = geo.row.offset(r.r0);
+    const box = { x: x0, y: y0, w: geo.col.offset(r.c1 + 1) - x0, h: geo.row.offset(r.r1 + 1) - y0 };
+    const charts = (await printCharts(store, id, { x: 0, y: 0 }))
+      .filter((c) => rectsIntersect(c, box))
+      .map((c) => ({ ...c, x: c.x - x0, y: c.y - y0 }));
+    const table = buildPrintTable(store.cache(id), store.styles(), r.r1, r.c1, r.r0, r.c0, printLooks(store, id));
+    parts.push({ sheetName: nameOf(id), table, charts, breaks: tableBreaks(store, id, table) });
+  };
   const sheetPart = async (id: number) => {
+    // Page Layout › Print Area.
+    const area = printNames(id).area;
+    if (area) return rangePart(id, area);
     const used = await loadUsedRange(store, id);
     const charts = await printCharts(store, id);
     // The printed area reaches the charts' bottom-right cells.
@@ -222,7 +275,8 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
       lastCol = Math.max(lastCol, geo.col.indexAt(n.x + n.w - 1));
     }
     if (lastRow > used.lastRow || lastCol > used.lastCol) await store.ensureRegion(id, 0, 0, lastRow, lastCol);
-    parts.push({ sheetName: nameOf(id), table: buildPrintTable(store.cache(id), store.styles(), lastRow, lastCol), charts: [...charts, ...annots.boxes], annotations: annots.list });
+    const table = buildPrintTable(store.cache(id), store.styles(), lastRow, lastCol, 0, 0, printLooks(store, id));
+    parts.push({ sheetName: nameOf(id), table, charts: [...charts, ...annots.boxes], annotations: annots.list, breaks: tableBreaks(store, id, table) });
   };
   if (o.what === "workbook") {
     // Hidden sheets are not printed (Excel).
@@ -231,20 +285,12 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
     const id = st.activeSheet;
     const used = await loadUsedRange(store, id);
     const r = selectionRange(normalize(st.selection), used);
-    if (r) {
-      await store.ensureRegion(id, r.r0, r.c0, r.r1, r.c1);
-      // Charts intersecting the selection print with it (cut at its edges).
-      const geo = store.geometry(id);
-      const x0 = geo.col.offset(r.c0);
-      const y0 = geo.row.offset(r.r0);
-      const box = { x: x0, y: y0, w: geo.col.offset(r.c1 + 1) - x0, h: geo.row.offset(r.r1 + 1) - y0 };
-      const charts = (await printCharts(store, id, { x: 0, y: 0 }))
-        .filter((c) => rectsIntersect(c, box))
-        .map((c) => ({ ...c, x: c.x - x0, y: c.y - y0 }));
-      parts.push({ sheetName: nameOf(id), table: buildPrintTable(store.cache(id), store.styles(), r.r1, r.c1, r.r0, r.c0), charts });
-    }
+    if (r) await rangePart(id, r);
   } else await sheetPart(st.activeSheet);
-  return calcPrintDocument(parts, o, { file: st.name ?? undefined });
+  // Print Titles: rows repeated at the top (the active sheet's, when printing it alone from row 1).
+  const titles = o.what === "workbook" ? 0 : printNames(st.activeSheet);
+  const repeat = typeof titles === "number" || (titles.area && titles.area.r0 > 0) ? 0 : titles.titleRows;
+  return calcPrintDocument(parts, o.repeatRows || o.what === "selection" ? o : { ...o, repeatRows: repeat }, { file: st.name ?? undefined });
 }
 
 /** The notes and comments to print for a sheet: visible note boxes (As displayed) or the list (At end of sheet). */

@@ -408,6 +408,19 @@ export class PivotController {
     return true;
   }
 
+  /**
+   * Show Details: a double-click on a value, subtotal or grand total cell
+   * puts the records behind it on a new sheet (Excel). `true` when the
+   * cell is such a cell.
+   */
+  showDetailsAt(row: number, col: number): boolean {
+    const sheet = this.store.getState().activeSheet;
+    const p = this.store.cache(sheet).cells.get(row)?.get(col)?.pivot;
+    if (!p || !["value", "subtotal", "grandTotal"].includes(p.kind) || p.field !== undefined) return false;
+    void this.store.apply({ type: "showPivotDetails", id: p.id, row, col });
+    return true;
+  }
+
   /** The active cell's field (Active Field group): a label's, a field header's or a page cell's. */
   activeField(): { id: number; field: number; name: string } | null {
     const p = this.active();

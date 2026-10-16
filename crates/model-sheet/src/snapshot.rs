@@ -102,6 +102,23 @@ pub struct SheetSnapshot {
     /// Pivot tables (their cells are in `cells`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pivots: Vec<crate::pivot::PivotTable>,
+    /// Excel tables (their cells are in `cells`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tables: Vec<crate::tables::Table>,
+    /// Where outline summary rows/columns sit; absent = below / right.
+    #[serde(
+        default,
+        skip_serializing_if = "crate::outline::OutlineProps::is_default"
+    )]
+    pub outline: crate::outline::OutlineProps,
+    /// Manual page breaks before these rows / columns.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub row_breaks: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub col_breaks: Vec<u32>,
+    /// Pictures, back to front.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pictures: Vec<crate::picture::Picture>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -246,6 +263,11 @@ impl Workbook {
             threads: self.threads(id).to_vec(),
             hyperlinks: self.hyperlinks(id).to_vec(),
             pivots: self.pivots(id).to_vec(),
+            tables: self.tables(id).to_vec(),
+            outline: self.outline_props(id),
+            row_breaks: self.page_breaks(id, crate::outline::Axis::Rows).to_vec(),
+            col_breaks: self.page_breaks(id, crate::outline::Axis::Cols).to_vec(),
+            pictures: self.pictures(id).to_vec(),
         }
     }
 
@@ -299,6 +321,12 @@ impl Workbook {
             })?;
         }
         wb.set_pivot_caches(snapshot.pivot_caches.clone());
+        // Tables before the cells: structured references register edges.
+        for (sheet, &id) in snapshot.sheets.iter().zip(&ids) {
+            if !sheet.tables.is_empty() {
+                wb.set_tables(id, sheet.tables.clone())?;
+            }
+        }
         wb.begin_batch();
         let loaded = (|| -> Result<(), Error> {
             for (sheet, &id) in snapshot.sheets.iter().zip(&ids) {
@@ -314,6 +342,10 @@ impl Workbook {
                 wb.set_notes(id, sheet.notes.clone())?;
                 wb.set_threads(id, sheet.threads.clone())?;
                 wb.set_hyperlinks(id, sheet.hyperlinks.clone())?;
+                wb.set_outline_props(id, sheet.outline)?;
+                wb.set_page_breaks(id, crate::outline::Axis::Rows, sheet.row_breaks.clone())?;
+                wb.set_page_breaks(id, crate::outline::Axis::Cols, sheet.col_breaks.clone())?;
+                wb.set_pictures(id, sheet.pictures.clone())?;
                 for col in &sheet.cols {
                     let info = ColInfo {
                         style: map_opt(col.info.style)?,

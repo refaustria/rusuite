@@ -27,6 +27,8 @@ function describe(t: Tok): string {
       return `error literal \`${t.text.toUpperCase()}\``;
     case "sheet":
       return `sheet name \`${t.text}\``;
+    case "struct":
+      return "structured reference";
     default:
       return `\`${PUNCT[t.kind]}\``;
   }
@@ -101,6 +103,7 @@ class Parser {
     switch (t.kind) {
       case "string":
       case "error":
+      case "struct":
         this.pos++;
         return false;
       case "lparen": {

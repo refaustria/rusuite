@@ -11,7 +11,9 @@ export type TokKind =
   /** `@` (implicit intersection). */
   | "at"
   /** `#` that does not start an error literal: the spilled-range operator (`A1#`). */
-  | "hash";
+  | "hash"
+  /** A structured reference: an optional table name and a balanced `[...]` (`Table1[Qty]`, `[@Qty]`). */
+  | "struct";
 
 export interface Tok {
   kind: TokKind;
@@ -49,6 +51,24 @@ const isDigit = (c: string | undefined) => c !== undefined && c >= "0" && c <= "
 /** `true` when the input is a formula (starts with `=`). */
 export const isFormula = (text: string) => text.startsWith("=");
 
+/** The end (exclusive) of the bracket group opening at `start` (`'` escapes a character); `-1` when unterminated. */
+export function bracketEnd(text: string, start: number): number {
+  let depth = 0;
+  for (let j = start; j < text.length; j++) {
+    const c = text[j];
+    if (c === "'") {
+      j++;
+      continue;
+    }
+    if (c === "[") depth++;
+    else if (c === "]") {
+      depth--;
+      if (depth === 0) return j + 1;
+    }
+  }
+  return -1;
+}
+
 /**
  * Tokenizes `text`. A leading `=` is skipped; spans are offsets into
  * `text` itself. Whitespace produces no tokens.
@@ -76,6 +96,10 @@ export function tokenize(text: string): Lexed {
     } else if (c === ">") {
       if (next === "=") push("ge", start, start + 2);
       else push("gt", start, start + 1);
+    } else if (c === "[") {
+      const end = bracketEnd(text, start);
+      if (end < 0) return { tokens, error: { pos: start, message: "unterminated structured reference" } };
+      push("struct", start, end);
     } else if (SIMPLE[c]) {
       push(SIMPLE[c], start, start + 1);
     } else if (c === '"') {
@@ -147,6 +171,12 @@ export function tokenize(text: string): Lexed {
         const d = String.fromCodePoint(text.codePointAt(j)!);
         if (!isIdentContinue(d)) break;
         j += d.length;
+      }
+      if (text[j] === "[") {
+        const end = bracketEnd(text, j);
+        if (end < 0) return { tokens, error: { pos: j, message: "unterminated structured reference" } };
+        push("struct", start, end);
+        continue;
       }
       push(text[j] === "!" ? "sheet" : "ident", start, j);
     } else {

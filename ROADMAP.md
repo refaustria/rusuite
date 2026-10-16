@@ -95,6 +95,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Locale-aware formula input/display (German `;`/`,`, function names) – owner decision pending; translated core messages via error codes; unused-key catalog check; wider gallery tiles for long German labels ("Überschri…"); Write Clipboard group overflow.
 
 ## Calc parity follow-ups
+- Tables/data tools (P8-35): rewrite structured refs when a table column is deleted (formulas show #REF! today); custom table styles (dxf/tableStyles) and slicers; repeat columns + arbitrary title rows in print; Flash Fill, Consolidate, Auto Outline; .csv/.txt filter in the Tauri open dialog; fake backend lacks Subtotal and table row/col commands; ribbon checkboxes 24 px (guideline 32).
 - Pivot UI (P8-33): Recommended PivotTables, Group, slicers/timelines, PivotChart, Fields/Items & Sets, Blank Rows; subtotal position + banded columns + ChangePivotSource + style table in patches + Show Details + pivot styles in print → P8-35 item 5.
 - Pivot (P8-30): date/number grouping, calculated fields/items, value/label filters, sort by value, distinct count, pivot charts, slicers/timelines, "Show Report Filter Pages"; redo after undoing DuplicateSheet loses the copy's pivots; verify the pivot workbooks in real Excel.
 - Comments (P8-26): `allComments` request for an across-sheets Comments pane; @mentions; threaded-comment extLst/person ids/initials kept; Remove Hyperlink should also clear link formatting (ui-shared style patch cannot unset); hyperlink colour slots in ui-shared's Office theme; print "as displayed" for a printed selection.
@@ -130,6 +131,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## Office parity – tracked in docs/parity-backlog.md (Phase 8)
 
 ## AI assistant – docs/ai-plan.md
+- v1 merged 2026-10-16. Next: prompt caching for whole-document context; reasoning-effort choice for 5.5 models; attach a selected image (Write/Show); desktop smoke with a real key; Show's Home tab AI group may fall off-screen at 1400 px (ribbon collapse work); web CSP decision.
 
 ## Cloud connectors (user-owned accounts) – see docs/cloud-connectors-plan.md
 - v1 (WebDAV) merged 2026-10-16. Next: S3 connector; generic OAuth PKCE connector with the user's own client id (Google Drive/OneDrive/Dropbox); shared desktop connection records across the three apps (per-app data dirs today); CORS setup guide for Nextcloud/ownCloud on the portal; desktop smoke test for the connector commands (keyring untested at runtime).

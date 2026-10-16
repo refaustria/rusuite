@@ -12,12 +12,13 @@ export type RibbonIconName =
   | "present" | "presentCurrent"
   | "new" | "open" | "save" | "saveAs" | "pdf" | "print" | "home" | "close" | "back" | "recent"
   | "alignJustify" | "chevronDown" | "chevronUp" | "options"
-  | "cloud" | "folder" | "file" | "device" | "plus" | "refresh" | "rename" | "chevronRight";
+  | "cloud" | "folder" | "file" | "device" | "plus" | "refresh" | "rename" | "chevronRight" | "sparkle";
 
 const P = (d: string) => <path d={d} />;
 const page = <path d="M5 2.5h7l3 3v12H5z" />;
 
 const PATHS: Record<RibbonIconName, ReactNode> = {
+  sparkle: <><path d="M9 2.5l1.7 4.8 4.8 1.7-4.8 1.7L9 15.5l-1.7-4.8L2.5 9l4.8-1.7z" /><path d="M15.5 12.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" /></>,
   options: <><circle cx="10" cy="10" r="2.5" /><path d="M10 2.5v2.2M10 15.3v2.2M2.5 10h2.2M15.3 10h2.2M4.7 4.7l1.6 1.6M13.7 13.7l1.6 1.6M4.7 15.3l1.6-1.6M13.7 6.3l1.6-1.6" /></>,
   cut: <><circle cx="6" cy="15" r="2.2" /><circle cx="14" cy="15" r="2.2" /><path d="M7.5 13.5L14 3M12.5 13.5L6 3" /></>,
   copy: <><rect x="7" y="6" width="9" height="11" rx="1" /><path d="M5 13H4V3h8v2" /></>,

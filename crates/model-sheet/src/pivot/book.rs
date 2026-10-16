@@ -266,6 +266,11 @@ impl Workbook {
                 Some(crate::CellRange::new(s, *r0, *c0, *r1, *c1))
             }
             PivotSource::Table { name } | PivotSource::Name { name } => {
+                // A table: its header and data rows.
+                if let Some((s, t)) = self.table_by_name(name) {
+                    let (_, last) = t.data_rows();
+                    return Some(crate::CellRange::new(s, t.r0, t.c0, last, t.c1));
+                }
                 let def = self.name(name, NameScope::Workbook)?;
                 self.name_ranges(&def).into_iter().next()
             }
@@ -825,6 +830,129 @@ impl Workbook {
                 Err(e)
             }
         }
+    }
+
+    /// Change Data Source: pivot table `id` gets a cache of `source`
+    /// (shared with another up-to-date table of that source, else new);
+    /// its fields follow by name (fields that are gone leave the table),
+    /// and it is rewritten. The old cache goes when no table uses it. On
+    /// error nothing changes.
+    pub fn change_pivot_source(&mut self, id: u32, source: PivotSource) -> Result<Recalc, Error> {
+        let (s, i) = self.locate_pivot(id)?;
+        let old_table = self.pivots(s)[i].clone();
+        let old_cache = self
+            .pivot_cache(old_table.cache_id)
+            .cloned()
+            .ok_or_else(|| Error::InvalidPivot("no cache".into()))?;
+        if old_cache.raw.is_some() {
+            return Err(Error::InvalidPivot("this pivot cache is read-only".into()));
+        }
+        let old_caches = self.pivot_caches.clone();
+        let (fields, records) = self.read_pivot_source(&source)?;
+        let mut map: Vec<Option<u32>> = vec![None; old_cache.fields.len()];
+        let mut item_maps: Vec<Vec<u32>> = vec![Vec::new(); old_cache.fields.len()];
+        let mut new_fields = Vec::with_capacity(fields.len());
+        for (ni, mut f) in fields.into_iter().enumerate() {
+            if let Some(oi) = old_cache.field_index(&f.name) {
+                map[oi as usize] = Some(ni as u32);
+                f.shared_items = old_cache.fields[oi as usize].shared_items.clone();
+                item_maps[oi as usize] = (0..f.shared_items.len() as u32).collect();
+            }
+            new_fields.push(f);
+        }
+        let cache_id = self.pivot_caches.iter().map(|c| c.id).max().unwrap_or(0) + 1;
+        let mut cache = PivotCache {
+            id: cache_id,
+            source,
+            fields: new_fields,
+            records,
+            refresh_on_load: false,
+            stale: false,
+            raw: None,
+        };
+        cache.normalize();
+        self.pivot_caches.push(cache);
+        let mut table = old_table.clone();
+        table.cache_id = cache_id;
+        table.remap_fields(&map, &item_maps);
+        self.sheet_data_mut(s)?.pivots[i] = table;
+        // The old cache goes when unused.
+        let used = self
+            .sheets()
+            .into_iter()
+            .any(|(sh, _)| self.pivots(sh).iter().any(|p| p.cache_id == old_cache.id));
+        if !used {
+            self.pivot_caches.retain(|c| c.id != old_cache.id);
+        }
+        match self.render_pivots(&[(s, id)]) {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                self.pivot_caches = old_caches;
+                self.sheet_data_mut(s)?.pivots[i] = old_table;
+                Err(e)
+            }
+        }
+    }
+
+    /// Show Details: the field names and the source records behind the
+    /// value cell `(row, col)` of pivot table `id` (respecting its page
+    /// selections and hidden items).
+    pub fn pivot_details(
+        &self,
+        id: u32,
+        row: u32,
+        col: u32,
+    ) -> Result<(Vec<String>, Vec<Vec<Value>>), Error> {
+        let (s, i) = self.locate_pivot(id)?;
+        let t = &self.pivots(s)[i];
+        let cache = self
+            .pivot_cache(t.cache_id)
+            .ok_or_else(|| Error::InvalidPivot("no cache".into()))?;
+        let out = self
+            .pivot_output(id)
+            .ok_or_else(|| Error::InvalidPivot("not laid out".into()))?;
+        let entry = out
+            .entries
+            .iter()
+            .find(|e| e.row == row && e.col == col)
+            .ok_or_else(|| Error::InvalidPivot("not a value cell".into()))?;
+        let names = cache.fields.iter().map(|f| f.name.clone()).collect();
+        let hidden: Vec<(u32, &BTreeSet<u32>)> = t
+            .rows
+            .iter()
+            .chain(&t.cols)
+            .map(|a| (a.field, &a.hidden_items))
+            .collect();
+        let pages: Vec<(u32, &PageSelection)> =
+            t.filters.iter().map(|p| (p.field, &p.selected)).collect();
+        let item_of = |rec: &[Item], f: u32| -> Option<u32> {
+            let v = rec.get(f as usize)?;
+            cache.fields[f as usize]
+                .shared_items
+                .iter()
+                .position(|x| x == v)
+                .map(|p| p as u32)
+        };
+        let mut rows = Vec::new();
+        for rec in &cache.records {
+            let ok = entry
+                .key
+                .iter()
+                .all(|&(f, item)| item_of(rec, f) == Some(item))
+                && hidden
+                    .iter()
+                    .all(|(f, h)| item_of(rec, *f).map_or(true, |it| !h.contains(&it)))
+                && pages.iter().all(|(f, sel)| match sel {
+                    PageSelection::All => true,
+                    PageSelection::Items { items } => {
+                        item_of(rec, *f).is_some_and(|it| items.contains(&it))
+                    }
+                });
+            if ok {
+                rows.push(rec.iter().map(Item::to_value).collect());
+            }
+        }
+        Ok((names, rows))
     }
 
     /// Deletes pivot table `id` and clears its cells (contents and

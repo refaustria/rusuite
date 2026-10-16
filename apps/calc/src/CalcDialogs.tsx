@@ -21,6 +21,11 @@ import { ChartDialog } from "./charts/ChartDialogs";
 import { LinkDialog, UserNameDialog } from "./comments/LinkDialog";
 import { CustomFilterDialog, CustomSortDialog, FilterPanel, SortExpandDialog, Top10Dialog } from "./sortFilter/SortFilterDialogs";
 import { PivotDialog } from "./pivot/PivotDialogs";
+import { CreateTableDialog, ResizeTableDialog, TotalsMenu } from "./tables/TableDialogs";
+import {
+  DuplicatesResultDialog, GoalSeekDialog, GoalSeekStatusDialog, PasteSpecialDialog, PrintTitlesDialog, RemoveDuplicatesDialog, SaveCsvDialog, SubtotalDialog,
+  TextImportDialog, TextToColumnsDialog,
+} from "./datatools/DataDialogs";
 
 const BTN = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover disabled:opacity-40";
 const FIELD = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";
@@ -294,11 +299,11 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
     case "customSort":
       return <CustomSortDialog key={JSON.stringify(dialog.range)} store={store} range={dialog.range} hasHeader={dialog.hasHeader} />;
     case "filterMenu":
-      return <FilterPanel key={`${dialog.col}:${dialog.at.x}:${dialog.at.y}`} store={store} col={dialog.col} at={dialog.at} />;
+      return <FilterPanel key={`${dialog.table ?? ""}:${dialog.col}:${dialog.at.x}:${dialog.at.y}`} store={store} col={dialog.col} at={dialog.at} table={dialog.table} />;
     case "customFilter":
-      return <CustomFilterDialog store={store} col={dialog.col} preset={dialog.preset} />;
+      return <CustomFilterDialog store={store} col={dialog.col} preset={dialog.preset} table={dialog.table} />;
     case "top10":
-      return <Top10Dialog store={store} col={dialog.col} />;
+      return <Top10Dialog store={store} col={dialog.col} table={dialog.table} />;
     case "cfQuick":
     case "cfRule":
     case "cfManage":
@@ -333,6 +338,32 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
     case "pivotSource":
     case "pivotFilter":
       return <PivotDialog store={store} dialog={dialog} />;
+    case "createTable":
+      return <CreateTableDialog store={store} range={dialog.range} hasHeaders={dialog.hasHeaders} />;
+    case "resizeTable":
+      return <ResizeTableDialog store={store} id={dialog.id} />;
+    case "totalsMenu":
+      return <TotalsMenu key={`${dialog.at.x}:${dialog.at.y}`} store={store} id={dialog.id} col={dialog.col} at={dialog.at} />;
+    case "removeDuplicates":
+      return <RemoveDuplicatesDialog store={store} range={dialog.range} hasHeader={dialog.hasHeader} />;
+    case "duplicatesResult":
+      return <DuplicatesResultDialog store={store} removed={dialog.removed} remaining={dialog.remaining} />;
+    case "textToColumns":
+      return <TextToColumnsDialog store={store} range={dialog.range} />;
+    case "goalSeek":
+      return <GoalSeekDialog store={store} />;
+    case "goalSeekStatus":
+      return <GoalSeekStatusDialog store={store} cell={dialog.cell} target={dialog.target} result={dialog.result} found={dialog.found} />;
+    case "subtotal":
+      return <SubtotalDialog store={store} range={dialog.range} />;
+    case "pasteSpecial":
+      return <PasteSpecialDialog store={store} />;
+    case "textImport":
+      return <TextImportDialog store={store} name={dialog.name} bytesBase64={dialog.bytesBase64} />;
+    case "saveCsv":
+      return <SaveCsvDialog store={store} name={dialog.name} />;
+    case "printTitles":
+      return <PrintTitlesDialog store={store} />;
     case "mergeConfirm":
       return (
         <Dialog open title={t("calc.mergeCells")} onClose={close}>

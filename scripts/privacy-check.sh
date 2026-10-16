@@ -9,8 +9,9 @@ cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 PATTERN='fetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource|navigator\.share'
 # Allowed: the portal reads /version.json (version.js) and its own translation catalogs (i18n.js); the opt-in
 # cloud connectors' browser WebDAV transport talks only to servers the user configured (P8-36, ADR 0009 amendment
-# 2026-10-16) – nothing runs until the user adds a connection.
-ALLOW='^(apps/portal/version\.js|apps/portal/i18n\.js|packages/ui-shared/src/connectors/webdav-fetch\.ts):'
+# 2026-10-16) – nothing runs until the user adds a connection; the opt-in AI assistant's transport talks only to the
+# provider the user configured, only when an AI action runs or Settings › AI › Test is pressed (P8-37).
+ALLOW='^(apps/portal/version\.js|apps/portal/i18n\.js|packages/ui-shared/src/connectors/webdav-fetch\.ts|packages/ui-shared/src/ai/providers/http\.ts):'
 
 fail=0
 hits="$(git grep --untracked -nE "$PATTERN" -- 'apps/*/src/*' 'apps/*/index.html' 'apps/portal/*' 'packages/*/src/*' \
@@ -18,6 +19,19 @@ hits="$(git grep --untracked -nE "$PATTERN" -- 'apps/*/src/*' 'apps/*/index.html
 if [ -n "$hits" ]; then
   echo "privacy-check: network API outside the allow-list (ADR 0009):" >&2
   echo "$hits" >&2
+  fail=1
+fi
+
+# The AI transport is reachable only from the provider adapters (they run only from `Assistant.run`/`test`).
+ai_hits="$(git grep --untracked -nE '\baiFetch\b|providers/http' -- 'apps/*/src/*' 'packages/*/src/*' \
+  ':!*.test.ts' ':!*.test.tsx' ':!packages/ui-shared/src/ai/providers/*.ts' || true)"
+if [ -n "$ai_hits" ]; then
+  echo "privacy-check: the AI transport used outside packages/ui-shared/src/ai/providers (P8-37):" >&2
+  echo "$ai_hits" >&2
+  fail=1
+fi
+if git grep -nE 'export \{[^}]*\baiFetch\b' -- 'packages/ui-shared/src/ai/providers/index.ts' >/dev/null; then
+  echo "privacy-check: aiFetch must not be exported from the providers module" >&2
   fail=1
 fi
 

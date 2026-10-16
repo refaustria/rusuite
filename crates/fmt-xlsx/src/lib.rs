@@ -35,6 +35,7 @@ mod dynarray;
 mod pivot;
 mod read;
 mod styles;
+mod tables;
 mod theme;
 mod write;
 mod xlfn;

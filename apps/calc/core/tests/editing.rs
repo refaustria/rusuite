@@ -90,6 +90,7 @@ fn paste(
         repeat_rows: rep.0,
         repeat_cols: rep.1,
         annotations: false,
+        special: None,
     }
 }
 

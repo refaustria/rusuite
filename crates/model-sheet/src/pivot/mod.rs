@@ -440,6 +440,11 @@ pub struct AxisField {
     pub hidden_items: BTreeSet<u32>,
     #[serde(default)]
     pub layout: PivotLayout,
+    /// Automatic subtotals in a row below the group instead of on the
+    /// item's own row (compact and outline forms; Excel's
+    /// `subtotalTop="0"`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub subtotal_bottom: bool,
 }
 
 impl From<u32> for AxisField {
@@ -686,6 +691,9 @@ pub struct PivotOptions {
     /// Banded rows.
     #[serde(skip_serializing_if = "is_false")]
     pub banded: bool,
+    /// Banded columns.
+    #[serde(skip_serializing_if = "is_false")]
+    pub banded_cols: bool,
     /// The pivot style (`PivotStyleLight16`, Excel's default).
     pub style: String,
     /// Where `Σ Values` goes when there are several data fields.
@@ -718,6 +726,7 @@ impl Default for PivotOptions {
             row_headers_bold: true,
             col_headers_bold: true,
             banded: false,
+            banded_cols: false,
             style: DEFAULT_STYLE.into(),
             values_in: ValuesAxis::Columns,
             values_position: None,

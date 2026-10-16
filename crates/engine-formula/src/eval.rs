@@ -51,6 +51,18 @@ pub trait CellProvider {
         let _ = (name, sheet);
         None
     }
+    /// The cells the structured reference `s` means in a formula at `at`
+    /// (see [`TableDef::resolve`](crate::TableDef::resolve)); `None` when
+    /// it names no table (an unqualified one: no table holds `at`). The
+    /// default: no tables.
+    fn structured_ref(
+        &self,
+        s: &crate::StructRef,
+        at: CellCoord,
+    ) -> Option<Result<RangeRef, ErrorKind>> {
+        let _ = (s, at);
+        None
+    }
     /// `GETPIVOTDATA`: the value of data field `data_field` at the
     /// field/item `pairs` of the pivot table containing `at` (see
     /// [`PivotData::lookup`](crate::PivotData::lookup)); `None` = not found
@@ -101,6 +113,21 @@ pub fn name_definition_at(def: &Expr, at: CellCoord) -> std::borrow::Cow<'_, Exp
 /// Evaluates a defined name (`sheet`: the qualifying sheet, else the
 /// current one) in array mode: a name for a range is that range.
 fn name_operand(name: &str, sheet: Option<SheetId>, ctx: &EvalContext) -> Operand {
+    // A table name is its data (tables resolve before defined names).
+    if sheet.is_none() {
+        let whole = crate::StructRef {
+            table: Some(name.to_string()),
+            items: Vec::new(),
+            columns: None,
+            keyword_form: false,
+        };
+        if let Some(r) = ctx.provider.structured_ref(&whole, ctx.current) {
+            return match r {
+                Ok(range) => Operand::Range(range),
+                Err(e) => Operand::Scalar(Value::Error(e)),
+            };
+        }
+    }
     let Some(def) = ctx
         .provider
         .defined_name(name, sheet.unwrap_or(ctx.current.sheet))
@@ -252,6 +279,11 @@ pub fn eval_operand(expr: &Expr, ctx: &EvalContext) -> Operand {
         Expr::Reference(r) => match resolve(r, ctx) {
             Ok(range) => Operand::Range(range),
             Err(e) => Operand::Scalar(Value::Error(e)),
+        },
+        Expr::Structured(s) => match ctx.provider.structured_ref(s, ctx.current) {
+            Some(Ok(range)) => Operand::Range(range),
+            Some(Err(e)) => Operand::Scalar(Value::Error(e)),
+            None => Operand::Scalar(Value::Error(ErrorKind::Ref)),
         },
         Expr::Array(rows) => {
             let rows = rows

@@ -20,6 +20,7 @@
 import type { Backend, OpenedFile } from "../backend";
 import { bytesToBase64 } from "../base64";
 import type { Connectors, RemoteLocation } from "../connectors/controller";
+import type { Assistant } from "../ai/controller";
 import { baseName } from "../connectors/paths";
 import { t } from "../i18n/locale";
 import { getKeepAutosave, storeKeepAutosave } from "./privacy";
@@ -112,6 +113,8 @@ export class DocumentSession<Req = unknown, Body = unknown> {
   readonly storage: DocStorage | null;
   /** The window's cloud connections (P8-36): `Backend.connectors`; `null` when the backend has none. */
   readonly connectors: Connectors | null;
+  /** The window's AI assistant (P8-37): `Backend.ai`; its conversation belongs to the current document. */
+  readonly ai: Assistant | null;
 
   private state: SessionState = { recent: [], recoveries: [], lastAutosave: null, keepAutosave: getKeepAutosave() };
   private listeners = new Set<() => void>();
@@ -139,6 +142,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
     this.docId = options.docId ?? newDocId();
     this.storage = inner.storage ?? null;
     this.connectors = inner.connectors ?? null;
+    this.ai = inner.ai ?? null;
     this.connectors?.attachSession({ reopen: (file, loc) => this.openBound(file, loc) });
     // Connections forgotten or removed elsewhere in the window: their recent entries go too.
     let seen = this.connectors?.getState().recent;
@@ -322,6 +326,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
     } else if (REPLACING.has(type)) {
       this.storedRevision = null;
       this.connectors?.documentReplaced(OPENING.has(type));
+      this.ai?.documentReplaced();
       if (type === "restoreRecovery") {
         this.seenDirty = true;
         void this.autosave(true);
