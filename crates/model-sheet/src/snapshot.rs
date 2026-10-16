@@ -185,7 +185,9 @@ fn text_needs_quote(t: &str) -> bool {
         || t.eq_ignore_ascii_case("TRUE")
         || t.eq_ignore_ascii_case("FALSE")
         || t.parse::<ErrorKind>().is_ok()
-        || (t.trim() == t && engine_formula::value::parse_number_text(t).is_some())
+        || (t.trim() == t
+            && (engine_formula::value::parse_number_text(t).is_some()
+                || engine_formula::entry::recognize(t).is_some()))
 }
 
 impl Workbook {

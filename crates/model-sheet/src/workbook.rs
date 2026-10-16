@@ -136,14 +136,16 @@ impl Workbook {
         Ok(id)
     }
 
-    pub fn rename_sheet(&mut self, id: SheetId, new_name: &str) -> Result<(), Error> {
+    /// Renames a sheet; returns the formula cells whose text was rewritten
+    /// (see [`Engine::rename_sheet`]).
+    pub fn rename_sheet(&mut self, id: SheetId, new_name: &str) -> Result<Vec<CellCoord>, Error> {
         let old = self.engine.sheet_name(id).map(str::to_owned);
-        self.engine.rename_sheet(id, new_name)?;
+        let rewritten = self.engine.rename_sheet(id, new_name)?;
         if let Some(old) = old.filter(|o| o != new_name) {
             self.rename_chart_refs(None, &old, new_name);
             self.rename_pivot_sources(&old, new_name);
         }
-        Ok(())
+        Ok(rewritten)
     }
 
     /// Deletes a sheet with its contents, styles and dimensions; references
