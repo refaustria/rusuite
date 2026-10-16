@@ -651,6 +651,7 @@ pub(crate) fn read_ppr(ppr: &El, ctx: &str, w: &mut Warnings) -> ParagraphProper
             "suppressLineNumbers" => p.suppress_line_numbers = Some(toggle(el)),
             "suppressAutoHyphens" => p.suppress_auto_hyphens = Some(toggle(el)),
             "pageBreakBefore" => p.page_break_before = Some(toggle(el)),
+            "contextualSpacing" => p.contextual_spacing = Some(toggle(el)),
             "numPr" => {
                 if el.child("ins").is_some() {
                     w.add(format!("{ctx}: numbering change tracking dropped"));
@@ -755,6 +756,9 @@ pub(crate) fn write_ppr_sect(
     }
     if let Some(i) = &p.indent {
         write_indent(x, i);
+    }
+    if let Some(k) = p.contextual_spacing {
+        toggle_el(x, "w:contextualSpacing", k);
     }
     if let Some(a) = p.alignment {
         x.val(
@@ -1409,6 +1413,41 @@ mod tests {
         );
         assert_eq!(w.into_vec().len(), 1);
         assert_eq!(rtl.alignment, Some(Alignment::Right), "mirrored");
+    }
+
+    #[test]
+    fn contextual_spacing_both_directions() {
+        let mut w = Warnings::default();
+        let p = read_ppr(
+            &el(
+                r#"<w:pPr><w:pStyle w:val="ListParagraph"/><w:ind w:left="720"/><w:contextualSpacing/></w:pPr>"#,
+            ),
+            "t",
+            &mut w,
+        );
+        assert!(
+            w.into_vec().is_empty(),
+            "contextualSpacing is read, not dropped"
+        );
+        assert_eq!(p.contextual_spacing, Some(true));
+        let xml = out(|x| write_ppr(x, &p, &ColorScheme::default()));
+        // Word's order: after w:ind, before w:jc.
+        assert_eq!(
+            xml,
+            "<w:pPr><w:pStyle w:val=\"ListParagraph\"/><w:ind w:left=\"720\"/><w:contextualSpacing/></w:pPr>"
+        );
+        assert_eq!(read_ppr(&el(&xml), "t", &mut Warnings::default()), p);
+        let off = read_ppr(
+            &el(r#"<w:pPr><w:contextualSpacing w:val="0"/><w:jc w:val="center"/></w:pPr>"#),
+            "t",
+            &mut Warnings::default(),
+        );
+        assert_eq!(off.contextual_spacing, Some(false));
+        let xml = out(|x| write_ppr(x, &off, &ColorScheme::default()));
+        assert!(
+            xml.contains("<w:contextualSpacing w:val=\"0\"/><w:jc"),
+            "{xml}"
+        );
     }
 
     #[test]

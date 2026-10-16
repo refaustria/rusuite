@@ -1067,6 +1067,7 @@ impl StyleSheet {
         );
         let mut list = gallery(Style::paragraph("ListParagraph", "List Paragraph"), 34);
         list.next = None;
+        list.paragraph.contextual_spacing = Some(true);
         list.paragraph.indent = Some(Indent {
             left: Some(Twips(720)),
             ..Default::default()

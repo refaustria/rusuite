@@ -590,6 +590,7 @@
     "kind": "paragraph",
     "name": "List Paragraph",
     "paragraph": {
+     "contextualSpacing": true,
      "indent": {
       "left": 720
      }

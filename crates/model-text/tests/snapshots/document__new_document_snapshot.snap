@@ -635,6 +635,7 @@ expression: "serde_json::to_value(&doc).unwrap()"
         "kind": "paragraph",
         "name": "List Paragraph",
         "paragraph": {
+          "contextualSpacing": true,
           "indent": {
             "left": 720
           }

@@ -80,6 +80,63 @@ export function idTaggerPlugin(): Plugin {
   });
 }
 
+// ----- new lists (W-03) ------------------------------------------------------------
+// A Normal paragraph that becomes a list item gets Word's List Paragraph
+// style in the editor at once, as Rust's `ApplyList` does (the mapper sends
+// no SetStyle for it).
+
+/** Ids of the paragraphs inside / outside lists. */
+function paragraphIds(doc: PMNode): { inList: Set<number>; plain: Set<number> } {
+  const inList = new Set<number>();
+  const plain = new Set<number>();
+  const walk = (node: PMNode, list: boolean) => {
+    node.forEach((child) => {
+      if (child.type.name === "paragraph") {
+        const id = child.attrs.id as number | null;
+        if (id != null) (list ? inList : plain).add(id);
+      } else if (!child.isLeaf && !child.isTextblock) walk(child, list || child.type.name === "listItem");
+    });
+  };
+  walk(doc, false);
+  return { inList, plain };
+}
+
+/**
+ * The style changes a list toggle needs: paragraphs of `before` outside any list, in the default style, that `after`
+ * has in a list (same id) get List Paragraph. Returns the transaction or null.
+ */
+export function newListStyleTransaction(before: PMNode, state: EditorState): Transaction | null {
+  const { plain } = paragraphIds(before);
+  let tr: Transaction | null = null;
+  const walk = (node: PMNode, start: number, list: boolean) => {
+    node.forEach((child, offset) => {
+      const pos = start + offset;
+      if (child.type.name === "paragraph") {
+        const id = child.attrs.id as number | null;
+        if (list && id != null && plain.has(id) && !child.attrs.style) {
+          tr ??= state.tr;
+          tr.setNodeMarkup(pos, undefined, { ...child.attrs, style: LIST_PARAGRAPH });
+        }
+      } else if (!child.isLeaf && !child.isTextblock) walk(child, pos + 1, list || child.type.name === "listItem");
+    });
+  };
+  walk(state.doc, 0, false);
+  return tr;
+}
+
+export const newListStyleKey = new PluginKey("rusuiteNewListStyle");
+
+/** Gives the paragraphs a local list toggle puts into a list the List Paragraph style (Rust does the same). */
+export function newListStylePlugin(): Plugin {
+  return new Plugin({
+    key: newListStyleKey,
+    appendTransaction(trs, old, state) {
+      if (!trs.some((t) => t.docChanged && t.getMeta(SYNC_META) !== "remote")) return null;
+      return newListStyleTransaction(old.doc, state);
+    },
+  });
+}
+
 // ----- notes guard -------------------------------------------------------------
 
 export const notesGuardKey = new PluginKey("rusuiteNotesGuard");
@@ -967,13 +1024,21 @@ function adoptListId(body: Block[], id: number, synthetic: number, real: number)
   for (let i = at + 1; fix(i); i++);
 }
 
-/** `local` with the numbering ids of `remote` where the local ids are synthetic (new lists). */
+/** Word's style of new list items (Rust's `ApplyList` gives it to Normal paragraphs, W-03). */
+const LIST_PARAGRAPH = "ListParagraph";
+
+/**
+ * `local` with the numbering ids of `remote` where the local ids are synthetic (new lists); a new item without a
+ * style takes over the List Paragraph style Rust gave it.
+ */
 function withRemoteListIds(local: Block, remote: Block): Block {
   if (local.kind !== "paragraph" || remote.kind !== "paragraph") return local;
   const ln = local.value.props?.numbering;
   const rn = remote.value.props?.numbering;
   if (!ln || !rn || ln.numId >= 0) return local;
-  return { kind: "paragraph", value: { ...local.value, props: { ...local.value.props, numbering: { ...ln, numId: rn.numId } } } };
+  const props = { ...local.value.props, numbering: { ...ln, numId: rn.numId } };
+  if (!props.style && remote.value.props?.style === LIST_PARAGRAPH) props.style = LIST_PARAGRAPH;
+  return { kind: "paragraph", value: { ...local.value, props } };
 }
 
 // ----- Tiptap extension ----------------------------------------------------------
@@ -992,6 +1057,7 @@ export function SyncExtension(controller: SyncController) {
     addProseMirrorPlugins() {
       return [
         idTaggerPlugin(),
+        newListStylePlugin(),
         notesGuardPlugin(),
         new Plugin({
           key: syncKey,

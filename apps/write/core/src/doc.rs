@@ -33,6 +33,9 @@ use crate::tree::{
 
 mod drawings;
 
+/// Word's style for list items (`w:contextualSpacing`, indent 720).
+const LIST_PARAGRAPH: &str = "ListParagraph";
+
 /// Errors of [`WriteDocument`]; [`code`](Self::code) is the stable
 /// [`DispatchError::code`].
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -842,6 +845,7 @@ impl WriteDocument {
                 self.update_style_from_selection(id, *block, *offset, ch)
             }
             C::ApplyList { blocks, kind } => self.apply_list(blocks, *kind, ch),
+            C::ListBackspace { block } => self.list_backspace(*block, ch),
             C::IndentList { blocks, delta } => {
                 self.paras(blocks)?;
                 let mut levels = Vec::new();
@@ -3087,6 +3091,12 @@ impl WriteDocument {
                 })
             }
         };
+        let old_styles = self.doc.styles.clone();
+        let list_style = if target.is_some() {
+            self.list_paragraph_targets(blocks)
+        } else {
+            HashSet::new()
+        };
         let mut values = HashMap::new();
         for &id in blocks {
             let p = self.para(id)?;
@@ -3105,8 +3115,13 @@ impl WriteDocument {
             };
             values.insert(id, value);
         }
-        let restore =
-            self.edit_paragraph_props(blocks, ch, |id, props| props.numbering = values[&id])?;
+        let restore = self.edit_paragraph_props(blocks, ch, |id, props| {
+            props.numbering = values[&id];
+            if list_style.contains(&id) {
+                props.style = Some(LIST_PARAGRAPH.to_owned());
+            }
+        })?;
+        let restore = self.with_styles(restore, old_styles, ch);
         Ok(if self.doc.numbering != old_numbering {
             C::Compound {
                 commands: vec![
@@ -3118,6 +3133,61 @@ impl WriteDocument {
             }
         } else {
             restore
+        })
+    }
+
+    /// Word (W-03): Normal paragraphs that become list items get the List
+    /// Paragraph style (contextual spacing: no space between the items).
+    /// Returns those of `ids` (not numbered yet, in the default paragraph
+    /// style); adds the style when the document lacks it.
+    fn list_paragraph_targets(&mut self, ids: &[NodeId]) -> HashSet<NodeId> {
+        let default = self.default_style();
+        let targets: HashSet<NodeId> = ids
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.doc.find_paragraph(id).is_some_and(|p| {
+                    self.numbering_of(p).is_none()
+                        && (p.props.style.is_none() || p.props.style == default)
+                })
+            })
+            .collect();
+        if !targets.is_empty() {
+            self.ensure_builtin_style(LIST_PARAGRAPH);
+        }
+        if self.doc.styles.get(LIST_PARAGRAPH).is_none() {
+            return HashSet::new();
+        }
+        targets
+    }
+
+    /// Word's Backspace at the start of a list item (W-28): the number goes,
+    /// the text keeps the level's indent (left; no first-line outdent).
+    fn list_backspace(&mut self, block: NodeId, ch: &mut Changes) -> R<C> {
+        let p = self.para(block)?;
+        if self.numbering_of(p).is_none() {
+            return Err(invalid(format!("block {} is not a list item", block.0)));
+        }
+        let left = self
+            .doc
+            .resolve_paragraph_props(p)
+            .indent
+            .and_then(|i| i.left)
+            .unwrap_or(Twips(0));
+        let value = self
+            .style_numbering(p)
+            .filter(|n| n.num_id != 0)
+            .map(|_| NumberingRef {
+                num_id: 0,
+                level: 0,
+            });
+        self.edit_paragraph_props(&[block], ch, |_, props| {
+            props.numbering = value;
+            let mut ind = props.indent.unwrap_or_default();
+            ind.left = Some(left);
+            ind.first_line = Some(Twips(0));
+            ind.hanging = None;
+            props.indent = Some(ind);
         })
     }
 
@@ -4215,6 +4285,7 @@ fn may_touch_markers(cmd: &WriteCommand) -> bool {
         | C::SetStyle { .. }
         | C::ApplyCharacterStyle { .. }
         | C::ApplyList { .. }
+        | C::ListBackspace { .. }
         | C::IndentList { .. }
         | C::InsertImage { .. }
         | C::SetImageSize { .. }
@@ -4469,6 +4540,9 @@ fn para_diff(want: &ParagraphProperties, have: &ParagraphProperties) -> Paragrap
         page_break_before: want
             .page_break_before
             .filter(|_| want.page_break_before != have.page_break_before),
+        contextual_spacing: want
+            .contextual_spacing
+            .filter(|_| want.contextual_spacing != have.contextual_spacing),
         borders: want.borders.filter(|_| want.borders != have.borders),
         shading: want.shading.filter(|_| want.shading != have.shading),
         tabs: if want.tabs != have.tabs {

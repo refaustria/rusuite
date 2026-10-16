@@ -623,12 +623,30 @@ export class FakeWriteBackend implements WriteBackend {
             this.doc.numbering = { defs: [...this.doc.numbering.defs, def] };
           }
         }
+        // Word (W-03): Normal paragraphs that become list items get List Paragraph.
+        const listStyle = true;
         for (const p of ps) {
           const props = { ...(p.props ?? {}) };
           if (target === null) delete props.numbering;
-          else props.numbering = { numId: target, level: this.numberingOf(p)?.level ?? 0 };
+          else {
+            if (listStyle && !this.numberingOf(p) && (!props.style || props.style === "Normal")) props.style = "ListParagraph";
+            props.numbering = { numId: target, level: this.numberingOf(p)?.level ?? 0 };
+          }
           p.props = props;
         }
+        return null;
+      }
+      case "listBackspace": {
+        const p = this.para(c.block);
+        const n = this.numberingOf(p);
+        if (!n) throw new Fail("invalid_command", "not a list item");
+        const level = this.doc.numbering.defs.find((d) => d.id === n.numId)?.levels[n.level];
+        const left = p.props?.indent?.left ?? level?.indent?.left ?? 0;
+        const props = { ...(p.props ?? {}) };
+        delete props.numbering;
+        props.indent = { ...(props.indent ?? {}), left, firstLine: 0, hanging: undefined };
+        delete props.indent.hanging;
+        p.props = props;
         return null;
       }
       case "indentList":

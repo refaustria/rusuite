@@ -212,6 +212,11 @@ pub struct ParagraphProperties {
     /// Start on a new page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_break_before: Option<bool>,
+    /// Ignore the space before / after between paragraphs of the same
+    /// style (docx `w:contextualSpacing`; Word's List Paragraph).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub contextual_spacing: Option<bool>,
     /// Paragraph borders (docx `w:pBdr`), merged side by side.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
@@ -270,6 +275,7 @@ impl ParagraphProperties {
             suppress_line_numbers,
             suppress_auto_hyphens,
             page_break_before,
+            contextual_spacing,
             borders,
             shading,
             tabs,
@@ -289,6 +295,7 @@ impl ParagraphProperties {
         self.suppress_line_numbers = suppress_line_numbers.or(self.suppress_line_numbers);
         self.suppress_auto_hyphens = suppress_auto_hyphens.or(self.suppress_auto_hyphens);
         self.page_break_before = page_break_before.or(self.page_break_before);
+        self.contextual_spacing = contextual_spacing.or(self.contextual_spacing);
         self.section_end = section_end.or(self.section_end);
         self.borders = merge_opt(self.borders, *borders, |a, b| a.merged_with(b));
         self.shading = shading.or(self.shading);

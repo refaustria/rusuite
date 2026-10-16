@@ -25,6 +25,11 @@ body,
 .tiptap-content ol ol { list-style: lower-alpha; }
 .tiptap-content ol ol ol { list-style: lower-roman; }
 .tiptap-content li > p { margin-bottom: 0; }
+/* The numbering level's indent beats the paragraph style's (Word): a List Paragraph item is placed by its list. */
+.tiptap-content li > p[data-style] { margin-left: 0; text-indent: 0; }
+/* Contextual spacing (w:contextualSpacing, List Paragraph): no space between paragraphs of the same style (W-03). */
+.tiptap-content .ctx-no-before { margin-top: 0 !important; }
+.tiptap-content .ctx-no-after { margin-bottom: 0 !important; }
 /* List labels computed by Rust (`listLabel`: legal numbering, restarts, overrides) replace the CSS counters;
    items without a label yet (a list just created in the editor) keep the browser's marker. */
 .tiptap-content li:has(> [data-label]) { list-style: none; }

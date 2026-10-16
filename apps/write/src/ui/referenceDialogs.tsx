@@ -418,12 +418,12 @@ export function CaptionDialog({ open, editor, onSubmit, onClose }: {
   const t = useT();
   const [label, setLabel] = useState("Figure");
   const [below, setBelow] = useState(true);
-  const [text, setText] = useState(": ");
+  const [text, setText] = useState("");
   const [added, setAdded] = useState<string[]>([]);
   const [newLabel, setNewLabel] = useState<string | null>(null);
   useEffect(() => {
     if (!open) return;
-    setText(": ");
+    setText("");
     setNewLabel(null);
   }, [open]);
   const labels = editor ? captionLabels(editor.state.doc, added) : [];

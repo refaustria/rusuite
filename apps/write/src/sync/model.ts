@@ -294,6 +294,7 @@ export function applyParagraphPatch(base: ParagraphProperties | undefined, over:
   if (over.suppressLineNumbers != null) out.suppressLineNumbers = over.suppressLineNumbers;
   if (over.suppressAutoHyphens != null) out.suppressAutoHyphens = over.suppressAutoHyphens;
   if (over.pageBreakBefore != null) out.pageBreakBefore = over.pageBreakBefore;
+  if (over.contextualSpacing != null) out.contextualSpacing = over.contextualSpacing;
   if (over.runDefaults != null) out.runDefaults = applyRunPatch(out.runDefaults ?? {}, over.runDefaults, false);
   if (over.borders != null) {
     const b = out.borders ?? {};
