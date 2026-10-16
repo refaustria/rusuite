@@ -25,6 +25,8 @@ import { ApplyStylesBox, NavigationPane, StyleDialogsHost, StylesPane } from "./
 import { t, useT } from "./i18n";
 import { CommentsFrame, CommentsPane, UserNameDialog } from "./comments/CommentsUi";
 import { loadUser } from "./comments/model";
+import { AssistantPane } from "@rusuite/ui-shared";
+import { writeAiAdapter } from "./ai/writeAi";
 
 function useSync<T>(ctl: SyncController, select: (s: SyncState) => T): T {
   return useSyncExternalStore(ctl.subscribe, () => select(ctl.getState()));
@@ -164,6 +166,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
     [ctl],
   );
   const chrome = useWriteChrome(features, editor);
+  const aiAdapter = useMemo(() => editor && writeAiAdapter(editor, ctl), [editor, ctl]);
   // The sticky ruler covers the top of the scroll container: ProseMirror's scrollIntoView keeps the caret below it.
   const reserve = rulerReserve(chrome.ruler, zoom);
   useEffect(() => {
@@ -321,6 +324,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
         </div>
         {editor && <StylesPane editor={editor} ctl={ctl} features={features} />}
         {editor && <CommentsPane editor={editor} ctl={ctl} features={features} />}
+        {aiAdapter && <AssistantPane ai={session.ai} adapter={aiAdapter} />}
       </div>
       {editor && <StatusBar ctl={ctl} editor={editor} backend={backend} session={session} features={features} />}
       <FindBar ctl={ctl} editor={editor} ui={features.ui} />

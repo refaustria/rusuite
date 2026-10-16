@@ -18,6 +18,8 @@ import { Toasts } from "./Toasts";
 import { cellAddress } from "./grid/address";
 import { CalcRibbon, type CalcView } from "./ui/CalcRibbon";
 import { t, useT } from "./i18n";
+import { AssistantPane } from "@rusuite/ui-shared";
+import { calcAiAdapter } from "./ai/calcAi";
 
 function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySession; zoom: number }) {
   const revision = useCalc(store, (s) => s.revision);
@@ -71,6 +73,7 @@ export default function App({ backend }: { backend: CalcBackend }) {
   // Recent files, autosave, crash recovery: the store talks through the session's backend.
   const session = useMemo(() => new DocumentSession(pickBackend(backend)), [backend]);
   const store = useMemo(() => new CalcStore(new CalcApi(session.backend)), [session]);
+  const aiAdapter = useMemo(() => calcAiAdapter(store), [store]);
   // Unsaved-changes question before New / Open / recent / Restore / Close and closing the window (P7-6).
   const guard = useMemo(
     () =>
@@ -151,6 +154,7 @@ export default function App({ backend }: { backend: CalcBackend }) {
         <ChartFormatPane store={store} />
         <CommentsPane store={store} />
         <PivotPane store={store} />
+        <AssistantPane ai={session.ai} adapter={aiAdapter} />
       </div>
       <SheetTabs store={store} />
       <StatusBar store={store} session={session} zoom={view.zoom} />
