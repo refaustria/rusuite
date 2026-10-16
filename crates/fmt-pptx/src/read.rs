@@ -194,6 +194,17 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     }
     resolve_slide_links(&mut p, &slide_parts, &mut w);
     read_sections(&root, &slide_numbers, &mut p, &mut w);
+    let props_root = |kind: &str| {
+        related(&pkg, &main, kind)
+            .and_then(|name| pkg.part(&name))
+            .and_then(|part| parse(&part.data, kind).ok())
+    };
+    if let Some(r) = props_root("viewProps") {
+        p.view = crate::props::read_view_props(&r);
+    }
+    if let Some(r) = props_root("presProps") {
+        p.show_settings = crate::props::read_pres_props(&r);
+    }
     p.normalize();
 
     for (name, part) in pkg.parts() {
@@ -929,14 +940,18 @@ impl Reader<'_> {
         out
     }
 
-    /// `shape` with the click action of its element's `p:cNvPr/a:hlinkClick`.
+    /// `shape` with the click action of its element's `p:cNvPr/a:hlinkClick`
+    /// and its `p:cNvPr/@hidden` flag.
     fn with_action(&mut self, mut shape: Shape, el: &El) -> Shape {
-        if let Some(h) = el
+        let c_nv_pr = el
             .elements()
             .find(|e| e.name.starts_with("nv"))
-            .and_then(|nv| nv.child("cNvPr"))
-            .and_then(|c| c.child("hlinkClick"))
-        {
+            .and_then(|nv| nv.child("cNvPr"));
+        shape.hidden = c_nv_pr
+            .and_then(|c| c.attr("hidden"))
+            .and_then(parse_bool)
+            .unwrap_or(false);
+        if let Some(h) = c_nv_pr.and_then(|c| c.child("hlinkClick")) {
             shape.click_action = read_hlink(h, self.w);
         }
         if el
@@ -1065,6 +1080,7 @@ impl Reader<'_> {
             placeholder: None,
             placeholder_idx: None,
             click_action: None,
+            hidden: false,
         })
     }
 
@@ -1239,6 +1255,7 @@ impl Reader<'_> {
             placeholder: kind,
             placeholder_idx: kind.and(ph_idx),
             click_action: None,
+            hidden: false,
         })
     }
 
@@ -1323,6 +1340,7 @@ impl Reader<'_> {
             placeholder: None,
             placeholder_idx: None,
             click_action: None,
+            hidden: false,
         })
     }
 
@@ -1358,6 +1376,7 @@ impl Reader<'_> {
             placeholder: None,
             placeholder_idx: None,
             click_action: None,
+            hidden: false,
         })
     }
 
@@ -1406,6 +1425,7 @@ impl Reader<'_> {
                 placeholder: None,
                 placeholder_idx: None,
                 click_action: None,
+                hidden: false,
             });
         }
         let Some(rid) = blip.and_then(|b| b.attr("embed")) else {
@@ -1469,6 +1489,7 @@ impl Reader<'_> {
             placeholder: ph_kind,
             placeholder_idx: ph_kind.and(ph_idx),
             click_action: None,
+            hidden: false,
         })
     }
 
@@ -1604,6 +1625,7 @@ impl Reader<'_> {
             placeholder: None,
             placeholder_idx: None,
             click_action: None,
+            hidden: false,
         })
     }
 }

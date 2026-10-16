@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlignmentControls, BordersDropdown, ColorControls, FontControls, RIBBON_SELECT, Ribbon, RibbonButton,
   RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack, StyleToggles, triggerShortcut, type AnySession, type CellStylePatch,
-  type FormatControlProps, type RibbonTab, languageRibbonGroup,
+  type FormatControlProps, type RibbonTab, languageRibbonGroup, contextualTabs, CONTEXT_COLORS,
 } from "@rusuite/ui-shared";
 import { useT } from "../i18n";
 import { calcActions } from "../calcActions";
@@ -300,7 +300,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
     ],
   };
   // Chart Design and Format while a chart is selected.
-  const contextual = [chartDesignTab(store, t), chartFormatTab(store, t)].filter((x): x is RibbonTab => x !== null);
+  const contextual = contextualTabs([chartDesignTab(store, t), chartFormatTab(store, t)].filter((x): x is RibbonTab => x !== null), t("ribbon.ctx.chartTools"), CONTEXT_COLORS.chart);
   const contextualTab = tab === "chartDesign" || tab === "chartFormat";
   useEffect(() => {
     // Leaving the chart leaves its tabs.

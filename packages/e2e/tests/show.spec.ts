@@ -708,5 +708,154 @@ test.describe("Show", () => {
     await expect(page.getByTestId("thumbnail")).toHaveCount(1);
     errors.expectNone();
   });
-});
 
+  // ----- P8-28: views, guides, smart guides, autofit, Selection pane, hidden slides -----
+
+  /** A pixel of the editor's canvas at viewport point (x, y). */
+  const stagePixel = (page: Page, x: number, y: number) =>
+    page.evaluate(({ x, y }) => {
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="editor-stage"] canvas')!;
+      const r = canvas.getBoundingClientRect();
+      const k = canvas.width / r.width;
+      const d = canvas.getContext("2d")!.getImageData(Math.round((x - r.left) * k), Math.round((y - r.top) * k), 1, 1).data;
+      return [d[0]!, d[1]!, d[2]!];
+    }, { x, y });
+
+  /** The title text of every saved slide, in order. */
+  const savedTitles = (pptx: Buffer) => {
+    const files = unzip(pptx);
+    const n = [...files.keys()].filter((k) => /^ppt\/slides\/slide\d+\.xml$/.test(k)).length;
+    return Array.from({ length: n }, (_, i) => (files.get(`ppt/slides/slide${i + 1}.xml`)!.toString().match(/<a:t>([^<]*)<\/a:t>/)?.[1] ?? ""));
+  };
+
+  test("Slide Sorter: dragging a slide reorders it and the saved order changes", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openDeck(page);
+    const before = savedTitles(await saveViaBackstage(page));
+    await page.getByRole("tab", { name: "View" }).click();
+    await page.getByRole("button", { name: "Slide Sorter" }).click();
+    const thumbs = page.getByTestId("sorter-thumb");
+    await expect(thumbs).toHaveCount(6);
+    const a = (await thumbs.nth(0).boundingBox())!;
+    const b = (await thumbs.nth(2).boundingBox())!;
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(a.x + a.width / 2 + 30, a.y + a.height / 2, { steps: 4 });
+    await page.mouse.move(b.x + b.width * 0.85, b.y + b.height / 2, { steps: 8 });
+    await expect(page.getByTestId("sorter-drop")).toBeVisible();
+    await page.mouse.up();
+    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+    const after = savedTitles(await saveViaBackstage(page));
+    expect(after).toEqual([before[1], before[2], before[0], ...before.slice(3)]);
+    await page.screenshot({ path: "test-results/p8-28-sorter.png" });
+    errors.expectNone();
+  });
+
+  test("View › Guides: the centre guides are saved in viewProps.xml", async ({ page }) => {
+    await openShow(page);
+    await page.getByRole("tab", { name: "View" }).click();
+    await page.getByRole("checkbox", { name: "Guides" }).check();
+    await expect(stage(page)).toHaveAttribute("data-drawing-guides", "2");
+    await page.getByRole("checkbox", { name: "Ruler" }).check();
+    await expect(page.getByTestId("ruler-h")).toBeVisible();
+    const view = zipText(await saveViaBackstage(page), "ppt/viewProps.xml");
+    expect(view).toContain('showGuides="1"');
+    expect(view).toContain('<p:guide orient="horz" pos="2160"/>');
+    expect(view).toContain('<p:guide pos="3840"/>');
+    expect(view).toContain('showRuler="1"');
+  });
+
+  test("dragging a shape in line with another shows a red smart guide (pixel probe)", async ({ page }) => {
+    await openShow(page);
+    await insertRectangle(page);
+    await page.keyboard.press("Control+d");
+    const c = await stageCentre(page);
+    const left = c.x - c.w * 0.0375; // the 1-inch rectangle's left edge (13.33 in wide slide)
+    // the copy sits 20 px right and down of the original: drag it far down, its left edge back over the original's
+    const copy = { x: c.x + (20 * c.w) / 1280, y: c.y + (20 * c.h) / 720 };
+    await page.mouse.move(copy.x, copy.y);
+    await page.mouse.down();
+    await page.mouse.move(copy.x - 40, copy.y + 120, { steps: 6 });
+    await page.mouse.move(copy.x - (20 * c.w) / 1280 + 1, copy.y + 150, { steps: 8 });
+    await expect(stage(page)).not.toHaveAttribute("data-guides", "0");
+    // a red pixel on the guide line above the shapes
+    const red = await (async () => {
+      for (let dy = -12; dy <= 0; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const [r, g, b] = await stagePixel(page, left + dx, c.y - c.h * 0.3 + dy);
+          if (r > 180 && r - g > 50 && r - b > 50) return true; // the red dashed line (anti-aliased)
+        }
+      }
+      return false;
+    })();
+    await page.screenshot({ path: "test-results/p8-28-smart-guide.png" });
+    await page.mouse.up();
+    expect(red).toBe(true);
+  });
+
+  test("Shrink text on overflow stores a:normAutofit with fontScale", async ({ page }) => {
+    await openShow(page);
+    const s = await stageCentre(page);
+    // the subtitle placeholder of the title slide
+    await page.mouse.dblclick(s.x, s.y + s.h * 0.17);
+    const editor = page.getByRole("textbox", { name: "Shape text" });
+    await expect(editor).toBeVisible();
+    await editor.fill(Array.from({ length: 12 }, (_, i) => `Line ${i + 1}`).join("\n"));
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+    await page.mouse.click(s.x, s.y + s.h * 0.17, { button: "right" });
+    await page.getByRole("menuitem", { name: "Text Options…" }).click();
+    await page.getByTestId("format-pane").getByRole("radio", { name: "Shrink text on overflow" }).check();
+    await expect(page.getByTestId("fmt-font-scale")).toBeVisible();
+    const slide = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
+    expect(slide).toMatch(/<a:normAutofit fontScale="\d+" lnSpcReduction="20000"\/>/);
+  });
+
+  test("Selection pane: hiding a shape stops drawing it and saves it hidden", async ({ page }) => {
+    await openShow(page);
+    await insertRectangle(page);
+    const c = await stageCentre(page);
+    const blue = await stagePixel(page, c.x, c.y);
+    expect(blue[2]).toBeGreaterThan(blue[0]); // accent 1 fill
+    await page.getByRole("tab", { name: "Home" }).click();
+    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await page.getByRole("menuitemradio", { name: /Selection Pane/ }).click();
+    const row = page.getByTestId("selection-row").first();
+    await expect(row.getByTestId("selection-name")).toHaveText(/Rectangle/);
+    await row.getByTestId("selection-eye").click();
+    await expect.poll(async () => { const [r, g, b] = await stagePixel(page, c.x, c.y); return r > 240 && g > 240 && b > 240; }).toBe(true);
+    await page.screenshot({ path: "test-results/p8-28-selection-pane.png" });
+    expect(zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml")).toMatch(/<p:cNvPr id="\d+" name="Rectangle[^"]*" hidden="1"/);
+  });
+
+  test("Slide Show › Hide Slide: the hidden slide is skipped in the show", async ({ page }) => {
+    await openDeck(page);
+    await page.getByTestId("thumbnail").nth(1).click();
+    await page.getByRole("tab", { name: "Slide Show" }).click();
+    await page.getByRole("toolbar").getByRole("button", { name: "Hide slide" }).click();
+    await expect(page.getByTestId("thumbnail").nth(1)).toHaveAttribute("data-hidden", "true");
+    await page.getByRole("button", { name: "From beginning" }).click();
+    await expect(page.getByTestId("presenter-counter")).toHaveText("1 / 5");
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByTestId("presenter-counter")).toHaveText("2 / 5");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("slide-count")).toHaveText("Slide 3 of 6");
+  });
+
+  test("slide show: Ctrl+P pen draws session-only ink, G shows all slides", async ({ page }) => {
+    await openDeck(page);
+    await page.getByRole("button", { name: "Present" }).first().click();
+    await expect(page.getByTestId("presenter-counter")).toHaveText("1 / 6");
+    await page.keyboard.press("Control+p");
+    await expect(page.getByTestId("presenter")).toHaveAttribute("data-tool", "pen");
+    await page.mouse.move(400, 300);
+    await page.mouse.down();
+    await page.mouse.move(600, 380, { steps: 10 });
+    await page.mouse.up();
+    await expect(page.getByTestId("ink-layer")).toHaveAttribute("data-strokes", "1");
+    await expect(page.getByTestId("presenter-counter")).toHaveText("1 / 6"); // drawing does not advance
+    await page.keyboard.press("g");
+    await page.getByTestId("see-all").getByRole("button", { name: "Slide 3" }).click();
+    await expect(page.getByTestId("presenter-counter")).toHaveText("3 / 6");
+  });
+});

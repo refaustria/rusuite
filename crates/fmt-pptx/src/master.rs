@@ -7,8 +7,8 @@
 
 use core_model::{RunProperties, ThemeColorSlot};
 use model_show::{
-    run_diff, Anchor, Autofit, Background, BodyProps, ColorMap, Emu, HeaderFooter, HfDate,
-    LevelStyle, PlaceholderDef, PlaceholderKind, TextField, TextParagraphProps, TextStyles,
+    run_diff, Anchor, Background, BodyProps, ColorMap, Emu, HeaderFooter, HfDate, LevelStyle,
+    PlaceholderDef, PlaceholderKind, TextField, TextParagraphProps, TextStyles,
 };
 
 use crate::drawing::{
@@ -378,16 +378,15 @@ fn write_body_pr_diff(x: &mut XmlOut, p: &BodyProps, base: &BodyProps, vertical:
         attrs.push(("anchor", a.into()));
     }
     let attrs: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    if p.autofit == base.autofit {
+    if p.autofit == base.autofit
+        && p.font_scale == base.font_scale
+        && p.line_reduction == base.line_reduction
+    {
         x.empty("a:bodyPr", &attrs);
         return;
     }
     x.start("a:bodyPr", &attrs);
-    match p.autofit {
-        Autofit::None => x.empty("a:noAutofit", &[]),
-        Autofit::Shrink => x.empty("a:normAutofit", &[]),
-        Autofit::Resize => x.empty("a:spAutoFit", &[]),
-    }
+    crate::drawing::write_autofit(x, p);
     x.end("a:bodyPr");
 }
 

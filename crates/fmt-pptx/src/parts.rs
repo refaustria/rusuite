@@ -259,38 +259,6 @@ pub fn notes_slide_xml(notes: &str) -> Vec<u8> {
     x.finish()
 }
 
-/// `ppt/presProps.xml` (empty).
-pub fn pres_props_xml() -> Vec<u8> {
-    let mut x = XmlOut::new();
-    x.empty("p:presentationPr", &ROOT_NS);
-    x.finish()
-}
-
-/// `ppt/viewProps.xml`: normal view at 100 %.
-pub fn view_props_xml() -> Vec<u8> {
-    let mut x = XmlOut::new();
-    x.start("p:viewPr", &ROOT_NS);
-    x.start("p:normalViewPr", &[]);
-    x.empty("p:restoredLeft", &[("sz", "15620")]);
-    x.empty("p:restoredTop", &[("sz", "94660")]);
-    x.end("p:normalViewPr");
-    x.start("p:slideViewPr", &[]);
-    x.start("p:cSldViewPr", &[("snapToGrid", "0")]);
-    x.start("p:cViewPr", &[("varScale", "1")]);
-    x.start("p:scale", &[]);
-    x.empty("a:sx", &[("n", "100"), ("d", "100")]);
-    x.empty("a:sy", &[("n", "100"), ("d", "100")]);
-    x.end("p:scale");
-    x.empty("p:origin", &[("x", "0"), ("y", "0")]);
-    x.end("p:cViewPr");
-    x.empty("p:guideLst", &[]);
-    x.end("p:cSldViewPr");
-    x.end("p:slideViewPr");
-    x.empty("p:gridSpacing", &[("cx", "76200"), ("cy", "76200")]);
-    x.end("p:viewPr");
-    x.finish()
-}
-
 /// `ppt/tableStyles.xml` (no styles, PowerPoint's default style id).
 pub fn table_styles_xml() -> Vec<u8> {
     let mut x = XmlOut::new();

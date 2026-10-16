@@ -15,6 +15,7 @@ import { SlideView, type DeckContext } from "../canvas/SlideView";
 import { clickAction, keyAction, type ShowAction, type ShowState } from "./showState";
 import { nextVisit, ShowSlide, type SlideVisit } from "./AnimatedSlide";
 import { ShowOverlay } from "./ShowOverlay";
+import { InkLayer, SeeAll, ToolBar, slideBox, toolsCapture, useToolKeys, useTools, zoomTransform } from "./ShowTools";
 import { linkAction } from "../links/regions";
 import type { Hyperlink } from "../generated/Hyperlink";
 import { useT } from "../i18n";
@@ -67,9 +68,13 @@ export interface PresenterProps {
   fullscreenExits?: boolean;
   /** Drawn over the slide (the notes overlay of the single-window fallback). */
   overlay?: ReactNode;
+  /** The slide-show tools (pointer options, ink, see all slides, zoom; P8-28): the main window's show. */
+  tools?: boolean;
+  /** More buttons of the tool bar (the rehearsal's). */
+  toolbarExtra?: ReactNode;
 }
 
-export function Presenter({ deck, slides, media, mediaVersion, show, onAction, fullscreenExits = true, overlay }: PresenterProps) {
+export function Presenter({ deck, slides, media, mediaVersion, show, onAction, fullscreenExits = true, overlay, tools: toolsOn = false, toolbarExtra }: PresenterProps) {
   const t = useT();
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [idle, setIdle] = useState(false);
@@ -123,6 +128,10 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
     if (!fullscreenExits && !entered.current) enterFullscreen();
     onAction(a);
   };
+  // the tools' keys first: they take Esc while zoomed / drawing
+  const [tools, setTools] = useTools();
+  const pointerAt = useRef({ x: 0, y: 0 });
+  useToolKeys(setTools, slides[show.index]?.id, pointerAt, toolsOn);
   useShowKeys(act);
 
   // The visit of the current slide survives a blank screen (its transition and entry play once).
@@ -167,15 +176,42 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
       data-ended={show.ended ? "true" : undefined}
       data-idle={idle ? "true" : undefined}
       className={`fixed inset-0 z-50 flex select-none items-center justify-center ${blank === "white" ? "bg-white" : "bg-black"} ${idle ? "cursor-none" : "cursor-pointer"}`}
+      data-tool={toolsOn ? tools.mode : undefined}
+      data-zoom={toolsOn && tools.zoom > 1 ? tools.zoom : undefined}
+      onPointerMove={(e) => {
+        pointerAt.current = { x: e.clientX, y: e.clientY };
+      }}
       onClick={(e) => {
+        if (toolsOn && toolsCapture(tools)) return;
         const r = e.currentTarget.getBoundingClientRect();
         act(clickAction(e.clientX - r.left, r.width || window.innerWidth));
       }}
     >
-      {blank === "none" && slide && (
-        <ShowSlide deck={deck} slides={slides} visit={visit} step={show.step} media={media} mediaVersion={mediaVersion} width={size.width} height={size.height} />
+      <div className="absolute inset-0 flex items-center justify-center" style={{ transform: toolsOn ? zoomTransform(tools, size.width, size.height) : undefined, transformOrigin: "0 0" }}>
+        {blank === "none" && slide && (
+          <ShowSlide deck={deck} slides={slides} visit={visit} step={show.step} media={media} mediaVersion={mediaVersion} width={size.width} height={size.height} />
+        )}
+        {blank === "none" && slide && !show.ended && <ShowOverlay key={slide.id} deck={deck} slide={slide} media={media} width={size.width} height={size.height} onLink={follow} />}
+        {toolsOn && blank === "none" && slide && !show.ended && (
+          <InkLayer tools={tools} setTools={setTools} slide={slide} box={slideBox(deck, size.width, size.height)} scale={slideBox(deck, size.width, size.height).scale} />
+        )}
+      </div>
+      {toolsOn && tools.seeAll && (
+        <SeeAll
+          deck={deck}
+          slides={slides}
+          media={media}
+          current={show.index}
+          width={size.width}
+          onPick={(i) => {
+            setTools((s) => ({ ...s, seeAll: false }));
+            act({ type: "goto", index: i });
+          }}
+        />
       )}
-      {blank === "none" && slide && !show.ended && <ShowOverlay key={slide.id} deck={deck} slide={slide} media={media} width={size.width} height={size.height} onLink={follow} />}
+      {toolsOn && !show.ended && (
+        <ToolBar tools={tools} setTools={setTools} visible={!idle} onPrev={() => act({ type: "prev" })} onNext={() => act({ type: "next" })} extra={toolbarExtra} />
+      )}
       {show.ended && (
         <span className="absolute left-0 right-0 top-6 text-center text-sm text-white/70" data-testid="presenter-end">
           {t("show.endClick")}

@@ -42,7 +42,7 @@ describe("context menus (data)", () => {
     const items = shapeMenu(store);
     expect(ids(items)).toEqual([
       "cut", "copy", "paste", "duplicate", "delete", "editText", "bringToFront", "bringForward", "sendBackward", "sendToBack",
-      "group", "ungroup", "alt", "format",
+      "group", "ungroup", "alt", "format", "sizePosition", "textOptions",
     ]);
     const get = (id: string) => items.find((i) => "id" in i && i.id === id) as { disabled?: boolean; onSelect: () => void };
     expect(get("paste").disabled).toBe(true);

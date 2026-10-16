@@ -7,6 +7,11 @@
 // back to the document. Ctrl+F1 collapses/expands the ribbon; when
 // collapsed, activating a tab shows its groups temporarily over the
 // document until a command runs, Esc, or a click elsewhere.
+//
+// Contextual tabs (`contextual: { group, color }`, e.g. Table Design and
+// Layout under "Table Tools") follow the standard tabs; consecutive ones
+// of a group share a coloured header naming the context above their
+// labels, on a tinted background (Office's look).
 
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { FOCUS_RING } from "../Popover";
@@ -27,6 +32,43 @@ export interface RibbonTab {
   groups: RibbonGroup[];
   /** Accessible name of the tab's toolbar (default: the tab label). */
   toolbarLabel?: string;
+  /** A contextual tab (shown for a selection): its context group's name ("Table Tools") and colour. */
+  contextual?: RibbonContext;
+}
+
+/** The context group of a contextual tab. */
+export interface RibbonContext {
+  /** Name shown above the group's tabs, e.g. "Picture Tools". */
+  group: string;
+  /** CSS colour of the header (the tabs get a tint of it). */
+  color: string;
+}
+
+/** Office-like colours of the context groups. */
+export const CONTEXT_COLORS = {
+  drawing: "#b45309",
+  picture: "#7c3aed",
+  table: "#0f766e",
+  chart: "#15803d",
+  media: "#be123c",
+  master: "#1d4ed8",
+} as const;
+
+/** `tabs` marked as contextual tabs of `group` in `color`. */
+export function contextualTabs(tabs: readonly RibbonTab[], group: string, color: string): RibbonTab[] {
+  return tabs.map((tab) => ({ ...tab, contextual: { group, color } }));
+}
+
+/** Consecutive runs of the strip: standard tabs alone, contextual tabs by group. */
+export function tabRuns(tabs: readonly RibbonTab[]): { context: RibbonContext | null; tabs: RibbonTab[] }[] {
+  const runs: { context: RibbonContext | null; tabs: RibbonTab[] }[] = [];
+  for (const tab of tabs) {
+    const last = runs[runs.length - 1];
+    const c = tab.contextual ?? null;
+    if (c && last?.context && last.context.group === c.group) last.tabs.push(tab);
+    else runs.push({ context: c, tabs: [tab] });
+  }
+  return runs;
 }
 
 export interface RibbonProps {
@@ -64,9 +106,10 @@ export function openBackstage(page: BackstagePage = "home"): boolean {
 
 const hasItems = (g: RibbonGroup) => g.items !== null && g.items !== undefined && g.items !== false && !(Array.isArray(g.items) && g.items.filter(Boolean).length === 0);
 
-/** Tabs with their empty groups removed; tabs left without groups are dropped. */
+/** Tabs with their empty groups removed; tabs left without groups are dropped; contextual tabs after the standard ones. */
 export function visibleTabs(tabs: RibbonTab[]): RibbonTab[] {
-  return tabs.map((t) => ({ ...t, groups: t.groups.filter(hasItems) })).filter((t) => t.groups.length > 0);
+  const shown = tabs.map((t) => ({ ...t, groups: t.groups.filter(hasItems) })).filter((t) => t.groups.length > 0);
+  return [...shown.filter((t) => !t.contextual), ...shown.filter((t) => t.contextual)];
 }
 
 const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
@@ -247,8 +290,8 @@ export function Ribbon({
   };
 
   const showPanel = active && (!collapsed || peek);
-  const tabClass = (selected: boolean) =>
-    `relative h-7 shrink-0 px-3 text-sm text-ui-fg hover:bg-ui-hover ${FOCUS_RING} ${
+  const tabClass = (selected: boolean, context = false) =>
+    `relative h-7 shrink-0 px-3 ${context ? "pt-2.5 text-[13px] leading-4" : "text-sm text-ui-fg"} hover:bg-ui-hover ${FOCUS_RING} ${
       selected && !(collapsed && !peek) ? "font-semibold after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded after:bg-[var(--ribbon-accent)] after:content-['']" : ""
     }`;
 
@@ -286,23 +329,49 @@ export function Ribbon({
               {t("ribbon.file")}
             </button>
           )}
-          {shown.map((t) => {
-            const selected = t.id === active?.id;
+          {tabRuns(shown).map((run, ri) => {
+            const buttons = run.tabs.map((t) => {
+              const selected = t.id === active?.id;
+              return (
+                <button
+                  key={t.id}
+                  id={tabId(t.id)}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  aria-controls={selected && showPanel ? panelId : undefined}
+                  tabIndex={selected ? 0 : -1}
+                  title={run.context ? `${run.context.group}: ${t.label}` : undefined}
+                  data-context={run.context?.group}
+                  className={tabClass(selected, !!run.context)}
+                  style={run.context ? { color: selected ? run.context.color : "var(--ui-fg)", ["--ribbon-accent" as string]: run.context.color } : undefined}
+                  onClick={() => activate(t.id)}
+                  onDoubleClick={() => setCollapsed(!collapsed)}
+                >
+                  {t.label}
+                </button>
+              );
+            });
+            if (!run.context) return buttons;
             return (
-              <button
-                key={t.id}
-                id={tabId(t.id)}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                aria-controls={selected && showPanel ? panelId : undefined}
-                tabIndex={selected ? 0 : -1}
-                className={tabClass(selected)}
-                onClick={() => activate(t.id)}
-                onDoubleClick={() => setCollapsed(!collapsed)}
+              <div
+                key={`ctx-${ri}-${run.context.group}`}
+                role="none"
+                data-testid="ribbon-context"
+                data-context={run.context.group}
+                className="relative ml-1 flex items-stretch rounded-t-sm"
+                style={{ background: `color-mix(in srgb, ${run.context.color} 14%, transparent)` }}
               >
-                {t.label}
-              </button>
+                <span
+                  aria-hidden="true"
+                  data-testid="ribbon-context-header"
+                  className="pointer-events-none absolute inset-x-0 top-0 h-[10px] truncate rounded-t-sm px-1 text-center text-[9px] font-semibold leading-[10px] text-white"
+                  style={{ background: run.context.color }}
+                >
+                  {run.context.group}
+                </span>
+                {buttons}
+              </div>
             );
           })}
         </div>
@@ -326,7 +395,9 @@ export function Ribbon({
           role="tabpanel"
           aria-labelledby={tabId(active.id)}
           data-testid="ribbon-panel"
+          data-context={active.contextual?.group}
           className={`border-t border-ui-border bg-ui-panel [&_.h-7]:h-6 ${collapsed ? "absolute inset-x-0 top-full shadow-lg" : ""}`}
+          style={active.contextual ? { borderTopColor: active.contextual.color } : undefined}
           onClick={(e) => {
             if (!collapsed) return;
             const b = (e.target as Element).closest("button");

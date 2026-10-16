@@ -3,7 +3,9 @@
 //! whole (shapes are small).
 
 use app_common::Patch;
-use model_show::{Layout, NodeId, Section, Slide, SlideMaster, SlideSize, Theme};
+use model_show::{
+    Layout, NodeId, Section, ShowSettings, Slide, SlideMaster, SlideSize, Theme, ViewProps,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -45,6 +47,14 @@ pub struct ShowPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub sections: Option<Vec<Section>>,
+    /// The view settings (guides, grid …), when they changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub view: Option<ViewProps>,
+    /// The Set Up Slide Show options, when they changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub show_settings: Option<ShowSettings>,
     /// A message for the status bar.
     pub info: Option<String>,
 }
@@ -87,6 +97,12 @@ impl Patch for ShowPatch {
         }
         if other.sections.is_some() {
             self.sections = other.sections;
+        }
+        if other.view.is_some() {
+            self.view = other.view;
+        }
+        if other.show_settings.is_some() {
+            self.show_settings = other.show_settings;
         }
         if other.info.is_some() {
             self.info = other.info;

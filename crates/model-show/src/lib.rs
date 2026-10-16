@@ -52,6 +52,7 @@ pub mod theme;
 pub mod themes;
 #[cfg(feature = "ts")]
 pub mod ts;
+pub mod view;
 
 pub use anim::{Animation, AnimationKind, Direction, Effect, Transition, TransitionKind, Trigger};
 pub use chart::{ChartData, ChartSeriesData, ChartShape};
@@ -76,13 +77,15 @@ pub use snapshot::PresentationSnapshot;
 pub use table::{CellBorders, ColSpec, RowSpec, StyleCell, Table, TableCell, TableLook};
 pub use text::{
     date_format_pattern, run_diff, Alignment, Anchor, AutoNumScheme, Autofit, BodyProps, Bullet,
-    Insets, TextBody, TextField, TextParagraph, TextParagraphProps, TextRun, TextSpacing,
+    Insets, TextBody, TextDirection, TextField, TextParagraph, TextParagraphProps, TextRun,
+    TextSpacing,
 };
 pub use theme::{
     Background, ColorBase, ColorMod, EffectStyle, FormatScheme, Gradient, GradientShape,
     GradientStop, ResolvedFill, ResolvedStop, StyleColor, StyleFill, StyleLine, StyleShadow, Theme,
 };
 pub use themes::{builtin_theme, builtin_themes, BuiltinTheme, BUILTIN_THEME_IDS};
+pub use view::{Guide, GuideOrient, ShowSettings, SlideRange, ViewKind, ViewProps};
 
 use serde::{Deserialize, Serialize};
 

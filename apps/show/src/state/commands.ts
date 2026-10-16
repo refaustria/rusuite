@@ -222,9 +222,9 @@ export function indentCommands(shape: NodeId, paragraphs: number[], levels: numb
 }
 
 /** `Align` to the selection (two or more shapes) or the slide (one). */
-export function alignCommand(shapes: NodeId[], mode: AlignMode): ShowCommand | null {
+export function alignCommand(shapes: NodeId[], mode: AlignMode, to: "slide" | "selection" = "selection"): ShowCommand | null {
   if (!shapes.length) return null;
-  return { type: "align", shapes, mode, to: shapes.length > 1 ? "selection" : "slide" };
+  return { type: "align", shapes, mode, to: shapes.length > 1 && to === "selection" ? "selection" : "slide" };
 }
 
 // ----- P6-5: clipboard, slides, text polish, format dialog -------------------------------

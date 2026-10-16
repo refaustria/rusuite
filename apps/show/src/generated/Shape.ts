@@ -52,4 +52,9 @@ alt?: string | null,
  * What a mouse click on the shape does in the slide show
  * (`p:cNvPr/a:hlinkClick`; Insert › Action, action buttons).
  */
-clickAction?: Hyperlink, };
+clickAction?: Hyperlink, 
+/**
+ * Hidden on the slide (Selection pane eye; `p:cNvPr/@hidden`): not
+ * drawn in the editor, the show or print, still saved.
+ */
+hidden?: boolean, };

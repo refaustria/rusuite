@@ -14,6 +14,7 @@ use crate::shape::{Shape, ShapeKind};
 use crate::slide::{find_in, Slide};
 use crate::text::{TextBody, TextField, TextParagraph, TextParagraphProps, TextRun};
 use crate::theme::{Background, ResolvedFill, Theme};
+use crate::view::{ShowSettings, ViewProps};
 use crate::{Error, NodeId, Result};
 
 /// The slide size (`p:sldSz`).
@@ -88,8 +89,20 @@ pub struct Presentation {
     /// Images.
     #[cfg_attr(feature = "ts", ts(as = "Vec<crate::ts::MediaItem>"))]
     pub media: MediaStore,
+    /// Guides, grid, snapping, ruler and the last view (`viewProps.xml`).
+    #[serde(default, skip_serializing_if = "is_default")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<ViewProps>"))]
+    pub view: ViewProps,
+    /// Set Up Slide Show (`presProps.xml`).
+    #[serde(default, skip_serializing_if = "is_default")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<ShowSettings>"))]
+    pub show_settings: ShowSettings,
     #[serde(skip)]
     pub(crate) next_id: u64,
+}
+
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
 }
 
 impl Default for Presentation {
@@ -170,6 +183,8 @@ impl Presentation {
             theme: Theme::default(),
             sections: Vec::new(),
             media: MediaStore::new(),
+            view: ViewProps::default(),
+            show_settings: ShowSettings::default(),
             next_id: 1,
         }
     }

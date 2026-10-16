@@ -32,7 +32,7 @@ import { arrowHead, endDirections } from "../shapes/connectors";
 import { pathCache, pathPoints, pathQueryOf, svgPath, usePathVersion } from "../shapes/paths";
 import { textRect } from "../shapes/presets";
 import { effectiveBorders, effectiveFill } from "../shapes/tables";
-import { layoutText, measureText } from "../text/layout";
+import { layoutText, measureText, type LayoutOptions } from "../text/layout";
 import { runStyleFor, tableLayout } from "./tableLayout";
 import { useT } from "../i18n";
 
@@ -157,17 +157,16 @@ function levelDefs(ctx: Pick<Ctx, "deck">, def: PlaceholderDef | undefined): (le
 /** What laying out a shape's text needs to know about the slide. */
 export type TextCtx = Pick<Ctx, "deck" | "slide" | "palette" | "asMaster" | "slideNumber">;
 
-/** The layout of a shape's text in its `w` × `h` px text rectangle (placeholder defaults per level, fields, links). */
-export function layoutShapeText(ctx: TextCtx, shape: Shape, body: TextBody, w: number, h: number, prompt?: string) {
+/** Layout options of a shape's text in its `w` × `h` px text rectangle (placeholder defaults per level, fields, links). */
+export function shapeTextOptions(ctx: TextCtx, shape: Shape, w: number, h: number): LayoutOptions {
   const def = placeholderFor(ctx.deck, ctx.slide.layout, shape, ctx.asMaster);
-  const shown: TextBody = prompt ? { ...body, paragraphs: [{ props: body.paragraphs[0]?.props, runs: [{ text: prompt }] }] } : body;
   const at = levelDefs(ctx, def);
   const styles = new Map<number, ReturnType<typeof runStyleFor>>();
   const styleAt = (level: number) => {
     if (!styles.has(level)) styles.set(level, runStyleFor(at(level), ctx.deck.theme, ctx.palette));
     return styles.get(level)!;
   };
-  return layoutText(shown, {
+  return {
     width: w,
     height: h,
     measure: measureText,
@@ -175,7 +174,13 @@ export function layoutShapeText(ctx: TextCtx, shape: Shape, body: TextBody, w: n
     paragraphProps: (p: TextParagraphProps | undefined) => effectiveParagraph(at(p?.level ?? 0), p),
     fieldText: (field, stored) => fieldText(field, ctx.slideNumber, stored),
     linkColor: css({ kind: "theme", value: { slot: "hyperlink", tint: 0 } }, ctx.palette),
-  });
+  };
+}
+
+/** The layout of a shape's text in its `w` × `h` px text rectangle (placeholder defaults per level, fields, links). */
+export function layoutShapeText(ctx: TextCtx, shape: Shape, body: TextBody, w: number, h: number, prompt?: string) {
+  const shown: TextBody = prompt ? { ...body, paragraphs: [{ props: body.paragraphs[0]?.props, runs: [{ text: prompt }] }] } : body;
+  return layoutText(shown, shapeTextOptions(ctx, shape, w, h));
 }
 
 function TextNodes({ body, shape, w, h, ctx }: { body: TextBody; shape: Shape; w: number; h: number; ctx: Ctx }) {
@@ -190,6 +195,14 @@ function TextNodes({ body, shape, w, h, ctx }: { body: TextBody; shape: Shape; w
     [body, w, h, shape.placeholder, shape.placeholderIdx, ctx.deck, ctx.palette, ctx.slide.layout, ctx.asMaster, prompt, ctx.slideNumber],
   );
   if (empty && !prompt) return null;
+  if (layout.rotation) {
+    // vertical text (`vert`): laid out in the swapped box, turned into this one
+    return (
+      <Group rotation={layout.rotation === 90 ? 90 : -90} x={layout.rotation === 90 ? w : 0} y={layout.rotation === 90 ? 0 : h} name="text-rotated">
+        <Fragments fragments={layout.fragments} opacity={prompt ? 0.45 : 1} />
+      </Group>
+    );
+  }
   return <Fragments fragments={layout.fragments} opacity={prompt ? 0.45 : 1} />;
 }
 
@@ -499,7 +512,7 @@ function ShapeNode({ shape, ctx, top }: { shape: Shape; ctx: Ctx; top: boolean }
     >
       {shape.kind.kind === "group" ? (
         <Group x={a.width / 2} y={a.height / 2} offsetX={a.width / 2} offsetY={a.height / 2} scaleX={t.flipH ? -1 : 1} scaleY={t.flipV ? -1 : 1}>
-          {shape.kind.value.children.map((c) => (
+          {shape.kind.value.children.filter((c) => !c.hidden).map((c) => (
             <ShapeNode key={c.id} shape={c} ctx={ctx} top={false} />
           ))}
         </Group>
@@ -542,7 +555,8 @@ export const SlideView = memo(function SlideView({
           ))}
         </Group>
       )}
-      {slide.shapes.map((s) => (
+      {/* Selection pane: hidden shapes are not drawn (editor, show, print) */}
+      {slide.shapes.filter((s) => !s.hidden).map((s) => (
         <ShapeNode key={s.id} shape={overrides?.get(s.id) ?? s} ctx={ctx} top />
       ))}
     </>
