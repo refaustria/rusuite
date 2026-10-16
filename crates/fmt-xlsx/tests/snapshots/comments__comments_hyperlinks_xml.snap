@@ -1,0 +1,7 @@
+---
+source: crates/fmt-xlsx/tests/comments.rs
+expression: pretty(links)
+---
+<hyperlinks>
+<hyperlink ref="E1" r:id="rId1" display="Example" tooltip="Open it"/>
+<hyperlink ref="E3:F4" location="&apos;Sheet1&apos;!A1"/>

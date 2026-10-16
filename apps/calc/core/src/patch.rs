@@ -23,6 +23,17 @@ pub enum CellKind {
     Error,
 }
 
+/// The indicator of a cell's threaded comment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum CommentState {
+    /// Purple marker.
+    Open,
+    /// Outlined marker.
+    Resolved,
+}
+
 /// One cell as the grid renders it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -71,6 +82,19 @@ pub struct CellView {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]
     pub narrow: bool,
+    /// The cell has a note (red triangle); absent = none.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub note: bool,
+    /// The cell's threaded comment; absent = none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub comment: Option<CommentState>,
+    /// A hyperlink or `HYPERLINK()` cell (Ctrl+click follows it; the
+    /// target comes from `cellAnnotations`); absent = none.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub link: bool,
 }
 
 /// A match of the `findCells` request.
@@ -264,6 +288,16 @@ pub struct CalcPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub names: Option<Vec<crate::names::NameInfo>>,
+    /// The complete notes, threads and hyperlinks of every sheet whose
+    /// annotations changed (cells whose `note`/`comment`/`link` flags
+    /// changed are also in `cells`); absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<crate::annotations::SheetAnnotations>>")]
+    pub annotations: Vec<crate::annotations::SheetAnnotations>,
+    /// The document's comment authors, when they changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<Vec<crate::wire_annot::Person>>")]
+    pub persons: Option<Vec<model_sheet::Person>>,
 }
 
 /// Merges `other` into `list`, replacing entries with the same key.
@@ -293,6 +327,10 @@ impl app_common::Patch for CalcPatch {
         if other.names.is_some() {
             self.names = other.names;
         }
+        if other.persons.is_some() {
+            self.persons = other.persons;
+        }
+        merge_keyed(&mut self.annotations, other.annotations, |a| a.sheet);
         merge_keyed(&mut self.merges, other.merges, |m| m.sheet);
         for s in other.cf_sheets {
             if !self.cf_sheets.contains(&s) {
@@ -401,4 +439,8 @@ pub struct WorkbookInfo {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<crate::names::NameInfo>>")]
     pub names: Vec<crate::names::NameInfo>,
+    /// The document's comment authors; absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<crate::wire_annot::Person>>")]
+    pub persons: Vec<model_sheet::Person>,
 }

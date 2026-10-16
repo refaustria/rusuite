@@ -76,6 +76,7 @@ impl CalcError {
             CalcError::Model(M::UnknownRule(_)) => "unknown_rule",
             CalcError::Model(M::InvalidChart(_)) => "invalid_chart",
             CalcError::Model(M::UnknownChart(_)) => "unknown_chart",
+            CalcError::Model(M::InvalidAnnotation(_)) => "invalid_annotation",
             CalcError::Model(M::Engine(EngineError::InvalidName(_))) => "invalid_name",
             CalcError::Model(M::Engine(EngineError::DuplicateName(_))) => "duplicate_name",
             CalcError::Model(M::Engine(EngineError::UnknownName(_))) => "unknown_name",
@@ -268,6 +269,7 @@ impl CalcDocument {
             styles: self.style_list(),
             revision: Revision(0),
             names: self.name_infos(),
+            persons: self.workbook.persons().to_vec(),
         }
     }
 
@@ -290,10 +292,14 @@ impl CalcDocument {
             c0,
             r1,
             c1,
-            cells: wb
-                .cells_in(range)
-                .map(|(c, _, _)| self.cell_view(c))
-                .collect(),
+            cells: {
+                let mut at: BTreeSet<(u32, u32)> =
+                    wb.cells_in(range).map(|(c, _, _)| (c.row, c.col)).collect();
+                at.extend(self.annotated_cells(range));
+                at.into_iter()
+                    .map(|(r, c)| self.cell_view(CellCoord::new(s, r, c)))
+                    .collect()
+            },
             cols: wb
                 .cols(s)
                 .filter(|(i, _)| (c0..=c1).contains(i))
@@ -371,6 +377,11 @@ impl CalcDocument {
             display: text.text,
             kind: kind_of(&value),
             style: style.0,
+            note: wb.note_at(c).is_some(),
+            comment: self.comment_state(c),
+            link: wb.hyperlink_at(c).is_some()
+                || matches!(wb.content(c), CellContent::Formula { text, .. }
+                    if text.to_ascii_uppercase().starts_with("=HYPERLINK(")),
             spilled: engine.spill_anchor(c).map(|a| (a.row, a.col)),
             spill: engine.spill(c).map(|s| Rect {
                 r0: c.row,
@@ -439,6 +450,14 @@ impl CalcDocument {
                     .collect(),
             })
             .collect()
+    }
+
+    /// Cell views of `coords`, grouped by sheet.
+    pub(crate) fn cells_view_patch(
+        &self,
+        coords: impl IntoIterator<Item = CellCoord>,
+    ) -> Vec<SheetCells> {
+        self.cells_patch(coords, None)
     }
 
     fn cycle_text(&self, cycle: Option<&Cycle>) -> Option<String> {
@@ -693,7 +712,7 @@ impl CalcDocument {
 
     // --- commands ---------------------------------------------------------
 
-    fn apply_cmd(&mut self, cmd: &CalcCommand) -> Result<CalcApplied> {
+    pub(crate) fn apply_cmd(&mut self, cmd: &CalcCommand) -> Result<CalcApplied> {
         use CalcCommand as C;
         match cmd {
             &C::SetInput {
@@ -1056,15 +1075,29 @@ impl CalcDocument {
                 cut,
                 repeat_rows,
                 repeat_cols,
-            } => self.paste_range(
-                sheet,
-                (r0, c0),
-                src,
-                cells,
-                mode,
-                cut,
-                (repeat_rows, repeat_cols),
-            ),
+                annotations,
+            } => {
+                let applied = self.paste_range(
+                    sheet,
+                    (r0, c0),
+                    src,
+                    cells,
+                    mode,
+                    cut,
+                    (repeat_rows, repeat_cols),
+                )?;
+                if annotations && mode == PasteMode::All {
+                    let source = self.range(src.sheet, src.r0, src.c0, src.r1, src.c1)?;
+                    let s = self.sheet(sheet)?;
+                    let wb = &mut self.workbook;
+                    if cut {
+                        wb.move_annotations(source, s, r0, c0)?;
+                    } else {
+                        wb.copy_annotations(source, s, (r0, c0), (repeat_rows, repeat_cols))?;
+                    }
+                }
+                Ok(applied)
+            }
             &C::FillRange {
                 sheet,
                 src,
@@ -1159,6 +1192,21 @@ impl CalcDocument {
             | C::SetChartSeries { .. }
             | C::RemoveChart { .. }
             | C::RestoreCharts { .. } => self.charts_cmd(cmd),
+            C::SetNote { .. }
+            | C::DeleteNote { .. }
+            | C::ShowHideNote { .. }
+            | C::ConvertNotesToComments { .. }
+            | C::AddComment { .. }
+            | C::ReplyComment { .. }
+            | C::EditComment { .. }
+            | C::DeleteReply { .. }
+            | C::DeleteThread { .. }
+            | C::ResolveThread { .. }
+            | C::SetUser { .. }
+            | C::SetHyperlink { .. }
+            | C::RemoveHyperlink { .. }
+            | C::RestoreAnnotations { .. }
+            | C::RestorePersons { .. } => self.annotations_cmd(cmd),
             C::Compound { commands } => {
                 let mut patch = CalcPatch::default();
                 let mut inverses = Vec::with_capacity(commands.len());
@@ -2059,8 +2107,10 @@ impl Document for CalcDocument {
 
     fn apply(&mut self, cmd: &CalcCommand) -> Result<CalcApplied> {
         let names = self.workbook.names();
+        let annotations = self.annotations_state();
         let mut applied = self.apply_cmd(cmd)?;
         self.mark_names(names, cmd, &mut applied);
+        self.mark_annotations(annotations, &mut applied);
         self.mark_cf_sheets(&mut applied.patch);
         self.mark_chart_sheets(&mut applied.patch);
         Ok(applied)

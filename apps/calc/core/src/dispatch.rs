@@ -138,6 +138,18 @@ pub enum Request {
     Precedents { sheet: u32, row: u32, col: u32 },
     /// The formula cells reading the cell (Trace Dependents) → `trace`.
     Dependents { sheet: u32, row: u32, col: u32 },
+    /// The notes, threads and hyperlinks intersecting the rectangle, plus
+    /// the targets of its `HYPERLINK()` cells → `annotations`.
+    CellAnnotations {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+    },
+    /// The threads of `sheet` or (`null`) of every sheet that has any
+    /// (the Comments pane) → `comments`.
+    AllComments { sheet: Option<u32> },
 }
 
 /// The successful part of a [`Response`].
@@ -250,6 +262,14 @@ pub enum ResponseBody {
     RecommendedChart {
         #[ts(as = "Option<crate::wire_chart::Chart>")]
         chart: Option<Box<core_model::chart::Chart>>,
+    },
+    /// The reply to `cellAnnotations`.
+    Annotations {
+        annotations: crate::annotations::CellAnnotations,
+    },
+    /// The reply to `allComments`, in sheet order.
+    Comments {
+        sheets: Vec<crate::annotations::SheetThreads>,
     },
     /// The reply to `sheetRules`.
     SheetRules {
@@ -445,6 +465,18 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
         },
         Request::Dependents { sheet, row, col } => ResponseBody::Trace {
             refs: host.doc().dependents(sheet, row, col)?,
+        },
+        Request::CellAnnotations {
+            sheet,
+            r0,
+            c0,
+            r1,
+            c1,
+        } => ResponseBody::Annotations {
+            annotations: host.doc().cell_annotations(sheet, r0, c0, r1, c1)?,
+        },
+        Request::AllComments { sheet } => ResponseBody::Comments {
+            sheets: host.doc().all_comments(sheet)?,
         },
     })
 }
