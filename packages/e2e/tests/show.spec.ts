@@ -48,13 +48,6 @@ async function insertTable(page: Page, rows: number, cols: number) {
   await expect(page.getByTestId("table-overlay")).toBeVisible();
 }
 
-/** A ribbon button of `group`; on a narrow window the group may be collapsed into a button: then it is opened first. */
-async function ribbonButton(page: Page, group: string, name: string) {
-  const g = page.getByTestId("ribbon-panel").getByRole("group", { name: group, exact: true });
-  if ((await g.getAttribute("data-collapsed-group")) !== null) await g.getByRole("button", { name: group }).click();
-  return g.getByRole("button", { name, exact: true });
-}
-
 const cell = (page: Page, r: number, c: number) => page.locator(`[data-testid="table-cell"][data-cell="${r},${c}"]`);
 
 async function stageCentre(page: Page) {
@@ -984,21 +977,32 @@ test.describe("Show quality pass (P8-40)", () => {
     await openShow(page);
     const toolbar = page.getByTestId("ribbon-panel").getByRole("toolbar");
     // at 1400 px the whole Home tab fits
-    await expect(toolbar.getByRole("group", { name: "AI" })).toBeVisible();
+    await expect(toolbar.getByRole("group", { name: "Drawing", exact: true })).toBeVisible();
     await expect(toolbar).not.toHaveAttribute("data-collapsed-groups", /\d/);
     await page.setViewportSize({ width: 1024, height: 768 });
     for (const name of ["Home", "Insert", "Design", "Transitions", "Animations", "Slide Show", "View"]) {
       await page.getByRole("tab", { name, exact: true }).click();
+      // no control outside the window
       expect(await toolbar.evaluate((el) => el.scrollWidth - el.clientWidth), name).toBeLessThanOrEqual(0);
     }
     await page.getByRole("tab", { name: "Home", exact: true }).click();
     await expect(toolbar).toHaveAttribute("data-collapsed-groups", /\d/);
-    await (await ribbonButton(page, "Drawing", "Rectangle")).press("Enter");
-    await expect(page.getByRole("tab", { name: "Shape Format" })).toBeVisible();
-    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+    // whichever group collapsed: its button opens a popup with its controls
+    const collapsed = toolbar.locator("[data-collapsed-group]").first();
+    await collapsed.getByRole("button").first().click();
+    const popup = page.getByTestId("ribbon-group-popup");
+    await expect(popup).toBeVisible();
+    expect(await popup.locator("button, select, input").count()).toBeGreaterThan(0);
+    const box = (await popup.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(1024);
+    await page.keyboard.press("Escape");
+    await ribbonCommand(page, "Slides", "New slide");
+    await expect(page.getByTestId("slide-count")).toHaveText("Slide 2 of 2");
     // German labels: no large button's label runs into its neighbour (S-16)
     await page.getByRole("tab", { name: "View", exact: true }).click();
-    await ribbonButton(page, "Language / Sprache", "-"); // opens the group when it is collapsed
+    const lang = toolbar.getByRole("group", { name: "Language / Sprache" });
+    if ((await lang.getAttribute("data-collapsed-group")) !== null) await lang.getByRole("button").first().click();
     await page.getByRole("combobox", { name: "Language / Sprache" }).selectOption("de");
     for (const name of ["Start", "Bildschirmpräsentation", "Ansicht"]) {
       await page.getByRole("tab", { name, exact: true }).click();
