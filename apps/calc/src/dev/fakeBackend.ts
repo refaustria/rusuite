@@ -35,6 +35,13 @@ import type { SheetInfo } from "../generated/SheetInfo";
 import type { SheetView } from "../generated/SheetView";
 import type { SortKey } from "../generated/SortKey";
 import type { SortState } from "../generated/SortState";
+import type { NameDef } from "../generated/NameDef";
+import type { NameInfo } from "../generated/NameInfo";
+import type { NameRow } from "../generated/NameRow";
+import type { SheetRect } from "../generated/SheetRect";
+import { parseRange, rangeFormula } from "../charts/refs";
+import { findRefs } from "../formula/refs";
+import { nameProblem } from "../names/names";
 
 interface FakeCell {
   input: string;
@@ -110,6 +117,8 @@ export class FakeCalcCore {
   name: string | null = null;
   /** Every request seen, for tests. */
   log: Request[] = [];
+  /** Defined names in definition order (a toy: ranges and constants evaluate). */
+  names: NameDef[] = [];
   /** Deleted sheets by id (ids are never reused; undo brings them back whole). */
   private removed = new Map<number, FakeSheet>();
   private nextId = 0;
@@ -125,6 +134,7 @@ export class FakeCalcCore {
     this.removed.clear();
     this.nextId = this.sheets.length;
     this.styles = [{}];
+    this.names = [];
     this.undoStack = [];
     this.redoStack = [];
     this.revision++;
@@ -197,7 +207,11 @@ export class FakeCalcCore {
     if (input.startsWith("=")) {
       if (depth > 64) return { error: "#REF!" };
       try {
-        return new Parser(input.slice(1), (rr, cc, sh) => this.value(sh ? this.sheetByName(sh) : s, rr, cc, depth + 1)).parse();
+        return new Parser(
+          input.slice(1),
+          (rr, cc, sh) => this.value(sh ? this.sheetByName(sh) : s, rr, cc, depth + 1),
+          (name) => this.nameTarget(name, s),
+        ).parse();
       } catch (e) {
         return { error: e instanceof Fail ? e.code : "#NAME?" };
       }
@@ -629,11 +643,155 @@ export class FakeCalcCore {
       case "removeChart":
       case "restoreCharts":
         return this.chartCmd(cmd);
+      case "defineName":
+      case "updateName":
+      case "deleteName":
+      case "createNamesFromSelection":
+      case "restoreNames":
+        return this.nameCmd(cmd);
       default: {
         const unknown: never = cmd;
         throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
       }
     }
+  }
+
+  // --- defined names (a toy: ranges and constants) ---------------------------
+
+  /** What a name used on sheet `s` refers to: a range or a constant (`undefined`: unknown). */
+  private nameTarget(name: string, s: FakeSheet): { sheet: string; r0: number; c0: number; r1: number; c1: number } | Value | undefined {
+    const n = name.toLowerCase();
+    const def = this.names.find((x) => x.sheet === s.id && x.name.toLowerCase() === n) ?? this.names.find((x) => x.sheet === undefined && x.name.toLowerCase() === n);
+    if (!def) return undefined;
+    const r = parseRange(def.refersTo);
+    if (r) return { ...r, sheet: r.sheet ?? s.name };
+    const num = Number(def.refersTo);
+    if (def.refersTo.trim() !== "" && Number.isFinite(num)) return num;
+    return def.refersTo.replace(/^"(.*)"$/, "$1");
+  }
+
+  private nameInfos(): NameInfo[] {
+    return this.names.map((n) => {
+      const info: NameInfo = { ...n };
+      const r = parseRange(n.refersTo);
+      const sheet = r && (r.sheet === null ? this.sheets[0] : this.sheets.find((x) => x.name.toLowerCase() === r.sheet!.toLowerCase()));
+      if (r && sheet) info.range = { sheet: sheet.id, r0: r.r0, c0: r.c0, r1: r.r1, c1: r.c1 };
+      return info;
+    });
+  }
+
+  private namesPatch(): CalcPatch {
+    // Every formula may use a name: the patch re-sends them (no dependency graph here).
+    const patch = this.cellsPatch(this.sheets[0]!, []);
+    patch.names = this.nameInfos();
+    return patch;
+  }
+
+  private nameCmd(cmd: Extract<CalcCommand, { type: "defineName" | "updateName" | "deleteName" | "createNamesFromSelection" | "restoreNames" }>): [CalcPatch, CalcCommand] {
+    const before = JSON.parse(JSON.stringify(this.names)) as NameDef[];
+    const key = (name: string, sheet: number | undefined) => `${sheet ?? ""}|${name.toLowerCase()}`;
+    const check = (def: NameDef, except?: string) => {
+      const problem = nameProblem(def.name);
+      if (problem) throw new Fail("invalid_name", `${def.name} is not a valid name`);
+      if (def.sheet !== undefined) this.sheet(def.sheet);
+      if (this.names.some((n) => key(n.name, n.sheet) === key(def.name, def.sheet) && key(n.name, n.sheet) !== except)) {
+        throw new Fail("duplicate_name", `a name ${def.name} already exists`);
+      }
+    };
+    const clean = (def: NameDef): NameDef => ({ ...def, refersTo: def.refersTo.replace(/^=/, "") });
+    switch (cmd.type) {
+      case "defineName":
+        check(cmd.def);
+        this.names.push(clean(cmd.def));
+        break;
+      case "updateName": {
+        const at = this.names.findIndex((n) => key(n.name, n.sheet) === key(cmd.name, cmd.sheet));
+        if (at < 0) throw new Fail("unknown_name", `unknown name ${cmd.name}`);
+        check(cmd.def, key(cmd.name, cmd.sheet));
+        this.names[at] = clean(cmd.def);
+        break;
+      }
+      case "deleteName": {
+        const at = this.names.findIndex((n) => key(n.name, n.sheet) === key(cmd.name, cmd.sheet));
+        if (at < 0) throw new Fail("unknown_name", `unknown name ${cmd.name}`);
+        this.names.splice(at, 1);
+        break;
+      }
+      case "createNamesFromSelection": {
+        const s = this.sheet(cmd.sheet);
+        const made: NameDef[] = [];
+        const text = (r: number, c: number) => {
+          const v = this.view(s, r, c);
+          return v.kind === "text" ? v.display.trim().replace(/[^\p{L}\p{N}_.]/gu, "_").replace(/^(?=\d)/, "_") : "";
+        };
+        const r0 = cmd.r0 + (cmd.edges.top ? 1 : 0);
+        const c0 = cmd.c0 + (cmd.edges.left ? 1 : 0);
+        if (cmd.edges.top) {
+          for (let c = c0; c <= cmd.c1; c++) {
+            const name = text(cmd.r0, c);
+            if (name) made.push({ name, refersTo: rangeFormula({ sheet: s.name, r0, c0: c, r1: cmd.r1, c1: c }) });
+          }
+        }
+        if (cmd.edges.left) {
+          for (let r = r0; r <= cmd.r1; r++) {
+            const name = text(r, cmd.c0);
+            if (name) made.push({ name, refersTo: rangeFormula({ sheet: s.name, r0: r, c0, r1: r, c1: cmd.c1 }) });
+          }
+        }
+        if (made.length === 0) throw new Fail("no_names", "no names to create");
+        for (const d of made) {
+          const at = this.names.findIndex((n) => key(n.name, n.sheet) === key(d.name, undefined));
+          if (at >= 0) this.names[at] = d;
+          else this.names.push(d);
+        }
+        break;
+      }
+      case "restoreNames":
+        this.names = JSON.parse(JSON.stringify(cmd.names)) as NameDef[];
+        break;
+    }
+    return [this.namesPatch(), { type: "restoreNames", names: before }];
+  }
+
+  private nameRows(sheet: number): NameRow[] {
+    return this.nameInfos().map((n) => {
+      let value = n.refersTo;
+      if (n.range) {
+        const s = this.sheet(n.range.sheet);
+        const vals: string[] = [];
+        for (let r = n.range.r0; r <= Math.min(n.range.r1, n.range.r0 + 11); r++) {
+          for (let c = n.range.c0; c <= Math.min(n.range.c1, n.range.c0 + 11); c++) vals.push(this.view(s, r, c).display);
+        }
+        value = vals.length === 1 ? vals[0]! : `{${vals.join(";")}}`;
+      }
+      void sheet;
+      return { ...n, value };
+    });
+  }
+
+  /** Trace Precedents (a toy: the references written in the formula). */
+  private precedents(sheet: number, row: number, col: number): SheetRect[] {
+    const s = this.sheet(sheet);
+    const input = this.cell(s, row, col)?.input ?? "";
+    if (!input.startsWith("=")) return [];
+    const out: SheetRect[] = findRefs(input).map((r) => {
+      const target = r.sheet ? this.sheetByName(r.sheet) : s;
+      return { sheet: target.id, ...r.range };
+    });
+    return out;
+  }
+
+  /** Trace Dependents (a toy: formulas whose written references cover the cell). */
+  private dependents(sheet: number, row: number, col: number): SheetRect[] {
+    const out: SheetRect[] = [];
+    for (const sh of this.sheets) {
+      for (const key of sh.formulas) {
+        const [r, c] = key.split(",").map(Number) as [number, number];
+        const hit = this.precedents(sh.id, r, c).some((p) => p.sheet === sheet && row >= p.r0 && row <= p.r1 && col >= p.c0 && col <= p.c1);
+        if (hit) out.push({ sheet: sh.id, r0: r, c0: c, r1: r, c1: c });
+      }
+    }
+    return out.sort((a, b) => a.sheet - b.sheet || a.r0 - b.r0 || a.c0 - b.c0);
   }
 
   // --- conditional formatting and data validation (a toy: rule lists kept, few kinds evaluated) ---
@@ -1165,7 +1323,8 @@ export class FakeCalcCore {
   }
 
   private infoResponse(): Response {
-    return { ok: { type: "info", info: { sheets: this.sheetInfos(), styles: [...this.styles], revision: this.revision } } };
+    const info = { sheets: this.sheetInfos(), styles: [...this.styles], revision: this.revision, ...(this.names.length ? { names: this.nameInfos() } : {}) };
+    return { ok: { type: "info", info } };
   }
 
   handle(req: Request): Response {
@@ -1345,6 +1504,16 @@ export class FakeCalcCore {
           return { ok: { type: "chartData", data: this.resolveChart(req.chart) } };
         case "recommendedChart":
           return { ok: { type: "recommendedChart", chart: this.recommendChart(req.sheet, req.r0, req.c0, req.r1, req.c1) } };
+        case "names":
+          return { ok: { type: "names", names: this.nameRows(req.sheet) } };
+        case "nameAt": {
+          const hit = this.nameInfos().find((n) => n.range && n.range.sheet === req.sheet && n.range.r0 === req.rect.r0 && n.range.c0 === req.rect.c0 && n.range.r1 === req.rect.r1 && n.range.c1 === req.rect.c1);
+          return { ok: { type: "nameAt", name: hit?.name ?? null } };
+        }
+        case "precedents":
+          return { ok: { type: "trace", refs: this.precedents(req.sheet, req.row, req.col) } };
+        case "dependents":
+          return { ok: { type: "trace", refs: this.dependents(req.sheet, req.row, req.col) } };
         case "loadSnapshotJson":
         case "saveSnapshotJson":
           throw new Fail("internal", "not supported by the fake backend");
@@ -1407,7 +1576,24 @@ class Parser {
   constructor(
     private readonly src: string,
     private readonly ref: (row: number, col: number, sheet?: string) => Value,
+    private readonly name: (name: string) => { sheet: string; r0: number; c0: number; r1: number; c1: number } | Value | undefined = () => undefined,
   ) {}
+
+  /** A defined name at the cursor: its range or constant (`null`: not a name here). */
+  private nameAt(): { sheet: string; r0: number; c0: number; r1: number; c1: number } | Value | null {
+    const m = /^[A-Za-z_\\][A-Za-z0-9_.\\?]*/.exec(this.src.slice(this.i));
+    if (!m || /^[(!]/.test(this.src.slice(this.i + m[0].length)) || /^\$?[A-Za-z]{1,3}\$?[0-9]+$/.test(m[0]) || /^(TRUE|FALSE)$/i.test(m[0])) return null;
+    const hit = this.name(m[0]);
+    if (hit === undefined) throw new Fail("#NAME?", "unknown name");
+    this.i += m[0].length;
+    return hit;
+  }
+
+  private rangeValues(t: { sheet: string; r0: number; c0: number; r1: number; c1: number }): Value[] {
+    const out: Value[] = [];
+    for (let r = t.r0; r <= t.r1; r++) for (let c = t.c0; c <= t.c1; c++) out.push(this.ref(r, c, t.sheet));
+    return out;
+  }
 
   parse(): Value {
     const v = this.concat();
@@ -1507,6 +1693,12 @@ class Parser {
       return out.filter((v) => typeof v !== "string");
     }
     this.i = save;
+    this.ws();
+    const named = this.nameAt();
+    if (named !== null && typeof named === "object" && "r0" in named && /^[,)]/.test(this.peek())) {
+      return this.rangeValues(named).filter((v) => typeof v !== "string");
+    }
+    this.i = save;
     return [this.concat()];
   }
 
@@ -1572,6 +1764,8 @@ class Parser {
     }
     const r = this.refAt();
     if (r) return this.ref(r.r, r.c, r.sheet);
+    const named = this.nameAt();
+    if (named !== null) return typeof named === "object" && "r0" in named ? (this.rangeValues(named)[0] ?? "") : named;
     throw new Fail("#NAME?", "unexpected token");
   }
 }

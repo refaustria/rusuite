@@ -5,6 +5,7 @@
 // authority (see `CalcStore.commitEdit`).
 
 import { t } from "../i18n";
+import { isValidName } from "../names/names";
 import { referenceAt } from "./refs";
 import { isFormula, tokenize, type LexError, type Tok, type TokKind } from "./tokenize";
 
@@ -114,10 +115,25 @@ class Parser {
       case "sheet": {
         this.pos++;
         this.expect("bang", "`!`");
-        const ref = referenceAt(this.text, this.toks, this.pos, t.text, t.start);
-        if (!ref) throw { pos: this.here(), message: "expected a cell, column or row reference after sheet name" };
-        this.pos = ref.nextTok;
-        return false;
+        let ref: ReturnType<typeof referenceAt> = null;
+        let failure: unknown = null;
+        try {
+          ref = referenceAt(this.text, this.toks, this.pos, t.text, t.start);
+        } catch (e) {
+          failure = e;
+        }
+        if (ref) {
+          this.pos = ref.nextTok;
+          return false;
+        }
+        // `Sheet1!Tax`: a sheet-level defined name.
+        const n = this.peek();
+        if (n?.kind === "ident" && this.toks[this.pos + 1]?.kind !== "lparen" && isValidName(n.text)) {
+          this.pos++;
+          return false;
+        }
+        if (failure) throw failure;
+        throw { pos: this.here(), message: "expected a cell, column or row reference after sheet name" };
       }
       case "ident":
       case "number":

@@ -204,6 +204,7 @@ fn map_references(expr: &Expr, f: &dyn Fn(&Reference) -> Option<Reference>) -> E
         | Expr::Bool(_)
         | Expr::Error(_)
         | Expr::Name(_)
+        | Expr::QualifiedName { .. }
         | Expr::Missing => expr.clone(),
     }
 }
@@ -312,6 +313,51 @@ pub fn offset_relative(expr: &Expr, d_row: i64, d_col: i64) -> Expr {
             let (s, e) = (
                 shift(start, d_row, abs, MAX_ROW)?,
                 shift(end, d_row, abs, MAX_ROW)?,
+            );
+            Some(RangeKind::Rows {
+                start: s.min(e),
+                end: s.max(e),
+                abs,
+            })
+        }
+    })
+}
+
+/// Like [`offset_relative`], but relative parts wrap around the sheet
+/// edges instead of becoming `#REF!` (how Excel applies a defined name's
+/// relative references, stored relative to `A1`, in another cell:
+/// `Sheet1!XFD1` used in `B3` is `A3`).
+pub fn offset_relative_wrapping(expr: &Expr, d_row: i64, d_col: i64) -> Expr {
+    let wrap = |v: u32, d: i64, abs: bool, max: u32| -> u32 {
+        if abs {
+            v
+        } else {
+            (i64::from(v) + d).rem_euclid(i64::from(max) + 1) as u32
+        }
+    };
+    let cell = |c: CellRef| CellRef {
+        row: wrap(c.row, d_row, c.row_abs, MAX_ROW),
+        col: wrap(c.col, d_col, c.col_abs, MAX_COL),
+        ..c
+    };
+    map_refs(expr, &|r: &Reference| match r.kind {
+        RangeKind::Cell(c) => Some(RangeKind::Cell(cell(c))),
+        RangeKind::Area(a, b) => Some(RangeKind::area(cell(a), cell(b))),
+        RangeKind::Cols { start, end, abs } => {
+            let (s, e) = (
+                wrap(start, d_col, abs, MAX_COL),
+                wrap(end, d_col, abs, MAX_COL),
+            );
+            Some(RangeKind::Cols {
+                start: s.min(e),
+                end: s.max(e),
+                abs,
+            })
+        }
+        RangeKind::Rows { start, end, abs } => {
+            let (s, e) = (
+                wrap(start, d_row, abs, MAX_ROW),
+                wrap(end, d_row, abs, MAX_ROW),
             );
             Some(RangeKind::Rows {
                 start: s.min(e),

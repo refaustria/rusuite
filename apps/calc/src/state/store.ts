@@ -46,6 +46,10 @@ import { captureClip, fillDownEnd, pasteTarget, tsvClip, type Clip } from "./cli
 import { findStep, replaceInInput, type FindOptions } from "./find";
 import { activeArg, applyFunction, FUNCTIONS, functionInfo, matchFunctions, signatureArgs, type FunctionInfo } from "../formula/functions";
 import { callAt, functionPrefix, pointSpan, replaceSpan } from "../formula/point";
+
+const RECENT_KEY = "rusuite.calc.recentFunctions";
+/** Excel's initial Recently Used list. */
+const DEFAULT_RECENT = ["SUM", "AVERAGE", "IF", "HYPERLINK", "COUNT", "MAX", "SIN", "SUMIF", "PMT", "STDEV"];
 import { colorRefs, cycleAnchor, rangeText, type ColoredRef, type RefSpan } from "../formula/refs";
 import { isFormula } from "../formula/tokenize";
 import { checkFormula, formulaErrorMessage } from "../formula/validate";
@@ -54,6 +58,8 @@ import { hasFilters, recordsFound, type CustomPreset } from "../sortFilter/filte
 import { validationAt } from "../validation/validation";
 import { currentRegion, duplicateColumns, guessHeader, sortRangeCommand, sortScope, type SortLevel } from "../sortFilter/sort";
 import { ChartController } from "../charts/controller";
+import { NamesController } from "../names/controller";
+import { TraceController } from "../audit/trace";
 
 /** Snapshot blocks: 64 rows × 32 columns. */
 export const BLOCK_ROWS = 64;
@@ -193,7 +199,17 @@ export type CalcDialog =
   /** Move Chart… of the selected chart. */
   | { kind: "moveChart" }
   /** Select Data… of the selected chart. */
-  | { kind: "selectData" };
+  | { kind: "selectData" }
+  /** Formulas › Name Manager. */
+  | { kind: "nameManager" }
+  /** New Name (`edit` absent) or Edit Name; `back`: return to the Name Manager. */
+  | { kind: "defineName"; edit?: { name: string; sheet?: number }; back?: boolean }
+  /** Formulas › Create from Selection. */
+  | { kind: "createNames" }
+  /** Go To (Ctrl+G / F5). */
+  | { kind: "goTo" }
+  /** Insert Function (Shift+F3), optionally preselecting a category. */
+  | { kind: "insertFunction"; category?: string };
 
 /** The failed check of a committed edit (Excel's Stop / Warning / Information alert). */
 export interface ValidationAlert {
@@ -231,6 +247,8 @@ export interface CalcState {
   validationAlert: ValidationAlert | null;
   /** A request to show a ribbon tab (inserting a chart shows Chart Design); `seq` tells requests apart. */
   ribbonRequest: { tab: string; seq: number } | null;
+  /** Formulas › Show Formulas (Ctrl+`): cells show their formulas. */
+  showFormulas: boolean;
 }
 
 export function emptyCache(): SheetCache {
@@ -337,6 +355,7 @@ export class CalcStore {
     dialog: null,
     validationAlert: null,
     ribbonRequest: null,
+    showFormulas: false,
   };
   private listeners = new Set<() => void>();
   private caches = new Map<number, SheetCache>();
@@ -367,6 +386,10 @@ export class CalcStore {
 
   /** Charts of the sheets: lists, data, selection, commands (P8-20). */
   readonly charts: ChartController = new ChartController(this);
+  /** Defined names: the list, the Name Box, Go To, the name commands (P8-23). */
+  readonly names: NamesController = new NamesController(this);
+  /** Formula Auditing's trace arrows (P8-23). */
+  readonly trace: TraceController = new TraceController(this);
 
   constructor(readonly api: CalcApi) {}
 
@@ -543,6 +566,7 @@ export class CalcStore {
       ...info,
       sheets: patch.sheets ?? info.sheets,
       styles: patch.styles ?? info.styles,
+      names: patch.names ?? info.names,
     };
     const reload = new Set<number>();
     for (const s of patch.structural) {
@@ -995,7 +1019,14 @@ export class CalcStore {
         if (sheet === null || ref.a.kind !== "cell") return null;
         return this.cache(sheet).cells.get(ref.a.row)?.get(ref.a.col)?.spill ?? null;
       };
-      this.refsMemo = { text: e.text, version, refs: colorRefs(e.text, spill) };
+      // Defined names are coloured over the range they refer to.
+      const named = (name: string, qualifier: string | null) => {
+        const n = this.names.resolve(name, qualifier, e.sheet);
+        const r = n?.range;
+        const sheetName = r ? this.state.info?.sheets.find((x) => x.id === r.sheet)?.name : undefined;
+        return r && sheetName !== undefined ? { sheet: sheetName, range: { r0: r.r0, c0: r.c0, r1: r.r1, c1: r.c1 } } : null;
+      };
+      this.refsMemo = { text: e.text, version, refs: colorRefs(e.text, spill, named) };
     }
     return this.refsMemo.refs;
   }
@@ -1017,7 +1048,15 @@ export class CalcStore {
     let items: FunctionInfo[];
     let span: Completion["span"];
     if (typed) {
-      items = matchFunctions(typed.prefix);
+      // Functions and defined names, alphabetically (Excel lists both).
+      const p = typed.prefix.toLowerCase();
+      const names: FunctionInfo[] = this.names
+        .formulaNames()
+        .filter((n) => n.name.toLowerCase().startsWith(p))
+        .map((n) => ({ name: n.name, signature: `=${n.refersTo}`, description: n.comment ?? "", kind: "name" }));
+      items = [...matchFunctions(typed.prefix), ...names].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+      // A name typed in full needs no menu (Enter commits).
+      if (items.length === 1 && items[0]!.kind === "name" && items[0]!.name.toLowerCase() === p) return null;
       span = { start: typed.start, end: typed.end };
     } else if (e.menuForced) {
       items = FUNCTIONS;
@@ -1039,9 +1078,62 @@ export class CalcStore {
     const e = this.state.edit;
     if (!c || !e) return false;
     const f = c.items[index ?? c.index];
+    if (f.kind === "name") {
+      const r = replaceSpan(e.text, c.span, f.name);
+      this.setEditText(r.text, r.caret);
+      return true;
+    }
     const r = applyFunction(e.text, c.span, f.name);
     this.setEditText(r.text, r.caret);
+    this.noteFunction(f.name);
     return true;
+  }
+
+  /** The recently used functions, newest first (Formulas › Recently Used; kept in the browser). */
+  recentFunctions(): string[] {
+    try {
+      const raw = globalThis.localStorage?.getItem(RECENT_KEY);
+      const list = raw ? (JSON.parse(raw) as unknown) : null;
+      if (Array.isArray(list) && list.every((x) => typeof x === "string")) return list.filter((n) => functionInfo(n)).slice(0, 10);
+    } catch {
+      // Storage may be unavailable (private windows); the default list applies.
+    }
+    return [...DEFAULT_RECENT];
+  }
+
+  /** Records a function as recently used. */
+  noteFunction(name: string): void {
+    const list = [name.toUpperCase(), ...this.recentFunctions().filter((n) => n !== name.toUpperCase())].slice(0, 10);
+    try {
+      globalThis.localStorage?.setItem(RECENT_KEY, JSON.stringify(list));
+    } catch {
+      // Not persisted: fine.
+    }
+  }
+
+  /**
+   * Inserts `text` at the caret of the open edit (a name from Use in
+   * Formula, a function `NAME(` from the function library), starting a
+   * formula in the active cell when nothing is being edited.
+   */
+  insertIntoFormula(text: string, isFunction = false): void {
+    if (!this.state.edit) {
+      const input = this.activeCell()?.input ?? "";
+      this.beginEdit(isFormula(input) ? input : "=", "bar");
+    }
+    const e = this.state.edit!;
+    let base = e.text === "" ? "=" : e.text;
+    let start = e.text === "" ? 1 : Math.min(e.selStart, e.selEnd);
+    let end = e.text === "" ? 1 : Math.max(e.selStart, e.selEnd);
+    if (!isFormula(base)) {
+      base = "=";
+      start = end = 1;
+    }
+    const insert = isFunction ? `${text}(` : text;
+    const next = base.slice(0, start) + insert + (isFunction ? ")" : "") + base.slice(end);
+    this.setEditText(next, start + insert.length);
+    if (isFunction) this.noteFunction(text);
+    this.focusEditor();
   }
 
   dismissCompletion(): void {
@@ -1163,6 +1255,66 @@ export class CalcStore {
 
   selectionRange(): Range {
     return clipRange(normalize(this.state.selection), this.cache(this.state.activeSheet));
+  }
+
+  /** Applies a command; a failure becomes a toast. Resolves whether it was applied. */
+  async applyChecked(command: CalcCommand): Promise<boolean> {
+    try {
+      this.applyEnvelope(await this.api.apply(command));
+      return true;
+    } catch (e) {
+      this.pushError(e);
+      return false;
+    }
+  }
+
+  /** Shows `sheet` and selects `range` (the Name Box, Go To). */
+  goToRange(sheet: number, range: Range): void {
+    if (this.state.edit) void this.commitEdit(0, 0);
+    if (this.state.edit) return;
+    const single = range.r0 === range.r1 && range.c0 === range.c1;
+    const selection: Selection = single ? cellSelection(range.r0, range.c0) : { anchor: { row: range.r0, col: range.c0 }, focus: { row: range.r1, col: range.c1 } };
+    if (sheet !== this.state.activeSheet) this.showSheet(sheet, selection, null);
+    else this.select(selection);
+    this.revealCell?.(range.r0, range.c0);
+  }
+
+  /** Scrolls a cell into view (set by the grid). */
+  revealCell: ((row: number, col: number) => void) | null = null;
+
+  /**
+   * AutoSum (Alt+=): starts `=FN(` in the active cell with the numbers
+   * directly above it (else to its left) pointed at, as Excel does; inside
+   * an edit it inserts the function at the caret.
+   */
+  autoSum(fn: string): void {
+    if (this.state.edit) {
+      this.insertIntoFormula(fn, true);
+      return;
+    }
+    const a = this.activeAnchor();
+    const cells = this.cache(this.state.activeSheet).cells;
+    const isNum = (r: number, c: number) => cells.get(r)?.get(c)?.kind === "number";
+    let range: Range | null = null;
+    let r = a.row - 1;
+    while (r >= 0 && isNum(r, a.col)) r--;
+    if (r < a.row - 1) range = { r0: r + 1, c0: a.col, r1: a.row - 1, c1: a.col };
+    else {
+      let c = a.col - 1;
+      while (c >= 0 && isNum(a.row, c)) c--;
+      if (c < a.col - 1) range = { r0: a.row, c0: c + 1, r1: a.row, c1: a.col - 1 };
+    }
+    const text = `=${fn}()`;
+    this.beginEdit(text, "cell");
+    this.setEditCaret(text.length - 1);
+    if (range) this.pointRange({ row: range.r0, col: range.c0 }, { row: range.r1, col: range.c1 });
+    this.noteFunction(fn);
+    this.focusEditor();
+  }
+
+  /** Formulas › Show Formulas (Ctrl+`). */
+  toggleShowFormulas(): void {
+    this.bump({ showFormulas: !this.state.showFormulas });
   }
 
   /** Inserts or deletes the rows/columns spanned by the selection. */

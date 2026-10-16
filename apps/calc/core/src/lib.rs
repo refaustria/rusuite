@@ -30,6 +30,7 @@ mod dispatch;
 mod display;
 mod doc;
 mod fill;
+mod names;
 mod patch;
 pub mod wire;
 pub mod wire_cf;
@@ -40,6 +41,7 @@ pub use dispatch::{dispatch, CalcHost, Request, Response, ResponseBody};
 pub use display::{display_value, UNDISPLAYABLE};
 pub use doc::{CalcDocument, CalcError};
 pub use fill::{plan as fill_plan, shift_input, FillItem, FillPlan};
+pub use names::{name_from_text, preview_value, NameDef, NameEdges, NameInfo, NameRow};
 pub use patch::{
     CalcPatch, CellCf, CellKind, CellView, ColView, FoundCell, RegionSnapshot, RowView, SheetCells,
     SheetCols, SheetInfo, SheetMerges, SheetRows, StructuralChange, StructuralKind, WorkbookInfo,

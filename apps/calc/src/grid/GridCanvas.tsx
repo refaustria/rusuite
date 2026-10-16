@@ -31,6 +31,7 @@ import { useT } from "../i18n";
 import { elementBounds, hitTestChart, type ChartElement } from "@rusuite/ui-shared";
 import { anchorRect, handleAt, handleCursor, moveRect, resizeRect, type Handle } from "../charts/anchor";
 import { chartRefMarks, paintCharts } from "../charts/paint";
+import { paintArrows } from "../audit/trace";
 import { chartMenu } from "../charts/menus";
 import { ChartTextEditor } from "../charts/ChartTextEditor";
 
@@ -126,6 +127,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     return {
       cells: cache.cells, cols: cache.cols, rows: cache.rows, colGeo: geo.col, rowGeo: geo.row, merges: cache.merges,
       cf: cache.cf, barAxes: cache.cf.size > 0 ? store.barAxes(sheet) : undefined,
+      showFormulas: store.getState().showFormulas,
     };
   }, [store]);
 
@@ -274,6 +276,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           }
         }
         if (marks.length > 0) drawRefHighlights(cctx, vp, data, marks);
+        const arrows = store.trace.on(state.activeSheet);
+        if (arrows.length > 0) paintArrows(cctx, data.colGeo, data.rowGeo, arrows, vp.scrollX, vp.scrollY);
         paintCharts(cctx, frames, vp, chartSel);
         cctx.restore();
       }
@@ -532,6 +536,13 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   // Keyboard pointing may move the reference cursor off screen.
   const scrollRef = useRef(scrollIntoView);
   scrollRef.current = scrollIntoView;
+  // The Name Box and Go To scroll their target into view (after the sheet switch renders).
+  useEffect(() => {
+    store.revealCell = (row, col) => requestAnimationFrame(() => scrollRef.current({ row, col }));
+    return () => {
+      store.revealCell = null;
+    };
+  }, [store]);
   useEffect(
     () =>
       store.subscribe(() => {

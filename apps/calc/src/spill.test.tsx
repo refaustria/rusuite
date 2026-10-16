@@ -62,7 +62,7 @@ describe("spill UI", () => {
     fireEvent.click(button);
     expect(screen.getByTestId("spill-menu").textContent).toContain("Spill range isn't blank");
     fireEvent.click(screen.getByRole("menuitem", { name: "Select obstructing cells" }));
-    expect(screen.getByTestId("cell-address").textContent).toBe("A3");
+    expect((screen.getByTestId("cell-address") as HTMLInputElement).value).toBe("A3");
     expect(screen.queryByTestId("spill-indicator")).toBeNull();
   });
 });

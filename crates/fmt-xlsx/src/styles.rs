@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 
 use core_model::{Color, FontFace, FontSize, Rgb, RunProperties, Underline, VerticalAlign};
-use model_sheet::numfmt::{builtin_code, builtin_id, GENERAL};
+use model_sheet::numfmt::{builtin_code, builtin_id, is_locale_builtin, GENERAL};
 use model_sheet::{
     Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, StyleTable, VAlign,
 };
@@ -708,6 +708,7 @@ pub fn write_styles_with_dxfs(
     let mut fills = Pool::new(vec![fill_xml(None), gray125_xml()]);
     let mut borders = Pool::new(vec![border_xml(&Borders::default())]);
     let mut custom_fmts: Vec<String> = Vec::new();
+    let mut locale_fmts: Vec<u16> = Vec::new();
 
     struct Xf {
         num_fmt: u32,
@@ -722,6 +723,14 @@ pub fn write_styles_with_dxfs(
             let num_fmt = match s.number_format.as_deref() {
                 None => 0,
                 Some(code) => match builtin_id(code) {
+                    Some(id) if is_locale_builtin(id) => {
+                        // Written with its code, so that another locale's
+                        // Excel does not substitute its own currency.
+                        if !locale_fmts.contains(&id) {
+                            locale_fmts.push(id);
+                        }
+                        u32::from(id)
+                    }
                     Some(id) => u32::from(id),
                     None => {
                         let i = custom_fmts
@@ -751,8 +760,19 @@ pub fn write_styles_with_dxfs(
 
     let mut x = XmlOut::new();
     x.start("styleSheet", &[("xmlns", MAIN_NS)]);
-    if !custom_fmts.is_empty() {
-        x.start("numFmts", &[("count", &custom_fmts.len().to_string())]);
+    if !custom_fmts.is_empty() || !locale_fmts.is_empty() {
+        locale_fmts.sort_unstable();
+        let count = custom_fmts.len() + locale_fmts.len();
+        x.start("numFmts", &[("count", &count.to_string())]);
+        for id in &locale_fmts {
+            x.empty(
+                "numFmt",
+                &[
+                    ("numFmtId", &id.to_string()),
+                    ("formatCode", builtin_code(*id).unwrap_or(GENERAL)),
+                ],
+            );
+        }
         for (i, code) in custom_fmts.iter().enumerate() {
             x.empty(
                 "numFmt",
@@ -971,13 +991,13 @@ mod tests {
             }
         );
         assert_eq!(p.xfs[4].number_format.as_deref(), Some("mm-dd-yy"));
-        assert_eq!(p.xfs[5].number_format, None);
+        // Id 42 (accounting) is a locale-dependent built-in: its en-US code.
+        assert_eq!(p.xfs[5].number_format.as_deref(), builtin_code(42));
         assert!(
             p.xfs[6].is_default(),
             "out-of-range ids fall back to defaults"
         );
-        assert_eq!(warnings.len(), 1, "{warnings:?}");
-        assert!(warnings[0].contains("42"));
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 
     #[test]

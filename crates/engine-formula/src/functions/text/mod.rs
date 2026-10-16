@@ -14,7 +14,6 @@ pub mod len;
 pub mod lower;
 pub mod mid;
 pub mod numbervalue;
-pub(crate) mod numfmt;
 pub mod proper;
 pub mod replace;
 pub mod rept;
