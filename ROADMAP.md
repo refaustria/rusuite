@@ -131,6 +131,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## Office parity – tracked in docs/parity-backlog.md (Phase 8)
 
 ## AI assistant – docs/ai-plan.md
+- v1 merged 2026-10-16. Next: prompt caching for whole-document context; reasoning-effort choice for 5.5 models; attach a selected image (Write/Show); desktop smoke with a real key; Show's Home tab AI group may fall off-screen at 1400 px (ribbon collapse work); web CSP decision.
 
 ## Cloud connectors (user-owned accounts) – see docs/cloud-connectors-plan.md
 - v1 (WebDAV) merged 2026-10-16. Next: S3 connector; generic OAuth PKCE connector with the user's own client id (Google Drive/OneDrive/Dropbox); shared desktop connection records across the three apps (per-app data dirs today); CORS setup guide for Nextcloud/ownCloud on the portal; desktop smoke test for the connector commands (keyring untested at runtime).
