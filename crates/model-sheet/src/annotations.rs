@@ -949,9 +949,11 @@ mod tests {
                 col: 0,
                 ascending: true,
                 kind: crate::SortKind::Auto,
+                ..Default::default()
             }],
             has_header: false,
             case_sensitive: false,
+            ..Default::default()
         };
         wb.sort_range(CellRange::new(s, 0, 0, 2, 0), &spec).unwrap();
         assert_eq!(wb.note_at(c(2, 0)).unwrap().plain_text(), "three");

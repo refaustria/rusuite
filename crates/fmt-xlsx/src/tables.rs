@@ -396,7 +396,8 @@ fn table_xml(t: &Table) -> Vec<u8> {
     }
     x.start("table", &a);
     if let Some(af) = &t.auto_filter {
-        crate::write::auto_filter_xml(&mut x, af);
+        // Table filters by colour are not written (no dxf table here).
+        crate::write::auto_filter_xml(&mut x, af, &[]);
     }
     x.start("tableColumns", &[("count", &t.columns.len().to_string())]);
     for c in &t.columns {

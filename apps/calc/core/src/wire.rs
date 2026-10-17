@@ -301,13 +301,78 @@ pub enum SortKind {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "apps/calc/src/generated/")]
 pub struct SortKey {
-    /// Absolute column index.
+    /// Absolute column index (the row of a left-to-right sort).
     pub col: u32,
+    /// Ascending, or (colour and icon keys) on top.
     pub ascending: bool,
     /// Absent = `auto`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub kind: Option<SortKind>,
+    /// Absent = the values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sort_on: Option<SortOn>,
+    /// A custom list order (`Mon, Tue, …`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub custom_list: Option<Vec<String>>,
+}
+
+/// Mirror of `model_sheet::SortOn`: what a sort level compares.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum SortOn {
+    Values,
+    /// Cells with this fill (absent: no fill) on top / at the bottom.
+    CellColor {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        color: Option<Color>,
+    },
+    /// Cells with this font colour (absent: automatic).
+    FontColor {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        color: Option<Color>,
+    },
+    Icon {
+        set: crate::wire_cf::IconSetKind,
+        icon: u8,
+    },
+}
+
+/// Mirror of `model_sheet::DateGroup`: a year, a month or a day of the
+/// AutoFilter's date tree.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct DateGroup {
+    pub year: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub month: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub day: Option<u32>,
+}
+
+/// Mirror of `model_sheet::LineColors`: the reply to `lineColors`
+/// (Sort by Color / Filter by Color choices of a column).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct LineColors {
+    /// `null`: no fill.
+    pub fills: Vec<Option<Color>>,
+    /// `null`: automatic.
+    pub fonts: Vec<Option<Color>>,
+    pub icons: Vec<(crate::wire_cf::IconSetKind, u8)>,
 }
 
 /// Mirror of `model_sheet::SortState`: the last sort of a sheet (rows
@@ -324,6 +389,10 @@ pub struct SortState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub case_sensitive: Option<bool>,
+    /// A left-to-right sort: the keys are rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub column_sort: Option<bool>,
 }
 
 /// Mirror of `model_sheet::FilterOp`.
@@ -393,6 +462,26 @@ pub enum Filter {
     Dynamic {
         filter: DynamicFilter,
     },
+    /// The date tree: dates in a group, plus the other `values`.
+    DateGroups {
+        groups: Vec<DateGroup>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<String>>")]
+        values: Vec<String>,
+    },
+    /// Filter by Color: the fill (`font`: font colour; absent colour: none / automatic).
+    Color {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        color: Option<Color>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        font: bool,
+    },
+    Icon {
+        set: crate::wire_cf::IconSetKind,
+        icon: u8,
+    },
 }
 
 /// Mirror of `model_sheet::FilterColumn`.
@@ -429,6 +518,10 @@ pub struct FilterValue {
     /// The displayed text; `""` = blank cells.
     pub display: String,
     pub count: u32,
+    /// `[year, month, day]` of a date cell (the date tree).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub date: Option<[u32; 3]>,
 }
 
 #[cfg(test)]
@@ -539,6 +632,7 @@ mod tests {
             col,
             ascending,
             kind,
+            ..Default::default()
         };
         for kind in [
             ms::SortKind::Auto,
@@ -547,6 +641,40 @@ mod tests {
         ] {
             same_shape::<_, SortKey>(&key(1, false, kind));
         }
+        let red = core_model::Color::Rgb(Rgb::new(255, 0, 0));
+        for sort_on in [
+            ms::SortOn::CellColor { color: Some(red) },
+            ms::SortOn::CellColor { color: None },
+            ms::SortOn::FontColor { color: Some(red) },
+            ms::SortOn::FontColor { color: None },
+            ms::SortOn::Icon {
+                set: ms::IconSetKind::Arrows3,
+                icon: 2,
+            },
+        ] {
+            same_shape::<_, SortKey>(&ms::SortKey {
+                sort_on,
+                ..ms::SortKey::new(3, false)
+            });
+        }
+        same_shape::<_, SortKey>(&ms::SortKey {
+            custom_list: Some(vec!["Mon".into(), "Tue".into()]),
+            ..ms::SortKey::new(3, true)
+        });
+        same_shape::<_, SortState>(&ms::SortState {
+            r0: 1,
+            c0: 0,
+            r1: 9,
+            c1: 3,
+            keys: vec![key(2, true, ms::SortKind::Auto)],
+            column_sort: true,
+            ..Default::default()
+        });
+        same_shape::<_, LineColors>(&ms::LineColors {
+            fills: vec![None, Some(red)],
+            fonts: vec![Some(red)],
+            icons: vec![(ms::IconSetKind::Flags3, 1)],
+        });
         for case_sensitive in [false, true] {
             same_shape::<_, SortState>(&ms::SortState {
                 r0: 1,
@@ -555,6 +683,7 @@ mod tests {
                 c1: 3,
                 keys: vec![key(2, true, ms::SortKind::Auto)],
                 case_sensitive,
+                ..Default::default()
             });
         }
         let ops = [
@@ -600,6 +729,39 @@ mod tests {
             ]
             .map(|filter| ms::Filter::Dynamic { filter }),
         );
+        filters.extend([
+            ms::Filter::DateGroups {
+                groups: vec![
+                    ms::DateGroup {
+                        year: 2024,
+                        month: None,
+                        day: None,
+                    },
+                    ms::DateGroup {
+                        year: 2025,
+                        month: Some(2),
+                        day: Some(28),
+                    },
+                ],
+                values: vec![String::new()],
+            },
+            ms::Filter::DateGroups {
+                groups: vec![],
+                values: vec![],
+            },
+            ms::Filter::Color {
+                color: Some(red),
+                font: true,
+            },
+            ms::Filter::Color {
+                color: None,
+                font: false,
+            },
+            ms::Filter::Icon {
+                set: ms::IconSetKind::Rating5,
+                icon: 4,
+            },
+        ]);
         let mut af = ms::AutoFilter::new(0, 1, 20, 9);
         same_shape::<_, AutoFilter>(&af);
         af.columns = filters
@@ -614,6 +776,12 @@ mod tests {
         same_shape::<_, FilterValue>(&ms::FilterValue {
             display: "x".into(),
             count: 3,
+            date: None,
+        });
+        same_shape::<_, FilterValue>(&ms::FilterValue {
+            display: "2024-01-05".into(),
+            count: 1,
+            date: Some([2024, 1, 5]),
         });
         same_shape::<_, SheetView>(&ms::SheetView {
             frozen_rows: 1,

@@ -160,6 +160,7 @@ impl Workbook {
         if let Some(old) = old.filter(|o| o != new_name) {
             self.rename_chart_refs(None, &old, new_name);
             self.rename_pivot_sources(&old, new_name);
+            self.rename_rule_refs(&old, new_name);
         }
         Ok(rewritten)
     }

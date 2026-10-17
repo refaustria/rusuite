@@ -63,7 +63,7 @@ describe("Conditional Formatting menu", () => {
     select(grid, 0, 0, 4, 0);
     const sub = flyout(openCfMenu(), "Highlight Cells Rules");
     expect(within(sub).getAllByRole("menuitem").map((b) => b.textContent)).toEqual([
-      "Greater Than…", "Less Than…", "Between…", "Equal To…", "Text that Contains…", "Duplicate Values…", "More Rules…",
+      "Greater Than…", "Less Than…", "Between…", "Equal To…", "Text that Contains…", "A Date Occurring…", "Duplicate Values…", "More Rules…",
     ]);
     fireEvent.click(within(sub).getByRole("menuitem", { name: "Greater Than…" }));
     const dlg = screen.getByRole("dialog", { name: "Greater Than" });
@@ -235,6 +235,18 @@ describe("Rules Manager", () => {
         { type: "updateCfRule", sheet: 0, rule: expect.objectContaining({ id: 3, priority: 2, ranges: [{ r0: 0, c0: 1, r1: 2, c1: 1 }, { r0: 0, c0: 3, r1: 0, c1: 3 }] }) },
       ] },
     ]));
+  });
+
+  it("Duplicate Rule adds a copy above the rule; Apply sends it and keeps the dialog open", async () => {
+    const { core, dlg } = await withRules();
+    fireEvent.click(within(dlg).getAllByTestId("cf-rule-row")[1]!);
+    fireEvent.click(within(dlg).getByRole("button", { name: "Duplicate Rule" }));
+    expect(within(dlg).getAllByTestId("cf-rule-row").map((r) => r.querySelector("td")!.textContent)).toEqual(["Cell Value > 5", "Unique Values", "Unique Values", "Blanks"]);
+    fireEvent.click(within(dlg).getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(applied(core.log)).toEqual([
+      { type: "addCfRule", sheet: 0, rule: expect.objectContaining({ id: 0, priority: 2, kind: { type: "uniqueValues" }, ranges: [{ r0: 0, c0: 0, r1: 9, c1: 0 }] }) },
+    ]));
+    expect(screen.getByRole("dialog", { name: "Conditional Formatting Rules Manager" })).toBeTruthy();
   });
 
   it("a bad range keeps the dialog open; Edit Rule… changes the rule; Cancel sends nothing", async () => {

@@ -44,7 +44,8 @@ pub use annotations::{
 pub use calc::{CalcMode, CalcSettings};
 pub use chart::{CellOffset, ChartAnchor, ChartObject, ResolvedRef};
 pub use condfmt::{
-    CfKind, CfResult, CfRule, CfValue, ColorPoint, CompareOp, DxfStyle, IconSetKind,
+    CfKind, CfResult, CfRule, CfValue, ColorPoint, CompareOp, DataBarAxis, DataBarDirection,
+    DataBarDraw, DxfStyle, IconSetKind, TimePeriod, NEGATIVE_BAR_COLOR,
 };
 pub use consolidate::{ConsolidateFunction, ConsolidateSpec};
 pub use engine_formula::CellRect;
@@ -55,6 +56,7 @@ pub use outline::{Axis, OutlineProps, OutlineState, MAX_OUTLINE_LEVEL};
 pub use picture::Picture;
 pub use pivot::{PivotCache, PivotTable};
 pub use protection::{HashedPassword, Password, SheetProtection, WorkbookProtection};
+pub use rules::RulesPaste;
 pub use sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView, MAX_ZOOM, MIN_ZOOM};
 pub use slicer::{
     Slicer, SlicerCache, SlicerItem, SlicerSort, SlicerSource, SlicerState, DEFAULT_SLICER_STYLE,
@@ -64,8 +66,8 @@ pub use snapshot::{
     WorkbookSnapshot,
 };
 pub use sortfilter::{
-    AutoFilter, Criterion, DynamicFilter, Filter, FilterChange, FilterColumn, FilterOp,
-    FilterValue, SortKey, SortKind, SortSpec, SortState,
+    AutoFilter, Criterion, DateGroup, DynamicFilter, Filter, FilterChange, FilterColumn, FilterOp,
+    FilterValue, LineColors, SortKey, SortKind, SortOn, SortSpec, SortState, BUILTIN_CUSTOM_LISTS,
 };
 pub use style::{
     Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, PatternFill, PatternType,

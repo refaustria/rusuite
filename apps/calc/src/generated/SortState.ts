@@ -5,4 +5,8 @@ import type { SortKey } from "./SortKey";
  * Mirror of `model_sheet::SortState`: the last sort of a sheet (rows
  * without the header).
  */
-export type SortState = { r0: number, c0: number, r1: number, c1: number, keys: Array<SortKey>, caseSensitive?: boolean, };
+export type SortState = { r0: number, c0: number, r1: number, c1: number, keys: Array<SortKey>, caseSensitive?: boolean, 
+/**
+ * A left-to-right sort: the keys are rows.
+ */
+columnSort?: boolean, };

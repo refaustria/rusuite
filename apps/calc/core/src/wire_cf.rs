@@ -66,6 +66,9 @@ pub struct DxfStyle {
 pub enum CfValue {
     Min,
     Max,
+    /// Excel 2010's automatic data bar bounds: `min(0, lowest)`, `max(0, highest)`.
+    AutoMin,
+    AutoMax,
     Num(String),
     Percent(String),
     Percentile(String),
@@ -121,6 +124,98 @@ pub enum IconSetKind {
     Quarters5,
 }
 
+/// Mirror of `model_sheet::TimePeriod` ("A Date Occurring"; weeks start on Sunday).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum TimePeriod {
+    Yesterday,
+    Today,
+    Tomorrow,
+    Last7Days,
+    LastWeek,
+    ThisWeek,
+    NextWeek,
+    LastMonth,
+    ThisMonth,
+    NextMonth,
+}
+
+/// Mirror of `model_sheet::DataBarAxis`.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum DataBarAxis {
+    #[default]
+    Automatic,
+    Midpoint,
+    None,
+}
+
+/// Mirror of `model_sheet::DataBarDirection`.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum DataBarDirection {
+    #[default]
+    Context,
+    LeftToRight,
+    RightToLeft,
+}
+
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
+fn ten() -> u32 {
+    10
+}
+
+fn is_ten(n: &u32) -> bool {
+    *n == 10
+}
+
+fn ninety() -> u32 {
+    90
+}
+
+fn is_ninety(n: &u32) -> bool {
+    *n == 90
+}
+
+/// Mirror of `model_sheet::DataBarDraw`: a cell's data bar as the core
+/// computed it (`from`..`to` fractions of the cell width from its left
+/// edge, the axis position, final colours).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct DataBarDraw {
+    pub from: f64,
+    pub to: f64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub negative: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub axis: Option<f64>,
+    pub color: Color,
+    pub gradient: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub border: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub axis_color: Option<Color>,
+}
+
 /// Mirror of `model_sheet::CfKind`: what a rule tests or draws. Text
 /// tests are case-insensitive; `iconSet.thresholds` has one entry per
 /// icon, lowest first.
@@ -160,26 +255,66 @@ pub enum CfKind {
         percent: bool,
         bottom: bool,
     },
+    /// `stdDev` 1–3: beyond the average ± that many population standard deviations.
     AboveAverage {
         above: bool,
         equal: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        std_dev: Option<u32>,
+    },
+    TimePeriod {
+        period: TimePeriod,
     },
     DuplicateValues,
     UniqueValues,
+    /// The Excel 2010 options default to an Excel 2007 bar (gradient, no
+    /// border, automatic axis, lengths 10–90 %).
     DataBar {
         color: Color,
         min: CfValue,
         max: CfValue,
         show_value: bool,
+        #[serde(default = "yes", skip_serializing_if = "is_true")]
+        #[ts(optional, as = "Option<bool>")]
+        gradient: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        border: Option<Color>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        negative_color: Option<Color>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        negative_border: Option<Color>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        axis_color: Option<Color>,
+        #[serde(default, skip_serializing_if = "is_default")]
+        #[ts(optional, as = "Option<DataBarAxis>")]
+        axis: DataBarAxis,
+        #[serde(default, skip_serializing_if = "is_default")]
+        #[ts(optional, as = "Option<DataBarDirection>")]
+        direction: DataBarDirection,
+        #[serde(default = "ten", skip_serializing_if = "is_ten")]
+        #[ts(optional, as = "Option<u32>")]
+        min_length: u32,
+        #[serde(default = "ninety", skip_serializing_if = "is_ninety")]
+        #[ts(optional, as = "Option<u32>")]
+        max_length: u32,
     },
     ColorScale {
         points: Vec<ColorPoint>,
     },
+    /// `greater[i]`: icon `i` needs `>` its threshold instead of `>=`.
     IconSet {
         set: IconSetKind,
         thresholds: Vec<CfValue>,
         reverse: bool,
         show_value: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<bool>>")]
+        greater: Vec<bool>,
     },
 }
 
@@ -210,13 +345,10 @@ pub struct CfResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub dxf: Option<DxfStyle>,
-    /// Data bar length, 0..=1 of the full bar.
+    /// The data bar, geometry and colours computed by the core.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub bar: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub bar_color: Option<Color>,
+    pub bar: Option<DataBarDraw>,
     /// Colour scale background.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -232,6 +364,10 @@ pub struct CfResult {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]
     pub hide_value: bool,
+    /// The value in the rule's number format (replaces the cell's display).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub display: Option<String>,
 }
 
 /// Mirror of `model_sheet::ListSource`.
@@ -415,6 +551,8 @@ mod tests {
         let values = [
             ms::CfValue::Min,
             ms::CfValue::Max,
+            ms::CfValue::AutoMin,
+            ms::CfValue::AutoMax,
             ms::CfValue::Num(v("1")),
             ms::CfValue::Percent(v("50")),
             ms::CfValue::Percentile(v("90")),
@@ -455,14 +593,30 @@ mod tests {
             ms::CfKind::AboveAverage {
                 above: false,
                 equal: true,
+                std_dev: None,
+            },
+            ms::CfKind::AboveAverage {
+                above: true,
+                equal: false,
+                std_dev: Some(3),
             },
             ms::CfKind::DuplicateValues,
             ms::CfKind::UniqueValues,
+            ms::CfKind::data_bar(red, values[0].clone(), values[1].clone(), false),
             ms::CfKind::DataBar {
                 color: red,
-                min: values[0].clone(),
-                max: values[1].clone(),
-                show_value: false,
+                min: values[2].clone(),
+                max: values[3].clone(),
+                show_value: true,
+                gradient: false,
+                border: Some(theme),
+                negative_color: Some(red),
+                negative_border: Some(theme),
+                axis_color: Some(red),
+                axis: ms::DataBarAxis::None,
+                direction: ms::DataBarDirection::RightToLeft,
+                min_length: 0,
+                max_length: 100,
             },
             ms::CfKind::ColorScale {
                 points: values
@@ -474,6 +628,20 @@ mod tests {
                     .collect(),
             },
         ]);
+        for period in [
+            ms::TimePeriod::Yesterday,
+            ms::TimePeriod::Today,
+            ms::TimePeriod::Tomorrow,
+            ms::TimePeriod::Last7Days,
+            ms::TimePeriod::LastWeek,
+            ms::TimePeriod::ThisWeek,
+            ms::TimePeriod::NextWeek,
+            ms::TimePeriod::LastMonth,
+            ms::TimePeriod::ThisMonth,
+            ms::TimePeriod::NextMonth,
+        ] {
+            kinds.push(ms::CfKind::TimePeriod { period });
+        }
         for set in [
             "3Arrows",
             "3ArrowsGray",
@@ -495,11 +663,13 @@ mod tests {
         ] {
             let set = ms::IconSetKind::from_name(set).unwrap();
             same_shape::<_, IconSetKind>(&set);
+            let n = set.icons();
             kinds.push(ms::CfKind::IconSet {
                 set,
-                thresholds: values.to_vec(),
+                thresholds: values[..n].to_vec(),
                 reverse: true,
                 show_value: true,
+                greater: (0..n).map(|i| i % 2 == 1).collect(),
             });
         }
         for (i, kind) in kinds.into_iter().enumerate() {
@@ -521,12 +691,34 @@ mod tests {
         same_shape::<_, CfResult>(&ms::CfResult::default());
         same_shape::<_, CfResult>(&ms::CfResult {
             dxf: Some(dxf),
-            bar: Some(0.5),
-            bar_color: Some(red),
+            bar: Some(ms::DataBarDraw {
+                from: 0.25,
+                to: 0.5,
+                negative: true,
+                axis: Some(0.5),
+                color: red,
+                gradient: false,
+                border: Some(theme),
+                axis_color: Some(red),
+            }),
             color: Some(theme),
             icon: Some(2),
             icon_set: Some(ms::IconSetKind::Arrows3),
             hide_value: true,
+            display: Some(v("12%")),
+        });
+        same_shape::<_, CfResult>(&ms::CfResult {
+            bar: Some(ms::DataBarDraw {
+                from: 0.0,
+                to: 1.0,
+                negative: false,
+                axis: None,
+                color: red,
+                gradient: true,
+                border: None,
+                axis_color: None,
+            }),
+            ..Default::default()
         });
 
         let cmp = |op| (op, v("1"), Some(v("$B$2")));

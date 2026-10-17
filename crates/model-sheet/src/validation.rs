@@ -203,6 +203,13 @@ impl DataValidation {
         (&mut self.ranges, self.kind.formulas_mut())
     }
 
+    /// Every formula of the validation (bounds, custom formula, list
+    /// source range), without `=`.
+    pub fn formulas(&self) -> Vec<String> {
+        let mut copy = self.kind.clone();
+        copy.formulas_mut().into_iter().map(|f| f.clone()).collect()
+    }
+
     fn check(&mut self) -> Result<(), Error> {
         check_ranges(&mut self.ranges)?;
         check_formulas(self.kind.formulas_mut())?;
@@ -430,6 +437,37 @@ impl Workbook {
             None => None,
         };
         op.test(&Value::Number(subject), &a, b.as_ref())
+    }
+
+    /// Excel's Data › Data Validation › Circle Invalid Data: the cells of
+    /// `sheet` whose current values fail their validation (whatever its
+    /// error alert setting), row-major, at most `limit` (Excel circles 255).
+    /// Blank cells are never circled.
+    pub fn invalid_cells(&self, sheet: SheetId, limit: usize) -> Vec<CellCoord> {
+        let Some((mr, mc)) = self.used_range(sheet) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for dv in self.validations(sheet) {
+            if dv.kind == ValidationKind::Any {
+                continue;
+            }
+            for r in &dv.ranges {
+                for row in r.r0..=r.r1.min(mr) {
+                    for col in r.c0..=r.c1.min(mc) {
+                        let c = CellCoord::new(sheet, row, col);
+                        let v = self.value(c).into_scalar();
+                        if !matches!(v, Value::Empty) && !self.passes(dv, c, v) {
+                            out.push(c);
+                        }
+                    }
+                }
+            }
+        }
+        out.sort_by_key(|c| (c.row, c.col));
+        out.dedup();
+        out.truncate(limit);
+        out
     }
 
     /// The values of a list validation for cell `c` with the cells they
@@ -721,6 +759,124 @@ mod tests {
         assert!(wb
             .validate_input(CellCoord::new(SheetId(9), 0, 0), "1")
             .is_err());
+    }
+
+    #[test]
+    fn circle_invalid_data() {
+        let (mut wb, s) = setup();
+        for (r, v) in ["5", "50", "", "x", "7"].iter().enumerate() {
+            wb.set_input(CellCoord::new(s, r as u32, 1), v).unwrap();
+        }
+        wb.set_validation(
+            s,
+            DataValidation {
+                show_error: false,
+                ..DataValidation::new(
+                    vec![rect(0, 1, 9, 1)],
+                    ValidationKind::Whole {
+                        op: CompareOp::Between,
+                        f1: "1".into(),
+                        f2: Some("10".into()),
+                    },
+                )
+            },
+        )
+        .unwrap();
+        // The list in E: Red, Green, Blue; A1 holds "Purple".
+        wb.set_input(CellCoord::new(s, 0, 0), "Purple").unwrap();
+        wb.set_validation(
+            s,
+            DataValidation::new(
+                vec![rect(0, 0, 0, 0)],
+                ValidationKind::List {
+                    source: ListSource::Formula {
+                        formula: "$E$1:$E$4".into(),
+                    },
+                },
+            ),
+        )
+        .unwrap();
+        let bad: Vec<(u32, u32)> = wb
+            .invalid_cells(s, 255)
+            .into_iter()
+            .map(|c| (c.row, c.col))
+            .collect();
+        assert_eq!(bad, [(0, 0), (1, 1), (3, 1)]);
+        assert_eq!(wb.invalid_cells(s, 1).len(), 1);
+        wb.set_input(CellCoord::new(s, 1, 1), "9").unwrap();
+        assert_eq!(wb.invalid_cells(s, 255).len(), 2);
+    }
+
+    #[test]
+    fn list_sources_on_other_sheets_names_and_tables() {
+        let mut wb = Workbook::new();
+        let s = SheetId(0);
+        let lists = wb.add_sheet("Lists").unwrap();
+        for (r, v) in ["Apple", "Pear", "Plum"].iter().enumerate() {
+            wb.set_input(CellCoord::new(lists, r as u32 + 1, 0), v)
+                .unwrap();
+        }
+        wb.set_input(CellCoord::new(lists, 0, 0), "Fruit").unwrap();
+        wb.define_name(&crate::DefinedName::new(
+            "Fruits",
+            crate::NameScope::Workbook,
+            "Lists!$A$2:$A$4",
+        ))
+        .unwrap();
+        let table = crate::Table::new(1, "Produce", 0, 0, 3, 0, &["Fruit".to_string()]);
+        wb.set_tables(lists, vec![table]).unwrap();
+        let at = CellCoord::new(s, 0, 0);
+        for source in [
+            "Lists!$A$2:$A$4",
+            "Fruits",
+            "Produce[Fruit]",
+            "INDIRECT(\"Lists!A2:A4\")",
+        ] {
+            wb.set_validation(
+                s,
+                DataValidation::new(
+                    vec![rect(0, 0, 0, 0)],
+                    ValidationKind::List {
+                        source: ListSource::Formula {
+                            formula: source.into(),
+                        },
+                    },
+                ),
+            )
+            .unwrap();
+            assert_eq!(wb.list_values(at), ["Apple", "Pear", "Plum"], "{source}");
+            assert!(ok(&wb, at, "pear"), "{source}");
+            assert!(!ok(&wb, at, "Fig"), "{source}");
+        }
+    }
+
+    #[test]
+    fn custom_formulas_are_relative_to_the_top_left_cell() {
+        // B2:B5 must be greater than the cell to its left.
+        let mut wb = Workbook::new();
+        let s = SheetId(0);
+        for r in 1..5 {
+            wb.set_input(CellCoord::new(s, r, 0), &(r * 10).to_string())
+                .unwrap();
+        }
+        wb.set_validation(
+            s,
+            DataValidation::new(
+                vec![rect(1, 1, 4, 1)],
+                ValidationKind::Custom {
+                    formula: "B2>A2".into(),
+                },
+            ),
+        )
+        .unwrap();
+        assert!(ok(&wb, CellCoord::new(s, 1, 1), "11"));
+        assert!(!ok(&wb, CellCoord::new(s, 3, 1), "25"));
+        assert!(ok(&wb, CellCoord::new(s, 3, 1), "41"));
+        // Ignore blank off: an empty entry fails.
+        let mut dv = wb.validations(s)[0].clone();
+        dv.allow_blank = false;
+        wb.set_validation(s, dv).unwrap();
+        assert!(!ok(&wb, CellCoord::new(s, 3, 1), ""));
     }
 
     #[test]
