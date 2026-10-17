@@ -98,7 +98,7 @@ export function inlinesToPM(schema: Schema, inlines: Inline[]): PMNode[] {
       case "field":
         out.push(
           schema.nodes.field!.create(
-            { kind: canonValue(inline.value.kind), cached: inline.value.cached ?? "" },
+            { kind: canonValue(inline.value.kind), cached: inline.value.cached ?? "", locked: inline.value.locked ? true : null },
             null,
             marksFromProps(schema, inline.value.props),
           ),

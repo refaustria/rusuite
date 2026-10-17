@@ -92,6 +92,8 @@ export interface FieldContext {
   locale: () => string;
   /** Document properties (TITLE, AUTHOR fields). */
   properties?: () => CoreProperties | null;
+  /** Pages of the section holding `pos` (SECTIONPAGES; null: unknown). */
+  sectionPagesAt?: (pos: number, state: EditorState) => string | null;
 }
 
 const bookmarkCache = new WeakMap<PMNode, Map<string, number>>();
@@ -165,10 +167,13 @@ export function fieldValue(kind: FieldKind, pos: number, state: EditorState, ctx
       const at = bookmarkStarts(state.doc).get(kind.value.bookmark.toLowerCase());
       return at === undefined ? null : ctx.pageAt(at, state);
     }
-    // REF, NOTEREF and SEQ show their result until Update Field (F9) recomputes it in Rust (Word).
+    case "sectionPages":
+      return ctx.sectionPagesAt?.(pos, state) ?? null;
+    // REF, NOTEREF, SEQ and STYLEREF show their result until Update Field (F9) recomputes it in Rust (Word).
     case "ref":
     case "noteRef":
     case "seq":
+    case "styleRef":
       return null;
   }
 }
@@ -181,7 +186,7 @@ export function updateFieldsCommand(state: EditorState, ctx: FieldContext): Writ
     const id = node.attrs.id as number | null;
     if (id == null) return false;
     node.forEach((child, offset) => {
-      if (child.type.name !== "field") return;
+      if (child.type.name !== "field" || child.attrs.locked) return;
       const v = fieldValue(child.attrs.kind as FieldKind, pos + 1 + offset, state, ctx);
       if (v != null && v !== child.attrs.cached) values.push([id, charOffsetOf(node, offset), v]);
     });
@@ -237,6 +242,7 @@ export function buildStructureDecorations(state: EditorState, opts: StructureOpt
       return false;
     }
     if (node.type.name === "field") {
+      if (node.attrs.locked) return false;
       const v = fieldValue(node.attrs.kind as FieldKind, pos, state, opts.fields);
       if (v != null && v !== node.attrs.cached) decos.push(Decoration.node(pos, pos + 1, { "data-live": v }));
       return false;
@@ -290,6 +296,12 @@ export function layoutFieldContext(
       return pageAtPos(layout, Math.min(pos, state.doc.content.size))?.number ?? null;
     },
     pages: (state) => currentLayout(state)?.pages.length ?? null,
+    sectionPagesAt: (pos, state) => {
+      const layout = currentLayout(state);
+      const here = pageAtPos(layout, Math.min(pos, state.doc.content.size));
+      if (!layout || !here) return null;
+      return String(layout.pages.filter((p) => p.section === here.section).length);
+    },
     fileName,
     now,
     locale,

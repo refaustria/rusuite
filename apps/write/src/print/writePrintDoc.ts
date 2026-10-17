@@ -11,7 +11,7 @@ import {
 import "../i18n";
 import type { PageSetup } from "../generated/PageSetup";
 import type { Comment } from "../generated/Comment";
-import { commentText, fullDate, initialsOf, threads } from "../comments/model";
+import { commentText, fullDate, initialsOf, layoutBalloons, threads, type BalloonBox } from "../comments/model";
 import { t } from "../i18n";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { computeBreaks, headerFooterText, NOTE_SEPARATOR_PX, pageGeometry, type BlockBox, type PageGeometry, type PageLayout } from "../features/pagination";
@@ -177,6 +177,103 @@ export function addCommentMarkup(clones: HTMLElement[], comments: Comment[]): HT
     for (const r of th.replies) out.push(block("print-comment print-comment-reply", line(r)));
   }
   return out;
+}
+
+// ----- markup balloons (P9-W6) -----------------------------------------------------------
+
+/** The share of the paper the page keeps in markup print (Word scales it to make room for the balloons). */
+export const MARKUP_PAGE_SHARE = 0.72;
+/** Estimated balloon line height and characters per line (print px). */
+const BALLOON_LINE = 13;
+const BALLOON_CHARS = 34;
+
+const MARKUP_CSS = `.rs-markup-page { position: absolute; left: 0; top: 0; overflow: hidden; }
+.rs-markup-pane { position: absolute; top: 0; }
+.rs-markup-balloon { position: absolute; left: 10px; right: 8px; box-sizing: border-box; border: 1px solid #c8a2c8; border-left: 3px solid #b0739e; background: #fbf2fa; padding: 3px 5px; font: 8pt/1.3 Calibri, Carlito, "Segoe UI", sans-serif; color: #000; overflow: hidden; }
+.rs-markup-balloon b.rs-markup-author { display: block; font-weight: 600; }
+.rs-markup-balloon .rs-markup-reply { margin-top: 2px; padding-top: 2px; border-top: 1px dotted #c8a2c8; }
+.rs-markup-line { position: absolute; left: 0; border-top: 1px dashed #b0739e; }`;
+
+/** Where a thread's range starts in markup print: page index and y on the printed page (print px). */
+export interface MarkupAnchor {
+  id: number;
+  page: number;
+  y: number;
+}
+
+/** The page and y of every comment range start in the measured clones (`inner`), from the pagination result. */
+export function markupAnchors(inner: HTMLElement, flow: Flow, result: PaginateResult, scale: number): MarkupAnchor[] {
+  const base = inner.getBoundingClientRect().top;
+  const out: MarkupAnchor[] = [];
+  inner.querySelectorAll<HTMLElement>("[data-comment-start]").forEach((e) => {
+    const id = Number(e.dataset.commentStart);
+    if (out.some((m) => m.id === id) || e.closest(".notes-area")) return;
+    const y = e.getBoundingClientRect().top - base;
+    for (let k = 0; k < result.pages.length; k++) {
+      for (const col of result.pages[k]!.columns) {
+        for (const f of col.fragments) {
+          const b = flow.blocks[f.block];
+          if (!b || b.note) continue;
+          if (y >= f.top - 0.5 && y < f.bottom) {
+            out.push({ id, page: k, y: (f.y + (y - f.top)) * scale });
+            return;
+          }
+        }
+      }
+    }
+  });
+  return out;
+}
+
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+
+/** A comment's text as HTML with its run formatting (bold, italic, underline, strike). */
+export function commentHtml(c: Comment): string {
+  return (c.content ?? [])
+    .filter((b) => b.kind === "paragraph")
+    .map((b) =>
+      (b.kind === "paragraph" ? b.value.inlines : [])
+        .map((i) => {
+          if (i.kind === "break") return "<br>";
+          if (i.kind !== "run") return "";
+          const p = i.value.props ?? {};
+          let h = esc(i.value.text);
+          if (p.bold) h = `<b>${h}</b>`;
+          if (p.italic) h = `<i>${h}</i>`;
+          if (p.underline && p.underline !== "none") h = `<u>${h}</u>`;
+          if (p.strike) h = `<s>${h}</s>`;
+          return h;
+        })
+        .join(""),
+    )
+    .join("<br>");
+}
+
+/** One page of markup print: the page scaled into the left share, the balloons of its comments at the right (stacked, never overlapping). */
+export function markupPageHtml(pageHtml: string, geo: PageGeometry, anchors: MarkupAnchor[], comments: Comment[]): string {
+  const share = MARKUP_PAGE_SHARE;
+  const paneLeft = geo.width * share;
+  const paneW = geo.width - paneLeft;
+  const all = threads(comments, anchors.map((a) => a.id));
+  const boxes: BalloonBox[] = [];
+  const html = new Map<number, string>();
+  for (const a of anchors) {
+    const th = all.find((x) => x.root.id === a.id);
+    if (!th) continue;
+    const part = (c: Comment, cls = "") =>
+      `<div${cls ? ` class="${cls}"` : ""}><b class="rs-markup-author">${esc(c.author)}${c.date ? ` · ${esc(fullDate(c.date))}` : ""}</b>${commentHtml(c)}</div>`;
+    const lines = [th.root, ...th.replies].reduce((n, c) => n + 1 + Math.max(1, Math.ceil(commentText(c).length / BALLOON_CHARS)), 0);
+    boxes.push({ id: a.id, anchor: a.y * share, height: lines * BALLOON_LINE + 8 });
+    html.set(a.id, part(th.root) + th.replies.map((r) => part(r, "rs-markup-reply")).join(""));
+  }
+  const tops = layoutBalloons(boxes, 4);
+  const balloons = boxes
+    .map((b) => {
+      const top = tops.get(b.id) ?? b.anchor;
+      return `<div class="rs-markup-line" style="top:${b.anchor.toFixed(1)}px;width:10px"></div><div class="rs-markup-balloon" data-comment-balloon="${b.id}" style="top:${top.toFixed(1)}px;max-height:${b.height.toFixed(1)}px">${html.get(b.id) ?? ""}</div>`;
+    })
+    .join("");
+  return `<div class="rs-markup-page" style="width:${geo.width}px;height:${geo.height}px;zoom:${share}">${pageHtml}</div><div class="rs-markup-pane" style="left:${paneLeft.toFixed(1)}px;width:${paneW.toFixed(1)}px;height:${geo.height}px">${balloons}</div>`;
 }
 
 // ----- pages from the pagination ---------------------------------------------------------
@@ -483,7 +580,6 @@ export function buildWritePrintDoc(
     pairTextblocks(b, c, info);
     return cleanClone(c);
   });
-  if (o.markup) clones = addCommentMarkup(clones, comments);
   inner.append(...clones);
   document.body.appendChild(host);
   try {
@@ -513,8 +609,13 @@ export function buildWritePrintDoc(
       (k) => ({ header: headerFooterText(page?.headerText, k + 1, total), footer: headerFooterText(page?.footerText, k + 1, total) }),
     );
     const cls = o.markup ? `${contentClass} rs-write-markup` : contentClass;
-    const pages = sheets.map((sh) => sheetHtml(sh, geo, scale, cls));
-    return { widthIn: geo.width / 96, heightIn: geo.height / 96, css, pages: pages.length ? pages : [""], head: documentStyles() };
+    let pages = sheets.map((sh) => sheetHtml(sh, geo, scale, cls));
+    if (o.markup) {
+      // Word's "Document showing markup": the page scaled down, the comments as balloons in a pane at the right.
+      const marks = markupAnchors(inner, flow, result, scale);
+      pages = pages.map((html, k) => markupPageHtml(html, geo, marks.filter((m) => m.page === k), comments));
+    }
+    return { widthIn: geo.width / 96, heightIn: geo.height / 96, css: o.markup ? `${css}\n${MARKUP_CSS}` : css, pages: pages.length ? pages : [""], head: documentStyles() };
   } finally {
     host.remove();
   }

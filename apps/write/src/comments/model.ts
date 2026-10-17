@@ -175,7 +175,34 @@ export interface BalloonBox {
  * active balloon sits exactly at its anchor; the ones above it move up as
  * far as needed (never above `top`), the ones below move down.
  */
-export function layoutBalloons(boxes: BalloonBox[], gap = 8, active: number | null = null, top = 0): Map<number, number> {
+export function layoutBalloons(boxes: BalloonBox[], gap = 8, active: number | null = null, top = 0, pageGaps: [number, number][] = []): Map<number, number> {
+  const tops = stackBalloons(boxes, gap, active, top);
+  if (!pageGaps.length) return tops;
+  return avoidPageGaps(boxes, tops, gap, pageGaps);
+}
+
+/**
+ * Print layout (P9-W6): no balloon sits in a page gap or crosses a page
+ * bottom — Word's markup area is per page. In anchor order, a balloon that
+ * would overlap a gap `[gapTop, gapBottom)` moves to the top of the next
+ * page (below the gap) and pushes the following ones down.
+ */
+export function avoidPageGaps(boxes: BalloonBox[], tops: Map<number, number>, gap: number, pageGaps: [number, number][]): Map<number, number> {
+  const sorted = [...boxes].sort((a, b) => (tops.get(a.id) ?? a.anchor) - (tops.get(b.id) ?? b.anchor) || a.id - b.id);
+  const gaps = [...pageGaps].sort((a, b) => a[0] - b[0]);
+  const out = new Map<number, number>();
+  let floor = -Infinity;
+  for (const b of sorted) {
+    let y = Math.max(tops.get(b.id) ?? b.anchor, floor);
+    // Gaps are sorted and y only grows: one pass moves it below every gap it would overlap.
+    for (const [g0, g1] of gaps) if (y < g1 && y + b.height > g0) y = g1 + gap;
+    out.set(b.id, y);
+    floor = y + b.height + gap;
+  }
+  return out;
+}
+
+function stackBalloons(boxes: BalloonBox[], gap: number, active: number | null, top: number): Map<number, number> {
   const sorted = [...boxes].sort((a, b) => a.anchor - b.anchor || a.id - b.id);
   const tops = sorted.map((b) => Math.max(top, b.anchor));
   const k = active == null ? -1 : sorted.findIndex((b) => b.id === active);

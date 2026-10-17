@@ -531,6 +531,29 @@ fn comment_features(doc: &Document, out: &mut BTreeSet<String>) {
     {
         out.insert("comment:in-table".into());
     }
+    // P9-W6: formatted text, @mentions, a range inside a note, people.xml.
+    let runs = || {
+        doc.comments
+            .iter()
+            .flat_map(|c| model_text::document::paragraphs_in(&c.content).flat_map(|p| &p.inlines))
+            .filter_map(Inline::as_run)
+    };
+    if runs().any(|r| !r.props.is_empty()) {
+        out.insert("comment:formatted".into());
+    }
+    if doc.comments.iter().any(|c| !c.mentions().is_empty()) {
+        out.insert("comment:mention".into());
+    }
+    if doc
+        .comment_ranges()
+        .iter()
+        .any(|r| doc.note_of_block(r.start_block).is_some())
+    {
+        out.insert("comment:in-note".into());
+    }
+    if !doc.people.is_empty() {
+        out.insert("people".into());
+    }
 }
 
 /// Named styles in use: custom paragraph / character styles, linked
@@ -630,6 +653,32 @@ fn structure_features(doc: &Document, out: &mut BTreeSet<String>) {
         for p in model_text::document::paragraphs_in(c) {
             for i in &p.inlines {
                 if let Inline::Field(f) = i {
+                    // P9-W6: locked fields and the new switches.
+                    if f.locked {
+                        out.insert("field:locked".into());
+                    }
+                    match &f.kind {
+                        FieldKind::Seq {
+                            current,
+                            hidden,
+                            heading_reset,
+                            ..
+                        } if *current || *hidden || heading_reset.is_some() => {
+                            out.insert("field:seq-switches".into());
+                        }
+                        FieldKind::Ref {
+                            relative,
+                            full,
+                            position,
+                            ..
+                        } if *relative || *full || *position => {
+                            out.insert("field:ref-switches".into());
+                        }
+                        FieldKind::StyleRef { .. } => {
+                            out.insert("field:styleref".into());
+                        }
+                        _ => {}
+                    }
                     out.insert(match f.kind {
                         FieldKind::Page => "field:page".to_owned(),
                         FieldKind::NumPages => "field:numpages".to_owned(),
@@ -652,10 +701,17 @@ fn structure_features(doc: &Document, out: &mut BTreeSet<String>) {
                         FieldKind::Seq { ref identifier, .. } => {
                             format!("field:seq={identifier}")
                         }
+                        FieldKind::SectionPages => "field:sectionpages".to_owned(),
+                        FieldKind::StyleRef { ref style, .. } => {
+                            format!("field:styleref={}", style.to_lowercase())
+                        }
                     });
                 }
             }
         }
+    }
+    if !doc.separators.is_default() {
+        out.insert("note:separator-text".into());
     }
     for (kind, name) in [(NoteKind::Foot, "footnote"), (NoteKind::End, "endnote")] {
         let n = doc.notes.iter().filter(|n| n.kind == kind).count();
@@ -1128,13 +1184,14 @@ fn table_of_contents() {
     for e in &toc.entries {
         assert_eq!(doc.find_paragraph(e.target).unwrap().text(), e.text);
     }
-    // Our output: Word's structure (sdt, TOC field, hyperlinks to _Toc
-    // bookmarks, PAGEREF fields).
+    // Our output: Word's structure (sdt, TOC field with the file's
+    // switches — P9-W6 keeps them —, hyperlinks to _Toc bookmarks, PAGEREF
+    // fields).
     let bytes = fmt_docx::write(&doc).unwrap();
     let xml = pretty_document_xml(&bytes);
     for needle in [
         r#"<w:docPartGallery w:val="Table of Contents"/>"#,
-        r#"TOC \o "1-3" \h \z \u"#,
+        r#"TOC \o "1-3" \h "#,
         r#"<w:hyperlink w:anchor="_Toc000000001" w:history="1">"#,
         r#"PAGEREF _Toc000000007 \h"#,
         r#"<w:bookmarkStart w:id="0" w:name="_Toc000000001"/>"#,
@@ -2068,4 +2125,85 @@ fn tables_columns_symbols_round_two() {
         assert!(xml.contains(needle), "{needle} missing");
     }
     assert_same("66", doc, &reread(doc));
+}
+
+#[test]
+fn comments_notes_fields_round_two() {
+    use model_text::{FieldKind, HeaderSlot, NoteSeparator};
+    let out = read_out("provisional-67-comments-notes-fields-2.docx");
+    assert_no_new_warnings(&out.warnings);
+    let doc = &out.document;
+    // people.xml: the accounts of both authors.
+    assert_eq!(doc.people.len(), 2);
+    assert_eq!(doc.people[1].email(), Some("ben.cole@example.com"));
+    // Formatted comment text with an @mention; a reply and a resolved thread.
+    let c = doc.comment(model_text::CommentId(0)).unwrap();
+    let p = c.content[0].as_paragraph().unwrap();
+    assert!(p.inlines.iter().any(|i| i
+        .as_run()
+        .is_some_and(|r| r.props.bold == Some(true) && r.text == "check")));
+    assert_eq!(c.mentions(), ["ben.cole@example.com"]);
+    assert_eq!(doc.thread(model_text::CommentId(0)).len(), 2);
+    assert!(doc.comment(model_text::CommentId(2)).unwrap().resolved);
+    // The comment inside the footnote is anchored there.
+    let note_para = doc.notes[0].blocks[0].id();
+    assert!(doc
+        .comment_ranges()
+        .iter()
+        .any(|r| r.id == model_text::CommentId(3) && r.start_block == note_para));
+    // The continuation separator's own text.
+    assert_eq!(
+        doc.separators.footnote_continuation,
+        NoteSeparator::Text {
+            text: "Continued from the previous page".into()
+        }
+    );
+    assert!(doc.separators.footnote.is_line());
+    // STYLEREF and SECTIONPAGES in the header; SEQ \s / \c, a locked DATE, REF \p in the body.
+    let header = doc.sections[0].headers.get(HeaderSlot::Default).unwrap();
+    let kinds: Vec<FieldKind> = model_text::document::paragraphs_in(header)
+        .flat_map(|p| &p.inlines)
+        .filter_map(|i| match i {
+            Inline::Field(f) => Some(f.kind.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(kinds.contains(&FieldKind::SectionPages));
+    assert!(kinds
+        .iter()
+        .any(|k| matches!(k, FieldKind::StyleRef { style, .. } if style == "Heading 1")));
+    let fields: Vec<&model_text::Field> = doc
+        .paragraphs()
+        .flat_map(|p| &p.inlines)
+        .filter_map(|i| match i {
+            Inline::Field(f) => Some(f),
+            _ => None,
+        })
+        .collect();
+    assert!(fields.iter().any(|f| matches!(
+        f.kind,
+        FieldKind::Seq {
+            heading_reset: Some(1),
+            ..
+        }
+    )));
+    assert!(fields
+        .iter()
+        .any(|f| matches!(f.kind, FieldKind::Seq { current: true, .. })));
+    assert!(fields
+        .iter()
+        .any(|f| f.locked && matches!(f.kind, FieldKind::Date { .. })));
+    assert!(fields.iter().any(|f| matches!(
+        &f.kind,
+        FieldKind::Ref {
+            position: true,
+            hyperlink: true,
+            ..
+        }
+    )));
+    // The core's update: STYLEREF "Methods"; REF \p "above" (the bookmark is before the field).
+    let v = doc.computed_fields(&std::collections::HashMap::new());
+    assert!(v.iter().any(|x| x.2 == "above"));
+    assert!(v.iter().any(|x| x.2 == "Methods"));
+    assert_same("67", doc, &reread(doc));
 }

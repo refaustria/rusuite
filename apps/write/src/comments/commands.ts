@@ -6,6 +6,7 @@
 import type { EditorState } from "@tiptap/pm/state";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
+import type { Block } from "../generated/Block";
 import type { CommentPoint } from "../generated/CommentPoint";
 import type { WriteCommand } from "../generated/WriteCommand";
 import { charOffsetOf, type SyncController } from "../sync/SyncPlugin";
@@ -20,15 +21,22 @@ export interface CommentDraft {
   end: CommentPoint;
 }
 
-/** (paragraph id, char offset) of `pos`, if it is in a body paragraph (not the notes area). */
+/** (paragraph id, char offset) of `pos`, in a body paragraph or a note's (P9-W6: comments inside footnotes and endnotes). */
 export function pointAt(state: EditorState, pos: number): CommentPoint | null {
-  const notes = notesNode(state.doc);
-  if (notes && pos >= state.doc.content.size - notes.nodeSize) return null;
   const $p = state.doc.resolve(pos);
   if (!$p.parent.isTextblock) return null;
   const id = $p.parent.attrs.id as number | null;
   if (id == null || id < 0) return null;
   return { block: id, offset: charOffsetOf($p.parent, $p.parentOffset) };
+}
+
+/** The note (its id) holding `pos`, null in the body. */
+export function noteOf(state: EditorState, pos: number): number | null {
+  const notes = notesNode(state.doc);
+  if (!notes || pos < state.doc.content.size - notes.nodeSize) return null;
+  const $p = state.doc.resolve(pos);
+  for (let d = $p.depth; d > 0; d--) if ($p.node(d).type.name === "note") return $p.node(d).attrs.id as number;
+  return null;
 }
 
 const WORD = /[\p{L}\p{N}_'’-]/u;
@@ -55,6 +63,8 @@ export function draftFromSelection(state: EditorState): CommentDraft | null {
   const start = pointAt(state, from);
   const end = pointAt(state, to);
   if (!start || !end) return null;
+  // One story: both ends in the body or in the same note.
+  if (noteOf(state, from) !== noteOf(state, to)) return null;
   return { from, to, start, end };
 }
 
@@ -65,18 +75,18 @@ async function runAndDiff(ctl: SyncController, cmd: WriteCommand): Promise<numbe
   return ctl.comments.filter((c) => !before.has(c.id)).map((c) => c.id);
 }
 
-/** `AddComment` for a draft; the new comment's id (or null if it failed). */
-export async function addComment(ctl: SyncController, draft: CommentDraft, text: string, now = Date.now()): Promise<number | null> {
-  const ids = await runAndDiff(ctl, { type: "addComment", start: draft.start, end: draft.end, text, date: nowIso(now) });
+/** `AddComment` for a draft (formatted `content` when given); the new comment's id (or null if it failed). */
+export async function addComment(ctl: SyncController, draft: CommentDraft, text: string, now = Date.now(), content?: Block[]): Promise<number | null> {
+  const ids = await runAndDiff(ctl, { type: "addComment", start: draft.start, end: draft.end, text, date: nowIso(now), ...(content ? { content } : {}) });
   return ids[0] ?? null;
 }
 
-export async function replyComment(ctl: SyncController, parent: number, text: string, now = Date.now()): Promise<number | null> {
-  const ids = await runAndDiff(ctl, { type: "replyComment", parent, text, date: nowIso(now) });
+export async function replyComment(ctl: SyncController, parent: number, text: string, now = Date.now(), content?: Block[]): Promise<number | null> {
+  const ids = await runAndDiff(ctl, { type: "replyComment", parent, text, date: nowIso(now), ...(content ? { content } : {}) });
   return ids[0] ?? null;
 }
 
-export const editComment = (ctl: SyncController, id: number, text: string) => ctl.run({ type: "editComment", id, text });
+export const editComment = (ctl: SyncController, id: number, text: string, content?: Block[]) => ctl.run({ type: "editComment", id, text, ...(content ? { content } : {}) });
 export const deleteComment = (ctl: SyncController, id: number) => ctl.run({ type: "deleteComment", id });
 export const deleteAllComments = (ctl: SyncController, resolvedOnly = false) => ctl.run(resolvedOnly ? { type: "deleteAllComments", resolvedOnly } : { type: "deleteAllComments" });
 export const resolveComment = (ctl: SyncController, id: number, resolved: boolean) => ctl.run({ type: resolved ? "resolveComment" : "reopenComment", id });
