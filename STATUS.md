@@ -262,6 +262,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Next: docs/plan-after-0.1.0.md (owner starts follow-up activities the week of 2026-10-19).
 
 ## Open questions
+- 2026-10-17 (languages, decided by the PM unless you object): Portuguese is **European (pt-PT)** with informal "tu"; a Brazilian variant would be a 25th catalog later. German stays bundled with English (synchronous tests), the other 22 languages load lazily.
 - Fixed 2026-10-17 (P9-W4 follow-up): `tsc --noEmit` failed on main in two W3 test files (vitest and `build:web` do not type-check; only the desktop `build` does). Now `pnpm typecheck` exists, runs in CI's frontend job and in the PM's verification.
 - 2026-10-16 (owner, macOS): Gatekeeper blocks the unsigned app. Durable fix = signing + notarization (needs the owner's Apple Developer Program membership → GitHub secrets). Workaround documented (P8-50).
 - 2026-10-16: **rusuit.es is the only public address** (owner: trash resuite.inceptum.at – it becomes a 301 after P8-49). Live relay already accepts the rusuit.es origin. German must be informal "du" (P8-48). Owner wants a written plan for after v0.1.0 (docs/plan-after-0.1.0.md) – they start follow-up activities next week.
