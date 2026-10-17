@@ -227,14 +227,24 @@ describe("structure: notes in the mapper", () => {
     expect(cmd(change(e, () => e.commands.toggleBold()))).toEqual({ type: "setRunProps", block: 11, from: 1, to: 4, patch: { bold: true } });
   });
 
-  it("Enter in a note → replaceNote with a temporary id for the new paragraph", () => {
+  it("Enter in a note → splitParagraph with a temporary id for the new paragraph (P9-W6)", () => {
     const e = open(notesDoc());
     select(e, 10, 3);
-    const r = cmd(change(e, () => press(e, "Enter"))) as Extract<WriteCommand, { type: "replaceNote" }>;
-    expect(r.type).toBe("replaceNote");
-    expect(r.id).toBe(1);
-    expect(r.blocks.map((b) => b.value.id)[0]).toBe(10);
-    expect(r.blocks[1]!.value.id).toBeLessThan(0);
+    const r = cmd(change(e, () => press(e, "Enter"))) as Extract<WriteCommand, { type: "splitParagraph" }>;
+    expect(r.type).toBe("splitParagraph");
+    expect(r.block).toBe(10);
+    expect(r.offset).toBe(3);
+    expect(r.newId).toBeLessThan(0);
+  });
+
+  it("Backspace at a note paragraph's start → joinWithPrevious (P9-W6)", () => {
+    const e = open(notesDoc());
+    select(e, 10, 3);
+    change(e, () => press(e, "Enter"));
+    const second = notesNode(e.state.doc)!.child(0).child(1).attrs.id as number;
+    select(e, second, 0);
+    const r = cmd(change(e, () => press(e, "Backspace")));
+    expect(r).toEqual({ type: "joinWithPrevious", block: second });
   });
 
   it("a body edit and a note edit in one transaction → compound of both", () => {

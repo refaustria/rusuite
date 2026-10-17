@@ -574,6 +574,12 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     if (m) store.measure = m;
   }, [store]);
 
+  useEffect(
+    // `data-busy` while the core has requests pending (e2e `grid.waitIdle()`); set directly, no re-render.
+    () => store.watchBusy((busy) => scroller.current?.toggleAttribute("data-busy", busy)),
+    [store],
+  );
+
   useEffect(() => {
     // Animate the marching ants while a copy/cut is pending.
     if (!clipMark) return;

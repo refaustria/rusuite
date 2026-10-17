@@ -5,8 +5,10 @@ import type { CoreProperties } from "./CoreProperties";
 import type { DocumentSettings } from "./DocumentSettings";
 import type { MediaItem } from "./MediaItem";
 import type { Note } from "./Note";
+import type { NoteSeparators } from "./NoteSeparators";
 import type { Numbering } from "./Numbering";
 import type { PageSetup } from "./PageSetup";
+import type { Person } from "./Person";
 import type { Section } from "./Section";
 import type { StyleSheet } from "./StyleSheet";
 
@@ -49,6 +51,16 @@ notes?: Array<Note>,
  * Comments and replies (see [`crate::comment`]), in file order.
  */
 comments?: Array<Comment>, 
+/**
+ * Comment authors with their accounts (docx `people.xml`); see
+ * [`Document::comment_people`].
+ */
+people?: Array<Person>, 
+/**
+ * Custom footnote/endnote separators (docx `w:separator` /
+ * `w:continuationSeparator` notes); default = Word's lines.
+ */
+separators?: NoteSeparators, 
 /**
  * Images and other binary parts.
  */

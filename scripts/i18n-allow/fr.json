@@ -1,0 +1,8 @@
+{
+  "register": {},
+  "untranslated": {
+    "apps/write/src/locales:write.defaultName": "Word in French also names new documents Document (Document1.docx)",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.upperRoman": "number format sample (roman numerals), the same in every language",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "number format sample (roman numerals), the same in every language"
+  }
+}

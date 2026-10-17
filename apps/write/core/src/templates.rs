@@ -55,6 +55,7 @@ fn field(kind: FieldKind) -> Inline {
         kind,
         cached: String::new(),
         props: RunProperties::default(),
+        locked: false,
     })
 }
 

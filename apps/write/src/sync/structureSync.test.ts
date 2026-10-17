@@ -99,7 +99,7 @@ describe.each(BACKENDS)("structure sync against the $name backend", ({ make }) =
     expect(notesNode(s.editor.state.doc)?.childCount).toBe(1);
   });
 
-  it("Enter in a note sends replaceNote and adopts the real id", async () => {
+  it("Enter in a note sends splitParagraph and adopts the real id", async () => {
     const s = await setup(make(), makeDoc([para(1, "Body")]));
     await s.ctl.run({ type: "insertFootnote", block: 1, offset: 4, text: "abc", kind: "foot" });
     const noteParaId = notesNode(s.editor.state.doc)!.child(0).child(0).attrs.id as number;

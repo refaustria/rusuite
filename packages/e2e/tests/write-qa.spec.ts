@@ -233,6 +233,8 @@ test.describe("Write quality pass (P8-38)", () => {
     await expect(dlg.getByLabel("After (pt)")).toHaveValue("8");
     await expect(dlg.getByLabel("Line spacing")).toHaveValue("multiple");
     await dlg.getByRole("button", { name: "OK", exact: true }).click();
+    await expect(dlg).toHaveCount(0);
+    await expect(editor(page)).toBeFocused();
     await page.keyboard.press("Control+d");
     await expect(page.getByRole("dialog").getByLabel("Size (pt)")).toHaveValue("11");
     await page.getByRole("dialog").getByRole("button", { name: "OK", exact: true }).click();

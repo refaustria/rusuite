@@ -872,8 +872,11 @@ pub enum WriteCommand {
     /// document name) before saving.
     ///
     /// With `refresh`, the core also recomputes the fields it can (`REF`,
-    /// `PAGEREF` from `refresh.pages`, `NOTEREF`, `SEQ`, `TITLE`,
-    /// `AUTHOR`; Word's Update Field, F9); `values` win over them.
+    /// `PAGEREF` from `refresh.pages`, `NOTEREF`, `SEQ`, `STYLEREF`, the
+    /// property fields; Word's Update Field, F9) and rebuilds the tables
+    /// of contents in scope (their page numbers from `refresh.pages`), all
+    /// in one undo step; `values` win over them. Locked fields keep their
+    /// result.
     UpdateFields {
         #[ts(type = "Array<[NodeId, number, string]>")]
         values: Vec<(NodeId, u32, String)>,
@@ -945,8 +948,10 @@ pub enum WriteCommand {
     /// Replaces the document settings (Layout › Hyphenation).
     SetSettings { settings: DocumentSettings },
     /// Word's New Comment: a thread on the text from `start` to `end`
-    /// (body paragraphs, table cells included; `start` before or equal to
-    /// `end`; equal = a comment on a point). Marks the range with
+    /// (body paragraphs, table cells included, or paragraphs of one note,
+    /// header or footer; `start` before or equal to `end`; equal = a
+    /// comment on a point). `@mention` runs in `content` add Word's
+    /// `Mention` character style when missing. Marks the range with
     /// `commentStart`/`commentEnd` inlines and adds the comment holding
     /// `text` (one paragraph per line, style `CommentText`; it and
     /// `CommentReference` are added with Word's definitions when missing).
@@ -958,6 +963,11 @@ pub enum WriteCommand {
         start: CommentPoint,
         end: CommentPoint,
         text: String,
+        /// Formatted content (paragraphs with runs: bold, links,
+        /// @mentions …; temporary ids allowed) instead of `text`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, as = "Option<Vec<model_text::Block>>")]
+        content: Option<Vec<NewBlock>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         author: Option<String>,
@@ -974,6 +984,11 @@ pub enum WriteCommand {
         #[ts(type = "number")]
         parent: CommentId,
         text: String,
+        /// Formatted content (paragraphs with runs: bold, links,
+        /// @mentions …; temporary ids allowed) instead of `text`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, as = "Option<Vec<model_text::Block>>")]
+        content: Option<Vec<NewBlock>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         author: Option<String>,
@@ -989,6 +1004,11 @@ pub enum WriteCommand {
         #[ts(type = "number")]
         id: CommentId,
         text: String,
+        /// Formatted content (paragraphs with runs: bold, links,
+        /// @mentions …; temporary ids allowed) instead of `text`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, as = "Option<Vec<model_text::Block>>")]
+        content: Option<Vec<NewBlock>>,
     },
     /// Deletes comment `id`: a root deletes its whole thread and its range
     /// markers, a reply only itself.
@@ -1001,6 +1021,28 @@ pub enum WriteCommand {
     DeleteAllComments {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         resolved_only: bool,
+    },
+    /// Word's Convert Notes (References › Footnotes dialog › Convert):
+    /// notes `ids` (every note of the other kind when absent: "Convert all
+    /// footnotes to endnotes") become `to` notes; their references follow.
+    ConvertNotes {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        ids: Option<Vec<u32>>,
+        to: NoteKind,
+    },
+    /// Replaces the footnote/endnote separators (Word's Draft view
+    /// Footnotes pane: separator, continuation separator).
+    SetNoteSeparators {
+        separators: model_text::NoteSeparators,
+    },
+    /// Lock Fields (Ctrl+F11) / Unlock Fields (Ctrl+Shift+F11) for the
+    /// fields of paragraphs `blocks` (all paragraphs when absent).
+    LockFields {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        blocks: Option<Vec<NodeId>>,
+        locked: bool,
     },
     /// Marks the thread of comment `id` resolved.
     ResolveComment {
@@ -1172,6 +1214,8 @@ pub struct NewToc {
     pub entries: Vec<TocEntry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption: Option<String>,
+    #[serde(default, skip_serializing_if = "model_text::TocSwitches::is_default")]
+    pub switches: model_text::TocSwitches,
 }
 
 impl From<&Toc> for NewToc {
@@ -1183,6 +1227,7 @@ impl From<&Toc> for NewToc {
             title: t.title.clone(),
             entries: t.entries.clone(),
             caption: t.caption.clone(),
+            switches: t.switches.clone(),
         }
     }
 }

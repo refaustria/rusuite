@@ -2,6 +2,8 @@
 // commands on an image, table commands inside a table, New Comment, and
 // paragraph / formatting commands.
 
+import { toggleSelectedFieldCodes } from "../features/fieldsW6";
+import { noteAtCaret } from "./w6Dialogs";
 import { useEffect, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { NodeSelection } from "@tiptap/pm/state";
@@ -96,7 +98,20 @@ export function contextItems(editor: Editor, ctl: SyncController, features: Writ
   }
   const { $from } = editor.state.selection;
   const field = $from.nodeAfter?.type.name === "field" || $from.nodeBefore?.type.name === "field" || !editor.state.selection.empty;
-  if (field) items.push({ id: "update-field", label: t("write.updateField"), shortcut: "F9", onSelect: () => void features.updateFields() });
+  if (field) {
+    items.push(
+      { id: "update-field", label: t("write.updateField"), shortcut: "F9", onSelect: () => void features.updateFields() },
+      { id: "toggle-codes", label: t("write.fields.toggleCodes"), shortcut: "Shift+F9", onSelect: () => {
+        const tr = toggleSelectedFieldCodes(editor.state);
+        if (tr) editor.view.dispatch(tr);
+      } },
+    );
+  }
+  const note = noteAtCaret(editor);
+  if (note) {
+    const to = note.kind === "foot" ? "end" : "foot";
+    items.push({ id: "convert-note", label: t(to === "end" ? "write.notes.toEndnote" : "write.notes.toFootnote"), onSelect: () => void ctl.run({ type: "convertNotes", ids: [note.id], to }) });
+  }
   const numbered = numberedParagraphAtCaret(editor.state);
   if (numbered != null && numbered > 0) {
     items.push(

@@ -25,6 +25,8 @@ import type { CoreProperties } from "../generated/CoreProperties";
 import type { DocumentSettings } from "../generated/DocumentSettings";
 import type { Document } from "../generated/Document";
 import type { Note } from "../generated/Note";
+import type { NoteSeparators } from "../generated/NoteSeparators";
+import type { Person } from "../generated/Person";
 import type { Section } from "../generated/Section";
 import type { Numbering } from "../generated/Numbering";
 import type { PageSetup } from "../generated/PageSetup";
@@ -364,6 +366,10 @@ export class SyncController {
   properties: CoreProperties = {};
   /** Document settings (Layout › Hyphenation). */
   settings: DocumentSettings = {};
+  /** Footnote/endnote separators (Draft view › Footnotes pane equivalent). */
+  separators: NoteSeparators = {};
+  /** Comment authors' accounts as read from `people.xml` (for @mentions). */
+  people: Person[] = [];
   /** Runs before `SaveDocx` (fields update: `UpdateFields`); its command is applied first. */
   beforeSave: (() => WriteCommand | null) | null = null;
   /** What `SaveDocx` stamps into the properties: the page count of the pagination (the clock and the user come from here). */
@@ -486,6 +492,8 @@ export class SyncController {
     this.comments = doc.comments ?? [];
     this.properties = doc.properties ?? {};
     this.settings = doc.settings ?? {};
+    this.separators = doc.separators ?? {};
+    this.people = doc.people ?? [];
     this.tempMap.clear();
     const view = this.view;
     if (view) {
@@ -711,6 +719,7 @@ export class SyncController {
     if (patch.comments) this.comments = patch.comments;
     if (patch.properties) this.properties = patch.properties;
     if (patch.settings) this.settings = patch.settings;
+    if (patch.separators) this.separators = patch.separators;
     this.set({
       revision: env.revision, dirty: env.dirty, canUndo: env.canUndo, canRedo: env.canRedo, info: patch.info ?? this.state.info,
     });

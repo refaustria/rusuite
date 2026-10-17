@@ -547,6 +547,45 @@ The algorithm is in `docs/write-layout.md`; the numbers in docs/perf.md.
   Options › Proofing switches each rule; the options are kept in this browser. Equations are not part of this round.
 - **File › Options** is Write's own dialog now: General (User Name…), Proofing (AutoCorrect), Advanced (ruler unit).
 
+### Write comments, notes and fields round 2 (P9-W6)
+- **Comment text** is formatted: the balloon editor (`comments/RichComposer.tsx`, a small Tiptap editor in the draft,
+  reply and edit boxes) takes Ctrl+B / Ctrl+I / Ctrl+U (also the B I U buttons under it), links (typed URLs become links)
+  and line breaks; the content goes to the core as paragraphs of runs (`AddComment`/`ReplyComment`/`EditComment` with
+  `content`, `comments/richText.ts`) and the balloons and the pane show it formatted. Lists inside comments are not
+  offered (a comment's paragraphs have no numbering of their own yet).
+- **@mentions**: typing `@` in the balloon editor opens a list of the document's authors (the comment authors, the people
+  of `people.xml`, the document author and the user), filtered by what follows (`@an`); ↑/↓, Enter or Tab or a click
+  inserts the mention: an `@Name` run in Word's `Mention` style linking to `mailto:` the person's address (the name when
+  the account has no e-mail). The author, initials and date of a comment come from File › Options › User Name, else the
+  document author (as before). Saving writes `people.xml` (`w15:person` with `w15:presenceInfo`: the account read from
+  the file, else `providerId="None"`).
+- **Comments in notes and headers**: New Comment works on a selection inside a footnote or endnote (both ends in one
+  note; the core also accepts header/footer paragraphs, which are edited in the header dialog). Pictures are commented
+  like text (the selected picture is the range); table cells as before. Comments inside text boxes are not supported.
+- **Review › Tracking › Display for Review**: *All Markup* (balloons, the default), *Simple Markup* (a marker per thread
+  in the margin, no highlights; a click opens that balloon next to its marker, a second click closes it), *No Markup* and
+  *Original* (no markers, no highlights; the Comments pane still opens). In print layout the balloons follow the page
+  gaps: a balloon that would sit in the grey gap or cross a page bottom moves to the top of the next page and pushes the
+  following ones down (docs/write-layout.md "Comment balloons"). Show Comments, Previous / Next and Delete ▾ (Delete All,
+  Delete All Resolved) work as before. File › Print › **Print Markup** now prints Word's "Document showing markup": every
+  page scaled to 72 % at the left, its comments as balloons at the right next to their text (with replies, formatted).
+- **Notes**: typed text in a note is kept as one run per format (`ReplaceNote` merges runs; typing goes through
+  `InsertText`); Enter and Backspace inside notes (and headers/footers) are the ordinary `SplitParagraph` /
+  `JoinWithPrevious` commands now (one undo step each). References › Footnote and Endnote… › **Convert…** converts all
+  footnotes to endnotes, all endnotes to footnotes or swaps them (`ConvertNotes`); the context menu of a note offers
+  Convert to Endnote / Footnote for that note. **Separators…** (same dialog) edits the footnote and endnote separators and
+  continuation separators: Word's line, none, or own text (`SetNoteSeparators`; drawn by the page chrome). Footnotes
+  "below text" (`w:pos beneathText`) stay out of scope (P9-W2 limit).
+- **Fields**: F9 updates the selection's fields, Ctrl+A F9 all of them – in one undo step together with the tables of
+  contents in scope (rebuilt with the page numbers of the pagination; TOC switches `\o`, `\h`, `\z`, `\u`, `\n`,
+  `\t "Style,level"` honoured). New fields: `SECTIONPAGES`, `STYLEREF "Heading 1"` (`\l` last on the page, `\n` its
+  number; in a header the page chrome shows the heading of each page), `SEQ` with `\c` (repeat), `\h` (hide), `\s n`
+  (restart after headings), `REF` with `\r`, `\w`, `\p` ("above"/"below"). **Alt+F9** shows the codes of all fields
+  (`{ PAGE }`), **Shift+F9** of the selected ones (also in the context menu); **Ctrl+F11** / **Ctrl+Shift+F11** lock and
+  unlock the selection's fields (`w:fldLock`; locked fields keep their result on F9 and before saving). Insert › Field ▾
+  › **Field…** is Word's Field dialog: the field names, their switches and formats (date/time pictures, SEQ number formats,
+  bookmarks, styles, document properties) and the resulting field code.
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |

@@ -121,14 +121,14 @@ describe("lazy catalogs", () => {
   it("English and German are there; languages without catalogs are not", () => {
     expect(hasCatalog("en")).toBe(true);
     expect(hasCatalog("de")).toBe(true);
-    expect(hasCatalog("sv")).toBe(false);
+    expect(hasCatalog("mt")).toBe(false);
     expect(availableLocales()).toEqual(expect.arrayContaining(["de", "en"]));
-    expect(availableLocales()).not.toContain("sv");
+    expect(availableLocales()).not.toContain("mt");
   });
 
   it("loads a language when it is chosen, once, then switches", async () => {
     const fr = vi.fn(() => Promise.resolve({ default: { "backstage.save": "Enregistrer", "test.hello": "Salut {name}" } }));
-    addCatalogs({ en: { "test.hello": "Hello {name}" } }, { fr });
+    addCatalogs({ en: { "test.hello": "Hello {name}", "test.onlyEnglish": "Only English" } }, { fr });
     expect(hasCatalog("fr")).toBe(true);
     const switching = switchLocale("fr");
     expect(getLocale()).toBe("en"); // until the catalog is there
@@ -137,7 +137,7 @@ describe("lazy catalogs", () => {
     expect(document.documentElement.lang).toBe("fr");
     expect(document.documentElement.dir).toBe("ltr");
     expect(t("test.hello", { name: "Ana" })).toBe("Salut Ana");
-    expect(t("backstage.open")).toBe("Open…"); // missing key: English
+    expect(t("test.onlyEnglish")).toBe("Only English"); // missing key: English
     await act(() => switchLocale("en"));
     await act(() => switchLocale("fr"));
     expect(fr).toHaveBeenCalledTimes(1);
@@ -145,13 +145,13 @@ describe("lazy catalogs", () => {
 
   it("a language without catalogs shows English, says so once, and keeps the choice", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    await act(() => switchLocale("sv"));
+    await act(() => switchLocale("mt"));
     expect(getLocale()).toBe("en");
     expect(document.documentElement.lang).toBe("en");
-    expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("sv");
-    await act(() => switchLocale("sv"));
+    expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("mt");
+    await act(() => switchLocale("mt"));
     expect(info).toHaveBeenCalledTimes(1);
-    expect(String(info.mock.calls[0]?.[0])).toMatch(/Swedish \(sv\)/);
+    expect(String(info.mock.calls[0]?.[0])).toMatch(/Maltese \(mt\)/);
   });
 
   it("a catalog that fails to load shows English and is tried again next time", async () => {
@@ -242,12 +242,12 @@ describe("pickers", () => {
     const select = screen.getByRole("combobox", { name: "Language / Sprache" });
     expect(within(select).getAllByRole("option")).toHaveLength(24);
     expect(within(select).getAllByRole("option")[0]?.textContent).toBe("English");
-    expect(within(select).getByRole("option", { name: "Svenska (not translated yet)" })).toBeTruthy();
-    fireEvent.change(select, { target: { value: "sv" } });
+    expect(within(select).getByRole("option", { name: "Malti (not translated yet)" })).toBeTruthy();
+    fireEvent.change(select, { target: { value: "mt" } });
     expect(getLocale()).toBe("en");
     fireEvent.change(select, { target: { value: "de" } });
     expect(within(select).getAllByRole("option")[0]?.textContent).toBe("Deutsch");
-    expect(within(select).getByRole("option", { name: "Svenska (noch nicht übersetzt)" })).toBeTruthy();
+    expect(within(select).getByRole("option", { name: "Malti (noch nicht übersetzt)" })).toBeTruthy();
   });
 
   it("LanguageList searches and picks with the keyboard", () => {

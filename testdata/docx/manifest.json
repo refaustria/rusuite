@@ -886,5 +886,30 @@
    "para:tab=bar"
   ],
   "paragraphs": 25
+ },
+ {
+  "file": "provisional-67-comments-notes-fields-2.docx",
+  "topic": "Comments round 2: formatted comment text with an @mention (people.xml), a reply and a resolved thread, a comment inside a footnote; a custom footnote continuation separator; STYLEREF in the header, SEQ with \\c and \\s, a locked field, REF with \\p and \\w, SECTIONPAGES",
+  "features": [
+   "heading:1",
+   "comment:reply",
+   "comment:resolved",
+   "comment:count=4",
+   "comment:formatted",
+   "comment:mention",
+   "comment:in-note",
+   "people",
+   "note:footnote=1",
+   "note:separator-text",
+   "field:styleref",
+   "field:sectionpages",
+   "field:seq-switches",
+   "field:locked",
+   "field:ref-switches",
+   "header:default",
+   "field:page",
+   "page:a4"
+  ],
+  "paragraphs": 6
  }
 ]

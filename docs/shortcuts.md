@@ -151,7 +151,11 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Mod+- | Optional hyphen (`w:softHyphen`; P9-W5) |
 | Mod+Alt+C, Mod+Alt+R, Mod+Alt+T, Mod+Alt+. | ©, ®, ™, … (P9-W5; keys by position, so they work on German keyboards; AltGr is not affected) |
 | Esc | Ends the Border Painter (Table Design; P9-W5) |
-| F9 | Update Field: the fields of the selection (REF, PAGEREF, NOTEREF, SEQ and the property fields TITLE, AUTHOR, SUBJECT, KEYWORDS, COMMENTS, LASTSAVEDBY, DOCPROPERTY computed by the core, page/date/time/file name/save date by the UI); Mod+A then F9 updates every field |
+| F9 | Update Field: the fields of the selection (REF, PAGEREF, NOTEREF, SEQ, STYLEREF and the property fields TITLE, AUTHOR, SUBJECT, KEYWORDS, COMMENTS, LASTSAVEDBY, DOCPROPERTY computed by the core, page/date/time/file name/save date/SECTIONPAGES by the UI; locked fields are skipped); Mod+A then F9 updates every field and the tables of contents in one undo step (P9-W6) |
+| Alt+F9 | Show / hide the codes of all fields (`{ PAGE }`; P9-W6) |
+| Shift+F9 | Show / hide the codes of the selected fields (P9-W6) |
+| Mod+F11, Mod+Shift+F11 | Lock / unlock the selection's fields (`w:fldLock`; P9-W6) |
+| Mod+B, Mod+I, Mod+U, @ | In a comment's balloon editor: bold, italic, underline; `@` lists the people to mention (↑/↓, Enter or Tab inserts, Esc closes the list); Mod+Enter posts, Esc cancels (P9-W6) |
 
 In the browser a few of Word's keys belong to the browser and never reach the page: Mod+T (new tab), Mod+Shift+T
 (reopen tab), Mod+Shift+N (new private window) and Mod+Shift+W (close the window) in Chrome, Mod+Q (quit) in Firefox on

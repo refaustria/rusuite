@@ -63,6 +63,17 @@ async function mount(body: Block[] = [para(1, "hello brave world")], extra: Part
   return { backend, editor };
 }
 
+
+/** Types into a balloon editor (a small Tiptap editor, P9-W6). */
+function typeComposer(el: HTMLElement, text: string): void {
+  const ed = (el as HTMLElement & { editor?: { commands: { focus: () => void; insertContent: (c: string) => void } } }).editor;
+  if (!ed) throw new Error("not a balloon editor");
+  act(() => {
+    ed.commands.focus();
+    ed.commands.insertContent(text);
+  });
+}
+
 describe("Review › comments", () => {
   it("the first New Comment asks for the user name; posting adds the comment", async () => {
     const { backend } = await mount();
@@ -76,7 +87,7 @@ describe("Review › comments", () => {
     expect(JSON.parse(localStorage.getItem("rusuite.write.user")!)).toEqual({ name: "Anna Berg", initials: "AB" });
     // Narrow window: the draft appears in the Comments pane.
     const draft = await screen.findByTestId("comment-draft-text", undefined, T);
-    fireEvent.change(draft, { target: { value: "Is this right?" } });
+    typeComposer(draft, "Is this right?");
     fireEvent.keyDown(draft, { key: "Enter", ctrlKey: true });
     await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "addComment", text: "Is this right?" })), T);
     const cmd = applied(backend).find((c) => c.type === "addComment") as Extract<WriteCommand, { type: "addComment" }>;
@@ -110,7 +121,7 @@ describe("Review › comments", () => {
     expect(within(first).getAllByTestId("comment-reply").length).toBe(1);
     fireEvent.pointerDown(first);
     const box = await within(first).findByTestId("comment-reply-box", undefined, T);
-    fireEvent.change(box, { target: { value: "Fixed now" } });
+    typeComposer(box, "Fixed now");
     fireEvent.click(within(first).getByTestId("comment-reply-box-post"));
     await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "replyComment", parent: 1, text: "Fixed now" })), T);
     fireEvent.click(within(first).getByTestId("comment-resolve"));
@@ -167,5 +178,54 @@ describe("Review › comments", () => {
     fireEvent.click(within(options).getByRole("button", { name: "User Name…" }));
     expect(await screen.findByRole("dialog", { name: "User Name" }, T)).toBeTruthy();
     await act(async () => undefined);
+  });
+
+  it("Simple Markup collapses balloons to markers; a click opens that one; No Markup hides them (P9-W6)", async () => {
+    setWidth(1600);
+    await mount(commentedBody, commented);
+    await waitFor(() => expect(within(screen.getByTestId("comments-margin")).getAllByTestId("comment-thread").length).toBe(2), T);
+    fireEvent.click(tab("Review"));
+    fireEvent.change(screen.getByTestId("markup-mode"), { target: { value: "simple" } });
+    await waitFor(() => expect(screen.getAllByTestId("comment-indicator").length).toBe(2), T);
+    expect(screen.queryAllByTestId("comment-thread").length).toBe(0);
+    // No highlights in Simple Markup.
+    expect(document.querySelector(".comment-range")).toBeNull();
+    fireEvent.click(screen.getAllByTestId("comment-indicator")[0]!);
+    const open = await screen.findByTestId("comment-open-balloon", undefined, T);
+    expect(within(open).getAllByTestId("comment-text")[0]!.textContent).toBe("Check this");
+    expect(screen.getAllByTestId("comment-indicator").length).toBe(2);
+    // A second click closes it.
+    fireEvent.click(screen.getAllByTestId("comment-indicator")[0]!);
+    await waitFor(() => expect(screen.queryByTestId("comment-open-balloon")).toBeNull(), T);
+    fireEvent.change(screen.getByTestId("markup-mode"), { target: { value: "none" } });
+    await waitFor(() => expect(screen.queryByTestId("comments-margin")).toBeNull(), T);
+    fireEvent.change(screen.getByTestId("markup-mode"), { target: { value: "all" } });
+    await waitFor(() => expect(within(screen.getByTestId("comments-margin")).getAllByTestId("comment-thread").length).toBe(2), T);
+  });
+
+  it("the balloon editor: bold text and an @mention of an author become formatted content (P9-W6)", async () => {
+    setWidth(1600);
+    localStorage.setItem("rusuite.write.user", JSON.stringify({ name: "Anna Berg", initials: "AB" }));
+    const { backend, editor } = await mount(commentedBody, commented);
+    fireEvent.keyDown(editor, { key: "m", code: "KeyM", ctrlKey: true, altKey: true });
+    const box = await screen.findByTestId("comment-draft-text", undefined, T);
+    const ed = (box as HTMLElement & { editor?: import("@tiptap/core").Editor }).editor!;
+    act(() => {
+      ed.commands.focus();
+      ed.chain().toggleBold().insertContent("Please").toggleBold().insertContent(" check, @ben").run();
+    });
+    const list = await screen.findByTestId("mention-list", undefined, T);
+    expect(within(list).getAllByTestId("mention-option").map((o) => o.textContent)).toEqual(["Ben Cole"]);
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByTestId("mention-list")).toBeNull(), T);
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(applied(backend).some((c) => c.type === "addComment")).toBe(true), T);
+    const cmd = applied(backend).find((c) => c.type === "addComment") as Extract<WriteCommand, { type: "addComment" }>;
+    expect(cmd.text).toBe("Please check, @Ben Cole");
+    const inlines = cmd.content![0]!.kind === "paragraph" ? cmd.content![0]!.value.inlines : [];
+    expect(inlines[0]).toEqual(run("Please", { bold: true }));
+    expect(inlines).toContainEqual({ kind: "run", value: { text: "@Ben Cole", style: "Mention", link: { target: { kind: "email", value: { address: "Ben Cole" } } } } });
+    // The new balloon shows the formatting and the mention.
+    await waitFor(() => expect(screen.getAllByTestId("comment-mention").some((m) => m.textContent === "@Ben Cole")).toBe(true), T);
   });
 });
