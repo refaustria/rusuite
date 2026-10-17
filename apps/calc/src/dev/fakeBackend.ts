@@ -35,6 +35,7 @@ import type { SheetInfo } from "../generated/SheetInfo";
 import type { SheetView } from "../generated/SheetView";
 import type { SheetProtection } from "../generated/SheetProtection";
 import type { WorkbookProtection } from "../generated/WorkbookProtection";
+import type { TableStyles } from "../generated/TableStyles";
 import type { SortKey } from "../generated/SortKey";
 import type { SortState } from "../generated/SortState";
 import type { NameDef } from "../generated/NameDef";
@@ -137,6 +138,7 @@ export class FakeCalcCore {
   styles: CellStyle[] = [{}];
   /** Protect Workbook (P9-C1) and its password (as text: a fake). */
   private bookProtection: WorkbookProtection | undefined;
+  private tableStyles: TableStyles = {};
   private bookPassword = "";
   revision = 0;
   undoStack: CalcCommand[] = [];
@@ -397,6 +399,21 @@ export class FakeCalcCore {
         s.protection = undefined;
         s.password = undefined;
         return [this.sheetsPatch(), old ? { type: "protectSheet", sheet: cmd.sheet, options: old, password: pw } : null];
+      }
+      case "setTableStyles": {
+        const old = this.tableStyles;
+        this.tableStyles = structuredClone(cmd.styles);
+        const exists = (n: string) => /^TableStyle(Light|Medium|Dark)\d+$/.test(n) || (this.tableStyles.custom ?? []).some((c) => c.name.toLowerCase() === n.toLowerCase());
+        for (const sh of this.sheets) {
+          for (const t of sh.tables) {
+            const r = (cmd.renamed ?? []).find((x) => x.from.toLowerCase() === t.style.toLowerCase());
+            if (r) t.style = r.to;
+            if (t.style && !exists(t.style)) t.style = this.tableStyles.defaultStyle ?? "TableStyleMedium2";
+          }
+        }
+        const patch = this.sheetsPatch();
+        patch.tableStyles = structuredClone(this.tableStyles);
+        return [patch, { type: "setTableStyles", styles: old }];
       }
       case "protectWorkbook": {
         this.bookProtection = { lockStructure: cmd.structure, lockWindows: !!cmd.windows };
@@ -1009,7 +1026,7 @@ export class FakeCalcCore {
       while (this.sheets.some((x) => x.tables.some((t) => t.name.toLowerCase() === `table${k}`))) k++;
       const t: Table = {
         id, name: `Table${k}`, r0, c0, r1, c1, headerRow: true, columns: names.map((name, i) => ({ id: i + 1, name })),
-        style: cmd.style ?? "TableStyleMedium2", look: { firstColumn: false, lastColumn: false, bandedRows: true, bandedColumns: false },
+        style: cmd.style ?? this.tableStyles.defaultStyle ?? "TableStyleMedium2", look: { firstColumn: false, lastColumn: false, bandedRows: true, bandedColumns: false },
         autoFilter: { r0, c0, r1, c1 },
       };
       sh.tables.push(t);
@@ -2029,6 +2046,7 @@ export class FakeCalcCore {
       sheets: this.sheetInfos(), styles: [...this.styles], revision: this.revision, ...(this.names.length ? { names: this.nameInfos() } : {}),
       activeSheet: this.sheets.find((x) => !x.hidden)?.id ?? 0,
       ...(this.bookProtection ? { workbookProtection: { ...this.bookProtection } } : {}),
+      ...(this.tableStyles.custom?.length || this.tableStyles.defaultStyle ? { tableStyles: structuredClone(this.tableStyles) } : {}),
       ...(this.persons.length ? { persons: this.persons.map((p) => ({ ...p })) } : {}),
     };
     return { ok: { type: "info", info } };

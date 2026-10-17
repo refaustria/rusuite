@@ -781,6 +781,17 @@ pub enum CalcCommand {
         #[ts(as = "Option<crate::wire::Filter>")]
         filter: Option<model_sheet::Filter>,
     },
+    /// Custom table styles (New / Modify / Duplicate / Delete Table
+    /// Style, Set As Default): replaces the list and the default style.
+    /// `renamed` (old → new name) re-points the tables of a renamed
+    /// style; tables using a deleted style get the default style.
+    SetTableStyles {
+        #[ts(as = "crate::wire_data::TableStyles")]
+        styles: model_sheet::TableStyles,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<StyleRename>>")]
+        renamed: Vec<StyleRename>,
+    },
     /// Data › Remove Duplicates on the range (a single cell: its current
     /// region, or the table it is in): rows whose values in `columns`
     /// (sheet columns) repeat an earlier row are removed (text ignoring
@@ -1218,6 +1229,15 @@ impl SheetViewPatch {
             show_headings: self.show_headings.unwrap_or(view.show_headings),
         }
     }
+}
+
+/// A renamed table style (Modify Table Style with a new name).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct StyleRename {
+    pub from: String,
+    pub to: String,
 }
 
 /// An inclusive cell range on an implied sheet.

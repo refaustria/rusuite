@@ -7,7 +7,12 @@
 
 import { applyTint, OFFICE_THEME } from "@rusuite/ui-shared";
 import type { CellStyle } from "../generated/CellStyle";
+import type { CustomTableStyle } from "../generated/CustomTableStyle";
+import type { DxfStyle } from "../generated/DxfStyle";
 import type { Table } from "../generated/Table";
+import type { TableStyleElementType } from "../generated/TableStyleElementType";
+import type { TableStyles } from "../generated/TableStyles";
+import { colorCss } from "../grid/style";
 import type { PivotLook } from "../pivot/styles";
 
 /** The parameters of one built-in table style. */
@@ -99,8 +104,10 @@ export function dataRows(t: Table): [number, number] {
  * without a style): header band, banded rows / columns, first / last
  * column, totals row and lines.
  */
-export function tableLook(t: Table, row: number, col: number): PivotLook | undefined {
+export function tableLook(t: Table, row: number, col: number, styles?: TableStyles): PivotLook | undefined {
   if (row < t.r0 || row > t.r1 || col < t.c0 || col > t.c1) return undefined;
+  const custom = customStyle(styles, t.style);
+  if (custom) return customLook(custom, t, row, col);
   const def = tableStyle(t.style);
   if (!def) return undefined;
   const look: PivotLook = {};
@@ -138,6 +145,111 @@ export function tableLook(t: Table, row: number, col: number): PivotLook | undef
   return look;
 }
 
+// --- custom table styles (P9-C2) ------------------------------------------
+
+/** The elements of the New Table Style dialog, lowest precedence first (Excel's list order). */
+export const TABLE_STYLE_ELEMENTS: TableStyleElementType[] = [
+  "wholeTable", "firstColumnStripe", "secondColumnStripe", "firstRowStripe", "secondRowStripe", "lastColumn", "firstColumn", "headerRow", "totalRow",
+];
+
+/** Elements with a stripe size. */
+export const isStripe = (k: TableStyleElementType): boolean => k.endsWith("Stripe");
+
+/** The custom style named `name` (any case). */
+export function customStyle(styles: TableStyles | undefined, name: string): CustomTableStyle | undefined {
+  const n = name.toLowerCase();
+  return styles?.custom?.find((s) => s.name.toLowerCase() === n);
+}
+
+/** The rows / columns an element covers in a cell's table, or `null` when it does not apply to the cell. */
+function elementBox(t: Table, kind: TableStyleElementType, size: (k: TableStyleElementType) => number, row: number, col: number): { r0: number; c0: number; r1: number; c1: number } | null {
+  const [d0, d1] = dataRows(t);
+  const all = { r0: t.r0, c0: t.c0, r1: t.r1, c1: t.c1 };
+  const inData = row >= d0 && row <= d1;
+  const band = (i: number, first: TableStyleElementType, second: TableStyleElementType, wanted: TableStyleElementType) => {
+    const a = size(first), b = size(second);
+    const pos = i % (a + b);
+    const isFirst = pos < a;
+    if ((wanted === first) !== isFirst) return null;
+    const start = i - (isFirst ? pos : pos - a);
+    return [start, start + (isFirst ? a : b) - 1] as const;
+  };
+  switch (kind) {
+    case "wholeTable":
+      return all;
+    case "headerRow":
+      return t.headerRow && row === t.r0 ? { ...all, r1: t.r0 } : null;
+    case "totalRow":
+      return t.totalsRow && row === t.r1 ? { ...all, r0: t.r1 } : null;
+    case "firstColumn":
+      return t.look.firstColumn && col === t.c0 ? { ...all, c1: t.c0 } : null;
+    case "lastColumn":
+      return t.look.lastColumn && col === t.c1 ? { ...all, c0: t.c1 } : null;
+    case "firstRowStripe":
+    case "secondRowStripe": {
+      if (!t.look.bandedRows || !inData) return null;
+      const b = band(row - d0, "firstRowStripe", "secondRowStripe", kind);
+      return b ? { r0: d0 + b[0], r1: Math.min(d1, d0 + b[1]), c0: t.c0, c1: t.c1 } : null;
+    }
+    case "firstColumnStripe":
+    case "secondColumnStripe": {
+      if (!t.look.bandedColumns || !inData) return null;
+      const b = band(col - t.c0, "firstColumnStripe", "secondColumnStripe", kind);
+      return b ? { r0: d0, r1: d1, c0: t.c0 + b[0], c1: Math.min(t.c1, t.c0 + b[1]) } : null;
+    }
+  }
+}
+
+/** The look of a cell under a custom style: the elements that cover it, later ones over earlier ones. */
+export function customLook(style: CustomTableStyle, t: Table, row: number, col: number): PivotLook {
+  const size = (k: TableStyleElementType) => Math.max(1, style.elements.find((e) => e.type === k)?.size ?? 1);
+  const look: PivotLook = {};
+  for (const kind of TABLE_STYLE_ELEMENTS) {
+    const el = style.elements.find((e) => e.type === kind);
+    if (!el) continue;
+    const box = elementBox(t, kind, size, row, col);
+    if (!box) continue;
+    applyDxf(look, el.dxf, { top: row === box.r0, bottom: row === box.r1, left: col === box.c0, right: col === box.c1 });
+  }
+  return look;
+}
+
+function applyDxf(look: PivotLook, dxf: DxfStyle, edge: { top: boolean; bottom: boolean; left: boolean; right: boolean }): void {
+  const fill = colorCss(dxf.fill);
+  if (fill) look.fill = fill;
+  const color = colorCss(dxf.fontColor);
+  if (color) look.color = color;
+  if (dxf.bold !== undefined) look.bold = dxf.bold;
+  const b = dxf.borders;
+  if (!b) return;
+  for (const side of ["top", "bottom", "left", "right"] as const) {
+    const v = b[side];
+    if (v && edge[side]) look[side] = colorCss(v.color) ?? "#000000";
+  }
+}
+
+/** A custom style's gallery colours (the header, two stripes, the line). */
+export function customPreviewColors(style: CustomTableStyle): { header: string; headerText: string; rows: [string, string]; line: string } {
+  const fill = (k: TableStyleElementType) => colorCss(style.elements.find((e) => e.type === k)?.dxf.fill);
+  const whole = fill("wholeTable") ?? "#FFFFFF";
+  const headerEl = style.elements.find((e) => e.type === "headerRow");
+  const line = colorCss(style.elements.find((e) => e.type === "wholeTable")?.dxf.borders?.bottom?.color) ?? colorCss(headerEl?.dxf.borders?.bottom?.color) ?? "#BFBFBF";
+  return {
+    header: fill("headerRow") ?? whole,
+    headerText: colorCss(headerEl?.dxf.fontColor) ?? "#000000",
+    rows: [fill("firstRowStripe") ?? whole, fill("secondRowStripe") ?? whole],
+    line,
+  };
+}
+
+/** `Table Style 1`, `Table Style 2`, …: the first name no custom style uses (`base` in the dialog's language). */
+export function freshStyleName(styles: TableStyles | undefined, base: string): string {
+  for (let n = 1; ; n++) {
+    const name = `${base} ${n}`;
+    if (!customStyle(styles, name)) return name;
+  }
+}
+
 /** A look as a cell style patch (Convert to Range keeps the look as formats). */
 export function lookAsStyle(look: PivotLook): CellStyle {
   const rgb = (c: string) => ({ kind: "rgb" as const, value: c.replace("#", "").toUpperCase() });
@@ -156,7 +268,9 @@ export function lookAsStyle(look: PivotLook): CellStyle {
 }
 
 /** The colours a gallery preview shows: header, two body rows, line. */
-export function previewColors(id: string): { header: string; headerText: string; rows: [string, string]; line: string } {
+export function previewColors(id: string, styles?: TableStyles): { header: string; headerText: string; rows: [string, string]; line: string } {
+  const custom = customStyle(styles, id);
+  if (custom) return customPreviewColors(custom);
   const def = tableStyle(id);
   if (!def) return { header: "#FFFFFF", headerText: "#000000", rows: ["#FFFFFF", "#FFFFFF"], line: "#BFBFBF" };
   const body = def.bodyFill ?? "#FFFFFF";

@@ -440,7 +440,7 @@ fn drop_sheet_refs(e: &mut Expr, name: &str) -> bool {
 
 /// Rebuilds `e`: `f` returns `Some(replacement)` for the nodes it
 /// rewrites (their children are not visited), `None` to descend.
-fn map_expr(e: &Expr, f: &dyn Fn(&Expr) -> Option<Expr>) -> Expr {
+pub fn map_expr(e: &Expr, f: &dyn Fn(&Expr) -> Option<Expr>) -> Expr {
     if let Some(x) = f(e) {
         return x;
     }
@@ -1606,18 +1606,8 @@ impl Engine {
     /// [`rename_table_refs`](Self::rename_table_refs) for the formulas of
     /// one sheet only (`None`: every formula and name).
     pub fn rename_table_refs_in(&mut self, only: Option<SheetId>, old: &str, new: &str) -> Recalc {
-        let (old, new) = (old.to_string(), new.to_string());
-        let is_table = |n: &str| same_name(n, &old);
-        self.rewrite_formulas(only, &|x, _| match x {
-            Expr::Structured(s) if s.table.as_deref().is_some_and(is_table) => {
-                Some(Expr::Structured(StructRef {
-                    table: Some(new.clone()),
-                    ..s.clone()
-                }))
-            }
-            Expr::Name(n) if is_table(n) => Some(Expr::Name(new.clone())),
-            _ => None,
-        })
+        let f = crate::structured::rename_table_rewrite(old, new);
+        self.rewrite_formulas(only, &f)
     }
 
     /// Column `old` of table `table` was renamed to `new`: structured
@@ -1626,31 +1616,27 @@ impl Engine {
         let Some(def) = self.table(table).cloned() else {
             return Recalc::default();
         };
-        let (old, new) = (old.to_lowercase(), new.to_string());
-        let rename = |c: &String| {
-            if c.to_lowercase() == old {
-                new.clone()
-            } else {
-                c.clone()
-            }
+        let f = crate::structured::rename_column_rewrite(&def, old, new);
+        self.rewrite_formulas(None, &f)
+    }
+
+    /// The columns `deleted` of table `table` are about to be deleted:
+    /// references to them become `#REF!` and column ranges shrink (see
+    /// [`delete_columns_rewrite`](crate::structured::delete_columns_rewrite);
+    /// call before [`set_tables`](Self::set_tables) with the smaller table).
+    pub fn delete_table_column_refs(&mut self, table: &str, deleted: &[String]) -> Recalc {
+        let Some(def) = self.table(table).cloned() else {
+            return Recalc::default();
         };
-        self.rewrite_formulas(None, &|x, at| match x {
-            Expr::Structured(s) => {
-                let ours = match &s.table {
-                    Some(t) => same_name(t, &def.name),
-                    None => def.contains(at),
-                };
-                let (a, b) = s.columns.as_ref()?;
-                let renamed = (rename(a), b.as_ref().map(rename));
-                (ours && (renamed.0 != *a || renamed.1 != *b)).then(|| {
-                    Expr::Structured(StructRef {
-                        columns: Some(renamed),
-                        ..s.clone()
-                    })
-                })
-            }
-            _ => None,
-        })
+        let f = crate::structured::delete_columns_rewrite(&def, deleted);
+        self.rewrite_formulas(None, &f)
+    }
+
+    /// Rewrites every cell formula and defined name with `f` (see
+    /// [`ExprRewrite`](crate::structured::ExprRewrite)); the rewritten
+    /// cells are re-registered and recalculated.
+    pub fn rewrite_formulas_with(&mut self, f: &crate::structured::ExprRewrite<'_>) -> Recalc {
+        self.rewrite_formulas(None, f)
     }
 
     /// Convert to Range: every structured reference to `table` (and its

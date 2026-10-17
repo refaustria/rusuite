@@ -444,7 +444,7 @@ impl CfRule {
         }
     }
 
-    fn parts_mut(&mut self) -> (&mut Vec<CellRect>, Vec<&mut String>) {
+    pub(crate) fn parts_mut(&mut self) -> (&mut Vec<CellRect>, Vec<&mut String>) {
         (&mut self.ranges, self.kind.formulas_mut())
     }
 

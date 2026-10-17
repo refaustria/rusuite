@@ -2,19 +2,23 @@
 // and the contextual Table Design tab shown while a cell of a table is
 // selected: the table name, Resize Table, Summarize with PivotTable,
 // Remove Duplicates, Convert to Range, the Table Style Options and the
-// Table Styles gallery. Insert Slicer and the external table data group
-// are not offered.
+// Table Styles gallery with the custom styles (P9-C2: New Table Style…,
+// Modify / Duplicate / Delete / Set As Default on an item's context menu)
+// and Insert Slicer. The external table data group is not offered.
 
 import { useEffect, useState } from "react";
-import { RIBBON_SELECT, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonStack, type RibbonTab, type TFunction as T } from "@rusuite/ui-shared";
+import { ContextMenu, RIBBON_SELECT, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonStack, type ContextMenuItem, type RibbonTab, type TFunction as T } from "@rusuite/ui-shared";
 import type { Table } from "../generated/Table";
+import type { TableStyles } from "../generated/TableStyles";
+import { useT } from "../i18n";
+import { deleteStyle, withDefault } from "./TableStyleDialog";
 import type { CalcStore } from "../state/store";
 import { tableDesignIcon, convertIcon, duplicatesIcon, resizeIcon, tableIcon } from "./icons";
-import { DEFAULT_TABLE_STYLE, previewColors, TABLE_STYLES, tableStyleNumber } from "./styles";
+import { customStyle, DEFAULT_TABLE_STYLE, previewColors, TABLE_STYLES, tableStyleNumber } from "./styles";
 
 /** A table style's gallery preview: header band, striped rows, lines. */
-export function TableStylePreview({ id, width = 61, height = 46 }: { id: string; width?: number; height?: number }) {
-  const c = previewColors(id);
+export function TableStylePreview({ id, width = 61, height = 46, styles }: { id: string; width?: number; height?: number; styles?: TableStyles }) {
+  const c = previewColors(id, styles);
   const rows = 5;
   const rh = height / rows;
   const out = [];
@@ -35,10 +39,82 @@ export function TableStylePreview({ id, width = 61, height = 46 }: { id: string;
   );
 }
 
-/** Excel's gallery label (`Medium 2`). */
-export function tableStyleLabel(t: T, id: string): string {
+/** Excel's gallery label (`Medium 2`; a custom style: its name). */
+export function tableStyleLabel(t: T, id: string, styles?: TableStyles): string {
+  const custom = customStyle(styles, id);
+  if (custom) return custom.name;
   const s = tableStyleNumber(id);
   return s ? t(`calc.table.styleName.${s.family}`, { n: s.n }) : t("calc.table.styleNone");
+}
+
+/** The Table Styles gallery panel: Custom, Light, Medium, Dark, then Clear and New Table Style…; right-click: Modify / Duplicate / Delete / Set As Default. */
+function StyleGalleryPanel({ store, table, close }: { store: CalcStore; table: Table; close: () => void }) {
+  const t = useT();
+  const styles = store.getState().info?.tableStyles;
+  const style = table.style || DEFAULT_TABLE_STYLE;
+  const [menu, setMenu] = useState<{ id: string; at: { x: number; y: number } } | null>(null);
+  const done = (p: Promise<void>) => {
+    void p;
+    store.focusGrid();
+  };
+  const custom = (styles?.custom ?? []).map((s) => s.name);
+  const isDefault = (id: string) => (styles?.defaultStyle ?? DEFAULT_TABLE_STYLE).toLowerCase() === id.toLowerCase();
+  const menuItems = (id: string): ContextMenuItem[] => {
+    const own = !!customStyle(styles, id);
+    const items: ContextMenuItem[] = [
+      { id: "apply", label: t("calc.tableStyle.apply"), onSelect: () => { close(); done(store.tables.setStyle(table.id, id)); } },
+      { separator: true },
+    ];
+    if (own) items.push({ id: "modify", label: t("calc.tableStyle.modifyDots"), onSelect: () => { close(); store.openDialog({ kind: "tableStyle", mode: "modify", name: id }); } });
+    items.push({ id: "duplicate", label: t("calc.tableStyle.duplicateDots"), onSelect: () => { close(); store.openDialog({ kind: "tableStyle", mode: "duplicate", name: id }); } });
+    if (own) items.push({ id: "delete", label: t("calc.tableStyle.delete"), onSelect: () => { close(); done(store.tables.setStyles(deleteStyle(styles, id))); } });
+    items.push({ separator: true });
+    items.push({ id: "default", label: t("calc.tableStyle.setAsDefault"), disabled: isDefault(id), onSelect: () => { close(); done(store.tables.setStyles(withDefault(styles, id))); } });
+    return items;
+  };
+  const groups: { key: string; label: string; ids: string[] }[] = [
+    ...(custom.length ? [{ key: "custom", label: t("calc.table.styleGroup.custom"), ids: custom }] : []),
+    ...(["light", "medium", "dark"] as const).map((family) => ({ key: family, label: t(`calc.table.styleGroup.${family}`), ids: TABLE_STYLES.filter((s) => tableStyleNumber(s)?.family === family) })),
+  ];
+  return (
+    <div className="flex max-h-[70vh] w-max flex-col gap-1 overflow-auto" data-testid="table-style-gallery">
+      {groups.map((g, i) => (
+        <div key={g.key}>
+          <div className="px-1 text-[11px] font-medium text-ui-muted">{g.label}</div>
+          <RibbonGallery
+            label={g.label}
+            items={g.ids.map((s) => ({ id: s, label: tableStyleLabel(t, s, styles), preview: <TableStylePreview id={s} styles={styles} /> }))}
+            selected={style}
+            columns={7}
+            hideLabels={g.key !== "custom"}
+            itemClassName={g.key === "custom" ? "h-[66px] w-[67px] p-0.5 text-[10px]" : "h-[52px] w-[67px] p-0.5"}
+            autoFocus={i === 0}
+            onItemContextMenu={(id, at) => setMenu({ id, at })}
+            onSelect={(s) => {
+              close();
+              done(store.tables.setStyle(table.id, s));
+            }}
+          />
+        </div>
+      ))}
+      <div className="mx-1 mt-1 flex flex-col border-t border-ui-border pt-1">
+        <button type="button" className="h-7 rounded px-2 text-left text-xs hover:bg-ui-hover" onClick={() => { close(); store.openDialog({ kind: "tableStyle", mode: "new", tableId: table.id }); }}>
+          {t("calc.tableStyle.newDots")}
+        </button>
+        <button
+          type="button"
+          className="h-7 rounded px-2 text-left text-xs hover:bg-ui-hover"
+          onClick={() => {
+            close();
+            done(store.tables.setStyle(table.id, ""));
+          }}
+        >
+          {t("calc.table.clearStyle")}
+        </button>
+      </div>
+      <ContextMenu at={menu?.at ?? null} label={t("calc.tableStyle.menu")} items={menu ? menuItems(menu.id) : []} onClose={() => setMenu(null)} />
+    </div>
+  );
 }
 
 /** Insert › Tables › Table (next to PivotTable). */
@@ -226,47 +302,9 @@ export function tableDesignTab(store: CalcStore, t: T): RibbonTab | null {
         items: (
           <RibbonMenuButton
             label={t("calc.table.stylesGallery")}
-            icon={<TableStylePreview id={style} width={32} height={24} />}
+            icon={<TableStylePreview id={style} width={32} height={24} styles={store.getState().info?.tableStyles} />}
             size="large"
-            menu={(close) => (
-              <div className="flex max-h-[70vh] w-max flex-col gap-1 overflow-auto" data-testid="table-style-gallery">
-                {(["light", "medium", "dark"] as const).map((family) => {
-                  const ids = TABLE_STYLES.filter((s) => tableStyleNumber(s)?.family === family);
-                  return (
-                    <div key={family}>
-                      <div className="px-1 text-[11px] font-medium text-ui-muted">{t(`calc.table.styleGroup.${family}`)}</div>
-                      <RibbonGallery
-                        label={t(`calc.table.styleGroup.${family}`)}
-                        items={ids.map((s) => ({
-                          id: s,
-                          label: tableStyleLabel(t, s),
-                          preview: <TableStylePreview id={s} />,
-                        }))}
-                        selected={style}
-                        columns={7}
-                        hideLabels
-                        itemClassName="h-[52px] w-[67px] p-0.5"
-                        autoFocus={family === "light"}
-                        onSelect={(s) => {
-                          close();
-                          done(tables.setStyle(id, s));
-                        }}
-                      />
-                    </div>
-                  );
-                })}
-                <button
-                  type="button"
-                  className="mx-1 mt-1 h-7 rounded px-2 text-left text-xs hover:bg-ui-hover"
-                  onClick={() => {
-                    close();
-                    done(tables.setStyle(id, ""));
-                  }}
-                >
-                  {t("calc.table.clearStyle")}
-                </button>
-              </div>
-            )}
+            menu={(close) => <StyleGalleryPanel store={store} table={table} close={close} />}
           />
         ),
       },

@@ -334,6 +334,7 @@ impl CalcDocument {
                 .filter(|p| p.is_active())
                 .cloned(),
             active_sheet: self.workbook.active_sheet().0,
+            table_styles: self.workbook.table_styles().clone(),
         }
     }
 
@@ -1520,6 +1521,7 @@ impl CalcDocument {
             | C::InsertTableCols { .. }
             | C::DeleteTableCols { .. }
             | C::SetTableFilter { .. }
+            | C::SetTableStyles { .. }
             | C::RestoreTables { .. } => self.table_cmd(cmd),
             C::RemoveDuplicates { .. }
             | C::TextToColumns { .. }

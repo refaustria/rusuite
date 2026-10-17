@@ -10,6 +10,7 @@ import type { SheetInfo } from "./SheetInfo";
 import type { SheetMerges } from "./SheetMerges";
 import type { SheetRows } from "./SheetRows";
 import type { StructuralChange } from "./StructuralChange";
+import type { TableStyles } from "./TableStyles";
 import type { WorkbookProtection } from "./WorkbookProtection";
 
 /**
@@ -100,4 +101,8 @@ pictureSheets?: Array<number>,
  * The workbook protection, when it changed (unprotected: both locks
  * off); absent = unchanged.
  */
-workbookProtection?: WorkbookProtection, };
+workbookProtection?: WorkbookProtection, 
+/**
+ * The custom table styles and default style, when they changed.
+ */
+tableStyles?: TableStyles, };

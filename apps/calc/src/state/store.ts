@@ -248,6 +248,8 @@ export type CalcDialog =
   | { kind: "createTable"; range: Range; hasHeaders: boolean }
   /** Table Design › Resize Table. */
   | { kind: "resizeTable"; id: number }
+  /** New / Modify / Duplicate Table Style (P9-C2); `tableId`: the table a new style is applied to. */
+  | { kind: "tableStyle"; mode: "new" | "modify" | "duplicate"; name?: string; tableId?: number }
   /** The totals row dropdown of a table column, at viewport point `at`. */
   | { kind: "totalsMenu"; id: number; col: number; at: { x: number; y: number } }
   /** Data › Remove Duplicates (columns checklist, headers). */
@@ -664,6 +666,7 @@ export class CalcStore {
       names: patch.names ?? info.names,
       persons: patch.persons ?? info.persons,
       workbookProtection: patch.workbookProtection ? (patch.workbookProtection.lockStructure || patch.workbookProtection.lockWindows ? patch.workbookProtection : undefined) : info.workbookProtection,
+      tableStyles: patch.tableStyles ?? info.tableStyles,
     };
     const reload = new Set<number>();
     for (const s of patch.structural) {

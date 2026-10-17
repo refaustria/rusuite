@@ -41,6 +41,7 @@ pub mod wire;
 pub mod wire_annot;
 pub mod wire_cf;
 pub mod wire_chart;
+pub mod wire_data;
 pub mod wire_pivot;
 pub mod wire_tables;
 
@@ -48,7 +49,7 @@ pub use annotations::{CellAnnotations, FormulaLink, SheetAnnotations, SheetThrea
 pub use command::{
     BorderEdits, CalcCommand, ClipCell, DeleteShift, EdgeEdit, FillMode, InsertShift, PasteMode,
     PasteOperation, PasteParts, PasteSpecial, RangeFormat, Rect, SheetRect, SheetViewPatch,
-    SubtotalFunction,
+    StyleRename, SubtotalFunction,
 };
 pub use dispatch::{dispatch, CalcHost, Request, Response, ResponseBody};
 pub use display::{display_value, UNDISPLAYABLE};

@@ -14,6 +14,7 @@
 //! data rows are all deleted disappears).
 
 use engine_formula::ast::{MAX_COL, MAX_ROW};
+use engine_formula::structured::ExprRewrite;
 use engine_formula::{CellCoord, Recalc, SheetId, StructRef, StructuralOp, TableDef};
 use serde::{Deserialize, Serialize};
 
@@ -477,6 +478,35 @@ impl Workbook {
         self.engine_mut().set_tables(defs)
     }
 
+    /// Before a column delete on `sheet`: references to the table
+    /// columns it removes become `#REF!` (see
+    /// [`delete_table_column_refs`](Self::delete_table_column_refs)).
+    pub(crate) fn table_refs_before_delete(&mut self, sheet: SheetId, op: StructuralOp) -> Recalc {
+        if op.is_rows() || op.is_insert() {
+            return Recalc::default();
+        }
+        let gone: Vec<(String, Vec<String>)> = self
+            .tables(sheet)
+            .iter()
+            .map(|t| {
+                let cols = t
+                    .columns
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| op.map_index(t.c0 + *i as u32).is_none())
+                    .map(|(_, c)| c.name.clone())
+                    .collect();
+                (t.name.clone(), cols)
+            })
+            .collect();
+        let mut out = Recalc::default();
+        for (table, cols) in gone {
+            out.changed
+                .extend(self.delete_table_column_refs(&table, &cols).changed);
+        }
+        out
+    }
+
     /// Moves, grows and shrinks the tables of `sheet` with a row/column
     /// insert or delete (see the module docs). New columns' header cells
     /// get their names. Returns the recalculation of the structured
@@ -608,6 +638,94 @@ impl Workbook {
             d.tables = copies;
         }
         self.sync_tables();
+    }
+}
+
+impl Workbook {
+    /// Rewrites structured references wherever formulas live: cells and
+    /// defined names (the engine), conditional formatting and data
+    /// validation formulas (at their rule's anchor cell) and the tables'
+    /// calculated column and custom totals formulas. Returns the cells'
+    /// recalculation.
+    pub fn rewrite_table_refs(&mut self, f: &ExprRewrite<'_>) -> Recalc {
+        let recalc = self.engine_mut().rewrite_formulas_with(f);
+        let map = |text: &mut String, at: CellCoord| {
+            if let Ok(ast) = crate::rules::parse_formula(text) {
+                let new = engine_formula::engine::map_expr(&ast, &|x| f(x, at));
+                if new != ast {
+                    *text = new.to_string();
+                }
+            }
+        };
+        let sheets: Vec<SheetId> = self.engine().sheets().map(|(id, _)| id).collect();
+        for sheet in sheets {
+            let Ok(data) = self.sheet_data_mut(sheet) else {
+                continue;
+            };
+            for rule in &mut data.conditional_formats {
+                let (ranges, formulas) = rule.parts_mut();
+                let Some((r, c)) = crate::rules::anchor(ranges) else {
+                    continue;
+                };
+                for text in formulas {
+                    map(text, CellCoord::new(sheet, r, c));
+                }
+            }
+            for v in &mut data.validations {
+                let (ranges, formulas) = v.parts_mut();
+                let Some((r, c)) = crate::rules::anchor(ranges) else {
+                    continue;
+                };
+                for text in formulas {
+                    map(text, CellCoord::new(sheet, r, c));
+                }
+            }
+            for t in &mut data.tables {
+                let (d0, _) = t.data_rows();
+                let (c0, r1) = (t.c0, t.r1);
+                for (i, col) in t.columns.iter_mut().enumerate() {
+                    let x = c0 + i as u32;
+                    if let Some(text) = col.calculated_formula.as_mut() {
+                        map(text, CellCoord::new(sheet, d0, x));
+                    }
+                    if let Some(TotalsCell::Custom { formula }) = col.totals.as_mut() {
+                        map(formula, CellCoord::new(sheet, r1, x));
+                    }
+                }
+            }
+        }
+        recalc
+    }
+
+    /// Table `old` is renamed to `new`: every reference follows (see
+    /// [`rewrite_table_refs`](Self::rewrite_table_refs); call before
+    /// [`set_tables`](Self::set_tables) with the renamed table).
+    pub fn rename_table_refs(&mut self, old: &str, new: &str) -> Recalc {
+        let f = engine_formula::structured::rename_table_rewrite(old, new);
+        self.rewrite_table_refs(&f)
+    }
+
+    /// Column `old` of the table named `table` is renamed to `new`.
+    pub fn rename_table_column_refs(&mut self, table: &str, old: &str, new: &str) -> Recalc {
+        let Some(def) = self.engine().table(table).cloned() else {
+            return Recalc::default();
+        };
+        let f = engine_formula::structured::rename_column_rewrite(&def, old, new);
+        self.rewrite_table_refs(&f)
+    }
+
+    /// The columns `deleted` of the table named `table` are about to go:
+    /// references to them become `#REF!`, column ranges shrink (Excel;
+    /// see [`delete_columns_rewrite`](engine_formula::structured::delete_columns_rewrite)).
+    pub fn delete_table_column_refs(&mut self, table: &str, deleted: &[String]) -> Recalc {
+        if deleted.is_empty() {
+            return Recalc::default();
+        }
+        let Some(def) = self.engine().table(table).cloned() else {
+            return Recalc::default();
+        };
+        let f = engine_formula::structured::delete_columns_rewrite(&def, deleted);
+        self.rewrite_table_refs(&f)
     }
 }
 

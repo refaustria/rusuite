@@ -226,6 +226,9 @@ pub struct ParsedStyles {
     pub dxfs: Vec<model_sheet::DxfStyle>,
     /// The custom number formats of `<numFmts>` by id (pivot fields).
     pub num_fmts: std::collections::HashMap<u32, String>,
+    /// `<tableStyles>`: custom table styles (elements resolved through
+    /// `dxfs`) and the default table style.
+    pub table_styles: model_sheet::TableStyles,
 }
 
 fn underline_of(v: Option<&str>) -> Underline {
@@ -307,6 +310,8 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
     let mut palette: Option<Vec<Rgb>> = None;
     let mut side: Option<usize> = None;
     let mut dxfs: Option<fmt_ooxml::xml::El> = None;
+    let mut table_styles: Option<fmt_ooxml::xml::El> = None;
+    let mut default_table_style: Option<String> = None;
     loop {
         let ev = reader.read_event().map_err(xml_err(part))?;
         let (el, is_empty) = match &ev {
@@ -340,11 +345,18 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
                 let inner = &xml[span.start as usize..span.end as usize];
                 dxfs = Some(crate::condfmt::subtree(el, inner, part)?);
             }
+            (Section::Other, b"tableStyles") => {
+                default_table_style = attr(el, "defaultTableStyle").map(|v| v.into_owned());
+                if !is_empty {
+                    let span = reader.read_to_end(el.name()).map_err(xml_err(part))?;
+                    let inner = &xml[span.start as usize..span.end as usize];
+                    table_styles = Some(crate::condfmt::subtree(el, inner, part)?);
+                }
+            }
             // Skipped wholesale (their children reuse font/fill/border names).
-            (
-                Section::Other,
-                b"cellStyleXfs" | b"dxfs" | b"cellStyles" | b"tableStyles" | b"extLst",
-            ) if !is_empty => {
+            (Section::Other, b"cellStyleXfs" | b"dxfs" | b"cellStyles" | b"extLst")
+                if !is_empty =>
+            {
                 reader.read_to_end(el.name()).map_err(xml_err(part))?;
             }
             (Section::NumFmts, b"numFmt") => {
@@ -567,12 +579,137 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
     let dxfs = dxfs.map_or_else(Vec::new, |el| {
         crate::condfmt::parse_dxfs(&el, &|c| RawColor::from_dom(c).resolve(&palette))
     });
+    let table_styles = parse_table_styles(table_styles.as_ref(), default_table_style, &dxfs, warn);
     Ok(ParsedStyles {
         xfs,
         default_font,
         dxfs,
         num_fmts,
+        table_styles,
     })
+}
+
+/// `<tableStyles>`: the table styles (pivot-only styles are dropped with
+/// a warning) whose elements reference `dxfs`.
+fn parse_table_styles(
+    el: Option<&fmt_ooxml::xml::El>,
+    default: Option<String>,
+    dxfs: &[model_sheet::DxfStyle],
+    warn: &mut dyn FnMut(String),
+) -> model_sheet::TableStyles {
+    use model_sheet::{CustomTableStyle, TableStyleElement, TableStyleElementType};
+    let mut out = model_sheet::TableStyles::default();
+    for ts in el
+        .into_iter()
+        .flat_map(|e| e.elements())
+        .filter(|e| e.name == "tableStyle")
+    {
+        let Some(name) = ts.attr("name") else {
+            continue;
+        };
+        if ts.attr("table") == Some("0") {
+            warn(format!(
+                "pivot table style {name:?} is not supported; dropped"
+            ));
+            continue;
+        }
+        if model_sheet::table_styles::is_builtin_table_style(name) || out.get(name).is_some() {
+            warn(format!(
+                "table style {name:?} is duplicate or built-in; dropped"
+            ));
+            continue;
+        }
+        let mut style = CustomTableStyle {
+            name: name.to_string(),
+            elements: Vec::new(),
+        };
+        for e in ts.elements().filter(|e| e.name == "tableStyleElement") {
+            let Some(kind) = e
+                .attr("type")
+                .and_then(TableStyleElementType::from_file_name)
+            else {
+                continue; // pivot-only elements (pageFieldLabels, …)
+            };
+            if style.element(kind).is_some() {
+                continue;
+            }
+            let size = e
+                .attr("size")
+                .and_then(|v| v.parse::<u32>().ok())
+                .filter(|_| kind.is_stripe())
+                .unwrap_or(1)
+                .clamp(1, 9);
+            let dxf = e
+                .attr("dxfId")
+                .and_then(|v| v.parse::<usize>().ok())
+                .and_then(|i| dxfs.get(i))
+                .cloned()
+                .unwrap_or_default();
+            style.elements.push(TableStyleElement { kind, size, dxf });
+        }
+        out.custom.push(style);
+    }
+    out.default_style = default.filter(|d| out.exists(d) && d != model_sheet::DEFAULT_TABLE_STYLE);
+    out
+}
+
+/// The `dxfs` with the table style elements' formats appended (shared
+/// with equal conditional formatting ones).
+pub(crate) fn with_table_style_dxfs(
+    mut dxfs: Vec<model_sheet::DxfStyle>,
+    styles: &model_sheet::TableStyles,
+) -> Vec<model_sheet::DxfStyle> {
+    for e in styles.custom.iter().flat_map(|s| &s.elements) {
+        if !dxfs.contains(&e.dxf) {
+            dxfs.push(e.dxf.clone());
+        }
+    }
+    dxfs
+}
+
+fn table_styles_xml(
+    x: &mut XmlOut,
+    styles: &model_sheet::TableStyles,
+    dxfs: &[model_sheet::DxfStyle],
+) {
+    let count = styles.custom.len().to_string();
+    let attrs = [
+        ("count", count.as_str()),
+        ("defaultTableStyle", styles.default_name()),
+        ("defaultPivotStyle", "PivotStyleLight16"),
+    ];
+    if styles.custom.is_empty() {
+        x.empty("tableStyles", &attrs);
+        return;
+    }
+    x.start("tableStyles", &attrs);
+    for s in &styles.custom {
+        let n = s.elements.len().to_string();
+        x.start(
+            "tableStyle",
+            &[
+                ("name", s.name.as_str()),
+                ("pivot", "0"),
+                ("count", n.as_str()),
+            ],
+        );
+        for e in &s.elements {
+            let id = dxfs
+                .iter()
+                .position(|d| *d == e.dxf)
+                .unwrap_or(0)
+                .to_string();
+            let size = e.size.to_string();
+            let mut attrs = vec![("type", e.kind.file_name())];
+            if e.size != 1 {
+                attrs.push(("size", size.as_str()));
+            }
+            attrs.push(("dxfId", id.as_str()));
+            x.empty("tableStyleElement", &attrs);
+        }
+        x.end("tableStyle");
+    }
+    x.end("tableStyles");
 }
 
 // --- writing ---------------------------------------------------------------
@@ -788,7 +925,12 @@ fn valign_name(v: VAlign) -> &'static str {
 /// Generates `styles.xml` with one `<xf>` per style of `table`, in id order.
 #[cfg(test)]
 pub fn write_styles(table: &StyleTable, default_font: &RunProperties) -> Vec<u8> {
-    write_styles_with_dxfs(table, default_font, &[])
+    write_styles_with_dxfs(
+        table,
+        default_font,
+        &[],
+        &model_sheet::TableStyles::default(),
+    )
 }
 
 /// [`write_styles`] plus the differential formats of conditional
@@ -797,6 +939,7 @@ pub fn write_styles_with_dxfs(
     table: &StyleTable,
     default_font: &RunProperties,
     dxfs: &[model_sheet::DxfStyle],
+    table_styles: &model_sheet::TableStyles,
 ) -> Vec<u8> {
     let default_font = normalize_font(default_font.clone());
     let mut fonts = Pool::new(vec![font_xml(&default_font, false)]);
@@ -977,14 +1120,7 @@ pub fn write_styles_with_dxfs(
     );
     x.end("cellStyles");
     crate::condfmt::write_dxfs(&mut x, dxfs);
-    x.empty(
-        "tableStyles",
-        &[
-            ("count", "0"),
-            ("defaultTableStyle", "TableStyleMedium2"),
-            ("defaultPivotStyle", "PivotStyleLight16"),
-        ],
-    );
+    table_styles_xml(&mut x, table_styles, dxfs);
     x.end("styleSheet");
     x.finish()
 }

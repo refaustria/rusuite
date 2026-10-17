@@ -35,6 +35,12 @@ pub struct WorkbookSnapshot {
     /// Review › Protect Workbook; absent = unprotected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protection: Option<crate::protection::WorkbookProtection>,
+    /// Custom table styles and the default table style.
+    #[serde(
+        default,
+        skip_serializing_if = "crate::table_styles::TableStyles::is_default"
+    )]
+    pub table_styles: crate::table_styles::TableStyles,
 }
 
 /// A defined name in a [`WorkbookSnapshot`].
@@ -227,6 +233,7 @@ impl Workbook {
             persons: self.persons().to_vec(),
             pivot_caches: self.pivot_caches().to_vec(),
             protection: self.workbook_protection().cloned(),
+            table_styles: self.table_styles().clone(),
         }
     }
 
@@ -332,6 +339,7 @@ impl Workbook {
         }
         wb.set_pivot_caches(snapshot.pivot_caches.clone());
         wb.set_workbook_protection(snapshot.protection.clone());
+        wb.set_table_styles(snapshot.table_styles.clone())?;
         // Tables before the cells: structured references register edges.
         for (sheet, &id) in snapshot.sheets.iter().zip(&ids) {
             if !sheet.tables.is_empty() {

@@ -94,6 +94,9 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         context.default_font = Some(parsed.default_font);
         dxfs = parsed.dxfs;
         num_fmts = parsed.num_fmts;
+        if let Err(e) = wb.set_table_styles(parsed.table_styles) {
+            warnings.push(format!("table styles dropped: {e}"));
+        }
         consumed.insert(styles);
     }
 

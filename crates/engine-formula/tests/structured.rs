@@ -377,3 +377,66 @@ fn parse_errors() {
         assert!(parse(bad).is_err(), "{bad}");
     }
 }
+
+/// P9-C2: deleting table columns rewrites references like Excel.
+#[test]
+fn deleting_a_column_rewrites_references_to_ref() {
+    let mut e = engine();
+    e.set_input(c(20, 6), "=SUM(T[Qty])").unwrap();
+    e.set_input(c(21, 6), "=SUM(T[Unit Price])+1").unwrap();
+    e.set_input(c(22, 6), "=COUNTA(T[[#Headers],[Qty]])")
+        .unwrap();
+    e.set_name("Q", NameScope::Workbook, "=T[Qty]").unwrap();
+    e.delete_table_column_refs("T", &["Qty".into()]);
+    assert_eq!(e.formula_text(c(20, 6)), Some("=SUM(#REF!)"));
+    assert_eq!(e.formula_text(c(22, 6)), Some("=COUNTA(#REF!)"));
+    // The neighbour stays.
+    assert_eq!(e.formula_text(c(21, 6)), Some("=SUM(T[Unit Price])+1"));
+    // Unqualified `[@Qty]` inside the table, the totals formula and names follow.
+    assert_eq!(e.formula_text(c(1, 3)), Some("=#REF!*[@[Unit Price]]"));
+    assert_eq!(e.formula_text(c(5, 1)), Some("=SUBTOTAL(109,#REF!)"));
+    assert_eq!(e.name("Q", NameScope::Workbook).unwrap().formula, "#REF!");
+    assert_eq!(e.value(c(20, 6)), Value::Error(ErrorKind::Ref));
+}
+
+#[test]
+fn deleting_a_range_end_column_shrinks_the_range() {
+    let mut e = engine();
+    e.set_input(c(20, 6), "=SUM(T[[Qty]:[Total]])").unwrap();
+    e.set_input(c(21, 6), "=SUM(T[[Qty]:[Unit Price]])")
+        .unwrap();
+    e.set_input(c(22, 6), "=SUM(T[[Region]:[Total]])").unwrap();
+    e.set_input(c(23, 6), "=SUM(T[[#All],[Total]:[Qty]])")
+        .unwrap();
+    e.delete_table_column_refs("T", &["Qty".into()]);
+    assert_eq!(
+        e.formula_text(c(20, 6)),
+        Some("=SUM(T[[Unit Price]:[Total]])")
+    );
+    assert_eq!(e.formula_text(c(21, 6)), Some("=SUM(T[Unit Price])"));
+    // An inner column does not touch the range.
+    assert_eq!(e.formula_text(c(22, 6)), Some("=SUM(T[[Region]:[Total]])"));
+    assert_eq!(
+        e.formula_text(c(23, 6)),
+        Some("=SUM(T[[#All],[Total]:[Unit Price]])")
+    );
+    // Every column of a range gone: #REF!.
+    e.delete_table_column_refs("T", &["Unit Price".into(), "Total".into()]);
+    assert_eq!(e.formula_text(c(20, 6)), Some("=SUM(#REF!)"));
+}
+
+#[test]
+fn deleting_columns_of_another_table_leaves_references() {
+    let mut e = engine();
+    let mut other = table(false);
+    other.name = "U".into();
+    other.r0 = 10;
+    other.r1 = 12;
+    e.set_tables(vec![table(true), other]);
+    e.set_input(c(20, 6), "=SUM(U[Qty])+SUM(T[Qty])").unwrap();
+    e.delete_table_column_refs("T", &["Qty".into()]);
+    assert_eq!(e.formula_text(c(20, 6)), Some("=SUM(U[Qty])+SUM(#REF!)"));
+    // Unknown table: nothing happens.
+    let r = e.delete_table_column_refs("Nope", &["Qty".into()]);
+    assert!(r.changed.is_empty());
+}

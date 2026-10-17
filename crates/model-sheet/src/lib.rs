@@ -28,6 +28,7 @@ pub mod sheet;
 pub mod snapshot;
 pub mod sortfilter;
 pub mod style;
+pub mod table_styles;
 pub mod tables;
 pub mod textio;
 pub mod validation;
@@ -61,6 +62,7 @@ pub use style::{
     Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, PatternFill, PatternType,
     Protection, StyleId, StyleTable, VAlign,
 };
+pub use table_styles::{CustomTableStyle, TableStyleElement, TableStyleElementType, TableStyles};
 pub use tables::{Table, TableColumn, TableLook, TotalsCell, TotalsFunction, DEFAULT_TABLE_STYLE};
 pub use validation::{
     DataValidation, ErrorStyle, ListSource, ValidationKind, ValidationResult, DEFAULT_ERROR_MESSAGE,

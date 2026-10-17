@@ -28,7 +28,8 @@ pub fn write(wb: &Workbook) -> Result<Vec<u8>> {
 /// from `ctx` (as returned by [`read_with_context`](crate::read_with_context)).
 pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     let mut sst = SharedStrings::default();
-    let dxfs = crate::condfmt::collect_dxfs(wb);
+    let dxfs =
+        crate::styles::with_table_style_dxfs(crate::condfmt::collect_dxfs(wb), wb.table_styles());
     let sheets = wb.sheets();
     // The active sheet is the selected one (`activeTab`, `tabSelected`).
     let active_id = wb.active_sheet();
@@ -97,7 +98,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     pkg.insert_part(
         pn("/xl/styles.xml")?,
         ct::SPREADSHEET_STYLES,
-        write_styles_with_dxfs(wb.styles(), &default_font, &dxfs),
+        write_styles_with_dxfs(wb.styles(), &default_font, &dxfs, wb.table_styles()),
     );
     rels.add(rel::STYLES, "styles.xml");
     rels.add(rel::THEME, "theme/theme1.xml");
