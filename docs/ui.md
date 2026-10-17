@@ -371,9 +371,10 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   Merge & Center ▾ (Merge & Center – a toggle that unmerges a merged selection –, Merge Across, Merge Cells, Unmerge Cells);
   Number: the Number Format box (Excel's eleven entries with previews), Accounting ▾, %, Comma Style, decimals ±
   (see [number-formats.md](number-formats.md)); Styles: Conditional Formatting ▾; Cells: Insert ▾ (Insert Cells…, rows, columns, sheet), Delete ▾ (Delete Cells…, rows, columns, sheet), Format ▾ (row height, column width, autofit, hide/unhide
-  rows and columns, Hide Sheet / Unhide Sheet…, Format cells…); Editing: Clear, Find ▾ Replace, Sort & Filter ▾ (Sort A
+  rows and columns, Hide Sheet / Unhide Sheet…, Organize Sheets: Rename Sheet, Move or Copy Sheet…, Tab Color…; Protection:
+  Protect Sheet… / Unprotect Sheet…, Lock Cell; Format cells…); Editing: Clear, Find ▾ Replace, Sort & Filter ▾ (Sort A
   to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (Tables › PivotTable, Table; Illustrations › Pictures; New sheet, rows/columns, Charts, Links › Link), Page Layout (P8-35), Formulas (see below), Data (Get & Transform › From Text/CSV; Sort & Filter: A→Z,
-  Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Text to Columns, Remove Duplicates, Data Validation…; Forecast › What-If Analysis › Goal Seek…; Outline: Group ▾, Ungroup ▾, Subtotal, Show/Hide Detail), Review (Comments, Notes ▾; see below), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
+  Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Text to Columns, Remove Duplicates, Data Validation…; Forecast › What-If Analysis › Goal Seek…; Outline: Group ▾, Ungroup ▾, Subtotal, Show/Hide Detail), Review (Comments, Notes ▾, Protect: Protect Sheet… / Unprotect Sheet, Protect Workbook; see below), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
   scaled; Window: Freeze Panes ▾ (Freeze/Unfreeze Panes, Freeze Top Row, Freeze First Column); shortcuts help). Zoom,
   gridlines, headings and frozen panes are the active sheet's `SheetView` (`setSheetView` / `setFreeze`, undoable, saved in
   the file's `<sheetView>`); the formula bar toggle is the app's.
@@ -573,11 +574,40 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   (family, style, size, underline none/single/double, colour, strikethrough, superscript, subscript, preview), Border
   (presets None / Outline / Inside, the eight edge buttons around a clickable 2 × 2 preview incl. both diagonals, seven
   line styles, colour → the core's `setBorders`, which sets outer and inner edges per cell and can remove lines), Fill
-  (No Color, theme and standard colours, sample; patterns are not offered) and Protection (Locked, Hidden – stored and
-  saved; sheet protection itself is not implemented). OK sends only what changed (`formatCommands`), as one compound.
-  The grid draws rotated text (inside its cell), shrinks the font of shrink-to-fit cells and draws diagonal borders;
-  the print view does not show rotation or diagonals yet. `fmt-xlsx` reads and writes `textRotation`, `shrinkToFit`,
-  `<protection>` and the diagonal (`diagonalUp` / `diagonalDown`, one line style as in SpreadsheetML).
+  (No Color, theme and standard colours; Pattern Color and Pattern Style with Excel's 17 patterns – the background colour
+  under them –, sample) and Protection (Locked, Hidden). OK sends only what changed (`formatCommands`), as one compound.
+  The grid draws rotated text (inside its cell; a rotation refits the row height like Excel), shrinks the font of
+  shrink-to-fit cells, draws diagonal borders, pattern fills (`grid/patterns.ts`, a 4 × 4 tile per pattern) and double
+  / accounting underlines (accounting: across the cell, lower); the print view shows the same (rotation, both
+  diagonals, patterns as an SVG background, double / accounting underlines). `fmt-xlsx` reads and writes
+  `textRotation`, `shrinkToFit`, `<protection>`, the diagonal (`diagonalUp` / `diagonalDown`, one line style as in
+  SpreadsheetML), `patternFill/@patternType` with `fgColor` / `bgColor` and `<u val="singleAccounting|doubleAccounting">`.
+- **Calc Home › Borders ▾** (P9-C1, `ui/bordersMenu.tsx`): Excel's list – Bottom, Top, Left, Right Border, No Border, All
+  Borders, Outside Borders, Thick Outside Borders (medium), Bottom Double Border, Thick Bottom Border, Top and Bottom
+  Border, More Borders… (Format Cells › Border). Each is one `setBorders` command (one undo step); an edited outline edge
+  also clears the facing side of the neighbouring cells, as Excel draws one line per edge.
+- **Calc protection** (P9-C1, `apps/calc/src/protection`): Review › Protect › Protect Sheet… opens Excel's dialog
+  ("Protect worksheet and contents of locked cells", Password to unprotect sheet, "Allow all users of this worksheet
+  to:" with Excel's 15 options and defaults), then Confirm Password when a password was given ("Confirmation password
+  is not identical."). The core hashes the password as Excel does (SHA-512, 16 random bytes of salt from the browser,
+  100000 spins; files with the legacy 16-bit `password` hash are verified too). The button turns into Unprotect Sheet
+  (a password prompt when there is one; a wrong password keeps the prompt open with Excel's message). Protect Workbook
+  opens Protect Structure and Windows (Structure, Windows, optional password); the button stays pressed while the
+  workbook is protected and then unprotects. On a protected sheet every change is checked in the core (`sheet_protected`
+  with Excel's message as a toast): cell input and clearing need unlocked cells, formatting / column / row / insert /
+  delete / sort / AutoFilter / pivot / object / hyperlink commands need the option that allows them, merges, Insert /
+  Delete Cells, rules, validation, outline and tables are refused; typing into a locked cell shows the message without
+  opening the editor. A locked structure refuses adding, deleting, renaming, moving, copying, hiding, unhiding and
+  recolouring sheets (`workbook_protected`). Hidden formulas (Format Cells › Protection › Hidden) show an empty, read-only
+  formula bar while the sheet is protected. The status bar shows a padlock on a protected sheet; the sheet tab menu has
+  Protect Sheet… / Unprotect Sheet…; Home › Format ▾ has Protect Sheet… and Lock Cell (toggles `locked` on the
+  selection). Selecting locked cells is not restricted on screen (the option is stored and saved).
+- **Calc sheets** (P9-C1): Move or Copy… (sheet tab menu, Home › Format ▾ › Organize Sheets) with To book (this
+  workbook), Before sheet (the visible sheets and "(move to end)") and Create a copy – one `moveSheet` or
+  `duplicateSheet` with `index` (copies are named "Sheet1 (2)"), one undo step. Unhide lists the hidden sheets with
+  multi-select (Ctrl+click toggles, Shift+click extends; Excel 365) and shows them in one step. Ctrl+PageUp/PageDown
+  switch to the previous / next visible sheet. A coloured tab is filled with its colour while inactive and shows it as
+  a bar when active. Saving writes the active sheet (`activeTab`, `tabSelected`); opening shows the file's active sheet.
 - **Calc circular references** (P8-44): as Excel with iterative calculation off, the cells of a cycle show 0 (their
   dependents compute with it) and the status bar says "Circular reference: B8" (the cycle's first cell; with a sheet
   prefix in a workbook of several sheets) for as long as the cycle exists (`CalcDocument` re-checks it after every

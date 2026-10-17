@@ -51,7 +51,7 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Mod+Shift+~, Mod+Shift+!, Mod+Shift+@, Mod+Shift+#, Mod+Shift+$, Mod+Shift+%, Mod+Shift+^ | Number format General, `#,##0.00`, `h:mm AM/PM`, `d-mmm-yy`, currency, `0%`, `0.00E+00` (the Shift+digit keys of a US layout) |
 | Mod+5 | Strikethrough |
 | Mod+;, Mod+Shift+: | Start the cell editor with today's date / the current time (Enter stores it as a date / time) |
-| Mod+PageDown, Mod+PageUp | Next / previous sheet (desktop; browsers keep these keys for their tabs) |
+| Mod+PageDown, Mod+PageUp | Next / previous visible sheet, skipping hidden ones (desktop; browsers keep these keys for their tabs; the grid no longer treats them as PageDown / PageUp, P9-C1) |
 | Mod+C, Mod+X | Copy, cut: the range gets a marching-ants outline; a cut moves the cells on the next paste |
 | Mod+V | Paste at the selection's top-left (relative references shift; the block repeats over a selection that is a multiple of it). Text from other programs is pasted as plain values (TSV) |
 | Mod+Shift+V | Paste values only (formulas paste their current values; destination formats kept) |
