@@ -256,7 +256,9 @@ impl DocPath {
         let mut st = self.state();
         match kind.as_ref() {
             "openXlsx" => st.current = st.opening.take(),
-            "newDocument" | "loadSnapshotJson" | "restoreRecovery" => {
+            // A text file opened through the wizard is a new workbook (P9-C2):
+            // Save asks where (never writes xlsx bytes into the .csv).
+            "newDocument" | "loadSnapshotJson" | "restoreRecovery" | "openText" => {
                 st.current = None;
                 st.opening = None;
             }
@@ -352,17 +354,38 @@ struct DialogText {
     filter_name: Option<String>,
 }
 
-/// The native file dialog for `.xlsx` files, with the UI's texts; without
-/// them the platform's title and the English filter name.
+/// The file types of the open dialog (P9-C2): every readable file first
+/// (Excel's "All Excel Files"), then workbooks and text files alone.
+/// `(name, extensions)`; `workbook` is the UI's name of the `.xlsx` type.
+fn open_filters(workbook: &str) -> [(String, &'static [&'static str]); 3] {
+    [
+        (
+            format!("{workbook}, CSV, TXT"),
+            &["xlsx", "csv", "txt", "tsv"],
+        ),
+        (workbook.to_string(), &["xlsx"]),
+        ("CSV / TXT".to_string(), &["csv", "txt", "tsv"]),
+    ]
+}
+
+/// The native file dialog for `.xlsx` files (`open`: also `.csv` /
+/// `.txt`, which the UI opens with the Text Import Wizard), with the UI's
+/// texts; without them the platform's title and the English filter name.
 fn xlsx_dialog(
     window: &tauri::Window,
     text: Option<DialogText>,
+    open: bool,
 ) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
     let text = text.unwrap_or_default();
-    let dialog = window.dialog().file().set_parent(window).add_filter(
-        text.filter_name.as_deref().unwrap_or("Excel workbook"),
-        &["xlsx"],
-    );
+    let name = text.filter_name.as_deref().unwrap_or("Excel workbook");
+    let mut dialog = window.dialog().file().set_parent(window);
+    if open {
+        for (label, exts) in open_filters(name) {
+            dialog = dialog.add_filter(label, exts);
+        }
+    } else {
+        dialog = dialog.add_filter(name, &["xlsx"]);
+    }
     match text.title {
         Some(title) => dialog.set_title(title),
         None => dialog,
@@ -391,7 +414,7 @@ async fn open_file_dialog(
     doc_path: tauri::State<'_, DocPath>,
     dialog: Option<DialogText>,
 ) -> Result<Option<OpenedFile>, FileError> {
-    let dialog = xlsx_dialog(&window, dialog);
+    let dialog = xlsx_dialog(&window, dialog, true);
     let picked = blocking(move || {
         dialog
             .blocking_pick_file()
@@ -431,7 +454,7 @@ async fn save_file(
             .await?
         }
         None => {
-            let mut dialog = xlsx_dialog(&window, dialog).set_file_name(suggested_name);
+            let mut dialog = xlsx_dialog(&window, dialog, false).set_file_name(suggested_name);
             if let Some(dir) = doc_path.current().as_deref().and_then(Path::parent) {
                 dialog = dialog.set_directory(dir);
             }
@@ -542,6 +565,28 @@ mod tests {
 
     fn call(state: &CalcState, request: Value) -> Value {
         serde_json::from_str(&state.dispatch(&request.to_string())).unwrap()
+    }
+
+    #[test]
+    fn open_dialog_offers_csv_and_txt() {
+        let f = open_filters("Excel-Arbeitsmappe");
+        assert_eq!(f[0].0, "Excel-Arbeitsmappe, CSV, TXT");
+        assert_eq!(f[0].1, &["xlsx", "csv", "txt", "tsv"]);
+        assert_eq!(f[1], ("Excel-Arbeitsmappe".to_string(), &["xlsx"][..]));
+        assert_eq!(f[2].1, &["csv", "txt", "tsv"]);
+    }
+
+    #[test]
+    fn opening_a_text_file_leaves_the_document_untitled() {
+        let doc = DocPath::default();
+        doc.set(Some(PathBuf::from("/docs/a.xlsx")));
+        doc.opening(PathBuf::from("/docs/data.csv"));
+        doc.observe(
+            r#"{"type":"openText","text":"a","name":"data.csv","options":{}}"#,
+            r#"{"ok":{}}"#,
+        );
+        assert_eq!(doc.current(), None);
+        assert_eq!(doc.save_target(false), None);
     }
 
     #[test]

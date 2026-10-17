@@ -252,8 +252,61 @@ describe("Page Layout names in print (P8-35)", () => {
       { name: "Print_Titles", sheet: 0, builtin: "printTitles" as const, refersTo: "Sheet1!$1:$2,Sheet1!$A:$A" },
       { name: "Print_Titles", sheet: 1, builtin: "printTitles" as const, refersTo: "Sheet2!$3:$4" },
     ];
-    expect(sheetPrintNames(names, 0)).toEqual({ area: { r0: 0, c0: 0, r1: 8, c1: 2 }, titleRows: 2 });
-    expect(sheetPrintNames(names, 1)).toEqual({ area: null, titleRows: 0 });
-    expect(sheetPrintNames([], 0)).toEqual({ area: null, titleRows: 0 });
+    expect(sheetPrintNames(names, 0)).toEqual({ areas: [{ r0: 0, c0: 0, r1: 8, c1: 2 }], rows: [0, 1], cols: [0, 0] });
+    // Titles further down (P9-C2) and no print area.
+    expect(sheetPrintNames(names, 1)).toEqual({ areas: [], rows: [2, 3], cols: null });
+    expect(sheetPrintNames([], 0)).toEqual({ areas: [], rows: null, cols: null });
+    // Several print areas.
+    const union = [{ name: "Print_Area", sheet: 0, builtin: "printArea" as const, refersTo: "Sheet1!$A$1:$B$4,Sheet1!$D$2:$E$9" }];
+    expect(sheetPrintNames(union, 0).areas).toEqual([{ r0: 0, c0: 0, r1: 3, c1: 1 }, { r0: 1, c0: 3, r1: 8, c1: 4 }]);
   });
 });
+
+describe("print titles (P9-C2)", () => {
+  it("title rows in the middle repeat only on the pages after them", () => {
+    const p = paginate([64], Array(150).fill(20), O, printableArea(O), {}, { rows: [10, 12] });
+    expect(p.pages[0]).toEqual({ rows: [0, 48], cols: [0, 1], repeat: 0 });
+    expect(p.pages[1]).toEqual({ rows: [48, 94], cols: [0, 1], repeat: 0, titleRows: [10, 12] });
+    const html = sliceTableHtml(grid(150, 1), p.pages[1]!, { gridlines: false, headings: false });
+    expect([...html.matchAll(/data-row="(\d+)"/g)].map((m) => Number(m[1])).slice(0, 3)).toEqual([10, 11, 48]);
+  });
+  it("columns to repeat at left: later page columns start with them and fit fewer columns", () => {
+    const area = printableArea(O); // ≈ 659 px → 10 columns of 64 px
+    const p = paginate(Array(25).fill(64), Array(10).fill(20), O, area, {}, { cols: [0, 2] });
+    expect(p.pages.map((s) => s.cols)).toEqual([[0, 10], [10, 18], [18, 25]]);
+    expect(p.pages[0]!.titleCols).toBeUndefined();
+    expect(p.pages[1]!.titleCols).toEqual([0, 2]);
+    const html = sliceTableHtml(grid(10, 25), p.pages[1]!, { gridlines: false, headings: true });
+    expect(html).toContain("<th></th><th>A</th><th>B</th><th>K</th>");
+    expect(html).toContain(">0,0<");
+    expect(html).toContain(">0,10<");
+  });
+  it("both: the corner cells print on every later page", () => {
+    const p = paginate(Array(25).fill(64), Array(120).fill(20), O, printableArea(O), {}, { rows: [0, 1], cols: [0, 1] });
+    const last = p.pages[p.pages.length - 1]!;
+    expect(last.repeat).toBe(1);
+    expect(last.titleCols).toEqual([0, 1]);
+    const html = sliceTableHtml(grid(120, 25), last, { gridlines: false, headings: false });
+    expect(html.indexOf(">0,0<")).toBeGreaterThan(-1);
+  });
+  it("several print areas print one after the other with the titles", () => {
+    const doc = calcPrintDocument(
+      [
+        { sheetName: "S", table: grid(60, 2), titles: { rows: [0, 1] } },
+        { sheetName: "S", table: grid(5, 2), titles: { rows: [0, 1] } },
+      ],
+      O,
+    );
+    expect(doc.pages).toHaveLength(3);
+    expect(doc.pages[1]).toContain('data-row="0"');
+    expect(doc.pages[1]).toContain('data-row="48"');
+  });
+  it("filterTable keeps the title rows above an area", async () => {
+    const { filterTable } = await import("./calcPrintDoc");
+    const t = filterTable(grid(10, 3), (r) => r === 0 || r >= 5, (c) => c !== 1);
+    expect(t.rows.map((r) => r.row)).toEqual([0, 5, 6, 7, 8, 9]);
+    expect(t.cols.map((c) => c.col)).toEqual([0, 2]);
+    expect(t.rows[0]!.cells.map((c) => c.text)).toEqual(["0,0", "0,2"]);
+  });
+});
+

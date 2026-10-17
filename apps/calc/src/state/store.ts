@@ -839,7 +839,9 @@ export class CalcStore {
       commands.push(old ? { type: "updateName", name: old.name, sheet, def } : { type: "defineName", def });
     };
     const abs = (r: string) => r.replace(/\$/g, "").replace(/([A-Za-z]+)(\d+)/g, "$$$1$$$2").replace(/^(\d+):(\d+)$/, "$$$1:$$$2").replace(/^([A-Za-z]+):([A-Za-z]+)$/, "$$$1:$$$2");
-    set("printArea", "Print_Area", area ? `${prefix}${abs(area)}` : "");
+    // Several print areas: `A1:C9,E1:F4` (a union, each part sheet-qualified).
+    const areas = area.split(",").map((a) => a.trim().replace(/^[^!]*!/, "")).filter(Boolean);
+    set("printArea", "Print_Area", areas.map((a) => `${prefix}${abs(a)}`).join(","));
     const titles = [rows, cols].filter((x) => x !== "").map((x) => `${prefix}${abs(x)}`).join(",");
     set("printTitles", "Print_Titles", titles);
     if (commands.length === 0) return Promise.resolve();

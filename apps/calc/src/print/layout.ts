@@ -127,14 +127,23 @@ export function calcScale(o: Pick<CalcPrintOptions, "scale" | "percent">, conten
  * run of its own. Returns `[start, end)` index pairs.
  */
 export function splitRuns(sizes: readonly number[], first: number, rest: number = first, breaks: ReadonlySet<number> = new Set()): [number, number][] {
+  return splitRunsBy(sizes, (_, k) => (k === 0 ? first : rest), breaks);
+}
+
+/**
+ * [`splitRuns`] with the space of each run from `avail(start, k)` (the
+ * run's first index and its number): print titles shrink only the runs
+ * after them.
+ */
+export function splitRunsBy(sizes: readonly number[], avail: (start: number, k: number) => number, breaks: ReadonlySet<number> = new Set()): [number, number][] {
   const out: [number, number][] = [];
   let start = 0;
   let sum = 0;
   const eps = 0.01;
   for (let i = 0; i < sizes.length; i++) {
-    const avail = out.length === 0 ? first : rest;
+    const space = avail(start, out.length);
     // A manual page break starts a page before item `i`.
-    if (i > start && (breaks.has(i) || sum + sizes[i]! > avail + eps)) {
+    if (i > start && (breaks.has(i) || sum + sizes[i]! > space + eps)) {
       out.push([start, i]);
       start = i;
       sum = 0;
@@ -145,12 +154,21 @@ export function splitRuns(sizes: readonly number[], first: number, rest: number 
   return out;
 }
 
-/** One printed page: table rows `[r0, r1)` and columns `[c0, c1)`, plus the repeated header rows `[0, repeat)` when not on the page anyway. */
+/**
+ * One printed page: table rows `[r0, r1)` and columns `[c0, c1)`, plus the
+ * repeated header rows `[0, repeat)` when not on the page anyway, and the
+ * print titles (P9-C2) further down / right: rows `titleRows` above and
+ * columns `titleCols` left of the page's own cells.
+ */
 export interface PageSlice {
   rows: [number, number];
   cols: [number, number];
   /** Number of leading table rows repeated above `rows` (0 on the first page row). */
   repeat: number;
+  /** Repeated title rows that do not start at the table's first row. */
+  titleRows?: [number, number];
+  /** Repeated title columns (Print Titles › Columns to repeat at left). */
+  titleCols?: [number, number];
 }
 
 export interface CalcPagination {
@@ -158,14 +176,21 @@ export interface CalcPagination {
   pages: PageSlice[];
 }
 
+/** Rows / columns repeated on every page (table indices, `[start, end)`). */
+export interface PrintTitlesSpec {
+  rows?: [number, number];
+  cols?: [number, number];
+}
+
 /**
  * Paginates a table of `colWidths × rowHeights` (unscaled px) onto pages
  * of `area` px: scale per the options, column runs (page columns) and row
- * runs (page rows), ordered down, then over.
+ * runs (page rows), ordered down, then over. Title rows / columns repeat
+ * on the pages after them (the options' `repeatRows`: the first rows).
  */
 export function paginate(
   colWidths: readonly number[], rowHeights: readonly number[], o: Pick<CalcPrintOptions, "scale" | "percent" | "headings" | "repeatRows">, area: { width: number; height: number },
-  breaks: { rows?: readonly number[]; cols?: readonly number[] } = {},
+  breaks: { rows?: readonly number[]; cols?: readonly number[] } = {}, titles: PrintTitlesSpec = {},
 ): CalcPagination {
   const headW = o.headings ? HEADING_COL_PX : 0;
   const headH = o.headings ? HEADING_ROW_PX : 0;
@@ -175,13 +200,32 @@ export function paginate(
   // Unscaled space; 2 px of slack for collapsed borders.
   const w = area.width / scale - headW - 2;
   const h = area.height / scale - headH - 2;
-  const repeat = Math.max(0, Math.min(o.repeatRows, rowHeights.length));
-  const repeatH = rowHeights.slice(0, repeat).reduce((a, b) => a + b, 0);
-  const colRuns = colWidths.length ? splitRuns(colWidths, w, w, new Set(breaks.cols ?? [])) : [[0, 0] as [number, number]];
-  const rowRuns = rowHeights.length ? splitRuns(rowHeights, h, repeatH < h ? h - repeatH : h, new Set(breaks.rows ?? [])) : [[0, 0] as [number, number]];
+  const clamp = (r: [number, number] | undefined, n: number): [number, number] | null => {
+    if (!r) return null;
+    const a = Math.max(0, Math.min(r[0], n));
+    const b = Math.max(a, Math.min(r[1], n));
+    return b > a ? [a, b] : null;
+  };
+  const tRows = clamp(o.repeatRows > 0 ? [0, o.repeatRows] : titles.rows, rowHeights.length);
+  const tCols = clamp(titles.cols, colWidths.length);
+  const sum = (xs: readonly number[], r: [number, number] | null) => (r ? xs.slice(r[0], r[1]).reduce((a, b) => a + b, 0) : 0);
+  const titleH = sum(rowHeights, tRows);
+  const titleW = sum(colWidths, tCols);
+  const rowsAfter = (start: number) => !!tRows && start >= tRows[1] && titleH < h;
+  const colsAfter = (start: number) => !!tCols && start >= tCols[1] && titleW < w;
+  const colRuns = colWidths.length ? splitRunsBy(colWidths, (start) => (colsAfter(start) ? w - titleW : w), new Set(breaks.cols ?? [])) : [[0, 0] as [number, number]];
+  const rowRuns = rowHeights.length ? splitRunsBy(rowHeights, (start) => (rowsAfter(start) ? h - titleH : h), new Set(breaks.rows ?? [])) : [[0, 0] as [number, number]];
   const pages: PageSlice[] = [];
   for (const cols of colRuns) {
-    for (const rows of rowRuns) pages.push({ rows, cols, repeat: rows[0] >= repeat && repeatH < h ? repeat : 0 });
+    for (const rows of rowRuns) {
+      const slice: PageSlice = { rows, cols, repeat: 0 };
+      if (tRows && rowsAfter(rows[0])) {
+        if (tRows[0] === 0) slice.repeat = tRows[1];
+        else slice.titleRows = tRows;
+      }
+      if (tCols && colsAfter(cols[0])) slice.titleCols = tCols;
+      pages.push(slice);
+    }
   }
   return { scale, pages };
 }
