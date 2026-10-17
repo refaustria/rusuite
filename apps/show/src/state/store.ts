@@ -88,7 +88,10 @@ import { fieldText } from "../design/fields";
 import { NO_CROP, stylePatch, type PictureStyle } from "../design/picture";
 import { t } from "../i18n";
 import { centredTransform } from "../geometry";
-import { choiceOf, choiceShape, clickBox, pushRecent } from "../shapes/presets";
+import { choiceOf, choiceShape, clickBox, freeformShape, pushRecent } from "../shapes/presets";
+import { refit } from "../shapes/editPoints";
+import type { GeomPath } from "../generated/GeomPath";
+import type { PathCmd } from "../generated/PathCmd";
 import type { ThemeColorSlot } from "../../../../packages/ui-shared/src/generated/ThemeColorSlot";
 import {
   arrowCommand, arrowSizeCommand, connectorKindCommand, drawConnectorCommand, moveEndCommands, rerouteCommand, type ConnEnd, type SlideSite,
@@ -197,6 +200,8 @@ export interface ShowState {
   tablePreview: string | null;
   /** Table Design › Draw Borders: the pen the Borders menu draws with. */
   pen: Pen;
+  /** Shape Format › Edit Points: the shape whose vertices are shown (`null` = off). */
+  editPoints: NodeId | null;
 }
 
 /** The presentation views of View › Presentation Views. */
@@ -302,6 +307,7 @@ export class ShowStore {
     alignTo: "selection",
     tablePreview: null,
     pen: DEFAULT_PEN,
+    editPoints: null,
   };
   /** The children of the last Ungroup (Regroup). */
   private lastUngrouped: NodeId[] | null = null;
@@ -725,7 +731,13 @@ export class ShowStore {
     const a = this.animation(this.state.animSelection);
     const keep = a && next.includes(this.topOf(a.shape));
     const cs = this.state.cellSel;
-    this.set({ selection: next, animSelection: keep ? this.state.animSelection : null, cellSel: cs && next.length === 1 && next[0] === cs.shape ? cs : null });
+    const ep = this.state.editPoints;
+    this.set({
+      selection: next,
+      animSelection: keep ? this.state.animSelection : null,
+      cellSel: cs && next.length === 1 && next[0] === cs.shape ? cs : null,
+      editPoints: ep !== null && next.length === 1 && next[0] === ep ? ep : null,
+    });
   }
 
   // --- transitions and animations (P8-8) ------------------------------------------
@@ -1260,6 +1272,41 @@ export class ShowStore {
     const temp = this.temp();
     this.set({ selection: [temp] });
     await this.run(drawConnectorCommand(slide, choice, start, end, temp));
+  }
+
+  /** A finished Freeform: Shape / Scribble drawing: inserted as a custom geometry and selected. */
+  async insertFreeform(id: string, transform: Transform, path: GeomPath): Promise<void> {
+    const slide = this.state.current;
+    if (slide === null) return;
+    this.useShape(id);
+    const shape = freeformShape(transform, path, this.temp());
+    this.set({ selection: [shape.id] });
+    await this.run({ type: "addShape", slide, shape });
+  }
+
+  /** Edit Shape › Edit Points for the selected auto shape (`false` ends it). */
+  setEditPoints(on: boolean): void {
+    const one = this.selectedShapes();
+    const s = on && one.length === 1 && one[0]!.kind.kind === "auto" ? one[0]! : null;
+    if (on && this.state.editing) void this.commitEdit();
+    this.set({ editPoints: s ? s.id : null });
+  }
+
+  /**
+   * An Edit Points change: the shape gets the edited outline (box
+   * commands) as its custom geometry, its box refitted to the points.
+   */
+  async applyEditPoints(shape: NodeId, cmds: PathCmd[], fill: boolean): Promise<void> {
+    const s = this.shape(shape);
+    if (!s || s.kind.kind !== "auto") return;
+    const r = refit(s.transform, cmds, fill);
+    await this.run({
+      type: "compound",
+      commands: [
+        { type: "setGeometry", shapes: [shape], geometry: { custom: { paths: [r.path] } } },
+        { type: "setTransform", shapes: [[shape, r.transform]] },
+      ],
+    });
   }
 
   /** Edit Shape › Change Shape: the selected auto shapes get `geometry`. */

@@ -166,6 +166,14 @@ export function shapeFormatGroups(store: ShowStore, state: ShowState, palette: T
                 />
               )}
             />
+            <RibbonButton
+              label={t("show.editPoints")}
+              icon={<svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M3 15L7 4l6 4 4 9z" /><rect x="5.5" y="2.5" width="3" height="3" fill="currentColor" /><rect x="11.5" y="6.5" width="3" height="3" fill="currentColor" /></svg>}
+              showLabel
+              disabled={autos.length !== 1}
+              pressed={autos.length === 1 && state.editPoints === autos[0]!.id}
+              onClick={() => store.setEditPoints(!(autos.length === 1 && state.editPoints === autos[0]!.id))}
+            />
           </RibbonStack>
         </>
       ),

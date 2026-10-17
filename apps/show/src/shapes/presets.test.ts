@@ -10,10 +10,13 @@ import { adjustDefaults, choiceOf, choiceShape, clickBox, NAMED_PRESETS, pushRec
 const T = { x: 0, y: 0, w: 914400, h: 914400, rotationDeg: 0 };
 
 describe("shape library", () => {
-  it("has PowerPoint's groups and every named preset once (110 with the line)", () => {
+  it("has PowerPoint's groups and every named preset once (177 with the line and the non-gallery ones)", () => {
     expect(SHAPE_GROUPS.map((g) => g.id)).toEqual(["lines", "rectangles", "basic", "arrows", "equation", "flowchart", "stars", "callouts", "actionButtons"]);
-    expect(NAMED_PRESETS).toHaveLength(110);
-    expect(new Set(NAMED_PRESETS).size).toBe(110);
+    expect(NAMED_PRESETS).toHaveLength(177);
+    expect(new Set(NAMED_PRESETS).size).toBe(177);
+    // PowerPoint's gallery sizes (Lines: 7 connectors + Freeform: Shape + Scribble)
+    expect(SHAPE_GROUPS.map((g) => g.items.length)).toEqual([9, 9, 42, 28, 6, 29, 20, 16, 12]);
+    expect(choiceOf("freeform")).toEqual({ kind: "freehand", mode: "freeform" });
     // the whole flowchart group of PowerPoint (28) plus offline storage
     expect(SHAPE_GROUPS.find((g) => g.id === "flowchart")!.items).toHaveLength(29);
     // every preset the core knows is in the gallery
