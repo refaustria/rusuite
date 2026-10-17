@@ -17,6 +17,7 @@ import type { ShowCommand } from "../generated/ShowCommand";
 import type { Slide } from "../generated/Slide";
 import type { TextParagraph } from "../generated/TextParagraph";
 import { t } from "../i18n";
+import { textClass } from "./deck";
 
 /** Id of the pseudo slide of the master view. */
 export const DESIGN_SLIDE_ID = 1_999_999_999;
@@ -57,6 +58,10 @@ export function sampleParagraphs(kind: PlaceholderKind): TextParagraph[] {
       ];
     case "picture":
       return [{ props: { bullet: { kind: "none" }, alignment: "center" }, runs: [{ text: t("show.master.samplePicture") }] }];
+    case "chart":
+      return [{ props: { bullet: { kind: "none" }, alignment: "center" }, runs: [{ text: t("show.master.sampleChart") }] }];
+    case "table":
+      return [{ props: { bullet: { kind: "none" }, alignment: "center" }, runs: [{ text: t("show.master.sampleTable") }] }];
     case "dateTime":
       return [{ runs: [{ text: "", field: { kind: "dateTime", value: { format: 1 } } }] }];
     case "footer":
@@ -137,12 +142,14 @@ const plainText = (paras: TextParagraph[]) => paras.map((p) => p.runs.map((r) =>
  * `setTransform` → placeholder transforms; `setRunProps` /
  * `setParagraphProps` on paragraph 1 → the placeholder's run / paragraph
  * defaults, on deeper paragraphs of the master's body placeholder → that
- * outline level of the master's body text style (`setMasterTextStyle`;
- * with `level` set – the Slide Master tab's text level – only that level
- * changes); `setTextBody` → the placeholder's custom prompt (back to the
- * sample text: no prompt); `deleteShapes` → `removePlaceholder`. Returns
- * the commands and whether something could not be translated (deeper
- * levels of layout placeholders, adding shapes).
+ * outline level of the master's body text style (`setMasterTextStyle`),
+ * of a layout's body-like placeholder → that level of its own list style
+ * (`setMasterPlaceholderProps` with `level`); with `level` set – the
+ * Slide Master tab's text level – only that level changes; `setTextBody`
+ * → the placeholder's custom prompt (back to the sample text: no prompt);
+ * `deleteShapes` → `removePlaceholder`. Returns the commands and whether
+ * something could not be translated (deeper levels of titles, adding
+ * shapes).
  */
 export function translateDesignCommand(
   pres: Pick<Presentation, "master" | "layouts">,
@@ -154,8 +161,11 @@ export function translateDesignCommand(
   let dropped = false;
   const def = (id: number) => placeholderOfShape(pres, target, id);
   const level = opts.level ?? null;
-  // outline levels: only the master's body placeholder has them
+  // outline levels: the master's body placeholder (its text style) and the layouts' body-like placeholders (their own levels)
   const levelled = (d: PlaceholderDef) => target.kind === "master" && d.kind === "body";
+  const layoutLevels = (d: PlaceholderDef) => target.kind === "layout" && textClass(d.kind) === "body";
+  /** The outline level a change of paragraph `p` goes to (`null`: none, with a chosen level only paragraph 1's change counts). */
+  const levelOf = (p: number): number | null => (level !== null ? (p === 0 ? level : null) : Math.min(8, p));
   const visit = (c: ShowCommand) => {
     if (DESIGN_COMMANDS.has(c.type)) {
       out.push(c);
@@ -186,6 +196,11 @@ export function translateDesignCommand(
           else out.push({ type: "setMasterTextStyle", which: "body", level: Math.min(8, c.paragraph), run: c.patch });
           return;
         }
+        if (layoutLevels(d)) {
+          const l = levelOf(c.paragraph);
+          if (l !== null) out.push(placeholderCommand(target, d, l ? { run: c.patch, level: l } : { run: c.patch }));
+          return;
+        }
         if (c.paragraph === 0) out.push(placeholderCommand(target, d, { run: c.patch }));
         else dropped = true;
         return;
@@ -205,6 +220,13 @@ export function translateDesignCommand(
           for (const p of c.paragraphs) {
             if (p === 0) out.push(placeholderCommand(target, d, { paragraph: rest }));
             else out.push({ type: "setMasterTextStyle", which: "body", level: Math.min(8, p), paragraph: rest });
+          }
+          return;
+        }
+        if (layoutLevels(d)) {
+          for (const p of c.paragraphs) {
+            const l = levelOf(p);
+            if (l !== null) out.push(placeholderCommand(target, d, l ? { paragraph: rest, level: l } : { paragraph: rest }));
           }
           return;
         }

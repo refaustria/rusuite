@@ -120,6 +120,7 @@ export function newShape(kind: InsertKind, size: SlideSize, id: number): Shape {
         kind: { kind: "auto", value: { geometry: kind === "rect" ? "rect" : "ellipse", text: body } },
         fill: { kind: "solid", value: accent },
         line: { fill: { kind: "solid", value: dark }, width: EMU_PER_PT, dash: "solid" },
+        textColor: { kind: "theme", value: { slot: "light1", tint: 0 } },
       };
     }
     case "line":
@@ -129,8 +130,13 @@ export function newShape(kind: InsertKind, size: SlideSize, id: number): Shape {
         kind: { kind: "auto", value: { geometry: "line", text: null } },
         line: { fill: { kind: "solid", value: accent }, width: 2 * EMU_PER_PT, dash: "solid" },
       };
-    case "textBox":
-      return { ...base, transform: centredTransform(size, 2743200, 457200), kind: { kind: "auto", value: { geometry: "rect", text: EMPTY_BODY() } } };
+    case "textBox": {
+      // PowerPoint's text box: one line, growing with the text (`spAutoFit`)
+      const body = EMPTY_BODY();
+      body.props.autofit = "resize";
+      body.props.wrap = false;
+      return { ...base, transform: centredTransform(size, 900000, 369332), kind: { kind: "auto", value: { geometry: "rect", text: body } } };
+    }
   }
 }
 
@@ -144,7 +150,7 @@ export function bodyFromText(text: string, old: TextBody): TextBody {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const paragraphs: TextParagraph[] = lines.map((line, i) => {
     const prev = old.paragraphs[i] ?? old.paragraphs[old.paragraphs.length - 1];
-    if (old.paragraphs[i] && paragraphText(old.paragraphs[i]!) === line) return old.paragraphs[i]!;
+    if (old.paragraphs[i] && paragraphText(old.paragraphs[i]!).replace(/\n/g, "\u000b") === line) return old.paragraphs[i]!;
     const runProps = prev?.runs[0]?.props;
     const p: TextParagraph = { runs: line ? [runProps ? { props: runProps, text: line } : { text: line }] : [] };
     if (prev?.props) p.props = prev.props;

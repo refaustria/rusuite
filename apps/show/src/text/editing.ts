@@ -5,11 +5,26 @@
 // formatting of the run before the caret, like PowerPoint) and paragraphs
 // split by Enter keep their level, bullet and alignment. The body goes to
 // the core as one `SetTextBody` when the session ends (ADR 0008).
+// Line breaks inside a paragraph (`a:br`, Shift+Enter) are U+000B in the
+// session's text (the model stores `\n` in the run, which the session
+// text uses between paragraphs); both count as one UTF-16 unit, so
+// offsets are the same in the text and in the runs.
 
 import type { TextBody } from "../generated/TextBody";
 import type { TextParagraph } from "../generated/TextParagraph";
 import type { TextRun } from "../generated/TextRun";
 import { paragraphText } from "../model";
+
+/** A line break inside a paragraph in the editor's text (Shift+Enter, `a:br`). */
+export const LINE_BREAK = "\u000b";
+
+/** The editor's text of a body: paragraphs joined by `\n`, line breaks as U+000B. */
+export function editorText(body: TextBody): string {
+  return body.paragraphs.map((p) => paragraphText(p).replace(/\n/g, LINE_BREAK)).join("\n");
+}
+
+/** Editor text as plain text (clipboard): line breaks become `\n`. */
+export const plainOf = (text: string): string => text.replace(/\u000b/g, "\n");
 
 /** A position in a body: paragraph index and UTF-16 offset in its text. */
 export interface EditPos {
@@ -135,11 +150,16 @@ export function spliceBody(body: TextBody, from: number, to: number, insert: str
   return { ...body, paragraphs: [...body.paragraphs.slice(0, a.paragraph), ...made, ...body.paragraphs.slice(b.paragraph + 1)] };
 }
 
-/** The body as committed: the empty runs that carried formatting of empty paragraphs are dropped. */
+/**
+ * The body as committed: the empty runs that carried formatting of empty
+ * paragraphs are dropped, line breaks are stored as `\n` (as the reader
+ * stores `a:br`).
+ */
 export function cleanBody(body: TextBody): TextBody {
+  const breaks = (r: TextRun): TextRun => (r.text.includes(LINE_BREAK) ? { ...r, text: r.text.replace(/\u000b/g, "\n") } : r);
   return {
     ...body,
-    paragraphs: body.paragraphs.map((p) => (p.runs.length > 0 && p.runs.every((r) => r.text === "" && !r.field) ? { ...p, runs: [] } : p)),
+    paragraphs: body.paragraphs.map((p) => (p.runs.length > 0 && p.runs.every((r) => r.text === "" && !r.field) ? { ...p, runs: [] } : p.runs.some((r) => r.text.includes(LINE_BREAK)) ? { ...p, runs: p.runs.map(breaks) } : p)),
   };
 }
 

@@ -84,3 +84,24 @@ export function fitHeight(pres: Presentation, slide: Slide, shape: Shape, body: 
   const ratio = emuToPx(shape.transform.h) / Math.max(1, o.height);
   return Math.max(EMU_PER_PX * 4, Math.round(lay.height * ratio * EMU_PER_PX));
 }
+
+/**
+ * "Resize shape to fit text" (`spAutoFit`): the box (EMU) that holds
+ * `body` – the height of the text; a box that does not wrap also grows in
+ * width to its longest line (never narrower than it is). `null` for other
+ * shapes (vertical text, no auto shape).
+ */
+export function fitSize(pres: Presentation, slide: Slide, shape: Shape, body: TextBody): { w: number; h: number } | null {
+  if (body.props.autofit !== "resize") return null;
+  let w = shape.transform.w;
+  if (!body.props.wrap && (body.props.vert ?? "horizontal") === "horizontal") {
+    const o = optionsFor(pres, slide, shape);
+    if (!o) return null;
+    const lay = layoutText({ ...body, props: { ...body.props, autofit: "none" } }, o);
+    const right = lay.fragments.reduce((m, f) => Math.max(m, f.x + f.width), 0) + emuToPx(body.props.insets.right);
+    const ratio = emuToPx(shape.transform.w) / Math.max(1, o.width);
+    w = Math.max(w, Math.ceil(right * ratio + 1) * EMU_PER_PX);
+  }
+  const h = fitHeight(pres, slide, { ...shape, transform: { ...shape.transform, w } }, body);
+  return h === null ? null : { w, h };
+}

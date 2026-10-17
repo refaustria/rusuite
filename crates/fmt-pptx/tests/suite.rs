@@ -832,14 +832,13 @@ fn powerpoint_style_inheritance() {
     let l = p.layout(&LayoutKind::TitleContent).unwrap();
     assert_eq!(l.placeholders[0].transform.x, Emu(838_200));
     assert_eq!(p.master.placeholders[1].transform.w, Emu(7));
-    // style references resolve to explicit fill, outline and text color
+    // style references resolve to explicit fill and outline; the text
+    // colour stays the shape's style colour (runs without one use it)
     use core_model::ThemeColorSlot as S;
     assert_eq!(oval.fill, Fill::Solid(Color::theme(S::Accent1)));
     assert_eq!(oval.line.width, Emu(12_700));
-    assert_eq!(
-        oval.text().unwrap().paragraphs[0].runs[0].props.color,
-        Some(Color::theme(S::Light1))
-    );
+    assert_eq!(oval.text_color, Some(Color::theme(S::Light1)));
+    assert_eq!(oval.text().unwrap().paragraphs[0].runs[0].props.color, None);
     // connector → line shape
     assert!(matches!(
         line.kind,

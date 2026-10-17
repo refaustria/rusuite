@@ -60,7 +60,7 @@ const HEADER_FOOTER: PlaceholderKind[] = ["dateTime", "footer", "slideNumber"];
 /** The text class of a placeholder kind (titles; subtitle/body/picture; the rest). */
 export function textClass(kind: PlaceholderKind | null | undefined): TextClass {
   if (kind === "title" || kind === "centeredTitle") return "title";
-  if (kind === "subtitle" || kind === "body" || kind === "picture") return "body";
+  if (kind === "subtitle" || kind === "body" || kind === "picture" || kind === "chart" || kind === "table") return "body";
   return "other";
 }
 
@@ -103,8 +103,34 @@ export function levelDefaults(
   const cls = textClass(def.kind);
   const list = deck.master?.textStyles[cls] ?? [];
   const st = list[Math.min(level, list.length - 1)];
-  if (!st) return { run, paragraph };
-  return { run: mergeDefined(run, st.run), paragraph: mergeDefined(paragraph, { ...(st.paragraph ?? {}), level: undefined }) };
+  // the layout placeholder's own changes of the level (its `a:lvlNpPr`) win
+  const own = def.levels?.[level - 1];
+  const r = mergeDefined(mergeDefined(run, st?.run), own?.run);
+  const p = mergeDefined(mergeDefined(paragraph, { ...(st?.paragraph ?? {}), level: undefined }), { ...(own?.paragraph ?? {}), level: undefined });
+  return { run: r, paragraph: p };
+}
+
+/**
+ * Left margin and first-line indent (EMU, `marL` / `indent`) of outline
+ * level `level` (0-based) of a shape's text: the master's text style of
+ * its class (non-placeholders: "other") overlaid with the layout
+ * placeholder's own changes of that level; `{}` without a master.
+ */
+export function levelMargins(
+  deck: Pick<DeckContext, "master">,
+  def: PlaceholderDef | undefined,
+  kind: PlaceholderKind | null | undefined,
+  level: number,
+): { marginLeft?: number; indent?: number } {
+  const list = deck.master?.textStyles[textClass(def?.kind ?? kind)] ?? [];
+  const st = list[Math.min(level, list.length - 1)];
+  const own = level > 0 ? def?.levels?.[level - 1] : undefined;
+  const out: { marginLeft?: number; indent?: number } = {};
+  const m = own?.marginLeft ?? st?.marginLeft;
+  const i = own?.indent ?? st?.indent;
+  if (m !== undefined && m !== null) out.marginLeft = m;
+  if (i !== undefined && i !== null) out.indent = i;
+  return out;
 }
 
 const WHITE: ResolvedFill = { kind: "solid", value: { color: "FFFFFF", alpha: 1 } };

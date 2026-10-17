@@ -96,6 +96,15 @@ fn presets_and_adjust_values() {
     );
     assert_eq!(p.id_map, [(-1, id(7))]);
     assert_eq!(shape(&h, 7).name, "Rectangular Callout 7");
+    // the style's text colour comes with the shape (white on the accent fill)
+    assert_eq!(
+        shape(&h, 7).text_color,
+        Some(Color::theme(core_model::ThemeColorSlot::Light1))
+    );
+    assert_eq!(
+        json_of(&h)["slides"][1]["shapes"][2]["textColor"],
+        json!({"kind": "theme", "value": {"slot": "light1", "tint": 0.0}})
+    );
     // adjust, then change the preset (adjust values reset)
     apply(
         &mut h,
