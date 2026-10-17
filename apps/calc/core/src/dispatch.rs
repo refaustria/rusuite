@@ -108,6 +108,9 @@ pub enum Request {
     /// The in-cell dropdown values of the cell's list validation →
     /// `listValues` (empty without one).
     ListValues { sheet: u32, row: u32, col: u32 },
+    /// Data › Data Validation › Circle Invalid Data: the cells of `sheet`
+    /// whose values fail their validation (at most 255) → `invalidCells`.
+    InvalidCells { sheet: u32 },
     /// The conditional formatting rules (priority order) and the data
     /// validations of `sheet` (for the manage dialogs) → `sheetRules`.
     SheetRules { sheet: u32 },
@@ -332,6 +335,11 @@ pub enum ResponseBody {
     ListValues {
         values: Vec<String>,
     },
+    /// The reply to `invalidCells`: one single-cell rectangle per cell,
+    /// row-major.
+    InvalidCells {
+        cells: Vec<crate::Rect>,
+    },
     /// The reply to `sheetCharts`.
     Charts {
         #[ts(as = "Vec<crate::wire_chart::ChartObject>")]
@@ -532,6 +540,9 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
         },
         Request::ListValues { sheet, row, col } => ResponseBody::ListValues {
             values: host.doc().list_values(sheet, row, col)?,
+        },
+        Request::InvalidCells { sheet } => ResponseBody::InvalidCells {
+            cells: host.doc().invalid_cells(sheet)?,
         },
         Request::SheetRules { sheet } => {
             let (rules, validations) = host.doc().sheet_rules(sheet)?;

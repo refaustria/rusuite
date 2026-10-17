@@ -352,6 +352,8 @@ export interface CalcState {
   toasts: Toast[];
   /** The copied/cut range shown with marching ants (`null`: none). */
   clipMark: { sheet: number; range: Range; cut: boolean } | null;
+  /** Data › Data Validation › Circle Invalid Data: the circled cells of a sheet (`null`: none shown). */
+  circles: { sheet: number; cells: Rect[] } | null;
   /** Home › Format Painter is on (`sticky`: double-clicked, stays on until Esc). */
   painter: { sticky: boolean } | null;
   dialog: CalcDialog | null;
@@ -469,6 +471,7 @@ export class CalcStore {
     toasts: [],
     clipMark: null,
     painter: null,
+    circles: null,
     dialog: null,
     validationAlert: null,
     ribbonRequest: null,
@@ -1162,18 +1165,21 @@ export class CalcStore {
   apply(command: CalcCommand): Promise<void> {
     return this.guard(async () => {
       this.applyEnvelope(await this.api.apply(command));
+      if (this.state.circles) await this.refreshCircles();
     });
   }
 
   undo(): Promise<void> {
     return this.guard(async () => {
       this.applyEnvelope(await this.api.undo());
+      if (this.state.circles) await this.refreshCircles();
     });
   }
 
   redo(): Promise<void> {
     return this.guard(async () => {
       this.applyEnvelope(await this.api.redo());
+      if (this.state.circles) await this.refreshCircles();
     });
   }
 
@@ -2773,6 +2779,37 @@ export class CalcStore {
   }
 
   /** The in-cell dropdown values of the active cell's list validation. */
+  /**
+   * Circle Invalid Data: circles the cells of the active sheet whose
+   * values fail their validation (at most 255, as Excel). A circle goes
+   * away when its cell is corrected; new invalid entries are circled by
+   * the next Circle Invalid Data only.
+   */
+  async circleInvalidData(): Promise<void> {
+    const sheet = this.state.activeSheet;
+    await this.guard(async () => {
+      const cells = await this.api.invalidCells(sheet);
+      this.set({ circles: { sheet, cells } });
+    });
+  }
+
+  /** Clear Validation Circles. */
+  clearValidationCircles(): void {
+    if (this.state.circles) this.set({ circles: null });
+  }
+
+  /** After an edit: drops the circles of cells that are valid now. */
+  private async refreshCircles(): Promise<void> {
+    const circles = this.state.circles;
+    if (!circles) return;
+    const still = await this.api.invalidCells(circles.sheet);
+    const bad = new Set(still.map((c) => `${c.r0}:${c.c0}`));
+    const cur = this.state.circles;
+    if (!cur || cur.sheet !== circles.sheet) return;
+    const cells = cur.cells.filter((c) => bad.has(`${c.r0}:${c.c0}`));
+    if (cells.length !== cur.cells.length) this.set({ circles: cells.length > 0 ? { ...cur, cells } : null });
+  }
+
   async listValues(): Promise<string[]> {
     const { row, col } = this.activeAnchor();
     let values: string[] = [];

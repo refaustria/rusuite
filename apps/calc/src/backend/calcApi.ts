@@ -94,6 +94,7 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     filterValues: { values: "array" },
     validation: { result: "object" },
     listValues: { values: "array" },
+    invalidCells: { cells: "array" },
     sheetRules: { rules: "array", validations: "array" },
     charts: { charts: "array" },
     chartData: { data: "object" },
@@ -285,6 +286,11 @@ export class CalcApi {
   /** The in-cell dropdown values of the cell's list validation (empty without one). */
   async listValues(sheet: number, row: number, col: number): Promise<string[]> {
     return (await this.call({ type: "listValues", sheet, row, col }, "listValues")).values;
+  }
+
+  /** Circle Invalid Data: the cells of `sheet` whose values fail their validation (single-cell rects, at most 255). */
+  async invalidCells(sheet: number): Promise<Rect[]> {
+    return (await this.call({ type: "invalidCells", sheet }, "invalidCells")).cells;
   }
 
   /** The conditional formatting rules (by priority) and data validations of `sheet`. */

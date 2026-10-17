@@ -260,6 +260,23 @@ impl CalcDocument {
         Ok(self.workbook().list_values(c))
     }
 
+    /// The `invalidCells` request (Circle Invalid Data): at most 255 cells,
+    /// as Excel.
+    pub fn invalid_cells(&self, sheet: u32) -> Result<Vec<crate::Rect>> {
+        let s = self.sheet(sheet)?;
+        Ok(self
+            .workbook()
+            .invalid_cells(s, 255)
+            .into_iter()
+            .map(|c| crate::Rect {
+                r0: c.row,
+                c0: c.col,
+                r1: c.row,
+                c1: c.col,
+            })
+            .collect())
+    }
+
     /// The `sheetRules` request: the conditional formatting rules (priority
     /// order) and data validations of `sheet`.
     pub fn sheet_rules(&self, sheet: u32) -> Result<(Vec<CfRule>, Vec<DataValidation>)> {

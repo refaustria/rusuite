@@ -198,3 +198,31 @@ fn renaming_a_sheet_rewrites_rules_and_undo_renames_back() {
         }
     );
 }
+
+#[test]
+fn invalid_cells_request() {
+    let mut h = host();
+    // A1 = 3 passes A1>0; A2 = -1 under a whole-number validation fails.
+    h.apply(set(1, 0, "-1")).unwrap();
+    h.apply(C::SetValidation {
+        sheet: 0,
+        validation: DataValidation::new(
+            vec![rect(1, 0, 5, 0)],
+            ValidationKind::Whole {
+                op: model_sheet::CompareOp::GreaterThan,
+                f1: "0".into(),
+                f2: None,
+            },
+        ),
+    })
+    .unwrap();
+    let reply: serde_json::Value = serde_json::from_str(&calc_core::dispatch(
+        &mut h,
+        r#"{"type":"invalidCells","sheet":0}"#,
+    ))
+    .unwrap();
+    assert_eq!(
+        reply["ok"],
+        serde_json::json!({"type":"invalidCells","cells":[{"r0":1,"c0":0,"r1":1,"c1":0}]})
+    );
+}

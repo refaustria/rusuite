@@ -2345,6 +2345,17 @@ export class FakeCalcCore {
           return { ok: { type: "validation", result: this.validate(req.sheet, req.row, req.col, req.input) } };
         case "listValues":
           return { ok: { type: "listValues", values: this.listValues(req.sheet, req.row, req.col) } };
+        case "invalidCells": {
+          // Circle Invalid Data: every non-empty validated cell whose input fails the toy check.
+          const s = this.sheet(req.sheet);
+          const cells: Rect[] = [];
+          for (const [r, row] of [...s.cells].sort((a, b) => a[0] - b[0])) {
+            for (const [c, x] of [...row].sort((a, b) => a[0] - b[0])) {
+              if (x.input !== "" && !this.validate(req.sheet, r, c, x.input).ok) cells.push({ r0: r, c0: c, r1: r, c1: c });
+            }
+          }
+          return { ok: { type: "invalidCells", cells: cells.slice(0, 255) } };
+        }
         case "sheetRules": {
           const s = this.sheet(req.sheet);
           return { ok: { type: "sheetRules", rules: JSON.parse(JSON.stringify(s.cfRules)), validations: JSON.parse(JSON.stringify(s.validations)) } };
