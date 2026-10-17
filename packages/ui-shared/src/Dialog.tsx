@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 
 const FOCUSABLE =
   'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
@@ -16,13 +16,21 @@ export function Dialog({ open, title, onClose, children }: DialogProps) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  useEffect(() => {
+  // Layout effect: the focus moves in and back synchronously with the commit that opens/closes the dialog, so a key
+  // pressed right after OK/Cancel/Esc reaches the element that opened it (P9-Q1). If the close handler already moved
+  // the focus elsewhere (e.g. into the editor), that wins: only a focus left in the dialog (or lost to <body> when the
+  // dialog's DOM went away) goes back to the opener.
+  useLayoutEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
     const el = ref.current;
     const first = el?.querySelector<HTMLElement>(FOCUSABLE);
     (first ?? el)?.focus();
-    return () => previous?.focus?.();
+    return () => {
+      const active = document.activeElement;
+      const stranded = !active || active === document.body || (el?.contains(active) ?? false);
+      if (stranded && previous?.isConnected) previous.focus?.();
+    };
   }, [open]);
 
   if (!open) return null;

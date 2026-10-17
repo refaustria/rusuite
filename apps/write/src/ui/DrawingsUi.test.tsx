@@ -23,6 +23,7 @@ import { findPos, pmOffsetOf } from "../sync/SyncPlugin";
 import { FakeWriteBackend } from "../test/fakeWriteBackend";
 import { makeDoc, para, run } from "../test/fixtures";
 import { innerEditors } from "../features/drawings/innerEditors";
+import { toggleObject } from "../features/drawings/objects";
 
 const noRects = () => ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] }) as unknown as DOMRectList;
 Range.prototype.getClientRects = noRects;
@@ -342,5 +343,41 @@ describe("Home › Font", () => {
     fireEvent.click(tab("View"));
     fireEvent.click(screen.getByRole("checkbox", { name: "Hidden text" }));
     await waitFor(() => expect(editorEl.classList.contains("show-hidden")).toBe(true));
+  });
+});
+
+describe("the object set in the ribbon (P9-Q1)", () => {
+  const floating = (id: number, x: number): Drawing => ({
+    id,
+    width: 952500,
+    height: 476250,
+    preset: "rect",
+    anchor: {
+      h: { relativeTo: "column", place: { kind: "offset", value: x } },
+      v: { relativeTo: "paragraph", place: { kind: "offset", value: 0 } },
+      wrap: "inFront",
+      distance: { top: 0, bottom: 0, left: 0, right: 0 },
+      allowOverlap: true,
+    },
+  });
+
+  it("Shift+click adding a shape enables Arrange › Group at once (a meta-only transaction re-renders the menus)", async () => {
+    const { editor } = await mount([para(1, [run("A "), { kind: "drawing", value: floating(10, 0) }, { kind: "drawing", value: floating(12, 1905000) }])]);
+    selectNode(editor, "drawing");
+    fireEvent.click(await screen.findByRole("tab", { name: "Shape Format" }));
+    const positions: number[] = [];
+    editor.state.doc.descendants((n, p) => {
+      if (n.type.name === "drawing") positions.push(p);
+      return true;
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    expect((menuItem("Group") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    expect(screen.queryByRole("menuitem", { name: "Group" })).toBeNull();
+    act(() => {
+      expect(toggleObject(editor.view, positions[1]!)).toBe(true);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    expect((menuItem("Group") as HTMLButtonElement).disabled).toBe(false);
   });
 });

@@ -40,6 +40,33 @@ publishing (`E2E_BASE_URL` overrides the URL).
   `print-page-count`, and `previewPdf(page, name)` renders the preview's `srcdoc` with headless `page.pdf()` (saved to
   `PRINT_PDF_DIR`, default `test-results/print-pdfs`) and returns the PDF's page count.
 
+## Writing stable e2e tests
+
+CI runs the suite with 2 workers on a 2-core runner: anything that is quick on a laptop can be slow there. A test that
+passes "most of the time" usually races the app (P9-Q1 found four: a lost shortcut, a rule not applied yet, a stale
+menu, a wall-clock wait).
+
+- **Wait on state, never on time.** After an action, wait for what it changes (`toHaveCount`, `toHaveAttribute`,
+  `toBeEnabled`, `expect.poll`) before the next step. No `waitForTimeout`, no retries, no looser assertions.
+- **Calc: `grid.waitIdle()`** (`support/calc.ts`) resolves once the grid has no `data-busy`: no request to the core
+  pending, no region re-fetch queued (conditional formatting / validation results only arrive with snapshots) and no
+  rule change settling. Call it after a dialog's OK (Data Validation, Conditional Formatting, ...) before you type or
+  click on the result. The store itself also waits: a commit right after Data Validation OK is checked against the new
+  rule (`rulesSettling`), but the test should not depend on that timing.
+- **Focus after dialogs.** `Dialog` (ui-shared) gives the focus back synchronously when it closes, unless the close
+  handler already put it somewhere else (Write's dialogs focus the editor at once, `focusNow`). Before a keyboard
+  shortcut after a dialog, assert where the keys go: `await expect(dlg).toHaveCount(0)` and
+  `await expect(editor(page)).toBeFocused()`.
+- **Selections and ribbons.** A ribbon command reads the selection from the last render: wait for the visible selection
+  state first (Write drawings: `.drawing-wrap.selected`, `multi-selected`; the drawing tool is disarmed when the editor
+  has no `data-draw-tool`), and for a menu item use `toBeEnabled()` before clicking it, so a stale menu fails fast with a
+  clear message instead of a 45 s click timeout.
+- **Time-based features use the page clock.** Rehearse Timings, auto-advance and similar measure wall-clock time:
+  `page.clock.install()` before loading, `page.clock.pauseAt(...)` / `runFor(ms)` while the measurement runs, then
+  `resume()`. A `waitForTimeout(1200)` between key presses turns into 1.6 s on a busy runner (rounded to 2 s).
+- **Reproduce flakes under load:** `--repeat-each 30 --workers 12` (or `CI=1` for the CI worker count) usually turns a
+  1-in-3 live-site flake into a reliable failure; the trace in `test-results/` shows the last action and the DOM.
+
 ## Desktop shells (real windows)
 
 `scripts/desktop-smoke.sh [--start-only] [calc|write|show ...]` runs the release binaries (`pnpm --filter <app> tauri build
