@@ -648,9 +648,10 @@ function noteCommand(o: PMNode, n: PMNode, opts: MapperOptions): WriteCommand | 
   while (z < ob.length - a && z < nb.length - a && blockKey(ob[ob.length - 1 - z]!) === blockKey(nb[nb.length - 1 - z]!)) z++;
   const [os, ns] = [ob.slice(a, ob.length - z), nb.slice(a, nb.length - z)];
   if (!os.length && !ns.length) return null;
-  if (os.length && os.length === ns.length && os.every(isPara) && ns.every(isPara)) {
+  if (os.length && os.every(isPara) && ns.every(isPara)) {
+    // Typing and formatting in place; Enter / Backspace as split / join (P9-W6: the core edits notes like the body).
     const r = classify(os, ns, a > 0 ? ob[a - 1]! : null, opts);
-    if (r && !r.followUp && inPlace(r.command)) return r.command;
+    if (r && !r.followUp && (os.length === ns.length ? inPlace(r.command) : inDrawing(r.command))) return r.command;
   }
   const id = n.attrs.id as number;
   return { type: "replaceNote", id, blocks: resolveSynthetic(nb, opts).blocks };

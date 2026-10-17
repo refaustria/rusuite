@@ -51,6 +51,9 @@ body,
 .tiptap-content .field { background: #e6e6e6; border-radius: 2px; }
 .tiptap-content .field[data-live] > .field-cached { display: none; }
 .tiptap-content .field[data-live]::before { content: attr(data-live); }
+/* Field codes (Alt+F9 / Shift+F9, P9-W6): `{ PAGE }` instead of the result. */
+.tiptap-content .field.field-show-code > .field-cached { display: none; }
+.tiptap-content .field.field-show-code::before { content: attr(data-code); font-family: inherit; white-space: pre; }
 /* Note references: superscript numbers from the reference order. */
 .tiptap-content sup.note-ref { cursor: pointer; font-size: 0.7em; line-height: 0; }
 .tiptap-content sup.note-ref::after { content: attr(data-n); }
@@ -258,6 +261,8 @@ body,
 .page-hf:hover { outline: 1px dashed #cbd5e1; }
 .page-note-sep { position: absolute; width: 2in; border-top: 1px solid #555; }
 .page-note-sep.page-note-sep-cont { width: auto; }
+/* Own separator text (P9-W6): no line, the text in the notes' size. */
+.page-note-sep.page-note-sep-text, .page-endnote-sep.page-note-sep-text { width: auto; border-top: none; font-size: 10pt; line-height: 1.2; color: #333; white-space: pre-wrap; overflow: hidden; }
 .page-endnote-sep { position: absolute; width: 2in; border-top: 1px solid #555; }
 .page-repeat { position: absolute; overflow: hidden; background: #fff; }
 .page-repeat table { margin: 0; }
@@ -313,3 +318,8 @@ body,
 .write-zoom[data-view="print"] [data-testid="ruler"] {
   max-width: none !important;
 }
+
+/* Comments round 2 (P9-W6): the balloon editor and @mentions. */
+.comment-composer p { margin: 0; }
+.comment-composer a { color: #2b579a; text-decoration: underline; }
+.comment-mention, .comment-composer a.comment-mention { color: #2b579a; background: #e8e6e4; border-radius: 2px; padding: 0 1px; text-decoration: none; }

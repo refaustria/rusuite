@@ -19,4 +19,9 @@ cached: string,
 /**
  * Formatting of the result.
  */
-props?: RunProperties, };
+props?: RunProperties, 
+/**
+ * Locked (docx `w:fldLock`, Ctrl+F11): Update Field leaves the
+ * result alone.
+ */
+locked?: boolean, };

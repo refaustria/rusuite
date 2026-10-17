@@ -13,6 +13,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import type { PageLayout, SheetView } from "../features/pagination";
 import { useT } from "../i18n";
+import type { NoteSeparators } from "../generated/NoteSeparators";
 
 /** Pages rendered beyond the visible ones (each side). */
 const OVERSCAN = 2;
@@ -24,6 +25,14 @@ export interface PageChromeProps {
   onToggleWhiteSpace: () => void;
   /** The frame width (the widest page): each sheet is centred in it (W-18). Default: the sheets fill the frame. */
   frameWidth?: number;
+  /** Custom note separators (own text or none instead of Word's lines). */
+  separators?: NoteSeparators;
+}
+
+/** A separator's own text (`""` = none), or null for Word's line. */
+export function separatorText(seps: NoteSeparators | undefined, key: keyof NoteSeparators): string | null {
+  const s = seps?.[key];
+  return s && s.kind === "text" ? s.value.text : null;
 }
 
 /** A sheet's left edge in the frame: centred when the pages differ in width. */
@@ -98,8 +107,9 @@ function tableHeader(editor: Editor | null, pos: number, frame: HTMLElement | nu
   return { html: c.outerHTML, left: (r.left - fr.left) / z, width: r.width / z };
 }
 
-const Sheet = memo(function Sheet({ s, last, layout, editor, frame, onEditHeaderFooter, onToggleWhiteSpace, x, mixed }: {
+const Sheet = memo(function Sheet({ s, last, layout, editor, frame, onEditHeaderFooter, onToggleWhiteSpace, x, mixed, separators }: {
   s: SheetView;
+  separators?: NoteSeparators;
   x: number;
   mixed: boolean;
   last: boolean;
@@ -139,17 +149,28 @@ const Sheet = memo(function Sheet({ s, last, layout, editor, frame, onEditHeader
         {hf("header", s.header, { top: g.header })}
       </div>
       {s.contentEnd < s.notesTop - 0.5 && <div className="page-cover page-fill" style={{ top: s.contentEnd, height: s.notesTop - s.contentEnd, ...span }} />}
-      {s.notes.length > 0 && (
-        <div
-          className={`page-note-sep${s.notes[0]!.from > 0 ? " page-note-sep-cont" : ""}`}
-          data-testid="page-note-separator"
-          data-page={s.index + 1}
-          style={{ top: s.notesTop + 5, left: x + g.left, ...(s.notes[0]!.from > 0 ? (mixed ? { width: g.width - g.left - g.right } : { right: g.right }) : {}) }}
-        />
-      )}
-      {(s.endSeps ?? []).map((y, i) => (
-        <div key={`e${i}`} className="page-endnote-sep" data-testid="page-endnote-separator" data-page={s.index + 1} style={{ top: y + 5, left: x + g.left }} />
-      ))}
+      {s.notes.length > 0 && (() => {
+        const cont = s.notes[0]!.from > 0;
+        const own = separatorText(separators, cont ? "footnoteContinuation" : "footnote");
+        return (
+          <div
+            className={`page-note-sep${cont ? " page-note-sep-cont" : ""}${own != null ? " page-note-sep-text" : ""}`}
+            data-testid="page-note-separator"
+            data-page={s.index + 1}
+            style={{ top: s.notesTop + (own != null ? 0 : 5), left: x + g.left, ...(cont || own != null ? (mixed ? { width: g.width - g.left - g.right } : { right: g.right }) : {}) }}
+          >
+            {own}
+          </div>
+        );
+      })()}
+      {(s.endSeps ?? []).map((y, i) => {
+        const own = separatorText(separators, "endnote");
+        return (
+          <div key={`e${i}`} className={`page-endnote-sep${own != null ? " page-note-sep-text" : ""}`} data-testid="page-endnote-separator" data-page={s.index + 1} style={{ top: y + (own != null ? 0 : 5), left: x + g.left, ...(own != null ? { right: g.right } : {}) }}>
+            {own}
+          </div>
+        );
+      })}
       {repeat && s.repeat && (
         <div className="page-repeat tiptap-content" data-testid="page-repeat-header" style={{ top: s.repeat.top, left: repeat.left, width: repeat.width, height: s.repeat.height }} dangerouslySetInnerHTML={{ __html: repeat.html }} />
       )}
@@ -177,7 +198,7 @@ const Sheet = memo(function Sheet({ s, last, layout, editor, frame, onEditHeader
   );
 });
 
-export function PageChrome({ layout, editor, onEditHeaderFooter, onToggleWhiteSpace, frameWidth }: PageChromeProps) {
+export function PageChrome({ layout, editor, onEditHeaderFooter, onToggleWhiteSpace, frameWidth, separators }: PageChromeProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [from, to] = useVisibleRange(ref, layout);
   const n = layout.sheets.length;
@@ -207,6 +228,7 @@ export function PageChrome({ layout, editor, onEditHeaderFooter, onToggleWhiteSp
           onToggleWhiteSpace={onToggleWhiteSpace}
           x={mixed ? sheetLeft(frameWidth, s.geo.width) : 0}
           mixed={mixed}
+          separators={separators}
         />
       ))}
     </div>

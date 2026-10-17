@@ -422,6 +422,7 @@ export class FakeWriteBackend implements WriteBackend {
     if (stableStringify(before.comments ?? []) !== stableStringify(after.comments ?? [])) patch.comments = structuredClone(after.comments ?? []);
     if (stableStringify(before.properties ?? {}) !== stableStringify(after.properties ?? {})) patch.properties = structuredClone(after.properties ?? {});
     if (stableStringify(before.settings ?? {}) !== stableStringify(after.settings ?? {})) patch.settings = structuredClone(after.settings ?? {});
+    if (stableStringify(before.separators ?? {}) !== stableStringify(after.separators ?? {})) patch.separators = structuredClone(after.separators ?? {});
     return patch;
   }
 
@@ -1094,7 +1095,7 @@ export class FakeWriteBackend implements WriteBackend {
           for (const b of walkBlocks(this.doc.body)) {
             if (b.kind !== "paragraph") continue;
             for (const i of b.value.inlines) {
-              if (i.kind !== "field" || i.value.kind.kind !== "seq") continue;
+              if (i.kind !== "field" || i.value.kind.kind !== "seq" || i.value.locked) continue;
               const k = i.value.kind.value.identifier.toLowerCase();
               counters.set(k, (counters.get(k) ?? 0) + 1);
               i.value.cached = String(counters.get(k));
@@ -1122,7 +1123,7 @@ export class FakeWriteBackend implements WriteBackend {
         }
         for (const [block, offset, text] of c.values) {
           const [, mid] = splitInlines(this.para(block).inlines, offset, offset + 1);
-          if (mid[0]?.kind === "field") mid[0].value.cached = text;
+          if (mid[0]?.kind === "field" && !mid[0].value.locked) mid[0].value.cached = text;
         }
         return null;
       }
@@ -1351,9 +1352,12 @@ export class FakeWriteBackend implements WriteBackend {
         const ep = this.para(c.end.block);
         this.range(sp, c.start.offset, c.start.offset);
         this.range(ep, c.end.offset, c.end.offset);
-        const order = [...walkBlocks(this.doc.body)].filter((b) => b.kind === "paragraph").map((b) => b.value.id);
+        // The story holding both ends: the body or one note (P9-W6).
+        const stories = [this.doc.body, ...(this.doc.notes ?? []).map((n) => n.blocks)];
+        const story = stories.find((st) => [...walkBlocks(st)].some((b) => b.value.id === c.start.block)) ?? [];
+        const order = [...walkBlocks(story)].filter((b) => b.kind === "paragraph").map((b) => b.value.id);
         const key = (b: number, o: number) => order.indexOf(b) * 1e6 + o;
-        if (order.indexOf(c.start.block) < 0 || order.indexOf(c.end.block) < 0) throw new Fail("invalid_command", "comments can only be added to the body");
+        if (order.indexOf(c.start.block) < 0 || order.indexOf(c.end.block) < 0) throw new Fail("invalid_command", "a comment's start and end must be in the same story");
         if (key(c.start.block, c.start.offset) > key(c.end.block, c.end.offset)) throw new Fail("invalid_command", "the comment's start is after its end");
         const comments = (this.doc.comments ??= []);
         const id = Math.max(0, ...comments.map((x) => x.id)) + 1;
@@ -1363,7 +1367,9 @@ export class FakeWriteBackend implements WriteBackend {
         };
         insert(ep, c.end.offset, { kind: "commentEnd", value: { id } });
         insert(sp, c.start.offset, { kind: "commentStart", value: { id } });
-        comments.push(this.newComment(id, c.text, c.author, c.initials, c.date));
+        const added = this.newComment(id, c.text, c.author, c.initials, c.date);
+        if (c.content) added.content = this.commentContent(c.content, idMap);
+        comments.push(added);
         return null;
       }
       case "replyComment": {
@@ -1372,6 +1378,7 @@ export class FakeWriteBackend implements WriteBackend {
         const comments = this.doc.comments!;
         const id = Math.max(0, ...comments.map((x) => x.id)) + 1;
         const reply = this.newComment(id, c.text, c.author, c.initials, c.date);
+        if (c.content) reply.content = this.commentContent(c.content, idMap);
         reply.parent = root;
         if (this.comment(root).resolved) reply.resolved = true;
         const last = comments.map((x) => x.id === root || x.parent === root).lastIndexOf(true);
@@ -1380,7 +1387,40 @@ export class FakeWriteBackend implements WriteBackend {
       }
       case "editComment": {
         const cm = this.comment(c.id);
-        cm.content = c.text.split("\n").map((line) => para(this.alloc(), line, "CommentText"));
+        cm.content = c.content ? this.commentContent(c.content, idMap) : c.text.split("\n").map((line) => para(this.alloc(), line, "CommentText"));
+        return null;
+      }
+      case "convertNotes": {
+        const ids: number[] = [];
+        for (const n of this.doc.notes ?? []) {
+          const chosen = c.ids ? c.ids.includes(n.id) : n.kind !== c.to;
+          if (!chosen || n.kind === c.to) continue;
+          n.kind = c.to;
+          ids.push(n.id);
+        }
+        for (const b of walkBlocks(this.doc.body)) {
+          if (b.kind !== "paragraph") continue;
+          for (const i of b.value.inlines) if (i.kind === "noteRef" && ids.includes(i.value.id)) i.value.kind = c.to;
+        }
+        return null;
+      }
+      case "setNoteSeparators": {
+        this.doc.separators = structuredClone(c.separators);
+        return null;
+      }
+      case "lockFields": {
+        const scope = c.blocks ? new Set(c.blocks) : null;
+        const stories = [this.doc.body, ...(this.doc.notes ?? []).map((n) => n.blocks)];
+        for (const st of stories) {
+          for (const b of walkBlocks(st)) {
+            if (b.kind !== "paragraph" || (scope && !scope.has(b.value.id))) continue;
+            for (const i of b.value.inlines) {
+              if (i.kind !== "field") continue;
+              if (c.locked) i.value.locked = true;
+              else delete i.value.locked;
+            }
+          }
+        }
         return null;
       }
       case "deleteComment": {
@@ -1544,9 +1584,19 @@ export class FakeWriteBackend implements WriteBackend {
     return c;
   }
 
+  /** Comment content from the UI's blocks: real ids, the CommentText style on unstyled paragraphs. */
+  private commentContent(blocks: Block[], idMap: [number, number][]): Block[] {
+    const used = new Set(this.allIds());
+    return blocks.map((b) => {
+      const r = this.resolveIds(b, idMap, used);
+      if (r.kind === "paragraph" && !r.value.props?.style) r.value.props = { ...(r.value.props ?? {}), style: "CommentText" };
+      return r;
+    });
+  }
+
   private deleteThreads(roots: number[]): void {
     const doomed = new Set(roots);
-    for (const b of walkBlocks(this.doc.body)) {
+    for (const b of [this.doc.body, ...(this.doc.notes ?? []).map((n) => n.blocks)].flatMap((st) => [...walkBlocks(st)])) {
       if (b.kind === "paragraph") b.value.inlines = b.value.inlines.filter((i) => !(markerOf(i) && doomed.has(markerOf(i)!.id)));
     }
     this.doc.comments = (this.doc.comments ?? []).filter((x) => !doomed.has(x.parent ?? x.id));
@@ -1558,7 +1608,8 @@ export class FakeWriteBackend implements WriteBackend {
     if (!comments.length) return;
     const roots = new Set(comments.filter((x) => x.parent == null).map((x) => x.id));
     const anchored = new Set<number>();
-    for (const b of walkBlocks(this.doc.body)) {
+    const stories = [this.doc.body, ...(this.doc.notes ?? []).map((n) => n.blocks)];
+    for (const b of stories.flatMap((st) => [...walkBlocks(st)])) {
       if (b.kind !== "paragraph") continue;
       b.value.inlines = b.value.inlines.filter((i) => {
         const m = markerOf(i);

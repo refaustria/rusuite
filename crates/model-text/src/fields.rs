@@ -18,6 +18,9 @@ use crate::numbering::LevelKind;
 /// What Word shows for a reference to a missing bookmark.
 pub const REF_ERROR: &str = "Error! Reference source not found.";
 
+/// What Word shows for a `STYLEREF` whose style no paragraph has.
+pub const STYLEREF_ERROR: &str = "Error! No text of specified style in document.";
+
 /// One computed field result: paragraph, char offset of the field, text.
 pub type FieldValue = (NodeId, usize, String);
 
@@ -52,28 +55,56 @@ impl Document {
 
     /// The results of the computable fields of the body (table cells
     /// included), notes, headers and footers: `SEQ` counted in document
-    /// order per identifier (case-insensitive, `\r` resets), `REF` the
-    /// bookmark's text (`\n`: the paragraph's list number), `PAGEREF` the
-    /// page of the bookmark's start paragraph in `pages` (formatted like
-    /// the section's page numbers; fields whose page is unknown are left
-    /// out), `NOTEREF` the note number, `TITLE`/`AUTHOR`/`SUBJECT`/
-    /// `KEYWORDS`/`COMMENTS`/`LASTSAVEDBY`/`DOCPROPERTY` the properties
-    /// (left out when empty). A missing bookmark gives [`REF_ERROR`].
+    /// order per identifier (case-insensitive, `\r` resets, `\c` repeats,
+    /// `\s n` restarts after headings of level ≤ n, `\h` hides), `REF` the
+    /// bookmark's text (`\n`: the paragraph's list number, `\w` with its
+    /// context, `\r` relative to the field, `\p` "above"/"below"),
+    /// `PAGEREF` the page of the bookmark's start paragraph in `pages`
+    /// (formatted like the section's page numbers; fields whose page is
+    /// unknown are left out), `NOTEREF` the note number, `STYLEREF` the
+    /// nearest paragraph of the style (see [`FieldKind::StyleRef`]),
+    /// `TITLE`/`AUTHOR`/`SUBJECT`/`KEYWORDS`/`COMMENTS`/`LASTSAVEDBY`/
+    /// `DOCPROPERTY` the properties (left out when empty). A missing
+    /// bookmark gives [`REF_ERROR`]. Locked fields are left out.
     pub fn computed_fields(&self, pages: &HashMap<NodeId, u32>) -> Vec<FieldValue> {
         // Pass 1: sequence numbers (REF texts may contain them).
         let mut counters: HashMap<String, u32> = HashMap::new();
         let mut seq: Vec<FieldValue> = Vec::new();
+        let resets = seq_heading_resets(self);
         for p in self.paragraphs() {
-            for_each_field(p, |at, kind| {
+            if !resets.is_empty() {
+                if let Some(level) = self.outline_level(p) {
+                    for (key, reset) in &resets {
+                        if level <= *reset {
+                            counters.insert(key.clone(), 0);
+                        }
+                    }
+                }
+            }
+            for_each_field(p, |at, field| {
                 if let FieldKind::Seq {
                     identifier,
                     format,
                     reset,
-                } = kind
+                    current,
+                    hidden,
+                    ..
+                } = &field.kind
                 {
                     let c = counters.entry(identifier.to_lowercase()).or_insert(0);
-                    *c = reset.unwrap_or(*c + 1);
-                    seq.push((p.id, at, format.unwrap_or(LevelKind::Decimal).format(*c)));
+                    *c = match (reset, current) {
+                        (Some(r), _) => *r,
+                        (None, true) => *c,
+                        (None, false) => *c + 1,
+                    };
+                    if !field.locked {
+                        let text = if *hidden {
+                            String::new()
+                        } else {
+                            format.unwrap_or(LevelKind::Decimal).format(*c)
+                        };
+                        seq.push((p.id, at, text));
+                    }
                 }
             });
         }
@@ -86,11 +117,20 @@ impl Document {
             .collect();
         let labels: HashMap<NodeId, String> = doc.list_numbers().into_iter().collect();
         let notes = doc.note_numbers();
+        let order: HashMap<NodeId, usize> = doc
+            .paragraphs()
+            .enumerate()
+            .map(|(i, p)| (p.id, i))
+            .collect();
+        let body: Vec<&Paragraph> = doc.paragraphs().collect();
         let mut out = seq;
         for c in doc.text_containers() {
             for p in paragraphs_in(c) {
-                for_each_field(p, |at, kind| {
-                    let value = match kind {
+                for_each_field(p, |at, field| {
+                    if field.locked {
+                        return;
+                    }
+                    let value = match &field.kind {
                         FieldKind::Title => doc.properties.title.clone(),
                         FieldKind::Author => doc.properties.author.clone(),
                         FieldKind::Subject => doc.properties.subject.clone(),
@@ -101,26 +141,72 @@ impl Document {
                             doc.properties.named(name).map(str::to_owned)
                         }
                         FieldKind::Ref {
-                            bookmark, number, ..
+                            bookmark,
+                            number,
+                            relative,
+                            full,
+                            position,
+                            ..
                         } => Some(match bookmarks.get(&bookmark.to_lowercase()) {
                             None => REF_ERROR.to_owned(),
-                            Some(b) if *number => match labels.get(&b.start_block) {
-                                Some(l) => l.trim_end_matches(['.', ')']).to_owned(),
-                                None => doc.bookmark_text(b),
-                            },
-                            Some(b) => doc.bookmark_text(b),
+                            Some(b) => {
+                                let numbered = *number || *relative || *full;
+                                let mut text = if numbered {
+                                    let mut chain =
+                                        doc.number_chain(&body, &order, &labels, b.start_block);
+                                    let mut chain = if *full || !*relative {
+                                        chain
+                                    } else {
+                                        let here = doc.number_chain(&body, &order, &labels, p.id);
+                                        let common = chain
+                                            .iter()
+                                            .zip(&here)
+                                            .take(chain.len().saturating_sub(1))
+                                            .take_while(|(a, b)| a == b)
+                                            .count();
+                                        chain.split_off(common)
+                                    };
+                                    if *number && !*full && !*relative {
+                                        chain = chain.split_off(chain.len().saturating_sub(1));
+                                    }
+                                    if chain.is_empty() {
+                                        doc.bookmark_text(b)
+                                    } else if *full || *relative {
+                                        chain.join(".")
+                                    } else {
+                                        labels
+                                            .get(&b.start_block)
+                                            .map(|l| l.trim_end_matches(['.', ')']).to_owned())
+                                            .unwrap_or_else(|| chain.join("."))
+                                    }
+                                } else if *position {
+                                    String::new()
+                                } else {
+                                    doc.bookmark_text(b)
+                                };
+                                if *position {
+                                    let here = order.get(&p.id).copied();
+                                    let there = order.get(&b.start_block).copied();
+                                    let above = match (here, there) {
+                                        (Some(h), Some(t)) => t < h || (t == h && b.start < at),
+                                        _ => true,
+                                    };
+                                    let word = if above { "above" } else { "below" };
+                                    text = if text.is_empty() {
+                                        word.to_owned()
+                                    } else {
+                                        format!("{text} {word}")
+                                    };
+                                }
+                                text
+                            }
                         }),
                         FieldKind::PageRef { bookmark, .. } => {
                             match bookmarks.get(&bookmark.to_lowercase()) {
                                 None => Some(REF_ERROR.to_owned()),
-                                Some(b) => pages.get(&b.start_block).map(|&n| {
-                                    let fmt = doc
-                                        .section_index_of(b.start_block)
-                                        .and_then(|i| doc.sections.get(i))
-                                        .and_then(|s| s.page_number_format)
-                                        .unwrap_or(LevelKind::Decimal);
-                                    fmt.format(n)
-                                }),
+                                Some(b) => pages
+                                    .get(&b.start_block)
+                                    .map(|&n| doc.page_text(b.start_block, n)),
                             }
                         }
                         FieldKind::NoteRef { bookmark, .. } => {
@@ -132,6 +218,24 @@ impl Document {
                                     .unwrap_or_else(|| REF_ERROR.to_owned()),
                             })
                         }
+                        FieldKind::StyleRef {
+                            style,
+                            last,
+                            number,
+                        } => Some(
+                            doc.style_ref(&body, &order, pages, p.id, style, *last)
+                                .map(|q| {
+                                    if *number {
+                                        labels
+                                            .get(&q.id)
+                                            .map(|l| l.trim_end_matches(['.', ')']).to_owned())
+                                            .unwrap_or_default()
+                                    } else {
+                                        q.display_text().trim().to_owned()
+                                    }
+                                })
+                                .unwrap_or_else(|| STYLEREF_ERROR.to_owned()),
+                        ),
                         _ => None,
                     };
                     if let Some(v) = value.filter(|v| !v.is_empty()) {
@@ -141,6 +245,131 @@ impl Document {
             }
         }
         out
+    }
+
+    /// Page `n` formatted like the page numbers of the section holding
+    /// body block `block`.
+    fn page_text(&self, block: NodeId, n: u32) -> String {
+        self.section_index_of(block)
+            .and_then(|i| self.sections.get(i))
+            .and_then(|s| s.page_number_format)
+            .unwrap_or(LevelKind::Decimal)
+            .format(n)
+    }
+
+    /// The list numbers of `block` and its parent items (the nearest
+    /// earlier paragraphs of the same list at each lower level), each
+    /// without trailing punctuation: `["1", "2", "a"]` for item 1.2.a.
+    fn number_chain(
+        &self,
+        body: &[&Paragraph],
+        order: &HashMap<NodeId, usize>,
+        labels: &HashMap<NodeId, String>,
+        block: NodeId,
+    ) -> Vec<String> {
+        let Some(&i) = order.get(&block) else {
+            return Vec::new();
+        };
+        let Some(num) = body[i].props.numbering else {
+            return labels
+                .get(&block)
+                .map(|l| vec![last_number(l)])
+                .unwrap_or_default();
+        };
+        let mut chain = vec![last_number(labels.get(&block).map_or("", String::as_str))];
+        let mut level = num.level;
+        for q in body[..i].iter().rev() {
+            if level == 0 {
+                break;
+            }
+            match q.props.numbering {
+                Some(n) if n.num_id == num.num_id && n.level < level => {
+                    chain.push(last_number(labels.get(&q.id).map_or("", String::as_str)));
+                    level = n.level;
+                }
+                _ => {}
+            }
+        }
+        chain.reverse();
+        chain.retain(|c| !c.is_empty());
+        chain
+    }
+
+    /// Whether paragraph `p` is in style `style` (its id or name, or for a
+    /// number `n` Heading n).
+    fn in_style(&self, p: &Paragraph, style: &str) -> bool {
+        if let Ok(n) = style.trim().parse::<u8>() {
+            return self.outline_level(p) == Some(n)
+                && p.props
+                    .style
+                    .as_deref()
+                    .is_some_and(|s| s.to_ascii_lowercase().starts_with("heading"));
+        }
+        let Some(id) = p.props.style.as_deref() else {
+            return style.eq_ignore_ascii_case("Normal");
+        };
+        id.eq_ignore_ascii_case(style)
+            || self
+                .styles
+                .get(id)
+                .is_some_and(|s| s.name.eq_ignore_ascii_case(style))
+    }
+
+    /// The paragraph a `STYLEREF style` field at paragraph `at` shows: in
+    /// the body the nearest one at or before it (else the first after
+    /// it); in a header or footer the first (`last`: the last) one on the
+    /// section's first page in `pages`, else the nearest one before that
+    /// page, else the first one of the section; in notes the first one.
+    fn style_ref<'a>(
+        &self,
+        body: &[&'a Paragraph],
+        order: &HashMap<NodeId, usize>,
+        pages: &HashMap<NodeId, u32>,
+        at: NodeId,
+        style: &str,
+        last: bool,
+    ) -> Option<&'a Paragraph> {
+        let matches = |p: &&&Paragraph| self.in_style(p, style);
+        if let Some(&i) = order.get(&at) {
+            return body[..=i]
+                .iter()
+                .rev()
+                .find(matches)
+                .or_else(|| body[i..].iter().find(matches))
+                .copied();
+        }
+        let Some(section) = self.header_of_block(at) else {
+            return body.iter().find(matches).copied();
+        };
+        let in_section: Vec<&&Paragraph> = body
+            .iter()
+            .filter(|p| self.section_index_of(p.id) == Some(section))
+            .collect();
+        let first_page = in_section.iter().find_map(|p| pages.get(&p.id)).copied();
+        if let Some(page) = first_page {
+            let on_page: Vec<&&Paragraph> = in_section
+                .iter()
+                .copied()
+                .filter(|p| pages.get(&p.id) == Some(&page))
+                .collect();
+            let found = if last {
+                on_page.iter().rev().find(|p| matches(p))
+            } else {
+                on_page.iter().find(|p| matches(p))
+            };
+            if let Some(p) = found {
+                return Some(**p);
+            }
+            let start = on_page
+                .first()
+                .and_then(|p| order.get(&p.id))
+                .copied()
+                .unwrap_or(0);
+            if let Some(p) = body[..start].iter().rev().find(matches) {
+                return Some(*p);
+            }
+        }
+        in_section.into_iter().find(|p| matches(p)).copied()
     }
 
     /// Sets the cached result of the fields at `values` (unknown positions
@@ -162,6 +391,10 @@ impl Document {
                     _ => 1,
                 };
                 if let Inline::Field(f) = inline {
+                    if f.locked {
+                        pos += len;
+                        continue;
+                    }
                     if let Some((_, v)) = list.iter().find(|(at, _)| *at == pos) {
                         if f.cached != *v {
                             old.push((
@@ -223,12 +456,43 @@ impl Document {
     }
 }
 
-/// Calls `f(offset, kind)` for every field of `p`.
-fn for_each_field(p: &Paragraph, mut f: impl FnMut(usize, &FieldKind)) {
+/// The last number of a list label (`1.2.a)` → `a`, `(iv)` → `iv`).
+fn last_number(label: &str) -> String {
+    let t = label.trim().trim_matches(['.', ')', '(', ' ']);
+    t.rsplit(['.', ')', '('])
+        .find(|s| !s.is_empty())
+        .unwrap_or(t)
+        .to_owned()
+}
+
+/// `(identifier, level)` of the `SEQ … \s level` fields anywhere in the
+/// document (their counters restart after headings of level ≤ `level`).
+fn seq_heading_resets(doc: &Document) -> Vec<(String, u8)> {
+    let mut out: Vec<(String, u8)> = Vec::new();
+    for p in doc.paragraphs() {
+        for_each_field(p, |_, f| {
+            if let FieldKind::Seq {
+                identifier,
+                heading_reset: Some(l),
+                ..
+            } = &f.kind
+            {
+                let id = identifier.to_lowercase();
+                if !out.iter().any(|(i, _)| *i == id) {
+                    out.push((id, *l));
+                }
+            }
+        });
+    }
+    out
+}
+
+/// Calls `f(offset, field)` for every field of `p`.
+fn for_each_field(p: &Paragraph, mut f: impl FnMut(usize, &crate::inline::Field)) {
     let mut pos = 0;
     for i in &p.inlines {
         if let Inline::Field(field) = i {
-            f(pos, &field.kind);
+            f(pos, field);
         }
         pos += match i {
             Inline::Run(r) => r.text.chars().count(),
@@ -253,6 +517,9 @@ mod tests {
             identifier: id.into(),
             format: None,
             reset: None,
+            current: false,
+            hidden: false,
+            heading_reset: None,
         })
     }
     fn run(t: &str) -> Inline {
@@ -291,12 +558,18 @@ mod tests {
                     identifier: "Figure".into(),
                     format: Some(LevelKind::UpperRoman),
                     reset: None,
+                    current: false,
+                    hidden: false,
+                    heading_reset: None,
                 }),
             ],
             vec![field(FieldKind::Seq {
                 identifier: "Table".into(),
                 format: None,
                 reset: Some(7),
+                current: false,
+                hidden: false,
+                heading_reset: None,
             })],
         ]);
         let v = doc.computed_fields(&HashMap::new());
@@ -327,6 +600,9 @@ mod tests {
                     bookmark: "_ref1".into(),
                     hyperlink: true,
                     number: false,
+                    relative: false,
+                    full: false,
+                    position: false,
                 }),
                 run(" on page "),
                 field(FieldKind::PageRef {
@@ -337,6 +613,9 @@ mod tests {
                     bookmark: "missing".into(),
                     hyperlink: false,
                     number: false,
+                    relative: false,
+                    full: false,
+                    position: false,
                 }),
             ],
             vec![
@@ -398,6 +677,9 @@ mod tests {
                 bookmark: "item".into(),
                 hyperlink: false,
                 number: true,
+                relative: false,
+                full: false,
+                position: false,
             })],
         ]);
         doc.numbering.insert(NumberingDef::decimal_default(1));
@@ -434,5 +716,205 @@ mod tests {
         doc.properties.company = None;
         let v = doc.computed_fields(&HashMap::new());
         assert_eq!(value(&v, &doc, 0).len(), 4);
+    }
+
+    fn seq_with(id: &str, current: bool, hidden: bool, heading_reset: Option<u8>) -> Inline {
+        field(FieldKind::Seq {
+            identifier: id.into(),
+            format: None,
+            reset: None,
+            current,
+            hidden,
+            heading_reset,
+        })
+    }
+
+    #[test]
+    fn sequence_switches_repeat_hide_and_restart_at_headings() {
+        let mut doc = doc_with(vec![
+            vec![run("Chapter A")],
+            vec![seq_with("Fig", false, false, Some(1))],
+            vec![seq_with("Fig", true, false, None)],
+            vec![seq_with("Fig", false, true, None)],
+            vec![run("Chapter B")],
+            vec![seq_with("Fig", false, false, None)],
+        ]);
+        for i in [0, 4] {
+            if let Block::Paragraph(p) = &mut doc.body[i] {
+                p.props.style = Some("Heading1".into());
+            }
+        }
+        let v = doc.computed_fields(&HashMap::new());
+        assert_eq!(value(&v, &doc, 1), ["1"]);
+        // \c repeats the current number.
+        assert_eq!(value(&v, &doc, 2), ["1"]);
+        // \h counts (2) but shows nothing.
+        assert_eq!(value(&v, &doc, 3), [""]);
+        // \s 1: restarted after the second Heading 1.
+        assert_eq!(value(&v, &doc, 5), ["1"]);
+        let k = FieldKind::parse(r#"SEQ Fig \* ARABIC \c \s 1 \h"#).unwrap();
+        assert_eq!(
+            k,
+            FieldKind::Seq {
+                identifier: "Fig".into(),
+                format: None,
+                reset: None,
+                current: true,
+                hidden: true,
+                heading_reset: Some(1),
+            }
+        );
+        assert_eq!(FieldKind::parse(&k.instruction()), Some(k));
+    }
+
+    fn reff(bookmark: &str, number: bool, relative: bool, full: bool, position: bool) -> Inline {
+        field(FieldKind::Ref {
+            bookmark: bookmark.into(),
+            hyperlink: false,
+            number,
+            relative,
+            full,
+            position,
+        })
+    }
+
+    #[test]
+    fn reference_switches_number_context_and_position() {
+        use crate::numbering::NumberingDef;
+        use crate::props::NumberingRef;
+        let mut doc = doc_with(vec![
+            vec![run("Top")],
+            vec![
+                Inline::BookmarkStart {
+                    id: BookmarkId(1),
+                    name: "sub".into(),
+                },
+                run("Sub"),
+                Inline::BookmarkEnd { id: BookmarkId(1) },
+            ],
+            vec![reff("sub", true, false, false, false)],
+            vec![reff("sub", false, false, true, false)],
+            vec![reff("sub", false, true, false, false)],
+            vec![reff("sub", false, false, false, true)],
+            vec![reff("sub", true, false, false, true)],
+        ]);
+        let mut def = NumberingDef::decimal_default(1);
+        def.levels[1].text = "%2)".into();
+        doc.numbering.insert(def);
+        let levels = [Some(0), Some(1), None, None, Some(1), None, None];
+        for (i, l) in levels.iter().enumerate() {
+            if let (Some(l), Block::Paragraph(p)) = (l, &mut doc.body[i]) {
+                p.props.numbering = Some(NumberingRef {
+                    num_id: 1,
+                    level: *l,
+                });
+            }
+        }
+        let v = doc.computed_fields(&HashMap::new());
+        // \n: the label as shown (level 2 is `a)`), without punctuation.
+        assert_eq!(value(&v, &doc, 2), ["a"]);
+        // \w: with its context (item 1, sub-item a).
+        assert_eq!(value(&v, &doc, 3), ["1.a"]);
+        // \r from a paragraph in the same list under the same parent.
+        assert_eq!(value(&v, &doc, 4), ["a"]);
+        // \p alone: above; with \n: number + above.
+        assert_eq!(value(&v, &doc, 5), ["above"]);
+        assert_eq!(value(&v, &doc, 6), ["a above"]);
+        let k = FieldKind::parse(r"REF sub \w \p \h").unwrap();
+        assert!(matches!(
+            k,
+            FieldKind::Ref {
+                full: true,
+                position: true,
+                hyperlink: true,
+                number: false,
+                ..
+            }
+        ));
+        assert_eq!(FieldKind::parse(&k.instruction()), Some(k));
+    }
+
+    #[test]
+    fn style_references_in_body_and_headers() {
+        use crate::section::HeaderSlot;
+        let mut doc = doc_with(vec![
+            vec![run("Intro")],
+            vec![run("text")],
+            vec![run("Methods")],
+            vec![field(FieldKind::StyleRef {
+                style: "Heading 1".into(),
+                last: false,
+                number: false,
+            })],
+            vec![field(FieldKind::StyleRef {
+                style: "Missing".into(),
+                last: false,
+                number: false,
+            })],
+        ]);
+        for i in [0, 2] {
+            if let Block::Paragraph(p) = &mut doc.body[i] {
+                p.props.style = Some("Heading1".into());
+            }
+        }
+        let mut hp = Paragraph::new(doc.alloc_id());
+        hp.inlines = vec![field(FieldKind::StyleRef {
+            style: "Heading 1".into(),
+            last: true,
+            number: false,
+        })];
+        let hid = hp.id;
+        *doc.sections[0].headers.get_mut(HeaderSlot::Default) = Some(vec![Block::Paragraph(hp)]);
+        let v = doc.computed_fields(&HashMap::new());
+        assert_eq!(value(&v, &doc, 3), ["Methods"]);
+        assert_eq!(value(&v, &doc, 4), [STYLEREF_ERROR]);
+        // Without pages, the header takes the section's first one.
+        let h: Vec<_> = v
+            .iter()
+            .filter(|x| x.0 == hid)
+            .map(|x| x.2.clone())
+            .collect();
+        assert_eq!(h, ["Intro"]);
+        // With pages: the last Heading 1 on the first page (\l).
+        let pages: HashMap<NodeId, u32> = doc.body.iter().map(|b| (b.id(), 1)).collect();
+        let v = doc.computed_fields(&pages);
+        let h: Vec<_> = v
+            .iter()
+            .filter(|x| x.0 == hid)
+            .map(|x| x.2.clone())
+            .collect();
+        assert_eq!(h, ["Methods"]);
+        let k = FieldKind::parse(r#"STYLEREF "Heading 1" \l \* MERGEFORMAT"#).unwrap();
+        assert_eq!(
+            k,
+            FieldKind::StyleRef {
+                style: "Heading 1".into(),
+                last: true,
+                number: false
+            }
+        );
+        assert_eq!(FieldKind::parse(&k.instruction()), Some(k));
+        assert_eq!(
+            FieldKind::parse("SECTIONPAGES"),
+            Some(FieldKind::SectionPages)
+        );
+    }
+
+    #[test]
+    fn locked_fields_keep_their_result() {
+        let mut doc = doc_with(vec![vec![seq("Figure"), seq("Figure")]]);
+        if let Block::Paragraph(p) = &mut doc.body[0] {
+            if let Inline::Field(f) = &mut p.inlines[0] {
+                f.locked = true;
+                f.cached = "9".into();
+            }
+        }
+        let v = doc.computed_fields(&HashMap::new());
+        // The locked one still counts.
+        assert_eq!(value(&v, &doc, 0), ["2"]);
+        let id = doc.body[0].id();
+        assert!(doc.set_field_results(&[(id, 0, "1".into())]).is_empty());
+        let json = serde_json::to_value(&doc.body[0]).unwrap();
+        assert!(json.to_string().contains(r#""locked":true"#));
     }
 }

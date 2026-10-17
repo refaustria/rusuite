@@ -1,4 +1,4 @@
-"""Generator for the PROVISIONAL docx reference suite (66 documents: 65 .docx, one .dotx template).
+"""Generator for the PROVISIONAL docx reference suite (67 documents: 66 .docx, one .dotx template).
 
 Emits one flat ODT (.fodt) per topic plus manifest.json. Conversion to .docx is done by
 scripts/gen-docx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
@@ -1406,13 +1406,44 @@ def _(d):
     d.feat("page:a4")
 
 
+# ---------------- 67 comments, notes and fields round 2 (P9-W6) ----------------
+@topic(67, "comments-notes-fields-2", "Comments round 2: formatted comment text with an @mention (people.xml), a reply and a resolved thread, a comment inside a footnote; a custom footnote continuation separator; STYLEREF in the header, SEQ with \\c and \\s, a locked field, REF with \\p and \\w, SECTIONPAGES")
+def _(d):
+    def fn(n, paras):
+        body = "".join(paras)
+        return X(f'<text:note text:id="ftn{n}" text:note-class="footnote"><text:note-citation>{n}</text:note-citation>'
+                 f"<text:note-body>{body}</text:note-body></text:note>")
+    d.master_xml = (
+        '<style:master-page style:name="Standard" style:page-layout-name="pm1">'
+        + _hf("header", f"Chapter: STYLEREF_HERE – page {PAGE_NO} of SECTIONPAGES_HERE")
+        + "</style:master-page>"
+    )
+    d.h(1, "Methods")
+    d.p(["The ", _annotation(d, "c1", "Anna Berg", "2026-10-17T08:00:00", ["Please CHECK_HERE this, MENTION_HERE"], initials="AB"),
+         "draft", _annotation_end("c1"), " needs a review",
+         fn(1, ['<text:p text:style-name="Standard">A footnote with a '
+                + _annotation(d, "c2", "Ben Cole", "2026-10-17T09:00:00", ["Comment inside the note."], initials="BC")
+                + "commented" + _annotation_end("c2") + " word.</text:p>"]),
+         "."])
+    d.p([_annotation(d, "c3", "Ben Cole", "2026-10-17T10:00:00", ["Agreed."], initials="BC", parent="c1"), _annotation_end("c3"),
+         _annotation(d, "c4", "Anna Berg", "2026-10-17T11:00:00", ["Done."], initials="AB", resolved=True),
+         "Resolved", _annotation_end("c4"), " text. BOOKMARK_HERE"])
+    d.p("Figure SEQ_HERE shows the setup; it is still figure SEQC_HERE. Locked date: LOCKED_HERE. See REFP_HERE.")
+    d.h(1, "Results")
+    d.p(txt(4))
+    for f in ["comment:count=4", "comment:reply", "comment:resolved", "comment:formatted", "comment:mention", "comment:in-note",
+              "people", "note:footnote=1", "note:separator-text", "field:styleref", "field:sectionpages", "field:seq-switches",
+              "field:locked", "field:ref-switches", "header:default", "field:page", "page:a4"]:
+        d.feat(f)
+
+
 def emit(outdir, pngdir):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     for k in range(3):
         IMAGES[k] = (Path(pngdir) / f"img{k}.png").read_bytes()
     manifest = []
-    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 67)), "need exactly topics 1..66"
+    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 68)), "need exactly topics 1..67"
     for n, slug, desc, fn in sorted(TOPICS):
         d = Doc(n, slug, desc)
         fn(d)
@@ -1531,6 +1562,72 @@ PART_PATCHES = {
     },
 }
 
+# File 67 (P9-W6): what LibreOffice cannot export – formatted comment text with an @mention (a hyperlink in the
+# Mention style, people.xml), a comment inside a footnote, a custom continuation separator, STYLEREF / SECTIONPAGES in
+# the header, SEQ with \c and \s, a locked DATE field, a bookmark and a REF with \p.
+PEOPLE_67 = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w15:people xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" '
+    'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" '
+    'mc:Ignorable="w15"><w15:person w15:author="Anna Berg"><w15:presenceInfo w15:providerId="None" w15:userId="Anna Berg"/></w15:person>'
+    '<w15:person w15:author="Ben Cole"><w15:presenceInfo w15:providerId="AD" w15:userId="ben.cole@example.com"/></w15:person></w15:people>'
+)
+COMMENT_RELS_67 = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rIdM1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
+    'Target="mailto:ben.cole@example.com" TargetMode="External"/></Relationships>'
+)
+ADD_PARTS = {
+    "provisional-67-comments-notes-fields-2.docx": {
+        "word/people.xml": PEOPLE_67,
+        "word/_rels/comments.xml.rels": COMMENT_RELS_67,
+    },
+}
+_FS = lambda instr, cached, extra="": f'<w:fldSimple w:instr=" {instr.replace(chr(34), "&quot;")} "{extra}><w:r><w:t>{cached}</w:t></w:r></w:fldSimple>'
+PART_PATCHES["provisional-67-comments-notes-fields-2.docx"] = {
+    "word/comments.xml": [
+        ('<w:t>Please CHECK_HERE this, MENTION_HERE</w:t></w:r>',
+         '<w:t xml:space="preserve">Please </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>check</w:t></w:r><w:r>'
+         '<w:t xml:space="preserve"> this, </w:t></w:r><w:hyperlink r:id="rIdM1"><w:r><w:rPr><w:rStyle w:val="Mention"/></w:rPr>'
+         '<w:t>@Ben Cole</w:t></w:r></w:hyperlink>'),
+        ('</w:comments>',
+         '<w:comment w:id="3" w:author="Ben Cole" w:date="2026-10-17T09:00:00Z" w:initials="BC"><w:p w14:paraId="04000000"><w:r>'
+         '<w:t>Comment inside the note.</w:t></w:r></w:p></w:comment></w:comments>'),
+    ],
+    "word/footnotes.xml": [
+        ('<w:r><w:continuationSeparator/></w:r>', '<w:r><w:t>Continued from the previous page</w:t></w:r>'),
+        # The range only: LibreOffice 25.2 cannot load a w:commentReference inside a note (Word writes one).
+        ('<w:r><w:rPr></w:rPr><w:t>commented</w:t></w:r>',
+         '<w:commentRangeStart w:id="3"/><w:r><w:rPr></w:rPr><w:t>commented</w:t></w:r><w:commentRangeEnd w:id="3"/>'),
+    ],
+    "word/header1.xml": [
+        ('<w:t xml:space="preserve">Chapter: STYLEREF_HERE – page </w:t></w:r>',
+         '<w:t xml:space="preserve">Chapter: </w:t></w:r>' + _FS('STYLEREF "Heading 1"', "Methods") + '<w:r><w:t xml:space="preserve"> – page </w:t></w:r>'),
+        ('<w:t xml:space="preserve"> of SECTIONPAGES_HERE</w:t></w:r>',
+         '<w:t xml:space="preserve"> of </w:t></w:r>' + _FS("SECTIONPAGES", "1")),
+    ],
+    "word/document.xml": [
+        ('<w:t xml:space="preserve"> text. BOOKMARK_HERE</w:t></w:r>',
+         '<w:t xml:space="preserve"> text. </w:t></w:r><w:bookmarkStart w:id="0" w:name="Target"/><w:r><w:t>Target text</w:t></w:r>'
+         '<w:bookmarkEnd w:id="0"/>'),
+        ('<w:t>Figure SEQ_HERE shows the setup; it is still figure SEQC_HERE. Locked date: LOCKED_HERE. See REFP_HERE.</w:t></w:r>',
+         '<w:t xml:space="preserve">Figure </w:t></w:r>' + _FS("SEQ Figure \\* ARABIC \\s 1", "1")
+         + '<w:r><w:t xml:space="preserve"> shows the setup; it is still figure </w:t></w:r>' + _FS("SEQ Figure \\* ARABIC \\c", "1")
+         + '<w:r><w:t xml:space="preserve">. Locked date: </w:t></w:r>' + _FS('DATE \\@ "d.M.yyyy"', "1.1.2020", ' w:fldLock="1"')
+         + '<w:r><w:t xml:space="preserve">. See </w:t></w:r>' + _FS("REF Target \\p \\h", "above") + '<w:r><w:t>.</w:t></w:r>'),
+    ],
+    "word/_rels/document.xml.rels": [
+        ('</Relationships>', '<Relationship Id="rIdP1" Type="http://schemas.microsoft.com/office/2011/relationships/people" Target="people.xml"/></Relationships>'),
+    ],
+    "[Content_Types].xml": [
+        ('</Types>', '<Override PartName="/word/people.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.people+xml"/></Types>'),
+    ],
+    "word/styles.xml": [
+        ('</w:styles>',
+         '<w:style w:type="character" w:styleId="Mention"><w:name w:val="Mention"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/>'
+         '<w:rPr><w:color w:val="2B579A"/></w:rPr></w:style></w:styles>'),
+    ],
+}
+
 
 def patch(docxdir):
     for name, parts in PART_PATCHES.items():
@@ -1547,6 +1644,9 @@ def patch(docxdir):
                     raise SystemExit(f"{name}: {old!r} not found in {info.filename}")
                 data = xml.replace(old, new, 1).encode("utf-8")
             out.append((info, data))
+        # Parts LibreOffice does not write at all (P9-W6: people.xml, the comments' relationships).
+        for part, xml in ADD_PARTS.get(name, {}).items():
+            out.append((zipfile.ZipInfo(part, date_time=out[0][0].date_time), xml.encode("utf-8")))
         with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
             for info, data in out:
                 z.writestr(info, data, compress_type=zipfile.ZIP_DEFLATED)
@@ -1592,6 +1692,17 @@ DRAWING_XML = {
     "drawing:group": "<wpg:wgp>", "drawing:linked-textbox": "<wps:linkedTxbx ", "drawing:canvas": "<wpc:wpc",
     "image:link": "<a:hlinkClick ", "image:soft-edge": "<a:softEdge ", "drawing:hidden": 'hidden="1"',
     "image:wrap-both-sides": 'wrapText="bothSides"',
+}
+
+
+# File 67 (P9-W6): feature → (part, text it must contain).
+W6_XML = {
+    "comment:formatted": ("word/comments.xml", "<w:b/>"), "comment:mention": ("word/comments.xml", '<w:rStyle w:val="Mention"/>'),
+    "comment:in-note": ("word/footnotes.xml", "<w:commentRangeStart "), "people": ("word/people.xml", "<w15:presenceInfo "),
+    "note:separator-text": ("word/footnotes.xml", "Continued from the previous page"),
+    "field:styleref": ("word/header1.xml", "STYLEREF &quot;Heading 1&quot;"), "field:sectionpages": ("word/header1.xml", " SECTIONPAGES "),
+    "field:seq-switches": ("word/document.xml", "\\c "), "field:locked": ("word/document.xml", 'w:fldLock="1"'),
+    "field:ref-switches": ("word/document.xml", "REF Target \\p \\h"), "field:page": ("word/header1.xml", " PAGE "),
 }
 
 
@@ -1703,6 +1814,12 @@ def check(manifest_path, docxdir):
                     errs.append(f"{ft} not found")
             elif ft in DRAWING_XML and DRAWING_XML[ft] not in doc:
                 errs.append(f"{ft} not found")
+            elif ft in W6_XML:
+                part, needle = W6_XML[ft]
+                with zipfile.ZipFile(f) as z:
+                    text = z.read(part).decode("utf-8") if part in z.namelist() else ""
+                if needle not in text:
+                    errs.append(f"{ft} not found in {part}")
             elif ft in TABLE2_XML and TABLE2_XML[ft] not in doc:
                 errs.append(f"{ft} not found")
             elif ft == "drawing:textbox" and "<w:txbxContent>" not in doc:

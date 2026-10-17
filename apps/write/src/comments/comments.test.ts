@@ -243,7 +243,7 @@ describe("comments model", () => {
   });
 
   it("the margin mode: balloons, the pane on narrow windows, indicators when hidden", () => {
-    const ui = { show: true, pane: false, filter: "all" as const, active: null, hover: null, draft: null, editing: null };
+    const ui = { show: true, pane: false, filter: "all" as const, active: null, hover: null, draft: null, editing: null, markup: "all" as const };
     expect(commentsMode(ui, 2, 1400)).toBe("balloons");
     expect(commentsMode(ui, 2, 1100)).toBe("pane");
     expect(commentsMode({ ...ui, pane: true }, 2, 1600)).toBe("pane");

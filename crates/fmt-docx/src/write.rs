@@ -49,6 +49,9 @@ const CT_FOOTNOTES: &str =
 const CT_ENDNOTES: &str =
     "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml";
 
+/// Relationship type of `word/people.xml` (comment authors).
+const REL_PEOPLE: &str = "http://schemas.microsoft.com/office/2011/relationships/people";
+const CT_PEOPLE: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.people+xml";
 /// Relationship type of `word/comments.xml`.
 pub(crate) const REL_COMMENTS: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
@@ -218,6 +221,7 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
                 CT_COMMENTS_EXTENSIBLE,
                 comments_extensible_xml(doc),
             ),
+            ("people.xml", REL_PEOPLE, CT_PEOPLE, people_xml(doc)),
         ] {
             rels.add(rel_type, file);
             parts.push((file.to_owned(), content_type, xml, Relationships::new()));
@@ -479,9 +483,14 @@ impl<'a> PartWriter<'a> {
             NoteKind::End => ("w:endnotes", "w:endnote"),
         };
         self.root(root);
-        for (id, ty, el) in [
-            (sep.0, "separator", "w:separator"),
-            (sep.1, "continuationSeparator", "w:continuationSeparator"),
+        for (id, ty, el, continuation) in [
+            (sep.0, "separator", "w:separator", false),
+            (
+                sep.1,
+                "continuationSeparator",
+                "w:continuationSeparator",
+                true,
+            ),
         ] {
             self.x
                 .start(item, &[("w:type", ty), ("w:id", &id.to_string())]);
@@ -492,9 +501,18 @@ impl<'a> PartWriter<'a> {
                 &[("w:after", "0"), ("w:line", "240"), ("w:lineRule", "auto")],
             );
             self.x.end("w:pPr");
-            self.x.start("w:r", &[]);
-            self.x.empty(el, &[]);
-            self.x.end("w:r");
+            match self.doc.separators.get(kind, continuation) {
+                model_text::NoteSeparator::Line => {
+                    self.x.start("w:r", &[]);
+                    self.x.empty(el, &[]);
+                    self.x.end("w:r");
+                }
+                model_text::NoteSeparator::Text { text } => {
+                    if !text.is_empty() {
+                        self.run(&Run::new(text.clone()));
+                    }
+                }
+            }
             self.x.end("w:p");
             self.x.end(item);
         }
@@ -746,7 +764,12 @@ impl<'a> PartWriter<'a> {
     /// A field as `w:fldSimple` with its cached result.
     fn field(&mut self, f: &Field) {
         let instr = format!(" {} ", f.kind.instruction());
-        self.x.start("w:fldSimple", &[("w:instr", &instr)]);
+        if f.locked {
+            self.x
+                .start("w:fldSimple", &[("w:instr", &instr), ("w:fldLock", "1")]);
+        } else {
+            self.x.start("w:fldSimple", &[("w:instr", &instr)]);
+        }
         if !f.cached.is_empty() || !f.props.is_empty() {
             self.x.start("w:r", &[]);
             write_rpr(&mut self.x, &f.props, self.scheme);
@@ -923,8 +946,15 @@ impl<'a> PartWriter<'a> {
     fn toc(&mut self, t: &Toc) {
         let instr = match &t.caption {
             Some(c) => format!(" TOC \\h \\z \\c \"{c}\" "),
-            None => format!(" TOC \\o \"{}-{}\" \\h \\z \\u ", t.from_level, t.to_level),
+            None if t.switches.no_headings => format!(" TOC{} ", t.switches.instruction()),
+            None => format!(
+                " TOC \\o \"{}-{}\"{} ",
+                t.from_level,
+                t.to_level,
+                t.switches.instruction()
+            ),
         };
+        let links = !t.switches.no_links;
         self.x.start("w:sdt", &[]);
         self.x.start("w:sdtPr", &[]);
         self.x.start("w:docPartObj", &[]);
@@ -973,22 +1003,33 @@ impl<'a> PartWriter<'a> {
                 self.instr_text(&instr);
                 self.fld_char("separate");
             }
-            if let Some((_, name)) = &bookmark {
+            let shows_page = t.caption.is_some() || t.switches.shows_page(e.level);
+            let link = bookmark.as_ref().filter(|_| links);
+            if let Some((_, name)) = link {
                 self.x
                     .start("w:hyperlink", &[("w:anchor", name), ("w:history", "1")]);
             }
-            self.run(&Run::new(format!("{}\t", e.text)));
-            let page = e.page.map(|p| p.to_string()).unwrap_or_default();
-            match &bookmark {
-                Some((_, name)) => {
-                    self.fld_char("begin");
-                    self.instr_text(&format!(" PAGEREF {name} \\h "));
-                    self.fld_char("separate");
-                    self.run(&Run::new(page));
-                    self.fld_char("end");
+            if !shows_page {
+                self.run(&Run::new(e.text.clone()));
+                if link.is_some() {
                     self.x.end("w:hyperlink");
                 }
-                None => self.run(&Run::new(page)),
+            } else {
+                self.run(&Run::new(format!("{}\t", e.text)));
+                let page = e.page.map(|p| p.to_string()).unwrap_or_default();
+                match &bookmark {
+                    Some((_, name)) => {
+                        self.fld_char("begin");
+                        self.instr_text(&format!(" PAGEREF {name} \\h "));
+                        self.fld_char("separate");
+                        self.run(&Run::new(page));
+                        self.fld_char("end");
+                    }
+                    None => self.run(&Run::new(page)),
+                }
+                if link.is_some() {
+                    self.x.end("w:hyperlink");
+                }
             }
             if i + 1 == n {
                 self.fld_char("end");
@@ -1960,6 +2001,33 @@ fn comments_ids_xml(doc: &Document, para: &HashMap<CommentId, String>) -> Vec<u8
         );
     }
     x.end("w16cid:commentsIds");
+    x.finish()
+}
+
+/// `word/people.xml`: one `w15:person` per comment author with its
+/// `w15:presenceInfo` (Word's local `providerId="None"` when unknown).
+fn people_xml(doc: &Document) -> Vec<u8> {
+    let mut x = XmlOut::new();
+    x.start(
+        "w15:people",
+        &[
+            ("xmlns:mc", NS_MC),
+            ("xmlns:w", W_NS),
+            ("xmlns:w15", NS_W15),
+            ("mc:Ignorable", "w15"),
+        ],
+    );
+    for p in doc.comment_people() {
+        x.start("w15:person", &[("w15:author", &p.author)]);
+        let provider = p.provider_id.clone().unwrap_or_else(|| "None".into());
+        let user = p.user_id.clone().unwrap_or_else(|| p.author.clone());
+        x.empty(
+            "w15:presenceInfo",
+            &[("w15:providerId", &provider), ("w15:userId", &user)],
+        );
+        x.end("w15:person");
+    }
+    x.end("w15:people");
     x.finish()
 }
 

@@ -238,7 +238,7 @@ export const FieldNode = Node.create({
   atom: true,
   selectable: true,
   addAttributes() {
-    return { kind: { ...jsonAttrPlain, default: { kind: "page" } }, cached: { ...jsonAttrPlain, default: "" } };
+    return { kind: { ...jsonAttrPlain, default: { kind: "page" } }, cached: { ...jsonAttrPlain, default: "" }, locked: { ...jsonAttrPlain, default: null } };
   },
   parseHTML() {
     return [
@@ -247,7 +247,7 @@ export const FieldNode = Node.create({
         getAttrs: (el) => {
           const e = el as HTMLElement;
           try {
-            return { kind: JSON.parse(e.dataset.fieldKind ?? ""), cached: e.dataset.cached ?? e.textContent ?? "" };
+            return { kind: JSON.parse(e.dataset.fieldKind ?? ""), cached: e.dataset.cached ?? e.textContent ?? "", locked: e.dataset.locked === "true" ? true : null };
           } catch {
             return false;
           }
@@ -260,7 +260,14 @@ export const FieldNode = Node.create({
     const cached = String(node.attrs.cached ?? "");
     return [
       "span",
-      { class: "field", "data-field": kind?.kind ?? "", "data-field-kind": JSON.stringify(kind), "data-cached": cached, contenteditable: "false" },
+      {
+        class: "field",
+        "data-field": kind?.kind ?? "",
+        "data-field-kind": JSON.stringify(kind),
+        "data-cached": cached,
+        ...(node.attrs.locked ? { "data-locked": "true" } : {}),
+        contenteditable: "false",
+      },
       ["span", { class: "field-cached" }, cached],
     ];
   },

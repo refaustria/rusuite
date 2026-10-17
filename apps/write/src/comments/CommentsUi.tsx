@@ -16,7 +16,6 @@ import { useT } from "../i18n";
 import { addComment, deleteComment, editComment, pointAt, replyComment, resolveComment, revealComment } from "./commands";
 import {
   authorColor,
-  commentText,
   filterThreads,
   fullDate,
   initialsOf,
@@ -29,6 +28,9 @@ import {
   type Thread,
 } from "./model";
 import { commentRangesOf } from "./plugin";
+import { RichComposer } from "./RichComposer";
+import { isMention, mentionCandidates, type MentionTarget } from "./richText";
+import type { Block } from "../generated/Block";
 
 /** Below this window width the Comments pane replaces the balloons (Word's narrow layout). */
 export const NARROW_WIDTH = 1200;
@@ -39,9 +41,6 @@ export type CommentsMode = "balloons" | "pane" | "indicators" | "none";
 
 const BUTTON =
   "inline-flex min-h-8 min-w-8 items-center justify-center rounded px-2 text-xs hover:bg-ui-hover disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ui-focus";
-const PRIMARY =
-  "inline-flex min-h-8 items-center justify-center rounded bg-[#2b579a] px-3 text-xs font-medium text-white hover:bg-[#244a84] disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ui-focus";
-const TEXTAREA = "w-full resize-none rounded border border-ui-border bg-ui-bg p-1.5 text-sm text-ui-fg focus:outline-none focus:ring-2 focus:ring-ui-focus";
 
 function useCommentsUi(features: WriteFeatures): CommentsUiState {
   return useSyncExternalStore(features.ui.subscribe, () => features.ui.getState().comments);
@@ -65,11 +64,30 @@ function useWindowWidth(): number {
   return w;
 }
 
-/** Balloons when shown on a wide window, the pane when narrow (or asked for), indicators when hidden. */
+/**
+ * Balloons when shown on a wide window, the pane when narrow (or asked
+ * for), indicators when hidden. Display for Review (P9-W6): Simple Markup
+ * shows the indicators (a click opens that balloon), No Markup / Original
+ * nothing (the pane stays available).
+ */
 export function commentsMode(ui: CommentsUiState, count: number, width: number): CommentsMode {
+  const markup = ui.markup ?? "all";
   if (count === 0 && !ui.draft) return ui.pane && ui.show ? "pane" : "none";
-  if (!ui.show) return "indicators";
-  return ui.pane || width < NARROW_WIDTH ? "pane" : "balloons";
+  if (ui.pane && ui.show) return "pane";
+  if (ui.draft) return width < NARROW_WIDTH ? "pane" : "balloons";
+  if (markup === "none" || markup === "original") return "none";
+  if (markup === "simple" || !ui.show) return "indicators";
+  return width < NARROW_WIDTH ? "pane" : "balloons";
+}
+
+/** Page gaps of the print layout in the margin's coordinates (unzoomed px): `[gapTop, gapBottom)` each. */
+export function pageGapBands(frame: HTMLElement, marginTop: number, zoom: number): [number, number][] {
+  const out: [number, number][] = [];
+  frame.querySelectorAll<HTMLElement>(".page-gap").forEach((g) => {
+    const r = g.getBoundingClientRect();
+    if (r.height > 0) out.push([(r.top - marginTop) / zoom, (r.bottom - marginTop) / zoom]);
+  });
+  return out;
 }
 
 export function useCommentsMode(features: WriteFeatures, ctl: SyncController): CommentsMode {
@@ -151,68 +169,50 @@ function Header({ c, children }: { c: Comment; children?: ReactNode }) {
   );
 }
 
-/** A text box posting with Ctrl+Enter, cancelling with Esc. */
-function Composer({
-  initial = "",
-  placeholder,
-  submitLabel,
-  onSubmit,
-  onCancel,
-  autoFocus,
-  testId,
-}: {
-  initial?: string;
-  placeholder: string;
-  submitLabel: string;
-  onSubmit: (text: string) => void;
-  onCancel?: () => void;
-  autoFocus?: boolean;
-  testId: string;
-}) {
-  const t = useT();
-  const [text, setText] = useState(initial);
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    if (autoFocus) ref.current?.focus({ preventScroll: true });
-  }, [autoFocus]);
-  const submit = () => {
-    const v = text.trim();
-    if (!v) return;
-    onSubmit(v);
-    setText("");
-  };
+/** Who `@` offers in this document. */
+function usePeople(ctl: SyncController): (query: string) => MentionTarget[] {
+  return useCallback((q: string) => mentionCandidates(ctl.comments, ctl.people, ctl.properties.author, ctl.user?.name, q), [ctl]);
+}
+
+/** A comment's content with its formatting: bold / italic / underline / strike runs, links and @mentions. */
+export function CommentContent({ content }: { content: Block[] | undefined }) {
+  const paras = (content ?? []).filter((b): b is Extract<Block, { kind: "paragraph" }> => b.kind === "paragraph");
   return (
-    <div className="mt-1.5 flex flex-col gap-1" onPointerDown={(e) => e.stopPropagation()}>
-      <textarea
-        ref={ref}
-        rows={text ? Math.min(6, text.split("\n").length + 1) : 2}
-        className={TEXTAREA}
-        aria-label={placeholder}
-        placeholder={placeholder}
-        value={text}
-        data-testid={testId}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            submit();
-          } else if (e.key === "Escape" && onCancel) {
-            e.preventDefault();
-            e.stopPropagation();
-            onCancel();
-          }
-        }}
-      />
-      <div className="flex justify-end gap-1">
-        {onCancel && (
-          <button type="button" className={BUTTON} onClick={onCancel}>
-            {t("common.cancel")}
-          </button>
-        )}
-        <button type="button" className={PRIMARY} disabled={!text.trim()} title={t("write.comments.postTip")} data-testid={`${testId}-post`} onClick={submit}>
-          {submitLabel}
-        </button>
-      </div>
+    <div className="mt-1 break-words text-sm" data-testid="comment-text">
+      {paras.map((p, k) => (
+        <p key={p.value.id ?? k} className="min-h-[1.25em] whitespace-pre-wrap">
+          {p.value.inlines.map((i, j) => {
+            if (i.kind === "break") return <br key={j} />;
+            if (i.kind !== "run") return null;
+            const r = i.value;
+            const pr = r.props ?? {};
+            const style: React.CSSProperties = {
+              fontWeight: pr.bold ? 700 : undefined,
+              fontStyle: pr.italic ? "italic" : undefined,
+              textDecoration: [pr.underline && pr.underline !== "none" ? "underline" : "", pr.strike ? "line-through" : ""].filter(Boolean).join(" ") || undefined,
+            };
+            if (isMention(r)) {
+              return (
+                <span key={j} className="comment-mention" data-testid="comment-mention" style={style}>
+                  {r.text}
+                </span>
+              );
+            }
+            if (r.link?.target.kind === "url") {
+              return (
+                <a key={j} href={r.link.target.value} target="_blank" rel="noopener noreferrer" className="text-[#2b579a] underline" style={style}>
+                  {r.text}
+                </a>
+              );
+            }
+            return (
+              <span key={j} style={style}>
+                {r.text}
+              </span>
+            );
+          })}
+        </p>
+      ))}
     </div>
   );
 }
@@ -231,27 +231,26 @@ function CommentBody({ c, card, own }: { c: Comment; card: CardProps; own: boole
   const t = useT();
   const ui = useCommentsUi(card.features);
   const editing = ui.editing === c.id;
+  const people = usePeople(card.ctl);
   if (editing) {
     return (
-      <Composer
-        initial={commentText(c)}
+      <RichComposer
+        initial={c.content}
         placeholder={t("write.comments.edit")}
         submitLabel={t("write.comments.save")}
         autoFocus
         testId="comment-edit"
-        onSubmit={(text) => {
+        people={people}
+        onSubmit={({ text, content }) => {
           card.features.ui.setComments({ editing: null });
-          void editComment(card.ctl, c.id, text);
+          void editComment(card.ctl, c.id, text, content);
         }}
         onCancel={() => card.features.ui.setComments({ editing: null })}
       />
     );
   }
-  return (
-    <p className={`mt-1 whitespace-pre-wrap break-words text-sm ${own ? "" : ""}`} data-testid="comment-text">
-      {commentText(c)}
-    </p>
-  );
+  void own;
+  return <CommentContent content={c.content} />;
 }
 
 function ThreadCard(props: CardProps) {
@@ -262,6 +261,7 @@ function ThreadCard(props: CardProps) {
   const resolved = !!root.resolved;
   const color = authorColor(root.author);
   const own = (c: Comment) => !!user && c.author === user.name;
+  const people = usePeople(ctl);
   const activate = () => {
     if (!active) features.ui.setComments({ active: root.id });
   };
@@ -337,11 +337,12 @@ function ThreadCard(props: CardProps) {
             </button>
           </div>
           {!resolved && (
-            <Composer
+            <RichComposer
               placeholder={t("write.comments.replyPlaceholder")}
               submitLabel={t("write.comments.reply")}
               testId="comment-reply-box"
-              onSubmit={(text) => void replyComment(ctl, root.id, text)}
+              people={people}
+              onSubmit={({ text, content }) => void replyComment(ctl, root.id, text, undefined, content)}
             />
           )}
         </>
@@ -356,6 +357,7 @@ function DraftCard({ ctl, features, editor }: { ctl: SyncController; features: W
   const t = useT();
   const ui = useCommentsUi(features);
   const user = useUser(ctl);
+  const people = usePeople(ctl);
   const draft = ui.draft;
   if (!draft) return null;
   // Without a user name the document's author writes the comment (the core does the same).
@@ -370,18 +372,19 @@ function DraftCard({ ctl, features, editor }: { ctl: SyncController; features: W
         <Avatar name={name} initials={user?.initials} />
         <span className="text-xs font-semibold">{name}</span>
       </div>
-      <Composer
+      <RichComposer
         placeholder={t("write.comments.placeholder")}
         submitLabel={t("write.comments.post")}
         autoFocus
         testId="comment-draft-text"
+        people={people}
         onCancel={() => {
           features.ui.setComments({ draft: null });
           editor.commands.focus();
         }}
-        onSubmit={(text) => {
+        onSubmit={({ text, content }) => {
           features.ui.setComments({ draft: null });
-          void addComment(ctl, draft, text).then((id) => {
+          void addComment(ctl, draft, text, undefined, content).then((id) => {
             if (id != null) features.ui.setComments({ active: id });
           });
         }}
@@ -443,6 +446,7 @@ function CommentsFrameWith({ editor, ctl, features, zoom, children }: { editor: 
     ranges.map((r) => r.id),
   ).filter((th) => ranges.some((r) => r.id === th.root.id));
   const showMargin = mode === "balloons" || mode === "indicators";
+  const simple = mode === "indicators" && (ui.markup ?? "all") === "simple";
 
   const measure = useCallback(() => {
     const view = editor.view;
@@ -476,7 +480,9 @@ function CommentsFrameWith({ editor, ctl, features, zoom, children }: { editor: 
       .filter(([id]) => id === DRAFT_ID || list.some((th) => th.root.id === id))
       .map(([id, a]) => ({ id, anchor: a.y, height: mode === "balloons" ? (heights.get(id) ?? 72) : 24 }));
     const active = d ? DRAFT_ID : features.ui.getState().comments.active;
-    const laid = layoutBalloons(boxes, mode === "balloons" ? 8 : 2, active);
+    // Print layout: balloons never sit in a page gap (they move to the next page's top, Word's per-page markup area).
+    const gaps = mode === "balloons" ? pageGapBands(f, mr.top, z) : [];
+    const laid = layoutBalloons(boxes, mode === "balloons" ? 8 : 2, active, 0, gaps);
     setTops((prev) => (sameTops(prev, laid) ? prev : laid));
     setAnchors((prev) => {
       const same = prev.size === next.size && [...next].every(([k, v]) => prev.get(k)?.x === v.x && prev.get(k)?.y === v.y);
@@ -553,21 +559,30 @@ function CommentsFrameWith({ editor, ctl, features, zoom, children }: { editor: 
                 <ThreadCard thread={th} editor={editor} ctl={ctl} features={features} active={ui.active === th.root.id} />
               </div>
             ) : (
-              <button
-                key={th.root.id}
-                type="button"
-                className="absolute left-1 inline-flex h-8 w-8 items-center justify-center rounded hover:bg-ui-hover"
-                style={{ top: tops.get(th.root.id) ?? 0, color: authorColor(th.root.author).dark }}
-                title={t("write.comments.indicator", { author: th.root.author })}
-                aria-label={t("write.comments.indicator", { author: th.root.author })}
-                data-testid="comment-indicator"
-                onClick={() => {
-                  features.ui.setComments({ show: true, active: th.root.id });
-                  revealComment(editor.view, th.root.id);
-                }}
-              >
-                {COMMENT_ICON}
-              </button>
+              <div key={th.root.id} className="absolute left-1" style={{ top: tops.get(th.root.id) ?? 0 }}>
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded hover:bg-ui-hover"
+                  style={{ color: authorColor(th.root.author).dark }}
+                  title={t("write.comments.indicator", { author: th.root.author })}
+                  aria-label={t("write.comments.indicator", { author: th.root.author })}
+                  aria-expanded={simple ? ui.active === th.root.id : undefined}
+                  data-testid="comment-indicator"
+                  onClick={() => {
+                    // Simple Markup: the marker opens (or closes) this balloon; else Show Comments comes back on.
+                    if (simple) features.ui.setComments({ active: ui.active === th.root.id ? null : th.root.id });
+                    else features.ui.setComments({ show: true, active: th.root.id });
+                    revealComment(editor.view, th.root.id);
+                  }}
+                >
+                  {COMMENT_ICON}
+                </button>
+                {simple && ui.active === th.root.id && (
+                  <div className="absolute left-9 top-0 z-10" style={{ width: BALLOON_WIDTH - 16 }} data-testid="comment-open-balloon">
+                    <ThreadCard thread={th} editor={editor} ctl={ctl} features={features} active />
+                  </div>
+                )}
+              </div>
             ),
           )}
         </div>

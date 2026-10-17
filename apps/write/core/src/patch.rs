@@ -78,6 +78,10 @@ pub struct WritePatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub settings: Option<DocumentSettings>,
+    /// The footnote/endnote separators, when they changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub separators: Option<model_text::NoteSeparators>,
     /// A message for the status bar (e.g. `"3 replacements"`).
     pub info: Option<String>,
 }
@@ -143,6 +147,9 @@ impl Patch for WritePatch {
         }
         if other.settings.is_some() {
             self.settings = other.settings;
+        }
+        if other.separators.is_some() {
+            self.separators = other.separators;
         }
         if other.info.is_some() {
             self.info = other.info;
