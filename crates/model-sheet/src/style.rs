@@ -36,8 +36,9 @@ impl StyleId {
 
 /// Cell background.
 ///
-/// Serializes as `{"kind":"none"}` or
-/// `{"kind":"solid","color":{"kind":"rgb","value":"FF0000"}}`.
+/// Serializes as `{"kind":"none"}`,
+/// `{"kind":"solid","color":{"kind":"rgb","value":"FF0000"}}` or
+/// `{"kind":"pattern","color":{"pattern":"darkGrid","fg":…,"bg":…}}`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "color")]
 pub enum Fill {
@@ -45,6 +46,99 @@ pub enum Fill {
     None,
     /// A solid fill.
     Solid(Color),
+    /// One of Excel's pattern fills (Format Cells › Fill › Pattern Style).
+    Pattern(PatternFill),
+}
+
+/// The pattern styles of `patternFill/@patternType` other than `none`
+/// and `solid` (Excel's Pattern Style list; `solid` is [`Fill::Solid`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PatternType {
+    /// 75 % gray.
+    DarkGray,
+    /// 50 % gray.
+    MediumGray,
+    /// 25 % gray.
+    LightGray,
+    /// 12.5 % gray.
+    Gray125,
+    /// 6.25 % gray.
+    Gray0625,
+    DarkHorizontal,
+    DarkVertical,
+    DarkDown,
+    DarkUp,
+    DarkGrid,
+    DarkTrellis,
+    LightHorizontal,
+    LightVertical,
+    LightDown,
+    LightUp,
+    LightGrid,
+    LightTrellis,
+}
+
+impl PatternType {
+    pub const ALL: [PatternType; 17] = [
+        PatternType::DarkGray,
+        PatternType::MediumGray,
+        PatternType::LightGray,
+        PatternType::Gray125,
+        PatternType::Gray0625,
+        PatternType::DarkHorizontal,
+        PatternType::DarkVertical,
+        PatternType::DarkDown,
+        PatternType::DarkUp,
+        PatternType::DarkGrid,
+        PatternType::DarkTrellis,
+        PatternType::LightHorizontal,
+        PatternType::LightVertical,
+        PatternType::LightDown,
+        PatternType::LightUp,
+        PatternType::LightGrid,
+        PatternType::LightTrellis,
+    ];
+
+    /// The `patternType` attribute value.
+    pub fn xml_name(self) -> &'static str {
+        match self {
+            PatternType::DarkGray => "darkGray",
+            PatternType::MediumGray => "mediumGray",
+            PatternType::LightGray => "lightGray",
+            PatternType::Gray125 => "gray125",
+            PatternType::Gray0625 => "gray0625",
+            PatternType::DarkHorizontal => "darkHorizontal",
+            PatternType::DarkVertical => "darkVertical",
+            PatternType::DarkDown => "darkDown",
+            PatternType::DarkUp => "darkUp",
+            PatternType::DarkGrid => "darkGrid",
+            PatternType::DarkTrellis => "darkTrellis",
+            PatternType::LightHorizontal => "lightHorizontal",
+            PatternType::LightVertical => "lightVertical",
+            PatternType::LightDown => "lightDown",
+            PatternType::LightUp => "lightUp",
+            PatternType::LightGrid => "lightGrid",
+            PatternType::LightTrellis => "lightTrellis",
+        }
+    }
+
+    pub fn from_xml_name(name: &str) -> Option<PatternType> {
+        PatternType::ALL.into_iter().find(|p| p.xml_name() == name)
+    }
+}
+
+/// A pattern fill: the pattern drawn in `fg` (the pattern colour,
+/// `fgColor`) over `bg` (the background colour, `bgColor`); `None` =
+/// automatic (black pattern, white background).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatternFill {
+    pub pattern: PatternType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fg: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bg: Option<Color>,
 }
 
 /// Line style of a cell border side.
@@ -213,6 +307,11 @@ pub struct CellStyle {
     pub number_format: Option<String>,
     #[serde(default, skip_serializing_if = "Protection::is_default")]
     pub protection: Protection,
+    /// The font's single / double underline is Excel's accounting
+    /// underline (`singleAccounting` / `doubleAccounting`: drawn across
+    /// the cell, below the descenders); `None` = inherit (off).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub underline_accounting: Option<bool>,
 }
 
 impl CellStyle {
@@ -236,6 +335,7 @@ impl CellStyle {
                 .clone()
                 .or_else(|| self.number_format.clone()),
             protection: self.protection.merged_with(&patch.protection),
+            underline_accounting: patch.underline_accounting.or(self.underline_accounting),
         }
     }
 
@@ -263,8 +363,13 @@ impl CellStyle {
             highlight: highlight.map(ColorKey::from),
             vertical_align: *vertical_align,
             fill: self.fill.map(|f| match f {
-                Fill::None => None,
-                Fill::Solid(c) => Some(ColorKey::from(c)),
+                Fill::None => FillKey::None,
+                Fill::Solid(c) => FillKey::Solid(ColorKey::from(c)),
+                Fill::Pattern(p) => FillKey::Pattern(
+                    p.pattern,
+                    p.fg.map(ColorKey::from),
+                    p.bg.map(ColorKey::from),
+                ),
             }),
             borders: [
                 side(&self.borders.left),
@@ -277,8 +382,17 @@ impl CellStyle {
             alignment: self.alignment,
             number_format: self.number_format.as_deref(),
             protection: self.protection,
+            underline_accounting: self.underline_accounting,
         }
     }
+}
+
+/// [`Fill`] with colours as [`ColorKey`]s.
+#[derive(PartialEq, Eq, Hash)]
+enum FillKey {
+    None,
+    Solid(ColorKey),
+    Pattern(PatternType, Option<ColorKey>, Option<ColorKey>),
 }
 
 /// [`Color`] with the tint compared by bit pattern.
@@ -309,11 +423,12 @@ struct StyleKey<'a> {
     color: Option<ColorKey>,
     highlight: Option<ColorKey>,
     vertical_align: Option<VerticalAlign>,
-    fill: Option<Option<ColorKey>>,
+    fill: Option<FillKey>,
     borders: [Option<(BorderStyle, ColorKey)>; 6],
     alignment: Alignment,
     number_format: Option<&'a str>,
     protection: Protection,
+    underline_accounting: Option<bool>,
 }
 
 impl PartialEq for CellStyle {

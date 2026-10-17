@@ -1,11 +1,14 @@
 // Calc's Review tab (P8-26), as in Excel 365: Comments (New Comment,
-// Delete, Previous/Next Comment, Show Comments) and Notes ▾ (New/Edit
+// Delete, Previous/Next Comment, Show Comments), Notes ▾ (New/Edit
 // Note, Previous/Next Note, Show/Hide Note, Show All Notes, Convert to
-// Comments); and Insert › Links (Link…, Ctrl+K).
+// Comments) and Protect (Protect Sheet… / Unprotect Sheet, Protect
+// Workbook…, P9-C1); and Insert › Links (Link…, Ctrl+K).
 
 import { RibbonButton, RibbonMenuButton, RibbonStack, type RibbonGroup, type RibbonTab, type TFunction as T } from "@rusuite/ui-shared";
 import type { CalcStore } from "../state/store";
 import { deleteCommentIcon, linkIcon, newCommentIcon, nextCommentIcon, noteIcon, prevCommentIcon, showCommentsIcon } from "./icons";
+import { sheetProtection, toggleSheetProtection, toggleWorkbookProtection, workbookProtection } from "../protection/protection";
+import { lockIcon, protectBookIcon } from "../protection/icons";
 
 export function reviewTab(store: CalcStore, t: T, off: boolean): RibbonTab {
   const c = store.comments;
@@ -14,6 +17,8 @@ export function reviewTab(store: CalcStore, t: T, off: boolean): RibbonTab {
   const at = { sheet, ...anchor };
   const lists = c.of(sheet);
   const hasNote = !!c.note(at);
+  const sheetProtected = !!sheetProtection(store);
+  const bookProtected = !!workbookProtection(store);
   const done = () => store.focusGrid();
   const run = (fn: () => unknown) => () => {
     void fn();
@@ -55,6 +60,29 @@ export function reviewTab(store: CalcStore, t: T, off: boolean): RibbonTab {
               { id: "convert", label: t("calc.notes.convert"), disabled: lists.notes.length === 0, onSelect: () => c.convertNotes() },
             ]}
           />
+        ),
+      },
+      {
+        label: t("calc.protect.group"),
+        items: (
+          <>
+            <RibbonButton
+              label={sheetProtected ? t("calc.protect.unprotectSheet") : t("calc.protect.sheetDots")}
+              icon={lockIcon()}
+              size="large"
+              disabled={off}
+              onClick={() => toggleSheetProtection(store)}
+            />
+            <RibbonButton
+              label={t("calc.protect.bookDots")}
+              icon={protectBookIcon()}
+              size="large"
+              pressed={bookProtected}
+              tooltip={bookProtected ? t("calc.protect.unprotectBook") : undefined}
+              disabled={off}
+              onClick={() => toggleWorkbookProtection(store)}
+            />
+          </>
         ),
       },
     ],

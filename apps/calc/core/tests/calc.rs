@@ -175,6 +175,7 @@ fn script() -> Vec<C> {
         C::DuplicateSheet {
             sheet: 0,
             name: "Sheet1 (2)".into(),
+            index: None,
         },
         C::UnmergeCells {
             sheet: 3,
@@ -482,6 +483,7 @@ fn errors_leave_the_document_unchanged() {
             C::DuplicateSheet {
                 sheet: 0,
                 name: "SHEET1".into(),
+                index: None,
             },
             "duplicate_sheet",
         ),
@@ -711,6 +713,7 @@ fn sheet_command_patches() {
         .apply(C::DuplicateSheet {
             sheet: 1,
             name: "Sheet2 (2)".into(),
+            index: None,
         })
         .unwrap()
         .patch;

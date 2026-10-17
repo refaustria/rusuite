@@ -141,7 +141,7 @@ describe("Calc shortcuts", () => {
     fireEvent.keyDown(grid, ctrl("u"));
     fireEvent.keyDown(grid, ctrl("i"));
     await waitFor(() => expect(applied(core.log).map((c) => c.type === "applyStyle" && c.patch)).toEqual([
-      { font: { underline: "single" } },
+      { font: { underline: "single" }, underlineAccounting: false },
       { font: { italic: true } },
     ]));
   });

@@ -62,7 +62,26 @@ describe("Format Cells patches", () => {
   it("Font: family, style, size in hundredths, underline, effects", () => {
     expect(stylePatch(base, { ...base, fontFamily: "Arial", bold: true, fontSize: 14, underline: "double", strike: true, script: "superscript" })).toEqual({
       font: { font: { kind: "named", value: "Arial" }, bold: true, size: 1400, underline: "double", strike: true, verticalAlign: "superscript" },
+      underlineAccounting: false,
     });
+  });
+  it("Font: accounting underlines (P9-C1) read and write the accounting flag", () => {
+    expect(stylePatch(base, { ...base, underline: "singleAccounting" })).toEqual({ font: { underline: "single" }, underlineAccounting: true });
+    expect(stylePatch(base, { ...base, underline: "doubleAccounting" })).toEqual({ font: { underline: "double" }, underlineAccounting: true });
+    expect(formatState({ font: { underline: "double" }, underlineAccounting: true }).underline).toBe("doubleAccounting");
+    expect(formatState({ font: { underline: "single" } }).underline).toBe("single");
+  });
+  it("Fill: a pattern style with pattern colour over the background colour (P9-C1)", () => {
+    const red = { kind: "rgb", value: "FF0000" } as const;
+    const blue = { kind: "rgb", value: "0000FF" } as const;
+    expect(stylePatch(base, { ...base, pattern: "darkTrellis", patternColor: red, fill: blue })).toEqual({
+      fill: { kind: "pattern", color: { pattern: "darkTrellis", fg: red, bg: blue } },
+    });
+    expect(stylePatch(base, { ...base, pattern: "lightGrid" })).toEqual({ fill: { kind: "pattern", color: { pattern: "lightGrid" } } });
+    const st = formatState({ fill: { kind: "pattern", color: { pattern: "gray0625", fg: red } } });
+    expect([st.pattern, st.patternColor, st.fill]).toEqual(["gray0625", red, null]);
+    // Pattern Style None leaves the background colour as a solid fill.
+    expect(stylePatch(st, { ...st, pattern: null, fill: blue })).toEqual({ fill: { kind: "solid", color: blue } });
   });
   it("Font colour back to automatic is the auto colour", () => {
     const coloured = formatState({ font: { color: { kind: "rgb", value: "FF0000" } } });

@@ -35,6 +35,7 @@ mod fill;
 mod names;
 mod patch;
 mod pivots;
+mod protection;
 mod tables;
 pub mod wire;
 pub mod wire_annot;

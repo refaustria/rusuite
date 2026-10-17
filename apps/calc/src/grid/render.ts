@@ -18,6 +18,8 @@ import { axisSegments, type PaneLayout } from "./panes";
 import { isWholeCols, isWholeRows, LAST_COL, type Range } from "./Selection";
 import { approxMeasure, fitNumber, lineHeightPx, wrapLines, type Measure } from "./textLayout";
 import type { PivotLook } from "../pivot/styles";
+import type { PatternType } from "../generated/PatternType";
+import { canvasPattern, patternColors } from "./patterns";
 import {
   colorCss, fontCss, horizontalAlign, styleAt, verticalAlign, type TextAlign, type VAlignKind,
 } from "./style";
@@ -123,6 +125,8 @@ export interface VisibleRange {
 
 export type RenderOp =
   | { op: "fill"; x: number; y: number; w: number; h: number; color: string }
+  /** Format Cells › Fill › Pattern Style: the pattern in `fg` over `bg`. */
+  | { op: "pattern"; x: number; y: number; w: number; h: number; pattern: PatternType; fg: string; bg: string }
   | { op: "gridlines"; xs: number[]; ys: number[]; width: number; height: number }
   | {
       op: "text";
@@ -145,6 +149,8 @@ export type RenderOp =
       font: string;
       color: string;
       underline: boolean;
+      /** A double and/or accounting underline (accounting: across the cell, lower); absent = single. */
+      underlineKind?: "double" | "singleAccounting" | "doubleAccounting";
       strike: boolean;
       /** Format Cells › Alignment › Orientation: degrees counter-clockwise (drawn around the cell centre, clipped to it). */
       rotation?: number;
@@ -209,7 +215,7 @@ export function computeRenderOps(
   const ys: number[] = [];
 
   // Text attributes per style id, resolved once per frame.
-  const textStyles = new Map<number, Pick<TextOp, "valign" | "font" | "color" | "underline" | "strike">>();
+  const textStyles = new Map<number, Pick<TextOp, "valign" | "font" | "color" | "underline" | "underlineKind" | "strike">>();
   const colX: number[] = [];
   for (let c = vis.c0; c <= vis.c1 + 1; c++) colX.push(colGeo.offset(c) - vp.scrollX);
   const xOf = (c: number) => (c >= vis.c0 && c <= vis.c1 + 1 ? colX[c - vis.c0] : colGeo.offset(c) - vp.scrollX);
@@ -220,17 +226,21 @@ export function computeRenderOps(
   const cfMap = sheet.cf;
   const cfAt = cfMap && cfMap.size > 0 ? (r: number, c: number) => cfMap.get(cfKey(r, c)) : () => undefined;
   const hasFill = (id: number, r: number, c: number) => {
-    if (styleAt(styles, id).fill?.kind === "solid") return true;
+    const k = styleAt(styles, id).fill?.kind;
+    if (k === "solid" || k === "pattern") return true;
     const cf = cfAt(r, c);
     return !!cf && (!!cf.color || !!cf.dxf?.fill);
   };
   const resolveText = (style: CellStyle) => {
     const u = style.font?.underline;
+    const underline = !!u && u !== "none";
+    const kind = underlineKindOf(style);
     return {
       valign: verticalAlign(style),
       font: fontCss(style),
       color: colorCss(style.font?.color) ?? TEXT_COLOR,
-      underline: !!u && u !== "none",
+      underline,
+      ...(underline && kind !== "single" ? { underlineKind: kind } : {}),
       strike: !!style.font?.strike,
     };
   };
@@ -310,6 +320,8 @@ export function computeRenderOps(
       if (style.fill?.kind === "solid") {
         const color = colorCss(style.fill.color);
         if (color) fills.push({ op: "fill", x, y, w, h, color });
+      } else if (style.fill?.kind === "pattern") {
+        fills.push({ op: "pattern", x, y, w, h, pattern: style.fill.color.pattern, ...patternColors(style.fill.color) });
       }
       const b = style.borders;
       if (b) {
@@ -417,7 +429,8 @@ export function computeRenderOps(
     const style = cfStyle(styleAt(styles, styleId), cf);
     const fill = style.fill?.kind === "solid" ? colorCss(style.fill.color) : undefined;
     // Covers the inner gridlines; the outer right/bottom ones stay.
-    masks.push({ op: "fill", x, y, w: w - 1, h: h - 1, color: fill ?? bg });
+    if (style.fill?.kind === "pattern") masks.push({ op: "pattern", x, y, w: w - 1, h: h - 1, pattern: style.fill.color.pattern, ...patternColors(style.fill.color) });
+    else masks.push({ op: "fill", x, y, w: w - 1, h: h - 1, color: fill ?? bg });
     const sideOf = (row: number, col: number) => styleAt(styles, styleIdAt(sheet.cells.get(row), sheet.rows.get(row)?.style ?? null, col)).borders;
     for (let c = Math.max(m.c0, vis.c0); c <= Math.min(m.c1, vis.c1); c++) {
       const cx = xOf(c), cw = xOf(c + 1) - cx;
@@ -494,6 +507,12 @@ export function drawOps(ctx: CanvasRenderingContext2D, ops: RenderOp[], bg: stri
         ctx.fillStyle = o.color;
         ctx.fillRect(o.x, o.y, o.w, o.h);
         break;
+      case "pattern": {
+        const pattern = canvasPattern(ctx, o.pattern, o.fg, o.bg);
+        ctx.fillStyle = pattern ?? o.bg;
+        ctx.fillRect(o.x, o.y, o.w, o.h);
+        break;
+      }
       case "gridlines":
         ctx.beginPath();
         ctx.strokeStyle = GRIDLINE_COLOR;
@@ -577,6 +596,7 @@ export function drawOps(ctx: CanvasRenderingContext2D, ops: RenderOp[], bg: stri
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillText(o.text, 0, 0);
+          if (o.underline || o.strike) decorate(ctx, { ...o, align: "center", underlineKind: o.underlineKind === "doubleAccounting" ? "double" : o.underlineKind === "singleAccounting" ? undefined : o.underlineKind }, o.text, 0, 0, "middle");
           ctx.restore();
           break;
         }
@@ -608,7 +628,27 @@ function decorate(
   const x0 = o.align === "left" ? tx : o.align === "right" ? tx - m.width : tx - m.width / 2;
   const asc = m.actualBoundingBoxAscent || 8;
   const base = valign === "top" ? ty + asc : valign === "middle" ? ty + asc / 2 : ty;
-  ctx.fillRect(x0, o.underline ? base + 1 : base - asc / 2.5, Math.min(m.width, o.clipW), 1);
+  if (o.strike) ctx.fillRect(x0, base - asc / 2.5, Math.min(m.width, o.clipW), 1);
+  if (!o.underline) return;
+  const lines = underlineRects(o, x0, m.width, base);
+  for (const r of lines) ctx.fillRect(r.x, r.y, r.w, 1);
+}
+
+/** The underline of a text op: its lines' `x`, `y` (top) and width (Excel: accounting lines run across the cell, lower). */
+export function underlineRects(o: Pick<TextOp, "x" | "w" | "clipW" | "underlineKind">, x0: number, width: number, base: number): { x: number; y: number; w: number }[] {
+  const accounting = o.underlineKind === "singleAccounting" || o.underlineKind === "doubleAccounting";
+  const double = o.underlineKind === "double" || o.underlineKind === "doubleAccounting";
+  const x = accounting ? o.x + CELL_PADDING - 1 : x0;
+  const w = accounting ? Math.max(0, o.w - 2 * CELL_PADDING + 1) : Math.min(width, o.clipW);
+  const y = base + (accounting ? 3 : 1);
+  return double ? [{ x, y, w }, { x, y: y + 2, w }] : [{ x, y, w }];
+}
+
+/** The underline style of a resolved cell style. */
+export function underlineKindOf(style: CellStyle): "single" | "double" | "singleAccounting" | "doubleAccounting" {
+  const double = style.font?.underline === "double";
+  if (style.underlineAccounting) return double ? "doubleAccounting" : "singleAccounting";
+  return double ? "double" : "single";
 }
 
 export const HEADER_W = 46;

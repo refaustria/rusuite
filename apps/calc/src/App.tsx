@@ -20,6 +20,7 @@ import { CalcRibbon, type CalcView } from "./ui/CalcRibbon";
 import { t, useT } from "./i18n";
 import { AssistantPane } from "@rusuite/ui-shared";
 import { calcAiAdapter } from "./ai/calcAi";
+import { lockIcon } from "./protection/icons";
 
 function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySession; zoom: number }) {
   const revision = useCalc(store, (s) => s.revision);
@@ -27,6 +28,8 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
   const cycle = useCalc(store, (s) => s.cycle);
   const warnings = useCalc(store, (s) => s.warnings);
   const t = useT();
+  // A padlock while the active sheet is protected (P9-C1).
+  const locked = useCalc(store, (s) => !!s.info?.sheets.find((x) => x.id === s.activeSheet)?.protection?.sheet);
   // The hovered note's cell and author (Excel: "Cell B2 note by Ann").
   const noteBy = useCalc(store, (s) => {
     void s.version;
@@ -57,6 +60,11 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
       {records && <span data-testid="filter-records">{records}</span>}
       {stale > 0 && <span data-testid="pivot-stale-status" className="text-amber-700">{t("calc.pivot.staleStatus", { count: stale })}</span>}
       {noteBy && <span data-testid="note-status">{noteBy}</span>}
+      {locked && (
+        <span data-testid="sheet-protected" title={t("calc.protect.status")} aria-label={t("calc.protect.status")} className="flex items-center">
+          {lockIcon(14)}
+        </span>
+      )}
       {cycle && (
         <span role="status" data-testid="cycle-status" className="font-medium text-red-700">
           {t("calc.status.circular", { cell: cycle })}

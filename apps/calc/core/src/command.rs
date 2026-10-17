@@ -60,6 +60,9 @@ pub enum CalcCommand {
     /// (`top` / `bottom` / `left` / `right` = the outline, `insideHorizontal`
     /// / `insideVertical` = the lines between the range's cells, diagonals
     /// in every cell). Absent edges stay; `{"kind":"none"}` removes a line.
+    /// An edited outline edge also clears the facing side of the cells
+    /// beside the range (Excel draws one line per edge), in the same undo
+    /// step.
     SetBorders {
         sheet: u32,
         r0: u32,
@@ -160,11 +163,15 @@ pub enum CalcCommand {
         sheet: u32,
     },
     /// Copies a sheet (contents, formulas, styles, dimensions, tab colour)
-    /// to a new sheet `name` right after it; the copy's references to its
-    /// source sheet point at the copy.
+    /// to a new sheet `name` right after it, or at position `index` of the
+    /// sheet order (Move or Copy › Create a copy); the copy's references
+    /// to its source sheet point at the copy.
     DuplicateSheet {
         sheet: u32,
         name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        index: Option<u32>,
     },
     /// Moves a sheet to position `index` of the sheet order (0 = first).
     MoveSheet {
@@ -891,6 +898,67 @@ pub enum CalcCommand {
     RemovePicture {
         sheet: u32,
         id: u32,
+    },
+    /// Review › Protect Sheet…: protects the sheet with `options` (their
+    /// password fields are ignored) and `password` (absent or empty: no
+    /// password), hashed as Excel does (SHA-512, 100000 spins) with
+    /// `salt` (standard base64 of 16 random bytes from the UI; absent: a
+    /// salt derived from the password). Then only unlocked cells can be
+    /// changed and only the actions the options allow (they keep the
+    /// `.xlsx` meaning: `true` = not allowed); everything else fails with
+    /// `sheet_protected`.
+    ProtectSheet {
+        sheet: u32,
+        #[ts(as = "crate::wire::SheetProtection")]
+        options: model_sheet::SheetProtection,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        password: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        salt: Option<String>,
+    },
+    /// Review › Unprotect Sheet: `wrong_password` (Excel's message) when
+    /// the sheet has a password and `password` does not match.
+    UnprotectSheet {
+        sheet: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        password: Option<String>,
+    },
+    /// Review › Protect Workbook…: locks the structure (sheets cannot be
+    /// added, deleted, renamed, moved, copied, hidden, unhidden or
+    /// recoloured: `workbook_protected`) and/or the windows. Password and
+    /// salt as for [`ProtectSheet`](Self::ProtectSheet).
+    ProtectWorkbook {
+        structure: bool,
+        #[serde(default)]
+        #[ts(optional, as = "Option<bool>")]
+        windows: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        password: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        salt: Option<String>,
+    },
+    /// Removes the workbook protection (`wrong_password` as for
+    /// [`UnprotectSheet`](Self::UnprotectSheet)).
+    UnprotectWorkbook {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        password: Option<String>,
+    },
+    /// *Internal.* Replaces the sheet's protection (hashes as stored).
+    RestoreSheetProtection {
+        sheet: u32,
+        #[ts(as = "Option<crate::wire::SheetProtection>")]
+        protection: Option<model_sheet::SheetProtection>,
+    },
+    /// *Internal.* Replaces the workbook protection.
+    RestoreWorkbookProtection {
+        #[ts(as = "Option<crate::wire::WorkbookProtection>")]
+        protection: Option<model_sheet::WorkbookProtection>,
     },
     /// *Internal.* Replaces the pictures of a sheet.
     RestorePictures {

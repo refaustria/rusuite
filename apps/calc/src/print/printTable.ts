@@ -12,6 +12,8 @@ import { barSpan, cfKey, cfStyle, dataBarAxes, NEGATIVE_BAR } from "../grid/cf";
 import { colWidthPx, rowHeightPx } from "../grid/geometry";
 import type { SheetCache } from "../state/store";
 import { colorCss, fontFamily, fontPx, horizontalAlign, styleAt, verticalAlign } from "../grid/style";
+import { patternBackground } from "../grid/patterns";
+import { underlineKindOf } from "../grid/render";
 
 export interface PrintCell {
   col: number;
@@ -23,6 +25,8 @@ export interface PrintCell {
   covered?: boolean;
   /** A conditional-formatting icon, printed before the text. */
   icon?: { set: IconSetKind; index: number };
+  /** Format Cells › Alignment › Orientation (degrees counter-clockwise). */
+  rotation?: number;
 }
 
 export interface PrintRow {
@@ -58,16 +62,38 @@ export function cellCss(style: CellStyle, kind: Parameters<typeof horizontalAlig
   };
   if (style.font?.bold) css.fontWeight = "bold";
   if (style.font?.italic) css.fontStyle = "italic";
-  const deco = [style.font?.underline && style.font.underline !== "none" ? "underline" : "", style.font?.strike ? "line-through" : ""].filter(Boolean).join(" ");
+  const underline = !!style.font?.underline && style.font.underline !== "none";
+  const deco = [underline ? "underline" : "", style.font?.strike ? "line-through" : ""].filter(Boolean).join(" ");
   if (deco) css.textDecoration = deco;
+  if (underline) {
+    const kind = underlineKindOf(style);
+    if (kind === "double" || kind === "doubleAccounting") css.textDecorationStyle = "double";
+    // Accounting underlines sit lower, below the descenders.
+    if (kind === "singleAccounting" || kind === "doubleAccounting") css.textUnderlineOffset = "0.3em";
+  }
+  const images: string[] = [];
   if (style.fill?.kind === "solid") css.backgroundColor = colorCss(style.fill.color);
+  else if (style.fill?.kind === "pattern") {
+    const bg = patternBackground(style.fill.color);
+    css.backgroundColor = bg.backgroundColor;
+    images.push(bg.backgroundImage);
+  }
   const b = style.borders;
   if (b) {
     css.borderTop = border(b.top);
     css.borderBottom = border(b.bottom);
     css.borderLeft = border(b.left);
     css.borderRight = border(b.right);
+    // The two diagonal borders: lines across the cell, drawn as gradients above the fill.
+    const diagonal = (side: BorderSide, to: string) => {
+      const c = colorCss(side.color) ?? "#000";
+      const w = side.style === "medium" ? 1 : side.style === "thick" || side.style === "double" ? 1.5 : 0.5;
+      return `linear-gradient(${to}, transparent calc(50% - ${w}px), ${c} calc(50% - ${w}px), ${c} calc(50% + ${w}px), transparent calc(50% + ${w}px))`;
+    };
+    if (b.diagonalUp) images.unshift(diagonal(b.diagonalUp, "to top left"));
+    if (b.diagonalDown) images.unshift(diagonal(b.diagonalDown, "to top right"));
   }
+  if (images.length) css.backgroundImage = images.join(", ");
   return css;
 }
 
@@ -115,7 +141,8 @@ export function buildPrintTable(cache: SheetCache, styles: readonly CellStyle[],
       const id = cell ? cell.style : (v?.style ?? cache.cols.get(col)?.style ?? 0);
       const cf = cfMap.get(cfKey(r, col));
       const look = looks?.(cell, r, col);
-      if (!cf) return { col, text: cell?.display ?? "", style: lookCss(styleAt(styles, id), cell?.kind ?? "empty", look) };
+      const rotation = styleAt(styles, id).alignment?.textRotation;
+      if (!cf) return { col, text: cell?.display ?? "", style: lookCss(styleAt(styles, id), cell?.kind ?? "empty", look), ...(rotation ? { rotation } : {}) };
       // Conditional formatting: the highlight format / colour scale fill, a data bar as a background, an icon.
       const style = cellCss(cfStyle(styleAt(styles, id), cf), cell?.kind ?? "empty");
       if (cf.bar !== undefined && cf.barColor) {

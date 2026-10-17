@@ -168,6 +168,11 @@ pub struct SheetInfo {
     #[serde(default, skip_serializing_if = "no_outline")]
     #[ts(optional, as = "Option<(u8, u8)>")]
     pub max_outline: (u8, u8),
+    /// Review › Protect Sheet (in force: `sheet` true); absent =
+    /// unprotected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<crate::wire::SheetProtection>")]
+    pub protection: Option<model_sheet::SheetProtection>,
 }
 
 fn no_outline(m: &(u8, u8)) -> bool {
@@ -369,6 +374,11 @@ pub struct CalcPatch {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<u32>>")]
     pub picture_sheets: Vec<u32>,
+    /// The workbook protection, when it changed (unprotected: both locks
+    /// off); absent = unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<crate::wire::WorkbookProtection>")]
+    pub workbook_protection: Option<Box<model_sheet::WorkbookProtection>>,
 }
 
 /// Merges `other` into `list`, replacing entries with the same key.
@@ -406,6 +416,9 @@ impl app_common::Patch for CalcPatch {
         }
         if other.duplicates.is_some() {
             self.duplicates = other.duplicates;
+        }
+        if other.workbook_protection.is_some() {
+            self.workbook_protection = other.workbook_protection;
         }
         for s in other.picture_sheets {
             if !self.picture_sheets.contains(&s) {
@@ -539,4 +552,10 @@ pub struct WorkbookInfo {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<u32>>")]
     pub stale_pivots: Vec<u32>,
+    /// Review › Protect Workbook; absent = unprotected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<crate::wire::WorkbookProtection>")]
+    pub workbook_protection: Option<model_sheet::WorkbookProtection>,
+    /// The sheet the file opened on (`<workbookView activeTab>`).
+    pub active_sheet: u32,
 }

@@ -11,6 +11,7 @@ import type { CalcCommand } from "../generated/CalcCommand";
 import type { CellStyle } from "../generated/CellStyle";
 import type { EdgeEdit } from "../generated/EdgeEdit";
 import type { HAlign } from "../generated/HAlign";
+import type { PatternType } from "../generated/PatternType";
 import type { VAlign } from "../generated/VAlign";
 import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE } from "../grid/style";
 
@@ -21,7 +22,8 @@ export const FORMAT_TABS: FormatTab[] = ["number", "alignment", "font", "border"
 export type Edge = "top" | "insideHorizontal" | "bottom" | "diagonalUp" | "left" | "insideVertical" | "right" | "diagonalDown";
 export const EDGES: Edge[] = ["top", "insideHorizontal", "bottom", "diagonalUp", "left", "insideVertical", "right", "diagonalDown"];
 
-export type UnderlineKind = "none" | "single" | "double";
+export type UnderlineKind = "none" | "single" | "double" | "singleAccounting" | "doubleAccounting";
+export const UNDERLINE_KINDS: UnderlineKind[] = ["none", "single", "double", "singleAccounting", "doubleAccounting"];
 export type ScriptKind = "baseline" | "superscript" | "subscript";
 
 export interface FormatState {
@@ -46,8 +48,12 @@ export interface FormatState {
   script: ScriptKind;
   /** Per edge: a line or none. */
   edges: Record<Edge, BorderSide | null>;
-  /** `null` = no colour. */
+  /** `null` = no colour (the background colour of a pattern). */
   fill: Color | null;
+  /** Fill › Pattern Style; `null` = none (solid or no fill). */
+  pattern: PatternType | null;
+  /** Fill › Pattern Color; `null` = automatic. */
+  patternColor: Color | null;
   locked: boolean;
   hidden: boolean;
 }
@@ -78,7 +84,7 @@ export function formatState(style: CellStyle, merged = false): FormatState {
     bold: !!f.bold,
     italic: !!f.italic,
     fontSize: (f.size ?? DEFAULT_FONT_SIZE) / 100,
-    underline: u === "double" ? "double" : u && u !== "none" ? "single" : "none",
+    underline: u && u !== "none" ? ((u === "double" ? "double" : "single") + (style.underlineAccounting ? "Accounting" : "")) as UnderlineKind : "none",
     color: f.color ?? null,
     strike: !!f.strike,
     script: f.verticalAlign === "superscript" || f.verticalAlign === "subscript" ? f.verticalAlign : "baseline",
@@ -93,7 +99,9 @@ export function formatState(style: CellStyle, merged = false): FormatState {
       diagonalUp: b.diagonalUp ?? null,
       diagonalDown: b.diagonalDown ?? null,
     },
-    fill: style.fill?.kind === "solid" ? style.fill.color : null,
+    fill: style.fill?.kind === "solid" ? style.fill.color : style.fill?.kind === "pattern" ? (style.fill.color.bg ?? null) : null,
+    pattern: style.fill?.kind === "pattern" ? style.fill.color.pattern : null,
+    patternColor: style.fill?.kind === "pattern" ? (style.fill.color.fg ?? null) : null,
     locked: style.protection?.locked ?? true,
     hidden: !!style.protection?.hidden,
   };
@@ -133,13 +141,20 @@ export function stylePatch(init: FormatState, next: FormatState): CellStyle | nu
   if (next.bold !== init.bold) font.bold = next.bold;
   if (next.italic !== init.italic) font.italic = next.italic;
   if (next.fontSize !== init.fontSize) font.size = Math.round(next.fontSize * 100);
-  if (next.underline !== init.underline) font.underline = next.underline;
+  if (next.underline !== init.underline) {
+    font.underline = next.underline.startsWith("double") ? "double" : next.underline === "none" ? "none" : "single";
+    patch.underlineAccounting = next.underline.endsWith("Accounting");
+  }
   // Automatic colour is the explicit `auto` colour (an absent patch field would keep the old one).
   if (!same(next.color, init.color)) font.color = next.color ?? { kind: "auto" };
   if (next.strike !== init.strike) font.strike = next.strike;
   if (next.script !== init.script) font.verticalAlign = next.script;
   if (Object.keys(font).length) patch.font = font;
-  if (!same(next.fill, init.fill)) patch.fill = next.fill ? { kind: "solid", color: next.fill } : { kind: "none" };
+  if (!same(next.fill, init.fill) || next.pattern !== init.pattern || !same(next.patternColor, init.patternColor)) {
+    patch.fill = next.pattern
+      ? { kind: "pattern", color: { pattern: next.pattern, ...(next.patternColor ? { fg: next.patternColor } : {}), ...(next.fill ? { bg: next.fill } : {}) } }
+      : next.fill ? { kind: "solid", color: next.fill } : { kind: "none" };
+  }
   const protection: NonNullable<CellStyle["protection"]> = {};
   if (next.locked !== init.locked) protection.locked = next.locked;
   if (next.hidden !== init.hidden) protection.hidden = next.hidden;
