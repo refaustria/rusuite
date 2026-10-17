@@ -1245,7 +1245,7 @@ fn animations_add_update_reorder_remove() {
         &mut h,
         C::AddAnimation {
             slide: id(4),
-            animation: fly,
+            animation: fly.clone(),
             new_id: -1,
             index: None,
         },
@@ -1254,7 +1254,10 @@ fn animations_add_update_reorder_remove() {
     assert_eq!(patch.slides.len(), 1);
     assert_eq!(
         patch.slides[0].animations,
-        vec![Animation { id: a1, ..fly }]
+        vec![Animation {
+            id: a1,
+            ..fly.clone()
+        }]
     );
     let spin = Animation::new(id(6), AnimationKind::Emphasis, Effect::Spin);
     let patch = apply(
@@ -1283,7 +1286,10 @@ fn animations_add_update_reorder_remove() {
     assert_eq!(err_code(&mut h, add(on_title, -3, None)), "invalid_command");
     let bad = Animation::new(id(5), AnimationKind::Exit, Effect::GrowShrink);
     assert_eq!(err_code(&mut h, add(bad, -3, None)), "invalid_command");
-    assert_eq!(err_code(&mut h, add(fly, -3, Some(9))), "invalid_command");
+    assert_eq!(
+        err_code(&mut h, add(fly.clone(), -3, Some(9))),
+        "invalid_command"
+    );
     assert_eq!(
         err_code(&mut h, add(fly, a1.0 as i64, None)),
         "invalid_command"
@@ -1304,7 +1310,7 @@ fn animations_add_update_reorder_remove() {
             },
         },
     );
-    let a = anims(&h, 4)[1];
+    let a = anims(&h, 4)[1].clone();
     assert_eq!(
         (a.effect, a.direction, a.trigger, a.duration_ms, a.delay_ms),
         (

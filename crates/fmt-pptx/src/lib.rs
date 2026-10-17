@@ -41,6 +41,7 @@ mod read;
 mod table;
 mod tablestyle;
 mod theme;
+mod transition;
 mod write;
 mod xml;
 

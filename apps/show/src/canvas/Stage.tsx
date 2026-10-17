@@ -37,6 +37,7 @@ import { stableDeck } from "../design/deck";
 import { TextOverlay } from "./TextOverlay";
 import { AutofitButton } from "./AutofitButton";
 import { AnimBadges, StagePreview } from "./AnimOverlay";
+import { CustomPathDraw, MotionPathLayer } from "./MotionPaths";
 import { useT } from "../i18n";
 
 /** Union of rectangles (slide px). */
@@ -632,6 +633,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
             }),
           )}
           {free && <FreeformPreview points={freeformPreview(free)} scale={scale} />}
+          {!masterView && <MotionPathLayer store={store} slide={slide} width={size.width} height={size.height} scale={scale} />}
           {one?.kind.kind === "auto" && editPoints === one.id && (
             <EditPointsLayer
               shape={one}
@@ -684,6 +686,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       {one?.kind.kind === "auto" && !masterView && !cropping && <AutofitButton store={store} shape={one} scale={scale} />}
       {editing && <TextOverlay store={store} scale={scale} />}
       {!masterView && <AnimBadges store={store} slide={slide} scale={scale} />}
+      {!masterView && <CustomPathDraw store={store} slide={slide} width={size.width} height={size.height} scale={scale} />}
       {!masterView && <StagePreview store={store} deck={stableDeck(pres)} slides={pres.slides} index={pres.slides.indexOf(slide)} width={size.width * scale} height={size.height * scale} />}
       {cropping && <CropOverlay store={store} scale={scale} />}
       <ContextMenu at={menu?.at ?? null} label={t("show.slideEditor")} items={menu?.items ?? []} onClose={() => setMenu(null)} />

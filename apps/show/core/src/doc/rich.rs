@@ -414,10 +414,27 @@ impl ShowDocument {
             for a in &mut slide.animations {
                 a.id = self.pres.alloc_id();
                 a.shape = map.get(&a.shape).copied().unwrap_or(a.shape);
+                if let Some(t) = &a.start_on {
+                    a.start_on =
+                        Some(t.with_shape(map.get(&t.shape()).copied().unwrap_or(t.shape())));
+                }
             }
             slide.prune_animations();
             model_show::presentation::remap_attachments(&mut slide.shapes, &map);
             remap_media(&mut slide.shapes, &media_map);
+            if let Some(model_show::TransitionSound::Play { media, .. }) =
+                slide.transition.as_mut().and_then(|t| t.sound.as_mut())
+            {
+                if let Some(n) = media_map.get(media) {
+                    *media = *n;
+                }
+                if self.pres.media.get(*media).is_none() {
+                    // the source's sound is not available: no sound
+                    if let Some(t) = slide.transition.as_mut() {
+                        t.sound = None;
+                    }
+                }
+            }
             remap_slide_links(&mut slide.shapes, &slide_map);
             for sh in &mut slide.shapes {
                 normalize_shape(sh);

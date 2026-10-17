@@ -110,6 +110,30 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
             if t.advance_after_ms.is_some() {
                 add("transition:advance".into());
             }
+            // P9-S4: PowerPoint 2010+ effects (p15:prstTrans from Fall Over to Origami, p14 the others)
+            if t.kind.is_extension() {
+                use model_show::TransitionKind as K;
+                let p15 = matches!(
+                    t.kind,
+                    K::FallOver
+                        | K::Drape
+                        | K::Curtains
+                        | K::Wind
+                        | K::Prestige
+                        | K::Fracture
+                        | K::Crush
+                        | K::PeelOff
+                        | K::PageCurl
+                        | K::Airplane
+                        | K::Origami
+                );
+                add(if p15 {
+                    "transition:p15"
+                } else {
+                    "transition:p14"
+                }
+                .into());
+            }
         }
         for a in &slide.animations {
             add(format!(
@@ -117,6 +141,15 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
                 camel(&format!("{:?}", a.kind)),
                 camel(&format!("{:?}", a.effect))
             ));
+            if a.build.is_some() {
+                add("anim:bldP".into());
+            }
+            if a.kind == model_show::AnimationKind::Path {
+                add("anim:motionPath".into());
+            }
+            if a.start_on.is_some() {
+                add("anim:trigger".into());
+            }
         }
     }
     for s in all_shapes(p) {
@@ -124,7 +157,15 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
             ShapeKind::Auto { geometry, .. } => add(format!("shape:{}", geometry.prst())),
             ShapeKind::Picture { .. } => add("picture".into()),
             ShapeKind::Chart(c) => add(format!("chart:{}", chart_kind_name(&c.chart.kind))),
-            ShapeKind::Media(m) => add(format!("media:{}", camel(&format!("{:?}", m.kind)))),
+            ShapeKind::Media(m) => {
+                add(format!("media:{}", camel(&format!("{:?}", m.kind))));
+                if m.trim_start_ms > 0 || m.trim_end_ms > 0 {
+                    add("media:trim".into());
+                }
+                if !m.bookmarks.is_empty() {
+                    add("media:bookmark".into());
+                }
+            }
             ShapeKind::Group { .. } => add("group".into()),
             ShapeKind::Connector(c) => {
                 add(format!("connector:{}", camel(&format!("{:?}", c.kind))));
@@ -361,7 +402,7 @@ fn has_feature(found: &BTreeMap<String, usize>, feature: &str) -> bool {
 fn manifest_features_are_found() {
     let mut failures = Vec::new();
     let entries = manifest();
-    assert_eq!(entries.len(), 34);
+    assert_eq!(entries.len(), 35);
     for e in entries {
         let p = fmt_pptx::read(&load(&e.file)).unwrap();
         let found = features_of(&p);
@@ -869,4 +910,74 @@ fn powerpoint_style_inheritance() {
     let (back, warnings) = fmt_pptx::read_with_warnings(&bytes).unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
     common::assert_same("powerpoint style", &p, &back);
+}
+
+#[test]
+fn animations2_deck_reads_without_warnings() {
+    use model_show::{AnimationKind, Effect, StartOn, TransitionKind};
+    let (p, warnings) =
+        fmt_pptx::read_with_warnings(&load("provisional-35-animations2.pptx")).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let kinds: Vec<_> = p
+        .slides
+        .iter()
+        .map(|s| s.transition.map(|t| t.kind))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            None,
+            Some(TransitionKind::Cube),
+            Some(TransitionKind::Vortex),
+            Some(TransitionKind::Curtains)
+        ]
+    );
+    // Float In by paragraph: one animation with its build
+    let a = &p.slides[1].animations;
+    assert_eq!(a.len(), 1);
+    assert_eq!(
+        (a[0].effect, a[0].build.map(|b| b.level)),
+        (Effect::Float, Some(1))
+    );
+    // a custom path and a pulse, a spin triggered by the ellipse
+    let a = &p.slides[2].animations;
+    assert_eq!(
+        a.iter().map(|x| x.effect).collect::<Vec<_>>(),
+        [Effect::PathCustom, Effect::Pulse, Effect::Spin]
+    );
+    assert!(a[0].path.as_deref().unwrap().starts_with("M 0 0 C"));
+    assert_eq!(a[1].duration_ms, 500);
+    assert!(matches!(a[2].start_on, Some(StartOn::Click(_))));
+    // the trimmed clip, its pause and the exit on its bookmark
+    let a = &p.slides[3].animations;
+    assert_eq!(
+        a.iter().map(|x| (x.kind, x.effect)).collect::<Vec<_>>(),
+        [
+            (AnimationKind::Media, Effect::MediaPause),
+            (AnimationKind::Exit, Effect::Fade)
+        ]
+    );
+    assert!(matches!(&a[1].start_on, Some(StartOn::Bookmark { name, .. }) if name == "Bookmark 1"));
+    let clip = p.slides[3]
+        .shapes
+        .iter()
+        .find_map(|s| s.media_clip())
+        .unwrap();
+    assert_eq!(
+        (
+            clip.trim_start_ms,
+            clip.trim_end_ms,
+            clip.fade_in_ms,
+            clip.bookmarks.len()
+        ),
+        (500, 500, 250, 1)
+    );
+    // and survives our own round trip
+    let bytes = fmt_pptx::write(&p).unwrap();
+    let (back, warnings) = fmt_pptx::read_with_warnings(&bytes).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    for (x, y) in p.slides.iter().zip(&back.slides) {
+        assert_eq!(x.transition, y.transition);
+        assert_eq!(x.animations.len(), y.animations.len());
+    }
 }

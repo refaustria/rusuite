@@ -392,6 +392,11 @@ impl Presentation {
             if let Some(&new) = map.get(&a.shape) {
                 a.shape = new;
             }
+            if let Some(t) = &a.start_on {
+                if let Some(&new) = map.get(&t.shape()) {
+                    a.start_on = Some(t.with_shape(new));
+                }
+            }
         }
         remap_attachments(&mut copy.shapes, &map);
         let new_id = copy.id;
@@ -754,7 +759,7 @@ mod tests {
         anim2.id = p.alloc_id();
         {
             let slide = p.slide_mut(s).unwrap();
-            slide.animations = vec![anim, anim2];
+            slide.animations = vec![anim.clone(), anim2];
             slide.transition = Some(Transition::new(TransitionKind::Fade));
         }
         p.validate().unwrap();
@@ -823,7 +828,7 @@ mod tests {
         let mut anim = Animation::new(a, AnimationKind::Exit, Effect::FlyIn);
         anim.id = p.alloc_id();
         let slide = p.slide_mut(s).unwrap();
-        slide.animations.push(anim);
+        slide.animations.push(anim.clone());
         assert!(slide.validate().is_ok());
         slide.animations.push(anim);
         assert!(matches!(slide.validate(), Err(Error::InvalidSlide { .. })));

@@ -3,8 +3,11 @@
 /**
  * The effect of an animation (a PowerPoint preset).
  *
- * Entrance and exit: `Appear` (exit: Disappear), `Fade`, `FlyIn` (exit:
- * Fly Out), `Wipe`, `Zoom`. Emphasis: `Spin` (one full turn) and
- * `GrowShrink` (to 150 %).
+ * Entrance and exit (exit names in brackets): Appear (Disappear), Fade,
+ * Fly In (Fly Out), Float In (Float Out), Split, Wipe, the Shape effects
+ * Circle/Box/Diamond/Plus, Wheel, Random Bars, Grow & Turn (Shrink &
+ * Turn), Zoom, Swivel, Bounce. Emphasis: Pulse … Wave. Motion paths:
+ * Lines, Arcs, Turns, Shapes, Loops, Custom Path. Media: Play, Pause,
+ * Stop. The `presetID` of each is documented in `docs/ooxml-subset.md`.
  */
-export type Effect = "appear" | "fade" | "flyIn" | "wipe" | "zoom" | "spin" | "growShrink";
+export type Effect = "appear" | "fade" | "flyIn" | "float" | "split" | "wipe" | "circle" | "box" | "diamond" | "plus" | "wheel" | "randomBars" | "growTurn" | "zoom" | "swivel" | "bounce" | "pulse" | "colorPulse" | "teeter" | "spin" | "growShrink" | "desaturate" | "darken" | "lighten" | "transparency" | "objectColor" | "lineColor" | "fillColor" | "brushColor" | "fontColor" | "underline" | "boldFlash" | "boldReveal" | "wave" | "pathLines" | "pathArcs" | "pathTurns" | "pathShapes" | "pathLoops" | "pathCustom" | "mediaPlay" | "mediaPause" | "mediaStop";
