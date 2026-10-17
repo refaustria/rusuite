@@ -95,6 +95,13 @@ pub enum BinaryOp {
     /// Reference operator `:` between operands that are not both plain
     /// references, e.g. `A1:INDEX(B1:B9,3)`.
     Range,
+    /// Intersection operator (a space): `A1:B5 B3:C7` is `B3:B5`; an empty
+    /// intersection is `#NULL!`.
+    Intersect,
+    /// Union operator `,` inside parentheses: `(A1:A3,C1)` is a reference
+    /// of several areas (accepted by `SUM`, `COUNT`, `AREAS`, ...). Always
+    /// printed in parentheses.
+    Union,
 }
 
 impl BinaryOp {
@@ -114,7 +121,18 @@ impl BinaryOp {
             BinaryOp::Gt => ">",
             BinaryOp::Ge => ">=",
             BinaryOp::Range => ":",
+            BinaryOp::Intersect => " ",
+            BinaryOp::Union => ",",
         }
+    }
+
+    /// True for the reference operators (`:`, space, `,`), which combine
+    /// references instead of values.
+    pub fn is_reference_op(self) -> bool {
+        matches!(
+            self,
+            BinaryOp::Range | BinaryOp::Intersect | BinaryOp::Union
+        )
     }
 
     /// Printing precedence (higher binds tighter). All binary operators are
@@ -131,7 +149,10 @@ impl BinaryOp {
             BinaryOp::Add | BinaryOp::Sub => PREC_ADD,
             BinaryOp::Mul | BinaryOp::Div => PREC_MUL,
             BinaryOp::Pow => PREC_POW,
+            BinaryOp::Intersect => PREC_ISECT,
             BinaryOp::Range => PREC_RANGE,
+            // Printed in its own parentheses.
+            BinaryOp::Union => PREC_ATOM,
         }
     }
 }
@@ -144,9 +165,10 @@ const PREC_POW: u8 = 5;
 const PREC_PREFIX: u8 = 6;
 const PREC_PERCENT: u8 = 7;
 const PREC_AT: u8 = 8;
-const PREC_RANGE: u8 = 9;
-const PREC_SPILL: u8 = 10;
-const PREC_ATOM: u8 = 11;
+const PREC_ISECT: u8 = 9;
+const PREC_RANGE: u8 = 10;
+const PREC_SPILL: u8 = 11;
+const PREC_ATOM: u8 = 12;
 
 /// Excel error values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -304,21 +326,56 @@ pub enum RangeKind {
     Cell(CellRef),
     /// Rectangular area, normalized to (top-left, bottom-right).
     Area(CellRef, CellRef),
-    /// Whole columns `A:C` (0-based, `start <= end`).
+    /// Whole columns `A:C` (0-based, `start <= end`), each end with its
+    /// own `$` flag (`$A:C`).
     Cols {
         start: u32,
         end: u32,
-        abs: bool,
+        start_abs: bool,
+        end_abs: bool,
     },
-    /// Whole rows `2:4` (0-based, `start <= end`).
+    /// Whole rows `2:4` (0-based, `start <= end`), each end with its own
+    /// `$` flag (`2:$4`).
     Rows {
         start: u32,
         end: u32,
-        abs: bool,
+        start_abs: bool,
+        end_abs: bool,
     },
 }
 
 impl RangeKind {
+    /// Whole columns `a:b` (0-based), normalized so that `start <= end`
+    /// (each end keeping its own `$` flag).
+    pub fn cols(a: u32, a_abs: bool, b: u32, b_abs: bool) -> RangeKind {
+        let ((start, start_abs), (end, end_abs)) = if a <= b {
+            ((a, a_abs), (b, b_abs))
+        } else {
+            ((b, b_abs), (a, a_abs))
+        };
+        RangeKind::Cols {
+            start,
+            end,
+            start_abs,
+            end_abs,
+        }
+    }
+
+    /// Whole rows `a:b` (0-based), normalized like [`RangeKind::cols`].
+    pub fn rows(a: u32, a_abs: bool, b: u32, b_abs: bool) -> RangeKind {
+        let ((start, start_abs), (end, end_abs)) = if a <= b {
+            ((a, a_abs), (b, b_abs))
+        } else {
+            ((b, b_abs), (a, a_abs))
+        };
+        RangeKind::Rows {
+            start,
+            end,
+            start_abs,
+            end_abs,
+        }
+    }
+
     /// Builds a normalized area: the top-left corner takes the smaller
     /// column/row (each keeping its own `$` flag).
     pub fn area(a: CellRef, b: CellRef) -> RangeKind {
@@ -355,16 +412,26 @@ impl fmt::Display for RangeKind {
         match *self {
             RangeKind::Cell(c) => write!(f, "{c}"),
             RangeKind::Area(a, b) => write!(f, "{a}:{b}"),
-            RangeKind::Cols { start, end, abs } => write!(
+            RangeKind::Cols {
+                start,
+                end,
+                start_abs,
+                end_abs,
+            } => write!(
                 f,
                 "{}{}:{}{}",
-                d(abs),
+                d(start_abs),
                 col_to_letters(start),
-                d(abs),
+                d(end_abs),
                 col_to_letters(end)
             ),
-            RangeKind::Rows { start, end, abs } => {
-                write!(f, "{}{}:{}{}", d(abs), start + 1, d(abs), end + 1)
+            RangeKind::Rows {
+                start,
+                end,
+                start_abs,
+                end_abs,
+            } => {
+                write!(f, "{}{}:{}{}", d(start_abs), start + 1, d(end_abs), end + 1)
             }
         }
     }
@@ -373,8 +440,38 @@ impl fmt::Display for RangeKind {
 /// A reference with an optional sheet prefix.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Reference {
+    /// The sheet prefix (`Sheet2!A1`); the first sheet of a 3-D reference.
     pub sheet: Option<String>,
+    /// The last sheet of a 3-D reference `Sheet1:Sheet3!A1` (the sheets
+    /// from `sheet` to this one in workbook order); `None` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet_last: Option<String>,
     pub kind: RangeKind,
+}
+
+impl Reference {
+    /// A reference without a sheet prefix.
+    pub fn local(kind: RangeKind) -> Self {
+        Reference {
+            sheet: None,
+            sheet_last: None,
+            kind,
+        }
+    }
+
+    /// A reference to one sheet (`sheet: None` = the formula's own).
+    pub fn on(sheet: Option<String>, kind: RangeKind) -> Self {
+        Reference {
+            sheet,
+            sheet_last: None,
+            kind,
+        }
+    }
+
+    /// True for a 3-D reference spanning several sheets.
+    pub fn is_3d(&self) -> bool {
+        self.sheet_last.is_some()
+    }
 }
 
 /// Writes `Sheet!` (quoted as `'My Sheet'!` when needed).
@@ -386,11 +483,30 @@ fn write_sheet_prefix(f: &mut fmt::Formatter<'_>, sheet: &str) -> fmt::Result {
     }
 }
 
+/// Writes the prefix of a reference: `Sheet!`, `Sheet1:Sheet3!` or
+/// `'Sheet 1:Sheet 3'!` for a 3-D reference.
+fn write_ref_prefix(f: &mut fmt::Formatter<'_>, r: &Reference) -> fmt::Result {
+    match (&r.sheet, &r.sheet_last) {
+        (Some(first), Some(last)) => {
+            if sheet_needs_quotes(first) || sheet_needs_quotes(last) {
+                write!(
+                    f,
+                    "'{}:{}'!",
+                    first.replace('\'', "''"),
+                    last.replace('\'', "''")
+                )
+            } else {
+                write!(f, "{first}:{last}!")
+            }
+        }
+        (Some(sheet), None) => write_sheet_prefix(f, sheet),
+        _ => Ok(()),
+    }
+}
+
 impl fmt::Display for Reference {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(sheet) = &self.sheet {
-            write_sheet_prefix(f, sheet)?;
-        }
+        write_ref_prefix(f, self)?;
         write!(f, "{}", self.kind)
     }
 }
@@ -534,12 +650,39 @@ impl Expr {
     }
 }
 
+/// How references are printed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RefStyle {
+    A1,
+    /// R1C1 relative to the formula cell `(row, col)` (0-based).
+    R1C1(u32, u32),
+}
+
+/// An expression printer (see [`Expr::to_r1c1`]).
+struct Printer<'a> {
+    expr: &'a Expr,
+    style: RefStyle,
+}
+
+impl fmt::Display for Printer<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_expr(f, self.expr, self.style)
+    }
+}
+
 /// Writes `e`, wrapped in parentheses if `parens`.
-fn write_wrapped(f: &mut fmt::Formatter<'_>, e: &Expr, parens: bool) -> fmt::Result {
+fn write_wrapped(
+    f: &mut fmt::Formatter<'_>,
+    e: &Expr,
+    parens: bool,
+    style: RefStyle,
+) -> fmt::Result {
     if parens {
-        write!(f, "({e})")
+        f.write_str("(")?;
+        fmt_expr(f, e, style)?;
+        f.write_str(")")
     } else {
-        write!(f, "{e}")
+        fmt_expr(f, e, style)
     }
 }
 
@@ -567,95 +710,206 @@ fn write_number(f: &mut fmt::Formatter<'_>, n: f64) -> fmt::Result {
     }
 }
 
+/// One R1C1 coordinate part: `R5` (absolute, 1-based), `R[-2]` (relative
+/// offset) or `R` (offset 0).
+fn r1c1_part(letter: char, v: u32, abs: bool, here: u32) -> String {
+    if abs {
+        format!("{letter}{}", v + 1)
+    } else {
+        let d = i64::from(v) - i64::from(here);
+        if d == 0 {
+            letter.to_string()
+        } else {
+            format!("{letter}[{d}]")
+        }
+    }
+}
+
+/// The R1C1 text of a reference's range part as seen from `(row, col)`.
+pub fn range_to_r1c1(kind: &RangeKind, row: u32, col: u32) -> String {
+    let cell = |c: &CellRef| {
+        format!(
+            "{}{}",
+            r1c1_part('R', c.row, c.row_abs, row),
+            r1c1_part('C', c.col, c.col_abs, col)
+        )
+    };
+    match kind {
+        RangeKind::Cell(c) => cell(c),
+        RangeKind::Area(a, b) => format!("{}:{}", cell(a), cell(b)),
+        RangeKind::Rows {
+            start,
+            end,
+            start_abs,
+            end_abs,
+        } => {
+            let a = r1c1_part('R', *start, *start_abs, row);
+            let b = r1c1_part('R', *end, *end_abs, row);
+            if a == b {
+                a
+            } else {
+                format!("{a}:{b}")
+            }
+        }
+        RangeKind::Cols {
+            start,
+            end,
+            start_abs,
+            end_abs,
+        } => {
+            let a = r1c1_part('C', *start, *start_abs, col);
+            let b = r1c1_part('C', *end, *end_abs, col);
+            if a == b {
+                a
+            } else {
+                format!("{a}:{b}")
+            }
+        }
+    }
+}
+
+impl Expr {
+    /// The formula text (without `=`) in R1C1 reference style, as seen
+    /// from the formula cell `(row, col)` (0-based): `R1C1` absolute,
+    /// `R[-1]C` relative (Excel's File › Options › Formulas › R1C1
+    /// reference style). [`crate::r1c1::parse_r1c1`] reads it back.
+    pub fn to_r1c1(&self, row: u32, col: u32) -> String {
+        Printer {
+            expr: self,
+            style: RefStyle::R1C1(row, col),
+        }
+        .to_string()
+    }
+
+    /// The operands of a chain of unions `(a,b,c)` (left-nested), in order.
+    pub fn union_operands(&self) -> Vec<&Expr> {
+        match self {
+            Expr::Binary {
+                op: BinaryOp::Union,
+                lhs,
+                rhs,
+            } => {
+                let mut v = lhs.union_operands();
+                v.extend(rhs.union_operands());
+                v
+            }
+            e => vec![e],
+        }
+    }
+}
+
 impl fmt::Display for Expr {
     /// Prints the canonical formula text without the leading `=`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Expr::Number(n) => write_number(f, *n),
-            Expr::Text(s) => write!(f, "\"{}\"", s.replace('"', "\"\"")),
-            Expr::Bool(true) => f.write_str("TRUE"),
-            Expr::Bool(false) => f.write_str("FALSE"),
-            Expr::Error(e) => write!(f, "{e}"),
-            Expr::Reference(r) => write!(f, "{r}"),
-            Expr::Name(n) => f.write_str(n),
-            Expr::QualifiedName { sheet, name } => {
-                write_sheet_prefix(f, sheet)?;
-                f.write_str(name)
+        fmt_expr(f, self, RefStyle::A1)
+    }
+}
+
+fn fmt_expr(f: &mut fmt::Formatter<'_>, e: &Expr, style: RefStyle) -> fmt::Result {
+    match e {
+        Expr::Number(n) => write_number(f, *n),
+        Expr::Text(s) => write!(f, "\"{}\"", s.replace('"', "\"\"")),
+        Expr::Bool(true) => f.write_str("TRUE"),
+        Expr::Bool(false) => f.write_str("FALSE"),
+        Expr::Error(e) => write!(f, "{e}"),
+        Expr::Reference(r) => match style {
+            RefStyle::A1 => write!(f, "{r}"),
+            RefStyle::R1C1(row, col) => {
+                write_ref_prefix(f, r)?;
+                f.write_str(&range_to_r1c1(&r.kind, row, col))
             }
-            Expr::Structured(s) => write!(f, "{s}"),
-            Expr::Missing => Ok(()),
-            Expr::Array(rows) => {
-                f.write_str("{")?;
-                for (i, row) in rows.iter().enumerate() {
-                    if i > 0 {
-                        f.write_str(";")?;
-                    }
-                    for (j, e) in row.iter().enumerate() {
-                        if j > 0 {
-                            f.write_str(",")?;
-                        }
-                        write!(f, "{e}")?;
-                    }
+        },
+        Expr::Name(n) => f.write_str(n),
+        Expr::QualifiedName { sheet, name } => {
+            write_sheet_prefix(f, sheet)?;
+            f.write_str(name)
+        }
+        Expr::Structured(s) => write!(f, "{s}"),
+        Expr::Missing => Ok(()),
+        Expr::Array(rows) => {
+            f.write_str("{")?;
+            for (i, row) in rows.iter().enumerate() {
+                if i > 0 {
+                    f.write_str(";")?;
                 }
-                f.write_str("}")
-            }
-            Expr::Call { name, args } => {
-                write!(f, "{name}(")?;
-                for (i, a) in args.iter().enumerate() {
-                    if i > 0 {
+                for (j, e) in row.iter().enumerate() {
+                    if j > 0 {
                         f.write_str(",")?;
                     }
-                    write!(f, "{a}")?;
+                    fmt_expr(f, e, style)?;
                 }
-                f.write_str(")")
             }
-            Expr::Unary {
-                op: UnaryOp::Percent,
-                expr,
-            } => {
-                write_wrapped(f, expr, expr.precedence() < PREC_PERCENT)?;
-                f.write_str("%")
+            f.write_str("}")
+        }
+        Expr::Call { name, args } => {
+            write!(f, "{name}(")?;
+            for (i, a) in args.iter().enumerate() {
+                if i > 0 {
+                    f.write_str(",")?;
+                }
+                fmt_expr(f, a, style)?;
             }
-            Expr::Unary {
-                op: UnaryOp::ImplicitIntersection,
-                expr,
-            } => {
-                f.write_str("@")?;
-                write_wrapped(f, expr, expr.precedence() < PREC_AT)
+            f.write_str(")")
+        }
+        Expr::Unary {
+            op: UnaryOp::Percent,
+            expr,
+        } => {
+            write_wrapped(f, expr, expr.precedence() < PREC_PERCENT, style)?;
+            f.write_str("%")
+        }
+        Expr::Unary {
+            op: UnaryOp::ImplicitIntersection,
+            expr,
+        } => {
+            f.write_str("@")?;
+            write_wrapped(f, expr, expr.precedence() < PREC_AT, style)
+        }
+        Expr::Unary {
+            op: UnaryOp::SpillRange,
+            expr,
+        } => {
+            write_wrapped(f, expr, expr.precedence() < PREC_SPILL, style)?;
+            f.write_str("#")
+        }
+        Expr::Unary { op, expr } => {
+            f.write_str(if *op == UnaryOp::Neg { "-" } else { "+" })?;
+            write_wrapped(f, expr, expr.precedence() < PREC_PREFIX, style)
+        }
+        Expr::Binary {
+            op: BinaryOp::Union,
+            ..
+        } => {
+            f.write_str("(")?;
+            for (i, part) in e.union_operands().into_iter().enumerate() {
+                if i > 0 {
+                    f.write_str(",")?;
+                }
+                fmt_expr(f, part, style)?;
             }
-            Expr::Unary {
-                op: UnaryOp::SpillRange,
-                expr,
-            } => {
-                write_wrapped(f, expr, expr.precedence() < PREC_SPILL)?;
-                f.write_str("#")
-            }
-            Expr::Unary { op, expr } => {
-                f.write_str(if *op == UnaryOp::Neg { "-" } else { "+" })?;
-                write_wrapped(f, expr, expr.precedence() < PREC_PREFIX)
-            }
-            Expr::Binary { op, lhs, rhs } => {
-                let p = op.precedence();
-                write_wrapped(f, lhs, lhs.precedence() < p)?;
-                f.write_str(op.symbol())?;
-                // For `:`, a bare reference/number/name on the right would be
-                // merged with the left operand into an area/row/column range
-                // when re-parsed, so keep it parenthesized.
-                // `A1:B1#` likewise reads as `(A1:B1)#`.
-                let merge_risk = *op == BinaryOp::Range
-                    && matches!(
-                        **rhs,
-                        Expr::Reference(_)
-                            | Expr::Number(_)
-                            | Expr::Name(_)
-                            | Expr::QualifiedName { .. }
-                            | Expr::Unary {
-                                op: UnaryOp::SpillRange,
-                                ..
-                            }
-                    );
-                write_wrapped(f, rhs, rhs.precedence() <= p || merge_risk)
-            }
+            f.write_str(")")
+        }
+        Expr::Binary { op, lhs, rhs } => {
+            let p = op.precedence();
+            write_wrapped(f, lhs, lhs.precedence() < p, style)?;
+            f.write_str(op.symbol())?;
+            // For `:`, a bare reference/number/name on the right would be
+            // merged with the left operand into an area/row/column range
+            // when re-parsed, so keep it parenthesized.
+            // `A1:B1#` likewise reads as `(A1:B1)#`.
+            let merge_risk = *op == BinaryOp::Range
+                && matches!(
+                    **rhs,
+                    Expr::Reference(_)
+                        | Expr::Number(_)
+                        | Expr::Name(_)
+                        | Expr::QualifiedName { .. }
+                        | Expr::Unary {
+                            op: UnaryOp::SpillRange,
+                            ..
+                        }
+                );
+            write_wrapped(f, rhs, rhs.precedence() <= p || merge_risk, style)
         }
     }
 }
@@ -745,10 +999,7 @@ mod tests {
         ] {
             assert_eq!(sheet_needs_quotes(name), quoted, "{name}");
         }
-        let r = Reference {
-            sheet: Some("it's".into()),
-            kind: RangeKind::Cell(CellRef::new(0, 0)),
-        };
+        let r = Reference::on(Some("it's".into()), RangeKind::Cell(CellRef::new(0, 0)));
         assert_eq!(r.to_string(), "'it''s'!A1");
     }
 

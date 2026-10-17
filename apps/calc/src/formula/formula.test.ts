@@ -153,6 +153,14 @@ describe("syntax check", () => {
     expect(checkFormula("=XFE1")?.message).toBe("column `XFE` out of range");
     expect(checkFormula("=Sheet1!A1:Sheet2!B2")?.message).toBe("ranges spanning different sheets are not supported");
     expect(checkFormula("={1,2;3}")?.message).toBe("array rows have different lengths");
+    expect(checkFormula("=A1 1")?.message).toBe("the intersection operator needs references on both sides");
+    expect(checkFormula("=SUM((1,2))")?.message).toBe("the union operator needs references on both sides");
+  });
+
+  it("accepts the reference operators and 3-D references (P9-C4)", () => {
+    for (const f of ["=A1:B5 B3:C7", "=SUM(A1:C3  B2:D4)", "=SUM((A1,B2:B3,C4))", "=SUM(Sheet1:Sheet3!A1)", "='Jan 1:Mar 3'!B2", "=COUNT((A1:A3 A2:B2,C1))", "=SUM($A:C)+SUM(2:$4)"]) {
+      expect(checkFormula(f), f).toBeNull();
+    }
   });
 
   it("accepts valid formulas and non-formula input", () => {

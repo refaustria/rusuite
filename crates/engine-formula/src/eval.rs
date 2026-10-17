@@ -44,6 +44,14 @@ pub trait CellProvider {
         let _ = c;
         None
     }
+    /// The sheets of the 3-D reference `first:last!…` in workbook order
+    /// (both ends included, either may come first), as their names;
+    /// `None` when either sheet does not exist. The default: no 3-D
+    /// references.
+    fn sheet_span(&self, first: &str, last: &str) -> Option<Vec<String>> {
+        let _ = (first, last);
+        None
+    }
     /// The definition of the defined name `name` (case-insensitive) as
     /// seen from `sheet`: the sheet's own name first, then the workbook's.
     /// The default: no names.
@@ -91,7 +99,12 @@ fn has_relative_refs(e: &Expr) -> bool {
     e.references().iter().any(|r| match r.kind {
         RangeKind::Cell(c) => !c.row_abs || !c.col_abs,
         RangeKind::Area(a, b) => !(a.row_abs && a.col_abs && b.row_abs && b.col_abs),
-        RangeKind::Cols { abs, .. } | RangeKind::Rows { abs, .. } => !abs,
+        RangeKind::Cols {
+            start_abs, end_abs, ..
+        }
+        | RangeKind::Rows {
+            start_abs, end_abs, ..
+        } => !(start_abs && end_abs),
     })
 }
 
@@ -310,6 +323,17 @@ pub fn eval_operand(expr: &Expr, ctx: &EvalContext) -> Operand {
             lhs,
             rhs,
         } => range_op(eval_ref(lhs, ctx), eval_ref(rhs, ctx)),
+        Expr::Binary {
+            op: BinaryOp::Intersect,
+            lhs,
+            rhs,
+        } => intersect_op(eval_ref(lhs, ctx), eval_ref(rhs, ctx)),
+        // A reference of several areas is only meaningful to the functions
+        // that accept one (see `MULTI_AREA_FUNCTIONS`).
+        Expr::Binary {
+            op: BinaryOp::Union,
+            ..
+        } => Operand::Scalar(Value::Error(ErrorKind::Value)),
         Expr::Binary { op, lhs, rhs } => {
             let l = eval_scalar(lhs, ctx);
             let r = eval_scalar(rhs, ctx);
@@ -352,7 +376,7 @@ pub fn eval_array(expr: &Expr, ctx: &EvalContext) -> Operand {
                 v => apply_unary(*op, v),
             })
         }
-        Expr::Binary { op, lhs, rhs } if *op != BinaryOp::Range => {
+        Expr::Binary { op, lhs, rhs } if !op.is_reference_op() => {
             let l = materialize(eval_array(lhs, ctx), ctx);
             let r = materialize(eval_array(rhs, ctx), ctx);
             Operand::Scalar(match (l, r) {
@@ -473,8 +497,12 @@ fn intersect(r: &RangeRef, ctx: &EvalContext) -> Value {
     }
 }
 
-/// Resolves an AST reference against the context (unknown sheet → `#REF!`).
+/// Resolves an AST reference against the context (unknown sheet → `#REF!`;
+/// a 3-D reference, which has several areas, `#VALUE!`).
 pub fn resolve(r: &Reference, ctx: &EvalContext) -> Result<RangeRef, ErrorKind> {
+    if r.is_3d() {
+        return Err(ErrorKind::Value);
+    }
     let sheet = match &r.sheet {
         None => ctx.current.sheet,
         Some(name) => ctx.provider.sheet_id(name).ok_or(ErrorKind::Ref)?,
@@ -525,6 +553,8 @@ fn call(name: &str, args: &[Expr], ctx: &EvalContext) -> Value {
     let Some(f) = ctx.registry.get(name) else {
         return Value::Error(ErrorKind::Name);
     };
+    let split = split_areas(name, args, ctx);
+    let args = split.as_deref().unwrap_or(args);
     if !f.arity().accepts(args.len()) {
         return Value::Error(ErrorKind::Value);
     }
@@ -562,6 +592,93 @@ fn spill_range(op: Operand, ctx: &EvalContext) -> Operand {
         Operand::Scalar(Value::Error(e)) => Operand::Scalar(Value::Error(e)),
         _ => Operand::Scalar(Value::Error(ErrorKind::Ref)),
     }
+}
+
+/// The intersection operator: the cells both ranges share (`#NULL!` when
+/// none; ranges on different sheets `#VALUE!`).
+fn intersect_op(l: Operand, r: Operand) -> Operand {
+    match (l, r) {
+        (Operand::Range(a), Operand::Range(b)) if a.sheet == b.sheet => {
+            let (r0, c0) = (a.r0.max(b.r0), a.c0.max(b.c0));
+            let (r1, c1) = (a.r1.min(b.r1), a.c1.min(b.c1));
+            if r0 > r1 || c0 > c1 {
+                Operand::Scalar(Value::Error(ErrorKind::Null))
+            } else {
+                Operand::Range(RangeRef::new(a.sheet, r0, c0, r1, c1))
+            }
+        }
+        (Operand::Scalar(Value::Error(e)), _) | (_, Operand::Scalar(Value::Error(e))) => {
+            Operand::Scalar(Value::Error(e))
+        }
+        _ => Operand::Scalar(Value::Error(ErrorKind::Value)),
+    }
+}
+
+/// Functions whose arguments may be references of several areas: a union
+/// `(A1,B2)` or a 3-D reference `Sheet1:Sheet3!A1` is passed to them as
+/// one argument per area (Excel's list of 3-D capable functions).
+pub const MULTI_AREA_FUNCTIONS: &[&str] = &[
+    "SUM", "AVERAGE", "AVERAGEA", "COUNT", "COUNTA", "MAX", "MAXA", "MIN", "MINA", "PRODUCT",
+    "SUMSQ", "STDEV", "STDEV.S", "STDEV.P", "STDEVA", "STDEVP", "STDEVPA", "VAR", "VAR.S", "VAR.P",
+    "VARA", "VARP", "VARPA", "MEDIAN",
+];
+
+/// Whether `e` holds a union or a 3-D reference.
+fn has_areas(e: &Expr) -> bool {
+    match e {
+        Expr::Reference(r) => r.is_3d(),
+        Expr::Binary {
+            op: BinaryOp::Union,
+            ..
+        } => true,
+        _ => false,
+    }
+}
+
+/// The areas of a union or 3-D reference argument, one expression each
+/// (a 3-D reference becomes one reference per sheet; an unknown sheet
+/// `#REF!`).
+pub fn areas_of(e: &Expr, provider: &dyn CellProvider) -> Vec<Expr> {
+    let mut out = Vec::new();
+    for part in e.union_operands() {
+        match part {
+            Expr::Reference(r) if r.is_3d() => {
+                let first = r.sheet.as_deref().unwrap_or_default();
+                let last = r.sheet_last.as_deref().unwrap_or_default();
+                match provider.sheet_span(first, last) {
+                    Some(names) => out.extend(
+                        names
+                            .into_iter()
+                            .map(|s| Expr::Reference(Reference::on(Some(s), r.kind))),
+                    ),
+                    None => out.push(Expr::Error(ErrorKind::Ref)),
+                }
+            }
+            other => out.push(other.clone()),
+        }
+    }
+    out
+}
+
+/// `args` with every union / 3-D reference split into its areas, for the
+/// [`MULTI_AREA_FUNCTIONS`]; `None` when there is nothing to split.
+fn split_areas(name: &str, args: &[Expr], ctx: &EvalContext) -> Option<Vec<Expr>> {
+    if !args.iter().any(has_areas)
+        || !MULTI_AREA_FUNCTIONS
+            .iter()
+            .any(|f| f.eq_ignore_ascii_case(name))
+    {
+        return None;
+    }
+    let mut out = Vec::with_capacity(args.len());
+    for a in args {
+        if has_areas(a) {
+            out.extend(areas_of(a, ctx.provider));
+        } else {
+            out.push(a.clone());
+        }
+    }
+    Some(out)
 }
 
 fn range_op(l: Operand, r: Operand) -> Operand {
@@ -610,7 +727,7 @@ fn apply_binary(op: BinaryOp, l: Value, r: Value) -> Value {
             }))
         }
         // Handled in `eval_operand`; only reachable with scalar operands.
-        BinaryOp::Range => Value::Error(ErrorKind::Value),
+        BinaryOp::Range | BinaryOp::Intersect | BinaryOp::Union => Value::Error(ErrorKind::Value),
     }
 }
 

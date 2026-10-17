@@ -50,21 +50,29 @@ fn reference() -> impl Strategy<Value = Reference> {
     let kind = prop_oneof![
         cellref().prop_map(RangeKind::Cell),
         (cellref(), cellref()).prop_map(|(a, b)| RangeKind::area(a, b)),
-        (0u32..=16_383, 0u32..=16_383, any::<bool>()).prop_map(|(a, b, abs)| RangeKind::Cols {
-            start: a.min(b),
-            end: a.max(b),
-            abs
-        }),
-        (0u32..=1_048_575, 0u32..=1_048_575, any::<bool>()).prop_map(|(a, b, abs)| {
-            RangeKind::Rows {
+        (0u32..=16_383, 0u32..=16_383, any::<bool>(), any::<bool>()).prop_map(
+            |(a, b, start_abs, end_abs)| RangeKind::Cols {
                 start: a.min(b),
                 end: a.max(b),
-                abs,
+                start_abs,
+                end_abs,
             }
-        }),
+        ),
+        (
+            0u32..=1_048_575,
+            0u32..=1_048_575,
+            any::<bool>(),
+            any::<bool>()
+        )
+            .prop_map(|(a, b, start_abs, end_abs)| RangeKind::Rows {
+                start: a.min(b),
+                end: a.max(b),
+                start_abs,
+                end_abs,
+            }),
     ];
     let sheet = proptest::option::of(proptest::sample::select(SHEETS).prop_map(String::from));
-    (sheet, kind).prop_map(|(sheet, kind)| Reference { sheet, kind })
+    (sheet, kind).prop_map(|(sheet, kind)| Reference::on(sheet, kind))
 }
 
 fn constant() -> impl Strategy<Value = Expr> {

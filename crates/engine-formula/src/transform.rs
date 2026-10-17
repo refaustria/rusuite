@@ -168,8 +168,8 @@ fn same_sheet(a: &str, b: &str) -> bool {
 fn map_refs(expr: &Expr, f: &dyn Fn(&Reference) -> Option<RangeKind>) -> Expr {
     map_references(expr, &|r: &Reference| {
         Some(Reference {
-            sheet: r.sheet.clone(),
             kind: f(r)?,
+            ..r.clone()
         })
     })
 }
@@ -373,6 +373,10 @@ fn adjust_banded(expr: &Expr, ctx: &AdjustContext, band: Option<(u32, u32)>) -> 
     let rows = op.is_rows();
     let shift = CellShift { op, band };
     map_refs(expr, &|r: &Reference| {
+        // A 3-D reference follows edits of grouped sheets only.
+        if r.is_3d() {
+            return Some(r.kind);
+        }
         let affected = match &r.sheet {
             Some(name) => same_sheet(name, ctx.target_sheet),
             None => same_sheet(ctx.host_sheet, ctx.target_sheet),
@@ -408,13 +412,33 @@ fn adjust_banded(expr: &Expr, ctx: &AdjustContext, band: Option<(u32, u32)>) -> 
                 Some(RangeKind::area(a, b))
             }
             _ if band.is_some() => Some(r.kind),
-            RangeKind::Rows { start, end, abs } if rows => {
+            RangeKind::Rows {
+                start,
+                end,
+                start_abs,
+                end_abs,
+            } if rows => {
                 let (start, end) = op.map_interval(start.min(end), start.max(end))?;
-                Some(RangeKind::Rows { start, end, abs })
+                Some(RangeKind::Rows {
+                    start,
+                    end,
+                    start_abs,
+                    end_abs,
+                })
             }
-            RangeKind::Cols { start, end, abs } if !rows => {
+            RangeKind::Cols {
+                start,
+                end,
+                start_abs,
+                end_abs,
+            } if !rows => {
                 let (start, end) = op.map_interval(start.min(end), start.max(end))?;
-                Some(RangeKind::Cols { start, end, abs })
+                Some(RangeKind::Cols {
+                    start,
+                    end,
+                    start_abs,
+                    end_abs,
+                })
             }
             kind @ (RangeKind::Rows { .. } | RangeKind::Cols { .. }) => Some(kind),
         }
@@ -450,28 +474,28 @@ pub fn offset_relative(expr: &Expr, d_row: i64, d_col: i64) -> Expr {
             shift_cell(a, d_row, d_col)?,
             shift_cell(b, d_row, d_col)?,
         )),
-        RangeKind::Cols { start, end, abs } => {
-            let (s, e) = (
-                shift(start, d_col, abs, MAX_COL)?,
-                shift(end, d_col, abs, MAX_COL)?,
-            );
-            Some(RangeKind::Cols {
-                start: s.min(e),
-                end: s.max(e),
-                abs,
-            })
-        }
-        RangeKind::Rows { start, end, abs } => {
-            let (s, e) = (
-                shift(start, d_row, abs, MAX_ROW)?,
-                shift(end, d_row, abs, MAX_ROW)?,
-            );
-            Some(RangeKind::Rows {
-                start: s.min(e),
-                end: s.max(e),
-                abs,
-            })
-        }
+        RangeKind::Cols {
+            start,
+            end,
+            start_abs,
+            end_abs,
+        } => Some(RangeKind::cols(
+            shift(start, d_col, start_abs, MAX_COL)?,
+            start_abs,
+            shift(end, d_col, end_abs, MAX_COL)?,
+            end_abs,
+        )),
+        RangeKind::Rows {
+            start,
+            end,
+            start_abs,
+            end_abs,
+        } => Some(RangeKind::rows(
+            shift(start, d_row, start_abs, MAX_ROW)?,
+            start_abs,
+            shift(end, d_row, end_abs, MAX_ROW)?,
+            end_abs,
+        )),
     })
 }
 
@@ -495,28 +519,28 @@ pub fn offset_relative_wrapping(expr: &Expr, d_row: i64, d_col: i64) -> Expr {
     map_refs(expr, &|r: &Reference| match r.kind {
         RangeKind::Cell(c) => Some(RangeKind::Cell(cell(c))),
         RangeKind::Area(a, b) => Some(RangeKind::area(cell(a), cell(b))),
-        RangeKind::Cols { start, end, abs } => {
-            let (s, e) = (
-                wrap(start, d_col, abs, MAX_COL),
-                wrap(end, d_col, abs, MAX_COL),
-            );
-            Some(RangeKind::Cols {
-                start: s.min(e),
-                end: s.max(e),
-                abs,
-            })
-        }
-        RangeKind::Rows { start, end, abs } => {
-            let (s, e) = (
-                wrap(start, d_row, abs, MAX_ROW),
-                wrap(end, d_row, abs, MAX_ROW),
-            );
-            Some(RangeKind::Rows {
-                start: s.min(e),
-                end: s.max(e),
-                abs,
-            })
-        }
+        RangeKind::Cols {
+            start,
+            end,
+            start_abs,
+            end_abs,
+        } => Some(RangeKind::cols(
+            wrap(start, d_col, start_abs, MAX_COL),
+            start_abs,
+            wrap(end, d_col, end_abs, MAX_COL),
+            end_abs,
+        )),
+        RangeKind::Rows {
+            start,
+            end,
+            start_abs,
+            end_abs,
+        } => Some(RangeKind::rows(
+            wrap(start, d_row, start_abs, MAX_ROW),
+            start_abs,
+            wrap(end, d_row, end_abs, MAX_ROW),
+            end_abs,
+        )),
     })
 }
 
@@ -620,7 +644,11 @@ pub fn adjust_references_for_move(expr: &Expr, ctx: &MoveContext) -> Expr {
             _ if same_sheet(new_target, new_host) => None,
             _ => Some(new_target.to_owned()),
         };
-        Some(Reference { sheet, kind })
+        Some(Reference {
+            sheet,
+            sheet_last: r.sheet_last.clone(),
+            kind,
+        })
     })
 }
 

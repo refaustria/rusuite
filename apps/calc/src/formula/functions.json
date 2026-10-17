@@ -3,6 +3,7 @@
   { "name": "ACOS", "signature": "ACOS(number)", "description": "Arccosine in radians", "category": "math" },
   { "name": "ADDRESS", "signature": "ADDRESS(row, col, [abs=1], [a1=TRUE], [sheet])", "description": "Cell address as text", "category": "lookup" },
   { "name": "AND", "signature": "AND(logical1, ...)", "description": "All true", "category": "logical" },
+  { "name": "AREAS", "signature": "AREAS(reference)", "description": "Number of areas of a reference", "category": "lookup" },
   { "name": "ASIN", "signature": "ASIN(number)", "description": "Arcsine in radians", "category": "math" },
   { "name": "ATAN", "signature": "ATAN(number)", "description": "Arctangent in radians", "category": "math" },
   { "name": "ATAN2", "signature": "ATAN2(x_num, y_num)", "description": "Angle of the point (x, y)", "category": "math" },

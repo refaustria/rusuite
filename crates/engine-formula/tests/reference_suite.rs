@@ -44,6 +44,17 @@ impl CellProvider for Fixture {
             .unwrap_or(Value::Empty)
     }
 
+    fn sheet_span(&self, first: &str, last: &str) -> Option<Vec<String>> {
+        let pos = |n: &str| SHEETS.iter().position(|s| s.eq_ignore_ascii_case(n));
+        let (a, b) = (pos(first)?, pos(last)?);
+        Some(
+            SHEETS[a.min(b)..=a.max(b)]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        )
+    }
+
     fn used_range(&self, sheet: SheetId) -> Option<(u32, u32)> {
         self.cells
             .keys()

@@ -155,7 +155,7 @@ General rules that apply to every function below:
 | `FIXED` | `FIXED(number, [decimals=2], [no_commas=FALSE])` | Format a number as text | Rounds half away from zero; negative decimals round left of the point; thousands separators unless `no_commas` | implemented |
 | `TEXTJOIN` | `TEXTJOIN(delimiter, ignore_empty, text1, ...)` | Join with a delimiter | Stored as `_xlfn.TEXTJOIN`; ranges flattened row-major; a delimiter range is cycled; errors propagate; result above 32767 characters `#VALUE!` | implemented |
 
-## Lookup / reference (18)
+## Lookup / reference (19)
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
@@ -166,6 +166,7 @@ General rules that apply to every function below:
 | `CHOOSE` | `CHOOSE(index, value1, ...)` | Pick by index | Index truncated; out of range `#VALUE!`; lazy | implemented |
 | `ROW` | `ROW([reference])` | Row number of a reference | Errors in the referenced cell are not propagated; no-argument form is the host cell | implemented |
 | `COLUMN` | `COLUMN([reference])` | Column number of a reference | `COLUMN(XFD1)` = 16384 | implemented |
+| `AREAS` | `AREAS(reference)` | Number of areas of a reference | A union `(A1:B2,D4)` counts its operands, a 3-D reference `Sheet1:Sheet3!A1` its sheets, an intersection one; not a reference `#VALUE!` | implemented |
 | `ROWS` | `ROWS(array)` | Number of rows | Whole-column references count 1048576 rows | implemented |
 | `COLUMNS` | `COLUMNS(array)` | Number of columns | Whole-row references count 16384 columns | implemented |
 | `LOOKUP` | `LOOKUP(value, lookup_vector, [result_vector])` | Approximate match in a sorted vector | Vector form needs ascending data; array form searches the first row (wide) or column (tall) and returns the last; smaller than the first item `#N/A` | implemented |

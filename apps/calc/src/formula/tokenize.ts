@@ -178,6 +178,15 @@ export function tokenize(text: string): Lexed {
         push("struct", start, end);
         continue;
       }
+      // `Sheet1:Sheet3!A1`: a 3-D reference's sheet span (not after a `!`).
+      if (text[j] === ":" && tokens[tokens.length - 1]?.kind !== "bang" && isIdentStart(text[j + 1] ?? "")) {
+        let k = j + 1;
+        while (k < text.length && isIdentContinue(String.fromCodePoint(text.codePointAt(k)!))) k += String.fromCodePoint(text.codePointAt(k)!).length;
+        if (text[k] === "!") {
+          push("sheet", start, k);
+          continue;
+        }
+      }
       push(text[j] === "!" ? "sheet" : "ident", start, j);
     } else {
       return { tokens, error: { pos: start, message: `unexpected character \`${c}\`` } };
