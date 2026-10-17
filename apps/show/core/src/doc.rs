@@ -10,7 +10,7 @@ use model_show::{
     align_shapes, distribute, presentation::header_footer_shapes, AlignMode, Attach, Background,
     Connector, Crop, Fill, HeaderFooter, Layout, LayoutKind, Line, NodeId, PictureProps,
     PlaceholderDef, PlaceholderKind, Presentation, Shape, ShapeKind, Site, Slide, SlideMaster,
-    Table, TextClass, Transform, ViewKind,
+    Table, TextClass, Transform, ViewKind, ViewProps,
 };
 
 use crate::command::{
@@ -729,6 +729,24 @@ impl ShowDocument {
         self.pres.view.last_view = v;
     }
 
+    /// Stamps the window state into the view settings before saving
+    /// (zoom, Slide Sorter zoom, pane sizes; no undo step, like
+    /// PowerPoint, whose view changes do not dirty the file). Values out of
+    /// range are clamped.
+    pub fn stamp_view_state(&mut self, s: &crate::dispatch::ViewState) {
+        let v = &mut self.pres.view;
+        v.zoom = s.zoom.map(|z| z.clamp(10, 400));
+        if let Some(z) = s.sorter_zoom {
+            v.sorter_zoom = z.clamp(10, 400);
+        }
+        if let Some(l) = s.restored_left {
+            v.restored_left = l.min(100_000);
+        }
+        if let Some(t) = s.restored_top {
+            v.restored_top = t.min(100_000);
+        }
+    }
+
     pub fn save_pptx(&self) -> R<Vec<u8>> {
         let default_ctx = fmt_pptx::PptxContext::default();
         let ctx = self.pptx_context.as_ref().unwrap_or(&default_ctx);
@@ -1365,6 +1383,25 @@ impl ShowDocument {
                 let old = std::mem::replace(&mut self.pres.view, view.clone());
                 ch.view = true;
                 Ok(C::SetViewProps { view: old })
+            }
+            C::SetDesignGuides { target, guides } => {
+                ViewProps {
+                    guides: guides.clone(),
+                    ..ViewProps::default()
+                }
+                .validate()
+                .map_err(invalid)?;
+                let i = match target {
+                    DesignTarget::Master => None,
+                    DesignTarget::Layout(kind) => Some(self.layout_index(kind)?),
+                };
+                let inverse = self.design_snapshot();
+                match i {
+                    None => self.pres.master.guides = guides.clone(),
+                    Some(i) => self.pres.layouts[i].guides = guides.clone(),
+                }
+                ch.design = true;
+                Ok(inverse)
             }
             C::SetShowSettings { settings } => {
                 settings.validate().map_err(invalid)?;

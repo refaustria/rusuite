@@ -11,7 +11,7 @@ import App from "../App";
 import { ShowApi } from "../api";
 import { ShowStore } from "../state/store";
 import { FakeBackend } from "../test/fakeBackend";
-import { fixture } from "../test/fixture";
+import { designFixture, fixture } from "../test/fixture";
 import { writeSelection } from "../canvas/richEditor";
 
 afterEach(() => {
@@ -243,5 +243,33 @@ describe("Format Background pane and Effects", () => {
     const c = lastCmd(backend);
     expect(c).toMatchObject({ type: "setThemeEffects", name: "Rusuite Soft Shadows" });
     expect(c?.type === "setThemeEffects" && c.effectStyles).toHaveLength(3);
+  });
+});
+
+describe("guides in the Slide Master view and the thumbnail pane", () => {
+  it("Add Vertical Guide in the master view goes to the layout (SetDesignGuides)", async () => {
+    const { backend, store } = await mount(new FakeBackend(designFixture()));
+    act(() => store.openMasterView());
+    const mv = store.getState().masterView;
+    await act(() => store.addGuide("vertical"));
+    const c = backend.commands.at(-1);
+    expect(c?.type).toBe("compound");
+    const cmds = c?.type === "compound" ? c.commands : [];
+    expect(cmds[0]).toMatchObject({ type: "setDesignGuides", target: mv, guides: [{ orient: "vertical", pos: 6096000 }] });
+    expect(cmds[1]).toMatchObject({ type: "setViewProps", view: { showGuides: true } });
+    expect(store.editableGuides()).toHaveLength(1);
+    act(() => store.closeMasterView());
+    // on the slide: the layout's guide is shown, not editable
+    expect(store.editableGuides()).toHaveLength(0);
+    await waitFor(() => expect(screen.getByTestId("editor-stage").dataset.designGuides).toBe("1"));
+  });
+
+  it("the thumbnail pane's edge resizes it (keyboard too)", async () => {
+    const { store } = await mount();
+    const sep = screen.getByTestId("sidebar-resize");
+    fireEvent.keyDown(sep, { key: "ArrowRight" });
+    expect(store.getState().sidebarWidth).toBe(208);
+    act(() => store.setSidebarWidth(9999));
+    expect(store.getState().sidebarWidth).toBe(480);
   });
 });

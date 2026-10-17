@@ -23,7 +23,7 @@ describe("views and guides", () => {
     store.setView("sorter");
     expect(store.getState().view).toBe("sorter");
     const p = fixture();
-    p.view = { guides: [], gridSpacing: 76200, snapToGrid: false, snapToShapes: true, showGrid: false, showGuides: false, showRuler: false, lastView: "outline" };
+    p.view = { guides: [], gridSpacing: 76200, snapToGrid: false, snapToShapes: true, showGrid: false, showGuides: false, showRuler: false, lastView: "outline", sorterZoom: 90, restoredLeft: 15620, restoredTop: 100000 };
     const other = await ready(new FakeBackend(p));
     expect(other.store.getState().view).toBe("outline");
   });

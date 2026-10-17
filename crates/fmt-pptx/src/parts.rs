@@ -101,8 +101,11 @@ pub fn presentation_xml(p: &Presentation, notes_master_rid: Option<&str>) -> Vec
     def_rpr(&mut x, 1800, false);
     x.end("a:lvl1pPr");
     x.end("p:defaultTextStyle");
-    if !p.sections.is_empty() {
+    let notes_guides = &p.view.notes_guides;
+    if !p.sections.is_empty() || !notes_guides.is_empty() {
         x.start("p:extLst", &[]);
+    }
+    if !p.sections.is_empty() {
         x.start("p:ext", &[("uri", SECTION_EXT_URI)]);
         x.start("p14:sectionLst", &[("xmlns:p14", NS_P14)]);
         for (i, section) in p.sections.iter().enumerate() {
@@ -121,6 +124,14 @@ pub fn presentation_xml(p: &Presentation, notes_master_rid: Option<&str>) -> Vec
         }
         x.end("p14:sectionLst");
         x.end("p:ext");
+    }
+    crate::props::write_p15_guides(
+        &mut x,
+        crate::props::NOTES_GUIDES_URI,
+        "p15:notesGuideLst",
+        notes_guides,
+    );
+    if !p.sections.is_empty() || !notes_guides.is_empty() {
         x.end("p:extLst");
     }
     x.end("p:presentation");

@@ -1234,5 +1234,10 @@
   "show.pattern.cross": "Cross",
   "show.pattern.dnDiag": "Downward diagonal",
   "show.pattern.upDiag": "Upward diagonal",
-  "show.pattern.diagCross": "Diagonal cross"
+  "show.pattern.diagCross": "Diagonal cross",
+  "show.sidebar.resize": "Resize the slide thumbnails pane",
+  "show.print.slides": "Slides",
+  "show.print.section": "Section",
+  "show.print.allSections": "All sections",
+  "show.print.noneInRange": "No slides to print in this range."
 }

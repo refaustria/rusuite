@@ -89,11 +89,37 @@ pub struct ViewProps {
     pub show_ruler: bool,
     /// The last view.
     pub last_view: ViewKind,
+    /// Zoom of the Normal view in % (`p:slideViewPr` `p:scale`; `None` =
+    /// fit to the window, `varScale`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub zoom: Option<u32>,
+    /// Zoom of the Slide Sorter in % (`p:sorterViewPr` `p:scale`).
+    pub sorter_zoom: u32,
+    /// Width of the thumbnail pane, in thousandths of a percent of the
+    /// window (`p:restoredLeft/@sz`, PowerPoint's 15620 = 15.62 %).
+    pub restored_left: u32,
+    /// Height of the slide above the notes pane, in thousandths of a
+    /// percent (`p:restoredTop/@sz`; 100000 = notes hidden).
+    pub restored_top: u32,
+    /// Guides of the notes pages (`p15:notesGuideLst` in
+    /// `presentation.xml`), kept for the round trip.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Guide>>"))]
+    pub notes_guides: Vec<Guide>,
 }
 
 impl ViewProps {
     /// PowerPoint's default grid spacing, 1/12".
     pub const DEFAULT_GRID: Emu = Emu(76_200);
+    /// The Slide Sorter's default zoom (%).
+    pub const DEFAULT_SORTER_ZOOM: u32 = 90;
+    /// PowerPoint's default thumbnail pane width (`restoredLeft`).
+    pub const DEFAULT_LEFT: u32 = 15_620;
+    /// The slide / notes split of a new presentation (`restoredTop`):
+    /// notes hidden, Rusuite's default (PowerPoint's files with the notes
+    /// pane open say 94660).
+    pub const DEFAULT_TOP: u32 = 100_000;
 
     /// Checks the settings: grid spacing 0.05 cm … 5 cm, guides on the
     /// pasteboard range (± 4 slide sizes), colours `RRGGBB`.
@@ -104,7 +130,18 @@ impl ViewProps {
                 self.grid_spacing.0
             ));
         }
-        for g in &self.guides {
+        if let Some(z) = self.zoom {
+            if !(10..=400).contains(&z) {
+                return Err(format!("zoom {z} % out of range"));
+            }
+        }
+        if !(10..=400).contains(&self.sorter_zoom) {
+            return Err(format!("sorter zoom {} % out of range", self.sorter_zoom));
+        }
+        if self.restored_left > 100_000 || self.restored_top > 100_000 {
+            return Err("pane sizes are thousandths of a percent (0…100000)".into());
+        }
+        for g in self.guides.iter().chain(&self.notes_guides) {
             if g.pos.0.abs() > 60_000_000 {
                 return Err(format!("guide position {} out of range", g.pos.0));
             }
@@ -146,6 +183,11 @@ impl Default for ViewProps {
             show_guides: false,
             show_ruler: false,
             last_view: ViewKind::Normal,
+            zoom: None,
+            sorter_zoom: Self::DEFAULT_SORTER_ZOOM,
+            restored_left: Self::DEFAULT_LEFT,
+            restored_top: Self::DEFAULT_TOP,
+            notes_guides: Vec::new(),
         }
     }
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { applyPageRange, AutosaveStatus, formatNumber, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { AutosaveStatus, formatNumber, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
 import { EditorStage } from "./canvas/Stage";
@@ -116,7 +116,9 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   );
   const [presenting, setPresenting] = useState<{ mode: "single" | "presenter"; link?: AudienceLink; rehearse?: boolean; customShow?: number } | null>(null);
   const [printOptions, setPrintOptions] = useState<ShowPrintOptions>(DEFAULT_SHOW_PRINT);
-  const [zoom, setZoom] = useState<ShowZoom>("fit");
+  // the zoom is part of the window state saved with the file (P9-S3)
+  const zoom = useShow(store, (s) => s.zoom) as ShowZoom;
+  const setZoom = useCallback((z: ShowZoom) => store.setZoom(z), [store]);
   const [canvasRef, size] = useElementSize<HTMLDivElement>();
   const pres = useShow(store, (s) => s.pres);
   const dirty = useShow(store, (s) => s.dirty);
@@ -171,8 +173,9 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   const exportPdf = useCallback(() => {
     void (async () => {
       await store.commitEdit();
+      // the slide range and section are applied while building
       const doc = await buildShowDoc(store, printOptions);
-      await printShow(store, backend, applyPageRange(doc, printOptions.range));
+      await printShow(store, backend, doc);
     })().catch((e) => store.pushError(e));
   }, [backend, store, printOptions]);
   const presentFrom = useCallback(

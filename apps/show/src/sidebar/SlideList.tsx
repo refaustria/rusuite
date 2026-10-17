@@ -17,7 +17,7 @@ import type { LayoutKind } from "../generated/LayoutKind";
 import type { Slide } from "../generated/Slide";
 import { slidePx } from "../geometry";
 import { slideDropIndex } from "../state/commands";
-import { useShow, type ShowStore } from "../state/store";
+import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, useShow, type ShowStore } from "../state/store";
 import { SlideView, type DeckContext } from "../canvas/SlideView";
 import { stableDeck } from "../design/deck";
 import { sectionMenu, thumbnailMenu } from "../canvas/menus";
@@ -35,12 +35,12 @@ export const LAYOUTS: { value: LayoutKind; readonly label: string }[] = [
 ];
 
 const Thumb = memo(function Thumb({
-  deck, slide, media, mediaVersion,
-}: { deck: DeckContext; slide: Slide; media: ReadonlyMap<number, string>; mediaVersion: number }) {
+  deck, slide, media, mediaVersion, width = THUMB_WIDTH,
+}: { deck: DeckContext; slide: Slide; media: ReadonlyMap<number, string>; mediaVersion: number; width?: number }) {
   const size = slidePx(deck.slideSize);
-  const scale = THUMB_WIDTH / size.width;
+  const scale = width / size.width;
   return (
-    <Stage width={THUMB_WIDTH} height={size.height * scale} scaleX={scale} scaleY={scale} listening={false}>
+    <Stage width={width} height={size.height * scale} scaleX={scale} scaleY={scale} listening={false}>
       <Layer listening={false}>
         <SlideView deck={deck} slide={slide} media={media} mediaVersion={mediaVersion} />
       </Layer>
@@ -53,6 +53,7 @@ export function SlideList({ store }: { store: ShowStore }) {
   const pres = useShow(store, (s) => s.pres);
   const current = useShow(store, (s) => s.current);
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
+  const width = useShow(store, (s) => s.sidebarWidth);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: ContextMenuItem[] } | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
   /** Insertion line: before thumbnail `index` (`slides.length` = after the last). */
@@ -172,7 +173,7 @@ export function SlideList({ store }: { store: ShowStore }) {
         )}
       </span>
       <span className={`overflow-hidden rounded border border-ui-border bg-white ${slide.hidden ? "opacity-40" : ""}`}>
-        <Thumb deck={deck} slide={slide} media={store.media} mediaVersion={mediaVersion} />
+        <Thumb deck={deck} slide={slide} media={store.media} mediaVersion={mediaVersion} width={Math.max(60, width - (SIDEBAR_DEFAULT - THUMB_WIDTH))} />
       </span>
     </div>
   );
@@ -183,8 +184,42 @@ export function SlideList({ store }: { store: ShowStore }) {
       tabIndex={0}
       onKeyDown={onKeyDown}
       data-testid="slide-list"
-      className="relative z-10 flex w-48 shrink-0 flex-col border-r border-ui-border bg-ui-panel outline-none"
+      className="relative z-10 flex shrink-0 flex-col border-r border-ui-border bg-ui-panel outline-none"
+      style={{ width }}
     >
+      {/* the pane's edge: drag to resize (saved as restoredLeft) */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t("show.sidebar.resize")}
+        aria-valuenow={width}
+        aria-valuemin={SIDEBAR_MIN}
+        aria-valuemax={SIDEBAR_MAX}
+        tabIndex={0}
+        data-testid="sidebar-resize"
+        className="absolute -right-1 top-0 z-20 h-full w-2 cursor-ew-resize hover:bg-ui-active"
+        onPointerDown={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+          const x0 = e.clientX;
+          const w0 = width;
+          const el = e.currentTarget as HTMLElement;
+          const move = (ev: PointerEvent) => store.setSidebarWidth(w0 + ev.clientX - x0);
+          const up = () => {
+            el.removeEventListener("pointermove", move);
+            el.removeEventListener("pointerup", up);
+          };
+          el.addEventListener("pointermove", move);
+          el.addEventListener("pointerup", up);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            e.preventDefault();
+            e.stopPropagation();
+            store.setSidebarWidth(width + (e.key === "ArrowRight" ? 16 : -16));
+          }
+        }}
+      />
       <div className="flex items-center justify-between px-2 pt-2 text-xs text-ui-muted">
         <span>{t("show.slides")}</span>
         <Dropdown label={t("show.newSlide")} trigger={<span className="px-1 text-base leading-none">+</span>} items={layoutChoices} onSelect={(l) => void store.addSlide(l)} />

@@ -36,8 +36,10 @@ import type { GuideOrient } from "../generated/GuideOrient";
 import type { ShowSettings } from "../generated/ShowSettings";
 import type { CustomShow } from "../generated/CustomShow";
 import type { EffectStyle } from "../generated/EffectStyle";
+import type { ViewState } from "../generated/ViewState";
 import type { ViewProps } from "../generated/ViewProps";
-import { dragGuide, newGuide, nudgeDelta } from "../canvas/guides";
+import { dragGuide, guideSets, newGuide, nudgeDelta } from "../canvas/guides";
+import type { Guide } from "../generated/Guide";
 import { boundsPx, EMU_PER_PX, type Rect as BoxRect } from "../geometry";
 import { moveSlidesCommand, nudgeDrop, sorterSelect, type SorterDrop } from "../views/sorter";
 import { bodyFromLines, linesPlan, outlineSlide, slideLines, textLines, titleFromLine, type OutlineLine } from "../views/outline";
@@ -198,6 +200,10 @@ export interface ShowState {
   collapsedSections: number[];
   /** Slide Sorter zoom in % (thumbnail size). */
   sorterZoom: number;
+  /** Normal view zoom (`fit` or a factor, 1 = 100 %). */
+  zoom: number | "fit";
+  /** Width of the thumbnail pane (px). */
+  sidebarWidth: number;
   /** A slide show to start (the App starts it and clears this): a custom show. */
   showRequest: { customShow: number } | null;
   /** Home › Select › Selection Pane (right of the stage). */
@@ -318,6 +324,8 @@ export class ShowStore {
     slideSel: [],
     collapsedSections: [],
     sorterZoom: 90,
+    zoom: "fit",
+    sidebarWidth: SIDEBAR_DEFAULT,
     showRequest: null,
     selectionPane: false,
     formatPane: null,
@@ -420,6 +428,9 @@ export class ShowStore {
       ribbonTab: this.state.ribbonTab === "slideMaster" ? "home" : this.state.ribbonTab,
       view: viewOfLast(pres.view?.lastView),
       slideSel: pres.slides[0] ? [pres.slides[0].id] : [],
+      // the zoom, sorter zoom and panes the file was saved with
+      ...windowStateOf(pres.view, typeof window === "undefined" ? 0 : window.innerWidth),
+      collapsedSections: [],
       ...extra,
     });
   }
@@ -2267,35 +2278,54 @@ export class ShowStore {
     await this.updateView({ showRuler: on });
   }
 
+  /** The guides Add / move / delete / colour change: the master's or layout's in the Slide Master view, else the slides'. */
+  editableGuides(): Guide[] {
+    const pres = this.state.pres;
+    return pres ? guideSets(pres, this.state.masterView, this.state.current).editable : [];
+  }
+
+  /** Writes the editable guides (`SetDesignGuides` in the master view, else `SetViewProps`); `show` turns the guides on too. */
+  private async setEditableGuides(guides: Guide[], show = false): Promise<void> {
+    const mv = this.state.masterView;
+    if (!mv) {
+      await this.updateView(show ? { guides, showGuides: true } : { guides });
+      return;
+    }
+    if (JSON.stringify(guides) === JSON.stringify(this.editableGuides()) && !show) return;
+    const commands: ShowCommand[] = [{ type: "setDesignGuides", target: mv, guides }];
+    if (show && !this.viewProps().showGuides) commands.push({ type: "setViewProps", view: { ...this.viewProps(), showGuides: true } });
+    await this.run(compound(commands));
+  }
+
   /** Adds a guide (through the slide centre unless `at` EMU is given) and shows the guides. */
   async addGuide(orient: GuideOrient, at?: number): Promise<void> {
     const size = this.state.pres?.slideSize;
     if (!size) return;
-    await this.updateView({ guides: [...this.viewProps().guides, newGuide(orient, size, at)], showGuides: true });
+    await this.setEditableGuides([...this.editableGuides(), newGuide(orient, size, at)], true);
   }
 
   /** The end of a guide drag: moved, Ctrl duplicates, off the slide deletes. */
   async dropGuide(index: number, pos: number, ctrl: boolean): Promise<void> {
     const size = this.state.pres?.slideSize;
     if (!size) return;
-    await this.updateView({ guides: dragGuide(this.viewProps().guides, index, pos, size, ctrl).guides });
+    await this.setEditableGuides(dragGuide(this.editableGuides(), index, pos, size, ctrl).guides);
   }
 
   async deleteGuide(index: number): Promise<void> {
-    await this.updateView({ guides: this.viewProps().guides.filter((_, i) => i !== index) });
+    await this.setEditableGuides(this.editableGuides().filter((_, i) => i !== index));
   }
 
-  /** A guide's colour (`null` = the default grey). */
+  /** A guide's colour (`null` = the default grey; orange on masters and layouts). */
   async setGuideColor(index: number, color: string | null): Promise<void> {
-    await this.updateView({
-      guides: this.viewProps().guides.map((g, i) => {
+    await this.setEditableGuides(
+      this.editableGuides().map((g, i) => {
         if (i !== index) return g;
         const next = { ...g };
         if (color) next.color = color.replace(/^#/, "").toUpperCase();
         else delete next.color;
         return next;
       }),
-    });
+    );
   }
 
   /** Slide Show › Set Up Slide Show. */
@@ -2433,6 +2463,16 @@ export class ShowStore {
   setAllSections(collapsed: boolean): void {
     const n = this.state.pres?.sections?.length ?? 0;
     this.set({ collapsedSections: collapsed ? Array.from({ length: n }, (_, i) => i) : [] });
+  }
+
+  /** View › Zoom (`fit` = Fit to window). */
+  setZoom(zoom: number | "fit"): void {
+    this.set({ zoom: zoom === "fit" ? "fit" : Math.max(0.1, Math.min(4, zoom)) });
+  }
+
+  /** Dragging the thumbnail pane's edge. */
+  setSidebarWidth(px: number): void {
+    this.set({ sidebarWidth: Math.round(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, px))) });
   }
 
   setSorterZoom(zoom: number): void {
@@ -2626,7 +2666,8 @@ export class ShowStore {
     try {
       if (this.state.editing) await this.commitEdit();
       const view = lastViewOf(this.state.view);
-      const saved = await this.enqueue(() => this.api.savePptx(view));
+      const state = viewStateOf(this.state, typeof window === "undefined" ? 0 : window.innerWidth);
+      const saved = await this.enqueue(() => this.api.savePptx(view, state));
       const result = await this.api.backend.saveFile(asName ?? saved.suggestedName, saved.bytesBase64, { saveAs: asName !== undefined });
       if (!result) return;
       const name = typeof result === "object" ? result.name : asName;
@@ -2649,7 +2690,42 @@ function boundsOf(shapes: Shape[]): BoxRect {
 /** View settings of a presentation without any (`ViewProps::default`). */
 export const DEFAULT_VIEW: ViewProps = {
   guides: [], gridSpacing: 76200, snapToGrid: false, snapToShapes: true, showGrid: false, showGuides: false, showRuler: false, lastView: "normal",
+  sorterZoom: 90, restoredLeft: 15620, restoredTop: 100000,
 };
+
+/** `restoredTop` with the notes pane open (PowerPoint's). */
+const NOTES_OPEN_TOP = 94660;
+
+/** The thumbnail pane's default width (px); saved as PowerPoint's default `restoredLeft`. */
+export const SIDEBAR_DEFAULT = 192;
+export const SIDEBAR_MIN = 120;
+export const SIDEBAR_MAX = 480;
+
+/**
+ * The window state saved with the file (`viewProps.xml`, P9-S3): zoom
+ * (`null` = fit), sorter zoom, thumbnail pane width and whether the
+ * notes pane shows, as PowerPoint's `restoredLeft` / `restoredTop`
+ * (thousandths of a percent of the window). The default pane width maps
+ * to PowerPoint's default 15620.
+ */
+export function viewStateOf(s: Pick<ShowState, "zoom" | "sorterZoom" | "sidebarWidth" | "notesVisible">, windowWidth: number): ViewState {
+  const left = s.sidebarWidth === SIDEBAR_DEFAULT || windowWidth <= 0 ? DEFAULT_VIEW.restoredLeft : Math.round((s.sidebarWidth / windowWidth) * 100000);
+  const out: ViewState = { sorterZoom: s.sorterZoom, restoredLeft: Math.max(0, Math.min(100000, left)), restoredTop: s.notesVisible ? NOTES_OPEN_TOP : 100000 };
+  if (s.zoom !== "fit") out.zoom = Math.round(s.zoom * 100);
+  return out;
+}
+
+/** The window state of a file's view settings (see `viewStateOf`). */
+export function windowStateOf(v: ViewProps | undefined, windowWidth: number): Pick<ShowState, "zoom" | "sorterZoom" | "sidebarWidth" | "notesVisible"> {
+  const left = v?.restoredLeft ?? DEFAULT_VIEW.restoredLeft;
+  const width = left === DEFAULT_VIEW.restoredLeft || windowWidth <= 0 ? SIDEBAR_DEFAULT : Math.round((left / 100000) * windowWidth);
+  return {
+    zoom: v?.zoom ? v.zoom / 100 : "fit",
+    sorterZoom: v?.sorterZoom ?? DEFAULT_VIEW.sorterZoom,
+    sidebarWidth: Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, width)),
+    notesVisible: (v?.restoredTop ?? DEFAULT_VIEW.restoredTop) < 99000,
+  };
+}
 
 /** `ShowSettings::default`. */
 export const DEFAULT_SHOW_SETTINGS: ShowSettings = { loop: false, withoutNarration: false, withoutAnimation: false, useTimings: true, showScrollbar: true };

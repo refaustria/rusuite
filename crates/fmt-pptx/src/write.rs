@@ -243,6 +243,16 @@ fn write_master(
         hf.slide_number,
     );
     write_text_styles(&mut w.x, &m.text_styles);
+    if !m.guides.is_empty() {
+        w.x.start("p:extLst", &[]);
+        crate::props::write_p15_guides(
+            &mut w.x,
+            crate::props::MASTER_GUIDES_URI,
+            "p15:sldGuideLst",
+            &m.guides,
+        );
+        w.x.end("p:extLst");
+    }
     w.x.end("p:sldMaster");
     Ok((w.x.finish(), w.rels))
 }
@@ -305,6 +315,16 @@ fn write_layout(
     w.x.end("p:clrMapOvr");
     if layout.kind == LayoutKind::Title && m.header_footer.not_on_title {
         write_hf(&mut w.x, false, false, false);
+    }
+    if !layout.guides.is_empty() {
+        w.x.start("p:extLst", &[]);
+        crate::props::write_p15_guides(
+            &mut w.x,
+            crate::props::LAYOUT_GUIDES_URI,
+            "p15:sldGuideLst",
+            &layout.guides,
+        );
+        w.x.end("p:extLst");
     }
     w.x.end("p:sldLayout");
     Ok((w.x.finish(), w.rels))

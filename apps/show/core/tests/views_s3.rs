@@ -471,3 +471,128 @@ fn ensure_fit_scales_master_and_layouts_like_the_slides() {
     assert_eq!(t.w, old.w);
     assert_eq!(t.x.0, old.x.0 - (12_192_000 - 9_144_000) / 2);
 }
+
+// ----- guides and the saved view (item 4)
+
+use model_show::{Guide, GuideOrient, ViewKind, ViewProps};
+use show_core::DesignTarget;
+
+fn guide(orient: GuideOrient, pos: i64) -> Guide {
+    Guide {
+        orient,
+        pos: Emu(pos),
+        color: None,
+    }
+}
+
+#[test]
+fn layout_and_master_guides_are_commands_and_saved_in_p15() {
+    let mut h = host();
+    let master = vec![guide(GuideOrient::Horizontal, 3_429_000)];
+    let layout = vec![
+        guide(GuideOrient::Vertical, 914_400),
+        Guide {
+            color: Some("00B050".into()),
+            ..guide(GuideOrient::Vertical, 11_277_600)
+        },
+    ];
+    apply(
+        &mut h,
+        C::SetDesignGuides {
+            target: DesignTarget::Master,
+            guides: master.clone(),
+        },
+    );
+    let p = apply(
+        &mut h,
+        C::SetDesignGuides {
+            target: DesignTarget::Layout(LayoutKind::TitleContent),
+            guides: layout.clone(),
+        },
+    );
+    assert!(p.layouts.is_some(), "a design patch");
+    assert!(h
+        .apply(C::SetDesignGuides {
+            target: DesignTarget::Layout(LayoutKind::Custom("nope".into())),
+            guides: vec![],
+        })
+        .is_err());
+    let bytes = h.doc().save_pptx().unwrap();
+    let layout_xml = zip_text(&bytes, "ppt/slideLayouts/slideLayout2.xml");
+    assert!(
+        layout_xml.contains("{DCECCB84-F9BA-43D5-87BE-67443E8EF086}")
+            && layout_xml.contains("<p15:sldGuideLst"),
+        "{layout_xml}"
+    );
+    let master_xml = zip_text(&bytes, "ppt/slideMasters/slideMaster1.xml");
+    assert!(
+        master_xml.contains(r#"<p15:guide id="1" orient="horz" pos="2160""#),
+        "{master_xml}"
+    );
+    let back = reopened(&h);
+    assert_eq!(back.master.guides, master);
+    assert_eq!(
+        back.layout(&LayoutKind::TitleContent).unwrap().guides,
+        layout
+    );
+}
+
+#[test]
+fn notes_guides_round_trip_in_presentation_xml() {
+    let mut h = host();
+    let view = ViewProps {
+        notes_guides: vec![guide(GuideOrient::Horizontal, 4_572_000)],
+        ..ViewProps::default()
+    };
+    apply(&mut h, C::SetViewProps { view: view.clone() });
+    let bytes = h.doc().save_pptx().unwrap();
+    assert!(zip_text(&bytes, "ppt/presentation.xml").contains("<p15:notesGuideLst"));
+    assert_eq!(reopened(&h).view.notes_guides, view.notes_guides);
+}
+
+#[test]
+fn the_window_state_is_stamped_on_save_and_read_back() {
+    let mut h = host();
+    let req = r#"{"type":"savePptx","lastView":"slideSorter","viewState":{"zoom":150,"sorterZoom":60,"restoredLeft":25000,"restoredTop":100000}}"#;
+    let out: serde_json::Value =
+        serde_json::from_str(&show_core::dispatch_with(&mut h, req)).unwrap();
+    let b64 = out["ok"]["bytesBase64"].as_str().unwrap();
+    let bytes = core_model::media::base64_decode(b64).unwrap();
+    // no undo step, not dirty
+    assert!(!h.is_dirty());
+    let back = ShowDocument::open_pptx(&bytes, "x.pptx")
+        .unwrap()
+        .0
+        .into_presentation();
+    assert_eq!(back.view.last_view, ViewKind::SlideSorter);
+    assert_eq!(back.view.zoom, Some(150));
+    assert_eq!(back.view.sorter_zoom, 60);
+    assert_eq!(back.view.restored_left, 25_000);
+    assert_eq!(back.view.restored_top, 100_000);
+    // fit again
+    let req = r#"{"type":"savePptx","viewState":{"sorterZoom":5000}}"#;
+    let out: serde_json::Value =
+        serde_json::from_str(&show_core::dispatch_with(&mut h, req)).unwrap();
+    let bytes =
+        core_model::media::base64_decode(out["ok"]["bytesBase64"].as_str().unwrap()).unwrap();
+    let back = ShowDocument::open_pptx(&bytes, "x.pptx")
+        .unwrap()
+        .0
+        .into_presentation();
+    assert_eq!(back.view.zoom, None);
+    assert_eq!(back.view.sorter_zoom, 400, "clamped");
+}
+
+#[test]
+fn lock_aspect_ratio_is_saved_as_no_change_aspect() {
+    let mut h = host();
+    let shape = h.doc().presentation().slides[1].shapes[0].id;
+    h.apply(C::SetLockAspect {
+        shapes: vec![shape],
+        locked: true,
+    })
+    .unwrap();
+    let bytes = h.doc().save_pptx().unwrap();
+    assert!(zip_text(&bytes, "ppt/slides/slide2.xml").contains(r#"noChangeAspect="1""#));
+    assert!(reopened(&h).slides[1].shapes[0].lock_aspect);
+}

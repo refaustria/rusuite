@@ -134,7 +134,7 @@ export const GUIDE_COLORS: { color: string | null; readonly label: string }[] = 
 
 /** Right-click on drawing guide `index`: add guides, delete it, its colour. */
 export function guideMenu(store: ShowStore, index: number): ContextMenuItem[] {
-  const g = store.viewProps().guides[index];
+  const g = store.editableGuides()[index];
   return [
     { id: "addVGuide", label: t("show.guide.addVertical"), onSelect: () => void store.addGuide("vertical") },
     { id: "addHGuide", label: t("show.guide.addHorizontal"), onSelect: () => void store.addGuide("horizontal") },

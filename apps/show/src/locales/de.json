@@ -1234,5 +1234,10 @@
   "show.pattern.cross": "Kreuz",
   "show.pattern.dnDiag": "Diagonale nach unten",
   "show.pattern.upDiag": "Diagonale nach oben",
-  "show.pattern.diagCross": "Diagonales Kreuz"
+  "show.pattern.diagCross": "Diagonales Kreuz",
+  "show.sidebar.resize": "Breite des Folienbereichs ändern",
+  "show.print.slides": "Folien",
+  "show.print.section": "Abschnitt",
+  "show.print.allSections": "Alle Abschnitte",
+  "show.print.noneInRange": "In diesem Bereich gibt es keine Folien zum Drucken."
 }

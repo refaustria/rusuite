@@ -209,6 +209,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     if let Some(r) = props_root("viewProps") {
         p.view = crate::props::read_view_props(&r);
     }
+    p.view.notes_guides = crate::props::read_p15_guides(&root, "notesGuideLst");
     if let Some(r) = props_root("presProps") {
         p.show_settings = crate::props::read_pres_props(&r);
     }
@@ -580,6 +581,7 @@ impl Reader<'_> {
             text_styles: read_text_styles(root.child("txStyles"), self.w),
             color_map: read_clr_map(root.child("clrMap")),
             header_footer: Default::default(),
+            guides: crate::props::read_p15_guides(&root, "sldGuideLst"),
         };
         let mut texts = Vec::new();
         let tree = c_sld.and_then(|c| c.child("spTree"));
@@ -748,6 +750,7 @@ impl Reader<'_> {
         let mut layout = Layout::new(kind);
         layout.name = own_name;
         layout.show_master_shapes = root.attr("showMasterSp").and_then(parse_bool) != Some(false);
+        layout.guides = crate::props::read_p15_guides(&root, "sldGuideLst");
         layout.background = c_sld
             .and_then(|c| c.child("bg"))
             .and_then(|bg| self.read_background(bg, part));

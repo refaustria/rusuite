@@ -351,6 +351,11 @@ pub struct SlideMaster {
     /// Header/footer settings.
     #[serde(default)]
     pub header_footer: HeaderFooter,
+    /// Drawing guides of the Slide Master view (`p15:sldGuideLst`; P9-S3),
+    /// also shown on the slides.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<crate::view::Guide>>"))]
+    pub guides: Vec<crate::view::Guide>,
 }
 
 /// PowerPoint's master boxes (16:9 and 4:3) `(x, y, w, h)`.
@@ -480,6 +485,7 @@ impl SlideMaster {
             text_styles: styles,
             color_map: ColorMap::default(),
             header_footer: HeaderFooter::default(),
+            guides: Vec::new(),
         }
     }
 

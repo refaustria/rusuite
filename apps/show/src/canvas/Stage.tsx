@@ -30,7 +30,7 @@ import { CropOverlay } from "./CropOverlay";
 import { guideMenu, masterMenu } from "./menus";
 import { shapeMenu, slideMenu, tableMenu } from "./menus";
 import { NO_GUIDES, SNAP_PX, anchorAxes, sameGuides, snapPoint, snapTargets, type Guides, type SnapTargets } from "./snap";
-import { guideLabel, guideTargets, rulerUnit, snapMove, snapToGrid } from "./guides";
+import { DESIGN_GUIDE_COLOR, guideLabel, guideSets, guideTargets, rulerUnit, snapMove, snapToGrid } from "./guides";
 import type { Guide } from "../generated/Guide";
 import { SlideView } from "./SlideView";
 import { stableDeck } from "../design/deck";
@@ -140,6 +140,11 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   const drag = useRef<DragSnap | null>(null);
   const resizeTargets = useRef<SnapLines | null>(null);
   const view = useShow(store, (s) => s.pres?.view) ?? DEFAULT_VIEW;
+  // the slides' guides, or the master's / layout's in the master view, and the inherited ones
+  const guidePres = useShow(store, (s) => s.pres);
+  const guideCurrent = useShow(store, (s) => s.current);
+  const guideMaster = useShow(store, (s) => s.masterView);
+  const guideSet = guidePres ? guideSets(guidePres, guideMaster, guideCurrent) : { editable: [], inherited: [] };
   const viewRef = useRef(view);
   viewRef.current = view;
   /** A drawing guide being dragged: its index and position (EMU) so far. */
@@ -197,7 +202,8 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       const p = store.getState().pres;
       if (!sl || !p) return null;
       const others = sl.shapes.filter((s) => !moving.has(s.id) && !s.hidden).map((s) => boundsPx(s.transform));
-      return { shapes: snapTargets(slidePx(p.slideSize), others), guides: guideTargets(p.view), others };
+      const sets = guideSets(p, store.getState().masterView, store.getState().current);
+      return { shapes: snapTargets(slidePx(p.slideSize), others), guides: guideTargets({ guides: sets.editable, showGuides: !!p.view?.showGuides }, sets.inherited), others };
     },
     [store],
   );
@@ -492,7 +498,8 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       data-testid="editor-stage"
       data-guides={guides.v.length + guides.h.length}
       data-spacing-guides={guides.spacing?.length ?? 0}
-      data-drawing-guides={view.showGuides ? view.guides.length : 0}
+      data-drawing-guides={view.showGuides ? guideSet.editable.length : 0}
+      data-design-guides={view.showGuides ? guideSet.inherited.length : 0}
       data-grid={view.showGrid ? "true" : undefined}
       data-draw-mode={drawMode ?? undefined}
       data-master-view={masterView ? (masterView.kind === "master" ? "master" : masterView.value) : undefined}
@@ -536,7 +543,23 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
           />
           {view.showGrid && <GridLines width={size.width} height={size.height} step={view.gridSpacing / EMU_PER_PX} scale={scale} />}
           {view.showGuides &&
-            view.guides.map((g, i) => {
+            guideSet.inherited.map((g, i) => {
+              const vertical = g.orient === "vertical";
+              const at = g.pos / EMU_PER_PX;
+              return (
+                <KLine
+                  key={`d${i}-${g.orient}-${g.pos}`}
+                  name="design-guide"
+                  points={vertical ? [at, 0, at, size.height] : [0, at, size.width, at]}
+                  stroke={`#${g.color ?? DESIGN_GUIDE_COLOR}`}
+                  strokeWidth={1 / scale}
+                  dash={[6 / scale, 3 / scale]}
+                  listening={false}
+                />
+              );
+            })}
+          {view.showGuides &&
+            guideSet.editable.map((g, i) => {
               const vertical = g.orient === "vertical";
               const at = (guideDrag?.index === i ? guideDrag.pos : g.pos) / EMU_PER_PX;
               return (
@@ -544,7 +567,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
                   key={`g${i}-${g.orient}-${g.pos}`}
                   name="drawing-guide"
                   points={vertical ? [at, 0, at, size.height] : [0, at, size.width, at]}
-                  stroke={g.color ? `#${g.color}` : GUIDE_COLOR}
+                  stroke={g.color ? `#${g.color}` : masterView ? `#${DESIGN_GUIDE_COLOR}` : GUIDE_COLOR}
                   strokeWidth={1 / scale}
                   dash={[6 / scale, 3 / scale]}
                   hitStrokeWidth={10 / scale}
@@ -650,10 +673,10 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
           )}
         </Layer>
       </Stage>
-      {guideDrag && view.guides[guideDrag.index] && (
+      {guideDrag && guideSet.editable[guideDrag.index] && (
         <GuideLabel
-          guide={{ ...view.guides[guideDrag.index]!, pos: guideDrag.pos }}
-          text={guideLabel({ orient: view.guides[guideDrag.index]!.orient, pos: guideDrag.pos }, pres.slideSize, rulerUnit(locale), (n) => formatNumber(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
+          guide={{ ...guideSet.editable[guideDrag.index]!, pos: guideDrag.pos }}
+          text={guideLabel({ orient: guideSet.editable[guideDrag.index]!.orient, pos: guideDrag.pos }, pres.slideSize, rulerUnit(locale), (n) => formatNumber(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
           scale={scale}
         />
       )}

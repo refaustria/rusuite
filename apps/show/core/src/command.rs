@@ -16,7 +16,7 @@ use core_model::{ColorScheme, FontScheme, RunProperties};
 use model_show::{
     Action, Adjust, AlignMode, Alignment, Anchor, Animation, AnimationKind, ArrowEnd, Axis,
     Background, BodyProps, Bullet, ChartData, ChartShape, Connector, ConnectorKind, Crop,
-    CustomShow, Direction, Effect, EffectStyle, Fill, HfDate, Hyperlink, Insets, Layout,
+    CustomShow, Direction, Effect, EffectStyle, Fill, Guide, HfDate, Hyperlink, Insets, Layout,
     LayoutKind, Line, MediaClip, MediaStart, NodeId, PictureProps, PlaceholderKind, Preset,
     Recolor, Section, Shadow, Shape, ShapeKind, ShowSettings, Slide, SlideMaster, SlideSize, Table,
     TableLook, TextBody, TextClass, TextSpacing, Theme, Transform, Transition, Trigger, ViewProps,
@@ -1172,6 +1172,12 @@ pub enum ShowCommand {
     /// Sets the view settings: guides, grid, snapping, ruler, last view
     /// (stored in `viewProps.xml`; undoable like PowerPoint's guide moves).
     SetViewProps { view: ViewProps },
+    /// The drawing guides of the master or a layout (Slide Master view;
+    /// `p15:sldGuideLst`).
+    SetDesignGuides {
+        target: DesignTarget,
+        guides: Vec<Guide>,
+    },
     /// Sets the Set Up Slide Show options (`presProps.xml`).
     SetShowSettings { settings: ShowSettings },
     /// Slide Show › Custom Slide Show › Custom Shows…: replaces the custom
