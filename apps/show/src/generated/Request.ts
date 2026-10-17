@@ -4,6 +4,7 @@ import type { PathQuery } from "./PathQuery";
 import type { Presentation } from "./Presentation";
 import type { ShowCommand } from "./ShowCommand";
 import type { ViewKind } from "./ViewKind";
+import type { ViewState } from "./ViewState";
 
 /**
  * A request from the UI. JSON: `{"type":"apply","command":{...}}`,
@@ -14,4 +15,8 @@ export type Request = { "type": "apply", command: ShowCommand, } | { "type": "un
  * The view the user is in (Normal, Slide Sorter …), stamped into
  * `viewProps.xml` `lastView` without an undo step.
  */
-lastView?: ViewKind, } | { "type": "recoverySnapshot" } | { "type": "restoreRecovery", json: string, name?: string, } | { "type": "documentState" } | { "type": "markSaved", name?: string | null, } | { "type": "shapePaths", queries: Array<PathQuery>, } | { "type": "getThemes" } | { "type": "peekPresentation", bytesBase64: string, };
+lastView?: ViewKind, 
+/**
+ * Zoom and pane sizes, stamped likewise (P9-S3).
+ */
+viewState?: ViewState, } | { "type": "recoverySnapshot" } | { "type": "restoreRecovery", json: string, name?: string, } | { "type": "documentState" } | { "type": "markSaved", name?: string | null, } | { "type": "shapePaths", queries: Array<PathQuery>, } | { "type": "getThemes" } | { "type": "peekPresentation", bytesBase64: string, };

@@ -31,8 +31,9 @@ export interface ToolsState {
 export const INITIAL_TOOLS: ToolsState = { mode: "arrow", penColor: DEFAULT_PEN, ink: new Map(), inkVisible: true, seeAll: false, zoom: 1, focus: { x: 0, y: 0 } };
 
 /** The tools' state with a setter whose updater runs at once (keys decide synchronously whether they were handled). */
-export function useTools(): [ToolsState, (f: (s: ToolsState) => ToolsState) => void] {
-  const [tools, setState] = useState(INITIAL_TOOLS);
+export function useTools(penColor?: string): [ToolsState, (f: (s: ToolsState) => ToolsState) => void] {
+  // Set Up Slide Show › Pen color
+  const [tools, setState] = useState(() => (penColor ? { ...INITIAL_TOOLS, penColor } : INITIAL_TOOLS));
   const ref = useRef(tools);
   const set = useCallback((f: (s: ToolsState) => ToolsState) => {
     const next = f(ref.current);

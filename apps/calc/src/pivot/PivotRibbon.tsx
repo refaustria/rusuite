@@ -1,8 +1,9 @@
-// Pivot tables in Calc's ribbon (P8-33): Insert › Tables › PivotTable and
-// the contextual PivotTable Analyze and Design tabs shown while a cell of a
-// pivot table is selected (Excel 365); Insert Slicer (P9-C2). Group, Timeline,
-// Fields, Items & Sets, PivotChart, Recommended PivotTables and Blank Rows
-// are not offered (no model support yet).
+// Pivot tables in Calc's ribbon (P8-33): Insert › Tables › PivotTable,
+// Recommended PivotTables and PivotChart, and the contextual PivotTable
+// Analyze and Design tabs shown while a cell of a pivot table is selected
+// (Excel 365); Insert Slicer (P9-C2); Group, Fields, Items & Sets,
+// PivotChart, Show Report Filter Pages and Blank Rows (P9-C3). Timeline
+// and OLAP tools are not offered.
 
 import {
   RIBBON_SELECT, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonStack, type RibbonGroup, type RibbonTab, type TFunction as T,
@@ -12,26 +13,50 @@ import type { PivotOptions } from "../generated/PivotOptions";
 import type { PivotTable } from "../generated/PivotTable";
 import type { CalcStore } from "../state/store";
 import {
-  buttonsIcon, clearIcon, collapseIcon, expandIcon, fieldListIcon, grandTotalsIcon, headersIcon, layoutIcon, moveIcon, optionsIcon, pivotIcon, refreshIcon,
-  selectIcon, settingsIcon, sourceIcon, subtotalsIcon,
+  blankRowsIcon, buttonsIcon, calcIcon, clearIcon, collapseIcon, expandIcon, fieldListIcon, grandTotalsIcon, groupIcon, headersIcon, layoutIcon, moveIcon,
+  optionsIcon, pivotChartIcon, pivotIcon, recommendedPivotIcon, refreshIcon, selectIcon, settingsIcon, sourceIcon, subtotalsIcon, ungroupIcon,
 } from "./icons";
-import { CLEAR_ALL_PATCH, clearFiltersPatch, pivotDataKey, withOptions } from "./model";
+import { blankRowsPatch, CLEAR_ALL_PATCH, clearFiltersPatch, pivotDataKey, withOptions } from "./model";
 import { DEFAULT_PIVOT_STYLE, PIVOT_STYLES, pivotStyle, styleNumber } from "./styles";
 import { insertSlicerButton } from "../slicers/SlicerRibbon";
 
-/** Insert › Tables: PivotTable (Recommended PivotTables is not offered). */
+/** Insert › Tables: PivotTable, Recommended PivotTables and PivotChart. */
 export function pivotInsertGroup(store: CalcStore, t: T, off: boolean): RibbonGroup {
   return {
     label: t("calc.pivot.tables"),
     items: (
-      <RibbonButton
-        label={t("calc.pivot.pivotTable")}
-        icon={pivotIcon()}
-        size="large"
-        tooltip={t("calc.pivot.insertTip")}
-        disabled={off}
-        onClick={() => store.openDialog({ kind: "pivotCreate" })}
-      />
+      <>
+        <RibbonButton
+          label={t("calc.pivot.pivotTable")}
+          icon={pivotIcon()}
+          size="large"
+          tooltip={t("calc.pivot.insertTip")}
+          disabled={off}
+          onClick={() => store.openDialog({ kind: "pivotCreate" })}
+        />
+        <RibbonStack>
+          <RibbonButton
+            label={t("calc.pivot.recommended")}
+            icon={recommendedPivotIcon(16)}
+            showLabel
+            tooltip={t("calc.pivot.recommendedTip")}
+            disabled={off}
+            onClick={() => store.openDialog({ kind: "pivotRecommended" })}
+          />
+          <RibbonButton
+            label={t("calc.pivot.pivotChart")}
+            icon={pivotChartIcon(16)}
+            showLabel
+            tooltip={t("calc.pivot.pivotChartTip")}
+            disabled={off}
+            onClick={() => {
+              const p = store.pivots.active();
+              if (p) void store.pivots.insertChart(p.id);
+              else store.openDialog({ kind: "pivotCreate", chart: true });
+            }}
+          />
+        </RibbonStack>
+      </>
     ),
   };
 }
@@ -104,6 +129,12 @@ export function pivotAnalyzeTab(store: CalcStore, t: T): RibbonTab | null {
               showLabel
               menu={[
                 { id: "options", label: t("calc.pivot.optionsDots"), disabled: ro, onSelect: () => store.openDialog({ kind: "pivotOptions", id }) },
+                {
+                  id: "pages",
+                  label: t("calc.pivot.filterPagesDots"),
+                  disabled: ro || (table.filters ?? []).length === 0,
+                  onSelect: () => store.openDialog({ kind: "pivotFilterPages", id }),
+                },
                 { separator: true },
                 {
                   id: "gpd",
@@ -144,6 +175,26 @@ export function pivotAnalyzeTab(store: CalcStore, t: T): RibbonTab | null {
         ),
       },
       {
+        label: t("calc.pivot.group"),
+        items: (
+          <>
+            <RibbonStack>
+              <RibbonButton label={t("calc.pivot.groupSelection")} icon={groupIcon()} showLabel disabled={ro} onClick={() => pivots.groupSelection()} />
+              <RibbonButton label={t("calc.pivot.ungroup")} icon={ungroupIcon()} showLabel disabled={ro} onClick={() => pivots.ungroupSelection()} />
+            </RibbonStack>
+            <RibbonStack>
+              <RibbonButton
+                label={t("calc.pivot.groupField")}
+                icon={groupIcon()}
+                showLabel
+                disabled={ro || !field}
+                onClick={() => field && store.openDialog({ kind: "pivotGroup", id, field: field.field })}
+              />
+            </RibbonStack>
+          </>
+        ),
+      },
+      {
         label: t("calc.slicer.filter"),
         items: insertSlicerButton(store, t),
       },
@@ -161,6 +212,35 @@ export function pivotAnalyzeTab(store: CalcStore, t: T): RibbonTab | null {
               ]}
             />
             <RibbonButton label={t("calc.pivot.changeSource")} icon={sourceIcon()} size="large" disabled={ro} onClick={() => store.openDialog({ kind: "pivotSource", id })} />
+          </>
+        ),
+      },
+      {
+        label: t("calc.pivot.calculations"),
+        items: (
+          <RibbonMenuButton
+            label={t("calc.pivot.fieldsItems")}
+            icon={calcIcon()}
+            size="large"
+            disabled={ro}
+            menu={[
+              { id: "calcField", label: t("calc.pivot.calcFieldDots"), onSelect: () => store.openDialog({ kind: "pivotCalcField", id }) },
+              {
+                id: "calcItem",
+                label: t("calc.pivot.calcItemDots"),
+                disabled: !field || [...(table.rows ?? []), ...(table.cols ?? [])].every((a) => a.field !== field.field),
+                onSelect: () => field && store.openDialog({ kind: "pivotCalcItem", id, field: field.field }),
+              },
+            ]}
+          />
+        ),
+      },
+      {
+        label: t("calc.pivot.toolsGroup"),
+        items: (
+          <>
+            <RibbonButton label={t("calc.pivot.pivotChart")} icon={pivotChartIcon()} size="large" disabled={ro} onClick={() => void pivots.insertChart(id)} />
+            <RibbonButton label={t("calc.pivot.recommended")} icon={recommendedPivotIcon()} size="large" onClick={() => store.openDialog({ kind: "pivotRecommended" })} />
           </>
         ),
       },
@@ -223,8 +303,11 @@ export function pivotAnalyzeTab(store: CalcStore, t: T): RibbonTab | null {
   };
 }
 
-/** A style's preview: a 5 × 5 table in the style's colours. */
-export function StylePreview({ id, width = 61, height = 46 }: { id: string; width?: number; height?: number }) {
+/**
+ * A style's preview: a 5 × 5 table in the style's colours, with the
+ * table's banded rows / columns options (P9-C3: the gallery shows them).
+ */
+export function StylePreview({ id, width = 61, height = 46, banded = false, bandedCols = false }: { id: string; width?: number; height?: number; banded?: boolean; bandedCols?: boolean }) {
   const d = pivotStyle(id);
   const rows = 5;
   const rh = height / rows;
@@ -232,8 +315,12 @@ export function StylePreview({ id, width = 61, height = 46 }: { id: string; widt
   for (let r = 0; r < rows; r++) {
     const header = r === 0;
     const total = r === rows - 1;
-    const fill = header ? d.headerFill : total ? (d.totalFill ?? d.bodyFill) : r % 2 === 0 ? d.band : (d.subtotalFill && r === 1 ? d.subtotalFill : d.bodyFill);
+    const band = banded ? r % 2 === 0 : r % 2 === 0 && !bandedCols;
+    const fill = header ? d.headerFill : total ? (d.totalFill ?? d.bodyFill) : band ? d.band : (d.subtotalFill && r === 1 ? d.subtotalFill : d.bodyFill);
     out.push(<rect key={`f${r}`} x={0} y={r * rh} width={width} height={rh} fill={fill ?? "#ffffff"} />);
+    if (bandedCols && !header && !total) {
+      for (let c = 1; c < 5; c += 2) out.push(<rect key={`b${r}:${c}`} x={(c * width) / 5} y={r * rh} width={width / 5} height={rh} fill={d.band ?? "#dde"} opacity={0.6} />);
+    }
     const text = header ? d.headerColor : d.bodyColor;
     out.push(<rect key={`t${r}`} x={4} y={r * rh + rh / 2 - 1} width={width * 0.3} height={2} fill={text} opacity={header || total ? 1 : 0.6} />);
     out.push(<rect key={`v${r}`} x={width * 0.62} y={r * rh + rh / 2 - 1} width={width * 0.3} height={2} fill={text} opacity={header || total ? 1 : 0.6} />);
@@ -323,6 +410,32 @@ export function pivotDesignTab(store: CalcStore, t: T): RibbonTab | null {
                 { id: "norepeat", label: t("calc.pivot.repeatNone"), checked: !opts.repeatLabels, onSelect: set({ repeatLabels: false }) },
               ]}
             />
+            <RibbonMenuButton
+              label={t("calc.pivot.blankRows")}
+              icon={blankRowsIcon()}
+              size="large"
+              disabled={ro || rows.length < 2}
+              menu={[
+                {
+                  id: "insert",
+                  label: t("calc.pivot.blankInsert"),
+                  checked: rows.slice(0, -1).some((a) => a.insertBlankRow),
+                  onSelect: () => {
+                    const p = blankRowsPatch(table, true);
+                    if (p) void pivots.update(id, p);
+                  },
+                },
+                {
+                  id: "remove",
+                  label: t("calc.pivot.blankRemove"),
+                  checked: !rows.some((a) => a.insertBlankRow),
+                  onSelect: () => {
+                    const p = blankRowsPatch(table, false);
+                    if (p) void pivots.update(id, p);
+                  },
+                },
+              ]}
+            />
           </>
         ),
       },
@@ -346,7 +459,7 @@ export function pivotDesignTab(store: CalcStore, t: T): RibbonTab | null {
         items: (
           <RibbonMenuButton
             label={t("calc.pivot.stylesGallery")}
-            icon={<StylePreview id={style} width={32} height={24} />}
+            icon={<StylePreview id={style} width={32} height={24} banded={!!opts.banded} bandedCols={!!opts.bandedCols} />}
             size="large"
             disabled={ro}
             menu={(close) => (
@@ -358,7 +471,7 @@ export function pivotDesignTab(store: CalcStore, t: T): RibbonTab | null {
                       <div className="px-1 text-[11px] font-medium text-ui-muted">{t(`calc.pivot.styleGroup.${family}`)}</div>
                       <RibbonGallery
                         label={t(`calc.pivot.styleGroup.${family}`)}
-                        items={ids.map((s) => ({ id: s, label: styleLabel(t, s), preview: <StylePreview id={s} /> }))}
+                        items={ids.map((s) => ({ id: s, label: styleLabel(t, s), preview: <StylePreview id={s} banded={!!opts.banded} bandedCols={!!opts.bandedCols} /> }))}
                         selected={style}
                         columns={7}
                         hideLabels

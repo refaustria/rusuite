@@ -291,7 +291,7 @@ fn backgrounds_and_reset() {
         &mut h,
         C::SetBackground {
             target: BackgroundTarget::Slides(vec![s1]),
-            fill: Some(blue),
+            fill: Some(blue.clone()),
             hide_master_shapes: Some(true),
         },
     );
@@ -313,7 +313,7 @@ fn backgrounds_and_reset() {
         &mut h,
         C::SetBackground {
             target: BackgroundTarget::Master,
-            fill: Some(blue),
+            fill: Some(blue.clone()),
             hide_master_shapes: None,
         },
     );

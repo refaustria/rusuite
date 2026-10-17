@@ -21,6 +21,7 @@ import { PresenterConsole } from "./PresenterConsole";
 import { initialShow, reduceShow, showRange, type ShowAction, type ShowMeta, type ShowState } from "./showState";
 import { formatElapsed } from "./PresenterConsole";
 import type { ShowSettings } from "../generated/ShowSettings";
+import type { Presentation } from "../generated/Presentation";
 import { autoAdvanceDelay, clickSteps } from "../anim/playback";
 import type { AudienceLink, AudienceWindow, SyncChannel } from "./sync";
 import { useT } from "../i18n";
@@ -33,6 +34,16 @@ export interface SlideShowProps {
   onEnd: () => void;
   /** Slide Show › Rehearse Timings: records the time on each slide; at the end asks whether to keep them. */
   rehearse?: boolean;
+  /** Runs this custom show (its slides in its order; P9-S3). */
+  customShow?: number | null;
+}
+
+/** The slides of custom show `id` that exist and are not hidden, in the show's order (`null`: no such show). */
+export function customShowIds(pres: Pick<Presentation, "slides" | "customShows">, id: number): NodeId[] | null {
+  const show = pres.customShows?.find((c) => c.id === id);
+  if (!show) return null;
+  const visible = new Set(pres.slides.filter((s) => !s.hidden).map((s) => s.id));
+  return show.slideIds.filter((x) => visible.has(x));
 }
 
 /** The slides of a show starting at `current`: the visible ones, plus `current` itself when hidden. */
@@ -104,23 +115,28 @@ function NotesOverlay({ notes }: { notes: string }) {
   );
 }
 
-export function SlideShow({ store, mode, link, onEnd, rehearse = false }: SlideShowProps) {
+export function SlideShow({ store, mode, link, onEnd, rehearse = false, customShow = null }: SlideShowProps) {
   const t = useT();
   const pres = useShow(store, (s) => s.pres);
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
   const settings = pres?.showSettings;
   // Set Up Slide Show: the slide range; hidden slides skipped unless the show starts on one
-  const [ids] = useState(() => {
+  // a custom show: its slides in its order
+  const [ids, setIds] = useState(() => {
     const st = store.getState();
+    const custom = customShow !== null && st.pres ? customShowIds(st.pres, customShow) : null;
+    if (custom?.length) return custom;
     return showRange(st.pres?.slides ?? [], st.current, st.pres?.showSettings?.range).map((s) => s.id);
   });
+  /** Shows to return to after a custom show started by a link with "Show and return". */
+  const returns = useRef<{ ids: NodeId[]; index: number }[]>([]);
   const slides = useMemo(
     () => showSlides(ids.map((id) => pres?.slides.find((s) => s.id === id)).filter((s): s is Slide => !!s), settings, rehearse),
     [ids, pres, settings, rehearse],
   );
   const [show, setShow] = useState<ShowState>(() => ({
-    ...initialShow(ids.length, Math.max(0, ids.indexOf(store.getState().current ?? -1)), showMeta(slides)),
-    loop: !!settings?.loop && !rehearse,
+    ...initialShow(ids.length, customShow !== null ? 0 : Math.max(0, ids.indexOf(store.getState().current ?? -1)), showMeta(slides)),
+    loop: (!!settings?.loop || settings?.showType === "kiosk") && !rehearse,
   }));
   // ----- Rehearse Timings: time spent per slide
   const [rehearsal, setRehearsal] = useState<{ times: Map<number, number>; slideStart: number; paused: number | null; ask: boolean } | null>(() =>
@@ -151,8 +167,23 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false }: SlideS
   const endRef = useRef(onEnd);
   endRef.current = onEnd;
   const rehearsing = useRef(rehearse);
+  /** Switches the show to the slides `next` at `index` (a custom show, or back from one). */
+  const switchTo = useCallback((next: NodeId[], index: number) => {
+    const all = store.getState().pres?.slides ?? [];
+    const list = showSlides(next.map((id) => all.find((s) => s.id === id)).filter((s): s is Slide => !!s), store.getState().pres?.showSettings, false);
+    const st: ShowState = { ...initialShow(next.length, index, showMeta(list)), loop: showRef.current.loop };
+    showRef.current = st;
+    setIds(next);
+    setShow(st);
+  }, [store]);
   const dispatch = useCallback((a: ShowAction) => {
     const next = reduceShow(showRef.current, a);
+    // the end of a custom show started with "Show and return": back to the slide of the link
+    if (next !== "exit" && next.ended && !showRef.current.ended && returns.current.length) {
+      const back = returns.current.pop()!;
+      switchTo(back.ids, back.index);
+      return;
+    }
     if (next === "exit" || (rehearsing.current && next.ended)) {
       if (rehearsing.current) {
         // the end of a rehearsal: keep the timings?
@@ -166,7 +197,18 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false }: SlideS
     }
     showRef.current = next;
     setShow(next);
-  }, [record]);
+  }, [record, switchTo]);
+  const idsRef = useRef(ids);
+  idsRef.current = ids;
+  /** A link to a custom show: its slides from the first; with return, the current show resumes after it. */
+  const startCustomShow = useCallback((id: number, returnAfter: boolean) => {
+    const pres = store.getState().pres;
+    const next = pres ? customShowIds(pres, id) : null;
+    if (!next?.length) return;
+    if (returnAfter) returns.current.push({ ids: idsRef.current, index: showRef.current.index });
+    else returns.current = [];
+    switchTo(next, 0);
+  }, [store, switchTo]);
 
   // The editor follows the show (after Esc it shows the last slide presented).
   useEffect(() => {
@@ -318,6 +360,8 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false }: SlideS
       show={show}
       onAction={dispatch}
       tools={!fallback}
+      onCustomShow={startCustomShow}
+      penColor={settings?.penColor ? `#${settings.penColor}` : undefined}
       toolbarExtra={rehearsal && <RehearsalBar rehearsal={rehearsal} index={show.index} ids={ids} onNext={() => dispatch({ type: "next" })} onPause={() => setRehearsal((r) => r && (r.paused === null ? { ...r, paused: Date.now() } : { ...r, slideStart: r.slideStart + (Date.now() - r.paused), paused: null }))} onRepeat={() => setRehearsal((r) => r && { ...r, slideStart: Date.now(), paused: r.paused === null ? null : Date.now() })} />}
       overlay={
         fallback && (

@@ -391,6 +391,20 @@ pub enum CalcCommand {
         #[ts(optional)]
         name: Option<String>,
     },
+    /// Insert › PivotChart: a chart of pivot table `pivot` (a PivotChart)
+    /// on `sheet`; its series follow the table's layout (row items as
+    /// categories, value fields × column items as series) and change
+    /// with it. `chart` gives the type and formatting (its series are
+    /// replaced). Undo removes it; the patch lists the sheet in
+    /// `chartSheets`.
+    InsertPivotChart {
+        sheet: u32,
+        pivot: u32,
+        #[ts(as = "crate::wire_chart::ChartAnchor")]
+        anchor: ChartAnchor,
+        #[ts(as = "crate::wire_chart::Chart")]
+        chart: Chart,
+    },
     /// Replaces chart `id` (everything but its anchor and name); fails
     /// with `unknown_chart` / `invalid_chart` (also for unsupported chart
     /// types, which are read-only).
@@ -659,6 +673,62 @@ pub enum CalcCommand {
         id: u32,
         row: u32,
         col: u32,
+    },
+    /// Group (PivotTable Analyze › Group Selection / Group Field): dates
+    /// by levels (coarser levels become fields `Years`, `Quarters`, …
+    /// before the field), numbers by an interval, or the shared items
+    /// `items` into `Group<n>` of a new field `<name>2`. Affects every
+    /// table of the cache.
+    GroupPivotField {
+        id: u32,
+        field: u32,
+        #[ts(as = "crate::wire_pivot::GroupSpec")]
+        group: model_sheet::pivot::GroupSpec,
+    },
+    /// Ungroup: a date / number grouping (with its level fields) or a
+    /// manual group field; with `items` (group items of a manual group
+    /// field) only those groups.
+    UngroupPivotField {
+        id: u32,
+        field: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        items: Option<Vec<u32>>,
+    },
+    /// Fields, Items & Sets › Calculated Field: `field` absent adds
+    /// `name` = `formula` (and `Sum of <name>` to the values); with a
+    /// field it changes it, `formula` absent deletes it.
+    SetCalculatedField {
+        id: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        field: Option<u32>,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        formula: Option<String>,
+    },
+    /// Fields, Items & Sets › Calculated Item of field `field`: `item`
+    /// absent adds `name` = `formula`; with an item it changes it,
+    /// `formula` absent deletes it.
+    SetCalculatedItem {
+        id: u32,
+        field: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        item: Option<u32>,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        formula: Option<String>,
+    },
+    /// PivotTable Analyze › Options ▾ › Show Report Filter Pages: one new
+    /// sheet per item of page field `field` (named after the item, before
+    /// the table's sheet), each with a copy of the table filtered to that
+    /// item. The patch activates the last one.
+    ShowReportFilterPages {
+        id: u32,
+        field: u32,
     },
     /// Insert › Table (Ctrl+T): a table on the range (a single cell: its
     /// current region). `hasHeaders` false inserts a header row above the

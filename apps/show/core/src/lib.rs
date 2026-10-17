@@ -42,6 +42,7 @@ pub use command::{
 };
 pub use dispatch::{
     dispatch_with, PathKind, PathQuery, Request, Response, ResponseBody, ShapePaths, ShowHost,
+    ViewState,
 };
 pub use doc::{ShowDocument, ShowError};
 pub use patch::ShowPatch;

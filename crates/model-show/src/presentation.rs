@@ -15,7 +15,7 @@ use crate::slide::{find_in, Slide};
 use crate::tablestyle::TableStyleDef;
 use crate::text::{TextBody, TextField, TextParagraph, TextParagraphProps, TextRun};
 use crate::theme::{Background, ResolvedFill, Theme};
-use crate::view::{ShowSettings, ViewProps};
+use crate::view::{CustomShow, ShowSettings, ViewProps};
 use crate::{Error, NodeId, Result};
 
 /// The slide size (`p:sldSz`).
@@ -98,6 +98,10 @@ pub struct Presentation {
     #[serde(default, skip_serializing_if = "is_default")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<ShowSettings>"))]
     pub show_settings: ShowSettings,
+    /// Custom shows (`p:custShowLst`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<CustomShow>>"))]
+    pub custom_shows: Vec<CustomShow>,
     /// Table styles of the file that are not PowerPoint built-ins
     /// (`ppt/tableStyles.xml`; tables find their style here first, then
     /// among [`crate::builtin_table_styles`]).
@@ -192,6 +196,7 @@ impl Presentation {
             media: MediaStore::new(),
             view: ViewProps::default(),
             show_settings: ShowSettings::default(),
+            custom_shows: Vec::new(),
             table_styles: Vec::new(),
             next_id: 1,
         }
@@ -290,12 +295,12 @@ impl Presentation {
     /// The effective background of slide `slide`: its own, else its
     /// layout's, else the master's.
     pub fn background_of(&self, slide: &Slide) -> Background {
-        if let Some(b) = slide.background {
-            return b;
+        if let Some(b) = &slide.background {
+            return b.clone();
         }
         self.layout(&slide.layout)
-            .and_then(|l| l.background)
-            .unwrap_or(self.master.background)
+            .and_then(|l| l.background.clone())
+            .unwrap_or_else(|| self.master.background.clone())
     }
 
     /// [`background_of`](Self::background_of) resolved to colours.
@@ -386,6 +391,11 @@ impl Presentation {
             a.id = self.alloc_id();
             if let Some(&new) = map.get(&a.shape) {
                 a.shape = new;
+            }
+            if let Some(t) = &a.start_on {
+                if let Some(&new) = map.get(&t.shape()) {
+                    a.start_on = Some(t.with_shape(new));
+                }
             }
         }
         remap_attachments(&mut copy.shapes, &map);
@@ -542,6 +552,31 @@ impl Presentation {
         for l in &mut self.layouts {
             walk(&mut l.shapes);
         }
+    }
+
+    /// Repairs the custom shows after slides were removed: their unknown
+    /// slides are dropped and Set Up Slide Show forgets a custom show that
+    /// no longer exists. Returns whether anything changed.
+    pub fn fix_custom_shows(&mut self) -> bool {
+        let known: std::collections::HashSet<NodeId> = self.slides.iter().map(|s| s.id).collect();
+        let mut changed = false;
+        for show in &mut self.custom_shows {
+            let before = show.slide_ids.len();
+            show.slide_ids.retain(|id| known.contains(id));
+            changed |= show.slide_ids.len() != before;
+        }
+        if let Some(id) = self.show_settings.custom_show {
+            if !self.custom_shows.iter().any(|c| c.id == id) {
+                self.show_settings.custom_show = None;
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// The custom show with `id`.
+    pub fn custom_show(&self, id: u32) -> Option<&CustomShow> {
+        self.custom_shows.iter().find(|c| c.id == id)
     }
 
     /// Every media item `shapes` use (pictures, audio/video files and
@@ -724,7 +759,7 @@ mod tests {
         anim2.id = p.alloc_id();
         {
             let slide = p.slide_mut(s).unwrap();
-            slide.animations = vec![anim, anim2];
+            slide.animations = vec![anim.clone(), anim2];
             slide.transition = Some(Transition::new(TransitionKind::Fade));
         }
         p.validate().unwrap();
@@ -793,7 +828,7 @@ mod tests {
         let mut anim = Animation::new(a, AnimationKind::Exit, Effect::FlyIn);
         anim.id = p.alloc_id();
         let slide = p.slide_mut(s).unwrap();
-        slide.animations.push(anim);
+        slide.animations.push(anim.clone());
         assert!(slide.validate().is_ok());
         slide.animations.push(anim);
         assert!(matches!(slide.validate(), Err(Error::InvalidSlide { .. })));

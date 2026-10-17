@@ -13,7 +13,7 @@ use model_show::{
     ShapeKind, Slide, SlideMaster, SlideSize, TextBody, TextField, Transform,
 };
 
-use crate::anim::{read_media_timing, read_slide_transition, read_timing};
+use crate::anim::{read_media_timing, read_timing};
 use crate::chart::{shape_from_chart, CHART_URI, XLSX_CT};
 use crate::drawing::{
     color_and_alpha, read_arrows, read_color, read_fill, read_line, read_text_body, read_xfrm,
@@ -27,6 +27,7 @@ use crate::master::{
 };
 use crate::table::{read_table, TABLE_URI};
 use crate::theme::read_theme;
+use crate::transition::read_slide_transition;
 use crate::xml::{parse, parse_bool, parse_i64, parse_u32, El};
 use crate::{Error, PptxContext, Result, Warnings};
 
@@ -200,6 +201,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     }
     resolve_slide_links(&mut p, &slide_parts, &mut w);
     read_sections(&root, &slide_numbers, &mut p, &mut w);
+    read_custom_shows(&pkg, &main, &root, &slide_parts, &mut p, &mut w);
     let props_root = |kind: &str| {
         related(&pkg, &main, kind)
             .and_then(|name| pkg.part(&name))
@@ -208,6 +210,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     if let Some(r) = props_root("viewProps") {
         p.view = crate::props::read_view_props(&r);
     }
+    p.view.notes_guides = crate::props::read_p15_guides(&root, "notesGuideLst");
     if let Some(r) = props_root("presProps") {
         p.show_settings = crate::props::read_pres_props(&r);
     }
@@ -290,6 +293,59 @@ fn read_sections(root: &El, numbers: &[(u32, NodeId)], p: &mut Presentation, w: 
     p.fix_sections();
     if p.validate_sections().is_err() {
         w.add("sections out of slide order rearranged");
+    }
+}
+
+/// `p:custShowLst` → [`Presentation::custom_shows`]: slides by the
+/// presentation's relationships (unknown ones skipped, duplicate ids and
+/// names dropped with a warning).
+fn read_custom_shows(
+    pkg: &Package,
+    main: &PartName,
+    root: &El,
+    slide_parts: &HashMap<String, NodeId>,
+    p: &mut Presentation,
+    w: &mut Warnings,
+) {
+    let Some(list) = root.child("custShowLst") else {
+        return;
+    };
+    for el in list.elements().filter(|e| e.name == "custShow") {
+        let Some(id) = el.attr("id").and_then(parse_u32) else {
+            w.add("custom show without id dropped");
+            continue;
+        };
+        let name = el.attr("name").unwrap_or("").trim().to_owned();
+        let taken = p
+            .custom_shows
+            .iter()
+            .any(|c| c.id == id || c.name.eq_ignore_ascii_case(&name));
+        if name.is_empty() || taken {
+            w.add(format!(
+                "custom show {name:?} dropped (no or a duplicate name or id)"
+            ));
+            continue;
+        }
+        let mut slide_ids = Vec::new();
+        for s in el
+            .child("sldLst")
+            .into_iter()
+            .flat_map(|l| l.elements())
+            .filter(|e| e.name == "sld")
+        {
+            let target = s.attr("id").and_then(|rid| target_of(pkg, main, rid));
+            match target.and_then(|t| slide_parts.get(t.as_str())) {
+                Some(n) => slide_ids.push(*n),
+                None => w.add(format!(
+                    "custom show {name:?}: a slide that is not in the presentation dropped"
+                )),
+            }
+        }
+        p.custom_shows.push(model_show::CustomShow {
+            id,
+            name,
+            slide_ids,
+        });
     }
 }
 
@@ -386,6 +442,8 @@ struct StyleRefs {
     fill: Option<Color>,
     line: Option<Line>,
     font: Option<Color>,
+    /// `a:effectRef/@idx` (0 = none, 1–3).
+    effect: u8,
 }
 
 fn read_style(st: Option<&El>, w: &mut Warnings) -> StyleRefs {
@@ -405,6 +463,9 @@ fn read_style(st: Option<&El>, w: &mut Warnings) -> StyleRefs {
     }
     if let Some(r) = st.child("fontRef") {
         out.font = read_color(r, w);
+    }
+    if let Some(r) = st.child("effectRef") {
+        out.effect = idx(r).clamp(0, 3) as u8;
     }
     out
 }
@@ -521,6 +582,7 @@ impl Reader<'_> {
             text_styles: read_text_styles(root.child("txStyles"), self.w),
             color_map: read_clr_map(root.child("clrMap")),
             header_footer: Default::default(),
+            guides: crate::props::read_p15_guides(&root, "sldGuideLst"),
         };
         let mut texts = Vec::new();
         let tree = c_sld.and_then(|c| c.child("spTree"));
@@ -689,6 +751,7 @@ impl Reader<'_> {
         let mut layout = Layout::new(kind);
         layout.name = own_name;
         layout.show_master_shapes = root.attr("showMasterSp").and_then(parse_bool) != Some(false);
+        layout.guides = crate::props::read_p15_guides(&root, "sldGuideLst");
         layout.background = c_sld
             .and_then(|c| c.child("bg"))
             .and_then(|bg| self.read_background(bg, part));
@@ -846,7 +909,31 @@ impl Reader<'_> {
                     .add("connector attachments to groups or connectors dropped");
             }
         }
-        slide.transition = read_slide_transition(&root, self.w);
+        slide.transition = read_slide_transition(&root, self.w).map(|(mut t, sound)| {
+            t.sound = match sound {
+                Some((None, _)) => Some(model_show::TransitionSound::StopPrevious),
+                Some((Some(rid), loop_until_next)) => {
+                    let target = target_of(self.pkg, ctx.part, &rid);
+                    let media = target.and_then(|t| {
+                        let ext = t.extension().unwrap_or("").to_owned();
+                        let fallback = media_content_type(&ext).unwrap_or("audio/wav");
+                        self.media_of_part(&t, Some(fallback))
+                    });
+                    match media {
+                        Some(media) => Some(model_show::TransitionSound::Play {
+                            media,
+                            loop_until_next,
+                        }),
+                        None => {
+                            self.w.add("transition sound file missing; sound dropped");
+                            None
+                        }
+                    }
+                }
+                None => None,
+            };
+            t
+        });
         let timing = root.child("timing").or_else(|| {
             root.elements()
                 .filter(|e| e.name == "AlternateContent")
@@ -871,6 +958,8 @@ impl Reader<'_> {
                     m.muted = mt.muted;
                     m.hide_when_not_playing = mt.hide;
                     m.loop_playback = mt.looped;
+                    m.play_across_slides = mt.across_slides;
+                    m.rewind = mt.rewind;
                 }
             }
             slide.animations = read_timing(timing, &spids, self.w);
@@ -948,10 +1037,36 @@ impl Reader<'_> {
                 .and_then(|a| a.attr("amt"))
                 .and_then(|v| v.parse::<f64>().ok())
                 .map_or(0.0, |amt| (1.0 - amt / 100_000.0).clamp(0.0, 1.0));
+            let pct = |el: Option<&El>, name: &str| {
+                el.and_then(|e| e.attr(name))
+                    .and_then(parse_i64)
+                    .map_or(0.0, |v| v as f64 / 100_000.0)
+            };
+            let tile = blip_fill.child("tile");
+            let fill_rect = blip_fill.child("stretch").and_then(|s| s.child("fillRect"));
+            let emu = |name: &str| {
+                tile.and_then(|t| t.attr(name))
+                    .and_then(parse_i64)
+                    .unwrap_or(0) as f64
+            };
+            let scale = |name: &str| {
+                tile.and_then(|t| t.attr(name))
+                    .and_then(parse_i64)
+                    .map_or(1.0, |v| (v as f64 / 100_000.0).clamp(0.01, 100.0))
+            };
             return Some(Background::Picture(PictureFill {
                 media,
-                tile: blip_fill.child("tile").is_some(),
+                tile: tile.is_some(),
                 transparency,
+                // `a:fillRect` insets: positive = the picture's edge moved inwards
+                offsets: [
+                    pct(fill_rect, "l"),
+                    pct(fill_rect, "t"),
+                    pct(fill_rect, "r"),
+                    pct(fill_rect, "b"),
+                ],
+                tile_offset: [emu("tx"), emu("ty")],
+                tile_scale: [scale("sx"), scale("sy")],
             }));
         }
         read_bg(bg, self.w)
@@ -1164,6 +1279,7 @@ impl Reader<'_> {
             hidden: false,
             lock_aspect: false,
             text_color: None,
+            effect_ref: 0,
         })
     }
 
@@ -1208,7 +1324,39 @@ impl Reader<'_> {
         {
             self.consumed.insert(t);
         }
-        Some(MediaClip::new(kind, media))
+        let mut clip = MediaClip::new(kind, media);
+        if let Some(m) = nv.find("media").filter(|m| m.prefix == "p14") {
+            let ms = |e: Option<&El>, a: &str| {
+                e.and_then(|e| e.attr(a))
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .filter(|v| v.is_finite() && *v >= 0.0)
+                    .map_or(0, |v| v.round().min(f64::from(u32::MAX)) as u32)
+            };
+            let trim = m.child("trim");
+            clip.trim_start_ms = ms(trim, "st");
+            clip.trim_end_ms = ms(trim, "end");
+            let fade = m.child("fade");
+            clip.fade_in_ms = ms(fade, "in");
+            clip.fade_out_ms = ms(fade, "out");
+            for b in m
+                .child("bmkLst")
+                .into_iter()
+                .flat_map(|l| l.elements())
+                .filter(|b| b.name == "bmk")
+            {
+                let Some(name) = b.attr("name").filter(|n| !n.is_empty()) else {
+                    continue;
+                };
+                if clip.bookmarks.iter().any(|o| o.name == name) {
+                    continue;
+                }
+                clip.bookmarks.push(model_show::Bookmark {
+                    name: name.to_owned(),
+                    time_ms: ms(Some(b), "time"),
+                });
+            }
+        }
+        Some(clip)
     }
 
     /// The layout (else master) placeholder a slide placeholder
@@ -1338,6 +1486,7 @@ impl Reader<'_> {
             hidden: false,
             lock_aspect: false,
             text_color: style.font,
+            effect_ref: style.effect,
         })
     }
 
@@ -1425,6 +1574,7 @@ impl Reader<'_> {
             hidden: false,
             lock_aspect: false,
             text_color: None,
+            effect_ref: 0,
         })
     }
 
@@ -1463,6 +1613,7 @@ impl Reader<'_> {
             hidden: false,
             lock_aspect: false,
             text_color: None,
+            effect_ref: 0,
         })
     }
 
@@ -1514,6 +1665,7 @@ impl Reader<'_> {
                 hidden: false,
                 lock_aspect: false,
                 text_color: None,
+                effect_ref: 0,
             });
         }
         let Some(rid) = blip.and_then(|b| b.attr("embed")) else {
@@ -1559,6 +1711,7 @@ impl Reader<'_> {
             hidden: false,
             lock_aspect: false,
             text_color: None,
+            effect_ref: 0,
         })
     }
 
@@ -1697,6 +1850,7 @@ impl Reader<'_> {
             hidden: false,
             lock_aspect: false,
             text_color: None,
+            effect_ref: 0,
         })
     }
 }

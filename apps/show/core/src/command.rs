@@ -15,11 +15,12 @@ use core_model::media::{MediaId, MediaStore};
 use core_model::{ColorScheme, FontScheme, RunProperties};
 use model_show::{
     Action, Adjust, AlignMode, Alignment, Anchor, Animation, AnimationKind, ArrowEnd, Axis,
-    Background, BodyProps, Bullet, ChartData, ChartShape, Connector, ConnectorKind, Crop,
-    Direction, Effect, Fill, HfDate, Hyperlink, Insets, Layout, LayoutKind, Line, MediaClip,
-    MediaStart, NodeId, PictureProps, PlaceholderKind, Preset, Recolor, Section, Shadow, Shape,
-    ShapeKind, ShowSettings, Slide, SlideMaster, SlideSize, Table, TableLook, TextBody, TextClass,
-    TextSpacing, Theme, Transform, Transition, Trigger, ViewProps,
+    Background, BodyProps, Bookmark, Bullet, ChartData, ChartShape, Connector, ConnectorKind, Crop,
+    CustomShow, Direction, Effect, EffectStyle, Fill, Guide, HfDate, Hyperlink, Insets, Iterate,
+    Layout, LayoutKind, Line, MediaClip, MediaStart, NodeId, PictureProps, PlaceholderKind, Preset,
+    Recolor, Repeat, Section, Shadow, Shape, ShapeKind, ShowSettings, Slide, SlideMaster,
+    SlideSize, StartOn, Table, TableLook, TextBody, TextBuild, TextClass, TextSpacing, Theme,
+    Transform, Transition, Trigger, ViewProps,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
@@ -164,6 +165,67 @@ pub struct AnimationPatch {
     )]
     #[ts(optional = nullable, as = "Option<Direction>")]
     pub direction: Option<Option<Direction>>,
+    /// `null` = the effect's default amount.
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<i32>")]
+    pub amount: Option<Option<i32>>,
+    /// `null` = the effect's default colour.
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<String>")]
+    pub color: Option<Option<String>>,
+    /// `null` = the preset's default path.
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<String>")]
+    pub path: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub auto_reverse: Option<bool>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<Repeat>")]
+    pub repeat: Option<Option<Repeat>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub rewind: Option<bool>,
+    /// `null` = as one object.
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<TextBuild>")]
+    pub build: Option<Option<TextBuild>>,
+    /// `null` = all at once.
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<Iterate>")]
+    pub iterate: Option<Option<Iterate>>,
+    /// `null` = in the click sequence.
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<StartOn>")]
+    pub start_on: Option<Option<StartOn>>,
 }
 
 impl AnimationPatch {
@@ -194,6 +256,40 @@ impl AnimationPatch {
                     a.direction = None;
                 }
             }
+        }
+        // options the new effect does not take go when it changes
+        match &self.amount {
+            Some(v) => a.amount = *v,
+            None if a.effect.default_amount().is_none() => a.amount = None,
+            None => {}
+        }
+        match &self.color {
+            Some(v) => a.color = v.clone(),
+            None if !a.effect.has_color() => a.color = None,
+            None => {}
+        }
+        match &self.path {
+            Some(v) => a.path = v.clone(),
+            None if self.effect.is_some() && a.effect != Effect::PathCustom => a.path = None,
+            None => {}
+        }
+        if let Some(v) = self.auto_reverse {
+            a.auto_reverse = v;
+        }
+        if let Some(v) = self.repeat {
+            a.repeat = v;
+        }
+        if let Some(v) = self.rewind {
+            a.rewind = v;
+        }
+        if let Some(v) = self.build {
+            a.build = v;
+        }
+        if let Some(v) = self.iterate {
+            a.iterate = v;
+        }
+        if let Some(v) = &self.start_on {
+            a.start_on = v.clone();
         }
     }
 }
@@ -568,6 +664,29 @@ pub struct MediaPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub muted: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub play_across_slides: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub rewind: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub trim_start_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub trim_end_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fade_in_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fade_out_ms: Option<u32>,
+    /// The whole bookmark list (sorted by time on apply); animations
+    /// triggered by a removed bookmark are removed with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub bookmarks: Option<Vec<Bookmark>>,
 }
 
 impl MediaPatch {
@@ -587,6 +706,28 @@ impl MediaPatch {
         }
         if let Some(v) = self.muted {
             c.muted = v;
+        }
+        if let Some(v) = self.play_across_slides {
+            c.play_across_slides = v;
+        }
+        if let Some(v) = self.rewind {
+            c.rewind = v;
+        }
+        if let Some(v) = self.trim_start_ms {
+            c.trim_start_ms = v;
+        }
+        if let Some(v) = self.trim_end_ms {
+            c.trim_end_ms = v;
+        }
+        if let Some(v) = self.fade_in_ms {
+            c.fade_in_ms = v;
+        }
+        if let Some(v) = self.fade_out_ms {
+            c.fade_out_ms = v;
+        }
+        if let Some(v) = &self.bookmarks {
+            c.bookmarks = v.clone();
+            c.bookmarks.sort_by_key(|b| b.time_ms);
         }
     }
 }
@@ -777,6 +918,22 @@ pub enum ShowCommand {
     /// Gives every slide the transition of slide `from` (PowerPoint's
     /// "Apply To All"; none when `from` has none).
     ApplyTransitionToAll { from: NodeId },
+    /// Transitions › Sound of slides: a sound file (bytes as standard
+    /// base64; added to the media store), "[Stop Previous Sound]", or –
+    /// neither given – no sound. Slides without a transition get one
+    /// without effect.
+    SetTransitionSound {
+        slides: Vec<NodeId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_type: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bytes_base64: Option<String>,
+        #[serde(default)]
+        stop_previous: bool,
+        /// "Loop Until Next Sound".
+        #[serde(default, rename = "loop")]
+        loop_until_next: bool,
+    },
     /// Inserts `animation` into the play order of `slide` at `index`
     /// (absent = last). Its shape must be on the slide; `animation.id` is
     /// ignored (send 0) – the animation gets `newId` (temporary negative
@@ -795,6 +952,9 @@ pub enum ShowCommand {
     RemoveAnimation { id: NodeId },
     /// Moves an animation to position `index` of its slide's play order.
     ReorderAnimation { id: NodeId, index: u32 },
+    /// Puts the animations of `slide` into the order `order` (a
+    /// permutation of their ids; Move Earlier / Later of a click step).
+    SetAnimationOrder { slide: NodeId, order: Vec<NodeId> },
     /// Changes the geometry of auto shapes: the preset (absent =
     /// unchanged) and/or its adjust values (absent = unchanged; `{}` =
     /// the preset's defaults). Changing the preset without `adjust`
@@ -908,6 +1068,13 @@ pub enum ShowCommand {
     SetThemeFonts {
         #[ts(as = "model_show::ts::FontScheme")]
         fonts: FontScheme,
+    },
+    /// Design › Variants › Effects: replaces the theme's effect styles
+    /// (`a:effectStyleLst`: subtle, moderate, intense; at least one) and
+    /// names the format scheme after the effect scheme.
+    SetThemeEffects {
+        name: String,
+        effect_styles: Vec<EffectStyle>,
     },
     /// Adds a custom layout `name` (title plus date/footer/slide number,
     /// as PowerPoint's Insert Layout) after the last layout.
@@ -1165,8 +1332,18 @@ pub enum ShowCommand {
     /// Sets the view settings: guides, grid, snapping, ruler, last view
     /// (stored in `viewProps.xml`; undoable like PowerPoint's guide moves).
     SetViewProps { view: ViewProps },
+    /// The drawing guides of the master or a layout (Slide Master view;
+    /// `p15:sldGuideLst`).
+    SetDesignGuides {
+        target: DesignTarget,
+        guides: Vec<Guide>,
+    },
     /// Sets the Set Up Slide Show options (`presProps.xml`).
     SetShowSettings { settings: ShowSettings },
+    /// Slide Show › Custom Slide Show › Custom Shows…: replaces the custom
+    /// shows (ids and names unique, slides must exist). Removing the show
+    /// Set Up Slide Show runs resets it to all slides.
+    SetCustomShows { shows: Vec<CustomShow> },
     /// Hides shapes on their slide or shows them again (Selection pane).
     SetShapesHidden { shapes: Vec<NodeId>, hidden: bool },
     /// Replaces the text body properties (Format Shape › Text Box:

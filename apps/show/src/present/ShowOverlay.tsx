@@ -1,10 +1,13 @@
-// DOM layer over the slide in the slide show (P8-24): the slide's links
-// (an anchor per web address – opened in a new tab by the browser, no
-// `window.open` – and a button per jump) and its audio / video as HTML5
-// media elements with controls at the shape's place (Automatically clips
-// start when the slide appears, "In Click Sequence" clips when the click of
-// their step comes; looping, volume, mute and "hide while not playing" as
-// set on the Playback tab).
+// DOM layer over the slide in the slide show (P8-24, P9-S4): the slide's
+// links (an anchor per web address – opened in a new tab by the browser, no
+// `window.open` – and a button per jump), the trigger shapes of triggered
+// animations (a click plays the trigger's next step instead of advancing
+// the show) and its audio / video as HTML5 media elements with controls at
+// the shape's place (Automatically clips start when the slide appears, "In
+// Click Sequence" clips when the click of their step comes, Play / Pause /
+// Stop animations as they run; trim, fade in / out, bookmarks that fire
+// their triggers, rewind after playing, play across slides, looping,
+// volume, mute and "hide while not playing" as set on the Playback tab).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DeckContext } from "../design/deck";
@@ -15,7 +18,8 @@ import type { Slide } from "../generated/Slide";
 import { emuToPx, fitScale, slidePx } from "../geometry";
 import { themePalette } from "../model";
 import { linkRegions, safeUrl } from "../links/regions";
-import { startedMedia } from "../anim/playback";
+import { mediaCommands, triggerSequences } from "../anim/playback";
+import { carryOver } from "./sounds";
 
 export interface ShowOverlayProps {
   deck: DeckContext;
@@ -27,6 +31,10 @@ export interface ShowOverlayProps {
   width: number;
   height: number;
   onLink: (link: Hyperlink) => void;
+  /** Triggers fired on this slide (their media commands run too). */
+  fired?: readonly string[];
+  /** A trigger fired: a click on its shape, or a clip passed its bookmark (`startOnKey`). */
+  onTrigger?: (key: string) => void;
 }
 
 const blobUrls = new Map<string, string>();
@@ -50,27 +58,90 @@ export function mediaUrl(dataUrl: string | undefined): string | undefined {
   return url;
 }
 
+/** The volume of a clip at `t` s of its trimmed play (Fade In / Fade Out ramps). */
+export function fadeVolume(clip: Pick<MediaClip, "volume" | "fadeInMs" | "fadeOutMs" | "trimStartMs" | "trimEndMs">, t: number, duration: number): number {
+  const v = Math.max(0, Math.min(1, (clip.volume ?? 100000) / 100000));
+  const start = (clip.trimStartMs ?? 0) / 1000;
+  const end = Number.isFinite(duration) && duration > 0 ? duration - (clip.trimEndMs ?? 0) / 1000 : Infinity;
+  const fi = (clip.fadeInMs ?? 0) / 1000;
+  const fo = (clip.fadeOutMs ?? 0) / 1000;
+  let k = 1;
+  if (fi > 0) k = Math.min(k, Math.max(0, (t - start) / fi));
+  if (fo > 0 && Number.isFinite(end)) k = Math.min(k, Math.max(0, (end - t) / fo));
+  return v * Math.max(0, Math.min(1, k));
+}
+
+/** The bookmarks a clip passed between `from` and `to` s (playback moved on). */
+export function passedBookmarks(clip: Pick<MediaClip, "bookmarks">, from: number, to: number): string[] {
+  if (to <= from) return [];
+  return (clip.bookmarks ?? []).filter((b) => b.timeMs / 1000 > from && b.timeMs / 1000 <= to).map((b) => b.name);
+}
+
 /** One clip of the slide. */
-function Clip({ shape, clip, url, poster, scale, started }: { shape: Shape; clip: MediaClip; url: string | undefined; poster: string | undefined; scale: number; started: boolean }) {
+function Clip({ shape, clip, url, poster, scale, command, onBookmark }: {
+  shape: Shape;
+  clip: MediaClip;
+  url: string | undefined;
+  poster: string | undefined;
+  scale: number;
+  /** The last Play / Pause / Stop of the click sequence for this clip. */
+  command: "play" | "pause" | "stop" | undefined;
+  onBookmark: (name: string) => void;
+}) {
   const ref = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
+  const lastTime = useRef(0);
+  const trimStart = (clip.trimStartMs ?? 0) / 1000;
+  const play = (el: HTMLMediaElement) => {
+    if (el.currentTime < trimStart) el.currentTime = trimStart;
+    void el.play?.()?.catch(() => undefined);
+  };
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.volume = Math.max(0, Math.min(1, (clip.volume ?? 100000) / 100000));
+    el.volume = fadeVolume(clip, el.currentTime || trimStart, el.duration);
     el.muted = !!clip.muted;
-    if (clip.start === "automatically") void el.play?.()?.catch(() => undefined);
+    if (trimStart && !el.currentTime) el.currentTime = trimStart;
+    if (clip.start === "automatically") play(el);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clip.volume, clip.muted, clip.start, url]);
-  // "In Click Sequence": the click of its step starts it (going back stops it)
+  // Play / Pause / Stop from the click sequence ("In Click Sequence" clips, media animations); going back stops it
   useEffect(() => {
     const el = ref.current;
-    if (!el || clip.start !== "inClickSequence") return;
-    if (started) void el.play?.()?.catch(() => undefined);
-    else {
+    if (!el) return;
+    if (command === "play") play(el);
+    else if (command === "pause") el.pause?.();
+    else if (command === "stop" || clip.start === "inClickSequence") {
       el.pause?.();
-      if (el.currentTime) el.currentTime = 0;
+      if (el.currentTime !== trimStart) el.currentTime = trimStart;
     }
-  }, [started, clip.start, url]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [command, clip.start, url]);
+  // Play Across Slides: a playing clip keeps sounding when the slide changes
+  useEffect(() => {
+    const el = ref.current;
+    return () => {
+      if (clip.playAcrossSlides && el && !el.paused && url) carryOver(url, el.currentTime, !!clip.loop, el.volume);
+    };
+  }, [clip.playAcrossSlides, clip.loop, url]);
+  const onTime = () => {
+    const el = ref.current;
+    if (!el) return;
+    const now = el.currentTime;
+    el.volume = fadeVolume(clip, now, el.duration);
+    for (const name of passedBookmarks(clip, lastTime.current, now)) onBookmark(name);
+    lastTime.current = now;
+    // the trimmed end
+    const end = Number.isFinite(el.duration) ? el.duration - (clip.trimEndMs ?? 0) / 1000 : Infinity;
+    if (now >= end && (clip.trimEndMs ?? 0) > 0) {
+      if (clip.loop) el.currentTime = trimStart;
+      else {
+        el.pause();
+        if (clip.rewind) el.currentTime = trimStart;
+        setPlaying(false);
+      }
+    }
+  };
   const t = shape.transform;
   const box = { left: emuToPx(t.x) * scale, top: emuToPx(t.y) * scale, width: emuToPx(t.w) * scale, height: emuToPx(t.h) * scale };
   const hidden = !!clip.hideWhenNotPlaying && !playing;
@@ -78,13 +149,24 @@ function Clip({ shape, clip, url, poster, scale, started }: { shape: Shape; clip
     ref,
     src: url,
     controls: true,
-    loop: !!clip.loop,
+    loop: !!clip.loop && !(clip.trimEndMs ?? 0),
     preload: "auto" as const,
     "data-testid": `show-media-${shape.id}`,
     "data-media": clip.kind,
+    "data-trim-start": clip.trimStartMs ?? 0,
+    "data-trim-end": clip.trimEndMs ?? 0,
+    "data-command": command,
     onPlay: () => setPlaying(true),
     onPause: () => setPlaying(false),
-    onEnded: () => setPlaying(false),
+    onEnded: () => {
+      setPlaying(false);
+      const el = ref.current;
+      if (el && clip.rewind) el.currentTime = trimStart;
+    },
+    onTimeUpdate: onTime,
+    onSeeked: () => {
+      lastTime.current = ref.current?.currentTime ?? 0;
+    },
     onClick: (e: React.MouseEvent) => e.stopPropagation(),
   };
   if (clip.kind === "audio") {
@@ -100,14 +182,21 @@ function Clip({ shape, clip, url, poster, scale, started }: { shape: Shape; clip
   return <video {...common} poster={poster} className="absolute bg-black object-contain" style={{ ...box, opacity: hidden ? 0 : 1 }} />;
 }
 
-export function ShowOverlay({ deck, slide, step = 0, media, width, height, onLink }: ShowOverlayProps) {
+export function ShowOverlay({ deck, slide, step = 0, media, width, height, onLink, fired = [], onTrigger }: ShowOverlayProps) {
   const scale = fitScale(width, height, deck.slideSize);
   const px = slidePx(deck.slideSize);
   const palette = useMemo(() => themePalette(deck.theme), [deck.theme]);
   const regions = useMemo(() => linkRegions(deck, slide, palette), [deck, slide, palette]);
   const clips = slide.shapes.filter((s): s is Shape & { kind: { kind: "media"; value: MediaClip } } => s.kind.kind === "media");
-  const started = new Set(startedMedia(slide, step));
-  if (scale <= 0 || (!regions.length && !clips.length)) return null;
+  const commands = mediaCommands(slide, step, fired);
+  // the shapes clicked to fire triggers (the top-level shape's box)
+  const triggers = triggerSequences(slide).flatMap((seq) => {
+    if (seq.startOn.kind !== "click") return [];
+    const id = seq.startOn.value;
+    const top = slide.shapes.find((s) => s.id === id || (s.kind.kind === "group" && JSON.stringify(s.kind.value).includes(`"id":${id},`)));
+    return top ? [{ key: seq.key, shape: top }] : [];
+  });
+  if (scale <= 0 || (!regions.length && !clips.length && !triggers.length)) return null;
   const left = (width - px.width * scale) / 2;
   const top = (height - px.height * scale) / 2;
   return (
@@ -151,9 +240,35 @@ export function ShowOverlay({ deck, slide, step = 0, media, width, height, onLin
           />
         );
       })}
+      {triggers.map(({ key, shape: s }) => {
+        const tr = s.transform;
+        return (
+          <button
+            key={key}
+            type="button"
+            aria-label={s.name || key}
+            className="pointer-events-auto absolute cursor-pointer bg-transparent"
+            style={{ left: emuToPx(tr.x) * scale, top: emuToPx(tr.y) * scale, width: Math.max(4, emuToPx(tr.w) * scale), height: Math.max(4, emuToPx(tr.h) * scale) }}
+            data-testid="show-trigger"
+            data-trigger={key}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTrigger?.(key);
+            }}
+          />
+        );
+      })}
       {clips.map((s) => (
         <span key={s.id} className="pointer-events-auto">
-          <Clip shape={s} clip={s.kind.value} url={mediaUrl(media.get(s.kind.value.media))} poster={s.kind.value.poster !== undefined ? media.get(s.kind.value.poster) : undefined} scale={scale} started={started.has(s.id)} />
+          <Clip
+            shape={s}
+            clip={s.kind.value}
+            url={mediaUrl(media.get(s.kind.value.media))}
+            poster={s.kind.value.poster !== undefined ? media.get(s.kind.value.poster) : undefined}
+            scale={scale}
+            command={commands.get(s.id)}
+            onBookmark={(name) => onTrigger?.(`bmk:${s.id}:${name}`)}
+          />
         </span>
       ))}
     </div>

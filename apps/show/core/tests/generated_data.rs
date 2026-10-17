@@ -5,11 +5,14 @@
 //! `presetInfo.json` (every preset's adjust values with their defaults
 //! and its default shape name) and `shapePathSamples.json` (the core's
 //! outlines, text rectangles and handles of a few presets, the fixture of
-//! the UI's handle and text-rectangle tests).
+//! the UI's handle and text-rectangle tests), and `animInfo.json` (P9-S4:
+//! every animation effect's and transition kind's directions, options and
+//! defaults, the motion path presets' default paths – the tables the
+//! Animations and Transitions tabs build their galleries from).
 
 use std::path::PathBuf;
 
-use model_show::{builtin_table_styles, Adjust, Preset};
+use model_show::{builtin_table_styles, Adjust, Effect, Preset, TransitionKind};
 use serde_json::{json, Map, Value};
 use show_core::{PathKind, PathQuery};
 
@@ -77,4 +80,58 @@ fn shape_path_samples_json() {
         out.insert(prst.to_owned(), json!({ "w": w, "h": h, "paths": v }));
     }
     write_if_changed("shapePathSamples.json", &Value::Object(out));
+}
+
+#[test]
+fn anim_info_json() {
+    let name = |v: serde_json::Value| v.as_str().unwrap_or_default().to_owned();
+    let mut effects = Map::new();
+    for e in Effect::ALL {
+        let dirs: Vec<Value> = e.directions().iter().map(|d| json!(d)).collect();
+        let mut paths = Map::new();
+        for d in std::iter::once(None).chain(e.directions().iter().map(|d| Some(*d))) {
+            if let Some(p) = model_show::motion::default_path(e, d) {
+                let key = d.map_or("default".to_owned(), |d| name(json!(d)));
+                paths.insert(key, json!(p));
+            }
+        }
+        effects.insert(
+            name(json!(e)),
+            json!({
+                "class": e.class(),
+                "directions": dirs,
+                "defaultDirection": e.default_direction(),
+                "defaultDurationMs": e.default_duration_ms(),
+                "defaultAmount": e.default_amount(),
+                "defaultColor": e.default_color(),
+                "paths": paths,
+            }),
+        );
+    }
+    let mut transitions = Map::new();
+    for k in TransitionKind::ALL {
+        transitions.insert(
+            name(json!(k)),
+            json!({
+                "directions": k.directions(),
+                "defaultDirection": k.default_direction(),
+                "galleryDirection": k.gallery_direction(),
+                "options": k.options(),
+                "defaultOption": k.default_option(),
+                "defaultDurationMs": k.default_duration_ms(),
+                "extension": k.is_extension(),
+            }),
+        );
+    }
+    let order: Vec<Value> = Effect::ALL.iter().map(|e| json!(e)).collect();
+    let torder: Vec<Value> = TransitionKind::ALL.iter().map(|k| json!(k)).collect();
+    write_if_changed(
+        "animInfo.json",
+        &json!({
+            "effectOrder": order,
+            "effects": effects,
+            "transitionOrder": torder,
+            "transitions": transitions,
+        }),
+    );
 }

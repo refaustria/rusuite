@@ -10,7 +10,7 @@ use model_show::{
     align_shapes, distribute, presentation::header_footer_shapes, AlignMode, Attach, Background,
     Connector, Crop, Fill, HeaderFooter, Layout, LayoutKind, Line, NodeId, PictureProps,
     PlaceholderDef, PlaceholderKind, Presentation, Shape, ShapeKind, Site, Slide, SlideMaster,
-    Table, TextClass, Transform, ViewKind,
+    Table, TextClass, Transform, ViewKind, ViewProps,
 };
 
 use crate::command::{
@@ -129,6 +129,8 @@ struct Changes {
     view: bool,
     /// Slide-show settings changed.
     show_settings: bool,
+    /// Custom shows changed.
+    custom_shows: bool,
 }
 
 /// Every slide, shape and animation id of `p` (master and layout shapes
@@ -574,10 +576,45 @@ fn recrop_box(t: &Transform, old: &Crop, new: &Crop) -> Transform {
     }
 }
 
-/// Master and layouts for slide size `size`: the Office ones when the
+/// Master and layouts for slide size `size`. With content scaling
+/// (`uniform` = the Maximize / Ensure Fit factor) they scale like the
+/// slides, about the centre; without, the Office ones when the
 /// presentation has exactly the Office design for its current size, else
-/// its own with every placeholder and shape box scaled.
-fn resized_design(p: &Presentation, size: model_show::SlideSize) -> (SlideMaster, Vec<Layout>) {
+/// its own with every placeholder and shape box stretched to the new size.
+fn resized_design(
+    p: &Presentation,
+    size: model_show::SlideSize,
+    uniform: Option<f64>,
+) -> (SlideMaster, Vec<Layout>) {
+    // Maximize / Ensure Fit: the master and the layouts scale like the
+    // slides, by one factor about the slide centre (PowerPoint), so
+    // inherited placeholders stay where the slides' own shapes went
+    if let Some(k) = uniform {
+        let (old, new) = (p.slide_size, size);
+        let (ocx, ocy) = (old.width.0 as f64 / 2.0, old.height.0 as f64 / 2.0);
+        let (ncx, ncy) = (new.width.0 as f64 / 2.0, new.height.0 as f64 / 2.0);
+        let r = |v: f64| Emu(v.round() as i64);
+        let sc = |t: &mut Transform| {
+            t.x = r(ncx + (t.x.0 as f64 - ocx) * k);
+            t.y = r(ncy + (t.y.0 as f64 - ocy) * k);
+            t.w = r(t.w.0 as f64 * k);
+            t.h = r(t.h.0 as f64 * k);
+        };
+        let mut master = p.master.clone();
+        let mut layouts = p.layouts.clone();
+        for d in master
+            .placeholders
+            .iter_mut()
+            .chain(layouts.iter_mut().flat_map(|l| l.placeholders.iter_mut()))
+        {
+            sc(&mut d.transform);
+        }
+        scale_about_centre(&mut master.shapes, k, old, new);
+        for l in &mut layouts {
+            scale_about_centre(&mut l.shapes, k, old, new);
+        }
+        return (master, layouts);
+    }
     let builtin = Presentation::empty(p.slide_size);
     if p.master == builtin.master && p.layouts == builtin.layouts {
         let fresh = Presentation::empty(size);
@@ -690,6 +727,24 @@ impl ShowDocument {
     /// write-time stamp, not an edit (no undo step, no patch).
     pub fn stamp_last_view(&mut self, v: ViewKind) {
         self.pres.view.last_view = v;
+    }
+
+    /// Stamps the window state into the view settings before saving
+    /// (zoom, Slide Sorter zoom, pane sizes; no undo step, like
+    /// PowerPoint, whose view changes do not dirty the file). Values out of
+    /// range are clamped.
+    pub fn stamp_view_state(&mut self, s: &crate::dispatch::ViewState) {
+        let v = &mut self.pres.view;
+        v.zoom = s.zoom.map(|z| z.clamp(10, 400));
+        if let Some(z) = s.sorter_zoom {
+            v.sorter_zoom = z.clamp(10, 400);
+        }
+        if let Some(l) = s.restored_left {
+            v.restored_left = l.min(100_000);
+        }
+        if let Some(t) = s.restored_top {
+            v.restored_top = t.min(100_000);
+        }
     }
 
     pub fn save_pptx(&self) -> R<Vec<u8>> {
@@ -820,6 +875,7 @@ impl ShowDocument {
         for (id, before) in slides.iter().zip(&old) {
             if let Some(s) = self.pres.slide_mut(*id) {
                 s.prune_animations();
+                s.order_triggered();
                 follow_connectors(before, s);
             }
         }
@@ -891,7 +947,27 @@ impl ShowDocument {
                 | C::MoveSection { .. }
         );
         let before = (!own).then(|| self.pres.sections.clone());
-        let inverse = self.exec_inner(cmd, ch)?;
+        let shows_before = (!own && !self.pres.custom_shows.is_empty()).then(|| {
+            (
+                self.pres.custom_shows.clone(),
+                self.pres.show_settings.clone(),
+            )
+        });
+        let mut inverse = self.exec_inner(cmd, ch)?;
+        // custom shows lose the slides that were removed (undo puts them back)
+        if let Some((shows, settings)) = shows_before {
+            if self.pres.fix_custom_shows() {
+                ch.custom_shows = true;
+                ch.show_settings |= settings != self.pres.show_settings;
+                inverse = C::Compound {
+                    commands: vec![
+                        inverse,
+                        C::SetCustomShows { shows },
+                        C::SetShowSettings { settings },
+                    ],
+                };
+            }
+        }
         let Some(before) = before else {
             return Ok(inverse);
         };
@@ -983,6 +1059,11 @@ impl ShowDocument {
                 for a in &mut copy.animations {
                     a.id = self.pres.alloc_id();
                     a.shape = map.get(&a.shape).copied().unwrap_or(a.shape);
+                    if let Some(t) = &a.start_on {
+                        if let Some(&new) = map.get(&t.shape()) {
+                            a.start_on = Some(t.with_shape(new));
+                        }
+                    }
                 }
                 model_show::presentation::remap_attachments(&mut copy.shapes, &map);
                 let new_id = copy.id;
@@ -1255,7 +1336,7 @@ impl ShowDocument {
                         Ok(())
                     })?);
                 }
-                let (master, layouts) = resized_design(&self.pres, *size);
+                let (master, layouts) = resized_design(&self.pres, *size, k);
                 inverse.insert(0, self.set_size(*size, master, layouts, ch));
                 Ok(if inverse.len() == 1 {
                     inverse.remove(0)
@@ -1309,11 +1390,53 @@ impl ShowDocument {
                 ch.view = true;
                 Ok(C::SetViewProps { view: old })
             }
+            C::SetDesignGuides { target, guides } => {
+                ViewProps {
+                    guides: guides.clone(),
+                    ..ViewProps::default()
+                }
+                .validate()
+                .map_err(invalid)?;
+                let i = match target {
+                    DesignTarget::Master => None,
+                    DesignTarget::Layout(kind) => Some(self.layout_index(kind)?),
+                };
+                let inverse = self.design_snapshot();
+                match i {
+                    None => self.pres.master.guides = guides.clone(),
+                    Some(i) => self.pres.layouts[i].guides = guides.clone(),
+                }
+                ch.design = true;
+                Ok(inverse)
+            }
             C::SetShowSettings { settings } => {
                 settings.validate().map_err(invalid)?;
-                let old = std::mem::replace(&mut self.pres.show_settings, *settings);
+                if let Some(id) = settings.custom_show {
+                    if self.pres.custom_show(id).is_none() {
+                        return Err(invalid(format!("unknown custom show {id}")));
+                    }
+                }
+                let old = std::mem::replace(&mut self.pres.show_settings, settings.clone());
                 ch.show_settings = true;
                 Ok(C::SetShowSettings { settings: old })
+            }
+            C::SetCustomShows { shows } => {
+                let known: HashSet<NodeId> = self.pres.slides.iter().map(|s| s.id).collect();
+                model_show::validate_custom_shows(shows, |id| known.contains(&id))
+                    .map_err(invalid)?;
+                let old = std::mem::replace(&mut self.pres.custom_shows, shows.clone());
+                ch.custom_shows = true;
+                let settings = self.pres.show_settings.clone();
+                if self.pres.fix_custom_shows() {
+                    ch.show_settings = true;
+                    return Ok(C::Compound {
+                        commands: vec![
+                            C::SetCustomShows { shows: old },
+                            C::SetShowSettings { settings },
+                        ],
+                    });
+                }
+                Ok(C::SetCustomShows { shows: old })
             }
             C::SetLockAspect { shapes, locked } => self.edit_shapes(shapes, ch, |s| {
                 s.lock_aspect = *locked;
@@ -1429,6 +1552,22 @@ impl ShowDocument {
             C::SetThemeFonts { fonts } => {
                 let inverse = self.design_snapshot();
                 self.pres.theme.fonts = fonts.clone();
+                ch.design = true;
+                Ok(inverse)
+            }
+            C::SetThemeEffects {
+                name,
+                effect_styles,
+            } => {
+                if effect_styles.is_empty() || effect_styles.len() > 6 {
+                    return Err(invalid("an effect scheme has 1–6 effect styles"));
+                }
+                let inverse = self.design_snapshot();
+                let f = &mut self.pres.theme.format;
+                f.effect_styles = effect_styles.clone();
+                if !name.trim().is_empty() {
+                    f.name = name.trim().to_owned();
+                }
                 ch.design = true;
                 Ok(inverse)
             }
@@ -1572,9 +1711,9 @@ impl ShowDocument {
                 let media = self.pres.media.insert(content_type.clone(), bytes);
                 let added = self.pres.media.len() > count;
                 let bg = Background::Picture(model_show::PictureFill {
-                    media,
                     tile: *tile,
                     transparency: *transparency,
+                    ..model_show::PictureFill::new(media)
                 });
                 let restore = match self.set_background(target, Some(&bg), None, ch) {
                     Ok(r) => r,
@@ -1783,6 +1922,65 @@ impl ShowDocument {
                 let all = self.order();
                 self.set_transition(&all, t, ch)
             }
+            C::SetTransitionSound {
+                slides,
+                content_type,
+                bytes_base64,
+                stop_previous,
+                loop_until_next,
+            } => {
+                let mut added = None;
+                let sound = match (bytes_base64, *stop_previous) {
+                    (Some(b64), _) => {
+                        let ct = content_type.as_deref().unwrap_or("audio/wav");
+                        if !ct.starts_with("audio/") {
+                            return Err(invalid(format!("{ct} is no sound")));
+                        }
+                        let bytes = base64_decode(b64)
+                            .map_err(|e| ShowError::BadRequest(format!("invalid base64: {e}")))?;
+                        let count = self.pres.media.len();
+                        let media = self.pres.media.insert(ct.to_owned(), bytes);
+                        if self.pres.media.len() > count {
+                            added = Some(media);
+                        }
+                        Some(model_show::TransitionSound::Play {
+                            media,
+                            loop_until_next: *loop_until_next,
+                        })
+                    }
+                    (None, true) => Some(model_show::TransitionSound::StopPrevious),
+                    (None, false) => None,
+                };
+                let mut unique: Vec<NodeId> = Vec::with_capacity(slides.len());
+                for &id in slides {
+                    self.slide_index(id)?;
+                    if !unique.contains(&id) {
+                        unique.push(id);
+                    }
+                }
+                let restore = self.edit_slides(&unique, ch, |d| {
+                    for &id in &unique {
+                        let s = d.slide_mut(id)?;
+                        let mut t = s.transition.unwrap_or(model_show::Transition::new(
+                            model_show::TransitionKind::None,
+                        ));
+                        t.sound = sound;
+                        s.transition = (!t.is_noop()).then_some(t);
+                    }
+                    Ok(())
+                });
+                match (restore, added) {
+                    (Err(e), Some(m)) => {
+                        self.pres.media.remove(m);
+                        Err(e)
+                    }
+                    (Err(e), None) => Err(e),
+                    (Ok(r), Some(m)) => Ok(C::Compound {
+                        commands: vec![r, C::RemoveMedia { id: m }],
+                    }),
+                    (Ok(r), None) => Ok(r),
+                }
+            }
             C::AddAnimation {
                 slide,
                 animation,
@@ -1813,6 +2011,24 @@ impl ShowDocument {
                     Ok(())
                 })
             }
+            C::SetAnimationOrder { slide, order } => self.edit_slide(*slide, ch, |s| {
+                let mut ids: Vec<NodeId> = s.animations.iter().map(|a| a.id).collect();
+                let mut want = order.clone();
+                ids.sort_unstable();
+                want.sort_unstable();
+                if ids != want {
+                    return Err(invalid(
+                        "the order must list every animation of the slide once",
+                    ));
+                }
+                let mut old = std::mem::take(&mut s.animations);
+                for id in order {
+                    if let Some(i) = old.iter().position(|a| a.id == *id) {
+                        s.animations.push(old.remove(i));
+                    }
+                }
+                Ok(())
+            }),
             C::SetGeometry {
                 shapes,
                 geometry,
@@ -2099,6 +2315,7 @@ impl ShowDocument {
                 self.edit_shapes(shapes, ch, |s| {
                     if let ShapeKind::Media(m) = &mut s.kind {
                         patch.apply_to(m);
+                        m.validate().map_err(invalid)?;
                     }
                     Ok(())
                 })
@@ -2163,6 +2380,11 @@ impl ShowDocument {
     ) -> R<C> {
         if let Some(t) = &transition {
             t.validate().map_err(invalid)?;
+            if let Some(model_show::TransitionSound::Play { media, .. }) = t.sound {
+                if self.pres.media.get(media).is_none() {
+                    return Err(ShowError::UnknownMedia(media.0));
+                }
+            }
         }
         let transition = transition.filter(|t| !t.is_noop());
         let mut unique = Vec::with_capacity(slides.len());
@@ -2205,10 +2427,13 @@ impl ShowDocument {
         animation.validate().map_err(invalid)?;
         let mut ids = Ids::new(&self.pres);
         let id = ids.resolve(&mut self.pres, ch, Some(new_id))?;
-        let a = model_show::Animation { id, ..*animation };
+        let a = model_show::Animation {
+            id,
+            ..animation.clone()
+        };
         self.edit_slide(slide, ch, |s| {
             s.animations.insert(at, a);
-            Ok(())
+            s.validate().map_err(|e| invalid(e.to_string()))
         })
     }
 
@@ -2221,7 +2446,8 @@ impl ShowDocument {
                 .find(|a| a.id == id)
                 .ok_or_else(|| invalid(format!("unknown animation {}", id.0)))?;
             patch.apply_to(a);
-            a.validate().map_err(invalid)
+            a.validate().map_err(invalid)?;
+            s.validate().map_err(|e| invalid(e.to_string()))
         })
     }
 
@@ -2379,6 +2605,7 @@ impl ShowDocument {
             hidden: ns.hidden,
             lock_aspect: ns.lock_aspect,
             text_color: ns.text_color,
+            effect_ref: 0,
         };
         shape.fill_default_name();
         normalize_shape(&mut shape);
@@ -2953,6 +3180,19 @@ impl ShowDocument {
             Some(Background::Picture(p)) if !(0.0..=1.0).contains(&p.transparency) => {
                 Err(invalid("background transparency must be 0…1"))
             }
+            Some(Background::Picture(p))
+                if p.offsets.iter().any(|v| !v.is_finite() || v.abs() > 10.0)
+                    || p.tile_scale.iter().any(|v| !(0.01..=100.0).contains(v))
+                    || p.tile_offset.iter().any(|v| !v.is_finite()) =>
+            {
+                Err(invalid("background picture offsets or scale out of range"))
+            }
+            Some(Background::Gradient(g)) => g.validate().map_err(invalid),
+            Some(Background::Pattern(p))
+                if !model_show::PATTERN_PRESETS.contains(&p.preset.as_str()) =>
+            {
+                Err(invalid(format!("unknown pattern {:?}", p.preset)))
+            }
             _ => Ok(()),
         }
     }
@@ -2970,7 +3210,7 @@ impl ShowDocument {
                     Some(Background::Style { .. }) => {
                         return Err(invalid("slides take explicit background fills"))
                     }
-                    f => f.copied(),
+                    f => f.cloned(),
                 };
                 self.check_background_media(fill.as_ref())?;
                 for &id in slides {
@@ -2981,7 +3221,7 @@ impl ShowDocument {
                 self.edit_slides(&unique, ch, |d| {
                     for &id in &unique {
                         let s = d.slide_mut(id)?;
-                        s.background = fill;
+                        s.background = fill.clone();
                         if let Some(h) = hide {
                             s.show_master_shapes = !h;
                         }
@@ -2994,7 +3234,7 @@ impl ShowDocument {
                 self.check_background_media(fill)?;
                 let inverse = self.design_snapshot();
                 let l = &mut self.pres.layouts[i];
-                l.background = fill.copied();
+                l.background = fill.cloned();
                 if let Some(h) = hide {
                     l.show_master_shapes = !h;
                 }
@@ -3007,7 +3247,7 @@ impl ShowDocument {
                 }
                 self.check_background_media(fill)?;
                 let inverse = self.design_snapshot();
-                self.pres.master.background = fill.copied().unwrap_or_default();
+                self.pres.master.background = fill.cloned().unwrap_or_default();
                 ch.design = true;
                 Ok(inverse)
             }
@@ -3113,7 +3353,8 @@ impl ShowDocument {
             layouts: ch.design.then(|| self.pres.layouts.clone()),
             sections: ch.sections.then(|| self.pres.sections.clone()),
             view: ch.view.then(|| self.pres.view.clone()),
-            show_settings: ch.show_settings.then_some(self.pres.show_settings),
+            show_settings: ch.show_settings.then(|| self.pres.show_settings.clone()),
+            custom_shows: ch.custom_shows.then(|| self.pres.custom_shows.clone()),
         }
     }
 }

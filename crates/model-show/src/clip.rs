@@ -104,6 +104,56 @@ pub struct MediaClip {
     #[serde(default, skip_serializing_if = "is_false")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
     pub muted: bool,
+    /// "Play Across Slides" (`p:cMediaNode numSld="999"`): keeps playing
+    /// when the show moves on.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
+    pub play_across_slides: bool,
+    /// "Rewind after Playing" (`fill="remove"` on the media node): back
+    /// to the poster frame at the end.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
+    pub rewind: bool,
+    /// Trim Video/Audio: milliseconds cut from the start (`p14:trim st`).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<u32>"))]
+    pub trim_start_ms: u32,
+    /// Trim Video/Audio: milliseconds cut from the end (`p14:trim end`).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<u32>"))]
+    pub trim_end_ms: u32,
+    /// Fade In duration (`p14:fade in`).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<u32>"))]
+    pub fade_in_ms: u32,
+    /// Fade Out duration (`p14:fade out`).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<u32>"))]
+    pub fade_out_ms: u32,
+    /// Bookmarks (`p14:bmkLst`), in time order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Bookmark>>"))]
+    pub bookmarks: Vec<Bookmark>,
+}
+
+fn is_zero(v: &u32) -> bool {
+    *v == 0
+}
+
+/// A named point in a clip (Playback › Add Bookmark; `p14:bmk`), which
+/// can trigger animations ([`crate::anim::StartOn::Bookmark`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub struct Bookmark {
+    /// The name (PowerPoint: "Bookmark 1", …; unique in the clip).
+    pub name: String,
+    /// Position in milliseconds from the start of the untrimmed media.
+    pub time_ms: u32,
 }
 
 impl MediaClip {
@@ -126,7 +176,35 @@ impl MediaClip {
             hide_when_not_playing: false,
             volume: Self::VOLUME_HIGH,
             muted: false,
+            play_across_slides: false,
+            rewind: false,
+            trim_start_ms: 0,
+            trim_end_ms: 0,
+            fade_in_ms: 0,
+            fade_out_ms: 0,
+            bookmarks: Vec::new(),
         }
+    }
+
+    /// The name of the next bookmark ("Bookmark N" with the first unused N).
+    pub fn next_bookmark_name(&self) -> String {
+        (1..)
+            .map(|n| format!("Bookmark {n}"))
+            .find(|n| !self.bookmarks.iter().any(|b| &b.name == n))
+            .unwrap_or_default()
+    }
+
+    /// Checks the bookmarks (unique, non-empty names).
+    pub fn validate(&self) -> Result<(), String> {
+        for (i, b) in self.bookmarks.iter().enumerate() {
+            if b.name.is_empty() {
+                return Err("bookmark without a name".into());
+            }
+            if self.bookmarks[..i].iter().any(|o| o.name == b.name) {
+                return Err(format!("bookmark {:?} is used twice", b.name));
+            }
+        }
+        Ok(())
     }
 
     /// Whether the clip plays by itself when the slide appears.
@@ -198,6 +276,26 @@ mod tests {
         assert!(c.autoplay());
         assert_eq!(c.media_ids().collect::<Vec<_>>(), [MediaId(2), MediaId(3)]);
         assert_eq!(serde_json::from_str::<MediaClip>(&json).unwrap(), c);
+        let mut c = MediaClip {
+            trim_start_ms: 1000,
+            fade_out_ms: 250,
+            play_across_slides: true,
+            bookmarks: vec![Bookmark {
+                name: "Bookmark 1".into(),
+                time_ms: 1500,
+            }],
+            ..c
+        };
+        let json = serde_json::to_string(&c).unwrap();
+        assert!(
+            json.contains(r#""trimStartMs":1000,"fadeOutMs":250,"bookmarks":[{"name":"Bookmark 1","timeMs":1500}]"#),
+            "{json}"
+        );
+        assert_eq!(serde_json::from_str::<MediaClip>(&json).unwrap(), c);
+        assert_eq!(c.next_bookmark_name(), "Bookmark 2");
+        assert!(c.validate().is_ok());
+        c.bookmarks.push(c.bookmarks[0].clone());
+        assert!(c.validate().is_err());
     }
 
     #[test]

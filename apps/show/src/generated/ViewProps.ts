@@ -37,4 +37,28 @@ showRuler: boolean,
 /**
  * The last view.
  */
-lastView: ViewKind, };
+lastView: ViewKind, 
+/**
+ * Zoom of the Normal view in % (`p:slideViewPr` `p:scale`; `None` =
+ * fit to the window, `varScale`).
+ */
+zoom?: number, 
+/**
+ * Zoom of the Slide Sorter in % (`p:sorterViewPr` `p:scale`).
+ */
+sorterZoom: number, 
+/**
+ * Width of the thumbnail pane, in thousandths of a percent of the
+ * window (`p:restoredLeft/@sz`, PowerPoint's 15620 = 15.62 %).
+ */
+restoredLeft: number, 
+/**
+ * Height of the slide above the notes pane, in thousandths of a
+ * percent (`p:restoredTop/@sz`; 100000 = notes hidden).
+ */
+restoredTop: number, 
+/**
+ * Guides of the notes pages (`p15:notesGuideLst` in
+ * `presentation.xml`), kept for the round trip.
+ */
+notesGuides?: Array<Guide>, };

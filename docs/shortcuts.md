@@ -179,7 +179,7 @@ Linux. The desktop app gets them all.
 | Alt+F9 | Show / hide the drawing guides (the two centre guides when there are none) |
 | Delete, Backspace | Delete the selection |
 | Enter, F2 | Edit the text of the selected shape |
-| Escape | Deselect; cancels drawing a shape chosen in the Shapes gallery; leaves a focused adjust handle or Edit Points first |
+| Escape | Deselect; cancels drawing a shape chosen in the Shapes gallery, a Custom Path being drawn or the Animation Painter; leaves a focused adjust handle or Edit Points first |
 | Tab, Shift+Tab | Focus the selected shape's next / previous adjust handle (Slide Master view: next / previous text level) |
 | Arrows, Shift+Arrows (handle focused) | Move the focused adjust handle by 1 px, by 10 px |
 | Click, drag, double-click (Freeform: Shape) | Add a corner, draw freehand, end the shape open; a click on the start point closes it |
@@ -206,6 +206,26 @@ While editing a shape's text in place (P9-S1):
 | Mod+Z, Mod+Y | Undo, redo the typing of the session |
 | Escape, Mod+Enter | End editing |
 
+In the Outline View (P9-S3):
+
+| Keys | Action |
+| --- | --- |
+| Tab, Shift+Tab | Demote, promote the selected lines (a demoted title joins the previous slide, a promoted line starts a slide) |
+| Alt+Shift+→, Alt+Shift+← | Demote, promote (as Tab, Shift+Tab) |
+| Alt+Shift+↑, Alt+Shift+↓ | Move the selected lines up, down |
+| Alt+Shift+−, Alt+Shift++ | Collapse, expand the slide (only its title shows) |
+| Alt+Shift+1, Alt+Shift+9 | Collapse all, expand all |
+| Enter | New line at the same level (after a title: a new slide) |
+| Mod+B, Mod+I, Mod+U | Bold, italic, underline of the selection |
+| Mod+Z | Undo the typing not yet written back (else the last command) |
+
+In the thumbnail pane and the Slide Sorter (P9-S3):
+
+| Keys | Action |
+| --- | --- |
+| Mod+↑, Mod+↓ | Move the selected slides one place up, down (across section borders) |
+| ←, → (on the pane's edge) | Narrow, widen the thumbnail pane |
+
 ### During the slide show
 
 The same keys work in the full-window show (F5), in the presenter view and in its slide show window.
@@ -227,8 +247,18 @@ The same keys work in the full-window show (F5), in the presenter view and in it
 Hidden slides are skipped unless the show starts on one. The mouse pointer hides after 3 s without movement. With
 Transitions › On mouse click off, a click does not leave the slide (the keys still do).
 
-In the Animation pane: ↑/↓ select an animation, Alt+↑/↓ move it earlier/later, Delete removes it. Esc or a click stops a
-Preview on the stage.
+In the Animation pane: ↑/↓ select an animation, Alt+↑/↓ move it earlier/later (PowerPoint's click-step semantics,
+P9-S4), Delete removes it. Esc or a click stops a Preview on the stage.
+
+Animations (P9-S4):
+
+| Keys / mouse | Action |
+| --- | --- |
+| Drag on the stage (Add Animation › Custom Path) | Draw the motion path of the selected shape; Esc cancels |
+| Drag a vertex of the selected motion path | Move the vertex (Edit Points); the path is saved on release |
+| Click / double-click Animation Painter, then click shapes | Copy the selected shape's animations onto one / several shapes; Esc ends |
+| ↑ / ↓ in a spinner (Duration, Delay, Fade In / Out), or its arrows | 0.25 s up / down within PowerPoint's limits |
+| Click on a trigger shape (slide show) | Play the trigger's next animation step (the show does not advance) |
 
 ### Shapes, connectors and tables
 

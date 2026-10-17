@@ -1,10 +1,12 @@
-// A slide with its animations (P8-8), used by the slide show, the
+// A slide with its animations (P8-8, P9-S4), used by the slide show, the
 // presenter view and the editor's Preview: the still state of a click step
-// (shapes hidden / scaled by the animations so far), the next group played
-// when the step goes up by one, the automatic group when the slide was
-// entered, or the whole sequence (Preview). `ShowSlide` adds the
-// transition from the previous slide (two slide pictures animated with the
-// Web Animations API).
+// (shapes hidden / moved / recoloured by the animations so far), the next
+// group played when the step goes up by one, the automatic group when the
+// slide was entered, the group of a trigger when it fires (a click on the
+// trigger shape, a media bookmark), or the whole sequence (Preview).
+// `ShowSlide` adds the transition from the previous slide (two slide
+// pictures animated with the Web Animations API) – only when the show
+// moved forward to the slide, like PowerPoint – and its sound.
 
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Layer, Stage } from "react-konva";
@@ -14,7 +16,8 @@ import type { Slide } from "../generated/Slide";
 import { fitScale, slidePx } from "../geometry";
 import { SlideView, type DeckContext } from "../canvas/SlideView";
 import { applyStates, playGroups } from "../anim/driver";
-import { clickGroups, hiddenShapes, shapeStates, transitionFrames } from "../anim/playback";
+import { clickGroups, firedGroups, hiddenShapes, playsTransition, shapeStates, transitionFrames } from "../anim/playback";
+import { playTransitionSound } from "./sounds";
 
 /** "Play the automatic animations once": shared by the remounts of one visit of a slide (blank screen in between). */
 export interface EntryToken {
@@ -38,9 +41,13 @@ export interface AnimatedSlideProps {
   /** No animation, just the state of `step`. */
   still?: boolean;
   onPlayed?: () => void;
+  /** The triggers fired on this visit, in order (keys of `triggerSequences`); a new one plays its next group. */
+  fired?: readonly string[];
 }
 
-export function AnimatedSlide({ deck, slide, media, mediaVersion, width, height, step, entry, entryDelayMs = 0, playAll, still, onPlayed }: AnimatedSlideProps) {
+const NO_FIRES: readonly string[] = [];
+
+export function AnimatedSlide({ deck, slide, media, mediaVersion, width, height, step, entry, entryDelayMs = 0, playAll, still, onPlayed, fired = NO_FIRES }: AnimatedSlideProps) {
   const stageRef = useRef<Konva.Stage>(null);
   const groups = useMemo(() => clickGroups(slide), [slide]);
   const target = playAll ? groups.length : Math.min(step, groups.length - 1) + 1;
@@ -50,7 +57,12 @@ export function AnimatedSlide({ deck, slide, media, mediaVersion, width, height,
   played.current = onPlayed;
   const px = slidePx(deck.slideSize);
   const scale = fitScale(width, height, deck.slideSize);
-  const hidden = useMemo(() => hiddenShapes(shapeStates(slide, target)).join(","), [slide, target]);
+  const states = useMemo(() => shapeStates(slide, target, fired), [slide, target, fired]);
+  const hidden = useMemo(() => hiddenShapes(states).join(","), [states]);
+  // the still state for tests and e2e: hidden paragraphs of paragraph builds, shapes moved by motion paths
+  const hiddenParas = [...states].flatMap(([id, st]) => (st.hiddenParas?.length ? [`${id}:${st.hiddenParas.join(",")}`] : [])).join(";");
+  const moved = [...states].flatMap(([id, st]) => (st.dx || st.dy ? [`${id}:${(st.dx ?? 0).toFixed(3)},${(st.dy ?? 0).toFixed(3)}`] : [])).join(";");
+  const firedRef = useRef<{ id: NodeId; n: number }>({ id: slide.id, n: fired.length });
 
   useLayoutEffect(() => {
     const p = prev.current;
@@ -78,27 +90,56 @@ export function AnimatedSlide({ deck, slide, media, mediaVersion, width, height,
       if (playAll) done();
       return;
     }
-    applyStates(stage, shapeStates(slide, from));
+    const px = slidePx(deck.slideSize);
+    firedRef.current = { id: slide.id, n: fired.length };
+    applyStates(stage, shapeStates(slide, from, fired), px);
     if (from >= target) {
       if (playAll) done();
       return;
     }
     let running = true;
-    const cancel = playGroups(stage, groups.slice(from, target), delay, slidePx(deck.slideSize), () => {
+    const cancel = playGroups(stage, groups.slice(from, target), delay, px, () => {
       running = false;
-      applyStates(stage, shapeStates(slide, target));
+      applyStates(stage, shapeStates(slide, target, fired), px);
       done();
     });
     return () => {
-      if (!running) return;
-      plan.cut = true;
+      if (running) plan.cut = true;
+      // animations repeating until the next click stop here
       cancel();
     };
+    // `fired` is read when the plan changes; a new fire plays below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slide, target, still, playAll, groups, deck.slideSize]);
+
+  // a trigger fired: its next group plays on top of the current state
+  useLayoutEffect(() => {
+    const f = firedRef.current;
+    const stage = stageRef.current;
+    if (f.id !== slide.id || fired.length <= f.n || !stage?.findOne || still) {
+      firedRef.current = { id: slide.id, n: fired.length };
+      return;
+    }
+    const before = fired.slice(0, f.n);
+    firedRef.current = { id: slide.id, n: fired.length };
+    const px = slidePx(deck.slideSize);
+    const fresh = firedGroups(slide, fired).slice(firedGroups(slide, before).length);
+    if (!fresh.length) return;
+    const cancel = playGroups(stage, fresh, 0, px, () => applyStates(stage, shapeStates(slide, target, fired), px));
+    return () => cancel();
+  }, [fired, slide, target, still, deck.slideSize]);
 
   if (scale <= 0) return null;
   return (
-    <div data-testid="animated-slide" data-slide={slide.id} data-step={step} data-hidden-shapes={hidden} style={{ width: px.width * scale, height: px.height * scale }}>
+    <div
+      data-testid="animated-slide"
+      data-slide={slide.id}
+      data-step={step}
+      data-hidden-shapes={hidden}
+      data-hidden-paras={hiddenParas || undefined}
+      data-moved={moved || undefined}
+      style={{ width: px.width * scale, height: px.height * scale }}
+    >
       <Stage ref={stageRef} width={px.width * scale} height={px.height * scale} scaleX={scale} scaleY={scale} listening={false}>
         <Layer listening={false}>
           <SlideView deck={deck} slide={slide} media={media} mediaVersion={mediaVersion} />
@@ -146,14 +187,17 @@ export interface ShowSlideProps {
   mediaVersion: number;
   width: number;
   height: number;
+  /** Triggers fired on this slide (see `AnimatedSlide`). */
+  fired?: readonly string[];
 }
 
 const animatable = (el: HTMLElement | null): el is HTMLElement & { animate: Element["animate"] } => !!el && typeof el.animate === "function";
 
 /** The current slide of the show with the transition from the previous one. */
-export function ShowSlide({ deck, slides, visit, step, media, mediaVersion, width, height }: ShowSlideProps) {
+export function ShowSlide({ deck, slides, visit, step, media, mediaVersion, width, height, fired }: ShowSlideProps) {
   const slide = slides[visit.index];
-  const old = visit.forward && visit.from >= 0 ? slides[visit.from] : undefined;
+  // forward only (Next, a jump to a later slide); going back shows the slide at once
+  const old = visit.forward && playsTransition(visit.from, visit.index) ? slides[visit.from] : undefined;
   const frames = useMemo(() => (old ? transitionFrames(slide?.transition) : transitionFrames(null)), [old, slide?.transition]);
   // The transition of a visit plays once (not again after a blank screen).
   const [playing, setPlaying] = useState<number | null>(null);
@@ -164,7 +208,9 @@ export function ShowSlide({ deck, slides, visit, step, media, mediaVersion, widt
     if (visit.transition.played) return;
     visit.transition.played = true;
     if (frames.durationMs > 0 && old) setPlaying(visit.seq);
-  }, [visit, frames, old]);
+    // the transition's sound plays when the slide is reached forward (or the show starts on it)
+    if (visit.forward && slide?.transition?.sound) playTransitionSound(slide.transition.sound, media);
+  }, [visit, frames, old, slide, media]);
 
   useLayoutEffect(() => {
     if (playing === null) return;
@@ -192,8 +238,9 @@ export function ShowSlide({ deck, slides, visit, step, media, mediaVersion, widt
   const px = slidePx(deck.slideSize);
   const box = { width: px.width * scale, height: px.height * scale };
   const showOld = playing === visit.seq && old;
+  const stageCss = showOld && frames.stage ? frames.stage : undefined;
   return (
-    <div className="relative overflow-hidden" style={box} data-testid="show-slide" data-transition={showOld ? slide.transition?.kind : undefined}>
+    <div className="relative overflow-hidden" style={{ ...box, ...stageCss }} data-testid="show-slide" data-transition={showOld ? slide.transition?.kind : undefined} data-visit-forward={visit.forward ? "1" : "0"}>
       <div ref={inRef} className="absolute inset-0" style={{ zIndex: 1 }}>
         <AnimatedSlide
           deck={deck}
@@ -205,6 +252,7 @@ export function ShowSlide({ deck, slides, visit, step, media, mediaVersion, widt
           step={step}
           entry={visit.entry}
           entryDelayMs={old ? frames.durationMs : 0}
+          fired={fired}
         />
       </div>
       {showOld && (

@@ -1,6 +1,7 @@
 // Typed wrapper over `Backend.dispatch` for Show: one method per
 // `Request` kind; every reply is checked against the `Response` union.
 
+import type { ViewState } from "./generated/ViewState";
 import type { ViewKind } from "./generated/ViewKind";
 import type { Envelope } from "../../../packages/ui-shared/src/generated/Envelope";
 import type { ShowBackend } from "./backend";
@@ -163,8 +164,8 @@ export class ShowApi {
     return this.call({ type: "peekPresentation", bytesBase64 }, "peeked");
   }
 
-  /** The presentation as `.pptx` with the view it is shown in as `lastView` (no undo step); does not mark it saved. */
-  savePptx(lastView?: ViewKind): Promise<BodyOf<"saved">> {
-    return this.call(lastView ? { type: "savePptx", lastView } : { type: "savePptx" }, "saved");
+  /** The presentation as `.pptx` with the view it is shown in as `lastView` and the window state (zoom, panes; no undo step); does not mark it saved. */
+  savePptx(lastView?: ViewKind, viewState?: ViewState): Promise<BodyOf<"saved">> {
+    return this.call({ type: "savePptx", ...(lastView ? { lastView } : {}), ...(viewState ? { viewState } : {}) }, "saved");
   }
 }

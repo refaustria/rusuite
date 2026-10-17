@@ -16,6 +16,9 @@ import type { Guide } from "../generated/Guide";
 import type { GuideOrient } from "../generated/GuideOrient";
 import type { SlideSize } from "../generated/SlideSize";
 import type { ViewProps } from "../generated/ViewProps";
+import type { LayoutKind } from "../generated/LayoutKind";
+import type { NodeId } from "../generated/NodeId";
+import type { Presentation } from "../generated/Presentation";
 import { EMU_PER_PX, type Rect } from "../geometry";
 import { equalSpacing, snapBox, type Guides, type SnapTargets } from "./snap";
 
@@ -66,10 +69,33 @@ export function guideLinesPx(guides: readonly Guide[]): { xs: number[]; ys: numb
   };
 }
 
-/** The drawing guides as snap lines (none while they are hidden). */
-export function guideTargets(view: Pick<ViewProps, "guides" | "showGuides"> | undefined): SnapTargets {
-  if (!view?.showGuides || !view.guides.length) return { xs: [], ys: [] };
-  return guideLinesPx(view.guides);
+/** The drawing guides as snap lines (none while they are hidden); `extra`: the layout's and master's guides shown with them. */
+export function guideTargets(view: Pick<ViewProps, "guides" | "showGuides"> | undefined, extra: readonly Guide[] = []): SnapTargets {
+  const all = [...(view?.guides ?? []), ...extra];
+  if (!view?.showGuides || !all.length) return { xs: [], ys: [] };
+  return guideLinesPx(all);
+}
+
+/** The colour of master and layout guides when they have none (PowerPoint's orange). */
+export const DESIGN_GUIDE_COLOR = "FBAE40";
+
+/**
+ * The guides of the stage (P9-S3): `editable` – the selected master's or
+ * layout's in the Slide Master view, else the slides' (view settings) –
+ * and `inherited`, drawn but not draggable: on slides the layout's and
+ * the master's, on a layout in the master view the master's.
+ */
+export function guideSets(
+  pres: Pick<Presentation, "view" | "master" | "layouts" | "slides">,
+  masterView: { kind: "master" } | { kind: "layout"; value: LayoutKind } | null,
+  current: NodeId | null,
+): { editable: Guide[]; inherited: Guide[] } {
+  const master = pres.master?.guides ?? [];
+  if (masterView?.kind === "master") return { editable: master, inherited: [] };
+  if (masterView) return { editable: pres.layouts.find((l) => l.kind === masterView.value)?.guides ?? [], inherited: master };
+  const slide = pres.slides.find((s) => s.id === current);
+  const layout = slide ? (pres.layouts.find((l) => l.kind === slide.layout)?.guides ?? []) : [];
+  return { editable: pres.view?.guides ?? [], inherited: [...layout, ...master] };
 }
 
 export interface SnapOptions {

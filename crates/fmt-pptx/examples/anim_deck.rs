@@ -1,5 +1,6 @@
-//! Builds a 7-slide deck with every supported slide transition and
-//! animation preset and writes it with `fmt_pptx::write`.
+//! Builds a deck with every supported slide transition and animation
+//! preset (P8-7; the PowerPoint 2010+ transitions, effects, motion paths,
+//! paragraph builds and triggers of P9-S4 on slides 8 and later) and writes it with `fmt_pptx::write`.
 //!
 //! ```text
 //! cargo run -q -p fmt-pptx --example anim_deck -- [out.pptx]
@@ -12,7 +13,8 @@
 
 use model_show::{
     Animation, AnimationKind, Direction, Effect, Emu, Fill, LayoutKind, NodeId, Presentation,
-    Preset, Shape, TextParagraph, Transform, Transition, TransitionKind, Trigger,
+    Preset, Repeat, Shape, StartOn, TextBuild, TextParagraph, Transform, Transition,
+    TransitionKind, Trigger,
 };
 
 /// A box in centimeters.
@@ -215,6 +217,92 @@ pub fn anim_deck() -> Presentation {
             ..transition(TransitionKind::Zoom, Some(Direction::In))
         },
     );
+    // 8–10 – the other entrance/exit and emphasis effects, motion paths
+    for (title, kind) in [
+        ("More entrances", Entrance),
+        ("More emphasis", Emphasis),
+        ("More exits", Exit),
+        ("Motion paths", AnimationKind::Path),
+    ] {
+        let s = slide(&mut p, title, transition(TransitionKind::Fade, None));
+        let effects: Vec<Effect> = Effect::ALL
+            .into_iter()
+            .filter(|e| {
+                e.supports(kind)
+                    && !matches!(
+                        e,
+                        Effect::Appear
+                            | Effect::Fade
+                            | Effect::FlyIn
+                            | Effect::Wipe
+                            | Effect::Zoom
+                            | Effect::Spin
+                            | Effect::GrowShrink
+                    )
+            })
+            .collect();
+        for (i, effect) in effects.iter().enumerate() {
+            let (col, row) = (i % 6, i / 6);
+            let shape = add(
+                &mut p,
+                s,
+                Preset::Rect,
+                cm(1.0 + 5.2 * col as f64, 3.0 + 3.2 * row as f64, 4.6, 2.6),
+                &format!("{effect:?}"),
+            );
+            let mut a = Animation::new(shape, kind, *effect);
+            a.id = p.alloc_id();
+            a.trigger = if i % 2 == 0 { OnClick } else { AfterPrevious };
+            if *effect == Effect::PathCustom {
+                a.path = Some("M 0 0 C 0.05 0.1 0.1 -0.1 0.2 0 L 0.25 0.1 E".to_owned());
+            }
+            if *effect == Effect::Teeter {
+                a.repeat = Some(Repeat::Times(2000));
+            }
+            p.slide_mut(s).expect("slide").animations.push(a);
+        }
+    }
+
+    // 12 – a paragraph build and a trigger
+    let s = slide(
+        &mut p,
+        "Float in by paragraph; click the star",
+        transition(TransitionKind::Vortex, Some(Direction::Right)),
+    );
+    let mut body = Shape::text_box(cm(2.0, 3.0, 18.0, 8.0), "First point");
+    if let Some(t) = body.text_mut() {
+        let mut sub = TextParagraph::plain("A detail");
+        sub.props.level = 1;
+        t.paragraphs.push(sub);
+        t.paragraphs.push(TextParagraph::plain("Second point"));
+    }
+    let body = p.add_shape(s, body).expect("slide exists");
+    let star = add(
+        &mut p,
+        s,
+        Preset::Ellipse,
+        cm(24.0, 4.0, 4.0, 4.0),
+        "Trigger",
+    );
+    let mut a = Animation::new(body, Entrance, Effect::Float);
+    a.id = p.alloc_id();
+    a.build = Some(TextBuild::by_paragraph());
+    p.slide_mut(s).expect("slide").animations.push(a);
+    let mut t = Animation::new(star, Emphasis, Effect::Pulse);
+    t.id = p.alloc_id();
+    t.start_on = Some(StartOn::Click(star));
+    p.slide_mut(s).expect("slide").animations.push(t);
+
+    // 13 and later – every other transition kind
+    for kind in TransitionKind::ALL {
+        if kind.is_extension() && kind != TransitionKind::Vortex {
+            slide(
+                &mut p,
+                &format!("{kind:?}"),
+                transition(kind, kind.gallery_direction()),
+            );
+        }
+    }
     p
 }
 

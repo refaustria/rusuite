@@ -2,5 +2,11 @@
 
 /**
  * The visual effect of a slide transition.
+ *
+ * The first eight are ECMA-376 transitions (`p:fade`, `p:push`, …); the
+ * others are PowerPoint 2010+ extensions written inside
+ * `mc:AlternateContent` with a `p:fade` fallback: `p14:*` (Vortex …
+ * Reveal), `p15:prstTrans prst="…"` (Fall Over … Origami) and
+ * `p159:morph`.
  */
-export type TransitionKind = "none" | "fade" | "push" | "wipe" | "cover" | "split" | "cut" | "zoom";
+export type TransitionKind = "none" | "fade" | "push" | "wipe" | "cover" | "split" | "cut" | "zoom" | "vortex" | "ripple" | "honeycomb" | "glitter" | "shred" | "switch" | "flip" | "gallery" | "cube" | "doors" | "box" | "reveal" | "fallOver" | "drape" | "curtains" | "wind" | "prestige" | "fracture" | "crush" | "peelOff" | "pageCurl" | "airplane" | "origami" | "morph";

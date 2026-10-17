@@ -15,7 +15,7 @@ use model_show::{
     Slide, Table,
 };
 
-use crate::anim::{write_timing, write_transition, MediaTarget, Target};
+use crate::anim::{write_timing, MediaTarget, Target};
 use crate::chart::{workbook_xlsx, TableData, CHART_URI, PACKAGE_REL, XLSX_CT};
 use crate::drawing::{
     deg_to_rot, write_color, write_color_with_alpha, write_fill, write_line, write_line_with_ends,
@@ -30,6 +30,7 @@ use crate::media::{AUDIO_REL, MEDIA_EXT_URI, MEDIA_REL, PLACEHOLDER_POSTER, VIDE
 use crate::parts::{self, sp_tree_start, ROOT_NS};
 use crate::table::{write_table, TABLE_URI};
 use crate::theme::{read_theme, theme_xml};
+use crate::transition::write_transition;
 use crate::xml::XmlOut;
 use crate::{Error, PptxContext, Result};
 
@@ -243,6 +244,16 @@ fn write_master(
         hf.slide_number,
     );
     write_text_styles(&mut w.x, &m.text_styles);
+    if !m.guides.is_empty() {
+        w.x.start("p:extLst", &[]);
+        crate::props::write_p15_guides(
+            &mut w.x,
+            crate::props::MASTER_GUIDES_URI,
+            "p15:sldGuideLst",
+            &m.guides,
+        );
+        w.x.end("p:extLst");
+    }
     w.x.end("p:sldMaster");
     Ok((w.x.finish(), w.rels))
 }
@@ -305,6 +316,16 @@ fn write_layout(
     w.x.end("p:clrMapOvr");
     if layout.kind == LayoutKind::Title && m.header_footer.not_on_title {
         write_hf(&mut w.x, false, false, false);
+    }
+    if !layout.guides.is_empty() {
+        w.x.start("p:extLst", &[]);
+        crate::props::write_p15_guides(
+            &mut w.x,
+            crate::props::LAYOUT_GUIDES_URI,
+            "p15:sldGuideLst",
+            &layout.guides,
+        );
+        w.x.end("p:extLst");
     }
     w.x.end("p:sldLayout");
     Ok((w.x.finish(), w.rels))
@@ -568,7 +589,14 @@ fn write_slide(
     w.x.empty("a:masterClrMapping", &[]);
     w.x.end("p:clrMapOvr");
     if let Some(t) = &slide.transition {
-        write_transition(&mut w.x, t);
+        let rid = match t.sound {
+            Some(model_show::TransitionSound::Play { media, .. }) => {
+                let file = w.media.part_of(p, media, true)?;
+                Some(w.rels.add(AUDIO_REL, format!("../{file}")).id.clone())
+            }
+            _ => None,
+        };
+        write_transition(&mut w.x, t, rid.as_deref());
     }
     let clips = std::mem::take(&mut w.clips);
     let media_targets: Vec<MediaTarget<'_>> = clips
@@ -597,8 +625,7 @@ impl SlideWriter<'_> {
             s.id,
             Target {
                 spid: self.next_shape_id - 1,
-                text: false,
-                placeholder: false,
+                ..Target::default()
             },
         );
         let mut attrs = vec![("id", id.as_str()), ("name", name.as_str())];
@@ -745,14 +772,25 @@ impl SlideWriter<'_> {
         write_fill(&mut self.x, &s.fill);
         write_line(&mut self.x, &s.line);
         self.x.end("p:spPr");
-        if let Some(c) = &s.text_color {
-            write_style_font(&mut self.x, c);
+        if s.text_color.is_some() || s.effect_ref > 0 {
+            write_style_refs(&mut self.x, s.text_color.as_ref(), s.effect_ref);
         }
         if let Some(body) = s.text() {
             self.text_body("p:txBody", body);
             if let Some(t) = self.targets.get_mut(&s.id) {
                 t.text = true;
                 t.placeholder = s.placeholder.is_some();
+                t.paragraphs = body
+                    .paragraphs
+                    .iter()
+                    .map(|p| {
+                        let empty = p
+                            .runs
+                            .iter()
+                            .all(|r| r.text.is_empty() && r.field.is_none());
+                        (!empty).then_some(p.props.level)
+                    })
+                    .collect();
             }
         }
         self.x.end("p:sp");
@@ -971,10 +1009,50 @@ impl SlideWriter<'_> {
         x.empty(file_el, &[("r:link", &link)]);
         x.start("p:extLst", &[]);
         x.start("p:ext", &[("uri", MEDIA_EXT_URI)]);
-        x.empty(
-            "p14:media",
-            &[("xmlns:p14", crate::parts::NS_P14), ("r:embed", &embed)],
-        );
+        let media_attrs = [
+            ("xmlns:p14", crate::parts::NS_P14),
+            ("r:embed", embed.as_str()),
+        ];
+        let trimmed = clip.trim_start_ms > 0 || clip.trim_end_ms > 0;
+        let faded = clip.fade_in_ms > 0 || clip.fade_out_ms > 0;
+        if trimmed || faded || !clip.bookmarks.is_empty() {
+            x.start("p14:media", &media_attrs);
+            if trimmed {
+                let (st, end) = (clip.trim_start_ms.to_string(), clip.trim_end_ms.to_string());
+                let mut a = Vec::new();
+                if clip.trim_start_ms > 0 {
+                    a.push(("st", st.as_str()));
+                }
+                if clip.trim_end_ms > 0 {
+                    a.push(("end", end.as_str()));
+                }
+                x.empty("p14:trim", &a);
+            }
+            if faded {
+                let (fi, fo) = (clip.fade_in_ms.to_string(), clip.fade_out_ms.to_string());
+                let mut a = Vec::new();
+                if clip.fade_in_ms > 0 {
+                    a.push(("in", fi.as_str()));
+                }
+                if clip.fade_out_ms > 0 {
+                    a.push(("out", fo.as_str()));
+                }
+                x.empty("p14:fade", &a);
+            }
+            if !clip.bookmarks.is_empty() {
+                x.start("p14:bmkLst", &[]);
+                for b in &clip.bookmarks {
+                    x.empty(
+                        "p14:bmk",
+                        &[("name", b.name.as_str()), ("time", &b.time_ms.to_string())],
+                    );
+                }
+                x.end("p14:bmkLst");
+            }
+            x.end("p14:media");
+        } else {
+            x.empty("p14:media", &media_attrs);
+        }
         x.end("p:ext");
         x.end("p:extLst");
         x.end("p:nvPr");
@@ -1027,21 +1105,32 @@ impl SlideWriter<'_> {
             x.empty("a:blip", &[("r:embed", &rid)]);
         }
         x.empty("a:srcRect", &[]);
+        let k = |v: f64| ((v * 100_000.0).round() as i64).to_string();
         if pf.tile {
+            let (tx, ty) = (
+                (pf.tile_offset[0].round() as i64).to_string(),
+                (pf.tile_offset[1].round() as i64).to_string(),
+            );
+            let (sx, sy) = (k(pf.tile_scale[0]), k(pf.tile_scale[1]));
             x.empty(
                 "a:tile",
                 &[
-                    ("tx", "0"),
-                    ("ty", "0"),
-                    ("sx", "100000"),
-                    ("sy", "100000"),
+                    ("tx", &tx),
+                    ("ty", &ty),
+                    ("sx", &sx),
+                    ("sy", &sy),
                     ("flip", "none"),
                     ("algn", "tl"),
                 ],
             );
         } else {
             x.start("a:stretch", &[]);
-            x.empty("a:fillRect", &[]);
+            if pf.offsets.iter().any(|v| *v != 0.0) {
+                let [l, t, r, b] = pf.offsets.map(k);
+                x.empty("a:fillRect", &[("l", &l), ("t", &t), ("r", &r), ("b", &b)]);
+            } else {
+                x.empty("a:fillRect", &[]);
+            }
             x.end("a:stretch");
         }
         x.end("a:blipFill");
@@ -1174,17 +1263,34 @@ fn write_blip(x: &mut XmlOut, rid: &str, props: &PictureProps) {
     x.end("a:blip");
 }
 
-/// `p:style` with only the text colour (`a:fontRef idx="minor"`); fill
-/// and outline are stated in `p:spPr`, so their references are empty
-/// (`idx="0"`).
-fn write_style_font(x: &mut XmlOut, color: &core_model::Color) {
+/// `p:style` with the text colour (`a:fontRef idx="minor"`) and the
+/// theme effect style (`a:effectRef`); fill and outline are stated in
+/// `p:spPr`, so their references are empty (`idx="0"`).
+fn write_style_refs(x: &mut XmlOut, color: Option<&core_model::Color>, effect: u8) {
     x.start("p:style", &[]);
     x.empty("a:lnRef", &[("idx", "0")]);
     x.empty("a:fillRef", &[("idx", "0")]);
-    x.empty("a:effectRef", &[("idx", "0")]);
-    x.start("a:fontRef", &[("idx", "minor")]);
-    write_color(x, color);
-    x.end("a:fontRef");
+    let idx = effect.min(3).to_string();
+    if effect > 0 {
+        // the shadow takes the shape's accent (PowerPoint writes phClr's colour here)
+        x.start("a:effectRef", &[("idx", &idx)]);
+        x.empty("a:schemeClr", &[("val", "accent1")]);
+        x.end("a:effectRef");
+    } else {
+        x.empty("a:effectRef", &[("idx", "0")]);
+    }
+    match color {
+        Some(c) => {
+            x.start("a:fontRef", &[("idx", "minor")]);
+            write_color(x, c);
+            x.end("a:fontRef");
+        }
+        None => {
+            x.start("a:fontRef", &[("idx", "minor")]);
+            x.empty("a:schemeClr", &[("val", "tx1")]);
+            x.end("a:fontRef");
+        }
+    }
     x.end("p:style");
 }
 

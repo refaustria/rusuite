@@ -1480,6 +1480,7 @@ impl CalcDocument {
             | C::CreateNamesFromSelection { .. }
             | C::RestoreNames { .. } => self.names_cmd(cmd),
             C::AddChart { .. }
+            | C::InsertPivotChart { .. }
             | C::UpdateChart { .. }
             | C::SetChartAnchor { .. }
             | C::SetChartSeries { .. }
@@ -1509,6 +1510,11 @@ impl CalcDocument {
             | C::SetPageFilter { .. }
             | C::ChangePivotSource { .. }
             | C::ShowPivotDetails { .. }
+            | C::GroupPivotField { .. }
+            | C::UngroupPivotField { .. }
+            | C::SetCalculatedField { .. }
+            | C::SetCalculatedItem { .. }
+            | C::ShowReportFilterPages { .. }
             | C::RestorePivots { .. } => self.pivot_cmd(cmd),
             C::CreateTable { .. }
             | C::RenameTable { .. }

@@ -978,6 +978,14 @@ export class FakeCalcCore {
       case "restoreAnnotations":
       case "restorePersons":
         return this.annotCmd(cmd);
+      case "groupPivotField":
+      case "ungroupPivotField":
+      case "setCalculatedField":
+      case "setCalculatedItem":
+      case "showReportFilterPages":
+      case "insertPivotChart":
+        // P9-C3: the toy pivots do not model these; the commands are logged (UI tests) and change nothing.
+        return [this.emptyPatch(), { type: "compound", commands: [] }];
       case "createPivot":
       case "updatePivot":
       case "refreshPivot":
@@ -2360,6 +2368,17 @@ export class FakeCalcCore {
           }
         case "pivotItems":
           return { ok: { type: "pivotItems", items: this.pivots.items(req.id, req.field) } };
+        case "recommendPivots":
+          // A fixed toy candidate (the ranking is the Rust core's, P9-C3).
+          return {
+            ok: {
+              type: "pivotRecommendations",
+              items: [
+                { title: "Sum of Sales by Region", fields: { rows: [{ field: 0 }], values: [{ field: 3 }] }, preview: [["Row Labels", "Sum of Sales"], ["North", "30"], ["South", "70"], ["Grand Total", "100"]] },
+                { title: "Sum of Sales by Product", fields: { rows: [{ field: 1 }], values: [{ field: 3 }] }, preview: [["Row Labels", "Sum of Sales"], ["Apple", "40"], ["Pear", "60"], ["Grand Total", "100"]] },
+              ],
+            },
+          };
         case "precedents":
           return { ok: { type: "trace", refs: this.precedents(req.sheet, req.row, req.col) } };
         case "dependents":

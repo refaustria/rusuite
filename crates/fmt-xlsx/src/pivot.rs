@@ -14,9 +14,10 @@ use std::collections::{BTreeSet, HashMap};
 use fmt_ooxml::xml::{parse, El};
 use fmt_ooxml::{rel, Package, PartName, Relationships, TargetMode};
 use model_sheet::pivot::{
-    AggFunc, AxisField, BaseItem, CacheField, DataField, FieldKind, Item, LineKind, PageField,
-    PageSelection, PivotCache, PivotLayout, PivotOptions, PivotOutput, PivotRect, PivotSource,
-    PivotTable, RawPivotXml, ShowAs, SortOrder, Subtotals, ValuesAxis,
+    AggFunc, AxisField, BaseItem, CacheField, CalculatedItem, DataField, DateGroupBy, FieldGroup,
+    FieldKind, GroupKind, Item, LineKind, PageField, PageSelection, PivotCache, PivotFilter,
+    PivotLayout, PivotOptions, PivotOutput, PivotRect, PivotSource, PivotTable, RawPivotXml,
+    ShowAs, SortOrder, Subtotals, TopBy, ValuesAxis,
 };
 use model_sheet::{SheetId, StyleTable, Workbook};
 
@@ -44,6 +45,12 @@ const X14_PIVOT_FIELD_EXT: &str = "{2946ED86-A175-432a-8AC1-64E0C546D7DE}";
 /// `baseItem` values for the previous / next item.
 const BASE_PREVIOUS: u32 = 1_048_828;
 const BASE_NEXT: u32 = 1_048_829;
+/// Rusuite's data field extension: a Distinct Count (Excel offers it for
+/// data-model tables only; others read the field as a Count).
+const RS_DATA_FIELD_EXT: &str = "{7B1C5D2E-6A3F-4E8B-9C0D-2F4A6B8C1E35}";
+const RS_NS: &str = "https://rusuit.es/xlsx/2026/pivot";
+/// The `field` of a data reference (`-2` as an unsigned int).
+const DATA_FIELD_REF: &str = "4294967294";
 
 // --- dates --------------------------------------------------------------------------
 
@@ -150,13 +157,25 @@ pub(crate) struct PivotParts {
 /// every field that is not purely numeric).
 fn itemized(cache: &PivotCache, tables: &[&PivotTable], f: u32, slicers: &BTreeSet<u32>) -> bool {
     let field = &cache.fields[f as usize];
-    tables.iter().any(|t| {
-        t.rows.iter().chain(&t.cols).any(|a| a.field == f)
-            || t.filters
-                .iter()
-                .chain(&t.field_filters)
-                .any(|p| p.field == f)
-    }) || slicers.contains(&f)
+    // Grouped values are written as they are (the items are `groupItems`).
+    if field.group.is_some() || !field.is_source(f) {
+        return false;
+    }
+    let grouped_by_items = cache.fields.iter().any(|g| {
+        g.group
+            .as_ref()
+            .is_some_and(|g| g.base == f && matches!(g.kind, GroupKind::Items { .. }))
+    });
+    grouped_by_items
+        || cache.calculated_items.iter().any(|c| c.field == f)
+        || tables.iter().any(|t| {
+            t.rows.iter().chain(&t.cols).any(|a| a.field == f)
+                || t.filters
+                    .iter()
+                    .chain(&t.field_filters)
+                    .any(|p| p.field == f)
+        })
+        || slicers.contains(&f)
         || !matches!(field.kind, FieldKind::Number | FieldKind::Date)
 }
 
@@ -250,6 +269,106 @@ fn shared_items_el(x: &mut XmlOut, field: &CacheField, items: Option<&[Item]>, a
     }
 }
 
+/// The date level of a range grouping (`None`: numbers or manual).
+fn date_level(g: &FieldGroup) -> Option<DateGroupBy> {
+    match g.kind {
+        GroupKind::Date { by, .. } => Some(by),
+        _ => None,
+    }
+}
+
+/// `<fieldGroup>` of field `i`: `par` (the next coarser date level of
+/// the same base), `base`, `rangePr` / `discretePr` and `groupItems`.
+fn field_group_el(x: &mut XmlOut, cache: &PivotCache, i: u32, g: &FieldGroup, items: &[Item]) {
+    let par = date_level(g).and_then(|level| {
+        cache
+            .fields
+            .iter()
+            .enumerate()
+            .filter_map(|(j, f)| {
+                let fg = f.group.as_ref()?;
+                let l = date_level(fg)?;
+                (fg.base == g.base && l > level && j as u32 != i).then_some((l, j))
+            })
+            .min()
+            .map(|(_, j)| j.to_string())
+    });
+    let base = g.base.to_string();
+    let mut a: Vec<(&str, &str)> = Vec::new();
+    if let Some(p) = &par {
+        a.push(("par", p));
+    }
+    a.push(("base", &base));
+    x.start("fieldGroup", &a);
+    match &g.kind {
+        GroupKind::Number {
+            start,
+            end,
+            interval,
+            auto_start,
+            auto_end,
+        } => {
+            let (s0, e0, iv) = (fmt_num(*start), fmt_num(*end), fmt_num(*interval));
+            let mut r: Vec<(&str, &str)> = Vec::new();
+            if !auto_start {
+                r.push(("autoStart", "0"));
+            }
+            if !auto_end {
+                r.push(("autoEnd", "0"));
+            }
+            r.extend([
+                ("startNum", s0.as_str()),
+                ("endNum", &e0),
+                ("groupInterval", &iv),
+            ]);
+            x.empty("rangePr", &r);
+        }
+        GroupKind::Date {
+            by,
+            start,
+            end,
+            interval,
+            auto_start,
+            auto_end,
+        } => {
+            let (s0, e0, iv) = (
+                iso_of_serial(*start),
+                iso_of_serial(*end),
+                interval.to_string(),
+            );
+            let mut r: Vec<(&str, &str)> = Vec::new();
+            if !auto_start {
+                r.push(("autoStart", "0"));
+            }
+            if !auto_end {
+                r.push(("autoEnd", "0"));
+            }
+            r.extend([
+                ("groupBy", by.xml_name()),
+                ("startDate", &s0),
+                ("endDate", &e0),
+            ]);
+            if *interval > 1 {
+                r.push(("groupInterval", &iv));
+            }
+            x.empty("rangePr", &r);
+        }
+        GroupKind::Items { map } => {
+            x.start("discretePr", &[("count", &map.len().to_string())]);
+            for v in map {
+                x.empty("x", &[("v", &v.to_string())]);
+            }
+            x.end("discretePr");
+        }
+    }
+    x.start("groupItems", &[("count", &items.len().to_string())]);
+    for it in items {
+        item_el(x, it, false);
+    }
+    x.end("groupItems");
+    x.end("fieldGroup");
+}
+
 fn cache_definition_xml(wb: &Workbook, cache: &PivotCache, tables: &[&PivotTable]) -> Vec<u8> {
     let slicers = slicer_fields(wb, cache.id);
     let mut x = XmlOut::new();
@@ -290,23 +409,63 @@ fn cache_definition_xml(wb: &Workbook, cache: &PivotCache, tables: &[&PivotTable
             .and_then(|c| num_fmt_id(wb.styles(), c))
             .unwrap_or(0)
             .to_string();
-        x.start(
-            "cacheField",
-            &[
-                ("name", &crate::xml::encode_x_escapes(&f.name)),
-                ("numFmtId", &fmt),
-            ],
-        );
-        let all: Vec<&Item> = cache.records.iter().filter_map(|r| r.get(i)).collect();
-        if itemized(cache, tables, i as u32, &slicers) {
-            let items: Vec<&Item> = f.shared_items.iter().collect();
-            shared_items_el(&mut x, f, Some(&f.shared_items), &items);
-        } else {
-            shared_items_el(&mut x, f, None, &all);
+        let name = crate::xml::encode_x_escapes(&f.name);
+        let mut ca: Vec<(&str, &str)> = vec![("name", &name), ("numFmtId", &fmt)];
+        if let Some(formula) = &f.formula {
+            ca.push(("formula", formula));
+        }
+        let source = f.is_source(i as u32);
+        if !source {
+            ca.push(("databaseField", "0"));
+        }
+        if f.formula.is_some() {
+            x.empty("cacheField", &ca);
+            continue;
+        }
+        x.start("cacheField", &ca);
+        if source {
+            let all: Vec<&Item> = cache.records.iter().filter_map(|r| r.get(i)).collect();
+            if itemized(cache, tables, i as u32, &slicers) {
+                let items: Vec<&Item> = f.shared_items.iter().collect();
+                shared_items_el(&mut x, f, Some(&f.shared_items), &items);
+            } else {
+                shared_items_el(&mut x, f, None, &all);
+            }
+        }
+        if let Some(g) = &f.group {
+            field_group_el(&mut x, cache, i as u32, g, &f.shared_items);
         }
         x.end("cacheField");
     }
     x.end("cacheFields");
+    if !cache.calculated_items.is_empty() {
+        x.start(
+            "calculatedItems",
+            &[("count", &cache.calculated_items.len().to_string())],
+        );
+        for c in &cache.calculated_items {
+            x.start("calculatedItem", &[("formula", &c.formula)]);
+            x.start(
+                "pivotArea",
+                &[
+                    ("cacheIndex", "1"),
+                    ("outline", "0"),
+                    ("fieldPosition", "0"),
+                ],
+            );
+            x.start("references", &[("count", "1")]);
+            x.start(
+                "reference",
+                &[("field", &c.field.to_string()), ("count", "1")],
+            );
+            x.empty("x", &[("v", &c.item.to_string())]);
+            x.end("reference");
+            x.end("references");
+            x.end("pivotArea");
+            x.end("calculatedItem");
+        }
+        x.end("calculatedItems");
+    }
     if !slicers.is_empty() {
         x.start("extLst", &[]);
         x.start("ext", &[("uri", X14_CACHE_DEF_EXT), ("xmlns:x14", X14_NS)]);
@@ -350,6 +509,9 @@ fn cache_records_xml(
     for rec in &cache.records {
         x.start("r", &[]);
         for (f, it) in rec.iter().enumerate() {
+            if !cache.fields.get(f).is_some_and(|cf| cf.is_source(f as u32)) {
+                continue;
+            }
             match maps.get(f).and_then(Option::as_ref) {
                 Some(map) => {
                     let i = map.get(&format!("{:?}", key_of(it))).copied().unwrap_or(0);
@@ -414,6 +576,7 @@ fn items_xml(x: &mut XmlOut, name: &str, lines: &[model_sheet::pivot::AxisLine])
             LineKind::Default => Some("default"),
             LineKind::Func(f) => Some(item_type(f)),
             LineKind::Grand => Some("grand"),
+            LineKind::Blank => Some("blank"),
         };
         let r_s = r.to_string();
         let i_s = l.data.to_string();
@@ -556,11 +719,19 @@ fn table_xml(wb: &Workbook, t: &PivotTable, cache: &PivotCache, out: &PivotOutpu
         if t.values.iter().any(|d| d.field == f) {
             fa.push(("dataField", "1".into()));
         }
+        if cache.fields[f as usize].formula.is_some() {
+            for k in ["dragToRow", "dragToCol", "dragToPage"] {
+                fa.push((k, "0".into()));
+            }
+        }
         let show_all = axis.is_some_and(|a| a.show_all_items);
         if !show_all {
             fa.push(("showAll", "0".into()));
         }
         if let Some(a) = on_rows {
+            if a.insert_blank_row {
+                fa.push(("insertBlankRow", "1".into()));
+            }
             if a.subtotal_bottom {
                 fa.push(("subtotalTop", "0".into()));
             }
@@ -582,6 +753,15 @@ fn table_xml(wb: &Workbook, t: &PivotTable, cache: &PivotCache, out: &PivotOutpu
             match &a.sort {
                 SortOrder::Ascending => fa.push(("sortType", "ascending".into())),
                 SortOrder::Descending => fa.push(("sortType", "descending".into())),
+                SortOrder::ByValue { descending, .. } => fa.push((
+                    "sortType",
+                    if *descending {
+                        "descending"
+                    } else {
+                        "ascending"
+                    }
+                    .into(),
+                )),
                 SortOrder::Manual { .. } => {}
             }
             match &a.subtotals {
@@ -602,6 +782,7 @@ fn table_xml(wb: &Workbook, t: &PivotTable, cache: &PivotCache, out: &PivotOutpu
                             AggFunc::StdDevP => "stdDevPSubtotal",
                             AggFunc::Var => "varSubtotal",
                             AggFunc::VarP => "varPSubtotal",
+                            AggFunc::DistinctCount => "countASubtotal",
                         };
                         fa.push((name, "1".into()));
                     }
@@ -664,6 +845,9 @@ fn table_xml(wb: &Workbook, t: &PivotTable, cache: &PivotCache, out: &PivotOutpu
             if axis.is_some_and(|a| a.collapsed_items.contains(i)) {
                 ia.push(("sd", "0"));
             }
+            if cache.calculated_item(f, *i).is_some() {
+                ia.push(("f", "1"));
+            }
             ia.push(("x", &xi));
             x.empty("item", &ia);
         }
@@ -671,6 +855,23 @@ fn table_xml(wb: &Workbook, t: &PivotTable, cache: &PivotCache, out: &PivotOutpu
             x.empty("item", &[("t", t)]);
         }
         x.end("items");
+        if let Some(SortOrder::ByValue { data, .. }) = axis.map(|a| &a.sort) {
+            x.start("autoSortScope", &[]);
+            x.start(
+                "pivotArea",
+                &[("dataOnly", "0"), ("outline", "0"), ("fieldPosition", "0")],
+            );
+            x.start("references", &[("count", "1")]);
+            x.start(
+                "reference",
+                &[("field", DATA_FIELD_REF), ("count", "1"), ("selected", "0")],
+            );
+            x.empty("x", &[("v", &data.to_string())]);
+            x.end("reference");
+            x.end("references");
+            x.end("pivotArea");
+            x.end("autoSortScope");
+        }
         if repeat {
             x.start("extLst", &[]);
             x.start(
@@ -732,6 +933,15 @@ fn table_xml(wb: &Workbook, t: &PivotTable, cache: &PivotCache, out: &PivotOutpu
             if d.func != AggFunc::Sum {
                 da.push(("subtotal", d.func.xml_name().into()));
             }
+            let pos = |base_field: u32, base_item: BaseItem| match base_item {
+                BaseItem::Previous => BASE_PREVIOUS,
+                BaseItem::Next => BASE_NEXT,
+                BaseItem::Item { item } => t
+                    .item_order(cache, base_field)
+                    .iter()
+                    .position(|&o| o == item)
+                    .unwrap_or(0) as u32,
+            };
             let (show, base, item, x14): (Option<&str>, u32, u32, Option<&str>) = match d.show_as {
                 ShowAs::Normal => (None, 0, 0, None),
                 ShowAs::PercentOfTotal => (Some("percentOfTotal"), 0, 0, None),
@@ -755,6 +965,35 @@ fn table_xml(wb: &Workbook, t: &PivotTable, cache: &PivotCache, out: &PivotOutpu
                 }
                 ShowAs::RunningTotal { base_field } => (Some("runTotal"), base_field, 0, None),
                 ShowAs::Rank { base_field } => (None, base_field, 0, Some("rankDescending")),
+                ShowAs::RankAscending { base_field } => {
+                    (None, base_field, 0, Some("rankAscending"))
+                }
+                ShowAs::PercentOfParentColumn => (None, 0, 0, Some("percentOfParentCol")),
+                ShowAs::PercentOfParentTotal { base_field } => {
+                    (None, base_field, 0, Some("percentOfParent"))
+                }
+                ShowAs::PercentRunningTotal { base_field } => {
+                    (None, base_field, 0, Some("percentOfRunningTotal"))
+                }
+                ShowAs::PercentOf {
+                    base_field,
+                    base_item,
+                } => (
+                    Some("percent"),
+                    base_field,
+                    pos(base_field, base_item),
+                    None,
+                ),
+                ShowAs::PercentDifferenceFrom {
+                    base_field,
+                    base_item,
+                } => (
+                    Some("percentDiff"),
+                    base_field,
+                    pos(base_field, base_item),
+                    None,
+                ),
+                ShowAs::Index => (Some("index"), 0, 0, None),
             };
             if let Some(s) = show {
                 da.push(("showDataAs", s.into()));
@@ -769,17 +1008,24 @@ fn table_xml(wb: &Workbook, t: &PivotTable, cache: &PivotCache, out: &PivotOutpu
                 da.push(("numFmtId", id.to_string()));
             }
             let attrs: Vec<(&str, &str)> = da.iter().map(|(k, v)| (*k, v.as_str())).collect();
-            match x14 {
-                None => x.empty("dataField", &attrs),
-                Some(v) => {
-                    x.start("dataField", &attrs);
-                    x.start("extLst", &[]);
+            let distinct = d.func == AggFunc::DistinctCount;
+            if x14.is_none() && !distinct {
+                x.empty("dataField", &attrs);
+            } else {
+                x.start("dataField", &attrs);
+                x.start("extLst", &[]);
+                if let Some(v) = x14 {
                     x.start("ext", &[("uri", X14_DATA_FIELD_EXT), ("xmlns:x14", X14_NS)]);
                     x.empty("x14:dataField", &[("pivotShowAs", v)]);
                     x.end("ext");
-                    x.end("extLst");
-                    x.end("dataField");
                 }
+                if distinct {
+                    x.start("ext", &[("uri", RS_DATA_FIELD_EXT), ("xmlns:rs", RS_NS)]);
+                    x.empty("rs:dataField", &[("distinctCount", "1")]);
+                    x.end("ext");
+                }
+                x.end("extLst");
+                x.end("dataField");
             }
         }
         x.end("dataFields");
@@ -795,8 +1041,160 @@ fn table_xml(wb: &Workbook, t: &PivotTable, cache: &PivotCache, out: &PivotOutpu
             ("showLastColumn", "1"),
         ],
     );
+    filters_xml(&mut x, t);
     x.end("pivotTableDefinition");
     x.finish()
+}
+
+/// `<filters>`: the label, date and value filters of the axis fields.
+fn filters_xml(x: &mut XmlOut, t: &PivotTable) {
+    let list: Vec<(u32, &PivotFilter)> = t
+        .rows
+        .iter()
+        .chain(&t.cols)
+        .filter_map(|a| Some((a.field, a.filter.as_ref()?)))
+        .collect();
+    if list.is_empty() {
+        return;
+    }
+    x.start("filters", &[("count", &list.len().to_string())]);
+    for (k, (field, f)) in list.iter().enumerate() {
+        let fld = field.to_string();
+        let id = (k + 1).to_string();
+        let mut a: Vec<(&str, String)> = vec![("fld", fld)];
+        if let Some(d) = f.data() {
+            a.push(("iMeasureFld", d.to_string()));
+        }
+        a.push(("type", f.xml_type().into()));
+        a.push(("evalOrder", "-1".into()));
+        a.push(("id", id));
+        if let PivotFilter::Label { value, value2, .. } = f {
+            a.push(("stringValue1", value.clone()));
+            if !value2.is_empty() {
+                a.push(("stringValue2", value2.clone()));
+            }
+        }
+        let attrs: Vec<(&str, &str)> = a.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        x.start("filter", &attrs);
+        x.start("autoFilter", &[("ref", "A1")]);
+        x.start("filterColumn", &[("colId", "0")]);
+        match f {
+            PivotFilter::Top {
+                bottom, count, by, ..
+            } => {
+                let c = fmt_num(*count);
+                let mut ta: Vec<(&str, &str)> = Vec::new();
+                if *bottom {
+                    ta.push(("top", "0"));
+                }
+                if *by == TopBy::Percent {
+                    ta.push(("percent", "1"));
+                }
+                ta.push(("val", &c));
+                ta.push(("filterVal", &c));
+                x.empty("top10", &ta);
+            }
+            PivotFilter::Label { op, value, value2 } => {
+                use model_sheet::pivot::LabelOp as L;
+                let (and, items): (bool, Vec<(Option<&str>, String)>) = match op {
+                    L::Equal => (false, vec![(None, value.clone())]),
+                    L::NotEqual => (false, vec![(Some("notEqual"), value.clone())]),
+                    L::BeginsWith => (false, vec![(None, format!("{value}*"))]),
+                    L::NotBeginsWith => (false, vec![(Some("notEqual"), format!("{value}*"))]),
+                    L::EndsWith => (false, vec![(None, format!("*{value}"))]),
+                    L::NotEndsWith => (false, vec![(Some("notEqual"), format!("*{value}"))]),
+                    L::Contains => (false, vec![(None, format!("*{value}*"))]),
+                    L::NotContains => (false, vec![(Some("notEqual"), format!("*{value}*"))]),
+                    L::Greater => (false, vec![(Some("greaterThan"), value.clone())]),
+                    L::GreaterOrEqual => (false, vec![(Some("greaterThanOrEqual"), value.clone())]),
+                    L::Less => (false, vec![(Some("lessThan"), value.clone())]),
+                    L::LessOrEqual => (false, vec![(Some("lessThanOrEqual"), value.clone())]),
+                    L::Between => (
+                        true,
+                        vec![
+                            (Some("greaterThanOrEqual"), value.clone()),
+                            (Some("lessThanOrEqual"), value2.clone()),
+                        ],
+                    ),
+                    L::NotBetween => (
+                        false,
+                        vec![
+                            (Some("lessThan"), value.clone()),
+                            (Some("greaterThan"), value2.clone()),
+                        ],
+                    ),
+                };
+                custom_filters(x, and, &items);
+            }
+            PivotFilter::Value {
+                op, value, value2, ..
+            } => {
+                use model_sheet::pivot::ValueOp as V;
+                let (v1, v2) = (fmt_num(*value), fmt_num(*value2));
+                let (and, items): (bool, Vec<(Option<&str>, String)>) = match op {
+                    V::Equal => (false, vec![(None, v1)]),
+                    V::NotEqual => (false, vec![(Some("notEqual"), v1)]),
+                    V::Greater => (false, vec![(Some("greaterThan"), v1)]),
+                    V::GreaterOrEqual => (false, vec![(Some("greaterThanOrEqual"), v1)]),
+                    V::Less => (false, vec![(Some("lessThan"), v1)]),
+                    V::LessOrEqual => (false, vec![(Some("lessThanOrEqual"), v1)]),
+                    V::Between => (
+                        true,
+                        vec![
+                            (Some("greaterThanOrEqual"), v1),
+                            (Some("lessThanOrEqual"), v2),
+                        ],
+                    ),
+                    V::NotBetween => (
+                        false,
+                        vec![(Some("lessThan"), v1), (Some("greaterThan"), v2)],
+                    ),
+                };
+                custom_filters(x, and, &items);
+            }
+            PivotFilter::Date {
+                op, value, value2, ..
+            } => {
+                use model_sheet::pivot::DateOp as D;
+                let (v1, v2) = (fmt_num(*value), fmt_num(*value2));
+                let (and, items): (bool, Vec<(Option<&str>, String)>) = match op {
+                    D::Equal => (false, vec![(None, v1)]),
+                    D::NotEqual => (false, vec![(Some("notEqual"), v1)]),
+                    D::Before => (false, vec![(Some("lessThan"), v1)]),
+                    D::After => (false, vec![(Some("greaterThan"), v1)]),
+                    D::Between => (
+                        true,
+                        vec![
+                            (Some("greaterThanOrEqual"), v1),
+                            (Some("lessThanOrEqual"), v2),
+                        ],
+                    ),
+                    D::NotBetween => (
+                        false,
+                        vec![(Some("lessThan"), v1), (Some("greaterThan"), v2)],
+                    ),
+                };
+                custom_filters(x, and, &items);
+            }
+        }
+        x.end("filterColumn");
+        x.end("autoFilter");
+        x.end("filter");
+    }
+    x.end("filters");
+}
+
+fn custom_filters(x: &mut XmlOut, and: bool, items: &[(Option<&str>, String)]) {
+    x.start("customFilters", if and { &[("and", "1")] } else { &[] });
+    for (op, val) in items {
+        let mut a: Vec<(&str, &str)> = Vec::new();
+        if let Some(op) = op {
+            a.push(("operator", op));
+        }
+        a.push(("val", val));
+        x.empty("customFilter", &a);
+    }
+    x.end("customFilters");
 }
 
 /// `r:id` of the root element set to `rId1` (raw cache definitions point
@@ -966,15 +1364,6 @@ fn unsupported_cache(root: &El) -> Option<String> {
     if source.and_then(|s| s.child("worksheetSource")).is_none() {
         return Some("no worksheet source".into());
     }
-    let fields = root.child("cacheFields")?;
-    for f in fields.elements() {
-        if f.attr("formula").is_some() {
-            return Some("calculated field".into());
-        }
-        if f.child("fieldGroup").is_some() {
-            return Some("grouped field".into());
-        }
-    }
     if root.child("cacheHierarchies").is_some() {
         return Some("OLAP cache".into());
     }
@@ -1031,6 +1420,7 @@ fn read_cache(
         refresh_on_load: attr_bool(&root, "refreshOnLoad", false),
         stale: false,
         raw: None,
+        calculated_items: Vec::new(),
     };
     if let Some(reason) = unsupported_cache(&root) {
         cache.raw = Some(RawPivotXml {
@@ -1041,6 +1431,8 @@ fn read_cache(
         return Ok((cache, Some(reason)));
     }
     let mut dates = Vec::new();
+    // The fields with a source column, in record order.
+    let mut source_fields: Vec<usize> = Vec::new();
     if let Some(fields) = root.child("cacheFields") {
         for f in fields.elements().filter(|e| e.name == "cacheField") {
             let mut cf =
@@ -1051,9 +1443,35 @@ fn read_cache(
                     .cloned()
                     .or_else(|| model_sheet::numfmt::builtin_code(n as u16).map(str::to_owned))
             });
+            let index = cache.fields.len() as u32;
+            cf.formula = f
+                .attr("formula")
+                .map(|v| v.trim().trim_start_matches('=').to_owned());
+            if cf.formula.is_some() {
+                cf.kind = FieldKind::Number;
+            }
+            if attr_bool(f, "databaseField", true) && cf.formula.is_none() {
+                source_fields.push(index as usize);
+            }
             let shared = f.child("sharedItems");
             if let Some(s) = shared {
                 cf.shared_items = s.elements().filter_map(read_item).collect();
+            }
+            if let Some(g) = f
+                .child("fieldGroup")
+                .and_then(|g| read_field_group(g, index))
+            {
+                let items: Vec<Item> = f
+                    .child("fieldGroup")
+                    .and_then(|g| g.child("groupItems"))
+                    .map(|gi| gi.elements().filter_map(read_item).collect())
+                    .unwrap_or_default();
+                if g.base != index {
+                    // A level / manual group field: no source column.
+                    source_fields.retain(|&x| x != index as usize);
+                }
+                cf.shared_items = items;
+                cf.group = Some(g);
             }
             let date = shared.is_some_and(|s| attr_bool(s, "containsDate", false))
                 || shared.is_some_and(|s| s.elements().any(|e| e.name == "d"));
@@ -1064,25 +1482,73 @@ fn read_cache(
             cache.fields.push(cf);
         }
     }
+    // Shared items of grouped source fields are their raw values in the
+    // file (when listed): records index them, the model keeps group items.
+    let raw_items: Vec<Vec<Item>> = root
+        .child("cacheFields")
+        .map(|fs| {
+            fs.elements()
+                .filter(|e| e.name == "cacheField")
+                .map(|f| {
+                    f.child("sharedItems")
+                        .map(|s| s.elements().filter_map(read_item).collect())
+                        .unwrap_or_default()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     if let Some(xml) = records_xml {
         let rroot = parse(&xml, "pivotCacheRecords").map_err(xml_error)?;
+        let n = cache.fields.len();
         for r in rroot.elements().filter(|e| e.name == "r") {
-            let mut rec = Vec::with_capacity(cache.fields.len());
-            for (i, v) in r.elements().enumerate() {
+            let mut rec = vec![Item::Blank; n];
+            for (k, v) in r.elements().enumerate() {
+                let Some(&i) = source_fields.get(k) else {
+                    break;
+                };
                 let item = if v.name == "x" {
                     let idx = attr_u32(v, "v").unwrap_or(0) as usize;
-                    cache
-                        .fields
+                    raw_items
                         .get(i)
-                        .and_then(|f| f.shared_items.get(idx))
+                        .and_then(|items| items.get(idx))
                         .cloned()
                         .unwrap_or(Item::Blank)
                 } else {
                     read_item(v).unwrap_or(Item::Blank)
                 };
-                rec.push(item);
+                rec[i] = item;
             }
             cache.records.push(rec);
+        }
+    }
+    if let Some(ci) = root.child("calculatedItems") {
+        for c in ci.elements().filter(|e| e.name == "calculatedItem") {
+            let Some(formula) = c.attr("formula") else {
+                continue;
+            };
+            let reference = c
+                .child("pivotArea")
+                .and_then(|p| p.child("references"))
+                .and_then(|r| r.elements().find(|e| e.name == "reference"));
+            let (Some(field), Some(item)) = (
+                reference.and_then(|r| attr_u32(r, "field")),
+                reference
+                    .and_then(|r| r.elements().find(|e| e.name == "x"))
+                    .map(|x| attr_u32(x, "v").unwrap_or(0)),
+            ) else {
+                continue;
+            };
+            let ok = cache
+                .fields
+                .get(field as usize)
+                .is_some_and(|f| (item as usize) < f.shared_items.len());
+            if ok {
+                cache.calculated_items.push(CalculatedItem {
+                    field,
+                    item,
+                    formula: formula.trim().trim_start_matches('=').to_owned(),
+                });
+            }
         }
     }
     cache.normalize();
@@ -1092,6 +1558,45 @@ fn read_cache(
         }
     }
     Ok((cache, None))
+}
+
+/// `<fieldGroup>` of field `index` (`None`: an unknown grouping).
+fn read_field_group(g: &El, index: u32) -> Option<FieldGroup> {
+    let base = attr_u32(g, "base").unwrap_or(index);
+    if let Some(r) = g.child("rangePr") {
+        let auto_start = attr_bool(r, "autoStart", true);
+        let auto_end = attr_bool(r, "autoEnd", true);
+        let num = |k: &str| r.attr(k).and_then(|v| v.trim().parse::<f64>().ok());
+        let date = |k: &str| r.attr(k).and_then(serial_of_iso);
+        let kind = match r.attr("groupBy").unwrap_or("range") {
+            "range" => GroupKind::Number {
+                start: num("startNum").unwrap_or(0.0),
+                end: num("endNum").unwrap_or(0.0),
+                interval: num("groupInterval").unwrap_or(1.0),
+                auto_start,
+                auto_end,
+            },
+            by => GroupKind::Date {
+                by: DateGroupBy::from_xml_name(by)?,
+                start: date("startDate").unwrap_or(0.0),
+                end: date("endDate").unwrap_or(0.0),
+                interval: num("groupInterval").map_or(1, |v| v.max(1.0) as u32),
+                auto_start,
+                auto_end,
+            },
+        };
+        return Some(FieldGroup { base, kind });
+    }
+    let d = g.child("discretePr")?;
+    let map = d
+        .elements()
+        .filter(|e| e.name == "x")
+        .map(|x| attr_u32(x, "v").unwrap_or(0))
+        .collect();
+    Some(FieldGroup {
+        base,
+        kind: GroupKind::Items { map },
+    })
 }
 
 fn func_of_subtotal_attr(name: &str) -> Option<AggFunc> {
@@ -1174,12 +1679,35 @@ fn read_field(f: &El, index: u32, cache: &PivotCache) -> FieldInfo {
         rows: vec![AxisField::from(index)],
         ..PivotTable::new(0, "x", cache.id, 0, 0)
     };
-    let sort = match f.attr("sortType") {
-        Some("ascending") => SortOrder::Ascending,
-        Some("descending") => SortOrder::Descending,
-        _ if order.is_empty() || order == probe.item_order(cache, index) => SortOrder::Ascending,
-        _ => SortOrder::Manual {
-            order: order.clone(),
+    // A sort by a data field's values (`autoSortScope` on `-2`).
+    let by_value = f
+        .child("autoSortScope")
+        .and_then(|a| a.child("pivotArea"))
+        .and_then(|p| p.child("references"))
+        .and_then(|r| {
+            r.elements()
+                .find(|e| e.name == "reference" && e.attr("field") == Some(DATA_FIELD_REF))
+        })
+        .map(|r| {
+            r.elements()
+                .find(|e| e.name == "x")
+                .and_then(|x| attr_u32(x, "v"))
+                .unwrap_or(0)
+        });
+    let sort = match (f.attr("sortType"), by_value) {
+        (Some(t @ ("ascending" | "descending")), Some(data)) => SortOrder::ByValue {
+            data,
+            descending: t == "descending",
+        },
+        _ => match f.attr("sortType") {
+            Some("ascending") => SortOrder::Ascending,
+            Some("descending") => SortOrder::Descending,
+            _ if order.is_empty() || order == probe.item_order(cache, index) => {
+                SortOrder::Ascending
+            }
+            _ => SortOrder::Manual {
+                order: order.clone(),
+            },
         },
     };
     let fill_down = ext_child(f, X14_PIVOT_FIELD_EXT, "pivotField")
@@ -1194,6 +1722,8 @@ fn read_field(f: &El, index: u32, cache: &PivotCache) -> FieldInfo {
             hidden_items: hidden.clone(),
             layout,
             subtotal_bottom: !attr_bool(f, "subtotalTop", true),
+            filter: None,
+            insert_blank_row: attr_bool(f, "insertBlankRow", false),
         },
         order,
         hidden,
@@ -1202,16 +1732,50 @@ fn read_field(f: &El, index: u32, cache: &PivotCache) -> FieldInfo {
     }
 }
 
+/// A `<filter>` of a pivot table definition (`None`: a kind we do not
+/// model, e.g. OLAP member filters).
+fn read_filter(f: &El) -> Option<PivotFilter> {
+    let ty = f.attr("type")?;
+    let col = f.child("autoFilter").and_then(|a| a.child("filterColumn"));
+    let custom: Vec<f64> = col
+        .and_then(|c| c.child("customFilters"))
+        .map(|cf| {
+            cf.elements()
+                .filter(|e| e.name == "customFilter")
+                .filter_map(|e| e.attr("val")?.trim().parse::<f64>().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    let top = col.and_then(|c| c.child("top10"));
+    let n1 = match top {
+        Some(t) => t
+            .attr("val")
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(10.0),
+        None => custom.first().copied().unwrap_or(0.0),
+    };
+    let n2 = custom.get(1).copied().unwrap_or(0.0);
+    let bottom = top.is_some_and(|t| !attr_bool(t, "top", true));
+    let ty = match (ty, top) {
+        // A Top 10 written as `count` with `percent="1"` means percent.
+        ("count", Some(t)) if attr_bool(t, "percent", false) => "percent",
+        (ty, _) => ty,
+    };
+    PivotFilter::from_xml(
+        ty,
+        f.attr("stringValue1").unwrap_or(""),
+        f.attr("stringValue2").unwrap_or(""),
+        n1,
+        n2,
+        attr_u32(f, "iMeasureFld").unwrap_or(0),
+        bottom,
+    )
+}
+
 /// Why a table definition cannot be modelled.
 fn unsupported_table(root: &El) -> Option<String> {
-    for (name, why) in [
-        ("calculatedItems", "calculated items"),
-        ("filters", "label or value filters"),
-        ("pivotHierarchies", "OLAP"),
-    ] {
-        if root.child(name).is_some() {
-            return Some(why.into());
-        }
+    if root.child("pivotHierarchies").is_some() {
+        return Some("OLAP".into());
     }
     None
 }
@@ -1289,6 +1853,19 @@ fn read_table(
     let mut values_cols = None;
     t.rows = axis_list(root.child("rowFields"), &mut values_rows);
     t.cols = axis_list(root.child("colFields"), &mut values_cols);
+    if let Some(filters) = root.child("filters") {
+        for f in filters.elements().filter(|e| e.name == "filter") {
+            let Some(field) = attr_u32(f, "fld") else {
+                continue;
+            };
+            let Some(filter) = read_filter(f) else {
+                continue;
+            };
+            if let Some(a) = t.axis_field_mut(field) {
+                a.filter = Some(filter);
+            }
+        }
+    }
     if let Some(pf) = root.child("pageFields") {
         for p in pf.elements().filter(|e| e.name == "pageField") {
             let Some(f) = attr_u32(p, "fld") else {
@@ -1341,17 +1918,43 @@ fn read_table(
             let Some(field) = attr_u32(d, "fld") else {
                 continue;
             };
-            let func = d
-                .attr("subtotal")
-                .and_then(AggFunc::from_xml_name)
-                .unwrap_or(AggFunc::Sum);
+            let distinct = ext_child(d, RS_DATA_FIELD_EXT, "dataField")
+                .is_some_and(|e| attr_bool(e, "distinctCount", false));
+            let func = if distinct {
+                AggFunc::DistinctCount
+            } else {
+                d.attr("subtotal")
+                    .and_then(AggFunc::from_xml_name)
+                    .unwrap_or(AggFunc::Sum)
+            };
             let base_field = attr_u32(d, "baseField").unwrap_or(0);
             let base_item = attr_u32(d, "baseItem").unwrap_or(0);
             let x14 =
                 ext_child(d, X14_DATA_FIELD_EXT, "dataField").and_then(|e| e.attr("pivotShowAs"));
+            let base_item_of = |pos: u32| match pos {
+                BASE_PREVIOUS => BaseItem::Previous,
+                BASE_NEXT => BaseItem::Next,
+                pos => fields
+                    .get(base_field as usize)
+                    .and_then(|f| f.order.get(pos as usize))
+                    .map_or(BaseItem::Previous, |&item| BaseItem::Item { item }),
+            };
             let show_as = match (x14, d.attr("showDataAs")) {
                 (Some("percentOfParentRow"), _) => ShowAs::PercentOfParent,
                 (Some("rankDescending"), _) => ShowAs::Rank { base_field },
+                (Some("rankAscending"), _) => ShowAs::RankAscending { base_field },
+                (Some("percentOfParentCol"), _) => ShowAs::PercentOfParentColumn,
+                (Some("percentOfParent"), _) => ShowAs::PercentOfParentTotal { base_field },
+                (Some("percentOfRunningTotal"), _) => ShowAs::PercentRunningTotal { base_field },
+                (_, Some("percent")) => ShowAs::PercentOf {
+                    base_field,
+                    base_item: base_item_of(base_item),
+                },
+                (_, Some("percentDiff")) => ShowAs::PercentDifferenceFrom {
+                    base_field,
+                    base_item: base_item_of(base_item),
+                },
+                (_, Some("index")) => ShowAs::Index,
                 (_, Some("percentOfTotal")) => ShowAs::PercentOfTotal,
                 (_, Some("percentOfRow")) => ShowAs::PercentOfRow,
                 (_, Some("percentOfCol")) => ShowAs::PercentOfColumn,

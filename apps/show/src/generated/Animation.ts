@@ -2,7 +2,11 @@
 import type { AnimationKind } from "./AnimationKind";
 import type { Direction } from "./Direction";
 import type { Effect } from "./Effect";
+import type { Iterate } from "./Iterate";
 import type { NodeId } from "./NodeId";
+import type { Repeat } from "./Repeat";
+import type { StartOn } from "./StartOn";
+import type { TextBuild } from "./TextBuild";
 import type { Trigger } from "./Trigger";
 
 /**
@@ -18,7 +22,7 @@ id: NodeId,
  */
 shape: NodeId, 
 /**
- * Entrance, emphasis or exit.
+ * Entrance, emphasis, exit, motion path or media.
  */
 kind: AnimationKind, 
 /**
@@ -42,4 +46,43 @@ delayMs: number,
  * ([`Effect::default_direction`]). Must be one of
  * [`Effect::directions`].
  */
-direction?: Direction, };
+direction?: Direction, 
+/**
+ * The effect's amount; `None` = [`Effect::default_amount`].
+ */
+amount?: number, 
+/**
+ * The effect's colour (hex `RRGGBB`); `None` = [`Effect::default_color`].
+ */
+color?: string, 
+/**
+ * A motion path's path ([`crate::motion`]); `None` = the preset's
+ * default path ([`crate::motion::default_path`]).
+ */
+path?: string, 
+/**
+ * Emphasis and paths: play forward, then backward (`autoRev="1"`).
+ */
+autoReverse?: boolean, 
+/**
+ * Timing › Repeat.
+ */
+repeat?: Repeat, 
+/**
+ * Timing › "Rewind when done playing" (`fill="remove"`).
+ */
+rewind?: boolean, 
+/**
+ * Text built by paragraphs (`p:bldP build="p"`); `None` = as one
+ * object.
+ */
+build?: TextBuild, 
+/**
+ * By word / letter.
+ */
+iterate?: Iterate, 
+/**
+ * Triggered by a click on a shape or a media bookmark instead of the
+ * click sequence.
+ */
+startOn?: StartOn, };

@@ -157,10 +157,15 @@ describe("Animations tab and pane", () => {
     await animationsOn(store, 8);
     fireEvent.click(screen.getByRole("button", { name: "Animation styles" }));
     const galleries = within(screen.getByTestId("animation-gallery"));
-    expect(galleries.getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["None", "Entrance", "Emphasis", "Exit"]);
-    expect(within(galleries.getByRole("group", { name: "Emphasis" })).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Spin", "Grow/Shrink"]);
+    expect(galleries.getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["None", "Entrance", "Emphasis", "Exit", "Motion Paths"]);
+    expect(within(galleries.getByRole("group", { name: "Emphasis" })).getAllByRole("button").map((b) => b.getAttribute("aria-label")).slice(0, 5)).toEqual([
+      "Pulse", "Color Pulse", "Teeter", "Spin", "Grow/Shrink",
+    ]);
     expect(within(galleries.getByRole("group", { name: "Exit" })).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
-      "Disappear", "Fade", "Fly Out", "Wipe", "Zoom",
+      "Disappear", "Fade", "Fly Out", "Float Out", "Split", "Wipe", "Shape", "Wheel", "Random Bars", "Shrink & Turn", "Zoom", "Swivel", "Bounce",
+    ]);
+    expect(within(galleries.getByRole("group", { name: "Motion Paths" })).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Lines", "Arcs", "Turns", "Shapes", "Loops", "Custom Path",
     ]);
     fireEvent.click(within(galleries.getByRole("group", { name: "Entrance" })).getByRole("button", { name: "Fly In" }));
     await flush();
@@ -239,7 +244,8 @@ describe("Animations tab and pane", () => {
     expect(store.getState().selection).toEqual([8]);
     fireEvent.click(within(pane).getByRole("button", { name: "Move later" }));
     await flush();
-    expect(last(backend)).toEqual({ type: "reorderAnimation", id: a1, index: 1 });
+    // Move Later swaps the click steps (P9-S4: the order of every animation)
+    expect(last(backend)).toEqual({ type: "setAnimationOrder", slide: 7, order: [a2, a1, a3] });
     expect(rows().map((r) => r.getAttribute("aria-label"))).toEqual(["1 Shape 9: Fly In", "2 Shape 8: Fade", "3 Shape 9: Fade"]);
 
     // Keyboard: arrows select, Delete removes.

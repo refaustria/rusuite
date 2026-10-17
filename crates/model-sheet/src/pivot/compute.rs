@@ -7,9 +7,11 @@ use std::collections::HashMap;
 use engine_formula::{ErrorKind, Value};
 use serde::{Deserialize, Serialize};
 
+use super::calc::{self, Formula};
+use super::filter::{top_keep, PivotFilter};
 use super::{
     AggFunc, AxisField, BaseItem, Item, PageSelection, PivotCache, PivotLayout, PivotTable, ShowAs,
-    Subtotals, ValuesAxis,
+    SortOrder, Subtotals, ValuesAxis,
 };
 use crate::Error;
 
@@ -99,6 +101,8 @@ pub enum LineKind {
     /// A custom subtotal (`t="sum"`, …).
     Func(AggFunc),
     Grand,
+    /// A blank line after an item (`t="blank"`).
+    Blank,
 }
 
 /// One line (row or column) of the body, as SpreadsheetML lists it.
@@ -202,6 +206,8 @@ enum LK {
     ParentBlank,
     Subtotal,
     Grand,
+    /// A blank line after an item's group.
+    Blank,
 }
 
 #[derive(Debug, Clone)]
@@ -241,7 +247,20 @@ struct Ctx<'a> {
     /// Per cache field: display order and position of each item in it.
     order: HashMap<u32, (Vec<u32>, Vec<u32>)>,
     memo: RefCell<HashMap<AggKey, Value>>,
+    /// Calculated fields (by cache field) and items (by field and item).
+    fields_calc: HashMap<u32, Option<Compiled>>,
+    items_calc: HashMap<(u32, u32), Option<Compiled>>,
 }
+
+/// A compiled calculated field / item formula with, per name, the field
+/// or item it stands for.
+type Compiled = (Formula, Vec<Option<u32>>);
+
+/// A child of a node with the value it is sorted by.
+type Keyed = (Option<f64>, (u32, Vec<u32>));
+
+/// How deep calculated fields / items may refer to each other.
+const MAX_CALC_DEPTH: u32 = 16;
 
 fn intersect(a: &[u32], b: &[u32]) -> Vec<u32> {
     let (mut i, mut j) = (0, 0);
@@ -266,7 +285,11 @@ pub(crate) fn aggregate<'i>(items: impl Iterator<Item = &'i Item>, func: AggFunc
     let mut nums: Vec<f64> = Vec::new();
     let mut non_blank = 0u32;
     let mut error: Option<String> = None;
+    let mut distinct: std::collections::HashSet<super::ItemKey> = std::collections::HashSet::new();
     for it in items {
+        if func == AggFunc::DistinctCount && *it != Item::Blank {
+            distinct.insert(it.key());
+        }
         match it {
             Item::Blank => continue,
             Item::Number(n) => nums.push(*n),
@@ -283,6 +306,7 @@ pub(crate) fn aggregate<'i>(items: impl Iterator<Item = &'i Item>, func: AggFunc
     match func {
         AggFunc::Count => return Value::Number(f64::from(non_blank)),
         AggFunc::CountNums => return Value::Number(nums.len() as f64),
+        AggFunc::DistinctCount => return Value::Number(distinct.len() as f64),
         _ => {}
     }
     if let Some(e) = error {
@@ -309,7 +333,9 @@ pub(crate) fn aggregate<'i>(items: impl Iterator<Item = &'i Item>, func: AggFunc
         AggFunc::VarP => Value::number(ss() / n),
         AggFunc::StdDev => Value::number((ss() / (n - 1.0)).sqrt()),
         AggFunc::StdDevP => Value::number((ss() / n).sqrt()),
-        AggFunc::Count | AggFunc::CountNums => unreachable!("handled above"),
+        AggFunc::Count | AggFunc::CountNums | AggFunc::DistinctCount => {
+            unreachable!("handled above")
+        }
     }
 }
 
@@ -329,54 +355,76 @@ fn ratio(a: &Value, b: &Value) -> Value {
     }
 }
 
+/// The order of `field`'s items in `t` and the position of each item.
+fn order_of(t: &PivotTable, c: &PivotCache, field: u32) -> (Vec<u32>, Vec<u32>) {
+    let o = t.item_order(c, field);
+    let mut pos = vec![0u32; o.len()];
+    for (p, &i) in o.iter().enumerate() {
+        pos[i as usize] = p as u32;
+    }
+    (o, pos)
+}
+
+/// The formula of a calculated field or item compiled against `names`:
+/// per placeholder, the index of the name it stands for.
+fn compile_against(formula: &str, names: &[String]) -> Option<Compiled> {
+    let known = |n: &str| names.iter().any(|x| x.eq_ignore_ascii_case(n));
+    let f = calc::compile(formula, known).ok()?;
+    let idx = f
+        .names
+        .iter()
+        .map(|n| {
+            names
+                .iter()
+                .position(|x| x.eq_ignore_ascii_case(n))
+                .map(|p| p as u32)
+        })
+        .collect();
+    Some((f, idx))
+}
+
 impl<'a> Ctx<'a> {
     fn new(t: &'a PivotTable, c: &'a PivotCache) -> Self {
-        let idx: Vec<Vec<u32>> = c
-            .fields
-            .iter()
-            .enumerate()
-            .map(|(f, cf)| {
-                let map: HashMap<super::ItemKey, u32> = cf
-                    .shared_items
-                    .iter()
-                    .enumerate()
-                    .map(|(i, it)| (it.key(), i as u32))
-                    .collect();
-                c.records
-                    .iter()
-                    .map(|r| {
-                        r.get(f)
-                            .and_then(|it| map.get(&it.key()).copied())
-                            .unwrap_or(u32::MAX)
-                    })
-                    .collect()
-            })
+        let idx: Vec<Vec<u32>> = (0..c.fields.len() as u32)
+            .map(|f| c.record_items(f))
             .collect();
         let mut order = HashMap::new();
         for a in t.rows.iter().chain(&t.cols) {
-            let o = t.item_order(c, a.field);
-            let mut pos = vec![0u32; o.len()];
-            for (p, &i) in o.iter().enumerate() {
-                pos[i as usize] = p as u32;
-            }
-            order.insert(a.field, (o, pos));
+            order.insert(a.field, order_of(t, c, a.field));
         }
         // Base fields of show-as need an order too.
         for d in &t.values {
-            if let ShowAs::DifferenceFrom { base_field, .. }
-            | ShowAs::RunningTotal { base_field }
-            | ShowAs::Rank { base_field } = d.show_as
-            {
-                order.entry(base_field).or_insert_with(|| {
-                    let o = t.item_order(c, base_field);
-                    let mut pos = vec![0u32; o.len()];
-                    for (p, &i) in o.iter().enumerate() {
-                        pos[i as usize] = p as u32;
-                    }
-                    (o, pos)
-                });
+            if let Some(base_field) = d.show_as.base_field() {
+                if (base_field as usize) < c.fields.len() {
+                    order
+                        .entry(base_field)
+                        .or_insert_with(|| order_of(t, c, base_field));
+                }
             }
         }
+        let field_names: Vec<String> = c.fields.iter().map(|f| f.name.clone()).collect();
+        let fields_calc = c
+            .fields
+            .iter()
+            .enumerate()
+            .filter_map(|(i, f)| {
+                let formula = f.formula.as_ref()?;
+                Some((i as u32, compile_against(formula, &field_names)))
+            })
+            .collect();
+        let items_calc = c
+            .calculated_items
+            .iter()
+            .filter_map(|ci| {
+                let cf = c.fields.get(ci.field as usize)?;
+                let labels: Vec<String> = cf
+                    .shared_items
+                    .iter()
+                    .map(|i| i.label(cf.number_format.as_deref()))
+                    .collect();
+                Some(((ci.field, ci.item), compile_against(&ci.formula, &labels)))
+            })
+            .collect();
         let field_ok = |f: u32, r: usize, keep: &dyn Fn(u32) -> bool| {
             idx.get(f as usize)
                 .and_then(|v| v.get(r))
@@ -400,44 +448,176 @@ impl<'a> Ctx<'a> {
             })
             .map(|r| r as u32)
             .collect();
-        Ctx {
+        let mut ctx = Ctx {
             t,
             c,
             idx,
             recs,
             order,
             memo: RefCell::new(HashMap::new()),
+            fields_calc,
+            items_calc,
+        };
+        ctx.apply_filters();
+        ctx
+    }
+
+    /// Label, date and value filters of the axis fields, outer to inner:
+    /// the records of items that fail go (value filters are evaluated per
+    /// parent item on the same axis).
+    fn apply_filters(&mut self) {
+        let t = self.t;
+        for axis in [&t.rows, &t.cols] {
+            for (k, a) in axis.iter().enumerate() {
+                let Some(filter) = &a.filter else { continue };
+                let items = &self.c.fields[a.field as usize];
+                match filter {
+                    PivotFilter::Label { .. } | PivotFilter::Date { .. } => {
+                        let pass: Vec<bool> = items
+                            .shared_items
+                            .iter()
+                            .map(|it| {
+                                filter.label_ok(it, &it.label(items.number_format.as_deref()))
+                            })
+                            .collect();
+                        let f = a.field as usize;
+                        let idx = &self.idx;
+                        self.recs.retain(|&r| {
+                            pass.get(idx[f][r as usize] as usize)
+                                .copied()
+                                .unwrap_or(false)
+                        });
+                    }
+                    PivotFilter::Value { data, .. } | PivotFilter::Top { data, .. } => {
+                        let parents: Vec<u32> = axis[..k].iter().map(|p| p.field).collect();
+                        let mut groups: HashMap<(Vec<u32>, u32), Vec<u32>> = HashMap::new();
+                        for &r in &self.recs {
+                            let key: Vec<u32> =
+                                parents.iter().map(|&p| self.item_of(p, r)).collect();
+                            groups
+                                .entry((key, self.item_of(a.field, r)))
+                                .or_default()
+                                .push(r);
+                        }
+                        let func = self.t.values[*data as usize].func;
+                        let mut keep: std::collections::HashSet<(Vec<u32>, u32)> =
+                            std::collections::HashSet::new();
+                        let mut by_parent: HashMap<Vec<u32>, Vec<(u32, Option<f64>)>> =
+                            HashMap::new();
+                        for ((parent, item), recs) in &groups {
+                            let v = num(&self.agg_recs(recs, *data, func, 0));
+                            match filter {
+                                PivotFilter::Value { .. } => {
+                                    if filter.value_ok(v) {
+                                        keep.insert((parent.clone(), *item));
+                                    }
+                                }
+                                _ => by_parent
+                                    .entry(parent.clone())
+                                    .or_default()
+                                    .push((*item, v)),
+                            }
+                        }
+                        if let PivotFilter::Top {
+                            bottom, count, by, ..
+                        } = filter
+                        {
+                            for (parent, mut vals) in by_parent {
+                                vals.sort_by_key(|x| x.0);
+                                for i in top_keep(&vals, *bottom, *count, *by) {
+                                    keep.insert((parent.clone(), i));
+                                }
+                            }
+                        }
+                        let field = a.field;
+                        let recs = std::mem::take(&mut self.recs);
+                        self.recs = recs
+                            .into_iter()
+                            .filter(|&r| {
+                                let key: Vec<u32> =
+                                    parents.iter().map(|&p| self.item_of(p, r)).collect();
+                                keep.contains(&(key, self.item_of(field, r)))
+                            })
+                            .collect();
+                    }
+                }
+            }
         }
+    }
+
+    /// Whether `key` names a calculated item.
+    fn has_calc(&self, key: &[(u32, u32)]) -> bool {
+        !self.c.calculated_items.is_empty() && key.iter().any(|k| self.items_calc.contains_key(k))
     }
 
     fn item_of(&self, field: u32, rec: u32) -> u32 {
         self.idx[field as usize][rec as usize]
     }
 
-    fn agg(&self, recs: &[u32], d: u32, func: AggFunc) -> Value {
-        let field = self.t.values[d as usize].field as usize;
-        aggregate(
-            recs.iter()
-                .filter_map(|&r| self.c.records.get(r as usize)?.get(field)),
-            func,
-        )
+    /// The summary of data field `d` over `recs` (a calculated field: its
+    /// formula over the sums of the fields it names).
+    fn agg_recs(&self, recs: &[u32], d: u32, func: AggFunc, depth: u32) -> Value {
+        let field = self.t.values[d as usize].field;
+        self.field_value(recs, field, func, depth)
     }
 
-    /// The summary of the records matching `key`.
+    fn field_value(&self, recs: &[u32], field: u32, func: AggFunc, depth: u32) -> Value {
+        match self.fields_calc.get(&field) {
+            None => aggregate(
+                recs.iter()
+                    .filter_map(|&r| self.c.records.get(r as usize)?.get(field as usize)),
+                func,
+            ),
+            Some(_) if recs.is_empty() => Value::Empty,
+            Some(None) => Value::Error(ErrorKind::Name),
+            Some(Some(_)) if depth >= MAX_CALC_DEPTH => Value::Error(ErrorKind::Ref),
+            Some(Some((formula, names))) => calc::eval(formula, |k| match names[k] {
+                Some(f) => match self.field_value(recs, f, AggFunc::Sum, depth + 1) {
+                    Value::Empty => Value::Number(0.0),
+                    v => v,
+                },
+                None => Value::Error(ErrorKind::Name),
+            }),
+        }
+    }
+
+    /// The summary of the records matching `key` (calculated items: their
+    /// formula over the other items' summaries with the same other keys).
     fn agg_key(&self, key: &[(u32, u32)], d: u32, func: AggFunc) -> Value {
+        self.agg_key_at(key, d, func, 0)
+    }
+
+    fn agg_key_at(&self, key: &[(u32, u32)], d: u32, func: AggFunc, depth: u32) -> Value {
         let mut sorted = key.to_vec();
         sorted.sort_unstable();
         let k = (sorted, d, func);
         if let Some(v) = self.memo.borrow().get(&k) {
             return v.clone();
         }
-        let recs: Vec<u32> = self
-            .recs
-            .iter()
-            .copied()
-            .filter(|&r| key.iter().all(|&(f, i)| self.item_of(f, r) == i))
-            .collect();
-        let v = self.agg(&recs, d, func);
+        let v = match key.iter().find(|k| self.items_calc.contains_key(k)) {
+            Some(&(f, i)) => match &self.items_calc[&(f, i)] {
+                _ if depth >= MAX_CALC_DEPTH => Value::Error(ErrorKind::Ref),
+                None => Value::Error(ErrorKind::Name),
+                Some((formula, names)) => calc::eval(formula, |n| match names[n] {
+                    Some(item) => {
+                        match self.agg_key_at(&Self::with_item(key, f, item), d, func, depth + 1) {
+                            Value::Empty => Value::Number(0.0),
+                            v => v,
+                        }
+                    }
+                    None => Value::Error(ErrorKind::Name),
+                }),
+            },
+            None => {
+                let recs: Vec<u32> = self
+                    .recs
+                    .iter()
+                    .copied()
+                    .filter(|&r| key.iter().all(|&(f, i)| self.item_of(f, r) == i))
+                    .collect();
+                self.agg_recs(&recs, d, func, depth)
+            }
+        };
         self.memo.borrow_mut().insert(k, v.clone());
         v
     }
@@ -471,15 +651,50 @@ impl<'a> Ctx<'a> {
                 let Some((order, _)) = self.order.get(&a.field) else {
                     return Vec::new();
                 };
-                order
+                let cf = &self.c.fields[a.field as usize];
+                let calc_ok = |i: u32| {
+                    self.items_calc.contains_key(&(a.field, i))
+                        && a.filter.as_ref().map_or(true, |f| {
+                            let it = &cf.shared_items[i as usize];
+                            f.label_ok(it, &it.label(cf.number_format.as_deref()))
+                        })
+                };
+                let mut out: Vec<(u32, Vec<u32>)> = order
                     .iter()
                     .filter(|i| !a.hidden_items.contains(i))
                     .filter_map(|&i| match groups.remove(&i) {
                         Some(g) => Some((i, g)),
-                        None if a.show_all_items => Some((i, Vec::new())),
+                        None if a.show_all_items && a.filter.is_none() => Some((i, Vec::new())),
+                        None if calc_ok(i) => Some((i, Vec::new())),
                         None => None,
                     })
-                    .collect()
+                    .collect();
+                if let SortOrder::ByValue { data, descending } = a.sort {
+                    if (data as usize) < self.t.values.len() {
+                        let func = self.t.values[data as usize].func;
+                        let keyed: Vec<Keyed> = out
+                            .into_iter()
+                            .map(|(i, g)| {
+                                let v = if g.is_empty() {
+                                    None
+                                } else {
+                                    num(&self.agg_recs(&g, data, func, 0))
+                                };
+                                (v, (i, g))
+                            })
+                            .collect();
+                        let mut keyed = keyed;
+                        keyed.sort_by(|a, b| match (a.0, b.0) {
+                            (Some(x), Some(y)) if descending => y.total_cmp(&x),
+                            (Some(x), Some(y)) => x.total_cmp(&y),
+                            (Some(_), None) => std::cmp::Ordering::Less,
+                            (None, Some(_)) => std::cmp::Ordering::Greater,
+                            (None, None) => std::cmp::Ordering::Equal,
+                        });
+                        out = keyed.into_iter().map(|x| x.1).collect();
+                    }
+                }
+                out
             }
         }
     }
@@ -658,6 +873,18 @@ impl<'a> Ctx<'a> {
                         }
                     }
                 }
+                if plan.rows && field_ref.is_some_and(|a| a.insert_blank_row) {
+                    out.push(Line {
+                        key: key.clone(),
+                        data,
+                        func: None,
+                        kind: LK::Blank,
+                        recs: Vec::new(),
+                        labels: Vec::new(),
+                        path: path.clone(),
+                        lkind: LineKind::Blank,
+                    });
+                }
             }
             path.pop();
             if matches!(plan.entries[depth], Entry::Field(_)) {
@@ -732,7 +959,10 @@ impl<'a> Ctx<'a> {
 
     /// The value of a body cell, after show-as.
     fn value(&self, row: &Line, col: &Line) -> Option<(Value, CellRole, u32, Option<AggFunc>)> {
-        if self.t.values.is_empty() || row.kind == LK::ParentBlank || col.kind == LK::ParentBlank {
+        if self.t.values.is_empty()
+            || matches!(row.kind, LK::ParentBlank | LK::Blank)
+            || matches!(col.kind, LK::ParentBlank | LK::Blank)
+        {
             return None;
         }
         let d = row.data.or(col.data).unwrap_or(0);
@@ -748,9 +978,12 @@ impl<'a> Ctx<'a> {
         } else {
             CellRole::Value
         };
-        let recs = intersect(&row.recs, &col.recs);
-        let raw = self.agg(&recs, d, func);
         let key: Vec<(u32, u32)> = row.key.iter().chain(&col.key).copied().collect();
+        let raw = if self.has_calc(&key) {
+            self.agg_key(&key, d, func)
+        } else {
+            self.agg_recs(&intersect(&row.recs, &col.recs), d, func, 0)
+        };
         let v = match df.show_as {
             ShowAs::Normal => raw,
             ShowAs::PercentOfTotal => ratio(&raw, &self.agg_key(&[], d, func)),
@@ -770,7 +1003,93 @@ impl<'a> Ctx<'a> {
                 base_item,
             } => self.difference(&raw, &key, d, func, base_field, base_item),
             ShowAs::RunningTotal { base_field } => self.running(&raw, &key, d, func, base_field),
-            ShowAs::Rank { base_field } => self.rank(&raw, &key, d, func, base_field),
+            ShowAs::Rank { base_field } => self.rank(&raw, &key, d, func, base_field, false),
+            ShowAs::RankAscending { base_field } => {
+                self.rank(&raw, &key, d, func, base_field, true)
+            }
+            ShowAs::PercentOfParentColumn => {
+                let mut parent = col.key.clone();
+                if parent.pop().is_none() {
+                    ratio(&raw, &raw)
+                } else {
+                    parent.extend(&row.key);
+                    ratio(&raw, &self.agg_key(&parent, d, func))
+                }
+            }
+            ShowAs::PercentOfParentTotal { base_field } => {
+                let cut = |k: &[(u32, u32)]| -> Option<Vec<(u32, u32)>> {
+                    let p = k.iter().position(|(f, _)| *f == base_field)?;
+                    Some(k[..=p].to_vec())
+                };
+                match (cut(&row.key), cut(&col.key)) {
+                    (Some(mut r), None) => {
+                        r.extend(&col.key);
+                        ratio(&raw, &self.agg_key(&r, d, func))
+                    }
+                    (None, Some(mut c)) => {
+                        c.extend(&row.key);
+                        ratio(&raw, &self.agg_key(&c, d, func))
+                    }
+                    _ => Value::Empty,
+                }
+            }
+            ShowAs::PercentOf {
+                base_field,
+                base_item,
+            } => match self.base_value(&key, d, func, base_field, base_item) {
+                Base::Same => {
+                    if matches!(raw, Value::Empty) {
+                        Value::Empty
+                    } else {
+                        Value::Number(1.0)
+                    }
+                }
+                Base::None => Value::Empty,
+                Base::Value(other) => match (&raw, &other) {
+                    (Value::Empty, _) => Value::Empty,
+                    (_, Value::Empty) => Value::Error(ErrorKind::NA),
+                    _ => ratio(&raw, &other),
+                },
+            },
+            ShowAs::PercentDifferenceFrom {
+                base_field,
+                base_item,
+            } => match self.base_value(&key, d, func, base_field, base_item) {
+                Base::Same | Base::None => Value::Empty,
+                Base::Value(other) => match (&raw, &other) {
+                    (Value::Empty, _) => Value::Empty,
+                    (Value::Error(e), _) | (_, Value::Error(e)) => Value::Error(*e),
+                    (_, Value::Empty) => Value::Error(ErrorKind::Null),
+                    (Value::Number(a), Value::Number(b)) if *b != 0.0 => Value::number((a - b) / b),
+                    _ => Value::Error(ErrorKind::Div0),
+                },
+            },
+            ShowAs::PercentRunningTotal { base_field } => {
+                let run = self.running(&raw, &key, d, func, base_field);
+                if matches!(run, Value::Empty) {
+                    run
+                } else {
+                    let rest: Vec<(u32, u32)> = key
+                        .iter()
+                        .copied()
+                        .filter(|(f, _)| *f != base_field)
+                        .collect();
+                    ratio(&run, &self.agg_key(&rest, d, func))
+                }
+            }
+            ShowAs::Index => {
+                let total = self.agg_key(&[], d, func);
+                let rt = self.agg_key(&row.key, d, func);
+                let ct = self.agg_key(&col.key, d, func);
+                match (num(&raw), num(&total), num(&rt), num(&ct)) {
+                    _ if matches!(raw, Value::Empty) => Value::Empty,
+                    (Some(v), Some(g), Some(r), Some(c)) if r * c != 0.0 => {
+                        Value::number(v * g / (r * c))
+                    }
+                    _ if matches!(raw, Value::Error(_)) => raw.clone(),
+                    _ => Value::Error(ErrorKind::Div0),
+                }
+            }
         };
         Some((v, role, d, custom))
     }
@@ -779,6 +1098,32 @@ impl<'a> Ctx<'a> {
         key.iter()
             .map(|&(f, i)| if f == field { (f, item) } else { (f, i) })
             .collect()
+    }
+
+    /// The value of the base item for "Difference From" and "% Of".
+    fn base_value(
+        &self,
+        key: &[(u32, u32)],
+        d: u32,
+        func: AggFunc,
+        base: u32,
+        base_item: BaseItem,
+    ) -> Base {
+        let Some(&(_, cur)) = key.iter().find(|(f, _)| *f == base) else {
+            return Base::None;
+        };
+        let visible = self.visible_items(base);
+        let pos = visible.iter().position(|&i| i == cur);
+        let target = match base_item {
+            BaseItem::Item { item } => Some(item),
+            BaseItem::Previous => pos.and_then(|p| p.checked_sub(1)).map(|p| visible[p]),
+            BaseItem::Next => pos.and_then(|p| visible.get(p + 1).copied()),
+        };
+        match target {
+            None => Base::None,
+            Some(t) if t == cur => Base::Same,
+            Some(t) => Base::Value(self.agg_key(&Self::with_item(key, base, t), d, func)),
+        }
     }
 
     fn difference(
@@ -790,20 +1135,9 @@ impl<'a> Ctx<'a> {
         base: u32,
         base_item: BaseItem,
     ) -> Value {
-        let Some(&(_, cur)) = key.iter().find(|(f, _)| *f == base) else {
+        let Base::Value(other) = self.base_value(key, d, func, base, base_item) else {
             return Value::Empty;
         };
-        let visible = self.visible_items(base);
-        let pos = visible.iter().position(|&i| i == cur);
-        let target = match base_item {
-            BaseItem::Item { item } => Some(item),
-            BaseItem::Previous => pos.and_then(|p| p.checked_sub(1)).map(|p| visible[p]),
-            BaseItem::Next => pos.and_then(|p| visible.get(p + 1).copied()),
-        };
-        let Some(target) = target.filter(|&t| t != cur) else {
-            return Value::Empty;
-        };
-        let other = self.agg_key(&Self::with_item(key, base, target), d, func);
         match (raw, &other) {
             (Value::Empty, _) => Value::Empty,
             (Value::Error(e), _) | (_, Value::Error(e)) => Value::Error(*e),
@@ -833,21 +1167,38 @@ impl<'a> Ctx<'a> {
         Value::number(total)
     }
 
-    fn rank(&self, raw: &Value, key: &[(u32, u32)], d: u32, func: AggFunc, base: u32) -> Value {
+    fn rank(
+        &self,
+        raw: &Value,
+        key: &[(u32, u32)],
+        d: u32,
+        func: AggFunc,
+        base: u32,
+        ascending: bool,
+    ) -> Value {
         if !key.iter().any(|(f, _)| *f == base) {
             return Value::Empty;
         }
         let Some(x) = num(raw) else {
             return raw.clone();
         };
-        let higher = self
+        let before = self
             .visible_items(base)
             .into_iter()
             .filter_map(|i| num(&self.agg_key(&Self::with_item(key, base, i), d, func)))
-            .filter(|&y| y > x)
+            .filter(|&y| if ascending { y < x } else { y > x })
             .count();
-        Value::Number(higher as f64 + 1.0)
+        Value::Number(before as f64 + 1.0)
     }
+}
+
+/// The base item's value of a cell ("Difference From", "% Of").
+enum Base {
+    /// The cell lacks the base field or the base item does not exist.
+    None,
+    /// The cell is the base item.
+    Same,
+    Value(Value),
 }
 
 /// The axis entries: fields in order, `Σ Values` inserted when there are
@@ -984,6 +1335,15 @@ fn axis_fields(entries: &[Entry], fields: &[AxisField]) -> Vec<i32> {
 }
 
 impl PivotTable {
+    /// The records of `cache` that pass the table's filters (page fields,
+    /// hidden items, label / date / value filters), in order.
+    pub fn passing_records(&self, cache: &PivotCache) -> Vec<u32> {
+        if self.validate(cache).is_err() {
+            return Vec::new();
+        }
+        Ctx::new(self, cache).recs
+    }
+
     /// Lays the table out at its anchor ([`location`](Self::location)'s
     /// top-left cell) from `cache`. Fails with
     /// [`Error::InvalidPivot`] for a definition that does not fit the
@@ -1253,7 +1613,9 @@ impl PivotTable {
                             v => v,
                         };
                         let fmt = match df.show_as {
-                            ShowAs::Rank { .. } => None,
+                            ShowAs::Rank { .. } | ShowAs::RankAscending { .. } | ShowAs::Index => {
+                                df.number_format.clone()
+                            }
                             _ => df.effective_format(),
                         };
                         g.put(PivotCell {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate the 33 PROVISIONAL pptx reference files (testdata/pptx/provisional-NN-*.pptx) with headless
+# Generate the 35 PROVISIONAL pptx reference files (testdata/pptx/provisional-NN-*.pptx) with headless
 # LibreOffice, plus testdata/pptx/manifest.json describing their contents (docs/pptx-suite.md).
 #   gen-pptx-suite.sh            generate (flat ODP from scripts/testdata-src/pptx/gen.py -> pptx)
 #   gen-pptx-suite.sh --verify   check the committed files against the manifest
@@ -30,7 +30,7 @@ verify_dir() {
   local dir="$1" fail=0 f pdf n
   mkdir -p "$TMP/pdf"
   n="$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$dir/manifest.json")"
-  if [[ "$n" != 33 ]]; then echo "FAIL manifest has $n entries, expected 33"; fail=1; fi
+  if [[ "$n" != 35 ]]; then echo "FAIL manifest has $n entries, expected 35"; fail=1; fi
   while IFS= read -r f; do
     if [[ ! -s "$dir/$f" ]]; then echo "FAIL $f: missing"; fail=1; continue; fi
     if ! unzip -Z1 "$dir/$f" >"$TMP/zip.lst" 2>/dev/null || ! grep -qF '[Content_Types].xml' "$TMP/zip.lst"; then echo "FAIL $f: no [Content_Types].xml"; fail=1; continue; fi

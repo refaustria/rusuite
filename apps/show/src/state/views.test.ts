@@ -23,7 +23,7 @@ describe("views and guides", () => {
     store.setView("sorter");
     expect(store.getState().view).toBe("sorter");
     const p = fixture();
-    p.view = { guides: [], gridSpacing: 76200, snapToGrid: false, snapToShapes: true, showGrid: false, showGuides: false, showRuler: false, lastView: "outline" };
+    p.view = { guides: [], gridSpacing: 76200, snapToGrid: false, snapToShapes: true, showGrid: false, showGuides: false, showRuler: false, lastView: "outline", sorterZoom: 90, restoredLeft: 15620, restoredTop: 100000 };
     const other = await ready(new FakeBackend(p));
     expect(other.store.getState().view).toBe("outline");
   });
@@ -63,7 +63,7 @@ describe("views and guides", () => {
 describe("Set Up Slide Show and Rehearse Timings", () => {
   it("stores the settings and the rehearsed times as After timings", async () => {
     const { store, backend } = await ready();
-    await store.setShowSettings({ loop: true, withoutNarration: false, withoutAnimation: false, useTimings: false, range: { start: 1, end: 2 } });
+    await store.setShowSettings({ loop: true, withoutNarration: false, withoutAnimation: false, useTimings: false, showScrollbar: true, range: { start: 1, end: 2 } });
     expect(store.getState().pres?.showSettings?.loop).toBe(true);
     await store.applyTimings(new Map([[1, 4400], [4, 12600]]));
     const c = backend.commands.at(-1)!;

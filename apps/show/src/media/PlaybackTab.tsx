@@ -1,15 +1,21 @@
-// Audio / video in Show (P8-24): Insert › Video / Audio (file pickers) and
-// the contextual Playback tab of selected clips – Start ▾ (When Clicked
-// On, Automatically, In Click Sequence), Loop until Stopped, Hide While
-// Not Playing, Volume ▾ (Low, Medium, High, Mute) and Poster Frame ▾
-// (Image from File…, Reset). Trimming is not offered.
+// Audio / video in Show (P8-24, P9-S4): Insert › Video / Audio (file
+// pickers) and the contextual Playback tab of selected clips – Bookmarks
+// (Add Bookmark at a time, Remove Bookmark), Editing (Trim Video / Audio…,
+// Fade In / Fade Out durations), Start ▾ (When Clicked On, Automatically,
+// In Click Sequence), Play Across Slides, Loop until Stopped, Hide While
+// Not Playing, Rewind after Playing, Volume ▾ (Low, Medium, High, Mute)
+// and Poster Frame ▾ (Image from File…, Reset).
 
-import { useRef, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { RIBBON_SELECT, RibbonButton, RibbonMenuButton, RibbonStack, bytesToBase64, type RibbonTab, type TFunction } from "@rusuite/ui-shared";
 import type { MediaClip } from "../generated/MediaClip";
 import type { MediaStart } from "../generated/MediaStart";
 import type { ShowState, ShowStore } from "../state/store";
 import { AUDIO_ACCEPT, VIDEO_ACCEPT, mediaType } from "../state/rich";
+import { MAX_TIME_MS } from "../anim/effects";
+import { SpinField } from "../ui/AnimTabs";
+import { clockToMs, msToClock } from "../ui/AnimDialogs";
+import type { Bookmark } from "../generated/Bookmark";
 
 /** Playback › Volume levels (1/1000 %). */
 export const VOLUMES = [
@@ -26,6 +32,55 @@ export function volumeLevel(c: MediaClip): "low" | "medium" | "high" | "mute" {
 }
 
 const STARTS: MediaStart[] = ["onClick", "automatically", "inClickSequence"];
+
+/** The bookmarks after Add Bookmark at `timeMs` (PowerPoint's next "Bookmark N"; one per time), in time order. */
+export function addBookmark(c: Pick<MediaClip, "bookmarks">, timeMs: number): Bookmark[] {
+  const list = [...(c.bookmarks ?? [])];
+  if (list.some((b) => b.timeMs === timeMs)) return list;
+  let n = 1;
+  while (list.some((b) => b.name === `Bookmark ${n}`)) n++;
+  list.push({ name: `Bookmark ${n}`, timeMs: Math.max(0, Math.round(timeMs)) });
+  return list.sort((a, b) => a.timeMs - b.timeMs);
+}
+
+/** Add Bookmark at a time (mm:ss.fff) and Remove Bookmark ▾. */
+function BookmarkControls({ store, clip, t }: { store: ShowStore; clip: MediaClip; t: TFunction }) {
+  const [at, setAt] = useState("00:00.000");
+  const marks = clip.bookmarks ?? [];
+  return (
+    <RibbonStack>
+      <span className="flex items-center gap-1 text-xs">
+        <input
+          className={`${RIBBON_SELECT} w-24 text-right`}
+          aria-label={t("show.media.bookmarkAt")}
+          title={t("show.media.bookmarkAt")}
+          value={at}
+          onChange={(e) => setAt(e.target.value)}
+        />
+        <RibbonButton
+          label={t("show.media.addBookmark")}
+          icon="plus"
+          showLabel
+          onClick={() => {
+            const ms = clockToMs(at);
+            if (ms !== null) void store.setMediaProps({ bookmarks: addBookmark(clip, ms) });
+          }}
+        />
+      </span>
+      <RibbonMenuButton
+        label={t("show.media.removeBookmark")}
+        icon="trash"
+        showLabel
+        disabled={!marks.length}
+        menu={marks.map((b) => ({
+          id: b.name,
+          label: `${b.name} (${msToClock(b.timeMs)})`,
+          onSelect: () => void store.setMediaProps({ bookmarks: marks.filter((m) => m.name !== b.name) }),
+        }))}
+      />
+    </RibbonStack>
+  );
+}
 
 /** Reads a picked file as base64 and hands it on. */
 async function readFile(file: File): Promise<string> {
@@ -122,6 +177,28 @@ export function playbackTab(store: ShowStore, state: ShowState, t: TFunction): R
     label: t("show.media.playback"),
     groups: [
       {
+        label: t("show.media.bookmarks"),
+        items: one ? <BookmarkControls store={store} clip={c} t={t} /> : <span className="text-xs text-ui-muted">{t("show.media.oneClip")}</span>,
+      },
+      {
+        label: t("show.media.editing"),
+        items: (
+          <>
+            <RibbonButton label={t(c.kind === "audio" ? "show.trim.audio" : "show.trim.video")} icon="cut" size="large" showLabel disabled={!one} onClick={() => store.openDialog({ kind: "trimMedia" })} />
+            <RibbonStack>
+              <span className="flex items-center gap-1 text-xs">
+                {t("show.media.fadeIn")}
+                <SpinField label={t("show.media.fadeIn")} ms={c.fadeInMs ?? 0} min={0} max={MAX_TIME_MS} onCommit={(ms) => void store.setMediaProps({ fadeInMs: ms })} />
+              </span>
+              <span className="flex items-center gap-1 text-xs">
+                {t("show.media.fadeOut")}
+                <SpinField label={t("show.media.fadeOut")} ms={c.fadeOutMs ?? 0} min={0} max={MAX_TIME_MS} onCommit={(ms) => void store.setMediaProps({ fadeOutMs: ms })} />
+              </span>
+            </RibbonStack>
+          </>
+        ),
+      },
+      {
         label: t("show.media.options"),
         items: (
           <>
@@ -136,8 +213,12 @@ export function playbackTab(store: ShowStore, state: ShowState, t: TFunction): R
               </select>
             </RibbonStack>
             <RibbonStack>
+              <RibbonButton label={t("show.media.acrossSlides")} icon="duplicate" showLabel pressed={!!c.playAcrossSlides} onClick={() => void store.setMediaProps({ playAcrossSlides: !c.playAcrossSlides })} />
               <RibbonButton label={t("show.media.loop")} icon="redo" showLabel pressed={!!c.loop} onClick={() => void store.setMediaProps({ loop: !c.loop })} />
+            </RibbonStack>
+            <RibbonStack>
               <RibbonButton label={t("show.media.hide")} icon="close" showLabel pressed={!!c.hideWhenNotPlaying} onClick={() => void store.setMediaProps({ hideWhenNotPlaying: !c.hideWhenNotPlaying })} />
+              <RibbonButton label={t("show.media.rewind")} icon="undo" showLabel pressed={!!c.rewind} onClick={() => void store.setMediaProps({ rewind: !c.rewind })} />
             </RibbonStack>
           </>
         ),

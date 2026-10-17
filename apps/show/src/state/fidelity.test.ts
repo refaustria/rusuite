@@ -131,9 +131,16 @@ describe("last view on save", () => {
   it("Save stamps the current view (no command, no undo step)", async () => {
     const { store, backend } = await ready();
     store.setView("sorter");
+    store.setSorterZoom(60);
+    store.setZoom(1.5);
     const n = backend.commands.length;
     await store.save();
-    expect(backend.log.find((r) => r.type === "savePptx")).toEqual({ type: "savePptx", lastView: "slideSorter" });
+    // P9-S3: the zoom, the sorter zoom and the panes go with it
+    expect(backend.log.find((r) => r.type === "savePptx")).toEqual({
+      type: "savePptx",
+      lastView: "slideSorter",
+      viewState: { zoom: 150, sorterZoom: 60, restoredLeft: 15620, restoredTop: 100000 },
+    });
     expect(backend.commands.length).toBe(n);
   });
 });

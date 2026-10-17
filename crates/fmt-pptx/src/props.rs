@@ -7,7 +7,9 @@
 //! smart guides, guide colours, Reading View) goes into a Rusuite
 //! extension of `p:viewPr` that other readers ignore.
 
-use model_show::{Emu, Guide, GuideOrient, ShowSettings, SlideRange, ViewKind, ViewProps};
+use model_show::{
+    Emu, Guide, GuideOrient, ShowSettings, ShowType, SlideRange, ViewKind, ViewProps,
+};
 
 use crate::parts::ROOT_NS;
 use crate::xml::{parse_bool, parse_i64, parse_u32, El, XmlOut};
@@ -56,8 +58,8 @@ pub fn view_props_xml(v: &ViewProps) -> Vec<u8> {
     }
     x.start("p:viewPr", &root);
     x.start("p:normalViewPr", &[]);
-    x.empty("p:restoredLeft", &[("sz", "15620")]);
-    x.empty("p:restoredTop", &[("sz", "94660")]);
+    x.empty("p:restoredLeft", &[("sz", &v.restored_left.to_string())]);
+    x.empty("p:restoredTop", &[("sz", &v.restored_top.to_string())]);
     x.end("p:normalViewPr");
     x.start("p:slideViewPr", &[]);
     let mut c = vec![("snapToGrid", flag(v.snap_to_grid))];
@@ -65,11 +67,15 @@ pub fn view_props_xml(v: &ViewProps) -> Vec<u8> {
         c.push(("showGuides", "1"));
     }
     x.start("p:cSldViewPr", &c);
-    x.start("p:cViewPr", &[("varScale", "1")]);
-    x.start("p:scale", &[]);
-    x.empty("a:sx", &[("n", "100"), ("d", "100")]);
-    x.empty("a:sy", &[("n", "100"), ("d", "100")]);
-    x.end("p:scale");
+    // fit (`varScale`) or a fixed zoom
+    let zoom = v.zoom.unwrap_or(100).to_string();
+    let c_view: &[(&str, &str)] = if v.zoom.is_none() {
+        &[("varScale", "1")]
+    } else {
+        &[]
+    };
+    x.start("p:cViewPr", c_view);
+    write_scale(&mut x, &zoom);
     x.empty("p:origin", &[("x", "0"), ("y", "0")]);
     x.end("p:cViewPr");
     if v.guides.is_empty() {
@@ -87,6 +93,12 @@ pub fn view_props_xml(v: &ViewProps) -> Vec<u8> {
     }
     x.end("p:cSldViewPr");
     x.end("p:slideViewPr");
+    x.start("p:sorterViewPr", &[]);
+    x.start("p:cViewPr", &[]);
+    write_scale(&mut x, &v.sorter_zoom.to_string());
+    x.empty("p:origin", &[("x", "0"), ("y", "0")]);
+    x.end("p:cViewPr");
+    x.end("p:sorterViewPr");
     let grid = v.grid_spacing.0.to_string();
     x.empty("p:gridSpacing", &[("cx", &grid), ("cy", &grid)]);
     // display settings PresentationML does not store
@@ -122,6 +134,22 @@ pub fn view_props_xml(v: &ViewProps) -> Vec<u8> {
     x.finish()
 }
 
+/// `p:scale` of `n` %.
+fn write_scale(x: &mut XmlOut, n: &str) {
+    x.start("p:scale", &[]);
+    x.empty("a:sx", &[("n", n), ("d", "100")]);
+    x.empty("a:sy", &[("n", n), ("d", "100")]);
+    x.end("p:scale");
+}
+
+/// The zoom in % of a `p:cViewPr` (`a:sx n/d`), clamped to 10…400.
+fn read_scale(c_view: Option<&El>) -> Option<u32> {
+    let sx = c_view?.child("scale")?.child("sx")?;
+    let n = sx.attr("n").and_then(parse_i64)?;
+    let d = sx.attr("d").and_then(parse_i64).filter(|d| *d > 0)?;
+    Some(((n * 100 + d / 2) / d).clamp(10, 400) as u32)
+}
+
 /// [`ViewProps`] of a `p:viewPr` root (absent values: PresentationML's
 /// defaults, `snapToGrid` on).
 pub fn read_view_props(root: &El) -> ViewProps {
@@ -134,10 +162,26 @@ pub fn read_view_props(root: &El) -> ViewProps {
         },
         ..ViewProps::default()
     };
+    if let Some(n) = root.child("normalViewPr") {
+        let sz = |name: &str| {
+            n.child(name)
+                .and_then(|e| e.attr("sz"))
+                .and_then(parse_i64)
+                .map(|v| v.clamp(0, 100_000) as u32)
+        };
+        v.restored_left = sz("restoredLeft").unwrap_or(ViewProps::DEFAULT_LEFT);
+        v.restored_top = sz("restoredTop").unwrap_or(ViewProps::DEFAULT_TOP);
+    }
+    if let Some(z) = read_scale(root.child("sorterViewPr").and_then(|s| s.child("cViewPr"))) {
+        v.sorter_zoom = z;
+    }
     if let Some(c) = root
         .child("slideViewPr")
         .and_then(|s| s.child("cSldViewPr"))
     {
+        let c_view = c.child("cViewPr");
+        let var = c_view.and_then(|c| c.attr("varScale")).and_then(parse_bool) == Some(true);
+        v.zoom = if var { None } else { read_scale(c_view) };
         v.snap_to_grid = c.attr("snapToGrid").and_then(parse_bool).unwrap_or(true);
         v.show_guides = c.attr("showGuides").and_then(parse_bool).unwrap_or(false);
         if let Some(list) = c.child("guideLst") {
@@ -189,6 +233,81 @@ pub fn read_view_props(root: &El) -> ViewProps {
     v
 }
 
+/// PowerPoint 2012 main namespace (`p15:`).
+pub const NS_P15: &str = "http://schemas.microsoft.com/office/powerpoint/2012/main";
+/// `p:ext/@uri` of the guides of a slide master (`p15:sldGuideLst`).
+pub const MASTER_GUIDES_URI: &str = "{27BBF7A9-308A-43DC-89C8-2F10F3537804}";
+/// `p:ext/@uri` of the guides of a slide layout (`p15:sldGuideLst`).
+pub const LAYOUT_GUIDES_URI: &str = "{DCECCB84-F9BA-43D5-87BE-67443E8EF086}";
+/// `p:ext/@uri` of the notes page guides in `presentation.xml`
+/// (`p15:notesGuideLst`).
+pub const NOTES_GUIDES_URI: &str = "{2D200454-40CA-4A62-9FC3-DE9A4176ACB9}";
+/// The colour PowerPoint gives master and layout guides (`None` in the
+/// model).
+pub const DESIGN_GUIDE_COLOR: &str = "FBAE40";
+
+/// Writes `p:ext uri=… / p15:<list>` with `guides` (nothing when empty);
+/// the caller has opened `p:extLst`.
+pub fn write_p15_guides(x: &mut XmlOut, uri: &str, list: &str, guides: &[Guide]) {
+    if guides.is_empty() {
+        return;
+    }
+    x.start("p:ext", &[("uri", uri)]);
+    x.start(list, &[("xmlns:p15", NS_P15)]);
+    for (i, g) in guides.iter().enumerate() {
+        let id = (i + 1).to_string();
+        let pos = guide_units(g.pos).to_string();
+        let mut attrs = vec![("id", id.as_str())];
+        if g.orient == GuideOrient::Horizontal {
+            attrs.push(("orient", "horz"));
+        }
+        attrs.push(("pos", &pos));
+        attrs.push(("userDrawn", "1"));
+        x.start("p15:guide", &attrs);
+        x.start("p15:clr", &[]);
+        x.empty(
+            "a:srgbClr",
+            &[("val", g.color.as_deref().unwrap_or(DESIGN_GUIDE_COLOR))],
+        );
+        x.end("p15:clr");
+        x.end("p15:guide");
+    }
+    x.end(list);
+    x.end("p:ext");
+}
+
+/// The guides of a `p15:sldGuideLst` / `p15:notesGuideLst` (`list`, local
+/// name) in an `p:extLst` of `parent` (any `p:ext`); PowerPoint's guide
+/// colour reads as the default.
+pub fn read_p15_guides(parent: &El, list: &str) -> Vec<Guide> {
+    let Some(l) = parent
+        .child("extLst")
+        .into_iter()
+        .flat_map(|e| e.elements())
+        .filter(|e| e.name == "ext")
+        .find_map(|e| e.child(list))
+    else {
+        return Vec::new();
+    };
+    l.elements()
+        .filter(|e| e.name == "guide")
+        .map(|g| Guide {
+            orient: if g.attr("orient") == Some("horz") {
+                GuideOrient::Horizontal
+            } else {
+                GuideOrient::Vertical
+            },
+            pos: guide_emu(g.attr("pos").and_then(parse_i64).unwrap_or(0)),
+            color: g
+                .child("clr")
+                .and_then(|c| c.child("srgbClr"))
+                .and_then(|c| c.attr("val"))
+                .map(str::to_ascii_uppercase)
+                .filter(|v| model_show::view::is_rrggbb(v) && v != DESIGN_GUIDE_COLOR),
+        })
+        .collect()
+}
+
 /// `ppt/presProps.xml`: `p:showPr` when the settings differ from the
 /// defaults.
 pub fn pres_props_xml(s: &ShowSettings) -> Vec<u8> {
@@ -212,13 +331,23 @@ pub fn pres_props_xml(s: &ShowSettings) -> Vec<u8> {
         attrs.push(("useTimings", "0"));
     }
     x.start("p:showPr", &attrs);
-    x.empty("p:present", &[]);
-    match s.range {
-        Some(r) => {
+    match s.show_type {
+        ShowType::Speaker => x.empty("p:present", &[]),
+        ShowType::Window => x.empty("p:browse", &[("showScrollbar", flag(s.show_scrollbar))]),
+        ShowType::Kiosk => x.empty("p:kiosk", &[]),
+    }
+    match (s.custom_show, s.range) {
+        (Some(id), _) => x.empty("p:custShow", &[("id", &id.to_string())]),
+        (None, Some(r)) => {
             let (st, end) = (r.start.to_string(), r.end.to_string());
             x.empty("p:sldRg", &[("st", &st), ("end", &end)]);
         }
-        None => x.empty("p:sldAll", &[]),
+        (None, None) => x.empty("p:sldAll", &[]),
+    }
+    if let Some(c) = &s.pen_color {
+        x.start("p:penClr", &[]);
+        x.empty("a:srgbClr", &[("val", c)]);
+        x.end("p:penClr");
     }
     x.end("p:showPr");
     x.end("p:presentationPr");
@@ -243,7 +372,47 @@ pub fn read_pres_props(root: &El) -> ShowSettings {
             let end = r.attr("end").and_then(parse_u32)?;
             (st >= 1 && end >= st).then_some(SlideRange { start: st, end })
         }),
+        show_type: if sp.child("kiosk").is_some() {
+            ShowType::Kiosk
+        } else if sp.child("browse").is_some() {
+            ShowType::Window
+        } else {
+            ShowType::Speaker
+        },
+        show_scrollbar: sp
+            .child("browse")
+            .and_then(|b| b.attr("showScrollbar"))
+            .and_then(parse_bool)
+            .unwrap_or(true),
+        custom_show: sp
+            .child("custShow")
+            .and_then(|c| c.attr("id"))
+            .and_then(parse_u32),
+        pen_color: sp
+            .child("penClr")
+            .and_then(|c| c.child("srgbClr").or_else(|| c.child("prstClr")))
+            .and_then(|c| match c.name.as_str() {
+                "srgbClr" => c.attr("val").map(str::to_ascii_uppercase),
+                _ => preset_rgb(c.attr("val")?),
+            })
+            .filter(|v| model_show::view::is_rrggbb(v)),
     }
+}
+
+/// `RRGGBB` of the preset colours PowerPoint writes for pens.
+fn preset_rgb(name: &str) -> Option<String> {
+    Some(
+        match name {
+            "red" => "FF0000",
+            "black" => "000000",
+            "white" => "FFFFFF",
+            "blue" => "0000FF",
+            "green" => "008000",
+            "yellow" => "FFFF00",
+            _ => return None,
+        }
+        .to_owned(),
+    )
 }
 
 #[cfg(test)]
@@ -280,6 +449,11 @@ mod tests {
             show_guides: true,
             show_ruler: true,
             last_view: ViewKind::SlideSorter,
+            zoom: Some(150),
+            sorter_zoom: 120,
+            restored_left: 21_000,
+            restored_top: 80_000,
+            notes_guides: Vec::new(),
         };
         let xml = view_props_xml(&v);
         let text = String::from_utf8(xml.clone()).unwrap();
@@ -288,14 +462,57 @@ mod tests {
             "{text}"
         );
         assert!(text.contains(r#"lastView="sldSorterView""#));
+        assert!(text.contains(r#"<p:restoredLeft sz="21000"/>"#), "{text}");
+        assert!(
+            text.contains(r#"<p:cViewPr><p:scale><a:sx n="150" d="100"/>"#),
+            "{text}"
+        );
+        assert!(
+            text.contains(r#"<p:sorterViewPr><p:cViewPr><p:scale><a:sx n="120" d="100"/>"#),
+            "{text}"
+        );
         let back = read_view_props(&parse(&xml, "viewProps").unwrap());
         assert_eq!(back, v);
+        // fit: varScale, the scale is ignored on reading
+        let fit = String::from_utf8(view_props_xml(&ViewProps::default())).unwrap();
+        assert!(fit.contains(r#"<p:cViewPr varScale="1">"#), "{fit}");
         let reading = ViewProps {
             last_view: ViewKind::Reading,
             ..ViewProps::default()
         };
         let back = read_view_props(&parse(&view_props_xml(&reading), "v").unwrap());
         assert_eq!(back, reading);
+    }
+
+    #[test]
+    fn p15_guides_roundtrip() {
+        let guides = vec![
+            Guide {
+                orient: GuideOrient::Horizontal,
+                pos: Emu(3_429_000),
+                color: None,
+            },
+            Guide {
+                orient: GuideOrient::Vertical,
+                pos: Emu(914_400),
+                color: Some("00B050".into()),
+            },
+        ];
+        let mut x = XmlOut::new();
+        x.start("p:sldLayout", &ROOT_NS);
+        x.start("p:extLst", &[]);
+        write_p15_guides(&mut x, LAYOUT_GUIDES_URI, "p15:sldGuideLst", &guides);
+        x.end("p:extLst");
+        x.end("p:sldLayout");
+        let xml = x.finish();
+        let text = String::from_utf8(xml.clone()).unwrap();
+        assert!(
+            text.contains(r#"<p15:guide id="1" orient="horz" pos="2160" userDrawn="1"><p15:clr><a:srgbClr val="FBAE40"/></p15:clr></p15:guide>"#),
+            "{text}"
+        );
+        let back = read_p15_guides(&parse(&xml, "l").unwrap(), "sldGuideLst");
+        assert_eq!(back, guides);
+        assert!(read_p15_guides(&parse(&xml, "l").unwrap(), "notesGuideLst").is_empty());
     }
 
     #[test]
@@ -320,11 +537,43 @@ mod tests {
             without_animation: true,
             range: Some(SlideRange { start: 2, end: 4 }),
             use_timings: false,
+            ..ShowSettings::default()
         };
         let xml = pres_props_xml(&s);
         let text = String::from_utf8(xml.clone()).unwrap();
         assert!(text.contains(r#"<p:sldRg st="2" end="4"/>"#), "{text}");
         assert_eq!(read_pres_props(&parse(&xml, "p").unwrap()), s);
+        let kiosk = ShowSettings {
+            show_type: ShowType::Kiosk,
+            custom_show: Some(2),
+            pen_color: Some("00B050".into()),
+            ..ShowSettings::default()
+        };
+        let xml = pres_props_xml(&kiosk);
+        let text = String::from_utf8(xml.clone()).unwrap();
+        assert!(
+            text.contains(
+                r#"<p:kiosk/><p:custShow id="2"/><p:penClr><a:srgbClr val="00B050"/></p:penClr>"#
+            ),
+            "{text}"
+        );
+        assert_eq!(read_pres_props(&parse(&xml, "p").unwrap()), kiosk);
+        let window = ShowSettings {
+            show_type: ShowType::Window,
+            show_scrollbar: false,
+            ..ShowSettings::default()
+        };
+        assert_eq!(
+            read_pres_props(&parse(&pres_props_xml(&window), "p").unwrap()),
+            window
+        );
+        let ppt = br#"<p:presentationPr xmlns:p="p" xmlns:a="a"><p:showPr showNarration="1"><p:present/><p:sldAll/><p:penClr><a:prstClr val="red"/></p:penClr></p:showPr></p:presentationPr>"#;
+        assert_eq!(
+            read_pres_props(&parse(ppt, "p").unwrap())
+                .pen_color
+                .as_deref(),
+            Some("FF0000")
+        );
         let none = parse(br#"<p:presentationPr xmlns:p="p"/>"#, "p").unwrap();
         assert_eq!(read_pres_props(&none), ShowSettings::default());
     }

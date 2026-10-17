@@ -17,4 +17,8 @@ checked: boolean, collapsed?: boolean,
 /**
  * The item has records at present (Excel lists retained items too).
  */
-hasData: boolean, };
+hasData: boolean, 
+/**
+ * A calculated item.
+ */
+calculated?: boolean, };
