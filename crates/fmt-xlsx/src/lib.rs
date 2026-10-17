@@ -5,7 +5,8 @@
 //! The supported subset (values, formulas, cell styles, column/row
 //! dimensions, sheet defaults, sheet views with frozen panes, hidden
 //! sheets, merged cells, AutoFilter, conditional formatting, data
-//! validation, charts, notes and comments, pivot tables) and everything that
+//! validation, charts, notes and comments, pivot tables, sheet and
+//! workbook protection) and everything that
 //! is dropped are listed in
 //! `docs/ooxml-subset.md`.
 //!
@@ -33,6 +34,7 @@ mod condfmt;
 mod drawing;
 mod dynarray;
 mod pivot;
+mod protection;
 mod read;
 mod styles;
 mod tables;

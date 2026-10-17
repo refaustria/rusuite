@@ -219,6 +219,8 @@ pub(crate) struct SheetData {
     pub col_breaks: Vec<u32>,
     /// Pictures, back to front.
     pub pictures: Vec<crate::picture::Picture>,
+    /// Review › Protect Sheet; `None` = unprotected.
+    pub protection: Option<crate::protection::SheetProtection>,
 }
 
 impl SheetData {

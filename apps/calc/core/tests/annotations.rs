@@ -416,6 +416,7 @@ fn sort_moves_notes_and_sheet_operations_keep_them() {
         C::DuplicateSheet {
             sheet: 0,
             name: "Copy".into(),
+            index: None,
         },
     );
     let copy = h.doc().workbook().sheet_id("Copy").unwrap();

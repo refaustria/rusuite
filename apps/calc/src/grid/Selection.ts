@@ -164,10 +164,11 @@ export function navigate(sel: Selection, k: KeyInput, ctx: NavContext): Selectio
       return move(sel, 0, k.shift ? -1 : 1, false, ctx.mergeAt);
     case "Enter":
       return move(sel, k.shift ? -1 : 1, 0, false, ctx.mergeAt);
+    // Ctrl+PageDown / PageUp switch sheets (the shortcut layer), not the selection.
     case "PageDown":
-      return move(sel, Math.max(1, ctx.pageRows), 0, k.shift, ctx.mergeAt);
+      return k.ctrl ? null : move(sel, Math.max(1, ctx.pageRows), 0, k.shift, ctx.mergeAt);
     case "PageUp":
-      return move(sel, -Math.max(1, ctx.pageRows), 0, k.shift, ctx.mergeAt);
+      return k.ctrl ? null : move(sel, -Math.max(1, ctx.pageRows), 0, k.shift, ctx.mergeAt);
     case "Home": {
       const row = k.ctrl ? 0 : (k.shift ? sel.focus : sel.anchor).row;
       return moveTo(sel, { row, col: 0 }, k.shift);

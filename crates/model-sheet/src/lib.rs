@@ -9,7 +9,8 @@
 //! and AutoFilter ([`sortfilter`]), conditional formatting ([`condfmt`])
 //! data validation ([`validation`]), charts ([`chart`]), defined names
 //! ([`names`]), notes, threaded comments and hyperlinks
-//! ([`annotations`]) and pivot tables ([`pivot`]).
+//! ([`annotations`]), pivot tables ([`pivot`]) and sheet / workbook
+//! protection ([`protection`]).
 //! [`WorkbookSnapshot`] is the serializable form (camelCase JSON) used by
 //! serde, the IPC layer and `fmt-xlsx`.
 
@@ -21,6 +22,7 @@ pub mod numfmt;
 pub mod outline;
 pub mod picture;
 pub mod pivot;
+pub mod protection;
 mod rules;
 pub mod sheet;
 pub mod snapshot;
@@ -45,6 +47,7 @@ pub use names::{BuiltinName, DefinedName};
 pub use outline::{Axis, OutlineProps, OutlineState, MAX_OUTLINE_LEVEL};
 pub use picture::Picture;
 pub use pivot::{PivotCache, PivotTable};
+pub use protection::{HashedPassword, Password, SheetProtection, WorkbookProtection};
 pub use sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView, MAX_ZOOM, MIN_ZOOM};
 pub use snapshot::{
     content_to_input, CellSnapshot, ColSnapshot, NameSnapshot, RowSnapshot, SheetSnapshot,
@@ -55,8 +58,8 @@ pub use sortfilter::{
     FilterValue, SortKey, SortKind, SortSpec, SortState,
 };
 pub use style::{
-    Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, Protection, StyleId,
-    StyleTable, VAlign,
+    Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, PatternFill, PatternType,
+    Protection, StyleId, StyleTable, VAlign,
 };
 pub use tables::{Table, TableColumn, TableLook, TotalsCell, TotalsFunction, DEFAULT_TABLE_STYLE};
 pub use validation::{
@@ -144,4 +147,14 @@ pub enum Error {
     /// AutoFilter range.
     #[error("This operation is not allowed. The operation is attempting to shift cells in a table or filtered range on your worksheet.")]
     ShiftTable,
+    /// A change a protected sheet does not allow (locked cells, or an
+    /// action its options forbid).
+    #[error("{}", protection::SHEET_PROTECTED_MESSAGE)]
+    SheetProtected,
+    /// A sheet change while the workbook structure is locked.
+    #[error("{}", protection::WORKBOOK_PROTECTED_MESSAGE)]
+    WorkbookProtected,
+    /// Unprotect with a wrong password.
+    #[error("{}", protection::WRONG_PASSWORD_MESSAGE)]
+    WrongPassword,
 }

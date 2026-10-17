@@ -71,6 +71,7 @@ import { parseStruct, structCompletion, structInsert, structItems, structRange }
 import type { OutlineProps } from "../generated/OutlineProps";
 import type { PasteSpecial } from "../generated/PasteSpecial";
 import type { DropTarget } from "../pivot/buttons";
+import { refuseLockedEdit } from "../protection/protection";
 
 /** Snapshot blocks: 64 rows × 32 columns. */
 export const BLOCK_ROWS = 64;
@@ -268,7 +269,15 @@ export type CalcDialog =
   /** File › Save As › CSV: separator, BOM, quotes (after "some features may be lost"). */
   | { kind: "saveCsv"; name?: string }
   /** Page Layout › Print Titles (rows / columns to repeat, print area). */
-  | { kind: "printTitles" };
+  | { kind: "printTitles" }
+  /** Review › Protect Sheet… (P9-C1). */
+  | { kind: "protectSheet"; sheet: number }
+  /** Review › Protect Workbook… */
+  | { kind: "protectWorkbook" }
+  /** Move or Copy… of the sheet tab menu and Home › Format (P9-C1). */
+  | { kind: "moveCopy"; sheet: number }
+  /** The password prompt of Unprotect Sheet / Unprotect Workbook. */
+  | { kind: "unprotect"; target: "sheet" | "workbook"; sheet: number };
 
 /** The failed check of a committed edit (Excel's Stop / Warning / Information alert). */
 export interface ValidationAlert {
@@ -598,7 +607,10 @@ export class CalcStore {
 
   pushError(e: unknown): void {
     // A content edit inside a pivot table: Excel's message.
-    const known: Record<string, string> = { pivot_cell: "calc.pivot.cantChange", shift_merged: "calc.shiftMerged", shift_table: "calc.shiftTable" };
+    const known: Record<string, string> = {
+      pivot_cell: "calc.pivot.cantChange", shift_merged: "calc.shiftMerged", shift_table: "calc.shiftTable",
+      sheet_protected: "calc.protect.refused", workbook_protected: "calc.protect.bookRefused", wrong_password: "calc.protect.wrongPassword",
+    };
     const message =
       e instanceof CalcApiError && known[e.code]
         ? t(known[e.code])
@@ -635,7 +647,10 @@ export class CalcStore {
     this.pivots.reset(info.stalePivots ?? []);
     this.pictures.reset();
     const shown = visibleSheets(info.sheets);
-    const active = shown.some((s) => s.id === this.state.activeSheet) ? this.state.activeSheet : (shown[0]?.id ?? info.sheets[0]?.id ?? 0);
+    // A replaced document opens on its saved active sheet (`activeTab`).
+    const active = shown.some((s) => s.id === info.activeSheet)
+      ? info.activeSheet
+      : shown.some((s) => s.id === this.state.activeSheet) ? this.state.activeSheet : (shown[0]?.id ?? info.sheets[0]?.id ?? 0);
     this.bump({ info, activeSheet: active, revision: info.revision, edit: null });
   }
 
@@ -648,6 +663,7 @@ export class CalcStore {
       styles: patch.styles ?? info.styles,
       names: patch.names ?? info.names,
       persons: patch.persons ?? info.persons,
+      workbookProtection: patch.workbookProtection ? (patch.workbookProtection.lockStructure || patch.workbookProtection.lockWindows ? patch.workbookProtection : undefined) : info.workbookProtection,
     };
     const reload = new Set<number>();
     for (const s of patch.structural) {
@@ -1057,7 +1073,7 @@ export class CalcStore {
   saveFile(asName?: string, saveAs = asName !== undefined): Promise<void> {
     return this.guard(async () => {
       await this.commitEdit(0, 0);
-      const saved = await this.api.saveXlsx();
+      const saved = await this.api.saveXlsx(this.state.activeSheet);
       const suggested = asName ?? this.state.name ?? saved.suggestedName;
       const result = await this.api.backend.saveFile(suggested, saved.bytesBase64, { saveAs });
       if (!result) return;
@@ -1131,6 +1147,8 @@ export class CalcStore {
   beginEdit(text: string | null, origin: EditState["origin"] = "cell"): void {
     // The cells of a pivot table are not edited (Excel's message; the editor stays closed).
     if (this.pivots.refuseEdit()) return;
+    // Nor the locked cells of a protected sheet (P9-C1).
+    if (refuseLockedEdit(this)) return;
     const mode = text === null || origin === "bar" ? "edit" : "enter";
     const value = text ?? this.activeCell()?.input ?? "";
     // A merged range is edited in its top-left cell.
@@ -1659,10 +1677,11 @@ export class CalcStore {
     const r = this.selectionRange();
     const sheet = this.state.activeSheet;
     const commands = formatCommands(init, next, sheet, r);
-    if (init.wrapText !== next.wrapText && r.r1 - r.r0 <= 500) {
+    // Wrap text and text rotation refit the rows (Excel grows a row for rotated text).
+    if ((init.wrapText !== next.wrapText || init.rotation !== next.rotation) && r.r1 - r.r0 <= 500) {
       const rows: number[] = [];
       for (let row = r.r0; row <= r.r1; row++) rows.push(row);
-      commands.push(...this.rowFitCommands(sheet, rows, (c) => (c >= r.c0 && c <= r.c1 ? { wrap: next.wrapText } : undefined)));
+      commands.push(...this.rowFitCommands(sheet, rows, (c) => (c >= r.c0 && c <= r.c1 ? { wrap: next.wrapText, rotation: next.rotation } : undefined)));
     }
     if (commands.length === 0) return Promise.resolve();
     return this.apply(commands.length === 1 ? commands[0] : { type: "compound", commands });
@@ -1699,7 +1718,9 @@ export class CalcStore {
   applyStyle(patch: CellStylePatch): Promise<void> {
     const r = this.selectionRange();
     const sheet = this.state.activeSheet;
-    const command: CalcCommand = { type: "applyStyle", sheet, ...r, patch };
+    // The U button (and any plain underline) ends an accounting underline.
+    const full: CellStyle = patch.font?.underline !== undefined && !("underlineAccounting" in patch) ? { ...(patch as CellStyle), underlineAccounting: false } : (patch as CellStyle);
+    const command: CalcCommand = { type: "applyStyle", sheet, ...r, patch: full };
     const wrap = patch.alignment?.wrapText;
     if (wrap === undefined || wrap === null || r.r1 - r.r0 > 500) return this.apply(command);
     // Wrap text on/off: rows without an explicit height follow (Excel).
@@ -1722,7 +1743,7 @@ export class CalcStore {
    * edit being committed, a style being applied). Measures cached cells only.
    */
   private rowFitCommands(
-    sheet: number, rows: number[], override: (col: number) => { text?: string; wrap?: boolean } | undefined, extraCols: number[] = [],
+    sheet: number, rows: number[], override: (col: number) => { text?: string; wrap?: boolean; rotation?: number } | undefined, extraCols: number[] = [],
   ): CalcCommand[] {
     const cache = this.cache(sheet);
     const geo = this.geometry(sheet);
@@ -1742,8 +1763,14 @@ export class CalcStore {
         const style = styleAt(styles, styleIdIn(cache, row, col));
         const text = o?.text ?? cell?.display ?? "";
         const wrap = o?.wrap ?? !!style.alignment?.wrapText;
-        if (!wrap || text === "") continue;
+        const rotation = o?.rotation ?? style.alignment?.textRotation ?? 0;
+        if (text === "") continue;
         const font = fontCss(style);
+        if (rotation !== 0 && !wrap) {
+          need = Math.max(need, rotatedHeight(this.measure(text, font), lineHeightPx(font), rotation));
+          continue;
+        }
+        if (!wrap) continue;
         const lines = wrapLines(text, geo.col.size(col) - 2 * CELL_PADDING, font, this.measure).length;
         need = Math.max(need, lines * lineHeightPx(font));
       }
@@ -2161,15 +2188,35 @@ export class CalcStore {
   }
 
   /** Copies `sheet` to `Name (2)` (the first free number) right after it and shows the copy. */
-  duplicateSheet(sheet: number): Promise<void> {
+  duplicateSheet(sheet: number, index?: number): Promise<void> {
+    const name = this.copyName(sheet);
+    if (name === null) return Promise.resolve();
+    return this.applyAndShowNew({ type: "duplicateSheet", sheet, name, ...(index !== undefined ? { index } : {}) });
+  }
+
+  /** Excel's name for a copy of `sheet`: `Sheet1 (2)`, `Sheet1 (3)`, … (`null`: unknown sheet). */
+  copyName(sheet: number): string | null {
     const sheets = this.state.info?.sheets ?? [];
     const name = sheets.find((s) => s.id === sheet)?.name;
-    if (name === undefined) return Promise.resolve();
+    if (name === undefined) return null;
     const names = new Set(sheets.map((s) => s.name.toLowerCase()));
     const base = name.replace(/ \(\d+\)$/, "");
     let n = 2;
     while (names.has(`${base} (${n})`.toLowerCase())) n++;
-    return this.applyAndShowNew({ type: "duplicateSheet", sheet, name: `${base} (${n})` });
+    return `${base} (${n})`;
+  }
+
+  /**
+   * Move or Copy: `sheet` before the sheet at position `before` of the
+   * full sheet order (`null`: to the end); `copy` makes a copy there
+   * (shown, as in Excel). One command, one undo step.
+   */
+  moveOrCopy(sheet: number, before: number | null, copy: boolean): Promise<void> {
+    const count = this.state.info?.sheets.length ?? 0;
+    const at = before ?? count;
+    if (copy) return this.duplicateSheet(sheet, at);
+    const from = this.sheetPosition(sheet);
+    return this.moveSheet(sheet, at > from ? at - 1 : at);
   }
 
   /** Moves `sheet` to tab position `index`. */
@@ -2214,6 +2261,12 @@ export class CalcStore {
   /** Shows the hidden `sheet` again and switches to it. */
   unhideSheet(sheet: number): Promise<void> {
     return this.apply({ type: "setSheetHidden", sheet, hidden: false });
+  }
+
+  /** Unhide with several sheets picked (Excel 365): one undo step; the last one is shown. */
+  unhideSheets(sheets: number[]): Promise<void> {
+    if (sheets.length <= 1) return sheets[0] === undefined ? Promise.resolve() : this.unhideSheet(sheets[0]);
+    return this.apply({ type: "compound", commands: sheets.map((sheet) => ({ type: "setSheetHidden", sheet, hidden: false })) });
   }
 
   // --- sheet view: frozen panes, zoom, gridlines, headings -------------------
@@ -2637,4 +2690,14 @@ function normalizeAround(anchor: Cell, r: Range): Selection {
 /** Subscribes a component to a slice of the store. */
 export function useCalc<T>(store: CalcStore, select: (s: CalcState) => T): T {
   return useSyncExternalStore(store.subscribe, () => select(store.getState()));
+}
+
+/**
+ * The height rotated text needs (Excel grows the row): the text's extent
+ * across the rotation plus one line, with the cell padding (`width` and
+ * `line` in px, `degrees` counter-clockwise, -90..90).
+ */
+export function rotatedHeight(width: number, line: number, degrees: number): number {
+  const a = (Math.abs(degrees) * Math.PI) / 180;
+  return Math.ceil(width * Math.sin(a) + line * Math.cos(a) + 2 * CELL_PADDING);
 }

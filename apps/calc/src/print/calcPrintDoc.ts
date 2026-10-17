@@ -98,7 +98,11 @@ export function sliceTableHtml(table: PrintTable, slice: PageSlice, o: Pick<Calc
             for (let dr = 0; dr < rows; dr++) for (let dc = 0; dc < cols; dc++) if (dr || dc) taken.add(`${p + dr}:${ci + dc}`);
             attrs = `${cols > 1 ? ` colspan="${cols}"` : ""}${rows > 1 ? ` rowspan="${rows}"` : ""}`;
           }
-          return `<td${attrs} style="${styleText(c.style)}">${c.icon ? iconHtml(c.icon.set, c.icon.index) : ""}${escapeHtml(c.text)}</td>`;
+          // Rotated text turns around the cell centre and stays inside the cell (as on the canvas).
+          const text = c.rotation
+            ? `<span class="rs-rot" style="display:inline-block;white-space:nowrap;transform:rotate(${-c.rotation}deg)">${escapeHtml(c.text)}</span>`
+            : escapeHtml(c.text);
+          return `<td${attrs} style="${styleText(c.style)}${c.rotation ? ";overflow:hidden" : ""}">${c.icon ? iconHtml(c.icon.set, c.icon.index) : ""}${text}</td>`;
         })
         .join("");
       return `<tr style="height:${r.height}px" data-row="${r.row}">${o.headings ? `<th>${r.row + 1}</th>` : ""}${cells}</tr>`;

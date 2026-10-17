@@ -10,6 +10,7 @@ import type { SheetInfo } from "./SheetInfo";
 import type { SheetMerges } from "./SheetMerges";
 import type { SheetRows } from "./SheetRows";
 import type { StructuralChange } from "./StructuralChange";
+import type { WorkbookProtection } from "./WorkbookProtection";
 
 /**
  * What a command changed. Empty lists / `null` = nothing of that kind.
@@ -94,4 +95,9 @@ duplicates?: DuplicatesResult,
 /**
  * Sheets whose pictures changed (the UI fetches `sheetPictures`).
  */
-pictureSheets?: Array<number>, };
+pictureSheets?: Array<number>, 
+/**
+ * The workbook protection, when it changed (unprotected: both locks
+ * off); absent = unchanged.
+ */
+workbookProtection?: WorkbookProtection, };

@@ -30,10 +30,11 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     let mut sst = SharedStrings::default();
     let dxfs = crate::condfmt::collect_dxfs(wb);
     let sheets = wb.sheets();
-    // The first visible sheet is the selected (active) one.
+    // The active sheet is the selected one (`activeTab`, `tabSelected`).
+    let active_id = wb.active_sheet();
     let active = sheets
         .iter()
-        .position(|(id, _)| !wb.is_sheet_hidden(*id))
+        .position(|(id, _)| *id == active_id)
         .unwrap_or(0);
     let mut dynamic = false;
     let mut drawings = crate::drawing::DrawingParts::default();
@@ -188,6 +189,9 @@ fn workbook_xml(
     let mut x = XmlOut::new();
     x.start("workbook", &[("xmlns", MAIN_NS), ("xmlns:r", rel::NS)]);
     x.empty("workbookPr", &[]);
+    if let Some(p) = wb.workbook_protection() {
+        crate::protection::workbook_protection_xml(&mut x, p);
+    }
     x.start("bookViews", &[]);
     x.empty("workbookView", &[("activeTab", &active.to_string())]);
     x.end("bookViews");
@@ -474,6 +478,9 @@ fn sheet_xml(
         }
     }
     x.end("sheetData");
+    if let Some(p) = wb.sheet_protection(id) {
+        crate::protection::sheet_protection_xml(&mut x, p);
+    }
     if let Some(af) = wb.auto_filter(id) {
         auto_filter_xml(&mut x, af);
     }

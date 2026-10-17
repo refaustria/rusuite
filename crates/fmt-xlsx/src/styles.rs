@@ -18,8 +18,8 @@ use std::collections::HashMap;
 use core_model::{Color, FontFace, FontSize, Rgb, RunProperties, Underline, VerticalAlign};
 use model_sheet::numfmt::{builtin_code, builtin_id, is_locale_builtin, GENERAL};
 use model_sheet::{
-    Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, Protection, StyleTable,
-    VAlign,
+    Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, PatternFill, PatternType,
+    Protection, StyleTable, VAlign,
 };
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
@@ -174,12 +174,15 @@ pub(crate) fn color_of_el(el: &BytesStart<'_>) -> Option<Color> {
 struct RawFont {
     props: RunProperties,
     color: Option<RawColor>,
+    /// `<u val="singleAccounting"/>` / `doubleAccounting`.
+    accounting: bool,
 }
 
 #[derive(Debug, Default)]
 struct RawFill {
     pattern: Option<String>,
     fg: Option<RawColor>,
+    bg: Option<RawColor>,
     gradient: bool,
 }
 
@@ -359,7 +362,11 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
                     b"b" => p.bold = Some(toggle(el)),
                     b"i" => p.italic = Some(toggle(el)),
                     b"strike" => p.strike = Some(toggle(el)),
-                    b"u" => p.underline = Some(underline_of(attr(el, "val").as_deref())),
+                    b"u" => {
+                        let val = attr(el, "val");
+                        p.underline = Some(underline_of(val.as_deref()));
+                        f.accounting = val.as_deref().is_some_and(|v| v.ends_with("Accounting"));
+                    }
                     b"vertAlign" => {
                         p.vertical_align = Some(match attr(el, "val").as_deref() {
                             Some("superscript") => VerticalAlign::Superscript,
@@ -384,6 +391,7 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
                         );
                     }
                     b"fgColor" => f.fg = Some(RawColor::from_el(el)),
+                    b"bgColor" => f.bg = Some(RawColor::from_el(el)),
                     b"gradientFill" => f.gradient = true,
                     _ => {}
                 }
@@ -456,33 +464,43 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
         })
     };
     let default_font = fonts.first().map_or_else(builtin_default_font, font_of);
+    let accounting: Vec<bool> = fonts.iter().map(|f| f.accounting).collect();
     let fonts: Vec<RunProperties> = fonts
         .iter()
         .map(|f| font_diff(&font_of(f), &default_font))
         .collect();
 
-    let mut approximated_pattern = false;
+    let mut approximated = false;
+    // `indexed="64"` (system foreground) and absent colours: automatic.
+    let resolve = |c: &Option<RawColor>| c.as_ref().and_then(|c| c.resolve(&palette));
     let fills: Vec<Option<Fill>> = fills
         .iter()
-        .map(|f| match f.pattern.as_deref() {
-            None | Some("none") | Some("gray125") => {
+        .enumerate()
+        .map(|(i, f)| match f.pattern.as_deref() {
+            None | Some("none") => {
                 if f.gradient {
-                    approximated_pattern = true;
+                    approximated = true;
                 }
                 None
             }
-            Some(p) => {
-                approximated_pattern |= p != "solid";
-                Some(Fill::Solid(
-                    f.fg.as_ref()
-                        .and_then(|c| c.resolve(&palette))
-                        .unwrap_or(Color::Auto),
-                ))
-            }
+            // Fill 1 is the reserved `gray125` entry every file has.
+            Some("gray125") if i == 1 => None,
+            Some("solid") => Some(Fill::Solid(resolve(&f.fg).unwrap_or(Color::Auto))),
+            Some(p) => match PatternType::from_xml_name(p) {
+                Some(pattern) => Some(Fill::Pattern(PatternFill {
+                    pattern,
+                    fg: resolve(&f.fg).filter(|c| *c != Color::Auto),
+                    bg: resolve(&f.bg).filter(|c| *c != Color::Auto),
+                })),
+                None => {
+                    approximated = true;
+                    Some(Fill::Solid(resolve(&f.fg).unwrap_or(Color::Auto)))
+                }
+            },
         })
         .collect();
-    if approximated_pattern {
-        warn("pattern/gradient fills approximated (pattern → solid foreground color, gradient → no fill)".into());
+    if approximated {
+        warn("gradient fills approximated (no fill)".into());
     }
 
     let borders: Vec<Borders> = borders
@@ -534,6 +552,11 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
             alignment: x.alignment,
             number_format: code_of(x.num_fmt),
             protection: x.protection,
+            underline_accounting: accounting
+                .get(x.font)
+                .copied()
+                .filter(|&a| a && x.font != 0)
+                .map(|_| true),
         })
         .collect();
     for id in unknown_fmts {
@@ -574,7 +597,7 @@ pub(crate) fn color_el(x: &mut XmlOut, name: &str, c: Color) {
     x.empty(name, &refs);
 }
 
-fn font_xml(f: &RunProperties) -> Vec<u8> {
+fn font_xml(f: &RunProperties, accounting: bool) -> Vec<u8> {
     let mut x = XmlOut::fragment();
     x.start("font", &[]);
     if f.bold == Some(true) {
@@ -588,7 +611,9 @@ fn font_xml(f: &RunProperties) -> Vec<u8> {
     }
     match f.underline {
         None | Some(Underline::None) => {}
+        Some(Underline::Double) if accounting => x.empty("u", &[("val", "doubleAccounting")]),
         Some(Underline::Double) => x.empty("u", &[("val", "double")]),
+        Some(_) if accounting => x.empty("u", &[("val", "singleAccounting")]),
         Some(_) => x.empty("u", &[]),
     }
     match f.vertical_align {
@@ -625,6 +650,23 @@ fn fill_xml(c: Option<Color>) -> Vec<u8> {
             x.end("patternFill");
         }
     }
+    x.end("fill");
+    x.finish()
+}
+
+fn pattern_xml(p: &PatternFill) -> Vec<u8> {
+    let mut x = XmlOut::fragment();
+    x.start("fill", &[]);
+    x.start("patternFill", &[("patternType", p.pattern.xml_name())]);
+    match p.fg {
+        Some(c) => color_el(&mut x, "fgColor", c),
+        None => x.empty("fgColor", &[("indexed", "64")]),
+    }
+    match p.bg {
+        Some(c) => color_el(&mut x, "bgColor", c),
+        None => x.empty("bgColor", &[("indexed", "65")]),
+    }
+    x.end("patternFill");
     x.end("fill");
     x.finish()
 }
@@ -757,7 +799,7 @@ pub fn write_styles_with_dxfs(
     dxfs: &[model_sheet::DxfStyle],
 ) -> Vec<u8> {
     let default_font = normalize_font(default_font.clone());
-    let mut fonts = Pool::new(vec![font_xml(&default_font)]);
+    let mut fonts = Pool::new(vec![font_xml(&default_font, false)]);
     let mut fills = Pool::new(vec![fill_xml(None), gray125_xml()]);
     let mut borders = Pool::new(vec![border_xml(&Borders::default())]);
     let mut custom_fmts: Vec<String> = Vec::new();
@@ -801,10 +843,14 @@ pub fn write_styles_with_dxfs(
             let fill = match s.fill {
                 None | Some(Fill::None) => 0,
                 Some(Fill::Solid(c)) => fills.add(fill_xml(Some(c))),
+                Some(Fill::Pattern(p)) => fills.add(pattern_xml(&p)),
             };
             Xf {
                 num_fmt,
-                font: fonts.add(font_xml(&default_font.merged_with(&s.font))),
+                font: fonts.add(font_xml(
+                    &default_font.merged_with(&s.font),
+                    s.underline_accounting == Some(true),
+                )),
                 fill,
                 border: borders.add(border_xml(&s.borders)),
                 alignment: s.alignment,

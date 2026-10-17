@@ -91,6 +91,9 @@ impl CalcError {
             CalcError::Model(M::UnknownTable(_)) => "unknown_table",
             CalcError::Model(M::ShiftMerged) => "shift_merged",
             CalcError::Model(M::ShiftTable) => "shift_table",
+            CalcError::Model(M::SheetProtected) => "sheet_protected",
+            CalcError::Model(M::WorkbookProtected) => "workbook_protected",
+            CalcError::Model(M::WrongPassword) => "wrong_password",
             CalcError::Model(M::Engine(EngineError::InvalidName(_))) => "invalid_name",
             CalcError::Model(M::Engine(EngineError::DuplicateName(_))) => "duplicate_name",
             CalcError::Model(M::Engine(EngineError::UnknownName(_))) => "unknown_name",
@@ -120,6 +123,22 @@ pub struct CalcDocument {
     /// The cells of the last circular reference reported in a patch: later
     /// patches keep reporting it while it exists (Excel's status bar).
     last_cycle: std::cell::RefCell<Option<Vec<CellCoord>>>,
+}
+
+/// Clears one side of a cell's borders (the facing side of a neighbour).
+type ClearSide = fn(&mut model_sheet::Borders);
+
+fn clear_top(b: &mut model_sheet::Borders) {
+    b.top = None;
+}
+fn clear_bottom(b: &mut model_sheet::Borders) {
+    b.bottom = None;
+}
+fn clear_left(b: &mut model_sheet::Borders) {
+    b.left = None;
+}
+fn clear_right(b: &mut model_sheet::Borders) {
+    b.right = None;
 }
 
 /// `A`, `B`, …, `Z`, `AA`, … for a 0-based column.
@@ -287,6 +306,7 @@ impl CalcDocument {
                     self.workbook.max_outline_level(id, model_sheet::Axis::Rows),
                     self.workbook.max_outline_level(id, model_sheet::Axis::Cols),
                 ),
+                protection: self.workbook.active_protection(id).cloned(),
             })
             .collect()
     }
@@ -308,6 +328,12 @@ impl CalcDocument {
             names: self.name_infos(),
             persons: self.workbook.persons().to_vec(),
             stale_pivots: self.workbook.stale_pivots(),
+            workbook_protection: self
+                .workbook
+                .workbook_protection()
+                .filter(|p| p.is_active())
+                .cloned(),
+            active_sheet: self.workbook.active_sheet().0,
         }
     }
 
@@ -687,6 +713,12 @@ impl CalcDocument {
                 sort_state: wb.sort_state(s).cloned(),
             });
         }
+        if let Some(p) = wb.sheet_protection(s) {
+            inverse.push(C::RestoreSheetProtection {
+                sheet,
+                protection: Some(p.clone()),
+            });
+        }
         if wb.is_sheet_hidden(s) {
             inverse.push(C::SetSheetHidden {
                 sheet,
@@ -881,6 +913,28 @@ impl CalcDocument {
                 })
             }
             C::RestoreCells { sheet, cells } => self.restore_cells(*sheet, cells),
+            C::ProtectSheet {
+                sheet,
+                options,
+                password,
+                salt,
+            } => self.protect_sheet(*sheet, options, password.as_deref(), salt.as_deref()),
+            C::UnprotectSheet { sheet, password } => {
+                self.unprotect_sheet(*sheet, password.as_deref())
+            }
+            C::RestoreSheetProtection { sheet, protection } => {
+                self.restore_sheet_protection(*sheet, protection.clone())
+            }
+            C::ProtectWorkbook {
+                structure,
+                windows,
+                password,
+                salt,
+            } => self.protect_workbook(*structure, *windows, password.as_deref(), salt.as_deref()),
+            C::UnprotectWorkbook { password } => self.unprotect_workbook(password.as_deref()),
+            C::RestoreWorkbookProtection { protection } => {
+                self.restore_workbook_protection(protection.clone())
+            }
             &C::ApplyStyle {
                 sheet,
                 r0,
@@ -938,6 +992,35 @@ impl CalcDocument {
                             self.workbook.set_style(c, new)?;
                             changed.push(c);
                         }
+                    }
+                }
+                // Excel: an edge belongs to both cells beside it, so an
+                // edited outline edge clears the facing side of the
+                // neighbouring cells (the new line, if any, stays on the
+                // range's cells).
+                let mut neighbours: Vec<(u32, u32, ClearSide)> = Vec::new();
+                if edits.top.is_some() && r0 > 0 {
+                    neighbours.extend((c0..=c1).map(|c| (r0 - 1, c, clear_bottom as ClearSide)));
+                }
+                if edits.bottom.is_some() && r1 < MAX_ROW {
+                    neighbours.extend((c0..=c1).map(|c| (r1 + 1, c, clear_top as ClearSide)));
+                }
+                if edits.left.is_some() && c0 > 0 {
+                    neighbours.extend((r0..=r1).map(|r| (r, c0 - 1, clear_right as ClearSide)));
+                }
+                if edits.right.is_some() && c1 < MAX_COL {
+                    neighbours.extend((r0..=r1).map(|r| (r, c1 + 1, clear_left as ClearSide)));
+                }
+                for (row, col, clear) in neighbours {
+                    let c = CellCoord::new(s, row, col);
+                    let old = self.workbook.style_id(c);
+                    let mut style = self.workbook.styles().get(old).clone();
+                    clear(&mut style.borders);
+                    let new = self.workbook.intern_style(&style);
+                    if new != old {
+                        prev.push((row, col, self.workbook.cell_style_id(c).0));
+                        self.workbook.set_style(c, new)?;
+                        changed.push(c);
                     }
                 }
                 Ok(Applied {
@@ -1094,10 +1177,17 @@ impl CalcDocument {
                     inverse: Some(self.created_inverse(id, name)),
                 })
             }
-            C::DuplicateSheet { sheet, name } => {
+            C::DuplicateSheet { sheet, name, index } => {
                 let s = self.sheet(*sheet)?;
+                let count = self.workbook.sheets().len();
+                if index.is_some_and(|i| i as usize > count) {
+                    return Err(EngineError::InvalidSheetIndex(index.unwrap_or(0) as usize).into());
+                }
                 let before = self.formula_values();
                 let (id, recalc) = self.workbook.duplicate_sheet(s, name)?;
+                if let Some(i) = index {
+                    self.workbook.move_sheet(id, *i as usize)?;
+                }
                 let mut patch = self.sheets_patch(&before);
                 patch.cycle = self.cycle_text(recalc.cycle.as_ref());
                 Ok(Applied {
@@ -2775,6 +2865,7 @@ impl Document for CalcDocument {
     type Error = CalcError;
 
     fn apply(&mut self, cmd: &CalcCommand) -> Result<CalcApplied> {
+        self.check_protection(cmd)?;
         let names = self.workbook.names();
         let annotations = self.annotations_state();
         let pivots = self.may_touch_pivots(cmd).then(|| self.pivot_state());
