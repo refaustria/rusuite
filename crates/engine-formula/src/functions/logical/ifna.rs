@@ -8,8 +8,8 @@ function!(
     /// The fallback only for `#N/A`; other errors pass through. The
     /// fallback is evaluated lazily.
     IfNa, "IFNA", Arity::exact(2), |args, ctx| {
-    match ctx.scalar(&args[0]) {
-        Value::Error(ErrorKind::NA) => Ok(ctx.scalar(&args[1])),
+    match ctx.result_value(&args[0]) {
+        Value::Error(ErrorKind::NA) => Ok(ctx.result_value(&args[1])),
         v => Ok(v),
     }
 });

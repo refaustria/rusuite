@@ -19,8 +19,8 @@ impl Function for IfError {
     }
 
     fn call(&self, args: &[Expr], ctx: &mut CallContext) -> Value {
-        match ctx.scalar(&args[0]) {
-            Value::Error(_) => ctx.scalar(&args[1]),
+        match ctx.result_value(&args[0]) {
+            Value::Error(_) => ctx.result_value(&args[1]),
             v => v,
         }
     }

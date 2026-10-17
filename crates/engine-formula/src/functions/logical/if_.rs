@@ -22,11 +22,11 @@ impl Function for If {
         match ctx.bool(&args[0]) {
             Err(e) => Value::Error(e),
             Ok(true) => match args.get(1) {
-                Some(a) => ctx.scalar(a),
+                Some(a) => ctx.result_value(a),
                 None => Value::Empty,
             },
             Ok(false) => match args.get(2) {
-                Some(a) => ctx.scalar(a),
+                Some(a) => ctx.result_value(a),
                 None => Value::Bool(false),
             },
         }

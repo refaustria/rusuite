@@ -2,15 +2,17 @@
 //!
 //! Precedence, low to high: comparison < `&` < `+ -` < `* /` < `^` (left
 //! associative) < prefix `- +` < postfix `%` < prefix `@` (implicit
-//! intersection) < `:` (reference operator) < postfix `#` (spilled range).
+//! intersection) < space (intersection operator) < `:` (reference
+//! operator) < postfix `#` (spilled range). The union operator `,` is
+//! only recognised inside parentheses (`SUM((A1,B2))`).
 
 use thiserror::Error;
 
 use crate::ast::{
     is_valid_name, letters_to_col, parse_row, BinaryOp, CellRef, Expr, RangeKind, Reference,
-    UnaryOp, MAX_COL,
+    UnaryOp, INVOKE_CALL, MAX_COL,
 };
-use crate::lexer::{tokenize, Token, TokenKind};
+use crate::lexer::{tokenize, Span, Token, TokenKind};
 
 /// A lexing or parsing failure at byte offset `pos` of the input.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -32,17 +34,47 @@ impl ParseError {
 /// Parses a formula (with or without the leading `=`). Error positions are
 /// byte offsets into `formula` as given.
 pub fn parse(formula: &str) -> Result<Expr, ParseError> {
+    parse_with_spans(formula).map(|(e, _)| e)
+}
+
+/// The source span of every node of a parsed formula, in the shape of the
+/// [`Expr`] tree: `children` follow the expression's children in order
+/// (the arguments of a call, the operand(s) of an operator, the elements
+/// of an array constant row by row). Spans are byte offsets into the
+/// formula text as given (the leading `=` included); parentheses around a
+/// node are part of its span.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SpanTree {
+    pub span: Span,
+    pub children: Vec<SpanTree>,
+}
+
+impl SpanTree {
+    fn shift(&mut self, by: usize) {
+        self.span.start += by;
+        self.span.end += by;
+        for c in &mut self.children {
+            c.shift(by);
+        }
+    }
+}
+
+/// [`parse`] that also returns the [`SpanTree`] of the expression, for
+/// inline diagnostics and step-wise evaluation.
+pub fn parse_with_spans(formula: &str) -> Result<(Expr, SpanTree), ParseError> {
     let (body, offset) = match formula.strip_prefix('=') {
         Some(rest) => (rest, 1),
         None => (formula, 0),
     };
-    parse_body(body).map_err(|mut e| {
+    let (e, mut tree) = parse_body(body).map_err(|mut e| {
         e.pos += offset;
         e
-    })
+    })?;
+    tree.shift(offset);
+    Ok((e, tree))
 }
 
-fn parse_body(src: &str) -> Result<Expr, ParseError> {
+fn parse_body(src: &str) -> Result<(Expr, SpanTree), ParseError> {
     let tokens = tokenize(src)?;
     if tokens.is_empty() {
         return Err(ParseError::new(0, "empty formula"));
@@ -51,6 +83,7 @@ fn parse_body(src: &str) -> Result<Expr, ParseError> {
         src,
         tokens,
         pos: 0,
+        trees: Vec::new(),
     };
     let expr = p.expr(0)?;
     if let Some(t) = p.tokens.get(p.pos) {
@@ -59,7 +92,9 @@ fn parse_body(src: &str) -> Result<Expr, ParseError> {
             format!("unexpected {} after expression", describe(&t.kind)),
         ));
     }
-    Ok(expr)
+    let tree = p.trees.pop().expect("one tree per parsed expression");
+    debug_assert!(p.trees.is_empty());
+    Ok((expr, tree))
 }
 
 // Binding powers.
@@ -68,7 +103,41 @@ const BP_PERCENT: u8 = 13;
 /// `@` takes everything up to the reference operator: `@A1:B2` is
 /// `@(A1:B2)`.
 const BP_AT: u8 = 14;
+/// The intersection operator (whitespace between two references).
+const BP_ISECT: u8 = 14;
 const BP_SPILL: u8 = 17;
+
+/// Whether `e` can stand for a reference (an operand of the reference
+/// operators): a reference, a name, a reference-valued operator or a
+/// function call (`INDEX`, `OFFSET`, ... may return references).
+fn ref_like(e: &Expr) -> bool {
+    match e {
+        Expr::Reference(_)
+        | Expr::Name(_)
+        | Expr::QualifiedName { .. }
+        | Expr::Structured(_)
+        | Expr::Call { .. } => true,
+        Expr::Binary { op, .. } => op.is_reference_op(),
+        Expr::Unary {
+            op: UnaryOp::SpillRange,
+            ..
+        } => true,
+        _ => false,
+    }
+}
+
+/// Whether a token can start an operand of the intersection operator.
+fn starts_ref_operand(kind: &TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Ident(_)
+            | TokenKind::SheetName(_)
+            | TokenKind::Dollar
+            | TokenKind::LParen
+            | TokenKind::Number(_)
+            | TokenKind::Structured { .. }
+    )
+}
 
 fn infix(kind: &TokenKind) -> Option<(BinaryOp, u8, u8)> {
     let op = match kind {
@@ -152,9 +221,35 @@ struct Parser<'a> {
     src: &'a str,
     tokens: Vec<Token>,
     pos: usize,
+    /// Span trees of the nodes built so far whose parent is not built yet.
+    trees: Vec<SpanTree>,
 }
 
 impl<'a> Parser<'a> {
+    /// Records a node built from the last `children` trees, starting at
+    /// `start` (or its first child) and ending after the last consumed token.
+    fn node(&mut self, start: usize, children: usize) {
+        let end = self
+            .pos
+            .checked_sub(1)
+            .map_or(start, |i| self.tokens[i].span.end);
+        let children = self.trees.split_off(self.trees.len() - children);
+        let start = children.first().map_or(start, |c| c.span.start.min(start));
+        self.trees.push(SpanTree {
+            span: Span { start, end },
+            children,
+        });
+    }
+
+    /// An omitted argument: an empty span at the current position.
+    fn missing(&mut self) {
+        let at = self.here();
+        self.trees.push(SpanTree {
+            span: Span { start: at, end: at },
+            children: Vec::new(),
+        });
+    }
+
     fn peek(&self) -> Option<&TokenKind> {
         self.tokens.get(self.pos).map(|t| &t.kind)
     }
@@ -224,9 +319,31 @@ impl<'a> Parser<'a> {
                     return Err(self.unexpected());
                 }
                 self.pos += 1;
+                self.node(usize::MAX, 1);
                 lhs = Expr::Unary {
                     op,
                     expr: Box::new(lhs),
+                };
+                continue;
+            }
+            // `A1:B5 B3:C7`: whitespace between two references.
+            if starts_ref_operand(kind) && !self.adjacent(self.pos) && ref_like(&lhs) {
+                if BP_ISECT < min_bp {
+                    break;
+                }
+                let at = self.here();
+                let rhs = self.expr(BP_ISECT + 1)?;
+                if !ref_like(&rhs) {
+                    return Err(ParseError::new(
+                        at,
+                        "the intersection operator needs references on both sides",
+                    ));
+                }
+                self.node(usize::MAX, 2);
+                lhs = Expr::Binary {
+                    op: BinaryOp::Intersect,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
                 };
                 continue;
             }
@@ -238,6 +355,7 @@ impl<'a> Parser<'a> {
             }
             self.pos += 1;
             let rhs = self.expr(rbp)?;
+            self.node(usize::MAX, 2);
             lhs = Expr::Binary {
                 op,
                 lhs: Box::new(lhs),
@@ -254,8 +372,10 @@ impl<'a> Parser<'a> {
             Some(TokenKind::At) => (UnaryOp::ImplicitIntersection, BP_AT),
             _ => return self.primary(),
         };
+        let start = self.here();
         self.pos += 1;
         let expr = self.expr(bp)?;
+        self.node(start, 1);
         Ok(Expr::Unary {
             op,
             expr: Box::new(expr),
@@ -266,19 +386,45 @@ impl<'a> Parser<'a> {
         let Some(kind) = self.peek().cloned() else {
             return Err(self.unexpected());
         };
+        let start = self.here();
         match kind {
             TokenKind::String(s) => {
                 self.pos += 1;
+                self.node(start, 0);
                 Ok(Expr::Text(s))
             }
             TokenKind::Error(e) => {
                 self.pos += 1;
+                self.node(start, 0);
                 Ok(Expr::Error(e))
             }
             TokenKind::LParen => {
                 self.pos += 1;
-                let e = self.expr(0)?;
+                let mut e = self.expr(0)?;
+                // `(A1:A3,C1)`: the union operator.
+                while self.peek() == Some(&TokenKind::Comma) {
+                    let at = self.here();
+                    self.pos += 1;
+                    let rhs = self.expr(0)?;
+                    if !ref_like(&e) || !ref_like(&rhs) {
+                        return Err(ParseError::new(
+                            at,
+                            "the union operator needs references on both sides",
+                        ));
+                    }
+                    self.node(usize::MAX, 2);
+                    e = Expr::Binary {
+                        op: BinaryOp::Union,
+                        lhs: Box::new(e),
+                        rhs: Box::new(rhs),
+                    };
+                }
                 self.expect(&TokenKind::RParen, "`)`")?;
+                // The parentheses belong to the node's span.
+                let end = self.tokens[self.pos - 1].span.end;
+                if let Some(t) = self.trees.last_mut() {
+                    t.span = Span { start, end };
+                }
                 Ok(e)
             }
             TokenKind::LBrace => self.array(),
@@ -288,6 +434,7 @@ impl<'a> Parser<'a> {
                 if table.as_deref().is_some_and(|t| !is_valid_name(t)) {
                     return Err(ParseError::new(pos, "invalid table name"));
                 }
+                self.node(start, 0);
                 Ok(Expr::Structured(crate::structured::StructRef::parse(
                     table.as_deref(),
                     &body,
@@ -295,10 +442,31 @@ impl<'a> Parser<'a> {
                 )?))
             }
             TokenKind::SheetName(sheet) => {
+                let at = self.here();
                 self.pos += 1;
                 self.expect(&TokenKind::Bang, "`!`")?;
+                // `Sheet1:Sheet3!A1`: a 3-D reference.
+                if let Some((first, last)) = sheet.split_once(':') {
+                    if first.is_empty() || last.is_empty() {
+                        return Err(ParseError::new(at, "empty sheet name"));
+                    }
+                    return match self.reference(Some(first.to_string()))? {
+                        Some(Expr::Reference(mut r)) => {
+                            if !first.eq_ignore_ascii_case(last) {
+                                r.sheet_last = Some(last.to_string());
+                            }
+                            self.node(start, 0);
+                            Ok(Expr::Reference(r))
+                        }
+                        _ => Err(ParseError::new(
+                            self.here(),
+                            "expected a cell, column or row reference after sheet name",
+                        )),
+                    };
+                }
                 let reference = self.reference(Some(sheet.clone()));
                 if let Ok(Some(e)) = reference {
+                    self.node(start, 0);
                     return Ok(e);
                 }
                 // `Sheet1!Tax`: a sheet-level defined name.
@@ -307,11 +475,15 @@ impl<'a> Parser<'a> {
                         && is_valid_name(&name)
                     {
                         self.pos += 1;
+                        self.node(start, 0);
                         return Ok(Expr::QualifiedName { sheet, name });
                     }
                 }
                 match reference? {
-                    Some(e) => Ok(e),
+                    Some(e) => {
+                        self.node(start, 0);
+                        Ok(e)
+                    }
                     None => Err(ParseError::new(
                         self.here(),
                         "expected a cell, column or row reference after sheet name",
@@ -320,19 +492,41 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Ident(name) if self.peek_at(self.pos + 1) == Some(&TokenKind::LParen) => {
                 self.pos += 2;
-                self.call(name.to_ascii_uppercase())
+                let mut call = self.call(name.to_ascii_uppercase())?;
+                let Expr::Call { args, .. } = &call else {
+                    unreachable!("call() builds a call");
+                };
+                let n = args.len();
+                self.node(start, n);
+                // `LAMBDA(x,x+1)(2)`: calling the result directly.
+                while self.peek() == Some(&TokenKind::LParen) && self.adjacent(self.pos) {
+                    self.pos += 1;
+                    let Expr::Call { args, .. } = self.call(INVOKE_CALL.to_string())? else {
+                        unreachable!("call() builds a call");
+                    };
+                    let n = args.len();
+                    self.node(start, n + 1);
+                    call = Expr::Call {
+                        name: INVOKE_CALL.to_string(),
+                        args: std::iter::once(call).chain(args).collect(),
+                    };
+                }
+                Ok(call)
             }
             TokenKind::Ident(_) | TokenKind::Number(_) | TokenKind::Dollar => {
                 if let Some(e) = self.reference(None)? {
+                    self.node(start, 0);
                     return Ok(e);
                 }
                 match kind {
                     TokenKind::Number(n) => {
                         self.pos += 1;
+                        self.node(start, 0);
                         Ok(Expr::Number(n))
                     }
                     TokenKind::Ident(name) => {
                         self.pos += 1;
+                        self.node(start, 0);
                         if name.eq_ignore_ascii_case("TRUE") {
                             Ok(Expr::Bool(true))
                         } else if name.eq_ignore_ascii_case("FALSE") {
@@ -360,7 +554,10 @@ impl<'a> Parser<'a> {
         }
         loop {
             match self.peek() {
-                Some(TokenKind::Comma | TokenKind::RParen) => args.push(Expr::Missing),
+                Some(TokenKind::Comma | TokenKind::RParen) => {
+                    self.missing();
+                    args.push(Expr::Missing);
+                }
                 _ => args.push(self.expr(0)?),
             }
             match self.peek() {
@@ -412,12 +609,15 @@ impl<'a> Parser<'a> {
         if rows.iter().any(|r| r.len() != rows[0].len()) {
             return Err(ParseError::new(start, "array rows have different lengths"));
         }
+        let n = rows.iter().map(Vec::len).sum();
+        self.node(start, n);
         Ok(Expr::Array(rows))
     }
 
     /// Array element: number (optionally signed; the sign is folded),
     /// string, boolean or error literal.
     fn array_element(&mut self) -> Result<Expr, ParseError> {
+        let start = self.here();
         let sign = match self.peek() {
             Some(TokenKind::Minus) => {
                 self.pos += 1;
@@ -445,6 +645,7 @@ impl<'a> Parser<'a> {
             }
         };
         self.pos += 1;
+        self.node(start, 0);
         Ok(el)
     }
 
@@ -600,11 +801,17 @@ impl<'a> Parser<'a> {
                 };
                 let c1 = col(l1, self.pos)?;
                 let c2 = col(l2, end - 1)?;
+                let ((start, start_abs), (stop, end_abs)) = if c1 <= c2 {
+                    ((c1, a1), (c2, a2))
+                } else {
+                    ((c2, a2), (c1, a1))
+                };
                 (
                     RangeKind::Cols {
-                        start: c1.min(c2),
-                        end: c1.max(c2),
-                        abs: a1 && a2,
+                        start,
+                        end: stop,
+                        start_abs,
+                        end_abs,
                     },
                     end,
                 )
@@ -632,11 +839,17 @@ impl<'a> Parser<'a> {
                 };
                 let r1 = row(d1, self.pos)?;
                 let r2 = row(d2, end - 1)?;
+                let ((start, start_abs), (stop, end_abs)) = if r1 <= r2 {
+                    ((r1, a1), (r2, a2))
+                } else {
+                    ((r2, a2), (r1, a1))
+                };
                 (
                     RangeKind::Rows {
-                        start: r1.min(r2),
-                        end: r1.max(r2),
-                        abs: a1 && a2,
+                        start,
+                        end: stop,
+                        start_abs,
+                        end_abs,
                     },
                     end,
                 )
@@ -654,7 +867,7 @@ impl<'a> Parser<'a> {
             }
         };
         self.pos = end;
-        Ok(Some(Expr::Reference(Reference { sheet, kind })))
+        Ok(Some(Expr::Reference(Reference::on(sheet, kind))))
     }
 }
 
@@ -663,10 +876,9 @@ mod tests {
     use super::*;
 
     fn cell(s: &str) -> Expr {
-        Expr::Reference(Reference {
-            sheet: None,
-            kind: RangeKind::Cell(CellRef::parse(s).unwrap()),
-        })
+        Expr::Reference(Reference::local(RangeKind::Cell(
+            CellRef::parse(s).unwrap(),
+        )))
     }
 
     #[test]
@@ -745,6 +957,35 @@ mod tests {
         // Cell references still win.
         assert!(matches!(parse("Sheet1!A1").unwrap(), Expr::Reference(_)));
         assert!(parse("Sheet1!A1:Other!B2").is_err());
+    }
+
+    #[test]
+    fn span_trees_follow_the_ast() {
+        let text = "=SUM(A1, 2*Sheet2!B1,,{1,2})+(C1)%";
+        let (ast, tree) = parse_with_spans(text).unwrap();
+        let at = |t: &SpanTree| &text[t.span.start..t.span.end];
+        // Binary(+): SUM(...) and Percent(C1).
+        assert_eq!(at(&tree), "SUM(A1, 2*Sheet2!B1,,{1,2})+(C1)%");
+        let sum = &tree.children[0];
+        assert_eq!(at(sum), "SUM(A1, 2*Sheet2!B1,,{1,2})");
+        assert_eq!(sum.children.len(), 4);
+        assert_eq!(at(&sum.children[0]), "A1");
+        assert_eq!(at(&sum.children[1]), "2*Sheet2!B1");
+        assert_eq!(at(&sum.children[1].children[1]), "Sheet2!B1");
+        assert_eq!(sum.children[2].span.start, sum.children[2].span.end);
+        assert_eq!(at(&sum.children[3]), "{1,2}");
+        assert_eq!(sum.children[3].children.len(), 2);
+        assert_eq!(at(&tree.children[1]), "(C1)%");
+        assert_eq!(at(&tree.children[1].children[0]), "(C1)");
+        assert!(matches!(
+            ast,
+            Expr::Binary {
+                op: BinaryOp::Add,
+                ..
+            }
+        ));
+        let (_, t) = parse_with_spans("=-A1:B2 B1").unwrap();
+        assert_eq!(t.children[0].children.len(), 2);
     }
 
     #[test]

@@ -246,10 +246,7 @@ fn scale_100k_chain() {
     let first = CellCoord::new(S1, 0, 0);
     g.set_formula(first, &Expr::Number(1.0), &Book, S1);
     for row in 1..N {
-        let expr = Expr::Reference(Reference {
-            sheet: None,
-            kind: RangeKind::Cell(CellRef::new(0, row - 1)),
-        });
+        let expr = Expr::Reference(Reference::local(RangeKind::Cell(CellRef::new(0, row - 1))));
         g.set_formula(CellCoord::new(S1, row, 0), &expr, &Book, S1);
     }
     let built = start.elapsed();

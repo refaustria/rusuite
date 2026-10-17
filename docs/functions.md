@@ -1,7 +1,8 @@
 # Function list
 
-The 221 functions the formula evaluator implements (the 62 MVP functions of Phase 1 plus the Phase 8
-library growth, tasks P8-1, P8-4 and the dynamic array functions of P8-6, `GETPIVOTDATA` of P8-30). Behaviour is Microsoft Excel's; the reference cases live in
+The 247 functions the formula evaluator implements (the 62 MVP functions of Phase 1 plus the Phase 8
+library growth, tasks P8-1, P8-4 and the dynamic array functions of P8-6, `GETPIVOTDATA` of P8-30, and P9-C4:
+`LET`/`LAMBDA` with their helpers, the array shaping functions, the matrix functions, `AGGREGATE` and `AREAS`). Behaviour is Microsoft Excel's; the reference cases live in
 `testdata/formulas/*.tsv` (see [formula-suite.md](formula-suite.md)).
 Status `planned` means no implementation exists yet.
 
@@ -14,9 +15,11 @@ General rules that apply to every function below:
 - Dates are serial numbers (1900 system, serial 1 = 1900-01-01, the non-existent 1900-02-29 is serial 60).
 - Defined names (P8-23): an identifier that is not a function call, a reference or `TRUE`/`FALSE` is a defined name – the formula's sheet's own name first, then the workbook's; `Sheet1!Name` reaches a sheet's name (or, without one, the workbook's). A name refers to a range (usable wherever a range is: `SUM(Sales)`, `INDEX(Sales,2)`, `=Sales` spills), a constant (`0.19`) or a formula (`OFFSET(...)`), evaluated where it is used; relative references in a definition are relative to `A1` (as Excel stores them) and wrap around the sheet edges. Formulas recalculate when a cell the name reads changes (the dependency graph sees the expanded definition), and when the name is defined, edited or deleted. An unknown name is `#NAME?`; a name referring to itself is `#NAME?` after 32 levels. Names follow row/column inserts and deletes and sheet renames; deleting a sheet deletes its own names and turns references to it into `#REF!`. `TEXT` uses the full number format grammar of [number-formats.md](number-formats.md).
 - Structured references (P8-35): `Table1[Qty]` is the data of a table column, `Table1[[Qty]:[Price]]` a range of columns, `Table1` or `Table1[]` the data, `Table1[#All]`, `[#Headers]`, `[#Data]`, `[#Totals]` and combinations (`Table1[[#Headers],[#Data],[Qty]]`) the parts, `[@Qty]` / `Table1[@Qty]` / `[@[Unit Price]]` the cell of the formula's row (`#VALUE!` outside the data rows). Inside a table the table name may be left out (`=[@Qty]*[@Price]`). Table names come before defined names and are case-insensitive. `'` escapes `[`, `]`, `#` and `'` in column names. A missing part (`[#Totals]` without a totals row) or an unknown column is `#REF!`; an unknown table is `#NAME?`. References follow the table when it grows (typing below/right of it, Resize Table), when it or its columns are renamed (header edits) and when rows/columns are inserted; Convert to Range turns them into A1 references. A deleted column leaves the text unchanged and the reference evaluates to `#REF!`.
-- Dynamic arrays (Excel 365): a cell formula whose result is an array (a function such as `SORT`, a range `=A1:A3`, an operator over ranges `=A1:A3*2`) *spills* into the cells below and to the right; blank elements show 0. A non-empty target cell (or the sheet edge) gives `#SPILL!` in the formula cell until it is cleared. `A1#` is the range the formula in A1 spills into (`#REF!` when A1 holds no formula or is `#SPILL!`); `@` forces one value (implicit intersection of a range with the formula's row/column, the top-left element of an array). Functions are not lifted over arrays in scalar arguments (`=LEN(A1:A3)` uses implicit intersection), and whole-column/row ranges are clipped to the used range.
+- Dynamic arrays (Excel 365): a cell formula whose result is an array (a function such as `SORT`, a range `=A1:A3`, an operator over ranges `=A1:A3*2`) *spills* into the cells below and to the right; blank elements show 0. A non-empty target cell (or the sheet edge) gives `#SPILL!` in the formula cell until it is cleared. `A1#` is the range the formula in A1 spills into (`#REF!` when A1 holds no formula or is `#SPILL!`); `@` forces one value (implicit intersection of a range with the formula's row/column, the top-left element of an array). Scalar functions are *lifted* over arrays (P9-C4): an array or multi-cell range in an argument that takes one value makes the function run once per element (`=LEN(A1:A3)` spills three lengths, `=ROUND(A1:A3,{0,1})` a 3×2 array; arrays of different sizes combine like operator operands, missing positions `#N/A`; an element result that is itself an array is `#CALC!`). The lifted arguments are listed in `crates/engine-formula/src/functions/lift.rs` (every argument of the math, text, information, date and scalar financial functions; the selector of `IF`/`IFERROR`/`IFNA`/`CHOOSE`, whose branches then lift too; the lookup value of `VLOOKUP`/`HLOOKUP`/`MATCH`/`XMATCH`/`XLOOKUP`/`LOOKUP`; the criteria of `COUNTIF`/`SUMIF`/`AVERAGEIF`; `k` of `LARGE`/`SMALL`/`PERCENTILE`/`QUARTILE`; the indexes of `INDEX`). Whole-column/row ranges are clipped to the used range, also when lifted or spilled (`=A:A` spills the used rows). `IF`, `IFERROR`, `IFNA` and `CHOOSE` return arrays from their branches.
+- Reference operators (P9-C4): `:` (range), a space (intersection: `A1:B5 B3:C7` is `B3:B5`, no common cell `#NULL!`) and `,` inside parentheses (union: `SUM((A1:A3,C1))`). A union or a 3-D reference `Sheet1:Sheet3!A1` (the sheets from the first to the last in tab order) is accepted by `SUM`, `AVERAGE`, `AVERAGEA`, `COUNT`, `COUNTA`, `MAX`, `MAXA`, `MIN`, `MINA`, `PRODUCT`, `SUMSQ`, `STDEV`/`STDEV.S`/`STDEV.P`/`STDEVA`/`STDEVP`/`STDEVPA`, `VAR`/`VAR.S`/`VAR.P`/`VARA`/`VARP`/`VARPA`, `MEDIAN` and `AREAS`; elsewhere it is `#VALUE!`. A 3-D reference follows sheet renames, moving sheets into or out of the span and deleting its end sheets (the end moves inwards).
+- `LET` names and `LAMBDA` parameters: valid names that are not cell references and not `R`/`C`; stored in files with the `_xlpm.` prefix (`_xlfn.LET(_xlpm.x,1,_xlpm.x+1)`). A lambda is called directly (`=LAMBDA(x,x+1)(2)`), through a `LET` name (`=LET(f,LAMBDA(x,x*2),f(3))`), through a defined name defined as a `LAMBDA` (`=Double(4)`) or by a helper (`MAP`, `REDUCE`, `SCAN`, `BYROW`, `BYCOL`, `MAKEARRAY`); a lambda as a cell value is `#CALC!`, more arguments than parameters `#VALUE!`, fewer leave the rest omitted (`ISOMITTED`), calls nested deeper than 64 `#NUM!`.
 
-## Math (66)
+## Math (71)
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
@@ -86,8 +89,13 @@ General rules that apply to every function below:
 | `MAXIFS` | `MAXIFS(max_range, criteria_range1, criteria1, ...)` | Largest matching number | Stored as `_xlfn.MAXIFS`; no match = 0; ranges must have the same shape (`#VALUE!`) | implemented |
 | `MINIFS` | `MINIFS(min_range, criteria_range1, criteria1, ...)` | Smallest matching number | Stored as `_xlfn.MINIFS`; no match = 0; ranges must have the same shape (`#VALUE!`) | implemented |
 | `SUBTOTAL` | `SUBTOTAL(function_num, ref1, [ref2], ...)` | AVERAGE/COUNT/COUNTA/MAX/MIN/PRODUCT/STDEV/STDEVP/SUM/VAR/VARP (1-11) of the references | Rows hidden by an AutoFilter are always skipped, 101-111 also skip rows hidden by hand; hidden columns count; cells holding a `SUBTOTAL` are skipped; arguments must be references (`#VALUE!`); function number outside 1-11/101-111 `#VALUE!` | implemented |
+| `AGGREGATE` | `AGGREGATE(function_num, options, ref1, [ref2], ...)` / `AGGREGATE(function_num, options, array, k)` | One of 19 functions ignoring hidden rows, errors or nested aggregates | Stored as `_xlfn.AGGREGATE`; functions 1 AVERAGE, 2 COUNT, 3 COUNTA, 4 MAX, 5 MIN, 6 PRODUCT, 7 STDEV.S, 8 STDEV.P, 9 SUM, 10 VAR.S, 11 VAR.P, 12 MEDIAN, 13 MODE.SNGL, 14 LARGE, 15 SMALL, 16 PERCENTILE.INC, 17 QUARTILE.INC, 18 PERCENTILE.EXC, 19 QUARTILE.EXC (14-19 take `k` and may take an array); options 0 skip nested SUBTOTAL/AGGREGATE (default), 1 + hidden rows, 2 + errors, 3 all, 4 nothing, 5 hidden rows, 6 errors, 7 hidden rows and errors; functions 1-13 need references (`#VALUE!` for an array); function or option out of range `#VALUE!` | implemented |
+| `MMULT` | `MMULT(array1, array2)` | Matrix product | Columns of `array1` must equal rows of `array2`, else `#VALUE!`; any text, boolean or blank element `#VALUE!` | implemented |
+| `MINVERSE` | `MINVERSE(array)` | Inverse matrix | Not square or non-numeric `#VALUE!`; singular `#NUM!` | implemented |
+| `MDETERM` | `MDETERM(array)` | Determinant | Not square or non-numeric `#VALUE!`; singular gives 0 | implemented |
+| `MUNIT` | `MUNIT(dimension)` | Identity matrix | Stored as `_xlfn.MUNIT`; dimension below 1 `#VALUE!` | implemented |
 
-## Logical (11)
+## Logical (20)
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
@@ -102,6 +110,15 @@ General rules that apply to every function below:
 | `SWITCH` | `SWITCH(expression, value1, result1, ..., [default])` | Result of the first equal value | Stored as `_xlfn.SWITCH`; text compares case-insensitively and never equals a number; no match without default `#N/A`; lazy | implemented |
 | `IFNA` | `IFNA(value, value_if_na)` | Fallback for `#N/A` only | Stored as `_xlfn.IFNA`; other errors pass through | implemented |
 | `XOR` | `XOR(logical1, ...)` | True for an odd number of true values | Stored as `_xlfn.XOR`; coercion as `AND`/`OR` | implemented |
+| `LET` | `LET(name1, value1, [name2, value2, ...], calculation)` | Names for values inside a formula | Stored as `_xlfn.LET`, names as `_xlpm.name`; later values see earlier names; a name bound to a range stays a range (`LET(x,A1:A3,ROWS(x))`); invalid name or even argument count `#VALUE!` | implemented |
+| `LAMBDA` | `LAMBDA([parameter1, ...], calculation)` | A custom function | Stored as `_xlfn.LAMBDA`; called as `LAMBDA(x,x+1)(2)`, through `LET` or a defined name; as a value `#CALC!`; too many arguments `#VALUE!` | implemented |
+| `MAP` | `MAP(array1, [array2, ...], lambda)` | Lambda applied to each element | Stored as `_xlfn.MAP`; arrays of different sizes `#VALUE!` (a single value is used everywhere); not a lambda `#VALUE!` | implemented |
+| `REDUCE` | `REDUCE([initial_value], array, lambda)` | Accumulated value | Stored as `_xlfn.REDUCE`; `lambda(accumulator, value)` row by row; the accumulator may be an array | implemented |
+| `SCAN` | `SCAN([initial_value], array, lambda)` | Every intermediate accumulator | Stored as `_xlfn.SCAN`; result in the shape of `array`; an array accumulator `#CALC!` | implemented |
+| `BYROW` | `BYROW(array, lambda)` | One result per row | Stored as `_xlfn.BYROW`; the lambda gets each row; an array result `#CALC!` | implemented |
+| `BYCOL` | `BYCOL(array, lambda)` | One result per column | Stored as `_xlfn.BYCOL`; as `BYROW` by column | implemented |
+| `MAKEARRAY` | `MAKEARRAY(rows, columns, lambda)` | Array built from the lambda of each position | Stored as `_xlfn.MAKEARRAY`; `lambda(row, column)` 1-based; sizes below 1 `#VALUE!` | implemented |
+| `ISOMITTED` | `ISOMITTED(argument)` | Whether a lambda parameter was left out | Stored as `_xlfn.ISOMITTED`; `TRUE` only for an omitted parameter | implemented |
 
 ## Information (16)
 
@@ -155,7 +172,7 @@ General rules that apply to every function below:
 | `FIXED` | `FIXED(number, [decimals=2], [no_commas=FALSE])` | Format a number as text | Rounds half away from zero; negative decimals round left of the point; thousands separators unless `no_commas` | implemented |
 | `TEXTJOIN` | `TEXTJOIN(delimiter, ignore_empty, text1, ...)` | Join with a delimiter | Stored as `_xlfn.TEXTJOIN`; ranges flattened row-major; a delimiter range is cycled; errors propagate; result above 32767 characters `#VALUE!` | implemented |
 
-## Lookup / reference (18)
+## Lookup / reference (19)
 
 | Name | Signature | Semantics | Excel edge cases | Status |
 |------|-----------|-----------|------------------|--------|
@@ -166,6 +183,7 @@ General rules that apply to every function below:
 | `CHOOSE` | `CHOOSE(index, value1, ...)` | Pick by index | Index truncated; out of range `#VALUE!`; lazy | implemented |
 | `ROW` | `ROW([reference])` | Row number of a reference | Errors in the referenced cell are not propagated; no-argument form is the host cell | implemented |
 | `COLUMN` | `COLUMN([reference])` | Column number of a reference | `COLUMN(XFD1)` = 16384 | implemented |
+| `AREAS` | `AREAS(reference)` | Number of areas of a reference | A union `(A1:B2,D4)` counts its operands, a 3-D reference `Sheet1:Sheet3!A1` its sheets, an intersection one; not a reference `#VALUE!` | implemented |
 | `ROWS` | `ROWS(array)` | Number of rows | Whole-column references count 1048576 rows | implemented |
 | `COLUMNS` | `COLUMNS(array)` | Number of columns | Whole-row references count 16384 columns | implemented |
 | `LOOKUP` | `LOOKUP(value, lookup_vector, [result_vector])` | Approximate match in a sorted vector | Vector form needs ascending data; array form searches the first row (wide) or column (tall) and returns the last; smaller than the first item `#N/A` | implemented |
@@ -178,7 +196,7 @@ General rules that apply to every function below:
 | `HYPERLINK` | `HYPERLINK(link_location, [friendly_name])` | Cell showing a link | Returns `friendly_name` if given, else the location; the link itself is a UI feature | implemented |
 | `GETPIVOTDATA` | `GETPIVOTDATA(data_field, pivot_table, [field1, item1], ...)` | Value shown by a pivot table | Volatile; `data_field` is the caption (`"Sum of Sales"`) or the source field; `pivot_table` any cell of the pivot table; the pairs must name exactly the row/column fields of a visible cell (page fields with one selected item may be named too); items by value or label, text ignoring case; no pairs = grand total; not shown (hidden subtotal, grand total off, filtered item, empty cell) or no pivot table `#REF!` (see `docs/pivot.md`) | implemented |
 
-## Dynamic arrays (6)
+## Dynamic arrays (17)
 
 Results spill (see the general rules above). Inside other functions they work as arrays: `SUM(SEQUENCE(4))`, `INDEX(SORT(A1:A9),1)`.
 
@@ -190,6 +208,17 @@ Results spill (see the general rules above). Inside other functions they work as
 | `UNIQUE` | `UNIQUE(array, [by_col=FALSE], [exactly_once=FALSE])` | Distinct rows (or columns) | Stored as `_xlfn.UNIQUE`; first-occurrence order; text compares case-insensitively; `1` and `"1"` differ; empty result `#CALC!` | implemented |
 | `SEQUENCE` | `SEQUENCE(rows, [columns=1], [start=1], [step=1])` | Array of counting numbers | Stored as `_xlfn.SEQUENCE`; row by row; sizes truncated, negative `#VALUE!`, zero `#CALC!`; more than 16777216 cells `#NUM!` (engine limit) | implemented |
 | `RANDARRAY` | `RANDARRAY([rows=1], [columns=1], [min=0], [max=1], [integer=FALSE])` | Array of random numbers | Stored as `_xlfn.RANDARRAY`; volatile; `[min, max)`, or whole numbers in `[min, max]` with `integer`; `min > max` or fractional bounds with `integer` `#VALUE!`; sizes as `SEQUENCE` | implemented |
+| `TAKE` | `TAKE(array, rows, [columns])` | First (negative: last) rows/columns | Stored as `_xlfn.TAKE`; omitted or larger counts keep everything; 0 `#CALC!` | implemented |
+| `DROP` | `DROP(array, rows, [columns])` | Array without the first (negative: last) rows/columns | Stored as `_xlfn.DROP`; dropping everything `#CALC!` | implemented |
+| `VSTACK` | `VSTACK(array1, [array2], ...)` | Arrays one below the other | Stored as `_xlfn.VSTACK`; narrower arrays padded with `#N/A` | implemented |
+| `HSTACK` | `HSTACK(array1, [array2], ...)` | Arrays side by side | Stored as `_xlfn.HSTACK`; shorter arrays padded with `#N/A` | implemented |
+| `CHOOSECOLS` | `CHOOSECOLS(array, col_num1, [col_num2], ...)` | Selected columns | Stored as `_xlfn.CHOOSECOLS`; negative numbers count from the end; arrays of numbers allowed; 0 or beyond the width `#VALUE!` | implemented |
+| `CHOOSEROWS` | `CHOOSEROWS(array, row_num1, [row_num2], ...)` | Selected rows | Stored as `_xlfn.CHOOSEROWS`; as `CHOOSECOLS` | implemented |
+| `EXPAND` | `EXPAND(array, rows, [columns], [pad_with])` | Array padded to a size | Stored as `_xlfn.EXPAND`; default padding `#N/A`; a size below the array's `#VALUE!` | implemented |
+| `TOCOL` | `TOCOL(array, [ignore], [scan_by_column])` | Values in one column | Stored as `_xlfn.TOCOL`; `ignore` 1 blanks, 2 errors, 3 both; nothing left `#CALC!` | implemented |
+| `TOROW` | `TOROW(array, [ignore], [scan_by_column])` | Values in one row | Stored as `_xlfn.TOROW`; as `TOCOL` | implemented |
+| `WRAPROWS` | `WRAPROWS(vector, wrap_count, [pad_with])` | A vector wrapped into rows | Stored as `_xlfn.WRAPROWS`; 2-D input `#VALUE!`; count below 1 `#NUM!`; default padding `#N/A` | implemented |
+| `WRAPCOLS` | `WRAPCOLS(vector, wrap_count, [pad_with])` | A vector wrapped into columns | Stored as `_xlfn.WRAPCOLS`; as `WRAPROWS` | implemented |
 
 ## Date / time (24)
 
@@ -289,7 +318,7 @@ Results spill (see the general rules above). Inside other functions they work as
 Not implemented yet:
 
 - Lifting scalar functions over arrays (`=LEN(A1:A3)` spilling three lengths), and the other Excel 365 array functions (`TAKE`, `DROP`, `CHOOSECOLS`, `VSTACK`, `TOCOL`, `MMULT`, ...).
-- Further families from the Excel catalogue: other financial functions (XNPV, XIRR, CUMIPMT, CUMPRINC, PRICE, YIELD, ...), the database functions (DSUM, ...), engineering and base conversion (DEC2BIN, ...), information functions (INFO, SHEET), AGGREGATE, statistical distributions, regression with several variables (LINEST, multi-variable TREND), text functions TEXTBEFORE/TEXTAFTER/TEXTSPLIT, LET/LAMBDA, DAYS360, and the legacy double-byte text functions.
+- Further families from the Excel catalogue: other financial functions (XNPV, XIRR, CUMIPMT, CUMPRINC, PRICE, YIELD, ...), the database functions (DSUM, ...), engineering and base conversion (DEC2BIN, ...), information functions (INFO, SHEET), statistical distributions, regression with several variables (LINEST, multi-variable TREND), text functions TEXTBEFORE/TEXTAFTER/TEXTSPLIT, DAYS360, and the legacy double-byte text functions.
 
 Divergences from Excel that are decided (and tested with `[excel=...]` notes in the suite where LibreOffice differs):
 

@@ -802,6 +802,22 @@ references	=Other!A1+H1	error propagation
 references	=SUM(Data!H1:H2)	
 references	=MAX(Data!C1:C6)-MIN(Other!A1,0)	
 references	=SUM(A1:A3)*Other!A1	
+references	=SUM(A1:C3 B2:C6)	
+references	=A1:A6 A3:C3	
+references	=SUM(A1:A3 C4:C6)	
+references	=ISERROR(A1 C2)	
+references	=SUM((A1:A3,C1:C2))	
+references	=COUNT((A1,A3,C1:C6))	
+references	=MAX((A1:A2,C1,F1:F4))	
+references	=AVERAGE((A1:A2,A5:A6))	
+references	=AREAS(A1:C6)	
+references	=AREAS((A1:A3,C1,F1:F4))	
+references	=AREAS(A1:C3 B2:C6)	
+references	=AREAS((A1,B1))+AREAS(Other!A1)	
+references	=SUM(Data:Other!A1)	
+references	=COUNT(Data:Other!A1:A2)	
+references	=SUM($A:A)	
+references	=SUM(2:$3)	
 errors	=#DIV/0!	error literal
 errors	=#N/A	
 errors	=#VALUE!	
@@ -1303,6 +1319,33 @@ math	=ROUND(MIRR({-120000,39000,30000,21000,37000,46000},0.1,0.12),6)
 math	=MIRR({1,2,3},0.1,0.1)	DIFF: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
 math	=ROUND(MIRR({-100,50,60},0.05,0.05),6)	
 math	=MIRR({-100,-50},0.1,0.1)	DIFF: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+math	=SUM(MMULT(A1:A2,TRANSPOSE(A1:A2)))	
+math	=INDEX(MMULT({1,2;3,4},{5;6}),2)	
+math	=MMULT(A1:A2,A1:A2)	
+math	=MMULT({1,2},{3;4})	
+math	=INDEX(MINVERSE({4,7;2,6}),1,1)	
+math	=INDEX(MINVERSE({2,0;0,4}),2,2)	
+math	=MINVERSE({1,2;2,4})	DIFF: LibreOffice reports #VALUE! for a singular matrix [excel=#NUM!]
+math	=MINVERSE(A1:A2)	
+math	=MDETERM({1,2;3,4})	
+math	=MDETERM({2,0,0;0,3,0;0,0,4})	
+math	=MDETERM(A1:A2)	
+math	=MDETERM({3})	
+math	=SUM(MUNIT(3))	
+math	=INDEX(MUNIT(2),1,2)	
+math	=ROWS(MUNIT(4))	
+math	=MUNIT(0)	
+math	=AGGREGATE(9,6,A1:A6)	
+math	=AGGREGATE(4,6,H1:H2,A1:A6)	
+math	=AGGREGATE(9,4,H1:H2)	
+math	=AGGREGATE(14,6,C1:C6,2)	
+math	=AGGREGATE(15,0,A1:A6,2)	
+math	=AGGREGATE(1,0,F1:F4)	
+math	=AGGREGATE(3,0,A1:B6)	
+math	=AGGREGATE(12,0,A1:A6)	
+math	=AGGREGATE(16,0,A1:A6,0.5)	
+math	=AGGREGATE(19,0,A1:A6,1)	
+math	=AGGREGATE(20,0,A1:A6)	
 logical	=IFS(A1>5,"a",A1>0,"b")	
 logical	=IFS(FALSE,1,TRUE,2)	
 logical	=IFS(FALSE,1,FALSE,2)	
@@ -1322,6 +1365,42 @@ logical	=XOR(TRUE,TRUE)
 logical	=XOR(TRUE,TRUE,TRUE)	
 logical	=XOR(1,0,0)	
 logical	=XOR(H1)	
+logical	=LET(x,2,x*3)	
+logical	=LET(x,A1:A6,SUM(x))	
+logical	=LET(x,A2,y,x*10,y+1)	
+logical	=LET(n,COUNT(C1:C6),n*2)	
+logical	=LAMBDA(x,x+1)(2)	DIFF: LibreOffice 25.2 has no LAMBDA [excel=3]
+logical	=LAMBDA(x,y,x*y)(A2,A3)	DIFF: LibreOffice 25.2 has no LAMBDA [excel=6]
+logical	=LET(f,LAMBDA(v,v*2),f(A4))	DIFF: LibreOffice 25.2 has no LAMBDA [excel=8]
+logical	=IFERROR(LAMBDA(x,x)(1,2),"err")	DIFF: LibreOffice 25.2 has no LAMBDA [excel=err]
+logical	=SUM(MAP(A1:A3,LAMBDA(v,v*v)))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=14]
+logical	=INDEX(MAP(A1:A6,LAMBDA(v,v+1)),6)	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=7]
+logical	=ROWS(MAP(A1:A6,LAMBDA(v,v)))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=6]
+logical	=SUM(MAP(A1:A2,F1:F2,LAMBDA(a,b,a*b)))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=500]
+logical	=REDUCE(0,A1:A6,LAMBDA(a,v,a+v))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=21]
+logical	=REDUCE(1,A1:A4,LAMBDA(a,v,a*v))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=24]
+logical	=REDUCE("x",B1:B2,LAMBDA(a,v,a&v))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=xapplebanana]
+logical	=ROWS(REDUCE(0,A1:A3,LAMBDA(a,v,VSTACK(a,v))))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=4]
+logical	=INDEX(SCAN(0,A1:A6,LAMBDA(a,v,a+v)),6)	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=21]
+logical	=SUM(SCAN(0,A1:A3,LAMBDA(a,v,a+v)))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=10]
+logical	=INDEX(SCAN(1,A1:A4,LAMBDA(a,v,a*v)),4)	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=24]
+logical	=ROWS(SCAN(0,A1:A6,LAMBDA(a,v,a+v)))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=6]
+logical	=SUM(BYROW(A1:C2,LAMBDA(rw,COUNT(rw))))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=4]
+logical	=INDEX(BYROW(A1:A3,LAMBDA(rw,rw*2)),3)	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=6]
+logical	=ROWS(BYROW(A1:C6,LAMBDA(rw,1)))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=6]
+logical	=INDEX(BYROW(F1:F4,LAMBDA(rw,rw/100)),4)	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=4]
+logical	=SUM(BYCOL(A1:C6,LAMBDA(cl,COUNT(cl))))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=12]
+logical	=COLUMNS(BYCOL(A1:C1,LAMBDA(cl,1)))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=3]
+logical	=INDEX(BYCOL(A1:C6,LAMBDA(cl,MAX(cl))),3)	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=1000000]
+logical	=INDEX(BYCOL(A1:A6,LAMBDA(cl,SUM(cl))),1)	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=21]
+logical	=SUM(MAKEARRAY(2,3,LAMBDA(i,j,i*j)))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=18]
+logical	=INDEX(MAKEARRAY(3,3,LAMBDA(i,j,i*10+j)),2,3)	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=23]
+logical	=ROWS(MAKEARRAY(4,2,LAMBDA(i,j,0)))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=4]
+logical	=MAKEARRAY(0,1,LAMBDA(i,j,1))	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=#VALUE!]
+logical	=LAMBDA(x,y,ISOMITTED(y))(1)	DIFF: LibreOffice 25.2 has no LAMBDA [excel=TRUE]
+logical	=LAMBDA(x,y,ISOMITTED(y))(1,2)	DIFF: LibreOffice 25.2 has no LAMBDA [excel=FALSE]
+logical	=LET(f,LAMBDA(a,b,IF(ISOMITTED(b),a,a+b)),f(5))	DIFF: LibreOffice 25.2 has no LAMBDA [excel=5]
+logical	=LET(f,LAMBDA(a,b,IF(ISOMITTED(b),a,a+b)),f(5,1))	DIFF: LibreOffice 25.2 has no LAMBDA [excel=6]
 info	=ISLOGICAL(TRUE)	
 info	=ISLOGICAL(1)	
 info	=ISLOGICAL("TRUE")	
@@ -1624,3 +1703,51 @@ lookup	=ROWS(UNIQUE(A1:A6))
 lookup	=UNIQUE({1;1},FALSE,TRUE)	DIFF: LibreOffice has no #CALC! error for an empty array [excel=#CALC!]
 lookup	=SUM(TRANSPOSE(SEQUENCE(3)))	
 lookup	=INDEX(XLOOKUP(3,A1:A6,B1:C6),1,2)	
+lookup	=SUM(TAKE(A1:A6,2))	DIFF: LibreOffice 25.2 has no TAKE [excel=3]
+lookup	=SUM(TAKE(A1:A6,-2))	DIFF: LibreOffice 25.2 has no TAKE [excel=11]
+lookup	=INDEX(TAKE(A1:C6,1,-1),1)	DIFF: LibreOffice 25.2 has no TAKE [excel=10.5]
+lookup	=ROWS(TAKE(A1:A6,99))	DIFF: LibreOffice 25.2 has no TAKE [excel=6]
+lookup	=TAKE(A1:A6,0)	DIFF: LibreOffice 25.2 has no TAKE [excel=#CALC!]
+lookup	=SUM(DROP(A1:A6,4))	DIFF: LibreOffice 25.2 has no DROP [excel=11]
+lookup	=SUM(DROP(A1:A6,-4))	DIFF: LibreOffice 25.2 has no DROP [excel=3]
+lookup	=ROWS(DROP(A1:C6,1,2))	DIFF: LibreOffice 25.2 has no DROP [excel=5]
+lookup	=DROP(A1:A6,6)	DIFF: LibreOffice 25.2 has no DROP [excel=#CALC!]
+lookup	=ROWS(VSTACK(A1:A2,F1:F4))	DIFF: LibreOffice 25.2 has no VSTACK [excel=6]
+lookup	=SUM(VSTACK(A1:A3,F1))	DIFF: LibreOffice 25.2 has no VSTACK [excel=106]
+lookup	=INDEX(VSTACK(A1:B1,F1),2,2)	DIFF: LibreOffice 25.2 has no VSTACK [excel=#N/A]
+lookup	=COLUMNS(VSTACK(A1,B1:C1))	DIFF: LibreOffice 25.2 has no VSTACK [excel=2]
+lookup	=COLUMNS(HSTACK(A1:A2,F1:F2))	DIFF: LibreOffice 25.2 has no HSTACK [excel=2]
+lookup	=SUM(HSTACK(A1:A2,F1:F2))	DIFF: LibreOffice 25.2 has no HSTACK [excel=303]
+lookup	=INDEX(HSTACK(A1:A2,F1),2,2)	DIFF: LibreOffice 25.2 has no HSTACK [excel=#N/A]
+lookup	=ROWS(HSTACK(A1:A3,F1:F4))	DIFF: LibreOffice 25.2 has no HSTACK [excel=4]
+lookup	=SUM(CHOOSECOLS(A1:C6,1))	DIFF: LibreOffice 25.2 has no CHOOSECOLS [excel=21]
+lookup	=INDEX(CHOOSECOLS(A1:C6,-1),1)	DIFF: LibreOffice 25.2 has no CHOOSECOLS [excel=10.5]
+lookup	=COLUMNS(CHOOSECOLS(A1:C6,1,3,3))	DIFF: LibreOffice 25.2 has no CHOOSECOLS [excel=3]
+lookup	=CHOOSECOLS(A1:C6,4)	DIFF: LibreOffice 25.2 has no CHOOSECOLS [excel=#VALUE!]
+lookup	=SUM(CHOOSEROWS(A1:A6,1,6))	DIFF: LibreOffice 25.2 has no CHOOSEROWS [excel=7]
+lookup	=INDEX(CHOOSEROWS(B1:B6,-1),1)	DIFF: LibreOffice 25.2 has no CHOOSEROWS [excel=fig]
+lookup	=ROWS(CHOOSEROWS(A1:A6,{1,2,3}))	DIFF: LibreOffice 25.2 has no CHOOSEROWS [excel=3]
+lookup	=CHOOSEROWS(A1:A6,0)	DIFF: LibreOffice 25.2 has no CHOOSEROWS [excel=#VALUE!]
+lookup	=ROWS(EXPAND(A1:A2,5))	DIFF: LibreOffice 25.2 has no EXPAND [excel=5]
+lookup	=INDEX(EXPAND(A1:A2,3,2,0),3,2)	DIFF: LibreOffice 25.2 has no EXPAND [excel=0]
+lookup	=INDEX(EXPAND(A1,2),2)	DIFF: LibreOffice 25.2 has no EXPAND [excel=#N/A]
+lookup	=EXPAND(A1:A3,2)	DIFF: LibreOffice 25.2 has no EXPAND [excel=#VALUE!]
+lookup	=ROWS(TOCOL(A1:C2))	DIFF: LibreOffice 25.2 has no TOCOL [excel=6]
+lookup	=INDEX(TOCOL(A1:C2),2)	DIFF: LibreOffice 25.2 has no TOCOL [excel=apple]
+lookup	=INDEX(TOCOL(A1:C2,0,TRUE),2)	DIFF: LibreOffice 25.2 has no TOCOL [excel=2]
+lookup	=ROWS(TOCOL(A1:H2,2))	DIFF: LibreOffice 25.2 has no TOCOL [excel=14]
+lookup	=COLUMNS(TOROW(A1:B2))	DIFF: LibreOffice 25.2 has no TOROW [excel=4]
+lookup	=INDEX(TOROW(A1:B2),1,3)	DIFF: LibreOffice 25.2 has no TOROW [excel=2]
+lookup	=INDEX(TOROW(A1:B2,0,TRUE),1,2)	DIFF: LibreOffice 25.2 has no TOROW [excel=2]
+lookup	=SUM(TOROW(A1:A6))	DIFF: LibreOffice 25.2 has no TOROW [excel=21]
+lookup	=ROWS(WRAPROWS(A1:A6,4))	DIFF: LibreOffice 25.2 has no WRAPROWS [excel=2]
+lookup	=INDEX(WRAPROWS(A1:A6,4),2,3)	DIFF: LibreOffice 25.2 has no WRAPROWS [excel=#N/A]
+lookup	=INDEX(WRAPROWS(A1:A6,4,0),2,3)	DIFF: LibreOffice 25.2 has no WRAPROWS [excel=0]
+lookup	=WRAPROWS(A1:B2,2)	DIFF: LibreOffice 25.2 has no WRAPROWS [excel=#VALUE!]
+lookup	=COLUMNS(WRAPCOLS(A1:A6,4))	DIFF: LibreOffice 25.2 has no WRAPCOLS [excel=2]
+lookup	=INDEX(WRAPCOLS(A1:A6,4),2,2)	DIFF: LibreOffice 25.2 has no WRAPCOLS [excel=6]
+lookup	=INDEX(WRAPCOLS(A1:A6,4),4,2)	DIFF: LibreOffice 25.2 has no WRAPCOLS [excel=#N/A]
+lookup	=WRAPCOLS(A1:A6,0)	DIFF: LibreOffice 25.2 has no WRAPCOLS [excel=#NUM!]
+lookup	=SUM(LEN(B1:B3))	DIFF: LibreOffice does not lift LEN over a range outside an array formula [excel=17]
+lookup	=SUMPRODUCT(LEN(B1:B6))	
+lookup	=INDEX(UNIQUE({1,2,1;3,4,3},TRUE),2,2)	

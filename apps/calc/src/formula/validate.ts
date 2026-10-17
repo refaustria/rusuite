@@ -41,6 +41,17 @@ const BP_PREFIX = 11;
 const BP_PERCENT = 13;
 const BP_AT = 14;
 const BP_SPILL = 17;
+/** The intersection operator (whitespace between two references). */
+const BP_ISECT = 14;
+/** Tokens that can start an operand of the intersection operator. */
+const REF_START = new Set<TokKind>(["ident", "sheet", "dollar", "lparen", "number", "struct"]);
+
+interface Parsed {
+  spilled: boolean;
+  ref: boolean;
+}
+const REF: Parsed = { spilled: false, ref: true };
+const NOT_REF: Parsed = { spilled: false, ref: false };
 
 class Parser {
   pos = 0;
@@ -69,71 +80,99 @@ class Parser {
     this.pos++;
   }
 
-  /** Parses an expression; `true` when it is a spilled range (`…#`, which cannot take another `#`). */
-  expr(minBp: number): boolean {
-    let spilled = this.prefix();
+  /** Whether whitespace separates token `i` from the one before it. */
+  gap(i: number): boolean {
+    return i > 0 && this.toks[i - 1].end !== this.toks[i].start;
+  }
+
+  /**
+   * Parses an expression. `spilled`: a spilled range (`…#`, which cannot
+   * take another `#`); `ref`: it may stand for a reference (an operand of
+   * the intersection and union operators).
+   */
+  expr(minBp: number): Parsed {
+    let lhs = this.prefix();
     for (let t = this.peek(); t; t = this.peek()) {
       if (t.kind === "percent" || t.kind === "hash") {
         if ((t.kind === "percent" ? BP_PERCENT : BP_SPILL) < minBp) break;
-        if (t.kind === "hash" && spilled) throw this.unexpected();
-        spilled = t.kind === "hash";
+        if (t.kind === "hash" && lhs.spilled) throw this.unexpected();
+        lhs = { spilled: t.kind === "hash", ref: t.kind === "hash" };
         this.pos++;
+        continue;
+      }
+      // `A1:B5 B3:C7`: the intersection operator (whitespace).
+      if (REF_START.has(t.kind) && this.gap(this.pos) && lhs.ref) {
+        if (BP_ISECT < minBp) break;
+        const at = this.here();
+        if (!this.expr(BP_ISECT + 1).ref) throw { pos: at, message: "the intersection operator needs references on both sides" };
+        lhs = { spilled: false, ref: true };
         continue;
       }
       const lbp = INFIX[t.kind];
       if (lbp === undefined || lbp < minBp) break;
       this.pos++;
       this.expr(lbp + 1);
-      spilled = false;
+      lhs = { spilled: false, ref: t.kind === "colon" };
     }
-    return spilled;
+    return lhs;
   }
 
-  prefix(): boolean {
+  prefix(): Parsed {
     const k = this.peek()?.kind;
     if (k !== "minus" && k !== "plus" && k !== "at") return this.primary();
     this.pos++;
     this.expr(k === "at" ? BP_AT : BP_PREFIX);
-    return false;
+    return NOT_REF;
   }
 
-  primary(): boolean {
+  primary(): Parsed {
     const t = this.peek();
     if (!t) throw this.unexpected();
     switch (t.kind) {
       case "string":
       case "error":
+        this.pos++;
+        return NOT_REF;
       case "struct":
         this.pos++;
-        return false;
+        return REF;
       case "lparen": {
         this.pos++;
-        const spilled = this.expr(0);
+        let inner = this.expr(0);
+        // `(A1:A3,C1)`: the union operator.
+        while (this.peek()?.kind === "comma") {
+          const at = this.here();
+          this.pos++;
+          const rhs = this.expr(0);
+          if (!inner.ref || !rhs.ref) throw { pos: at, message: "the union operator needs references on both sides" };
+          inner = REF;
+        }
         this.expect("rparen", "`)`");
-        return spilled;
+        return inner;
       }
       case "lbrace":
         this.array();
-        return false;
+        return NOT_REF;
       case "sheet": {
         this.pos++;
         this.expect("bang", "`!`");
         let ref: ReturnType<typeof referenceAt> = null;
         let failure: unknown = null;
+        const threeD = t.text.includes(":");
         try {
-          ref = referenceAt(this.text, this.toks, this.pos, t.text, t.start);
+          ref = referenceAt(this.text, this.toks, this.pos, threeD ? t.text.split(":")[0] : t.text, t.start);
         } catch (e) {
           failure = e;
         }
         if (ref) {
           this.pos = ref.nextTok;
-          return false;
+          return REF;
         }
         // `Sheet1!Tax`: a sheet-level defined name.
         const n = this.peek();
-        if (n?.kind === "ident" && this.toks[this.pos + 1]?.kind !== "lparen" && isValidName(n.text)) {
+        if (!threeD && n?.kind === "ident" && this.toks[this.pos + 1]?.kind !== "lparen" && isValidName(n.text)) {
           this.pos++;
-          return false;
+          return REF;
         }
         if (failure) throw failure;
         throw { pos: this.here(), message: "expected a cell, column or row reference after sheet name" };
@@ -144,16 +183,22 @@ class Parser {
         if (t.kind === "ident" && this.toks[this.pos + 1]?.kind === "lparen") {
           this.pos += 2;
           this.call(t.text.toUpperCase());
-          return false;
+          // `LAMBDA(x,x+1)(2)`: calling the result directly.
+          while (this.peek()?.kind === "lparen" && !this.gap(this.pos)) {
+            this.pos++;
+            this.call(t.text.toUpperCase());
+          }
+          return REF;
         }
         const ref = referenceAt(this.text, this.toks, this.pos, null, t.start);
         if (ref) {
           this.pos = ref.nextTok;
-          return false;
+          return REF;
         }
         if (t.kind === "dollar") throw { pos: this.here(), message: "expected a reference after `$`" };
         this.pos++;
-        return false;
+        // A name may refer to a range; numbers and TRUE/FALSE do not.
+        return t.kind === "ident" && !/^(TRUE|FALSE)$/i.test(t.text) ? REF : NOT_REF;
       }
       default:
         throw this.unexpected();

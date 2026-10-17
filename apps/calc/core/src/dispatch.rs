@@ -143,6 +143,18 @@ pub enum Request {
     Precedents { sheet: u32, row: u32, col: u32 },
     /// The formula cells reading the cell (Trace Dependents) → `trace`.
     Dependents { sheet: u32, row: u32, col: u32 },
+    /// Background error checking of a sheet with the given rules (absent:
+    /// Excel's defaults) → `errorChecks` (P9-C4).
+    ErrorChecks {
+        sheet: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        rules: Option<Vec<crate::audit::ErrorRule>>,
+    },
+    /// Evaluate Formula of a cell → `evaluation`.
+    EvaluateFormula { sheet: u32, row: u32, col: u32 },
+    /// The Watch Window's values → `watch`.
+    WatchCells { cells: Vec<crate::audit::WatchCell> },
     /// The notes, threads and hyperlinks intersecting the rectangle, plus
     /// the targets of its `HYPERLINK()` cells → `annotations`.
     CellAnnotations {
@@ -281,6 +293,18 @@ pub enum ResponseBody {
     /// The reply to `nameAt`.
     NameAt {
         name: Option<String>,
+    },
+    /// The reply to `errorChecks`.
+    ErrorChecks {
+        issues: Vec<crate::audit::ErrorIssue>,
+    },
+    /// The reply to `evaluateFormula`.
+    Evaluation {
+        evaluation: crate::audit::Evaluation,
+    },
+    /// The reply to `watchCells`.
+    Watch {
+        items: Vec<crate::audit::WatchItem>,
     },
     /// The reply to `precedents` / `dependents`.
     Trace {
@@ -552,6 +576,18 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
         },
         Request::NameAt { sheet, rect } => ResponseBody::NameAt {
             name: host.doc().name_at(sheet, rect)?,
+        },
+        Request::ErrorChecks { sheet, rules } => ResponseBody::ErrorChecks {
+            issues: host.doc().error_checks(
+                sheet,
+                rules.as_deref().unwrap_or(&crate::audit::DEFAULT_RULES),
+            )?,
+        },
+        Request::EvaluateFormula { sheet, row, col } => ResponseBody::Evaluation {
+            evaluation: host.doc().evaluate_steps(sheet, row, col)?,
+        },
+        Request::WatchCells { cells } => ResponseBody::Watch {
+            items: host.doc().watch_cells(&cells),
         },
         Request::Precedents { sheet, row, col } => ResponseBody::Trace {
             refs: host.doc().precedents(sheet, row, col)?,

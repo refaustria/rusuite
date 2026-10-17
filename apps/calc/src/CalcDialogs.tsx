@@ -13,6 +13,8 @@ import { cssColor, Dialog, OFFICE_THEME, PromptDialog, STANDARD_COLORS, THEME_SL
 import { NumberFormatDialog } from "./numfmt/NumberFormatDialog";
 import { CreateNamesDialog, DefineNameDialog, GoToDialog, NameManagerDialog } from "./names/NameDialogs";
 import { InsertFunctionDialog } from "./formulas/InsertFunctionDialog";
+import { ApplyNamesDialog, FormulaOptionsDialog, PasteNamesDialog } from "./formulas/FormulaToolDialogs";
+import { ErrorCheckingDialog, EvaluateFormulaDialog } from "./audit/AuditDialogs";
 import type { FindOptions } from "./state/find";
 import { unhideableSheets, useCalc, type CalcStore } from "./state/store";
 import { useT } from "./i18n";
@@ -393,6 +395,16 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       return <DefineNameDialog key={JSON.stringify(dialog.edit ?? null)} store={store} edit={dialog.edit} back={dialog.back} />;
     case "createNames":
       return <CreateNamesDialog store={store} />;
+    case "formulaOptions":
+      return <FormulaOptionsDialog store={store} />;
+    case "applyNames":
+      return <ApplyNamesDialog store={store} />;
+    case "pasteNames":
+      return <PasteNamesDialog store={store} />;
+    case "errorChecking":
+      return <ErrorCheckingDialog store={store} />;
+    case "evaluateFormula":
+      return <EvaluateFormulaDialog store={store} />;
     case "goTo":
       return <GoToDialog store={store} />;
     case "insertFunction":

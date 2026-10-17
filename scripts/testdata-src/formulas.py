@@ -83,16 +83,67 @@ def col_num(letters):
 FUTURE_NAMES = """CONCAT DAYS IFNA IFS MAXIFS MINIFS SWITCH TEXTJOIN XLOOKUP XMATCH XOR NUMBERVALUE UNICODE UNICHAR
 ISOWEEKNUM CEILING.MATH FLOOR.MATH STDEV.S STDEV.P VAR.S VAR.P MODE.SNGL RANK.EQ RANK.AVG PERCENTILE.INC
 PERCENTILE.EXC QUARTILE.INC QUARTILE.EXC PERCENTRANK.INC COVARIANCE.P COVARIANCE.S FORECAST.LINEAR
-SORTBY UNIQUE SEQUENCE RANDARRAY""".split()
+SORTBY UNIQUE SEQUENCE RANDARRAY AGGREGATE BYCOL BYROW CHOOSECOLS CHOOSEROWS DROP EXPAND HSTACK ISOMITTED
+LAMBDA LET MAKEARRAY MAP MUNIT REDUCE SCAN TAKE TOCOL TOROW VSTACK WRAPCOLS WRAPROWS""".split()
 FUTURE = re.compile(r"(?<![A-Za-z0-9_.])(%s)\(" % "|".join(re.escape(n) for n in FUTURE_NAMES))
 # Dynamic array functions Excel stores as `_xlfn._xlws.NAME`.
 XLWS_NAMES = ["SORT", "FILTER"]
 XLWS = re.compile(r"(?<![A-Za-z0-9_.])(%s)\(" % "|".join(XLWS_NAMES))
 
 
+def call_args(text, start):
+    """The top-level argument strings of the call whose '(' is at text[start]."""
+    args, depth, cur, i, quote = [], 0, start + 1, start, None
+    while i < len(text):
+        c = text[i]
+        if quote:
+            if c == quote:
+                quote = None
+        elif c in "\"'":
+            quote = c
+        elif c in "({":
+            depth += 1
+        elif c in ")}":
+            depth -= 1
+            if depth == 0:
+                args.append(text[cur:i])
+                return args
+        elif c == "," and depth == 1:
+            args.append(text[cur:i])
+            cur = i + 1
+        i += 1
+    return args
+
+
+IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
+
+
+def lambda_names(text):
+    """LET names and LAMBDA parameters of a formula (Excel stores them as _xlpm.name)."""
+    names = set()
+    for m in re.finditer(r"(?<![A-Za-z0-9_.])(LET|LAMBDA)\(", text):
+        args = [a.strip() for a in call_args(text, m.end() - 1)]
+        cand = args[:-1:2] if m.group(1) == "LET" else args[:-1]
+        names.update(a for a in cand if IDENT.match(a))
+    return names
+
+
+def add_xlpm(text):
+    names = lambda_names(text)
+    if not names:
+        return text
+    out, i = [], 0
+    pat = re.compile(r"(?<![A-Za-z0-9_.])(%s)(?![A-Za-z0-9_.!])" % "|".join(sorted(map(re.escape, names), key=len, reverse=True)))
+    # Outside string literals only.
+    for k, part in enumerate(re.split(r'("(?:[^"]|"")*")', text)):
+        out.append(part if k % 2 else pat.sub(r"_xlpm.\1", part))
+    return "".join(out)
+
+
 def file_formula(formula):
-    """Formula text as stored in OOXML: no leading '=', newer functions carry the _xlfn. prefix."""
-    return XLWS.sub(r"_xlfn._xlws.\1(", FUTURE.sub(r"_xlfn.\1(", formula[1:]))
+    """Formula text as stored in OOXML: no leading '=', newer functions carry the _xlfn. prefix,
+    LET names and LAMBDA parameters the _xlpm. prefix."""
+    return XLWS.sub(r"_xlfn._xlws.\1(", FUTURE.sub(r"_xlfn.\1(", add_xlpm(formula[1:])))
 
 
 def build(out):

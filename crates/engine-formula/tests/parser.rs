@@ -58,10 +58,7 @@ fn references_in_source_order() {
     assert_eq!(refs, ["A1:B2", "Data!C3", "$D$4", "1:1", "E5", "F:G"]);
     assert_eq!(
         ast.references()[1],
-        &Reference {
-            sheet: Some("Data".into()),
-            kind: RangeKind::Cell(CellRef::new(2, 2)),
-        }
+        &Reference::on(Some("Data".into()), RangeKind::Cell(CellRef::new(2, 2)))
     );
     assert!(parse("=1+2").unwrap().references().is_empty());
 }

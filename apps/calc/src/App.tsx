@@ -1,3 +1,4 @@
+import { WatchWindow } from "./audit/WatchWindow";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AutosaveStatus, applyPageRange, formatNumber, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { CalcApi, type CalcBackend } from "./backend/calcApi";
@@ -47,6 +48,8 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
     void s.version;
     return store.pivots.stale.size;
   });
+  // Manual calculation with cells awaiting recalculation (Excel's "Calculate", P9-C4).
+  const needsCalc = useCalc(store, (s) => !!s.info?.calc?.needsCalc);
   return (
     <div className="flex items-center gap-4 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted" data-testid="status-bar">
       <span>{t("calc.status.revision", { revision })}</span>
@@ -58,6 +61,11 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
         </span>
       )}
       {records && <span data-testid="filter-records">{records}</span>}
+      {needsCalc && (
+        <button type="button" data-testid="calc-pending" className="font-medium text-ui-fg hover:underline" title={t("calc.calc.nowHint")} onClick={() => void store.calcTools.calculateNow()}>
+          {t("calc.calc.pending")}
+        </button>
+      )}
       {stale > 0 && <span data-testid="pivot-stale-status" className="text-amber-700">{t("calc.pivot.staleStatus", { count: stale })}</span>}
       {noteBy && <span data-testid="note-status">{noteBy}</span>}
       {locked && (
@@ -162,6 +170,7 @@ export default function App({ backend }: { backend: CalcBackend }) {
         <ChartFormatPane store={store} />
         <CommentsPane store={store} />
         <PivotPane store={store} />
+        <WatchWindow store={store} />
         <AssistantPane ai={session.ai} adapter={aiAdapter} />
       </div>
       <SheetTabs store={store} />

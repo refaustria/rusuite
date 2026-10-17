@@ -155,6 +155,9 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseError> {
                     )
                 } else if bytes.get(end) == Some(&b'!') {
                     (TokenKind::SheetName(text), end)
+                } else if let Some(stop) = three_d_end(src, end, tokens.last()) {
+                    // `Sheet1:Sheet3!A1`: a 3-D reference's sheet span.
+                    (TokenKind::SheetName(src[start..stop].to_string()), stop)
                 } else {
                     (TokenKind::Ident(text), end)
                 }
@@ -173,6 +176,25 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseError> {
         i = end;
     }
     Ok(tokens)
+}
+
+/// For an identifier ending at `end`, followed by `:Name!`: the end of
+/// `Name` (the `!` position), so `Sheet1:Sheet3` lexes as one sheet span.
+/// Not after a `!` (`Sheet1!A1:Sheet1!B2` repeats a prefix instead).
+fn three_d_end(src: &str, end: usize, prev: Option<&Token>) -> Option<usize> {
+    if src.as_bytes().get(end) != Some(&b':') || prev.is_some_and(|t| t.kind == TokenKind::Bang) {
+        return None;
+    }
+    let rest = &src[end + 1..];
+    let first = rest.chars().next()?;
+    if !is_ident_start(first) {
+        return None;
+    }
+    let len = rest
+        .char_indices()
+        .find(|&(_, c)| !is_ident_continue(c))
+        .map_or(rest.len(), |(o, _)| o);
+    (rest.as_bytes().get(len) == Some(&b'!')).then_some(end + 1 + len)
 }
 
 /// The end (exclusive) of the bracket group opening at `start`.
@@ -353,6 +375,14 @@ mod tests {
                 T::Dollar,
                 T::Number(2.0)
             ]
+        );
+        assert_eq!(
+            kinds("SUM(Sheet1:Sheet3!A1)")[2],
+            T::SheetName("Sheet1:Sheet3".into())
+        );
+        assert_eq!(
+            kinds("Sheet1!A1:Sheet1!B2")[4],
+            T::SheetName("Sheet1".into())
         );
         assert!(tokenize("'abc").is_err());
         assert!(tokenize("'abc'A1").is_err());

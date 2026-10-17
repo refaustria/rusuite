@@ -27,13 +27,32 @@ pub(crate) const METADATA_REL: &str =
 /// Functions whose result is an array: in a plain (legacy) formula their
 /// value is implicitly intersected.
 const ARRAY_FUNCTIONS: &[&str] = &[
+    "BYCOL",
+    "BYROW",
+    "CHOOSECOLS",
+    "CHOOSEROWS",
+    "DROP",
+    "EXPAND",
     "FILTER",
+    "HSTACK",
+    "MAKEARRAY",
+    "MAP",
+    "MINVERSE",
+    "MMULT",
+    "MUNIT",
     "RANDARRAY",
+    "SCAN",
     "SEQUENCE",
     "SORT",
     "SORTBY",
+    "TAKE",
+    "TOCOL",
+    "TOROW",
     "TRANSPOSE",
     "UNIQUE",
+    "VSTACK",
+    "WRAPCOLS",
+    "WRAPROWS",
 ];
 
 /// `xl/metadata.xml` with the single dynamic-array record (`cm="1"`), as
@@ -127,13 +146,105 @@ fn contains_dynamic_ops(e: &Expr) -> bool {
     }
 }
 
-/// The file form of a formula using `#` or `@` (`None` when it uses
-/// neither): the operators become `_xlfn.ANCHORARRAY` / `_xlfn.SINGLE`
-/// calls.
+fn uses_lambda_names(e: &Expr) -> bool {
+    match e {
+        Expr::Call { name, args } => {
+            name == "LET" || name == "LAMBDA" || args.iter().any(uses_lambda_names)
+        }
+        Expr::Unary { expr, .. } => uses_lambda_names(expr),
+        Expr::Binary { lhs, rhs, .. } => uses_lambda_names(lhs) || uses_lambda_names(rhs),
+        _ => false,
+    }
+}
+
+/// `e` with `LET` names and `LAMBDA` parameters (and their uses) written
+/// with the `_xlpm.` prefix Excel stores: `LET(_xlpm.x,1,_xlpm.x+1)`.
+pub(crate) fn xlpm_prefixes(e: &Expr) -> Expr {
+    fn walk(e: &Expr, scope: &mut Vec<String>) -> Expr {
+        let bound = |n: &str, scope: &[String]| scope.iter().any(|s| s.eq_ignore_ascii_case(n));
+        let pm = |n: &str| format!("_xlpm.{n}");
+        match e {
+            Expr::Name(n) if bound(n, scope) => Expr::Name(pm(n)),
+            Expr::Call { name, args } if name == "LET" && args.len() >= 3 => {
+                let depth = scope.len();
+                let mut out = Vec::with_capacity(args.len());
+                let last = args.len() - 1;
+                for (i, a) in args.iter().enumerate() {
+                    match a {
+                        Expr::Name(n) if i < last && i % 2 == 0 => {
+                            scope.push(n.clone());
+                            out.push(Expr::Name(pm(n)));
+                        }
+                        a => out.push(walk(a, scope)),
+                    }
+                }
+                scope.truncate(depth);
+                Expr::Call {
+                    name: name.clone(),
+                    args: out,
+                }
+            }
+            Expr::Call { name, args } if name == "LAMBDA" && !args.is_empty() => {
+                let depth = scope.len();
+                let last = args.len() - 1;
+                let mut out: Vec<Expr> = args[..last]
+                    .iter()
+                    .map(|p| match p {
+                        Expr::Name(n) => {
+                            scope.push(n.clone());
+                            Expr::Name(pm(n))
+                        }
+                        p => p.clone(),
+                    })
+                    .collect();
+                out.push(walk(&args[last], scope));
+                scope.truncate(depth);
+                Expr::Call {
+                    name: name.clone(),
+                    args: out,
+                }
+            }
+            Expr::Call { name, args } => Expr::Call {
+                // A call of a bound lambda keeps the name's own spelling.
+                name: match scope.iter().rev().find(|s| s.eq_ignore_ascii_case(name)) {
+                    Some(s) => pm(s),
+                    None => name.clone(),
+                },
+                args: args.iter().map(|a| walk(a, scope)).collect(),
+            },
+            Expr::Unary { op, expr } => Expr::Unary {
+                op: *op,
+                expr: Box::new(walk(expr, scope)),
+            },
+            Expr::Binary { op, lhs, rhs } => Expr::Binary {
+                op: *op,
+                lhs: Box::new(walk(lhs, scope)),
+                rhs: Box::new(walk(rhs, scope)),
+            },
+            other => other.clone(),
+        }
+    }
+    walk(e, &mut Vec::new())
+}
+
+/// A defined name's definition as stored: `LET` names and `LAMBDA`
+/// parameters with `_xlpm.` (named lambdas); other text unchanged.
+pub(crate) fn name_file_text(text: &str) -> String {
+    match engine_formula::parse(text) {
+        Ok(e) if uses_lambda_names(&e) => xlpm_prefixes(&e).to_string(),
+        _ => text.to_string(),
+    }
+}
+
+/// The file form of a formula using `#` or `@`, `LET` or `LAMBDA`
+/// (`None` when it uses none of them): the operators become
+/// `_xlfn.ANCHORARRAY` / `_xlfn.SINGLE` calls, names get `_xlpm.`.
 pub(crate) fn to_file_ast(e: &Expr) -> Option<Expr> {
-    if !contains_dynamic_ops(e) {
+    let lambda = uses_lambda_names(e);
+    if !contains_dynamic_ops(e) && !lambda {
         return None;
     }
+    let e = if lambda { &xlpm_prefixes(e) } else { e };
     Some(rebuild(e, &|e, recurse| match e {
         Expr::Unary {
             op: op @ (UnaryOp::SpillRange | UnaryOp::ImplicitIntersection),
@@ -205,6 +316,27 @@ pub(crate) fn legacy_intersection(e: &Expr) -> Expr {
         Expr::Array(rows) if rows.len() * rows.first().map_or(0, Vec::len) > 1 => at(e.clone()),
         Expr::Structured(s) if !single_cell(s) => at(e.clone()),
         Expr::Call { name, .. } if ARRAY_FUNCTIONS.contains(&name.as_str()) => at(e.clone()),
+        // A scalar argument of a lifted function (`LEN(A1:A3)` in legacy
+        // Excel is `LEN(@A1:A3)`).
+        Expr::Call { name, args } => match engine_formula::functions::lift::lift_spec(name) {
+            Some(spec) => Expr::Call {
+                name: name.clone(),
+                args: args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, a)| {
+                        let lifted = spec.lifts(i)
+                            || spec == engine_formula::functions::lift::Lift::Selector;
+                        if lifted {
+                            legacy_intersection(a)
+                        } else {
+                            a.clone()
+                        }
+                    })
+                    .collect(),
+            },
+            None => e.clone(),
+        },
         Expr::Unary { op, expr } if op.is_arithmetic() => Expr::Unary {
             op: *op,
             expr: Box::new(legacy_intersection(expr)),
@@ -247,6 +379,27 @@ mod tests {
     }
 
     #[test]
+    fn lambda_names_get_the_xlpm_prefix() {
+        let f = |s: &str| to_file_ast(&p(s)).map(|e| e.to_string());
+        assert_eq!(
+            f("=LET(x,A1,y,x*2,x+y)").as_deref(),
+            Some("LET(_xlpm.x,A1,_xlpm.y,_xlpm.x*2,_xlpm.x+_xlpm.y)")
+        );
+        assert_eq!(
+            f("=MAP(A1:A3,LAMBDA(v,v+x))").as_deref(),
+            Some("MAP(A1:A3,LAMBDA(_xlpm.v,_xlpm.v+x))")
+        );
+        assert_eq!(
+            f("=LET(g,LAMBDA(a,a*2),g(3))").as_deref(),
+            Some("LET(_xlpm.g,LAMBDA(_xlpm.a,_xlpm.a*2),_xlpm.g(3))")
+        );
+        let back = crate::xlfn::strip_xlfn_prefixes(&crate::xlfn::add_xlfn_prefixes(
+            &f("=LET(x,1,x+1)").unwrap(),
+        ));
+        assert_eq!(p(&format!("={back}")), p("=LET(x,1,x+1)"));
+    }
+
+    #[test]
     fn legacy_formulas_get_implicit_intersection() {
         let l = |s: &str| legacy_intersection(&p(s)).to_string();
         assert_eq!(l("=A1:A3"), "@A1:A3");
@@ -258,7 +411,16 @@ mod tests {
         assert_eq!(l("=TRANSPOSE(A1:B1)"), "@TRANSPOSE(A1:B1)");
         assert_eq!(l("=A1:INDEX(B:B,2)"), "@A1:INDEX(B:B,2)");
         assert!(needs_dynamic(&p("=SEQUENCE(3)")));
-        assert!(!needs_dynamic(&p("=IF(A1,B1:B3,0)")));
+        assert_eq!(l("=LEN(A1:A3)"), "LEN(@A1:A3)");
+        assert_eq!(l("=IF(A1>0,B1:B3,1)"), "IF(A1>0,@B1:B3,1)");
+        assert_eq!(
+            l("=VLOOKUP(A1:A3,B1:C9,2,FALSE)"),
+            "VLOOKUP(@A1:A3,B1:C9,2,FALSE)"
+        );
+        assert_eq!(l("=VSTACK(A1:A2,B1:B2)"), "@VSTACK(A1:A2,B1:B2)");
+        assert!(!needs_dynamic(&p("=LEN(A1)")));
+        // IF returns the array of its branch (Excel 365).
+        assert!(needs_dynamic(&p("=IF(A1,B1:B3,0)")));
     }
 
     #[test]

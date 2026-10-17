@@ -95,6 +95,7 @@ impl CalcError {
             CalcError::Model(M::SheetProtected) => "sheet_protected",
             CalcError::Model(M::WorkbookProtected) => "workbook_protected",
             CalcError::Model(M::WrongPassword) => "wrong_password",
+            CalcError::Model(M::SpillPart) => "spill_part",
             CalcError::Model(M::Engine(EngineError::InvalidName(_))) => "invalid_name",
             CalcError::Model(M::Engine(EngineError::DuplicateName(_))) => "duplicate_name",
             CalcError::Model(M::Engine(EngineError::UnknownName(_))) => "unknown_name",
@@ -337,6 +338,7 @@ impl CalcDocument {
                 .cloned(),
             active_sheet: self.workbook.active_sheet().0,
             table_styles: self.workbook.table_styles().clone(),
+            calc: self.calc_state(),
         }
     }
 
@@ -1357,6 +1359,32 @@ impl CalcDocument {
                 annotations,
                 special,
             } => {
+                {
+                    // Spill guard: the destination block (P9-C4).
+                    let transpose = special.is_some_and(|s| s.transpose);
+                    let (mut h, mut w) = (src.r1 - src.r0 + 1, src.c1 - src.c0 + 1);
+                    if transpose {
+                        std::mem::swap(&mut h, &mut w);
+                    }
+                    let h = h.saturating_mul(repeat_rows.max(1));
+                    let w = w.saturating_mul(repeat_cols.max(1));
+                    let dst = CellRange::new(
+                        self.sheet(sheet)?,
+                        r0,
+                        c0,
+                        r0.saturating_add(h - 1).min(MAX_ROW),
+                        c0.saturating_add(w - 1).min(MAX_COL),
+                    );
+                    if mode != PasteMode::FormatsOnly {
+                        self.workbook.check_spill_edit(dst)?;
+                    }
+                    if cut {
+                        let from = self.sheet(src.sheet)?;
+                        self.workbook.check_spill_edit(CellRange::new(
+                            from, src.r0, src.c0, src.r1, src.c1,
+                        ))?;
+                    }
+                }
                 if let Some(sp) = special {
                     if cut {
                         return Err(CalcError::InvalidRange);
@@ -1396,7 +1424,11 @@ impl CalcDocument {
                 src,
                 dst,
                 mode,
-            } => self.fill_range(sheet, src, dst, mode),
+            } => {
+                let target = CellRange::new(self.sheet(sheet)?, dst.r0, dst.c0, dst.r1, dst.c1);
+                self.workbook.check_spill_edit(target)?;
+                self.fill_range(sheet, src, dst, mode)
+            }
             &C::SortRange {
                 sheet,
                 r0,
@@ -1408,6 +1440,7 @@ impl CalcDocument {
                 case_sensitive,
             } => {
                 let range = self.range(sheet, r0, c0, r1, c1)?;
+                self.workbook.check_spill_edit(range)?;
                 let spec = SortSpec {
                     keys: keys.clone(),
                     has_header,
@@ -1474,6 +1507,12 @@ impl CalcDocument {
             | C::RemoveValidation { .. }
             | C::RestoreCfRules { .. }
             | C::RestoreValidations { .. } => self.rules_cmd(cmd),
+            C::SetCalcOptions { .. }
+            | C::CalculateNow
+            | C::CalculateSheet { .. }
+            | C::ApplyNames { .. }
+            | C::PasteNameList { .. }
+            | C::ConvertToNumber { .. } => self.calc_cmd(cmd),
             C::DefineName { .. }
             | C::UpdateName { .. }
             | C::DeleteName { .. }
@@ -2891,7 +2930,9 @@ impl Document for CalcDocument {
         let stale = self.workbook.stale_pivots();
         let tables = self.tables_state();
         let slicers = self.slicers_before();
+        let calc = self.calc_state();
         let mut applied = self.apply_cmd(cmd)?;
+        self.mark_calc(calc, &mut applied);
         self.mark_tables(tables, cmd, &mut applied);
         self.mark_names(names, cmd, &mut applied);
         self.mark_annotations(annotations, &mut applied);

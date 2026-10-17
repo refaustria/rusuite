@@ -658,9 +658,8 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   selection), Formula Auditing (Trace Precedents / Trace Dependents: blue arrows from the engine's dependency graph
   (`precedents` / `dependents` requests) with a dot at the start and a box around precedent ranges, a dashed arrow from a
   sheet icon for other sheets; each click adds the arrows; Remove Arrows ▾ (all, precedent, dependent arrows); Show
-  Formulas – Ctrl+` (the key left of 1) –: cells show their input, formulas left-aligned, spilled cells blank). Error
-  Checking, Evaluate Formula and Calculation Options are not offered: the core always recalculates automatically (no
-  manual mode). In formulas, names autocomplete with the functions (accepting inserts the name without `(`), are coloured
+  Formulas – Ctrl+` (the key left of 1) –: cells show their input, formulas left-aligned, spilled cells blank; Error
+  Checking, Evaluate Formula, Watch Window – P9-C4, below –), Calculation (P9-C4). In formulas, names autocomplete with the functions (accepting inserts the name without `(`), are coloured
   over the range they refer to and outlined on the grid while editing (point mode shows the name's range), and
   `Sheet1!Name` is accepted by the editor's syntax check.
 - **Calc tables and data tools** (P8-35, `apps/calc/src/tables`, `datatools`, `outline`, `pictures`): Insert › Table
@@ -708,6 +707,34 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   Delete removes a whole table, selects the table with Ctrl+A inside it, autofits the table's columns after
   each update, shows "Data changed – Refresh" over a sheet with a stale table (and a status-bar hint) and, in
   point mode, inserts `GETPIVOTDATA(…)` for a clicked value.
+- **Calc formulas, names and calculation tools** (P9-C4, `apps/calc/src/formulas`, `audit`): **Calculation** group
+  (collapses first on a narrow window): Calculation Options ▾ (Automatic / Automatic Except for Data Tables / Manual,
+  `setCalcOptions`, undoable, saved as `<calcPr calcMode>`), Calculate Now (F9) and Calculate Sheet (Shift+F9). In
+  manual mode an edit calculates only the edited formula; while other cells await recalculation the status bar shows
+  **Calculate** (a button: Calculate Now). **File › Options › Formulas** (the app's options; with the assistant: General ›
+  Open the app's options…): calculation mode, R1C1 reference style (formulas shown and typed as `R[-1]C*2`, column
+  headings numbered, the Name Box shows `R2C3`; stored as A1 and saved as `refMode="R1C1"`), Enable background error
+  checking and the five error checking rules (Excel's defaults: all but "Formulas referring to empty cells"; kept in
+  `localStorage` `rusuite.calc.errorChecking`). **Define Name ▾ › Apply Names…**: the names to apply and Ignore
+  Relative/Absolute (default on) → `applyNames` over the selection (a single cell: the sheet). **Use in Formula ▾ ›
+  Paste Names…** and **F3** (also inside a formula): the visible names; OK / double click inserts one at the caret
+  (outside an edit: starts `=Name`), Paste List writes names and definitions (as text) from the active cell down.
+  **Formula Auditing** adds, in one row of icons after Remove Arrows: Show Formulas, **Error Checking** ▾ (Error
+  Checking…, Error Checking Options…), **Evaluate Formula** and **Watch Window**. Background error checking paints a
+  green triangle in the top-left corner of every flagged cell (the core's `errorChecks`, refreshed after each edit); on the
+  active flagged cell a "!" button left of the cell opens the menu: the rule's title, its fix (Convert to Number,
+  Copy Formula from Neighbours, Lock Cell, Show Calculation Steps…), Ignore Error (this session), Edit in Formula Bar,
+  Error Checking Options… (a `#SPILL!` cell keeps its spill indicator there). The **Error Checking** dialog goes to the
+  first flagged cell from the active one: "Error in cell Sheet1!A1", the input, the rule's title and text; the fix,
+  Ignore Error, Edit in Formula Bar, Options…, Previous / Next; "The error check is complete for the entire sheet." when
+  nothing is left. **Evaluate Formula**: Reference (`Sheet1!$C$3`) and Evaluation with the next part underlined;
+  Evaluate replaces it by its value (Excel's order: inner parts first, references read by a function are part of the
+  function's step), Restart when done, Step In on a reference to a formula cell shows that cell's formula, Step Out
+  returns with the reference evaluated. **Watch Window** (pane): Add Watch… adds the selected cells, Delete Watch the
+  picked row; Book, Sheet, Name, Cell, Value, Formula, refreshed after every edit; a double click goes to the cell.
+  Trace arrows follow edits (each traced cell's arrows are fetched again after a change) and move with row and column
+  inserts / deletes. The editor's syntax check accepts the intersection operator (`A1:B5 B3:C7`), unions in
+  parentheses (`SUM((A1,B2))`), 3-D references (`Sheet1:Sheet3!A1`) and lambda calls (`LAMBDA(x,x+1)(2)`).
 - **Calc pivot tables round 2** (P9-C3, details in [pivot.md](pivot.md) "Round 2"): Insert › Tables › Recommended
   PivotTables (candidates for the current region with a preview; OK creates the table on a new sheet) and PivotChart
   (inside a table a PivotChart of it right of the table, else Create PivotChart). PivotTable Analyze gains Group

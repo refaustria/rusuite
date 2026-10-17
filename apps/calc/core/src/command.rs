@@ -471,6 +471,48 @@ pub enum CalcCommand {
         c1: u32,
         edges: crate::names::NameEdges,
     },
+    /// Formulas › Calculation Options / File › Options › Formulas: the
+    /// calculation mode, `fullCalcOnLoad` and the R1C1 reference style.
+    /// Switching to automatic recalculates what is pending. The patch
+    /// carries `calc`.
+    SetCalcOptions {
+        options: crate::calc_tools::CalcOptions,
+    },
+    /// Calculate Now (F9): recalculates every pending cell (manual mode)
+    /// and the volatile cells. Not undoable.
+    CalculateNow,
+    /// Calculate Sheet (Shift+F9): recalculates the pending cells of one
+    /// sheet. Not undoable.
+    CalculateSheet {
+        sheet: u32,
+    },
+    /// Formulas › Define Name › Apply Names: in the formulas of the range
+    /// (a single cell: the whole sheet), references equal to the range of
+    /// one of `names` become the name; `ignoreRelative` (Excel's default)
+    /// matches regardless of `$`. One undo step.
+    ApplyNames {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+        names: Vec<String>,
+        ignore_relative: bool,
+    },
+    /// Error Checking › Convert to Number: the text cells of the ranges
+    /// that hold numbers become numbers (number formats kept).
+    ConvertToNumber {
+        sheet: u32,
+        cells: Vec<Rect>,
+    },
+    /// Formulas › Use in Formula › Paste Names › Paste List: the visible
+    /// names and their definitions (as text) from the cell down, two
+    /// columns wide.
+    PasteNameList {
+        sheet: u32,
+        row: u32,
+        col: u32,
+    },
     /// Adds or edits the note of a cell (Shift+F2). `author` and the
     /// absent `visible`/`bounds` keep their old values on an existing
     /// note (new notes: hidden, default box). The patch lists the sheet's

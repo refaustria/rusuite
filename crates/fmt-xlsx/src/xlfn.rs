@@ -9,19 +9,33 @@
 /// Excel added after 2007 that the engine implements. Every name must be
 /// a registered engine function (checked by a test).
 pub const XLFN_FUNCTIONS: &[&str] = &[
+    "AGGREGATE",
+    "BYCOL",
+    "BYROW",
     "CEILING.MATH",
+    "CHOOSECOLS",
+    "CHOOSEROWS",
     "CONCAT",
     "COVARIANCE.P",
     "COVARIANCE.S",
     "DAYS",
+    "DROP",
+    "EXPAND",
     "FLOOR.MATH",
     "FORECAST.LINEAR",
+    "HSTACK",
     "IFNA",
     "IFS",
+    "ISOMITTED",
     "ISOWEEKNUM",
+    "LAMBDA",
+    "LET",
+    "MAKEARRAY",
+    "MAP",
     "MAXIFS",
     "MINIFS",
     "MODE.SNGL",
+    "MUNIT",
     "NUMBERVALUE",
     "PERCENTILE.EXC",
     "PERCENTILE.INC",
@@ -31,17 +45,25 @@ pub const XLFN_FUNCTIONS: &[&str] = &[
     "RANDARRAY",
     "RANK.AVG",
     "RANK.EQ",
+    "REDUCE",
+    "SCAN",
     "SEQUENCE",
     "SORTBY",
     "STDEV.P",
     "STDEV.S",
     "SWITCH",
+    "TAKE",
     "TEXTJOIN",
+    "TOCOL",
+    "TOROW",
     "UNICHAR",
     "UNICODE",
     "UNIQUE",
     "VAR.P",
     "VAR.S",
+    "VSTACK",
+    "WRAPCOLS",
+    "WRAPROWS",
     "XLOOKUP",
     "XMATCH",
     "XOR",
@@ -51,7 +73,9 @@ pub const XLFN_FUNCTIONS: &[&str] = &[
 /// must be a registered engine function).
 pub const XLWS_FUNCTIONS: &[&str] = &["FILTER", "SORT"];
 
-const PREFIXES: [&str; 2] = ["_xlfn.", "_xlws."];
+/// `_xlpm.` marks `LET` names and `LAMBDA` parameters (see
+/// [`crate::dynarray::to_file_ast`]).
+const PREFIXES: [&str; 3] = ["_xlfn.", "_xlws.", "_xlpm."];
 
 fn is_ident_start(c: char) -> bool {
     c.is_alphabetic() || c == '_' || c == '\\'
@@ -106,7 +130,8 @@ fn rewrite_idents(
     out
 }
 
-/// Removes `_xlfn.` / `_xlws.` prefixes (any case) from identifiers.
+/// Removes `_xlfn.` / `_xlws.` / `_xlpm.` prefixes (any case) from
+/// identifiers.
 pub fn strip_xlfn_prefixes(formula: &str) -> String {
     if !formula.contains('_') {
         return formula.to_owned();
@@ -155,6 +180,10 @@ mod tests {
         );
         assert_eq!(strip_xlfn_prefixes("'_xlfn.s'!A1"), "'_xlfn.s'!A1");
         assert_eq!(strip_xlfn_prefixes("SUM(A1:B2)"), "SUM(A1:B2)");
+        assert_eq!(
+            strip_xlfn_prefixes("_xlfn.LET(_xlpm.x,1,_xlpm.x+1)"),
+            "LET(x,1,x+1)"
+        );
 
         assert_eq!(
             add_xlfn_prefixes("CONCAT(A1,\"CONCAT(\")"),

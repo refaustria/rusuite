@@ -1,5 +1,7 @@
 //! Dynamic array functions (Excel 365): `SORT`, `SORTBY`, `FILTER`,
-//! `UNIQUE`, `SEQUENCE`, `RANDARRAY`. Their results are arrays that spill
+//! `UNIQUE`, `SEQUENCE`, `RANDARRAY` and the array shaping functions
+//! `TAKE`, `DROP`, `VSTACK`, `HSTACK`, `CHOOSECOLS`, `CHOOSEROWS`,
+//! `EXPAND`, `TOCOL`, `TOROW`, `WRAPROWS`, `WRAPCOLS`. Their results are arrays that spill
 //! when they are the result of a cell formula (see
 //! [`Engine`](crate::Engine)); inside other functions they work as arrays
 //! (`SUM(SEQUENCE(4))`, `INDEX(SORT(A1:A9),1)`).
@@ -11,14 +13,20 @@ use crate::functions::lookup::util::Table;
 use crate::functions::{CallContext, FunctionRegistry};
 use crate::value::{to_number, Array, Value};
 
+pub mod choose;
+pub mod expand;
 pub mod filter;
 pub mod randarray;
 pub mod sequence;
 pub mod sort;
 pub mod sortby;
+pub mod stack;
+pub mod take;
 #[cfg(test)]
 mod tests;
+pub mod tocol;
 pub mod unique;
+pub mod wrap;
 
 /// Registers every function of this family.
 pub fn register(r: &mut FunctionRegistry) {
@@ -28,6 +36,17 @@ pub fn register(r: &mut FunctionRegistry) {
     r.register(Box::new(sort::Sort));
     r.register(Box::new(sortby::SortBy));
     r.register(Box::new(unique::Unique));
+    r.register(Box::new(take::Take));
+    r.register(Box::new(take::Drop));
+    r.register(Box::new(stack::VStack));
+    r.register(Box::new(stack::HStack));
+    r.register(Box::new(choose::ChooseCols));
+    r.register(Box::new(choose::ChooseRows));
+    r.register(Box::new(expand::Expand));
+    r.register(Box::new(tocol::ToCol));
+    r.register(Box::new(tocol::ToRow));
+    r.register(Box::new(wrap::WrapRows));
+    r.register(Box::new(wrap::WrapCols));
 }
 
 /// Largest array the generating functions (`SEQUENCE`, `RANDARRAY`)

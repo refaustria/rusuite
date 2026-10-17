@@ -9,6 +9,8 @@ import type { Backend, Color, OpenedFile, SaveOptions, SaveResult } from "@rusui
 import type { AutoFilter } from "../generated/AutoFilter";
 import type { CalcCommand } from "../generated/CalcCommand";
 import type { CalcPatch } from "../generated/CalcPatch";
+import type { CalcState } from "../generated/CalcState";
+import type { ErrorIssue } from "../generated/ErrorIssue";
 import type { CellKind } from "../generated/CellKind";
 import type { CellStyle } from "../generated/CellStyle";
 import type { CellView } from "../generated/CellView";
@@ -142,6 +144,8 @@ export class FakeCalcCore {
   /** Protect Workbook (P9-C1) and its password (as text: a fake). */
   private bookProtection: WorkbookProtection | undefined;
   private tableStyles: TableStyles = {};
+  /** Formulas › Calculation Options (P9-C4; the fake always calculates at once). */
+  private calc: CalcState = { options: { mode: "automatic", fullCalcOnLoad: true, r1c1: false }, needsCalc: false };
   /** Slicers (toy): table sources only; the selection per cache (`null` = all). */
   private slicerList: { sheet: number; slicer: Slicer; source: SlicerSource; selected: string[] | null }[] = [];
   private bookPassword = "";
@@ -1049,7 +1053,41 @@ export class FakeCalcCore {
       case "showPivotDetails":
       case "restoreSheetProtection":
       case "restoreWorkbookProtection":
+      case "applyNames":
+      case "pasteNameList":
         throw new Fail("unsupported", `${cmd.type} is not in the fake backend`);
+      case "convertToNumber": {
+        const s = this.sheet(cmd.sheet);
+        const inverse: CalcCommand[] = [];
+        const changed: [number, number][] = [];
+        for (const r of cmd.cells) {
+          for (let row = r.r0; row <= r.r1; row++) {
+            for (let col = r.c0; col <= r.c1; col++) {
+              const input = this.cell(s, row, col)?.input ?? "";
+              const m = /^'\s*(-?[0-9]+(\.[0-9]+)?)\s*$/.exec(input);
+              if (!m) continue;
+              this.setCell(s, row, col, m[1]!);
+              inverse.push({ type: "setInput", sheet: cmd.sheet, row, col, input });
+              changed.push([row, col]);
+            }
+          }
+        }
+        return [this.cellsPatch(s, changed), { type: "compound", commands: inverse }];
+      }
+      case "setCalcOptions": {
+        const old = this.calc.options;
+        this.calc = { options: { ...cmd.options }, needsCalc: false };
+        const patch = this.emptyPatch();
+        patch.calc = structuredClone(this.calc);
+        return [patch, { type: "setCalcOptions", options: old }];
+      }
+      case "calculateNow":
+      case "calculateSheet": {
+        this.calc = { ...this.calc, needsCalc: false };
+        const patch = this.emptyPatch();
+        patch.calc = structuredClone(this.calc);
+        return [patch, null];
+      }
       default: {
         const unknown: never = cmd;
         throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
@@ -2124,6 +2162,7 @@ export class FakeCalcCore {
     const info = {
       sheets: this.sheetInfos(), styles: [...this.styles], revision: this.revision, ...(this.names.length ? { names: this.nameInfos() } : {}),
       activeSheet: this.sheets.find((x) => !x.hidden)?.id ?? 0,
+      calc: structuredClone(this.calc),
       ...(this.bookProtection ? { workbookProtection: { ...this.bookProtection } } : {}),
       ...(this.tableStyles.custom?.length || this.tableStyles.defaultStyle ? { tableStyles: structuredClone(this.tableStyles) } : {}),
       ...(this.persons.length ? { persons: this.persons.map((p) => ({ ...p })) } : {}),
@@ -2220,7 +2259,7 @@ export class FakeCalcCore {
           return {
             ok: {
               type: "opened",
-              info: "ok" in info && info.ok.type === "info" ? info.ok.info : { sheets: [], styles: [], revision: this.revision, activeSheet: 0 },
+              info: "ok" in info && info.ok.type === "info" ? info.ok.info : { sheets: [], styles: [], revision: this.revision, activeSheet: 0, calc: structuredClone(this.calc) },
               warnings: ["fake backend: file content ignored"],
               envelope: this.envelope(this.emptyPatch()),
             },
@@ -2377,6 +2416,38 @@ export class FakeCalcCore {
                 { title: "Sum of Sales by Region", fields: { rows: [{ field: 0 }], values: [{ field: 3 }] }, preview: [["Row Labels", "Sum of Sales"], ["North", "30"], ["South", "70"], ["Grand Total", "100"]] },
                 { title: "Sum of Sales by Product", fields: { rows: [{ field: 1 }], values: [{ field: 3 }] }, preview: [["Row Labels", "Sum of Sales"], ["Apple", "40"], ["Pear", "60"], ["Grand Total", "100"]] },
               ],
+            },
+          };
+        case "errorChecks": {
+          // A toy: numbers stored as text (an apostrophe) and error results (P9-C4).
+          const s = this.sheet(req.sheet);
+          const rules = req.rules ?? ["errorValue", "inconsistentFormula", "numberAsText", "unlockedFormula"];
+          const issues: ErrorIssue[] = [];
+          for (const [r, row] of [...s.cells].sort((a, b) => a[0] - b[0])) {
+            for (const [c, cell] of [...row].sort((a, b) => a[0] - b[0])) {
+              if (rules.includes("numberAsText") && /^'\s*-?[0-9]+(\.[0-9]+)?\s*$/.test(cell.input)) issues.push({ row: r, col: c, rule: "numberAsText" });
+              else if (rules.includes("errorValue") && cell.input.startsWith("=") && this.view(s, r, c).kind === "error") issues.push({ row: r, col: c, rule: "errorValue" });
+            }
+          }
+          return { ok: { type: "errorChecks", issues } };
+        }
+        case "evaluateFormula": {
+          const s = this.sheet(req.sheet);
+          const v = this.view(s, req.row, req.col);
+          const formula = v.input.startsWith("=") ? v.input : "";
+          const steps = formula ? [{ text: formula, start: 1, end: formula.length, value: v.display }] : [];
+          return { ok: { type: "evaluation", evaluation: { formula, steps, result: v.display } } };
+        }
+        case "watchCells":
+          return {
+            ok: {
+              type: "watch",
+              items: req.cells.map((w) => {
+                const s = this.sheets.find((x) => x.id === w.sheet);
+                if (!s) return { ...w, value: "#REF!" };
+                const v = this.view(s, w.row, w.col);
+                return { ...w, sheetName: s.name, value: v.display, ...(v.input.startsWith("=") ? { formula: v.input } : {}) };
+              }),
             },
           };
         case "precedents":
