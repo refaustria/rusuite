@@ -28,6 +28,46 @@ pub enum BuiltinName {
 pub enum Fill {
     None,
     Solid(Color),
+    Pattern(PatternFill),
+}
+
+/// Mirror of `model_sheet::PatternType`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub enum PatternType {
+    DarkGray,
+    MediumGray,
+    LightGray,
+    Gray125,
+    Gray0625,
+    DarkHorizontal,
+    DarkVertical,
+    DarkDown,
+    DarkUp,
+    DarkGrid,
+    DarkTrellis,
+    LightHorizontal,
+    LightVertical,
+    LightDown,
+    LightUp,
+    LightGrid,
+    LightTrellis,
+}
+
+/// Mirror of `model_sheet::PatternFill`: pattern colour `fg` over the
+/// background colour `bg` (absent: automatic black / white).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct PatternFill {
+    pub pattern: PatternType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fg: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub bg: Option<Color>,
 }
 
 /// Mirror of `model_sheet::BorderStyle`.
@@ -211,6 +251,9 @@ pub struct CellStyle {
     pub number_format: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protection: Option<Protection>,
+    /// Accounting underline (`singleAccounting` / `doubleAccounting`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub underline_accounting: Option<bool>,
 }
 
 /// Mirror of `model_sheet::SheetFormat`.
@@ -466,8 +509,16 @@ mod tests {
                 locked: Some(false),
                 hidden: Some(true),
             },
+            underline_accounting: Some(true),
         };
         same_shape::<_, CellStyle>(&full);
+        for pattern in ms::PatternType::ALL {
+            same_shape::<_, Fill>(&ms::Fill::Pattern(ms::PatternFill {
+                pattern,
+                fg: Some(core_model::Color::Rgb(Rgb::new(1, 2, 3))),
+                bg: None,
+            }));
+        }
         let mut prot = ms::SheetProtection {
             password: ms::Password {
                 legacy: Some(0xCC1A),

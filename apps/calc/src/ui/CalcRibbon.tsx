@@ -7,7 +7,7 @@
 import { aiRibbonGroup, HelpMenu } from "@rusuite/ui-shared";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  AlignmentControls, BordersDropdown, ColorControls, FontControls, RIBBON_SELECT, Ribbon, RibbonButton,
+  AlignmentControls, ColorControls, Icon, FontControls, RIBBON_SELECT, Ribbon, RibbonButton,
   RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack, StyleToggles, triggerShortcut, type AnySession, type CellStylePatch,
   type FormatControlProps, type RibbonTab, languageRibbonGroup, contextualTabs, CONTEXT_COLORS,
 } from "@rusuite/ui-shared";
@@ -24,6 +24,7 @@ import { pivotAnalyzeTab, pivotDesignTab, pivotInsertGroup } from "../pivot/Pivo
 import { tableDesignTab, tableInsertButton } from "../tables/TableRibbon";
 import { dataTabGroups, getDataGroup, pageLayoutTab, pasteMenu, PicturesButton, workbookViewsGroup } from "../datatools/DataRibbon";
 import { NumberGroup } from "./NumberGroup";
+import { bordersMenu } from "./bordersMenu";
 import { activeCellLocked, sheetProtection, toggleLockCell, toggleSheetProtection } from "../protection/protection";
 import { lockIcon } from "../protection/icons";
 import {
@@ -143,7 +144,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
             </RibbonRow>
             <RibbonRow>
               <StyleToggles {...fmt} />
-              <BordersDropdown onChange={fmt.onChange} disabled={off} />
+              <RibbonMenuButton label={t("fmt.borders")} icon={<Icon name="borders" />} disabled={off} menu={bordersMenu(store, t, done)} />
               <ColorControls {...fmt} />
             </RibbonRow>
           </RibbonStack>

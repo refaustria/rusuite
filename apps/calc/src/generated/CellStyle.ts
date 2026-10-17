@@ -14,4 +14,8 @@ export type CellStyle = { font?: RunProperties | null, fill?: Fill | null, borde
 /**
  * Number format code (`"0.00"`, `"yyyy-mm-dd"`); absent = `General`.
  */
-numberFormat?: string | null, protection?: Protection | null, };
+numberFormat?: string | null, protection?: Protection | null, 
+/**
+ * Accounting underline (`singleAccounting` / `doubleAccounting`).
+ */
+underlineAccounting?: boolean | null, };

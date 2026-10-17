@@ -58,8 +58,8 @@ pub use sortfilter::{
     FilterValue, SortKey, SortKind, SortSpec, SortState,
 };
 pub use style::{
-    Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, Protection, StyleId,
-    StyleTable, VAlign,
+    Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, PatternFill, PatternType,
+    Protection, StyleId, StyleTable, VAlign,
 };
 pub use tables::{Table, TableColumn, TableLook, TotalsCell, TotalsFunction, DEFAULT_TABLE_STYLE};
 pub use validation::{

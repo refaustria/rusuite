@@ -84,3 +84,55 @@ fn built_protection_roundtrips() {
         .data;
     assert!(String::from_utf8_lossy(sheet2).contains("tabSelected=\"1\""));
 }
+
+#[test]
+fn pattern_fills_and_accounting_underlines_roundtrip() {
+    use core_model::{Color, Rgb, RunProperties, Underline};
+    use model_sheet::{CellRange, CellStyle, Fill, PatternFill, PatternType};
+    let mut wb = Workbook::new();
+    let s = wb.sheet_id("Sheet1").unwrap();
+    let red = Color::Rgb(Rgb::new(255, 0, 0));
+    for (i, pattern) in PatternType::ALL.into_iter().enumerate() {
+        let style = CellStyle {
+            fill: Some(Fill::Pattern(PatternFill {
+                pattern,
+                fg: (i % 2 == 0).then_some(red),
+                bg: (i % 3 == 0).then_some(Color::Rgb(Rgb::new(0, 0, 255))),
+            })),
+            ..Default::default()
+        };
+        wb.apply_style_patch(CellRange::new(s, i as u32, 0, i as u32, 0), &style)
+            .unwrap();
+    }
+    for (row, underline) in [(0, Underline::Single), (1, Underline::Double)] {
+        let style = CellStyle {
+            font: RunProperties {
+                underline: Some(underline),
+                ..Default::default()
+            },
+            underline_accounting: Some(true),
+            ..Default::default()
+        };
+        wb.apply_style_patch(CellRange::new(s, row, 1, row, 1), &style)
+            .unwrap();
+    }
+    let bytes = fmt_xlsx::write(&wb).unwrap();
+    let (back, warnings) = fmt_xlsx::read_with_warnings(&bytes).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(back.to_snapshot(), wb.to_snapshot());
+    let styles = String::from_utf8_lossy(
+        &fmt_ooxml::Package::open(std::io::Cursor::new(&bytes))
+            .unwrap()
+            .part(&fmt_ooxml::PartName::new("/xl/styles.xml").unwrap())
+            .unwrap()
+            .data,
+    )
+    .into_owned();
+    assert!(
+        styles.contains(r#"<u val="singleAccounting"/>"#),
+        "{styles}"
+    );
+    assert!(styles.contains(r#"<u val="doubleAccounting"/>"#));
+    assert!(styles.contains(r#"patternType="darkTrellis""#));
+    assert!(styles.contains(r#"patternType="gray0625""#));
+}

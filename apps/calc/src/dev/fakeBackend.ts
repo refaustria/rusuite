@@ -122,6 +122,7 @@ function mergeStyle(base: CellStyle, patch: CellStyle): CellStyle {
   }
   if (patch.numberFormat !== undefined) out.numberFormat = patch.numberFormat === "General" ? null : patch.numberFormat;
   if (patch.protection) out.protection = { ...base.protection, ...patch.protection };
+  if (patch.underlineAccounting !== undefined && patch.underlineAccounting !== null) out.underlineAccounting = patch.underlineAccounting || undefined;
   return out;
 }
 

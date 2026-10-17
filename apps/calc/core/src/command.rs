@@ -60,6 +60,9 @@ pub enum CalcCommand {
     /// (`top` / `bottom` / `left` / `right` = the outline, `insideHorizontal`
     /// / `insideVertical` = the lines between the range's cells, diagonals
     /// in every cell). Absent edges stay; `{"kind":"none"}` removes a line.
+    /// An edited outline edge also clears the facing side of the cells
+    /// beside the range (Excel draws one line per edge), in the same undo
+    /// step.
     SetBorders {
         sheet: u32,
         r0: u32,

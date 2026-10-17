@@ -1675,10 +1675,11 @@ export class CalcStore {
     const r = this.selectionRange();
     const sheet = this.state.activeSheet;
     const commands = formatCommands(init, next, sheet, r);
-    if (init.wrapText !== next.wrapText && r.r1 - r.r0 <= 500) {
+    // Wrap text and text rotation refit the rows (Excel grows a row for rotated text).
+    if ((init.wrapText !== next.wrapText || init.rotation !== next.rotation) && r.r1 - r.r0 <= 500) {
       const rows: number[] = [];
       for (let row = r.r0; row <= r.r1; row++) rows.push(row);
-      commands.push(...this.rowFitCommands(sheet, rows, (c) => (c >= r.c0 && c <= r.c1 ? { wrap: next.wrapText } : undefined)));
+      commands.push(...this.rowFitCommands(sheet, rows, (c) => (c >= r.c0 && c <= r.c1 ? { wrap: next.wrapText, rotation: next.rotation } : undefined)));
     }
     if (commands.length === 0) return Promise.resolve();
     return this.apply(commands.length === 1 ? commands[0] : { type: "compound", commands });
@@ -1715,7 +1716,9 @@ export class CalcStore {
   applyStyle(patch: CellStylePatch): Promise<void> {
     const r = this.selectionRange();
     const sheet = this.state.activeSheet;
-    const command: CalcCommand = { type: "applyStyle", sheet, ...r, patch };
+    // The U button (and any plain underline) ends an accounting underline.
+    const full: CellStyle = patch.font?.underline !== undefined && !("underlineAccounting" in patch) ? { ...(patch as CellStyle), underlineAccounting: false } : (patch as CellStyle);
+    const command: CalcCommand = { type: "applyStyle", sheet, ...r, patch: full };
     const wrap = patch.alignment?.wrapText;
     if (wrap === undefined || wrap === null || r.r1 - r.r0 > 500) return this.apply(command);
     // Wrap text on/off: rows without an explicit height follow (Excel).
@@ -1738,7 +1741,7 @@ export class CalcStore {
    * edit being committed, a style being applied). Measures cached cells only.
    */
   private rowFitCommands(
-    sheet: number, rows: number[], override: (col: number) => { text?: string; wrap?: boolean } | undefined, extraCols: number[] = [],
+    sheet: number, rows: number[], override: (col: number) => { text?: string; wrap?: boolean; rotation?: number } | undefined, extraCols: number[] = [],
   ): CalcCommand[] {
     const cache = this.cache(sheet);
     const geo = this.geometry(sheet);
@@ -1758,8 +1761,14 @@ export class CalcStore {
         const style = styleAt(styles, styleIdIn(cache, row, col));
         const text = o?.text ?? cell?.display ?? "";
         const wrap = o?.wrap ?? !!style.alignment?.wrapText;
-        if (!wrap || text === "") continue;
+        const rotation = o?.rotation ?? style.alignment?.textRotation ?? 0;
+        if (text === "") continue;
         const font = fontCss(style);
+        if (rotation !== 0 && !wrap) {
+          need = Math.max(need, rotatedHeight(this.measure(text, font), lineHeightPx(font), rotation));
+          continue;
+        }
+        if (!wrap) continue;
         const lines = wrapLines(text, geo.col.size(col) - 2 * CELL_PADDING, font, this.measure).length;
         need = Math.max(need, lines * lineHeightPx(font));
       }
@@ -2653,4 +2662,14 @@ function normalizeAround(anchor: Cell, r: Range): Selection {
 /** Subscribes a component to a slice of the store. */
 export function useCalc<T>(store: CalcStore, select: (s: CalcState) => T): T {
   return useSyncExternalStore(store.subscribe, () => select(store.getState()));
+}
+
+/**
+ * The height rotated text needs (Excel grows the row): the text's extent
+ * across the rotation plus one line, with the cell padding (`width` and
+ * `line` in px, `degrees` counter-clockwise, -90..90).
+ */
+export function rotatedHeight(width: number, line: number, degrees: number): number {
+  const a = (Math.abs(degrees) * Math.PI) / 180;
+  return Math.ceil(width * Math.sin(a) + line * Math.cos(a) + 2 * CELL_PADDING);
 }

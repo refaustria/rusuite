@@ -125,6 +125,22 @@ pub struct CalcDocument {
     last_cycle: std::cell::RefCell<Option<Vec<CellCoord>>>,
 }
 
+/// Clears one side of a cell's borders (the facing side of a neighbour).
+type ClearSide = fn(&mut model_sheet::Borders);
+
+fn clear_top(b: &mut model_sheet::Borders) {
+    b.top = None;
+}
+fn clear_bottom(b: &mut model_sheet::Borders) {
+    b.bottom = None;
+}
+fn clear_left(b: &mut model_sheet::Borders) {
+    b.left = None;
+}
+fn clear_right(b: &mut model_sheet::Borders) {
+    b.right = None;
+}
+
 /// `A`, `B`, …, `Z`, `AA`, … for a 0-based column.
 fn col_letters(mut col: u32) -> String {
     let mut s = Vec::new();
@@ -976,6 +992,35 @@ impl CalcDocument {
                             self.workbook.set_style(c, new)?;
                             changed.push(c);
                         }
+                    }
+                }
+                // Excel: an edge belongs to both cells beside it, so an
+                // edited outline edge clears the facing side of the
+                // neighbouring cells (the new line, if any, stays on the
+                // range's cells).
+                let mut neighbours: Vec<(u32, u32, ClearSide)> = Vec::new();
+                if edits.top.is_some() && r0 > 0 {
+                    neighbours.extend((c0..=c1).map(|c| (r0 - 1, c, clear_bottom as ClearSide)));
+                }
+                if edits.bottom.is_some() && r1 < MAX_ROW {
+                    neighbours.extend((c0..=c1).map(|c| (r1 + 1, c, clear_top as ClearSide)));
+                }
+                if edits.left.is_some() && c0 > 0 {
+                    neighbours.extend((r0..=r1).map(|r| (r, c0 - 1, clear_right as ClearSide)));
+                }
+                if edits.right.is_some() && c1 < MAX_COL {
+                    neighbours.extend((r0..=r1).map(|r| (r, c1 + 1, clear_left as ClearSide)));
+                }
+                for (row, col, clear) in neighbours {
+                    let c = CellCoord::new(s, row, col);
+                    let old = self.workbook.style_id(c);
+                    let mut style = self.workbook.styles().get(old).clone();
+                    clear(&mut style.borders);
+                    let new = self.workbook.intern_style(&style);
+                    if new != old {
+                        prev.push((row, col, self.workbook.cell_style_id(c).0));
+                        self.workbook.set_style(c, new)?;
+                        changed.push(c);
                     }
                 }
                 Ok(Applied {

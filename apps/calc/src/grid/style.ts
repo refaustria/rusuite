@@ -29,7 +29,8 @@ export function toStyleView(style: CellStyle): CellStyleView {
 
 /** The toolbar's view of a resolved style: absent font parts show the defaults (Calibri 11). */
 export function toolbarValue(style: CellStyle): CellStyleView {
-  const v = toStyleView(style);
+  // The toolbar knows solid fills only: a pattern shows no fill colour.
+  const v = toStyleView(style.fill?.kind === "pattern" ? { ...style, fill: undefined } : style);
   return { ...v, font: { font: { kind: "named", value: DEFAULT_FONT_FAMILY }, size: DEFAULT_FONT_SIZE, ...v.font } };
 }
 
