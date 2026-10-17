@@ -243,6 +243,16 @@ fn write_master(
         hf.slide_number,
     );
     write_text_styles(&mut w.x, &m.text_styles);
+    if !m.guides.is_empty() {
+        w.x.start("p:extLst", &[]);
+        crate::props::write_p15_guides(
+            &mut w.x,
+            crate::props::MASTER_GUIDES_URI,
+            "p15:sldGuideLst",
+            &m.guides,
+        );
+        w.x.end("p:extLst");
+    }
     w.x.end("p:sldMaster");
     Ok((w.x.finish(), w.rels))
 }
@@ -305,6 +315,16 @@ fn write_layout(
     w.x.end("p:clrMapOvr");
     if layout.kind == LayoutKind::Title && m.header_footer.not_on_title {
         write_hf(&mut w.x, false, false, false);
+    }
+    if !layout.guides.is_empty() {
+        w.x.start("p:extLst", &[]);
+        crate::props::write_p15_guides(
+            &mut w.x,
+            crate::props::LAYOUT_GUIDES_URI,
+            "p15:sldGuideLst",
+            &layout.guides,
+        );
+        w.x.end("p:extLst");
     }
     w.x.end("p:sldLayout");
     Ok((w.x.finish(), w.rels))
@@ -745,8 +765,8 @@ impl SlideWriter<'_> {
         write_fill(&mut self.x, &s.fill);
         write_line(&mut self.x, &s.line);
         self.x.end("p:spPr");
-        if let Some(c) = &s.text_color {
-            write_style_font(&mut self.x, c);
+        if s.text_color.is_some() || s.effect_ref > 0 {
+            write_style_refs(&mut self.x, s.text_color.as_ref(), s.effect_ref);
         }
         if let Some(body) = s.text() {
             self.text_body("p:txBody", body);
@@ -1027,21 +1047,32 @@ impl SlideWriter<'_> {
             x.empty("a:blip", &[("r:embed", &rid)]);
         }
         x.empty("a:srcRect", &[]);
+        let k = |v: f64| ((v * 100_000.0).round() as i64).to_string();
         if pf.tile {
+            let (tx, ty) = (
+                (pf.tile_offset[0].round() as i64).to_string(),
+                (pf.tile_offset[1].round() as i64).to_string(),
+            );
+            let (sx, sy) = (k(pf.tile_scale[0]), k(pf.tile_scale[1]));
             x.empty(
                 "a:tile",
                 &[
-                    ("tx", "0"),
-                    ("ty", "0"),
-                    ("sx", "100000"),
-                    ("sy", "100000"),
+                    ("tx", &tx),
+                    ("ty", &ty),
+                    ("sx", &sx),
+                    ("sy", &sy),
                     ("flip", "none"),
                     ("algn", "tl"),
                 ],
             );
         } else {
             x.start("a:stretch", &[]);
-            x.empty("a:fillRect", &[]);
+            if pf.offsets.iter().any(|v| *v != 0.0) {
+                let [l, t, r, b] = pf.offsets.map(k);
+                x.empty("a:fillRect", &[("l", &l), ("t", &t), ("r", &r), ("b", &b)]);
+            } else {
+                x.empty("a:fillRect", &[]);
+            }
             x.end("a:stretch");
         }
         x.end("a:blipFill");
@@ -1174,17 +1205,34 @@ fn write_blip(x: &mut XmlOut, rid: &str, props: &PictureProps) {
     x.end("a:blip");
 }
 
-/// `p:style` with only the text colour (`a:fontRef idx="minor"`); fill
-/// and outline are stated in `p:spPr`, so their references are empty
-/// (`idx="0"`).
-fn write_style_font(x: &mut XmlOut, color: &core_model::Color) {
+/// `p:style` with the text colour (`a:fontRef idx="minor"`) and the
+/// theme effect style (`a:effectRef`); fill and outline are stated in
+/// `p:spPr`, so their references are empty (`idx="0"`).
+fn write_style_refs(x: &mut XmlOut, color: Option<&core_model::Color>, effect: u8) {
     x.start("p:style", &[]);
     x.empty("a:lnRef", &[("idx", "0")]);
     x.empty("a:fillRef", &[("idx", "0")]);
-    x.empty("a:effectRef", &[("idx", "0")]);
-    x.start("a:fontRef", &[("idx", "minor")]);
-    write_color(x, color);
-    x.end("a:fontRef");
+    let idx = effect.min(3).to_string();
+    if effect > 0 {
+        // the shadow takes the shape's accent (PowerPoint writes phClr's colour here)
+        x.start("a:effectRef", &[("idx", &idx)]);
+        x.empty("a:schemeClr", &[("val", "accent1")]);
+        x.end("a:effectRef");
+    } else {
+        x.empty("a:effectRef", &[("idx", "0")]);
+    }
+    match color {
+        Some(c) => {
+            x.start("a:fontRef", &[("idx", "minor")]);
+            write_color(x, c);
+            x.end("a:fontRef");
+        }
+        None => {
+            x.start("a:fontRef", &[("idx", "minor")]);
+            x.empty("a:schemeClr", &[("val", "tx1")]);
+            x.end("a:fontRef");
+        }
+    }
     x.end("p:style");
 }
 

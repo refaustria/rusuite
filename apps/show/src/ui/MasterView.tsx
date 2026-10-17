@@ -119,6 +119,7 @@ export function slideMasterTab(store: ShowStore, state: ShowState, t: TFunction)
             <RibbonStack>
               {d.colors}
               {d.fonts}
+              {d.effects}
             </RibbonStack>
           </>
         ),

@@ -38,6 +38,7 @@ describe("links in the slide show", () => {
     expect(linkAction({ target: { kind: "slide", value: { kind: "last" } } }, ids)).toEqual({ kind: "last" });
     expect(linkAction({ target: { kind: "slide", value: { kind: "previous" } } }, ids)).toEqual({ kind: "previous" });
     expect(linkAction({ target: { kind: "endShow" } }, ids)).toEqual({ kind: "end" });
+    expect(linkAction({ target: { kind: "customShow", value: { id: 2, returnAfter: true } } }, ids)).toEqual({ kind: "customShow", id: 2, returnAfter: true });
   });
 
   it("only opens harmless URL schemes", () => {
@@ -64,6 +65,7 @@ describe("Link and Action dialogs", () => {
     expect(targetLabel({ kind: "slide", value: { kind: "id", value: 404 } }, p.slides, t)).toBe("show.link.missingSlide");
     expect(targetLabel({ kind: "url", value: "https://x" }, p.slides, t)).toBe("https://x");
     expect(targetLabel({ kind: "endShow" }, p.slides, t)).toBe("show.link.endShow");
+    expect(targetLabel({ kind: "customShow", value: { id: 1, returnAfter: false } }, p.slides, t, [{ id: 1, name: "Short", slideIds: [] }])).toContain("Short");
     expect(targetLabel(next.target, p.slides, t)).toBe("show.link.next");
   });
 
@@ -72,6 +74,7 @@ describe("Link and Action dialogs", () => {
     expect(actionChoice(next)).toBe("next");
     expect(actionChoice(url)).toBe("url");
     expect(actionChoice({ target: { kind: "endShow" } })).toBe("endShow");
+    expect(actionChoice({ target: { kind: "customShow", value: { id: 0, returnAfter: false } } })).toBe("customShow");
     expect(actionChoice({ target: { kind: "slide", value: { kind: "id", value: 3 } } })).toBe("slide");
   });
 });

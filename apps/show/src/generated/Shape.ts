@@ -70,4 +70,11 @@ lockAspect?: boolean,
  * without a colour of their own are drawn in it (PowerPoint's filled
  * shapes: Light 1, white on the accent fill).
  */
-textColor?: Color, };
+textColor?: Color, 
+/**
+ * The theme effect style of the shape's style (`p:style/a:effectRef
+ * @idx`: 0 = none, 1–3 = subtle, moderate, intense; P9-S3): drawn
+ * from the theme's `a:effectStyleLst`, so Design › Variants ›
+ * Effects changes it.
+ */
+effectRef?: number, };

@@ -1,4 +1,4 @@
-"""Generator for the PROVISIONAL pptx reference suite (33 decks).
+"""Generator for the PROVISIONAL pptx reference suite (34 decks).
 
 Emits one flat ODP (.fodp) per topic plus manifest.json. Conversion to .pptx is done by
 scripts/gen-pptx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
@@ -928,7 +928,21 @@ def d33():
     return d
 
 
-TOPICS = [globals()[f"d{n:02d}"] for n in range(1, 34)]
+def d34():
+    d = Deck(34, "views-design", "Custom show and Set Up Show, master and layout guides, gradient and pattern backgrounds")
+    d.slide("title"); d.title("Views and Design", y=4.0); d.subtitle("Custom show, guides and backgrounds")
+    d.slide("titleContent"); d.title("Gradient background", cls="title"); d.outline([(1, "A linear gradient in two accents")])
+    d.slide("blank")
+    d.textbox(1, 1, 20, 2, "Pattern background")
+    d.slide("titleContent"); d.title("In the custom show", cls="title"); d.outline([(1, "Slides 4 and 1, in that order")])
+    # added after LibreOffice's export (it writes none of them): see post_views
+    d.views = True
+    for f in ["customShow:count=1", "show:customShow", "guides:master", "guides:layout", "background:gradient", "background:pattern"]:
+        d.feat(f)
+    return d
+
+
+TOPICS = [globals()[f"d{n:02d}"] for n in range(1, 35)]
 
 
 def emit(outdir, pngdir):
@@ -950,8 +964,86 @@ SECTION_URI = "{521415D9-36F7-43E2-AB2F-B90AF26B5E84}"
 P14 = "http://schemas.microsoft.com/office/powerpoint/2010/main"
 
 
+P15 = "http://schemas.microsoft.com/office/powerpoint/2012/main"
+MASTER_GUIDES_URI = "{27BBF7A9-308A-43DC-89C8-2F10F3537804}"
+LAYOUT_GUIDES_URI = "{DCECCB84-F9BA-43D5-87BE-67443E8EF086}"
+
+
+def p15_guides(uri, guides):
+    """`p:ext` with a `p15:sldGuideLst` of (orient, pos in 1/8 pt) guides, PowerPoint's orange."""
+    gs = ""
+    for i, (o, pos) in enumerate(guides):
+        orient = ' orient="horz"' if o == "horz" else ""
+        gs += (f'<p15:guide id="{i + 1}"{orient} pos="{pos}" userDrawn="1">'
+               '<p15:clr><a:srgbClr val="FBAE40"/></p15:clr></p15:guide>')
+    return f'<p:ext uri="{uri}"><p15:sldGuideLst xmlns:p15="{P15}">{gs}</p15:sldGuideLst></p:ext>'
+
+
+def add_ext(xml, root, ext):
+    """`ext` appended to the `p:extLst` of `root` (created before the root's end tag when missing)."""
+    if "<p:extLst>" in xml:
+        return xml.replace("</p:extLst>", ext + "</p:extLst>", 1)
+    return xml.replace(f"</{root}>", f"<p:extLst>{ext}</p:extLst></{root}>", 1)
+
+
+def add_bg(xml, bg):
+    """A slide's `p:bg` (replacing LibreOffice's, before the shape tree)."""
+    xml = re.sub(r"<p:bg>.*?</p:bg>", "", xml, flags=re.S)
+    return re.sub(r"(<p:cSld[^>]*>)", r"\1" + bg, xml, count=1)
+
+
+def post_views(path):
+    """Deck 34: what LibreOffice does not export – a custom show (slides 4 and 1) that Set Up Show runs with a
+    pen colour, guides on the master and the first layout, a gradient background on slide 2 and a pattern on
+    slide 3 – added as PowerPoint writes them."""
+    with zipfile.ZipFile(path) as z:
+        entries = [(i, z.read(i.filename)) for i in z.infolist()]
+    files = {i.filename: d for i, d in entries}
+    rels = files["ppt/_rels/presentation.xml.rels"].decode("utf-8")
+    pres = files["ppt/presentation.xml"].decode("utf-8")
+    order = re.findall(r'<p:sldId id="\d+" r:id="(rId\d+)"', pres)
+    target = {m.group(1): m.group(2) for m in re.finditer(r'Id="(rId\d+)"[^>]*Target="slides/(slide\d+\.xml)"', rels)}
+    target.update({m.group(2): m.group(1) for m in re.finditer(r'Target="slides/(slide\d+\.xml)"[^>]*Id="(rId\d+)"', rels)})
+    slides = [target[r] for r in order]
+    out = []
+    for info, data in entries:
+        name = info.filename
+        if name in ("ppt/presentation.xml", "ppt/presProps.xml", "ppt/slideMasters/slideMaster1.xml", "ppt/slideLayouts/slideLayout1.xml") \
+                or name in (f"ppt/slides/{slides[1]}", f"ppt/slides/{slides[2]}"):
+            xml = data.decode("utf-8")
+            if name == "ppt/presentation.xml":
+                show = f'<p:custShowLst><p:custShow name="Short" id="0"><p:sldLst><p:sld r:id="{order[3]}"/><p:sld r:id="{order[0]}"/></p:sldLst></p:custShow></p:custShowLst>'
+                xml = re.sub(r"(<p:notesSz [^>]*/>)", r"\1" + show, xml, count=1)
+            elif name == "ppt/presProps.xml":
+                show = ('<p:showPr loop="1" showNarration="1"><p:present/><p:custShow id="0"/>'
+                        '<p:penClr><a:srgbClr val="0070C0"/></p:penClr></p:showPr>')
+                xml = re.sub(r"<p:showPr.*?</p:showPr>|<p:showPr[^>]*/>", "", xml, flags=re.S)
+                xml = re.sub(r"(<p:presentationPr[^>]*?)/>", r"\1>" + show + "</p:presentationPr>", xml, count=1) \
+                    if re.search(r"<p:presentationPr[^>]*/>", xml) else re.sub(r"(<p:presentationPr[^>]*>)", r"\1" + show, xml, count=1)
+                if 'xmlns:a="' not in xml:
+                    xml = xml.replace("<p:presentationPr ", '<p:presentationPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ', 1)
+            elif name.startswith("ppt/slideMasters/"):
+                xml = add_ext(xml, "p:sldMaster", p15_guides(MASTER_GUIDES_URI, [("horz", 2160), ("vert", 3840)]))
+            elif name.startswith("ppt/slideLayouts/"):
+                xml = add_ext(xml, "p:sldLayout", p15_guides(LAYOUT_GUIDES_URI, [("vert", 576), ("vert", 7104)]))
+            elif name == f"ppt/slides/{slides[1]}":
+                xml = add_bg(xml, '<p:bg><p:bgPr><a:gradFill flip="none" rotWithShape="1"><a:gsLst>'
+                                  '<a:gs pos="0"><a:schemeClr val="accent1"><a:lumMod val="20000"/><a:lumOff val="80000"/></a:schemeClr></a:gs>'
+                                  '<a:gs pos="100000"><a:schemeClr val="accent2"/></a:gs></a:gsLst>'
+                                  '<a:lin ang="5400000" scaled="1"/><a:tileRect/></a:gradFill><a:effectLst/></p:bgPr></p:bg>')
+            else:
+                xml = add_bg(xml, '<p:bg><p:bgPr><a:pattFill prst="smCheck"><a:fgClr><a:schemeClr val="accent1"/></a:fgClr>'
+                                  '<a:bgClr><a:schemeClr val="bg1"/></a:bgClr></a:pattFill><a:effectLst/></p:bgPr></p:bg>')
+            data = xml.encode("utf-8")
+        out.append((info, data))
+    with zipfile.ZipFile(path, "w") as z:
+        for info, data in out:
+            z.writestr(info, data, compress_type=info.compress_type)
+
+
 def post(pptxdir):
-    """Adds the sections of every deck that has some (LibreOffice cannot export them) to its .pptx."""
+    """Adds the sections of every deck that has some (LibreOffice cannot export them) to its .pptx, and deck
+    34's custom show, guides and backgrounds."""
     for k in range(3):
         IMAGES.setdefault(f"img{k}", b"")  # the decks are only rebuilt for their sections
     global MEDIA_DIR
@@ -961,6 +1053,8 @@ def post(pptxdir):
         path = Path(pptxdir) / d.file
         if path.exists() and "media:video" in d.feats:
             embed_media(path)
+        if path.exists() and getattr(d, "views", False):
+            post_views(path)
         if not d.sections or not path.exists():
             continue
         with zipfile.ZipFile(path) as z:
@@ -1035,6 +1129,8 @@ def check(manifest_path, pptxdir):
                 slides = sorted(n for n in names if re.fullmatch(r"ppt/slides/slide\d+\.xml", n))
                 xml = "".join(z.read(n).decode("utf-8") for n in slides)
                 pres = z.read("ppt/presentation.xml").decode("utf-8")
+                design = "".join(z.read(n).decode("utf-8") for n in names if re.fullmatch(r"ppt/slide(Master|Layout)s/slide(Master|Layout)\d+\.xml", n))
+                props = z.read("ppt/presProps.xml").decode("utf-8") if "ppt/presProps.xml" in names else ""
                 charts = "".join(z.read(n).decode("utf-8") for n in names if re.fullmatch(r"ppt/charts/chart\d+\.xml", n))
         except Exception as ex:  # noqa: BLE001
             print(f"FAIL {e['file']}: {ex}")
@@ -1159,6 +1255,19 @@ def check(manifest_path, pptxdir):
                 jump = {"next": "nextslide", "previous": "previousslide", "first": "firstslide", "last": "lastslide", "endShow": "endshow"}[ft.split(":")[1]]
                 if f"ppaction://hlinkshowjump?jump={jump}" not in xml:
                     errs.append(f"{ft} not found")
+            elif ft.startswith("customShow:count="):
+                if pres.count("<p:custShow ") != int(ft.split("=")[1]):
+                    errs.append(f"{ft}: found {pres.count('<p:custShow ')}")
+            elif ft == "show:customShow" and "<p:custShow id=" not in props:
+                errs.append("p:showPr custShow not found")
+            elif ft in ("guides:master", "guides:layout"):
+                uri = MASTER_GUIDES_URI if ft == "guides:master" else LAYOUT_GUIDES_URI
+                if uri not in design or "<p15:guide " not in design:
+                    errs.append(f"{ft} not found")
+            elif ft == "background:gradient" and not re.search(r"<p:bg><p:bgPr><a:gradFill", xml):
+                errs.append("gradient background not found")
+            elif ft == "background:pattern" and not re.search(r"<p:bg><p:bgPr><a:pattFill", xml):
+                errs.append("pattern background not found")
             elif ft == "media:video" and "<a:videoFile" not in xml:
                 errs.append("a:videoFile not found")
             elif ft.startswith("animation:"):

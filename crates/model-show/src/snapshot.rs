@@ -14,7 +14,7 @@ use crate::section::Section;
 use crate::slide::Slide;
 use crate::tablestyle::TableStyleDef;
 use crate::theme::Theme;
-use crate::view::{ShowSettings, ViewProps};
+use crate::view::{CustomShow, ShowSettings, ViewProps};
 use crate::Error;
 
 /// The serializable form of a [`Presentation`] (identical to it).
@@ -46,6 +46,8 @@ pub(crate) struct PresentationData {
     #[serde(default)]
     show_settings: ShowSettings,
     #[serde(default)]
+    custom_shows: Vec<CustomShow>,
+    #[serde(default)]
     table_styles: Vec<TableStyleDef>,
 }
 
@@ -70,6 +72,7 @@ impl From<PresentationData> for Presentation {
         p.media = d.media;
         p.view = d.view;
         p.show_settings = d.show_settings;
+        p.custom_shows = d.custom_shows;
         p.table_styles = d.table_styles;
         p.next_id = p.max_node_id() + 1;
         p

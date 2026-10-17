@@ -355,6 +355,21 @@ export class FakeBackend implements ShowBackend {
         p.theme = { ...p.theme, colors: clone(c.colors) };
         this.design = true;
         return;
+      case "setDesignGuides": {
+        if (c.target.kind === "master") {
+          if (p.master) p.master.guides = clone(c.guides);
+        } else {
+          const t = c.target;
+          const l = p.layouts.find((x) => x.kind === t.value);
+          if (l) l.guides = clone(c.guides);
+        }
+        this.design = true;
+        return;
+      }
+      case "setThemeEffects":
+        p.theme = { ...p.theme, format: { ...(p.theme.format ?? { name: "", fillStyles: [], lineStyles: [], effectStyles: [], bgFillStyles: [] }), name: c.name, effectStyles: clone(c.effectStyles) } };
+        this.design = true;
+        return;
       case "setThemeFonts":
         p.theme = { ...p.theme, fonts: clone(c.fonts) };
         this.design = true;
@@ -524,6 +539,10 @@ export class FakeBackend implements ShowBackend {
         return;
       case "setShowSettings":
         p.showSettings = clone(c.settings);
+        this.props = true;
+        return;
+      case "setCustomShows":
+        p.customShows = clone(c.shows);
         this.props = true;
         return;
       // ----- P8-32
@@ -851,7 +870,7 @@ export class FakeBackend implements ShowBackend {
             slidesOrder: order.changed ? this.pres.slides.map((s) => s.id) : null,
             ...design,
             ...(this.sections ? { sections: clone(this.pres.sections ?? []) } : {}),
-            ...(this.props ? { ...(this.pres.view ? { view: clone(this.pres.view) } : {}), ...(this.pres.showSettings ? { showSettings: clone(this.pres.showSettings) } : {}) } : {}),
+            ...(this.props ? { ...(this.pres.view ? { view: clone(this.pres.view) } : {}), ...(this.pres.showSettings ? { showSettings: clone(this.pres.showSettings) } : {}), ...(this.pres.customShows ? { customShows: clone(this.pres.customShows) } : {}) } : {}),
           }),
         });
       }

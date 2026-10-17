@@ -17,13 +17,13 @@ import type { LayoutKind } from "../generated/LayoutKind";
 import type { Slide } from "../generated/Slide";
 import { slidePx } from "../geometry";
 import { slideDropIndex } from "../state/commands";
-import { useShow, type ShowStore } from "../state/store";
+import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, useShow, type ShowStore } from "../state/store";
 import { SlideView, type DeckContext } from "../canvas/SlideView";
 import { stableDeck } from "../design/deck";
-import { thumbnailMenu } from "../canvas/menus";
+import { sectionMenu, thumbnailMenu } from "../canvas/menus";
 import { useT } from "../i18n";
 import { hasEffects } from "../anim/effects";
-import { canMoveSection, sectionRanges } from "../design/sections";
+import { sectionRanges } from "../design/sections";
 import { layoutName } from "../design/layouts";
 
 export const THUMB_WIDTH = 152;
@@ -35,12 +35,12 @@ export const LAYOUTS: { value: LayoutKind; readonly label: string }[] = [
 ];
 
 const Thumb = memo(function Thumb({
-  deck, slide, media, mediaVersion,
-}: { deck: DeckContext; slide: Slide; media: ReadonlyMap<number, string>; mediaVersion: number }) {
+  deck, slide, media, mediaVersion, width = THUMB_WIDTH,
+}: { deck: DeckContext; slide: Slide; media: ReadonlyMap<number, string>; mediaVersion: number; width?: number }) {
   const size = slidePx(deck.slideSize);
-  const scale = THUMB_WIDTH / size.width;
+  const scale = width / size.width;
   return (
-    <Stage width={THUMB_WIDTH} height={size.height * scale} scaleX={scale} scaleY={scale} listening={false}>
+    <Stage width={width} height={size.height * scale} scaleX={scale} scaleY={scale} listening={false}>
       <Layer listening={false}>
         <SlideView deck={deck} slide={slide} media={media} mediaVersion={mediaVersion} />
       </Layer>
@@ -53,12 +53,14 @@ export function SlideList({ store }: { store: ShowStore }) {
   const pres = useShow(store, (s) => s.pres);
   const current = useShow(store, (s) => s.current);
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
+  const width = useShow(store, (s) => s.sidebarWidth);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: ContextMenuItem[] } | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
   /** Insertion line: before thumbnail `index` (`slides.length` = after the last). */
   const [dropAt, setDropAt] = useState<number | null>(null);
   /** Collapsed sections (by index). */
-  const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
+  const collapsedList = useShow(store, (s) => s.collapsedSections);
+  const collapsed = new Set(collapsedList);
   /** A section header the dragged slide is over. */
   const [dropSection, setDropSection] = useState<number | null>(null);
   // Stable while size, layouts and theme are unchanged, so unchanged thumbnails do not re-render.
@@ -82,6 +84,9 @@ export function SlideList({ store }: { store: ShowStore }) {
       if (current !== null) void store.duplicateSlide(current);
     } else if (e.key === "Delete" || e.key === "Backspace") {
       if (current !== null) void store.deleteSlides([current]);
+    } else if (mod && !e.shiftKey && !e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      // Ctrl+↑ / ↓: the slide one place up / down
+      void store.nudgeSlides(e.key === "ArrowUp" ? -1 : 1);
     } else if (e.key === "ArrowDown" && index < slides.length - 1) store.selectSlide(slides[index + 1]!.id);
     else if (e.key === "ArrowUp" && index > 0) store.selectSlide(slides[index - 1]!.id);
     else return;
@@ -90,18 +95,6 @@ export function SlideList({ store }: { store: ShowStore }) {
   };
 
   const ranges = sectionRanges(pres);
-  const sectionMenu = (index: number): ContextMenuItem[] => [
-    { id: "renameSection", label: t("show.section.renameDots"), onSelect: () => store.openDialog({ kind: "renameSection", index }) },
-    { id: "removeSection", label: t("show.section.remove"), onSelect: () => void store.removeSection(index, true) },
-    { id: "removeSectionSlides", label: t("show.section.removeWithSlides"), disabled: ranges.length > 0 && ranges[index]!.count >= slides.length, onSelect: () => void store.removeSection(index, false) },
-    { id: "removeAllSections", label: t("show.section.removeAll"), onSelect: () => void store.removeAllSections() },
-    { separator: true },
-    { id: "moveSectionUp", label: t("show.section.moveUp"), disabled: !canMoveSection(pres, index, -1), onSelect: () => void store.moveSection(index, -1) },
-    { id: "moveSectionDown", label: t("show.section.moveDown"), disabled: !canMoveSection(pres, index, 1), onSelect: () => void store.moveSection(index, 1) },
-    { separator: true },
-    { id: "collapseAll", label: t("show.section.collapseAll"), onSelect: () => setCollapsed(new Set(ranges.map((r) => r.index))) },
-    { id: "expandAll", label: t("show.section.expandAll"), onSelect: () => setCollapsed(new Set()) },
-  ];
   /** Drops the dragged slide before (or after) thumbnail `i`, also into another section. */
   const dropOn = (id: number, i: number, after: boolean) => {
     const from = slides.findIndex((s) => s.id === id);
@@ -180,7 +173,7 @@ export function SlideList({ store }: { store: ShowStore }) {
         )}
       </span>
       <span className={`overflow-hidden rounded border border-ui-border bg-white ${slide.hidden ? "opacity-40" : ""}`}>
-        <Thumb deck={deck} slide={slide} media={store.media} mediaVersion={mediaVersion} />
+        <Thumb deck={deck} slide={slide} media={store.media} mediaVersion={mediaVersion} width={Math.max(60, width - (SIDEBAR_DEFAULT - THUMB_WIDTH))} />
       </span>
     </div>
   );
@@ -191,8 +184,42 @@ export function SlideList({ store }: { store: ShowStore }) {
       tabIndex={0}
       onKeyDown={onKeyDown}
       data-testid="slide-list"
-      className="relative z-10 flex w-48 shrink-0 flex-col border-r border-ui-border bg-ui-panel outline-none"
+      className="relative z-10 flex shrink-0 flex-col border-r border-ui-border bg-ui-panel outline-none"
+      style={{ width }}
     >
+      {/* the pane's edge: drag to resize (saved as restoredLeft) */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t("show.sidebar.resize")}
+        aria-valuenow={width}
+        aria-valuemin={SIDEBAR_MIN}
+        aria-valuemax={SIDEBAR_MAX}
+        tabIndex={0}
+        data-testid="sidebar-resize"
+        className="absolute -right-1 top-0 z-20 h-full w-2 cursor-ew-resize hover:bg-ui-active"
+        onPointerDown={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+          const x0 = e.clientX;
+          const w0 = width;
+          const el = e.currentTarget as HTMLElement;
+          const move = (ev: PointerEvent) => store.setSidebarWidth(w0 + ev.clientX - x0);
+          const up = () => {
+            el.removeEventListener("pointermove", move);
+            el.removeEventListener("pointerup", up);
+          };
+          el.addEventListener("pointermove", move);
+          el.addEventListener("pointerup", up);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            e.preventDefault();
+            e.stopPropagation();
+            store.setSidebarWidth(width + (e.key === "ArrowRight" ? 16 : -16));
+          }
+        }}
+      />
       <div className="flex items-center justify-between px-2 pt-2 text-xs text-ui-muted">
         <span>{t("show.slides")}</span>
         <Dropdown label={t("show.newSlide")} trigger={<span className="px-1 text-base leading-none">+</span>} items={layoutChoices} onSelect={(l) => void store.addSlide(l)} />
@@ -210,15 +237,10 @@ export function SlideList({ store }: { store: ShowStore }) {
                   aria-expanded={!closed}
                   data-testid="section-header"
                   className={`flex min-h-8 cursor-pointer items-center gap-1 rounded px-1 text-xs font-medium hover:bg-ui-hover ${dropSection === r.index ? "ring-2 ring-orange-600" : ""}`}
-                  onClick={() => {
-                    const next = new Set(collapsed);
-                    if (closed) next.delete(r.index);
-                    else next.add(r.index);
-                    setCollapsed(next);
-                  }}
+                  onClick={() => store.toggleSection(r.index)}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    setMenu({ at: { x: e.clientX, y: e.clientY }, items: sectionMenu(r.index) });
+                    setMenu({ at: { x: e.clientX, y: e.clientY }, items: sectionMenu(store, r.index) });
                   }}
                   onDragOver={(e) => {
                     e.preventDefault();

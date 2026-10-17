@@ -132,6 +132,8 @@ export const DESIGN_COMMANDS = new Set<ShowCommand["type"]>([
   "setMasterPlaceholderProps", "setBackground", "addLayout", "duplicateLayout", "deleteLayout", "applyTheme", "setThemeColors",
   "setThemeFonts", "setSlideSize", "setHeaderFooter", "restoreSections", "renameLayout", "addPlaceholder", "removePlaceholder",
   "setMasterTextStyle", "setPlaceholderPrompt", "setBackgroundPicture",
+  // P9-S3: Effects, the master's and layouts' guides, the view settings (grid, guides on / off)
+  "setThemeEffects", "setDesignGuides", "setViewProps",
 ]);
 
 /** Plain text of paragraphs, one line each. */

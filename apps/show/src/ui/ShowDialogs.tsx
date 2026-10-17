@@ -18,7 +18,7 @@ import { HeaderFooterDialog, RenameLayoutDialog, RenameSectionDialog, SlideScale
 import type { ShowPrintOptions } from "../print/showPrintDoc";
 import { ChartTypeDialog, EditDataDialog, InsertChartDialog } from "../charts/ChartDialogs";
 import { ActionDialog, LinkDialog } from "../links/LinkDialogs";
-import { GridGuidesDialog, SetUpShowDialog } from "./ViewDialogs";
+import { CustomShowsDialog, GridGuidesDialog, SetUpShowDialog } from "./ViewDialogs";
 
 const INPUT = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-ui-fg";
 const BUTTON = "h-7 rounded border border-ui-border bg-ui-bg px-3 hover:bg-ui-hover";
@@ -344,6 +344,7 @@ export function ShowDialogs({ store, printOptions, onPrintOptions }: { store: Sh
       {dialog?.kind === "action" && <ActionDialog store={store} />}
       {dialog?.kind === "gridGuides" && <GridGuidesDialog store={store} />}
       {dialog?.kind === "setUpShow" && <SetUpShowDialog store={store} />}
+      {dialog?.kind === "customShows" && <CustomShowsDialog store={store} />}
       <input
         ref={input}
         type="file"

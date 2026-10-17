@@ -4,7 +4,9 @@
 // pointer – also into another section – in one undo step; Delete,
 // Ctrl+D (duplicate), Ctrl+A, Hide Slide and the thumbnail menu act on the
 // selection; double-click or Enter opens the slide in the Normal view. The
-// zoom slider sets the thumbnail size.
+// zoom slider sets the thumbnail size. Ctrl+↑ / ↓ move the selection one
+// place (P9-S3); section headers collapse on click and have the sections'
+// context menu (the collapsed state is shared with the thumbnail pane).
 
 import { useRef, useState } from "react";
 import { ContextMenu, type ContextMenuItem } from "@rusuite/ui-shared";
@@ -14,7 +16,7 @@ import { slidePx } from "../geometry";
 import { useShow, type ShowStore } from "../state/store";
 import { stableDeck } from "../design/deck";
 import { sectionRanges } from "../design/sections";
-import { thumbnailMenu } from "../canvas/menus";
+import { sectionMenu, thumbnailMenu } from "../canvas/menus";
 import { DeckThumb } from "../ui/Thumbs";
 import { hasEffects } from "../anim/effects";
 import { sorterThumbWidth, type SorterDrop } from "./sorter";
@@ -28,7 +30,8 @@ export function SlideSorter({ store }: { store: ShowStore }) {
   const sel = useShow(store, (s) => s.slideSel);
   const current = useShow(store, (s) => s.current);
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
-  const [zoom, setZoom] = useState(90);
+  const zoom = useShow(store, (s) => s.sorterZoom);
+  const collapsedList = useShow(store, (s) => s.collapsedSections);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: ContextMenuItem[] } | null>(null);
   const [drop, setDrop] = useState<(SorterDrop & { key: string }) | null>(null);
   const drag = useRef<{ id: NodeId; x: number; y: number; active: boolean } | null>(null);
@@ -74,7 +77,8 @@ export function SlideSorter({ store }: { store: ShowStore }) {
     const ids = store.selectedSlides();
     const index = slides.findIndex((s) => s.id === current);
     const k = e.key.toLowerCase();
-    if (e.key === "Delete" || e.key === "Backspace") {
+    if (mod && !e.shiftKey && !e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) void store.nudgeSlides(e.key === "ArrowUp" ? -1 : 1);
+    else if (e.key === "Delete" || e.key === "Backspace") {
       if (ids.length && ids.length < slides.length) void store.deleteSlides(ids);
     } else if (mod && k === "d") void store.duplicateSlides(ids);
     else if (mod && k === "a") {
@@ -187,19 +191,32 @@ export function SlideSorter({ store }: { store: ShowStore }) {
       >
         {ranges.length === 0
           ? grid(slides, 0)
-          : ranges.map((r) => (
-              <section key={`${r.index}:${r.name}`} aria-label={r.name} className="mb-4">
-                <div
-                  data-section-index={r.index}
-                  data-testid="sorter-section"
-                  className={`mb-2 flex h-8 items-center gap-2 rounded px-1 text-sm font-medium ${drop?.key === `s${r.index}` ? "ring-2 ring-orange-600" : ""}`}
-                >
-                  {r.name}
-                  <span className="text-xs text-ui-muted">{t("show.sorter.count", { count: r.count })}</span>
-                </div>
-                {grid(slides.slice(r.start, r.start + r.count), r.start)}
-              </section>
-            ))}
+          : ranges.map((r) => {
+              const closed = collapsedList.includes(r.index);
+              return (
+                <section key={`${r.index}:${r.name}`} aria-label={r.name} className="mb-4">
+                  <div
+                    role="button"
+                    tabIndex={-1}
+                    aria-expanded={!closed}
+                    data-section-index={r.index}
+                    data-testid="sorter-section"
+                    className={`mb-2 flex h-8 cursor-pointer items-center gap-2 rounded px-1 text-sm font-medium hover:bg-ui-panel ${drop?.key === `s${r.index}` ? "ring-2 ring-orange-600" : ""}`}
+                    onClick={() => store.toggleSection(r.index)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setMenu({ at: { x: e.clientX, y: e.clientY }, items: sectionMenu(store, r.index) });
+                    }}
+                  >
+                    <span aria-hidden="true" className="w-3 text-ui-muted">{closed ? "▸" : "▾"}</span>
+                    {r.name}
+                    <span className="text-xs text-ui-muted">{t("show.sorter.count", { count: r.count })}</span>
+                  </div>
+                  {!closed && grid(slides.slice(r.start, r.start + r.count), r.start)}
+                </section>
+              );
+            })}
       </div>
       <div className="flex items-center justify-end gap-2 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted">
         <span>{t("show.sorter.selected", { count: sel.length })}</span>
@@ -214,7 +231,7 @@ export function SlideSorter({ store }: { store: ShowStore }) {
             aria-label={t("show.sorter.zoom")}
             data-testid="sorter-zoom"
             className="h-8 w-32"
-            onChange={(e) => setZoom(Number(e.currentTarget.value))}
+            onChange={(e) => store.setSorterZoom(Number(e.currentTarget.value))}
           />
           <span className="w-10 tabular-nums">{zoom} %</span>
         </label>

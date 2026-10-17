@@ -1,7 +1,7 @@
 // Show's print layouts (pure): full-page slides, notes pages (slide +
 // speaker notes) and handouts with 2, 3, 4 or 6 numbered slides per page.
 
-import { escapeHtml, paperSize, withLabel, type PageOrientation, type PaperName, type PrintChoice, type PrintDoc } from "@rusuite/ui-shared";
+import { escapeHtml, paperSize, parsePageRange, withLabel, type PageOrientation, type PaperName, type PrintChoice, type PrintDoc } from "@rusuite/ui-shared";
 import { t } from "../i18n";
 import { formatDate } from "../design/fields";
 import type { Slide } from "../generated/Slide";
@@ -10,8 +10,10 @@ import type { SlideSize } from "../generated/SlideSize";
 export type ShowPrintLayout = "full" | "notes" | "handout2" | "handout3" | "handout4" | "handout6";
 
 export interface ShowPrintOptions {
-  /** `""` = all pages. */
+  /** Slides by their number, e.g. `1-3, 5, 8-` (`""` = all slides). */
   range: string;
+  /** Only the slides of this section (index; absent = every section). */
+  section?: number;
   layout: ShowPrintLayout;
   /** `slide` = pages as big as the slide (full-page slides; A4 for the other layouts). */
   paper: PaperName | "slide";
@@ -85,6 +87,25 @@ export function slidesPerPage(layout: ShowPrintLayout): number {
 /** Slides that print: hidden ones only when asked; with their 1-based number in the deck. */
 export function printedSlides(slides: readonly Slide[], hidden: boolean): { slide: Slide; number: number }[] {
   return slides.map((slide, i) => ({ slide, number: i + 1 })).filter((s) => hidden || !s.slide.hidden);
+}
+
+/**
+ * The slides File › Print prints (P9-S3, PowerPoint's Slides box): by
+ * their number in the deck (`1-3, 5, 8-`; hidden slides count), only the
+ * slides of section `section` when given, hidden ones only when asked.
+ * An invalid range is an error message.
+ */
+export function selectPrintSlides(
+  pres: { slides: readonly Slide[]; sections?: readonly { slideIds: readonly number[] }[] },
+  o: Pick<ShowPrintOptions, "range" | "section" | "hidden">,
+): { slides: { slide: Slide; number: number }[] } | { error: string } {
+  const all = printedSlides(pres.slides, true);
+  const r = parsePageRange(o.range, all.length);
+  if ("error" in r) return r;
+  const numbers = new Set(r.pages);
+  const inSection = o.section === undefined ? null : new Set(pres.sections?.[o.section]?.slideIds ?? []);
+  const slides = all.filter((s) => numbers.has(s.number) && (o.hidden || !s.slide.hidden) && (!inSection || inSection.has(s.slide.id)));
+  return slides.length ? { slides } : { error: t("show.print.noneInRange") };
 }
 
 /** The sheet size in inches. */

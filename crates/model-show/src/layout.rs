@@ -408,6 +408,11 @@ pub struct Layout {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Shape>>"))]
     pub shapes: Vec<Shape>,
+    /// Drawing guides of the layout (`p15:sldGuideLst`; P9-S3), also shown
+    /// on its slides.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<crate::view::Guide>>"))]
+    pub guides: Vec<crate::view::Guide>,
 }
 
 /// PowerPoint's Office layout boxes for 16:9 slides that differ from the
@@ -453,6 +458,7 @@ impl Layout {
             background: None,
             show_master_shapes: true,
             shapes: Vec::new(),
+            guides: Vec::new(),
         }
     }
 

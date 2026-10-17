@@ -34,11 +34,15 @@ import type { ZOp } from "../generated/ZOp";
 import type { BodyProps } from "../generated/BodyProps";
 import type { GuideOrient } from "../generated/GuideOrient";
 import type { ShowSettings } from "../generated/ShowSettings";
+import type { CustomShow } from "../generated/CustomShow";
+import type { EffectStyle } from "../generated/EffectStyle";
+import type { ViewState } from "../generated/ViewState";
 import type { ViewProps } from "../generated/ViewProps";
-import { dragGuide, newGuide, nudgeDelta } from "../canvas/guides";
+import { dragGuide, guideSets, newGuide, nudgeDelta } from "../canvas/guides";
+import type { Guide } from "../generated/Guide";
 import { boundsPx, EMU_PER_PX, type Rect as BoxRect } from "../geometry";
-import { moveSlidesCommand, sorterSelect, type SorterDrop } from "../views/sorter";
-import { bodyWithLines, outlinePlan, outlineSlide } from "../views/outline";
+import { moveSlidesCommand, nudgeDrop, sorterSelect, type SorterDrop } from "../views/sorter";
+import { bodyFromLines, linesPlan, outlineSlide, slideLines, textLines, titleFromLine, type OutlineLine } from "../views/outline";
 import { allCommand, hideCommand, moveToZ, renameCommand } from "../ui/selection";
 import { autofitProps, fitHeight, fitSize, withScale } from "../text/autofit";
 import { cleanBody, editorText, spliceBody, textDiff } from "../text/editing";
@@ -192,6 +196,16 @@ export interface ShowState {
   view: PresentationView;
   /** Slides selected in the Slide Sorter / the slide panel (the current one included). */
   slideSel: NodeId[];
+  /** Collapsed section headers (by index; thumbnail pane and Slide Sorter). */
+  collapsedSections: number[];
+  /** Slide Sorter zoom in % (thumbnail size). */
+  sorterZoom: number;
+  /** Normal view zoom (`fit` or a factor, 1 = 100 %). */
+  zoom: number | "fit";
+  /** Width of the thumbnail pane (px). */
+  sidebarWidth: number;
+  /** A slide show to start (the App starts it and clears this): a custom show. */
+  showRequest: { customShow: number } | null;
   /** Home › Select › Selection Pane (right of the stage). */
   selectionPane: boolean;
   /** The Format Shape pane (right of the stage) on Size & Properties or Text Options. */
@@ -233,7 +247,8 @@ export type ShowDialog =
   | { kind: "link" }
   | { kind: "action" }
   | { kind: "gridGuides" }
-  | { kind: "setUpShow" };
+  | { kind: "setUpShow" }
+  | { kind: "customShows" };
 
 /** The internal clipboard: shapes (with the slide they came from) or slide ids. */
 type Clip = { kind: "shapes"; shapes: Shape[]; slide: NodeId | null; pastes: number } | { kind: "slides"; ids: NodeId[] };
@@ -258,6 +273,7 @@ export function applyPatch(pres: Presentation, patch: ShowPatch): Presentation {
   if (patch.sections) out.sections = patch.sections;
   if (patch.view) out.view = patch.view;
   if (patch.showSettings) out.showSettings = patch.showSettings;
+  if (patch.customShows) out.customShows = patch.customShows;
   return out;
 }
 
@@ -306,6 +322,11 @@ export class ShowStore {
     reuse: null,
     view: "normal",
     slideSel: [],
+    collapsedSections: [],
+    sorterZoom: 90,
+    zoom: "fit",
+    sidebarWidth: SIDEBAR_DEFAULT,
+    showRequest: null,
     selectionPane: false,
     formatPane: null,
     alignTo: "selection",
@@ -407,6 +428,9 @@ export class ShowStore {
       ribbonTab: this.state.ribbonTab === "slideMaster" ? "home" : this.state.ribbonTab,
       view: viewOfLast(pres.view?.lastView),
       slideSel: pres.slides[0] ? [pres.slides[0].id] : [],
+      // the zoom, sorter zoom and panes the file was saved with
+      ...windowStateOf(pres.view, typeof window === "undefined" ? 0 : window.innerWidth),
+      collapsedSections: [],
       ...extra,
     });
   }
@@ -800,11 +824,24 @@ export class ShowStore {
 
   /** Changes the current slide's transition (Transitions tab). */
   async setTransition(change: TransitionChange): Promise<void> {
-    const slide = this.currentSlide();
-    if (!slide) return;
-    const transition = changeTransition(slide.transition, change);
-    if (JSON.stringify(transition ?? null) === JSON.stringify(slide.transition ?? null)) return;
-    await this.run({ type: "setTransition", slides: [slide.id], transition });
+    const commands: ShowCommand[] = [];
+    for (const slide of this.transitionSlides()) {
+      const transition = changeTransition(slide.transition, change);
+      if (JSON.stringify(transition ?? null) === JSON.stringify(slide.transition ?? null)) continue;
+      const same = commands.find((c) => c.type === "setTransition" && JSON.stringify(c.transition ?? null) === JSON.stringify(transition ?? null));
+      if (same?.type === "setTransition") same.slides.push(slide.id);
+      else commands.push({ type: "setTransition", slides: [slide.id], transition });
+    }
+    await this.run(compound(commands));
+  }
+
+  /** The slides the Transitions tab changes: every selected slide (Slide Sorter, thumbnails), else the current one. */
+  transitionSlides(): Slide[] {
+    const slides = this.state.pres?.slides ?? [];
+    const cur = this.state.current;
+    const sel = this.state.slideSel;
+    const ids = cur !== null && sel.length > 1 && sel.includes(cur) ? new Set(sel) : new Set(cur === null ? [] : [cur]);
+    return slides.filter((s) => ids.has(s.id));
   }
 
   /** Transitions › Apply To All: every slide gets the current slide's transition. */
@@ -1730,17 +1767,30 @@ export class ShowStore {
     await this.run(cmd);
   }
 
-  /** Format Background › Apply to All: every slide gets the current slide's fill and background graphics setting. */
+  /**
+   * Format Background › Apply to All (PowerPoint): the current slide's
+   * background goes to the master – so new slides get it too – the
+   * layouts and slides drop their own, and every slide takes the slide's
+   * Hide background graphics (one undo step).
+   */
   async applyBackgroundToAll(): Promise<void> {
     const pres = this.state.pres;
     const slide = this.currentSlide();
     if (!pres || !slide || this.state.masterView) return;
-    await this.run({
-      type: "setBackground",
-      target: { kind: "slides", value: pres.slides.map((s) => s.id) },
-      fill: slide.background ?? null,
-      hideMasterShapes: slide.showMasterShapes === false,
-    });
+    const layout = pres.layouts.find((l) => l.kind === slide.layout);
+    const bg = slide.background ?? layout?.background ?? pres.master?.background ?? null;
+    const commands: ShowCommand[] = [];
+    if (bg) commands.push({ type: "setBackground", target: { kind: "master" }, fill: bg });
+    for (const l of pres.layouts) if (l.background) commands.push({ type: "setBackground", target: { kind: "layout", value: l.kind }, fill: null });
+    commands.push({ type: "setBackground", target: { kind: "slides", value: pres.slides.map((s) => s.id) }, fill: null, hideMasterShapes: slide.showMasterShapes === false });
+    await this.run(compound(commands));
+  }
+
+  /** Design › Variants › Effects: the theme's effect styles. */
+  async setThemeEffects(name: string, effectStyles: EffectStyle[]): Promise<void> {
+    const cur = this.state.pres?.theme.format?.effectStyles ?? [];
+    if (JSON.stringify(cur) === JSON.stringify(effectStyles)) return;
+    await this.run({ type: "setThemeEffects", name, effectStyles });
   }
 
   /** Home › Reset: the current slide's placeholders back to the layout. */
@@ -2228,35 +2278,54 @@ export class ShowStore {
     await this.updateView({ showRuler: on });
   }
 
+  /** The guides Add / move / delete / colour change: the master's or layout's in the Slide Master view, else the slides'. */
+  editableGuides(): Guide[] {
+    const pres = this.state.pres;
+    return pres ? guideSets(pres, this.state.masterView, this.state.current).editable : [];
+  }
+
+  /** Writes the editable guides (`SetDesignGuides` in the master view, else `SetViewProps`); `show` turns the guides on too. */
+  private async setEditableGuides(guides: Guide[], show = false): Promise<void> {
+    const mv = this.state.masterView;
+    if (!mv) {
+      await this.updateView(show ? { guides, showGuides: true } : { guides });
+      return;
+    }
+    if (JSON.stringify(guides) === JSON.stringify(this.editableGuides()) && !show) return;
+    const commands: ShowCommand[] = [{ type: "setDesignGuides", target: mv, guides }];
+    if (show && !this.viewProps().showGuides) commands.push({ type: "setViewProps", view: { ...this.viewProps(), showGuides: true } });
+    await this.run(compound(commands));
+  }
+
   /** Adds a guide (through the slide centre unless `at` EMU is given) and shows the guides. */
   async addGuide(orient: GuideOrient, at?: number): Promise<void> {
     const size = this.state.pres?.slideSize;
     if (!size) return;
-    await this.updateView({ guides: [...this.viewProps().guides, newGuide(orient, size, at)], showGuides: true });
+    await this.setEditableGuides([...this.editableGuides(), newGuide(orient, size, at)], true);
   }
 
   /** The end of a guide drag: moved, Ctrl duplicates, off the slide deletes. */
   async dropGuide(index: number, pos: number, ctrl: boolean): Promise<void> {
     const size = this.state.pres?.slideSize;
     if (!size) return;
-    await this.updateView({ guides: dragGuide(this.viewProps().guides, index, pos, size, ctrl).guides });
+    await this.setEditableGuides(dragGuide(this.editableGuides(), index, pos, size, ctrl).guides);
   }
 
   async deleteGuide(index: number): Promise<void> {
-    await this.updateView({ guides: this.viewProps().guides.filter((_, i) => i !== index) });
+    await this.setEditableGuides(this.editableGuides().filter((_, i) => i !== index));
   }
 
-  /** A guide's colour (`null` = the default grey). */
+  /** A guide's colour (`null` = the default grey; orange on masters and layouts). */
   async setGuideColor(index: number, color: string | null): Promise<void> {
-    await this.updateView({
-      guides: this.viewProps().guides.map((g, i) => {
+    await this.setEditableGuides(
+      this.editableGuides().map((g, i) => {
         if (i !== index) return g;
         const next = { ...g };
         if (color) next.color = color.replace(/^#/, "").toUpperCase();
         else delete next.color;
         return next;
       }),
-    });
+    );
   }
 
   /** Slide Show › Set Up Slide Show. */
@@ -2264,6 +2333,23 @@ export class ShowStore {
     const old = this.state.pres?.showSettings ?? DEFAULT_SHOW_SETTINGS;
     if (JSON.stringify(old) === JSON.stringify(settings)) return;
     await this.run({ type: "setShowSettings", settings });
+  }
+
+  /** Custom Shows… (New, Edit, Remove, Copy): the whole list in one undo step. */
+  async setCustomShows(shows: CustomShow[]): Promise<void> {
+    const old = this.state.pres?.customShows ?? [];
+    if (JSON.stringify(old) === JSON.stringify(shows)) return;
+    await this.run({ type: "setCustomShows", shows });
+  }
+
+  /** Starts a custom show (Custom Slide Show ▾, the Custom Shows dialog's Show). */
+  requestShow(request: { customShow: number }): void {
+    if (this.state.editing) void this.commitEdit();
+    this.set({ showRequest: request });
+  }
+
+  clearShowRequest(): void {
+    if (this.state.showRequest) this.set({ showRequest: null });
   }
 
   /** Rehearse Timings accepted: each rehearsed slide advances after its recorded time (one undo step). */
@@ -2283,14 +2369,29 @@ export class ShowStore {
 
   // ----- Outline View
 
-  /** Writes a slide's edited outline back: its placeholders, new slides for promoted lines, a demoted title joins the previous slide. */
-  async commitOutline(id: NodeId, text: string): Promise<void> {
+  /** Writes a slide's edited tab-indented outline text back (see `commitOutlineLines`). */
+  async commitOutline(id: NodeId, text: string): Promise<NodeId[]> {
+    const slide = this.state.pres?.slides.find((s) => s.id === id);
+    return slide ? this.commitOutlineLines(id, textLines(text, slideLines(slide))) : [];
+  }
+
+  /**
+   * Writes a slide's edited rich outline lines back: its placeholders, new
+   * slides for promoted lines, a demoted title joins the previous slide.
+   * Returns the slides the lines' titles ended up on, in order (the
+   * previous slide first when the title was demoted).
+   */
+  async commitOutlineLines(id: NodeId, lines: readonly OutlineLine[]): Promise<NodeId[]> {
     const pres = this.state.pres;
-    if (!pres) return;
-    const plan = outlinePlan(pres, id, text);
+    if (!pres) return [];
+    const index = pres.slides.findIndex((s) => s.id === id);
+    const plan = linesPlan(pres, id, lines);
     const commands = [...plan.commands];
     if (plan.deleteSlide !== null) commands.push({ type: "deleteSlides", ids: [plan.deleteSlide] });
     await this.run(compound(commands));
+    const out: NodeId[] = [];
+    if (lines[0] && lines[0].depth > 0 && index > 0) out.push(pres.slides[index - 1]!.id);
+    if (plan.deleteSlide === null) out.push(id);
     let after = plan.newSlides?.after ?? null;
     for (const ns of plan.newSlides?.slides ?? []) {
       if (after === null) break;
@@ -2301,12 +2402,15 @@ export class ShowStore {
       if (slide) {
         const o = outlineSlide(slide);
         const cmds: ShowCommand[] = [];
-        if (o.titleShape !== null) cmds.push({ type: "setTextBody", shape: o.titleShape, body: bodyWithLines(textOf(slide.shapes.find((x) => x.id === o.titleShape)!), [{ level: 0, text: ns.title }]) });
-        if (o.bodyShape !== null && ns.body.length) cmds.push({ type: "setTextBody", shape: o.bodyShape, body: bodyWithLines(textOf(slide.shapes.find((x) => x.id === o.bodyShape)!), ns.body) });
+        const shapeText = (sid: NodeId) => textOf(slide.shapes.find((x) => x.id === sid)!);
+        if (o.titleShape !== null && ns.title.runs.length) cmds.push({ type: "setTextBody", shape: o.titleShape, body: titleFromLine(shapeText(o.titleShape), ns.title) });
+        if (o.bodyShape !== null && ns.body.length) cmds.push({ type: "setTextBody", shape: o.bodyShape, body: bodyFromLines(shapeText(o.bodyShape), ns.body) });
         await this.run(compound(cmds));
       }
+      out.push(added);
       after = added;
     }
+    return out;
   }
 
   // ----- Slide Sorter
@@ -2334,6 +2438,45 @@ export class ShowStore {
     const pres = this.state.pres;
     if (!pres) return;
     await this.run(moveSlidesCommand(pres, ids, drop));
+  }
+
+  /** Ctrl+↑ / Ctrl+↓: the selected slides (else the current one) one place up / down, across section borders (one undo step). */
+  async nudgeSlides(dir: -1 | 1): Promise<void> {
+    const pres = this.state.pres;
+    if (!pres) return;
+    const sel = this.selectedSlides();
+    const ids = sel.length ? sel : this.state.current === null ? [] : [this.state.current];
+    const drop = nudgeDrop(pres, ids, dir);
+    if (drop) await this.run(moveSlidesCommand(pres, ids, drop));
+  }
+
+  /** Collapses (or expands) section `index`; `open` forces the state. */
+  toggleSection(index: number, open?: boolean): void {
+    const set = new Set(this.state.collapsedSections);
+    const closed = open === undefined ? !set.has(index) : !open;
+    if (closed) set.add(index);
+    else set.delete(index);
+    this.set({ collapsedSections: [...set].sort((a, b) => a - b) });
+  }
+
+  /** Collapse All / Expand All of the section menu. */
+  setAllSections(collapsed: boolean): void {
+    const n = this.state.pres?.sections?.length ?? 0;
+    this.set({ collapsedSections: collapsed ? Array.from({ length: n }, (_, i) => i) : [] });
+  }
+
+  /** View › Zoom (`fit` = Fit to window). */
+  setZoom(zoom: number | "fit"): void {
+    this.set({ zoom: zoom === "fit" ? "fit" : Math.max(0.1, Math.min(4, zoom)) });
+  }
+
+  /** Dragging the thumbnail pane's edge. */
+  setSidebarWidth(px: number): void {
+    this.set({ sidebarWidth: Math.round(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, px))) });
+  }
+
+  setSorterZoom(zoom: number): void {
+    this.set({ sorterZoom: Math.max(20, Math.min(200, Math.round(zoom))) });
   }
 
   /** Duplicates the sorter's selected slides (each after itself). */
@@ -2523,7 +2666,8 @@ export class ShowStore {
     try {
       if (this.state.editing) await this.commitEdit();
       const view = lastViewOf(this.state.view);
-      const saved = await this.enqueue(() => this.api.savePptx(view));
+      const state = viewStateOf(this.state, typeof window === "undefined" ? 0 : window.innerWidth);
+      const saved = await this.enqueue(() => this.api.savePptx(view, state));
       const result = await this.api.backend.saveFile(asName ?? saved.suggestedName, saved.bytesBase64, { saveAs: asName !== undefined });
       if (!result) return;
       const name = typeof result === "object" ? result.name : asName;
@@ -2546,10 +2690,45 @@ function boundsOf(shapes: Shape[]): BoxRect {
 /** View settings of a presentation without any (`ViewProps::default`). */
 export const DEFAULT_VIEW: ViewProps = {
   guides: [], gridSpacing: 76200, snapToGrid: false, snapToShapes: true, showGrid: false, showGuides: false, showRuler: false, lastView: "normal",
+  sorterZoom: 90, restoredLeft: 15620, restoredTop: 100000,
 };
 
+/** `restoredTop` with the notes pane open (PowerPoint's). */
+const NOTES_OPEN_TOP = 94660;
+
+/** The thumbnail pane's default width (px); saved as PowerPoint's default `restoredLeft`. */
+export const SIDEBAR_DEFAULT = 192;
+export const SIDEBAR_MIN = 120;
+export const SIDEBAR_MAX = 480;
+
+/**
+ * The window state saved with the file (`viewProps.xml`, P9-S3): zoom
+ * (`null` = fit), sorter zoom, thumbnail pane width and whether the
+ * notes pane shows, as PowerPoint's `restoredLeft` / `restoredTop`
+ * (thousandths of a percent of the window). The default pane width maps
+ * to PowerPoint's default 15620.
+ */
+export function viewStateOf(s: Pick<ShowState, "zoom" | "sorterZoom" | "sidebarWidth" | "notesVisible">, windowWidth: number): ViewState {
+  const left = s.sidebarWidth === SIDEBAR_DEFAULT || windowWidth <= 0 ? DEFAULT_VIEW.restoredLeft : Math.round((s.sidebarWidth / windowWidth) * 100000);
+  const out: ViewState = { sorterZoom: s.sorterZoom, restoredLeft: Math.max(0, Math.min(100000, left)), restoredTop: s.notesVisible ? NOTES_OPEN_TOP : 100000 };
+  if (s.zoom !== "fit") out.zoom = Math.round(s.zoom * 100);
+  return out;
+}
+
+/** The window state of a file's view settings (see `viewStateOf`). */
+export function windowStateOf(v: ViewProps | undefined, windowWidth: number): Pick<ShowState, "zoom" | "sorterZoom" | "sidebarWidth" | "notesVisible"> {
+  const left = v?.restoredLeft ?? DEFAULT_VIEW.restoredLeft;
+  const width = left === DEFAULT_VIEW.restoredLeft || windowWidth <= 0 ? SIDEBAR_DEFAULT : Math.round((left / 100000) * windowWidth);
+  return {
+    zoom: v?.zoom ? v.zoom / 100 : "fit",
+    sorterZoom: v?.sorterZoom ?? DEFAULT_VIEW.sorterZoom,
+    sidebarWidth: Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, width)),
+    notesVisible: (v?.restoredTop ?? DEFAULT_VIEW.restoredTop) < 99000,
+  };
+}
+
 /** `ShowSettings::default`. */
-export const DEFAULT_SHOW_SETTINGS: ShowSettings = { loop: false, withoutNarration: false, withoutAnimation: false, useTimings: true };
+export const DEFAULT_SHOW_SETTINGS: ShowSettings = { loop: false, withoutNarration: false, withoutAnimation: false, useTimings: true, showScrollbar: true };
 
 const DEFAULT_BODY: BodyProps = { anchor: "top", wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" };
 

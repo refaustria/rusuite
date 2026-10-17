@@ -202,6 +202,26 @@ While editing a shape's text in place (P9-S1):
 | Mod+Z, Mod+Y | Undo, redo the typing of the session |
 | Escape, Mod+Enter | End editing |
 
+In the Outline View (P9-S3):
+
+| Keys | Action |
+| --- | --- |
+| Tab, Shift+Tab | Demote, promote the selected lines (a demoted title joins the previous slide, a promoted line starts a slide) |
+| Alt+Shift+→, Alt+Shift+← | Demote, promote (as Tab, Shift+Tab) |
+| Alt+Shift+↑, Alt+Shift+↓ | Move the selected lines up, down |
+| Alt+Shift+−, Alt+Shift++ | Collapse, expand the slide (only its title shows) |
+| Alt+Shift+1, Alt+Shift+9 | Collapse all, expand all |
+| Enter | New line at the same level (after a title: a new slide) |
+| Mod+B, Mod+I, Mod+U | Bold, italic, underline of the selection |
+| Mod+Z | Undo the typing not yet written back (else the last command) |
+
+In the thumbnail pane and the Slide Sorter (P9-S3):
+
+| Keys | Action |
+| --- | --- |
+| Mod+↑, Mod+↓ | Move the selected slides one place up, down (across section borders) |
+| ←, → (on the pane's edge) | Narrow, widen the thumbnail pane |
+
 ### During the slide show
 
 The same keys work in the full-window show (F5), in the presenter view and in its slide show window.

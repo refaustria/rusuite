@@ -16,10 +16,10 @@ use core_model::{ColorScheme, FontScheme, RunProperties};
 use model_show::{
     Action, Adjust, AlignMode, Alignment, Anchor, Animation, AnimationKind, ArrowEnd, Axis,
     Background, BodyProps, Bullet, ChartData, ChartShape, Connector, ConnectorKind, Crop,
-    Direction, Effect, Fill, HfDate, Hyperlink, Insets, Layout, LayoutKind, Line, MediaClip,
-    MediaStart, NodeId, PictureProps, PlaceholderKind, Preset, Recolor, Section, Shadow, Shape,
-    ShapeKind, ShowSettings, Slide, SlideMaster, SlideSize, Table, TableLook, TextBody, TextClass,
-    TextSpacing, Theme, Transform, Transition, Trigger, ViewProps,
+    CustomShow, Direction, Effect, EffectStyle, Fill, Guide, HfDate, Hyperlink, Insets, Layout,
+    LayoutKind, Line, MediaClip, MediaStart, NodeId, PictureProps, PlaceholderKind, Preset,
+    Recolor, Section, Shadow, Shape, ShapeKind, ShowSettings, Slide, SlideMaster, SlideSize, Table,
+    TableLook, TextBody, TextClass, TextSpacing, Theme, Transform, Transition, Trigger, ViewProps,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
@@ -909,6 +909,13 @@ pub enum ShowCommand {
         #[ts(as = "model_show::ts::FontScheme")]
         fonts: FontScheme,
     },
+    /// Design › Variants › Effects: replaces the theme's effect styles
+    /// (`a:effectStyleLst`: subtle, moderate, intense; at least one) and
+    /// names the format scheme after the effect scheme.
+    SetThemeEffects {
+        name: String,
+        effect_styles: Vec<EffectStyle>,
+    },
     /// Adds a custom layout `name` (title plus date/footer/slide number,
     /// as PowerPoint's Insert Layout) after the last layout.
     AddLayout { name: String },
@@ -1165,8 +1172,18 @@ pub enum ShowCommand {
     /// Sets the view settings: guides, grid, snapping, ruler, last view
     /// (stored in `viewProps.xml`; undoable like PowerPoint's guide moves).
     SetViewProps { view: ViewProps },
+    /// The drawing guides of the master or a layout (Slide Master view;
+    /// `p15:sldGuideLst`).
+    SetDesignGuides {
+        target: DesignTarget,
+        guides: Vec<Guide>,
+    },
     /// Sets the Set Up Slide Show options (`presProps.xml`).
     SetShowSettings { settings: ShowSettings },
+    /// Slide Show › Custom Slide Show › Custom Shows…: replaces the custom
+    /// shows (ids and names unique, slides must exist). Removing the show
+    /// Set Up Slide Show runs resets it to all slides.
+    SetCustomShows { shows: Vec<CustomShow> },
     /// Hides shapes on their slide or shows them again (Selection pane).
     SetShapesHidden { shapes: Vec<NodeId>, hidden: bool },
     /// Replaces the text body properties (Format Shape › Text Box:
