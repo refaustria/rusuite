@@ -36,6 +36,9 @@ export function masterMenu(store: ShowStore): ContextMenuItem[] {
     { separator: true },
     { id: "formatBackground", label: t("show.bg.formatDots"), onSelect: () => store.toggleBgPane(true) },
     { separator: true },
+    // the master's / layout's own guides (P9-S3)
+    ...gridGuideItems(store),
+    { separator: true },
     { id: "closeMaster", label: t("show.master.close"), onSelect: () => store.closeMasterView() },
   ];
 }

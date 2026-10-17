@@ -596,3 +596,37 @@ fn lock_aspect_ratio_is_saved_as_no_change_aspect() {
     assert!(zip_text(&bytes, "ppt/slides/slide2.xml").contains(r#"noChangeAspect="1""#));
     assert!(reopened(&h).slides[1].shapes[0].lock_aspect);
 }
+
+#[test]
+fn the_reference_deck_reads_custom_show_guides_and_backgrounds() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../testdata/pptx/provisional-34-views-design.pptx"
+    );
+    let bytes = std::fs::read(path).unwrap();
+    let (doc, warnings) = ShowDocument::open_pptx(&bytes, "deck.pptx").unwrap();
+    let p = doc.into_presentation();
+    assert_eq!(p.slides.len(), 4);
+    assert_eq!(p.custom_shows.len(), 1, "{warnings:?}");
+    let ids: Vec<NodeId> = p.slides.iter().map(|s| s.id).collect();
+    assert_eq!(p.custom_shows[0].name, "Short");
+    assert_eq!(p.custom_shows[0].slide_ids, vec![ids[3], ids[0]]);
+    assert_eq!(p.show_settings.custom_show, Some(0));
+    assert_eq!(p.show_settings.pen_color.as_deref(), Some("0070C0"));
+    assert!(p.show_settings.loop_show);
+    assert_eq!(p.master.guides.len(), 2);
+    assert!(p.layouts.iter().any(|l| l.guides.len() == 2));
+    assert!(
+        matches!(p.slides[1].background, Some(Background::Gradient(ref g)) if g.stops.len() == 2 && (g.angle_deg - 90.0).abs() < 1e-9)
+    );
+    assert!(
+        matches!(p.slides[2].background, Some(Background::Pattern(ref pf)) if pf.preset == "smCheck")
+    );
+    // and back: our file keeps them
+    let h: ShowHost = Host::new(ShowDocument::from_presentation(p.clone()).unwrap());
+    let back = reopened(&h);
+    assert_eq!(back.custom_shows.len(), 1);
+    assert_eq!(back.master.guides, p.master.guides);
+    assert_eq!(back.slides[1].background, p.slides[1].background);
+    assert_eq!(back.slides[2].background, p.slides[2].background);
+}

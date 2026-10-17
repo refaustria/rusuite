@@ -1214,6 +1214,53 @@ Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)
   PowerPoint's 1–4-turn elbow routes: through the middle of the gap between facing sites, detours around the end shape
   when it lies behind the start, and around overlapping boxes.
 
+## Show: views and design round 2 (P9-S3)
+
+- **Outline View** edits rich text: each slide is one editable block of lines (title, then the body paragraphs indented
+  by level) whose runs keep their bold, italic, underline, colour and font. Ctrl+B / I / U toggle the selection's
+  formatting; Tab / Shift+Tab (also Alt+Shift+→ / ←) demote / promote the selected lines – a demoted title joins the
+  previous slide's body and its slide goes, a promoted body line starts a new slide, Enter after a title starts a new
+  slide (structure changes apply at once, text when the slide's block is left); Alt+Shift+↑ / ↓ move lines. The ▭ icon
+  (or Alt+Shift+− / +) collapses / expands a slide to its title; Alt+Shift+1 / 9 collapse / expand all. The context
+  menu has Promote, Demote, Collapse, Expand, Collapse All, Expand All and **Show Text Formatting** (off: plain text
+  with bold titles; on: the runs' formatting at a reduced size).
+- **Slide Sorter**: the Transitions tab (gallery, Effect Options, duration, On Mouse Click / After) changes every
+  selected slide (Ctrl / Shift+click several; also with several thumbnails selected in the Normal view); section
+  headers collapse on click and have the section menu; Ctrl+↑ / Ctrl+↓ move the selection one place, into the
+  neighbouring section at a section border (also in the thumbnail pane); the zoom slider is saved with the file.
+- **Sections**: Home › Section ▾ (Add Section, Rename Section…, Remove Section, Remove All Sections, Collapse All,
+  Expand All) besides the header menus; collapsing is shared by the thumbnail pane and the sorter.
+- **Custom shows**: Slide Show › Custom Slide Show ▾ lists the custom shows (a click starts one) and **Custom Shows…**:
+  New / Edit (Define Custom Show: name, the deck's slides with check boxes, Add », the show's slides with ↑ / ✕ / ↓,
+  a slide may appear twice), Remove, Copy, Show. Saved as `p:custShowLst`. Insert › Link (Place in This Document) and
+  Insert › Action (Hyperlink to › Custom Show…) link to a custom show, with **Show and return** – the show goes back to
+  the slide of the link when the custom show ends.
+- **Set Up Slide Show**: Show type (presented by a speaker, browsed by an individual with Show scrollbar, browsed at a
+  kiosk – loops and uses timings), Show slides (All, From … To …, Custom show), Show options (loop, without narration,
+  without animation, **Pen color**, the slide show's ink default), Advance slides. F5 runs the chosen custom show.
+- **Format Background** pane: Solid fill; **Gradient fill** – 30 preset gradients (light, top spotlight, medium, bottom
+  spotlight, radial × the six accents), Type (linear, radial, rectangular, path), Angle, the stops on a bar (select,
+  Add / Remove stop, colour, position, transparency); **Picture or texture fill** – Insert…, Transparency, Tile picture
+  as texture with Offset X / Y and Scale X / Y, else Offset left / right / top / bottom; **Pattern fill** – PowerPoint's
+  48 patterns with foreground and background colour; Hide background graphics; **Apply to All** puts the background
+  on the slide master (new slides get it too) and removes the layouts' and slides' own; Reset Background. Gradients
+  and patterns are stored on the slide (`p:bg`) or, in the master view, on the master / layout.
+- **Design › Variants › Effects ▾**: effect schemes (the theme's subtle / moderate / intense effect styles,
+  `a:effectStyleLst`); shapes whose style refers to an effect style (`a:effectRef`, kept from files) draw its shadow.
+  **Background Styles ▾** keeps PowerPoint's 12 styles (3 background fill styles × 4 colours, `p:bgRef` on the master).
+- **Slide Size** with content: Maximize and Ensure Fit scale the master's and layouts' placeholders and shapes with the
+  same factor about the centre as the slides' shapes (Maximize: the larger ratio, content may overflow; Ensure Fit:
+  the smaller).
+- **Guides of masters and layouts**: in the Slide Master view the guides commands (Add Vertical / Horizontal Guide,
+  drag, Ctrl+drag copies, off the slide deletes, colour) act on the selected master or layout (orange, as in
+  PowerPoint; saved as `p15:sldGuideLst`); on slides they are drawn under the slide's own guides, not draggable, and
+  shapes snap to them.
+- **Window state saved with the file** (`viewProps.xml`): the last view, the Normal view zoom (Fit or a percentage),
+  the Slide Sorter zoom, the width of the thumbnail pane (drag its edge, or ← / → on it) and whether the notes pane
+  shows; Save stamps them without an undo step, opening restores them.
+- **Print** (Show): the range field is **Slides** by number (`1-3, 5, 8-`; hidden slides keep their numbers), and with
+  sections a **Section** choice prints one section; File › Export PDF… uses the same choice.
+
 ## Printing (P7-9)
 
 **File › Print** (Ctrl+P) is the Office print page: on the left the **Print** button, a note that copies, printer and

@@ -99,11 +99,11 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
     }
     for slide in &p.slides {
         add(format!("layout:{}", slide.layout.key()));
-        if matches!(
-            slide.background,
-            Some(model_show::Background::Fill(Fill::Solid(_)))
-        ) {
-            add("background:solid".into());
+        match &slide.background {
+            Some(model_show::Background::Fill(Fill::Solid(_))) => add("background:solid".into()),
+            Some(model_show::Background::Gradient(_)) => add("background:gradient".into()),
+            Some(model_show::Background::Pattern(_)) => add("background:pattern".into()),
+            _ => {}
         }
         if let Some(t) = &slide.transition {
             add(format!("transition:{}", camel(&format!("{:?}", t.kind))));
@@ -284,6 +284,18 @@ fn features_of(p: &Presentation) -> BTreeMap<String, usize> {
     if max_level > 0 {
         add(format!("bullets:levels={max_level}"));
     }
+    for _ in &p.custom_shows {
+        add("customShow".into());
+    }
+    if p.show_settings.custom_show.is_some() {
+        add("show:customShow".into());
+    }
+    if !p.master.guides.is_empty() {
+        add("guides:master".into());
+    }
+    if p.layouts.iter().any(|l| !l.guides.is_empty()) {
+        add("guides:layout".into());
+    }
     for _ in &p.sections {
         add("section".into());
     }
@@ -337,7 +349,7 @@ fn has_feature(found: &BTreeMap<String, usize>, feature: &str) -> bool {
         let count = found.get(key).copied().unwrap_or(0);
         return match key {
             // exact counts
-            "shape:textBox" | "picture" | "group" | "section" => count == n,
+            "shape:textBox" | "picture" | "group" | "section" | "customShow" => count == n,
             // at least (rect also matches text boxes and placeholders)
             _ => count >= n,
         };
@@ -349,7 +361,7 @@ fn has_feature(found: &BTreeMap<String, usize>, feature: &str) -> bool {
 fn manifest_features_are_found() {
     let mut failures = Vec::new();
     let entries = manifest();
-    assert_eq!(entries.len(), 33);
+    assert_eq!(entries.len(), 34);
     for e in entries {
         let p = fmt_pptx::read(&load(&e.file)).unwrap();
         let found = features_of(&p);
