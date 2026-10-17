@@ -187,6 +187,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - P9-X1 (3.141): e2e for Write's adjust handles on a rotated shape (drag + keyboard); Show's `handlesOf` should keep the last-known handles while a new outline loads (Write does); adjust handles for Write group members; Show's Konva Transformer could use the shared resize/rotation helpers.
 
 ## Ribbon
+- Reported by the L7 translator (2026-10-18): in Calc's Home tab at 1024 px the Clipboard group label is drawn over the Cut/Copy buttons in every language (a ribbon layout issue, not a translation) – check the group's collapse threshold; also a cheap CI rule for swapped catalog values (punctuation/ellipsis/length-ratio parity per key against English).
 - Groups that collapse into dropdowns on narrow windows; Quick Access Toolbar; remember collapsed state and zoom; Calc Data tab (sort/filter) if it enters scope; print preview in the backstage; Write font box shows the effective (style-derived) font.
 
 ## Desktop shells
