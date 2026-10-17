@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::anim::Animation;
 use crate::layout::{Layout, LayoutKind, PlaceholderDef, PlaceholderKind};
-use crate::master::{HeaderFooter, HfDate, SlideMaster, TextClass};
+use crate::master::{HeaderFooter, HfDate, LevelStyle, SlideMaster, TextClass};
 use crate::section::Section;
 use crate::shape::{Shape, ShapeKind};
 use crate::slide::{find_in, Slide};
@@ -251,7 +251,8 @@ impl Presentation {
     /// The effective paragraph and run formatting of outline level
     /// `level` (0-based) in placeholder `shape` of `slide`: level 1 is
     /// the placeholder's defaults, deeper levels the master's text style
-    /// of the placeholder's class. Shapes that are not placeholders use
+    /// of the placeholder's class overlaid with the layout placeholder's
+    /// own changes of that level. Shapes that are not placeholders use
     /// the master's "other" style.
     pub fn resolve_level(
         &self,
@@ -259,16 +260,31 @@ impl Presentation {
         shape: &Shape,
         level: u8,
     ) -> (TextParagraphProps, RunProperties) {
+        let l = self.resolve_level_style(slide, shape, level);
+        (l.paragraph, l.run)
+    }
+
+    /// [`resolve_level`](Self::resolve_level) with the level's margins
+    /// (`marL`/`indent`; level 1: the master text style's).
+    pub fn resolve_level_style(&self, slide: &Slide, shape: &Shape, level: u8) -> LevelStyle {
         let class = shape
             .placeholder
             .map_or(TextClass::Other, |k| k.text_class());
+        let style = self.master.text_styles.level(class, level);
+        let Some(r) = self.resolve_placeholder(slide, shape) else {
+            return style;
+        };
         if level == 0 {
-            if let Some(r) = self.resolve_placeholder(slide, shape) {
-                return (r.def.paragraph_defaults, r.def.run_defaults);
-            }
+            return LevelStyle {
+                paragraph: r.def.paragraph_defaults,
+                run: r.def.run_defaults,
+                ..style
+            };
         }
-        let l = self.master.text_styles.level(class, level);
-        (l.paragraph, l.run)
+        match r.def.level_override(level) {
+            Some(o) => style.merged_with(o),
+            None => style,
+        }
     }
 
     /// The effective background of slide `slide`: its own, else its

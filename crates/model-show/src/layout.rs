@@ -10,7 +10,7 @@ use std::fmt;
 use core_model::{Color, FontSize, RunProperties, ThemeColorSlot};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::master::{boxes, place, SlideMaster, TextClass};
+use crate::master::{boxes, place, LevelStyle, SlideMaster, TextClass};
 use crate::presentation::SlideSize;
 use crate::shape::{Shape, Transform};
 use crate::text::{
@@ -210,11 +210,15 @@ pub enum PlaceholderKind {
     CenteredTitle,
     /// Subtitle of a title slide (`subTitle`).
     Subtitle,
-    /// Content (`obj` / no type, also `tbl`, `chart`, `media`, …) or text
-    /// (`body`, see [`PlaceholderDef::text_only`]).
+    /// Content (`obj` / no type, also `dgm`, `media`, …) or text (`body`,
+    /// see [`PlaceholderDef::text_only`]).
     Body,
     /// Picture (`pic`).
     Picture,
+    /// Chart (`chart`; Slide Master › Insert Placeholder › Chart).
+    Chart,
+    /// Table (`tbl`; Slide Master › Insert Placeholder › Table).
+    Table,
     /// Date and time (`dt`).
     DateTime,
     /// Footer (`ftr`).
@@ -228,9 +232,11 @@ impl PlaceholderKind {
     pub fn text_class(self) -> TextClass {
         match self {
             PlaceholderKind::Title | PlaceholderKind::CenteredTitle => TextClass::Title,
-            PlaceholderKind::Subtitle | PlaceholderKind::Body | PlaceholderKind::Picture => {
-                TextClass::Body
-            }
+            PlaceholderKind::Subtitle
+            | PlaceholderKind::Body
+            | PlaceholderKind::Picture
+            | PlaceholderKind::Chart
+            | PlaceholderKind::Table => TextClass::Body,
             _ => TextClass::Other,
         }
     }
@@ -257,7 +263,11 @@ impl PlaceholderKind {
     pub fn default_idx(self) -> u32 {
         match self {
             PlaceholderKind::Title | PlaceholderKind::CenteredTitle => 0,
-            PlaceholderKind::Subtitle | PlaceholderKind::Body | PlaceholderKind::Picture => 1,
+            PlaceholderKind::Subtitle
+            | PlaceholderKind::Body
+            | PlaceholderKind::Picture
+            | PlaceholderKind::Chart
+            | PlaceholderKind::Table => 1,
             PlaceholderKind::DateTime => 10,
             PlaceholderKind::Footer => 11,
             PlaceholderKind::SlideNumber => 12,
@@ -327,6 +337,44 @@ pub struct PlaceholderDef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub prompt: Option<String>,
+    /// Outline levels 2–9 of the placeholder's own list style
+    /// (`a:lstStyle/a:lvl2pPr` … `a:lvl9pPr`; index 0 = level 2): what the
+    /// placeholder changes on the master's text style for those levels
+    /// (unset fields and missing levels inherit). Level 1 is
+    /// `run_defaults`/`paragraph_defaults`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<LevelStyle>>"))]
+    pub levels: Vec<LevelStyle>,
+}
+
+impl PlaceholderDef {
+    /// The placeholder's own changes of outline level `level` (0-based,
+    /// `1..=8`; level 0 and missing levels: none).
+    pub fn level_override(&self, level: u8) -> Option<&LevelStyle> {
+        usize::from(level)
+            .checked_sub(1)
+            .and_then(|i| self.levels.get(i))
+    }
+
+    /// Mutable own changes of outline level `level` (`1..=8`), created
+    /// (with the levels before it) when missing; `None` for level 0.
+    pub fn level_override_mut(&mut self, level: u8) -> Option<&mut LevelStyle> {
+        let i = usize::from(level).checked_sub(1)?;
+        if i >= 8 {
+            return None;
+        }
+        while self.levels.len() <= i {
+            self.levels.push(LevelStyle::default());
+        }
+        self.levels.get_mut(i)
+    }
+
+    /// Drops trailing empty level overrides.
+    pub fn trim_levels(&mut self) {
+        while self.levels.last().is_some_and(LevelStyle::is_empty) {
+            self.levels.pop();
+        }
+    }
 }
 
 /// A slide layout.
@@ -462,6 +510,7 @@ impl Layout {
                         text_only: false,
                         vertical: false,
                         prompt: None,
+                        levels: Vec::new(),
                     }
                 }
             };

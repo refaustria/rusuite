@@ -36,6 +36,8 @@ export function slideMasterTab(store: ShowStore, state: ShowState, t: TFunction)
   const kinds: { kind: PlaceholderKind; label: string }[] = [
     { kind: "body", label: t("show.master.phContent") },
     { kind: "picture", label: t("show.master.phPicture") },
+    { kind: "chart", label: t("show.master.phChart") },
+    { kind: "table", label: t("show.master.phTable") },
     { kind: "title", label: t("show.master.phTitle") },
     { kind: "dateTime", label: t("show.master.phDate") },
     { kind: "footer", label: t("show.master.phFooter") },
@@ -74,7 +76,7 @@ export function slideMasterTab(store: ShowStore, state: ShowState, t: TFunction)
                 id: `ph-${k.kind}`,
                 label: k.label,
                 // the master holds one placeholder per kind (and no pictures)
-                disabled: onMaster ? k.kind === "picture" || defs.some((d) => d.kind === k.kind) : k.kind === "title" && hasTitle,
+                disabled: onMaster ? k.kind === "picture" || k.kind === "chart" || k.kind === "table" || defs.some((d) => d.kind === k.kind) : k.kind === "title" && hasTitle,
                 onSelect: () => void store.insertPlaceholder(k.kind),
               }))}
             />
@@ -92,7 +94,7 @@ export function slideMasterTab(store: ShowStore, state: ShowState, t: TFunction)
                 <select
                   aria-label={t("show.master.textLevel")}
                   className="h-6 rounded border border-ui-border bg-ui-bg text-xs"
-                  disabled={!onMaster}
+                  disabled={!mv}
                   value={level === null ? "all" : String(level)}
                   onChange={(e) => store.setMasterLevel(e.currentTarget.value === "all" ? null : Number(e.currentTarget.value))}
                   data-testid="master-level"

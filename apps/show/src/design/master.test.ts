@@ -65,10 +65,20 @@ describe("the master view's pseudo slide and its commands", () => {
     expect(translateDesignCommand(pres, target, { type: "setRunProps", shape: DESIGN_SHAPE_BASE, paragraph: 0, from: 0, to: 1, patch: { italic: true } }, { level: 6 }).commands[0]).toMatchObject({ type: "setMasterPlaceholderProps", placeholder: "title" });
   });
 
-  it("deeper levels of layout placeholders are not stored (status message)", () => {
+  it("deeper levels of layout placeholders go to their own list style (P9-S1); titles have none", () => {
     const target = { kind: "layout", value: "titleContent" } as const;
     const r = translateDesignCommand(pres, target, { type: "setRunProps", shape: DESIGN_SHAPE_BASE + 1, paragraph: 1, from: 0, to: 2, patch: { bold: true } });
-    expect(r).toEqual({ commands: [], dropped: true });
+    expect(r).toEqual({ commands: [{ type: "setMasterPlaceholderProps", target, placeholder: "body", patch: { run: { bold: true }, level: 1 } }], dropped: false });
+    const p = translateDesignCommand(pres, target, { type: "setParagraphProps", shape: DESIGN_SHAPE_BASE + 1, paragraphs: [0, 3], patch: { bullet: { kind: "none" } } });
+    expect(p.commands).toEqual([
+      { type: "setMasterPlaceholderProps", target, placeholder: "body", patch: { paragraph: { bullet: { kind: "none" } } } },
+      { type: "setMasterPlaceholderProps", target, placeholder: "body", patch: { paragraph: { bullet: { kind: "none" } }, level: 3 } },
+    ]);
+    // the Slide Master tab's text level: paragraph 1's change goes to it
+    const chosen = translateDesignCommand(pres, target, { type: "setRunProps", shape: DESIGN_SHAPE_BASE + 1, paragraph: 0, from: 0, to: 2, patch: { italic: true } }, { level: 5 });
+    expect(chosen.commands).toEqual([{ type: "setMasterPlaceholderProps", target, placeholder: "body", patch: { run: { italic: true }, level: 5 } }]);
+    const title = translateDesignCommand(pres, target, { type: "setRunProps", shape: DESIGN_SHAPE_BASE, paragraph: 1, from: 0, to: 2, patch: { bold: true } });
+    expect(title).toEqual({ commands: [], dropped: true });
   });
 
   it("typed text becomes the prompt; the sample text again removes it", () => {

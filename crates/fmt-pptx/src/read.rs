@@ -22,8 +22,8 @@ use crate::drawing::{
 use crate::geom::{read_adjust, read_geometry};
 use crate::link::{read_hlink, resolve_part_links, resolve_slide_links};
 use crate::master::{
-    body_pr_of, header_footer_of, kind_of_type, lst_style_lvl1, read_background as read_bg,
-    read_clr_map, read_text_styles,
+    body_pr_of, header_footer_of, kind_of_type, lst_style_levels, lst_style_lvl1,
+    read_background as read_bg, read_clr_map, read_text_styles,
 };
 use crate::table::{read_table, TABLE_URI};
 use crate::theme::read_theme;
@@ -561,6 +561,7 @@ impl Reader<'_> {
                     text_only: ty == "body",
                     vertical,
                     prompt: custom_prompt(sp, ph),
+                    levels: lst_style_levels(tx, self.w),
                 });
             }
             m.shapes = self.read_part_shapes(part, tree);
@@ -736,6 +737,7 @@ impl Reader<'_> {
                     text_only: pty == "body",
                     vertical,
                     prompt: custom_prompt(sp, ph),
+                    levels: lst_style_levels(tx, self.w),
                 });
             }
             layout.shapes = self.read_part_shapes(part, tree);

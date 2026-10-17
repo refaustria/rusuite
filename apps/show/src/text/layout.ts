@@ -70,9 +70,9 @@ export interface Fragment {
 export interface ParagraphMetrics {
   /** Outline level (`0..=8`). */
   level: number;
-  /** Start of the bullet (the outline indent). */
+  /** Start of the bullet, or of the first line of a paragraph without one (the outline indent). */
   indent: number;
-  /** Start of the text (after the bullet's hanging indent). */
+  /** Start of the text (after the bullet's hanging indent; the lines after the first). */
   textX: number;
   /** The bullet or number (`null` = none; drawn only on paragraphs with text). */
   label: string | null;
@@ -118,6 +118,12 @@ export interface LayoutOptions {
   fieldText?: (field: TextField, stored: string) => string;
   /** Colour of hyperlinks (the theme's `hlink`); absent = the run's own colour. */
   linkColor?: string;
+  /**
+   * Left margin and first-line indent (px, `marL` / `indent`) of an
+   * outline level (the master's text style, the layout's own levels);
+   * absent or no margin = 0.5" per level.
+   */
+  margins?: (level: number) => { marginLeft?: number; indent?: number };
 }
 
 /** A run style for a run with a hyperlink: underlined, in the hyperlink colour (PowerPoint). */
@@ -242,7 +248,11 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
     const baseSize = firstStyle.sizePx * scale;
     const lineFactor = props.lineSpacing?.kind === "percent" ? props.lineSpacing.value / 100000 : 1;
     const fixedLine = props.lineSpacing?.kind === "points" ? (props.lineSpacing.value / 100) * PX_PER_PT * scale : null;
-    const indent = (props.level ?? 0) * LEVEL_INDENT_PX;
+    // the level's marL / indent (PowerPoint: bullet at marL + indent, text at marL), else 0.5" per level
+    const mg = o.margins?.(props.level ?? 0);
+    const marL = mg?.marginLeft;
+    const hangIn = mg?.indent ?? 0;
+    let indent = marL !== undefined ? Math.max(0, marL + hangIn) : (props.level ?? 0) * LEVEL_INDENT_PX;
     const spaceBefore = spacingPx(props.spacingBefore, baseSize * 1.2) * (props.spacingBefore?.kind === "points" ? scale : 1);
     const spaceAfter = spacingPx(props.spacingAfter, baseSize * 1.2) * (props.spacingAfter?.kind === "points" ? scale : 1);
     y += spaceBefore;
@@ -260,7 +270,14 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
           fontStyle: konvaStyle(firstStyle), textDecoration: "", fill: firstStyle.color, width: w,
         };
       }
-      textX = indent + hang;
+      // a hanging indent holds the bullet; a bullet wider than it pushes the text on
+      textX = marL !== undefined && hangIn < 0 ? Math.max(marL, indent + w + baseSize * 0.1) : indent + hang;
+    } else if (marL !== undefined && hangIn > 0) {
+      // a first-line indent: the first line starts further in than the others
+      textX = marL;
+    } else if (marL !== undefined) {
+      // no bullet in a hanging level: the lines start where the bullet would
+      textX = indent;
     }
     const drawnAlign = props.alignment === "center" || props.alignment === "right" ? props.alignment : "left";
     metrics.push({
@@ -269,6 +286,8 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
       alignment: wrap ? drawnAlign : "left",
     });
     const lineWidth = Math.max(1, avail - textX);
+    // without a bullet the first line starts at `indent` (a first-line indent)
+    const firstX = label === null ? indent : textX;
 
     // Greedy line breaking.
     type Piece = { text: string; style: RunStyle; width: number; space: boolean };
@@ -277,6 +296,7 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
     const hard = new Map<number, RunStyle>();
     let used = 0;
     const measure = (t: string, s: RunStyle) => o.measure(t, cssFont(s, effSize(s, scale), s.fontFamily));
+    const widthOf = (li: number) => (li === 0 ? Math.max(1, avail - firstX) : lineWidth);
     for (const tok of tokenize(runs)) {
       if (tok.br) {
         hard.set(lines.length, tok.style);
@@ -286,7 +306,7 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
       }
       const line = lines[lines.length - 1]!;
       const w = measure(tok.text, tok.style);
-      if (!wrap || tok.space || used + w <= lineWidth) {
+      if (!wrap || tok.space || used + w <= widthOf(lines.length - 1)) {
         if (tok.space && line.length === 0 && lines.length > 1 && !hard.has(lines.length - 1)) continue; // no leading spaces on wrapped lines
         line.push({ ...tok, width: w });
         used += w;
@@ -298,8 +318,8 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
         let cur = line;
         while (rest.length) {
           let n = rest.length;
-          while (n > 1 && used + measure(rest.slice(0, n).join(""), tok.style) > lineWidth) n--;
-          if (used > 0 && used + measure(rest.slice(0, 1).join(""), tok.style) > lineWidth) {
+          while (n > 1 && used + measure(rest.slice(0, n).join(""), tok.style) > widthOf(lines.indexOf(cur))) n--;
+          if (used > 0 && used + measure(rest.slice(0, 1).join(""), tok.style) > widthOf(lines.indexOf(cur))) {
             cur = [];
             lines.push(cur);
             used = 0;
@@ -337,8 +357,9 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
       const baseline = y + (lh - maxPx) / 2 + maxPx * 0.85;
       const width = line.reduce((s, pc) => s + pc.width, 0);
       const align = props.alignment ?? "left";
-      const shift = align === "center" ? (lineWidth - width) / 2 : align === "right" ? lineWidth - width : 0;
-      let x = left + textX + Math.max(0, wrap ? shift : 0);
+      const lw = li === 0 ? Math.max(1, avail - firstX) : lineWidth;
+      const shift = align === "center" ? (lw - width) / 2 : align === "right" ? lw - width : 0;
+      let x = left + (li === 0 ? firstX : textX) + Math.max(0, wrap ? shift : 0);
       if (li === 0 && bulletFrag) {
         bulletFrag.x = left + bulletFrag.x + (wrap && align !== "left" && align !== "justify" ? shift : 0);
         bulletFrag.y = top + baseline - baseSize * 0.85;

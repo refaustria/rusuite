@@ -50,8 +50,9 @@ export function paragraphCss(m: ParagraphMetrics, scale: number, empty: boolean)
     // the line box is as high as the line's largest run (the layout's rule); an empty paragraph as its first run
     ...(empty ? runCss(m.bulletStyle, scale) : { "font-size": "0px" }),
   };
+  // the first line starts at the bullet (hanging) or at a first-line indent
+  if (m.indent !== m.textX) out["text-indent"] = `${m.indent - m.textX}px`;
   if (m.label !== null) {
-    out["text-indent"] = `${m.indent - m.textX}px`;
     out["--bullet-width"] = `${m.textX - m.indent}px`;
     out["--bullet-font"] = `${m.bulletStyle.italic ? "italic " : ""}${m.bulletStyle.bold ? "700 " : ""}${m.baseSize}px ${m.bulletStyle.fontFamily}`;
     out["--bullet-color"] = m.bulletStyle.color;

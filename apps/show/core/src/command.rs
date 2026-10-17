@@ -432,10 +432,26 @@ pub struct PlaceholderPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<app_common::wire::RunProperties>")]
     pub run: Option<RunProperties>,
-    /// Paragraph formatting of level 1.
+    /// Paragraph formatting of level 1 (of `level` when set).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub paragraph: Option<TextParagraphPatch>,
+    /// The outline level (0–8) `run`, `paragraph`, `margin_left` and
+    /// `indent` change; absent = 0 (level 1). Deeper levels of a layout
+    /// placeholder change its own list style (`a:lvl2pPr` …); of a master
+    /// placeholder the master text style of its class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub level: Option<u8>,
+    /// Left margin of the level's paragraphs (`marL`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub margin_left: Option<model_show::Emu>,
+    /// First-line indent of the level's paragraphs (`indent`; negative =
+    /// hanging).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub indent: Option<model_show::Emu>,
 }
 
 /// Picture adjustments to change for [`ShowCommand::SetPictureProps`].
@@ -899,7 +915,7 @@ pub enum ShowCommand {
     },
     /// Changes outline level `level` (0–8) of a master text style
     /// (`p:titleStyle`/`p:bodyStyle`/`p:otherStyle`): run formatting
-    /// merged in, paragraph formatting patched. Level 1 of the title and
+    /// merged in, paragraph formatting patched, margins set. Level 1 of the title and
     /// body styles also changes the master placeholders' text defaults
     /// (and the layouts' that still inherit them).
     SetMasterTextStyle {
@@ -911,6 +927,14 @@ pub enum ShowCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         paragraph: Option<TextParagraphPatch>,
+        /// Left margin (`marL`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "number")]
+        margin_left: Option<model_show::Emu>,
+        /// First-line indent (`indent`; negative = hanging).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "number")]
+        indent: Option<model_show::Emu>,
     },
     /// Sets (or, with `null`, removes) the custom prompt text of a master
     /// or layout placeholder (what typing into it in the Slide Master view

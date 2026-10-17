@@ -22,7 +22,7 @@ import type { TextBody } from "../generated/TextBody";
 import type { Table } from "../generated/Table";
 import { boxAttrs, emuToPx, EMU_PER_PX, slidePx } from "../geometry";
 import { bodyText, css, effectiveParagraph, fillCss, themePalette } from "../model";
-import { backdropShapes, designBackground, designShapes, levelDefaults, placeholderFor, slideBackground, slideNumberOf, type DeckContext } from "../design/deck";
+import { backdropShapes, designBackground, designShapes, levelDefaults, levelMargins, placeholderFor, slideBackground, slideNumberOf, type DeckContext } from "../design/deck";
 import { konvaFill, resolveColor } from "../design/color";
 import { fieldText } from "../design/fields";
 import { cropSource, processedImage, shadowOffset } from "../design/picture";
@@ -94,6 +94,8 @@ const PROMPTS: Record<string, string> = {
   subtitle: "show.prompt.subtitle",
   body: "show.prompt.text",
   picture: "show.master.samplePicture",
+  chart: "show.prompt.chart",
+  table: "show.prompt.table",
 };
 
 const imageCache = new Map<string, HTMLImageElement>();
@@ -178,6 +180,7 @@ export function shapeTextOptions(ctx: TextCtx, shape: Shape, w: number, h: numbe
   const def = placeholderFor(ctx.deck, ctx.slide.layout, shape, ctx.asMaster);
   const at = levelDefs(ctx, def);
   const styles = new Map<number, ReturnType<typeof runStyleFor>>();
+  const margins = new Map<number, { marginLeft?: number; indent?: number }>();
   const styleAt = (level: number) => {
     // runs without a colour take the shape style's text colour (`p:style/a:fontRef`: white on filled shapes)
     const base = shape.textColor ? { color: css(shape.textColor, ctx.palette) } : undefined;
@@ -192,6 +195,16 @@ export function shapeTextOptions(ctx: TextCtx, shape: Shape, w: number, h: numbe
     paragraphProps: (p: TextParagraphProps | undefined) => effectiveParagraph(at(p?.level ?? 0), p),
     fieldText: (field, stored) => fieldText(field, ctx.slideNumber, stored),
     linkColor: css({ kind: "theme", value: { slot: "hyperlink", tint: 0 } }, ctx.palette),
+    margins: (level) => {
+      if (!margins.has(level)) {
+        const m = levelMargins(ctx.deck, def, shape.placeholder, level);
+        margins.set(level, {
+          ...(m.marginLeft !== undefined ? { marginLeft: emuToPx(m.marginLeft) } : {}),
+          ...(m.indent !== undefined ? { indent: emuToPx(m.indent) } : {}),
+        });
+      }
+      return margins.get(level)!;
+    },
   };
 }
 
@@ -213,9 +226,9 @@ export function promptOf(ctx: Pick<TextCtx, "deck" | "slide">, shape: Shape, t: 
   return placeholderFor(ctx.deck, ctx.slide.layout, shape)?.prompt ?? t(key);
 }
 
-/** The body an empty placeholder is drawn with: its prompt in the first paragraph's formatting (a picture placeholder's centred, without bullet). */
+/** The body an empty placeholder is drawn with: its prompt in the first paragraph's formatting (picture, chart and table placeholders' centred, without bullet). */
 export function promptBody(shape: Shape, body: TextBody, prompt: string): TextBody {
-  const promptProps = shape.placeholder === "picture" ? { ...body.paragraphs[0]?.props, bullet: { kind: "none" as const }, alignment: "center" as const } : body.paragraphs[0]?.props;
+  const promptProps = shape.placeholder === "picture" || shape.placeholder === "chart" || shape.placeholder === "table" ? { ...body.paragraphs[0]?.props, bullet: { kind: "none" as const }, alignment: "center" as const } : body.paragraphs[0]?.props;
   return { ...body, paragraphs: [{ props: promptProps, runs: [{ text: prompt }] }] };
 }
 

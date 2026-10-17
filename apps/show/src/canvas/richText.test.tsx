@@ -317,3 +317,100 @@ describe("text boxes and prompts in the app", () => {
     expect(screen.queryByTestId("text-overlay-prompt")).toBeNull();
   });
 });
+
+// ----- P9-S1 item 3: master and layout text levels, marL / indent ---------------------------
+
+import { designFixture } from "../test/fixture";
+import { levelDefaults, levelMargins } from "../design/deck";
+import { DESIGN_SHAPE_BASE } from "../design/master";
+
+describe("master and layout text levels", () => {
+  it("a layout placeholder's own level overrides the master's text style for that level", () => {
+    const pres = designFixture();
+    const def = { ...pres.layouts[1]!.placeholders[1]!, levels: [{}, { run: { size: 1400, color: { kind: "rgb", value: "C00000" } }, paragraph: { bullet: { kind: "char", value: "–" } } }] } as const;
+    const deck = stableDeck(pres);
+    const l2 = levelDefaults(deck, def as never, 2);
+    expect(l2.run.size).toBe(1400);
+    expect(l2.paragraph.bullet).toEqual({ kind: "char", value: "–" });
+    // level 2 has no own changes: the master's (24 pt)
+    expect(levelDefaults(deck, def as never, 1).run.size).toBe(2400);
+  });
+
+  it("levelMargins: the master text style's marL / indent, the layout's own levels win", () => {
+    const pres = designFixture();
+    pres.master!.textStyles.body = [0, 1, 2].map((l) => ({ run: { size: 2800 - l * 400 }, paragraph: { bullet: { kind: "char", value: "•" } }, marginLeft: 228600 + l * 457200, indent: -228600 }));
+    const deck = stableDeck(pres);
+    const def = { ...pres.layouts[1]!.placeholders[1]!, levels: [{ marginLeft: 1371600 }] };
+    expect(levelMargins(deck, def, "body", 0)).toEqual({ marginLeft: 228600, indent: -228600 });
+    expect(levelMargins(deck, def, "body", 1)).toEqual({ marginLeft: 1371600, indent: -228600 });
+    // deeper than the list: its last level
+    expect(levelMargins(deck, def, "body", 7)).toEqual({ marginLeft: 228600 + 2 * 457200, indent: -228600 });
+    expect(levelMargins({}, undefined, null, 1)).toEqual({});
+  });
+
+  it("layoutText honours marL / indent: the bullet hangs at marL + indent, the text starts at marL", () => {
+    const o: LayoutOptions = { ...opts(), margins: (l) => ({ marginLeft: 24 + l * 48, indent: -24 }) };
+    const b = body([
+      { props: { bullet: dot }, runs: [{ text: "one" }] },
+      { props: { bullet: dot, level: 1 }, runs: [{ text: "two" }] },
+      { props: { bullet: { kind: "none" } }, runs: [{ text: "none" }] },
+    ]);
+    const lay = layoutText(b, o);
+    const m = lay.paragraphs!;
+    expect([m[0]!.indent, m[0]!.textX]).toEqual([0, 24]);
+    expect([m[1]!.indent, m[1]!.textX]).toEqual([48, 72]);
+    // without a bullet the hanging indent collapses: the text starts where the bullet would
+    expect([m[2]!.indent, m[2]!.textX]).toEqual([0, 0]);
+    const left = emuToPxLocal(insets.left);
+    expect(lay.fragments.find((f) => f.text === "two")!.x).toBeCloseTo(left + 72);
+    expect(lay.fragments.find((f) => f.text === "•" && f.x > left + 40)!.x).toBeCloseTo(left + 48);
+    // the editor draws the same: padding at the text, the first line pulled back to the bullet
+    const el = dom(b, o);
+    const ps = [...el.querySelectorAll<HTMLElement>("[data-p]")];
+    expect(parseFloat(ps[1]!.style.paddingLeft)).toBeCloseTo(72);
+    expect(parseFloat(ps[1]!.style.textIndent)).toBeCloseTo(-24);
+  });
+
+  it("a first-line indent starts the first line further in; a wide bullet pushes the text on", () => {
+    const o: LayoutOptions = { ...opts(), margins: () => ({ marginLeft: 10, indent: 30 }) };
+    const lay = layoutText(body([{ runs: [{ text: "word ".repeat(60) }] }]), o);
+    const ys = [...new Set(lay.fragments.map((f) => Math.round(f.y)))];
+    const first = lay.fragments.filter((f) => Math.round(f.y) === ys[0]);
+    const second = lay.fragments.filter((f) => Math.round(f.y) === ys[1]);
+    const left = emuToPxLocal(insets.left);
+    expect(first[0]!.x).toBeCloseTo(left + 40);
+    expect(second[0]!.x).toBeCloseTo(left + 10);
+    const wide = layoutText(body([{ props: { bullet: { kind: "char", value: "WWWW" } }, runs: [{ text: "x" }] }]), { ...opts(), margins: () => ({ marginLeft: 24, indent: -24 }) });
+    expect(wide.paragraphs![0]!.textX).toBeGreaterThan(24 + 30);
+  });
+});
+
+const emuToPxLocal = (emu: number) => emu / 9525;
+
+describe("master view editing in place", () => {
+  it("the Slide Master view's placeholders open the in-place editor; layout level edits go to the layout", async () => {
+    const backend = new FakeBackend(designFixture());
+    const store = new ShowStore(new ShowApi(backend));
+    render(<App backend={backend} store={store} />);
+    await waitFor(() => expect(screen.getAllByTestId("thumbnail").length).toBeGreaterThan(1));
+    fireEvent.click(screen.getAllByTestId("thumbnail")[1]!);
+    act(() => store.openMasterView());
+    expect(store.getState().masterView).toEqual({ kind: "layout", value: "titleContent" });
+    act(() => store.startEdit(DESIGN_SHAPE_BASE + 1));
+    const el = screen.getByTestId("text-overlay");
+    expect([...el.querySelectorAll<HTMLElement>("[data-p]")].map((p) => p.dataset.level)).toEqual(["0", "1", "2", "3", "4"]);
+    backend.log.length = 0;
+    // the second sample paragraph (level 2) bold
+    const text = store.getState().editing!.text;
+    const start = text.indexOf("\n") + 1;
+    select(el, start, start + 3);
+    fireEvent.keyDown(el, { key: "b", ctrlKey: true });
+    await flush();
+    const flat = commands(backend).flatMap((c) => (c.type === "compound" ? (c as unknown as { commands: typeof c[] }).commands : [c]));
+    expect(flat.find((c) => c.type === "setMasterPlaceholderProps")).toMatchObject({
+      target: { kind: "layout", value: "titleContent" },
+      placeholder: "body",
+      patch: { level: 1, run: { bold: true } },
+    });
+  });
+});

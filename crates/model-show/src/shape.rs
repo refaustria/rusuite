@@ -299,10 +299,7 @@ pub struct Shape {
     /// without a colour of their own are drawn in it (PowerPoint's filled
     /// shapes: Light 1, white on the accent fill).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(
-        feature = "ts",
-        ts(optional, as = "Option<app_common::wire::Color>")
-    )]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<app_common::wire::Color>"))]
     pub text_color: Option<Color>,
 }
 
@@ -560,6 +557,8 @@ impl Shape {
                 PlaceholderKind::Subtitle => "Subtitle",
                 PlaceholderKind::Body => "Content Placeholder",
                 PlaceholderKind::Picture => "Picture Placeholder",
+                PlaceholderKind::Chart => "Chart Placeholder",
+                PlaceholderKind::Table => "Table Placeholder",
                 PlaceholderKind::DateTime => "Date Placeholder",
                 PlaceholderKind::Footer => "Footer Placeholder",
                 PlaceholderKind::SlideNumber => "Slide Number Placeholder",

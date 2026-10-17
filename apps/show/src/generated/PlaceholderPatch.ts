@@ -23,6 +23,22 @@ body?: BodyProps,
  */
 run?: RunProperties, 
 /**
- * Paragraph formatting of level 1.
+ * Paragraph formatting of level 1 (of `level` when set).
  */
-paragraph?: TextParagraphPatch, };
+paragraph?: TextParagraphPatch, 
+/**
+ * The outline level (0–8) `run`, `paragraph`, `margin_left` and
+ * `indent` change; absent = 0 (level 1). Deeper levels of a layout
+ * placeholder change its own list style (`a:lvl2pPr` …); of a master
+ * placeholder the master text style of its class.
+ */
+level?: number, 
+/**
+ * Left margin of the level's paragraphs (`marL`).
+ */
+marginLeft?: number, 
+/**
+ * First-line indent of the level's paragraphs (`indent`; negative =
+ * hanging).
+ */
+indent?: number, };

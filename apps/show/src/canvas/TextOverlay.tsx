@@ -29,7 +29,7 @@ import { keyMove } from "../shapes/tables";
 import { autofitProps, fitSize } from "../text/autofit";
 import { charStep, editPos, LINE_BREAK, plainOf, typingRun } from "../text/editing";
 import { cssFont, layoutText, measureText, type LayoutOptions, type TextLayout } from "../text/layout";
-import { tableOf, useShow, type EditSession, type ShowStore } from "../state/store";
+import { tableOf, useShow, viewSlide, type EditSession, type ShowStore } from "../state/store";
 import { cellRunBase, runStyleFor, tableLayout } from "./tableLayout";
 import { drawnBody, promptBody, promptOf, shapeTextOptions } from "./SlideView";
 import { buildParagraphs, domToOffset, readDomText, readSelection, writeSelection } from "./richEditor";
@@ -63,7 +63,8 @@ export interface EditorFrame {
 export function editorFrame(store: ShowStore, e: EditSession): EditorFrame | null {
   const s = store.getState();
   const pres = s.pres;
-  const slide = pres && !s.masterView ? pres.slides.find((x) => x.id === s.current) : null;
+  // the Slide Master view edits its pseudo slide's placeholders in place too
+  const slide = pres ? viewSlide(s) : null;
   const hit = slide ? findShape(slide.shapes, e.shape) : null;
   if (!pres || !slide || !hit) return null;
   const palette = themePalette(pres.theme);
@@ -84,13 +85,14 @@ export function editorFrame(store: ShowStore, e: EditSession): EditorFrame | nul
     return { box, rect: { x: 0, y: 0, w: cell.w, h: cell.h }, body, options, layout: layoutText(body, options) };
   }
   const deck = stableDeck(pres);
-  const ctx = { deck, slide, palette, asMaster: false, slideNumber: slideNumberOf(deck, slide.id) };
+  const design = s.masterView;
+  const ctx = { deck, slide, palette, asMaster: design?.kind === "master", slideNumber: design ? null : slideNumberOf(deck, slide.id) };
   // live autofit: shrink as the slide will after the commit; a growing shape grows with the text
-  const fit = autofitProps(pres, slide, hit.shape, body);
+  const fit = design ? null : autofitProps(pres, slide, hit.shape, body);
   if (fit) body = { ...body, props: fit };
   let h = tf.h;
   let wEmu = tf.w;
-  if (body.props.autofit === "resize" && hit.parents.length === 0) {
+  if (!design && body.props.autofit === "resize" && hit.parents.length === 0) {
     const fit = fitSize(pres, slide, hit.shape, body);
     if (fit) {
       h = fit.h;
@@ -104,7 +106,7 @@ export function editorFrame(store: ShowStore, e: EditSession): EditorFrame | nul
   const shown = drawnBody(ctx, hit.shape, body);
   const options = shapeTextOptions(ctx, hit.shape, r.w, r.h);
   const frame: EditorFrame = { box, rect: { x: r.x, y: r.y, w: r.w, h: r.h }, body: shown, options, layout: layoutText(shown, options) };
-  const prompt = e.text === "" ? promptOf(ctx, hit.shape, translate) : undefined;
+  const prompt = e.text === "" && !design ? promptOf(ctx, hit.shape, translate) : undefined;
   if (prompt !== undefined) {
     const pb = drawnBody(ctx, hit.shape, promptBody(hit.shape, body, prompt));
     frame.prompt = { body: pb, layout: layoutText(pb, options) };
