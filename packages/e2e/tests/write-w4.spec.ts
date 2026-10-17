@@ -47,6 +47,8 @@ async function drawShape(page: Page, name: string, x: number, y: number, w: numb
   await page.mouse.move(x + w / 2, y + h / 2, { steps: 4 });
   await page.mouse.move(x + w, y + h, { steps: 4 });
   await page.mouse.up();
+  // The tool disarms on release; the new shape is inserted (a core round trip) and then selected.
+  await expect(editor(page)).not.toHaveAttribute("data-draw-tool");
 }
 
 test.describe("Write drawings round 2 (P9-W4)", () => {
@@ -92,9 +94,12 @@ test.describe("Write drawings round 2 (P9-W4)", () => {
     await drawShape(page, "Oval", box.x + 80, box.y + 60, 100, 60);
     const ovals = page.locator(".drawing-wrap[data-preset='ellipse']");
     await expect(ovals).toHaveCount(1);
+    await expect(ovals).toHaveClass(/(^|\s)selected(\s|$)/);
     await drawShape(page, "Rectangle", box.x + 220, box.y + 70, 80, 50);
     const rect = page.locator(".drawing-wrap[data-preset='rect']");
     await expect(rect).toHaveCount(1);
+    // The rectangle is the node selection before the oval is added to it.
+    await expect(rect).toHaveClass(/(^|\s)selected(\s|$)/);
     // Shift+click adds the oval to the selection; Arrange › Group.
     await page.keyboard.down("Shift");
     await ovals.click();
@@ -102,6 +107,7 @@ test.describe("Write drawings round 2 (P9-W4)", () => {
     await expect(ovals).toHaveClass(/multi-selected/);
     await page.getByRole("tab", { name: "Shape Format" }).click();
     await page.getByRole("button", { name: "Group", exact: true }).click();
+    await expect(page.getByRole("menuitem", { name: "Group", exact: true })).toBeEnabled();
     await page.getByRole("menuitem", { name: "Group", exact: true }).click();
     const group = page.locator(".drawing-wrap[data-kind='group']");
     await expect(group).toHaveCount(1);

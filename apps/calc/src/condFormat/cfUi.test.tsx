@@ -340,9 +340,8 @@ describe("Data Validation", () => {
       fireEvent.change(within(dlg).getByLabelText("Title:"), { target: { value: "Too big" } });
       fireEvent.change(within(dlg).getByLabelText("Error message:"), { target: { value: "Below 10" } });
     });
-    // The validation reaches the cache with the re-fetched snapshot.
-    await waitFor(() => expect(core.log.some((r) => r.type === "snapshot")).toBe(true));
-    await new Promise((r) => setTimeout(r, 20));
+    // The validation reaches the cache with the re-fetched snapshot: the grid is idle again (P9-Q1).
+    await waitFor(() => expect(grid.hasAttribute("data-busy")).toBe(false));
     core.log.length = 0;
     grid.focus();
     fireEvent.keyDown(grid, { key: "4" });

@@ -48,6 +48,20 @@ function fileCommand(name: string) {
 }
 
 describe("Write shortcuts", () => {
+  it("after the Paragraph dialog's OK the focus is in the editor at once and Ctrl+D opens the Font dialog (P9-Q1)", async () => {
+    const { editor } = await mount();
+    const opener = screen.getByRole("button", { name: "Paragraph settings" });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = await screen.findByRole("dialog", { name: "Paragraph" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "OK" }));
+    // No waiting: the editor has the focus when the close returns (not the ribbon button, not a frame later).
+    expect(screen.queryByRole("dialog", { name: "Paragraph" })).toBeNull();
+    expect(document.activeElement).toBe(editor);
+    fireEvent.keyDown(document.activeElement!, ctrl("d"));
+    expect(await screen.findByRole("dialog", { name: "Font" })).toBeTruthy();
+  });
+
   it("Ctrl+E / L / R / J set the paragraph alignment", async () => {
     const { backend, editor } = await mount();
     for (const k of ["e", "r", "j", "l"]) fireEvent.keyDown(editor, ctrl(k));
