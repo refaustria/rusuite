@@ -152,14 +152,21 @@ export function CfMenu({ store, close }: { store: CalcStore; close: () => void }
       ))}
       {subItem("dataBars", t("calc.cf.dataBars"), () => (
         <>
-          <div className="px-2 pt-1 text-[11px] font-medium text-ui-muted">{t("calc.cf.gradientFill")}</div>
-          <div className="grid grid-cols-3 gap-1 p-1">
-            {DATA_BARS.map((b) => (
-              <button key={b.id} type="button" role="menuitem" data-cf-item="" aria-label={t(`calc.cf.bar.${b.id}`)} title={t(`calc.cf.bar.${b.id}`)} className={TILE} onClick={add(dataBarRule(b.color, ranges()))}>
-                <DataBarPreview color={b.color} />
-              </button>
-            ))}
-          </div>
+          {([false, true] as const).map((solid) => (
+            <div key={String(solid)} role="group" aria-label={t(solid ? "calc.cf.solidFill" : "calc.cf.gradientFill")}>
+              <div className="px-2 pt-1 text-[11px] font-medium text-ui-muted">{t(solid ? "calc.cf.solidFill" : "calc.cf.gradientFill")}</div>
+              <div className="grid grid-cols-3 gap-1 p-1">
+                {DATA_BARS.map((b) => {
+                  const label = t(solid ? `calc.cf.barSolid.${b.id}` : `calc.cf.bar.${b.id}`);
+                  return (
+                    <button key={b.id} type="button" role="menuitem" data-cf-item="" aria-label={label} title={label} className={TILE} onClick={add(dataBarRule(b.color, ranges(), solid))}>
+                      <DataBarPreview color={b.color} solid={solid} />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
           {moreRules()}
         </>
       ))}
@@ -198,6 +205,8 @@ export function CfMenu({ store, close }: { store: CalcStore; close: () => void }
         <>
           {item(t("calc.cf.clearSelection"), done(() => store.clearCf("selection")))}
           {item(t("calc.cf.clearSheet"), done(() => store.clearCf("sheet")))}
+          {store.ruleScopeRange("table") && item(t("calc.cf.clearTable"), done(() => store.clearCf("table")))}
+          {store.ruleScopeRange("pivot") && item(t("calc.cf.clearPivot"), done(() => store.clearCf("pivot")))}
         </>
       ))}
       {item(t("calc.cf.manage"), done(() => store.openDialog({ kind: "cfManage" })), true)}

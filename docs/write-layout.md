@@ -194,6 +194,23 @@ offset to the right → `float: right`, else `float: left` with its horizontal o
 margins; a centred table is not floated (CSS cannot wrap text on both sides of a float). The pagination measures it as
 a block like any other; positions relative to the page or the margin are approximated relative to the column.
 
+## Comment balloons and notes (P9-W6)
+- **Balloons** sit right of the page at the height of their range's start (`coordsAtPos`, so the page spacers are
+  already in): `layoutBalloons` stacks them in anchor order (the selected one exactly at its anchor), then
+  `avoidPageGaps` moves a balloon that would overlap a page gap (the `.page-gap` elements of the page chrome, read once
+  per layout in the margin's coordinates) to just below that gap – the next page's top – and pushes the following ones.
+  Ranges inside footnotes are anchored where the note is positioned at its page bottom. Simple Markup draws one marker
+  per thread at the same places (no gap avoidance needed: markers are 32 px).
+- **Separators** of the notes area are drawn by the page chrome: Word's 2-inch line (continuation: the text width), or
+  the separator's own text (`NoteSeparator::Text`, empty = none) at the line's place.
+- **Header fields per page**: the chrome's header and footer text resolves `STYLEREF` (the first – `\l`: last –
+  paragraph in the style between the page's first and next page's first position, else the nearest one before) and
+  `SECTIONPAGES` (pages of the page's section) for every sheet; `PAGE` / `NUMPAGES` as before. The cached results in the
+  file are the core's (section's first page) after F9 or before saving.
+- **Print markup** (File › Print › Print Markup) measures and paginates the clones like other paper (the measured path);
+  then every page is scaled into the left 72 % of the sheet and the comments whose range starts on it are stacked in the
+  right pane (`markupAnchors`: the start marker's flow y mapped through the page fragments; `markupPageHtml`).
+
 ## Limits (approximations, documented in docs/ui.md)
 - Word's line breaking is not reproduced; lines are the browser's. Floating pictures wrap with CSS floats (one side),
   or on both sides through per-line spacers when there is room (P9-W4, above); a tight/through wrap polygon is drawn as

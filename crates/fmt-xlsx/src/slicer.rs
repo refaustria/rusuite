@@ -293,12 +293,9 @@ pub(crate) fn workbook_ext_xml(x: &mut XmlOut, ids: &BookSlicers) {
     x.end("extLst");
 }
 
-/// The sheet `extLst` with the slicer lists (nothing without slicers).
+/// The `<ext>` elements of the slicer lists of a sheet (inside its
+/// `<extLst>`, see `write.rs`).
 pub(crate) fn sheet_ext_xml(x: &mut XmlOut, ids: &SheetSlicers) {
-    if ids.pivot.is_none() && ids.table.is_none() {
-        return;
-    }
-    x.start("extLst", &[]);
     if let Some(rid) = &ids.pivot {
         x.start("ext", &[("uri", EXT_PIVOT_SLICERS), ("xmlns:x14", X14_NS)]);
         x.start("x14:slicerList", &[]);
@@ -313,7 +310,11 @@ pub(crate) fn sheet_ext_xml(x: &mut XmlOut, ids: &SheetSlicers) {
         x.end("x15:slicerList");
         x.end("ext");
     }
-    x.end("extLst");
+}
+
+/// Whether [`sheet_ext_xml`] writes anything.
+pub(crate) fn has_sheet_ext(ids: &SheetSlicers) -> bool {
+    ids.pivot.is_some() || ids.table.is_some()
 }
 
 /// The drawing frame of slicer `s` inside an open anchor: the

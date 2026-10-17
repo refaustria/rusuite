@@ -53,6 +53,7 @@ fn key(col: u32, ascending: bool) -> SortKey {
         col,
         ascending,
         kind: SortKind::Auto,
+        ..Default::default()
     }
 }
 
@@ -110,6 +111,7 @@ fn script() -> Vec<C> {
             keys: vec![key(0, true), key(1, false)],
             has_header: true,
             case_sensitive: false,
+            columns: false,
         },
         C::SortSheetByColumn {
             sheet: 0,
@@ -241,6 +243,7 @@ fn sort_moves_rows_formulas_and_reports_cells() {
             keys: vec![key(0, true)],
             has_header: true,
             case_sensitive: false,
+            columns: false,
         })
         .unwrap();
     assert_eq!(
@@ -458,6 +461,7 @@ fn xlsx_keeps_filter_sort_and_filtered_rows() {
             keys: vec![key(2, false)],
             has_header: true,
             case_sensitive: true,
+            columns: false,
         },
         C::SetAutoFilter {
             sheet: 0,

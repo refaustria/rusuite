@@ -12,6 +12,8 @@ pub(crate) struct TocScan {
     pub levels: (u8, u8),
     /// The sequence of a table of figures (`\c "Figure"`).
     pub caption: Option<String>,
+    /// The other switches (`\\h`, `\\z`, `\\u`, `\\n`, `\\t`).
+    pub switches: model_text::TocSwitches,
     /// Cached entries: text and page number (the text after the last tab,
     /// if it is a number).
     pub lines: Vec<(String, Option<u32>)>,
@@ -230,6 +232,7 @@ pub(crate) fn scan(paras: &[&El], title_allowed: bool) -> Option<TocScan> {
         out.consumed = paras.len();
     }
     out.levels = toc_levels(s.instr.as_deref().unwrap_or(""));
+    out.switches = model_text::TocSwitches::parse(s.instr.as_deref().unwrap_or(""));
     out.caption = toc_caption(s.instr.as_deref().unwrap_or(""));
     out.title = (!title.is_empty()).then(|| title.join(" "));
     Some(out)

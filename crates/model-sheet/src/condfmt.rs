@@ -199,6 +199,11 @@ pub enum CfValue {
     Min,
     /// The largest number of the ranges.
     Max,
+    /// Excel 2010's "Automatic" data bar minimum: the smallest number,
+    /// or 0 when every number is positive (`min(0, lowest)`).
+    AutoMin,
+    /// "Automatic" maximum: `max(0, highest)`.
+    AutoMax,
     Num(String),
     /// `min + p% × (max − min)`.
     Percent(String),
@@ -210,7 +215,7 @@ pub enum CfValue {
 impl CfValue {
     fn text_mut(&mut self) -> Option<&mut String> {
         match self {
-            CfValue::Min | CfValue::Max => None,
+            CfValue::Min | CfValue::Max | CfValue::AutoMin | CfValue::AutoMax => None,
             CfValue::Num(s)
             | CfValue::Percent(s)
             | CfValue::Percentile(s)
@@ -309,6 +314,161 @@ impl IconSetKind {
     }
 }
 
+/// The periods of Excel's "A Date Occurring" rule (`timePeriod`). Weeks
+/// start on Sunday, as Excel's `WEEKDAY`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TimePeriod {
+    Yesterday,
+    Today,
+    Tomorrow,
+    /// Today and the six days before.
+    Last7Days,
+    LastWeek,
+    ThisWeek,
+    NextWeek,
+    LastMonth,
+    ThisMonth,
+    NextMonth,
+}
+
+const TIME_PERIODS: [(TimePeriod, &str); 10] = [
+    (TimePeriod::Yesterday, "yesterday"),
+    (TimePeriod::Today, "today"),
+    (TimePeriod::Tomorrow, "tomorrow"),
+    (TimePeriod::Last7Days, "last7Days"),
+    (TimePeriod::LastWeek, "lastWeek"),
+    (TimePeriod::ThisWeek, "thisWeek"),
+    (TimePeriod::NextWeek, "nextWeek"),
+    (TimePeriod::LastMonth, "lastMonth"),
+    (TimePeriod::ThisMonth, "thisMonth"),
+    (TimePeriod::NextMonth, "nextMonth"),
+];
+
+impl TimePeriod {
+    /// The SpreadsheetML name (`last7Days`, …).
+    pub fn name(self) -> &'static str {
+        TIME_PERIODS
+            .iter()
+            .find(|(p, _)| *p == self)
+            .map_or("today", |(_, n)| n)
+    }
+
+    pub fn from_name(name: &str) -> Option<TimePeriod> {
+        TIME_PERIODS
+            .iter()
+            .find(|(_, n)| *n == name)
+            .map(|(p, _)| *p)
+    }
+
+    /// Whether the day `day` (a date serial without time) lies in the
+    /// period relative to `today`.
+    pub fn contains(self, day: i64, today: i64) -> bool {
+        // WEEKDAY(today) - 1: days since the week's Sunday.
+        let since_sunday = (today - 1).rem_euclid(7);
+        let sunday = today - since_sunday;
+        let month = |serial: i64| {
+            engine_formula::functions::datetime::serial::serial_to_ymd(serial as f64)
+                .map(|(y, m, _)| i64::from(y) * 12 + i64::from(m) - 1)
+        };
+        let months = |delta: i64| match (month(day), month(today)) {
+            (Some(a), Some(b)) => a == b + delta,
+            _ => false,
+        };
+        match self {
+            TimePeriod::Yesterday => day == today - 1,
+            TimePeriod::Today => day == today,
+            TimePeriod::Tomorrow => day == today + 1,
+            TimePeriod::Last7Days => (today - 6..=today).contains(&day),
+            TimePeriod::LastWeek => (sunday - 7..sunday).contains(&day),
+            TimePeriod::ThisWeek => (sunday..sunday + 7).contains(&day),
+            TimePeriod::NextWeek => (sunday + 7..sunday + 14).contains(&day),
+            TimePeriod::LastMonth => months(-1),
+            TimePeriod::ThisMonth => months(0),
+            TimePeriod::NextMonth => months(1),
+        }
+    }
+}
+
+/// Where a data bar's zero axis sits (Excel 2010 `axisPosition`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DataBarAxis {
+    /// Proportional to the negative part of the range (no axis when every
+    /// value is positive).
+    #[default]
+    Automatic,
+    /// The middle of the cell.
+    Midpoint,
+    /// No axis: negative bars grow in the same direction as positive ones.
+    None,
+}
+
+/// The direction of a data bar (Excel 2010 `direction`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DataBarDirection {
+    /// As the sheet (left to right).
+    #[default]
+    Context,
+    LeftToRight,
+    RightToLeft,
+}
+
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
+fn ten() -> u32 {
+    10
+}
+
+fn is_ten(n: &u32) -> bool {
+    *n == 10
+}
+
+fn ninety() -> u32 {
+    90
+}
+
+fn is_ninety(n: &u32) -> bool {
+    *n == 90
+}
+
+/// Excel 2010's default fill of negative data bars.
+pub const NEGATIVE_BAR_COLOR: Rgb = Rgb::new(255, 0, 0);
+
+/// What the grid draws for a data bar in one cell: the bar spans `from`
+/// to `to` (fractions of the cell width, from its left edge, `from <=
+/// to`), an axis at `axis` when the rule has one. The colours are final
+/// (negative values already use the negative colours).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataBarDraw {
+    pub from: f64,
+    pub to: f64,
+    /// The cell's value is negative.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub negative: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axis: Option<f64>,
+    pub color: Color,
+    /// Gradient (fading to white towards the bar's end) or solid fill.
+    pub gradient: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axis_color: Option<Color>,
+}
+
 /// What a rule tests or draws.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -352,18 +512,50 @@ pub enum CfKind {
         bottom: bool,
     },
     /// Numbers above (`above`) or below the average; `equal` includes it.
+    /// With `std_dev` = n (1–3): numbers above `average + n σ` (below
+    /// `average − n σ`), σ the population standard deviation.
     AboveAverage {
         above: bool,
         equal: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        std_dev: Option<u32>,
+    },
+    /// "A Date Occurring": date serials in the period around today.
+    TimePeriod {
+        period: TimePeriod,
     },
     /// Values occurring more than once (text case-insensitive).
     DuplicateValues,
     UniqueValues,
+    /// A data bar from `min` to `max`. The other fields are Excel 2010's
+    /// options (`x14:dataBar`); their defaults are those of an Excel 2007
+    /// bar (gradient, no border, bars from 10 % to 90 % of the cell).
     DataBar {
         color: Color,
         min: CfValue,
         max: CfValue,
         show_value: bool,
+        #[serde(default = "yes", skip_serializing_if = "is_true")]
+        gradient: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        border: Option<Color>,
+        /// Fill of negative bars (`None`: Excel's red).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        negative_color: Option<Color>,
+        /// Border of negative bars (`None`: as the positive border).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        negative_border: Option<Color>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        axis_color: Option<Color>,
+        #[serde(default, skip_serializing_if = "is_default")]
+        axis: DataBarAxis,
+        #[serde(default, skip_serializing_if = "is_default")]
+        direction: DataBarDirection,
+        /// Shortest and longest bar, percent of the cell width.
+        #[serde(default = "ten", skip_serializing_if = "is_ten")]
+        min_length: u32,
+        #[serde(default = "ninety", skip_serializing_if = "is_ninety")]
+        max_length: u32,
     },
     /// Two or three points, lowest first.
     ColorScale {
@@ -371,16 +563,39 @@ pub enum CfKind {
     },
     /// `thresholds` has one entry per icon, lowest first (the first is
     /// usually `percent 0`); a number gets the icon of the last threshold
-    /// it reaches (`>=`).
+    /// it reaches (`>=`, or `>` where `greater[i]` is true; `greater` may
+    /// be empty = all `>=`).
     IconSet {
         set: IconSetKind,
         thresholds: Vec<CfValue>,
         reverse: bool,
         show_value: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        greater: Vec<bool>,
     },
 }
 
 impl CfKind {
+    /// A data bar with Excel 2007's look (gradient fill, no border, the
+    /// automatic axis, bars from 10 % to 90 % of the cell).
+    pub fn data_bar(color: Color, min: CfValue, max: CfValue, show_value: bool) -> CfKind {
+        CfKind::DataBar {
+            color,
+            min,
+            max,
+            show_value,
+            gradient: true,
+            border: None,
+            negative_color: None,
+            negative_border: None,
+            axis_color: None,
+            axis: DataBarAxis::Automatic,
+            direction: DataBarDirection::Context,
+            min_length: 10,
+            max_length: 90,
+        }
+    }
+
     /// Every formula of the rule (thresholds included).
     fn formulas_mut(&mut self) -> Vec<&mut String> {
         match self {
@@ -466,8 +681,23 @@ impl CfRule {
                 bad("a colour scale has 2 or 3 points")
             }
             CfKind::IconSet {
-                set, thresholds, ..
-            } if thresholds.len() != set.icons() => bad("one threshold per icon"),
+                set,
+                thresholds,
+                greater,
+                ..
+            } if thresholds.len() != set.icons()
+                || !(greater.is_empty() || greater.len() == thresholds.len()) =>
+            {
+                bad("one threshold per icon")
+            }
+            CfKind::AboveAverage {
+                std_dev: Some(n), ..
+            } if !(1..=3).contains(n) => bad("1 to 3 standard deviations"),
+            CfKind::DataBar {
+                min_length,
+                max_length,
+                ..
+            } if min_length > max_length || *max_length > 100 => bad("data bar lengths"),
             _ => Ok(()),
         }
     }
@@ -480,11 +710,9 @@ pub struct CfResult {
     /// The combined differential format of the matching highlight rules.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dxf: Option<DxfStyle>,
-    /// Data bar length, `0.0..=1.0` of the bar's full length.
+    /// The data bar, computed in full (lengths, axis, colours).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bar: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bar_color: Option<Color>,
+    pub bar: Option<DataBarDraw>,
     /// Colour scale background.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<Color>,
@@ -496,6 +724,10 @@ pub struct CfResult {
     /// A data bar or icon set hides the cell value (`show_value: false`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hide_value: bool,
+    /// The value in the number format of the highlight rule (`dxf/numFmt`),
+    /// replacing the cell's own display text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<String>,
 }
 
 impl CfResult {
@@ -567,29 +799,119 @@ enum Prepared {
         cut: f64,
         top: bool,
     },
+    /// Numbers beyond `cut` (`above`: `> cut`, else `< cut`); `equal`
+    /// includes it.
     Average {
-        avg: f64,
+        cut: f64,
         above: bool,
         equal: bool,
     },
+    Period(TimePeriod, i64),
     Count {
         counts: HashMap<ValueKey, u32>,
         duplicates: bool,
     },
-    Bar {
-        min: f64,
-        max: f64,
-        color: Color,
-        show: bool,
-    },
+    Bar(Box<BarSpec>),
     Scale(Vec<(f64, Color)>),
     Icons {
         set: IconSetKind,
         cuts: Vec<f64>,
+        greater: Vec<bool>,
         reverse: bool,
         show: bool,
     },
     Never,
+}
+
+/// A data bar rule prepared against its range: the bounds and options.
+struct BarSpec {
+    lo: f64,
+    hi: f64,
+    color: Color,
+    show: bool,
+    gradient: bool,
+    border: Option<Color>,
+    negative_color: Option<Color>,
+    negative_border: Option<Color>,
+    axis_color: Option<Color>,
+    axis: DataBarAxis,
+    direction: DataBarDirection,
+    min_length: f64,
+    max_length: f64,
+}
+
+impl BarSpec {
+    /// The bar of value `n` (Excel's geometry): without an axis the bar
+    /// grows from the left edge, `min_length` for `lo` to `max_length`
+    /// for `hi`; with an axis (some value below zero, or the midpoint
+    /// axis) positive bars grow right of it and negative bars left of it,
+    /// each side scaled by its extreme. Right-to-left mirrors everything.
+    fn draw(&self, n: f64) -> DataBarDraw {
+        let (lo, hi) = (self.lo.min(self.hi), self.lo.max(self.hi));
+        let v = n.clamp(lo, hi);
+        let negative = n < 0.0;
+        let axis = match self.axis {
+            DataBarAxis::None => None,
+            DataBarAxis::Midpoint => Some(0.5),
+            DataBarAxis::Automatic if lo < 0.0 => {
+                Some(if hi <= 0.0 { 1.0 } else { -lo / (hi - lo) })
+            }
+            DataBarAxis::Automatic => None,
+        };
+        let (from, to) = match axis {
+            None => {
+                let frac = if hi > lo { (v - lo) / (hi - lo) } else { 1.0 };
+                (
+                    0.0,
+                    self.min_length + frac * (self.max_length - self.min_length),
+                )
+            }
+            Some(a) => {
+                let (pos, neg) = if self.axis == DataBarAxis::Midpoint {
+                    let m = hi.abs().max(lo.abs());
+                    (m, m)
+                } else {
+                    (hi.max(0.0), -lo.min(0.0))
+                };
+                let scale = self.max_length;
+                if v >= 0.0 {
+                    let len = if pos > 0.0 { v / pos } else { 0.0 };
+                    (a, a + len * (1.0 - a) * scale)
+                } else {
+                    let len = if neg > 0.0 { -v / neg } else { 0.0 };
+                    (a - len * a * scale, a)
+                }
+            }
+        };
+        let rtl = self.direction == DataBarDirection::RightToLeft;
+        let flip = |x: f64| if rtl { 1.0 - x } else { x };
+        let (from, to) = if rtl {
+            (flip(to), flip(from))
+        } else {
+            (from, to)
+        };
+        let color = if negative {
+            self.negative_color
+                .unwrap_or(Color::Rgb(NEGATIVE_BAR_COLOR))
+        } else {
+            self.color
+        };
+        let border = if negative {
+            self.negative_border.or(self.border)
+        } else {
+            self.border
+        };
+        DataBarDraw {
+            from: from.clamp(0.0, 1.0),
+            to: to.clamp(0.0, 1.0),
+            negative,
+            axis: axis.map(flip),
+            color,
+            gradient: self.gradient,
+            border,
+            axis_color: axis.map(|_| self.axis_color.unwrap_or(Color::Rgb(Rgb::BLACK))),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -675,6 +997,8 @@ impl Evaluator<'_> {
         match v {
             CfValue::Min => Some(min),
             CfValue::Max => Some(max),
+            CfValue::AutoMin => Some(min.min(0.0)),
+            CfValue::AutoMax => Some(max.max(0.0)),
             CfValue::Num(s) | CfValue::Formula(s) => num(s),
             CfValue::Percent(s) => Some(min + num(s)? / 100.0 * (max - min)),
             CfValue::Percentile(s) => nums.percentile(num(s)?),
@@ -729,17 +1053,39 @@ impl Evaluator<'_> {
                 };
                 Prepared::Rank { cut, top: !bottom }
             }
-            CfKind::AboveAverage { above, equal } => {
+            CfKind::AboveAverage {
+                above,
+                equal,
+                std_dev,
+            } => {
                 let nums = Self::stats(&self.values(rule));
                 if nums.sorted.is_empty() {
                     return Prepared::Never;
                 }
-                let avg = nums.sorted.iter().sum::<f64>() / nums.sorted.len() as f64;
+                let n = nums.sorted.len() as f64;
+                let avg = nums.sorted.iter().sum::<f64>() / n;
+                let cut = match std_dev {
+                    Some(k) => {
+                        let var = nums.sorted.iter().map(|x| (x - avg).powi(2)).sum::<f64>() / n;
+                        let d = f64::from(*k) * var.sqrt();
+                        if *above {
+                            avg + d
+                        } else {
+                            avg - d
+                        }
+                    }
+                    None => avg,
+                };
                 Prepared::Average {
-                    avg,
+                    cut,
                     above: *above,
                     equal: *equal,
                 }
+            }
+            CfKind::TimePeriod { period } => {
+                let engine = self.wb.engine();
+                let ctx = engine.eval_context(engine as &dyn CellProvider, at);
+                Prepared::Period(*period, (ctx.now)().floor() as i64)
             }
             CfKind::DuplicateValues | CfKind::UniqueValues => {
                 let mut counts = HashMap::new();
@@ -758,18 +1104,36 @@ impl Evaluator<'_> {
                 min,
                 max,
                 show_value,
+                gradient,
+                border,
+                negative_color,
+                negative_border,
+                axis_color,
+                axis,
+                direction,
+                min_length,
+                max_length,
             } => {
                 let nums = Self::stats(&self.values(rule));
                 match (
                     self.threshold(min, &nums, at),
                     self.threshold(max, &nums, at),
                 ) {
-                    (Some(lo), Some(hi)) => Prepared::Bar {
-                        min: lo,
-                        max: hi,
+                    (Some(lo), Some(hi)) => Prepared::Bar(Box::new(BarSpec {
+                        lo,
+                        hi,
                         color: *color,
                         show: *show_value,
-                    },
+                        gradient: *gradient,
+                        border: *border,
+                        negative_color: *negative_color,
+                        negative_border: *negative_border,
+                        axis_color: *axis_color,
+                        axis: *axis,
+                        direction: *direction,
+                        min_length: f64::from(*min_length) / 100.0,
+                        max_length: f64::from(*max_length) / 100.0,
+                    })),
                     _ => Prepared::Never,
                 }
             }
@@ -786,6 +1150,7 @@ impl Evaluator<'_> {
                 thresholds,
                 reverse,
                 show_value,
+                greater,
             } => {
                 let nums = Self::stats(&self.values(rule));
                 let cuts: Option<Vec<f64>> = thresholds
@@ -795,6 +1160,7 @@ impl Evaluator<'_> {
                 cuts.map_or(Prepared::Never, |cuts| Prepared::Icons {
                     set: *set,
                     cuts,
+                    greater: greater.clone(),
                     reverse: *reverse,
                     show: *show_value,
                 })
@@ -852,27 +1218,19 @@ impl Evaluator<'_> {
             Prepared::Rank { cut, top } => {
                 number_of(&v).is_some_and(|n| if *top { n >= *cut } else { n <= *cut })
             }
-            Prepared::Average { avg, above, equal } => number_of(&v)
-                .is_some_and(|n| (*equal && n == *avg) || if *above { n > *avg } else { n < *avg }),
+            Prepared::Average { cut, above, equal } => number_of(&v)
+                .is_some_and(|n| (*equal && n == *cut) || if *above { n > *cut } else { n < *cut }),
+            Prepared::Period(period, today) => {
+                number_of(&v).is_some_and(|n| period.contains(n.floor() as i64, *today))
+            }
             Prepared::Count { counts, duplicates } => value_key(&v)
                 .and_then(|k| counts.get(&k))
                 .is_some_and(|&n| (n > 1) == *duplicates),
-            Prepared::Bar {
-                min,
-                max,
-                color,
-                show,
-            } => {
+            Prepared::Bar(spec) => {
                 let Some(n) = number_of(&v) else { return false };
                 if out.bar.is_none() {
-                    let frac = if max > min {
-                        ((n - min) / (max - min)).clamp(0.0, 1.0)
-                    } else {
-                        1.0
-                    };
-                    out.bar = Some(frac);
-                    out.bar_color = Some(*color);
-                    out.hide_value |= !show;
+                    out.bar = Some(spec.draw(n));
+                    out.hide_value |= !spec.show;
                 }
                 return true;
             }
@@ -886,12 +1244,24 @@ impl Evaluator<'_> {
             Prepared::Icons {
                 set,
                 cuts,
+                greater,
                 reverse,
                 show,
             } => {
                 let Some(n) = number_of(&v) else { return false };
                 if out.icon.is_none() {
-                    let reached = cuts.iter().skip(1).take_while(|&&t| n >= t).count();
+                    let reached = cuts
+                        .iter()
+                        .enumerate()
+                        .skip(1)
+                        .take_while(|&(i, &t)| {
+                            if greater.get(i).copied().unwrap_or(false) {
+                                n > t
+                            } else {
+                                n >= t
+                            }
+                        })
+                        .count();
                     let last = cuts.len().saturating_sub(1);
                     let i = if *reverse { last - reached } else { reached };
                     out.icon = Some(i as u8);
@@ -1156,7 +1526,16 @@ impl Workbook {
         cells
             .into_iter()
             .filter(|(_, (r, _))| !r.is_empty())
-            .map(|((row, col), (r, _))| (CellCoord::new(sheet, row, col), r))
+            .map(|((row, col), (mut r, _))| {
+                let c = CellCoord::new(sheet, row, col);
+                if let Some(code) = r.dxf.as_ref().and_then(|d| d.number_format.as_deref()) {
+                    let v = self.value(c);
+                    if !matches!(v, Value::Empty) {
+                        r.display = Some(crate::numfmt::display_value(&v, Some(code)));
+                    }
+                }
+                (c, r)
+            })
             .collect()
     }
 }
@@ -1341,6 +1720,7 @@ mod tests {
             CfKind::AboveAverage {
                 above: true,
                 equal: false,
+                std_dev: None,
             },
             &[5, 6, 7, 8, 9],
         );
@@ -1349,6 +1729,7 @@ mod tests {
             CfKind::AboveAverage {
                 above: false,
                 equal: true,
+                std_dev: None,
             },
             &[0, 1, 2, 3, 4],
         );
@@ -1364,19 +1745,17 @@ mod tests {
             s,
             vec![rule(
                 r.clone(),
-                CfKind::DataBar {
-                    color: red(),
-                    min: CfValue::Min,
-                    max: CfValue::Max,
-                    show_value: false,
-                },
+                CfKind::data_bar(red(), CfValue::Min, CfValue::Max, false),
             )],
         )
         .unwrap();
         let res = wb.effective_cf(RangeRef::new(s, 0, 0, 9, 0));
-        let bars: Vec<Option<f64>> = res.iter().map(|(_, r)| r.bar).collect();
-        assert_eq!(bars, [Some(0.0), Some(0.5), Some(1.0)]);
-        assert!(res[0].1.hide_value && res[0].1.bar_color == Some(red()));
+        let bars: Vec<(f64, f64)> = res
+            .iter()
+            .map(|(_, r)| r.bar.as_ref().map(|b| (b.from, b.to)).unwrap())
+            .collect();
+        assert_eq!(bars, [(0.0, 0.1), (0.0, 0.5), (0.0, 0.9)]);
+        assert!(res[0].1.hide_value && res[0].1.bar.as_ref().unwrap().color == red());
 
         let white = Color::Rgb(Rgb::WHITE);
         wb.set_cf_rules(
@@ -1422,6 +1801,7 @@ mod tests {
                     thresholds: vec![pct("0"), pct("33"), pct("67")],
                     reverse: false,
                     show_value: true,
+                    greater: Vec::new(),
                 },
             )],
         )
@@ -1546,12 +1926,7 @@ mod tests {
             priority: 1,
             ..rule(
                 vec![rect(0, 0, 1, 1)],
-                CfKind::DataBar {
-                    color: red(),
-                    min: CfValue::Min,
-                    max: CfValue::Percent("90".into()),
-                    show_value: true,
-                },
+                CfKind::data_bar(red(), CfValue::Min, CfValue::Percent("90".into()), true),
             )
         };
         let json = serde_json::to_value(&r).unwrap();
@@ -1566,5 +1941,319 @@ mod tests {
             serde_json::to_value(IconSetKind::TrafficLights3).unwrap(),
             "3TrafficLights1"
         );
+    }
+
+    /// 2024-01-17 (a Wednesday), noon.
+    fn wednesday() -> f64 {
+        45308.5
+    }
+
+    #[test]
+    fn date_occurring_periods() {
+        // Days around Wed 2024-01-17: Sun 01-07 .. Sat 01-27, and Dec/Feb.
+        let today = wednesday() as i64;
+        let p = |period: TimePeriod, delta: i64| period.contains(today + delta, today);
+        assert!(p(TimePeriod::Today, 0) && !p(TimePeriod::Today, 1));
+        assert!(p(TimePeriod::Yesterday, -1) && p(TimePeriod::Tomorrow, 1));
+        assert!(p(TimePeriod::Last7Days, -6) && !p(TimePeriod::Last7Days, -7));
+        assert!(!p(TimePeriod::Last7Days, 1));
+        // This week: Sun 01-14 .. Sat 01-20.
+        assert!(p(TimePeriod::ThisWeek, -3) && p(TimePeriod::ThisWeek, 3));
+        assert!(!p(TimePeriod::ThisWeek, -4) && !p(TimePeriod::ThisWeek, 4));
+        assert!(p(TimePeriod::LastWeek, -4) && p(TimePeriod::LastWeek, -10));
+        assert!(!p(TimePeriod::LastWeek, -11));
+        assert!(p(TimePeriod::NextWeek, 4) && p(TimePeriod::NextWeek, 10));
+        assert!(!p(TimePeriod::NextWeek, 11));
+        // Months: January; December 2023; February 2024.
+        assert!(p(TimePeriod::ThisMonth, -16) && !p(TimePeriod::ThisMonth, -17));
+        assert!(p(TimePeriod::LastMonth, -17) && p(TimePeriod::LastMonth, -47));
+        assert!(!p(TimePeriod::LastMonth, -48));
+        assert!(p(TimePeriod::NextMonth, 15) && !p(TimePeriod::NextMonth, 14));
+        for (period, name) in TIME_PERIODS {
+            assert_eq!(TimePeriod::from_name(name), Some(period));
+            assert_eq!(period.name(), name);
+        }
+    }
+
+    #[test]
+    fn date_occurring_rule_uses_the_engine_clock() {
+        let today = wednesday().floor();
+        let days: Vec<String> = [-1.0, 0.0, 1.0, 0.75]
+            .iter()
+            .map(|d| (today + d).to_string())
+            .collect();
+        let refs: Vec<&str> = days.iter().map(String::as_str).collect();
+        let (mut wb, s) = column(&refs);
+        wb.set_input(CellCoord::new(s, 4, 0), "today").unwrap();
+        wb.engine_mut().set_now(wednesday);
+        let mut rule = rule(
+            vec![rect(0, 0, 9, 0)],
+            CfKind::TimePeriod {
+                period: TimePeriod::Today,
+            },
+        );
+        wb.add_cf_rule(s, rule.clone()).unwrap();
+        // Today, and today with a time of day.
+        assert_eq!(rows(&wb, s), [1, 3]);
+        rule.id = 1;
+        rule.kind = CfKind::TimePeriod {
+            period: TimePeriod::Yesterday,
+        };
+        wb.update_cf_rule(s, rule).unwrap();
+        assert_eq!(rows(&wb, s), [0]);
+    }
+
+    #[test]
+    fn above_average_with_standard_deviations() {
+        // 1..=9 and 30: average 7.5, population σ ≈ 7.83.
+        let vals: Vec<String> = (1..=9)
+            .map(|n| n.to_string())
+            .chain(["30".into()])
+            .collect();
+        let refs: Vec<&str> = vals.iter().map(String::as_str).collect();
+        let (mut wb, s) = column(&refs);
+        let mut check = |above: bool, equal: bool, std_dev: Option<u32>, want: &[u32]| {
+            wb.set_cf_rules(
+                s,
+                vec![rule(
+                    vec![rect(0, 0, 9, 0)],
+                    CfKind::AboveAverage {
+                        above,
+                        equal,
+                        std_dev,
+                    },
+                )],
+            )
+            .unwrap();
+            assert_eq!(rows(&wb, s), want, "{above} {equal} {std_dev:?}");
+        };
+        check(true, false, None, &[7, 8, 9]);
+        check(true, false, Some(1), &[9]);
+        check(true, false, Some(3), &[]);
+        check(false, false, Some(1), &[]);
+        check(false, false, None, &[0, 1, 2, 3, 4, 5, 6]);
+        // Equal includes the cut: 2 values, σ = 1, avg 1 → 1 + σ = 2.
+        let (mut wb, s) = column(&["0", "2"]);
+        wb.set_cf_rules(
+            s,
+            vec![rule(
+                vec![rect(0, 0, 1, 0)],
+                CfKind::AboveAverage {
+                    above: true,
+                    equal: true,
+                    std_dev: Some(1),
+                },
+            )],
+        )
+        .unwrap();
+        assert_eq!(rows(&wb, s), [1]);
+        let mut bad = rule(
+            vec![rect(0, 0, 1, 0)],
+            CfKind::AboveAverage {
+                above: true,
+                equal: false,
+                std_dev: Some(4),
+            },
+        );
+        assert!(bad.check().is_err());
+        bad.kind = CfKind::TimePeriod {
+            period: TimePeriod::NextMonth,
+        };
+        assert!(bad.check().is_ok());
+    }
+
+    #[test]
+    fn icon_thresholds_greater_than_and_reverse() {
+        let (mut wb, s) = column(&["0", "50", "51", "100"]);
+        let num = |n: &str| CfValue::Num(n.into());
+        let set = |wb: &mut Workbook, greater: Vec<bool>, reverse: bool| {
+            wb.set_cf_rules(
+                s,
+                vec![rule(
+                    vec![rect(0, 0, 3, 0)],
+                    CfKind::IconSet {
+                        set: IconSetKind::Arrows3,
+                        thresholds: vec![num("0"), num("50"), num("100")],
+                        reverse,
+                        show_value: false,
+                        greater,
+                    },
+                )],
+            )
+            .unwrap();
+            wb.effective_cf(RangeRef::new(s, 0, 0, 9, 0))
+                .into_iter()
+                .map(|(_, r)| (r.icon.unwrap(), r.hide_value))
+                .collect::<Vec<_>>()
+        };
+        let icons = |v: Vec<(u8, bool)>| v.into_iter().map(|(i, _)| i).collect::<Vec<_>>();
+        assert_eq!(icons(set(&mut wb, vec![], false)), [0, 1, 1, 2]);
+        assert_eq!(
+            icons(set(&mut wb, vec![false, true, true], false)),
+            [0, 0, 1, 1]
+        );
+        assert_eq!(icons(set(&mut wb, vec![], true)), [2, 1, 1, 0]);
+        assert!(set(&mut wb, vec![], true).iter().all(|(_, hide)| *hide));
+        // `greater` must be empty or one per threshold.
+        let mut bad = rule(
+            vec![rect(0, 0, 3, 0)],
+            CfKind::IconSet {
+                set: IconSetKind::Arrows3,
+                thresholds: vec![num("0"), num("50"), num("100")],
+                reverse: false,
+                show_value: true,
+                greater: vec![true],
+            },
+        );
+        assert!(bad.check().is_err());
+        bad.kind = CfKind::data_bar(red(), CfValue::Min, CfValue::Max, true);
+        if let CfKind::DataBar { min_length, .. } = &mut bad.kind {
+            *min_length = 95;
+        }
+        assert!(bad.check().is_err());
+    }
+
+    fn bar_spec(lo: f64, hi: f64, axis: DataBarAxis) -> BarSpec {
+        BarSpec {
+            lo,
+            hi,
+            color: red(),
+            show: true,
+            gradient: false,
+            border: None,
+            negative_color: None,
+            negative_border: None,
+            axis_color: None,
+            axis,
+            direction: DataBarDirection::Context,
+            min_length: 0.0,
+            max_length: 1.0,
+        }
+    }
+
+    #[test]
+    fn data_bar_axis_math() {
+        let span = |b: DataBarDraw| (b.from, b.to, b.negative, b.axis);
+        // Positive only: no axis, from the left edge.
+        let s = bar_spec(0.0, 100.0, DataBarAxis::Automatic);
+        assert_eq!(span(s.draw(25.0)), (0.0, 0.25, false, None));
+        // -50..150: the axis at 25 %; positive bars scaled by 150 over
+        // the right 75 %, negative ones by 50 over the left 25 %.
+        let s = bar_spec(-50.0, 150.0, DataBarAxis::Automatic);
+        assert_eq!(span(s.draw(150.0)), (0.25, 1.0, false, Some(0.25)));
+        assert_eq!(span(s.draw(-50.0)), (0.0, 0.25, true, Some(0.25)));
+        assert_eq!(span(s.draw(-25.0)), (0.125, 0.25, true, Some(0.25)));
+        let b = s.draw(-25.0);
+        assert_eq!(b.color, Color::Rgb(NEGATIVE_BAR_COLOR));
+        assert_eq!(b.axis_color, Some(Color::Rgb(Rgb::BLACK)));
+        // Midpoint: both sides scaled by the larger extreme.
+        let s = bar_spec(-50.0, 100.0, DataBarAxis::Midpoint);
+        assert_eq!(span(s.draw(100.0)), (0.5, 1.0, false, Some(0.5)));
+        assert_eq!(span(s.draw(-50.0)), (0.25, 0.5, true, Some(0.5)));
+        // All negative: the axis on the right edge.
+        let s = bar_spec(-10.0, -2.0, DataBarAxis::Automatic);
+        assert_eq!(span(s.draw(-10.0)), (0.0, 1.0, true, Some(1.0)));
+        // No axis: negative values grow from the left like positive ones.
+        let s = bar_spec(-50.0, 50.0, DataBarAxis::None);
+        assert_eq!(span(s.draw(-50.0)), (0.0, 0.0, true, None));
+        assert_eq!(span(s.draw(50.0)), (0.0, 1.0, false, None));
+        // Right to left mirrors bar and axis; lengths 10..90 %.
+        let mut s = bar_spec(-50.0, 150.0, DataBarAxis::Automatic);
+        s.direction = DataBarDirection::RightToLeft;
+        assert_eq!(span(s.draw(150.0)), (0.0, 0.75, false, Some(0.75)));
+        let mut s = bar_spec(0.0, 10.0, DataBarAxis::Automatic);
+        (s.min_length, s.max_length) = (0.1, 0.9);
+        s.negative_border = Some(red());
+        assert_eq!(span(s.draw(0.0)), (0.0, 0.1, false, None));
+        assert!((s.draw(10.0).to - 0.9).abs() < 1e-12);
+        assert_eq!(s.draw(5.0).border, None);
+    }
+
+    #[test]
+    fn auto_min_max_and_bar_rules_in_the_sheet() {
+        let (mut wb, s) = column(&["-10", "0", "30"]);
+        let mut kind = CfKind::data_bar(red(), CfValue::AutoMin, CfValue::AutoMax, true);
+        if let CfKind::DataBar {
+            negative_color,
+            min_length,
+            max_length,
+            gradient,
+            ..
+        } = &mut kind
+        {
+            *negative_color = Some(Color::Rgb(Rgb::new(0, 0, 255)));
+            (*min_length, *max_length) = (0, 100);
+            *gradient = false;
+        }
+        wb.set_cf_rules(s, vec![rule(vec![rect(0, 0, 2, 0)], kind)])
+            .unwrap();
+        let res = wb.effective_cf(RangeRef::new(s, 0, 0, 9, 0));
+        let bars: Vec<DataBarDraw> = res.into_iter().filter_map(|(_, r)| r.bar).collect();
+        assert_eq!(bars.len(), 3);
+        assert_eq!(
+            (bars[0].from, bars[0].to, bars[0].axis),
+            (0.0, 0.25, Some(0.25))
+        );
+        assert_eq!(bars[0].color, Color::Rgb(Rgb::new(0, 0, 255)));
+        assert!(!bars[0].gradient);
+        assert_eq!((bars[2].from, bars[2].to), (0.25, 1.0));
+        // Positive values only: autoMin is 0.
+        let (mut wb, s) = column(&["10", "20"]);
+        let kind = CfKind::data_bar(red(), CfValue::AutoMin, CfValue::AutoMax, true);
+        wb.set_cf_rules(s, vec![rule(vec![rect(0, 0, 1, 0)], kind)])
+            .unwrap();
+        let res = wb.effective_cf(RangeRef::new(s, 0, 0, 9, 0));
+        let b = res[0].1.bar.as_ref().unwrap();
+        assert_eq!((b.from, b.axis), (0.0, None));
+        assert!((b.to - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn rule_number_formats_change_the_display() {
+        let (mut wb, s) = column(&["0.25", "5", "text"]);
+        let mut r = rule(vec![rect(0, 0, 2, 0)], CfKind::NotContainsBlanks);
+        r.dxf = Some(DxfStyle {
+            number_format: Some("0.0%".into()),
+            ..Default::default()
+        });
+        wb.set_cf_rules(s, vec![r]).unwrap();
+        let shown: Vec<Option<String>> = wb
+            .effective_cf(RangeRef::new(s, 0, 0, 9, 0))
+            .into_iter()
+            .map(|(_, r)| r.display)
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                Some("25.0%".to_string()),
+                Some("500.0%".to_string()),
+                Some("text".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn expression_rules_are_anchored_at_the_top_left() {
+        // B2:C4 with =$B2>B$2: relative parts move per cell from B2.
+        let mut wb = Workbook::new();
+        let s = SheetId(0);
+        for (r, row) in [["5", "1"], ["7", "9"], ["3", "4"]].iter().enumerate() {
+            for (c, v) in row.iter().enumerate() {
+                wb.set_input(CellCoord::new(s, r as u32 + 1, c as u32 + 1), v)
+                    .unwrap();
+            }
+        }
+        wb.add_cf_rule(
+            s,
+            rule(
+                vec![rect(1, 1, 3, 2)],
+                CfKind::Expression {
+                    formula: "=$B2>B$2".into(),
+                },
+            ),
+        )
+        .unwrap();
+        // B3 (7>5), C2 (5>1), C3 (7>1), C4 (3>1).
+        assert_eq!(hits(&wb, s), [(1, 2), (2, 1), (2, 2), (3, 2)]);
     }
 }

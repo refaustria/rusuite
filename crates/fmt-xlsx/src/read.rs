@@ -8,9 +8,9 @@ use engine_formula::{offset_relative, CellContent, CellCoord, ErrorKind, Expr, S
 use fmt_ooxml::theme::parse_color_scheme;
 use fmt_ooxml::{rel, Package, PartName, TargetMode};
 use model_sheet::{
-    AutoFilter, BuiltinName, ColInfo, Criterion, DefinedName, DynamicFilter, Filter, FilterColumn,
-    FilterOp, MergeRect, NameScope, RowInfo, SheetFormat, SheetView, SortKey, SortKind, SortState,
-    StyleId, Workbook, MAX_ZOOM, MIN_ZOOM,
+    AutoFilter, BuiltinName, ColInfo, Criterion, DateGroup, DefinedName, DynamicFilter, Filter,
+    FilterColumn, FilterOp, IconSetKind, MergeRect, NameScope, RowInfo, SheetFormat, SheetView,
+    SortKey, SortKind, SortOn, SortState, StyleId, Workbook, MAX_ZOOM, MIN_ZOOM,
 };
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
@@ -211,6 +211,11 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     })();
     wb.end_batch();
     loaded?;
+    // Hidden rows inside a filtered range that pass the filter were hidden
+    // by hand (the file does not tell them apart; see finish_filter).
+    for (id, _, _) in &sheets {
+        wb.settle_filtered_rows(*id)?;
+    }
 
     // Charts last: their references need every sheet.
     let mut slicer_anchors: HashMap<SheetId, Vec<(String, model_sheet::ChartAnchor)>> =
@@ -704,7 +709,10 @@ impl SheetLoader<'_> {
         // 0 = before the first <sheetView>, 1 = inside it, 2 = after it
         // (only the first view is read).
         let mut view_state = 0u8;
-        let mut filter = FilterReader::default();
+        let mut filter = FilterReader {
+            dxfs: self.dxfs.to_vec(),
+            ..Default::default()
+        };
         // `<rowBreaks>` / `<colBreaks>` being read, and the breaks.
         let mut breaks_axis: Option<model_sheet::Axis> = None;
         let mut row_breaks: Vec<u32> = Vec::new();
@@ -1184,6 +1192,9 @@ pub(crate) struct FilterReader {
     sort_state: Option<SortState>,
     in_sort: bool,
     pub(crate) warnings: Vec<String>,
+    /// The workbook's differential formats (colour filters and colour
+    /// sort conditions refer to them).
+    pub(crate) dxfs: Vec<model_sheet::DxfStyle>,
 }
 
 /// The literal text of a wildcard pattern without unescaped wildcards
@@ -1262,22 +1273,52 @@ impl FilterReader {
                     c1,
                     keys: Vec::new(),
                     case_sensitive: attr_bool(el, "caseSensitive").unwrap_or(false),
+                    column_sort: attr_bool(el, "columnSort").unwrap_or(false),
                 });
             }
             b"sortCondition" if self.in_sort => {
-                let by = attr(el, "sortBy");
-                let col = range(el).map(|(_, c0, _, _)| c0);
-                match (self.sort_state.as_mut(), col) {
-                    (Some(st), Some(col)) if by.as_deref().unwrap_or("value") == "value" => {
+                let column_sort = self.sort_state.as_ref().is_some_and(|s| s.column_sort);
+                let line = range(el).map(|(r0, c0, _, _)| if column_sort { r0 } else { c0 });
+                // The colour's dxf (`Some(None)`: none given = no colour; an
+                // unknown dxf drops the condition).
+                let dxf = || match attr_parse::<usize>(el, "dxfId") {
+                    Some(i) => self.dxfs.get(i).cloned().map(Some),
+                    None => Some(None),
+                };
+                let sort_on = match attr(el, "sortBy").as_deref().unwrap_or("value") {
+                    "value" => Some(SortOn::Values),
+                    "cellColor" => dxf().map(|d| SortOn::CellColor {
+                        color: d.and_then(|d| d.fill),
+                    }),
+                    "fontColor" => dxf().map(|d| SortOn::FontColor {
+                        color: d.and_then(|d| d.font_color),
+                    }),
+                    "icon" => attr(el, "iconSet")
+                        .and_then(|n| IconSetKind::from_name(&n))
+                        .map(|set| SortOn::Icon {
+                            set,
+                            icon: attr_parse::<u8>(el, "iconId").unwrap_or(0),
+                        }),
+                    _ => None,
+                };
+                let custom_list = attr(el, "customList").map(|l| {
+                    l.split(',')
+                        .map(|x| x.trim().to_owned())
+                        .collect::<Vec<_>>()
+                });
+                match (self.sort_state.as_mut(), line, sort_on) {
+                    (Some(st), Some(col), Some(sort_on)) => {
                         st.keys.push(SortKey {
                             col,
                             ascending: !attr_bool(el, "descending").unwrap_or(false),
                             kind: SortKind::Auto,
+                            sort_on,
+                            custom_list,
                         });
                     }
                     _ => self
                         .warnings
-                        .push("sort condition by colour or icon dropped".into()),
+                        .push("unsupported sort condition dropped".into()),
                 }
             }
             _ => {
@@ -1296,10 +1337,75 @@ impl FilterReader {
                         });
                     }
                     b"filter" => {
-                        if let (Some(Filter::Values { values }), Some(v)) =
-                            (filter.as_mut(), attr(el, "val"))
+                        if let (
+                            Some(Filter::Values { values } | Filter::DateGroups { values, .. }),
+                            Some(v),
+                        ) = (filter.as_mut(), attr(el, "val"))
                         {
                             values.push(decode_x_escapes(&v).into_owned());
+                        }
+                    }
+                    b"dateGroupItem" => {
+                        let year = attr_parse::<i32>(el, "year");
+                        let grouping = attr(el, "dateTimeGrouping");
+                        let (month, day) = match grouping.as_deref() {
+                            Some("year") => (None, None),
+                            Some("month") => (attr_parse::<u32>(el, "month"), None),
+                            Some("day") => {
+                                (attr_parse::<u32>(el, "month"), attr_parse::<u32>(el, "day"))
+                            }
+                            // Hours, minutes and seconds are not supported.
+                            _ => {
+                                *bad = true;
+                                return true;
+                            }
+                        };
+                        let group = match year {
+                            Some(year) => DateGroup { year, month, day },
+                            None => {
+                                *bad = true;
+                                return true;
+                            }
+                        };
+                        match filter.take() {
+                            Some(Filter::Values { values }) => {
+                                *filter = Some(Filter::DateGroups {
+                                    groups: vec![group],
+                                    values,
+                                })
+                            }
+                            Some(Filter::DateGroups { mut groups, values }) => {
+                                groups.push(group);
+                                *filter = Some(Filter::DateGroups { groups, values });
+                            }
+                            other => {
+                                *filter = other;
+                                *bad = true;
+                            }
+                        }
+                    }
+                    b"colorFilter" => {
+                        let font = !attr_bool(el, "cellColor").unwrap_or(true);
+                        let d = attr_parse::<usize>(el, "dxfId").and_then(|i| self.dxfs.get(i));
+                        match d {
+                            Some(d) => {
+                                *filter = Some(Filter::Color {
+                                    color: if font { d.font_color } else { d.fill },
+                                    font,
+                                })
+                            }
+                            None => *bad = true,
+                        }
+                    }
+                    b"iconFilter" => {
+                        match attr(el, "iconSet").and_then(|n| IconSetKind::from_name(&n)) {
+                            Some(set) => {
+                                *filter = Some(Filter::Icon {
+                                    set,
+                                    icon: attr_parse::<u8>(el, "iconId").unwrap_or(0),
+                                })
+                            }
+                            None => *bad = true,
                         }
                     }
                     b"customFilters" => {
@@ -1348,7 +1454,6 @@ impl FilterReader {
                             None => *bad = true,
                         }
                     }
-                    b"dateGroupItem" | b"colorFilter" | b"iconFilter" => *bad = true,
                     _ => return false,
                 }
             }
@@ -1368,7 +1473,7 @@ impl FilterReader {
         match (filter, bad, self.auto_filter.as_mut()) {
             (Some(filter), false, Some(af)) => af.columns.push(FilterColumn { col, filter }),
             _ => self.warnings.push(format!(
-                "unsupported filter of column {} dropped (date groups, colours, icons or other dynamic filters)",
+                "unsupported filter of column {} dropped (time groups or other dynamic filters)",
                 engine_formula::ast::col_to_letters(col)
             )),
         }

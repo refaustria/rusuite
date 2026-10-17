@@ -108,6 +108,23 @@ pub enum Request {
     /// The in-cell dropdown values of the cell's list validation →
     /// `listValues` (empty without one).
     ListValues { sheet: u32, row: u32, col: u32 },
+    /// Data › Data Validation › Circle Invalid Data: the cells of `sheet`
+    /// whose values fail their validation (at most 255) → `invalidCells`.
+    InvalidCells { sheet: u32 },
+    /// The fills, font colours and icons of line `line` (a column; a row
+    /// with `columns`) of the range → `lineColors` (Sort by Color, Filter
+    /// by Color).
+    LineColors {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+        line: u32,
+        #[serde(default)]
+        #[ts(optional, as = "Option<bool>")]
+        columns: bool,
+    },
     /// The conditional formatting rules (priority order) and the data
     /// validations of `sheet` (for the manage dialogs) → `sheetRules`.
     SheetRules { sheet: u32 },
@@ -332,6 +349,16 @@ pub enum ResponseBody {
     ListValues {
         values: Vec<String>,
     },
+    /// The reply to `invalidCells`: one single-cell rectangle per cell,
+    /// row-major.
+    InvalidCells {
+        cells: Vec<crate::Rect>,
+    },
+    /// The reply to `lineColors`.
+    LineColors {
+        #[ts(as = "crate::wire::LineColors")]
+        colors: model_sheet::LineColors,
+    },
     /// The reply to `sheetCharts`.
     Charts {
         #[ts(as = "Vec<crate::wire_chart::ChartObject>")]
@@ -533,6 +560,23 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
         Request::ListValues { sheet, row, col } => ResponseBody::ListValues {
             values: host.doc().list_values(sheet, row, col)?,
         },
+        Request::InvalidCells { sheet } => ResponseBody::InvalidCells {
+            cells: host.doc().invalid_cells(sheet)?,
+        },
+        Request::LineColors {
+            sheet,
+            r0,
+            c0,
+            r1,
+            c1,
+            line,
+            columns,
+        } => {
+            let range = host.doc().range(sheet, r0, c0, r1, c1)?;
+            ResponseBody::LineColors {
+                colors: host.doc().workbook().line_colors(range, line, columns),
+            }
+        }
         Request::SheetRules { sheet } => {
             let (rules, validations) = host.doc().sheet_rules(sheet)?;
             ResponseBody::SheetRules { rules, validations }

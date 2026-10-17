@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { CellStyle } from "../generated/CellStyle";
 import type { CellView } from "../generated/CellView";
 import type { CfResult } from "../generated/CfResult";
+import type { DataBarDraw } from "../generated/DataBarDraw";
 import type { IconSetKind } from "../generated/IconSetKind";
-import { barSpan, cellNumber, cfKey, cfStyle, dataBarAxes, ICON_SETS, ICON_SIZE, iconCount, NEGATIVE_BAR, withDxf } from "./cf";
+import { barFillCss, barGrowsLeft, barRect, cfKey, cfStyle, ICON_SETS, ICON_SIZE, iconCount, withDxf } from "./cf";
 import { colGeometry, DEFAULT_FORMAT, rowGeometry } from "./geometry";
 import { computeRenderOps, type RenderOp, type SheetData } from "./render";
 import type { Measure } from "./textLayout";
@@ -70,46 +71,47 @@ describe("differential formats", () => {
 });
 
 describe("data bars", () => {
-  it("draws a bar from the left, proportional to `bar`, under the gridlines", () => {
-    const list = ops(sheet([num(0, 0, 5)], [[0, 0, { bar: 0.5, barColor: blue }]]));
-    const [bar] = of(list, "bar");
-    expect(bar).toEqual({ op: "bar", row: 0, col: 0, x: 2, y: 2, w: 33, h: 15, color: "#638EC6", negative: false });
+  const bar = (from: number, to: number, extra: Partial<DataBarDraw> = {}): DataBarDraw => ({ from, to, color: blue, gradient: true, ...extra });
+
+  it("draws the core's bar span inside the cell, under the gridlines", () => {
+    const list = ops(sheet([num(0, 0, 5)], [[0, 0, { bar: bar(0, 0.5, { border: blue }) }]]));
+    const [b] = of(list, "bar");
+    expect(b).toEqual({ op: "bar", row: 0, col: 0, x: 2, y: 2, w: 30, h: 15, color: "#638EC6", negative: false, fade: "right", border: "#638EC6" });
     expect(list.findIndex((o) => o.op === "bar")).toBeLessThan(list.findIndex((o) => o.op === "gridlines"));
   });
 
-  it("negative values get a red bar left of the zero axis", () => {
-    const s = sheet([num(0, 0, -5), num(1, 0, 5), num(2, 0, 0)], [
-      [0, 0, { bar: 0, barColor: blue }], [1, 0, { bar: 1, barColor: blue }], [2, 0, { bar: 0.5, barColor: blue }],
+  it("negative bars grow left of the axis in their own colour; the axis has its colour", () => {
+    const neg = { kind: "rgb" as const, value: "0000FF" };
+    const s = sheet([num(0, 0, -5), num(1, 0, 5)], [
+      [0, 0, { bar: bar(0, 0.5, { negative: true, axis: 0.5, color: neg, axisColor: red }) }],
+      [1, 0, { bar: bar(0.5, 1, { axis: 0.5, gradient: false }) }],
     ]);
-    expect(dataBarAxes(s.cf!, (r, c) => s.cells.get(r)?.get(c))).toEqual(new Map([[JSON.stringify(blue), 0.5]]));
-    const [neg, pos] = of(ops(s), "bar");
-    expect(neg).toMatchObject({ row: 0, x: 2, w: 30, color: NEGATIVE_BAR, negative: true, axisX: 32 });
-    expect(pos).toMatchObject({ row: 1, x: 32, w: 30, color: "#638EC6", negative: false, axisX: 32 });
+    const [n, p] = of(ops(s), "bar");
+    expect(n).toMatchObject({ row: 0, x: 2, w: 30, color: "#0000FF", negative: true, fade: "left", axisX: 32, axisColor: "#FF0000" });
+    expect(p).toMatchObject({ row: 1, x: 32, w: 30, color: "#638EC6", negative: false, axisX: 32, axisColor: "#000000" });
+    expect(p).not.toHaveProperty("fade");
   });
 
-  it("rules with only positive values have no axis", () => {
-    const s = sheet([num(0, 0, 1), num(1, 0, 3)], [[0, 0, { bar: 0, barColor: blue }], [1, 0, { bar: 1, barColor: blue }]]);
-    expect(dataBarAxes(s.cf!, (r, c) => s.cells.get(r)?.get(c)).size).toBe(0);
-  });
-
-  it("barSpan clamps and splits at the axis", () => {
-    expect(barSpan(1.4, undefined)).toEqual({ from: 0, to: 1, negative: false });
-    expect(barSpan(0, undefined)).toEqual({ from: 0, to: 0.1, negative: false });
-    expect(barSpan(0.2, 0.4)).toEqual({ from: 0.2, to: 0.4, negative: true });
-    expect(barSpan(0.9, 0.4)).toEqual({ from: 0.4, to: 0.9, negative: false });
-  });
-
-  it("cellNumber reads plain inputs, grouped or percent displays, and skips text", () => {
-    expect(cellNumber(num(0, 0, -2.5))).toBe(-2.5);
-    expect(cellNumber({ row: 0, col: 0, input: "=A1", display: "1,234.5", kind: "number", style: 0 })).toBe(1234.5);
-    expect(cellNumber({ row: 0, col: 0, input: "=B1", display: "50%", kind: "number", style: 0 })).toBe(0.5);
-    expect(cellNumber({ row: 0, col: 0, input: "x", display: "x", kind: "text", style: 0 })).toBeNull();
+  it("barRect clamps the span; barGrowsLeft follows the axis or the right-to-left edge", () => {
+    expect(barRect(bar(-0.5, 1.5), 0, 64)).toEqual({ x: 2, w: 60 });
+    expect(barRect(bar(0.25, 0.25, { axis: 0.25 }), 10, 44)).toEqual({ x: 22, w: 0, axisX: 22 });
+    expect(barGrowsLeft(bar(0.1, 0.5, { axis: 0.5 }))).toBe(true);
+    expect(barGrowsLeft(bar(0.5, 0.9, { axis: 0.5 }))).toBe(false);
+    expect(barGrowsLeft(bar(0.4, 1))).toBe(true);
+    expect(barGrowsLeft(bar(0, 0.6))).toBe(false);
+    expect(barFillCss(bar(0, 1, { gradient: false }))).toBe("#638EC6");
+    expect(barFillCss(bar(0.4, 1))).toBe("linear-gradient(to left, #638EC6, #ffffff)");
   });
 
   it("Show Bar Only (hideValue) draws the bar but no text", () => {
-    const list = ops(sheet([num(0, 0, 5)], [[0, 0, { bar: 1, barColor: blue, hideValue: true }]]));
+    const list = ops(sheet([num(0, 0, 5)], [[0, 0, { bar: bar(0, 1), hideValue: true }]]));
     expect(of(list, "bar")).toHaveLength(1);
     expect(of(list, "text")).toHaveLength(0);
+  });
+
+  it("a rule's number format replaces the displayed text", () => {
+    const list = ops(sheet([num(0, 0, 5)], [[0, 0, { dxf: { numberFormat: "0.00" }, display: "5.00" }]]));
+    expect(of(list, "text")[0]).toMatchObject({ text: "5.00" });
   });
 });
 

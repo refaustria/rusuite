@@ -104,6 +104,90 @@ impl Comment {
     pub fn is_reply(&self) -> bool {
         self.parent.is_some()
     }
+
+    /// The addresses @mentioned in the comment, in order (no duplicates).
+    pub fn mentions(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for p in paragraphs_in(&self.content) {
+            for i in &p.inlines {
+                if let Some(a) = i.as_run().and_then(mentioned) {
+                    if !out.iter().any(|x| x.eq_ignore_ascii_case(a)) {
+                        out.push(a.to_owned());
+                    }
+                }
+            }
+        }
+        out
+    }
+}
+
+/// A comment author as listed in docx `people.xml` (`w15:person
+/// w15:author` with its `w15:presenceInfo`): who can be @mentioned and how
+/// Word identifies the author.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct Person {
+    /// The author name (as on the comments).
+    pub author: String,
+    /// `w15:presenceInfo w15:providerId` (`AD`, `Windows Live`, `None`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub provider_id: Option<String>,
+    /// `w15:presenceInfo w15:userId` (an e-mail address, an SID or the
+    /// name for provider `None`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub user_id: Option<String>,
+}
+
+impl Person {
+    /// A person without a directory account (`providerId="None"`, the
+    /// name as user id), as Word writes local authors.
+    pub fn local(author: impl Into<String>) -> Self {
+        let author = author.into();
+        Self {
+            user_id: Some(author.clone()),
+            provider_id: Some("None".into()),
+            author,
+        }
+    }
+
+    /// The e-mail address of the person, when the user id is one.
+    pub fn email(&self) -> Option<&str> {
+        self.user_id.as_deref().filter(|u| u.contains('@'))
+    }
+}
+
+/// The character style of an @mention in a comment (Word's "Mention").
+pub const MENTION_STYLE: &str = "Mention";
+
+/// An @mention: the run `@Name` linking to `mailto:` the person's address
+/// (Word writes mentions as hyperlinks in the `Mention` style).
+pub fn mention_run(name: &str, email: &str) -> crate::inline::Run {
+    let mut r = crate::inline::Run::new(format!("@{name}"));
+    r.style = Some(MENTION_STYLE.to_owned());
+    r.link = Some(crate::link::Hyperlink::new(
+        crate::link::LinkTarget::Email {
+            address: email.to_owned(),
+            subject: None,
+        },
+    ));
+    r
+}
+
+/// The address a run mentions (an `@…` run linking to `mailto:`).
+pub fn mentioned(run: &crate::inline::Run) -> Option<&str> {
+    match run.link.as_ref().map(|l| &l.target) {
+        Some(crate::link::LinkTarget::Email { address, .. }) if run.text.starts_with('@') => {
+            Some(address)
+        }
+        _ => None,
+    }
 }
 
 /// Where a thread's range lies: the paragraphs and char offsets of its
@@ -152,6 +236,26 @@ pub fn marker_of(inline: &Inline) -> Option<(CommentId, bool)> {
 type Found = (NodeId, usize, CommentId, bool);
 
 impl Document {
+    /// The people to write to `people.xml`: the ones read (or added) for
+    /// every comment author still present, then a local person for each
+    /// other author, in comment order.
+    pub fn comment_people(&self) -> Vec<Person> {
+        let mut out: Vec<Person> = Vec::new();
+        for c in &self.comments {
+            if c.author.is_empty() || out.iter().any(|p| p.author == c.author) {
+                continue;
+            }
+            out.push(
+                self.people
+                    .iter()
+                    .find(|p| p.author == c.author)
+                    .cloned()
+                    .unwrap_or_else(|| Person::local(c.author.clone())),
+            );
+        }
+        out
+    }
+
     /// The comment with id `id`.
     pub fn comment(&self, id: CommentId) -> Option<&Comment> {
         self.comments.iter().find(|c| c.id == id)

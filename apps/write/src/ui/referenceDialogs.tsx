@@ -1142,6 +1142,8 @@ export function ReferenceDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncCo
           ui.openDialog(null);
           void applyNotes(v).then(() => editor && insertNote(editor, ctl, v.kind));
         }}
+        onConvert={() => ui.openDialog("convertNotes")}
+        onSeparators={() => ui.openDialog("separators")}
       />
       <SymbolDialog
         open={dialog === "symbol"}

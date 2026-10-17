@@ -396,9 +396,11 @@ fn sort_moves_notes_and_sheet_operations_keep_them() {
                 col: 0,
                 ascending: true,
                 kind: SortKind::Auto,
+                ..Default::default()
             }],
             has_header: false,
             case_sensitive: false,
+            columns: false,
         },
     );
     assert_eq!(

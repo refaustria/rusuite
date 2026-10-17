@@ -362,6 +362,210 @@ pub struct Toc {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub caption: Option<String>,
+    /// The field's other switches (default: Word's `\\o \\h \\z \\u`).
+    #[serde(default, skip_serializing_if = "TocSwitches::is_default")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<TocSwitches>"))]
+    pub switches: TocSwitches,
+}
+
+/// A style listed in a `TOC \\t "Style,level"` switch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct TocStyleLevel {
+    /// The style's name (as written in the switch).
+    pub style: String,
+    /// The TOC level its paragraphs get (1–9).
+    pub level: u8,
+}
+
+/// Switches of a `TOC` field beyond the levels and the caption. The
+/// default is what Word inserts (`\\o "a-b" \\h \\z \\u`); the flags are
+/// negated so that the default is all `false`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct TocSwitches {
+    /// No `\\o`: the heading styles do not make entries (only `\\u`/`\\t`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub no_headings: bool,
+    /// No `\\h`: the entries are not links.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub no_links: bool,
+    /// No `\\z`: tab leaders and page numbers also in Web view.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub no_hide_web: bool,
+    /// No `\\u`: a paragraph's own outline level does not make an entry.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub no_outline_levels: bool,
+    /// `\\n "a-b"`: the levels shown without page numbers (`\\n` alone:
+    /// all, `[1, 9]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub omit_pages: Option<[u8; 2]>,
+    /// `\\t "Style,level,…"`: more styles and their levels.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<TocStyleLevel>>"))]
+    pub styles: Vec<TocStyleLevel>,
+}
+
+impl TocSwitches {
+    /// Whether these are Word's defaults.
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Whether entries of `level` show their page number.
+    pub fn shows_page(&self, level: u8) -> bool {
+        !self
+            .omit_pages
+            .is_some_and(|[a, b]| (a..=b).contains(&level))
+    }
+
+    /// Parses the switches of a `TOC` instruction (`\\o`, `\\h`, `\\z`,
+    /// `\\u`, `\\n "a-b"`, `\\t "Style,1,Other,2"`).
+    pub fn parse(instr: &str) -> Self {
+        let words = switch_words(instr);
+        let has = |c: &str| words.iter().any(|(w, _)| w.eq_ignore_ascii_case(c));
+        let arg = |c: &str| {
+            words
+                .iter()
+                .find(|(w, _)| w.eq_ignore_ascii_case(c))
+                .and_then(|(_, a)| a.clone())
+        };
+        let omit_pages = has("n").then(|| arg("n").and_then(|a| parse_range(&a)).unwrap_or([1, 9]));
+        let mut styles = Vec::new();
+        if let Some(t) = arg("t") {
+            let parts: Vec<&str> = t.split([',', ';']).map(str::trim).collect();
+            for pair in parts.chunks(2) {
+                let style = pair[0];
+                if style.is_empty() {
+                    continue;
+                }
+                let level = pair
+                    .get(1)
+                    .and_then(|l| l.parse::<u8>().ok())
+                    .unwrap_or(1)
+                    .clamp(1, 9);
+                styles.push(TocStyleLevel {
+                    style: style.to_owned(),
+                    level,
+                });
+            }
+        }
+        Self {
+            no_headings: !has("o") && (!styles.is_empty() || has("u")),
+            no_links: !has("h"),
+            no_hide_web: !has("z"),
+            no_outline_levels: !has("u"),
+            omit_pages,
+            styles,
+        }
+    }
+
+    /// The switches after `\\o "a-b"` as written to docx (`\\h \\z \\u`
+    /// for the default), each with a leading space.
+    pub fn instruction(&self) -> String {
+        let mut s = String::new();
+        if !self.styles.is_empty() {
+            let list: Vec<String> = self
+                .styles
+                .iter()
+                .map(|t| format!("{},{}", t.style, t.level))
+                .collect();
+            s.push_str(&format!(" \\t \"{}\"", list.join(",")));
+        }
+        if !self.no_links {
+            s.push_str(" \\h");
+        }
+        if !self.no_hide_web {
+            s.push_str(" \\z");
+        }
+        if !self.no_outline_levels {
+            s.push_str(" \\u");
+        }
+        if let Some([a, b]) = self.omit_pages {
+            if (a, b) == (1, 9) {
+                s.push_str(" \\n");
+            } else {
+                s.push_str(&format!(" \\n \"{a}-{b}\""));
+            }
+        }
+        s
+    }
+}
+
+/// `(switch letter, argument)` of every `\\x` in a field instruction; the
+/// argument is the next word or quoted string unless that is a switch.
+fn switch_words(instr: &str) -> Vec<(String, Option<String>)> {
+    let mut out: Vec<(String, Option<String>)> = Vec::new();
+    let mut chars = instr.chars().peekable();
+    let mut tokens: Vec<(bool, String)> = Vec::new();
+    while let Some(&c) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+        } else if c == '"' {
+            chars.next();
+            let mut t = String::new();
+            for c in chars.by_ref() {
+                if c == '"' {
+                    break;
+                }
+                t.push(c);
+            }
+            tokens.push((false, t));
+        } else if c == '\\' {
+            chars.next();
+            let mut t = String::new();
+            if let Some(c) = chars.next() {
+                t.push(c);
+            }
+            tokens.push((true, t));
+        } else {
+            let mut t = String::new();
+            while let Some(&c) = chars.peek() {
+                if c.is_whitespace() || c == '"' {
+                    break;
+                }
+                t.push(c);
+                chars.next();
+            }
+            tokens.push((false, t));
+        }
+    }
+    let mut i = 0;
+    while i < tokens.len() {
+        if tokens[i].0 {
+            let arg = tokens.get(i + 1).filter(|t| !t.0).map(|t| t.1.clone());
+            if arg.is_some() {
+                i += 1;
+            }
+            out.push((tokens[i - usize::from(arg.is_some())].1.clone(), arg));
+        }
+        i += 1;
+    }
+    out
+}
+
+/// `"a-b"` → `[a, b]` (1–9, `b ≥ a`).
+fn parse_range(s: &str) -> Option<[u8; 2]> {
+    let (a, b) = s.split_once('-').unwrap_or((s, s));
+    let a: u8 = a.trim().parse().ok()?;
+    let b: u8 = b.trim().parse().ok()?;
+    let a = a.clamp(1, 9);
+    Some([a, b.clamp(a, 9)])
 }
 
 impl Toc {
@@ -374,6 +578,7 @@ impl Toc {
             title: None,
             entries: Vec::new(),
             caption: None,
+            switches: TocSwitches::default(),
         }
     }
 }
