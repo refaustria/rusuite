@@ -1,5 +1,5 @@
 # PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
-# family: math (618 cases); evaluate in the context of sheet Data, see fixture.tsv
+# family: math (645 cases); evaluate in the context of sheet Data, see fixture.tsv
 formula	type	expected	note
 =SUM(1,2,3)	number	6	
 =SUM(A1:A6)	number	21	
@@ -702,3 +702,31 @@ formula	type	expected	note
 =ROUND(MIRR({-100,50,60},0.05,0.05),6)	number	0.06066	
 # NOTE: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
 =MIRR({-100,-50},0.1,0.1)	error	#VALUE!	DIFF: LibreOffice exports this error as #VALUE! [excel=#DIV/0!]
+=SUM(MMULT(A1:A2,TRANSPOSE(A1:A2)))	number	9	
+=INDEX(MMULT({1,2;3,4},{5;6}),2)	number	39	
+=MMULT(A1:A2,A1:A2)	error	#VALUE!	
+=MMULT({1,2},{3;4})	number	11	
+=INDEX(MINVERSE({4,7;2,6}),1,1)	number	0.6	
+=INDEX(MINVERSE({2,0;0,4}),2,2)	number	0.25	
+# NOTE: LibreOffice reports #VALUE! for a singular matrix [excel=#NUM!]
+=MINVERSE({1,2;2,4})	error	#VALUE!	DIFF: LibreOffice reports #VALUE! for a singular matrix [excel=#NUM!]
+=MINVERSE(A1:A2)	error	#VALUE!	
+=MDETERM({1,2;3,4})	number	-2	
+=MDETERM({2,0,0;0,3,0;0,0,4})	number	24	
+=MDETERM(A1:A2)	error	#VALUE!	
+=MDETERM({3})	number	3	
+=SUM(MUNIT(3))	number	3	
+=INDEX(MUNIT(2),1,2)	number	0	
+=ROWS(MUNIT(4))	number	4	
+=MUNIT(0)	error	#VALUE!	
+=AGGREGATE(9,6,A1:A6)	number	21	
+=AGGREGATE(4,6,H1:H2,A1:A6)	number	6	
+=AGGREGATE(9,4,H1:H2)	error	#DIV/0!	
+=AGGREGATE(14,6,C1:C6,2)	number	100	
+=AGGREGATE(15,0,A1:A6,2)	number	2	
+=AGGREGATE(1,0,F1:F4)	number	250	
+=AGGREGATE(3,0,A1:B6)	number	12	
+=AGGREGATE(12,0,A1:A6)	number	3.5	
+=AGGREGATE(16,0,A1:A6,0.5)	number	3.5	
+=AGGREGATE(19,0,A1:A6,1)	number	1.75	
+=AGGREGATE(20,0,A1:A6)	error	#VALUE!	

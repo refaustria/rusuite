@@ -26,7 +26,7 @@ impl Function for Choose {
         if i < 1.0 || i >= args.len() as f64 {
             return Value::Error(ErrorKind::Value);
         }
-        ctx.scalar(&args[i as usize])
+        ctx.result_value(&args[i as usize])
     }
 }
 

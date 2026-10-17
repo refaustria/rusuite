@@ -29,6 +29,7 @@ pub mod sheet;
 pub mod slicer;
 pub mod snapshot;
 pub mod sortfilter;
+mod spill;
 pub mod style;
 pub mod table_styles;
 pub mod tables;
@@ -168,4 +169,7 @@ pub enum Error {
     /// Unprotect with a wrong password.
     #[error("{}", protection::WRONG_PASSWORD_MESSAGE)]
     WrongPassword,
+    /// Sort, fill, paste or merge over part of a spill range.
+    #[error("You can't change part of an array.")]
+    SpillPart,
 }

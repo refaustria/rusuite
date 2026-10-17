@@ -158,7 +158,7 @@ describe("syntax check", () => {
   });
 
   it("accepts the reference operators and 3-D references (P9-C4)", () => {
-    for (const f of ["=A1:B5 B3:C7", "=SUM(A1:C3  B2:D4)", "=SUM((A1,B2:B3,C4))", "=SUM(Sheet1:Sheet3!A1)", "='Jan 1:Mar 3'!B2", "=COUNT((A1:A3 A2:B2,C1))", "=SUM($A:C)+SUM(2:$4)"]) {
+    for (const f of ["=A1:B5 B3:C7", "=SUM(A1:C3  B2:D4)", "=SUM((A1,B2:B3,C4))", "=SUM(Sheet1:Sheet3!A1)", "='Jan 1:Mar 3'!B2", "=COUNT((A1:A3 A2:B2,C1))", "=SUM($A:C)+SUM(2:$4)", "=LAMBDA(x,x+1)(2)", "=LET(x,A1:A3,SUM(x*2))"]) {
       expect(checkFormula(f), f).toBeNull();
     }
   });

@@ -644,7 +644,7 @@ export class CalcStore {
   pushError(e: unknown): void {
     // A content edit inside a pivot table: Excel's message.
     const known: Record<string, string> = {
-      pivot_cell: "calc.pivot.cantChange", shift_merged: "calc.shiftMerged", shift_table: "calc.shiftTable",
+      pivot_cell: "calc.pivot.cantChange", shift_merged: "calc.shiftMerged", shift_table: "calc.shiftTable", spill_part: "calc.spillPart",
       sheet_protected: "calc.protect.refused", workbook_protected: "calc.protect.bookRefused", wrong_password: "calc.protect.wrongPassword",
     };
     const message =

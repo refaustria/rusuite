@@ -691,6 +691,7 @@ impl Workbook {
     pub fn merge_cells(&mut self, range: CellRange) -> Result<Recalc, Error> {
         let rect = MergeRect::new(range.r0, range.c0, range.r1, range.c1);
         Self::check_merge(&rect)?;
+        self.check_spill_edit(range)?;
         let sheet = range.sheet;
         let data = self.sheet_data_mut(sheet)?;
         if data

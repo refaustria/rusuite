@@ -21,6 +21,8 @@ pub mod array;
 pub mod datetime;
 pub mod financial;
 pub mod info;
+pub mod lambda;
+pub mod lift;
 pub mod logical;
 pub mod lookup;
 pub mod math;
@@ -122,6 +124,7 @@ impl FunctionRegistry {
         datetime::register(&mut r);
         lookup::register(&mut r);
         array::register(&mut r);
+        lambda::register(&mut r);
         r
     }
 
@@ -159,11 +162,37 @@ pub enum Aggregate {
 /// Evaluation helpers handed to [`Function::call`].
 pub struct CallContext<'c, 'a> {
     ctx: &'c EvalContext<'a>,
+    /// Arguments already evaluated by the caller (identified by address):
+    /// the elements of lifted array arguments, see [`crate::functions::lift`].
+    bound: Vec<(*const Expr, Operand)>,
 }
 
 impl<'c, 'a> CallContext<'c, 'a> {
     pub fn new(ctx: &'c EvalContext<'a>) -> Self {
-        CallContext { ctx }
+        CallContext {
+            ctx,
+            bound: Vec::new(),
+        }
+    }
+
+    /// A context in which the argument expressions of `bound` evaluate to
+    /// the given operands (identified by address, so `bound` must hold
+    /// references into the argument slice passed to the function).
+    pub(crate) fn with_bound(ctx: &'c EvalContext<'a>, bound: Vec<(&Expr, Operand)>) -> Self {
+        CallContext {
+            ctx,
+            bound: bound
+                .into_iter()
+                .map(|(e, op)| (e as *const Expr, op))
+                .collect(),
+        }
+    }
+
+    fn bound(&self, e: &Expr) -> Option<Operand> {
+        self.bound
+            .iter()
+            .find(|(p, _)| std::ptr::eq(*p, e))
+            .map(|(_, op)| op.clone())
     }
 
     /// The underlying evaluation context.
@@ -183,7 +212,13 @@ impl<'c, 'a> CallContext<'c, 'a> {
 
     /// Evaluates an argument without dereferencing references.
     pub fn eval(&self, e: &Expr) -> Operand {
-        eval_operand(e, self.ctx)
+        self.bound(e).unwrap_or_else(|| eval_operand(e, self.ctx))
+    }
+
+    /// Evaluates an argument in array mode (see [`eval_array`]): operators
+    /// apply element-wise and scalar functions are lifted over arrays.
+    pub fn eval_array(&self, e: &Expr) -> Operand {
+        self.bound(e).unwrap_or_else(|| eval_array(e, self.ctx))
     }
 
     /// Evaluates an argument in reference position: a reference stays a
@@ -191,7 +226,7 @@ impl<'c, 'a> CallContext<'c, 'a> {
     /// [`Function::call_ref`]) becomes that range, anything else is
     /// evaluated as by [`CallContext::eval`].
     pub fn eval_ref(&self, e: &Expr) -> Operand {
-        eval_ref(e, self.ctx)
+        self.bound(e).unwrap_or_else(|| eval_ref(e, self.ctx))
     }
 
     /// Evaluates an argument to a scalar (dereferenced, implicitly
@@ -199,6 +234,16 @@ impl<'c, 'a> CallContext<'c, 'a> {
     /// argument is `Empty`.
     pub fn scalar(&self, e: &Expr) -> Value {
         scalar(self.eval(e), self.ctx)
+    }
+
+    /// Evaluates an argument whose value is the function's result (the
+    /// branches of `IF`, `IFERROR`, `CHOOSE`): in array mode, a range
+    /// becomes its value (one cell) or an array, arrays are kept.
+    pub fn result_value(&self, e: &Expr) -> Value {
+        match self.eval_array(e) {
+            Operand::Range(r) => crate::eval::range_value(r, self.ctx),
+            Operand::Scalar(v) => v,
+        }
     }
 
     pub fn number(&self, e: &Expr) -> Result<f64, ErrorKind> {
@@ -218,7 +263,7 @@ impl<'c, 'a> CallContext<'c, 'a> {
     /// `(A1:A3>1)*B1:B3` is an array). A scalar is treated as a 1x1 array; an
     /// error value is returned as `Err`.
     pub fn range(&self, e: &Expr) -> Result<RangeArg<'a>, ErrorKind> {
-        match eval_array(e, self.ctx) {
+        match self.eval_array(e) {
             Operand::Range(r) => Ok(RangeArg::Range {
                 range: r,
                 provider: self.ctx.provider,
@@ -386,7 +431,8 @@ impl Iterator for Aggregator<'_, '_, '_> {
                 self.current = None;
             }
             let arg = self.args.next()?;
-            match self.ctx.eval(arg) {
+            // Array mode: `SUM(LEN(A1:A3))`, `SUM(A1:A3*2)`.
+            match self.ctx.eval_array(arg) {
                 Operand::Range(r) => {
                     self.current = Some(RangeValues::range(r, self.ctx.ctx.provider));
                 }

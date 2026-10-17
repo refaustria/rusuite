@@ -5,6 +5,7 @@ use crate::functions::{Aggregate, CallContext, FunctionRegistry};
 use crate::value::{round_15, Value};
 
 pub mod abs;
+pub mod aggregate;
 pub mod average;
 pub mod averageif;
 pub mod averageifs;
@@ -29,6 +30,7 @@ pub mod lcm;
 pub mod ln;
 pub mod log;
 pub mod log10;
+pub mod matrix;
 pub mod max;
 pub mod maxifs;
 pub mod min;
@@ -62,6 +64,11 @@ pub mod trunc;
 
 /// Registers every math/statistics function.
 pub fn register(r: &mut FunctionRegistry) {
+    r.register(Box::new(aggregate::Aggregate));
+    r.register(Box::new(matrix::MMult));
+    r.register(Box::new(matrix::MInverse));
+    r.register(Box::new(matrix::MDeterm));
+    r.register(Box::new(matrix::MUnit));
     r.register(Box::new(sum::Sum));
     r.register(Box::new(average::Average));
     r.register(Box::new(min::Min));

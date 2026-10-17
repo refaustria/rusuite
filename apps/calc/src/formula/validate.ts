@@ -183,6 +183,11 @@ class Parser {
         if (t.kind === "ident" && this.toks[this.pos + 1]?.kind === "lparen") {
           this.pos += 2;
           this.call(t.text.toUpperCase());
+          // `LAMBDA(x,x+1)(2)`: calling the result directly.
+          while (this.peek()?.kind === "lparen" && !this.gap(this.pos)) {
+            this.pos++;
+            this.call(t.text.toUpperCase());
+          }
           return REF;
         }
         const ref = referenceAt(this.text, this.toks, this.pos, null, t.start);

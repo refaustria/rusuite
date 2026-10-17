@@ -522,7 +522,10 @@ fn uses_names(e: &Expr) -> bool {
 fn mentions(e: &Expr, names: &HashSet<String>) -> bool {
     match e {
         Expr::Name(n) | Expr::QualifiedName { name: n, .. } => names.contains(&n.to_lowercase()),
-        Expr::Call { args, .. } => args.iter().any(|a| mentions(a, names)),
+        // A call of a named lambda (`=Twice(4)`).
+        Expr::Call { name, args } => {
+            names.contains(&name.to_lowercase()) || args.iter().any(|a| mentions(a, names))
+        }
         Expr::Unary { expr, .. } => mentions(expr, names),
         Expr::Binary { lhs, rhs, .. } => mentions(lhs, names) || mentions(rhs, names),
         Expr::Array(rows) => rows.iter().flatten().any(|a| mentions(a, names)),

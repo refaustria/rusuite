@@ -284,7 +284,15 @@ pub fn eval_operand(expr: &Expr, ctx: &EvalContext) -> Operand {
         Expr::Bool(b) => Operand::Scalar(Value::Bool(*b)),
         Expr::Error(e) => Operand::Scalar(Value::Error(*e)),
         Expr::Missing => Operand::Scalar(Value::Empty),
-        Expr::Name(n) => name_operand(n, None, ctx),
+        Expr::Name(n) => {
+            use crate::functions::lambda::{lookup, scope_open, Binding};
+            match scope_open().then(|| lookup(n)).flatten() {
+                Some(Binding::Value(op)) => op,
+                Some(Binding::Lambda(_)) => Operand::Scalar(Value::Error(ErrorKind::Calc)),
+                Some(Binding::Omitted) => Operand::Scalar(Value::Empty),
+                None => name_operand(n, None, ctx),
+            }
+        }
         Expr::QualifiedName { sheet, name } => match ctx.provider.sheet_id(sheet) {
             Some(id) => name_operand(name, Some(id), ctx),
             None => Operand::Scalar(Value::Error(ErrorKind::Ref)),
@@ -388,8 +396,127 @@ pub fn eval_array(expr: &Expr, ctx: &EvalContext) -> Operand {
                 (l, r) => apply_binary(*op, l, r),
             })
         }
+        Expr::Call { name, args } => match crate::functions::lift::lift_spec(name) {
+            Some(spec) => lifted_call(name, args, spec, ctx),
+            None => eval_operand(expr, ctx),
+        },
+        // A name bound by `LET` / a `LAMBDA` parameter keeps its operand.
         _ => eval_operand(expr, ctx),
     }
+}
+
+/// The extent of an operand used as a lifted argument: `None` for one
+/// value (a scalar or a one-cell range).
+fn lift_extent(op: &Operand, ctx: &EvalContext) -> Option<(usize, usize)> {
+    match op {
+        Operand::Scalar(Value::Array(a)) if a.rows() * a.cols() > 1 => Some((a.rows(), a.cols())),
+        Operand::Range(r) if !r.is_single_cell() => {
+            let c = r.clipped(ctx.provider).unwrap_or(RangeRef {
+                r1: r.r0,
+                c1: r.c0,
+                ..*r
+            });
+            Some((c.rows() as usize, c.cols() as usize))
+        }
+        _ => None,
+    }
+}
+
+/// Element `(row, col)` of a lifted argument of extent `(rows, cols)`
+/// (an extent of 1 repeats; outside the extent `#N/A`).
+fn lift_element(op: &Operand, row: usize, col: usize, ctx: &EvalContext) -> Value {
+    let pick = |rows: usize, cols: usize| {
+        let r = if rows == 1 { 0 } else { row };
+        let c = if cols == 1 { 0 } else { col };
+        (r < rows && c < cols).then_some((r, c))
+    };
+    match op {
+        Operand::Scalar(Value::Array(a)) => match pick(a.rows(), a.cols()) {
+            Some((r, c)) => a.get(r, c).cloned().unwrap_or(Value::Empty),
+            None => Value::Error(ErrorKind::NA),
+        },
+        Operand::Range(rr) => match pick(rr.rows() as usize, rr.cols() as usize) {
+            Some((r, c)) => ctx.provider.value(CellCoord {
+                sheet: rr.sheet,
+                row: rr.r0 + r as u32,
+                col: rr.c0 + c as u32,
+            }),
+            None => Value::Error(ErrorKind::NA),
+        },
+        Operand::Scalar(v) => v.clone(),
+    }
+}
+
+/// A call of a function with lifted arguments in array mode (see
+/// [`crate::functions::lift`]).
+fn lifted_call(
+    name: &str,
+    args: &[Expr],
+    spec: crate::functions::lift::Lift,
+    ctx: &EvalContext,
+) -> Operand {
+    use crate::functions::lift::Lift;
+    let Some(f) = ctx.registry.get(name) else {
+        return Operand::Scalar(Value::Error(ErrorKind::Name));
+    };
+    if !f.arity().accepts(args.len()) {
+        return Operand::Scalar(Value::Error(ErrorKind::Value));
+    }
+    let lifted = |i: usize| spec.lifts(i) && !matches!(args[i], Expr::Missing);
+    let mut bound: Vec<(usize, Operand)> = (0..args.len())
+        .filter(|&i| lifted(i))
+        .map(|i| (i, eval_array(&args[i], ctx)))
+        .collect();
+    let any_array = |b: &[(usize, Operand)]| b.iter().any(|(_, op)| lift_extent(op, ctx).is_some());
+    if spec == Lift::Selector && any_array(&bound) {
+        // The selector is an array: every branch is evaluated element-wise.
+        for (i, a) in args.iter().enumerate().skip(1) {
+            if !matches!(a, Expr::Missing) {
+                bound.push((i, eval_array(a, ctx)));
+            }
+        }
+    }
+    if !any_array(&bound) {
+        let mut cc = CallContext::with_bound(
+            ctx,
+            bound.into_iter().map(|(i, op)| (&args[i], op)).collect(),
+        );
+        return Operand::Scalar(finish(f.call(args, &mut cc)));
+    }
+    let (mut rows, mut cols) = (1, 1);
+    for (_, op) in &bound {
+        if let Some((r, c)) = lift_extent(op, ctx) {
+            rows = rows.max(r);
+            cols = cols.max(c);
+        }
+    }
+    let shapes: Vec<Option<(usize, usize)>> =
+        bound.iter().map(|(_, op)| lift_extent(op, ctx)).collect();
+    let mut data = Vec::with_capacity(rows * cols);
+    for r in 0..rows {
+        for c in 0..cols {
+            let elements = bound
+                .iter()
+                .zip(&shapes)
+                .map(|((i, op), shape)| {
+                    let op = match shape {
+                        Some(_) => Operand::Scalar(lift_element(op, r, c, ctx)),
+                        None => op.clone(),
+                    };
+                    (&args[*i], op)
+                })
+                .collect();
+            let mut cc = CallContext::with_bound(ctx, elements);
+            data.push(match finish(f.call(args, &mut cc)) {
+                // Nested arrays are not supported (Excel: #CALC!).
+                Value::Array(a) if a.rows() * a.cols() > 1 => Value::Error(ErrorKind::Calc),
+                v => v.into_scalar(),
+            });
+        }
+    }
+    Operand::Scalar(Value::Array(
+        Array::new(rows, cols, data).expect("rows * cols elements"),
+    ))
 }
 
 /// Turns a range operand into an array of its cell values (`Empty` cells
@@ -550,8 +677,23 @@ pub fn eval_ref(expr: &Expr, ctx: &EvalContext) -> Operand {
 }
 
 fn call(name: &str, args: &[Expr], ctx: &EvalContext) -> Value {
+    use crate::functions::lambda::{invoke, lambda_of, named_lambda};
+    if name == crate::ast::INVOKE_CALL {
+        // `LAMBDA(x,x+1)(2)`: the callee is the first argument.
+        let Some((callee, rest)) = args.split_first() else {
+            return Value::Error(ErrorKind::Value);
+        };
+        return match lambda_of(callee, ctx) {
+            Some(l) => finish(invoke(&l, rest, ctx)),
+            None => Value::Error(ErrorKind::Value),
+        };
+    }
     let Some(f) = ctx.registry.get(name) else {
-        return Value::Error(ErrorKind::Name);
+        // A `LET` name or a defined name holding a lambda.
+        return match named_lambda(name, ctx) {
+            Some(l) => finish(invoke(&l, args, ctx)),
+            None => Value::Error(ErrorKind::Name),
+        };
     };
     let split = split_areas(name, args, ctx);
     let args = split.as_deref().unwrap_or(args);
@@ -1141,9 +1283,10 @@ mod tests {
             arr("=A1:A3+SUM(A1:A3)"),
             grid_of(vec![vec![n(5.0)], vec![e(ErrorKind::Value)], vec![n(7.0)]])
         );
+        // LEN is lifted over its array (P9-C4): a row times a column.
         assert_eq!(
             arr("=LEN({\"ab\",\"c\"})&A1:A2"),
-            grid_of(vec![vec![t("21")], vec![t("2x")]])
+            grid_of(vec![vec![t("21"), t("11")], vec![t("2x"), t("1x")]])
         );
     }
 

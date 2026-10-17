@@ -1519,6 +1519,7 @@
   "calc.sheetName": "Blattname",
   "calc.sheets": "Blätter",
   "calc.shiftMerged": "Dies ist bei einer verbundenen Zelle nicht möglich.",
+  "calc.spillPart": "Du kannst keinen Teil eines Arrays ändern.",
   "calc.shiftTable": "Dieser Vorgang ist nicht zulässig. Mit dem Vorgang wird versucht, Zellen in einer Tabelle oder einem gefilterten Bereich deines Arbeitsblatts zu verschieben.",
   "calc.slicer.ascending": "Aufsteigend (A bis Z)",
   "calc.slicer.blank": "(Leer)",

@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::parser::ParseError;
 
+/// The name of the call node `callee(args)` that calls a lambda directly
+/// (`LAMBDA(x,x+1)(2)`): its first argument is the callee.
+pub const INVOKE_CALL: &str = "_XLINVOKE";
+
 /// Largest valid 0-based column index (`XFD`).
 pub const MAX_COL: u32 = 16_383;
 /// Largest valid 0-based row index (row 1048576).
@@ -840,6 +844,18 @@ fn fmt_expr(f: &mut fmt::Formatter<'_>, e: &Expr, style: RefStyle) -> fmt::Resul
                 }
             }
             f.write_str("}")
+        }
+        Expr::Call { name, args } if name == INVOKE_CALL && !args.is_empty() => {
+            let callee = &args[0];
+            write_wrapped(f, callee, !matches!(callee, Expr::Call { .. }), style)?;
+            f.write_str("(")?;
+            for (i, a) in args[1..].iter().enumerate() {
+                if i > 0 {
+                    f.write_str(",")?;
+                }
+                fmt_expr(f, a, style)?;
+            }
+            f.write_str(")")
         }
         Expr::Call { name, args } => {
             write!(f, "{name}(")?;

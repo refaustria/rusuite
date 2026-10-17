@@ -128,3 +128,54 @@ fn legacy_and_excel_files_are_read() {
     assert_eq!(wb.formula_text(c(2, 3)), Some("=SUM(B1#)"));
     assert_eq!(wb.value(c(2, 3)), n(6.0));
 }
+
+/// P9-C4: the new dynamic array functions, `LET`/`LAMBDA` with `_xlpm.`
+/// names, a named lambda, lifted functions and 3-D references survive a
+/// roundtrip.
+#[test]
+fn lambda_and_array_shaping_formulas_roundtrip() {
+    let mut wb = Workbook::new();
+    let s2 = wb.add_sheet("Sheet2").unwrap();
+    wb.set_input(CellCoord::new(s2, 0, 0), "5").unwrap();
+    wb.set_input(c(0, 0), "1").unwrap();
+    wb.set_input(c(1, 0), "2").unwrap();
+    wb.set_input(c(0, 1), "=VSTACK(A1:A2,{3;4})").unwrap();
+    wb.set_input(c(0, 2), "=LET(x,A1:A2,SUM(x*2))").unwrap();
+    wb.set_input(c(0, 3), "=MAP(A1:A2,LAMBDA(v,v*10))").unwrap();
+    wb.set_input(c(0, 4), "=LEN(A1:A2&\"ab\")").unwrap();
+    wb.set_input(c(0, 5), "=SUM(Sheet1:Sheet2!A1)").unwrap();
+    wb.set_input(c(0, 6), "=Twice(4)").unwrap();
+    wb.define_name(&model_sheet::DefinedName::new(
+        "Twice",
+        engine_formula::NameScope::Workbook,
+        "LAMBDA(n,n*2)",
+    ))
+    .unwrap();
+    assert_eq!(wb.value(c(0, 6)), n(8.0));
+    assert_eq!(wb.value(c(3, 1)), n(4.0));
+    assert_eq!(wb.value(c(0, 2)), n(6.0));
+    assert_eq!(wb.value(c(1, 3)), n(20.0));
+    assert_eq!(wb.value(c(1, 4)), n(3.0));
+    assert_eq!(wb.value(c(0, 5)), n(6.0));
+
+    let bytes = fmt_xlsx::write(&wb).unwrap();
+    let sheet = part(&bytes, "/xl/worksheets/sheet1.xml").unwrap();
+    for want in [
+        r#"<f t="array" ref="B1:B4">_xlfn.VSTACK(A1:A2,{3;4})</f>"#,
+        "<f>_xlfn.LET(_xlpm.x,A1:A2,SUM(_xlpm.x*2))</f>",
+        r#"<f t="array" ref="D1:D2">_xlfn.MAP(A1:A2,_xlfn.LAMBDA(_xlpm.v,_xlpm.v*10))</f>"#,
+        r#"<f t="array" ref="E1:E2">LEN(A1:A2&amp;"ab")</f>"#,
+        "<f>SUM(Sheet1:Sheet2!A1)</f>",
+    ] {
+        assert!(sheet.contains(want), "{want} not in {sheet}");
+    }
+    let book = part(&bytes, "/xl/workbook.xml").unwrap();
+    assert!(book.contains("_xlfn.LAMBDA(_xlpm.n,_xlpm.n*2)"), "{book}");
+    let back = fmt_xlsx::read(&bytes).unwrap();
+    for col in 1..7 {
+        for r in 0..4 {
+            assert_eq!(back.value(c(r, col)), wb.value(c(r, col)), "({r},{col})");
+        }
+        assert_eq!(back.formula_text(c(0, col)), wb.formula_text(c(0, col)));
+    }
+}

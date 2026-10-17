@@ -1519,6 +1519,7 @@
   "calc.sheetName": "Sheet name",
   "calc.sheets": "Sheets",
   "calc.shiftMerged": "We can't do that to a merged cell.",
+  "calc.spillPart": "You can't change part of an array.",
   "calc.shiftTable": "This operation is not allowed. The operation is attempting to shift cells in a table or filtered range on your worksheet.",
   "calc.slicer.ascending": "Ascending (A to Z)",
   "calc.slicer.blank": "(blank)",

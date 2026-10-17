@@ -234,7 +234,7 @@ fn workbook_xml(
             n.comment,
             local,
             n.hidden,
-            add_xlfn_prefixes(&n.refers_to),
+            add_xlfn_prefixes(&crate::dynarray::name_file_text(&n.refers_to)),
         ));
     }
     for (i, (id, name)) in sheets.iter().enumerate() {

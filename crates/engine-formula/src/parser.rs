@@ -10,7 +10,7 @@ use thiserror::Error;
 
 use crate::ast::{
     is_valid_name, letters_to_col, parse_row, BinaryOp, CellRef, Expr, RangeKind, Reference,
-    UnaryOp, MAX_COL,
+    UnaryOp, INVOKE_CALL, MAX_COL,
 };
 use crate::lexer::{tokenize, Span, Token, TokenKind};
 
@@ -492,12 +492,25 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Ident(name) if self.peek_at(self.pos + 1) == Some(&TokenKind::LParen) => {
                 self.pos += 2;
-                let call = self.call(name.to_ascii_uppercase())?;
+                let mut call = self.call(name.to_ascii_uppercase())?;
                 let Expr::Call { args, .. } = &call else {
                     unreachable!("call() builds a call");
                 };
                 let n = args.len();
                 self.node(start, n);
+                // `LAMBDA(x,x+1)(2)`: calling the result directly.
+                while self.peek() == Some(&TokenKind::LParen) && self.adjacent(self.pos) {
+                    self.pos += 1;
+                    let Expr::Call { args, .. } = self.call(INVOKE_CALL.to_string())? else {
+                        unreachable!("call() builds a call");
+                    };
+                    let n = args.len();
+                    self.node(start, n + 1);
+                    call = Expr::Call {
+                        name: INVOKE_CALL.to_string(),
+                        args: std::iter::once(call).chain(args).collect(),
+                    };
+                }
                 Ok(call)
             }
             TokenKind::Ident(_) | TokenKind::Number(_) | TokenKind::Dollar => {
