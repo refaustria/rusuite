@@ -9,7 +9,10 @@ import type { CfRule } from "../generated/CfRule";
 import type { CfValue } from "../generated/CfValue";
 import type { CompareOp } from "../generated/CompareOp";
 import type { DxfStyle } from "../generated/DxfStyle";
+import type { DataBarAxis } from "../generated/DataBarAxis";
+import type { DataBarDirection } from "../generated/DataBarDirection";
 import type { IconSetKind } from "../generated/IconSetKind";
+import type { TimePeriod } from "../generated/TimePeriod";
 import type { Rect } from "../generated/Rect";
 import { colName } from "../grid/address";
 import { iconCount } from "../grid/cf";
@@ -22,9 +25,14 @@ export const RULE_TYPES = ["values", "contains", "topBottom", "average", "unique
 export type RuleType = (typeof RULE_TYPES)[number];
 
 export type ValueStyle = "scale2" | "scale3" | "dataBar" | "iconSet";
-export type ContainsWhat = "cellValue" | "specificText" | "blanks" | "noBlanks" | "errors" | "noErrors";
+export type ContainsWhat = "cellValue" | "specificText" | "dates" | "blanks" | "noBlanks" | "errors" | "noErrors";
+export const CONTAINS_WHAT: ContainsWhat[] = ["cellValue", "specificText", "dates", "blanks", "noBlanks", "errors", "noErrors"];
 export type TextOp = "containing" | "notContaining" | "beginsWith" | "endsWith";
-export type AverageOp = "above" | "below" | "equalAbove" | "equalBelow";
+export type AverageOp = "above" | "below" | "equalAbove" | "equalBelow" | "std1Above" | "std1Below" | "std2Above" | "std2Below" | "std3Above" | "std3Below";
+/** Excel's list of the above/below average rule, in its order. */
+export const AVERAGE_OPS: AverageOp[] = ["above", "below", "equalAbove", "equalBelow", "std1Above", "std1Below", "std2Above", "std2Below", "std3Above", "std3Below"];
+/** The periods of "A Date Occurring", in Excel's order. */
+export const TIME_PERIODS: TimePeriod[] = ["yesterday", "today", "tomorrow", "last7Days", "lastWeek", "thisWeek", "nextWeek", "lastMonth", "thisMonth", "nextMonth"];
 
 export const COMPARE_OPS: CompareOp[] = ["between", "notBetween", "equal", "notEqual", "greaterThan", "lessThan", "greaterThanOrEqual", "lessThanOrEqual"];
 export const needsTwo = (op: CompareOp): boolean => op === "between" || op === "notBetween";
@@ -33,6 +41,8 @@ export const needsTwo = (op: CompareOp): boolean => op === "between" || op === "
 export interface Threshold {
   type: CfValue["type"];
   value: string;
+  /** Icon sets: the value must be greater than the threshold (`>`), not `>=`. */
+  gt?: boolean;
 }
 
 export interface RuleForm {
@@ -45,6 +55,16 @@ export interface RuleForm {
   barMin: Threshold;
   barMax: Threshold;
   barOnly: boolean;
+  /** Excel 2010 bar options: fill, border (`""` = none), negative fill/border (`""` = as the positive one), axis. */
+  barGradient: boolean;
+  barBorder: string;
+  barNegColor: string;
+  barNegBorder: string;
+  barAxis: DataBarAxis;
+  barAxisColor: string;
+  barDirection: DataBarDirection;
+  /** Shortest / longest bar in percent (kept from the rule; Excel's dialog does not show them). */
+  barLengths: [number, number];
   iconSet: IconSetKind;
   /** One per icon, lowest first (the first is not editable: everything below the second). */
   icons: Threshold[];
@@ -52,6 +72,8 @@ export interface RuleForm {
   iconOnly: boolean;
   /** "Format only cells that contain". */
   containsWhat: ContainsWhat;
+  /** "Dates Occurring". */
+  period: TimePeriod;
   op: CompareOp;
   v1: string;
   v2: string;
@@ -76,7 +98,7 @@ export interface RuleForm {
 const hexOf = (c: Color, fallback: string) =>
   (colorCss(c) ?? `#${fallback}`).replace(/^#/, "").toUpperCase();
 
-const threshold = (v: CfValue): Threshold => ({ type: v.type, value: "value" in v ? v.value : "" });
+const threshold = (v: CfValue, gt = false): Threshold => ({ type: v.type, value: "value" in v ? v.value : "", ...(gt ? { gt } : {}) });
 
 /** The default thresholds of an icon set (equal percent steps). */
 export function defaultIcons(set: IconSetKind): Threshold[] {
@@ -95,14 +117,23 @@ export function newRuleForm(ranges: Rect[]): RuleForm {
       { type: "max", value: "", color: "63BE7B" },
     ],
     barColor: "638EC6",
-    barMin: { type: "min", value: "" },
-    barMax: { type: "max", value: "" },
+    barMin: { type: "autoMin", value: "" },
+    barMax: { type: "autoMax", value: "" },
     barOnly: false,
+    barGradient: true,
+    barBorder: "",
+    barNegColor: "FF0000",
+    barNegBorder: "",
+    barAxis: "automatic",
+    barAxisColor: "000000",
+    barDirection: "context",
+    barLengths: [0, 100],
     iconSet: "3TrafficLights1",
     icons: defaultIcons("3TrafficLights1"),
     iconReverse: false,
     iconOnly: false,
     containsWhat: "cellValue",
+    period: "yesterday",
     op: "between",
     v1: "",
     v2: "",
@@ -135,10 +166,18 @@ export function formFromRule(rule: CfRule): RuleForm {
       break;
     }
     case "dataBar":
-      Object.assign(f, { type: "values", style: "dataBar", barColor: hexOf(k.color, "638EC6"), barMin: threshold(k.min), barMax: threshold(k.max), barOnly: !k.showValue });
+      Object.assign(f, {
+        type: "values", style: "dataBar", barColor: hexOf(k.color, "638EC6"), barMin: threshold(k.min), barMax: threshold(k.max), barOnly: !k.showValue,
+        barGradient: k.gradient ?? true, barBorder: k.border ? hexOf(k.border, "000000") : "", barNegColor: k.negativeColor ? hexOf(k.negativeColor, "FF0000") : "FF0000",
+        barNegBorder: k.negativeBorder ? hexOf(k.negativeBorder, "FF0000") : "", barAxis: k.axis ?? "automatic", barAxisColor: k.axisColor ? hexOf(k.axisColor, "000000") : "000000",
+        barDirection: k.direction ?? "context", barLengths: [k.minLength ?? 10, k.maxLength ?? 90],
+      });
       break;
     case "iconSet":
-      Object.assign(f, { type: "values", style: "iconSet", iconSet: k.set, icons: k.thresholds.map(threshold), iconReverse: k.reverse, iconOnly: !k.showValue });
+      Object.assign(f, { type: "values", style: "iconSet", iconSet: k.set, icons: k.thresholds.map((v, i) => threshold(v, k.greater?.[i] ?? false)), iconReverse: k.reverse, iconOnly: !k.showValue });
+      break;
+    case "timePeriod":
+      Object.assign(f, { type: "contains", containsWhat: "dates", period: k.period });
       break;
     case "cellIs":
       Object.assign(f, { type: "contains", containsWhat: "cellValue", op: k.op, v1: formulaInput(k.formulas[0] ?? ""), v2: formulaInput(k.formulas[1] ?? "") });
@@ -163,7 +202,10 @@ export function formFromRule(rule: CfRule): RuleForm {
       Object.assign(f, { type: "topBottom", bottom: k.bottom, rank: String(k.rank), percent: k.percent });
       break;
     case "aboveAverage":
-      Object.assign(f, { type: "average", average: k.above ? (k.equal ? "equalAbove" : "above") : k.equal ? "equalBelow" : "below" });
+      Object.assign(f, {
+        type: "average",
+        average: k.stdDev ? `std${k.stdDev}${k.above ? "Above" : "Below"}` : k.above ? (k.equal ? "equalAbove" : "above") : k.equal ? "equalBelow" : "below",
+      });
       break;
     case "duplicateValues":
     case "uniqueValues":
@@ -178,7 +220,7 @@ export function formFromRule(rule: CfRule): RuleForm {
 
 /** A threshold for the rule: `min`/`max` as they are; formulas without `=`. */
 function cfValue(t: Threshold): CfValue | null {
-  if (t.type === "min" || t.type === "max") return { type: t.type };
+  if (t.type === "min" || t.type === "max" || t.type === "autoMin" || t.type === "autoMax") return { type: t.type };
   const v = t.value.trim().replace(/^=/, "");
   if (v === "") return null;
   if (t.type !== "formula" && !Number.isFinite(Number(v))) return null;
@@ -202,11 +244,23 @@ export function ruleFromForm(f: RuleForm): { rule: CfRule } | { error: string } 
         const min = cfValue(f.barMin);
         const max = cfValue(f.barMax);
         if (!min || !max) return { error: "calc.cf.err.value" };
-        return plain({ type: "dataBar", color: rgb(f.barColor), min, max, showValue: !f.barOnly });
+        const kind: CfKind = { type: "dataBar", color: rgb(f.barColor), min, max, showValue: !f.barOnly };
+        if (!f.barGradient) kind.gradient = false;
+        if (f.barBorder) kind.border = rgb(f.barBorder);
+        if (f.barNegColor && f.barNegColor !== "FF0000") kind.negativeColor = rgb(f.barNegColor);
+        if (f.barNegBorder) kind.negativeBorder = rgb(f.barNegBorder);
+        if (f.barAxisColor && f.barAxisColor !== "000000") kind.axisColor = rgb(f.barAxisColor);
+        if (f.barAxis !== "automatic") kind.axis = f.barAxis;
+        if (f.barDirection !== "context") kind.direction = f.barDirection;
+        if (f.barLengths[0] !== 10) kind.minLength = f.barLengths[0];
+        if (f.barLengths[1] !== 90) kind.maxLength = f.barLengths[1];
+        return plain(kind);
       }
       const thresholds = f.icons.map((t, i) => (i === 0 ? cfValue({ type: t.type === "min" ? "min" : t.type, value: t.value || "0" }) : cfValue(t)));
       if (thresholds.some((v) => v === null)) return { error: "calc.cf.err.value" };
-      return plain({ type: "iconSet", set: f.iconSet, thresholds: thresholds as CfValue[], reverse: f.iconReverse, showValue: !f.iconOnly });
+      const icons: CfKind = { type: "iconSet", set: f.iconSet, thresholds: thresholds as CfValue[], reverse: f.iconReverse, showValue: !f.iconOnly };
+      if (f.icons.some((t, i) => i > 0 && t.gt)) icons.greater = f.icons.map((t, i) => i > 0 && !!t.gt);
+      return plain(icons);
     }
     case "contains":
       switch (f.containsWhat) {
@@ -220,6 +274,8 @@ export function ruleFromForm(f: RuleForm): { rule: CfRule } | { error: string } 
           const types = { containing: "containsText", notContaining: "notContainsText", beginsWith: "beginsWith", endsWith: "endsWith" } as const;
           return withDxf({ type: types[f.textOp], text: f.text });
         }
+        case "dates":
+          return withDxf({ type: "timePeriod", period: f.period });
         case "blanks":
           return withDxf({ type: "containsBlanks" });
         case "noBlanks":
@@ -235,8 +291,11 @@ export function ruleFromForm(f: RuleForm): { rule: CfRule } | { error: string } 
       if (!Number.isFinite(rank) || rank < 1 || (f.percent && rank > 100) || rank > 1000) return { error: "calc.cf.err.rank" };
       return withDxf({ type: "top10", rank, percent: f.percent, bottom: f.bottom });
     }
-    case "average":
+    case "average": {
+      const std = /^std(\d)(Above|Below)$/.exec(f.average);
+      if (std) return withDxf({ type: "aboveAverage", above: std[2] === "Above", equal: false, stdDev: Number(std[1]) });
       return withDxf({ type: "aboveAverage", above: f.average === "above" || f.average === "equalAbove", equal: f.average.startsWith("equal") });
+    }
     case "uniqueDup":
       return withDxf({ type: f.unique ? "uniqueValues" : "duplicateValues" });
     case "formula": {
@@ -371,7 +430,10 @@ export function describeRule(rule: CfRule): { key: string; params?: Record<strin
     case "top10":
       return { key: k.bottom ? (k.percent ? "calc.cf.desc.bottomPercent" : "calc.cf.desc.bottom") : k.percent ? "calc.cf.desc.topPercent" : "calc.cf.desc.top", params: { n: k.rank } };
     case "aboveAverage":
+      if (k.stdDev) return { key: k.above ? "calc.cf.desc.stdAbove" : "calc.cf.desc.stdBelow", params: { n: k.stdDev } };
       return { key: k.above ? (k.equal ? "calc.cf.desc.equalAbove" : "calc.cf.desc.above") : k.equal ? "calc.cf.desc.equalBelow" : "calc.cf.desc.below" };
+    case "timePeriod":
+      return { key: `calc.cf.desc.period.${k.period}` };
     case "colorScale":
       return { key: "calc.cf.desc.colorScale" };
     case "dataBar":

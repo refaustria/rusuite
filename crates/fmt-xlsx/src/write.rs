@@ -571,7 +571,15 @@ fn sheet_xml(
         x.empty("legacyDrawing", &[("r:id", rid)]);
     }
     crate::tables::table_parts_xml(&mut x, &rel_ids.tables);
-    crate::slicer::sheet_ext_xml(&mut x, &rel_ids.slicers);
+    // `<extLst>`: Excel 2010 conditional formatting and data validation,
+    // then the slicer lists (Excel's order of the `<ext>`s).
+    let rules_ext = crate::condfmt::has_sheet_ext(wb, id);
+    if rules_ext || crate::slicer::has_sheet_ext(&rel_ids.slicers) {
+        x.start("extLst", &[]);
+        crate::condfmt::sheet_ext_xml(&mut x, wb, id);
+        crate::slicer::sheet_ext_xml(&mut x, &rel_ids.slicers);
+        x.end("extLst");
+    }
     x.end("worksheet");
     x.finish()
 }

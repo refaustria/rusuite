@@ -203,6 +203,13 @@ impl DataValidation {
         (&mut self.ranges, self.kind.formulas_mut())
     }
 
+    /// Every formula of the validation (bounds, custom formula, list
+    /// source range), without `=`.
+    pub fn formulas(&self) -> Vec<String> {
+        let mut copy = self.kind.clone();
+        copy.formulas_mut().into_iter().map(|f| f.clone()).collect()
+    }
+
     fn check(&mut self) -> Result<(), Error> {
         check_ranges(&mut self.ranges)?;
         check_formulas(self.kind.formulas_mut())?;

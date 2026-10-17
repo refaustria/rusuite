@@ -41,7 +41,7 @@ import { cellSelection, LAST_COL, LAST_ROW, move, normalize, type Cell, type Nav
 import { changesPartOfArray, hasSpilledCells, isFilledCell, obstructingCells, onlySpilledCells, spillAt, type SpillOutline } from "../grid/spill";
 import { intersects, isSingleCell, mergeAnchor, mergeLookup, mergeSnapshot, partialMerge, snapSelection } from "../grid/merges";
 import { fontCss, styleAt } from "../grid/style";
-import { cfKey, dataBarAxes } from "../grid/cf";
+import { cfKey } from "../grid/cf";
 import { formatCommands, type FormatState, type FormatTab } from "../numfmt/formatCells";
 import { widenedPx } from "./autoWiden";
 import { cellsCommand, type CellsChoice, type CellsMode } from "./shiftCells";
@@ -497,7 +497,6 @@ export class CalcStore {
   private cfPending = new Set<number>();
   /** Debounce of the region re-fetch after patches with `cfSheets`, ms. */
   cfRefreshDelay = 40;
-  private axesMemo = new Map<number, { version: number; axes: Map<string, number> }>();
 
   /** Charts of the sheets: lists, data, selection, commands (P8-20). */
   readonly charts: ChartController = new ChartController(this);
@@ -2659,16 +2658,6 @@ export class CalcStore {
         void this.ensureRegion(sheet, vp.r0, vp.c0, vp.r1, vp.c1);
       }
     }, this.cfRefreshDelay);
-  }
-
-  /** Zero axes of the data bars of `sheet` (see `dataBarAxes`), memoized per cache version. */
-  barAxes(sheet = this.state.activeSheet): Map<string, number> {
-    const m = this.axesMemo.get(sheet);
-    if (m && m.version === this.state.version) return m.axes;
-    const cache = this.cache(sheet);
-    const axes = cache.cf.size === 0 ? new Map<string, number>() : dataBarAxes(cache.cf, (r, c) => cache.cells.get(r)?.get(c));
-    this.axesMemo.set(sheet, { version: this.state.version, axes });
-    return axes;
   }
 
   /** The conditional formatting rules (by priority) and validations of `sheet` (empty on failure, with a toast). */

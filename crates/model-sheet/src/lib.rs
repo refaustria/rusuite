@@ -44,7 +44,8 @@ pub use annotations::{
 pub use calc::{CalcMode, CalcSettings};
 pub use chart::{CellOffset, ChartAnchor, ChartObject, ResolvedRef};
 pub use condfmt::{
-    CfKind, CfResult, CfRule, CfValue, ColorPoint, CompareOp, DxfStyle, IconSetKind,
+    CfKind, CfResult, CfRule, CfValue, ColorPoint, CompareOp, DataBarAxis, DataBarDirection,
+    DataBarDraw, DxfStyle, IconSetKind, TimePeriod, NEGATIVE_BAR_COLOR,
 };
 pub use consolidate::{ConsolidateFunction, ConsolidateSpec};
 pub use engine_formula::CellRect;

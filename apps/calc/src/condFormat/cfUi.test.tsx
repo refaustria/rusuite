@@ -63,7 +63,7 @@ describe("Conditional Formatting menu", () => {
     select(grid, 0, 0, 4, 0);
     const sub = flyout(openCfMenu(), "Highlight Cells Rules");
     expect(within(sub).getAllByRole("menuitem").map((b) => b.textContent)).toEqual([
-      "Greater Than…", "Less Than…", "Between…", "Equal To…", "Text that Contains…", "Duplicate Values…", "More Rules…",
+      "Greater Than…", "Less Than…", "Between…", "Equal To…", "Text that Contains…", "A Date Occurring…", "Duplicate Values…", "More Rules…",
     ]);
     fireEvent.click(within(sub).getByRole("menuitem", { name: "Greater Than…" }));
     const dlg = screen.getByRole("dialog", { name: "Greater Than" });

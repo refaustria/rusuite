@@ -1,15 +1,16 @@
 // Conditional formatting on the client (pure): the core computes each
 // cell's `CfResult` (snapshot `cf`); this module turns it into what the
 // canvas and the print view draw – the differential format over the cell
-// style, data bars (with a negative axis), colour-scale fills and the
-// vector glyphs of the icon sets.
+// style (and the rule's number format: `cf.display`), data bars (geometry
+// from the core), colour-scale fills and the vector glyphs of the icon sets.
 
 import type { CellStyle } from "../generated/CellStyle";
-import type { CellView } from "../generated/CellView";
 import type { CfResult } from "../generated/CfResult";
+import type { DataBarDraw } from "../generated/DataBarDraw";
 import type { DxfStyle } from "../generated/DxfStyle";
 import type { IconSetKind } from "../generated/IconSetKind";
 import { LAST_COL } from "./Selection";
+import { colorCss } from "./style";
 
 /** Key of a cell in a sheet's `cf` map. */
 export const cfKey = (row: number, col: number): number => row * (LAST_COL + 1) + col;
@@ -50,61 +51,32 @@ export function cfStyle(style: CellStyle, cf: CfResult | undefined): CellStyle {
 
 // --- data bars -------------------------------------------------------------
 
-/** Excel's default fill of negative data bars. */
-export const NEGATIVE_BAR = "#FF0000";
-
-/** A cell's number for the bar axis: a plain numeric input, else the shown value without grouping. */
-export function cellNumber(c: CellView | undefined): number | null {
-  if (!c || c.kind !== "number") return null;
-  const src = c.input !== "" && !c.input.startsWith("=") ? c.input : c.display;
-  const n = Number(src.replace(/[\s,]/g, "").replace(/%$/, ""));
-  if (!Number.isFinite(n)) return null;
-  return src.trim().endsWith("%") ? n / 100 : n;
-}
-
 /**
- * Where the zero axis of each data bar rule sits (fraction of the cell
- * width), keyed by the bar colour: the core sends `bar = (v − min) / (max
- * − min)` per cell, so the axis is that line at `v = 0`, fitted from the
- * cells with the smallest and largest value. Only rules with negative
- * values get an axis.
+ * The bar of one cell in pixels inside a cell rect: the core computes the
+ * geometry (`DataBarDraw`: `from`..`to` and the axis as fractions of the
+ * cell width, axis position, negative bars, lengths, direction); the bar
+ * is inset by 2 px on each side, as Excel draws it.
  */
-export function dataBarAxes(cf: ReadonlyMap<number, CfResult>, cellAt: (row: number, col: number) => CellView | undefined): Map<string, number> {
-  const ext = new Map<string, { lo: [number, number]; hi: [number, number] }>();
-  for (const [key, r] of cf) {
-    if (r.bar === undefined || !r.barColor) continue;
-    const v = cellNumber(cellAt(Math.floor(key / (LAST_COL + 1)), key % (LAST_COL + 1)));
-    if (v === null) continue;
-    const id = JSON.stringify(r.barColor);
-    const e = ext.get(id);
-    if (!e) ext.set(id, { lo: [v, r.bar], hi: [v, r.bar] });
-    else {
-      if (v < e.lo[0]) e.lo = [v, r.bar];
-      if (v > e.hi[0]) e.hi = [v, r.bar];
-    }
-  }
-  const out = new Map<string, number>();
-  for (const [id, { lo, hi }] of ext) {
-    if (lo[0] >= 0 || hi[0] === lo[0]) continue;
-    const slope = (hi[1] - lo[1]) / (hi[0] - lo[0]);
-    const axis = lo[1] - slope * lo[0];
-    if (axis > 0 && axis < 1) out.set(id, axis);
-  }
+export function barRect(bar: DataBarDraw, x: number, w: number): { x: number; w: number; axisX?: number } {
+  const inner = Math.max(0, w - 4);
+  const from = Math.max(0, Math.min(1, bar.from));
+  const to = Math.max(from, Math.min(1, bar.to));
+  const out: { x: number; w: number; axisX?: number } = { x: x + 2 + from * inner, w: (to - from) * inner };
+  if (bar.axis !== undefined) out.axisX = x + 2 + bar.axis * inner;
   return out;
 }
 
-/** Shortest data bar (fraction of the cell): Excel keeps the lowest value visible. */
-export const MIN_BAR = 0.1;
+/** Whether a bar grows leftwards (from its axis, or from the right edge of a right-to-left bar). */
+export function barGrowsLeft(bar: DataBarDraw): boolean {
+  if (bar.axis !== undefined) return Math.abs(bar.to - bar.axis) < 1e-9 && bar.from < bar.to;
+  return bar.from > 0 && bar.to >= 1;
+}
 
-/**
- * The bar of one cell: `[x0, x1]` as fractions of the cell width, and
- * whether it is negative. Without an axis the bar runs from 10 % (lowest
- * value) to the full width, as Excel draws it.
- */
-export function barSpan(bar: number, axis: number | undefined): { from: number; to: number; negative: boolean } {
-  const b = Math.max(0, Math.min(1, bar));
-  if (axis === undefined) return { from: 0, to: MIN_BAR + (1 - MIN_BAR) * b, negative: false };
-  return b < axis ? { from: b, to: axis, negative: true } : { from: axis, to: b, negative: false };
+/** The CSS of a bar's fill: a gradient fading to white towards the bar's end, or the solid colour. */
+export function barFillCss(bar: DataBarDraw): string {
+  const color = colorCss(bar.color) ?? "#638EC6";
+  if (!bar.gradient) return color;
+  return `linear-gradient(to ${barGrowsLeft(bar) ? "left" : "right"}, ${color}, #ffffff)`;
 }
 
 // --- icon sets ---------------------------------------------------------------

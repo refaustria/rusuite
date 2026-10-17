@@ -9,8 +9,11 @@ import { ColorPicker, Dialog, type Color } from "@rusuite/ui-shared";
 import type { CfRule } from "../generated/CfRule";
 import type { CfValue } from "../generated/CfValue";
 import type { CompareOp } from "../generated/CompareOp";
+import type { DataBarAxis } from "../generated/DataBarAxis";
+import type { DataBarDirection } from "../generated/DataBarDirection";
 import type { DxfStyle } from "../generated/DxfStyle";
 import type { IconSetKind } from "../generated/IconSetKind";
+import type { TimePeriod } from "../generated/TimePeriod";
 import { ICON_SETS, iconCount } from "../grid/cf";
 import { normalize } from "../grid/Selection";
 import { useT } from "../i18n";
@@ -18,7 +21,7 @@ import type { CalcStore } from "../state/store";
 import { DxfSample, GlyphSvg, IconSetPreview } from "./previews";
 import { HIGHLIGHT_PRESETS, ICON_SET_GROUPS, isRankRule, quickRule, quickValueCount, rgb, type QuickRuleKind } from "./presets";
 import {
-  COMPARE_OPS, defaultIcons, describeRule, formFromRule, manageCommands, moveShown, needsTwo, newRuleForm, parseRanges, rangesText, RULE_TYPES,
+  AVERAGE_OPS, COMPARE_OPS, CONTAINS_WHAT, defaultIcons, describeRule, TIME_PERIODS, formFromRule, manageCommands, moveShown, needsTwo, newRuleForm, parseRanges, rangesText, RULE_TYPES,
   ruleFromForm, ruleTouches, type AverageOp, type ContainsWhat, type RuleForm, type TextOp, type Threshold, type ValueStyle,
 } from "./rules";
 
@@ -161,11 +164,25 @@ function PresetSelect({ value, onChange, onCustom }: { value: string; onChange: 
 // --- quick rules ----------------------------------------------------------------------
 
 /** Greater Than… / Between… / Text that Contains… / Duplicate Values… / Top 10 Items… / Above Average…. */
+/** The periods of "A Date Occurring". */
+function PeriodSelect({ value, onChange }: { value: TimePeriod; onChange: (p: TimePeriod) => void }) {
+  const t = useT();
+  return (
+    <select className={FIELD} aria-label={t("calc.cf.period")} value={value} onChange={(e) => onChange(e.target.value as TimePeriod)} autoFocus>
+      {TIME_PERIODS.map((p) => (
+        <option key={p} value={p}>
+          {t(`calc.cf.periodName.${p}`)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function QuickRuleDialog({ store, quick }: { store: CalcStore; quick: QuickRuleKind }) {
   const t = useT();
   const count = quickValueCount(quick);
   const rank = isRankRule(quick);
-  const [values, setValues] = useState<string[]>(rank ? ["10"] : ["", ""]);
+  const [values, setValues] = useState<string[]>(rank ? ["10"] : quick === "dateOccurring" ? ["yesterday"] : ["", ""]);
   const [preset, setPreset] = useState(HIGHLIGHT_PRESETS[0]!.id);
   const [custom, setCustom] = useState<DxfStyle | null>(null);
   const [editing, setEditing] = useState(false);
@@ -191,7 +208,9 @@ export function QuickRuleDialog({ store, quick }: { store: CalcStore; quick: Qui
         >
           <p>{t(`calc.cf.prompt.${quick}`)}</p>
           <div className={ROW}>
-            {quick === "duplicateValues" ? (
+            {quick === "dateOccurring" ? (
+              <PeriodSelect value={values[0] as TimePeriod} onChange={(p) => set(0, p)} />
+            ) : quick === "duplicateValues" ? (
               <select className={FIELD} aria-label={t("calc.cf.valuesKind")} value={duplicate ? "duplicate" : "unique"} onChange={(e) => setDuplicate(e.target.value === "duplicate")}>
                 <option value="duplicate">{t("calc.cf.duplicate")}</option>
                 <option value="unique">{t("calc.cf.unique")}</option>
@@ -257,11 +276,15 @@ export function QuickRuleDialog({ store, quick }: { store: CalcStore; quick: Qui
 // --- New / Edit Formatting Rule ------------------------------------------------------
 
 const VALUE_TYPES: CfValue["type"][] = ["num", "percent", "formula", "percentile"];
+const FIXED_TYPES = new Set<CfValue["type"]>(["min", "max", "autoMin", "autoMax"]);
 
-function ThresholdFields({ label, value, onChange, ends }: { label: string; value: Threshold; onChange: (t: Threshold) => void; ends?: "min" | "max" }) {
+function ThresholdFields({
+  label, value, onChange, ends, auto = false,
+}: { label: string; value: Threshold; onChange: (t: Threshold) => void; ends?: "min" | "max"; auto?: boolean }) {
   const t = useT();
-  const types = ends ? [ends, ...VALUE_TYPES] : VALUE_TYPES;
-  const fixed = value.type === "min" || value.type === "max";
+  const autoType = ends === "min" ? "autoMin" : "autoMax";
+  const types = ends ? [...(auto ? [autoType] : []), ends, ...VALUE_TYPES] : VALUE_TYPES;
+  const fixed = FIXED_TYPES.has(value.type);
   return (
     <>
       <select className={FIELD} aria-label={t("calc.cf.typeOf", { what: label })} value={value.type} onChange={(e) => onChange({ type: e.target.value as CfValue["type"], value: value.value })}>
@@ -328,20 +351,48 @@ function ValuesEditor({ f, set }: { f: RuleForm; set: (p: Partial<RuleForm>) => 
         <>
           <div className={ROW}>
             <span className="w-28">{t("calc.cf.minimum")}</span>
-            <ThresholdFields label={t("calc.cf.minimum")} value={f.barMin} ends="min" onChange={(barMin) => set({ barMin })} />
+            <ThresholdFields label={t("calc.cf.minimum")} value={f.barMin} ends="min" auto onChange={(barMin) => set({ barMin })} />
           </div>
           <div className={ROW}>
             <span className="w-28">{t("calc.cf.maximum")}</span>
-            <ThresholdFields label={t("calc.cf.maximum")} value={f.barMax} ends="max" onChange={(barMax) => set({ barMax })} />
+            <ThresholdFields label={t("calc.cf.maximum")} value={f.barMax} ends="max" auto onChange={(barMax) => set({ barMax })} />
           </div>
           <div className={ROW}>
-            <span className="w-28">{t("calc.cf.barColor")}</span>
+            <span className="w-28">{t("calc.cf.barFill")}</span>
+            <select className={FIELD} aria-label={t("calc.cf.barFill")} value={f.barGradient ? "gradient" : "solid"} onChange={(e) => set({ barGradient: e.target.value === "gradient" })}>
+              <option value="solid">{t("calc.cf.solidFill")}</option>
+              <option value="gradient">{t("calc.cf.gradientFill")}</option>
+            </select>
             <ColorInput label={t("calc.cf.barColor")} value={f.barColor} onChange={(barColor) => set({ barColor })} />
             <label className="flex items-center gap-1">
               <input type="checkbox" checked={f.barOnly} onChange={(e) => set({ barOnly: e.target.checked })} />
               {t("calc.cf.barOnly")}
             </label>
           </div>
+          <div className={ROW}>
+            <span className="w-28">{t("calc.cf.barBorder")}</span>
+            <select
+              className={FIELD}
+              aria-label={t("calc.cf.barBorder")}
+              value={f.barBorder ? "solid" : "none"}
+              onChange={(e) => set({ barBorder: e.target.value === "solid" ? f.barColor : "" })}
+            >
+              <option value="none">{t("calc.cf.noBorder")}</option>
+              <option value="solid">{t("calc.cf.solidBorder")}</option>
+            </select>
+            {f.barBorder && <ColorInput label={t("calc.cf.borderColor")} value={f.barBorder} onChange={(barBorder) => set({ barBorder })} />}
+            <label className="flex items-center gap-2">
+              {t("calc.cf.barDirection")}
+              <select className={FIELD} value={f.barDirection} onChange={(e) => set({ barDirection: e.target.value as DataBarDirection })}>
+                {(["context", "leftToRight", "rightToLeft"] as const).map((d) => (
+                  <option key={d} value={d}>
+                    {t(`calc.cf.direction.${d}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <NegativeAxisSettings f={f} set={set} />
         </>
       )}
       {f.style === "iconSet" && (
@@ -385,15 +436,70 @@ function ValuesEditor({ f, set }: { f: RuleForm; set: (p: Partial<RuleForm>) => 
                 <div key={i} className={ROW}>
                   <span className="flex w-28 items-center gap-1">
                     {icon && <GlyphSvg glyph={icon} />}
-                    {i === 0 ? t("calc.cf.otherwise") : t("calc.cf.whenAtLeast")}
+                    {i === 0 ? t("calc.cf.otherwise") : t("calc.cf.whenValueIs")}
                   </span>
                   {i > 0 && (
-                    <ThresholdFields label={label} value={th} onChange={(v) => set({ icons: f.icons.map((x, j) => (j === i ? v : x)) })} />
+                    <>
+                      <select
+                        className={FIELD}
+                        aria-label={t("calc.cf.iconOp", { what: label })}
+                        value={th.gt ? "gt" : "ge"}
+                        onChange={(e) => set({ icons: f.icons.map((x, j) => (j === i ? { ...x, gt: e.target.value === "gt" } : x)) })}
+                      >
+                        <option value="ge">&gt;=</option>
+                        <option value="gt">&gt;</option>
+                      </select>
+                      <ThresholdFields label={label} value={th} onChange={(v) => set({ icons: f.icons.map((x, j) => (j === i ? { ...v, gt: x.gt } : x)) })} />
+                    </>
                   )}
                 </div>
               );
             })}
         </>
+      )}
+    </div>
+  );
+}
+
+/** Excel's "Negative Value and Axis Settings" of a data bar (shown on demand). */
+function NegativeAxisSettings({ f, set }: { f: RuleForm; set: (p: Partial<RuleForm>) => void }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-col gap-2">
+      <button type="button" className={`${BTN} self-start`} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {t("calc.cf.negativeAxis")}
+      </button>
+      {open && (
+        <fieldset className="flex flex-col gap-2 rounded border border-ui-border p-2" aria-label={t("calc.cf.negativeAxis")}>
+          <div className={ROW}>
+            <span className="w-36">{t("calc.cf.negativeFill")}</span>
+            <ColorInput label={t("calc.cf.negativeFill")} value={f.barNegColor || "FF0000"} onChange={(barNegColor) => set({ barNegColor })} />
+          </div>
+          {f.barBorder && (
+            <div className={ROW}>
+              <span className="w-36">{t("calc.cf.negativeBorder")}</span>
+              <label className="flex items-center gap-1">
+                <input type="checkbox" checked={f.barNegBorder === ""} onChange={(e) => set({ barNegBorder: e.target.checked ? "" : "FF0000" })} />
+                {t("calc.cf.sameAsPositive")}
+              </label>
+              {f.barNegBorder && <ColorInput label={t("calc.cf.negativeBorder")} value={f.barNegBorder} onChange={(barNegBorder) => set({ barNegBorder })} />}
+            </div>
+          )}
+          <div role="radiogroup" aria-label={t("calc.cf.axisPosition")} className="flex flex-col gap-1">
+            <span className="font-medium">{t("calc.cf.axisPosition")}</span>
+            {(["automatic", "midpoint", "none"] as const).map((a) => (
+              <label key={a} className="flex items-center gap-1">
+                <input type="radio" name="cf-axis" checked={f.barAxis === a} onChange={() => set({ barAxis: a as DataBarAxis })} />
+                {t(`calc.cf.axis.${a}`)}
+              </label>
+            ))}
+          </div>
+          <div className={ROW}>
+            <span className="w-36">{t("calc.cf.axisColor")}</span>
+            <ColorInput label={t("calc.cf.axisColor")} value={f.barAxisColor || "000000"} onChange={(barAxisColor) => set({ barAxisColor })} />
+          </div>
+        </fieldset>
       )}
     </div>
   );
@@ -421,7 +527,7 @@ function RuleEditor({ f, set }: { f: RuleForm; set: (p: Partial<RuleForm>) => vo
       return (
         <div className={ROW}>
           <select className={FIELD} aria-label={t("calc.cf.containsWhat")} value={f.containsWhat} onChange={(e) => set({ containsWhat: e.target.value as ContainsWhat })}>
-            {(["cellValue", "specificText", "blanks", "noBlanks", "errors", "noErrors"] as const).map((k) => (
+            {CONTAINS_WHAT.map((k) => (
               <option key={k} value={k}>
                 {t(`calc.cf.contains.${k}`)}
               </option>
@@ -439,6 +545,7 @@ function RuleEditor({ f, set }: { f: RuleForm; set: (p: Partial<RuleForm>) => vo
               )}
             </>
           )}
+          {f.containsWhat === "dates" && <PeriodSelect value={f.period} onChange={(period) => set({ period })} />}
           {f.containsWhat === "specificText" && (
             <>
               <select className={FIELD} aria-label={t("calc.cf.operator")} value={f.textOp} onChange={(e) => set({ textOp: e.target.value as TextOp })}>
@@ -471,7 +578,7 @@ function RuleEditor({ f, set }: { f: RuleForm; set: (p: Partial<RuleForm>) => vo
       return (
         <div className={ROW}>
           <select className={FIELD} aria-label={t("calc.cf.averageOp")} value={f.average} onChange={(e) => set({ average: e.target.value as AverageOp })}>
-            {(["above", "below", "equalAbove", "equalBelow"] as const).map((k) => (
+            {AVERAGE_OPS.map((k) => (
               <option key={k} value={k}>
                 {t(`calc.cf.average.${k}`)}
               </option>

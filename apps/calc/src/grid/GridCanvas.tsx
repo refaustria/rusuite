@@ -159,7 +159,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const geo = store.geometry(sheet);
     return {
       cells: cache.cells, cols: cache.cols, rows: cache.rows, colGeo: geo.col, rowGeo: geo.row, merges: cache.merges,
-      cf: cache.cf, barAxes: cache.cf.size > 0 ? store.barAxes(sheet) : undefined,
+      cf: cache.cf,
       showFormulas: store.getState().showFormulas,
       pivotLook: store.pivots.looks(sheet),
       tableLook: store.tables.looks(sheet),
