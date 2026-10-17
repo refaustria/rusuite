@@ -55,9 +55,9 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
 - **Layout**: Margins / Orientation / Size act on the caret's section (`SetSection { page }`; `SetPage` for documents without
   sections); Breaks ▾ (Page break; section breaks Next page / Continuous / Even page / Odd page → `SplitParagraph` +
   `InsertSectionBreak`).
-- **Home › Paragraph › Multilevel list** ▾: 1 / 1.1 / 1.1.1, 1 / a) / i, Legal (I. / 1.1 with legal numbering): a new list
-  definition (`RestoreNumbering`) applied to the selected paragraphs, keeping their levels. Right-click in a list: **Restart
-  at 1** (`RestartList`) / **Continue numbering** (`ContinueList`).
+- **Home › Paragraph › Multilevel list** ▾: Word's list library (see "Write lists, numbering and Word shortcuts (P9-W1)"
+  below); right-click in a list: **Restart at 1** (`RestartList`) / **Continue numbering** (`ContinueList`) / **Set
+  Numbering Value…**.
 - **Header and footer** dialog: Different first page (`titlePage`), Different odd & even pages, one text per slot; each
   changed slot is stored as blocks of the caret's section (`SetHeaderFooter`, `{PAGE}` → a page field).
 - **Rendering**: fields are grey-shaded with their cached result, or the live value (page numbers from the pagination, date,
@@ -325,8 +325,8 @@ The deferred items of docs/qa/write-2026-10.md:
   indent. Turning bullets off keeps List Paragraph (and its 1.27 cm indent), as in Word.
 - **Backspace at a list item's start (W-28)**: the first press removes the number or bullet and keeps the text at the
   level's indent (`ListBackspace`: a direct left indent, no first-line outdent; the saved file has Word's values); the
-  paragraph is then an ordinary one and the next Backspace joins it to the previous paragraph. On screen the editor's
-  list rendering (CSS padding per level, the label inline) is an approximation, so the text can move by a few pixels.
+  paragraph is then an ordinary one (P9-W1: the next Backspace outdents it, the third joins it). The approximate CSS
+  list rendering of this round was replaced by the level indents in P9-W1.
 - **Captions (W-22)**: the Caption box of Insert Caption starts empty after "Figure 1"; the separator is typed by the user
   (Word), a caption without text is exactly "Figure 1".
 - **Shortcuts (W-30)**: Ctrl+] / Ctrl+[ (font size ±1 pt, each run from its own size), Ctrl+Shift+> / < (Word's size
@@ -341,6 +341,45 @@ The deferred items of docs/qa/write-2026-10.md:
   frame as wide as the widest page (the view scrolls sideways to it); the blocks of a section with another text width
   are moved and widened into its text column (node decorations), so a landscape section's lines are as long as on paper.
   File › Print and Export PDF still use the first section's paper size for every page.
+
+### Write lists, numbering and Word shortcuts (P9-W1)
+- **List placement like Word**: a list paragraph sits at its numbering level's real indent (`w:ind` left / hanging of
+  the level, overlaid by the paragraph's own direct indent) instead of a fixed CSS step per nesting level; the label hangs
+  at the first-line position, the tab after it (the level's `w:suff`: tab / space / nothing) reaches the text, and the
+  label is aligned left, centred or right at that position (`w:lvlJc`, `Level.alignment`). Node decorations
+  (`features/listIndent.ts`: `--li-left`, `--li-hang`; the list nodes lose the browser padding) give the editor, the
+  measured pagination and the print clones the same geometry. Paragraphs numbered through their style (heading
+  numbering) are placed the same way. New lists keep Word's List Paragraph style with contextual spacing (P8-46).
+- **Backspace at a list item's start** in Word's three steps: the number goes (indent kept, `ListBackspace`), the
+  second press moves the paragraph to the margin (left and first-line indent 0; 0 written explicitly where the style
+  indents, e.g. List Paragraph), the third joins it. Tab / Shift+Tab change the level.
+- **Galleries** (Home › Paragraph, next to the list buttons): **Bullet library ▾** (•, ○, ■, ➢, ✓, ◆, –, None,
+  Define New Bullet…), **Numbering library ▾** (1. 1) I. A. a) a. i., None, Define New Number Format…, Set Numbering
+  Value…) and **Multilevel list ▾** with Word's seven list-library presets: 1) a) i); 1. 1.1. 1.1.1.; ➢ ■ •; and the
+  four linked to Heading 1–9: Article I. / Section 1.01 / (a); 1 / 1.1 / 1.1.1; I. / A. / 1.; Chapter 1. Each choice is
+  one `ApplyNumbering` with a preset id (`ListPreset`, the levels are defined once in model-text) or an explicit level
+  `format`; a single-level choice replaces the caret's level of the current list (keeping its indent), a multilevel
+  one makes a new list; with the caret in a list (no selection) the whole list changes (W-27). None removes the
+  numbering (`ApplyList` none).
+- **Define New Number Format…**: number style (1, I, i, A, a, 1st, 01, none), the format text with `%1` for the number
+  ("Part %1:"; OK needs the `%1` unless the style is none), font, alignment, a preview. **Define New Bullet…**: a symbol
+  from a small table and a font (picture bullets are not offered). Both send `ApplyNumbering { format }`; `%1` becomes
+  the level's own token.
+- **Set Numbering Value…** (Numbering ▾ and the list item's context menu): Start new list + Set value to → `RestartList
+  { start }` (saved as `w:lvlOverride/w:startOverride`); Continue from previous list → `ContinueList`.
+- **Heading numbering**: the linked presets number the heading styles (`Level.style` ↔ `w:lvl/w:pStyle`; the style's
+  `numbering` points to its level) — every Heading N paragraph shows its number, a paragraph on a linked level gets the
+  style, a heading keeps its own. Table of contents entries start with the heading's number ("1.1 Scope", the core's
+  `build_toc`; bullets are left out), and the Navigation pane lists numbered headings with their numbers.
+- **Outline levels**: `ParagraphProperties.outlineLevel` (`w:outlineLvl`, 0–8, 9 = Body Text; the built-in Heading
+  styles carry Word's values) is read and written by fmt-docx; a paragraph with an outline level is in the Navigation
+  pane and the TOC, Body Text takes a heading out. Paragraph dialog › Outline level sets it.
+- **Word shortcuts (W-30, rest)**: Ctrl+Shift+W (word underline: the words underlined, not the spaces; the model has no
+  `words` underline kind, so the file holds underlined words), Shift+F3 with Sentence case for a selection that ends a
+  sentence and the word before the caret right after a period, Ctrl+Alt+1..3 bound in the editor's own keymap to the same
+  Heading style toggle as the shortcut map (one `SetStyle`, the paragraph keeps its id). The others (Ctrl+Shift+> / <,
+  Ctrl+] / [, Ctrl+Shift+K / A / D, Ctrl+T / Ctrl+Shift+T, Ctrl+M / Ctrl+Shift+M, Ctrl+Q, Ctrl+Space, Ctrl+Shift+N,
+  Ctrl+E / L / R / J, Ctrl+1 / 2 / 5, Ctrl+0) were bound in P8-46 / earlier and are covered by tests now.
 
 ## Building blocks (`@rusuite/ui-shared`)
 
