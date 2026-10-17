@@ -2317,6 +2317,7 @@ impl ShowDocument {
                 .filter(model_show::Hyperlink::is_valid),
             hidden: ns.hidden,
             lock_aspect: ns.lock_aspect,
+            text_color: ns.text_color,
         };
         shape.fill_default_name();
         normalize_shape(&mut shape);

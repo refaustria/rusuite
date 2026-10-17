@@ -18,7 +18,7 @@ use model_show::{
 use crate::anim::{write_timing, write_transition, MediaTarget, Target};
 use crate::chart::{workbook_xlsx, TableData, CHART_URI, PACKAGE_REL, XLSX_CT};
 use crate::drawing::{
-    deg_to_rot, write_color_with_alpha, write_fill, write_line, write_line_with_ends,
+    deg_to_rot, write_color, write_color_with_alpha, write_fill, write_line, write_line_with_ends,
     write_text_body, write_xfrm,
 };
 use crate::geom::{write_av_lst, write_geometry};
@@ -745,6 +745,9 @@ impl SlideWriter<'_> {
         write_fill(&mut self.x, &s.fill);
         write_line(&mut self.x, &s.line);
         self.x.end("p:spPr");
+        if let Some(c) = &s.text_color {
+            write_style_font(&mut self.x, c);
+        }
         if let Some(body) = s.text() {
             self.text_body("p:txBody", body);
             if let Some(t) = self.targets.get_mut(&s.id) {
@@ -1169,6 +1172,20 @@ fn write_blip(x: &mut XmlOut, rid: &str, props: &PictureProps) {
         x.empty("a:lum", &attrs);
     }
     x.end("a:blip");
+}
+
+/// `p:style` with only the text colour (`a:fontRef idx="minor"`); fill
+/// and outline are stated in `p:spPr`, so their references are empty
+/// (`idx="0"`).
+fn write_style_font(x: &mut XmlOut, color: &core_model::Color) {
+    x.start("p:style", &[]);
+    x.empty("a:lnRef", &[("idx", "0")]);
+    x.empty("a:fillRef", &[("idx", "0")]);
+    x.empty("a:effectRef", &[("idx", "0")]);
+    x.start("a:fontRef", &[("idx", "minor")]);
+    write_color(x, color);
+    x.end("a:fontRef");
+    x.end("p:style");
 }
 
 #[cfg(test)]

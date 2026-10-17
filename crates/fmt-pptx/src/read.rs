@@ -1161,6 +1161,7 @@ impl Reader<'_> {
             click_action: None,
             hidden: false,
             lock_aspect: false,
+            text_color: None,
         })
     }
 
@@ -1298,11 +1299,8 @@ impl Reader<'_> {
                 paragraphs: Vec::new(),
             });
         }
-        if let (Some(body), Some(color)) = (&mut text, style.font) {
-            for r in body.paragraphs.iter_mut().flat_map(|p| p.runs.iter_mut()) {
-                r.props.color.get_or_insert(color);
-            }
-        }
+        // the style's text colour (`a:fontRef`) stays on the shape (`text_color`): runs
+        // without a colour use it, also those typed later
         if geometry == Preset::Line && text.as_ref().is_some_and(TextBody::is_empty) {
             text = None;
         }
@@ -1337,6 +1335,7 @@ impl Reader<'_> {
             click_action: None,
             hidden: false,
             lock_aspect: false,
+            text_color: style.font,
         })
     }
 
@@ -1423,6 +1422,7 @@ impl Reader<'_> {
             click_action: None,
             hidden: false,
             lock_aspect: false,
+            text_color: None,
         })
     }
 
@@ -1460,6 +1460,7 @@ impl Reader<'_> {
             click_action: None,
             hidden: false,
             lock_aspect: false,
+            text_color: None,
         })
     }
 
@@ -1510,6 +1511,7 @@ impl Reader<'_> {
                 click_action: None,
                 hidden: false,
                 lock_aspect: false,
+                text_color: None,
             });
         }
         let Some(rid) = blip.and_then(|b| b.attr("embed")) else {
@@ -1554,6 +1556,7 @@ impl Reader<'_> {
             click_action: None,
             hidden: false,
             lock_aspect: false,
+            text_color: None,
         })
     }
 
@@ -1691,6 +1694,7 @@ impl Reader<'_> {
             click_action: None,
             hidden: false,
             lock_aspect: false,
+            text_color: None,
         })
     }
 }

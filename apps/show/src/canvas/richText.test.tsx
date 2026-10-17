@@ -215,3 +215,105 @@ describe("rich in-place editor in the app", () => {
     expect(copied).toBe("First\n p");
   });
 });
+
+// ----- P9-S1 item 2 / 4: autofit text boxes, prompts, white text on filled shapes ----------
+
+import { choiceOf, choiceShape, TEXT_BOX_CLICK_W, TEXT_BOX_LINE_H } from "../shapes/presets";
+import { fitSize } from "../text/autofit";
+import { fixture } from "../test/fixture";
+import { shapeTextOptions } from "./SlideView";
+import { stableDeck } from "../design/deck";
+import { themePalette } from "../model";
+
+describe("text boxes resize to fit their text", () => {
+  it("a click inserts a one-line box that does not wrap, a drag one that wraps; both spAutoFit", () => {
+    const tb = choiceOf("textBox")!;
+    const click = choiceShape(tb, { x: 0, y: 0, w: TEXT_BOX_CLICK_W, h: TEXT_BOX_LINE_H }, -1, true);
+    const drag = choiceShape(tb, { x: 0, y: 0, w: 3000000, h: TEXT_BOX_LINE_H }, -2);
+    const props = (s: typeof click) => (s.kind.kind === "auto" ? s.kind.value.text!.props : null);
+    expect(props(click)).toMatchObject({ autofit: "resize", wrap: false });
+    expect(props(drag)).toMatchObject({ autofit: "resize", wrap: true });
+    expect(TEXT_BOX_CLICK_W).toBe(900000); // 2.5 cm
+  });
+
+  it("fitSize: a wrapping box grows in height only, a non-wrapping one also in width", () => {
+    const pres = fixture();
+    const slide = pres.slides[2]!;
+    const tb = choiceOf("textBox")!;
+    const box = (click: boolean, text: string[]) => {
+      const s = choiceShape(tb, { x: 0, y: 0, w: TEXT_BOX_CLICK_W, h: TEXT_BOX_LINE_H }, 50, click);
+      if (s.kind.kind === "auto") s.kind.value.text!.paragraphs = text.map((t) => ({ runs: [{ text: t }] }));
+      return { s, body: s.kind.kind === "auto" ? s.kind.value.text! : null };
+    };
+    const short = box(true, ["Hi"]);
+    expect(fitSize(pres, slide, short.s, short.body!)!.w).toBe(TEXT_BOX_CLICK_W);
+    const long = box(true, ["A rather long line of text that is wider than 2.5 cm"]);
+    const fl = fitSize(pres, slide, long.s, long.body!)!;
+    expect(fl.w).toBeGreaterThan(TEXT_BOX_CLICK_W * 2);
+    const two = box(true, ["One", "Two"]);
+    expect(fitSize(pres, slide, two.s, two.body!)!.h).toBeGreaterThan(fitSize(pres, slide, short.s, short.body!)!.h * 1.5);
+    const wrapped = box(false, ["A rather long line of text that is wider than 2.5 cm"]);
+    const fw = fitSize(pres, slide, wrapped.s, wrapped.body!)!;
+    expect(fw.w).toBe(TEXT_BOX_CLICK_W);
+    expect(fw.h).toBeGreaterThan(TEXT_BOX_LINE_H * 2);
+  });
+
+  it("filled preset shapes draw their text in the style's text colour (white)", () => {
+    const pres = fixture();
+    const slide = pres.slides[2]!;
+    const s = choiceShape(choiceOf("rect")!, { x: 0, y: 0, w: 914400, h: 914400 }, 51);
+    expect(s.textColor).toEqual({ kind: "theme", value: { slot: "light1", tint: 0 } });
+    const deck = stableDeck(pres);
+    const o = shapeTextOptions({ deck, slide, palette: themePalette(pres.theme), asMaster: false, slideNumber: 3 }, s, 96, 96);
+    expect(o.runStyle(undefined).color.toUpperCase()).toBe("#FFFFFF");
+    expect(o.runStyle({ color: { kind: "rgb", value: "FF0000" } }).color.toUpperCase()).toBe("#FF0000");
+  });
+});
+
+describe("text boxes and prompts in the app", () => {
+  it("a new text box (click) grows while typing; the commit stores the fitted box", async () => {
+    const { backend, store } = await mount();
+    fireEvent.click(screen.getAllByTestId("thumbnail")[2]!);
+    await act(() => store.insertChoice("textBox", { x: 914400, y: 914400, w: TEXT_BOX_CLICK_W, h: TEXT_BOX_LINE_H, rotationDeg: 0 }));
+    await flush();
+    const el = screen.getByTestId("text-overlay");
+    const box = screen.getByTestId("text-overlay-box");
+    const w0 = parseFloat(box.style.width);
+    const h0 = parseFloat(box.style.height);
+    typeText(el, "A text that is a lot wider than the box");
+    expect(parseFloat(screen.getByTestId("text-overlay-box").style.width)).toBeGreaterThan(w0 * 2);
+    typeText(el, "\nsecond line");
+    expect(parseFloat(screen.getByTestId("text-overlay-box").style.height)).toBeGreaterThan(h0 * 1.5);
+    fireEvent.keyDown(el, { key: "Escape" });
+    await flush();
+    const flat = commands(backend).flatMap((c) => (c.type === "compound" ? (c as unknown as { commands: typeof c[] }).commands : [c]));
+    const tr = flat.filter((c) => c.type === "setTransform").pop() as unknown as { shapes: [number, { w: number; h: number }][] };
+    expect(tr.shapes[0]![1].w).toBeGreaterThan(TEXT_BOX_CLICK_W * 2);
+    expect(tr.shapes[0]![1].h).toBeGreaterThan(TEXT_BOX_LINE_H * 1.5);
+  });
+
+  it("a dragged text box keeps the dragged width and starts one line high", async () => {
+    const { backend, store } = await mount();
+    fireEvent.click(screen.getAllByTestId("thumbnail")[2]!);
+    await act(() => store.insertChoice("textBox", { x: 0, y: 0, w: 3600000, h: 2000000, rotationDeg: 0 }, true));
+    const add = commands(backend).find((c) => c.type === "addShape") as unknown as { shape: { transform: { w: number; h: number }; kind: { value: { text: TextBody } } } };
+    expect(add.shape.transform).toMatchObject({ w: 3600000, h: TEXT_BOX_LINE_H });
+    expect(add.shape.kind.value.text.props).toMatchObject({ autofit: "resize", wrap: true });
+    expect(store.getState().editing).not.toBeNull();
+  });
+
+  it("an empty placeholder shows its prompt in its formatting while editing, until the first keystroke", async () => {
+    const { store } = await mount();
+    fireEvent.click(screen.getAllByTestId("thumbnail")[0]!);
+    act(() => store.startEdit(3));
+    const prompt = screen.getByTestId("text-overlay-prompt");
+    expect(prompt.textContent).toBe("Click to add subtitle");
+    const span = prompt.querySelector<HTMLElement>("span")!;
+    // the subtitle's layout formatting: 24 pt (32 px), centred
+    expect(parseFloat(span.style.fontSize)).toBeCloseTo(32, 0);
+    expect(prompt.querySelector<HTMLElement>("[data-p]")!.style.textAlign).toBe("center");
+    expect(prompt.getAttribute("aria-hidden")).toBe("true");
+    typeText(screen.getByTestId("text-overlay"), "x");
+    expect(screen.queryByTestId("text-overlay-prompt")).toBeNull();
+  });
+});

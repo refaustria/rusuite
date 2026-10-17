@@ -142,6 +142,7 @@ export function adjustDefaults(p: Preset): Record<string, number> {
 export const DEFAULT_SHAPE_EMU = 914400;
 
 export const ACCENT = { kind: "theme", value: { slot: "accent1", tint: 0 } } as const;
+export const LIGHT1 = { kind: "theme", value: { slot: "light1", tint: 0 } } as const;
 export const ACCENT_DARK = { kind: "theme", value: { slot: "accent1", tint: -0.25 } } as const;
 
 const body = (anchor: "top" | "middle", centred: boolean): TextBody => ({
@@ -152,17 +153,30 @@ const body = (anchor: "top" | "middle", centred: boolean): TextBody => ({
 /** The arrowhead a connector choice puts at an end. */
 const arrow = (on: boolean): ArrowEnd | undefined => (on ? { kind: "triangle", width: "medium", length: "medium" } : undefined);
 
-/** The shape a gallery choice inserts in `transform`, with temporary id `id`. */
-export function choiceShape(choice: ShapeChoice, transform: Transform, id: number): Shape {
+/** PowerPoint's width of a text box inserted by a click (2.5 cm). */
+export const TEXT_BOX_CLICK_W = 900000;
+/** The height of a one-line text box (18 pt with its insets; `spAutoFit` corrects it to the text). */
+export const TEXT_BOX_LINE_H = 369332;
+
+/**
+ * The shape a gallery choice inserts in `transform`, with temporary id
+ * `id`. A text box resizes to fit its text (`spAutoFit`, PowerPoint's
+ * default); one inserted by a click (`click`) does not wrap, so it grows
+ * in width while typing, a dragged one wraps at the dragged width.
+ */
+export function choiceShape(choice: ShapeChoice, transform: Transform, id: number, click = false): Shape {
   const base = { id, name: "", transform };
   switch (choice.kind) {
-    case "textBox":
+    case "textBox": {
+      const text = body("top", false);
+      text.props = { ...text.props, autofit: "resize", wrap: !click };
       return {
         ...base,
-        kind: { kind: "auto", value: { geometry: "rect", text: body("top", false) } },
+        kind: { kind: "auto", value: { geometry: "rect", text } },
         fill: { kind: "none" },
         line: { fill: { kind: "none" }, width: EMU_PER_PT, dash: "solid" },
       };
+    }
     case "connector": {
       const c = choice.connector;
       return {
@@ -181,6 +195,8 @@ export function choiceShape(choice: ShapeChoice, transform: Transform, id: numbe
         ...base,
         kind: { kind: "auto", value: { geometry: choice.preset, text: body("middle", true) } },
         fill: { kind: "solid", value: ACCENT },
+        // the shape style's text colour (`p:style/a:fontRef`): white on the accent fill, as in PowerPoint
+        textColor: LIGHT1,
         line: { fill: { kind: "solid", value: ACCENT_DARK }, width: EMU_PER_PT, dash: "solid" },
         ...(action ? { clickAction: action } : {}),
       };
@@ -191,7 +207,7 @@ export function choiceShape(choice: ShapeChoice, transform: Transform, id: numbe
 /** The box a click (no drag) at `x`, `y` inserts for a choice (top-left at the click like PowerPoint). */
 export function clickBox(choice: ShapeChoice, x: number, y: number): Transform {
   if (choice.kind === "connector") return { x: Math.round(x), y: Math.round(y), w: DEFAULT_SHAPE_EMU, h: 0, rotationDeg: 0 };
-  if (choice.kind === "textBox") return { x: Math.round(x), y: Math.round(y), w: 2743200, h: 369332, rotationDeg: 0 };
+  if (choice.kind === "textBox") return { x: Math.round(x), y: Math.round(y), w: TEXT_BOX_CLICK_W, h: TEXT_BOX_LINE_H, rotationDeg: 0 };
   return { x: Math.round(x), y: Math.round(y), w: DEFAULT_SHAPE_EMU, h: DEFAULT_SHAPE_EMU, rotationDeg: 0 };
 }
 

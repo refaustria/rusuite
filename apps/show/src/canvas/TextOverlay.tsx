@@ -26,14 +26,14 @@ import { effectiveParagraph, findShape, themePalette } from "../model";
 import { slideNumberOf, stableDeck } from "../design/deck";
 import { textRect } from "../shapes/presets";
 import { keyMove } from "../shapes/tables";
-import { autofitProps, fitHeight } from "../text/autofit";
+import { autofitProps, fitSize } from "../text/autofit";
 import { charStep, editPos, LINE_BREAK, plainOf, typingRun } from "../text/editing";
 import { cssFont, layoutText, measureText, type LayoutOptions, type TextLayout } from "../text/layout";
 import { tableOf, useShow, type EditSession, type ShowStore } from "../state/store";
 import { cellRunBase, runStyleFor, tableLayout } from "./tableLayout";
-import { drawnBody, shapeTextOptions } from "./SlideView";
+import { drawnBody, promptBody, promptOf, shapeTextOptions } from "./SlideView";
 import { buildParagraphs, domToOffset, readDomText, readSelection, writeSelection } from "./richEditor";
-import { useT } from "../i18n";
+import { t as translate, useT } from "../i18n";
 
 /** Absolute (slide) transform of a shape inside groups; group rotation is ignored. */
 export function absoluteTransform(shape: Shape, parents: Shape[]): Transform {
@@ -55,6 +55,8 @@ export interface EditorFrame {
   body: TextBody;
   options: LayoutOptions;
   layout: TextLayout;
+  /** An empty placeholder's prompt, laid out in its formatting (shown until the first keystroke). */
+  prompt?: { body: TextBody; layout: TextLayout };
 }
 
 /** The editor frame of a session, or `null` when its shape is gone. */
@@ -87,14 +89,27 @@ export function editorFrame(store: ShowStore, e: EditSession): EditorFrame | nul
   const fit = autofitProps(pres, slide, hit.shape, body);
   if (fit) body = { ...body, props: fit };
   let h = tf.h;
-  if (body.props.autofit === "resize" && hit.parents.length === 0) h = Math.max(h, fitHeight(pres, slide, hit.shape, body) ?? h);
-  const w = emuToPx(tf.w);
+  let wEmu = tf.w;
+  if (body.props.autofit === "resize" && hit.parents.length === 0) {
+    const fit = fitSize(pres, slide, hit.shape, body);
+    if (fit) {
+      h = fit.h;
+      wEmu = fit.w;
+    }
+  }
+  const w = emuToPx(wEmu);
   const hp = emuToPx(h);
   const r = textRect(hit.shape, w, hp);
   const box = { x: emuToPx(tf.x), y: emuToPx(tf.y), w, h: hp, rotation: tf.rotationDeg || 0 };
   const shown = drawnBody(ctx, hit.shape, body);
   const options = shapeTextOptions(ctx, hit.shape, r.w, r.h);
-  return { box, rect: { x: r.x, y: r.y, w: r.w, h: r.h }, body: shown, options, layout: layoutText(shown, options) };
+  const frame: EditorFrame = { box, rect: { x: r.x, y: r.y, w: r.w, h: r.h }, body: shown, options, layout: layoutText(shown, options) };
+  const prompt = e.text === "" ? promptOf(ctx, hit.shape, translate) : undefined;
+  if (prompt !== undefined) {
+    const pb = drawnBody(ctx, hit.shape, promptBody(hit.shape, body, prompt));
+    frame.prompt = { body: pb, layout: layoutText(pb, options) };
+  }
+  return frame;
 }
 
 /** The widest character of a body (stacked text is one character wide). */
@@ -121,6 +136,16 @@ export function caretSize(f: Pick<EditorFrame, "body" | "options">, at: number):
 
 /** The key of what the editor's DOM shows (rebuilt when it changes). */
 const frameKey = (f: EditorFrame) => JSON.stringify([f.body.paragraphs, f.layout.paragraphs, f.layout.scale]);
+
+/** The prompt of an empty placeholder under the editor, in the placeholder's formatting (not editable, gone with the first keystroke). */
+function PromptLayer({ f }: { f: EditorFrame & { prompt: NonNullable<EditorFrame["prompt"]> } }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    ref.current?.replaceChildren(...buildParagraphs(document, f.prompt.body, f.prompt.layout, f.options));
+  });
+  const props = f.prompt.body.props;
+  return <div ref={ref} aria-hidden="true" data-testid="text-overlay-prompt" className="shrink-0" style={{ whiteSpace: props.wrap ? "pre-wrap" : "pre", overflowWrap: "anywhere" }} />;
+}
 
 interface Snapshot {
   text: string;
@@ -325,6 +350,19 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
             transform: vert === "rotate90" ? `translate(${f.rect.w}px, 0px) rotate(90deg)` : vert === "rotate270" ? `translate(0px, ${f.rect.h}px) rotate(-90deg)` : undefined,
           }}
         >
+          {f.prompt && (
+            <div
+              className="pointer-events-none absolute flex flex-col"
+              style={{
+                inset: 0,
+                boxSizing: "border-box",
+                padding: `${emuToPx(ins.top)}px ${emuToPx(ins.right)}px ${emuToPx(ins.bottom)}px ${emuToPx(ins.left)}px`,
+                justifyContent: anchor === "middle" ? "center" : anchor === "bottom" ? "flex-end" : "flex-start",
+              }}
+            >
+              <PromptLayer f={{ ...f, prompt: f.prompt }} />
+            </div>
+          )}
           <div
             ref={ref}
             role="textbox"
@@ -338,6 +376,7 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
             spellCheck={false}
             className="shrink-0 outline-none"
             style={{
+              position: "relative", // above the prompt layer
               whiteSpace: props.wrap || vert === "stacked" ? "pre-wrap" : "pre",
               overflowWrap: "anywhere",
               wordBreak: vert === "stacked" ? "break-all" : undefined,

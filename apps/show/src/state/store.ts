@@ -40,7 +40,7 @@ import { boundsPx, EMU_PER_PX, type Rect as BoxRect } from "../geometry";
 import { moveSlidesCommand, sorterSelect, type SorterDrop } from "../views/sorter";
 import { bodyWithLines, outlinePlan, outlineSlide } from "../views/outline";
 import { allCommand, hideCommand, moveToZ, renameCommand } from "../ui/selection";
-import { autofitProps, fitHeight, withScale } from "../text/autofit";
+import { autofitProps, fitHeight, fitSize, withScale } from "../text/autofit";
 import { cleanBody, editorText, spliceBody, textDiff } from "../text/editing";
 import type { ChartData } from "../generated/ChartData";
 import type { ChartShape } from "../generated/ChartShape";
@@ -1083,10 +1083,11 @@ export class ShowStore {
     if (shape && pres && slide) {
       const props = autofitProps(pres, slide, shape, body);
       if (props) body = { ...body, props };
+      // Resize shape to fit text: the box follows the text (a box that does not wrap also grows in width)
       if (body.props.autofit === "resize" && findShape(slide.shapes, e.shape)?.top.id === e.shape) {
-        const h = fitHeight(pres, slide, shape, body);
-        if (h !== null && h > shape.transform.h) {
-          return { type: "compound", commands: [{ type: "setTextBody", shape: e.shape, body }, { type: "setTransform", shapes: [[shape.id, { ...shape.transform, h }]] }] };
+        const fit = fitSize(pres, slide, shape, body);
+        if (fit && (fit.h !== shape.transform.h || fit.w !== shape.transform.w)) {
+          return { type: "compound", commands: [{ type: "setTextBody", shape: e.shape, body }, { type: "setTransform", shapes: [[shape.id, { ...shape.transform, ...fit }]] }] };
         }
       }
     }
@@ -1221,16 +1222,20 @@ export class ShowStore {
   /**
    * Inserts gallery item `id` in `box` (slide EMU), or centred at its
    * default size (keyboard), and selects it; a text box opens the editor.
+   * A text box from a click (`drag` false, also the keyboard) is a
+   * one-line box growing with the text; a dragged one keeps the dragged
+   * width and fits its height to the text (`spAutoFit`).
    */
-  async insertChoice(id: string, box?: Transform): Promise<void> {
+  async insertChoice(id: string, box?: Transform, drag = false): Promise<void> {
     const choice = choiceOf(id);
     const { pres, current } = this.state;
     if (!choice || !pres || current === null) return;
     if (this.state.editing) await this.commitEdit();
     this.useShape(id);
     const def = clickBox(choice, 0, 0);
-    const t = box ?? centredTransform(pres.slideSize, def.w, def.h);
-    const shape = choiceShape(choice, t, this.temp());
+    let t = box ?? centredTransform(pres.slideSize, def.w, def.h);
+    if (choice.kind === "textBox" && drag) t = { ...t, h: def.h };
+    const shape = choiceShape(choice, t, this.temp(), choice.kind === "textBox" && !drag);
     this.set({ selection: [shape.id] });
     const res = await this.run({ type: "addShape", slide: current, shape });
     const real = res?.idMap.get(shape.id);

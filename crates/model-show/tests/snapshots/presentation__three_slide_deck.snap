@@ -303,6 +303,13 @@ expression: "serde_json::json!({\n    \"slideSize\": json[\"slideSize\"], \"slid
             "width": 12700
           },
           "name": "Rectangle 8",
+          "textColor": {
+            "kind": "theme",
+            "value": {
+              "slot": "light1",
+              "tint": 0.0
+            }
+          },
           "transform": {
             "h": 914400,
             "w": 1828800,
@@ -364,6 +371,13 @@ expression: "serde_json::json!({\n    \"slideSize\": json[\"slideSize\"], \"slid
             "width": 12700
           },
           "name": "Oval 9",
+          "textColor": {
+            "kind": "theme",
+            "value": {
+              "slot": "light1",
+              "tint": 0.0
+            }
+          },
           "transform": {
             "h": 914400,
             "w": 914400,
@@ -494,6 +508,13 @@ expression: "serde_json::json!({\n    \"slideSize\": json[\"slideSize\"], \"slid
                     "width": 12700
                   },
                   "name": "Rounded Rectangle 13",
+                  "textColor": {
+                    "kind": "theme",
+                    "value": {
+                      "slot": "light1",
+                      "tint": 0.0
+                    }
+                  },
                   "transform": {
                     "h": 914400,
                     "w": 1371600,

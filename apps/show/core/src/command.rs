@@ -1235,6 +1235,8 @@ pub struct NewShape {
     pub hidden: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub lock_aspect: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_color: Option<core_model::Color>,
 }
 
 /// [`ShapeKind`] with [`NewShape`] children.
@@ -1330,6 +1332,7 @@ impl From<&Shape> for NewShape {
             click_action: s.click_action.clone(),
             hidden: s.hidden,
             lock_aspect: s.lock_aspect,
+            text_color: s.text_color,
         }
     }
 }

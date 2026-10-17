@@ -295,6 +295,15 @@ pub struct Shape {
     #[serde(default, skip_serializing_if = "is_false")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
     pub lock_aspect: bool,
+    /// Text colour of the shape's style (`p:style/a:fontRef`): runs
+    /// without a colour of their own are drawn in it (PowerPoint's filled
+    /// shapes: Light 1, white on the accent fill).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "ts",
+        ts(optional, as = "Option<app_common::wire::Color>")
+    )]
+    pub text_color: Option<Color>,
 }
 
 impl Shape {
@@ -312,6 +321,7 @@ impl Shape {
             click_action: None,
             hidden: false,
             lock_aspect: false,
+            text_color: None,
         }
     }
 
@@ -378,6 +388,8 @@ impl Shape {
             },
             Emu(12_700),
         );
+        // the style's text colour: white (Light 1) on the accent fill
+        s.text_color = Some(Color::theme(ThemeColorSlot::Light1));
         s
     }
 
@@ -891,8 +903,12 @@ mod tests {
         assert!(!r.is_text_box());
         assert_eq!(r.default_name(), "Rectangle");
         assert_eq!(r.fill, Fill::Solid(Color::theme(ThemeColorSlot::Accent1)));
+        // white text on the accent fill (the style's `a:fontRef`); text boxes keep the theme text colour
+        assert_eq!(r.text_color, Some(Color::theme(ThemeColorSlot::Light1)));
+        assert_eq!(tb.text_color, None);
         let l = Shape::auto(Preset::Line, t);
         assert!(l.text().is_none());
+        assert_eq!(l.text_color, None);
         assert_eq!(l.fill, Fill::None);
         assert_eq!(l.line.width, Emu(6_350));
         assert_eq!(Shape::auto(Preset::Ellipse, t).default_name(), "Oval");
