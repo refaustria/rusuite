@@ -327,6 +327,9 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                         out.insert("tab".into());
                     }
                     if let Some(l) = &run.link {
+                        if l.field {
+                            out.insert("field:hyperlink".into());
+                        }
                         out.insert(
                             match l.target {
                                 model_text::LinkTarget::Url(_) => "link:url",
@@ -351,6 +354,20 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                     images += 1;
                     if img.alt.is_some() {
                         out.insert("image:alt".into());
+                    }
+                    if img.link.is_some() {
+                        out.insert("image:link".into());
+                    }
+                    if img.format.soft_edge.is_some() {
+                        out.insert("image:soft-edge".into());
+                    }
+                    if img.anchor.is_some_and(|a| {
+                        matches!(
+                            a.wrap,
+                            WrapKind::Square | WrapKind::Tight | WrapKind::Through
+                        ) && a.wrap_side == model_text::WrapSide::Both
+                    }) {
+                        out.insert("image:wrap-both-sides".into());
                     }
                     if let Some(a) = &img.anchor {
                         out.insert(format!(
@@ -384,6 +401,12 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                         model_text::DrawingKind::Picture => "drawing:picture".to_owned(),
                         model_text::DrawingKind::Canvas => "drawing:canvas".to_owned(),
                     });
+                    if d.chain.is_some_and(|c| c.seq > 0) {
+                        out.insert("drawing:linked-textbox".into());
+                    }
+                    if d.hidden {
+                        out.insert("drawing:hidden".into());
+                    }
                     if d.blocks().iter().any(|b| {
                         b.as_paragraph()
                             .is_some_and(|p| !p.text().trim().is_empty())
@@ -896,6 +919,7 @@ fn document_xml_snapshots() {
         ("46", "provisional-46-all-run-properties.docx"),
         ("61", "provisional-61-shapes-text-boxes.docx"),
         ("62", "provisional-62-character-formatting.docx"),
+        ("65", "provisional-65-drawings-floating-2.docx"),
     ] {
         let out = fmt_docx::read_with_context(&load(file)).unwrap();
         let bytes = fmt_docx::write_with_context(&out.document, &out.context).unwrap();
@@ -1863,4 +1887,86 @@ fn style_sets_properties_and_template() {
             .context
             .template
     );
+}
+
+#[test]
+fn drawings_round_two() {
+    use core_model::units::Emu;
+    use model_text::{DrawingKind, LinkTarget, TextChain};
+    let out = read_out("provisional-65-drawings-floating-2.docx");
+    assert_no_new_warnings(&out.warnings);
+    let doc = &out.document;
+    let drawings: Vec<&model_text::Drawing> = doc.paragraphs().flat_map(|p| p.drawings()).collect();
+    let group = drawings
+        .iter()
+        .find(|d| d.kind == DrawingKind::Group)
+        .unwrap();
+    assert_eq!(group.children.len(), 2);
+    assert_eq!(group.children[1].preset, "ellipse");
+    assert!(group.children[1].x.0 > group.children[0].x.0);
+    let chain: Vec<Option<TextChain>> = drawings
+        .iter()
+        .filter(|d| d.kind == DrawingKind::TextBox)
+        .map(|d| d.chain)
+        .collect();
+    assert_eq!(
+        chain,
+        [
+            Some(TextChain { id: 1, seq: 0 }),
+            Some(TextChain { id: 1, seq: 1 })
+        ]
+    );
+    assert_eq!(doc.text_chain(1).len(), 2);
+    let canvas = drawings
+        .iter()
+        .find(|d| d.kind == DrawingKind::Canvas)
+        .unwrap();
+    assert_eq!(canvas.children.len(), 2);
+    assert_eq!(canvas.children[1].x, Emu(1_620_000));
+    let hidden = drawings.iter().find(|d| d.hidden).unwrap();
+    assert!(hidden.decorative);
+    let images: Vec<&model_text::InlineImage> = doc
+        .paragraphs()
+        .flat_map(|p| &p.inlines)
+        .filter_map(|i| match i {
+            Inline::Image(img) => Some(img),
+            _ => None,
+        })
+        .collect();
+    let centred = images[0].anchor.unwrap();
+    assert_eq!(centred.h.place, Placement::Align(HAlign::Center));
+    assert_eq!(centred.wrap, WrapKind::Square);
+    let linked = images[1];
+    assert_eq!(
+        linked.link.as_ref().unwrap().tooltip.as_deref(),
+        Some("Rusuite")
+    );
+    assert_eq!(linked.format.soft_edge, Some(Emu(64_800)));
+    assert_eq!(linked.format.bevel.as_ref().unwrap().preset, "circle");
+    let field_link = doc
+        .paragraphs()
+        .flat_map(|p| &p.inlines)
+        .filter_map(Inline::as_run)
+        .find_map(|r| r.link.as_ref().filter(|l| l.field))
+        .unwrap();
+    assert_eq!(
+        field_link.target,
+        LinkTarget::Url("https://rusuit.es/docs".into())
+    );
+    assert_eq!(field_link.tooltip.as_deref(), Some("Rusuite docs"));
+    // Written back: the same parts as Word writes them.
+    let bytes = fmt_docx::write_with_context(doc, &out.context).unwrap();
+    let xml = pretty_document_xml(&bytes);
+    for needle in [
+        "<wpg:wgp>",
+        r#"<wps:linkedTxbx id="1" seq="1"/>"#,
+        "<wpc:wpc>",
+        r#"tooltip="Rusuite""#,
+        r#"<a:bevelT w="76200" h="25400" prst="circle"/>"#,
+        r#"HYPERLINK "https://rusuit.es/docs" \o "Rusuite docs""#,
+        r#"hidden="1""#,
+    ] {
+        assert!(xml.contains(needle), "{needle} missing");
+    }
+    assert_same("65", doc, &reread(doc));
 }

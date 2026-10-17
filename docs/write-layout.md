@@ -129,9 +129,48 @@ its nested editor are not lines of the page). Floating drawings are skipped like
 floating picture or drawing of a paragraph extends its last line's `ink`, so the page's `contentEnd` (the white cover
 below the content) never hides a float that hangs below the text.
 
+### Drawings round 2 (P9-W4)
+- **Text on both sides of a picture.** CSS floats push the line boxes to one side only, so a centred picture with
+  Square/Tight/Through wrapping and `wrapText="bothSides"` cannot be a float. When both text areas beside it are at least
+  `MIN_SIDE_GAP` (72 px) wide, `floatPlacement` returns mode `both`: the picture is placed out of the flow (absolute, at
+  its anchor's place, like In Front of Text) and `features/wrapBoth.ts` keeps the text away with **per-line exclusions**.
+  Its exclusion box is the picture's frame plus its distances (`distL/R/T/B`). For every line of the paragraphs crossing
+  that band the plugin inserts one inline spacer widget (`.wrap-spacer`, `display:inline-block`) after the last word whose
+  right edge is left of the box (at the line start when no word fits), as wide as from that point to the box's right edge;
+  the browser then continues the same line right of the picture and breaks the rest as usual. Lines are the browser's
+  (glyph rects of the paragraph's text nodes merged by vertical overlap), so a spacer moves the lines after it: each pass
+  measures, keeps every spacer that is still right (starts left of the box, ends at its right edge), fixes the first
+  wrong or missing one and runs again (at most 40 passes; a picture spans a few lines, a keystroke above it a pass or two).
+  Spacers are PM widget decorations: they move with edits, the pagination measures them like text, and print/PDF (clones
+  of the editor) show the same lines. Tight and Through use the bounding box like Square (Word's polygon is not modelled).
+- **Vertical positions** relative to the page, the margin, the top/bottom margin areas (`topMargin`, `bottomMargin`,
+  inside → top, outside → bottom) and percentages of them use the real page box of the anchor paragraph in print layout
+  (`verticalPage`: the sheet holding the paragraph, its body top/bottom from the `PageLayout`); `line` positions start at
+  the top of the line after the object (`coordsAtPos`). The editor and print agree because print clones the editor.
+  Horizontal positions relative to the left/right/inside/outside margin areas and percentages resolve against the page
+  width and left margin of the page setup.
+- **Linked text boxes** (`textChain.ts`): the first box of a chain is an ordinary nested editor with the whole story; its
+  lines are measured (glyph rects) and the box is clipped (`clip-path`) after its last whole line. Every later box shows a
+  read-only clone of the story's DOM laid out at its own width: the line holding the first character that did not fit in
+  the box before is found by a character reference (child-index path + offset, identical in the clone), the clone is
+  shifted up to that line and clipped after the last line that fits. A click in a later box maps the point back to the
+  story's DOM (same path) and puts the editor's caret there; a drawn caret shows where typing goes. The clones are plain
+  DOM, so print shows the flow. Lines are never cut: a box takes at least one line.
+- **Groups and canvases** (`wpg:wgp`, `wpc:wpc`) are one inline node (`Drawing.children` in the group's frame); members are
+  absolutely placed spans with their own rotation and flips; grouped text boxes have their own nested editors. Resizing a
+  group scales its members (`scaleGroup`, `Drawing::scale_children`); a canvas keeps its members and `Fit` shrinks it to
+  them. They are measured like any drawing.
+- **Rotated handles**: the resize and rotation handles live in a frame that rotates with the shape (not flipped); a drag
+  is converted into the shape's own frame and the opposite handle stays where it is (`rotatedResize`), a floating
+  drawing's anchor moving by the frame's shift.
+- **Z-order**: `Anchor.z` (`relativeHeight`) orders objects out of the flow (`zIndex`: in front above 3, behind below
+  the text); Bring Forward / Send Backward renumber the floating objects with Word's base and step.
+
 ## Limits (approximations, documented in docs/ui.md)
-- Word's line breaking is not reproduced; lines are the browser's. Floating pictures wrap with CSS floats (one
-  side); page/margin-relative vertical positions are resolved against the real page box of their anchor paragraph.
+- Word's line breaking is not reproduced; lines are the browser's. Floating pictures wrap with CSS floats (one side),
+  or on both sides through per-line spacers when there is room (P9-W4, above); a tight/through wrap polygon is drawn as
+  the bounding box; page/margin-relative vertical positions are resolved against the real page box of their anchor
+  paragraph.
 - A row split across pages keeps its cell borders open at the break; when a table breaks *between* rows, the first
   row on the next page has no top border (Word repeats the inside border there). A clipped row (can not break, taller
   than a page) does not pull a following row of the same table up. A nested row that can not break but is taller than

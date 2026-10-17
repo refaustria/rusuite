@@ -1,0 +1,604 @@
+---
+source: crates/fmt-docx/tests/suite.rs
+expression: pretty_document_xml(&bytes)
+---
+
+<w:document xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" mc:Ignorable="w14 wp14">
+ <w:body>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Heading1"/>
+    <w:spacing w:before="240" w:after="120"/>
+    <w:ind w:left="0" w:hanging="0"/>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:t>Drawings round 2</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:spacing w:before="0" w:after="120"/>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <mc:AlternateContent>
+     <mc:Choice Requires="wpg">
+      <w:drawing>
+       <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="4" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1">
+        <wp:simplePos x="0" y="0"/>
+        <wp:positionH relativeFrom="column">
+         <wp:posOffset>0</wp:posOffset>
+        </wp:positionH>
+        <wp:positionV relativeFrom="paragraph">
+         <wp:posOffset>635</wp:posOffset>
+        </wp:positionV>
+        <wp:extent cx="1979295" cy="899160"/>
+        <wp:effectExtent l="0" t="0" r="0" b="0"/>
+        <wp:wrapNone/>
+        <wp:docPr id="1" name="Group 1"/>
+        <wp:cNvGraphicFramePr/>
+        <a:graphic>
+         <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup">
+          <wpg:wgp>
+           <wpg:cNvGrpSpPr/>
+           <wpg:grpSpPr>
+            <a:xfrm>
+             <a:off x="0" y="0"/>
+             <a:ext cx="1979295" cy="899160"/>
+             <a:chOff x="0" y="0"/>
+             <a:chExt cx="1979295" cy="899160"/>
+            </a:xfrm>
+           </wpg:grpSpPr>
+           <wps:wsp>
+            <wps:cNvPr id="2" name="Rectangle 2"/>
+            <wps:cNvSpPr/>
+            <wps:spPr>
+             <a:xfrm>
+              <a:off x="0" y="0"/>
+              <a:ext cx="1079648" cy="539568"/>
+             </a:xfrm>
+             <a:prstGeom prst="rect">
+              <a:avLst/>
+             </a:prstGeom>
+             <a:solidFill>
+              <a:srgbClr val="4472C4"/>
+             </a:solidFill>
+             <a:ln w="12600">
+              <a:solidFill>
+               <a:srgbClr val="2F528F"/>
+              </a:solidFill>
+             </a:ln>
+            </wps:spPr>
+            <wps:bodyPr rot="0" vert="horz" wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="t" anchorCtr="0">
+             <a:noAutofit/>
+            </wps:bodyPr>
+           </wps:wsp>
+           <wps:wsp>
+            <wps:cNvPr id="3" name="Oval 3"/>
+            <wps:cNvSpPr/>
+            <wps:spPr>
+             <a:xfrm>
+              <a:off x="1260010" y="179616"/>
+              <a:ext cx="719285" cy="719184"/>
+             </a:xfrm>
+             <a:prstGeom prst="ellipse">
+              <a:avLst/>
+             </a:prstGeom>
+             <a:solidFill>
+              <a:srgbClr val="4472C4"/>
+             </a:solidFill>
+             <a:ln w="12600">
+              <a:solidFill>
+               <a:srgbClr val="2F528F"/>
+              </a:solidFill>
+             </a:ln>
+            </wps:spPr>
+            <wps:bodyPr rot="0" vert="horz" wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="t" anchorCtr="0">
+             <a:noAutofit/>
+            </wps:bodyPr>
+           </wps:wsp>
+           <wpg:bodyPr/>
+          </wpg:wgp>
+         </a:graphicData>
+        </a:graphic>
+       </wp:anchor>
+      </w:drawing>
+     </mc:Choice>
+     <mc:Fallback>
+     </mc:Fallback>
+    </mc:AlternateContent>
+   </w:r>
+   <w:r>
+    <w:t>A group of a rectangle and an oval floats in front of this paragraph. The quick brown fox jumps over the lazy dog. Reference documents should be small, boring and precise.</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:spacing w:before="0" w:after="120"/>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <mc:AlternateContent>
+     <mc:Choice Requires="wps">
+      <w:drawing>
+       <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="5" behindDoc="0" locked="0" layoutInCell="0" allowOverlap="1">
+        <wp:simplePos x="0" y="0"/>
+        <wp:positionH relativeFrom="column">
+         <wp:posOffset>0</wp:posOffset>
+        </wp:positionH>
+        <wp:positionV relativeFrom="paragraph">
+         <wp:posOffset>635</wp:posOffset>
+        </wp:positionV>
+        <wp:extent cx="1799590" cy="652145"/>
+        <wp:effectExtent l="0" t="0" r="0" b="0"/>
+        <wp:wrapSquare wrapText="bothSides"/>
+        <wp:docPr id="4" name="Text Box 4"/>
+        <wp:cNvGraphicFramePr/>
+        <a:graphic>
+         <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">
+          <wps:wsp>
+           <wps:cNvSpPr txBox="1"/>
+           <wps:spPr>
+            <a:xfrm>
+             <a:off x="0" y="0"/>
+             <a:ext cx="1799590" cy="652145"/>
+            </a:xfrm>
+            <a:prstGeom prst="rect">
+             <a:avLst/>
+            </a:prstGeom>
+            <a:solidFill>
+             <a:srgbClr val="FFFFFF"/>
+            </a:solidFill>
+            <a:ln w="9360">
+             <a:solidFill>
+              <a:srgbClr val="000000"/>
+             </a:solidFill>
+            </a:ln>
+           </wps:spPr>
+           <wps:txbx id="1">
+            <w:txbxContent>
+             <w:p>
+              <w:pPr>
+               <w:spacing w:before="0" w:after="0"/>
+              </w:pPr>
+              <w:r>
+               <w:t>Linked text boxes: this story is longer than the first box,</w:t>
+              </w:r>
+             </w:p>
+             <w:p>
+              <w:pPr>
+               <w:spacing w:before="0" w:after="0"/>
+              </w:pPr>
+              <w:r>
+               <w:t>so it continues in the second box next to it, as in Word.</w:t>
+              </w:r>
+             </w:p>
+            </w:txbxContent>
+           </wps:txbx>
+           <wps:bodyPr rot="0" vert="horz" wrap="square" lIns="4320" tIns="4320" rIns="4320" bIns="4320" anchor="t" anchorCtr="0">
+            <a:noAutofit/>
+           </wps:bodyPr>
+          </wps:wsp>
+         </a:graphicData>
+        </a:graphic>
+       </wp:anchor>
+      </w:drawing>
+     </mc:Choice>
+     <mc:Fallback>
+      <w:pict>
+       <v:rect id="_x0000_s1029" style="position:absolute;width:141.7pt;height:51.35pt" fillcolor="#FFFFFF" strokecolor="#000000" strokeweight="0.74pt">
+        <v:textbox>
+         <w:txbxContent>
+          <w:p>
+           <w:pPr>
+            <w:spacing w:before="0" w:after="0"/>
+           </w:pPr>
+           <w:r>
+            <w:t>Linked text boxes: this story is longer than the first box,</w:t>
+           </w:r>
+          </w:p>
+          <w:p>
+           <w:pPr>
+            <w:spacing w:before="0" w:after="0"/>
+           </w:pPr>
+           <w:r>
+            <w:t>so it continues in the second box next to it, as in Word.</w:t>
+           </w:r>
+          </w:p>
+         </w:txbxContent>
+        </v:textbox>
+       </v:rect>
+      </w:pict>
+     </mc:Fallback>
+    </mc:AlternateContent>
+   </w:r>
+   <w:r>
+    <mc:AlternateContent>
+     <mc:Choice Requires="wps">
+      <w:drawing>
+       <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="6" behindDoc="0" locked="0" layoutInCell="0" allowOverlap="1">
+        <wp:simplePos x="0" y="0"/>
+        <wp:positionH relativeFrom="column">
+         <wp:posOffset>3239770</wp:posOffset>
+        </wp:positionH>
+        <wp:positionV relativeFrom="paragraph">
+         <wp:posOffset>635</wp:posOffset>
+        </wp:positionV>
+        <wp:extent cx="1799590" cy="575945"/>
+        <wp:effectExtent l="0" t="0" r="0" b="0"/>
+        <wp:wrapSquare wrapText="bothSides"/>
+        <wp:docPr id="5" name="Text Box 5"/>
+        <wp:cNvGraphicFramePr/>
+        <a:graphic>
+         <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">
+          <wps:wsp>
+           <wps:cNvSpPr txBox="1"/>
+           <wps:spPr>
+            <a:xfrm>
+             <a:off x="0" y="0"/>
+             <a:ext cx="1799590" cy="575945"/>
+            </a:xfrm>
+            <a:prstGeom prst="rect">
+             <a:avLst/>
+            </a:prstGeom>
+            <a:solidFill>
+             <a:srgbClr val="FFFFFF"/>
+            </a:solidFill>
+            <a:ln w="9360">
+             <a:solidFill>
+              <a:srgbClr val="000000"/>
+             </a:solidFill>
+            </a:ln>
+           </wps:spPr>
+           <wps:linkedTxbx id="1" seq="1"/>
+           <wps:bodyPr rot="0" vert="horz" wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="t" anchorCtr="0">
+            <a:noAutofit/>
+           </wps:bodyPr>
+          </wps:wsp>
+         </a:graphicData>
+        </a:graphic>
+       </wp:anchor>
+      </w:drawing>
+     </mc:Choice>
+     <mc:Fallback>
+      <w:pict>
+       <v:rect id="_x0000_s1030" style="position:absolute;width:141.7pt;height:45.35pt" fillcolor="#FFFFFF" strokecolor="#000000" strokeweight="0.74pt">
+        <v:textbox>
+         <w:txbxContent>
+          <w:p>
+          </w:p>
+         </w:txbxContent>
+        </v:textbox>
+       </v:rect>
+      </w:pict>
+     </mc:Fallback>
+    </mc:AlternateContent>
+   </w:r>
+   <w:r>
+    <w:t>The quick brown fox jumps over the lazy dog. Reference documents should be small, boring and precise. Every supported feature appears in at least one file. Roundtrip means nothing is lost between open and save.</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:spacing w:before="0" w:after="120"/>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:t xml:space="preserve">A drawing canvas: </w:t>
+   </w:r>
+   <w:r>
+    <mc:AlternateContent>
+     <mc:Choice Requires="wpc">
+      <w:drawing>
+       <wp:inline distT="0" distB="0" distL="0" distR="0">
+        <wp:extent cx="3600000" cy="1080000"/>
+        <wp:effectExtent l="0" t="0" r="0" b="0"/>
+        <wp:docPr id="6" name="Canvas 20"/>
+        <wp:cNvGraphicFramePr/>
+        <a:graphic>
+         <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas">
+          <wpc:wpc>
+           <wpc:bg>
+            <a:solidFill>
+             <a:srgbClr val="F2F2F2"/>
+            </a:solidFill>
+           </wpc:bg>
+           <wpc:whole>
+            <a:ln w="9525">
+             <a:noFill/>
+            </a:ln>
+           </wpc:whole>
+           <wps:wsp>
+            <wps:cNvPr id="7" name="Rectangle 21"/>
+            <wps:cNvSpPr/>
+            <wps:spPr>
+             <a:xfrm>
+              <a:off x="180000" y="180000"/>
+              <a:ext cx="1080000" cy="720000"/>
+             </a:xfrm>
+             <a:prstGeom prst="rect">
+              <a:avLst/>
+             </a:prstGeom>
+             <a:solidFill>
+              <a:srgbClr val="4472C4"/>
+             </a:solidFill>
+             <a:ln w="12700">
+              <a:solidFill>
+               <a:srgbClr val="2F528F"/>
+              </a:solidFill>
+             </a:ln>
+            </wps:spPr>
+            <wps:bodyPr rot="0" vert="horz" wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="t" anchorCtr="0">
+             <a:noAutofit/>
+            </wps:bodyPr>
+           </wps:wsp>
+           <wps:wsp>
+            <wps:cNvPr id="8" name="Oval 22"/>
+            <wps:cNvSpPr/>
+            <wps:spPr>
+             <a:xfrm>
+              <a:off x="1620000" y="180000"/>
+              <a:ext cx="720000" cy="720000"/>
+             </a:xfrm>
+             <a:prstGeom prst="ellipse">
+              <a:avLst/>
+             </a:prstGeom>
+             <a:solidFill>
+              <a:srgbClr val="ED7D31"/>
+             </a:solidFill>
+             <a:ln w="12700">
+              <a:solidFill>
+               <a:srgbClr val="AE5A21"/>
+              </a:solidFill>
+             </a:ln>
+            </wps:spPr>
+            <wps:bodyPr rot="0" vert="horz" wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="t" anchorCtr="0">
+             <a:noAutofit/>
+            </wps:bodyPr>
+           </wps:wsp>
+          </wpc:wpc>
+         </a:graphicData>
+        </a:graphic>
+       </wp:inline>
+      </w:drawing>
+     </mc:Choice>
+     <mc:Fallback>
+     </mc:Fallback>
+    </mc:AlternateContent>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:spacing w:before="0" w:after="120"/>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:drawing>
+     <wp:anchor distT="0" distB="0" distL="71755" distR="71755" simplePos="0" relativeHeight="7" behindDoc="0" locked="0" layoutInCell="0" allowOverlap="1">
+      <wp:simplePos x="0" y="0"/>
+      <wp:positionH relativeFrom="column">
+       <wp:align>center</wp:align>
+      </wp:positionH>
+      <wp:positionV relativeFrom="paragraph">
+       <wp:posOffset>635</wp:posOffset>
+      </wp:positionV>
+      <wp:extent cx="1439545" cy="1079500"/>
+      <wp:effectExtent l="0" t="0" r="0" b="0"/>
+      <wp:wrapSquare wrapText="bothSides"/>
+      <wp:docPr id="9" name="Image1" descr="Centred picture"/>
+      <wp:cNvGraphicFramePr>
+       <a:graphicFrameLocks noChangeAspect="1"/>
+      </wp:cNvGraphicFramePr>
+      <a:graphic>
+       <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+        <pic:pic>
+         <pic:nvPicPr>
+          <pic:cNvPr id="0" name="Image1"/>
+          <pic:cNvPicPr/>
+         </pic:nvPicPr>
+         <pic:blipFill>
+          <a:blip r:embed="rId5"/>
+          <a:stretch>
+           <a:fillRect/>
+          </a:stretch>
+         </pic:blipFill>
+         <pic:spPr>
+          <a:xfrm>
+           <a:off x="0" y="0"/>
+           <a:ext cx="1439545" cy="1079500"/>
+          </a:xfrm>
+          <a:prstGeom prst="rect">
+           <a:avLst/>
+          </a:prstGeom>
+         </pic:spPr>
+        </pic:pic>
+       </a:graphicData>
+      </a:graphic>
+     </wp:anchor>
+    </w:drawing>
+   </w:r>
+   <w:r>
+    <w:t>The quick brown fox jumps over the lazy dog. Reference documents should be small, boring and precise. Every supported feature appears in at least one file. Roundtrip means nothing is lost between open and save. Short sentences keep the generated files tiny. The quick brown fox jumps over the lazy dog. Reference documents should be small, boring and precise. Every supported feature appears in at least one file. Roundtrip means nothing is lost between open and save. Short sentences keep the generated files tiny.</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:spacing w:before="0" w:after="120"/>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:t xml:space="preserve">A linked picture with soft edges and a bevel: </w:t>
+   </w:r>
+   <w:r>
+    <w:drawing>
+     <wp:inline distT="0" distB="0" distL="0" distR="0">
+      <wp:extent cx="719455" cy="719455"/>
+      <wp:effectExtent l="0" t="0" r="0" b="0"/>
+      <wp:docPr id="10" name="Image2">
+       <a:hlinkClick xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" r:id="rId7" tooltip="Rusuite"/>
+      </wp:docPr>
+      <wp:cNvGraphicFramePr>
+       <a:graphicFrameLocks noChangeAspect="1"/>
+      </wp:cNvGraphicFramePr>
+      <a:graphic>
+       <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+        <pic:pic>
+         <pic:nvPicPr>
+          <pic:cNvPr id="0" name="Image2"/>
+          <pic:cNvPicPr/>
+         </pic:nvPicPr>
+         <pic:blipFill>
+          <a:blip r:embed="rId6"/>
+          <a:stretch>
+           <a:fillRect/>
+          </a:stretch>
+         </pic:blipFill>
+         <pic:spPr>
+          <a:xfrm>
+           <a:off x="0" y="0"/>
+           <a:ext cx="719455" cy="719455"/>
+          </a:xfrm>
+          <a:prstGeom prst="rect">
+           <a:avLst/>
+          </a:prstGeom>
+          <a:effectLst>
+           <a:softEdge rad="64800"/>
+          </a:effectLst>
+          <a:scene3d>
+           <a:camera prst="orthographicFront">
+            <a:rot lat="0" lon="0" rev="0"/>
+           </a:camera>
+           <a:lightRig rig="threePt" dir="t">
+            <a:rot lat="0" lon="0" rev="0"/>
+           </a:lightRig>
+          </a:scene3d>
+          <a:sp3d>
+           <a:bevelT w="76200" h="25400" prst="circle"/>
+          </a:sp3d>
+         </pic:spPr>
+        </pic:pic>
+       </a:graphicData>
+      </a:graphic>
+     </wp:inline>
+    </w:drawing>
+   </w:r>
+   <w:r>
+    <w:t>.</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:spacing w:before="0" w:after="120"/>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <w:t xml:space="preserve">A HYPERLINK field: </w:t>
+   </w:r>
+   <w:r>
+    <w:fldChar w:fldCharType="begin"/>
+   </w:r>
+   <w:r>
+    <w:instrText xml:space="preserve"> HYPERLINK "https://rusuit.es/docs" \o "Rusuite docs" </w:instrText>
+   </w:r>
+   <w:r>
+    <w:fldChar w:fldCharType="separate"/>
+   </w:r>
+   <w:r>
+    <w:rPr>
+     <w:color w:val="0563C1"/>
+     <w:u w:val="single"/>
+    </w:rPr>
+    <w:t>the documentation</w:t>
+   </w:r>
+   <w:r>
+    <w:fldChar w:fldCharType="end"/>
+   </w:r>
+   <w:r>
+    <w:t>.</w:t>
+   </w:r>
+  </w:p>
+  <w:p>
+   <w:pPr>
+    <w:pStyle w:val="Normal"/>
+    <w:spacing w:before="0" w:after="120"/>
+    <w:jc w:val="left"/>
+   </w:pPr>
+   <w:r>
+    <mc:AlternateContent>
+     <mc:Choice Requires="wps">
+      <w:drawing>
+       <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="2" behindDoc="0" locked="0" layoutInCell="0" allowOverlap="1">
+        <wp:simplePos x="0" y="0"/>
+        <wp:positionH relativeFrom="column">
+         <wp:align>right</wp:align>
+        </wp:positionH>
+        <wp:positionV relativeFrom="paragraph">
+         <wp:posOffset>635</wp:posOffset>
+        </wp:positionV>
+        <wp:extent cx="359410" cy="359410"/>
+        <wp:effectExtent l="0" t="0" r="0" b="0"/>
+        <wp:wrapTopAndBottom/>
+        <wp:docPr id="11" name="Hidden Shape 6" hidden="1">
+         <a:extLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+          <a:ext uri="{C183D7F6-B498-43B3-948B-1728B52AA6E4}">
+           <adec:decorative xmlns:adec="http://schemas.microsoft.com/office/drawing/2017/decorative" val="1"/>
+          </a:ext>
+         </a:extLst>
+        </wp:docPr>
+        <wp:cNvGraphicFramePr/>
+        <a:graphic>
+         <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">
+          <wps:wsp>
+           <wps:cNvSpPr/>
+           <wps:spPr>
+            <a:xfrm>
+             <a:off x="0" y="0"/>
+             <a:ext cx="359410" cy="359410"/>
+            </a:xfrm>
+            <a:prstGeom prst="ellipse">
+             <a:avLst/>
+            </a:prstGeom>
+            <a:solidFill>
+             <a:srgbClr val="4472C4"/>
+            </a:solidFill>
+            <a:ln w="12600">
+             <a:solidFill>
+              <a:srgbClr val="2F528F"/>
+             </a:solidFill>
+            </a:ln>
+           </wps:spPr>
+           <wps:bodyPr rot="0" vert="horz" wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="t" anchorCtr="0">
+            <a:noAutofit/>
+           </wps:bodyPr>
+          </wps:wsp>
+         </a:graphicData>
+        </a:graphic>
+       </wp:anchor>
+      </w:drawing>
+     </mc:Choice>
+     <mc:Fallback>
+      <w:pict>
+       <v:oval id="_x0000_s1036" style="position:absolute;width:28.3pt;height:28.3pt" fillcolor="#4472C4" strokecolor="#2F528F" strokeweight="0.99pt">
+       </v:oval>
+      </w:pict>
+     </mc:Fallback>
+    </mc:AlternateContent>
+   </w:r>
+   <w:r>
+    <w:t>A hidden decorative oval is anchored here.</w:t>
+   </w:r>
+  </w:p>
+  <w:sectPr>
+   <w:pgSz w:w="11906" w:h="16838"/>
+   <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="0" w:footer="0" w:gutter="0"/>
+   <w:pgNumType w:fmt="decimal"/>
+  </w:sectPr>
+ </w:body>
+</w:document>
