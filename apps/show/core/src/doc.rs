@@ -1345,9 +1345,14 @@ impl ShowDocument {
                 })
             }
             C::SetSlideLayout { slide, layout } => {
-                let old_kind = self.pres.slides[self.slide_index(*slide)?].layout.clone();
-                let old = self.pres.layout_or_builtin(&old_kind);
-                let new = self.known_layout(layout)?;
+                // a slide of a further design changes layout within it
+                let s = &self.pres.slides[self.slide_index(*slide)?];
+                let old = self.pres.slide_layout(s);
+                let design = self.pres.design_of(s);
+                if !layout.is_standard() && design.layout(layout).is_none() {
+                    return Err(invalid(format!("unknown layout {layout}")));
+                }
+                let new = design.layout_or_builtin(layout, self.pres.slide_size);
                 self.edit_slides(&[*slide], ch, |d| {
                     let s = d.slide_mut(*slide)?;
                     s.apply_layout(&old, &new);
@@ -1505,13 +1510,24 @@ impl ShowDocument {
                 theme,
                 master,
                 layouts,
+                designs,
             } => {
                 let inverse = self.design_snapshot();
                 self.pres.theme = (**theme).clone();
                 self.pres.master = (**master).clone();
                 self.pres.layouts = layouts.clone();
-                let ids: Vec<NodeId> = std::iter::once(&self.pres.master.shapes)
-                    .chain(self.pres.layouts.iter().map(|l| &l.shapes))
+                if let Some(d) = designs {
+                    self.pres.designs = d.clone();
+                }
+                let p = &self.pres;
+                let ids: Vec<NodeId> = std::iter::once(&p.master.shapes)
+                    .chain(p.layouts.iter().map(|l| &l.shapes))
+                    .chain(p.designs.iter().map(|d| &d.master.shapes))
+                    .chain(
+                        p.designs
+                            .iter()
+                            .flat_map(|d| d.layouts.iter().map(|l| &l.shapes)),
+                    )
                     .flat_map(|l| shape_ids(l))
                     .collect();
                 for id in ids {
@@ -2331,9 +2347,19 @@ impl ShowDocument {
                 after,
                 slides,
                 layouts,
+                designs,
                 media,
                 keep_source_formatting,
-            } => self.insert_slides(*after, slides, layouts, media, *keep_source_formatting, ch),
+            } => self.insert_slides(
+                *after,
+                slides,
+                layouts,
+                designs,
+                media,
+                *keep_source_formatting,
+                ch,
+            ),
+            C::ImportDesign { bytes_base64 } => self.import_design(bytes_base64, ch),
             C::Compound { commands } => {
                 let mut inverses = Vec::with_capacity(commands.len());
                 for cmd in commands {
@@ -2786,6 +2812,7 @@ impl ShowDocument {
             theme: Box::new(self.pres.theme.clone()),
             master: Box::new(self.pres.master.clone()),
             layouts: self.pres.layouts.clone(),
+            designs: Some(self.pres.designs.clone()),
         }
     }
 
@@ -3351,6 +3378,7 @@ impl ShowDocument {
             theme: ch.design.then(|| self.pres.theme.clone()),
             master: ch.design.then(|| self.pres.master.clone()),
             layouts: ch.design.then(|| self.pres.layouts.clone()),
+            designs: ch.design.then(|| self.pres.designs.clone()),
             sections: ch.sections.then(|| self.pres.sections.clone()),
             view: ch.view.then(|| self.pres.view.clone()),
             show_settings: ch.show_settings.then(|| self.pres.show_settings.clone()),

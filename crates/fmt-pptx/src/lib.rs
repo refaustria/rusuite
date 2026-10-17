@@ -48,7 +48,26 @@ mod xml;
 use serde::{Deserialize, Serialize};
 
 pub use read::{read, read_with_context, read_with_warnings, ReadOutput};
-pub use write::{write, write_with_context};
+pub use write::{write, write_thmx, write_with_context};
+
+/// Design › Browse for Themes (P9-S5): reads the design of a theme file –
+/// a `.thmx` (its theme and, when it has one, its master and layouts,
+/// placed as they are on a `slide_size` slide) or a `.potx` / `.pptx`
+/// (the whole file; its main master, layouts and theme are the design).
+pub fn read_design_file(bytes: &[u8], slide_size: model_show::SlideSize) -> Result<ReadOutput> {
+    let pkg = fmt_ooxml::Package::open(std::io::Cursor::new(bytes))?;
+    let main = pkg
+        .main_document_part()
+        .ok_or_else(|| Error::MissingPart("officeDocument relationship".into()))?;
+    let is_theme = pkg
+        .part(&main)
+        .is_some_and(|p| p.content_type.ends_with("theme+xml"));
+    if is_theme {
+        read::read_thmx(&pkg, &main, slide_size)
+    } else {
+        read_with_context(bytes)
+    }
+}
 
 /// Result alias of this crate.
 pub type Result<T> = std::result::Result<T, Error>;

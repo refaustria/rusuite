@@ -1440,5 +1440,9 @@
   "show.recordFromCurrent": "From Current Slide…",
   "show.recordFromStart": "From Beginning…",
   "show.playNarrations": "Play Narrations",
-  "show.showMediaControls": "Show Media Controls"
+  "show.showMediaControls": "Show Media Controls",
+  "show.design.themeFiles": "More themes",
+  "show.design.browseThemes": "Browse for Themes…",
+  "show.design.saveTheme": "Save Current Theme…",
+  "show.design.themeFilter": "Office Theme"
 }

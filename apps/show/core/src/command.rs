@@ -16,11 +16,11 @@ use core_model::{ColorScheme, FontScheme, RunProperties};
 use model_show::{
     Action, Adjust, AlignMode, Alignment, Anchor, Animation, AnimationKind, ArrowEnd, Axis,
     Background, BodyProps, Bookmark, Bullet, ChartData, ChartShape, Connector, ConnectorKind, Crop,
-    CustomShow, Direction, Effect, EffectStyle, Fill, Guide, HfDate, Hyperlink, Insets, Iterate,
-    Layout, LayoutKind, Line, MediaClip, MediaStart, NodeId, PictureProps, PlaceholderKind, Preset,
-    Recolor, Repeat, Section, Shadow, Shape, ShapeKind, ShowSettings, Slide, SlideMaster,
-    SlideSize, StartOn, Table, TableLook, TextBody, TextBuild, TextClass, TextSpacing, Theme,
-    Transform, Transition, Trigger, ViewProps,
+    CustomShow, Design, Direction, Effect, EffectStyle, Fill, Guide, HfDate, Hyperlink, Insets,
+    Iterate, Layout, LayoutKind, Line, MediaClip, MediaStart, NodeId, PictureProps,
+    PlaceholderKind, Preset, Recolor, Repeat, Section, Shadow, Shape, ShapeKind, ShowSettings,
+    Slide, SlideMaster, SlideSize, StartOn, Table, TableLook, TextBody, TextBuild, TextClass,
+    TextSpacing, Theme, Transform, Transition, Trigger, ViewProps,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
@@ -1312,23 +1312,41 @@ pub enum ShowCommand {
     /// `layouts` (the source layouts they use) and `media` (the source
     /// media they reference) come from `peekPresentation`; every id is
     /// renewed, media are added (identical ones shared). With
-    /// `keepSourceFormatting` each source layout becomes a custom layout
-    /// (`custom:<name>`, made unique); without, slides move to this
-    /// presentation's layout of the same kind (custom ones: inferred from
-    /// their placeholders), their placeholders re-mapped like
-    /// `setSlideLayout`. Links to slides that are not inserted are dropped.
+    /// `keepSourceFormatting` and `designs` (P9-S5: the source's designs
+    /// the slides use, its main one as id 0) each source master comes
+    /// with its theme and layouts as a further design (an identical one
+    /// is shared, the destination's own when it is the same), the slides
+    /// keep their layouts on it; with `keepSourceFormatting` but no
+    /// designs each source layout becomes a custom layout
+    /// (`custom:<name>`, made unique). Without, slides move to this
+    /// presentation's layout of the same kind and name (custom ones
+    /// without a namesake: inferred from their placeholders), their
+    /// placeholders re-mapped like `setSlideLayout`. Links to slides that
+    /// are not inserted are dropped.
     InsertSlides {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         after: Option<NodeId>,
         slides: Vec<Slide>,
         #[serde(default)]
         layouts: Vec<Layout>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<Design>>")]
+        designs: Vec<Design>,
         #[serde(default)]
         #[ts(as = "Vec<model_show::ts::MediaItem>")]
         media: MediaStore,
         #[serde(default)]
         keep_source_formatting: bool,
     },
+    /// Design › Browse for Themes (P9-S5): the design of a theme file
+    /// (`.thmx`, `.potx`, `.pptx`; standard base64) replaces the master,
+    /// its layouts and the theme (further designs are dropped, as when
+    /// PowerPoint applies a theme to all slides); every slide moves to
+    /// the new layout of its kind (custom layouts: of the same name, else
+    /// inferred from the placeholders), its placeholders re-mapped like
+    /// `setSlideLayout`. Pictures of the new master and layouts are added
+    /// to the media.
+    ImportDesign { bytes_base64: String },
     /// Sets the view settings: guides, grid, snapping, ruler, last view
     /// (stored in `viewProps.xml`; undoable like PowerPoint's guide moves).
     SetViewProps { view: ViewProps },
@@ -1368,11 +1386,15 @@ pub enum ShowCommand {
         master: Box<SlideMaster>,
         layouts: Vec<Layout>,
     },
-    /// *Internal.* Puts theme, master and layouts back.
+    /// *Internal.* Puts theme, master and layouts (and the further
+    /// designs, when given) back.
     RestoreDesign {
         theme: Box<Theme>,
         master: Box<SlideMaster>,
         layouts: Vec<Layout>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        designs: Option<Vec<Design>>,
     },
     /// *Internal.* Puts the sections back.
     RestoreSections { sections: Vec<Section> },

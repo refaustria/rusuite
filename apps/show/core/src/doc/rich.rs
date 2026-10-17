@@ -6,7 +6,9 @@ use std::collections::HashMap;
 
 use core_model::chart::{Chart, ChartKind};
 use core_model::media::{MediaId, MediaStore};
-use model_show::{ChartData, ChartShape, Hyperlink, LinkTarget, MediaClip, MediaKind, SlideRef};
+use model_show::{
+    ChartData, ChartShape, Design, Hyperlink, LinkTarget, MediaClip, MediaKind, SlideRef,
+};
 
 use super::*;
 
@@ -322,12 +324,52 @@ impl ShowDocument {
             .unwrap_or(LayoutKind::Blank)
     }
 
+    /// The design (`None` = the main one) that source design `src` becomes
+    /// (Reuse Slides › Keep source formatting): the main design or a
+    /// further design when it is the same, else a new design with fresh
+    /// shape ids and the destination's media ids.
+    fn adopt_design(&mut self, src: &Design, media_map: &HashMap<MediaId, MediaId>) -> Option<u32> {
+        let main = Design {
+            id: 0,
+            master: self.pres.master.clone(),
+            layouts: Vec::new(),
+            theme: self.pres.theme.clone(),
+        };
+        if main.same_as(&src.master, &src.theme) {
+            return None;
+        }
+        if let Some(d) = self
+            .pres
+            .designs
+            .iter()
+            .find(|d| d.same_as(&src.master, &src.theme))
+        {
+            return Some(d.id);
+        }
+        let mut d = src.clone();
+        d.id = self.pres.next_design_id();
+        for sh in &mut d.master.shapes {
+            self.pres.assign_ids(sh);
+        }
+        remap_media(&mut d.master.shapes, media_map);
+        for l in &mut d.layouts {
+            for sh in &mut l.shapes {
+                self.pres.assign_ids(sh);
+            }
+            remap_media(&mut l.shapes, media_map);
+        }
+        let id = d.id;
+        self.pres.designs.push(d);
+        Some(id)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn insert_slides(
         &mut self,
         after: Option<NodeId>,
         slides: &[Slide],
         layouts: &[Layout],
+        designs: &[Design],
         media: &MediaStore,
         keep: bool,
         ch: &mut Changes,
@@ -355,9 +397,30 @@ impl ShowDocument {
             media_map.insert(old, new);
         }
         let source: HashMap<&LayoutKind, &Layout> = layouts.iter().map(|l| (&l.kind, l)).collect();
+        // keep source formatting with the source's designs: its masters come along (P9-S5)
+        let mut adopted: HashMap<u32, Option<u32>> = HashMap::new();
+        let with_designs = keep && !designs.is_empty();
+        if with_designs {
+            let designs_before = self.pres.designs.len();
+            for s in slides {
+                let src = s.design.unwrap_or(0);
+                if adopted.contains_key(&src) {
+                    continue;
+                }
+                let d = designs.iter().find(|d| d.id == src).ok_or_else(|| {
+                    invalid(format!(
+                        "slide {} uses design {src} that was not sent",
+                        s.id.0
+                    ))
+                })?;
+                let to = self.adopt_design(d, &media_map);
+                adopted.insert(src, to);
+            }
+            ch.design |= self.pres.designs.len() > designs_before;
+        }
         // keep source formatting: each used source layout once, as a custom layout
         let mut copied: HashMap<LayoutKind, LayoutKind> = HashMap::new();
-        if keep {
+        if keep && !with_designs {
             for s in slides {
                 let Some(l) = source.get(&s.layout) else {
                     continue;
@@ -387,8 +450,20 @@ impl ShowDocument {
         for s in slides {
             let mut slide = s.clone();
             slide.id = slide_map[&s.id];
+            slide.design = None;
             match copied.get(&s.layout) {
                 Some(kind) => slide.layout = kind.clone(),
+                None if with_designs => {
+                    // the slide keeps its layout, on the design its master became
+                    slide.design = adopted.get(&s.design.unwrap_or(0)).copied().flatten();
+                    let d = self.pres.design(slide.design);
+                    if !slide.layout.is_standard() && d.layout(&slide.layout).is_none() {
+                        return Err(invalid(format!(
+                            "inserted slide uses the missing layout {}",
+                            slide.layout
+                        )));
+                    }
+                }
                 None => {
                     let target = if self.pres.layout(&s.layout).is_some() || s.layout.is_standard()
                     {
@@ -457,9 +532,106 @@ impl ShowDocument {
         ch.slides.extend_from_slice(&ids);
         let mut undo = vec![C::DeleteSlides { ids }];
         undo.extend(added_media.into_iter().map(|id| C::RemoveMedia { id }));
-        if !copied.is_empty() {
+        if ch.design {
             undo.push(design_before);
         }
+        Ok(C::Compound { commands: undo })
+    }
+
+    /// Design › Browse for Themes: see [`ShowCommand::ImportDesign`].
+    pub(super) fn import_design(&mut self, bytes_base64: &str, ch: &mut Changes) -> R<C> {
+        let bytes = base64_decode(bytes_base64)
+            .map_err(|e| ShowError::BadRequest(format!("invalid base64: {e}")))?;
+        let file = fmt_pptx::read_design_file(&bytes, self.pres.slide_size)
+            .map_err(|e| ShowError::ReadPptx(e.to_string()))?
+            .presentation;
+        let design_before = self.design_snapshot();
+        // the pictures of the new master and layouts
+        let mut used = Presentation::media_of(&file.master.shapes);
+        for l in &file.layouts {
+            used.extend(Presentation::media_of(&l.shapes));
+        }
+        let mut media_map: HashMap<MediaId, MediaId> = HashMap::new();
+        let mut added_media = Vec::new();
+        for id in used {
+            let Some(m) = file.media.get(id) else {
+                continue;
+            };
+            let count = self.pres.media.len();
+            let new = self
+                .pres
+                .media
+                .insert(m.content_type.clone(), m.data.clone());
+            if self.pres.media.len() > count {
+                added_media.push(new);
+            }
+            media_map.insert(id, new);
+        }
+        // the slides as they were, to re-map them onto the new layouts
+        let olds: Vec<(NodeId, Layout)> = self
+            .pres
+            .slides
+            .iter()
+            .map(|s| (s.id, self.pres.slide_layout(s)))
+            .collect();
+        let mut master = file.master;
+        for sh in &mut master.shapes {
+            self.pres.assign_ids(sh);
+        }
+        remap_media(&mut master.shapes, &media_map);
+        let mut layouts = file.layouts;
+        for l in &mut layouts {
+            for sh in &mut l.shapes {
+                self.pres.assign_ids(sh);
+            }
+            remap_media(&mut l.shapes, &media_map);
+        }
+        self.pres.master = master;
+        self.pres.layouts = layouts;
+        self.pres.theme = file.theme;
+        self.pres.designs.clear();
+        ch.design = true;
+        let ids: Vec<NodeId> = olds.iter().map(|(id, _)| *id).collect();
+        let remapped = self.edit_slides(&ids, ch, |d| {
+            for (id, old) in &olds {
+                let target = {
+                    let s = d.pres.slide(*id).ok_or(ShowError::UnknownSlide(id.0))?;
+                    if s.layout.is_standard() || d.pres.layout(&s.layout).is_some() {
+                        s.layout.clone()
+                    } else {
+                        infer_layout(s)
+                    }
+                };
+                let new = d.pres.layout_or_builtin(&target);
+                let s = d.slide_mut(*id)?;
+                s.design = None;
+                s.apply_layout(old, &new);
+                let fresh: Vec<usize> = (0..s.shapes.len())
+                    .filter(|&i| s.shapes[i].id == NodeId(0))
+                    .collect();
+                for i in fresh {
+                    let nid = d.pres.alloc_id();
+                    let shape = &mut d.slide_mut(*id)?.shapes[i];
+                    shape.id = nid;
+                    shape.fill_default_name();
+                }
+            }
+            Ok(())
+        });
+        let restore = match remapped {
+            Ok(r) => r,
+            Err(e) => {
+                // put the old design and media back
+                let mut scratch = Changes::default();
+                let _ = self.exec(&design_before, &mut scratch);
+                for id in added_media {
+                    let _ = self.exec(&C::RemoveMedia { id }, &mut scratch);
+                }
+                return Err(e);
+            }
+        };
+        let mut undo = vec![restore, design_before];
+        undo.extend(added_media.into_iter().map(|id| C::RemoveMedia { id }));
         Ok(C::Compound { commands: undo })
     }
 }

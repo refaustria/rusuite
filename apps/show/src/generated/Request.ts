@@ -10,7 +10,7 @@ import type { ViewState } from "./ViewState";
  * A request from the UI. JSON: `{"type":"apply","command":{...}}`,
  * `{"type":"undo"}`, `{"type":"getMedia","id":3}`.
  */
-export type Request = { "type": "apply", command: ShowCommand, } | { "type": "undo" } | { "type": "redo" } | { "type": "load", presentation: Presentation, } | { "type": "getPresentation" } | { "type": "newPresentation" } | { "type": "getMedia", id: MediaId, } | { "type": "openPptx", bytesBase64: string, name: string, } | { "type": "savePptx", 
+export type Request = { "type": "apply", command: ShowCommand, } | { "type": "undo" } | { "type": "redo" } | { "type": "load", presentation: Presentation, } | { "type": "getPresentation" } | { "type": "newPresentation" } | { "type": "getMedia", id: MediaId, } | { "type": "openPptx", bytesBase64: string, name: string, } | { "type": "saveTheme" } | { "type": "savePptx", 
 /**
  * The view the user is in (Normal, Slide Sorter …), stamped into
  * `viewProps.xml` `lastView` without an undo step.

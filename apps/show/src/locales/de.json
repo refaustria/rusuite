@@ -1440,5 +1440,9 @@
   "show.recordFromCurrent": "Ab aktueller Folie…",
   "show.recordFromStart": "Von Beginn an…",
   "show.playNarrations": "Kommentare wiedergeben",
-  "show.showMediaControls": "Mediensteuerelemente anzeigen"
+  "show.showMediaControls": "Mediensteuerelemente anzeigen",
+  "show.design.themeFiles": "Weitere Designs",
+  "show.design.browseThemes": "Nach Designs suchen…",
+  "show.design.saveTheme": "Aktuelles Design speichern…",
+  "show.design.themeFilter": "Office-Design"
 }

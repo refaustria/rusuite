@@ -17,6 +17,7 @@ import type { Axis } from "../generated/Axis";
 import type { Bullet } from "../generated/Bullet";
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
 import type { Layout } from "../generated/Layout";
+import type { Design } from "../generated/Design";
 import type { LayoutKind } from "../generated/LayoutKind";
 import type { PlaceholderKind } from "../generated/PlaceholderKind";
 import type { SlideScale } from "../generated/SlideScale";
@@ -55,6 +56,7 @@ import { transposeData } from "../charts/data";
 import type { Chart } from "../charts/types";
 import { linkAt, linkCommands, reusePayload } from "./rich";
 import { inkFreeforms, type InkStroke } from "../present/tools";
+import { exportFile, thmxName } from "../design/themeFile";
 import { effectiveParagraph, findShape, placeholderDef, textOf } from "../model";
 import {
   alignCommand, alignmentCommand, bodyFromText, bulletCommand, compound, duplicateCommand, formatCommands, indentCommands,
@@ -278,6 +280,7 @@ export function applyPatch(pres: Presentation, patch: ShowPatch): Presentation {
   if (patch.theme) out.theme = patch.theme;
   if (patch.master) out.master = patch.master;
   if (patch.layouts) out.layouts = patch.layouts;
+  if (patch.designs) out.designs = patch.designs;
   if (patch.sections) out.sections = patch.sections;
   if (patch.view) out.view = patch.view;
   if (patch.showSettings) out.showSettings = patch.showSettings;
@@ -507,11 +510,11 @@ export class ShowStore {
       dirty: env.dirty,
       info: p.info ?? s.info,
     });
-    this.fetchMissingMedia(p.slides, { master: p.master, layouts: p.layouts });
+    this.fetchMissingMedia(p.slides, { master: p.master, layouts: p.layouts, designs: p.designs });
     return idMap;
   }
 
-  private fetchMissingMedia(slides: Slide[], design?: { master?: SlideMaster; layouts?: Layout[] }): void {
+  private fetchMissingMedia(slides: Slide[], design?: { master?: SlideMaster; layouts?: Layout[]; designs?: Design[] }): void {
     const want = new Set<number>();
     // picture backgrounds of slides, layouts and the master
     const bg = (b: Background | null | undefined) => {
@@ -524,6 +527,13 @@ export class ShowStore {
     });
     bg(design?.master?.background);
     design?.layouts?.forEach((l) => bg(l.background));
+    // further designs (P9-S5): their backgrounds and pictures
+    const extra: Shape[] = [];
+    for (const d of design?.designs ?? []) {
+      bg(d.master.background);
+      d.layouts.forEach((l) => bg(l.background));
+      extra.push(...(d.master.shapes ?? []), ...d.layouts.flatMap((l) => l.shapes ?? []));
+    }
     const walk = (shapes: Shape[]) => {
       for (const sh of shapes) {
         if (sh.kind.kind === "picture") want.add(sh.kind.value.media);
@@ -534,6 +544,7 @@ export class ShowStore {
       }
     };
     slides.forEach((s) => walk(s.shapes));
+    walk(extra);
     for (const id of want) {
       if (this.media.has(id) || this.mediaPending.has(id)) continue;
       this.mediaPending.add(id);
@@ -2345,12 +2356,28 @@ export class ShowStore {
     const src = this.state.reuse?.pres;
     if (!src || !ids.length || this.state.masterView) return;
     if (this.state.editing) await this.commitEdit();
-    const { slides, layouts, media } = reusePayload(src, ids);
+    const { slides, layouts, designs, media } = reusePayload(src, ids, keepSourceFormatting);
     const before = new Set(this.state.pres?.slides.map((s) => s.id) ?? []);
-    const res = await this.run({ type: "insertSlides", after: this.state.current ?? undefined, slides, layouts, media, keepSourceFormatting });
+    const res = await this.run({ type: "insertSlides", after: this.state.current ?? undefined, slides, layouts, ...(designs.length ? { designs } : {}), media, keepSourceFormatting });
     const added = res?.env.patch.slidesOrder?.filter((id) => !before.has(id)) ?? [];
     const last = added[added.length - 1];
     if (last !== undefined) this.selectSlide(last);
+  }
+
+  /** Design › Browse for Themes (P9-S5): a `.thmx` / `.potx` / `.pptx` replaces the design (one undo step). */
+  async importDesign(file: { name: string; bytesBase64: string }): Promise<void> {
+    if (this.state.editing) await this.commitEdit();
+    await this.run({ type: "importDesign", bytesBase64: file.bytesBase64 });
+  }
+
+  /** Design › Save Current Theme (P9-S5): the theme, master and layouts as a `.thmx` file. */
+  async saveTheme(): Promise<void> {
+    try {
+      const saved = await this.enqueue(() => this.api.saveTheme());
+      await exportFile(thmxName(saved.suggestedName), saved.bytesBase64, t("show.design.themeFilter"), "thmx");
+    } catch (e) {
+      this.pushError(e);
+    }
   }
 
   // --- views, guides, selection pane, text options, show setup (P8-28) ------------------

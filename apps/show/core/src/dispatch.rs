@@ -165,6 +165,10 @@ pub enum Request {
     /// Replaces the presentation by a `.pptx` file (standard base64 of its
     /// bytes; `name` is the file name shown to the user) → `opened`.
     OpenPptx { bytes_base64: String, name: String },
+    /// Design › Save Current Theme (P9-S5): the main design (theme,
+    /// master, layouts) as a `.thmx` file → `saved` (named after the
+    /// theme). Changes nothing.
+    SaveTheme,
     /// Writes the presentation as `.pptx` → `saved`. Does NOT mark it
     /// saved: the shell sends `markSaved` once the file was really written.
     SavePptx {
@@ -336,6 +340,16 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
                 presentation: Box::new(host.doc().presentation().clone()),
                 warnings,
                 envelope: Box::new(host.envelope(ShowPatch::default())),
+            }
+        }
+        Request::SaveTheme => {
+            let pres = host.doc().presentation();
+            let bytes = fmt_pptx::write_thmx(pres)
+                .map_err(|e| DispatchError::new("internal", e.to_string()))?;
+            let name = pres.theme.name.trim();
+            ResponseBody::Saved {
+                bytes_base64: base64_encode(&bytes),
+                suggested_name: format!("{}.thmx", if name.is_empty() { "Theme" } else { name }),
             }
         }
         Request::SavePptx {

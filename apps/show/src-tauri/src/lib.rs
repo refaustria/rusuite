@@ -467,6 +467,35 @@ fn smoke_report(
     smoke.finish("Rusuite Show", &window.title().unwrap_or_default(), &report);
 }
 
+/// Design › Save Current Theme (P9-S5): writes a file that is not the
+/// document (a `.thmx`) where the native save dialog says, without binding
+/// the document to it or recording it as recent. The file name, or `None`
+/// when cancelled.
+#[tauri::command]
+async fn export_file(
+    window: tauri::Window,
+    suggested_name: String,
+    bytes_base64: String,
+    filter_name: String,
+    extension: String,
+) -> Result<Option<String>, FileError> {
+    let dialog = window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .add_filter(filter_name, &[extension.as_str()])
+        .set_file_name(suggested_name);
+    blocking(move || {
+        let Some(path) = dialog.blocking_save_file() else {
+            return Ok(None);
+        };
+        let path = into_path(path)?;
+        write_file(&path, &bytes_base64)?;
+        Ok(Some(file_name(&path)))
+    })
+    .await
+}
+
 // ----- Slide Show › Monitors (P9-S5) -------------------------------------------------------
 
 /// A monitor as the Monitor menu lists it (logical pixels).
@@ -646,6 +675,7 @@ pub fn run() {
             print_webview,
             show_monitors,
             show_swap_displays,
+            export_file,
             connectors_tauri::connector_list,
             connectors_tauri::connector_stat,
             connectors_tauri::connector_read,

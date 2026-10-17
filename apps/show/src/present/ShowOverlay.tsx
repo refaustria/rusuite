@@ -10,7 +10,7 @@
 // volume, mute and "hide while not playing" as set on the Playback tab).
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { DeckContext } from "../design/deck";
+import { deckFor, type DeckContext } from "../design/deck";
 import type { Hyperlink } from "../generated/Hyperlink";
 import type { MediaClip } from "../generated/MediaClip";
 import type { Shape } from "../generated/Shape";
@@ -185,7 +185,8 @@ function Clip({ shape, clip, url, poster, scale, command, onBookmark, controls }
   return <video {...common} poster={poster} className="absolute bg-black object-contain" style={{ ...box, opacity: hidden ? 0 : 1 }} />;
 }
 
-export function ShowOverlay({ deck, slide, step = 0, media, width, height, onLink, fired = [], onTrigger, controls = true }: ShowOverlayProps) {
+export function ShowOverlay({ deck: given, slide, step = 0, media, width, height, onLink, fired = [], onTrigger, controls = true }: ShowOverlayProps) {
+  const deck = deckFor(given, slide);
   const scale = fitScale(width, height, deck.slideSize);
   const px = slidePx(deck.slideSize);
   const palette = useMemo(() => themePalette(deck.theme), [deck.theme]);

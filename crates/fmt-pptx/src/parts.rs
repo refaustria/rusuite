@@ -53,18 +53,24 @@ fn def_rpr(x: &mut XmlOut, sz: u32, major: bool) {
     x.end("a:defRPr");
 }
 
-/// `ppt/presentation.xml`: master id, slide ids (`rId2`…), slide size,
+/// `ppt/presentation.xml`: master ids (`masters`: `(id, rId)`), slide ids (`rId2`…), slide size,
 /// notes size and a default text style.
 ///
 /// `notes_master_rid`: the relationship id of the notes master, when the
 /// package has one.
-pub fn presentation_xml(p: &Presentation, notes_master_rid: Option<&str>) -> Vec<u8> {
+pub fn presentation_xml(
+    p: &Presentation,
+    masters: &[(String, String)],
+    notes_master_rid: Option<&str>,
+) -> Vec<u8> {
     let mut x = XmlOut::new();
     let mut attrs: Vec<(&str, &str)> = ROOT_NS.to_vec();
     attrs.push(("saveSubsetFonts", "1"));
     x.start("p:presentation", &attrs);
     x.start("p:sldMasterIdLst", &[]);
-    x.empty("p:sldMasterId", &[("id", "2147483648"), ("r:id", "rId1")]);
+    for (id, rid) in masters {
+        x.empty("p:sldMasterId", &[("id", id), ("r:id", rid)]);
+    }
     x.end("p:sldMasterIdLst");
     if let Some(rid) = notes_master_rid {
         x.start("p:notesMasterIdLst", &[]);

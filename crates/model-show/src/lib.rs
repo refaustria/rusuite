@@ -36,6 +36,7 @@ pub mod anim;
 pub mod chart;
 pub mod clip;
 pub mod connector;
+pub mod design;
 pub mod geometry;
 pub mod layout;
 pub mod link;
@@ -68,6 +69,7 @@ pub use connector::{ArrowEnd, ArrowKind, ArrowSize, Attach, Connector};
 pub use core_model::media::{Media, MediaId, MediaStore};
 pub use core_model::units::Emu;
 pub use core_model::{Color, RunProperties};
+pub use design::{Design, DesignRef};
 pub use geometry::{
     flatten, Adjust, AdjustHandle, ConnectorKind, GeomPath, HandleAxis, PathCmd, Site, SubPath,
     TextRect,

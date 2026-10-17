@@ -50,4 +50,9 @@ animations?: Array<Animation>,
  * Draw the master's and layout's shapes below the slide's
  * (`showMasterSp`; PowerPoint's "Hide background graphics" = false).
  */
-showMasterShapes?: boolean, };
+showMasterShapes?: boolean, 
+/**
+ * The further design (master, theme, layouts) the slide uses
+ * ([`crate::Design::id`]; `None` = the presentation's main design).
+ */
+design?: number, };

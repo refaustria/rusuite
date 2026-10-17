@@ -8,8 +8,8 @@ use core_model::{
 use model_show::text::FULL_SCALE;
 use model_show::{
     Alignment, Anchor, ArrowEnd, ArrowKind, ArrowSize, AutoNumScheme, Autofit, BodyProps, Bullet,
-    Emu, Fill, Hyperlink, Line, LineCompound, LineDash, TextBody, TextDirection, TextField,
-    TextParagraph, TextParagraphProps, TextRun, TextSpacing, Transform,
+    ColorMap, Emu, Fill, Hyperlink, Line, LineCompound, LineDash, TextBody, TextDirection,
+    TextField, TextParagraph, TextParagraphProps, TextRun, TextSpacing, Transform,
 };
 
 use crate::link::{read_hlink, write_hlink, LinkSink, LinkXml};
@@ -165,15 +165,63 @@ pub fn write_xfrm(x: &mut XmlOut, t: &Transform, group: bool) {
 
 // --- colors ---------------------------------------------------------------------
 
-/// The scheme value written for a theme slot (`tx1`/`bg1`/`tx2`/`bg2` for
-/// the dark/light slots, as PowerPoint writes them in slides).
+thread_local! {
+    /// The colour map (`p:clrMap`, a slide's `p:clrMapOvr`) of the part
+    /// being read or written: what `tx1`/`bg1`/`tx2`/`bg2` stand for.
+    static COLOR_MAP: std::cell::Cell<ColorMap> = std::cell::Cell::new(ColorMap::default());
+}
+
+/// Restores the previous colour map when dropped (see [`use_color_map`]).
+pub(crate) struct ColorMapGuard(ColorMap);
+
+impl Drop for ColorMapGuard {
+    fn drop(&mut self) {
+        COLOR_MAP.with(|c| c.set(self.0));
+    }
+}
+
+/// Reads and writes colours of the parts that follow with colour map `m`
+/// (until the guard is dropped): a master's `p:clrMap` for the master,
+/// its layouts and slides; a slide's `p:clrMapOvr` override.
+pub(crate) fn use_color_map(m: ColorMap) -> ColorMapGuard {
+    ColorMapGuard(COLOR_MAP.with(|c| c.replace(m)))
+}
+
+/// The colour map in effect.
+pub(crate) fn color_map() -> ColorMap {
+    COLOR_MAP.with(std::cell::Cell::get)
+}
+
+/// The theme slot of a `schemeClr/@val` under the colour map in effect:
+/// `tx1`/`bg1`/`tx2`/`bg2` are mapped (a dark master maps `bg1` to `dk1`),
+/// the scheme names stand for themselves.
+pub fn scheme_slot(val: &str) -> Option<ThemeColorSlot> {
+    let m = color_map();
+    match val {
+        "tx1" => Some(m.tx1),
+        "bg1" => Some(m.bg1),
+        "tx2" => Some(m.tx2),
+        "bg2" => Some(m.bg2),
+        v => ThemeColorSlot::from_ooxml_name(v),
+    }
+}
+
+/// The scheme value written for a theme slot: the mapped name
+/// (`tx1`/`bg1`/`tx2`/`bg2`) that stands for it under the colour map in
+/// effect, as PowerPoint writes slides; a slot no mapped name stands for
+/// by its scheme name (`dk1`, …).
 pub fn scheme_val(slot: ThemeColorSlot) -> &'static str {
-    match slot {
-        ThemeColorSlot::Dark1 => "tx1",
-        ThemeColorSlot::Light1 => "bg1",
-        ThemeColorSlot::Dark2 => "tx2",
-        ThemeColorSlot::Light2 => "bg2",
-        other => other.ooxml_scheme_name(),
+    let m = color_map();
+    if m.tx1 == slot {
+        "tx1"
+    } else if m.bg1 == slot {
+        "bg1"
+    } else if m.tx2 == slot {
+        "tx2"
+    } else if m.bg2 == slot {
+        "bg2"
+    } else {
+        slot.ooxml_scheme_name()
     }
 }
 
@@ -280,7 +328,7 @@ pub fn color_of(el: &El, w: &mut Warnings) -> Option<Color> {
             Some(rgb_with_mods(rgb, w))
         }
         "schemeClr" => {
-            let slot = ThemeColorSlot::from_ooxml_name(el.attr("val")?)?;
+            let slot = scheme_slot(el.attr("val")?)?;
             Some(Color::Theme {
                 slot,
                 tint: color_tint(el, w),
@@ -1270,6 +1318,49 @@ mod tests {
         f(&mut x);
         let s = String::from_utf8(x.finish()).unwrap();
         s[fmt_ooxml::xml::DECLARATION.len()..].to_owned()
+    }
+
+    #[test]
+    fn scheme_colours_follow_the_colour_map_in_effect() {
+        let mut w = Warnings::default();
+        let tx1 = el(r#"<a:schemeClr val="tx1"/>"#);
+        let dk1 = el(r#"<a:schemeClr val="dk1"/>"#);
+        assert_eq!(
+            color_of(&tx1, &mut w),
+            Some(Color::theme(ThemeColorSlot::Dark1))
+        );
+        assert_eq!(scheme_val(ThemeColorSlot::Light1), "bg1");
+        {
+            let _dark = use_color_map(ColorMap {
+                bg1: ThemeColorSlot::Dark1,
+                tx1: ThemeColorSlot::Light1,
+                bg2: ThemeColorSlot::Dark2,
+                tx2: ThemeColorSlot::Light2,
+            });
+            assert_eq!(
+                color_of(&tx1, &mut w),
+                Some(Color::theme(ThemeColorSlot::Light1))
+            );
+            // scheme names are not mapped
+            assert_eq!(
+                color_of(&dk1, &mut w),
+                Some(Color::theme(ThemeColorSlot::Dark1))
+            );
+            assert_eq!(scheme_val(ThemeColorSlot::Light1), "tx1");
+            assert_eq!(scheme_val(ThemeColorSlot::Dark1), "bg1");
+            assert_eq!(scheme_val(ThemeColorSlot::Accent2), "accent2");
+            // a map that leaves a slot without a mapped name: its scheme name
+            let _odd = use_color_map(ColorMap {
+                bg1: ThemeColorSlot::Light1,
+                tx1: ThemeColorSlot::Dark1,
+                bg2: ThemeColorSlot::Light1,
+                tx2: ThemeColorSlot::Dark1,
+            });
+            assert_eq!(scheme_val(ThemeColorSlot::Dark2), "dk2");
+        }
+        // the guard restores the standard map
+        assert_eq!(scheme_val(ThemeColorSlot::Light1), "bg1");
+        assert_eq!(color_map(), ColorMap::default());
     }
 
     #[test]

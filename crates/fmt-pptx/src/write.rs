@@ -12,14 +12,14 @@ use model_show::clip::media_extension;
 use model_show::{
     Adjust, Background, ChartShape, Connector, Fill, HfDate, Layout, LayoutKind, MediaClip,
     MediaId, MediaKind, NodeId, PictureProps, Presentation, Preset, Recolor, Shape, ShapeKind,
-    Slide, Table,
+    Slide, SlideMaster, Table, Theme,
 };
 
 use crate::anim::{write_timing, MediaTarget, Target};
 use crate::chart::{workbook_xlsx, TableData, CHART_URI, PACKAGE_REL, XLSX_CT};
 use crate::drawing::{
-    deg_to_rot, write_color, write_color_with_alpha, write_fill, write_line, write_line_with_ends,
-    write_text_body, write_xfrm,
+    deg_to_rot, use_color_map, write_color, write_color_with_alpha, write_fill, write_line,
+    write_line_with_ends, write_text_body, write_xfrm,
 };
 use crate::geom::{write_av_lst, write_geometry};
 use crate::link::{write_hlink, LinkSink, LinkXml, PartLinks, MEDIA_ACTION};
@@ -40,14 +40,52 @@ pub fn write(presentation: &Presentation) -> Result<Vec<u8>> {
     write_with_context(presentation, &PptxContext::default())
 }
 
-/// The layouts written: the presentation's, plus built-ins for standard
-/// layouts slides use that the list lacks.
-fn written_layouts(p: &Presentation) -> Vec<Layout> {
-    let mut out = p.layouts.clone();
-    for s in &p.slides {
-        if !out.iter().any(|l| l.kind == s.layout) {
-            out.push(p.layout_or_builtin(&s.layout));
+/// A design as written: its master (`slideMasterN.xml`, `themeN.xml`) and
+/// layouts (numbered on from `offset + 1`), and the ids of
+/// `p:sldMasterId` / `p:sldLayoutId` (one sequence for all masters and
+/// layouts, as PowerPoint requires).
+struct DesignOut<'a> {
+    /// `None`: the main design.
+    id: Option<u32>,
+    master: &'a SlideMaster,
+    theme: &'a Theme,
+    /// The design's layouts, plus built-ins for standard layouts its
+    /// slides use that the list lacks.
+    layouts: Vec<Layout>,
+    /// 1-based master and theme part number.
+    number: usize,
+    /// Layout parts before this design's.
+    offset: usize,
+    /// `p:sldMasterId/@id` (its layouts: the next ones).
+    first_id: u64,
+}
+
+/// The designs written: the main one, then the further designs (P9-S5).
+fn written_designs(p: &Presentation) -> Vec<DesignOut<'_>> {
+    let mut out: Vec<DesignOut<'_>> = Vec::with_capacity(1 + p.designs.len());
+    let mut next_id = 2_147_483_648u64;
+    let mut offset = 0;
+    let parts =
+        std::iter::once(p.design(None)).chain(p.designs.iter().map(|d| p.design(Some(d.id))));
+    for (i, d) in parts.enumerate() {
+        let mut layouts = d.layouts.to_vec();
+        for s in p.slides.iter().filter(|s| p.design_of(s).id == d.id) {
+            if !layouts.iter().any(|l| l.kind == s.layout) {
+                layouts.push(d.layout_or_builtin(&s.layout, p.slide_size));
+            }
         }
+        let n = layouts.len();
+        out.push(DesignOut {
+            id: d.id,
+            master: d.master,
+            theme: d.theme,
+            layouts,
+            number: i + 1,
+            offset,
+            first_id: next_id,
+        });
+        offset += n;
+        next_id += n as u64 + 1;
     }
     out
 }
@@ -60,16 +98,26 @@ fn written_layouts(p: &Presentation) -> Vec<Layout> {
 /// that is not in the presentation's store.
 pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>> {
     let pn = PartName::new;
-    let layouts = written_layouts(p);
+    let designs = written_designs(p);
     let mut media = MediaParts::default();
-    let (master_xml, master_rels) = write_master(p, &layouts, &mut media)?;
-    let mut layout_parts = Vec::with_capacity(layouts.len());
-    for layout in &layouts {
-        layout_parts.push(write_layout(p, layout, &mut media)?);
+    let mut master_parts = Vec::with_capacity(designs.len());
+    let mut layout_parts = Vec::new();
+    for d in &designs {
+        // colours of the master and its layouts under its colour map
+        let _map = use_color_map(d.master.color_map);
+        master_parts.push(write_master(p, d, &mut media)?);
+        for layout in &d.layouts {
+            layout_parts.push(write_layout(p, d, layout, &mut media)?);
+        }
     }
     let mut slides = Vec::with_capacity(p.slides.len());
     for (i, slide) in p.slides.iter().enumerate() {
-        slides.push(write_slide(p, &layouts, slide, i + 1, &mut media)?);
+        let d = designs
+            .iter()
+            .find(|d| d.id == p.design_of(slide).id)
+            .unwrap_or(&designs[0]);
+        let _map = use_color_map(d.master.color_map);
+        slides.push(write_slide(p, d, slide, i + 1, &mut media)?);
     }
     let has_notes = p.slides.iter().any(|s| s.notes.is_some());
 
@@ -90,16 +138,30 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
             .id
             .clone()
     });
+    // `p:sldMasterIdLst`: the main master (rId1), then the further ones
+    let mut master_ids = vec![(designs[0].first_id.to_string(), "rId1".to_owned())];
+    for d in &designs[1..] {
+        let rid = pres_rels
+            .add(
+                rel::SLIDE_MASTER,
+                format!("slideMasters/slideMaster{}.xml", d.number),
+            )
+            .id
+            .clone();
+        master_ids.push((d.first_id.to_string(), rid));
+    }
     pkg.insert_part(
         main.clone(),
         ct::PRESENTATION,
-        parts::presentation_xml(p, notes_master_rid.as_deref()),
+        parts::presentation_xml(p, &master_ids, notes_master_rid.as_deref()),
     );
     pkg.set_relationships(main, pres_rels);
 
-    let master = pn("/ppt/slideMasters/slideMaster1.xml")?;
-    pkg.insert_part(master.clone(), ct::SLIDE_MASTER, master_xml);
-    pkg.set_relationships(master, master_rels);
+    for (d, (xml, rels)) in designs.iter().zip(master_parts) {
+        let master = PartName::new(format!("/ppt/slideMasters/slideMaster{}.xml", d.number))?;
+        pkg.insert_part(master.clone(), ct::SLIDE_MASTER, xml);
+        pkg.set_relationships(master, rels);
+    }
 
     for (i, (xml, rels)) in layout_parts.into_iter().enumerate() {
         let name = PartName::new(format!("/ppt/slideLayouts/slideLayout{}.xml", i + 1))?;
@@ -113,11 +175,13 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
         pkg.set_relationships(name, rels);
     }
 
+    // the notes master's theme follows the masters' themes
+    let notes_theme = designs.len() + 1;
     if has_notes {
         let master = pn("/ppt/notesMasters/notesMaster1.xml")?;
         pkg.insert_part(master.clone(), ct::NOTES_MASTER, parts::notes_master_xml());
         let mut r = Relationships::new();
-        r.add(rel::THEME, "../theme/theme2.xml");
+        r.add(rel::THEME, format!("../theme/theme{notes_theme}.xml"));
         pkg.set_relationships(master, r);
         for (i, slide) in p.slides.iter().enumerate() {
             let Some(notes) = &slide.notes else { continue };
@@ -135,9 +199,20 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
         _ => theme_xml(&p.theme),
     };
     if has_notes {
-        pkg.insert_part(pn("/ppt/theme/theme2.xml")?, ct::THEME, theme_xml(&p.theme));
+        pkg.insert_part(
+            PartName::new(format!("/ppt/theme/theme{notes_theme}.xml"))?,
+            ct::THEME,
+            theme_xml(&p.theme),
+        );
     }
     pkg.insert_part(pn("/ppt/theme/theme1.xml")?, ct::THEME, theme);
+    for d in &designs[1..] {
+        pkg.insert_part(
+            PartName::new(format!("/ppt/theme/theme{}.xml", d.number))?,
+            ct::THEME,
+            theme_xml(d.theme),
+        );
+    }
     pkg.insert_part(
         pn("/ppt/presProps.xml")?,
         ct::PRES_PROPS,
@@ -181,22 +256,61 @@ pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>
     Ok(pkg.write(Cursor::new(Vec::new()))?.into_inner())
 }
 
-/// `ppt/slideMasters/slideMaster1.xml` and its relationships (layouts
+/// Design › Save Current Theme (P9-S5): a `.thmx` package with the main
+/// design – `theme/theme/theme1.xml` (the main part, related to its
+/// master), `theme/slideMasters/slideMaster1.xml`, the layouts
+/// `theme/slideLayouts/slideLayoutN.xml` and the images they use under
+/// `theme/media/`.
+pub fn write_thmx(p: &Presentation) -> Result<Vec<u8>> {
+    let pn = PartName::new;
+    let designs = written_designs(p);
+    let d = &designs[0];
+    let mut media = MediaParts::default();
+    let _map = use_color_map(d.master.color_map);
+    let (master_xml, master_rels) = write_master(p, d, &mut media)?;
+    let mut layouts = Vec::with_capacity(d.layouts.len());
+    for layout in &d.layouts {
+        layouts.push(write_layout(p, d, layout, &mut media)?);
+    }
+    let mut pkg = Package::new();
+    let theme = pn("/theme/theme/theme1.xml")?;
+    pkg.insert_part(theme.clone(), ct::THEME, theme_xml(&p.theme));
+    let mut r = Relationships::new();
+    r.add(rel::SLIDE_MASTER, "../slideMasters/slideMaster1.xml");
+    pkg.set_relationships(theme, r);
+    let master = pn("/theme/slideMasters/slideMaster1.xml")?;
+    pkg.insert_part(master.clone(), ct::SLIDE_MASTER, master_xml);
+    pkg.set_relationships(master, master_rels);
+    for (i, (xml, rels)) in layouts.into_iter().enumerate() {
+        let name = PartName::new(format!("/theme/slideLayouts/slideLayout{}.xml", i + 1))?;
+        pkg.insert_part(name.clone(), ct::SLIDE_LAYOUT, xml);
+        pkg.set_relationships(name, rels);
+    }
+    for (name, content_type, data) in media.parts {
+        pkg.insert_part(PartName::new(format!("/theme/{name}"))?, content_type, data);
+    }
+    pkg.package_relationships_mut()
+        .add(rel::OFFICE_DOCUMENT, "theme/theme/theme1.xml");
+    Ok(pkg.write(Cursor::new(Vec::new()))?.into_inner())
+}
+
+/// `ppt/slideMasters/slideMasterN.xml` and its relationships (layouts
 /// `rId1`…, the theme, then images of its shapes).
 fn write_master(
     p: &Presentation,
-    layouts: &[Layout],
+    d: &DesignOut<'_>,
     media: &mut MediaParts,
 ) -> Result<(Vec<u8>, Relationships)> {
-    let m = &p.master;
+    let m = d.master;
+    let layouts = &d.layouts;
     let mut rels = Relationships::new();
     for i in 0..layouts.len() {
         rels.add(
             rel::SLIDE_LAYOUT,
-            format!("../slideLayouts/slideLayout{}.xml", i + 1),
+            format!("../slideLayouts/slideLayout{}.xml", d.offset + i + 1),
         );
     }
-    rels.add(rel::THEME, "../theme/theme1.xml");
+    rels.add(rel::THEME, format!("../theme/theme{}.xml", d.number));
     let mut w = SlideWriter::new(p, rels, media, &m.shapes);
     w.x.start("p:sldMaster", &ROOT_NS);
     if m.name.is_empty() {
@@ -231,7 +345,7 @@ fn write_master(
     write_clr_map(&mut w.x, &m.color_map);
     w.x.start("p:sldLayoutIdLst", &[]);
     for i in 0..layouts.len() {
-        let id = (2_147_483_649u64 + i as u64).to_string();
+        let id = (d.first_id + 1 + i as u64).to_string();
         let rid = format!("rId{}", i + 1);
         w.x.empty("p:sldLayoutId", &[("id", &id), ("r:id", &rid)]);
     }
@@ -263,12 +377,16 @@ fn write_master(
 /// the master's (no `a:xfrm` when the position is the master's).
 fn write_layout(
     p: &Presentation,
+    d: &DesignOut<'_>,
     layout: &Layout,
     media: &mut MediaParts,
 ) -> Result<(Vec<u8>, Relationships)> {
-    let m = &p.master;
+    let m = d.master;
     let mut rels = Relationships::new();
-    rels.add(rel::SLIDE_MASTER, "../slideMasters/slideMaster1.xml");
+    rels.add(
+        rel::SLIDE_MASTER,
+        format!("../slideMasters/slideMaster{}.xml", d.number),
+    );
     let mut w = SlideWriter::new(p, rels, media, &layout.shapes);
     let mut attrs: Vec<(&str, &str)> = ROOT_NS.to_vec();
     attrs.push(("type", layout.kind.ooxml_type()));
@@ -539,11 +657,12 @@ fn placeholder_indexes(shapes: &[Shape], layout: &Layout) -> HashMap<NodeId, u32
 /// `number` is the slide's 1-based part number (also of its notes part).
 fn write_slide(
     p: &Presentation,
-    layouts: &[Layout],
+    d: &DesignOut<'_>,
     slide: &Slide,
     number: usize,
     media: &mut MediaParts,
 ) -> Result<(Vec<u8>, Relationships)> {
+    let layouts = &d.layouts;
     let mut rels = Relationships::new();
     let n = layouts
         .iter()
@@ -551,7 +670,7 @@ fn write_slide(
         .map_or(1, |i| i + 1);
     rels.add(
         rel::SLIDE_LAYOUT,
-        format!("../slideLayouts/slideLayout{n}.xml"),
+        format!("../slideLayouts/slideLayout{}.xml", d.offset + n),
     );
     if slide.notes.is_some() {
         rels.add(
@@ -562,7 +681,7 @@ fn write_slide(
     let layout = layouts
         .get(n - 1)
         .cloned()
-        .unwrap_or_else(|| p.layout_or_builtin(&slide.layout));
+        .unwrap_or_else(|| p.slide_layout(slide));
     let mut w = SlideWriter::new(p, rels, media, &slide.shapes);
     w.slides_dir = "";
     w.ph_idx = placeholder_indexes(&slide.shapes, &layout);

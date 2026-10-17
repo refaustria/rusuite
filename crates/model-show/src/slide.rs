@@ -55,6 +55,11 @@ pub struct Slide {
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
     pub show_master_shapes: bool,
+    /// The further design (master, theme, layouts) the slide uses
+    /// ([`crate::Design::id`]; `None` = the presentation's main design).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub design: Option<u32>,
 }
 
 /// A background, or (older snapshots) a plain fill.
@@ -102,6 +107,7 @@ impl Slide {
             transition: None,
             animations: Vec::new(),
             show_master_shapes: true,
+            design: None,
         }
     }
 

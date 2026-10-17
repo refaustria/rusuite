@@ -397,6 +397,7 @@ fn insert_slides_with_and_without_source_formatting() {
             after: Some(first),
             slides: src.slides.clone(),
             layouts: src.layouts.clone(),
+            designs: Vec::new(),
             media: src.media.clone(),
             keep_source_formatting: true,
         },
@@ -434,6 +435,7 @@ fn insert_slides_with_and_without_source_formatting() {
             after: None,
             slides: src.slides.clone(),
             layouts: src.layouts.clone(),
+            designs: Vec::new(),
             media: src.media.clone(),
             keep_source_formatting: false,
         },
@@ -455,6 +457,7 @@ fn insert_slides_with_and_without_source_formatting() {
                 after: None,
                 slides: Vec::new(),
                 layouts: Vec::new(),
+                designs: Vec::new(),
                 media: Default::default(),
                 keep_source_formatting: false,
             }

@@ -23,7 +23,7 @@ import type { TextBody } from "../generated/TextBody";
 import type { Table } from "../generated/Table";
 import { boxAttrs, emuToPx, EMU_PER_PX, slidePx } from "../geometry";
 import { bodyText, css, effectiveParagraph, fillCss, themePalette } from "../model";
-import { backdropShapes, designBackground, designShapes, levelDefaults, levelMargins, placeholderFor, slideBackground, slideNumberOf, type DeckContext } from "../design/deck";
+import { backdropShapes, deckFor, designBackground, designShapes, levelDefaults, levelMargins, placeholderFor, slideBackground, slideNumberOf, type DeckContext } from "../design/deck";
 import { effectShadow, konvaFill, resolveColor } from "../design/color";
 import { patternDataUrl } from "../design/patterns";
 import { fieldText } from "../design/fields";
@@ -658,8 +658,10 @@ function ShapeNode({ shape, ctx, top }: { shape: Shape; ctx: Ctx; top: boolean }
 
 /** The slide's background and shapes, in slide px (the parent `Stage` scales). */
 export const SlideView = memo(function SlideView({
-  deck, slide, media, interactive = false, hiddenText = null, hiddenCell = null, overrides, prompts = false, design, onShapeDragEnd, onShapeDragStart, shapeDragBound,
+  deck: given, slide, media, interactive = false, hiddenText = null, hiddenCell = null, overrides, prompts = false, design, onShapeDragEnd, onShapeDragStart, shapeDragBound,
 }: SlideViewProps) {
+  // a slide of a further design draws with its master, layouts and theme (P9-S5)
+  const deck = useMemo(() => (design ? given : deckFor(given, slide)), [given, slide, design]);
   const palette = useMemo(() => themePalette(deck.theme), [deck.theme]);
   const size = slidePx(deck.slideSize);
   const slideNumber = design ? null : slideNumberOf(deck, slide.id);

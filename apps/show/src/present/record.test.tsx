@@ -52,7 +52,7 @@ describe("Slide Show › Set Up", () => {
 
   it("Show Media Controls off: the show's clips have no play bar", () => {
     const p = fixture();
-    p.slides[2]!.shapes.push({ ...p.slides[2]!.shapes[0]!, id: 60, kind: { kind: "media", value: { kind: "video", media: 3 } } });
+    p.slides[2]!.shapes.push({ ...p.slides[2]!.shapes[0]!, id: 60, kind: { kind: "media", value: { kind: "video", media: 3, start: "inClickSequence" } } });
     const media = new Map([[3, "data:video/webm;base64,GkXfow=="]]);
     const { unmount } = render(<Presenter deck={deckOf(p)} slides={p.slides} media={media} mediaVersion={0} show={initialShow(3, 2)} onAction={vi.fn()} />);
     expect((screen.getByTestId("show-media-60") as HTMLVideoElement).controls).toBe(true);
