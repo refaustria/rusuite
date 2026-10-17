@@ -45,11 +45,10 @@ Sources: deferred items from the quality passes (`docs/qa/*`), the pre-release b
 - **S1 Rich in-place text editing and master text** – bullets/numbering/levels/alignment/run formatting while typing,
   Shift+Enter, `spAutoFit`/`normAutofit`, formatted prompt text, master/layout in-place editing, master indents per
   level, levels 2–9, rename layouts/add placeholders, Insert › Text box click-or-drag.
-- **S2 Tables round 2** – exact PowerPoint table style definitions + "Best match" row, `tableStyles.xml` written,
-  Light/Themed/Dark families, split cell rows×cols, Format Shape sections for table cells, 32 px border grips.
-- **S3 Shapes round 2** – freeform/scribble tool, remaining presets (bent/U-turn arrows, ribbons, callouts), core returns
-  text rectangle + adjust-handle positions in `shapePaths`, keyboard adjust handles, PowerPoint connector detour routing,
-  rotate handles with shapes.
+- **S2 Tables and shapes round 2** – table style fidelity + Best Match gallery, split/merge/distribute, cell margins and
+  alignment, Format Shape for cells, Draw Borders; freeform/scribble tool + Edit Points, remaining presets, adjust
+  handles/text rectangles from the core, keyboard handles, PowerPoint connector detour routing. (Brief P9-S2.)
+- **S3 Views and design round 2** → see S4 below (renumbered when started).
 - **S4 Views and design round 2** – outline view with rich text, slide sorter polish (Effect Options for sorter
   selection), custom shows, per-layout guides (p15), Selection pane, Format Background pane (gradient/picture/texture),
   lock-aspect + last view saved, Effects on the Design tab, picture/texture background fills, scale/fit on SetSlideSize,
