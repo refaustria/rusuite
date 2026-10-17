@@ -278,7 +278,8 @@ pub(crate) fn write_fonts(x: &mut XmlOut, font: &FontFace, hint: bool) {
 fn underline_of(v: &str) -> Option<Underline> {
     Some(match v {
         "none" => Underline::None,
-        "single" | "words" | "thick" => Underline::Single,
+        "single" | "thick" => Underline::Single,
+        "words" => Underline::Words,
         "double" => Underline::Double,
         "dotted" | "dottedHeavy" => Underline::Dotted,
         "dash" | "dashedHeavy" | "dashLong" | "dashLongHeavy" | "dotDash" | "dashDotHeavy"
@@ -296,6 +297,7 @@ fn underline_name(u: Underline) -> &'static str {
         Underline::Dotted => "dotted",
         Underline::Dashed => "dash",
         Underline::Wavy => "wave",
+        Underline::Words => "words",
     }
 }
 

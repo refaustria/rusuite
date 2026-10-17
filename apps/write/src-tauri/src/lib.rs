@@ -352,8 +352,9 @@ struct DialogText {
     filter_name: Option<String>,
 }
 
-/// The native file dialog for `.docx` files, with the UI's texts; without
-/// them the platform's title and the English filter name.
+/// The native file dialog for `.docx` documents and `.dotx` templates (one
+/// filter, P9-W3), with the UI's texts; without them the platform's title
+/// and the English filter name.
 fn docx_dialog(
     window: &tauri::Window,
     text: Option<DialogText>,
@@ -361,7 +362,7 @@ fn docx_dialog(
     let text = text.unwrap_or_default();
     let dialog = window.dialog().file().set_parent(window).add_filter(
         text.filter_name.as_deref().unwrap_or("Word document"),
-        &["docx"],
+        &["docx", "dotx"],
     );
     match text.title {
         Some(title) => dialog.set_title(title),

@@ -847,6 +847,7 @@ fn underline_from(v: &str) -> Underline {
     match v {
         "none" => Underline::None,
         "dbl" => Underline::Double,
+        "words" => Underline::Words,
         "dotted" | "dottedHeavy" => Underline::Dotted,
         "wavy" | "wavyHeavy" | "wavyDbl" => Underline::Wavy,
         v if v.starts_with("dash") || v.starts_with("dotDash") || v.starts_with("dotDotDash") => {
@@ -864,6 +865,7 @@ fn underline_name(u: Underline) -> &'static str {
         Underline::Dotted => "dotted",
         Underline::Dashed => "dash",
         Underline::Wavy => "wavy",
+        Underline::Words => "words",
     }
 }
 

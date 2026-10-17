@@ -3,4 +3,4 @@
 /**
  * Mirror of `core_model::Underline`.
  */
-export type Underline = "none" | "single" | "double" | "dotted" | "dashed" | "wavy";
+export type Underline = "none" | "single" | "double" | "dotted" | "dashed" | "wavy" | "words";

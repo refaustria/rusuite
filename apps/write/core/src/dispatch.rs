@@ -63,8 +63,14 @@ pub enum Request {
     Load { document: Box<Document> },
     /// → `document` (the whole document, media included).
     GetDocument,
-    /// Replaces the document by an empty one → `document`.
-    NewDocument,
+    /// Replaces the document by an empty one → `document`. `styleSet`
+    /// (Design › Set as Default, kept by the UI) formats it from the start
+    /// (no undo step, not dirty).
+    NewDocument {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        style_set: Option<Box<model_text::StyleSet>>,
+    },
     /// → `media` with the bytes of image `id`.
     GetMedia {
         #[ts(as = "model_text::media::MediaIdTs")]
@@ -73,6 +79,13 @@ pub enum Request {
     /// Replaces the document by a `.docx` file (standard base64 of its
     /// bytes; `name` is the file name shown to the user) → `opened`.
     OpenDocx { bytes_base64: String, name: String },
+    /// File › New from a template (`.dotx` or `.docx`, standard base64):
+    /// an untitled document with the template's styles, numbering,
+    /// sections, headers and content; its title, subject, keywords,
+    /// comments, category and company stay, author, dates and revision go
+    /// (the save stamps them) → `opened`. `name` names the template in
+    /// reader warnings only.
+    NewFromTemplate { bytes_base64: String, name: String },
     /// Writes the document as `.docx` → `saved`. Does NOT mark it saved:
     /// the shell sends `markSaved` once the file was really written. The
     /// optional fields stamp the document properties first (`modified` =
@@ -88,7 +101,18 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         pages: Option<u32>,
+        /// Save as a template (`.dotx` content type) from now on (`true`)
+        /// or as a document (`false`); absent = as before (a file opened
+        /// as `.dotx` stays a template).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        template: Option<bool>,
     },
+    /// The built-in style sets (Design › Style Sets gallery) and the
+    /// document's current one (named `current`) → `styleSets`.
+    StyleSets,
+    /// File › Info statistics → `statistics`.
+    Statistics,
     /// The whole document for crash recovery → `recoverySnapshot` (changes
     /// nothing; the JSON is the input of `restoreRecovery`).
     RecoverySnapshot,
@@ -186,6 +210,15 @@ pub enum ResponseBody {
     },
     /// The reply to `shapePaths`.
     ShapePaths { shapes: Vec<ShapeOutline> },
+    /// The reply to `styleSets`.
+    StyleSets {
+        sets: Vec<model_text::StyleSet>,
+        current: Box<model_text::StyleSet>,
+    },
+    /// The reply to `statistics`.
+    Statistics {
+        stats: model_text::DocumentStatistics,
+    },
     /// Host state for the title bar: dirty flag, revision and the file
     /// name (`null` for a new document).
     DocumentState {
@@ -251,8 +284,9 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
     let replaces = matches!(
         request,
         Request::Load { .. }
-            | Request::NewDocument
+            | Request::NewDocument { .. }
             | Request::OpenDocx { .. }
+            | Request::NewFromTemplate { .. }
             | Request::RestoreRecovery { .. }
     );
     let body = match request {
@@ -285,8 +319,12 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
             document(host)
         }
         Request::GetDocument => document(host),
-        Request::NewDocument => {
-            host.replace(WriteDocument::new());
+        Request::NewDocument { style_set } => {
+            let mut doc = WriteDocument::new();
+            if let Some(set) = style_set {
+                doc.use_style_set(&set);
+            }
+            host.replace(doc);
             document(host)
         }
         Request::GetMedia { id } => {
@@ -310,11 +348,34 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
                 envelope: Box::new(host.envelope(WritePatch::default())),
             }
         }
+        Request::NewFromTemplate { bytes_base64, name } => {
+            let bytes = base64_decode(&bytes_base64)
+                .map_err(|e| DispatchError::new("bad_request", format!("invalid base64: {e}")))?;
+            let (doc, warnings) = WriteDocument::new_from_template(&bytes, &name)?;
+            let warnings = warnings.into_iter().map(ReaderWarning::from).collect();
+            host.replace(doc);
+            ResponseBody::Opened {
+                doc: Box::new(host.doc().snapshot()),
+                warnings,
+                envelope: Box::new(host.envelope(WritePatch::default())),
+            }
+        }
+        Request::StyleSets => ResponseBody::StyleSets {
+            sets: model_text::StyleSet::builtins(),
+            current: Box::new(host.doc().document().styles.capture_style_set("current")),
+        },
+        Request::Statistics => ResponseBody::Statistics {
+            stats: host.doc().document().statistics(),
+        },
         Request::SaveDocx {
             modified,
             user,
             pages,
+            template,
         } => {
+            if let Some(t) = template {
+                host.doc_mut().set_template(t);
+            }
             if modified.is_some() || user.is_some() || pages.is_some() {
                 host.doc_mut()
                     .stamp_save(modified.as_deref(), user.as_deref(), pages);

@@ -76,10 +76,11 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     let main = pkg.main_document_part().ok_or_else(|| {
         Error::MissingPart("officeDocument relationship (word/document.xml)".into())
     })?;
-    let main_data = &pkg
+    let main_part = pkg
         .part(&main)
-        .ok_or_else(|| Error::MissingPart(main.to_string()))?
-        .data;
+        .ok_or_else(|| Error::MissingPart(main.to_string()))?;
+    let main_data = &main_part.data;
+    let is_template = main_part.content_type == crate::TEMPLATE_CONTENT_TYPE;
     let mut consumed: BTreeSet<PartName> = BTreeSet::new();
     consumed.insert(main.clone());
     let mut properties = CoreProperties::default();
@@ -115,7 +116,10 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         Some((name, pkg.part(name)?.data.as_slice()))
     };
 
-    let mut context = DocxContext::default();
+    let mut context = DocxContext {
+        template: is_template,
+        ..Default::default()
+    };
     let mut settings_read = model_text::DocumentSettings::default();
     if let Some((name, data)) = data_of("theme") {
         context.theme = Some(parse_theme(data, name.as_str()).map_err(xml_error)?);
@@ -1763,7 +1767,8 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
 pub(crate) const FLATTENED: &str =
     "fields other than PAGE, NUMPAGES, DATE, TIME, FILENAME, AUTHOR, TITLE, REF, PAGEREF, NOTEREF and SEQ flattened to their current result";
 
-/// `docProps/core.xml` (Dublin Core) or `docProps/app.xml` (`Pages`) →
+/// `docProps/core.xml` (Dublin Core) or `docProps/app.xml` (`Pages`,
+/// `Company`) →
 /// the properties.
 fn read_properties(root: &El, p: &mut CoreProperties) {
     for el in root.elements() {
@@ -1782,6 +1787,7 @@ fn read_properties(root: &El, p: &mut CoreProperties) {
             "modified" => p.modified = value,
             "revision" => p.revision = text.parse().ok(),
             "Pages" => p.pages = text.parse().ok(),
+            "Company" => p.company = value,
             _ => {}
         }
     }

@@ -143,6 +143,40 @@ pub struct Style {
     pub auto_redefine: bool,
 }
 
+/// Overlays the formatting of a character style (`over`, from
+/// [`StyleSheet::resolve_character`]) on a paragraph's style formatting
+/// (`base`) with Word's *toggle* semantics (ECMA-376 §17.7.3): bold,
+/// italic, caps, small caps, strike, double strike, outline, shadow,
+/// emboss, imprint and hidden switch the paragraph's value when the
+/// character style turns them on (Strong in a bold heading is not bold)
+/// and leave it when the style turns them off. Other properties overlay
+/// as usual. Direct formatting is absolute and is applied afterwards
+/// with [`RunProperties::apply`].
+pub fn apply_character_style(base: &mut RunProperties, over: &RunProperties) {
+    let toggle = |b: &mut Option<bool>, o: Option<bool>| {
+        if o == Some(true) {
+            *b = Some(!b.unwrap_or(false));
+        }
+    };
+    let mut rest = over.clone();
+    for (b, o) in [
+        (&mut base.bold, &mut rest.bold),
+        (&mut base.italic, &mut rest.italic),
+        (&mut base.all_caps, &mut rest.all_caps),
+        (&mut base.small_caps, &mut rest.small_caps),
+        (&mut base.strike, &mut rest.strike),
+        (&mut base.double_strike, &mut rest.double_strike),
+        (&mut base.outline, &mut rest.outline),
+        (&mut base.shadow, &mut rest.shadow),
+        (&mut base.emboss, &mut rest.emboss),
+        (&mut base.imprint, &mut rest.imprint),
+        (&mut base.hidden, &mut rest.hidden),
+    ] {
+        toggle(b, o.take());
+    }
+    base.apply(&rest);
+}
+
 /// Lower-case names of Word's built-in styles (docx stores built-in names
 /// in English whatever the UI language).
 const BUILTIN_NAMES: &[&str] = &[
@@ -519,6 +553,84 @@ pub struct StyleSheet {
     /// Styles in document order; ids are unique.
     #[serde(default)]
     pub styles: Vec<Style>,
+    /// Word's latent style information (docx `w:latentStyles`): how the
+    /// built-in styles a document does not define appear in the UI. Kept
+    /// for the roundtrip; Manage Styles edits the defined styles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub latent: Option<LatentStyles>,
+}
+
+/// docx `w:latentStyles`: defaults for the built-in styles a document does
+/// not define, and exceptions by name.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct LatentStyles {
+    /// `w:defLockedState`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub def_locked_state: Option<bool>,
+    /// `w:defUIPriority`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub def_ui_priority: Option<u32>,
+    /// `w:defSemiHidden`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub def_semi_hidden: Option<bool>,
+    /// `w:defUnhideWhenUsed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub def_unhide_when_used: Option<bool>,
+    /// `w:defQFormat`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub def_q_format: Option<bool>,
+    /// `w:count`: the number of built-in styles the defaults cover.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub count: Option<u32>,
+    /// `w:lsdException`s in file order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exceptions: Vec<LatentException>,
+}
+
+/// One `w:lsdException`: the settings of a built-in style by name.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct LatentException {
+    /// Style name (`heading 1`, `Normal`, …).
+    pub name: String,
+    /// `w:locked`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub locked: Option<bool>,
+    /// `w:uiPriority`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub ui_priority: Option<u32>,
+    /// `w:semiHidden`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub semi_hidden: Option<bool>,
+    /// `w:unhideWhenUsed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub unhide_when_used: Option<bool>,
+    /// `w:qFormat`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub q_format: Option<bool>,
 }
 
 impl StyleSheet {
@@ -1203,6 +1315,7 @@ impl StyleSheet {
                 },
             },
             styles,
+            latent: None,
         }
     }
 
@@ -2326,5 +2439,89 @@ mod tests {
         let bare: Style =
             serde_json::from_str(r#"{"id":"X","name":"X","kind":"numbering"}"#).unwrap();
         assert_eq!(bare, Style::new("X", "X", StyleKind::Numbering));
+    }
+
+    #[test]
+    fn character_styles_toggle_what_the_paragraph_has() {
+        let mut base = RunProperties {
+            bold: Some(true),
+            italic: Some(false),
+            small_caps: Some(true),
+            ..Default::default()
+        };
+        apply_character_style(
+            &mut base,
+            &RunProperties {
+                bold: Some(true),
+                italic: Some(true),
+                small_caps: Some(false),
+                color: Some(Color::Auto),
+                ..Default::default()
+            },
+        );
+        // Bold on bold switches off, italic on plain switches on, a `false` in the style leaves the value.
+        assert_eq!(base.bold, Some(false));
+        assert_eq!(base.italic, Some(true));
+        assert_eq!(base.small_caps, Some(true));
+        assert_eq!(base.color, Some(Color::Auto));
+        let mut plain = RunProperties::default();
+        apply_character_style(
+            &mut plain,
+            &RunProperties {
+                all_caps: Some(true),
+                ..Default::default()
+            },
+        );
+        assert_eq!(plain.all_caps, Some(true));
+    }
+
+    #[test]
+    fn strong_in_a_bold_heading_is_not_bold_but_direct_bold_is_absolute() {
+        use crate::block::Paragraph;
+        use crate::inline::Run;
+        let mut doc = Document::new();
+        doc.styles.get_mut("Heading1").unwrap().run.bold = Some(true);
+        let mut p = Paragraph::with_text(NodeId(1), "x");
+        p.props.style = Some("Heading1".into());
+        let strong = Run {
+            style: Some("Strong".into()),
+            ..Run::new("x")
+        };
+        assert_eq!(doc.resolve_run_props(&p, &strong).bold, Some(false));
+        let direct = Run {
+            props: RunProperties {
+                bold: Some(true),
+                ..Default::default()
+            },
+            ..strong.clone()
+        };
+        assert_eq!(doc.resolve_run_props(&p, &direct).bold, Some(true));
+        // In Normal, Strong is bold.
+        p.props.style = None;
+        assert_eq!(doc.resolve_run_props(&p, &strong).bold, Some(true));
+    }
+
+    #[test]
+    fn latent_styles_serialize_only_when_present() {
+        let mut sheet = StyleSheet::default();
+        assert!(serde_json::to_value(&sheet)
+            .unwrap()
+            .get("latent")
+            .is_none());
+        sheet.latent = Some(LatentStyles {
+            def_ui_priority: Some(99),
+            count: Some(376),
+            exceptions: vec![LatentException {
+                name: "heading 1".into(),
+                ui_priority: Some(9),
+                q_format: Some(true),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        let json = serde_json::to_value(&sheet).unwrap();
+        assert_eq!(json["latent"]["defUiPriority"], 99);
+        assert_eq!(json["latent"]["exceptions"][0]["qFormat"], true);
+        assert_eq!(serde_json::from_value::<StyleSheet>(json).unwrap(), sheet);
     }
 }

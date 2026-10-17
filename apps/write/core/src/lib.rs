@@ -32,6 +32,7 @@ mod dispatch;
 mod doc;
 mod find;
 mod patch;
+pub mod templates;
 mod text;
 mod tree;
 mod undo_groups;

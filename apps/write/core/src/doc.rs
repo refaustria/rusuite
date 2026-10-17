@@ -465,6 +465,51 @@ impl WriteDocument {
         Ok((doc, out.details))
     }
 
+    /// File › New from a template: the document of `bytes` (`.dotx` or
+    /// `.docx`) as a new untitled document. The file context (theme,
+    /// settings) is kept but saves as a document; author, last modified
+    /// by, dates, revision and page count are cleared (the first save
+    /// stamps them).
+    pub fn new_from_template(
+        bytes: &[u8],
+        name: &str,
+    ) -> Result<(Self, Vec<fmt_docx::ReaderWarning>), WriteError> {
+        let (mut doc, warnings) = Self::open_docx_coded(bytes, name)?;
+        doc.source_name = None;
+        if let Some(ctx) = doc.docx_context.as_mut() {
+            ctx.template = false;
+        }
+        let p = &mut doc.doc.properties;
+        p.author = None;
+        p.last_modified_by = None;
+        p.created = None;
+        p.modified = None;
+        p.revision = None;
+        p.pages = None;
+        Ok((doc, warnings))
+    }
+
+    /// Formats a new document with a style set (Design › Set as Default);
+    /// not an edit.
+    pub fn use_style_set(&mut self, set: &model_text::StyleSet) {
+        self.doc.styles.apply_style_set(set);
+    }
+
+    /// Whether the document saves as a template (`.dotx`).
+    pub fn is_template(&self) -> bool {
+        self.docx_context.as_ref().is_some_and(|c| c.template)
+    }
+
+    /// Saves as a template (`.dotx` content type and file name) or as a
+    /// document from now on (File › Save As › Word Template).
+    pub fn set_template(&mut self, on: bool) {
+        if on != self.is_template() {
+            self.docx_context
+                .get_or_insert_with(Default::default)
+                .template = on;
+        }
+    }
+
     /// Writes the document as `.docx`, with the file-level data it was
     /// opened with (if any).
     pub fn save_docx(&self) -> Result<Vec<u8>, WriteError> {
@@ -475,14 +520,15 @@ impl WriteDocument {
     }
 
     /// The file name to offer when saving: the source name with a `.docx`
-    /// extension, else `Untitled.docx`.
+    /// extension (`.dotx` for a template), else `Untitled.docx`.
     pub fn suggested_name(&self) -> String {
+        let ext = if self.is_template() { "dotx" } else { "docx" };
         match self.source_name.as_deref() {
-            None | Some("") => "Untitled.docx".to_owned(),
-            Some(n) if n.to_ascii_lowercase().ends_with(".docx") => n.to_owned(),
+            None | Some("") => format!("Untitled.{ext}"),
+            Some(n) if n.to_ascii_lowercase().ends_with(&format!(".{ext}")) => n.to_owned(),
             Some(n) => {
                 let stem = n.rsplit_once('.').map_or(n, |(stem, _)| stem);
-                format!("{stem}.docx")
+                format!("{stem}.{ext}")
             }
         }
     }
@@ -851,6 +897,29 @@ impl WriteDocument {
                     for b in self.doc.blocks_with_style(&prev) {
                         ch.block(b);
                     }
+                }
+                Ok(C::RestoreStyles { styles: old })
+            }
+            C::SetStyleDefaults { run, paragraph } => {
+                let old = self.doc.styles.clone();
+                if let Some(r) = run {
+                    self.doc.styles.defaults.run.apply(r);
+                }
+                if let Some(p) = paragraph {
+                    let mut p = p.clone();
+                    p.style = None;
+                    self.doc.styles.defaults.paragraph.apply(&p);
+                }
+                ch.styles = true;
+                Ok(C::RestoreStyles { styles: old })
+            }
+            C::ApplyStyleSet { set } => {
+                let old = self.doc.styles.clone();
+                self.doc.styles.apply_style_set(set);
+                ch.styles = true;
+                // Normal's users are every paragraph: the UI re-renders them from the styles.
+                for e in set.styles.iter().filter(|e| e.id != "Normal") {
+                    self.report_style_users(&e.id, ch);
                 }
                 Ok(C::RestoreStyles { styles: old })
             }
@@ -2202,6 +2271,14 @@ impl WriteDocument {
             .clone()
             .filter(|a| !a.trim().is_empty())
             .or_else(|| self.user.as_ref().map(|u| u.name.clone()))
+            // Without a user name, the document's author names the comment.
+            .or_else(|| {
+                self.doc
+                    .properties
+                    .author
+                    .clone()
+                    .filter(|a| !a.trim().is_empty())
+            })
             .unwrap_or_else(|| "Author".to_owned());
         let initials = initials
             .clone()
@@ -4019,7 +4096,10 @@ impl WriteDocument {
         if style.kind == StyleKind::Character {
             // What the character style must add on top of the paragraph.
             let mut base = self.doc.resolve_run_props(&p, &Run::default());
-            base.apply(&self.doc.styles.resolve_character(id));
+            model_text::style::apply_character_style(
+                &mut base,
+                &self.doc.styles.resolve_character(id),
+            );
             patch.run = Some(run_diff(&sample, &base));
         } else {
             let mut probe = p.clone();
@@ -4335,6 +4415,8 @@ fn may_touch_markers(cmd: &WriteCommand) -> bool {
         | C::UpdateStyle { .. }
         | C::RenameStyle { .. }
         | C::SetDefaultStyle { .. }
+        | C::SetStyleDefaults { .. }
+        | C::ApplyStyleSet { .. }
         | C::RestoreStyles { .. }
         | C::RestoreNumbering { .. }
         | C::RemoveMedia { .. }
@@ -4601,7 +4683,7 @@ fn resolve_with(styles: &model_text::StyleSheet, p: &Paragraph, run: &Run) -> Ru
         None => styles.defaults.run.clone(),
     };
     if let Some(cs) = &run.style {
-        base.apply(&styles.resolve_character(cs));
+        model_text::style::apply_character_style(&mut base, &styles.resolve_character(cs));
     }
     base.merged_with(&run.props)
 }
@@ -4690,5 +4772,212 @@ mod tests {
         let (doc, _) = WriteDocument::open_docx(&bytes, "n.docx").unwrap();
         assert_eq!(doc.source_name.as_deref(), Some("n.docx"));
         assert!(doc.docx_context.is_some());
+    }
+
+    // ----- P9-W3: style defaults, style sets, templates, properties ---------
+
+    use crate::{dispatch_with, WriteHost};
+    use serde_json::{json, Value};
+
+    fn call(host: &mut WriteHost, req: Value) -> Value {
+        let out: Value = serde_json::from_str(&dispatch_with(host, &req.to_string())).unwrap();
+        assert!(out.get("ok").is_some(), "{req} -> {out}");
+        out["ok"].clone()
+    }
+
+    fn apply(host: &mut WriteHost, command: Value) -> Value {
+        call(host, json!({"type": "apply", "command": command}))
+    }
+
+    #[test]
+    fn set_style_defaults_merges_into_doc_defaults_and_undoes() {
+        let mut host = WriteHost::new(WriteDocument::new());
+        let before = host.doc().document().styles.defaults.clone();
+        let out = apply(
+            &mut host,
+            json!({"type": "setStyleDefaults",
+                   "run": {"font": {"kind": "named", "value": "Georgia"}, "size": 1200},
+                   "paragraph": {"spacing": {"after": 240}}}),
+        );
+        assert_eq!(
+            out["envelope"]["patch"]["styles"]["defaults"]["run"]["size"],
+            1200
+        );
+        let d = &host.doc().document().styles.defaults;
+        assert_eq!(
+            d.run.font,
+            Some(core_model::FontFace::Named("Georgia".into()))
+        );
+        assert_eq!(d.paragraph.spacing.unwrap().after, Some(Twips(240)));
+        // The line spacing of the defaults stays (a merge).
+        assert_eq!(
+            d.paragraph.spacing.unwrap().line,
+            before.paragraph.spacing.unwrap().line
+        );
+        let xml = String::from_utf8(
+            fmt_ooxml::Package::open(std::io::Cursor::new(host.doc().save_docx().unwrap()))
+                .unwrap()
+                .part(&fmt_ooxml::PartName::new("/word/styles.xml").unwrap())
+                .unwrap()
+                .data
+                .clone(),
+        )
+        .unwrap();
+        let defaults =
+            &xml[xml.find("<w:docDefaults>").unwrap()..xml.find("</w:docDefaults>").unwrap()];
+        assert!(defaults.contains(r#"w:ascii="Georgia""#), "{defaults}");
+        assert!(defaults.contains(r#"<w:sz w:val="24"/>"#), "{defaults}");
+        call(&mut host, json!({"type": "undo"}));
+        assert_eq!(host.doc().document().styles.defaults, before);
+    }
+
+    #[test]
+    fn apply_style_set_changes_headings_in_one_undo_step() {
+        let mut host = WriteHost::new(WriteDocument::new());
+        let sets = call(&mut host, json!({"type": "styleSets"}));
+        assert_eq!(
+            sets["sets"].as_array().unwrap().len(),
+            model_text::BUILTIN_STYLE_SETS.len()
+        );
+        assert_eq!(sets["current"]["id"], "current");
+        let shaded = sets["sets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == "shaded")
+            .unwrap()
+            .clone();
+        let before = host.doc().document().styles.clone();
+        apply(&mut host, json!({"type": "applyStyleSet", "set": shaded}));
+        let h1 = host
+            .doc()
+            .document()
+            .styles
+            .get("Heading1")
+            .unwrap()
+            .clone();
+        assert!(h1.paragraph.shading.is_some());
+        assert_eq!(h1.run.all_caps, Some(true));
+        // Saved and read again, the headings keep the set's look.
+        let back = fmt_docx::read(&host.doc().save_docx().unwrap()).unwrap();
+        assert_eq!(
+            back.styles.get("Heading1").unwrap().paragraph.shading,
+            h1.paragraph.shading
+        );
+        call(&mut host, json!({"type": "undo"}));
+        assert_eq!(host.doc().document().styles, before);
+    }
+
+    #[test]
+    fn new_document_takes_the_default_style_set() {
+        let mut host = WriteHost::new(WriteDocument::new());
+        let set = serde_json::to_value(model_text::StyleSet::builtin("elegant").unwrap()).unwrap();
+        let out = call(&mut host, json!({"type": "newDocument", "styleSet": set}));
+        assert_eq!(out["envelope"]["dirty"], false);
+        let h1 = host.doc().document().styles.get("Heading1").unwrap();
+        assert_eq!(h1.run.small_caps, Some(true));
+        // Without a set: Word's defaults.
+        call(&mut host, json!({"type": "newDocument"}));
+        assert_eq!(
+            host.doc()
+                .document()
+                .styles
+                .get("Heading1")
+                .unwrap()
+                .run
+                .small_caps,
+            None
+        );
+    }
+
+    #[test]
+    fn new_from_template_save_as_template_and_statistics() {
+        let mut host = WriteHost::new(WriteDocument::new());
+        let bytes = crate::templates::template_bytes("report", "en").unwrap();
+        let b64 = model_text::media::base64_encode(&bytes);
+        let opened = call(
+            &mut host,
+            json!({"type": "newFromTemplate", "bytesBase64": b64, "name": "report.dotx"}),
+        );
+        assert_eq!(opened["envelope"]["dirty"], false);
+        assert_eq!(opened["doc"]["properties"]["title"], "Report");
+        let st = call(&mut host, json!({"type": "documentState"}));
+        assert_eq!(st["name"], Value::Null);
+        let stats = call(&mut host, json!({"type": "statistics"}));
+        assert!(stats["stats"]["words"].as_u64().unwrap() > 20);
+        assert!(stats["stats"]["paragraphs"].as_u64().unwrap() >= 10);
+        let saved = call(&mut host, json!({"type": "saveDocx", "template": true}));
+        assert_eq!(saved["suggestedName"], "Untitled.dotx");
+        let file =
+            model_text::media::base64_decode(saved["bytesBase64"].as_str().unwrap()).unwrap();
+        assert!(fmt_docx::read_with_context(&file).unwrap().context.template);
+        let saved = call(&mut host, json!({"type": "saveDocx", "template": false}));
+        assert_eq!(saved["suggestedName"], "Untitled.docx");
+    }
+
+    #[test]
+    fn the_document_author_names_comments_without_a_user() {
+        let mut host = WriteHost::new(WriteDocument::new());
+        let block = host.doc().document().body[0].id().0;
+        apply(
+            &mut host,
+            json!({"type": "insertText", "block": block, "offset": 0, "text": "Hello"}),
+        );
+        apply(
+            &mut host,
+            json!({"type": "setProperties", "patch": {"author": "Grace Hopper"}}),
+        );
+        let pt = |o: u32| json!({"block": block, "offset": o});
+        apply(
+            &mut host,
+            json!({"type": "addComment", "start": pt(0), "end": pt(5), "text": "Hi"}),
+        );
+        let c = &host.doc().document().comments[0];
+        assert_eq!(c.author, "Grace Hopper");
+        assert_eq!(c.initials, "GH");
+        // A user name wins.
+        host.doc_mut().set_user("Ada", None);
+        apply(
+            &mut host,
+            json!({"type": "addComment", "start": pt(1), "end": pt(2), "text": "Yo"}),
+        );
+        assert_eq!(host.doc().document().comments[1].author, "Ada");
+    }
+
+    #[test]
+    fn property_fields_update_with_the_properties() {
+        let mut host = WriteHost::new(WriteDocument::new());
+        let block = host.doc().document().body[0].id().0;
+        for kind in [
+            json!({"kind": "subject"}),
+            json!({"kind": "docProperty", "value": {"name": "Company"}}),
+        ] {
+            apply(
+                &mut host,
+                json!({"type": "insertField", "block": block, "offset": 0, "field": kind}),
+            );
+        }
+        apply(
+            &mut host,
+            json!({"type": "setProperties", "patch": {"subject": "Budget", "company": "ACME"}}),
+        );
+        apply(
+            &mut host,
+            json!({"type": "updateFields", "values": [], "refresh": {"pages": []}}),
+        );
+        let cached: Vec<String> = host
+            .doc()
+            .document()
+            .paragraphs()
+            .next()
+            .unwrap()
+            .inlines
+            .iter()
+            .filter_map(|i| match i {
+                Inline::Field(f) => Some(f.cached.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(cached, ["ACME", "Budget"]);
     }
 }
