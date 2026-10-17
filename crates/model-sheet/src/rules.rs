@@ -180,6 +180,45 @@ fn unmap_index(op: StructuralOp, j: u32) -> u32 {
     }
 }
 
+/// Excel's Insert / Delete Cells on a rule range that sticks out of the
+/// shifted band: the range is split at the band's edges (the part inside
+/// the band follows the cells, the parts beside it stay), so that the
+/// rule keeps covering exactly the cells it covered.
+pub(crate) fn split_at_band(shift: CellShift, r: &CellRect) -> Vec<CellRect> {
+    let Some((lo, hi)) = shift.band else {
+        return vec![*r];
+    };
+    if !shift.touches((r.r0, r.c0, r.r1, r.c1)) {
+        return vec![*r];
+    }
+    let rows = shift.op.is_rows();
+    // The perpendicular interval of the rectangle.
+    let (p0, p1) = if rows { (r.c0, r.c1) } else { (r.r0, r.r1) };
+    if lo <= p0 && p1 <= hi {
+        return vec![*r];
+    }
+    let mut cuts = Vec::with_capacity(3);
+    if p0 < lo {
+        cuts.push((p0, p1.min(lo - 1)));
+    }
+    let (a, b) = (p0.max(lo), p1.min(hi));
+    if a <= b {
+        cuts.push((a, b));
+    }
+    if p1 > hi {
+        cuts.push((p0.max(hi + 1), p1));
+    }
+    cuts.into_iter()
+        .map(|(a, b)| {
+            if rows {
+                CellRect { c0: a, c1: b, ..*r }
+            } else {
+                CellRect { r0: a, r1: b, ..*r }
+            }
+        })
+        .collect()
+}
+
 /// Moves a rule living on `host` for a row/column insert or delete on
 /// `target` (`same` = they are the same sheet): its ranges move, grow or
 /// shrink like merges, its formulas like cell formulas (first re-anchored
@@ -220,6 +259,7 @@ pub(crate) fn shift_rule(
     }
     let new: Vec<CellRect> = ranges
         .iter()
+        .flat_map(|r| split_at_band(shift, r))
         .filter_map(|r| {
             let (r0, c0, r1, c1) = shift.map_rect((r.r0, r.c0, r.r1, r.c1))?;
             Some(CellRect { r0, c0, r1, c1 })
@@ -345,6 +385,38 @@ mod tests {
         assert!(changed);
         assert_eq!(ranges, vec![rect(2, 0, 9, 0)]);
         assert_eq!(f, "A3>$B$1");
+    }
+
+    #[test]
+    fn insert_cells_split_ranges_at_the_band() {
+        // Insert Cells B2:B3, shift down, inside A1:C10.
+        let shift = CellShift::new(StructuralOp::InsertRows { at: 1, count: 2 }, 1, 1);
+        assert_eq!(
+            split_at_band(shift, &rect(0, 0, 9, 2)),
+            vec![rect(0, 0, 9, 0), rect(0, 1, 9, 1), rect(0, 2, 9, 2)]
+        );
+        let mut ranges = vec![rect(0, 0, 9, 2)];
+        let mut f = "A1>0".to_string();
+        assert!(shift_rule(&mut ranges, vec![&mut f], shift, true, "S", "S"));
+        assert_eq!(
+            ranges,
+            vec![rect(0, 0, 9, 0), rect(0, 1, 11, 1), rect(0, 2, 9, 2)]
+        );
+        assert_eq!(f, "A1>0");
+        // A range above the edit, or one inside the band, is not split.
+        assert_eq!(
+            split_at_band(shift, &rect(0, 0, 0, 2)),
+            vec![rect(0, 0, 0, 2)]
+        );
+        assert_eq!(
+            split_at_band(shift, &rect(3, 1, 5, 1)),
+            vec![rect(3, 1, 5, 1)]
+        );
+        // Delete Cells A1:B1, shift left (band = row 0) on B1:D2.
+        let shift = CellShift::new(StructuralOp::DeleteCols { at: 0, count: 2 }, 0, 0);
+        let mut ranges = vec![rect(0, 1, 1, 3)];
+        assert!(shift_rule(&mut ranges, vec![], shift, true, "S", "S"));
+        assert_eq!(ranges, vec![rect(0, 0, 0, 1), rect(1, 1, 1, 3)]);
     }
 
     #[test]

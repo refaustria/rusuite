@@ -5,8 +5,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use engine_formula::ast::{MAX_COL, MAX_ROW};
 use engine_formula::{
-    CellContent, CellCoord, NameScope, PivotData, PivotEntry, PivotItemName, Recalc, SheetId,
-    StructuralOp, Value,
+    CellContent, CellCoord, CellShift, NameScope, PivotData, PivotEntry, PivotItemName, Recalc,
+    SheetId, StructuralOp, Value,
 };
 
 use super::{
@@ -1173,41 +1173,7 @@ impl Workbook {
     /// source ranges on that sheet move and grow (their caches become
     /// stale when the edit touches them).
     pub(crate) fn shift_pivots(&mut self, sheet: SheetId, op: StructuralOp) {
-        let Some(name) = self.engine().sheet_name(sheet).map(str::to_owned) else {
-            return;
-        };
-        for cache in &mut self.pivot_caches {
-            if let PivotSource::Range {
-                sheet: s,
-                r0,
-                c0,
-                r1,
-                c1,
-            } = &mut cache.source
-            {
-                if !s.eq_ignore_ascii_case(&name) {
-                    continue;
-                }
-                let (lo, hi) = if op.is_rows() { (*r0, *r1) } else { (*c0, *c1) };
-                let (at, count) = op.span();
-                let touches = match op {
-                    StructuralOp::InsertRows { .. } | StructuralOp::InsertCols { .. } => {
-                        at > lo && at <= hi
-                    }
-                    _ => at <= hi && at + count > lo,
-                };
-                if let Some((a, b)) = op.map_interval(lo, hi) {
-                    if op.is_rows() {
-                        (*r0, *r1) = (a, b);
-                    } else {
-                        (*c0, *c1) = (a, b);
-                    }
-                }
-                if touches {
-                    cache.stale = true;
-                }
-            }
-        }
+        self.shift_pivot_sources(sheet, op.into());
         if self.pivots(sheet).is_empty() {
             return;
         }
@@ -1227,6 +1193,51 @@ impl Workbook {
             }
         }
         self.rebuild_pivot_outputs(sheet);
+    }
+
+    /// The source ranges on `sheet` follow a row/column insert or delete
+    /// or an Insert / Delete Cells (`shift`) like an area reference: they
+    /// move, grow or shrink when they lie inside the shifted band; caches
+    /// whose source the edit touches become stale (Refresh re-reads them).
+    pub(crate) fn shift_pivot_sources(&mut self, sheet: SheetId, shift: CellShift) {
+        let Some(name) = self.engine().sheet_name(sheet).map(str::to_owned) else {
+            return;
+        };
+        let op = shift.op;
+        for cache in &mut self.pivot_caches {
+            if let PivotSource::Range {
+                sheet: s,
+                r0,
+                c0,
+                r1,
+                c1,
+            } = &mut cache.source
+            {
+                if !s.eq_ignore_ascii_case(&name) {
+                    continue;
+                }
+                let rect = (*r0, *c0, *r1, *c1);
+                let (lo, hi) = if op.is_rows() { (*r0, *r1) } else { (*c0, *c1) };
+                let (at, count) = op.span();
+                let inside = match op {
+                    StructuralOp::InsertRows { .. } | StructuralOp::InsertCols { .. } => {
+                        at > lo && at <= hi
+                    }
+                    _ => at <= hi && at + count > lo,
+                };
+                let (p0, p1) = if op.is_rows() { (*c0, *c1) } else { (*r0, *r1) };
+                let perp = match shift.band {
+                    None => true,
+                    Some((a, b)) => p0 <= b && a <= p1,
+                };
+                if let Some(m) = shift.map_rect(rect) {
+                    (*r0, *c0, *r1, *c1) = m;
+                }
+                if inside && perp {
+                    cache.stale = true;
+                }
+            }
+        }
     }
 
     /// A sheet was renamed: sources follow.

@@ -820,6 +820,7 @@ impl Workbook {
         self.shift_rules(sheet, shift);
         self.shift_charts(sheet, shift);
         self.shift_annotations(sheet, shift);
+        self.shift_pivot_sources(sheet, shift);
         Ok(recalc)
     }
 
