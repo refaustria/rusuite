@@ -7,6 +7,7 @@ use core_model::RunProperties;
 use serde::{Deserialize, Serialize};
 
 use crate::anim::Animation;
+use crate::design::{Design, DesignRef};
 use crate::layout::{Layout, LayoutKind, PlaceholderDef, PlaceholderKind};
 use crate::master::{HeaderFooter, HfDate, LevelStyle, SlideMaster, TextClass};
 use crate::section::Section;
@@ -83,6 +84,11 @@ pub struct Presentation {
     pub layouts: Vec<Layout>,
     /// Theme colours, fonts and format styles.
     pub theme: Theme,
+    /// Further designs (masters with their themes and layouts; P9-S5),
+    /// used by slides whose [`Slide::design`] names them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Design>>"))]
+    pub designs: Vec<Design>,
     /// Sections (empty = none); see [`crate::section`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Section>>"))]
@@ -192,6 +198,7 @@ impl Presentation {
             master,
             layouts,
             theme: Theme::default(),
+            designs: Vec::new(),
             sections: Vec::new(),
             media: MediaStore::new(),
             view: ViewProps::default(),
@@ -233,19 +240,68 @@ impl Presentation {
             .unwrap_or_else(|| Layout::from_master(kind.clone(), &self.master, self.slide_size))
     }
 
+    /// Design `id` (`None`, or an id no design has: the main design).
+    pub fn design(&self, id: Option<u32>) -> DesignRef<'_> {
+        match id.and_then(|i| self.designs.iter().find(|d| d.id == i)) {
+            Some(d) => DesignRef {
+                id: Some(d.id),
+                master: &d.master,
+                layouts: &d.layouts,
+                theme: &d.theme,
+            },
+            None => DesignRef {
+                id: None,
+                master: &self.master,
+                layouts: &self.layouts,
+                theme: &self.theme,
+            },
+        }
+    }
+
+    /// The design slide `slide` uses.
+    pub fn design_of(&self, slide: &Slide) -> DesignRef<'_> {
+        self.design(slide.design)
+    }
+
+    /// The layout slide `slide` uses (from its design; a standard kind
+    /// the design lacks: the built-in one for its master).
+    pub fn slide_layout(&self, slide: &Slide) -> Layout {
+        self.design_of(slide)
+            .layout_or_builtin(&slide.layout, self.slide_size)
+    }
+
+    /// An id for a new design.
+    pub fn next_design_id(&self) -> u32 {
+        self.designs.iter().map(|d| d.id).max().unwrap_or(0) + 1
+    }
+
+    /// Swaps the main design (master, layouts, theme) with design `id`'s,
+    /// so code written for the main design works on another; swapping
+    /// again restores. Returns whether design `id` exists.
+    pub fn swap_design(&mut self, id: u32) -> bool {
+        let Some(d) = self.designs.iter_mut().find(|d| d.id == id) else {
+            return false;
+        };
+        std::mem::swap(&mut self.master, &mut d.master);
+        std::mem::swap(&mut self.layouts, &mut d.layouts);
+        std::mem::swap(&mut self.theme, &mut d.theme);
+        true
+    }
+
     /// The layout placeholder (or, when the layout has none, the master
     /// placeholder) slide placeholder `shape` of slide `slide` inherits
     /// position, body properties and text defaults from.
     pub fn resolve_placeholder(&self, slide: &Slide, shape: &Shape) -> Option<ResolvedPlaceholder> {
         let kind = shape.placeholder?;
-        let layout = self.layout_or_builtin(&slide.layout);
+        let layout = self.slide_layout(slide);
         if let Some(def) = layout.find(kind, shape.placeholder_idx) {
             return Some(ResolvedPlaceholder {
                 def: def.clone(),
                 from_master: false,
             });
         }
-        self.master
+        self.design_of(slide)
+            .master
             .placeholder_for(kind)
             .map(|d| ResolvedPlaceholder {
                 def: PlaceholderDef { kind, ..d.clone() },
@@ -275,7 +331,7 @@ impl Presentation {
         let class = shape
             .placeholder
             .map_or(TextClass::Other, |k| k.text_class());
-        let style = self.master.text_styles.level(class, level);
+        let style = self.design_of(slide).master.text_styles.level(class, level);
         let Some(r) = self.resolve_placeholder(slide, shape) else {
             return style;
         };
@@ -298,14 +354,17 @@ impl Presentation {
         if let Some(b) = &slide.background {
             return b.clone();
         }
-        self.layout(&slide.layout)
+        let d = self.design_of(slide);
+        d.layout(&slide.layout)
             .and_then(|l| l.background.clone())
-            .unwrap_or_else(|| self.master.background.clone())
+            .unwrap_or_else(|| d.master.background.clone())
     }
 
     /// [`background_of`](Self::background_of) resolved to colours.
     pub fn resolved_background(&self, slide: &Slide) -> ResolvedFill {
-        self.theme.resolve_background(&self.background_of(slide))
+        self.design_of(slide)
+            .theme
+            .resolve_background(&self.background_of(slide))
     }
 
     /// What slide `slide` shows in its date, footer and slide-number
@@ -466,16 +525,37 @@ impl Presentation {
     /// ([`Presentation::validate_sections`]).
     pub fn validate(&self) -> Result<()> {
         self.slides.iter().try_for_each(Slide::validate)?;
-        for (i, l) in self.layouts.iter().enumerate() {
-            if self.layouts[..i].iter().any(|o| o.kind == l.kind) {
+        let unique = |layouts: &[Layout]| -> Result<()> {
+            for (i, l) in layouts.iter().enumerate() {
+                if layouts[..i].iter().any(|o| o.kind == l.kind) {
+                    return Err(Error::InvalidLayout(format!(
+                        "layout {} is listed twice",
+                        l.kind
+                    )));
+                }
+            }
+            Ok(())
+        };
+        unique(&self.layouts)?;
+        for (i, d) in self.designs.iter().enumerate() {
+            if d.id == 0 || self.designs[..i].iter().any(|o| o.id == d.id) {
                 return Err(Error::InvalidLayout(format!(
-                    "layout {} is listed twice",
-                    l.kind
+                    "design id {} is 0 or used twice",
+                    d.id
                 )));
             }
+            unique(&d.layouts)?;
         }
         for s in &self.slides {
-            if !s.layout.is_standard() && self.layout(&s.layout).is_none() {
+            if let Some(id) = s.design {
+                if !self.designs.iter().any(|d| d.id == id) {
+                    return Err(Error::InvalidLayout(format!(
+                        "slide {} uses the missing design {id}",
+                        s.id.0
+                    )));
+                }
+            }
+            if !s.layout.is_standard() && self.design_of(s).layout(&s.layout).is_none() {
                 return Err(Error::InvalidLayout(format!(
                     "slide {} uses the missing layout {}",
                     s.id.0, s.layout
@@ -626,6 +706,12 @@ impl Presentation {
         walk(&self.master.shapes, &mut max);
         for l in &self.layouts {
             walk(&l.shapes, &mut max);
+        }
+        for d in &self.designs {
+            walk(&d.master.shapes, &mut max);
+            for l in &d.layouts {
+                walk(&l.shapes, &mut max);
+            }
         }
         max
     }

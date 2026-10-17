@@ -60,3 +60,10 @@ export function fieldText(field: TextField, slideNumber: number | null, fallback
     default: return fallback;
   }
 }
+
+/** What date fields show at `date`, per `datetimeN` format 0–13 (sent with Save: the core has no clock; P9-S5). */
+export function dateTexts(date: Date = new Date(), locale: string = getLocale()): Record<number, string> {
+  const out: Record<number, string> = {};
+  for (let n = 0; n <= 13; n++) out[n] = formatDate(n, date, locale);
+  return out;
+}

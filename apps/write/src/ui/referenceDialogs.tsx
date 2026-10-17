@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Editor } from "@tiptap/react";
-import { Dialog, getLocale } from "@rusuite/ui-shared";
+import { Dialog, FONT_FAMILIES, getLocale } from "@rusuite/ui-shared";
 import type { Columns } from "../generated/Columns";
 import type { Hyperlink } from "../generated/Hyperlink";
 import type { LinkTarget } from "../generated/LinkTarget";
@@ -24,9 +24,10 @@ import {
   columnsCommand, columnsForm, formColumns, presetColumns, textWidth, withCount, withWidth, type ColumnPreset, type ColumnsApplyTo, type ColumnsForm,
 } from "../features/columns";
 import {
-  charCode, fromCharCode, gallerySymbols, recentSymbols, rememberSymbol, searchSymbols, SPECIAL_CHARACTERS, specialGlyph, subsetOf, symbolName,
-  SYMBOL_SUBSETS,
+  charCode, fromCharCode, gallerySymbols, recentSymbols, rememberSymbol, searchSymbols, shortcutOf, SPECIAL_CHARACTERS, specialGlyph, subsetOf,
+  symbolName, SYMBOL_SUBSETS,
 } from "../features/symbols";
+import { applyRunPatch } from "../features/runFormat";
 import { currentSection } from "../features/structureCommands";
 import { formatDateTime } from "../features/structure";
 import { BUTTON, cm, fromCm, INPUT } from "./dialogs";
@@ -785,10 +786,11 @@ export function SymbolDialog({ open, tab, onTab, onInsert, onClose }: {
   open: boolean;
   tab: "symbols" | "special";
   onTab: (tab: "symbols" | "special") => void;
-  onInsert: (ch: string) => void;
+  onInsert: (ch: string, font: string | null) => void;
   onClose: () => void;
 }) {
   const t = useT();
+  const [font, setFont] = useState("");
   const [subset, setSubset] = useState(SYMBOL_SUBSETS[1]!.id);
   const [query, setQuery] = useState("");
   const [code, setCode] = useState("");
@@ -809,8 +811,9 @@ export function SymbolDialog({ open, tab, onTab, onInsert, onClose }: {
   };
   const insert = (ch: string) => {
     setRecent(rememberSymbol(ch));
-    onInsert(ch);
+    onInsert(ch, tab === "symbols" && font ? font : null);
   };
+  const shortcut = selected ? shortcutOf(selected) : null;
   return (
     <Dialog open={open} title={t("write.symbol.title")} onClose={onClose}>
       <div className="flex w-[34rem] max-w-full flex-col gap-2 text-sm" data-testid="symbol-dialog">
@@ -825,6 +828,17 @@ export function SymbolDialog({ open, tab, onTab, onInsert, onClose }: {
           <>
             <div className="flex items-center gap-2">
               <label className="flex items-center gap-1">
+                <span>{t("write.w5.symbolFont")}</span>
+                <select aria-label={t("write.w5.symbolFont")} className={`${INPUT} w-36`} value={font} onChange={(e) => setFont(e.target.value)}>
+                  <option value="">{t("write.w5.normalText")}</option>
+                  {FONT_FAMILIES.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-1">
                 <span>{t("write.symbol.subset")}</span>
                 <select aria-label={t("write.symbol.subset")} className={`${INPUT} w-48`} value={subset} disabled={!!query.trim()} onChange={(e) => setSubset(e.target.value)}>
                   {SYMBOL_SUBSETS.map((s) => (
@@ -836,7 +850,7 @@ export function SymbolDialog({ open, tab, onTab, onInsert, onClose }: {
               </label>
               <input aria-label={t("write.symbol.search")} placeholder={t("write.symbol.search")} className={`${INPUT} w-full`} value={query} onChange={(e) => setQuery(e.target.value)} />
             </div>
-            <div className="grid max-h-56 grid-cols-[repeat(16,minmax(0,1fr))] overflow-auto rounded border border-ui-border bg-ui-bg" role="grid" aria-label={t("write.symbol.grid")} data-testid="symbol-grid">
+            <div className="grid max-h-56 grid-cols-[repeat(16,minmax(0,1fr))] overflow-auto rounded border border-ui-border bg-ui-bg" role="grid" aria-label={t("write.symbol.grid")} data-testid="symbol-grid" style={font ? { fontFamily: font } : undefined}>
               {chars.map((ch) => (
                 <button
                   key={ch}
@@ -863,6 +877,9 @@ export function SymbolDialog({ open, tab, onTab, onInsert, onClose }: {
             <div className="flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate text-xs text-ui-muted" data-testid="symbol-name">
                 {selected ? symbolName(selected) || "—" : ""}
+              </span>
+              <span className="whitespace-nowrap text-xs text-ui-muted" data-testid="symbol-shortcut">
+                {shortcut ? t("write.w5.shortcutKey", { keys: shortcut }) : ""}
               </span>
               <label className="flex items-center gap-1">
                 <span>{t("write.symbol.code")}</span>
@@ -1131,7 +1148,18 @@ export function ReferenceDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncCo
         tab={symbolTab}
         onTab={(tab) => ui.set({ symbolTab: tab })}
         onClose={close}
-        onInsert={(ch) => editor?.chain().focus().insertContent(ch).run()}
+        onInsert={(ch, font) => {
+          if (!editor) return;
+          editor.commands.focus();
+          if (!font) {
+            editor.chain().insertContent(ch).run();
+            return;
+          }
+          // In the chosen font; typing goes on in the formatting before (Word).
+          const marks = editor.state.storedMarks ?? editor.state.selection.$from.marks();
+          applyRunPatch(editor, { font: { kind: "named", value: font } });
+          editor.view.dispatch(editor.state.tr.insertText(ch).setStoredMarks(marks));
+        }}
       />
       <DateTimeDialog
         open={dialog === "dateTime"}

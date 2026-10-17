@@ -8,6 +8,8 @@ import type { DeckContext } from "../canvas/SlideView";
 import type { ShapePaths } from "../generated/ShapePaths";
 import type { Slide } from "../generated/Slide";
 import type { Blank, ShowAction } from "./showState";
+import type { InkStroke, PointerMode } from "./tools";
+import { knownWebScreens, listScreens, loadScreenChoice, pickScreen, type ScreenInfo } from "./screens";
 import { t } from "../i18n";
 
 export type SyncRole = "presenter" | "audience";
@@ -21,6 +23,16 @@ export interface ShowView {
   ended: boolean;
 }
 
+/** The presenter's slide-show tools as the audience window draws them (P9-S5; JSON-safe). */
+export interface ToolsView {
+  mode: PointerMode;
+  ink: [number, InkStroke[]][];
+  inkVisible: boolean;
+  zoom: number;
+  focus: { x: number; y: number };
+  laser: { x: number; y: number } | null;
+}
+
 export type SyncMessage =
   /** presenter → audience: the slide shown, its click step, blank screen, end slide. */
   | ({ kind: "state" } & ShowView)
@@ -30,6 +42,8 @@ export type SyncMessage =
   | { kind: "hello" }
   /** audience → presenter: a key or click in the audience window. */
   | { kind: "action"; action: ShowAction }
+  /** presenter → audience: ink, laser pointer and zoom of the presenter view. */
+  | { kind: "tools"; tools: ToolsView }
   /** presenter → audience: the show ended, close. */
   | { kind: "end" }
   /** audience → presenter: the window was closed. */
@@ -143,14 +157,16 @@ function audienceUrl(id: string): string {
 
 async function openTauriAudience(url: string): Promise<AudienceWindow | null> {
   const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  const { availableMonitors, currentMonitor } = await import("@tauri-apps/api/window");
+  const { currentMonitor } = await import("@tauri-apps/api/window");
   await (await WebviewWindow.getByLabel(AUDIENCE_LABEL))?.close().catch(() => undefined);
-  // A second monitor gets the audience full screen (like PowerPoint); with one, a normal window.
+  // Slide Show › Monitor (P9-S5): the chosen monitor, else (Automatic) one the presenter is not on – full screen like
+  // PowerPoint; with one monitor, a normal window.
   let place: { x: number; y: number; fullscreen: boolean } | null = null;
   try {
-    const [all, here] = await Promise.all([availableMonitors(), currentMonitor()]);
-    const other = all.find((m) => !here || m.position.x !== here.position.x || m.position.y !== here.position.y);
-    if (other && all.length > 1) place = { x: other.position.x / other.scaleFactor, y: other.position.y / other.scaleFactor, fullscreen: true };
+    const [screens, here] = await Promise.all([listScreens(), currentMonitor()]);
+    const at = here ? { x: here.position.x / here.scaleFactor + 1, y: here.position.y / here.scaleFactor + 1 } : null;
+    const target = pickScreen(screens, loadScreenChoice(), at);
+    if (target) place = { x: target.x, y: target.y, fullscreen: true };
   } catch {
     // Monitor information unavailable: a normal window.
   }
@@ -169,9 +185,35 @@ async function openTauriAudience(url: string): Promise<AudienceWindow | null> {
   });
 }
 
+/** `window.open` features of the audience window: on the chosen screen (when the browser told us its screens), else half the screen. */
+export function popupFeatures(target: ScreenInfo | null, availWidth: number): string {
+  if (target) return `popup,left=${Math.round(target.x)},top=${Math.round(target.y)},width=${Math.round(target.width)},height=${Math.round(target.height)}`;
+  const width = Math.max(640, Math.round(availWidth / 2));
+  return `popup,width=${width},height=${Math.round((width * 9) / 16)}`;
+}
+
+interface PresentationConnectionLike {
+  state: string;
+  terminate(): void;
+}
+
+/** The Presentation API (a second display / cast target), when the popup was blocked. */
+function presentationFallback(url: string): Promise<AudienceWindow | null> | null {
+  const Req = (window as unknown as { PresentationRequest?: new (urls: string[]) => { start(): Promise<PresentationConnectionLike> } }).PresentationRequest;
+  if (!Req) return null;
+  try {
+    return new Req([url])
+      .start()
+      .then((c): AudienceWindow => ({ isOpen: () => c.state !== "terminated" && c.state !== "closed", close: () => c.terminate() }))
+      .catch(() => null);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Opens the audience window. On the web `window.open` runs synchronously, so call this straight from the key or
- * click handler (popup blockers allow windows opened by a user gesture).
+ * click handler (popup blockers allow windows opened by a user gesture); a blocked popup tries the Presentation API.
  */
 export function launchAudience(): AudienceLink {
   const id = Math.random().toString(36).slice(2, 10) || "show";
@@ -180,14 +222,16 @@ export function launchAudience(): AudienceLink {
   if (isTauri()) return { id, sync, window: openTauriAudience(url).catch(() => null) };
   let w: Window | null = null;
   try {
-    const width = Math.max(640, Math.round(window.screen.availWidth / 2));
-    w = window.open(url, `rusuite-show-audience-${id}`, `popup,width=${width},height=${Math.round((width * 9) / 16)}`);
+    const target = pickScreen(knownWebScreens(), loadScreenChoice(), { x: window.screenX + 1, y: window.screenY + 1 });
+    w = window.open(url, `rusuite-show-audience-${id}`, popupFeatures(target, window.screen.availWidth));
   } catch {
     w = null;
   }
-  const handle: AudienceWindow | null = w && {
-    isOpen: () => !w!.closed,
-    close: () => w!.close(),
+  if (!w) return { id, sync, window: presentationFallback(url) ?? Promise.resolve(null) };
+  const opened = w;
+  const handle: AudienceWindow = {
+    isOpen: () => !opened.closed,
+    close: () => opened.close(),
   };
   return { id, sync, window: Promise.resolve(handle) };
 }

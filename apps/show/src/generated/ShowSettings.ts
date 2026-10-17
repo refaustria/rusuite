@@ -43,4 +43,10 @@ customShow?: number,
 /**
  * Pen colour as `RRGGBB` (`p:penClr`; `None` = PowerPoint's red).
  */
-penColor?: string, };
+penColor?: string, 
+/**
+ * Slide Show › Show Media Controls: the play bar of audio and video
+ * in the show (`p14:showMediaCtrls` in `p:showPr/p:extLst`; absent =
+ * shown).
+ */
+showMediaControls: boolean, };

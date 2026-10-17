@@ -56,6 +56,7 @@
   "portal.dl.linux.1": "<strong>.deb / .rpm:</strong> ganz normal installieren, z. B. <code>sudo apt install ./datei.deb</code> oder <code>sudo dnf install ./datei.rpm</code>.",
   "portal.dl.linux.2": "<strong>.AppImage:</strong> mit <code>chmod +x datei.AppImage</code> ausführbar machen und dann starten.",
   "portal.language": "Language / Sprache",
+  "portal.languagePending": "{name} (noch nicht übersetzt)",
   "portal.nav": "Website",
   "portal.legal": "Microsoft, Word, Excel und PowerPoint sind Marken der Microsoft Corporation. Rusuite steht in keiner Verbindung zu Microsoft.",
   "portal.lead": "Eine kleine Office-Suite mit Rust-Kern – läuft im Browser und auf dem Desktop.",

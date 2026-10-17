@@ -748,9 +748,18 @@ impl ShowDocument {
     }
 
     pub fn save_pptx(&self) -> R<Vec<u8>> {
-        let default_ctx = fmt_pptx::PptxContext::default();
-        let ctx = self.pptx_context.as_ref().unwrap_or(&default_ctx);
-        fmt_pptx::write_with_context(&self.pres, ctx)
+        self.save_pptx_dated(&Default::default())
+    }
+
+    /// [`save_pptx`](Self::save_pptx) with the current text of each
+    /// `datetimeN` field (`format` → text; the UI's clock, P9-S5).
+    pub fn save_pptx_dated(
+        &self,
+        date_texts: &std::collections::BTreeMap<u8, String>,
+    ) -> R<Vec<u8>> {
+        let mut ctx = self.pptx_context.clone().unwrap_or_default();
+        ctx.date_texts.clone_from(date_texts);
+        fmt_pptx::write_with_context(&self.pres, &ctx)
             .map_err(|e| ShowError::WritePptx(e.to_string()))
     }
 
@@ -1304,12 +1313,14 @@ impl ShowDocument {
                 content_type,
                 bytes_base64,
                 transform,
+                placeholder,
                 new_id,
             } => self.insert_picture(
                 *slide,
                 content_type,
                 bytes_base64,
                 transform.as_ref(),
+                *placeholder,
                 *new_id,
                 ch,
             ),
@@ -1345,9 +1356,14 @@ impl ShowDocument {
                 })
             }
             C::SetSlideLayout { slide, layout } => {
-                let old_kind = self.pres.slides[self.slide_index(*slide)?].layout.clone();
-                let old = self.pres.layout_or_builtin(&old_kind);
-                let new = self.known_layout(layout)?;
+                // a slide of a further design changes layout within it
+                let s = &self.pres.slides[self.slide_index(*slide)?];
+                let old = self.pres.slide_layout(s);
+                let design = self.pres.design_of(s);
+                if !layout.is_standard() && design.layout(layout).is_none() {
+                    return Err(invalid(format!("unknown layout {layout}")));
+                }
+                let new = design.layout_or_builtin(layout, self.pres.slide_size);
                 self.edit_slides(&[*slide], ch, |d| {
                     let s = d.slide_mut(*slide)?;
                     s.apply_layout(&old, &new);
@@ -1505,13 +1521,24 @@ impl ShowDocument {
                 theme,
                 master,
                 layouts,
+                designs,
             } => {
                 let inverse = self.design_snapshot();
                 self.pres.theme = (**theme).clone();
                 self.pres.master = (**master).clone();
                 self.pres.layouts = layouts.clone();
-                let ids: Vec<NodeId> = std::iter::once(&self.pres.master.shapes)
-                    .chain(self.pres.layouts.iter().map(|l| &l.shapes))
+                if let Some(d) = designs {
+                    self.pres.designs = d.clone();
+                }
+                let p = &self.pres;
+                let ids: Vec<NodeId> = std::iter::once(&p.master.shapes)
+                    .chain(p.layouts.iter().map(|l| &l.shapes))
+                    .chain(p.designs.iter().map(|d| &d.master.shapes))
+                    .chain(
+                        p.designs
+                            .iter()
+                            .flat_map(|d| d.layouts.iter().map(|l| &l.shapes)),
+                    )
                     .flat_map(|l| shape_ids(l))
                     .collect();
                 for id in ids {
@@ -1629,10 +1656,15 @@ impl ShowDocument {
                 target,
                 kind,
                 transform,
+                text_only,
             } => {
                 check_transform(transform)?;
+                if *text_only && *kind != PlaceholderKind::Body {
+                    return Err(invalid("only body placeholders can be text only"));
+                }
                 let inverse = self.design_snapshot();
-                let def = self.new_placeholder(target, *kind, *transform)?;
+                let mut def = self.new_placeholder(target, *kind, *transform)?;
+                def.text_only = *text_only;
                 match target {
                     DesignTarget::Master => self.pres.master.placeholders.push(def),
                     DesignTarget::Layout(lk) => {
@@ -2331,9 +2363,19 @@ impl ShowDocument {
                 after,
                 slides,
                 layouts,
+                designs,
                 media,
                 keep_source_formatting,
-            } => self.insert_slides(*after, slides, layouts, media, *keep_source_formatting, ch),
+            } => self.insert_slides(
+                *after,
+                slides,
+                layouts,
+                designs,
+                media,
+                *keep_source_formatting,
+                ch,
+            ),
+            C::ImportDesign { bytes_base64 } => self.import_design(bytes_base64, ch),
             C::Compound { commands } => {
                 let mut inverses = Vec::with_capacity(commands.len());
                 for cmd in commands {
@@ -2641,16 +2683,41 @@ impl ShowDocument {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn insert_picture(
         &mut self,
         slide: NodeId,
         content_type: &str,
         bytes_base64: &str,
         transform: Option<&Transform>,
+        placeholder: Option<NodeId>,
         new_id: i64,
         ch: &mut Changes,
     ) -> R<C> {
-        self.slide_index(slide)?;
+        let si = self.slide_index(slide)?;
+        // the empty placeholder the picture goes into (its index on the slide)
+        let target = match placeholder {
+            Some(ph) => {
+                let s = &self.pres.slides[si];
+                let i = s.shapes.iter().position(|x| x.id == ph).ok_or_else(|| {
+                    invalid(format!("shape {} is not on slide {}", ph.0, slide.0))
+                })?;
+                let sh = &s.shapes[i];
+                let fits = matches!(
+                    sh.placeholder,
+                    Some(PlaceholderKind::Picture | PlaceholderKind::Body)
+                ) && sh.text().map_or(true, |t| t.is_empty())
+                    && matches!(sh.kind, ShapeKind::Auto { .. });
+                if !fits {
+                    return Err(invalid(format!(
+                        "shape {} is not an empty picture or content placeholder",
+                        ph.0
+                    )));
+                }
+                Some((i, sh.clone()))
+            }
+            None => None,
+        };
         if content_type.is_empty() {
             return Err(invalid("missing content type"));
         }
@@ -2659,9 +2726,19 @@ impl ShowDocument {
         }
         let bytes = base64_decode(bytes_base64)
             .map_err(|e| ShowError::BadRequest(format!("invalid base64: {e}")))?;
-        let transform = match transform {
-            Some(t) => *t,
-            None => self.natural_box(&bytes),
+        let transform = match (&target, transform) {
+            (Some((_, ph)), _) => ph.transform,
+            (None, Some(t)) => *t,
+            (None, None) => self.natural_box(&bytes),
+        };
+        let crop = match (&target, pixel_size(&bytes)) {
+            (Some(_), Some((pw, ph))) => fill_crop(
+                f64::from(pw),
+                f64::from(ph),
+                transform.w.0 as f64,
+                transform.h.0 as f64,
+            ),
+            _ => model_show::Crop::default(),
         };
         let mut ids = Ids::new(&self.pres);
         let id = ids.resolve(&mut self.pres, ch, Some(new_id))?;
@@ -2670,9 +2747,20 @@ impl ShowDocument {
         let added = self.pres.media.len() > count;
         let mut shape = Shape::picture(media, transform);
         shape.id = id;
+        if let Some((_, ph)) = &target {
+            shape.placeholder = Some(PlaceholderKind::Picture);
+            shape.placeholder_idx = ph.placeholder_idx;
+            if let ShapeKind::Picture { props, .. } = &mut shape.kind {
+                props.crop = crop;
+            }
+        }
         shape.fill_default_name();
+        let at = target.as_ref().map(|(i, _)| *i);
         let restore = self.edit_slide(slide, ch, |s| {
-            s.shapes.push(shape);
+            match at {
+                Some(i) => s.shapes[i] = shape,
+                None => s.shapes.push(shape),
+            }
             Ok(())
         })?;
         Ok(if added {
@@ -2786,6 +2874,7 @@ impl ShowDocument {
             theme: Box::new(self.pres.theme.clone()),
             master: Box::new(self.pres.master.clone()),
             layouts: self.pres.layouts.clone(),
+            designs: Some(self.pres.designs.clone()),
         }
     }
 
@@ -3351,6 +3440,7 @@ impl ShowDocument {
             theme: ch.design.then(|| self.pres.theme.clone()),
             master: ch.design.then(|| self.pres.master.clone()),
             layouts: ch.design.then(|| self.pres.layouts.clone()),
+            designs: ch.design.then(|| self.pres.designs.clone()),
             sections: ch.sections.then(|| self.pres.sections.clone()),
             view: ch.view.then(|| self.pres.view.clone()),
             show_settings: ch.show_settings.then(|| self.pres.show_settings.clone()),
@@ -3374,6 +3464,27 @@ impl AppDocument for ShowDocument {
             inverse: Some(inverse),
         })
     }
+}
+
+/// The crop that makes a `pw` × `ph` picture fill a `w` × `h` box
+/// (centred, the overhang cut off on both sides; PowerPoint's "Fill" of a
+/// picture placeholder).
+fn fill_crop(pw: f64, ph: f64, w: f64, h: f64) -> model_show::Crop {
+    let mut c = model_show::Crop::default();
+    if pw <= 0.0 || ph <= 0.0 || w <= 0.0 || h <= 0.0 {
+        return c;
+    }
+    let (img, boxr) = (pw / ph, w / h);
+    if img > boxr {
+        let side = (1.0 - boxr / img) / 2.0;
+        c.left = side;
+        c.right = side;
+    } else if img < boxr {
+        let side = (1.0 - img / boxr) / 2.0;
+        c.top = side;
+        c.bottom = side;
+    }
+    c
 }
 
 #[cfg(test)]

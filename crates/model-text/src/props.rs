@@ -672,6 +672,133 @@ pub enum TableLayout {
     Fixed,
 }
 
+/// What a floating table's position is measured from (docx
+/// `w:horzAnchor` / `w:vertAnchor` of `w:tblpPr`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum TableAnchor {
+    /// The text column (horizontal) or the paragraph (vertical).
+    Text,
+    /// The page margins.
+    Margin,
+    /// The page edge.
+    Page,
+}
+
+/// A floating table's position relative to its anchor (docx
+/// `w:tblpXSpec` / `w:tblpYSpec`); overrides the offset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum TablePosSpec {
+    /// In line with the text (vertical only: the offset is used).
+    Inline,
+    /// Left (horizontal) or top (vertical).
+    Start,
+    /// Centered.
+    Center,
+    /// Right (horizontal) or bottom (vertical).
+    End,
+    /// Inside (on facing pages).
+    Inside,
+    /// Outside (on facing pages).
+    Outside,
+}
+
+/// Text wrapping around a table: the table floats (docx `w:tblpPr`,
+/// Table Properties › Text wrapping › Around).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct TablePosition {
+    /// Distance to the text on the left (`w:leftFromText`).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
+    pub left_from_text: Twips,
+    /// Distance to the text on the right.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
+    pub right_from_text: Twips,
+    /// Distance to the text above.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
+    pub top_from_text: Twips,
+    /// Distance to the text below.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
+    pub bottom_from_text: Twips,
+    /// Horizontal reference (`None` = Word's default, the text column).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub horz_anchor: Option<TableAnchor>,
+    /// Vertical reference (`None` = Word's default, the margin).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub vert_anchor: Option<TableAnchor>,
+    /// Horizontal offset from the anchor (`w:tblpX`).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
+    pub x: Twips,
+    /// Horizontal alignment instead of `x` (`w:tblpXSpec`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub x_spec: Option<TablePosSpec>,
+    /// Vertical offset from the anchor (`w:tblpY`).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "i32"))]
+    pub y: Twips,
+    /// Vertical alignment instead of `y` (`w:tblpYSpec`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub y_spec: Option<TablePosSpec>,
+    /// Whether other floating tables may overlap it (`w:tblOverlap`,
+    /// Table Positioning › Allow overlap; Word's default).
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
+    pub overlap: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
+impl TablePosition {
+    /// What Word writes for Table Properties › Text wrapping › Around
+    /// (0.32 cm to the text left and right, anchored to the paragraph).
+    pub fn word_around() -> Self {
+        TablePosition {
+            left_from_text: Twips(180),
+            right_from_text: Twips(180),
+            top_from_text: Twips(0),
+            bottom_from_text: Twips(0),
+            horz_anchor: None,
+            vert_anchor: Some(TableAnchor::Text),
+            x: Twips(0),
+            x_spec: None,
+            y: Twips(1),
+            y_spec: None,
+            overlap: true,
+        }
+    }
+}
+
 /// Which conditional formats of the table style apply (docx `w:tblLook`).
 /// Word's default for new tables is header row, first column and banded
 /// rows ([`TableLook::word_default`]).
@@ -758,6 +885,11 @@ pub struct TableProperties {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub layout: Option<TableLayout>,
+    /// Text wraps around the table (`None` = no wrapping, the table is
+    /// in line with the text).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub floating: Option<TablePosition>,
 }
 
 impl TableProperties {

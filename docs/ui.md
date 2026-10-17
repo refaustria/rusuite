@@ -507,6 +507,46 @@ The algorithm is in `docs/write-layout.md`; the numbers in docs/perf.md.
 - **Drawing canvas**: shapes drawn on it become members (moved inside it, selected like group members), the canvas
   resizes without scaling them, Shape Format › Size › Fit shrinks it to its members.
 
+### Write tables round 2, ruler and special characters (P9-W5)
+- **Table structure** (Rust commands, `features/tables2.ts`): Insert / Delete column and row are grid-aware (a merged cell
+  spanning the inserted column grows, deleting a column inside a span shrinks it, ragged rows are padded, a new row copies
+  the row's merges and continues vertical merges). Table Layout › Merge › **Split Table** (Ctrl+Shift+Enter) splits above
+  the caret's row (`SplitTable`; in the first row an empty paragraph goes above the table); Delete / Backspace in the
+  empty paragraph between two tables joins them (`MergeTables`). Insert › Table ▾ › **Convert Text to Table…** (number of
+  columns, rows shown, separate at paragraphs / commas / tabs / another character – Word's guess preselected) and Table
+  Layout › Data › **Convert to Text** (`ConvertTextToTable`, `ConvertTableToText`). Cell Size › **AutoFit ▾**: AutoFit
+  Contents (column widths measured from the cells' text), AutoFit Window (100 % of the text width), Fixed Column Width
+  (`AutoFitTable`: `tblLayout`, `tblW`). Distribute Rows / Columns as before.
+- **Table Properties** (`ui/tables2Dialogs.tsx`) has Word's tabs: *Table* (preferred width in cm or percent, alignment,
+  indent from left, text wrapping None / Around with **Positioning…**: horizontal and vertical position or alignment
+  relative to margin / page / column / paragraph, distance from the surrounding text, Allow overlap → `w:tblpPr`, and
+  "Automatically resize to fit contents"), *Row* (height at least / exactly, allow row to break across pages, repeat as
+  header row), *Column* (preferred width of the selected columns), *Cell* (vertical alignment). A floating table is drawn
+  as a CSS float to the side of its position (centred: no wrapping).
+- **Table Design**: table style text formatting (`tblStylePr` run properties: the header row's bold and white text, banded
+  colours, sizes, fonts) now reaches the cell paragraphs that use the default paragraph style, as in Word
+  (`data-ts-*` CSS variables on the cells; the core's `Document::resolve_run_props_in_cell`). Borders ▾ applies the
+  current pen and ends with View Gridlines and **Borders and Shading…** (Setting None / Box / All / Grid / Custom, style,
+  colour, width, a preview whose lines toggle on click, Apply to Cell / Table, Shading tab). New group **Border Painter**:
+  Border Styles gallery (picking one turns the painter on), Line Style, Line Weight, Pen Color and the Border Painter
+  toggle – while on, a click on a cell edge paints it and the facing edge of the neighbour cell (`SetCellProps`); Esc ends
+  it. View › Show › **Gridlines** (also Table Layout › View Gridlines) shows or hides the dashed lines of borderless edges.
+- **Ruler** (`ui/Ruler.tsx`, `features/rulerDrag.ts`): the first-line triangle, the hanging triangle, the left-indent box
+  and the right-indent triangle are dragged like Word's (the paragraph follows live through a preview decoration; one
+  `SetParagraphProps` on release; Alt: no snapping); in a table the column boundaries are markers that drag the column
+  widths (the neighbour gives or takes the difference). The scale and the snapping are in cm (0.25 cm) or inches (1/8")
+  by the locale or File › Options › Advanced.
+- **Columns**: unequal columns (Left / Right presets, More Columns… without "Equal column width") are laid out with their
+  own widths and spacing in the editor and in print (docs/write-layout.md "Unequal columns"); the line between is drawn at
+  the real gap.
+- **Symbols and special characters**: Insert › Symbol › More Symbols… has a Font list (the grid in that font; the symbol is
+  inserted in it, typing continues in the previous font) and shows the selected character's shortcut key. Word's keys
+  insert special characters (docs/shortcuts.md). **AutoCorrect** as you type (`features/autoCorrect.ts`): straight quotes
+  → smart quotes (German „…“ in a German UI), " -- " → en dash and "word--word" → em dash when the next space is typed,
+  (c) (r) (tm) → © ® ™ and "..." → … at once; ordinals (1st) superscript only when switched on (off by default). File ›
+  Options › Proofing switches each rule; the options are kept in this browser. Equations are not part of this round.
+- **File › Options** is Write's own dialog now: General (User Name…), Proofing (AutoCorrect), Advanced (ruler unit).
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |
@@ -1676,3 +1716,58 @@ privacy-check allow-list, reachable only from the controller's `submit`).
 - **Privacy**: nothing is sent before Submit (e2e `report.spec.ts` audits the requests); the payload has no document
   content (the relay also refuses unknown fields); File › Home › Privacy has the paragraph `privacy.report`; the portal's
   privacy page has a "Reporting a problem" section.
+
+## Show: presenter view, rehearsal and reuse round 2 (P9-S5)
+
+- **Presenter view** (Alt+F5, View › Presenter view): the **speaker notes are editable** (the text is saved to the deck
+  when the field loses focus or the slide changes, one undo step per edit; show keys do not apply while typing, Esc
+  leaves the field). The header has the total time with **Pause timer / Resume timer** and **Reset timer**, and the
+  **time on the current slide** (it starts again on every slide and stops while paused). Buttons below the slide:
+  Previous, Next, **Black screen, White screen** (B / W), the pointer menu (laser pointer, pen, highlighter, eraser,
+  arrow, six ink colours, erase all, show / hide ink), **See all slides** (G), **Zoom** (+ / −) and, on the desktop,
+  **Swap displays** (the presenter view and the slide show change monitors). Ink, the laser pointer and the zoom are
+  drawn on the slide show window too.
+- **Keep ink annotations?** At the end of a show (single window or presenter view) with ink: Keep turns every stroke
+  into a freeform named "Ink N" on its slide (pen ink on top; highlighter ink below the slide's shapes, because the
+  model's outlines have no transparency – it marks the text from behind), one undo step; Discard drops it. PowerPoint
+  writes ink as `p14:contentPart` ink parts (InkML); Rusuite writes freeforms (`a:custGeom`), which PowerPoint,
+  LibreOffice and older Office versions all show and edit.
+- **Slide Show › Monitor: <name> ▾** (Monitors group): Automatic (a screen other than the presenter view's; with one
+  screen a normal window), Primary Monitor, or one of the screens; the choice is remembered. The desktop app lists the
+  monitors from the shell and opens the slide show window full screen on the chosen one. In the browser **Detect
+  screens…** asks for the Window Management permission and lists the screens; the slide show window then opens on the
+  chosen screen. When the browser blocks the window, the Presentation API (a second display or a cast target) is tried
+  before falling back to the single-window show with the notes overlay.
+- **Slide Show › Record ▾** (From Current Slide… / From Beginning…): a rehearsal with the pen at hand; at the end the
+  slide timings (Use Timings on) and the ink are saved without asking. Narration (audio, camera) is not recorded.
+  **Rehearse Timings** keeps PowerPoint's Recording tool bar (Next, Pause, the slide's time, Repeat, the total) and its
+  closing question; the timings are saved as `advTm` (whole seconds) and Use Timings is turned on.
+- **Set Up group**: PowerPoint's **Play Narrations**, **Use Timings** and **Show Media Controls** check boxes (Loop
+  until Esc stays in Set Up Slide Show). Without media controls the clips in the show have no play bar.
+- **Reuse Slides › Keep source formatting** brings the source slide's master with its theme and all its layouts as a
+  further design of the presentation (shared when the same master is reused again; the presentation's own design when
+  it is the same); the slides keep their layouts on it, the thumbnails and the show draw them with that design, and the
+  file has one more `p:sldMasterId`. Without it ("Use destination theme") slides take this presentation's layout of the
+  same kind and name. Limits: the layout galleries and the Slide Master view show the main design only; a slide of a
+  further design changes layout among its own design's layouts.
+- **Design › More themes ▾ › Browse for Themes…** reads a `.thmx`, `.potx` or `.pptx` and applies its design to all
+  slides: the theme, the master and its layouts replace the presentation's (scaled to the slide size – a `.thmx` counts
+  as made for 16:9, a template has its own size; further designs go), every slide moves to
+  the new layout of its kind (custom layouts: by name, else inferred from the placeholders), one undo step. **Save
+  Current Theme…** writes the theme, master and layouts as a `.thmx` (the desktop app asks where; the browser downloads
+  it) – it never becomes the document's file.
+- **Slide Master › Insert Placeholder ▾** has **Text** (a text-only body placeholder, `type="body"`) beside Content.
+  Empty placeholders prompt per type ("Click to add text", "Click icon to add picture", chart, table). Empty **picture
+  placeholders** show an **Insert Picture** icon on the stage: the picked image fills the placeholder (cropped to its
+  proportions, centred), stays a placeholder of the layout and keeps its z-order. (Content placeholders keep their
+  text click target; the core's `insertPicture` accepts them too.)
+- **Date fields** (Insert › Date & Time with Update automatically, the footers' date) are saved showing the current
+  date and time in the UI language, as PowerPoint writes them; the document keeps its stored text.
+- Files: non-standard colour maps of masters (`p:clrMap`, e.g. dark masters with `bg1="dk1"`) and slides
+  (`p:clrMapOvr`) are honoured when colours are read and written; LibreOffice masters without a size in their footer
+  list styles take it from their runs; picture shapes keep their adjust values (rounded corners …).
+- Already present before P9-S5: Rehearse Timings with its tool bar and question, the slide-show tools (pointer
+  options, ink, See all slides, magnifier) in the single-window show, the combo chart z-order (areas behind columns,
+  P8-45) and the shared chart presets (Show imports the ui-shared chart preset module directly; re-exporting it from
+  the ui-shared index is left for X2).
+

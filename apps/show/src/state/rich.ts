@@ -2,6 +2,8 @@
 // edited, the media a set of shapes uses, what Reuse Slides sends for
 // picked slides, and the media kind of a picked file.
 
+import type { Background } from "../generated/Background";
+import type { Design } from "../generated/Design";
 import type { Hyperlink } from "../generated/Hyperlink";
 import type { Layout } from "../generated/Layout";
 import type { MediaItem } from "../generated/MediaItem";
@@ -82,12 +84,28 @@ export function mediaIdsOf(shapes: Shape[]): number[] {
   return out;
 }
 
-/** What Reuse Slides sends for slides `ids` of the source deck `src`: the slides, their layouts and the media they and those layouts use. */
-export function reusePayload(src: Presentation, ids: NodeId[]): { slides: Slide[]; layouts: Layout[]; media: MediaItem[] } {
+const bgMedia = (b: Background | null | undefined): number[] => (b?.kind === "picture" ? [b.value.media] : []);
+
+/**
+ * What Reuse Slides sends for slides `ids` of the source deck `src`: the
+ * slides, their layouts and the media they and those layouts use. With
+ * `keep` (Keep source formatting, P9-S5) also the designs the slides use –
+ * the source's main design as id 0 – with all their layouts, and the media
+ * of their masters and layouts (pictures and picture backgrounds).
+ */
+export function reusePayload(src: Presentation, ids: NodeId[], keep = false): { slides: Slide[]; layouts: Layout[]; designs: Design[]; media: MediaItem[] } {
   const slides = src.slides.filter((s) => ids.includes(s.id));
-  const layouts = src.layouts.filter((l) => slides.some((s) => s.layout === l.kind));
-  const used = mediaIdsOf([...slides.flatMap((s) => s.shapes), ...layouts.flatMap((l) => l.shapes ?? [])]);
-  return { slides, layouts, media: src.media.filter((m) => used.includes(m.id)) };
+  const layouts = src.layouts.filter((l) => slides.some((s) => !s.design && s.layout === l.kind));
+  const all: Design[] = [{ id: 0, master: src.master!, layouts: src.layouts, theme: src.theme }, ...(src.designs ?? [])];
+  const designs = keep && src.master ? all.filter((d) => slides.some((s) => (s.design ?? 0) === d.id)) : [];
+  const shapes = [...slides.flatMap((s) => s.shapes), ...layouts.flatMap((l) => l.shapes ?? [])];
+  const backgrounds = [...slides.flatMap((s) => bgMedia(s.background)), ...layouts.flatMap((l) => bgMedia(l.background))];
+  for (const d of designs) {
+    shapes.push(...(d.master.shapes ?? []), ...d.layouts.flatMap((l) => l.shapes ?? []));
+    backgrounds.push(...bgMedia(d.master.background), ...d.layouts.flatMap((l) => bgMedia(l.background)));
+  }
+  const used = new Set([...mediaIdsOf(shapes), ...backgrounds]);
+  return { slides, layouts, designs, media: src.media.filter((m) => used.has(m.id)) };
 }
 
 /** The MIME type of a picked audio/video file (from its type, else its extension); `null` = not supported. */

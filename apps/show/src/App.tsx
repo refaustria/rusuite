@@ -115,7 +115,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       }),
     [backend, store],
   );
-  const [presenting, setPresenting] = useState<{ mode: "single" | "presenter"; link?: AudienceLink; rehearse?: boolean; customShow?: number } | null>(null);
+  const [presenting, setPresenting] = useState<{ mode: "single" | "presenter"; link?: AudienceLink; rehearse?: boolean; record?: boolean; customShow?: number } | null>(null);
   const [printOptions, setPrintOptions] = useState<ShowPrintOptions>(DEFAULT_SHOW_PRINT);
   // the zoom is part of the window state saved with the file (P9-S3)
   const zoom = useShow(store, (s) => s.zoom) as ShowZoom;
@@ -154,12 +154,12 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   }, [backend, guard, dirty, name, locale]);
 
   const startPresenting = useCallback(
-    (mode: "single" | "presenter" = "single", rehearse = false, customShow?: number) => {
+    (mode: "single" | "presenter" = "single", rehearse = false, customShow?: number, record = false) => {
       if (!store.getState().pres?.slides.length) return;
       void store.commitEdit();
       if (store.getState().view === "reading") store.setView("normal");
       // The audience window opens right here, inside the key / click handler (popup blockers).
-      setPresenting(mode === "presenter" ? { mode, link: launchAudience() } : { mode, rehearse, ...(customShow === undefined ? {} : { customShow }) });
+      setPresenting(mode === "presenter" ? { mode, link: launchAudience() } : { mode, rehearse, record, ...(customShow === undefined ? {} : { customShow }) });
     },
     [store],
   );
@@ -180,12 +180,12 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     })().catch((e) => store.pushError(e));
   }, [backend, store, printOptions]);
   const presentFrom = useCallback(
-    (fromStart: boolean, rehearse = false) => {
+    (fromStart: boolean, rehearse = false, record = false) => {
       const pres = store.getState().pres;
       const first = pres?.slides[0]?.id;
       // Set Up Slide Show › Custom show: From Beginning runs it
       const custom = pres?.showSettings?.customShow;
-      if (fromStart && !rehearse && custom !== undefined && pres?.customShows?.some((c) => c.id === custom && c.slideIds.length)) {
+      if (fromStart && !rehearse && !record && custom !== undefined && pres?.customShows?.some((c) => c.id === custom && c.slideIds.length)) {
         startPresenting("single", false, custom);
         return;
       }
@@ -195,7 +195,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
         const pool = range ? pres.slides.slice(range.start - 1, range.end) : pres.slides;
         store.selectSlide(pool.find((s) => !s.hidden)?.id ?? pool[0]?.id ?? first);
       }
-      startPresenting("single", rehearse);
+      startPresenting("single", rehearse, undefined, record);
     },
     [store, startPresenting],
   );
@@ -218,7 +218,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   return (
     <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
       <RecoveryBanner session={session} />
-      <ShowRibbon store={store} session={session} onPresent={presentFrom} onPresenterView={presenterView} onExportPdf={exportPdf} onRehearse={() => presentFrom(true, true)}
+      <ShowRibbon store={store} session={session} onPresent={presentFrom} onPresenterView={presenterView} onExportPdf={exportPdf} onRehearse={() => presentFrom(true, true)} onRecord={(fromStart) => presentFrom(fromStart, false, true)}
         print={<ShowPrintPage store={store} backend={backend} options={printOptions} onChange={setPrintOptions} />}
         zoom={zoom}
         onZoom={setZoom}
@@ -278,7 +278,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       <ShowDialogs store={store} printOptions={printOptions} onPrintOptions={setPrintOptions} />
       <ShortcutLayer store={store} guard={guard} enabled={!presenting} onPresent={presentFrom} onPresenterView={presenterView} />
       <ConfirmDiscard guard={guard} />
-      {presenting && pres && <SlideShow store={store} mode={presenting.mode} link={presenting.link} rehearse={presenting.rehearse} customShow={presenting.customShow ?? null} onEnd={exit} />}
+      {presenting && pres && <SlideShow store={store} mode={presenting.mode} link={presenting.link} rehearse={presenting.rehearse} record={presenting.record} customShow={presenting.customShow ?? null} onEnd={exit} />}
     </main>
   );
 }

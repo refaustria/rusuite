@@ -34,6 +34,7 @@ import { useShow, type ShowState, type ShowStore } from "../state/store";
 import { useT } from "../i18n";
 import { DeckThumb, GALLERY_THUMB } from "./Thumbs";
 import { DI } from "./designIcons";
+import { pickThemeFile } from "../design/themeFile";
 
 type T = TFunction;
 
@@ -241,6 +242,22 @@ export function designControls(store: ShowStore, state: ShowState, t: T) {
       onSelect={(id) => void store.applyTheme(id)}
     />
   );
+  // Browse for Themes… / Save Current Theme… (P9-S5)
+  const themeFiles = (
+    <RibbonMenuButton
+      label={t("show.design.themeFiles")}
+      icon={DI.colors}
+      disabled={!pres}
+      menu={[
+        {
+          id: "browse-themes",
+          label: t("show.design.browseThemes"),
+          onSelect: () => void pickThemeFile().then((f) => (f ? store.importDesign(f) : undefined)).catch((e) => store.pushError(e)),
+        },
+        { id: "save-theme", label: t("show.design.saveTheme"), onSelect: () => void store.saveTheme() },
+      ]}
+    />
+  );
   const colors = <RibbonMenuButton label={t("show.design.colors")} icon={DI.colors} showLabel disabled={!pres || !themes.length} menu={colorsMenu} />;
   const fonts = <RibbonMenuButton label={t("show.design.fonts")} icon={DI.fonts} showLabel disabled={!pres} menu={fontsMenu} />;
   const effects = <RibbonMenuButton label={t("show.design.effects")} icon={DI.effects} showLabel disabled={!pres} menu={effectsMenu} />;
@@ -248,7 +265,7 @@ export function designControls(store: ShowStore, state: ShowState, t: T) {
   const slideSize = <RibbonMenuButton label={t("show.size.label")} icon={DI.slideSize} size="large" showLabel disabled={!pres} menu={sizeMenu} />;
   const formatBackground = <RibbonButton label={t("show.bg.format")} icon={DI.bgFormat} size="large" showLabel pressed={state.bgPane} disabled={!pres} onClick={() => store.toggleBgPane()} />;
   const backgroundStylesLarge = <RibbonMenuButton label={t("show.bg.styles")} icon={DI.bgStyles} size="large" showLabel disabled={!pres} menu={bgStyles} />;
-  return { pres, variants, variant, themesGallery, colors, fonts, effects, backgroundStyles, backgroundStylesLarge, slideSize, formatBackground };
+  return { pres, variants, variant, themesGallery, themeFiles, colors, fonts, effects, backgroundStyles, backgroundStylesLarge, slideSize, formatBackground };
 }
 
 export function designTab(store: ShowStore, state: ShowState, t: T): RibbonTab {
@@ -258,7 +275,7 @@ export function designTab(store: ShowStore, state: ShowState, t: T): RibbonTab {
     id: "design",
     label: t("tab.design"),
     groups: [
-      { label: t("show.design.themes"), items: c.themesGallery("inline") },
+      { label: t("show.design.themes"), items: <>{c.themesGallery("inline")}{c.themeFiles}</> },
       {
         label: t("show.design.variants"),
         items: (

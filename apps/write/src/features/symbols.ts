@@ -148,7 +148,7 @@ export function searchSymbols(query: string, limit = 200): string[] {
 export const SPECIAL_CHARACTERS: { ch: string; label: string; shortcut?: string }[] = [
   { ch: "—", label: "write.special.emDash", shortcut: "Alt+Ctrl+Num -" },
   { ch: "–", label: "write.special.enDash", shortcut: "Ctrl+Num -" },
-  { ch: "‑", label: "write.special.nbHyphen", shortcut: "Ctrl+Shift+_" },
+  { ch: "‑", label: "write.special.nbHyphen", shortcut: "Ctrl+Shift+-" },
   { ch: "­", label: "write.special.softHyphen", shortcut: "Ctrl+-" },
   { ch: " ", label: "write.special.emSpace" },
   { ch: " ", label: "write.special.enSpace" },
@@ -165,6 +165,9 @@ export const SPECIAL_CHARACTERS: { ch: string; label: string; shortcut?: string 
   { ch: "“", label: "write.special.doubleOpen" },
   { ch: "”", label: "write.special.doubleClose" },
 ];
+
+/** Word's shortcut key of a character (the Symbol dialog's "Shortcut key"), or null. */
+export const shortcutOf = (ch: string): string | null => SPECIAL_CHARACTERS.find((c) => c.ch === ch)?.shortcut ?? null;
 
 /** What a special character looks like in the list (spaces and hyphens are invisible otherwise). */
 export function specialGlyph(ch: string): string {

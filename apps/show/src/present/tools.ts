@@ -121,3 +121,53 @@ export function seeAllColumns(n: number, width: number): number {
 
 /** A point as an SVG polyline `points` string. */
 export const svgPoints = (pts: readonly { x: number; y: number }[]): string => pts.map((p) => `${Math.round(p.x * 10) / 10},${Math.round(p.y * 10) / 10}`).join(" ");
+
+// ----- Keep ink annotations (P9-S5) -----------------------------------------------------------
+
+/** Outline widths of kept ink in slide px (as drawn by `InkLayer`). */
+export const INK_WIDTH = { pen: 3, highlighter: 14 } as const;
+
+/** One kept stroke as a freeform: its box and path in slide EMU (`emuPerPx`), the path in the box's own coordinates. */
+export interface InkFreeform {
+  highlighter: boolean;
+  /** `RRGGBB`. */
+  color: string;
+  /** Outline width (EMU). */
+  width: number;
+  box: { x: number; y: number; w: number; h: number };
+  /** Polyline points relative to `box` (EMU). */
+  points: { x: number; y: number }[];
+}
+
+/**
+ * The freeforms of a slide's ink when "Keep ink annotations" is chosen:
+ * every stroke a polyline (points closer than half a pixel dropped, a dot
+ * a tiny stroke) in its bounding box. Pen strokes
+ * go on top of the slide, highlighter strokes below its shapes (the
+ * model's outlines have no transparency, so they mark text from behind).
+ */
+export function inkFreeforms(strokes: readonly InkStroke[], emuPerPx: number): InkFreeform[] {
+  return strokes.flatMap((s) => {
+    const pts: { x: number; y: number }[] = [];
+    for (const p of s.points) {
+      const last = pts[pts.length - 1];
+      if (!last || Math.hypot(p.x - last.x, p.y - last.y) >= 0.5) pts.push(p);
+    }
+    if (pts.length === 0) return [];
+    if (pts.length === 1) pts.push({ x: pts[0]!.x + 0.5, y: pts[0]!.y });
+    const e = pts.map((p) => ({ x: Math.round(p.x * emuPerPx), y: Math.round(p.y * emuPerPx) }));
+    const x0 = Math.min(...e.map((p) => p.x));
+    const y0 = Math.min(...e.map((p) => p.y));
+    const x1 = Math.max(...e.map((p) => p.x));
+    const y1 = Math.max(...e.map((p) => p.y));
+    const highlighter = s.mode === "highlighter";
+    const width = Math.round(INK_WIDTH[s.mode] * emuPerPx);
+    return [{
+      highlighter,
+      color: s.color.replace(/^#/, "").toUpperCase(),
+      width,
+      box: { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) },
+      points: e.map((p) => ({ x: p.x - x0, y: p.y - y0 })),
+    }];
+  });
+}

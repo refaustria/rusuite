@@ -33,8 +33,9 @@ export function slideMasterTab(store: ShowStore, state: ShowState, t: TFunction)
   const defs = state.pres && mv ? targetPlaceholders(state.pres, mv) : [];
   const hasTitle = defs.some((d) => d.kind === "title" || d.kind === "centeredTitle");
   const hasFooters = defs.some((d) => d.kind === "dateTime" || d.kind === "footer" || d.kind === "slideNumber");
-  const kinds: { kind: PlaceholderKind; label: string }[] = [
+  const kinds: { kind: PlaceholderKind; label: string; textOnly?: boolean }[] = [
     { kind: "body", label: t("show.master.phContent") },
+    { kind: "body", textOnly: true, label: t("show.master.phText") },
     { kind: "picture", label: t("show.master.phPicture") },
     { kind: "chart", label: t("show.master.phChart") },
     { kind: "table", label: t("show.master.phTable") },
@@ -73,11 +74,11 @@ export function slideMasterTab(store: ShowStore, state: ShowState, t: TFunction)
               showLabel
               disabled={!mv}
               menu={kinds.map((k) => ({
-                id: `ph-${k.kind}`,
+                id: `ph-${k.kind}${k.textOnly ? "-text" : ""}`,
                 label: k.label,
                 // the master holds one placeholder per kind (and no pictures)
                 disabled: onMaster ? k.kind === "picture" || k.kind === "chart" || k.kind === "table" || defs.some((d) => d.kind === k.kind) : k.kind === "title" && hasTitle,
-                onSelect: () => void store.insertPlaceholder(k.kind),
+                onSelect: () => void store.insertPlaceholder(k.kind, !!k.textOnly),
               }))}
             />
             <RibbonStack>

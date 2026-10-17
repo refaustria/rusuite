@@ -130,6 +130,7 @@ export function SetUpShowDialog({ store }: { store: ShowStore }) {
             withoutAnimation: noAnimation,
             useTimings: timings || kiosk,
             showScrollbar: scrollbar,
+            showMediaControls: s.showMediaControls ?? true,
             ...(type === "speaker" ? {} : { showType: type }),
             ...(slides === "range" ? { range: { start: a, end: b } } : {}),
             ...(slides === "custom" && custom !== null ? { customShow: custom } : {}),

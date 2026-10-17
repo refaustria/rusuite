@@ -162,7 +162,9 @@ export class FakeBackend implements ShowBackend {
         return;
       case "addShape": {
         const s = this.slideOf(c.slide);
-        s.shapes.push(this.withIds(c.shape, idMap));
+        const shape = this.withIds(c.shape, idMap);
+        if (c.index === undefined || c.index === null) s.shapes.push(shape);
+        else s.shapes.splice(c.index, 0, shape);
         touched.add(s);
         return;
       }
@@ -170,10 +172,14 @@ export class FakeBackend implements ShowBackend {
         const s = this.slideOf(c.slide);
         const media = p.media.length + 1;
         p.media.push({ id: media, contentType: c.contentType, data: c.bytesBase64 });
-        s.shapes.push({
-          id: this.real(c.newId, idMap), name: "Picture", transform: { x: 0, y: 0, w: 952500, h: 952500 },
+        const ph = c.placeholder === undefined || c.placeholder === null ? -1 : s.shapes.findIndex((x) => x.id === c.placeholder);
+        const pic: Shape = {
+          id: this.real(c.newId, idMap), name: "Picture", transform: ph >= 0 ? s.shapes[ph]!.transform : { x: 0, y: 0, w: 952500, h: 952500 },
           kind: { kind: "picture", value: { media } }, fill: { kind: "none" }, line: { fill: { kind: "none" }, width: 12700, dash: "solid" }, lockAspect: true,
-        });
+          ...(ph >= 0 ? { placeholder: "picture" as const, ...(s.shapes[ph]!.placeholderIdx ? { placeholderIdx: s.shapes[ph]!.placeholderIdx } : {}) } : {}),
+        };
+        if (ph >= 0) s.shapes[ph] = pic;
+        else s.shapes.push(pic);
         touched.add(s);
         return;
       }
@@ -264,6 +270,20 @@ export class FakeBackend implements ShowBackend {
           copy.id = this.nextId++;
           copy.shapes = copy.shapes.map((sh) => ({ ...sh, id: this.nextId++ }));
           if (!c.keepSourceFormatting && !p.layouts.some((l) => l.kind === copy.layout)) copy.layout = "titleContent";
+          // keep source formatting with designs (P9-S5): one further design per source design
+          if (c.keepSourceFormatting && c.designs?.length) {
+            const src = c.designs.find((d) => d.id === (copy.design ?? 0));
+            if (src) {
+              p.designs = p.designs ?? [];
+              let d = p.designs.find((x) => x.master.name === src.master.name && x.theme.name === src.theme.name);
+              if (!d) {
+                d = { ...clone(src), id: p.designs.reduce((m, x) => Math.max(m, x.id), 0) + 1 };
+                p.designs.push(d);
+                this.design = true;
+              }
+              copy.design = d.id;
+            }
+          } else delete copy.design;
           return copy;
         });
         p.slides.splice(at, 0, ...fresh);
@@ -342,6 +362,14 @@ export class FakeBackend implements ShowBackend {
         return;
       }
       // ----- design (P8-22): just enough of the core's behaviour for the UI tests
+      case "importDesign":
+        // just enough for the UI: the file's theme is "Imported", further designs go
+        p.theme = { ...p.theme, name: "Imported" };
+        delete p.designs;
+        for (const s of p.slides) delete s.design;
+        p.slides.forEach((s) => touched.add(s));
+        this.design = true;
+        return;
       case "applyTheme": {
         const b = FAKE_THEMES.find((x) => c.theme.kind === "builtin" && x.id === c.theme.value);
         if (b) {
@@ -577,7 +605,7 @@ export class FakeBackend implements ShowBackend {
       }
       case "addPlaceholder": {
         const list = c.target.kind === "master" ? p.master!.placeholders : p.layouts.find((x) => x.kind === (c.target as { value: string }).value)!.placeholders;
-        list.push({ kind: c.kind, idx: Math.max(12, ...list.map((d) => d.idx ?? 0)) + 1, transform: c.transform, bodyDefaults: { anchor: "top", wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" }, runDefaults: {}, paragraphDefaults: {} });
+        list.push({ kind: c.kind, idx: Math.max(12, ...list.map((d) => d.idx ?? 0)) + 1, transform: c.transform, bodyDefaults: { anchor: "top", wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" }, runDefaults: {}, paragraphDefaults: {}, ...(c.textOnly ? { textOnly: true } : {}) });
         this.design = true;
         return;
       }
@@ -842,6 +870,8 @@ export class FakeBackend implements ShowBackend {
         return ok({ type: "opened", presentation: clone(this.pres), warnings: [], envelope: this.envelope({}) });
       case "savePptx":
         return ok({ type: "saved", bytesBase64: "UEsDBA==", suggestedName: "Presentation.pptx" });
+      case "saveTheme":
+        return ok({ type: "saved", bytesBase64: "UEsDBA==", suggestedName: `${this.pres.theme.name}.thmx` });
       case "markSaved":
         this.dirty = false;
         if (request.name) this.name = request.name;
@@ -881,7 +911,7 @@ export class FakeBackend implements ShowBackend {
           return { err: { code: "invalid_command", message: String(e) } };
         }
         this.revision++;
-        const design = this.design ? { theme: clone(this.pres.theme), master: clone(this.pres.master), layouts: clone(this.pres.layouts) } : {};
+        const design = this.design ? { theme: clone(this.pres.theme), ...(this.pres.master ? { master: clone(this.pres.master) } : {}), layouts: clone(this.pres.layouts), designs: clone(this.pres.designs ?? []) } : {};
         return ok({
           type: "patch",
           envelope: this.envelope({

@@ -67,8 +67,8 @@ pub use properties::{CoreProperties, DocumentSettings};
 pub use props::{
     Alignment, BorderSide, BorderStyle, CellMargins, CellProperties, HeightRule, Indent,
     LineSpacing, NumberingRef, ParagraphBorders, ParagraphProperties, RowHeight, RowProperties,
-    Spacing, TabKind, TabLeader, TabStop, TableAlignment, TableBorders, TableLayout, TableLook,
-    TableProperties, TableWidth, VAlign, VMerge,
+    Spacing, TabKind, TabLeader, TabStop, TableAlignment, TableAnchor, TableBorders, TableLayout,
+    TableLook, TablePosSpec, TablePosition, TableProperties, TableWidth, VAlign, VMerge,
 };
 pub use section::{
     ColumnWidth, Columns, HeaderFooterSet, HeaderSlot, Note, NoteNumbering, NoteRestart, Section,

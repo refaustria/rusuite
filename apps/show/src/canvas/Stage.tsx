@@ -35,6 +35,7 @@ import type { Guide } from "../generated/Guide";
 import { SlideView } from "./SlideView";
 import { stableDeck } from "../design/deck";
 import { TextOverlay } from "./TextOverlay";
+import { PlaceholderIcons } from "./PlaceholderIcons";
 import { AutofitButton } from "./AutofitButton";
 import { AnimBadges, StagePreview } from "./AnimOverlay";
 import { CustomPathDraw, MotionPathLayer } from "./MotionPaths";
@@ -685,6 +686,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       <TableOverlay store={store} scale={scale} onMenu={(at) => setMenu({ at, items: tableMenu(store) })} />
       {one?.kind.kind === "auto" && !masterView && !cropping && <AutofitButton store={store} shape={one} scale={scale} />}
       {editing && <TextOverlay store={store} scale={scale} />}
+      {!masterView && !drawMode && <PlaceholderIcons store={store} slide={slide} scale={scale} />}
       {!masterView && <AnimBadges store={store} slide={slide} scale={scale} />}
       {!masterView && <CustomPathDraw store={store} slide={slide} width={size.width} height={size.height} scale={scale} />}
       {!masterView && <StagePreview store={store} deck={stableDeck(pres)} slides={pres.slides} index={pres.slides.indexOf(slide)} width={size.width * scale} height={size.height * scale} />}

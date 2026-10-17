@@ -8,6 +8,11 @@
 // skipped unless the show starts on one, as in PowerPoint. Each slide's
 // click steps (its On Click animations) and "After" timing come from the
 // model (P8-8); the timer here advances the show unless S stopped it.
+//
+// The tools' state (ink, laser pointer, zoom) lives here (P9-S5): the
+// presenter view draws with it and sends it to the audience window, and
+// at the end of a show with ink PowerPoint's "Keep ink annotations?"
+// saves the strokes as freeforms (`ShowStore.keepInk`).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DeckContext } from "../canvas/SlideView";
@@ -23,7 +28,10 @@ import { formatElapsed } from "./PresenterConsole";
 import type { ShowSettings } from "../generated/ShowSettings";
 import type { Presentation } from "../generated/Presentation";
 import { autoAdvanceDelay, clickSteps } from "../anim/playback";
-import type { AudienceLink, AudienceWindow, SyncChannel } from "./sync";
+import type { AudienceLink, AudienceWindow, SyncChannel, ToolsView } from "./sync";
+import { useTools, type ToolsState } from "./ShowTools";
+import type { Ink } from "./tools";
+import { canSwapDisplays, swapDisplays } from "./screens";
 import { useT } from "../i18n";
 
 export interface SlideShowProps {
@@ -34,6 +42,12 @@ export interface SlideShowProps {
   onEnd: () => void;
   /** Slide Show › Rehearse Timings: records the time on each slide; at the end asks whether to keep them. */
   rehearse?: boolean;
+  /**
+   * Slide Show › Record (P9-S5): like a rehearsal with the pen at hand; at
+   * the end the timings and the ink are saved without asking. Narration
+   * (audio / camera) is not recorded.
+   */
+  record?: boolean;
   /** Runs this custom show (its slides in its order; P9-S3). */
   customShow?: number | null;
 }
@@ -102,6 +116,33 @@ function RehearsalBar({ rehearsal, index, ids, onNext, onPause, onRepeat }: {
   );
 }
 
+/** Whether any slide has ink. */
+export const hasInk = (ink: Ink): boolean => [...ink.values()].some((s) => s.length > 0);
+
+/** The tools as the audience window gets them. */
+export function toolsView(s: ToolsState): ToolsView {
+  return { mode: s.mode, ink: [...s.ink.entries()].map(([id, strokes]) => [id, [...strokes]]), inkVisible: s.inkVisible, zoom: s.zoom, focus: s.focus, laser: s.mode === "laser" ? s.laser : null };
+}
+
+/** A question at the end of the show (Rehearse Timings, Keep ink annotations). */
+function EndQuestion({ label, text, yes, no, onYes, onNo, testId }: { label: string; text: string; yes: string; no: string; onYes: () => void; onNo: () => void; testId: string }) {
+  return (
+    <div role="dialog" aria-modal="true" aria-label={label} data-testid={testId} className="fixed inset-0 z-50 flex items-center justify-center bg-black">
+      <div className="w-96 rounded-lg bg-ui-panel p-4 text-sm text-ui-fg shadow-xl">
+        <p>{text}</p>
+        <div className="mt-3 flex justify-end gap-2">
+          <button type="button" autoFocus className="h-8 rounded border border-ui-border px-3 hover:bg-ui-hover" onClick={onYes}>
+            {yes}
+          </button>
+          <button type="button" className="h-8 rounded border border-ui-border px-3 hover:bg-ui-hover" onClick={onNo}>
+            {no}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NotesOverlay({ notes }: { notes: string }) {
   const t = useT();
   return (
@@ -115,7 +156,8 @@ function NotesOverlay({ notes }: { notes: string }) {
   );
 }
 
-export function SlideShow({ store, mode, link, onEnd, rehearse = false, customShow = null }: SlideShowProps) {
+export function SlideShow({ store, mode, link, onEnd, rehearse: rehearseOnly = false, record = false, customShow = null }: SlideShowProps) {
+  const rehearse = rehearseOnly || record;
   const t = useT();
   const pres = useShow(store, (s) => s.pres);
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
@@ -143,22 +185,33 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false, customSh
     rehearse ? { times: new Map(), slideStart: Date.now(), paused: null, ask: false } : null,
   );
   const lastIndex = useRef(show.index);
-  const record = useCallback((leaving: number) => {
-    setRehearsal((r) => {
-      if (!r) return r;
-      const id = ids[leaving];
-      const now = Date.now();
-      const spent = (r.paused ?? now) - r.slideStart;
-      const times = new Map(r.times);
-      if (id !== undefined) times.set(id, (times.get(id) ?? 0) + spent);
-      return { ...r, times, slideStart: now, paused: r.paused === null ? null : now };
-    });
+  const rehearsalRef = useRef(rehearsal);
+  rehearsalRef.current = rehearsal;
+  /** The rehearsal with the time on slide `leaving` added (`r` unchanged without a rehearsal). */
+  const withTime = useCallback((r: typeof rehearsal, leaving: number) => {
+    if (!r) return r;
+    const id = ids[leaving];
+    const now = Date.now();
+    const spent = (r.paused ?? now) - r.slideStart;
+    const times = new Map(r.times);
+    if (id !== undefined) times.set(id, (times.get(id) ?? 0) + spent);
+    return { ...r, times, slideStart: now, paused: r.paused === null ? null : now };
   }, [ids]);
+  const recordTime = useCallback((leaving: number) => {
+    const next = withTime(rehearsalRef.current, leaving);
+    rehearsalRef.current = next;
+    setRehearsal(next);
+  }, [withTime]);
   useEffect(() => {
-    if (lastIndex.current !== show.index) record(lastIndex.current);
+    if (lastIndex.current !== show.index) recordTime(lastIndex.current);
     lastIndex.current = show.index;
-  }, [show.index, record]);
+  }, [show.index, recordTime]);
   const [phase, setPhase] = useState<"opening" | "console" | "single">(mode === "presenter" && link ? "opening" : "single");
+  // ----- the tools (P9-S5): one state for the presenter view, the audience window and the end question
+  const [tools, setTools] = useTools(settings?.penColor ? `#${settings.penColor}` : undefined);
+  const toolsRef = useRef(tools);
+  toolsRef.current = tools;
+  const [askInk, setAskInk] = useState(false);
   const [notesOn, setNotesOn] = useState(false);
   const fallback = mode === "presenter" && phase === "single";
 
@@ -186,10 +239,21 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false, customSh
     }
     if (next === "exit" || (rehearsing.current && next.ended)) {
       if (rehearsing.current) {
-        // the end of a rehearsal: keep the timings?
         rehearsing.current = false;
-        record(showRef.current.index);
+        recordTime(showRef.current.index);
+        if (record) {
+          // the end of a recording: the timings and the ink are kept
+          void store.applyTimings(rehearsalRef.current?.times ?? new Map()).then(() => (hasInk(toolsRef.current.ink) ? store.keepInk(toolsRef.current.ink) : undefined));
+          endRef.current();
+          return;
+        }
+        // the end of a rehearsal: keep the timings?
         setRehearsal((r) => (r ? { ...r, ask: true } : r));
+        return;
+      }
+      // ink drawn in the show: keep it?
+      if (hasInk(toolsRef.current.ink)) {
+        setAskInk(true);
         return;
       }
       endRef.current();
@@ -197,7 +261,7 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false, customSh
     }
     showRef.current = next;
     setShow(next);
-  }, [record, switchTo]);
+  }, [recordTime, switchTo, record, store]);
   const idsRef = useRef(ids);
   idsRef.current = ids;
   /** A link to a custom show: its slides from the first; with return, the current show resumes after it. */
@@ -275,6 +339,7 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false, customSh
           if (m.kind === "hello") {
             deckMsg.current();
             stateMsg();
+            ch.post({ kind: "tools", tools: toolsView(toolsRef.current) });
           } else if (m.kind === "action") dispatch(m.action);
           else if (m.kind === "bye") endRef.current();
         });
@@ -300,6 +365,10 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false, customSh
   useEffect(() => {
     if (phase === "console") sync.current?.post({ kind: "state", slideIndex: show.index, step: show.step, blackout: show.blank, ended: show.ended });
   }, [phase, show.index, show.step, show.blank, show.ended]);
+  // the presenter's ink, laser pointer and zoom on the audience screen
+  useEffect(() => {
+    if (phase === "console") sync.current?.post({ kind: "tools", tools: toolsView(tools) });
+  }, [phase, tools]);
 
   // Automatic advance ("After" of the slide's transition), unless S stopped it.
   const current = slides[show.index];
@@ -312,30 +381,43 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false, customSh
   }, [current, show.index, show.step, show.ended, show.blank, show.autoStopped, dispatch]);
 
   if (!pres || !deck || slides.length === 0) return null;
+  /** After the timings question: the ink question, else the end. */
+  const afterTimings = () => {
+    setRehearsal((r) => (r ? { ...r, ask: false } : r));
+    if (hasInk(toolsRef.current.ink)) setAskInk(true);
+    else endRef.current();
+  };
   if (rehearsal?.ask) {
     const total = [...rehearsal.times.values()].reduce((a, b) => a + b, 0);
     return (
-      <div role="dialog" aria-modal="true" aria-label={t("show.rehearse")} data-testid="rehearse-confirm" className="fixed inset-0 z-50 flex items-center justify-center bg-black">
-        <div className="w-96 rounded-lg bg-ui-panel p-4 text-sm text-ui-fg shadow-xl">
-          <p>{t("show.rehearse.keep", { time: formatElapsed(total) })}</p>
-          <div className="mt-3 flex justify-end gap-2">
-            <button type="button" className="h-8 rounded border border-ui-border px-3 hover:bg-ui-hover" onClick={() => endRef.current()}>
-              {t("show.rehearse.no")}
-            </button>
-            <button
-              type="button"
-              autoFocus
-              className="h-8 rounded border border-ui-border px-3 hover:bg-ui-hover"
-              onClick={() => {
-                void store.applyTimings(rehearsal.times);
-                endRef.current();
-              }}
-            >
-              {t("show.rehearse.yes")}
-            </button>
-          </div>
-        </div>
-      </div>
+      <EndQuestion
+        testId="rehearse-confirm"
+        label={t("show.rehearse")}
+        text={t("show.rehearse.keep", { time: formatElapsed(total) })}
+        yes={t("show.rehearse.yes")}
+        no={t("show.rehearse.no")}
+        onYes={() => {
+          void store.applyTimings(rehearsal.times);
+          afterTimings();
+        }}
+        onNo={afterTimings}
+      />
+    );
+  }
+  if (askInk) {
+    return (
+      <EndQuestion
+        testId="ink-confirm"
+        label={t("show.ink.title")}
+        text={t("show.ink.keep")}
+        yes={t("show.ink.yes")}
+        no={t("show.ink.no")}
+        onYes={() => {
+          void store.keepInk(toolsRef.current.ink);
+          endRef.current();
+        }}
+        onNo={() => endRef.current()}
+      />
     );
   }
   if (phase !== "single") {
@@ -348,6 +430,10 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false, customSh
         show={show}
         onAction={dispatch}
         status={phase === "opening" ? t("show.opening") : undefined}
+        tools={tools}
+        setTools={setTools}
+        onNotes={(slide, notes) => void store.setNotes(slide, notes)}
+        onSwap={canSwapDisplays() ? () => void swapDisplays() : undefined}
       />
     );
   }
@@ -360,8 +446,9 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false, customSh
       show={show}
       onAction={dispatch}
       tools={!fallback}
+      toolsState={[tools, setTools]}
       onCustomShow={startCustomShow}
-      penColor={settings?.penColor ? `#${settings.penColor}` : undefined}
+      mediaControls={settings?.showMediaControls ?? true}
       toolbarExtra={rehearsal && <RehearsalBar rehearsal={rehearsal} index={show.index} ids={ids} onNext={() => dispatch({ type: "next" })} onPause={() => setRehearsal((r) => r && (r.paused === null ? { ...r, paused: Date.now() } : { ...r, slideStart: r.slideStart + (Date.now() - r.paused), paused: null }))} onRepeat={() => setRehearsal((r) => r && { ...r, slideStart: Date.now(), paused: r.paused === null ? null : Date.now() })} />}
       overlay={
         fallback && (

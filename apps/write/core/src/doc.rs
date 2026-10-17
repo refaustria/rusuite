@@ -33,6 +33,7 @@ use crate::tree::{
 
 mod drawings;
 mod lists;
+mod tables;
 
 /// Word's style for list items (`w:contextualSpacing`, indent 720).
 const LIST_PARAGRAPH: &str = "ListParagraph";
@@ -1047,31 +1048,33 @@ impl WriteDocument {
             }),
             C::InsertTableCol { table, at, new_ids } => self.insert_col(*table, *at, new_ids, ch),
             // Grid column `at`: a merged cell spanning it shrinks by one.
-            C::DeleteTableCol { table, at } => self.edit_table(*table, ch, |t| {
-                let at = *at as usize;
-                if at >= t.grid_cols() {
-                    return Err(invalid(format!("column {at} out of range")));
-                }
-                if t.grid_cols() <= 1 {
-                    return Err(invalid("cannot delete the only column of a table"));
-                }
-                for r in 0..t.rows.len() {
-                    let Some(i) = t.cell_at(r, at) else {
-                        continue;
-                    };
-                    let cell = &mut t.rows[r].cells[i];
-                    if cell.span() > 1 {
-                        cell.grid_span -= 1;
-                    } else {
-                        t.rows[r].cells.remove(i);
+            C::DeleteTableCol { table, at } => self
+                .edit_table(*table, ch, |t| {
+                    let at = *at as usize;
+                    if at >= t.grid_cols() {
+                        return Err(invalid(format!("column {at} out of range")));
                     }
-                }
-                if at < t.props.col_widths.len() {
-                    t.props.col_widths.remove(at);
-                }
-                t.normalize_merges();
-                Ok(())
-            }),
+                    if t.grid_cols() <= 1 {
+                        return Err(invalid("cannot delete the only column of a table"));
+                    }
+                    for r in 0..t.rows.len() {
+                        let Some(i) = t.cell_at(r, at) else {
+                            continue;
+                        };
+                        let cell = &mut t.rows[r].cells[i];
+                        if cell.span() > 1 {
+                            cell.grid_span -= 1;
+                        } else {
+                            t.rows[r].cells.remove(i);
+                        }
+                    }
+                    if at < t.props.col_widths.len() {
+                        t.props.col_widths.remove(at);
+                    }
+                    t.normalize_merges();
+                    Ok(())
+                })
+                .inspect(|_| self.pad_table(*table)),
             C::SetCellProps { cells, patch } => {
                 let items = cells
                     .iter()
@@ -1154,6 +1157,22 @@ impl WriteDocument {
                 self.doc.reserve_id(NodeId(next));
                 Ok(inv)
             }
+            C::SplitTable { table, at, new_ids } => self.split_table(*table, *at, new_ids, ch),
+            C::MergeTables { paragraph } => self.merge_tables(*paragraph, ch),
+            C::ConvertTextToTable {
+                blocks,
+                separator,
+                cols,
+            } => self.convert_text_to_table(blocks, separator, *cols, ch),
+            C::ConvertTableToText { table, separator } => {
+                self.convert_table_to_text(*table, separator, ch)
+            }
+            C::AutoFitTable {
+                table,
+                mode,
+                col_widths,
+            } => self.auto_fit_table(*table, *mode, col_widths, ch),
+            C::SetTableWrap { table, floating } => self.set_table_wrap(*table, *floating, ch),
             C::SetImageAnchor {
                 block,
                 offset,
@@ -3579,6 +3598,7 @@ impl WriteDocument {
         props.alignment = patch.alignment.or(props.alignment);
         props.indent = patch.indent.or(props.indent);
         props.layout = patch.layout.or(props.layout);
+        props.floating = patch.floating.or(props.floating);
         ch.block(table);
         let inverse = if old.rows == t.rows {
             C::RestoreTableProps {
@@ -3679,7 +3699,7 @@ impl WriteDocument {
         let r = t.rows.len();
         let layout = id_layout(new_ids, r, r)?;
         let mut ids = Ids::new(&self.doc, &[]);
-        // Per row: Some((cell index, new cell)) or None (a spanning cell grows).
+        // Per row: Ok((cell index, new cell)) or Err(index) (a spanning cell grows).
         let mut plan: Vec<Result<(usize, TableCell), usize>> = Vec::with_capacity(r);
         for (k, row) in t.rows.iter().enumerate() {
             let mut start = 0;
@@ -3710,7 +3730,7 @@ impl WriteDocument {
                 TableCell::new(id, props, vec![Block::Paragraph(Paragraph::new(pid))]),
             )));
         }
-        self.edit_table(table, ch, |t| {
+        let inverse = self.edit_table(table, ch, |t| {
             for (row, step) in t.rows.iter_mut().zip(plan) {
                 match step {
                     Ok((i, cell)) => row.cells.insert(i, cell),
@@ -3727,7 +3747,26 @@ impl WriteDocument {
             }
             t.normalize_merges();
             Ok(())
-        })
+        })?;
+        self.pad_table(table);
+        Ok(inverse)
+    }
+
+    /// Pads the ragged rows of `table` with empty cells (fresh ids; the
+    /// command's inverse restores the whole table anyway).
+    fn pad_table(&mut self, table: NodeId) {
+        let mut next = self.doc.alloc_id().0;
+        let start = next;
+        if let Ok(t) = self.table_mut(table) {
+            t.pad_rows(|| {
+                let id = NodeId(next);
+                next += 1;
+                id
+            });
+        }
+        if next > start {
+            self.doc.reserve_id(NodeId(next - 1));
+        }
     }
 
     fn restore_cell_props(&mut self, items: &[(NodeId, CellProperties)], ch: &mut Changes) -> R<C> {

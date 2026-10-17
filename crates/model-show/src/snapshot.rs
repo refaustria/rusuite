@@ -38,6 +38,8 @@ pub(crate) struct PresentationData {
     #[serde(default)]
     theme: Theme,
     #[serde(default)]
+    designs: Vec<crate::design::Design>,
+    #[serde(default)]
     sections: Vec<Section>,
     #[serde(default)]
     media: MediaStore,
@@ -68,6 +70,7 @@ impl From<PresentationData> for Presentation {
         }
         p.slides = d.slides;
         p.theme = d.theme;
+        p.designs = d.designs;
         p.sections = d.sections;
         p.media = d.media;
         p.view = d.view;

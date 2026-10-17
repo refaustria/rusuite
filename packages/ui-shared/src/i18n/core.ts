@@ -1,18 +1,12 @@
-// UI translations (P7-11): flat message catalogs per locale
-// (`locales/en.json`, `locales/de.json` in every package) with `{name}`
-// interpolation and simple plurals (`key.one` / `key.other`, chosen by
-// `params.count`). No runtime dependency: a catalog is a plain JSON object.
+// UI translations (P7-11, P9-L0): flat message catalogs per locale
+// (`locales/<lang>.json` in every package) with `{name}` interpolation and
+// plurals chosen by `Intl.PluralRules` of the language (`key.one`,
+// `key.few`, `key.many`, `key.other` …, picked by `params.count`). No
+// runtime dependency: a catalog is a plain JSON object.
 
-/** The UI languages. More may follow: add a catalog per package and an entry here. */
-export type Locale = "en" | "de";
+import { DEFAULT_LOCALE, localeInfo, type Locale } from "./locales";
 
-/** The language choices, each named in its own language. */
-export const LOCALES: { id: Locale; label: string }[] = [
-  { id: "en", label: "English" }, // i18n-ignore: each language in its own language
-  { id: "de", label: "Deutsch" }, // i18n-ignore
-];
-
-export const DEFAULT_LOCALE: Locale = "en";
+export { DEFAULT_LOCALE, LOCALES, isLocale, localeGroup, localeInfo, matchLocale, pickerGroups, type Locale, type LocaleInfo } from "./locales";
 
 /** One catalog: namespaced keys (`ribbon.file`, `dialog.saveAs.title`) to messages. */
 export type Messages = Record<string, string>;
@@ -46,9 +40,24 @@ export function interpolate(message: string, params?: Params): string {
   return message.replace(/\{(\w+)\}/g, (all, name: string) => (name in params ? String(params[name]) : all));
 }
 
-/** `one` for exactly 1 (English and German), else `other`. */
-export function pluralForm(count: number): "one" | "other" {
-  return count === 1 ? "one" : "other";
+/** A CLDR plural category: the suffix of a plural key (`files.few`). */
+export type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other";
+
+const pluralRules = new Map<Locale, Intl.PluralRules>();
+const rulesOf = (locale: Locale): Intl.PluralRules => {
+  let r = pluralRules.get(locale);
+  if (!r) pluralRules.set(locale, (r = new Intl.PluralRules(localeInfo(locale).tag)));
+  return r;
+};
+
+/** The plural category of `count` in `locale` (English and German: `one` for 1, else `other`; Polish 2–4: `few` …). */
+export function pluralForm(count: number, locale: Locale = DEFAULT_LOCALE): PluralCategory {
+  return rulesOf(locale).select(count) as PluralCategory;
+}
+
+/** The plural categories `locale` distinguishes (the keys a plural message needs in its catalog). */
+export function pluralCategories(locale: Locale): PluralCategory[] {
+  return rulesOf(locale).resolvedOptions().pluralCategories as PluralCategory[];
 }
 
 export function createI18n({ locales, fallback = DEFAULT_LOCALE }: I18nOptions): I18n {
@@ -61,7 +70,7 @@ export function createI18n({ locales, fallback = DEFAULT_LOCALE }: I18nOptions):
     const table = tables[locale];
     if (!table) return undefined;
     if (params && typeof params.count === "number") {
-      const plural = table[`${key}.${pluralForm(params.count)}`] ?? table[`${key}.other`];
+      const plural = table[`${key}.${pluralForm(params.count, locale)}`] ?? table[`${key}.other`];
       if (plural !== undefined) return plural;
     }
     return table[key];
