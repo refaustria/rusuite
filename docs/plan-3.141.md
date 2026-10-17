@@ -83,6 +83,7 @@ Sources: deferred items from the quality passes (`docs/qa/*`), the pre-release b
   notes and headers, section-level note formats, core field-update pass, TOC heading numbers.
 
 ### Cross-app (run alone, after the batches that touch the same files)
+- Briefs: `docs/tasks/P9-X1-shared-geometry.md`, `docs/tasks/P9-X2-shared-warnings-shortcuts-charts.md`; languages start with `docs/tasks/P9-L0-i18n-24-locales.md`.
 - **X1** shared preset geometry + adjust handles in core-model/ui-shared (Show + Write one copy), rotate handles.
 - **X2** translated reader warnings for xlsx/pptx (codes like fmt-docx), F12 Save As in Calc/Show, shared chart presets
   re-exported by Calc instead of the copy in Show, Show wasm size (feature flag for the embedded workbook).
