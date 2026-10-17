@@ -4,6 +4,8 @@
 // portal and the apps. A language whose catalogs have not landed yet
 // shows English without errors (Maltese, translated last).
 // P9-LR1: every translated language (TRANSLATED) is checked with the labels of its catalogs.
+// P9-LR2: also the browser-language detection per translated language and the carry-over from the portal to an
+// app (formerly the per-language specs i18n-l3/l4).
 // `I18N_SHOTS=<dir>` also saves screenshots of the German UI there.
 
 import { expect, test, type Page } from "@playwright/test";
@@ -74,6 +76,19 @@ test.describe("German UI", () => {
 // language here once its catalogs have landed (P9-L3 … L11).
 const TRANSLATED = ["de", "fr", "es", "it", "pt", "nl", "sv", "da", "fi", "pl", "cs", "sk", "sl"] as const;
 
+/** The browser language (BCP 47 with region) of the detection test; a language without an entry uses its bare code. */
+const BROWSER_TAG: Partial<Record<string, string>> = {
+  de: "de-DE",
+  fr: "fr-FR",
+  es: "es-ES",
+  it: "it-IT",
+  pt: "pt-PT",
+  nl: "nl-NL",
+  sv: "sv-SE",
+  da: "da-DK",
+  fi: "fi-FI",
+};
+
 /** Ribbon tabs of the app that are always there (File opens the backstage; contextual tabs need a selection). */
 const ribbonTabs = (page: Page) => page.getByRole("tablist").first().getByRole("tab");
 
@@ -138,7 +153,35 @@ for (const lang of TRANSLATED) {
       const formal = await formalForms(lang);
       if (formal) expect(await page.locator("body").innerText()).not.toMatch(formal);
       await shot(page, `portal-${lang}`);
+      // The choice carries over to the apps (one origin, one stored language).
+      await page.goto("calc/");
+      await page.getByTestId("grid").first().waitFor();
+      await expect(page.locator("html")).toHaveAttribute("lang", lang);
+      await expect(page.getByRole("tab", { name: m("tab.home"), exact: true })).toHaveAttribute("aria-selected", "true");
       errors.expectNone();
+    });
+
+    const tag = BROWSER_TAG[lang] ?? lang;
+    test.describe(`a ${tag} browser`, () => {
+      test.use({ locale: tag });
+
+      test(`gets ${lang} in Calc, Write and Show – Home tab, Save and Recent in the backstage, informal`, async ({ page }) => {
+        const errors = trackErrors(page);
+        const formal = await formalForms(lang);
+        for (const { app, ready } of APPS) {
+          await page.goto(`${app}/`);
+          await ready(page).first().waitFor();
+          await expect(page.locator("html")).toHaveAttribute("lang", lang);
+          await expect(page.getByRole("tab", { name: m("tab.home"), exact: true })).toHaveAttribute("aria-selected", "true");
+          await expect(page.getByRole("tab", { name: m("tab.insert"), exact: true })).toBeVisible();
+          await page.getByRole("tab", { name: m("ribbon.file"), exact: true }).click();
+          const backstage = page.getByTestId("backstage");
+          await expect(backstage.getByRole("button", { name: new RegExp(`^${escapeRe(m("backstage.saveAs"))}`) })).toBeVisible();
+          await expect(backstage.getByRole("heading", { name: m("recent.title"), exact: true })).toBeVisible();
+          if (formal) expect(await backstage.innerText()).not.toMatch(formal);
+        }
+        errors.expectNone();
+      });
     });
   });
 }
