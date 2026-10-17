@@ -136,6 +136,31 @@ impl LevelSuffix {
     }
 }
 
+/// Alignment of a list label at its position (docx `w:lvlJc`): the
+/// label's start, centre or end sits at the first-line position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum LevelAlign {
+    /// Word's default.
+    #[default]
+    Left,
+    /// Centred on the position.
+    Center,
+    /// Ends at the position.
+    Right,
+}
+
+impl LevelAlign {
+    fn is_left(&self) -> bool {
+        *self == LevelAlign::Left
+    }
+}
+
 /// One level of a list.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -182,6 +207,15 @@ pub struct Level {
     #[serde(default, skip_serializing_if = "LevelSuffix::is_tab")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<LevelSuffix>"))]
     pub suffix: LevelSuffix,
+    /// Label alignment (docx `w:lvlJc`).
+    #[serde(default, skip_serializing_if = "LevelAlign::is_left")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<LevelAlign>"))]
+    pub alignment: LevelAlign,
+    /// The paragraph style linked to this level (docx `w:pStyle`): Word's
+    /// heading numbering (the style's numbering points back to the level).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub style: Option<String>,
 }
 
 impl Level {
@@ -198,6 +232,8 @@ impl Level {
             restart: None,
             legal: false,
             suffix: LevelSuffix::Tab,
+            alignment: LevelAlign::Left,
+            style: None,
         }
     }
 }
@@ -355,6 +391,295 @@ impl NumberingDef {
             .iter()
             .find(|o| o.level == level)
             .and_then(|o| o.start)
+    }
+}
+
+/// Word's list galleries (Home › Bullets ▾ / Numbering ▾ / Multilevel
+/// List ▾): single-level formats that replace one level of a list, and the
+/// seven multilevel lists of the list library (the last four linked to
+/// the Heading 1–9 styles).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum ListPreset {
+    /// `1.`
+    Decimal,
+    /// `1)`
+    DecimalParen,
+    /// `I.` (right-aligned)
+    UpperRoman,
+    /// `A.`
+    UpperLetter,
+    /// `a)`
+    LowerLetterParen,
+    /// `a.`
+    LowerLetter,
+    /// `i.` (right-aligned)
+    LowerRoman,
+    /// `•` (Symbol)
+    BulletDisc,
+    /// `○`
+    BulletCircle,
+    /// `■` (Wingdings)
+    BulletSquare,
+    /// `➢` (Wingdings)
+    BulletArrow,
+    /// `✓`
+    BulletCheck,
+    /// `◆`
+    BulletDiamond,
+    /// `–`
+    BulletDash,
+    /// Multilevel `1)`, `a)`, `i)`, `(1)`, `(a)`, `(i)`, `1.`, `a.`, `i.`.
+    OutlineParen,
+    /// Multilevel `1.`, `1.1.`, `1.1.1.`, ….
+    OutlineDecimal,
+    /// Multilevel bullets `➢`, `■`, `•`, repeating.
+    OutlineBullets,
+    /// `Article I.`, `Section 1.01`, `(a)`, … linked to Heading 1–9.
+    ArticleSection,
+    /// `1`, `1.1`, `1.1.1`, … linked to Heading 1–9.
+    HeadingDecimal,
+    /// `I.`, `A.`, `1.`, `a)`, `(1)`, … linked to Heading 1–9.
+    HeadingOutline,
+    /// `Chapter 1` linked to Heading 1 (deeper headings unnumbered).
+    HeadingChapter,
+}
+
+/// A bullet level: `text` in `font`.
+fn bullet(text: &str, font: Option<&str>) -> Level {
+    Level {
+        font: font.map(FontFace::from),
+        ..Level::new(LevelKind::Bullet, text)
+    }
+}
+
+/// `left` / `hanging` (twips) as a level indent.
+fn indent(left: i32, hanging: i32) -> Option<Indent> {
+    Some(Indent {
+        left: Some(Twips(left)),
+        hanging: (hanging != 0).then_some(Twips(hanging)),
+        first_line: (hanging == 0).then_some(Twips(0)),
+        ..Default::default()
+    })
+}
+
+impl ListPreset {
+    /// The single-level formats (Bullets ▾ and Numbering ▾).
+    pub const NUMBERING: [ListPreset; 7] = [
+        ListPreset::Decimal,
+        ListPreset::DecimalParen,
+        ListPreset::UpperRoman,
+        ListPreset::UpperLetter,
+        ListPreset::LowerLetterParen,
+        ListPreset::LowerLetter,
+        ListPreset::LowerRoman,
+    ];
+    /// The bullet library.
+    pub const BULLETS: [ListPreset; 7] = [
+        ListPreset::BulletDisc,
+        ListPreset::BulletCircle,
+        ListPreset::BulletSquare,
+        ListPreset::BulletArrow,
+        ListPreset::BulletCheck,
+        ListPreset::BulletDiamond,
+        ListPreset::BulletDash,
+    ];
+    /// The multilevel list library.
+    pub const MULTILEVEL: [ListPreset; 7] = [
+        ListPreset::OutlineParen,
+        ListPreset::OutlineDecimal,
+        ListPreset::OutlineBullets,
+        ListPreset::ArticleSection,
+        ListPreset::HeadingDecimal,
+        ListPreset::HeadingOutline,
+        ListPreset::HeadingChapter,
+    ];
+
+    /// Whether this is a bullet (single-level) format.
+    pub fn is_bullet(self) -> bool {
+        Self::BULLETS.contains(&self)
+    }
+
+    /// The format of a single-level preset for list level `level`
+    /// (`0..=8`; the number token is `%level+1`), without indent; `None`
+    /// for the multilevel presets.
+    pub fn level_format(self, level: u8) -> Option<Level> {
+        let n = level.min(8) + 1;
+        let num = |kind: LevelKind, suffix: &str| Level::new(kind, format!("%{n}{suffix}"));
+        let right = |l: Level| Level {
+            alignment: LevelAlign::Right,
+            ..l
+        };
+        Some(match self {
+            ListPreset::Decimal => num(LevelKind::Decimal, "."),
+            ListPreset::DecimalParen => num(LevelKind::Decimal, ")"),
+            ListPreset::UpperRoman => right(num(LevelKind::UpperRoman, ".")),
+            ListPreset::UpperLetter => num(LevelKind::UpperLetter, "."),
+            ListPreset::LowerLetterParen => num(LevelKind::LowerLetter, ")"),
+            ListPreset::LowerLetter => num(LevelKind::LowerLetter, "."),
+            ListPreset::LowerRoman => right(num(LevelKind::LowerRoman, ".")),
+            ListPreset::BulletDisc => bullet("•", Some("Symbol")),
+            ListPreset::BulletCircle => bullet("○", None),
+            ListPreset::BulletSquare => bullet("■", Some("Wingdings")),
+            ListPreset::BulletArrow => bullet("➢", Some("Wingdings")),
+            ListPreset::BulletCheck => bullet("✓", None),
+            ListPreset::BulletDiamond => bullet("◆", None),
+            ListPreset::BulletDash => bullet("–", None),
+            _ => return None,
+        })
+    }
+
+    /// The nine levels of a multilevel preset (with Word's indents and,
+    /// for the heading presets, the linked styles `Heading1` …
+    /// `Heading9`); `None` for the single-level formats.
+    pub fn levels(self) -> Option<Vec<Level>> {
+        let heading = |i: usize, l: Level| Level {
+            style: Some(format!("Heading{}", i + 1)),
+            ..l
+        };
+        let levels: Vec<Level> = match self {
+            ListPreset::OutlineParen => {
+                let kinds = [
+                    LevelKind::Decimal,
+                    LevelKind::LowerLetter,
+                    LevelKind::LowerRoman,
+                ];
+                (0..9)
+                    .map(|i| {
+                        let t = match i / 3 {
+                            0 => format!("%{})", i + 1),
+                            1 => format!("(%{})", i + 1),
+                            _ => format!("%{}.", i + 1),
+                        };
+                        Level {
+                            indent: indent(360 * (i as i32 + 1), 360),
+                            ..Level::new(kinds[i % 3], t)
+                        }
+                    })
+                    .collect()
+            }
+            ListPreset::OutlineDecimal => NumberingDef::legal_default(0).levels,
+            ListPreset::OutlineBullets => (0..9usize)
+                .map(|i| {
+                    let l = match i % 3 {
+                        0 => bullet("➢", Some("Wingdings")),
+                        1 => bullet("■", Some("Wingdings")),
+                        _ => bullet("•", Some("Symbol")),
+                    };
+                    Level {
+                        indent: indent(360 * (i as i32 + 1), 360),
+                        ..l
+                    }
+                })
+                .collect(),
+            ListPreset::ArticleSection => {
+                let defs: [(LevelKind, &str, i32, i32); 9] = [
+                    (LevelKind::UpperRoman, "Article %1.", 0, 0),
+                    (LevelKind::DecimalZero, "Section %1.%2", 0, 0),
+                    (LevelKind::LowerLetter, "(%3)", 720, 432),
+                    (LevelKind::LowerRoman, "(%4)", 864, 144),
+                    (LevelKind::Decimal, "%5)", 1008, 432),
+                    (LevelKind::LowerLetter, "%6)", 1152, 432),
+                    (LevelKind::LowerRoman, "%7)", 1296, 288),
+                    (LevelKind::LowerLetter, "%8.", 1440, 432),
+                    (LevelKind::LowerRoman, "%9.", 1584, 144),
+                ];
+                defs.iter()
+                    .enumerate()
+                    .map(|(i, &(kind, text, left, hanging))| {
+                        let mut l = Level {
+                            indent: indent(left, hanging),
+                            ..Level::new(kind, text)
+                        };
+                        if i == 1 {
+                            l.legal = true;
+                        }
+                        if matches!(i, 3 | 6 | 8) {
+                            l.alignment = LevelAlign::Right;
+                        }
+                        heading(i, l)
+                    })
+                    .collect()
+            }
+            ListPreset::HeadingDecimal => (0..9)
+                .map(|i| {
+                    let text = (1..=i + 1)
+                        .map(|n| format!("%{n}"))
+                        .collect::<Vec<_>>()
+                        .join(".");
+                    let w = 432 + 144 * i as i32;
+                    heading(
+                        i,
+                        Level {
+                            indent: indent(w, w),
+                            ..Level::new(LevelKind::Decimal, text)
+                        },
+                    )
+                })
+                .collect(),
+            ListPreset::HeadingOutline => {
+                let defs: [(LevelKind, &str); 9] = [
+                    (LevelKind::UpperRoman, "%1."),
+                    (LevelKind::UpperLetter, "%2."),
+                    (LevelKind::Decimal, "%3."),
+                    (LevelKind::LowerLetter, "%4)"),
+                    (LevelKind::Decimal, "(%5)"),
+                    (LevelKind::LowerLetter, "(%6)"),
+                    (LevelKind::LowerRoman, "(%7)"),
+                    (LevelKind::LowerLetter, "(%8)"),
+                    (LevelKind::LowerRoman, "(%9)"),
+                ];
+                defs.iter()
+                    .enumerate()
+                    .map(|(i, &(kind, text))| {
+                        heading(
+                            i,
+                            Level {
+                                indent: indent(432 + 360 * i as i32, 432),
+                                ..Level::new(kind, text)
+                            },
+                        )
+                    })
+                    .collect()
+            }
+            ListPreset::HeadingChapter => (0..9)
+                .map(|i| {
+                    let l = if i == 0 {
+                        Level::new(LevelKind::Decimal, "Chapter %1")
+                    } else {
+                        Level {
+                            suffix: LevelSuffix::Nothing,
+                            ..Level::new(LevelKind::None, "")
+                        }
+                    };
+                    heading(
+                        i,
+                        Level {
+                            indent: indent(0, 0),
+                            ..l
+                        },
+                    )
+                })
+                .collect(),
+            _ => return None,
+        };
+        Some(levels)
+    }
+
+    /// Whether the preset numbers the heading styles.
+    pub fn links_headings(self) -> bool {
+        matches!(
+            self,
+            ListPreset::ArticleSection
+                | ListPreset::HeadingDecimal
+                | ListPreset::HeadingOutline
+                | ListPreset::HeadingChapter
+        )
     }
 }
 
@@ -547,7 +872,13 @@ fn label(def: &NumberingDef, lvl: usize, counters: &[Option<u32>; 9]) -> String 
                 let kind = match def.levels.get(k) {
                     // Legal numbering shows every number as decimal (a
                     // level without number stays empty).
-                    Some(l) if level.legal && l.kind != LevelKind::None => LevelKind::Decimal,
+                    // (`DecimalZero` is Arabic already: Word's "Section 1.01".)
+                    Some(l)
+                        if level.legal
+                            && !matches!(l.kind, LevelKind::None | LevelKind::DecimalZero) =>
+                    {
+                        LevelKind::Decimal
+                    }
                     Some(l) => l.kind,
                     None => LevelKind::Decimal,
                 };
@@ -746,6 +1077,90 @@ mod tests {
     }
 
     #[test]
+    fn presets_single_level() {
+        for p in ListPreset::NUMBERING {
+            let l = p.level_format(2).unwrap();
+            assert!(l.text.starts_with("%3"), "{p:?}: {}", l.text);
+            assert!(!p.is_bullet() && p.levels().is_none());
+        }
+        for p in ListPreset::BULLETS {
+            let l = p.level_format(0).unwrap();
+            assert_eq!(l.kind, LevelKind::Bullet);
+            assert!(p.is_bullet() && !l.text.is_empty());
+        }
+        let roman = ListPreset::UpperRoman.level_format(0).unwrap();
+        assert_eq!(
+            (roman.text.as_str(), roman.alignment),
+            ("%1.", LevelAlign::Right)
+        );
+        assert_eq!(
+            ListPreset::DecimalParen.level_format(0).unwrap().text,
+            "%1)"
+        );
+        assert_eq!(
+            ListPreset::LowerLetterParen.level_format(8).unwrap().text,
+            "%9)"
+        );
+        assert_eq!(
+            ListPreset::BulletSquare.level_format(0).unwrap().font,
+            Some(FontFace::from("Wingdings"))
+        );
+        assert!(ListPreset::HeadingDecimal.level_format(0).is_none());
+    }
+
+    #[test]
+    fn presets_multilevel() {
+        for p in ListPreset::MULTILEVEL {
+            let levels = p.levels().unwrap();
+            assert_eq!(levels.len(), 9, "{p:?}");
+            assert_eq!(
+                levels.iter().all(|l| l.style.is_some()),
+                p.links_headings(),
+                "{p:?}"
+            );
+        }
+        let h = ListPreset::HeadingDecimal.levels().unwrap();
+        assert_eq!(h[0].text, "%1");
+        assert_eq!(h[2].text, "%1.%2.%3");
+        assert_eq!(h[1].style.as_deref(), Some("Heading2"));
+        assert_eq!(h[1].indent.unwrap().left, Some(Twips(576)));
+        let mut n = Numbering::default();
+        n.insert(NumberingDef::standalone(1, h));
+        assert_eq!(
+            labels(&n, &[r(1, 0), r(1, 1), r(1, 1), r(1, 2)]),
+            ["1", "1.1", "1.2", "1.2.1"]
+        );
+        let mut n = Numbering::default();
+        n.insert(NumberingDef::standalone(
+            1,
+            ListPreset::ArticleSection.levels().unwrap(),
+        ));
+        assert_eq!(
+            labels(&n, &[r(1, 0), r(1, 1), r(1, 2)]),
+            ["Article I.", "Section 1.01", "(a)"]
+        );
+        let mut n = Numbering::default();
+        n.insert(NumberingDef::standalone(
+            1,
+            ListPreset::OutlineParen.levels().unwrap(),
+        ));
+        assert_eq!(
+            labels(&n, &[r(1, 0), r(1, 1), r(1, 3), r(1, 6)]),
+            ["1)", "a)", "(1)", "1."]
+        );
+        let mut n = Numbering::default();
+        n.insert(NumberingDef::standalone(
+            1,
+            ListPreset::HeadingChapter.levels().unwrap(),
+        ));
+        assert_eq!(
+            labels(&n, &[r(1, 0), r(1, 1), r(1, 0)]),
+            ["Chapter 1", "", "Chapter 2"]
+        );
+        assert_eq!(ListPreset::OutlineBullets.levels().unwrap()[1].text, "■");
+    }
+
+    #[test]
     fn json_keeps_old_shape() {
         let json = serde_json::to_string(&NumberingDef::decimal_default(1)).unwrap();
         assert!(
@@ -755,6 +1170,7 @@ mod tests {
             "{json}"
         );
         assert!(!json.contains("legal") && !json.contains("suffix"));
+        assert!(!json.contains("alignment") && !json.contains("style"));
         let back: NumberingDef = serde_json::from_str(&json).unwrap();
         assert_eq!(back, NumberingDef::decimal_default(1));
     }

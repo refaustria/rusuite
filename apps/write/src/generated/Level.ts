@@ -2,6 +2,7 @@
 import type { FontFace } from "../../../../packages/ui-shared/src/generated/FontFace";
 import type { RunProperties } from "../../../../packages/ui-shared/src/generated/RunProperties";
 import type { Indent } from "./Indent";
+import type { LevelAlign } from "./LevelAlign";
 import type { LevelKind } from "./LevelKind";
 import type { LevelSuffix } from "./LevelSuffix";
 
@@ -49,4 +50,13 @@ legal?: boolean,
 /**
  * What follows the label.
  */
-suffix?: LevelSuffix, };
+suffix?: LevelSuffix, 
+/**
+ * Label alignment (docx `w:lvlJc`).
+ */
+alignment?: LevelAlign, 
+/**
+ * The paragraph style linked to this level (docx `w:pStyle`): Word's
+ * heading numbering (the style's numbering points back to the level).
+ */
+style?: string, };

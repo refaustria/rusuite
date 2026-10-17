@@ -411,6 +411,8 @@ export interface ParagraphValues {
   spacing: Spacing;
   /** Line and Page Breaks (effective values: style chain + direct). */
   flow?: FlowValues;
+  /** Outline level in effect (`w:outlineLvl`: 0 = Level 1 … 8 = Level 9, 9 = Body Text). */
+  outlineLevel?: number;
 }
 
 /** The Line and Page Breaks tab (Word's Pagination and Formatting exceptions). */
@@ -488,8 +490,11 @@ export function ParagraphDialog({ open, initial, tab = "indents", onTab, onSubmi
   const t = useT();
   const [f, setF] = useState({ align: "left", left: "", right: "", first: "", before: "", after: "", rule: "single" as LineRule, at: "1" });
   const [flow, setFlow] = useState<FlowValues>(flowValues({}));
+  const [outline, setOutline] = useState(9);
   useEffect(() => {
-    if (open) setFlow(initial.flow ?? flowValues({}));
+    if (!open) return;
+    setFlow(initial.flow ?? flowValues({}));
+    setOutline(initial.outlineLevel ?? 9);
   }, [open, initial]);
   useEffect(() => {
     if (!open) return;
@@ -518,7 +523,7 @@ export function ParagraphDialog({ open, initial, tab = "indents", onTab, onSubmi
           if (!valid) return;
           const [left, right, first, before, after] = nums as number[];
           const indent: Indent = first! >= 0 ? { left: left!, right: right!, firstLine: first!, hanging: null } : { left: left!, right: right!, firstLine: null, hanging: -first! };
-          onSubmit({ alignment: f.align as Alignment, indent, spacing: { before: Math.max(0, before!), after: Math.max(0, after!), line: line! }, flow });
+          onSubmit({ alignment: f.align as Alignment, indent, spacing: { before: Math.max(0, before!), after: Math.max(0, after!), line: line! }, flow, outlineLevel: outline });
         }}
       >
         <div className="flex gap-2 border-b border-ui-border" role="tablist">
@@ -553,6 +558,16 @@ export function ParagraphDialog({ open, initial, tab = "indents", onTab, onSubmi
             <option value="center">{t("write.centered")}</option>
             <option value="right">{t("write.right")}</option>
             <option value="justify">{t("write.justified")}</option>
+          </select>
+        </Row>
+        <Row label={t("write.outlineLevel")}>
+          <select aria-label={t("write.outlineLevel")} className={INPUT} value={outline} onChange={(e) => setOutline(Number(e.target.value))}>
+            <option value={9}>{t("write.bodyText")}</option>
+            {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+              <option key={n} value={n}>
+                {t("write.outlineLevelN", { n: n + 1 })}
+              </option>
+            ))}
           </select>
         </Row>
         <p className="font-medium">{t("write.indentation")}</p>
@@ -603,7 +618,26 @@ const defined = <T extends object>(o: T | null | undefined): Partial<T> =>
  * direct formatting), not only the direct formatting (W-23).
  */
 export function paragraphValuesAt(editor: Editor, ctl: SyncController): ParagraphValues {
-  return { ...paragraphInEffect(editor, ctl), flow: flowAt(editor, ctl) };
+  return { ...paragraphInEffect(editor, ctl), flow: flowAt(editor, ctl), outlineLevel: outlineLevelAt(editor, ctl) };
+}
+
+/** The outline level in effect at the caret's paragraph (direct, else its style's; 9 = Body Text). */
+export function outlineLevelAt(editor: Editor, ctl: SyncController): number {
+  const node = selectedTextblocks(editor)[0]?.[0];
+  if (!node) return 9;
+  const direct = (node.attrs.extra as { outlineLevel?: number } | null)?.outlineLevel;
+  return direct ?? resolveParagraph(ctl.styles, paragraphStyleId(ctl.styles, node)).outlineLevel ?? 9;
+}
+
+/** Sets the outline level of the selected paragraphs as direct formatting (their `extra`; the mapper sends `SetParagraphProps`). */
+export function setOutlineLevel(editor: Editor, level: number): boolean {
+  const tr = editor.state.tr;
+  for (const [node, pos] of selectedTextblocks(editor)) {
+    tr.setNodeMarkup(pos, undefined, { ...node.attrs, extra: { ...(node.attrs.extra ?? {}), outlineLevel: Math.max(0, Math.min(9, level)) } });
+  }
+  if (!tr.docChanged) return false;
+  editor.view.dispatch(tr);
+  return true;
 }
 
 /** Alignment, indents and spacing in effect at the caret's paragraph (style chain + direct formatting). */
@@ -861,6 +895,7 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
             if (d.indent) setIndent(editor, d.indent);
             if (d.spacing) setSpacing(editor, d.spacing);
             if (v.flow && para.flow) setFlow(editor, flowPatch(para.flow, v.flow));
+            if (v.outlineLevel != null && v.outlineLevel !== (para.outlineLevel ?? 9)) setOutlineLevel(editor, v.outlineLevel);
           }
           close();
         }}

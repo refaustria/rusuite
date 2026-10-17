@@ -47,7 +47,8 @@
      "spacing": {
       "after": 0,
       "before": 240
-     }
+     },
+     "outlineLevel": 0
     },
     "priority": 9,
     "quickFormat": true,
@@ -78,7 +79,8 @@
      "spacing": {
       "after": 0,
       "before": 40
-     }
+     },
+     "outlineLevel": 1
     },
     "priority": 9,
     "quickFormat": true,
@@ -110,7 +112,8 @@
      "spacing": {
       "after": 0,
       "before": 40
-     }
+     },
+     "outlineLevel": 2
     },
     "priority": 9,
     "quickFormat": true,
@@ -142,7 +145,8 @@
      "spacing": {
       "after": 0,
       "before": 40
-     }
+     },
+     "outlineLevel": 3
     },
     "priority": 9,
     "quickFormat": true,
@@ -174,7 +178,8 @@
      "spacing": {
       "after": 0,
       "before": 40
-     }
+     },
+     "outlineLevel": 4
     },
     "priority": 9,
     "quickFormat": true,
@@ -205,7 +210,8 @@
      "spacing": {
       "after": 0,
       "before": 40
-     }
+     },
+     "outlineLevel": 5
     },
     "priority": 9,
     "quickFormat": true,
@@ -236,7 +242,8 @@
      "spacing": {
       "after": 0,
       "before": 40
-     }
+     },
+     "outlineLevel": 6
     },
     "priority": 9,
     "quickFormat": true,
@@ -268,7 +275,8 @@
      "spacing": {
       "after": 0,
       "before": 40
-     }
+     },
+     "outlineLevel": 7
     },
     "priority": 9,
     "quickFormat": true,
@@ -300,7 +308,8 @@
      "spacing": {
       "after": 0,
       "before": 40
-     }
+     },
+     "outlineLevel": 8
     },
     "priority": 9,
     "quickFormat": true,

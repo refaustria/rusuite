@@ -11,7 +11,8 @@ use std::collections::BTreeMap;
 
 use core_model::{ColorScheme, FontFace, RunProperties};
 use model_text::{
-    AbstractNumbering, Level, LevelKind, LevelOverride, LevelSuffix, Numbering, NumberingDef,
+    AbstractNumbering, Level, LevelAlign, LevelKind, LevelOverride, LevelSuffix, Numbering,
+    NumberingDef,
 };
 
 use crate::props::{read_indent_quiet, read_rpr, write_fonts, write_indent, write_rpr};
@@ -181,11 +182,14 @@ fn read_level(lvl: &El, w: &mut Warnings) -> Level {
                 "word/numbering.xml: list level property {name} dropped",
                 &[("name", &el.qname())],
             ),
-            "pStyle" => w.warn(
-                "docx.numbering.levelStyleLink",
-                "word/numbering.xml: list level linked to a style; link dropped",
-                &[],
-            ),
+            "pStyle" => level.style = el.val().map(str::to_owned),
+            "lvlJc" => {
+                level.alignment = match el.val() {
+                    Some("center") => LevelAlign::Center,
+                    Some("right" | "end") => LevelAlign::Right,
+                    _ => LevelAlign::Left,
+                }
+            }
             _ => {}
         }
     }
@@ -390,6 +394,9 @@ fn write_level(x: &mut XmlOut, i: usize, level: &Level, scheme: &ColorScheme) {
     if let Some(r) = level.restart {
         x.val("w:lvlRestart", &r.to_string());
     }
+    if let Some(style) = &level.style {
+        x.val("w:pStyle", style);
+    }
     if level.legal {
         x.empty("w:isLgl", &[]);
     }
@@ -404,7 +411,14 @@ fn write_level(x: &mut XmlOut, i: usize, level: &Level, scheme: &ColorScheme) {
         level.text.clone()
     };
     x.val("w:lvlText", &text);
-    x.val("w:lvlJc", "left");
+    x.val(
+        "w:lvlJc",
+        match level.alignment {
+            LevelAlign::Left => "left",
+            LevelAlign::Center => "center",
+            LevelAlign::Right => "right",
+        },
+    );
     if let Some(ind) = level.indent.filter(|i| !i.is_empty()) {
         x.start("w:pPr", &[]);
         write_indent(x, &ind);
@@ -494,6 +508,56 @@ mod tests {
         }
         // and are written identically again
         assert_eq!(write(&back.numbering), xml);
+    }
+
+    #[test]
+    fn presets_roundtrip_with_alignment_and_style_links() {
+        use model_text::{LevelAlign, ListPreset};
+        let mut n = Numbering::default();
+        for (i, p) in ListPreset::MULTILEVEL.iter().enumerate() {
+            n.insert(NumberingDef::standalone(i as u32 + 1, p.levels().unwrap()));
+        }
+        let single: Vec<Level> = ListPreset::NUMBERING
+            .iter()
+            .chain(ListPreset::BULLETS.iter())
+            .map(|p| p.level_format(0).unwrap())
+            .collect();
+        for (i, l) in single.into_iter().enumerate() {
+            n.insert(NumberingDef::standalone(20 + i as u32, vec![l]));
+        }
+        let xml = write(&n);
+        let s = String::from_utf8(xml.clone()).unwrap();
+        assert!(s.contains(r#"<w:pStyle w:val="Heading1"/>"#), "{s}");
+        assert!(s.contains(r#"<w:lvlJc w:val="right"/>"#));
+        let mut w = Warnings::default();
+        let back = read_numbering(&xml, "n", &mut w).unwrap();
+        assert!(w.is_empty(), "{:?}", w.into_vec());
+        for def in &n.defs {
+            assert_eq!(
+                back.numbering.get(def.id).unwrap().levels,
+                def.levels,
+                "list {}",
+                def.id
+            );
+        }
+        let h = &back.numbering.get(5).unwrap().levels;
+        assert_eq!(h[3].style.as_deref(), Some("Heading4"));
+        let roman = &back.numbering.get(22).unwrap().levels[0];
+        assert_eq!(roman.alignment, LevelAlign::Right);
+        // Centred labels too.
+        let mut c = Numbering::default();
+        c.insert(NumberingDef::standalone(
+            1,
+            vec![Level {
+                alignment: LevelAlign::Center,
+                ..Level::new(LevelKind::Decimal, "%1.")
+            }],
+        ));
+        let s = String::from_utf8(write(&c)).unwrap();
+        assert!(
+            s.contains(r#"<w:lvlText w:val="%1."/><w:lvlJc w:val="center"/>"#),
+            "{s}"
+        );
     }
 
     #[test]

@@ -6,12 +6,12 @@ import { useMemo, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { openBackstage, PromptDialog, ShortcutHelp, useShortcuts, withExtension, type HelpRow, type ShortcutMap } from "@rusuite/ui-shared";
 import type { Alignment } from "./generated/Alignment";
-import { indent, setAlignment, setParagraphStyle, styleOf } from "./sync/editorCommands";
+import { indent, setAlignment, setParagraphStyle, toggleHeading } from "./sync/editorCommands";
 import { setLineSpacingRule, toggleSpaceBefore } from "./features/formatting";
 import type { WriteFeatures } from "./features/WriteFeatures";
 import { insertNote } from "./features/structureCommands";
 import { formatTarget } from "./features/runFormat";
-import { cycleCaseCommand, growFont, removeParagraphFormatting, stepHangingIndent, toggleChar, type CharToggle } from "./features/wordKeys";
+import { cycleCaseCommand, growFont, removeParagraphFormatting, stepHangingIndent, toggleChar, wordUnderline, type CharToggle } from "./features/wordKeys";
 import type { SyncController } from "./sync/SyncPlugin";
 import { useT } from "./i18n";
 
@@ -52,21 +52,6 @@ export interface WriteShortcutProps {
   features?: WriteFeatures;
 }
 
-/** Heading level toggle: pressing it again returns to Normal. */
-function toggleHeading(editor: Editor, level: number): void {
-  const id = `Heading${level}`;
-  const { $from } = editor.state.selection;
-  let current = "Normal";
-  for (let d = $from.depth; d > 0; d--) {
-    const n = $from.node(d);
-    if (n.type.name === "heading" || n.type.name === "paragraph" || n.type.name === "title") {
-      current = styleOf(n);
-      break;
-    }
-  }
-  setParagraphStyle(editor, current === id ? "Normal" : id);
-}
-
 export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, onFind, onReplace, features }: WriteShortcutProps) {
   const t = useT();
   const [helpOpen, setHelpOpen] = useState(false);
@@ -82,7 +67,7 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
         run: () => (editor ? void setAlignment(editor, a) : false),
       },
     });
-    // Tiptap binds Mod-Alt-1..6 itself and handles them first while the editor has focus;
+    // The editor's own keymap (WriteFeatures) binds Mod-Alt-1..3 to the same toggle before Tiptap's heading keys;
     // these entries cover the focus being elsewhere (toolbar, status bar).
     const headings: ShortcutMap = {};
     for (const n of [1, 2, 3]) {
@@ -116,6 +101,12 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
       "Mod+Shift+K": char(t("write.sc.smallCaps"), "smallCaps"),
       "Mod+Shift+A": char(t("write.sc.allCaps"), "allCaps"),
       "Mod+Shift+D": char(t("write.sc.doubleUnderline"), "doubleUnderline"),
+      "Mod+Shift+W": {
+        label: t("write.sc.wordUnderline"),
+        group: Fmt,
+        inField: true,
+        run: () => (editor ? void wordUnderline(formatTarget(editor), ctl.styles) : false),
+      },
       "Shift+F3": {
         label: t("write.sc.cycleCase"),
         group: Fmt,

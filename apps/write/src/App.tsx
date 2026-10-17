@@ -15,6 +15,7 @@ import { FindBar } from "./ui/FindBar";
 import { EditorContextMenu } from "./ui/EditorContextMenu";
 import { WriteDialogs } from "./ui/dialogs";
 import { ReferenceDialogs } from "./ui/referenceDialogs";
+import { ListDialogs } from "./ui/listGalleries";
 import { InfoPanel } from "./ui/InfoPanel";
 import { PageFrame, useWriteChrome } from "./ui/PageFrame";
 import { ShortcutLayer } from "./ShortcutLayer";
@@ -344,6 +345,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
       <FindBar ctl={ctl} editor={editor} ui={features.ui} />
       <WriteDialogs ui={features.ui} ctl={ctl} editor={editor} />
       <ReferenceDialogs ui={features.ui} ctl={ctl} editor={editor} />
+      <ListDialogs ui={features.ui} ctl={ctl} editor={editor} />
       <UserNameDialog ctl={ctl} features={features} />
       {editor && <StyleDialogsHost editor={editor} ctl={ctl} features={features} />}
       {editor && <ApplyStylesBox editor={editor} ctl={ctl} features={features} />}
