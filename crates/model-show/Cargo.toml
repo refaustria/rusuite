@@ -9,7 +9,7 @@ repository.workspace = true
 [features]
 # ts-rs derives on the model types (TypeScript definitions for Show,
 # exported to apps/show/src/generated/ by `cargo test`).
-ts = ["dep:ts-rs", "dep:app-common"]
+ts = ["dep:ts-rs", "dep:app-common", "core-model/ts"]
 
 [dependencies]
 app-common = { path = "../app-common", optional = true }

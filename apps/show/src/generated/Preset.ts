@@ -5,7 +5,8 @@ import type { GeomPath } from "./GeomPath";
  * Preset geometry of an auto shape (`a:prstGeom/@prst`), or a
  * custom geometry (`a:custGeom`). Outlines, adjust values and
  * their handles, connection sites and text rectangles follow
- * ECMA-376's preset shape definitions (see [`crate::presets`]).
+ * ECMA-376's preset shape definitions
+ * (`presetShapeDefinitions.xml`).
  *
  * Unit variants serialize as their DrawingML name (`"rect"`,
  * `"wedgeRectCallout"`); a custom geometry as

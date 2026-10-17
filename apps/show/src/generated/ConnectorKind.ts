@@ -2,7 +2,7 @@
 
 /**
  * The geometry of a connector (`p:cxnSp`). Elbow and curved connectors
- * come in variants with 1–4 turns (see [`crate::Connector::bends`]);
+ * come in variants with 1–4 turns (Show's `Connector::bends`);
  * DrawingML numbers them by segments (`bentConnector2` has one turn).
  */
 export type ConnectorKind = "straight" | "elbow" | "curved";

@@ -8,7 +8,7 @@
 //! `oox/source/drawingml/customshapes/presetShapeDefinitions.xml`) by
 //! `python3 -I gen.py presetShapeDefinitions.xml names.txt > defs.txt`.
 //! To support another preset: add its name to `names.txt`, regenerate,
-//! and add a variant to [`crate::Preset`].
+//! and add a variant to [`Preset`](super::Preset).
 //!
 //! Line format (one item per line, tokens separated by single spaces;
 //! operands are numbers or guide names):
@@ -28,7 +28,7 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use crate::geometry::{Adjust, Builder, Site, SubPath};
+use super::{Adjust, Builder, Site, SubPath};
 
 static DATA: &str = include_str!("defs.txt");
 

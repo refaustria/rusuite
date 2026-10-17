@@ -38,10 +38,10 @@ mod tree;
 mod undo_groups;
 
 pub use command::{
-    AutoFitMode, CommentPoint, FieldRefresh, FindFormat, FindMatch, FindQuery, ListKind,
-    MarginsPatch, NewBlock, NewCell, NewParagraph, NewRow, NewTable, NewToc, PageSetupPatch,
-    RefShow, RefTarget, SectionPatch, ShapeOutline, ShapeOutlinePath, ShapePathQuery, TextCase,
-    TextSeparator, WriteCommand,
+    AdjustHandle, AutoFitMode, CommentPoint, FieldRefresh, FindFormat, FindMatch, FindQuery,
+    HandleAxis, ListKind, MarginsPatch, NewBlock, NewCell, NewParagraph, NewRow, NewTable, NewToc,
+    PageSetupPatch, RefShow, RefTarget, SectionPatch, ShapeOutline, ShapeOutlinePath,
+    ShapePathQuery, TextCase, TextSeparator, WriteCommand,
 };
 pub use dispatch::{
     dispatch_with, shape_outline, ReaderWarning, Request, Response, ResponseBody, WriteHost,
