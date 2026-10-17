@@ -4,7 +4,8 @@
 
 use app_common::Patch;
 use model_show::{
-    Layout, NodeId, Section, ShowSettings, Slide, SlideMaster, SlideSize, Theme, ViewProps,
+    CustomShow, Layout, NodeId, Section, ShowSettings, Slide, SlideMaster, SlideSize, Theme,
+    ViewProps,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -55,6 +56,10 @@ pub struct ShowPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub show_settings: Option<ShowSettings>,
+    /// All custom shows, when they changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub custom_shows: Option<Vec<CustomShow>>,
     /// A message for the status bar.
     pub info: Option<String>,
 }
@@ -103,6 +108,9 @@ impl Patch for ShowPatch {
         }
         if other.show_settings.is_some() {
             self.show_settings = other.show_settings;
+        }
+        if other.custom_shows.is_some() {
+            self.custom_shows = other.custom_shows;
         }
         if other.info.is_some() {
             self.info = other.info;

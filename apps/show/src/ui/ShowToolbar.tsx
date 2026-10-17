@@ -146,6 +146,22 @@ function ViewCheck({ label, checked, disabled, shortcut, onChange }: { label: st
 
 // ----- the ribbon -------------------------------------------------------------------------
 
+/** Home › Section ▾ (PowerPoint's): Add, and for the current slide's section Rename, Remove; Remove All, Collapse / Expand All. */
+export function sectionRibbonMenu(store: ShowStore, state: ShowState, t: (k: string) => string): RibbonMenuItem[] {
+  const secs = state.pres?.sections ?? [];
+  const cur = state.current;
+  const index = cur === null ? -1 : secs.findIndex((s) => s.slideIds.includes(cur));
+  return [
+    { id: "addSection", label: t("show.section.add"), onSelect: () => void store.addSection() },
+    { id: "renameSection", label: t("show.section.renameDots"), disabled: index < 0, onSelect: () => store.openDialog({ kind: "renameSection", index }) },
+    { id: "removeSection", label: t("show.section.remove"), disabled: index < 0, onSelect: () => void store.removeSection(index, true) },
+    { id: "removeAllSections", label: t("show.section.removeAll"), disabled: !secs.length, onSelect: () => void store.removeAllSections() },
+    { separator: true },
+    { id: "collapseAll", label: t("show.section.collapseAll"), disabled: !secs.length, onSelect: () => store.setAllSections(true) },
+    { id: "expandAll", label: t("show.section.expandAll"), disabled: !secs.length, onSelect: () => store.setAllSections(false) },
+  ];
+}
+
 export interface ShowRibbonProps {
   store: ShowStore;
   session: AnySession;
@@ -349,7 +365,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
               <RibbonButton label={t("show.resetSlide")} icon={DI.reset} showLabel disabled={!hasSlide || masterView} tooltip={t("show.resetSlideTip")} onClick={() => void store.resetSlide()} />
             </RibbonStack>
             <RibbonStack>
-              <RibbonButton label={t("show.section.add")} icon={DI.section} showLabel disabled={!hasSlide || masterView} onClick={() => void store.addSection()} />
+              <RibbonMenuButton label={t("show.section.menu")} icon={DI.section} showLabel disabled={!hasSlide || masterView} menu={sectionRibbonMenu(store, state, t)} />
               <RibbonButton label={t("show.hideSlide")} icon="close" showLabel pressed={!!currentSlide?.hidden} disabled={!hasSlide || masterView} onClick={() => void store.toggleHidden()} />
             </RibbonStack>
             <RibbonStack>
@@ -669,6 +685,18 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
           <>
             <RibbonButton label={t("show.fromBeginning")} icon="present" size="large" shortcut="F5" disabled={!hasSlide} onClick={() => onPresent(true)} />
             <RibbonButton label={t("show.fromCurrent")} icon="presentCurrent" size="large" shortcut="Shift+F5" disabled={!hasSlide} onClick={() => onPresent(false)} />
+            <RibbonMenuButton
+              label={t("show.custom.menu")}
+              icon={DI.customShow}
+              size="large"
+              showLabel
+              disabled={!state.pres}
+              menu={[
+                ...(state.pres?.customShows ?? []).map((c) => ({ id: `custom-${c.id}`, label: c.name, disabled: !c.slideIds.length, onSelect: () => store.requestShow({ customShow: c.id }) })),
+                ...(state.pres?.customShows?.length ? [{ separator: true as const }] : []),
+                { id: "customShows", label: t("show.custom.titleDots"), onSelect: () => store.openDialog({ kind: "customShows" }) },
+              ]}
+            />
           </>
         ),
       },

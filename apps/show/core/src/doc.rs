@@ -129,6 +129,8 @@ struct Changes {
     view: bool,
     /// Slide-show settings changed.
     show_settings: bool,
+    /// Custom shows changed.
+    custom_shows: bool,
 }
 
 /// Every slide, shape and animation id of `p` (master and layout shapes
@@ -891,7 +893,27 @@ impl ShowDocument {
                 | C::MoveSection { .. }
         );
         let before = (!own).then(|| self.pres.sections.clone());
-        let inverse = self.exec_inner(cmd, ch)?;
+        let shows_before = (!own && !self.pres.custom_shows.is_empty()).then(|| {
+            (
+                self.pres.custom_shows.clone(),
+                self.pres.show_settings.clone(),
+            )
+        });
+        let mut inverse = self.exec_inner(cmd, ch)?;
+        // custom shows lose the slides that were removed (undo puts them back)
+        if let Some((shows, settings)) = shows_before {
+            if self.pres.fix_custom_shows() {
+                ch.custom_shows = true;
+                ch.show_settings |= settings != self.pres.show_settings;
+                inverse = C::Compound {
+                    commands: vec![
+                        inverse,
+                        C::SetCustomShows { shows },
+                        C::SetShowSettings { settings },
+                    ],
+                };
+            }
+        }
         let Some(before) = before else {
             return Ok(inverse);
         };
@@ -1311,9 +1333,32 @@ impl ShowDocument {
             }
             C::SetShowSettings { settings } => {
                 settings.validate().map_err(invalid)?;
-                let old = std::mem::replace(&mut self.pres.show_settings, *settings);
+                if let Some(id) = settings.custom_show {
+                    if self.pres.custom_show(id).is_none() {
+                        return Err(invalid(format!("unknown custom show {id}")));
+                    }
+                }
+                let old = std::mem::replace(&mut self.pres.show_settings, settings.clone());
                 ch.show_settings = true;
                 Ok(C::SetShowSettings { settings: old })
+            }
+            C::SetCustomShows { shows } => {
+                let known: HashSet<NodeId> = self.pres.slides.iter().map(|s| s.id).collect();
+                model_show::validate_custom_shows(shows, |id| known.contains(&id))
+                    .map_err(invalid)?;
+                let old = std::mem::replace(&mut self.pres.custom_shows, shows.clone());
+                ch.custom_shows = true;
+                let settings = self.pres.show_settings.clone();
+                if self.pres.fix_custom_shows() {
+                    ch.show_settings = true;
+                    return Ok(C::Compound {
+                        commands: vec![
+                            C::SetCustomShows { shows: old },
+                            C::SetShowSettings { settings },
+                        ],
+                    });
+                }
+                Ok(C::SetCustomShows { shows: old })
             }
             C::SetLockAspect { shapes, locked } => self.edit_shapes(shapes, ch, |s| {
                 s.lock_aspect = *locked;
@@ -3113,7 +3158,8 @@ impl ShowDocument {
             layouts: ch.design.then(|| self.pres.layouts.clone()),
             sections: ch.sections.then(|| self.pres.sections.clone()),
             view: ch.view.then(|| self.pres.view.clone()),
-            show_settings: ch.show_settings.then_some(self.pres.show_settings),
+            show_settings: ch.show_settings.then(|| self.pres.show_settings.clone()),
+            custom_shows: ch.custom_shows.then(|| self.pres.custom_shows.clone()),
         }
     }
 }

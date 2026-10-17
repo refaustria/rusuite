@@ -7,7 +7,9 @@
 //! smart guides, guide colours, Reading View) goes into a Rusuite
 //! extension of `p:viewPr` that other readers ignore.
 
-use model_show::{Emu, Guide, GuideOrient, ShowSettings, SlideRange, ViewKind, ViewProps};
+use model_show::{
+    Emu, Guide, GuideOrient, ShowSettings, ShowType, SlideRange, ViewKind, ViewProps,
+};
 
 use crate::parts::ROOT_NS;
 use crate::xml::{parse_bool, parse_i64, parse_u32, El, XmlOut};
@@ -212,13 +214,23 @@ pub fn pres_props_xml(s: &ShowSettings) -> Vec<u8> {
         attrs.push(("useTimings", "0"));
     }
     x.start("p:showPr", &attrs);
-    x.empty("p:present", &[]);
-    match s.range {
-        Some(r) => {
+    match s.show_type {
+        ShowType::Speaker => x.empty("p:present", &[]),
+        ShowType::Window => x.empty("p:browse", &[("showScrollbar", flag(s.show_scrollbar))]),
+        ShowType::Kiosk => x.empty("p:kiosk", &[]),
+    }
+    match (s.custom_show, s.range) {
+        (Some(id), _) => x.empty("p:custShow", &[("id", &id.to_string())]),
+        (None, Some(r)) => {
             let (st, end) = (r.start.to_string(), r.end.to_string());
             x.empty("p:sldRg", &[("st", &st), ("end", &end)]);
         }
-        None => x.empty("p:sldAll", &[]),
+        (None, None) => x.empty("p:sldAll", &[]),
+    }
+    if let Some(c) = &s.pen_color {
+        x.start("p:penClr", &[]);
+        x.empty("a:srgbClr", &[("val", c)]);
+        x.end("p:penClr");
     }
     x.end("p:showPr");
     x.end("p:presentationPr");
@@ -243,7 +255,47 @@ pub fn read_pres_props(root: &El) -> ShowSettings {
             let end = r.attr("end").and_then(parse_u32)?;
             (st >= 1 && end >= st).then_some(SlideRange { start: st, end })
         }),
+        show_type: if sp.child("kiosk").is_some() {
+            ShowType::Kiosk
+        } else if sp.child("browse").is_some() {
+            ShowType::Window
+        } else {
+            ShowType::Speaker
+        },
+        show_scrollbar: sp
+            .child("browse")
+            .and_then(|b| b.attr("showScrollbar"))
+            .and_then(parse_bool)
+            .unwrap_or(true),
+        custom_show: sp
+            .child("custShow")
+            .and_then(|c| c.attr("id"))
+            .and_then(parse_u32),
+        pen_color: sp
+            .child("penClr")
+            .and_then(|c| c.child("srgbClr").or_else(|| c.child("prstClr")))
+            .and_then(|c| match c.name.as_str() {
+                "srgbClr" => c.attr("val").map(str::to_ascii_uppercase),
+                _ => preset_rgb(c.attr("val")?),
+            })
+            .filter(|v| model_show::view::is_rrggbb(v)),
     }
+}
+
+/// `RRGGBB` of the preset colours PowerPoint writes for pens.
+fn preset_rgb(name: &str) -> Option<String> {
+    Some(
+        match name {
+            "red" => "FF0000",
+            "black" => "000000",
+            "white" => "FFFFFF",
+            "blue" => "0000FF",
+            "green" => "008000",
+            "yellow" => "FFFF00",
+            _ => return None,
+        }
+        .to_owned(),
+    )
 }
 
 #[cfg(test)]
@@ -320,11 +372,43 @@ mod tests {
             without_animation: true,
             range: Some(SlideRange { start: 2, end: 4 }),
             use_timings: false,
+            ..ShowSettings::default()
         };
         let xml = pres_props_xml(&s);
         let text = String::from_utf8(xml.clone()).unwrap();
         assert!(text.contains(r#"<p:sldRg st="2" end="4"/>"#), "{text}");
         assert_eq!(read_pres_props(&parse(&xml, "p").unwrap()), s);
+        let kiosk = ShowSettings {
+            show_type: ShowType::Kiosk,
+            custom_show: Some(2),
+            pen_color: Some("00B050".into()),
+            ..ShowSettings::default()
+        };
+        let xml = pres_props_xml(&kiosk);
+        let text = String::from_utf8(xml.clone()).unwrap();
+        assert!(
+            text.contains(
+                r#"<p:kiosk/><p:custShow id="2"/><p:penClr><a:srgbClr val="00B050"/></p:penClr>"#
+            ),
+            "{text}"
+        );
+        assert_eq!(read_pres_props(&parse(&xml, "p").unwrap()), kiosk);
+        let window = ShowSettings {
+            show_type: ShowType::Window,
+            show_scrollbar: false,
+            ..ShowSettings::default()
+        };
+        assert_eq!(
+            read_pres_props(&parse(&pres_props_xml(&window), "p").unwrap()),
+            window
+        );
+        let ppt = br#"<p:presentationPr xmlns:p="p" xmlns:a="a"><p:showPr showNarration="1"><p:present/><p:sldAll/><p:penClr><a:prstClr val="red"/></p:penClr></p:showPr></p:presentationPr>"#;
+        assert_eq!(
+            read_pres_props(&parse(ppt, "p").unwrap())
+                .pen_color
+                .as_deref(),
+            Some("FF0000")
+        );
         let none = parse(br#"<p:presentationPr xmlns:p="p"/>"#, "p").unwrap();
         assert_eq!(read_pres_props(&none), ShowSettings::default());
     }

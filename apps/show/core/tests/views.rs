@@ -97,8 +97,13 @@ fn show_settings_are_saved() {
         use_timings: false,
         ..ShowSettings::default()
     };
-    let p = apply(&mut h, C::SetShowSettings { settings });
-    assert_eq!(p.show_settings, Some(settings));
+    let p = apply(
+        &mut h,
+        C::SetShowSettings {
+            settings: settings.clone(),
+        },
+    );
+    assert_eq!(p.show_settings, Some(settings.clone()));
     assert_eq!(reopened(&h).show_settings, settings);
     let bad = ShowSettings {
         range: Some(SlideRange { start: 0, end: 1 }),

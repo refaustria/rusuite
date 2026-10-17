@@ -310,12 +310,13 @@ fn chart_kind_name(k: &core_model::chart::ChartKind) -> &'static str {
 }
 
 /// `url`, `slide`, `next`, `previous`, `first`, `last`, `lastViewed`,
-/// `endShow` of a link.
+/// `endShow`, `customShow` of a link.
 fn link_kind(h: &model_show::Hyperlink) -> String {
     use model_show::{LinkTarget, SlideRef};
     match &h.target {
         LinkTarget::Url(_) => "url".into(),
         LinkTarget::EndShow => "endShow".into(),
+        LinkTarget::CustomShow { .. } => "customShow".into(),
         LinkTarget::Slide(SlideRef::Id(_)) => "slide".into(),
         LinkTarget::Slide(r) => camel(&format!("{r:?}")),
     }

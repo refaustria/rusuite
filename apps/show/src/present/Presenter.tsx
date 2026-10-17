@@ -72,9 +72,13 @@ export interface PresenterProps {
   tools?: boolean;
   /** More buttons of the tool bar (the rehearsal's). */
   toolbarExtra?: ReactNode;
+  /** A link to a custom show was followed (P9-S3). */
+  onCustomShow?: (id: number, returnAfter: boolean) => void;
+  /** Set Up Slide Show › Pen color (`#RRGGBB`). */
+  penColor?: string;
 }
 
-export function Presenter({ deck, slides, media, mediaVersion, show, onAction, fullscreenExits = true, overlay, tools: toolsOn = false, toolbarExtra }: PresenterProps) {
+export function Presenter({ deck, slides, media, mediaVersion, show, onAction, fullscreenExits = true, overlay, tools: toolsOn = false, toolbarExtra, onCustomShow, penColor }: PresenterProps) {
   const t = useT();
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [idle, setIdle] = useState(false);
@@ -129,7 +133,7 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
     onAction(a);
   };
   // the tools' keys first: they take Esc while zoomed / drawing
-  const [tools, setTools] = useTools();
+  const [tools, setTools] = useTools(penColor);
   const pointerAt = useRef({ x: 0, y: 0 });
   useToolKeys(setTools, slides[show.index]?.id, pointerAt, toolsOn);
   useShowKeys(act);
@@ -159,6 +163,7 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
         return prev === null ? undefined : act({ type: "goto", index: prev });
       }
       case "end": return act({ type: "exit" });
+      case "customShow": return onCustomShow?.(a.id, a.returnAfter);
       default: return undefined;
     }
   };

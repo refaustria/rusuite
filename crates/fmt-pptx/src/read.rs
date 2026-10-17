@@ -200,6 +200,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     }
     resolve_slide_links(&mut p, &slide_parts, &mut w);
     read_sections(&root, &slide_numbers, &mut p, &mut w);
+    read_custom_shows(&pkg, &main, &root, &slide_parts, &mut p, &mut w);
     let props_root = |kind: &str| {
         related(&pkg, &main, kind)
             .and_then(|name| pkg.part(&name))
@@ -290,6 +291,59 @@ fn read_sections(root: &El, numbers: &[(u32, NodeId)], p: &mut Presentation, w: 
     p.fix_sections();
     if p.validate_sections().is_err() {
         w.add("sections out of slide order rearranged");
+    }
+}
+
+/// `p:custShowLst` → [`Presentation::custom_shows`]: slides by the
+/// presentation's relationships (unknown ones skipped, duplicate ids and
+/// names dropped with a warning).
+fn read_custom_shows(
+    pkg: &Package,
+    main: &PartName,
+    root: &El,
+    slide_parts: &HashMap<String, NodeId>,
+    p: &mut Presentation,
+    w: &mut Warnings,
+) {
+    let Some(list) = root.child("custShowLst") else {
+        return;
+    };
+    for el in list.elements().filter(|e| e.name == "custShow") {
+        let Some(id) = el.attr("id").and_then(parse_u32) else {
+            w.add("custom show without id dropped");
+            continue;
+        };
+        let name = el.attr("name").unwrap_or("").trim().to_owned();
+        let taken = p
+            .custom_shows
+            .iter()
+            .any(|c| c.id == id || c.name.eq_ignore_ascii_case(&name));
+        if name.is_empty() || taken {
+            w.add(format!(
+                "custom show {name:?} dropped (no or a duplicate name or id)"
+            ));
+            continue;
+        }
+        let mut slide_ids = Vec::new();
+        for s in el
+            .child("sldLst")
+            .into_iter()
+            .flat_map(|l| l.elements())
+            .filter(|e| e.name == "sld")
+        {
+            let target = s.attr("id").and_then(|rid| target_of(pkg, main, rid));
+            match target.and_then(|t| slide_parts.get(t.as_str())) {
+                Some(n) => slide_ids.push(*n),
+                None => w.add(format!(
+                    "custom show {name:?}: a slide that is not in the presentation dropped"
+                )),
+            }
+        }
+        p.custom_shows.push(model_show::CustomShow {
+            id,
+            name,
+            slide_ids,
+        });
     }
 }
 

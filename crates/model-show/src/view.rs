@@ -109,7 +109,7 @@ impl ViewProps {
                 return Err(format!("guide position {} out of range", g.pos.0));
             }
             if let Some(c) = &g.color {
-                if c.len() != 6 || !c.chars().all(|ch| ch.is_ascii_hexdigit()) {
+                if !is_rrggbb(c) {
                     return Err(format!("guide colour {c:?} is not RRGGBB"));
                 }
             }
@@ -165,8 +165,27 @@ pub struct SlideRange {
     pub end: u32,
 }
 
+/// Show type of Set Up Slide Show (`p:showPr` `p:present` / `p:browse` /
+/// `p:kiosk`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub enum ShowType {
+    /// Presented by a speaker, full screen (`p:present`).
+    #[default]
+    Speaker,
+    /// Browsed by an individual, in a window (`p:browse`).
+    Window,
+    /// Browsed at a kiosk, full screen, looping (`p:kiosk`).
+    Kiosk,
+}
+
 /// Set Up Slide Show (`p:presentationPr/p:showPr`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 #[cfg_attr(
     feature = "ts",
@@ -189,6 +208,25 @@ pub struct ShowSettings {
     /// Advance slides using timings, if present (`useTimings`); `false` =
     /// manually.
     pub use_timings: bool,
+    /// Presented by a speaker, browsed in a window or at a kiosk.
+    #[serde(skip_serializing_if = "is_speaker")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<ShowType>"))]
+    pub show_type: ShowType,
+    /// Browsed in a window: show the scroll bar (`p:browse/@showScrollbar`).
+    pub show_scrollbar: bool,
+    /// The custom show to run (`p:custShow/@id`; `None` = the slides or
+    /// the range). Takes precedence over `range`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub custom_show: Option<u32>,
+    /// Pen colour as `RRGGBB` (`p:penClr`; `None` = PowerPoint's red).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub pen_color: Option<String>,
+}
+
+fn is_speaker(t: &ShowType) -> bool {
+    *t == ShowType::Speaker
 }
 
 impl Default for ShowSettings {
@@ -199,20 +237,83 @@ impl Default for ShowSettings {
             without_animation: false,
             range: None,
             use_timings: true,
+            show_type: ShowType::Speaker,
+            show_scrollbar: true,
+            custom_show: None,
+            pen_color: None,
         }
     }
 }
 
 impl ShowSettings {
-    /// Checks the range (1-based, `start <= end`).
+    /// PowerPoint's default pen colour.
+    pub const DEFAULT_PEN: &'static str = "FF0000";
+
+    /// Checks the range (1-based, `start <= end`) and the pen colour
+    /// (`RRGGBB`).
     pub fn validate(&self) -> Result<(), String> {
         if let Some(r) = self.range {
             if r.start == 0 || r.end < r.start {
                 return Err(format!("slide range {}–{} is invalid", r.start, r.end));
             }
         }
+        if let Some(c) = &self.pen_color {
+            if !is_rrggbb(c) {
+                return Err(format!("pen colour {c:?} is not RRGGBB"));
+            }
+        }
         Ok(())
     }
+}
+
+/// Whether `s` is a colour as `RRGGBB`.
+pub fn is_rrggbb(s: &str) -> bool {
+    s.len() == 6 && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// A custom show (`p:custShowLst/p:custShow`): a named list of slides,
+/// in its own order (a slide may appear more than once).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub struct CustomShow {
+    /// `@id`, unique in the presentation (links and Set Up Slide Show
+    /// refer to it).
+    pub id: u32,
+    /// `@name`, unique and not empty.
+    pub name: String,
+    /// The slides in show order.
+    #[serde(default)]
+    pub slide_ids: Vec<crate::NodeId>,
+}
+
+/// Checks custom shows: unique ids, unique non-empty names, known slides.
+pub fn validate_custom_shows(
+    shows: &[CustomShow],
+    slide_exists: impl Fn(crate::NodeId) -> bool,
+) -> Result<(), String> {
+    let mut ids = std::collections::HashSet::new();
+    let mut names = std::collections::HashSet::new();
+    for s in shows {
+        if !ids.insert(s.id) {
+            return Err(format!("custom show id {} is used twice", s.id));
+        }
+        let name = s.name.trim();
+        if name.is_empty() {
+            return Err("a custom show needs a name".into());
+        }
+        if !names.insert(name.to_lowercase()) {
+            return Err(format!("custom show name {name:?} is used twice"));
+        }
+        if let Some(id) = s.slide_ids.iter().find(|id| !slide_exists(**id)) {
+            return Err(format!("custom show {name:?}: unknown slide {}", id.0));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -261,5 +362,32 @@ mod tests {
             ..ShowSettings::default()
         };
         assert!(bad.validate().is_err());
+        let pen = ShowSettings {
+            pen_color: Some("blue".into()),
+            ..ShowSettings::default()
+        };
+        assert!(pen.validate().is_err());
+        // defaults are not written
+        assert!(!serde_json::to_string(&ShowSettings::default())
+            .unwrap()
+            .contains("showType"));
+    }
+
+    #[test]
+    fn custom_shows_validate() {
+        use crate::NodeId;
+        let show = |id, name: &str, slides: &[u64]| CustomShow {
+            id,
+            name: name.into(),
+            slide_ids: slides.iter().map(|n| NodeId(*n)).collect(),
+        };
+        let known = |id: NodeId| id.0 < 10;
+        assert!(
+            validate_custom_shows(&[show(0, "A", &[1, 2, 1]), show(1, "B", &[])], known).is_ok()
+        );
+        assert!(validate_custom_shows(&[show(0, "A", &[]), show(0, "B", &[])], known).is_err());
+        assert!(validate_custom_shows(&[show(0, "A", &[]), show(1, " a ", &[])], known).is_err());
+        assert!(validate_custom_shows(&[show(0, " ", &[])], known).is_err());
+        assert!(validate_custom_shows(&[show(0, "A", &[12])], known).is_err());
     }
 }

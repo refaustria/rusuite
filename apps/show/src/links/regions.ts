@@ -59,6 +59,7 @@ export type LinkAction =
   | { kind: "previous" }
   | { kind: "back" }
   | { kind: "end" }
+  | { kind: "customShow"; id: number; returnAfter: boolean }
   | { kind: "none" };
 
 /** The action of `link` in a show of `slides` (ids in show order); links to slides not in the show do nothing. */
@@ -66,6 +67,7 @@ export function linkAction(link: Hyperlink, slides: readonly NodeId[]): LinkActi
   const t = link.target;
   if (t.kind === "url") return { kind: "url", url: t.value };
   if (t.kind === "endShow") return { kind: "end" };
+  if (t.kind === "customShow") return { kind: "customShow", id: t.value.id, returnAfter: !!t.value.returnAfter };
   switch (t.value.kind) {
     case "id": {
       const index = slides.indexOf(t.value.value);

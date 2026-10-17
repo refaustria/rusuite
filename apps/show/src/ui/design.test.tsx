@@ -246,7 +246,8 @@ describe("sections in the slide panel", () => {
     await flush();
     expect(last(backend.commands)).toEqual({ type: "removeSection", index: 0, keepSlides: true });
     // Add Section at the current slide asks for the name
-    fireEvent.click(within(screen.getByRole("toolbar", { name: "Formatting" })).getByRole("button", { name: "Add Section" }));
+    fireEvent.click(within(screen.getByRole("toolbar", { name: "Formatting" })).getByRole("button", { name: "Section" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add Section" }));
     await flush();
     expect(backend.commands.at(-1)).toMatchObject({ type: "addSection", name: "Untitled Section" });
     expect(screen.getByRole("dialog", { name: "Rename Section" })).toBeTruthy();

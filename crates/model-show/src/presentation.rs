@@ -15,7 +15,7 @@ use crate::slide::{find_in, Slide};
 use crate::tablestyle::TableStyleDef;
 use crate::text::{TextBody, TextField, TextParagraph, TextParagraphProps, TextRun};
 use crate::theme::{Background, ResolvedFill, Theme};
-use crate::view::{ShowSettings, ViewProps};
+use crate::view::{CustomShow, ShowSettings, ViewProps};
 use crate::{Error, NodeId, Result};
 
 /// The slide size (`p:sldSz`).
@@ -98,6 +98,10 @@ pub struct Presentation {
     #[serde(default, skip_serializing_if = "is_default")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<ShowSettings>"))]
     pub show_settings: ShowSettings,
+    /// Custom shows (`p:custShowLst`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<CustomShow>>"))]
+    pub custom_shows: Vec<CustomShow>,
     /// Table styles of the file that are not PowerPoint built-ins
     /// (`ppt/tableStyles.xml`; tables find their style here first, then
     /// among [`crate::builtin_table_styles`]).
@@ -192,6 +196,7 @@ impl Presentation {
             media: MediaStore::new(),
             view: ViewProps::default(),
             show_settings: ShowSettings::default(),
+            custom_shows: Vec::new(),
             table_styles: Vec::new(),
             next_id: 1,
         }
@@ -542,6 +547,31 @@ impl Presentation {
         for l in &mut self.layouts {
             walk(&mut l.shapes);
         }
+    }
+
+    /// Repairs the custom shows after slides were removed: their unknown
+    /// slides are dropped and Set Up Slide Show forgets a custom show that
+    /// no longer exists. Returns whether anything changed.
+    pub fn fix_custom_shows(&mut self) -> bool {
+        let known: std::collections::HashSet<NodeId> = self.slides.iter().map(|s| s.id).collect();
+        let mut changed = false;
+        for show in &mut self.custom_shows {
+            let before = show.slide_ids.len();
+            show.slide_ids.retain(|id| known.contains(id));
+            changed |= show.slide_ids.len() != before;
+        }
+        if let Some(id) = self.show_settings.custom_show {
+            if !self.custom_shows.iter().any(|c| c.id == id) {
+                self.show_settings.custom_show = None;
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// The custom show with `id`.
+    pub fn custom_show(&self, id: u32) -> Option<&CustomShow> {
+        self.custom_shows.iter().find(|c| c.id == id)
     }
 
     /// Every media item `shapes` use (pictures, audio/video files and

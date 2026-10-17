@@ -526,6 +526,10 @@ export class FakeBackend implements ShowBackend {
         p.showSettings = clone(c.settings);
         this.props = true;
         return;
+      case "setCustomShows":
+        p.customShows = clone(c.shows);
+        this.props = true;
+        return;
       // ----- P8-32
       case "setLockAspect":
         for (const id of c.shapes) {
@@ -851,7 +855,7 @@ export class FakeBackend implements ShowBackend {
             slidesOrder: order.changed ? this.pres.slides.map((s) => s.id) : null,
             ...design,
             ...(this.sections ? { sections: clone(this.pres.sections ?? []) } : {}),
-            ...(this.props ? { ...(this.pres.view ? { view: clone(this.pres.view) } : {}), ...(this.pres.showSettings ? { showSettings: clone(this.pres.showSettings) } : {}) } : {}),
+            ...(this.props ? { ...(this.pres.view ? { view: clone(this.pres.view) } : {}), ...(this.pres.showSettings ? { showSettings: clone(this.pres.showSettings) } : {}), ...(this.pres.customShows ? { customShows: clone(this.pres.customShows) } : {}) } : {}),
           }),
         });
       }

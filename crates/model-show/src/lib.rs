@@ -93,7 +93,10 @@ pub use theme::{
     StyleShadow, Theme,
 };
 pub use themes::{builtin_theme, builtin_themes, BuiltinTheme, BUILTIN_THEME_IDS};
-pub use view::{Guide, GuideOrient, ShowSettings, SlideRange, ViewKind, ViewProps};
+pub use view::{
+    validate_custom_shows, CustomShow, Guide, GuideOrient, ShowSettings, ShowType, SlideRange,
+    ViewKind, ViewProps,
+};
 
 use serde::{Deserialize, Serialize};
 

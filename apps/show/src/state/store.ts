@@ -34,6 +34,7 @@ import type { ZOp } from "../generated/ZOp";
 import type { BodyProps } from "../generated/BodyProps";
 import type { GuideOrient } from "../generated/GuideOrient";
 import type { ShowSettings } from "../generated/ShowSettings";
+import type { CustomShow } from "../generated/CustomShow";
 import type { ViewProps } from "../generated/ViewProps";
 import { dragGuide, newGuide, nudgeDelta } from "../canvas/guides";
 import { boundsPx, EMU_PER_PX, type Rect as BoxRect } from "../geometry";
@@ -196,6 +197,8 @@ export interface ShowState {
   collapsedSections: number[];
   /** Slide Sorter zoom in % (thumbnail size). */
   sorterZoom: number;
+  /** A slide show to start (the App starts it and clears this): a custom show. */
+  showRequest: { customShow: number } | null;
   /** Home › Select › Selection Pane (right of the stage). */
   selectionPane: boolean;
   /** The Format Shape pane (right of the stage) on Size & Properties or Text Options. */
@@ -237,7 +240,8 @@ export type ShowDialog =
   | { kind: "link" }
   | { kind: "action" }
   | { kind: "gridGuides" }
-  | { kind: "setUpShow" };
+  | { kind: "setUpShow" }
+  | { kind: "customShows" };
 
 /** The internal clipboard: shapes (with the slide they came from) or slide ids. */
 type Clip = { kind: "shapes"; shapes: Shape[]; slide: NodeId | null; pastes: number } | { kind: "slides"; ids: NodeId[] };
@@ -262,6 +266,7 @@ export function applyPatch(pres: Presentation, patch: ShowPatch): Presentation {
   if (patch.sections) out.sections = patch.sections;
   if (patch.view) out.view = patch.view;
   if (patch.showSettings) out.showSettings = patch.showSettings;
+  if (patch.customShows) out.customShows = patch.customShows;
   return out;
 }
 
@@ -312,6 +317,7 @@ export class ShowStore {
     slideSel: [],
     collapsedSections: [],
     sorterZoom: 90,
+    showRequest: null,
     selectionPane: false,
     formatPane: null,
     alignTo: "selection",
@@ -2285,6 +2291,23 @@ export class ShowStore {
     await this.run({ type: "setShowSettings", settings });
   }
 
+  /** Custom Shows… (New, Edit, Remove, Copy): the whole list in one undo step. */
+  async setCustomShows(shows: CustomShow[]): Promise<void> {
+    const old = this.state.pres?.customShows ?? [];
+    if (JSON.stringify(old) === JSON.stringify(shows)) return;
+    await this.run({ type: "setCustomShows", shows });
+  }
+
+  /** Starts a custom show (Custom Slide Show ▾, the Custom Shows dialog's Show). */
+  requestShow(request: { customShow: number }): void {
+    if (this.state.editing) void this.commitEdit();
+    this.set({ showRequest: request });
+  }
+
+  clearShowRequest(): void {
+    if (this.state.showRequest) this.set({ showRequest: null });
+  }
+
   /** Rehearse Timings accepted: each rehearsed slide advances after its recorded time (one undo step). */
   async applyTimings(times: ReadonlyMap<NodeId, number>): Promise<void> {
     const slides = this.state.pres?.slides ?? [];
@@ -2615,7 +2638,7 @@ export const DEFAULT_VIEW: ViewProps = {
 };
 
 /** `ShowSettings::default`. */
-export const DEFAULT_SHOW_SETTINGS: ShowSettings = { loop: false, withoutNarration: false, withoutAnimation: false, useTimings: true };
+export const DEFAULT_SHOW_SETTINGS: ShowSettings = { loop: false, withoutNarration: false, withoutAnimation: false, useTimings: true, showScrollbar: true };
 
 const DEFAULT_BODY: BodyProps = { anchor: "top", wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" };
 

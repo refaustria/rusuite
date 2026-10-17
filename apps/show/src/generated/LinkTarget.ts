@@ -7,4 +7,12 @@ import type { SlideRef } from "./SlideRef";
  * Serializes as `{"kind":"url","value":"https://…"}`,
  * `{"kind":"slide","value":{"kind":"next"}}` or `{"kind":"endShow"}`.
  */
-export type LinkTarget = { "kind": "url", "value": string } | { "kind": "slide", "value": SlideRef } | { "kind": "endShow" };
+export type LinkTarget = { "kind": "url", "value": string } | { "kind": "slide", "value": SlideRef } | { "kind": "endShow" } | { "kind": "customShow", "value": { 
+/**
+ * [`crate::CustomShow::id`].
+ */
+id: number, 
+/**
+ * Show and return.
+ */
+returnAfter: boolean, } };

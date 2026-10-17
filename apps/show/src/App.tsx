@@ -114,7 +114,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       }),
     [backend, store],
   );
-  const [presenting, setPresenting] = useState<{ mode: "single" | "presenter"; link?: AudienceLink; rehearse?: boolean } | null>(null);
+  const [presenting, setPresenting] = useState<{ mode: "single" | "presenter"; link?: AudienceLink; rehearse?: boolean; customShow?: number } | null>(null);
   const [printOptions, setPrintOptions] = useState<ShowPrintOptions>(DEFAULT_SHOW_PRINT);
   const [zoom, setZoom] = useState<ShowZoom>("fit");
   const [canvasRef, size] = useElementSize<HTMLDivElement>();
@@ -151,15 +151,22 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   }, [backend, guard, dirty, name, locale]);
 
   const startPresenting = useCallback(
-    (mode: "single" | "presenter" = "single", rehearse = false) => {
+    (mode: "single" | "presenter" = "single", rehearse = false, customShow?: number) => {
       if (!store.getState().pres?.slides.length) return;
       void store.commitEdit();
       if (store.getState().view === "reading") store.setView("normal");
       // The audience window opens right here, inside the key / click handler (popup blockers).
-      setPresenting(mode === "presenter" ? { mode, link: launchAudience() } : { mode, rehearse });
+      setPresenting(mode === "presenter" ? { mode, link: launchAudience() } : { mode, rehearse, ...(customShow === undefined ? {} : { customShow }) });
     },
     [store],
   );
+  // Custom Slide Show ▾ / Custom Shows › Show (P9-S3)
+  const showRequest = useShow(store, (s) => s.showRequest);
+  useEffect(() => {
+    if (!showRequest) return;
+    store.clearShowRequest();
+    startPresenting("single", false, showRequest.customShow);
+  }, [showRequest, store, startPresenting]);
   // File › Export PDF…: the Print pipeline with the current settings, straight to the system dialog ("Save as PDF").
   const exportPdf = useCallback(() => {
     void (async () => {
@@ -172,6 +179,12 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     (fromStart: boolean, rehearse = false) => {
       const pres = store.getState().pres;
       const first = pres?.slides[0]?.id;
+      // Set Up Slide Show › Custom show: From Beginning runs it
+      const custom = pres?.showSettings?.customShow;
+      if (fromStart && !rehearse && custom !== undefined && pres?.customShows?.some((c) => c.id === custom && c.slideIds.length)) {
+        startPresenting("single", false, custom);
+        return;
+      }
       if (fromStart && pres && first !== undefined) {
         // Set Up Slide Show › From … To …: the first slide of the range
         const range = pres.showSettings?.range;
@@ -260,7 +273,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       <ShowDialogs store={store} printOptions={printOptions} onPrintOptions={setPrintOptions} />
       <ShortcutLayer store={store} guard={guard} enabled={!presenting} onPresent={presentFrom} onPresenterView={presenterView} />
       <ConfirmDiscard guard={guard} />
-      {presenting && pres && <SlideShow store={store} mode={presenting.mode} link={presenting.link} rehearse={presenting.rehearse} onEnd={exit} />}
+      {presenting && pres && <SlideShow store={store} mode={presenting.mode} link={presenting.link} rehearse={presenting.rehearse} customShow={presenting.customShow ?? null} onEnd={exit} />}
     </main>
   );
 }

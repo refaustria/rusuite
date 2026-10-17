@@ -7,7 +7,7 @@ import { ShowApi } from "../api";
 import { ShowStore } from "../state/store";
 import { FakeBackend } from "../test/fakeBackend";
 import { Audience } from "./Audience";
-import { SlideShow } from "./SlideShow";
+import { SlideShow, customShowIds } from "./SlideShow";
 import { audienceIdOf, fakeSyncPair, type AudienceLink, type SyncMessage } from "./sync";
 
 afterEach(cleanup);
@@ -271,5 +271,26 @@ describe("animations and timings in the show", () => {
     const screenEl = screen.getAllByTestId("presenter").at(-1)!;
     expect(screenEl.getAttribute("data-step")).toBe("1");
     expect(within(screenEl).getByTestId("animated-slide").getAttribute("data-hidden-shapes")).toBe("9");
+  });
+});
+
+describe("custom shows (P9-S3)", () => {
+  it("runs only the custom show's slides, in its order; a link with return comes back", async () => {
+    const store = await storeWithNotes();
+    await store.setCustomShows([{ id: 3, name: "Short", slideIds: [7, 1] }]);
+    store.selectSlide(4);
+    render(<SlideShow store={store} mode="single" customShow={3} onEnd={vi.fn()} />);
+    expect(screen.getByTestId("presenter-counter").textContent).toBe("1 / 2");
+    await flush();
+    expect(store.getState().current).toBe(7);
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    await flush();
+    expect(store.getState().current).toBe(1);
+  });
+
+  it("customShowIds skips hidden and missing slides; an unknown show is null", () => {
+    const p = { slides: [{ id: 1, layout: "blank" as const, shapes: [] }, { id: 2, layout: "blank" as const, shapes: [], hidden: true }], customShows: [{ id: 0, name: "A", slideIds: [2, 1, 99, 1] }] };
+    expect(customShowIds(p, 0)).toEqual([1, 1]);
+    expect(customShowIds(p, 5)).toBeNull();
   });
 });

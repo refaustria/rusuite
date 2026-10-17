@@ -121,3 +121,41 @@ describe("Slide Sorter polish", () => {
     await waitFor(() => expect(store.getState().pres?.slides.map((s) => s.id)).toEqual([7, 1, 4]));
   });
 });
+
+describe("custom shows and Set Up Slide Show", () => {
+  it("Custom Shows… › New defines a show from picked slides; Show starts it", async () => {
+    const { backend } = await mount();
+    fireEvent.click(tab("Slide Show"));
+    fireEvent.click(screen.getByRole("button", { name: "Custom Slide Show" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Custom Shows…" }));
+    fireEvent.click(screen.getByRole("button", { name: "New…" }));
+    const define = screen.getByTestId("define-custom-show");
+    fireEvent.change(screen.getByRole("textbox", { name: "Slide show name:" }), { target: { value: "Short" } });
+    const boxes = define.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+    fireEvent.click(boxes[2]!);
+    fireEvent.click(boxes[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Add »" }));
+    // presentation order: slide 1, then slide 3; move slide 3 up
+    fireEvent.click(screen.getAllByRole("option").filter((o) => o.closest('[data-testid="custom-show-slides"]'))[1]!);
+    fireEvent.click(screen.getByRole("button", { name: "Move up" }));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+    await waitFor(() => expect(backend.commands.at(-1)).toEqual({ type: "setCustomShows", shows: [{ id: 0, name: "Short", slideIds: [7, 1] }] }));
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    await waitFor(() => expect(screen.getByTestId("presenter-counter").textContent).toBe("1 / 2"));
+  });
+
+  it("Set Up Show stores the show type, the custom show and the pen colour", async () => {
+    const p = fixture();
+    p.customShows = [{ id: 4, name: "Kiosk", slideIds: [4] }];
+    const { backend } = await mount(new FakeBackend(p));
+    fireEvent.click(tab("Slide Show"));
+    fireEvent.click(screen.getByRole("button", { name: "Set Up Slide Show" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Browsed at a kiosk (full screen)" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Custom show:" }));
+    fireEvent.change(screen.getByLabelText("Pen color:"), { target: { value: "#00b050" } });
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+    await waitFor(() => expect(backend.commands.at(-1)?.type).toBe("setShowSettings"));
+    const c = backend.commands.at(-1);
+    expect(c?.type === "setShowSettings" && c.settings).toMatchObject({ showType: "kiosk", loop: true, customShow: 4, penColor: "00B050" });
+  });
+});
