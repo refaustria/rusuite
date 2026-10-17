@@ -1,0 +1,7 @@
+{
+  "register": {},
+  "untranslated": {
+    "apps/write/src/locales:write.fieldDialog.seqFormat.upperRoman": "Sample sequence of upper-case Roman numerals, language-neutral",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "Sample sequence of lower-case Roman numerals, language-neutral"
+  }
+}
