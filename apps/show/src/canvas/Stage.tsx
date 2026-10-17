@@ -156,6 +156,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   const freeRef = useRef<FreeformState | null>(null);
   freeRef.current = free;
   const editPoints = useShow(store, (s) => s.editPoints);
+  const handleFocus = useShow(store, (s) => s.handleFocus);
   /** Connection sites shown (connector being drawn or an end dragged). */
   const [sites, setSites] = useState<{ sites: SlideSite[]; active: SlideSite | null; line?: [Pt, Pt] } | null>(null);
   /** A shape drawn instead of the model's while a handle is dragged. */
@@ -601,7 +602,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
             />
           )}
           {one?.kind.kind === "auto" && editPoints !== one.id && (
-            <AdjustHandles shape={preview?.id === one.id ? preview : one} scale={scale} onPreview={setPreview} onCommit={(id, adjust) => void store.setAdjust(id, adjust)} />
+            <AdjustHandles shape={preview?.id === one.id ? preview : one} scale={scale} focus={handleFocus} onPreview={setPreview} onCommit={(id, adjust) => void store.setAdjust(id, adjust)} />
           )}
           {one?.kind.kind === "connector" && (
             <ConnectorHandles

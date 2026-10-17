@@ -1357,6 +1357,37 @@ mod tests {
         }
     }
 
+    #[test]
+    fn new_presets_have_powerpoints_handles_and_text_rects() {
+        let (w, h) = (1_000_000.0, 600_000.0);
+        let adj = Adjust::new();
+        // the arc's two angle handles are polar, around the centre
+        let arc = Preset::Arc.handles(w, h, &adj);
+        assert_eq!(arc.len(), 2);
+        assert!(arc.iter().all(|a| a.polar));
+        // the plaque's corner handle is linear on the x axis of `adj`
+        let pl = Preset::Plaque.handles(w, h, &adj);
+        assert_eq!(pl.len(), 1);
+        let xa = pl[0].x_axis.as_ref().unwrap();
+        assert_eq!(xa.adj, "adj");
+        assert!(
+            (pl[0].x - 16_667.0 * h / 100_000.0).abs() < 1.0,
+            "{:?}",
+            pl[0]
+        );
+        // callouts with an accent bar: four handles (two per leader end)
+        assert_eq!(Preset::AccentCallout1.handles(w, h, &adj).len(), 2);
+        assert_eq!(Preset::BorderCallout3.handles(w, h, &adj).len(), 4);
+        // text rectangles lie inside the box and shrink for brackets
+        let r = Preset::BracketPair.text_rect(w, h, &adj);
+        assert!(r.l > 0.0 && r.r < w && r.t > 0.0 && r.b < h, "{r:?}");
+        // a 32-point star: 32 outer points, a default inner radius
+        assert_eq!(Preset::Star32.adjust_defaults().len(), 1);
+        // the open presets (arc, brackets) have a stroke-only path
+        let paths = Preset::Arc.paths(w, h, &adj);
+        assert!(paths.iter().any(|p| p.stroke && !p.fill));
+    }
+
     /// Bounding box, text rectangle, handles and sites of every preset in
     /// two boxes and with adjusted values.
     #[test]

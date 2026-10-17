@@ -1119,5 +1119,7 @@
   "show.editPoints.smooth": "Smooth Point",
   "show.editPoints.close": "Close Path",
   "show.editPoints.open": "Open Path",
-  "show.editPoints.exit": "Exit Edit Points"
+  "show.editPoints.exit": "Exit Edit Points",
+  "show.sc.handleNext": "Next adjust handle (Slide Master: next text level)",
+  "show.sc.handlePrev": "Previous adjust handle (Slide Master: previous text level)"
 }

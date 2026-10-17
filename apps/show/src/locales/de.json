@@ -1119,5 +1119,7 @@
   "show.editPoints.smooth": "Punkt glätten",
   "show.editPoints.close": "Pfad schließen",
   "show.editPoints.open": "Pfad öffnen",
-  "show.editPoints.exit": "Punktbearbeitung beenden"
+  "show.editPoints.exit": "Punktbearbeitung beenden",
+  "show.sc.handleNext": "Nächster Ziehpunkt (Folienmaster: nächste Textebene)",
+  "show.sc.handlePrev": "Vorheriger Ziehpunkt (Folienmaster: vorherige Textebene)"
 }

@@ -132,3 +132,38 @@ describe("table editing (P9-S2)", () => {
     expect(store.getState().editing).toMatchObject({ shape: 100, cell: { row: 0, col: 0 } });
   });
 });
+
+describe("keyboard adjust handles (P9-S2)", () => {
+  it("Tab focuses the selected shape's adjust handle, arrows move it (Shift ×10), Esc leaves it", async () => {
+    const { backend, store } = await mount();
+    await act(() => store.insertChoice("roundRect"));
+    await flush();
+    await flush();
+    const id = store.getState().selection[0]!;
+    expect(store.getState().handleFocus).toBeNull();
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(store.getState().handleFocus).toBe(0);
+    const before = (store.shape(id)!.kind as { value: { adjust?: Record<string, number> } }).value.adjust?.adj ?? 16667;
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    await flush();
+    const step1 = last(backend) as { type: string; shapes: number[]; adjust: Record<string, number> };
+    expect(step1).toMatchObject({ type: "setGeometry", shapes: [id] });
+    const one = step1.adjust.adj! - before;
+    expect(one).toBeGreaterThan(0);
+    fireEvent.keyDown(window, { key: "ArrowRight", shiftKey: true });
+    await flush();
+    const step10 = (last(backend) as { adjust: Record<string, number> }).adjust.adj! - step1.adjust.adj!;
+    expect(step10 / one).toBeGreaterThan(9);
+    expect(step10 / one).toBeLessThan(11);
+    // the shape itself did not move
+    expect(backend.commands.some((c) => c.type === "setTransform")).toBe(false);
+    // past the last handle Tab returns to the shape; Esc leaves the handle first
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(store.getState().handleFocus).toBeNull();
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(store.getState().handleFocus).toBe(0);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(store.getState().handleFocus).toBeNull();
+    expect(store.getState().selection).toEqual([id]);
+  });
+});
