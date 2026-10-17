@@ -18,6 +18,7 @@ import type { CellCf } from "../generated/CellCf";
 import type { CfResult } from "../generated/CfResult";
 import type { CfRule } from "../generated/CfRule";
 import type { Chart } from "../generated/Chart";
+import type { SparklineGroup } from "../generated/SparklineGroup";
 import type { ChartObject } from "../generated/ChartObject";
 import type { DataRef } from "../generated/DataRef";
 import type { ResolvedChart } from "../generated/ResolvedChart";
@@ -85,6 +86,9 @@ interface FakeSheet {
   validations: DataValidation[];
   /** Charts back to front (a toy: data resolved from same-workbook A1 references). */
   charts: ChartObject[];
+  /** P9-C6: a chart sheet and the sparkline groups. */
+  chartSheet?: boolean;
+  sparklines?: SparklineGroup[];
   /** Notes, threads and hyperlinks (P8-26). */
   notes: Note[];
   threads: Thread[];
@@ -235,6 +239,7 @@ export class FakeCalcCore {
       if (JSON.stringify(view) !== JSON.stringify(DEFAULT_VIEW)) info.view = { ...view };
       const slicers = this.slicerList.filter((x) => x.sheet === id).map((x) => this.slicerView(x));
       if (slicers.length) info.slicers = slicers;
+      if (this.sheets.find((x) => x.id === id)?.chartSheet) info.chartSheet = true;
       return info;
     });
   }
@@ -960,6 +965,24 @@ export class FakeCalcCore {
       case "removeChart":
       case "restoreCharts":
         return this.chartCmd(cmd);
+      case "setChartSheet": {
+        const sh = this.sheet(cmd.sheet);
+        const old = !!sh.chartSheet;
+        sh.chartSheet = cmd.chartSheet;
+        const patch = this.emptyPatch();
+        patch.sheets = this.sheetInfos();
+        patch.chartSheets = [sh.id];
+        return [patch, { type: "setChartSheet", sheet: sh.id, chartSheet: old }];
+      }
+      case "setSparklineGroups": {
+        const sh = this.sheet(cmd.sheet);
+        if (cmd.groups.some((g) => g.sparklines.length === 0)) throw new Fail("invalid_rule", "sparkline: a group without sparklines");
+        const old = sh.sparklines ?? [];
+        sh.sparklines = JSON.parse(JSON.stringify(cmd.groups)) as SparklineGroup[];
+        const patch = this.emptyPatch();
+        patch.sparklineSheets = [sh.id];
+        return [patch, { type: "setSparklineGroups", sheet: sh.id, groups: old }];
+      }
       case "defineName":
       case "updateName":
       case "deleteName":
@@ -2105,6 +2128,14 @@ export class FakeCalcCore {
     return cells.cells.map(([r, c]) => this.view(cells.sheet, r, c).display);
   }
 
+  /** The sparkline groups of a sheet with their data (a toy: A1 references of this workbook). */
+  private sparklineViews(sh: FakeSheet) {
+    return (sh.sparklines ?? []).map((group) => ({
+      group: JSON.parse(JSON.stringify(group)) as SparklineGroup,
+      data: group.sparklines.map((sp) => ({ values: this.refValues({ type: "ref", formula: sp.data }) })),
+    }));
+  }
+
   resolveChart(chart: Chart): ResolvedChart {
     const series = chart.series.map((s, i) => {
       const values = this.refValues(s.values);
@@ -2251,6 +2282,7 @@ export class FakeCalcCore {
                 ...(cf.length ? { cf } : {}),
                 ...(validations.length ? { validations: JSON.parse(JSON.stringify(validations)) as DataValidation[] } : {}),
                 ...(s.charts.length ? { charts: JSON.parse(JSON.stringify(s.charts)) as ChartObject[] } : {}),
+                ...(s.sparklines?.length ? { sparklines: this.sparklineViews(s) } : {}),
                 ...(pivots.length ? { pivots } : {}),
               },
             },
@@ -2387,6 +2419,8 @@ export class FakeCalcCore {
           const s = this.sheet(req.sheet);
           return { ok: { type: "sheetRules", rules: JSON.parse(JSON.stringify(s.cfRules)), validations: JSON.parse(JSON.stringify(s.validations)) } };
         }
+        case "sheetSparklines":
+          return { ok: { type: "sparklines", groups: this.sparklineViews(this.sheet(req.sheet)) } };
         case "sheetCharts":
           return { ok: { type: "charts", charts: JSON.parse(JSON.stringify(this.sheet(req.sheet).charts)) as ChartObject[] } };
         case "chartData": {

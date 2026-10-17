@@ -10,6 +10,8 @@ import type { CfRule } from "../generated/CfRule";
 import type { Chart } from "../generated/Chart";
 import type { ChartObject } from "../generated/ChartObject";
 import type { ResolvedChart } from "../generated/ResolvedChart";
+import type { SeriesExtras } from "../generated/SeriesExtras";
+import type { SparklineGroupView } from "../generated/SparklineGroupView";
 import type { DataValidation } from "../generated/DataValidation";
 import type { FilterValue } from "../generated/FilterValue";
 import type { FoundCell } from "../generated/FoundCell";
@@ -100,6 +102,7 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     sheetRules: { rules: "array", validations: "array" },
     charts: { charts: "array" },
     chartData: { data: "object" },
+    sparklines: { groups: "array" },
     // `chart` is null without numeric data.
     recommendedChart: {},
     // `last` may be null (empty sheet): checked by the caller.
@@ -311,14 +314,21 @@ export class CalcApi {
     return (await this.call({ type: "sheetCharts", sheet }, "charts")).charts;
   }
 
-  /** The resolved data of chart `id` on `sheet`. */
+  /** The resolved data of chart `id` on `sheet` (custom error bars and label texts merged into the series). */
   async chartData(sheet: number, id: number): Promise<ResolvedChart> {
-    return (await this.call({ type: "chartData", sheet, id }, "chartData")).data;
+    const reply = await this.call({ type: "chartData", sheet, id }, "chartData");
+    return withExtras(reply.data, reply.extras);
   }
 
   /** The data `chart` would show on `sheet` (dialog previews). */
   async previewChartData(sheet: number, chart: Chart): Promise<ResolvedChart> {
-    return (await this.call({ type: "previewChartData", sheet, chart }, "chartData")).data;
+    const reply = await this.call({ type: "previewChartData", sheet, chart }, "chartData");
+    return withExtras(reply.data, reply.extras);
+  }
+
+  /** The sparkline groups of `sheet` with the data of each sparkline. */
+  async sheetSparklines(sheet: number): Promise<SparklineGroupView[]> {
+    return (await this.call({ type: "sheetSparklines", sheet }, "sparklines")).groups;
   }
 
   /** Excel's recommended chart for a range (`null` without numbers). */
@@ -397,4 +407,17 @@ export class CalcApi {
   async recommendPivots(source: PivotSourceSpec): Promise<PivotRecommendation[]> {
     return (await this.call({ type: "recommendPivots", source }, "pivotRecommendations")).items;
   }
+}
+
+/** The renderer reads custom error bar amounts and "Value From Cells" texts from the series (`ResolvedSeries` + extras). */
+export function withExtras(data: ResolvedChart, extras: SeriesExtras[] | undefined): ResolvedChart {
+  if (!extras?.length) return data;
+  return {
+    ...data,
+    series: data.series.map((s, i) => {
+      const e = extras[i];
+      if (!e) return s;
+      return { ...s, ...(e.errorBars?.length ? { errorBars: e.errorBars } : {}), ...(e.labelTexts ? { labelTexts: e.labelTexts } : {}) };
+    }),
+  };
 }

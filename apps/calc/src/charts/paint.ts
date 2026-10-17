@@ -12,8 +12,8 @@ import { parseRange } from "./refs";
 
 export const CHART_FRAME = "#5f6368";
 
-/** Paints the chart frames over one quadrant (`vp`: its scroll and size; the context is translated to the quadrant). */
-export function paintCharts(ctx: CanvasRenderingContext2D, frames: ChartFrame[], vp: Viewport, sel: ChartSelection | null): void {
+/** Paints the chart frames over one quadrant (`vp`: its scroll and size; the context is translated to the quadrant); `fixed`: a chart sheet's chart (no frame or handles). */
+export function paintCharts(ctx: CanvasRenderingContext2D, frames: ChartFrame[], vp: Viewport, sel: ChartSelection | null, fixed = false): void {
   for (const f of frames) {
     const x = f.rect.x - vp.scrollX;
     const y = f.rect.y - vp.scrollY;
@@ -29,7 +29,7 @@ export function paintCharts(ctx: CanvasRenderingContext2D, frames: ChartFrame[],
     }
     const selected = sel !== null && sel.id === f.obj.id;
     if (selected && f.scene && sel.element) drawChartSelection(ctx, f.scene, sel.element);
-    if (selected) {
+    if (selected && !fixed) {
       ctx.strokeStyle = CHART_FRAME;
       ctx.lineWidth = 1;
       ctx.strokeRect(0.5, 0.5, Math.round(f.rect.w) - 1, Math.round(f.rect.h) - 1);

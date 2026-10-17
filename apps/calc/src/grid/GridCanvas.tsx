@@ -28,9 +28,10 @@ import {
 } from "./Selection";
 import type { Measure } from "./textLayout";
 import { useT } from "../i18n";
-import { elementBounds, hitTestChart, type ChartElement } from "@rusuite/ui-shared";
+import { elementBounds, hitTestChart, sameElement, type ChartElement } from "@rusuite/ui-shared";
 import { anchorRect, handleAt, handleCursor, moveRect, resizeRect, type Handle } from "../charts/anchor";
 import { chartRefMarks, paintCharts } from "../charts/paint";
+import { paintSparklines } from "../sparklines/paint";
 import { paintArrows } from "../audit/trace";
 import { paintErrorMarks } from "../audit/marks";
 import { paintValidationCircles } from "../validation/circles";
@@ -268,10 +269,13 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const used = store.usedExtent(state.activeSheet);
     const rows = Math.min(LAST_ROW + 1, Math.max(200, used.lastRow + 51, grow.current.rows));
     const cols = Math.min(LAST_COL + 1, Math.max(30, used.lastCol + 11, grow.current.cols));
+    const chartSheet = store.isChartSheet(state.activeSheet);
     if (spacer.current) {
-      spacer.current.style.width = `${hw + data.colGeo.offset(cols)}px`;
-      spacer.current.style.height = `${hh + data.rowGeo.offset(rows)}px`;
+      // A chart sheet does not scroll: its chart fills the grid area.
+      spacer.current.style.width = chartSheet ? "0px" : `${hw + data.colGeo.offset(cols)}px`;
+      spacer.current.style.height = chartSheet ? "0px" : `${hh + data.rowGeo.offset(rows)}px`;
     }
+    if (chartSheet) store.charts.chartSheetSize = { w: l.width, h: l.height };
 
     // The frozen quadrants first: the scrolling one is the viewport remembered for reloads.
     for (const q of [...quads].reverse()) {
@@ -311,7 +315,13 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         const name = state.info?.sheets.find((x) => x.id === state.activeSheet)?.name ?? "";
         marks.push(...chartRefMarks(chartObj.chart, name));
       }
-      for (const q of quads) {
+      if (chartSheet) {
+        // Chart sheet: no cells, the chart full-size (Excel's Move Chart › New sheet).
+        cctx.fillStyle = "#ffffff";
+        cctx.fillRect(0, 0, l.width, l.height);
+        paintCharts(cctx, frames, { ...quads[quads.length - 1]!.vp, scrollX: 0, scrollY: 0, width: l.width, height: l.height }, chartSel, true);
+      }
+      for (const q of chartSheet ? [] : quads) {
         const vp = q.vp;
         cctx.save();
         cctx.translate(q.x, q.y);
@@ -321,6 +331,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         const base = computeRenderOps(vp, data, store.styles(), store.measure);
         if (data.cf && data.cf.size > 0) for (const o of base) if (o.op === "bar" || o.op === "icon") cfOps.push(o);
         drawOps(cctx, store.sheetView().showGridlines ? base : base.filter((o) => o.op !== "gridlines"), null);
+        // Sparklines inside their cells (P9-C6), under the selection.
+        paintSparklines(cctx, store.sparklines.views(state.activeSheet), (r, c) => rangeRect(vp, data, { r0: r, c0: c, r1: r, c1: c }), visibleRange(vp, data.colGeo, data.rowGeo));
         drawSelection(cctx, vp, data, sel, state.selection.anchor);
         // Note triangles and comment markers in the cells' top-right corners (over the selection, as in Excel).
         const visCells = visibleRange(vp, data.colGeo, data.rowGeo);
@@ -402,6 +414,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       }
       // Hook for the end-to-end tests: the charts of the last frame (sheet px rectangles and scenes).
       (window as unknown as { __calcCharts?: unknown }).__calcCharts = frames.map((f) => ({ id: f.obj.id, rect: f.rect, scene: f.scene }));
+      // The sparklines of the active sheet (groups with their data), for the end-to-end tests.
+      (window as unknown as { __calcSparklines?: unknown }).__calcSparklines = store.sparklines.views(state.activeSheet);
       // Render-op hook for the end-to-end tests: the data bars and icons of the last frame.
       (window as unknown as { __calcCfOps?: RenderOp[] }).__calcCfOps = cfOps;
       // The pivot buttons of the last frame (sheet px), for the end-to-end tests.
@@ -899,9 +913,44 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     scroller.current?.focus({ preventScroll: true });
     const sheet = store.getState().activeSheet;
     const charts = store.charts;
-    if (hit.kind === "chart" && charts.click(sheet, hit.id, hit.element)) return;
+    const before = charts.selected;
+    const el = hit.kind === "chart" ? hit.element : null;
+    // A second press on the selected title, legend or plot area drags it inside the chart (a manual layout).
+    const dragEl = el && before?.id === hit.id && before.element && sameElement(before.element, el) && (el.type === "title" || el.type === "legend" || el.type === "plotArea") ? el : null;
+    if (!dragEl && hit.kind === "chart" && charts.click(sheet, hit.id, hit.element)) return;
     const obj = charts.get(sheet, hit.id);
     if (!obj) return;
+    if (dragEl) {
+      const frame = charts.frames(sheet).find((f) => f.obj.id === hit.id);
+      const scene = frame?.scene;
+      if (!scene) return;
+      const sc = scroller.current ? screenScale(scroller.current) : 1;
+      const [ex0, ey0] = [e.clientX, e.clientY];
+      let dragged = false;
+      const mv = (ev: PointerEvent) => {
+        const dx = (ev.clientX - ex0) / sc;
+        const dy = (ev.clientY - ey0) / sc;
+        if (!dragged && Math.hypot(dx, dy) < 3) return;
+        dragged = true;
+        const next = charts.movedLayout(obj.chart, scene, dragEl, dx, dy);
+        charts.layoutPreview = next ? { id: obj.id, chart: next } : null;
+        schedule();
+      };
+      const done = () => {
+        window.removeEventListener("pointermove", mv);
+        window.removeEventListener("pointerup", done);
+        const p = charts.layoutPreview;
+        charts.layoutPreview = null;
+        if (dragged && p) void charts.edit(() => p.chart);
+        else if (!dragged && hit.kind === "chart") charts.click(sheet, hit.id, hit.element);
+        schedule();
+      };
+      window.addEventListener("pointermove", mv);
+      window.addEventListener("pointerup", done);
+      return;
+    }
+    // A chart sheet's chart neither moves nor resizes.
+    if (store.isChartSheet(sheet)) return;
     const geo = store.geometry(sheet);
     const start = anchorRect(obj.anchor, geo.col, geo.row);
     const scale = scroller.current ? screenScale(scroller.current) : 1;
