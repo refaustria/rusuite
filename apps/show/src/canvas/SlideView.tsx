@@ -15,6 +15,7 @@ import type Konva from "konva";
 import type { ThemePalette } from "@rusuite/ui-shared";
 import type { Connector } from "../generated/Connector";
 import type { NodeId } from "../generated/NodeId";
+import type { LineDash } from "../generated/LineDash";
 import type { PlaceholderDef } from "../generated/PlaceholderDef";
 import type { Shape } from "../generated/Shape";
 import type { Slide } from "../generated/Slide";
@@ -31,7 +32,7 @@ import type { TextParagraphProps } from "../generated/TextParagraphProps";
 import { arrowHead, endDirections } from "../shapes/connectors";
 import { pathCache, pathPoints, pathQueryOf, svgPath, usePathVersion } from "../shapes/paths";
 import { textRect } from "../shapes/presets";
-import { effectiveBorders, effectiveFill } from "../shapes/tables";
+import { compoundStrokes, effectiveBorders, effectiveFill } from "../shapes/tables";
 import { layoutText, measureText, type LayoutOptions } from "../text/layout";
 import { runStyleFor, tableLayout } from "./tableLayout";
 import { useT } from "../i18n";
@@ -492,23 +493,41 @@ function ConnectorGeometry({ shape, c, ctx }: { shape: Shape; c: Connector; ctx:
   );
 }
 
+/** Konva dash pattern of a line `w` px wide (PowerPoint's dash / round-dot proportions). */
+const dashArray = (dash: LineDash | undefined, w: number): number[] | undefined => (dash === "dash" ? [w * 4, w * 3] : dash === "dot" ? [w, w] : undefined);
+
 /** A table: cell fills, cell text, then the borders over them. */
 function TableGeometry({ shape, table, ctx }: { shape: Shape; table: Table; ctx: Ctx }) {
   const lay = useMemo(() => tableLayout(table, ctx.deck.theme, ctx.palette, ctx.deck.tableStyles), [table, ctx.deck.theme, ctx.palette, ctx.deck.tableStyles]);
   const hideCell = ctx.hiddenText === shape.id ? ctx.hiddenCell : null;
   const width = lay.colX[lay.colX.length - 1]!;
   const height = lay.rowY[lay.rowY.length - 1]!;
-  const lines: { key: string; points: number[]; color: string; width: number }[] = [];
+  const lines: { key: string; points: number[]; color: string; width: number; dash?: LineDash }[] = [];
   for (const c of lay.cells) {
     const b = effectiveBorders(table, c.row, c.col, ctx.deck.tableStyles);
     const add = (side: string, l: typeof b.left, points: number[]) => {
       const color = l ? css(l.color, ctx.palette) : undefined;
-      if (l && color) lines.push({ key: `${c.row}-${c.col}-${side}`, points, color, width: Math.max(0.5, emuToPx(l.width)) });
+      if (!l || !color) return;
+      const key = `${c.row}-${c.col}-${side}`;
+      const width = Math.max(0.5, emuToPx(l.width));
+      for (const [i, s] of compoundStrokes(l.compound, width).entries()) {
+        // strokes run parallel to the edge, offset across it
+        const [dx, dy] = side === "t" || side === "b" ? [0, s.offset] : [s.offset, 0];
+        lines.push({ key: `${key}-${i}`, points: [points[0]! + dx, points[1]! + dy, points[2]! + dx, points[3]! + dy], color, width: s.width, dash: l.dash });
+      }
     };
     add("t", b.top, [c.x, c.y, c.x + c.w, c.y]);
     add("b", b.bottom, [c.x, c.y + c.h, c.x + c.w, c.y + c.h]);
     add("l", b.left, [c.x, c.y, c.x, c.y + c.h]);
     add("r", b.right, [c.x + c.w, c.y, c.x + c.w, c.y + c.h]);
+    // diagonals (Borders › Diagonal Down / Up Border)
+    for (const [side, l, points] of [
+      ["dd", b.diagDown, [c.x, c.y, c.x + c.w, c.y + c.h]],
+      ["du", b.diagUp, [c.x, c.y + c.h, c.x + c.w, c.y]],
+    ] as const) {
+      const color = l ? css(l.color, ctx.palette) : undefined;
+      if (l && color) lines.push({ key: `${c.row}-${c.col}-${side}`, points: [...points], color, width: Math.max(0.5, emuToPx(l.width)), dash: l.dash });
+    }
   }
   return (
     <>
@@ -518,10 +537,17 @@ function TableGeometry({ shape, table, ctx }: { shape: Shape; table: Table; ctx:
         return fill ? <Rect key={`f${c.row}-${c.col}`} name="table-cell" x={c.x} y={c.y} width={c.w} height={c.h} fill={fill} listening={false} /> : null;
       })}
       {lay.cells.map((c) =>
-        hideCell && hideCell.row === c.row && hideCell.col === c.col ? null : <Fragments key={`t${c.row}-${c.col}`} fragments={c.text.fragments} x={c.x} y={c.y} />,
+        hideCell && hideCell.row === c.row && hideCell.col === c.col ? null : c.text.rotation ? (
+          // vertical cell text (`a:tcPr/@vert`): laid out in the swapped box, turned into the cell
+          <Group key={`t${c.row}-${c.col}`} x={c.x + (c.text.rotation === 90 ? c.w : 0)} y={c.y + (c.text.rotation === 90 ? 0 : c.h)} rotation={c.text.rotation === 90 ? 90 : -90} name="cell-text-rotated">
+            <Fragments fragments={c.text.fragments} />
+          </Group>
+        ) : (
+          <Fragments key={`t${c.row}-${c.col}`} fragments={c.text.fragments} x={c.x} y={c.y} />
+        ),
       )}
       {lines.map((l) => (
-        <KLine key={l.key} points={l.points} stroke={l.color} strokeWidth={l.width} listening={false} />
+        <KLine key={l.key} points={l.points} stroke={l.color} strokeWidth={l.width} dash={dashArray(l.dash, l.width)} listening={false} />
       ))}
     </>
   );

@@ -36,6 +36,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
 - [Show: charts, links, action buttons, audio/video, Reuse Slides (P8-24)](#show-charts-links-action-buttons-audiovideo-reuse-slides-p8-24)
 - [Show: views, rulers, guides, Selection pane, text options, slide-show tools (P8-28)](#show-views-rulers-guides-selection-pane-text-options-slide-show-tools-p8-28)
 - [Show: rich in-place text, autofit text boxes, master text levels (P9-S1)](#show-rich-in-place-text-autofit-text-boxes-master-text-levels-p9-s1)
+- [Show: tables and shapes round 2 (P9-S2)](#show-tables-and-shapes-round-2-p9-s2)
 - [Printing (P7-9)](#printing-p7-9)
 - [Logos and the portal (P7-10)](#logos-and-the-portal-p7-10)
 - [Privacy (P7-12, ADR 0009)](#privacy-p7-12-adr-0009)
@@ -1169,6 +1170,49 @@ Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)
   (`marginLeft`, `indent`); there is no Paragraph dialog for them yet.
 - **Insert Placeholder** adds Chart and Table (`p:ph type="chart"` / `"tbl"`, prompts "Click icon to add chart / table")
   next to Content, Picture, Title and the footers; Rename and delete work as before.
+
+## Show: tables and shapes round 2 (P9-S2)
+
+- **Table styles** follow PowerPoint's own `a:tblStyle` definitions (border weights, double total-row lines, tints,
+  shades and alpha fills, the Themed styles' table background, the corner cells; see `ooxml-subset.md`, "Table
+  styles"). **Table Design › Table Styles**: the inline gallery is PowerPoint's *Best Match for Document* row (every
+  family drawn in the theme's Accent 1: Themed Style 1 / 2, Light 1–3, Medium 1–4, Dark 1 and Dark 2 – Accent 1/Accent 2);
+  ▾ More shows Best Match, Light (No Style, Themed and Light styles), Medium and Dark. Resting the pointer on a style (or
+  focusing it) previews it on the selected table; leaving the gallery ends the preview. **Clear Table** removes the style
+  and the cells' own fills and borders. The Table Style Options check boxes set `TableLook`; saved files reference the
+  style id (`a:tableStyleId`) and write only the cells' own fills and borders.
+- **Draw Borders** group (Table Design): Pen Style (solid, dashed, dotted), Pen Weight (¼–6 pt) and Pen Color set the pen;
+  **Borders ▾** has PowerPoint's twelve options (No Border, All, Outside, Inside, Top, Bottom, Left, Right, Inside
+  Horizontal / Vertical, Diagonal Down / Up) and draws them with the pen on the selected cells (No Border also removes
+  the diagonals).
+- **Layout** (table): Text Direction ▾ (Horizontal, Rotate all text 90° / 270°, Stacked; `a:tcPr/@vert`, drawn rotated or
+  one character per line), Cell Margins ▾ Normal / None / Narrow / Wide / **Custom Margins…** (the *Cell Text Layout*
+  dialog: vertical alignment, text direction, the four internal margins in cm or inches), Merge, Split Cells…,
+  Distribute Rows / Columns, Align Top / Middle / Bottom as before.
+- **Format Shape pane** for a selected table: a *Table Cells* page (fill: automatic from the style, no fill or a colour;
+  a border side — all, outside, top … diagonals — with its style, weight and colour) and *Text Options* for the cells
+  (vertical alignment, text direction, margins). They act on the cell selection (else the whole table).
+- **Resize grips** of columns and rows are 32 px wide hit targets (the line stays thin); a tap on a grip without dragging
+  edits the cell under it.
+- **Freeform: Shape / Scribble** (Insert › Shapes › Lines): Freeform — each click adds a corner joined by a straight
+  segment, dragging draws freehand (smoothed into curves), a click on the start point closes and fills the shape,
+  double-click, Enter or Esc ends it open; Scribble — one drag, released ends it. Saved as `a:custGeom` in the shape's
+  box; open drawings are lines in the accent colour, closed ones get the accent fill.
+- **Edit Points** (Shape Format › Insert Shapes, the shape's context menu): the outline's vertices as black squares;
+  drag one to move it (its curve handles move along), Ctrl+click a vertex to delete it, Ctrl+click the outline to add
+  one; right-click a vertex: Delete Point, Smooth Point, Straight / Curved Segment, Open / Close Path, Exit Edit Points
+  (on the outline: Add Point). A preset becomes a custom geometry at the first edit (as in PowerPoint); the box follows
+  the points. Esc or another selection ends it.
+- **Shape library**: all 177 non-connector presets of ECMA-376; the gallery shows PowerPoint's (new: snipped / rounded
+  diagonal rectangles, heptagon, decagon, dodecagon, plaque, arc, brackets and braces, left-up / bent-up / curved /
+  striped / notched arrows, the seven arrow callouts, circular arrow, explosions, stars with 7–32 points, curved ribbons,
+  scrolls, line callouts 3 and the accent-bar / no-border variants) with their adjust handles.
+- **Adjust handles by keyboard**: with one shape selected, Tab / Shift+Tab focus its handles in turn (a blue ring; after
+  the last one the shape again), the arrow keys move the focused handle like a drag (Shift: 10 px), Esc leaves it. The
+  handles, text rectangle and outline come from the core (`shapePaths`).
+- **Connectors** reroute after every move of a glued shape (drag, keyboard, Align / Distribute, Format pane), with
+  PowerPoint's 1–4-turn elbow routes: through the middle of the gap between facing sites, detours around the end shape
+  when it lies behind the start, and around overlapping boxes.
 
 ## Printing (P7-9)
 

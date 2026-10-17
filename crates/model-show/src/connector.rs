@@ -857,6 +857,90 @@ mod tests {
         }
     }
 
+    /// Whether a route's segments stay out of the box `b` (its inside).
+    fn avoids(r: &[(i64, i64)], b: (i64, i64, i64, i64)) -> bool {
+        r.windows(2).all(|w| {
+            let (x0, x1) = (w[0].0.min(w[1].0), w[0].0.max(w[1].0));
+            let (y0, y1) = (w[0].1.min(w[1].1), w[0].1.max(w[1].1));
+            !(x0 < b.2 - 1 && x1 > b.0 + 1 && y0 < b.3 - 1 && y1 > b.1 + 1)
+        })
+    }
+
+    #[test]
+    fn facing_sites_run_through_the_gap() {
+        // right of 2 → left of 3, 3 lower right: two turns, the vertical run
+        // in the middle of the gap (PowerPoint)
+        let mut slide = Slide::new(NodeId(1), LayoutKind::Blank);
+        slide.shapes = vec![
+            rect(2, tr(0, 0, 1_000_000, 1_000_000)),
+            rect(3, tr(2_000_000, 1_500_000, 1_000_000, 1_000_000)),
+            conn(4, ConnectorKind::Elbow, at(2, 3), at(3, 1)),
+            // bottom of 2 → top of 3: vertical, then across in the gap's middle
+            conn(5, ConnectorKind::Elbow, at(2, 2), at(3, 0)),
+        ];
+        slide.reroute_connectors();
+        let r4 = route_of(&slide, 4);
+        assert_eq!(r4.len(), 4, "{r4:?}");
+        assert!((r4[1].0 - 1_500_000).abs() <= 20, "{r4:?}");
+        let r5 = route_of(&slide, 5);
+        assert_eq!(r5.len(), 4, "{r5:?}");
+        assert!((r5[1].1 - 1_250_000).abs() <= 20, "{r5:?}");
+        // facing sites with the end box behind the start: a detour of four
+        // turns that keeps out of both boxes
+        slide.shapes[1].transform = tr(-2_500_000, 200_000, 1_000_000, 1_000_000);
+        slide.reroute_connectors();
+        let c = slide.find_shape(NodeId(4)).unwrap().connector().unwrap();
+        assert!(c.bends >= 3, "{c:?}");
+        let r = route_of(&slide, 4);
+        assert!(avoids(&r, (0, 0, 1_000_000, 1_000_000)), "{r:?}");
+        assert!(
+            avoids(&r, (-2_500_000, 200_000, -1_500_000, 1_200_000)),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn overlapping_shapes_still_route() {
+        // 3 overlaps 2: the sites lie inside the other box; the connector
+        // still goes from site to site with an elbow route
+        let mut slide = Slide::new(NodeId(1), LayoutKind::Blank);
+        slide.shapes = vec![
+            rect(2, tr(0, 0, 1_000_000, 1_000_000)),
+            rect(3, tr(600_000, 400_000, 1_000_000, 1_000_000)),
+            conn(4, ConnectorKind::Elbow, at(2, 3), at(3, 1)),
+            conn(5, ConnectorKind::Elbow, at(2, 0), at(3, 2)),
+        ];
+        slide.reroute_connectors();
+        for id in [4, 5] {
+            let s = slide.find_shape(NodeId(id)).unwrap();
+            let c = s.connector().unwrap();
+            let (a, b) = s.transform.line_ends();
+            let want = [
+                slide
+                    .site_position(c.start.unwrap().shape, c.start.unwrap().site)
+                    .unwrap()
+                    .0,
+                slide
+                    .site_position(c.end.unwrap().shape, c.end.unwrap().site)
+                    .unwrap()
+                    .0,
+            ];
+            assert!(
+                (a.0 - want[0].0).abs() < 1.0 && (a.1 - want[0].1).abs() < 1.0,
+                "{id}: {a:?} {want:?}"
+            );
+            assert!(
+                (b.0 - want[1].0).abs() < 1.0 && (b.1 - want[1].1).abs() < 1.0,
+                "{id}: {b:?} {want:?}"
+            );
+            assert!(c.bends >= 1, "{id}: {c:?}");
+        }
+        // the top of 2 → the bottom of 3 (below it): around 2, not through it
+        let r5 = route_of(&slide, 5);
+        assert!(r5.len() >= 4, "{r5:?}");
+        assert!(r5[1].1 < 0, "leaves 2 upwards: {r5:?}");
+    }
+
     #[test]
     fn connectors_in_groups() {
         let mut slide = Slide::new(NodeId(1), LayoutKind::Blank);

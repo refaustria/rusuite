@@ -71,9 +71,11 @@ const pointerEmu = (node: Konva.Node): Pt | null => {
 const diamond = (scale: number) => ({ width: 9 / scale, height: 9 / scale, offsetX: 4.5 / scale, offsetY: 4.5 / scale, rotation: 45 });
 
 /** Yellow adjust handles of one selected auto shape. */
-export function AdjustHandles({ shape, scale, onPreview, onCommit }: {
+export function AdjustHandles({ shape, scale, onPreview, onCommit, focus = null }: {
   shape: Shape;
   scale: number;
+  /** The handle the keyboard moves (Tab; drawn with a focus ring). */
+  focus?: number | null;
   onPreview: (s: Shape | null) => void;
   onCommit: (id: NodeId, adjust: Record<string, number>) => void;
 }) {
@@ -100,8 +102,9 @@ export function AdjustHandles({ shape, scale, onPreview, onCommit }: {
             y={px(at.y)}
             {...diamond(scale)}
             fill="#facc15"
-            stroke="#854d0e"
-            strokeWidth={1 / scale}
+            stroke={focus === i ? "#2563eb" : "#854d0e"}
+            strokeWidth={(focus === i ? 3 : 1) / scale}
+            data-focused={focus === i ? "true" : undefined}
             hitStrokeWidth={24 / scale}
             draggable
             dragBoundFunc={function (this: Konva.Node, pos) {

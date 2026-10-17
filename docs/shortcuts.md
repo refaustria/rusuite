@@ -166,7 +166,12 @@ Linux. The desktop app gets them all.
 | Alt+F9 | Show / hide the drawing guides (the two centre guides when there are none) |
 | Delete, Backspace | Delete the selection |
 | Enter, F2 | Edit the text of the selected shape |
-| Escape | Deselect; cancels drawing a shape chosen in the Shapes gallery |
+| Escape | Deselect; cancels drawing a shape chosen in the Shapes gallery; leaves a focused adjust handle or Edit Points first |
+| Tab, Shift+Tab | Focus the selected shape's next / previous adjust handle (Slide Master view: next / previous text level) |
+| Arrows, Shift+Arrows (handle focused) | Move the focused adjust handle by 1 px, by 10 px |
+| Click, drag, double-click (Freeform: Shape) | Add a corner, draw freehand, end the shape open; a click on the start point closes it |
+| Enter, Escape (Freeform: Shape) | End the freeform open |
+| Ctrl+click (Edit Points) | On a vertex: delete it; on the outline: add a vertex |
 | Mod+A | Select all shapes |
 | F5 | Present from the first slide |
 | Shift+F5 | Present from the current slide |

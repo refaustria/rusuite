@@ -210,6 +210,7 @@ fn table(p: &mut Presentation) {
         fill: Fill::Solid(Color::Rgb(Rgb::new(0xC0, 0, 0))),
         width: Emu(38_100),
         dash: LineDash::Dash,
+        ..Line::default()
     });
     p.add_shape(s, shape).expect("slide exists");
     // a plain grid without style

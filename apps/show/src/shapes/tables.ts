@@ -10,6 +10,10 @@ import type { Anchor } from "../generated/Anchor";
 import type { Fill } from "../generated/Fill";
 import type { Insets } from "../generated/Insets";
 import type { Line } from "../generated/Line";
+import type { LineCompound } from "../generated/LineCompound";
+import type { LineDash } from "../generated/LineDash";
+import type { TextDirection } from "../generated/TextDirection";
+import type { TableCellPatch } from "../generated/TableCellPatch";
 import type { NodeId } from "../generated/NodeId";
 import type { ShowCommand } from "../generated/ShowCommand";
 import type { Table } from "../generated/Table";
@@ -27,15 +31,29 @@ export const BUILTIN_TABLE_STYLES = builtinStyles as unknown as TableStyleDef[];
 /** The style of new tables: Medium Style 2 – Accent 1. */
 export const DEFAULT_TABLE_STYLE = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}";
 
-/** The gallery groups of Table Design › Table Styles: style ids by family. */
-export function tableStyleGroups(): { id: "light" | "medium" | "dark"; styles: TableStyleDef[] }[] {
+/** The table style gallery's groups. */
+export type TableStyleGroupId = "best" | "light" | "medium" | "dark";
+
+/**
+ * The gallery groups of Table Design › Table Styles, as PowerPoint shows
+ * them: Best Match for Document (every family drawn in the theme's
+ * Accent 1, the colour the document is built on: Themed Style 1 and 2,
+ * Light 1–3, Medium 1–4, Dark 1 – Accent 1 and Dark 2 – Accent 1/Accent
+ * 2), then Light (the No Style entries, Themed and Light styles), Medium
+ * and Dark.
+ */
+export function tableStyleGroups(): { id: TableStyleGroupId; styles: TableStyleDef[] }[] {
   const of = (re: RegExp) => BUILTIN_TABLE_STYLES.filter((s) => re.test(s.name));
   return [
+    { id: "best", styles: of(/ - Accent 1(\/Accent 2)?$/) },
     { id: "light", styles: of(/^(No Style|Themed Style|Light Style)/) },
     { id: "medium", styles: of(/^Medium Style/) },
     { id: "dark", styles: of(/^Dark Style/) },
   ];
 }
+
+/** "No Style, No Grid": what Clear Table leaves (and what a table without style is saved as). */
+export const NO_STYLE_NO_GRID = "{2D5ABB26-0587-4C30-8999-92F81FD0307C}";
 
 /** A style by id (the presentation's own first, then the built-ins; case-insensitive). */
 export function tableStyleOf(id: string | null | undefined, custom: readonly TableStyleDef[] = []): TableStyleDef | undefined {
@@ -44,10 +62,13 @@ export function tableStyleOf(id: string | null | undefined, custom: readonly Tab
   return custom.find((s) => s.id.toUpperCase() === up) ?? BUILTIN_TABLE_STYLES.find((s) => s.id.toUpperCase() === up);
 }
 
-/** A border as drawn: colour and width (EMU). */
+/** A border as drawn: colour, width (EMU) and compound type (absent = single). */
 export interface StyleLine {
   color: Color;
   width: number;
+  compound?: LineCompound;
+  /** Dash style (absent = solid). */
+  dash?: LineDash;
 }
 
 /** What the table style gives a cell. */
@@ -76,6 +97,20 @@ function regions(s: TableStyleDef, look: TableLook, rows: number, cols: number, 
   if (look.firstCol && col === 0) out.push([s.firstCol ?? {}, [0, 0, lr, 0], 5]);
   if (look.lastRow && row === lr && rows > 1) out.push([s.lastRow ?? {}, [lr, 0, lr, lc], 6]);
   if (look.firstRow && row === 0) out.push([s.firstRow ?? {}, [0, 0, 0, lc], 7]);
+  // the corner cells where two emphasized edges meet
+  const inLastRow = !!look.lastRow && row === lr && rows > 1;
+  const inLastCol = !!look.lastCol && col === lc && cols > 1;
+  const inFirstRow = !!look.firstRow && row === 0;
+  const inFirstCol = !!look.firstCol && col === 0;
+  const corners: [boolean, TableStylePart | undefined][] = [
+    [inLastRow && inLastCol, s.seCell],
+    [inLastRow && inFirstCol, s.swCell],
+    [inFirstRow && inLastCol, s.neCell],
+    [inFirstRow && inFirstCol, s.nwCell],
+  ];
+  corners.forEach(([on, part], i) => {
+    if (on) out.push([part ?? {}, [row, col, row, col], 8 + i]);
+  });
   return out;
 }
 
@@ -102,7 +137,10 @@ function rawCell(s: TableStyleDef, look: TableLook, rows: number, cols: number, 
   return { fill, bold, textColor, edges };
 }
 
-const asLine = (l: Line | undefined): StyleLine | null => (l && l.fill.kind === "solid" ? { color: l.fill.value, width: l.width } : null);
+const asLine = (l: Line | undefined): StyleLine | null =>
+  l && l.fill.kind === "solid"
+    ? { color: l.fill.value, width: l.width, ...(l.compound && l.compound !== "single" ? { compound: l.compound } : {}), ...(l.dash && l.dash !== "solid" ? { dash: l.dash } : {}) }
+    : null;
 
 /**
  * The formatting the table's style gives cell `row`, `col` (mirror of
@@ -126,8 +164,10 @@ export function styleCell(table: Table, row: number, col: number, custom: readon
   if (col + 1 < cols) settle(1, rawCell(s, look, rows, cols, row, col + 1).edges[0]!);
   if (row > 0) settle(2, rawCell(s, look, rows, cols, row - 1, col).edges[3]!);
   if (row + 1 < rows) settle(3, rawCell(s, look, rows, cols, row + 1, col).edges[2]!);
+  // cells the parts leave without fill show the table background
+  const fill = me.fill?.kind === "solid" ? me.fill : s.background;
   return {
-    fill: me.fill?.kind === "solid" ? me.fill.value : null,
+    fill: fill?.kind === "solid" ? fill.value : null,
     borders: { left: asLine(e[0]![1]), right: asLine(e[1]![1]), top: asLine(e[2]![1]), bottom: asLine(e[3]![1]) },
     bold: me.bold,
     textColor: me.textColor,
@@ -141,15 +181,50 @@ export function effectiveFill(table: Table, row: number, col: number, custom: re
   return styleCell(table, row, col, custom).fill;
 }
 
-/** The borders a cell is drawn with (its own where set, else the style's; `null` = none). */
-export function effectiveBorders(table: Table, row: number, col: number, custom: readonly TableStyleDef[] = []): StyleCell["borders"] {
+/** The borders a cell is drawn with (its own where set, else the style's; `null` = none), with its own diagonals. */
+export function effectiveBorders(
+  table: Table,
+  row: number,
+  col: number,
+  custom: readonly TableStyleDef[] = [],
+): StyleCell["borders"] & { diagDown: StyleLine | null; diagUp: StyleLine | null } {
   const style = styleCell(table, row, col, custom).borders;
   const own = table.cells[row]?.[col]?.borders ?? {};
   const pick = (l: Line | undefined, s: StyleLine | null): StyleLine | null => {
     if (!l) return s;
-    return l.fill.kind === "solid" ? { color: l.fill.value, width: l.width } : null;
+    return asLine(l);
   };
-  return { left: pick(own.left, style.left), right: pick(own.right, style.right), top: pick(own.top, style.top), bottom: pick(own.bottom, style.bottom) };
+  return {
+    left: pick(own.left, style.left),
+    right: pick(own.right, style.right),
+    top: pick(own.top, style.top),
+    bottom: pick(own.bottom, style.bottom),
+    diagDown: asLine(own.diagDown),
+    diagUp: asLine(own.diagUp),
+  };
+}
+
+/**
+ * The parallel strokes of a line `width` wide (px or EMU) with compound
+ * type `compound`: each stroke's width and its offset from the line's
+ * centre. Double: two thirds-wide strokes a third apart (as PowerPoint
+ * draws `cmpd="dbl"`); thick–thin / thin–thick: a half and a sixth;
+ * triple: three fifths-wide strokes.
+ */
+export function compoundStrokes(compound: LineCompound | undefined, width: number): { width: number; offset: number }[] {
+  const w = width;
+  switch (compound) {
+    case "double":
+      return [{ width: w / 3, offset: -w / 3 }, { width: w / 3, offset: w / 3 }];
+    case "thickThin":
+      return [{ width: w / 2, offset: -w / 4 }, { width: w / 6, offset: (5 * w) / 12 }];
+    case "thinThick":
+      return [{ width: w / 6, offset: (-5 * w) / 12 }, { width: w / 2, offset: w / 4 }];
+    case "triple":
+      return [{ width: w / 5, offset: (-2 * w) / 5 }, { width: w / 5, offset: 0 }, { width: w / 5, offset: (2 * w) / 5 }];
+    default:
+      return [{ width: w, offset: 0 }];
+  }
 }
 
 // ----- grid -------------------------------------------------------------------------
@@ -370,16 +445,41 @@ const propsCommand = (shape: NodeId, r: CellRange, patch: Extract<ShowCommand, {
   patch,
 });
 
+/** Any cell properties of the range. */
+export const cellPropsCommand = (shape: NodeId, range: CellRange, patch: TableCellPatch): ShowCommand => propsCommand(shape, range, patch);
+
 /** Shading of the range (`null` = as the style). */
 export const shadingCommand = (shape: NodeId, range: CellRange, fill: Fill | null): ShowCommand => propsCommand(shape, range, { fill });
 
 /** Vertical text alignment of the range. */
 export const anchorCommand = (shape: NodeId, range: CellRange, anchor: Anchor): ShowCommand => propsCommand(shape, range, { anchor });
 
+/** Text direction of the range's cells (Layout › Text Direction). */
+export const vertCommand = (shape: NodeId, range: CellRange, vert: TextDirection): ShowCommand => propsCommand(shape, range, { vert });
+
+/** Pen of Table Design › Draw Borders: what the Borders menu draws with. */
+export interface Pen {
+  dash: LineDash;
+  /** Width in EMU. */
+  width: number;
+  color: Color;
+}
+
+/** PowerPoint's default pen: 1 pt solid black. */
+export const DEFAULT_PEN: Pen = { dash: "solid", width: 12700, color: { kind: "rgb", value: "000000" } };
+
+/** Pen Weight ▾: PowerPoint's weights in points. */
+export const PEN_WEIGHTS_PT = [0.25, 0.5, 0.75, 1, 1.5, 2.25, 3, 4.5, 6] as const;
+
+/** The line a pen draws. */
+export const penLine = (pen: Pen): Line => ({ fill: { kind: "solid", value: pen.color }, width: Math.round(pen.width), dash: pen.dash });
+
 /** Cell margins of the range. */
 export const marginsCommand = (shape: NodeId, range: CellRange, margins: Insets): ShowCommand => propsCommand(shape, range, { margins });
 
-export type BorderKind = "all" | "outside" | "inside" | "none" | "top" | "bottom" | "left" | "right" | "insideH" | "insideV";
+/** The options of Table Design › Borders, in PowerPoint's order. */
+export const BORDER_KINDS = ["none", "all", "outside", "inside", "top", "bottom", "left", "right", "insideH", "insideV", "diagDown", "diagUp"] as const;
+export type BorderKind = (typeof BORDER_KINDS)[number];
 
 /** "No border" is an explicit line without colour (PowerPoint writes `a:noFill`). */
 export const NO_LINE: Line = { fill: { kind: "none" }, width: 12700, dash: "solid" };
@@ -399,7 +499,12 @@ export function bordersCommand(shape: NodeId, range: CellRange, kind: BorderKind
     case "all":
       return propsCommand(shape, r, { left: line, right: line, top: line, bottom: line });
     case "none":
-      return propsCommand(shape, r, { left: NO_LINE, right: NO_LINE, top: NO_LINE, bottom: NO_LINE });
+      // No Border also removes the diagonals (PowerPoint)
+      return propsCommand(shape, r, { left: NO_LINE, right: NO_LINE, top: NO_LINE, bottom: NO_LINE, diagDown: null, diagUp: null });
+    case "diagDown":
+      return propsCommand(shape, r, { diagDown: line });
+    case "diagUp":
+      return propsCommand(shape, r, { diagUp: line });
     case "outside":
       return compoundOf([...top(), ...bottom(), ...left(), ...right()]);
     case "inside":
@@ -476,6 +581,18 @@ export function alignCommand(shape: NodeId, table: Table, range: CellRange, alig
     };
   });
   return compoundOf(cmds);
+}
+
+/**
+ * Table Design › Clear Table: no style and no direct cell formatting
+ * (fills and borders back to the style's), the style options kept.
+ */
+export function clearTableCommand(shape: NodeId, table: Table): ShowCommand {
+  const all = { r0: 0, c0: 0, r1: table.rows.length - 1, c1: table.cols.length - 1 };
+  return compoundOf([
+    { type: "setTableStyle", shape, styleId: null, look: table.look },
+    propsCommand(shape, all, { fill: null, left: null, right: null, top: null, bottom: null }),
+  ])!;
 }
 
 /** A table style from the gallery (look options kept). */

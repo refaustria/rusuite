@@ -248,12 +248,6 @@ pub struct TextRect {
     pub b: f64,
 }
 
-/// Counts the identifiers given to it.
-macro_rules! count {
-    () => { 0usize };
-    ($head:ident $($tail:ident)*) => { 1usize + count!($($tail)*) };
-}
-
 /// Declares [`Preset`] with its named variants, their DrawingML names and
 /// PowerPoint's default shape names.
 macro_rules! presets {
@@ -286,7 +280,7 @@ macro_rules! presets {
         impl Preset {
             /// Every named preset (all but [`Custom`](Self::Custom)), in
             /// declaration order.
-            pub const ALL: [Preset; count!($($v)*)] = [ $( Preset::$v, )* ];
+            pub const ALL: [Preset; [$( stringify!($v) ),*].len()] = [ $( Preset::$v, )* ];
 
             /// The DrawingML `prst` name (`"custom"` for a custom geometry,
             /// which is written as `a:custGeom`).
@@ -531,6 +525,140 @@ presets! {
     FlowChartDisplay = "flowChartDisplay", "Flowchart: Display";
     /// Flowchart offline storage (`flowChartOfflineStorage`).
     FlowChartOfflineStorage = "flowChartOfflineStorage", "Flowchart: Offline Storage";
+    /// Rectangle with two diagonal corners snipped (`snip2DiagRect`).
+    Snip2DiagRect = "snip2DiagRect", "Snip Diagonal Corner Rectangle";
+    /// Rectangle with one corner snipped and one rounded (`snipRoundRect`).
+    SnipRoundRect = "snipRoundRect", "Snip and Round Single Corner Rectangle";
+    /// Rectangle with two diagonal corners rounded (`round2DiagRect`).
+    Round2DiagRect = "round2DiagRect", "Round Diagonal Corner Rectangle";
+    /// Heptagon (`heptagon`).
+    Heptagon = "heptagon", "Heptagon";
+    /// Decagon (`decagon`).
+    Decagon = "decagon", "Decagon";
+    /// Dodecagon (`dodecagon`).
+    Dodecagon = "dodecagon", "Dodecagon";
+    /// Plaque, a rectangle with concave corners (`plaque`).
+    Plaque = "plaque", "Plaque";
+    /// Arc (an open stroke) (`arc`).
+    Arc = "arc", "Arc";
+    /// Double bracket (`bracketPair`).
+    BracketPair = "bracketPair", "Double Bracket";
+    /// Double brace (`bracePair`).
+    BracePair = "bracePair", "Double Brace";
+    /// Left bracket (`leftBracket`).
+    LeftBracket = "leftBracket", "Left Bracket";
+    /// Right bracket (`rightBracket`).
+    RightBracket = "rightBracket", "Right Bracket";
+    /// Left brace (`leftBrace`).
+    LeftBrace = "leftBrace", "Left Brace";
+    /// Right brace (`rightBrace`).
+    RightBrace = "rightBrace", "Right Brace";
+    /// Left-up arrow (`leftUpArrow`).
+    LeftUpArrow = "leftUpArrow", "Left-Up Arrow";
+    /// Bent-up arrow (`bentUpArrow`).
+    BentUpArrow = "bentUpArrow", "Bent-Up Arrow";
+    /// Arrow curving to the right (`curvedRightArrow`).
+    CurvedRightArrow = "curvedRightArrow", "Curved Right Arrow";
+    /// Arrow curving to the left (`curvedLeftArrow`).
+    CurvedLeftArrow = "curvedLeftArrow", "Curved Left Arrow";
+    /// Arrow curving upwards (`curvedUpArrow`).
+    CurvedUpArrow = "curvedUpArrow", "Curved Up Arrow";
+    /// Arrow curving downwards (`curvedDownArrow`).
+    CurvedDownArrow = "curvedDownArrow", "Curved Down Arrow";
+    /// Striped right arrow (`stripedRightArrow`).
+    StripedRightArrow = "stripedRightArrow", "Striped Right Arrow";
+    /// Notched right arrow (`notchedRightArrow`).
+    NotchedRightArrow = "notchedRightArrow", "Notched Right Arrow";
+    /// Callout with a right arrow (`rightArrowCallout`).
+    RightArrowCallout = "rightArrowCallout", "Right Arrow Callout";
+    /// Callout with a down arrow (`downArrowCallout`).
+    DownArrowCallout = "downArrowCallout", "Down Arrow Callout";
+    /// Callout with a left arrow (`leftArrowCallout`).
+    LeftArrowCallout = "leftArrowCallout", "Left Arrow Callout";
+    /// Callout with an up arrow (`upArrowCallout`).
+    UpArrowCallout = "upArrowCallout", "Up Arrow Callout";
+    /// Callout with left and right arrows (`leftRightArrowCallout`).
+    LeftRightArrowCallout = "leftRightArrowCallout", "Left-Right Arrow Callout";
+    /// Callout with up and down arrows (`upDownArrowCallout`).
+    UpDownArrowCallout = "upDownArrowCallout", "Up-Down Arrow Callout";
+    /// Callout with four arrows (`quadArrowCallout`).
+    QuadArrowCallout = "quadArrowCallout", "Quad Arrow Callout";
+    /// Circular arrow (`circularArrow`).
+    CircularArrow = "circularArrow", "Circular Arrow";
+    /// Explosion with 12 points (`irregularSeal1`).
+    IrregularSeal1 = "irregularSeal1", "Explosion 1";
+    /// Explosion with 14 points (`irregularSeal2`).
+    IrregularSeal2 = "irregularSeal2", "Explosion 2";
+    /// 7-point star (`star7`).
+    Star7 = "star7", "7-Point Star";
+    /// 10-point star (`star10`).
+    Star10 = "star10", "10-Point Star";
+    /// 12-point star (`star12`).
+    Star12 = "star12", "12-Point Star";
+    /// 16-point star (`star16`).
+    Star16 = "star16", "16-Point Star";
+    /// 24-point star (`star24`).
+    Star24 = "star24", "24-Point Star";
+    /// 32-point star (`star32`).
+    Star32 = "star32", "32-Point Star";
+    /// Curved ribbon tilted down (`ellipseRibbon`).
+    EllipseRibbon = "ellipseRibbon", "Curved Down Ribbon";
+    /// Curved ribbon tilted up (`ellipseRibbon2`).
+    EllipseRibbon2 = "ellipseRibbon2", "Curved Up Ribbon";
+    /// Vertical scroll (`verticalScroll`).
+    VerticalScroll = "verticalScroll", "Vertical Scroll";
+    /// Horizontal scroll (`horizontalScroll`).
+    HorizontalScroll = "horizontalScroll", "Horizontal Scroll";
+    /// Line callout with three segments (`borderCallout3`).
+    BorderCallout3 = "borderCallout3", "Line Callout 3";
+    /// Line callout with an accent bar (`accentCallout1`).
+    AccentCallout1 = "accentCallout1", "Line Callout 1 (Accent Bar)";
+    /// Line callout with two segments and an accent bar (`accentCallout2`).
+    AccentCallout2 = "accentCallout2", "Line Callout 2 (Accent Bar)";
+    /// Line callout with three segments and an accent bar (`accentCallout3`).
+    AccentCallout3 = "accentCallout3", "Line Callout 3 (Accent Bar)";
+    /// Line callout without border (`callout1`).
+    Callout1 = "callout1", "Line Callout 1 (No Border)";
+    /// Line callout with two segments, without border (`callout2`).
+    Callout2 = "callout2", "Line Callout 2 (No Border)";
+    /// Line callout with three segments, without border (`callout3`).
+    Callout3 = "callout3", "Line Callout 3 (No Border)";
+    /// Line callout with border and accent bar (`accentBorderCallout1`).
+    AccentBorderCallout1 = "accentBorderCallout1", "Line Callout 1 (Border and Accent Bar)";
+    /// Line callout with two segments, border and accent bar (`accentBorderCallout2`).
+    AccentBorderCallout2 = "accentBorderCallout2", "Line Callout 2 (Border and Accent Bar)";
+    /// Line callout with three segments, border and accent bar (`accentBorderCallout3`).
+    AccentBorderCallout3 = "accentBorderCallout3", "Line Callout 3 (Border and Accent Bar)";
+    /// Circular arrow turning left (`leftCircularArrow`).
+    LeftCircularArrow = "leftCircularArrow", "Left Circular Arrow";
+    /// Circular arrow with two heads (`leftRightCircularArrow`).
+    LeftRightCircularArrow = "leftRightCircularArrow", "Left-Right Circular Arrow";
+    /// Ribbon pointing left and right (`leftRightRibbon`).
+    LeftRightRibbon = "leftRightRibbon", "Left-Right Ribbon";
+    /// Trapezoid with independent sides (`nonIsoscelesTrapezoid`).
+    NonIsoscelesTrapezoid = "nonIsoscelesTrapezoid", "Non-isosceles Trapezoid";
+    /// Quarter-circle wedge (`pieWedge`).
+    PieWedge = "pieWedge", "Pie Wedge";
+    /// Funnel (`funnel`).
+    Funnel = "funnel", "Funnel";
+    /// Gear with six teeth (`gear6`).
+    Gear6 = "gear6", "Gear 6";
+    /// Gear with nine teeth (`gear9`).
+    Gear9 = "gear9", "Gear 9";
+    /// Swoosh arrow (`swooshArrow`).
+    SwooshArrow = "swooshArrow", "Swoosh Arrow";
+    /// Four corner tabs (`cornerTabs`).
+    CornerTabs = "cornerTabs", "Corner Tabs";
+    /// Four plaque tabs (`plaqueTabs`).
+    PlaqueTabs = "plaqueTabs", "Plaque Tabs";
+    /// Four square tabs (`squareTabs`).
+    SquareTabs = "squareTabs", "Square Tabs";
+    /// Chart plus (`chartPlus`).
+    ChartPlus = "chartPlus", "Chart Plus";
+    /// Chart star (`chartStar`).
+    ChartStar = "chartStar", "Chart Star";
+    /// Chart X (`chartX`).
+    ChartX = "chartX", "Chart X";
 }
 
 impl Preset {
@@ -1141,9 +1269,10 @@ mod tests {
             );
         }
         assert_eq!(Preset::from_prst("straightConnector1"), Some(Preset::Line));
-        assert_eq!(Preset::from_prst("gear6"), None);
+        assert_eq!(Preset::from_prst("gear6"), Some(Preset::Gear6));
+        assert_eq!(Preset::from_prst("gear12"), None);
         assert_eq!(Preset::from_prst("uturnArrow"), Some(Preset::UturnArrow));
-        assert_eq!(Preset::ALL.len(), 110);
+        assert_eq!(Preset::ALL.len(), 177);
         let c = Preset::Custom {
             paths: vec![GeomPath {
                 w: 10.0,
@@ -1228,6 +1357,37 @@ mod tests {
         }
     }
 
+    #[test]
+    fn new_presets_have_powerpoints_handles_and_text_rects() {
+        let (w, h) = (1_000_000.0, 600_000.0);
+        let adj = Adjust::new();
+        // the arc's two angle handles are polar, around the centre
+        let arc = Preset::Arc.handles(w, h, &adj);
+        assert_eq!(arc.len(), 2);
+        assert!(arc.iter().all(|a| a.polar));
+        // the plaque's corner handle is linear on the x axis of `adj`
+        let pl = Preset::Plaque.handles(w, h, &adj);
+        assert_eq!(pl.len(), 1);
+        let xa = pl[0].x_axis.as_ref().unwrap();
+        assert_eq!(xa.adj, "adj");
+        assert!(
+            (pl[0].x - 16_667.0 * h / 100_000.0).abs() < 1.0,
+            "{:?}",
+            pl[0]
+        );
+        // callouts with an accent bar: four handles (two per leader end)
+        assert_eq!(Preset::AccentCallout1.handles(w, h, &adj).len(), 2);
+        assert_eq!(Preset::BorderCallout3.handles(w, h, &adj).len(), 4);
+        // text rectangles lie inside the box and shrink for brackets
+        let r = Preset::BracketPair.text_rect(w, h, &adj);
+        assert!(r.l > 0.0 && r.r < w && r.t > 0.0 && r.b < h, "{r:?}");
+        // a 32-point star: 32 outer points, a default inner radius
+        assert_eq!(Preset::Star32.adjust_defaults().len(), 1);
+        // the open presets (arc, brackets) have a stroke-only path
+        let paths = Preset::Arc.paths(w, h, &adj);
+        assert!(paths.iter().any(|p| p.stroke && !p.fill));
+    }
+
     /// Bounding box, text rectangle, handles and sites of every preset in
     /// two boxes and with adjusted values.
     #[test]
@@ -1240,6 +1400,16 @@ mod tests {
             Preset::CloudCallout,
             Preset::BorderCallout1,
             Preset::BorderCallout2,
+            Preset::BorderCallout3,
+            Preset::AccentCallout1,
+            Preset::AccentCallout2,
+            Preset::AccentCallout3,
+            Preset::Callout1,
+            Preset::Callout2,
+            Preset::Callout3,
+            Preset::AccentBorderCallout1,
+            Preset::AccentBorderCallout2,
+            Preset::AccentBorderCallout3,
             // the slash keeps its angle in narrow boxes
             Preset::MathNotEqual,
         ];
@@ -1263,7 +1433,8 @@ mod tests {
                     "{p:?} text rect {r:?} outside the box"
                 );
                 let sites = p.connection_sites(w, h, &adj);
-                assert!(sites.len() >= 2, "{p:?}");
+                // presets without `a:cxnLst` (funnel, gears, tabs) have the centre only
+                assert!(!sites.is_empty(), "{p:?}");
                 for s in &sites {
                     assert!(s.x.is_finite() && s.y.is_finite(), "{p:?}");
                     assert!((0.0..360.0).contains(&s.angle_deg), "{p:?} {s:?}");

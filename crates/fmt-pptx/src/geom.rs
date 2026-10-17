@@ -412,9 +412,23 @@ mod tests {
             r#"<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val 5000"/></a:avLst></a:prstGeom>"#
         );
         let mut w = Warnings::default();
-        let sp = el(r#"<p:spPr><a:prstGeom prst="gear9"/></p:spPr>"#);
+        let sp = el(r#"<p:spPr><a:prstGeom prst="gear12"/></p:spPr>"#);
         assert_eq!(read_geometry(Some(&sp), 1.0, 1.0, &mut w).0, Preset::Rect);
-        assert_eq!(w.into_vec(), ["preset geometry gear9 read as rectangle"]);
+        assert_eq!(w.into_vec(), ["preset geometry gear12 read as rectangle"]);
+        // every non-connector preset of ECMA-376 is supported (P9-S2)
+        let mut w = Warnings::default();
+        for prst in [
+            "gear9",
+            "accentBorderCallout3",
+            "circularArrow",
+            "ellipseRibbon2",
+            "star32",
+            "verticalScroll",
+        ] {
+            let sp = el(&format!(r#"<p:spPr><a:prstGeom prst="{prst}"/></p:spPr>"#));
+            assert_eq!(read_geometry(Some(&sp), 1.0, 1.0, &mut w).0.prst(), prst);
+        }
+        assert!(w.into_vec().is_empty());
     }
 
     #[test]
@@ -449,6 +463,48 @@ mod tests {
         let mut w = Warnings::default();
         assert_eq!(read_geometry(Some(&el(&xml)), 400.0, 200.0, &mut w).0, p);
         assert!(w.into_vec().is_empty());
+    }
+
+    #[test]
+    fn freeform_paths_roundtrip() {
+        // what Insert › Shapes › Freeform / Scribble make: the path in the
+        // box's own coordinates, open (no fill) with smoothed curves
+        let path = |fill| GeomPath {
+            w: 1_200.0,
+            h: 900.0,
+            fill,
+            stroke: true,
+            commands: vec![
+                PathCmd::MoveTo { x: 0.0, y: 900.0 },
+                PathCmd::LineTo { x: 400.0, y: 0.0 },
+                PathCmd::CubicTo {
+                    x1: 500.0,
+                    y1: 100.0,
+                    x2: 800.0,
+                    y2: 300.0,
+                    x: 1_200.0,
+                    y: 450.0,
+                },
+            ],
+        };
+        for fill in [false, true] {
+            let mut g = path(fill);
+            if fill {
+                g.commands.push(PathCmd::Close);
+            }
+            let p = Preset::Custom { paths: vec![g] };
+            let mut x = XmlOut::fragment();
+            x.start("p:spPr", &[]);
+            write_geometry(&mut x, &p, &Adjust::new());
+            x.end("p:spPr");
+            let xml = String::from_utf8(x.finish()).unwrap();
+            assert!(xml.contains(r#"<a:path w="1200" h="900""#), "{xml}");
+            assert_eq!(xml.contains(r#"fill="none""#), !fill);
+            assert!(xml.contains("<a:cubicBezTo>"));
+            let mut w = Warnings::default();
+            assert_eq!(read_geometry(Some(&el(&xml)), 1_200.0, 900.0, &mut w).0, p);
+            assert!(w.into_vec().is_empty());
+        }
     }
 
     #[test]

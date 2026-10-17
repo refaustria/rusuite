@@ -16,8 +16,12 @@ import { useT } from "../i18n";
 
 /** Inset of the layer from the table's frame (px). */
 const INSET = 5;
-/** Width of a border's resize grip (px). */
-const GRIP = 10;
+/**
+ * Hit width of a border's resize grip (px): the 32 px touch target
+ * (WCAG 2.5.8 / PowerPoint on touch screens); the border itself stays a
+ * thin line. A tap on a grip that does not drag edits the cell under it.
+ */
+export const GRIP = 32;
 
 export function TableOverlay({ store, scale, onMenu }: { store: ShowStore; scale: number; onMenu: (at: { x: number; y: number }) => void }) {
   const t = useT();
@@ -92,10 +96,18 @@ export function TableOverlay({ store, scale, onMenu }: { store: ShowStore; scale
           if (!resize || resize.axis !== axis || resize.index !== index) return;
           setResize({ ...resize, delta: (axis === "cols" ? e.clientX : e.clientY) - resize.start });
         }}
-        onPointerUp={() => {
+        onPointerUp={(e) => {
           const r = resize;
           setResize(null);
-          if (r && Math.abs(r.delta) >= 1) void store.resizeTrack(shape.id, axis, index, Math.round((r.delta / scale) * EMU_PER_PX));
+          if (r && Math.abs(r.delta) >= 1) {
+            void store.resizeTrack(shape.id, axis, index, Math.round((r.delta / scale) * EMU_PER_PX));
+            return;
+          }
+          // no drag: a click in the cell under the grip
+          const box = (e.currentTarget as HTMLElement).parentElement?.getBoundingClientRect();
+          if (!box) return;
+          const [row, col] = cellAt(layout, (e.clientX - box.left + INSET) / scale, (e.clientY - box.top + INSET) / scale);
+          store.startCellEdit(shape.id, row, col);
         }}
       />
     );

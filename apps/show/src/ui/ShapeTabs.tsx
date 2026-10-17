@@ -8,7 +8,7 @@
 import { DI } from "./designIcons";
 import type { ReactNode } from "react";
 import {
-  ColorPicker, Icon, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonStack, RibbonRow, RibbonTableSizePicker,
+  ColorPicker, Icon, RibbonButton, formatNumber, RibbonGallery, RibbonMenuButton, RibbonStack, RibbonRow, RibbonTableSizePicker,
   type RibbonGalleryItem, type RibbonMenuItem, type RibbonTab, type ThemePalette,
 } from "@rusuite/ui-shared";
 import type { ThemeColorSlot } from "../../../../packages/ui-shared/src/generated/ThemeColorSlot";
@@ -22,10 +22,13 @@ import type { TableLook } from "../generated/TableLook";
 import type { TableStyleDef } from "../generated/TableStyleDef";
 import { css } from "../model";
 import { ARROW_PRESETS } from "../shapes/connectors";
-import { singleCell, styleCell, tableStyleGroups, tableStyleOf, type BorderKind } from "../shapes/tables";
+import { BORDER_KINDS, PEN_WEIGHTS_PT, singleCell, styleCell, tableStyleGroups } from "../shapes/tables";
+import type { LineDash } from "../generated/LineDash";
+import type { TextDirection } from "../generated/TextDirection";
 import { sitesOf } from "../canvas/EditHandles";
 import type { ShowState, ShowStore } from "../state/store";
 import { ShapeLibrary } from "./ShapeGallery";
+import { editOutline } from "../shapes/editPoints";
 
 type T = (key: string, args?: Record<string, string | number>) => string;
 
@@ -164,6 +167,14 @@ export function shapeFormatGroups(store: ShowStore, state: ShowState, palette: T
                 />
               )}
             />
+            <RibbonButton
+              label={t("show.editPoints")}
+              icon={<svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M3 15L7 4l6 4 4 9z" /><rect x="5.5" y="2.5" width="3" height="3" fill="currentColor" /><rect x="11.5" y="6.5" width="3" height="3" fill="currentColor" /></svg>}
+              showLabel
+              disabled={autos.length !== 1 || !editOutline(autos[0]!)}
+              pressed={autos.length === 1 && state.editPoints === autos[0]!.id}
+              onClick={() => store.setEditPoints(!(autos.length === 1 && state.editPoints === autos[0]!.id))}
+            />
           </RibbonStack>
         </>
       ),
@@ -268,7 +279,7 @@ export function TableStylePreview({ style, look, palette }: { style: TableStyleD
     }
   }
   return (
-    <svg aria-hidden="true" width="44" height="30" viewBox="0 0 44 30">
+    <svg aria-hidden="true" width="44" height="30" viewBox="0 0 44 30" data-style-id={style.id}>
       {out}
     </svg>
   );
@@ -292,7 +303,13 @@ function TableStylesMenu({ store, table, palette, t, close }: { store: ShowStore
     ...tableStyleGroups().map((g) => ({ id: g.id, label: t(`show.tableStyleGroup.${g.id}`), styles: g.styles })),
   ];
   return (
-    <div className="flex max-h-[70vh] w-[22rem] flex-col gap-2 overflow-y-auto p-2" data-testid="table-styles-menu">
+    <div
+      className="flex max-h-[70vh] w-[22rem] flex-col gap-2 overflow-y-auto p-2"
+      data-testid="table-styles-menu"
+      onMouseOver={(e) => previewFrom(store, e.target)}
+      onFocus={(e) => previewFrom(store, e.target)}
+      onMouseLeave={() => store.previewTableStyle(null)}
+    >
       {groups.map((g) => (
         <section key={g.id} className="flex flex-col gap-1">
           <h3 className="px-1 text-[11px] font-medium text-ui-muted">{g.label}</h3>
@@ -323,11 +340,16 @@ function TableStylesMenu({ store, table, palette, t, close }: { store: ShowStore
   );
 }
 
-/** The styles shown inline in Table Design: Medium Style 2, plain and accents 1–6 (PowerPoint's best matches). */
+/** The styles shown inline in Table Design: the Best Match for Document group (as PowerPoint's first gallery row). */
 function quickTableStyles(): TableStyleDef[] {
-  return ["{073A0DAA-6AF3-43AB-8588-CEC1D06C72B9}", "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}", "{21E4AEA4-8DFA-4A89-87EB-49C32662AFE0}", "{F5AB1C69-6EDB-4FF4-983F-18BD219EF322}", "{00A15C55-8517-42AA-B614-E9B94910E393}", "{7DF18680-E054-41AD-8BC1-D1AEF772440D}", "{93296810-A885-4BE3-A3E7-6D5BEEA58F35}"]
-    .map((id) => tableStyleOf(id)!)
-    .filter(Boolean);
+  return tableStyleGroups().find((g) => g.id === "best")!.styles;
+}
+
+/** Live preview: the style id of the gallery item under the pointer (or focused) is shown on the table. */
+function previewFrom(store: ShowStore, target: EventTarget) {
+  const el = target instanceof Element ? target.closest("[data-style-id]") ?? target.querySelector?.("[data-style-id]") : null;
+  const id = el?.getAttribute("data-style-id") ?? null;
+  if (id) store.previewTableStyle(id);
 }
 
 const LOOK: { key: keyof TableLook; label: string }[] = [
@@ -339,7 +361,8 @@ const LOOK: { key: keyof TableLook; label: string }[] = [
   { key: "bandCols", label: "show.look.bandCols" },
 ];
 
-const BORDERS: BorderKind[] = ["all", "outside", "inside", "none", "top", "bottom", "left", "right", "insideH", "insideV"];
+/** Draw Borders › Pen Style. */
+const PEN_DASHES: LineDash[] = ["solid", "dash", "dot"];
 
 /** Table Design: style options, table styles, shading and borders of the cell selection. */
 export function tableDesignTab(store: ShowStore, palette: ThemePalette, t: T): RibbonTab | null {
@@ -348,6 +371,7 @@ export function tableDesignTab(store: ShowStore, palette: ThemePalette, t: T): R
   const { table } = sel;
   const range = store.cellRange();
   const shading = range ? (table.cells[range.r0]?.[range.c0]?.fill ?? null) : null;
+  const pen = store.getState().pen;
   return {
     id: "tableDesign",
     label: t("show.tableDesign"),
@@ -369,6 +393,7 @@ export function tableDesignTab(store: ShowStore, palette: ThemePalette, t: T): R
         label: t("show.tableStyles"),
         items: (
           <>
+            <div className="contents" onMouseOver={(e) => previewFrom(store, e.target)} onFocus={(e) => previewFrom(store, e.target)} onMouseLeave={() => store.previewTableStyle(null)} onBlur={() => store.previewTableStyle(null)}>
             <RibbonGallery
               label={t("show.tableStyles")}
               items={quickTableStyles().map((s) => ({ id: s.id, label: tableStyleLabel(s, t), preview: <TableStylePreview style={s} look={table.look} palette={palette} /> }))}
@@ -377,8 +402,9 @@ export function tableDesignTab(store: ShowStore, palette: ThemePalette, t: T): R
               itemClassName="h-9 w-12"
               onSelect={(id) => void store.setTableStyle(id)}
             />
+            </div>
             <RibbonMenuButton label={t("show.tableStyle.more")} icon="table" size="large" showLabel menu={(close) => <TableStylesMenu store={store} table={table} palette={palette} t={t} close={close} />} />
-            <RibbonButton label={t("show.table.clearStyle")} icon="clear" size="large" disabled={!table.styleId} onClick={() => void store.setTableStyle(null)} />
+            <RibbonButton label={t("show.table.clearStyle")} icon="clear" size="large" onClick={() => void store.clearTable()} />
           </>
         ),
       },
@@ -406,8 +432,43 @@ export function tableDesignTab(store: ShowStore, palette: ThemePalette, t: T): R
                 label={t("show.table.borders")}
                 icon="gridlines"
                 showLabel
-                menu={BORDERS.map((b) => ({ id: `border-${b}`, label: t(`show.border.${b}`), onSelect: () => void store.setCellBorders(b) }))}
+                menu={BORDER_KINDS.map((b) => ({ id: `border-${b}`, label: t(`show.border.${b}`), onSelect: () => void store.setCellBorders(b) }))}
               />
+            </RibbonStack>
+          </>
+        ),
+      },
+      {
+        // the pen the Borders menu draws with (PowerPoint's Draw Borders group)
+        label: t("show.table.drawBorders"),
+        items: (
+          <>
+            <RibbonStack>
+              <RibbonMenuButton
+                label={t("show.pen.style")}
+                icon={<svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 6h14" /><path d="M3 10h14" strokeDasharray="3 2" /><path d="M3 14h14" strokeDasharray="1 2" /></svg>}
+                showLabel
+                menu={PEN_DASHES.map((d) => ({ id: `pen-dash-${d}`, label: t(`show.pen.dash.${d}`), checked: pen.dash === d, onSelect: () => store.setPen({ dash: d }) }))}
+              />
+              <RibbonMenuButton
+                label={t("show.pen.weight")}
+                icon={<svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor"><path d="M3 5h14" strokeWidth="1" /><path d="M3 10h14" strokeWidth="2" /><path d="M3 15h14" strokeWidth="3.5" /></svg>}
+                showLabel
+                menu={PEN_WEIGHTS_PT.map((w) => ({
+                  id: `pen-weight-${w}`,
+                  label: t("show.pen.pt", { n: formatNumber(w, { maximumFractionDigits: 2 }) }),
+                  checked: Math.round(w * 12700) === pen.width,
+                  onSelect: () => store.setPen({ width: Math.round(w * 12700) }),
+                }))}
+              />
+            </RibbonStack>
+            <RibbonStack>
+              <RibbonRow>
+                <ColorPicker label={t("show.pen.color")} kind="text" value={pen.color} theme={palette} onSelect={(c) => c && store.setPen({ color: c })} />
+                <span aria-hidden="true" className="whitespace-nowrap pr-1 text-xs">
+                  {t("show.pen.color")}
+                </span>
+              </RibbonRow>
             </RibbonStack>
           </>
         ),
@@ -423,12 +484,15 @@ const MARGINS: { id: string; insets: { left: number; top: number; right: number;
   { id: "wide", insets: { left: 137160, top: 137160, right: 137160, bottom: 137160 } },
 ];
 
-/** Layout (table): rows & columns, merge, cell size, alignment and margins of the cell selection. */
+const DIRECTIONS: TextDirection[] = ["horizontal", "rotate90", "rotate270", "stacked"];
+
+/** Layout (table): rows & columns, merge, cell size, alignment, text direction and margins of the cell selection. */
 export function tableLayoutTab(store: ShowStore, t: T): RibbonTab | null {
   const sel = store.selectedTable();
   if (!sel) return null;
   const range = store.cellRange();
   const multi = !!range && !singleCell(sel.table, range);
+  const vert = range ? (sel.table.cells[range.r0]?.[range.c0]?.text.props.vert ?? "horizontal") : "horizontal";
   const anchorBtn = (a: Anchor, label: string, icon: string) => (
     <RibbonButton label={t(label)} icon={<span aria-hidden="true" className="text-[11px]">{icon}</span>} onClick={() => void store.setCellAnchor(a)} />
   );
@@ -496,10 +560,20 @@ export function tableLayoutTab(store: ShowStore, t: T): RibbonTab | null {
               </RibbonRow>
             </RibbonStack>
             <RibbonMenuButton
+              label={t("show.table.textDirection")}
+              icon={<svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M5 16V5.5l3.5 9 3.5-9V16" transform="rotate(90 8.5 10.5)" /><path d="M15.5 4v12M13.5 14l2 2 2-2" /></svg>}
+              size="large"
+              menu={DIRECTIONS.map((d) => ({ id: `vert-${d}`, label: t(`show.fmtPane.dir.${d}`), checked: vert === d, onSelect: () => void store.setCellVert(d) }))}
+            />
+            <RibbonMenuButton
               label={t("show.table.margins")}
               icon="margins"
               size="large"
-              menu={MARGINS.map((m) => ({ id: `margins-${m.id}`, label: t(`show.table.margins.${m.id}`), onSelect: () => void store.setCellMargins(m.insets) }))}
+              menu={[
+                ...MARGINS.map((m) => ({ id: `margins-${m.id}`, label: t(`show.table.margins.${m.id}`), onSelect: () => void store.setCellMargins(m.insets) })),
+                { separator: true as const },
+                { id: "margins-custom", label: t("show.table.margins.custom"), onSelect: () => store.openDialog({ kind: "cellLayout" }) },
+              ]}
             />
           </>
         ),

@@ -2,6 +2,7 @@
 // slide) and of the slide sorter, as data for ui-shared's `ContextMenu`
 // (built from the store's state, so they are unit-testable).
 
+import { editOutline } from "../shapes/editPoints";
 import { formatCombo, withLabel, type ContextMenuItem } from "@rusuite/ui-shared";
 import { t } from "../i18n";
 import type { LayoutKind } from "../generated/LayoutKind";
@@ -56,6 +57,7 @@ export function shapeMenu(store: ShowStore): ContextMenuItem[] {
     { id: "delete", label: t("cmd.delete"), shortcut: "Del", disabled: none, onSelect: () => void store.deleteSelection() },
     { separator: true },
     { id: "editText", label: t("show.editText"), shortcut: "F2", disabled: !canEditText, onSelect: () => one && store.startEdit(one.id) },
+    { id: "editPoints", label: t("show.editPoints"), disabled: !one || one.kind.kind !== "auto" || !editOutline(one), onSelect: () => store.setEditPoints(true) },
     { separator: true },
     { id: "bringToFront", label: t("show.order.bringToFront"), shortcut: key("Mod+Shift+]"), disabled: none, onSelect: () => void store.zOrder("bringToFront") },
     { id: "bringForward", label: t("show.order.bringForward"), shortcut: key("Mod+]"), disabled: none, onSelect: () => void store.zOrder("bringForward") },
