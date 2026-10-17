@@ -310,6 +310,7 @@ impl CalcDocument {
                 ),
                 protection: self.workbook.active_protection(id).cloned(),
                 slicers: self.slicer_views(id),
+                chart_sheet: self.workbook.is_chart_sheet(id),
             })
             .collect()
     }
@@ -395,6 +396,7 @@ impl CalcDocument {
                 .collect(),
             charts: wb.charts(s).to_vec(),
             pivots: self.pivot_summaries(s),
+            sparklines: self.sheet_sparklines(s.0)?,
         })
     }
 
@@ -737,8 +739,32 @@ impl CalcDocument {
             .filter(|(c, _, _)| c.sheet != s)
             .collect();
         let before = self.formula_values();
+        if wb.is_chart_sheet(s) {
+            inverse.push(C::SetChartSheet {
+                sheet,
+                chart_sheet: true,
+            });
+        }
+        if !wb.sparkline_groups(s).is_empty() {
+            inverse.push(C::SetSparklineGroups {
+                sheet,
+                groups: wb.sparkline_groups(s).to_vec(),
+            });
+        }
+        let charts_before: Vec<_> = self
+            .charts_state()
+            .into_iter()
+            .filter(|(x, _)| *x != s)
+            .collect();
+        let sparklines_before: Vec<_> = self
+            .sparklines_state()
+            .into_iter()
+            .filter(|(x, _)| *x != s)
+            .collect();
 
         let recalc = self.workbook.remove_sheet(s)?;
+        let (restore_charts, chart_sheets) = self.charts_changed(charts_before);
+        let (restore_sparklines, sparkline_sheets) = self.sparklines_changed(sparklines_before);
 
         if !cols.is_empty() {
             inverse.push(C::RestoreCols { sheet, cols });
@@ -763,6 +789,8 @@ impl CalcDocument {
                 .into_iter()
                 .map(|(sheet, cells)| C::RestoreCells { sheet, cells }),
         );
+        inverse.extend(restore_charts);
+        inverse.extend(restore_sparklines);
         let inverse = if inverse.len() == 1 {
             inverse.pop()
         } else {
@@ -772,6 +800,8 @@ impl CalcDocument {
         patch.merge(CalcPatch {
             cells: self.cells_patch(recalc.changed.iter().copied(), Some(s)),
             cycle: self.cycle_text(recalc.cycle.as_ref()),
+            chart_sheets,
+            sparkline_sheets,
             ..Default::default()
         });
         Ok(Applied { patch, inverse })
@@ -1583,7 +1613,9 @@ impl CalcDocument {
             | C::SetChartAnchor { .. }
             | C::SetChartSeries { .. }
             | C::RemoveChart { .. }
-            | C::RestoreCharts { .. } => self.charts_cmd(cmd),
+            | C::RestoreCharts { .. }
+            | C::SetChartSheet { .. } => self.charts_cmd(cmd),
+            C::SetSparklineGroups { .. } => self.sparklines_cmd(cmd),
             C::SetNote { .. }
             | C::DeleteNote { .. }
             | C::ShowHideNote { .. }
@@ -2672,6 +2704,7 @@ impl CalcDocument {
         let merges_before = self.workbook.merges(s).to_vec();
         let rules_before = self.rules_state();
         let charts_before = self.charts_state();
+        let sparklines_before = self.sparklines_state();
         let span_cells: Vec<(u32, u32, String, u32)> = if op.is_insert() {
             Vec::new()
         } else {
@@ -2760,6 +2793,9 @@ impl CalcDocument {
         let (restore, changed) = self.charts_changed(charts_before);
         inverse.extend(restore);
         extra.chart_sheets = changed;
+        let (restore, changed) = self.sparklines_changed(sparklines_before);
+        inverse.extend(restore);
+        extra.sparkline_sheets = changed;
         let inverse = if inverse.len() == 1 {
             inverse.pop()
         } else {
@@ -2801,6 +2837,7 @@ impl CalcDocument {
         let filter_before = (wb.auto_filter(s).cloned(), wb.sort_state(s).cloned());
         let rules_before = self.rules_state();
         let charts_before = self.charts_state();
+        let sparklines_before = self.sparklines_state();
 
         // What a delete destroys.
         let mut span_cells = Vec::new();
@@ -2937,6 +2974,9 @@ impl CalcDocument {
         let (restore, changed) = self.charts_changed(charts_before);
         inverse.extend(restore);
         extra.chart_sheets = changed;
+        let (restore, changed) = self.sparklines_changed(sparklines_before);
+        inverse.extend(restore);
+        extra.sparkline_sheets = changed;
         let inverse = if inverse.len() == 1 {
             inverse.pop()
         } else {
@@ -2999,6 +3039,7 @@ impl Document for CalcDocument {
         self.mark_slicers(slicers, &mut applied);
         self.mark_cf_sheets(&mut applied.patch);
         self.mark_chart_sheets(&mut applied.patch);
+        self.mark_sparkline_sheets(&mut applied.patch);
         self.track_cycle(&mut applied.patch);
         Ok(applied)
     }

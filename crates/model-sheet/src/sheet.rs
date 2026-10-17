@@ -199,6 +199,10 @@ pub(crate) struct SheetData {
     pub validations: Vec<crate::validation::DataValidation>,
     /// Charts, back to front.
     pub charts: Vec<crate::chart::ChartObject>,
+    /// A chart sheet: shows its (first) chart full-size, no cells.
+    pub chart_sheet: bool,
+    /// Sparkline groups.
+    pub sparklines: Vec<crate::sparkline::SparklineGroup>,
     /// Notes, sorted by cell.
     pub notes: Vec<crate::annotations::Note>,
     /// Threaded comments, sorted by cell.

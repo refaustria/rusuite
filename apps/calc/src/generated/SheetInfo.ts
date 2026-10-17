@@ -61,4 +61,9 @@ protection?: SheetProtection,
 /**
  * The slicers of the sheet with their buttons; absent = none.
  */
-slicers?: Array<SlicerView>, };
+slicers?: Array<SlicerView>, 
+/**
+ * A chart sheet (Move Chart › New sheet): the tab shows its chart
+ * full-size instead of cells; absent = a worksheet.
+ */
+chartSheet?: boolean, };

@@ -151,10 +151,7 @@ fn chart_of(kind: &ChartKind) -> Chart {
                 show_category: true,
                 ..DataLabels::default()
             };
-            c.legend = Some(Legend {
-                position: LegendPosition::Right,
-                overlay: false,
-            });
+            c.legend = Some(Legend::at(LegendPosition::Right));
         }
         ChartKind::Combo => {
             c.series[0].kind = Some(ChartKind::column());

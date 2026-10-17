@@ -10,7 +10,10 @@ use std::collections::BTreeSet;
 
 use core_model::chart::{Chart, DataRef, TextSource};
 use engine_formula::SheetId;
-use fmt_ooxml::chart::{read_chart, write_chart, ChartData, RefData, CHART_NS, DRAWINGML_NS};
+use fmt_ooxml::chart::{
+    picture_fill_mut, read_chart_part, resolve_picture_fills, write_chart_full, ChartData,
+    ChartWriteOptions, PictureSlot, RefData, CHART_NS, DRAWINGML_NS,
+};
 use fmt_ooxml::xml::{parse, parse_i64, El};
 use fmt_ooxml::{ct, rel, Package, PartName, Relationships, TargetMode};
 use model_sheet::{CellOffset, ChartAnchor, ChartObject, Workbook};
@@ -85,6 +88,16 @@ fn drop_resolvable_caches(chart: &mut Chart, wb: &Workbook, host: SheetId) {
         data(&mut s.values);
         if let Some(c) = s.categories.as_mut() {
             data(c);
+        }
+        for e in &mut s.error_bars {
+            if let core_model::chart::ErrorAmount::Custom { plus, minus } = &mut e.amount {
+                for d in [plus, minus].into_iter().flatten() {
+                    data(d);
+                }
+            }
+        }
+        if let Some(r) = s.data_labels.as_mut().and_then(|l| l.range.as_mut()) {
+            data(r);
         }
         if let Some(n) = s.name.as_mut() {
             text(n);
@@ -167,8 +180,20 @@ pub(crate) fn load(
                         continue;
                     };
                     let data = &pkg.part(&chart_part).expect("checked").data;
-                    let (mut chart, w) =
-                        read_chart(data, chart_part.as_str()).map_err(xml_error)?;
+                    let mut part = read_chart_part(data, chart_part.as_str()).map_err(xml_error)?;
+                    // Picture fills: images related to the chart part.
+                    let chart_rels = pkg.relationships(&chart_part);
+                    resolve_picture_fills(&mut part, |rid| {
+                        let r = chart_rels?.get(rid)?;
+                        let target = chart_part.resolve(&r.target).ok()?;
+                        let media = pkg.part(&target)?;
+                        consumed.insert(target);
+                        Some(core_model::Media {
+                            content_type: media.content_type.clone(),
+                            data: media.data.clone(),
+                        })
+                    });
+                    let (mut chart, w) = (part.chart, part.warnings);
                     // PivotChart parts are modelled here (the binding).
                     let w = w.into_iter().filter_map(|w| match w.strip_prefix(DROPPED) {
                         Some(list) => {
@@ -470,7 +495,35 @@ impl DrawingParts {
         for (i, obj) in wb.charts(sheet).iter().enumerate() {
             self.charts += 1;
             let chart_part = PartName::new(format!("/xl/charts/chart{}.xml", self.charts))?;
-            let mut xml = write_chart(&obj.chart, &data);
+            let mut chart_rels = Relationships::new();
+            let mut pictures = Vec::new();
+            let mut chart = obj.chart.clone();
+            for slot in [PictureSlot::ChartArea, PictureSlot::PlotArea] {
+                if let Some(core_model::chart::AreaFill::Picture { media, .. }) =
+                    picture_fill_mut(&mut chart, slot)
+                {
+                    if media.data.is_empty() {
+                        continue;
+                    }
+                    self.images += 1;
+                    let ext = model_sheet::picture::picture_extension(&media.content_type);
+                    let name = format!("image{}.{ext}", self.images);
+                    pkg.insert_part(
+                        PartName::new(format!("/xl/media/{name}"))?,
+                        &media.content_type,
+                        media.data.clone(),
+                    );
+                    let rid = chart_rels
+                        .add(rel::IMAGE, format!("../media/{name}"))
+                        .id
+                        .clone();
+                    pictures.push((slot, rid));
+                }
+            }
+            let mut xml = write_chart_full(&chart, &data, &ChartWriteOptions::default(), &pictures);
+            if !chart_rels.is_empty() {
+                pkg.set_relationships(chart_part.clone(), chart_rels);
+            }
             if let Some(name) = obj.pivot.and_then(|id| pivot_source_of(wb, id)) {
                 xml = with_pivot_source(&xml, &name);
             }
