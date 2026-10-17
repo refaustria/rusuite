@@ -25,3 +25,12 @@ The owner approved transitions and animations (parity backlog, Show tier 1). `Sl
 ## Amendment 2026-10-16 (P8-19): themes, one editable master, layouts, sections
 
 Masters and layouts are no longer fixed built-ins. A presentation has exactly one editable `SlideMaster` (background, placeholders, decorative shapes, title/body/other text styles with 9 levels, colour map, header/footer settings) and a list of `Layout`s (the 11 standard kinds plus `custom:<name>`), identified by kind rather than by id. Slides reference a layout; placeholder geometry and text defaults resolve slide → layout → master. The `Theme` carries the full format scheme and 8 built-in designs (Office plus 7 own designs) ship as data; `ApplyTheme` re-themes master and layouts in place. Sections (`p14:sectionLst`), header/footer fields (slide number, date formats) and picture adjustments (crop, brightness/contrast, recolour, transparency, shadow) are part of the model. Any design change is reported in one patch (`theme`, `master`, `layouts`).
+
+## Amendment 2026-10-17 (P9-S5): several designs per deck
+
+The P8-19 amendment fixed "one editable master" per presentation. P9-S5 (Reuse Slides with "Keep source formatting",
+theme import from `.thmx`/`.potx`/`.pptx`) needs decks that carry more than one master, as PowerPoint files do.
+Decision: `Presentation.designs: Vec<Design>` (a design = master + theme + its layouts), `Slide.design` names the design a
+slide uses; `fmt-pptx` reads every `p:sldMasterId` and writes `slideMasterN`/`themeN` parts. The first design stays the
+"main" one: layout galleries, the Slide Master view and the editor palettes show it only (follow-up in ROADMAP). Colour
+maps (`p:clrMap`, slide `clrMapOvr`) are honoured per design. Everything else in this ADR is unchanged.
