@@ -20,7 +20,7 @@ use model_text::{Comment, CommentId, Drawing, DrawingKind, Hyperlink, LinkTarget
 use crate::drawing::{
     emu_pt, vml_color, write_blip_effects, write_fill, write_line, write_picture_effects,
     write_preset, write_src_rect, write_style, NS_O, NS_V, NS_W10, NS_WP14, NS_WPC, NS_WPG, NS_WPS,
-    URI_WPG, URI_WPS,
+    URI_WPC, URI_WPG, URI_WPS,
 };
 
 use crate::numbering::{write_numbering, W_NS};
@@ -1050,7 +1050,7 @@ impl<'a> PartWriter<'a> {
             }
             Some(a) => {
                 let z = (251_658_240u64 + u64::from(n)).to_string();
-                write_anchor_start(x, a, &z, &cx, &cy);
+                write_anchor_start(x, a, &z, &cx, &cy, &self.doc.page);
             }
         }
         let mut doc_pr = vec![
@@ -1059,6 +1059,9 @@ impl<'a> PartWriter<'a> {
         ];
         if let Some(alt) = &img.alt {
             doc_pr.push(("descr", alt));
+        }
+        if img.hidden {
+            doc_pr.push(("hidden", "1"));
         }
         let link = img.link.as_ref().map(|l| self.drawing_link(l));
         write_doc_pr(&mut self.x, &doc_pr, link.as_ref(), img.decorative);
@@ -1111,21 +1114,25 @@ impl<'a> PartWriter<'a> {
         (rid, l.tooltip.clone())
     }
 
-    /// A shape, text box or group: `mc:AlternateContent` with the
-    /// DrawingML shape (`wps:wsp`) or group (`wpg:wgp`) as the choice and a
-    /// minimal VML shape as the fallback for Word 2007 (none for groups).
+    /// A shape, text box, group or drawing canvas: `mc:AlternateContent`
+    /// with the DrawingML shape (`wps:wsp`), group (`wpg:wgp`) or canvas
+    /// (`wpc:wpc`) as the choice and a minimal VML shape as the fallback for
+    /// Word 2007 (none for groups and canvases).
     fn drawing(&mut self, d: &Drawing) -> Result<()> {
         let n = self.shared.next_docpr;
         let id = n.to_string();
         self.shared.next_docpr += 1;
         let (cx, cy) = (d.width.0.max(0).to_string(), d.height.0.max(0).to_string());
         let group = d.kind.is_container();
+        let canvas = d.kind == DrawingKind::Canvas;
         self.x.start("w:r", &[]);
         self.x.start("mc:AlternateContent", &[]);
-        self.x.start(
-            "mc:Choice",
-            &[("Requires", if group { "wpg" } else { "wps" })],
-        );
+        let requires = match d.kind {
+            DrawingKind::Canvas => "wpc",
+            DrawingKind::Group => "wpg",
+            _ => "wps",
+        };
+        self.x.start("mc:Choice", &[("Requires", requires)]);
         self.x.start("w:drawing", &[]);
         let frame = if d.anchor.is_some() {
             "wp:anchor"
@@ -1151,12 +1158,13 @@ impl<'a> PartWriter<'a> {
             }
             Some(a) => {
                 let z = (251_658_240u64 + u64::from(n)).to_string();
-                write_anchor_start(&mut self.x, a, &z, &cx, &cy);
+                write_anchor_start(&mut self.x, a, &z, &cx, &cy, &self.doc.page);
             }
         }
         let default_name = match d.kind {
             DrawingKind::TextBox => format!("Text Box {n}"),
             DrawingKind::Group => format!("Group {n}"),
+            DrawingKind::Canvas => format!("Canvas {n}"),
             _ => format!("Shape {n}"),
         };
         let name = d.name.clone().unwrap_or(default_name);
@@ -1164,11 +1172,25 @@ impl<'a> PartWriter<'a> {
         if let Some(alt) = &d.alt {
             doc_pr.push(("descr", alt));
         }
+        if d.hidden {
+            doc_pr.push(("hidden", "1"));
+        }
         let link = d.link.as_ref().map(|l| self.drawing_link(l));
         write_doc_pr(&mut self.x, &doc_pr, link.as_ref(), d.decorative);
         self.x.empty("wp:cNvGraphicFramePr", &[]);
         self.x.start("a:graphic", &[]);
-        if group {
+        if canvas {
+            self.x.start("a:graphicData", &[("uri", URI_WPC)]);
+            self.x.start("wpc:wpc", &[]);
+            self.x.start("wpc:bg", &[]);
+            write_fill(&mut self.x, &d.fill);
+            self.x.end("wpc:bg");
+            self.x.start("wpc:whole", &[]);
+            write_line(&mut self.x, &d.line);
+            self.x.end("wpc:whole");
+            self.canvas_members(&d.children)?;
+            self.x.end("wpc:wpc");
+        } else if group {
             self.x.start("a:graphicData", &[("uri", URI_WPG)]);
             self.x.start("wpg:wgp", &[]);
             self.x.empty("wpg:cNvGrpSpPr", &[]);
@@ -1281,6 +1303,30 @@ impl<'a> PartWriter<'a> {
                     self.x.end("pic:pic");
                 }
                 _ => self.wsp(c, Some(n))?,
+            }
+        }
+        Ok(())
+    }
+
+    /// The members of a drawing canvas: like a group's, nested groups as
+    /// `wpg:wgp` (with their `wpg:cNvPr`).
+    fn canvas_members(&mut self, children: &[Drawing]) -> Result<()> {
+        for c in children {
+            if c.kind == DrawingKind::Group {
+                let n = self.shared.next_docpr;
+                self.shared.next_docpr += 1;
+                let id = n.to_string();
+                let name = c.name.clone().unwrap_or_else(|| format!("Group {n}"));
+                self.x.start("wpg:wgp", &[]);
+                self.x
+                    .empty("wpg:cNvPr", &[("id", id.as_str()), ("name", name.as_str())]);
+                self.x.empty("wpg:cNvGrpSpPr", &[]);
+                self.group_sp_pr("wpg:grpSpPr", c, true);
+                self.group_members(&c.children)?;
+                self.x.empty("wpg:bodyPr", &[]);
+                self.x.end("wpg:wgp");
+            } else {
+                self.group_members(std::slice::from_ref(c))?;
             }
         }
         Ok(())
@@ -1620,6 +1666,30 @@ pub(crate) fn write_tc_pr(
     x.end("w:tcPr");
 }
 
+/// The reference spans (EMU, from the page edge) of an anchor's
+/// relative positions: horizontally and vertically, for the fallback of
+/// `wp14:pctPos*Offset` (the first page of `page`).
+fn reference_boxes(a: &Anchor, page: &model_text::PageSetup) -> ((i64, i64), (i64, i64)) {
+    let tw = |t: Twips| i64::from(t.0) * 635;
+    let (w, h) = (tw(page.width), tw(page.height));
+    let m = &page.margins;
+    let (l, r, t, b) = (tw(m.left), w - tw(m.right), tw(m.top), h - tw(m.bottom));
+    let hb = match a.h.relative_to {
+        HRelative::Page => (0, w),
+        HRelative::LeftMargin | HRelative::InsideMargin => (0, l),
+        HRelative::RightMargin | HRelative::OutsideMargin => (r, w),
+        _ => (l, r),
+    };
+    let vb = match a.v.relative_to {
+        VRelative::Page => (0, h),
+        VRelative::TopMargin | VRelative::InsideMargin => (0, t),
+        VRelative::BottomMargin | VRelative::OutsideMargin => (b, h),
+        _ => (t, b),
+    };
+    // posOffset of a percentage is measured from the reference's start.
+    ((0, hb.1 - hb.0), (0, vb.1 - vb.0))
+}
+
 /// URI of Word's "decorative" extension of `wp:docPr`.
 const DECORATIVE_EXT: &str = "{C183D7F6-B498-43B3-948B-1728B52AA6E4}";
 const NS_ADEC: &str = "http://schemas.microsoft.com/office/drawing/2017/decorative";
@@ -1657,7 +1727,14 @@ fn write_doc_pr(
 
 /// Writes the start of `wp:anchor` up to the wrapping element (the
 /// caller continues with `wp:docPr`).
-fn write_anchor_start(x: &mut XmlOut, a: &Anchor, z: &str, cx: &str, cy: &str) {
+fn write_anchor_start(
+    x: &mut XmlOut,
+    a: &Anchor,
+    z: &str,
+    cx: &str,
+    cy: &str,
+    page: &model_text::PageSetup,
+) {
     let d = &a.distance;
     let (t, b, l, r) = (
         d.top.0.max(0).to_string(),
@@ -1666,6 +1743,9 @@ fn write_anchor_start(x: &mut XmlOut, a: &Anchor, z: &str, cx: &str, cy: &str) {
         d.right.0.max(0).to_string(),
     );
     let flag = |v: bool| if v { "1" } else { "0" };
+    // An explicit z-order (Bring Forward …) wins over the document order.
+    let z_own = a.z.to_string();
+    let z = if a.z > 0 { z_own.as_str() } else { z };
     x.start(
         "wp:anchor",
         &[
@@ -1676,8 +1756,8 @@ fn write_anchor_start(x: &mut XmlOut, a: &Anchor, z: &str, cx: &str, cy: &str) {
             ("simplePos", "0"),
             ("relativeHeight", z),
             ("behindDoc", flag(a.behind_text())),
-            ("locked", "0"),
-            ("layoutInCell", "1"),
+            ("locked", flag(a.locked)),
+            ("layoutInCell", flag(a.layout_in_cell)),
             ("allowOverlap", flag(a.allow_overlap)),
         ],
     );
@@ -1687,41 +1767,84 @@ fn write_anchor_start(x: &mut XmlOut, a: &Anchor, z: &str, cx: &str, cy: &str) {
         HRelative::Page => "page",
         HRelative::Column => "column",
         HRelative::Character => "character",
+        HRelative::LeftMargin => "leftMargin",
+        HRelative::RightMargin => "rightMargin",
+        HRelative::InsideMargin => "insideMargin",
+        HRelative::OutsideMargin => "outsideMargin",
     };
-    x.start("wp:positionH", &[("relativeFrom", h_rel)]);
-    match a.h.place {
-        Placement::Align(al) => x.text_el(
-            "wp:align",
-            &[],
-            match al {
-                HAlign::Left => "left",
-                HAlign::Center => "center",
-                HAlign::Right => "right",
-            },
-        ),
-        Placement::Offset(o) => x.text_el("wp:posOffset", &[], &o.0.to_string()),
-    }
-    x.end("wp:positionH");
+    let h_align = |al: HAlign| match al {
+        HAlign::Left => "left",
+        HAlign::Center => "center",
+        HAlign::Right => "right",
+    };
     let v_rel = match a.v.relative_to {
         VRelative::Margin => "margin",
         VRelative::Page => "page",
         VRelative::Paragraph => "paragraph",
         VRelative::Line => "line",
+        VRelative::TopMargin => "topMargin",
+        VRelative::BottomMargin => "bottomMargin",
+        VRelative::InsideMargin => "insideMargin",
+        VRelative::OutsideMargin => "outsideMargin",
     };
-    x.start("wp:positionV", &[("relativeFrom", v_rel)]);
-    match a.v.place {
-        Placement::Align(al) => x.text_el(
-            "wp:align",
-            &[],
-            match al {
-                VAlignPos::Top => "top",
-                VAlignPos::Center => "center",
-                VAlignPos::Bottom => "bottom",
-            },
-        ),
-        Placement::Offset(o) => x.text_el("wp:posOffset", &[], &o.0.to_string()),
-    }
-    x.end("wp:positionV");
+    let v_align = |al: VAlignPos| match al {
+        VAlignPos::Top => "top",
+        VAlignPos::Center => "center",
+        VAlignPos::Bottom => "bottom",
+    };
+    // Relative positions (wp14) with an absolute fallback for Word 2007.
+    let (h_box, v_box) = reference_boxes(a, page);
+    let position = |x: &mut XmlOut,
+                    el: &str,
+                    rel: &str,
+                    place: Placement<&'static str>,
+                    span: (i64, i64),
+                    axis: char| {
+        match place {
+            Placement::Percent(p) => {
+                x.start("mc:AlternateContent", &[]);
+                x.start("mc:Choice", &[("Requires", "wp14")]);
+                x.start(el, &[("relativeFrom", rel)]);
+                let pct = if axis == 'h' {
+                    "wp14:pctPosHOffset"
+                } else {
+                    "wp14:pctPosVOffset"
+                };
+                x.text_el(pct, &[], &p.to_string());
+                x.end(el);
+                x.end("mc:Choice");
+                x.start("mc:Fallback", &[]);
+                x.start(el, &[("relativeFrom", rel)]);
+                let off = span.0 + (span.1 - span.0) * i64::from(p) / 100_000;
+                x.text_el("wp:posOffset", &[], &off.to_string());
+                x.end(el);
+                x.end("mc:Fallback");
+                x.end("mc:AlternateContent");
+            }
+            Placement::Align(al) => {
+                x.start(el, &[("relativeFrom", rel)]);
+                x.text_el("wp:align", &[], al);
+                x.end(el);
+            }
+            Placement::Offset(o) => {
+                x.start(el, &[("relativeFrom", rel)]);
+                x.text_el("wp:posOffset", &[], &o.0.to_string());
+                x.end(el);
+            }
+        }
+    };
+    let hp = match a.h.place {
+        Placement::Align(al) => Placement::Align(h_align(al)),
+        Placement::Offset(o) => Placement::Offset(o),
+        Placement::Percent(p) => Placement::Percent(p),
+    };
+    position(x, "wp:positionH", h_rel, hp, h_box, 'h');
+    let vp = match a.v.place {
+        Placement::Align(al) => Placement::Align(v_align(al)),
+        Placement::Offset(o) => Placement::Offset(o),
+        Placement::Percent(p) => Placement::Percent(p),
+    };
+    position(x, "wp:positionV", v_rel, vp, v_box, 'v');
     x.empty("wp:extent", &[("cx", cx), ("cy", cy)]);
     x.empty(
         "wp:effectExtent",
@@ -2147,6 +2270,7 @@ mod tests {
                     format: Default::default(),
                     link: None,
                     decorative: false,
+                    hidden: false,
                 }),
                 Inline::Break(BreakKind::Page),
             ],
@@ -2265,6 +2389,7 @@ mod tests {
                 format: Default::default(),
                 link: None,
                 decorative: false,
+                hidden: false,
             })],
         );
         doc.body = vec![p];

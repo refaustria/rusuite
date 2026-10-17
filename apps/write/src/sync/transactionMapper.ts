@@ -148,11 +148,14 @@ function runPatch(old: Pos[], next: Pos[]): RunProperties | null {
 function imageCommand(block: number, offset: number, a: Inline | undefined, b: Inline | undefined): WriteCommand | null {
   if (a?.kind !== "image" || b?.kind !== "image") return null;
   const [x, y] = [a.value, b.value];
-  if (x.media !== y.media || (x.name ?? null) !== (y.name ?? null)) return null;
+  if (x.media !== y.media) return null;
   const cmds: WriteCommand[] = [];
   if (x.width !== y.width || x.height !== y.height) {
     if (y.width <= 0 || y.height <= 0) return null;
     cmds.push({ type: "setImageSize", block, offset, width: y.width, height: y.height });
+  }
+  if ((x.name ?? null) !== (y.name ?? null) || !!x.hidden !== !!y.hidden) {
+    cmds.push({ type: "setImageMeta", block, offset, ...((x.name ?? null) !== (y.name ?? null) ? { name: y.name ?? "" } : {}), ...(!!x.hidden !== !!y.hidden ? { hidden: !!y.hidden } : {}) });
   }
   if ((x.alt ?? null) !== (y.alt ?? null) || !!x.decorative !== !!y.decorative) {
     cmds.push({ type: "setImageAlt", block, offset, alt: y.alt ?? null, ...(!!x.decorative !== !!y.decorative ? { decorative: !!y.decorative } : {}) });
@@ -465,7 +468,7 @@ function replaceBlocks(ids: number[], blocks: Block[], opts: MapperOptions): Map
 
 /** Commands addressed to existing paragraphs only (valid inside a table cell as well). */
 const IN_PLACE = new Set<WriteCommand["type"]>([
-  "insertText", "deleteText", "replaceText", "setRunProps", "setParagraphProps", "setStyle", "setImageSize", "setImageAlt", "setImageAnchor",
+  "insertText", "deleteText", "replaceText", "setRunProps", "setParagraphProps", "setStyle", "setImageSize", "setImageAlt", "setImageMeta", "setImageAnchor",
   "setImageFormat", "setImageLink", "setDrawingProps", "setDrawingText",
 ]);
 const inPlace = (c: WriteCommand): boolean =>

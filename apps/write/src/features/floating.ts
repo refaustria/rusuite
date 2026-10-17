@@ -130,14 +130,28 @@ const px = (n: number) => `${Math.round(n * 100) / 100}px`;
  */
 export function horizontalPos(anchor: Anchor, ctx: FloatContext): { value: number | null; css: string } {
   const ind = ctx.indentLeft + ctx.indentRight;
-  const page = anchor.h.relativeTo === "page" ? ctx.page : null;
+  const rel = anchor.h.relativeTo;
   const place = anchor.h.place;
+  const page = ctx.page;
+  // The reference span (px from the column's left edge) when it is known.
+  const col = ctx.columnWidth ?? (page ? null : null);
+  const span = ((): [number, number] | null => {
+    if (rel === "page") return page ? [-page.marginLeft, page.width - page.marginLeft] : null;
+    if (rel === "leftMargin" || rel === "insideMargin") return page ? [-page.marginLeft, 0] : null;
+    if (rel === "rightMargin" || rel === "outsideMargin") return page && col != null ? [col, page.width - page.marginLeft] : null;
+    return col != null ? [0, col] : null;
+  })();
   if (place.kind === "offset") {
-    const v = place.value / EMU_PER_PX - (page ? page.marginLeft : 0);
+    const start = span && rel !== "margin" && rel !== "column" && rel !== "character" ? span[0] : 0;
+    const v = place.value / EMU_PER_PX + start;
     return { value: v, css: px(v) };
   }
-  if (page) {
-    const v = place.value === "left" ? -page.marginLeft : place.value === "right" ? page.width - page.marginLeft - ctx.width : (page.width - ctx.width) / 2 - page.marginLeft;
+  if (place.kind === "percent") {
+    const v = span ? span[0] + (place.value / 100000) * (span[1] - span[0]) : 0;
+    return { value: v, css: px(v) };
+  }
+  if (span && rel !== "margin" && rel !== "column" && rel !== "character") {
+    const v = place.value === "left" ? span[0] : place.value === "right" ? span[1] - ctx.width : (span[0] + span[1] - ctx.width) / 2;
     return { value: v, css: px(v) };
   }
   if (place.value === "left") return { value: 0, css: "0px" };
@@ -161,23 +175,48 @@ export interface VerticalPage {
 export function verticalPos(anchor: Anchor, page: VerticalPage | null = null, height = 0, lineTop = 0): number {
   const place = anchor.v.place;
   const rel = anchor.v.relativeTo;
-  if (rel === "paragraph") return place.kind === "offset" ? place.value / EMU_PER_PX : 0;
+  const offset = place.kind === "offset" ? place.value / EMU_PER_PX : 0;
+  if (rel === "paragraph") return offset;
   if (rel === "line") {
     // Offsets from the line's top; aligned: top/centre/bottom of the line (Word: top = the line's top).
-    return lineTop + (place.kind === "offset" ? place.value / EMU_PER_PX : 0);
+    return lineTop + offset;
   }
   if (!page) return 0;
-  const [top, bottom] = rel === "page" ? [0, page.height] : [page.bodyTop, page.bodyBottom];
+  const [top, bottom] =
+    rel === "page"
+      ? [0, page.height]
+      : rel === "topMargin" || rel === "insideMargin"
+        ? [0, page.bodyTop]
+        : rel === "bottomMargin" || rel === "outsideMargin"
+          ? [page.bodyBottom, page.height]
+          : [page.bodyTop, page.bodyBottom];
   const y =
     place.kind === "offset"
-      ? top + place.value / EMU_PER_PX
-      : place.value === "top"
-        ? top
-        : place.value === "bottom"
-          ? bottom - height
-          : (top + bottom - height) / 2;
+      ? top + offset
+      : place.kind === "percent"
+        ? top + (place.value / 100000) * (bottom - top)
+        : place.value === "top"
+          ? top
+          : place.value === "bottom"
+            ? bottom - height
+            : (top + bottom - height) / 2;
   return y - page.paraTop;
 }
+
+/**
+ * CSS `z-index` of a floating object out of the flow: its z-order
+ * (`relativeHeight`, Bring Forward / Send Backward) among the objects in
+ * front of the text (above 3) or behind it (negative, under the text).
+ */
+export function zIndex(anchor: Anchor): string {
+  // Word's values start at 251658240 (its first object); others (LibreOffice) at 0.
+  const z = anchor.z ?? 0;
+  const rank = Math.min(z >= 251_658_240 ? z - 251_658_240 : z, 900_000_000);
+  return anchor.wrap === "behind" ? String(-1_000_000_000 + rank) : String(3 + rank);
+}
+
+/** Whether the object is hidden (Selection Pane). */
+export const hiddenCss = (hidden: boolean | undefined): string => (hidden ? "visibility: hidden" : "");
 
 /** The CSS placement of a floating picture (see the module comment). */
 export function floatPlacement(anchor: Anchor, ctx: FloatContext): FloatPlacement {
@@ -190,7 +229,7 @@ export function floatPlacement(anchor: Anchor, ctx: FloatContext): FloatPlacemen
   if (anchor.wrap === "behind" || anchor.wrap === "inFront") {
     return {
       mode: anchor.wrap === "behind" ? "behind" : "front",
-      css: { position: "absolute", left, top: px(y), "z-index": anchor.wrap === "behind" ? "-1" : "3" },
+      css: { position: "absolute", left, top: px(y), "z-index": zIndex(anchor) },
     };
   }
   const vertical = { "margin-top": px((ctx.vpage ? y : Math.max(0, y)) + dist.t), "margin-bottom": px(dist.b) };
@@ -207,7 +246,7 @@ export function floatPlacement(anchor: Anchor, ctx: FloatContext): FloatPlacemen
     const leftGap = xNum - dist.l - ctx.indentLeft;
     const rightGap = ctx.columnWidth - ctx.indentRight - (xNum + ctx.width + dist.r);
     if (leftGap >= MIN_SIDE_GAP && rightGap >= MIN_SIDE_GAP) {
-      return { mode: "both", css: { position: "absolute", left: px(xNum - ctx.indentLeft), top: px(y), "z-index": "1" } };
+      return { mode: "both", css: { position: "absolute", left: px(xNum - ctx.indentLeft), top: px(y), "z-index": zIndex(anchor) } };
     }
   }
   const right =

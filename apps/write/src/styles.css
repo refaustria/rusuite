@@ -152,6 +152,8 @@ body,
 .drawing-member .picture-frame img.inline-image { display: block; max-width: none; }
 .drawing-wrap.selected .drawing-member.member-selected { outline: 1px dashed #4472c4; outline-offset: 1px; }
 .drawing-wrap[data-kind="group"].selected .drawing-box { outline-style: dotted; }
+.drawing-wrap[data-kind="canvas"].selected .drawing-box { outline-style: dashed; }
+.drawing-wrap[data-kind="canvas"] .drawing-rotate { display: none !important; }
 .drawing-wrap .chain-host { position: relative; overflow: hidden; height: 100%; }
 .drawing-wrap .chain-host .chain-copy { pointer-events: none; user-select: none; }
 .drawing-wrap .chain-caret { position: absolute; width: 1px; background: currentColor; animation: chain-blink 1.06s steps(1) infinite; }

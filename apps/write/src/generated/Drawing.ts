@@ -113,4 +113,8 @@ link?: Hyperlink,
  * Marked as decorative (Alt Text › Mark as decorative; the
  * `adec:decorative` extension of `wp:docPr`).
  */
-decorative?: boolean, };
+decorative?: boolean, 
+/**
+ * Hidden (Selection Pane; `wp:docPr/@hidden`).
+ */
+hidden?: boolean, };

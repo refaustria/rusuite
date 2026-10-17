@@ -219,6 +219,10 @@ pub struct InlineImage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub anchor: Option<Anchor>,
+    /// Hidden (Selection Pane; docx `wp:docPr/@hidden`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub hidden: bool,
     /// Crop, border, outline shape, shadow and corrections.
     #[serde(
         default,
@@ -253,6 +257,7 @@ impl InlineImage {
             format: crate::drawing::PictureFormat::default(),
             link: None,
             decorative: false,
+            hidden: false,
         }
     }
 }
@@ -276,6 +281,14 @@ pub enum HRelative {
     Column,
     /// The character at the anchor position.
     Character,
+    /// The left margin area (page edge to the left margin).
+    LeftMargin,
+    /// The right margin area (right margin to the page edge).
+    RightMargin,
+    /// The inside margin (left on odd pages; read as the left margin).
+    InsideMargin,
+    /// The outside margin (right on odd pages; read as the right margin).
+    OutsideMargin,
 }
 
 /// What a floating object's vertical position is measured from
@@ -297,6 +310,14 @@ pub enum VRelative {
     Paragraph,
     /// The line holding the anchor position.
     Line,
+    /// The top margin area (page edge to the top margin).
+    TopMargin,
+    /// The bottom margin area (bottom margin to the page edge).
+    BottomMargin,
+    /// The inside margin (the top margin).
+    InsideMargin,
+    /// The outside margin (the bottom margin).
+    OutsideMargin,
 }
 
 /// Horizontal alignment of a floating object relative to its reference.
@@ -350,6 +371,9 @@ pub enum Placement<A> {
     Align(A),
     /// Offset in EMU (docx `wp:posOffset`).
     Offset(#[cfg_attr(feature = "ts", ts(type = "number"))] Emu),
+    /// Relative position: a share of the reference's size in 1/1000 %
+    /// (docx `wp14:pctPosHOffset` / `wp14:pctPosVOffset`; 50000 = half).
+    Percent(i32),
 }
 
 /// Horizontal position of a floating object.
@@ -491,6 +515,25 @@ pub struct Anchor {
     /// May overlap other floating objects (docx `allowOverlap`).
     #[serde(default)]
     pub allow_overlap: bool,
+    /// Z-order among floating objects (docx `relativeHeight`; higher is
+    /// in front; 0 = by document order).
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub z: u32,
+    /// Lock anchor: the anchor stays with its paragraph when the object
+    /// moves (docx `locked`).
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub locked: bool,
+    /// Layout in table cell (docx `layoutInCell`, Word's default on).
+    #[serde(default = "yes", skip_serializing_if = "is_yes")]
+    pub layout_in_cell: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_yes(v: &bool) -> bool {
+    *v
 }
 
 fn is_default<T: Default + PartialEq>(v: &T) -> bool {
@@ -518,6 +561,9 @@ impl Anchor {
                 _ => Insets::default(),
             },
             allow_overlap: true,
+            z: 0,
+            locked: false,
+            layout_in_cell: true,
         }
     }
 

@@ -240,6 +240,7 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
     if (!anchor) {
       wrap.removeAttribute("style");
       delete wrap.dataset.wrap;
+      if (n.attrs.hidden) wrap.style.visibility = "hidden";
       return;
     }
     const ind = indentAt(view, getPos());
@@ -258,6 +259,7 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
     wrap.classList.add("floating", p.mode);
     wrap.dataset.wrap = anchor.wrap;
     wrap.setAttribute("style", placementStyle(p));
+    if (n.attrs.hidden) wrap.style.visibility = "hidden";
   };
 
   /** Lays out frame and image for a displayed size of `w` × `h` px (the crop window) and `crop`. */

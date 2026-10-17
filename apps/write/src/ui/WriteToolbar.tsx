@@ -32,9 +32,10 @@ import { tableInfo, tableTabs, type TableInfo } from "./tableTabs";
 import { ListGalleries } from "./listGalleries";
 import { paragraphBorderState, selectedParagraphs } from "../features/paragraphFormat";
 import { paragraphBordersMenu, paragraphShadingPicker } from "./paragraphControls";
-import { pictureArrangeItems } from "./pictureControls";
-import { fontExtras, groupMenu, insertDrawingButtons, pictureCropButton, pictureFormatGroups, shapeFormatTab } from "./drawingTabs";
-import { selectedDrawing } from "../features/drawings/drawings";
+import { pictureArrangeItems, setSelectedAnchor } from "./pictureControls";
+import { alignOne, fontExtras, groupMenu, insertDrawingButtons, pictureCropButton, pictureFormatGroups, shapeFormatTab } from "./drawingTabs";
+import { alignObjectsMenu, orderMenus, selectionPaneButton } from "./arrangeControls";
+import { editSelectedDrawing, selectedDrawing } from "../features/drawings/drawings";
 import { formatTarget } from "../features/runFormat";
 import { innerEditors } from "../features/drawings/innerEditors";
 import type { Drawing } from "../generated/Drawing";
@@ -1027,6 +1028,27 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
           </>
         ),
       },
+      {
+        // Word's Layout › Arrange: for the selected picture or shape.
+        label: t("write.arrange"),
+        items: (
+          <>
+            {orderMenus(editor)}
+            {selectionPaneButton(features)}
+            {alignObjectsMenu(editor, (mode, to) => {
+              if (selectedImage(editor.state)) alignOne(mode, to, (make) => setSelectedAnchor(editor, make));
+              else alignOne(mode, to, (make) => editSelectedDrawing(editor, (d) => {
+                const a = make(d.anchor ?? null);
+                const out = { ...d };
+                if (a) out.anchor = a;
+                else delete out.anchor;
+                return out;
+              }));
+            })}
+            {groupMenu(editor)}
+          </>
+        ),
+      },
     ],
   };
 
@@ -1294,8 +1316,11 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
             label: t("write.arrange"),
             items: (
               <>
-                {pictureArrangeItems(editor, img.anchor)}
+                {pictureArrangeItems(editor, img.anchor, () => features.ui.openDialog("layout"))}
                 {groupMenu(editor)}
+                {alignObjectsMenu(editor, (mode, to) => alignOne(mode, to, (make) => setSelectedAnchor(editor, make)))}
+                {orderMenus(editor)}
+                {selectionPaneButton(features)}
                 <RibbonStack>
                   <RibbonRow>
                     {alignBtn("left", t("write.picAlignLeft"), <Icon name="alignLeft" />, "Mod+L")}
@@ -1348,7 +1373,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         home, insert, designTab(ctl, t), layout, references, review, view,
         ...contextualTabs(tableTabList, t("ribbon.ctx.tableTools"), CONTEXT_COLORS.table),
         ...contextualTabs(pictureTab ? [pictureTab] : [], t("ribbon.ctx.pictureTools"), CONTEXT_COLORS.picture),
-        ...((d) => contextualTabs(d ? [shapeFormatTab(editor, ctl, d, features.ui)] : [], t("ribbon.ctx.drawingTools"), CONTEXT_COLORS.drawing))(
+        ...((d) => contextualTabs(d ? [shapeFormatTab(editor, ctl, d, features)] : [], t("ribbon.ctx.drawingTools"), CONTEXT_COLORS.drawing))(
           s.drawing ?? (activeInner ? (selectedDrawing(editor.state)?.value ?? null) : null),
         ),
       ]}

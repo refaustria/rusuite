@@ -243,7 +243,8 @@ fn text_box_floats_and_props_change() {
         .unwrap()
         .clone();
     assert_eq!(d2.kind, DrawingKind::TextBox);
-    assert_eq!(d2.anchor, d.anchor);
+    // The z-order comes back from `relativeHeight` (P9-W4).
+    assert_eq!(d2.anchor.map(|a| Anchor { z: 0, ..a }), d.anchor);
     assert_eq!(d2.rotation, 15.0);
     assert_eq!(d2.line, d.line);
     // A text box keeps its text.

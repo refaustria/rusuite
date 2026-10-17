@@ -216,3 +216,101 @@ fn linking_text_boxes_empties_the_later_box() {
         })
         .is_err());
 }
+
+#[test]
+fn canvas_insert_members_and_image_meta() {
+    let mut h = host(&["Body ", "Next"]);
+    apply(
+        &mut h,
+        C::InsertDrawing {
+            block: NodeId(1),
+            offset: 5,
+            kind: DrawingKind::Canvas,
+            preset: "rect".into(),
+            width: Emu(5_400_000),
+            height: Emu(2_160_000),
+            anchor: None,
+            text: None,
+        },
+    );
+    let c = drawings(&h, 1).remove(0);
+    assert_eq!(c.kind, DrawingKind::Canvas);
+    assert!(c.children.is_empty() && c.text.is_none());
+    // A shape drawn on it (temporary ids → fresh), then Fit.
+    let mut next = c.clone();
+    let mut m = Drawing::shape(NodeId(0), "ellipse", Emu(914_400), Emu(914_400));
+    m.x = Emu(100_000);
+    next.children.push(m);
+    apply(
+        &mut h,
+        C::SetDrawingProps {
+            block: NodeId(1),
+            offset: 5,
+            drawing: Box::new(next),
+        },
+    );
+    let c2 = drawings(&h, 1).remove(0);
+    assert_eq!(c2.children.len(), 1);
+    assert_ne!(c2.children[0].id, NodeId(0));
+    assert_eq!(c2.width, Emu(5_400_000));
+    // A canvas stays a canvas; it may be empty again.
+    let mut empty = c2.clone();
+    empty.children.clear();
+    h.apply(C::SetDrawingProps {
+        block: NodeId(1),
+        offset: 5,
+        drawing: Box::new(empty),
+    })
+    .unwrap();
+    let mut shape = c2.clone();
+    shape.kind = DrawingKind::Shape;
+    assert!(h
+        .apply(C::SetDrawingProps {
+            block: NodeId(1),
+            offset: 5,
+            drawing: Box::new(shape),
+        })
+        .is_err());
+    // Selection Pane on a picture: rename and hide.
+    let mut doc = Document::new();
+    doc.body.clear();
+    let media = doc.media.insert("image/png", vec![0x89, b'P', b'N', b'G']);
+    doc.reserve_id(NodeId(2));
+    let mut p = Paragraph::with_text(NodeId(2), "Next");
+    p.inlines.push(Inline::Image(model_text::InlineImage::new(
+        media,
+        Emu(10),
+        Emu(10),
+    )));
+    doc.body.push(Block::Paragraph(p));
+    let mut h: WriteHost = Host::new(WriteDocument::from_document(doc).unwrap());
+    apply(
+        &mut h,
+        C::SetImageMeta {
+            block: NodeId(2),
+            offset: 4,
+            name: Some("Logo".into()),
+            hidden: Some(true),
+        },
+    );
+    let img = match &para(&h, 2).inlines[1] {
+        Inline::Image(i) => i.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(img.name.as_deref(), Some("Logo"));
+    assert!(img.hidden);
+    apply(
+        &mut h,
+        C::SetImageMeta {
+            block: NodeId(2),
+            offset: 4,
+            name: Some(" ".into()),
+            hidden: None,
+        },
+    );
+    let Inline::Image(img) = &para(&h, 2).inlines[1] else {
+        panic!()
+    };
+    assert_eq!(img.name, None);
+    assert!(img.hidden);
+}

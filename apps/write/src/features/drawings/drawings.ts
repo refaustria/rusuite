@@ -44,8 +44,9 @@ export const SHAPE_GROUPS: { id: string; items: string[] }[] = [
   { id: "callouts", items: ["wedgeRectCallout", "wedgeRoundRectCallout", "wedgeEllipseCallout"] },
 ];
 
-/** Word's default sizes: shapes 2.5 × 2.5 cm (lines 4 cm wide), text boxes 5 × 2.5 cm. */
+/** Word's default sizes: shapes 2.5 × 2.5 cm (lines 4 cm wide), text boxes 5 × 2.5 cm, a drawing canvas 15 × 6 cm. */
 export function defaultSize(preset: string, kind: DrawingKind): { width: number; height: number } {
+  if (kind === "canvas") return { width: 15 * EMU_PER_CM, height: 6 * EMU_PER_CM };
   if (kind === "textBox") return { width: 5 * EMU_PER_CM, height: 2.5 * EMU_PER_CM };
   if (preset === "line") return { width: 4 * EMU_PER_CM, height: 1 };
   if (/Arrow$|homePlate|chevron/.test(preset) && !/^(up|down|upDown)/.test(preset)) return { width: 3.5 * EMU_PER_CM, height: 1.8 * EMU_PER_CM };
@@ -56,8 +57,8 @@ export function defaultSize(preset: string, kind: DrawingKind): { width: number;
 export function insertDrawingCommand(editor: Editor, id: string, opts: { anchor?: Anchor | null; text?: string } = {}): WriteCommand | null {
   const at = cursorBlock(editor);
   if (!at) return null;
-  const kind: DrawingKind = id === "textBox" ? "textBox" : "shape";
-  const preset = id === "textBox" ? "rect" : id;
+  const kind: DrawingKind = id === "textBox" ? "textBox" : id === "canvas" ? "canvas" : "shape";
+  const preset = id === "textBox" || id === "canvas" ? "rect" : id;
   const cmd: WriteCommand = { type: "insertDrawing", block: at.id, offset: at.offset, kind, preset, ...defaultSize(preset, kind) };
   if (opts.anchor) cmd.anchor = opts.anchor;
   if (opts.text != null) cmd.text = opts.text;
@@ -262,4 +263,21 @@ export function flipped(d: Drawing, axis: "h" | "v"): Drawing {
   if (!out.flipH) delete out.flipH;
   if (!out.flipV) delete out.flipV;
   return out;
+}
+
+/** Fit (drawing canvas): the canvas shrinks to its members; returns the canvas and how far its frame moved (EMU), or null without members. */
+export function fitCanvas(d: Drawing): { canvas: Drawing; dx: number; dy: number } | null {
+  const kids = d.children ?? [];
+  if (!kids.length) return null;
+  const x0 = Math.min(...kids.map((m) => m.x ?? 0));
+  const y0 = Math.min(...kids.map((m) => m.y ?? 0));
+  const x1 = Math.max(...kids.map((m) => (m.x ?? 0) + m.width));
+  const y1 = Math.max(...kids.map((m) => (m.y ?? 0) + m.height));
+  const children = kids.map((m) => {
+    const out: Drawing = { ...m, x: (m.x ?? 0) - x0, y: (m.y ?? 0) - y0 };
+    if (!out.x) delete out.x;
+    if (!out.y) delete out.y;
+    return out;
+  });
+  return { canvas: { ...d, children, width: Math.max(1, x1 - x0), height: Math.max(1, y1 - y0) }, dx: x0, dy: y0 };
 }

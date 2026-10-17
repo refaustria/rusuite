@@ -137,6 +137,9 @@ function replaceInner(inner: Editor, blocks: Block[]): void {
 const plainText = (blocks: readonly Block[]) =>
   blocks.map((b) => (b.kind === "paragraph" ? (b.value.inlines ?? []).map((i) => (i.kind === "run" ? i.value.text : "")).join("") : "")).join("\n");
 
+/** Groups and drawing canvases hold members. */
+const isContainer = (d: Drawing) => d.kind === "group" || d.kind === "canvas";
+
 const transformOf = (d: Drawing) =>
   [d.rotation ? `rotate(${d.rotation}deg)` : "", d.flipH ? "scaleX(-1)" : "", d.flipV ? "scaleY(-1)" : ""].filter(Boolean).join(" ");
 
@@ -221,6 +224,8 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
       wrap.dataset.wrap = anchor.wrap;
       css.push(placementStyle(p));
     } else delete wrap.dataset.wrap;
+    // Hidden in the Selection Pane: not shown, not printed (Word).
+    if (d.hidden) css.push("visibility: hidden");
     wrap.setAttribute("style", css.join("; "));
     box.style.transform = transformOf(d);
     frame.style.transform = d.rotation ? `rotate(${d.rotation}deg)` : "";
@@ -452,8 +457,8 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
   };
 
   const drawMembers = (d: Drawing) => {
-    membersEl.hidden = d.kind !== "group";
-    if (d.kind !== "group") return;
+    membersEl.hidden = !isContainer(d);
+    if (!isContainer(d)) return;
     const seen = new Set<number>();
     renderMembers(membersEl, d, seen);
     for (const [id, mv] of members) {
@@ -469,7 +474,7 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
   const drawAdjust = (d: Drawing, w: number, h: number) => {
     adjustEls.forEach((e) => e.remove());
     adjustEls = [];
-    if (d.kind === "group") return;
+    if (isContainer(d)) return;
     const defs = handlesOf(d.preset, d.width, d.height);
     if (!defs.length) return;
     const outline = shapePaths.get(pathQuery(d.preset, d.width, d.height, d.adjust ?? null));
@@ -512,7 +517,7 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
   view.dom.addEventListener("rusuite-layout", onLayout);
   const offPaths = shapePaths.subscribe(() => {
     drawShape(value);
-    if (value.kind === "group") drawMembers(value);
+    if (isContainer(value)) drawMembers(value);
     drawAdjust(value, size(value).w, size(value).h);
   });
 
@@ -682,9 +687,10 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
       dragging = false;
       mv.el.style.translate = "";
       if (Math.hypot(d.x, d.y) < 3) return;
-      // The member moves inside its parent; the group's frame follows its members (Word).
+      // The member moves inside its parent; a group's frame follows its members (Word), a canvas keeps its own.
       const moved = { ...m, x: Math.round((m.x ?? 0) + d.x * EMU_PER_PX), y: Math.round((m.y ?? 0) + d.y * EMU_PER_PX) };
-      commit(refit(withMember(value, path, moved)));
+      const next = withMember(value, path, moved);
+      commit(value.kind === "group" ? refit(next) : next);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -698,7 +704,7 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
     if (target.closest(".drawing-text .ProseMirror") || (target.closest(".drawing-text") && wrap.classList.contains("editing"))) return;
     // Groups: a click on a member selects it, a drag of the selected member moves it.
     const memberEl = target.closest<HTMLElement>(".drawing-member");
-    if (value.kind === "group") {
+    if (isContainer(value)) {
       const id = memberEl ? Number(memberEl.dataset.memberId) : null;
       if (id != null && selectedMemberOf(value.id) === id) {
         onMemberMove(e, id);
@@ -791,7 +797,7 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
       if (n.type !== current.type) return false;
       current = n;
       if (n.attrs.value !== value) render(n.attrs.value as Drawing);
-      else if (value.kind === "group") drawMembers(value);
+      else if (isContainer(value)) drawMembers(value);
       return true;
     },
     selectNode() {
@@ -810,7 +816,7 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
       if (t?.closest?.(".drawing-text")) return true;
       if (t?.dataset?.handle || t?.dataset?.rotate || t?.dataset?.adjust || dragging) return true;
       const own = /^(pointer|mouse|click|dblclick|dragstart)/.test(e.type) && wrap.classList.contains("selected");
-      return own && (!!value.anchor || value.kind === "group");
+      return own && (!!value.anchor || isContainer(value));
     },
     ignoreMutation: () => true,
     destroy() {

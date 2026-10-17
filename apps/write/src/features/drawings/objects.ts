@@ -366,3 +366,120 @@ const boundsOf = (boxes: Box[]): Box => {
   const y = Math.min(...boxes.map((b) => b.y));
   return { x, y, w: Math.max(...boxes.map((b) => b.x + b.w)) - x, h: Math.max(...boxes.map((b) => b.y + b.h)) - y };
 };
+
+// ----- order and the Selection Pane ------------------------------------------------------
+
+/** Word's first `relativeHeight` and its step between objects. */
+export const Z_BASE = 251_658_240;
+export const Z_STEP = 1024;
+
+/** A floating object for ordering: its key (position) and z-order (0 = by document order). */
+export interface ZItem {
+  key: number;
+  z: number;
+}
+
+export type OrderOp = "forward" | "backward" | "front" | "back";
+
+/**
+ * The new z-orders after Bring Forward / Send Backward / Bring to Front /
+ * Send to Back of `target` (items in document order; equal or missing z
+ * keep the document order): every item whose value changes, as a map from
+ * key to its new `relativeHeight` (Word's base and step).
+ */
+export function reorder(items: ZItem[], target: number, op: OrderOp): Map<number, number> {
+  const order = items.map((it, i) => ({ ...it, i })).sort((a, b) => a.z - b.z || a.i - b.i);
+  const at = order.findIndex((it) => it.key === target);
+  const out = new Map<number, number>();
+  if (at < 0) return out;
+  const [it] = order.splice(at, 1);
+  const to = op === "front" ? order.length : op === "back" ? 0 : op === "forward" ? Math.min(order.length, at + 1) : Math.max(0, at - 1);
+  order.splice(to, 0, it!);
+  order.forEach((o, rank) => {
+    const z = Z_BASE + Z_STEP * (rank + 1);
+    if (o.z !== z) out.set(o.key, z);
+  });
+  return out;
+}
+
+/** Every picture and drawing of the document (top level), in document order. */
+export function allObjects(state: EditorState): { pos: number; node: PMNode }[] {
+  const out: { pos: number; node: PMNode }[] = [];
+  state.doc.descendants((node, pos) => {
+    if (isObject(node)) {
+      out.push({ pos, node });
+      return false;
+    }
+    return true;
+  });
+  return out;
+}
+
+/** Word's default name of an object: "Picture 2", "Text Box 3", … (`n` its number in the document). */
+export function defaultName(node: PMNode, n: number): string {
+  if (node.type.name === "image") return `${PICTURE_WORD} ${n}`;
+  const kind = (node.attrs.value as Drawing).kind ?? "shape";
+  const word = kind === "textBox" ? TEXT_BOX_WORD : kind === "group" ? GROUP_WORD : kind === "canvas" ? CANVAS_WORD : SHAPE_WORD;
+  return `${word} ${n}`;
+}
+
+// Word writes these English default names into the file; the pane shows them as Word does.
+const PICTURE_WORD = "Picture"; // i18n-ignore
+const TEXT_BOX_WORD = "Text Box"; // i18n-ignore
+const GROUP_WORD = "Group"; // i18n-ignore
+const CANVAS_WORD = "Canvas"; // i18n-ignore
+const SHAPE_WORD = "Shape"; // i18n-ignore
+
+/** The name of an object (its own or Word's default). */
+export function objectName(node: PMNode, n: number): string {
+  const own = node.type.name === "image" ? (node.attrs.name as string | null) : (node.attrs.value as Drawing).name;
+  return own?.trim() ? own : defaultName(node, n);
+}
+
+/** Applies `attrs` (name, hidden, anchor) to the object at `pos` in `tr`'s document. */
+export function objectAttrs(n: PMNode, patch: { name?: string | null; hidden?: boolean; anchor?: Anchor }): Record<string, unknown> {
+  if (n.type.name === "image") {
+    const out: Record<string, unknown> = { ...n.attrs };
+    if (patch.name !== undefined) out.name = patch.name || null;
+    if (patch.hidden !== undefined) out.hidden = patch.hidden;
+    if (patch.anchor) out.anchor = patch.anchor;
+    return out;
+  }
+  const d: Drawing = { ...(n.attrs.value as Drawing) };
+  if (patch.name !== undefined) {
+    if (patch.name) d.name = patch.name;
+    else delete d.name;
+  }
+  if (patch.hidden !== undefined) {
+    if (patch.hidden) d.hidden = true;
+    else delete d.hidden;
+  }
+  if (patch.anchor) d.anchor = patch.anchor;
+  return { value: canonDrawing(d) };
+}
+
+/** Renames or hides / shows the object at `pos` (Selection Pane). */
+export function setObjectMeta(view: EditorView, pos: number, patch: { name?: string | null; hidden?: boolean }): boolean {
+  const n = view.state.doc.nodeAt(pos);
+  if (!isObject(n)) return false;
+  view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, objectAttrs(n, patch)));
+  return true;
+}
+
+/** Bring Forward / Send Backward / to Front / to Back for the selected floating object (one transaction). */
+export function orderSelected(view: EditorView, op: OrderOp): boolean {
+  const sel = view.state.selection;
+  if (!(sel instanceof NodeSelection) || !isObject(sel.node) || !isFloating(sel.node)) return false;
+  const objs = allObjects(view.state).filter((o) => isFloating(o.node));
+  const changes = reorder(objs.map((o) => ({ key: o.pos, z: anchorOf(o.node)?.z ?? 0 })), sel.from, op);
+  if (!changes.size) return false;
+  let tr = view.state.tr;
+  for (const [pos, z] of changes) {
+    const n = tr.doc.nodeAt(pos);
+    const a = n ? anchorOf(n) : null;
+    if (n && a) tr = tr.setNodeMarkup(pos, undefined, objectAttrs(n, { anchor: { ...a, z } }));
+  }
+  tr.setSelection(NodeSelection.create(tr.doc, sel.from));
+  view.dispatch(tr);
+  return true;
+}

@@ -1170,6 +1170,27 @@ impl BodyReader<'_> {
                 .read_group_frame(shape, wgp, floating)
                 .map(|d| Inline::Drawing(Box::new(d)));
         }
+        if let Some(wpc) = data.and_then(|g| g.child("wpc")) {
+            let id = self.doc.alloc_id();
+            let mut c = Drawing::canvas(id, Emu(0), Emu(0), Vec::new());
+            self.frame_props(shape, &mut c, floating);
+            if let Some(f) = wpc.child("bg").and_then(read_fill) {
+                c.fill = f;
+            }
+            if let Some(ln) = wpc.child("whole").and_then(|w| w.child("ln")) {
+                let (fill, width, dash) = read_line(ln);
+                if let Some(fill) = fill {
+                    c.line = ShapeLine {
+                        fill,
+                        width: width.unwrap_or(Emu(9525)),
+                        dash,
+                    };
+                }
+            }
+            // Canvas members sit at their own offsets (no child coordinate space).
+            c.children = self.read_group_members(wpc, -1.0, -1.0);
+            return Some(Inline::Drawing(Box::new(c)));
+        }
         let blip = data.and_then(|g| g.find("blip"));
         let Some(rid) = blip.and_then(|b| b.attr("embed")) else {
             if blip.and_then(|b| b.attr("link")).is_some() {
@@ -1219,6 +1240,10 @@ impl BodyReader<'_> {
             format,
             link,
             decorative: doc_pr.is_some_and(is_decorative),
+            hidden: doc_pr
+                .and_then(|p| p.attr("hidden"))
+                .and_then(parse_bool)
+                .unwrap_or(false),
         }))
     }
 
@@ -1305,6 +1330,10 @@ impl BodyReader<'_> {
         d.alt = attr("descr");
         d.anchor = floating.then(|| read_anchor(frame, self.w));
         d.decorative = doc_pr.is_some_and(is_decorative);
+        d.hidden = doc_pr
+            .and_then(|p| p.attr("hidden"))
+            .and_then(parse_bool)
+            .unwrap_or(false);
         d.link = doc_pr
             .and_then(|p| p.child("hlinkClick"))
             .and_then(|h| self.drawing_link(h));
@@ -1340,6 +1369,12 @@ impl BodyReader<'_> {
     fn read_group_members(&mut self, grp: &El, w: f64, h: f64) -> Vec<Drawing> {
         let xfrm = grp.child("grpSpPr").and_then(|p| p.child("xfrm"));
         let ext = xfrm_box(xfrm);
+        // A canvas (`w < 0`): its members' offsets are its own coordinates.
+        let (w, h) = if w < 0.0 {
+            (ext.2.max(1.0), ext.3.max(1.0))
+        } else {
+            (w, h)
+        };
         let ch_off = xfrm
             .and_then(|x| x.child("chOff"))
             .map_or((ext.0, ext.1), |o| (num(o, "x"), num(o, "y")));
@@ -1399,7 +1434,7 @@ impl BodyReader<'_> {
                         None => None,
                     }
                 }
-                "grpSp" => {
+                "grpSp" | "wgp" => {
                     let b = xfrm_box(el.child("grpSpPr").and_then(|p| p.child("xfrm")));
                     let (x, y, gw, gh) = map(b);
                     let children = self.read_group_members(el, gw.0 as f64, gh.0 as f64);
@@ -1412,7 +1447,7 @@ impl BodyReader<'_> {
                         .map(str::to_owned);
                     (!g.children.is_empty()).then_some(g)
                 }
-                "cNvPr" | "cNvGrpSpPr" | "grpSpPr" | "bodyPr" | "extLst" => None,
+                "cNvPr" | "cNvGrpSpPr" | "grpSpPr" | "bodyPr" | "extLst" | "bg" | "whole" => None,
                 _ => {
                     self.w.warn(
                         "docx.drawing.otherObjects",
@@ -1824,6 +1859,11 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
             .and_then(|o| o.text().trim().parse::<i64>().ok())
             .map(Emu)
     };
+    // `wp14:pctPos*Offset`: a relative position (1/1000 %).
+    let percent = |el: &El, name: &str| {
+        el.child(name)
+            .and_then(|o| o.text().trim().parse::<i32>().ok())
+    };
     let mut anchor = Anchor::new(WrapKind::InFront);
     anchor.distance = Insets {
         top: emu_attr("distT"),
@@ -1832,6 +1872,12 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
         right: emu_attr("distR"),
     };
     anchor.allow_overlap = flag("allowOverlap");
+    anchor.locked = flag("locked");
+    anchor.layout_in_cell = a.attr("layoutInCell").and_then(parse_bool).unwrap_or(true);
+    anchor.z = a
+        .attr("relativeHeight")
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .unwrap_or(0);
     if flag("simplePos") {
         w.warn(
             "docx.float.simplePosition",
@@ -1853,12 +1899,16 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
             place: Placement::Offset(at("y")),
         };
     } else {
-        if let Some(h) = a.child("positionH") {
+        if let Some(h) = position_el(a, "positionH") {
             let rel = match h.attr("relativeFrom").unwrap_or("column") {
                 "margin" => HRelative::Margin,
-                "page" | "leftMargin" => HRelative::Page,
+                "page" => HRelative::Page,
                 "column" => HRelative::Column,
                 "character" => HRelative::Character,
+                "leftMargin" => HRelative::LeftMargin,
+                "rightMargin" => HRelative::RightMargin,
+                "insideMargin" => HRelative::InsideMargin,
+                "outsideMargin" => HRelative::OutsideMargin,
                 other => {
                     w.warn(
                         "docx.float.horizontalRelative",
@@ -1868,25 +1918,30 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
                     HRelative::Margin
                 }
             };
-            let place = match h.child("align").map(El::text) {
-                Some(al) => Placement::Align(match al.trim() {
+            let place = match (h.child("align").map(El::text), percent(h, "pctPosHOffset")) {
+                (Some(al), _) => Placement::Align(match al.trim() {
                     "center" => HAlign::Center,
                     "right" | "outside" => HAlign::Right,
                     _ => HAlign::Left,
                 }),
-                None => Placement::Offset(offset(h).unwrap_or(Emu(0))),
+                (None, Some(p)) => Placement::Percent(p),
+                (None, None) => Placement::Offset(offset(h).unwrap_or(Emu(0))),
             };
             anchor.h = HPos {
                 relative_to: rel,
                 place,
             };
         }
-        if let Some(v) = a.child("positionV") {
+        if let Some(v) = position_el(a, "positionV") {
             let rel = match v.attr("relativeFrom").unwrap_or("paragraph") {
                 "margin" => VRelative::Margin,
-                "page" | "topMargin" => VRelative::Page,
+                "page" => VRelative::Page,
                 "paragraph" => VRelative::Paragraph,
                 "line" => VRelative::Line,
+                "topMargin" => VRelative::TopMargin,
+                "bottomMargin" => VRelative::BottomMargin,
+                "insideMargin" => VRelative::InsideMargin,
+                "outsideMargin" => VRelative::OutsideMargin,
                 other => {
                     w.warn(
                         "docx.float.verticalRelative",
@@ -1896,13 +1951,14 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
                     VRelative::Margin
                 }
             };
-            let place = match v.child("align").map(El::text) {
-                Some(al) => Placement::Align(match al.trim() {
+            let place = match (v.child("align").map(El::text), percent(v, "pctPosVOffset")) {
+                (Some(al), _) => Placement::Align(match al.trim() {
                     "center" => VAlignPos::Center,
                     "bottom" | "outside" => VAlignPos::Bottom,
                     _ => VAlignPos::Top,
                 }),
-                None => Placement::Offset(offset(v).unwrap_or(Emu(0))),
+                (None, Some(p)) => Placement::Percent(p),
+                (None, None) => Placement::Offset(offset(v).unwrap_or(Emu(0))),
             };
             anchor.v = VPos {
                 relative_to: rel,
@@ -1949,6 +2005,20 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
         );
     }
     anchor
+}
+
+/// The `wp:positionH` / `wp:positionV` of an anchor, also inside
+/// `mc:AlternateContent` (Word's relative positions: the `wp14` choice).
+fn position_el<'e>(a: &'e El, name: &str) -> Option<&'e El> {
+    a.elements().find_map(|el| {
+        if el.name == name {
+            Some(el)
+        } else if el.name == "AlternateContent" {
+            el.child("Choice").and_then(|c| c.child(name))
+        } else {
+            None
+        }
+    })
 }
 
 /// Whether a `wp:docPr` carries Word's "decorative" mark (the

@@ -8,9 +8,11 @@
 import type { Editor } from "@tiptap/core";
 import { NodeSelection } from "@tiptap/pm/state";
 import type { Anchor } from "../../generated/Anchor";
+import type { Drawing } from "../../generated/Drawing";
 import type { DrawingKind } from "../../generated/DrawingKind";
 import type { Indent } from "../../generated/Indent";
 import type { WriteCommand } from "../../generated/WriteCommand";
+import { canonDrawing } from "../../sync/model";
 import { charOffsetOf, type SyncController } from "../../sync/SyncPlugin";
 import { newAnchor, zoomOf } from "../floating";
 import { defaultSize, drawingPosAt, EMU_PER_PX, insertDrawing } from "./drawings";
@@ -75,6 +77,8 @@ export function armDrawTool(editor: Editor, ctl: SyncController, id: string): vo
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+    // Drawn on a drawing canvas: the shape becomes a member of the canvas (Word).
+    const canvasEl = (e.target as HTMLElement).closest?.('.drawing-wrap[data-kind="canvas"]') as HTMLElement | null;
     const start = { x: e.clientX, y: e.clientY };
     const band = document.createElement("div");
     band.className = "draw-band";
@@ -101,6 +105,7 @@ export function armDrawTool(editor: Editor, ctl: SyncController, id: string): vo
       const r = drawnRect(start, end, shift, id === "line");
       const tool = armed;
       cancelDrawTool();
+      if (tool && canvasEl && addToCanvas(tool.editor, canvasEl, id, r)) return;
       if (tool) void place(tool.editor, tool.ctl, id, r).catch((err) => tool.ctl.pushError(err));
     };
     window.addEventListener("pointermove", move, true);
@@ -175,5 +180,61 @@ async function place(editor: Editor, ctl: SyncController, id: string, r: { x: nu
   const pos = drawingPosAt(editor.state.doc, cmd.block, cmd.offset);
   if (pos == null) return false;
   editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)));
+  return true;
+}
+
+const theme = (slot: string, tint = 0) => ({ kind: "theme", value: { slot, tint } }) as unknown as NonNullable<Drawing["textColor"]>;
+const rgb = (hex: string) => ({ kind: "rgb", value: hex }) as unknown as NonNullable<Drawing["textColor"]>;
+
+/** A new canvas member of gallery item `id` at `rect` (px in the canvas): Word's default look (Rust's `Drawing::shape` / `text_box`). */
+export function canvasMember(id: string, rect: { x: number; y: number; w: number; h: number }, tempId: number): Drawing {
+  const kind: DrawingKind = id === "textBox" ? "textBox" : "shape";
+  const preset = id === "textBox" ? "rect" : id;
+  const click = rect.w < 4 && rect.h < 4;
+  const def = defaultSize(preset, kind);
+  const d: Drawing = {
+    id: tempId,
+    width: click ? def.width : Math.max(EMU_PER_PX, Math.round(rect.w * EMU_PER_PX)),
+    height: click ? def.height : Math.max(preset === "line" ? 1 : EMU_PER_PX, Math.round(rect.h * EMU_PER_PX)),
+    preset,
+    x: Math.round(rect.x * EMU_PER_PX),
+    y: Math.round(rect.y * EMU_PER_PX),
+  };
+  if (kind === "textBox") {
+    d.kind = "textBox";
+    d.fill = { kind: "solid", value: rgb("FFFFFF") };
+    d.line = { fill: { kind: "solid", value: rgb("000000") }, width: 9525 };
+    d.text = { blocks: [{ kind: "paragraph", value: { id: tempId - 1, inlines: [] } }] };
+  } else {
+    d.fill = { kind: "solid", value: theme("accent1") };
+    d.line = { fill: { kind: "solid", value: theme("accent1", -0.5) }, width: 12700 };
+    d.textColor = theme("light1");
+  }
+  if (!d.x) delete d.x;
+  if (!d.y) delete d.y;
+  return d;
+}
+
+let tempIds = -1000;
+
+/** Adds the drawn shape (`r`: client px) to the canvas whose view is `el`. */
+function addToCanvas(editor: Editor, el: HTMLElement, id: string, r: { x: number; y: number; w: number; h: number }): boolean {
+  const view = editor.view;
+  let pos: number;
+  try {
+    pos = view.posAtDOM(el, 0);
+  } catch {
+    return false;
+  }
+  const node = view.state.doc.nodeAt(pos);
+  const canvas = node?.type.name === "drawing" ? (node.attrs.value as Drawing) : null;
+  if (!canvas || canvas.kind !== "canvas") return false;
+  const box = el.getBoundingClientRect();
+  const z = zoomOf(el);
+  const member = canvasMember(id, { x: (r.x - box.left) / z, y: (r.y - box.top) / z, w: r.w / z, h: r.h / z }, (tempIds -= 2));
+  const next: Drawing = { ...canvas, children: [...(canvas.children ?? []), member] };
+  const tr = view.state.tr.setNodeMarkup(pos, undefined, { value: canonDrawing(next) });
+  tr.setSelection(NodeSelection.create(tr.doc, pos));
+  view.dispatch(tr);
   return true;
 }

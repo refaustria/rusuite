@@ -33,4 +33,18 @@ distance: Insets,
 /**
  * May overlap other floating objects (docx `allowOverlap`).
  */
-allowOverlap: boolean, };
+allowOverlap: boolean, 
+/**
+ * Z-order among floating objects (docx `relativeHeight`; higher is
+ * in front; 0 = by document order).
+ */
+z?: number, 
+/**
+ * Lock anchor: the anchor stays with its paragraph when the object
+ * moves (docx `locked`).
+ */
+locked?: boolean, 
+/**
+ * Layout in table cell (docx `layoutInCell`, Word's default on).
+ */
+layoutInCell?: boolean, };

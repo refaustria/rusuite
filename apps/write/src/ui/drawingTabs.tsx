@@ -27,6 +27,9 @@ import {
 import { breakLinkAt, hasNext, startLinkMode } from "../features/drawings/chainCommands";
 import { armDrawTool } from "../features/drawings/drawTool";
 import { canGroup, canRegroup, groupSelected, regroup, ungroupSelected } from "../features/drawings/objects";
+import { scaleGroup, type AlignMode } from "../features/drawings/geometry";
+import type { WriteFeatures } from "../features/WriteFeatures";
+import { alignObjectsMenu, fitCanvasButton, orderMenus, selectionPaneButton } from "./arrangeControls";
 import { pathQuery, rectOutline, shapePaths } from "../features/drawings/paths";
 import { changeCaseCommand, TEXT_CASES } from "../features/changeCase";
 import { newAnchor, POSITION_PRESETS, presetAnchor, presetOf, withWrap, WRAP_CHOICES, wrapOf } from "../features/floating";
@@ -74,7 +77,7 @@ export function ShapeIcon({ preset }: { preset: string }) {
 const shapeItems = (ids: readonly string[]): RibbonGalleryItem[] => ids.map((id) => ({ id, label: t(`write.shape.${id}`), preview: <ShapeIcon preset={id} /> }));
 
 /** The grouped shape library (Insert › Shapes, Change Shape with `presetsOnly`). */
-export function ShapeLibrary({ onPick, presetsOnly }: { onPick: (id: string) => void; presetsOnly?: boolean }) {
+export function ShapeLibrary({ onPick, presetsOnly, onCanvas }: { onPick: (id: string) => void; presetsOnly?: boolean; onCanvas?: () => void }) {
   const groups = SHAPE_GROUPS.map((g) => ({ ...g, items: presetsOnly ? g.items.filter((i) => i !== "textBox" && i !== "line") : g.items })).filter((g) => g.items.length);
   return (
     <div className="flex max-h-[70vh] w-max flex-col gap-1 overflow-y-auto p-1" data-testid="shape-library">
@@ -84,6 +87,11 @@ export function ShapeLibrary({ onPick, presetsOnly }: { onPick: (id: string) => 
           <RibbonGallery label={t(`write.shapeGroup.${g.id}`)} items={shapeItems(g.items)} columns={8} hideLabels itemClassName="h-8 w-8" autoFocus={n === 0} onSelect={onPick} />
         </section>
       ))}
+      {!presetsOnly && onCanvas && (
+        <button type="button" className="mt-1 rounded border-t border-ui-border px-2 py-1 text-left text-xs hover:bg-ui-hover" onClick={onCanvas}>
+          {t("write.canvas.new")}
+        </button>
+      )}
     </div>
   );
 }
@@ -103,6 +111,10 @@ export function insertDrawingButtons(editor: Editor, ctl: SyncController): React
             onPick={(id) => {
               close();
               armDrawTool(editor, ctl, id);
+            }}
+            onCanvas={() => {
+              close();
+              run("canvas");
             }}
           />
         )}
@@ -217,13 +229,20 @@ export function outlineMenu(line: ShapeLine | null | undefined, set: (l: ShapeLi
  * relative to the margin): the drawing floats (square wrapping when it was
  * inline) aligned on one axis, the other keeps its position.
  */
-export function alignAnchor(a: Anchor | null, to: { h?: "left" | "center" | "right"; v?: "top" | "center" | "bottom" }): Anchor {
+export function alignAnchor(a: Anchor | null, to: { h?: "left" | "center" | "right"; v?: "top" | "center" | "bottom" }, relativeTo: "margin" | "page" = "margin"): Anchor {
   const base = a ?? newAnchor("square");
   return {
     ...base,
-    ...(to.h ? { h: { relativeTo: "margin", place: { kind: "align", value: to.h } } } : {}),
-    ...(to.v ? { v: { relativeTo: "margin", place: { kind: "align", value: to.v } } } : {}),
+    ...(to.h ? { h: { relativeTo, place: { kind: "align", value: to.h } } } : {}),
+    ...(to.v ? { v: { relativeTo, place: { kind: "align", value: to.v } } } : {}),
   } as Anchor;
+}
+
+/** One object's Align: semantic (relative to the page or margin, kept when the text moves). */
+export function alignOne(mode: AlignMode, to: "page" | "margin", set: (make: (a: Anchor | null) => Anchor | null) => void): void {
+  const h = mode === "left" || mode === "center" || mode === "right" ? mode : undefined;
+  const v = mode === "top" ? "top" : mode === "middle" ? "center" : mode === "bottom" ? "bottom" : undefined;
+  set((a) => alignAnchor(a, { h, v }, to));
 }
 
 /** Applies `make(anchor)` to the selected drawing (Position ▾ / Wrap Text ▾). */
@@ -237,7 +256,7 @@ function setDrawingAnchor(editor: Editor, make: (a: Anchor | null) => Anchor | n
   });
 }
 
-export function arrangeMenus(anchor: Anchor | null, set: (make: (a: Anchor | null) => Anchor | null) => void): ReactNode {
+export function arrangeMenus(anchor: Anchor | null, set: (make: (a: Anchor | null) => Anchor | null) => void, more?: () => void): ReactNode {
   const wrap = wrapOf(anchor);
   const preset = presetOf(anchor);
   return (
@@ -250,6 +269,7 @@ export function arrangeMenus(anchor: Anchor | null, set: (make: (a: Anchor | nul
           { id: "inline", label: t("write.inLineWithText"), icon: WRAP_ICONS.inline, checked: wrap === "inline", onSelect: () => set(() => null) },
           { separator: true as const, label: t("write.withTextWrapping") },
           ...POSITION_PRESETS.map((p) => ({ id: p, label: t(`write.pos.${p}`), icon: presetIcon(p), checked: preset === p, onSelect: () => set((a) => presetAnchor(a, p)) })),
+          ...(more ? [{ separator: true as const }, { id: "more", label: t("write.layout.more"), onSelect: more }] : []),
         ]}
       />
       <RibbonMenuButton
@@ -292,7 +312,8 @@ const VALIGN_ICON = (v: VAlignPos) => (
 );
 
 /** The Shape Format tab of the selected drawing. */
-export function shapeFormatTab(editor: Editor, ctl: SyncController, d: Drawing, ui: { openDialog: (id: "altText") => void }): RibbonTab {
+export function shapeFormatTab(editor: Editor, ctl: SyncController, d: Drawing, features: WriteFeatures): RibbonTab {
+  const ui = features.ui;
   const edit = (f: (x: Drawing) => Drawing) => {
     editSelectedDrawing(editor, f);
     editor.commands.focus();
@@ -432,16 +453,11 @@ export function shapeFormatTab(editor: Editor, ctl: SyncController, d: Drawing, 
         label: t("write.arrange"),
         items: (
           <>
-            {arrangeMenus((d.anchor as Anchor | undefined) ?? null, (make) => setDrawingAnchor(editor, make))}
+            {arrangeMenus((d.anchor as Anchor | undefined) ?? null, (make) => setDrawingAnchor(editor, make), () => ui.openDialog("layout"))}
             {groupMenu(editor)}
-            <RibbonMenuButton
-              label={t("write.alignObjects")}
-              icon={presetIcon("top-left")}
-              size="large"
-              menu={(["left", "center", "right"] as const)
-                .map((h) => ({ id: `h-${h}`, label: t(`write.alignObj.${h}`), onSelect: () => setDrawingAnchor(editor, (a) => alignAnchor(a, { h })) }))
-                .concat((["top", "center", "bottom"] as const).map((v) => ({ id: `v-${v}`, label: t(`write.alignObj.v${v}`), onSelect: () => setDrawingAnchor(editor, (a) => alignAnchor(a, { v })) })))}
-            />
+            {alignObjectsMenu(editor, (mode, to) => alignOne(mode, to, (make) => setDrawingAnchor(editor, make)))}
+            {orderMenus(editor)}
+            {selectionPaneButton(features)}
             <RibbonMenuButton
               label={t("write.rotate")}
               icon="arrange"
@@ -459,10 +475,13 @@ export function shapeFormatTab(editor: Editor, ctl: SyncController, d: Drawing, 
       {
         label: t("write.size"),
         items: (
-          <RibbonStack>
-            <SizeField label={t("write.heightCm")} value={d.height} onCommit={(v) => edit((x) => ({ ...x, height: v }))} />
-            <SizeField label={t("write.widthCm")} value={d.width} onCommit={(v) => edit((x) => ({ ...x, width: v }))} />
-          </RibbonStack>
+          <>
+            <RibbonStack>
+              <SizeField label={t("write.heightCm")} value={d.height} onCommit={(v) => edit((x) => (x.kind === "group" ? scaleGroup(x, x.width, v) : { ...x, height: v }))} />
+              <SizeField label={t("write.widthCm")} value={d.width} onCommit={(v) => edit((x) => (x.kind === "group" ? scaleGroup(x, v, x.height) : { ...x, width: v }))} />
+            </RibbonStack>
+            {fitCanvasButton(editor, d)}
+          </>
         ),
       },
     ],

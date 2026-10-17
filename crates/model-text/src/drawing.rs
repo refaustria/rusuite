@@ -177,12 +177,16 @@ pub enum DrawingKind {
     Group,
     /// A picture inside a group (`pic:pic`; [`Drawing::picture`]).
     Picture,
+    /// A drawing canvas (`wpc:wpc`): members placed in its frame like a
+    /// group's, but resizing the canvas does not scale them; its fill and
+    /// outline are the canvas background (`wpc:bg`, `wpc:whole`).
+    Canvas,
 }
 
 impl DrawingKind {
     /// Whether the drawing holds members ([`Drawing::children`]).
     pub fn is_container(self) -> bool {
-        matches!(self, DrawingKind::Group)
+        matches!(self, DrawingKind::Group | DrawingKind::Canvas)
     }
 }
 
@@ -420,6 +424,10 @@ pub struct Drawing {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub decorative: bool,
+    /// Hidden (Selection Pane; `wp:docPr/@hidden`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub hidden: bool,
 }
 
 fn is_zero_emu(v: &Emu) -> bool {
@@ -465,7 +473,45 @@ impl Drawing {
             picture: None,
             link: None,
             decorative: false,
+            hidden: false,
         }
+    }
+
+    /// A drawing canvas of `width` × `height` (Word's: no fill, no
+    /// outline) holding `children`.
+    pub fn canvas(id: NodeId, width: Emu, height: Emu, children: Vec<Drawing>) -> Self {
+        Drawing {
+            kind: DrawingKind::Canvas,
+            ..Drawing::group(id, width, height, children)
+        }
+    }
+
+    /// The smallest canvas frame around its members (Word's Fit): the
+    /// members' bounding box; the members move to its origin. Returns the
+    /// offset (EMU) the frame's top-left moved by, or `None` without
+    /// members.
+    pub fn fit_to_children(&mut self) -> Option<(Emu, Emu)> {
+        let (x0, y0, x1, y1) = self.children.iter().fold(
+            (i64::MAX, i64::MAX, i64::MIN, i64::MIN),
+            |(a, b, c, d), m| {
+                (
+                    a.min(m.x.0),
+                    b.min(m.y.0),
+                    c.max(m.x.0 + m.width.0),
+                    d.max(m.y.0 + m.height.0),
+                )
+            },
+        );
+        if self.children.is_empty() {
+            return None;
+        }
+        for m in &mut self.children {
+            m.x = Emu(m.x.0 - x0);
+            m.y = Emu(m.y.0 - y0);
+        }
+        self.width = Emu((x1 - x0).max(1));
+        self.height = Emu((y1 - y0).max(1));
+        Some((Emu(x0), Emu(y0)))
     }
 
     /// A group of `children` (placed in a `width` × `height` frame).
@@ -826,6 +872,27 @@ mod tests {
         tb.chain = Some(TextChain { id: 3, seq: 1 });
         let json = serde_json::to_value(&tb).unwrap();
         assert_eq!(json["chain"], serde_json::json!({"id": 3, "seq": 1}));
+    }
+
+    #[test]
+    fn canvas_fit_shrinks_to_members() {
+        let mut a = Drawing::shape(NodeId(2), "rect", Emu(100), Emu(50));
+        a.x = Emu(300);
+        a.y = Emu(200);
+        let mut b = Drawing::shape(NodeId(3), "ellipse", Emu(100), Emu(100));
+        b.x = Emu(500);
+        b.y = Emu(220);
+        let mut c = Drawing::canvas(NodeId(1), Emu(2000), Emu(1000), vec![a, b]);
+        assert!(c.kind.is_container());
+        assert_eq!(c.fit_to_children(), Some((Emu(300), Emu(200))));
+        assert_eq!((c.width, c.height), (Emu(300), Emu(120)));
+        assert_eq!((c.children[1].x, c.children[1].y), (Emu(200), Emu(20)));
+        let json = serde_json::to_value(&c).unwrap();
+        assert_eq!(json["kind"], "canvas");
+        assert_eq!(
+            Drawing::canvas(NodeId(4), Emu(1), Emu(1), vec![]).fit_to_children(),
+            None
+        );
     }
 
     #[test]

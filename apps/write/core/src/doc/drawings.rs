@@ -87,6 +87,8 @@ impl WriteDocument {
                 d.text = Some(t);
                 d
             }
+            // Insert › Shapes › New Drawing Canvas: an empty canvas.
+            DrawingKind::Canvas => Drawing::canvas(id, *width, *height, Vec::new()),
             DrawingKind::Group | DrawingKind::Picture => {
                 return Err(invalid("groups are made from existing drawings"))
             }
@@ -146,10 +148,10 @@ impl WriteDocument {
         if d.kind == DrawingKind::TextBox && d.text.is_none() {
             return Err(invalid("a text box keeps its text"));
         }
-        if d.kind.is_container() != old.kind.is_container() {
-            return Err(invalid("a group stays a group"));
+        if d.kind != old.kind && (d.kind.is_container() || old.kind.is_container()) {
+            return Err(invalid("a group or canvas stays one"));
         }
-        if d.kind.is_container() && d.children.is_empty() {
+        if d.kind == DrawingKind::Group && d.children.is_empty() {
             return Err(invalid("a group needs members"));
         }
         // A box later in a chain shows the first box's text: it has none.

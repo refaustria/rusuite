@@ -382,6 +382,7 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                         model_text::DrawingKind::Shape => format!("drawing:shape={}", d.preset),
                         model_text::DrawingKind::Group => "drawing:group".to_owned(),
                         model_text::DrawingKind::Picture => "drawing:picture".to_owned(),
+                        model_text::DrawingKind::Canvas => "drawing:canvas".to_owned(),
                     });
                     if d.blocks().iter().any(|b| {
                         b.as_paragraph()

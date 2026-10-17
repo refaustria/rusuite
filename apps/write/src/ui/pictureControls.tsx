@@ -46,7 +46,7 @@ export function setSelectedAnchor(editor: Editor, make: (current: Anchor | null)
 }
 
 /** Position ▾ and Wrap Text ▾ for the Picture Format tab. */
-export function pictureArrangeItems(editor: Editor, anchor: Anchor | null) {
+export function pictureArrangeItems(editor: Editor, anchor: Anchor | null, more?: () => void) {
   const wrap = wrapOf(anchor);
   const preset = presetOf(anchor);
   return (
@@ -65,6 +65,7 @@ export function pictureArrangeItems(editor: Editor, anchor: Anchor | null) {
             checked: preset === p,
             onSelect: () => setSelectedAnchor(editor, (a) => presetAnchor(a, p)),
           })),
+          ...(more ? [{ separator: true as const }, { id: "more", label: t("write.layout.more"), onSelect: more }] : []),
         ]}
       />
       <RibbonMenuButton

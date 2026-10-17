@@ -1213,6 +1213,22 @@ impl WriteDocument {
                     }
                 })
             }
+            C::SetImageMeta {
+                block,
+                offset,
+                name,
+                hidden,
+            } => {
+                let (name, hidden) = (name.clone(), *hidden);
+                self.edit_image(*block, *offset, ch, |img| {
+                    if let Some(n) = name {
+                        img.name = (!n.trim().is_empty()).then(|| n.trim().to_owned());
+                    }
+                    if let Some(h) = hidden {
+                        img.hidden = h;
+                    }
+                })
+            }
             C::SetRowProps {
                 table,
                 rows,
@@ -4343,6 +4359,7 @@ fn affects_labels(cmd: &WriteCommand) -> bool {
         | C::InsertImage { .. }
         | C::SetImageSize { .. }
         | C::SetImageAlt { .. }
+        | C::SetImageMeta { .. }
         | C::SetImageAnchor { .. }
         | C::SetImageWrap { .. }
         | C::SetImageFormat { .. }
@@ -4408,6 +4425,7 @@ fn may_touch_markers(cmd: &WriteCommand) -> bool {
         | C::InsertImage { .. }
         | C::SetImageSize { .. }
         | C::SetImageAlt { .. }
+        | C::SetImageMeta { .. }
         | C::SetImageAnchor { .. }
         | C::SetImageWrap { .. }
         | C::SetImageFormat { .. }

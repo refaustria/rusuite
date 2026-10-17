@@ -4,4 +4,4 @@
  * Shape or text box (docx: a text box is a `wps:wsp` with
  * `wps:cNvSpPr txBox="1"`).
  */
-export type DrawingKind = "shape" | "textBox" | "group" | "picture";
+export type DrawingKind = "shape" | "textBox" | "group" | "picture" | "canvas";

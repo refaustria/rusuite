@@ -59,6 +59,10 @@ fn drawings(doc: &Document) -> Vec<Drawing> {
         .collect()
 }
 
+fn got_anchor(d: &Drawing) -> Option<Anchor> {
+    d.anchor
+}
+
 /// `d` without node ids (ids are not written to docx).
 fn no_ids(mut d: Drawing) -> Drawing {
     d.walk_mut(&mut |d| {
@@ -115,6 +119,10 @@ fn groups_roundtrip_with_nested_groups_pictures_and_text_boxes() {
     assert_eq!(no_ids(d[0].clone()).children.len(), 3);
     let mut want = no_ids(g);
     want.name = Some("Group 1".into());
+    // The z-order Word reads back (`relativeHeight`, written from the document order).
+    if let (Some(w), Some(g)) = (want.anchor.as_mut(), got_anchor(&d[0])) {
+        w.z = g.z;
+    }
     // Unnamed members get Word's default names.
     let got = no_ids(d[0].clone());
     want.children[1].name = got.children[1].name.clone();
@@ -290,4 +298,90 @@ fn hyperlink_fields_are_read_as_links_and_written_back_as_fields() {
     assert!(!xml.contains("<w:hyperlink"), "{xml}");
     let again = reread(&out.document);
     assert_eq!(again.body[0].as_paragraph().unwrap().inlines, p.inlines);
+}
+
+#[test]
+fn drawing_canvases_roundtrip() {
+    let mut doc = Document::new();
+    let mut a = Drawing::shape(doc.alloc_id(), "rect", Emu(914_400), Emu(457_200));
+    a.x = Emu(100_000);
+    a.y = Emu(200_000);
+    let b = Drawing::shape(doc.alloc_id(), "ellipse", Emu(457_200), Emu(457_200));
+    let mut inner = Drawing::group(doc.alloc_id(), Emu(457_200), Emu(457_200), vec![b]);
+    inner.x = Emu(1_000_000);
+    let mut c = Drawing::canvas(
+        doc.alloc_id(),
+        Emu(3_000_000),
+        Emu(1_500_000),
+        vec![a, inner],
+    );
+    c.fill = model_text::ShapeFill::Solid(core_model::Color::Rgb(core_model::Rgb::new(
+        0xEE, 0xEE, 0xEE,
+    )));
+    let d = doc_with(vec![Inline::Drawing(Box::new(c.clone()))]);
+    let bytes = fmt_docx::write(&d).unwrap();
+    let xml = document_xml(&bytes);
+    assert!(xml.contains(r#"<mc:Choice Requires="wpc">"#), "{xml}");
+    assert!(xml.contains(r#"<a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"><wpc:wpc><wpc:bg><a:solidFill><a:srgbClr val="EEEEEE"/></a:solidFill></wpc:bg><wpc:whole>"#), "{xml}");
+    assert!(xml.contains("<wpg:wgp><wpg:cNvPr "), "{xml}");
+    let back = reread(&d);
+    let got = no_ids(drawings(&back)[0].clone());
+    let mut want = no_ids(c);
+    want.name = got.name.clone();
+    want.children[1].name = got.children[1].name.clone();
+    want.children[0].name = got.children[0].name.clone();
+    want.children[1].children[0].name = got.children[1].children[0].name.clone();
+    assert_eq!(got, want);
+}
+
+#[test]
+fn anchor_positions_options_and_hidden_objects_roundtrip() {
+    use model_text::{HPos, HRelative, Placement, VPos, VRelative};
+    let mut doc = Document::new();
+    let mut s = Drawing::shape(doc.alloc_id(), "rect", Emu(914_400), Emu(914_400));
+    let mut a = Anchor::new(WrapKind::Square);
+    a.h = HPos {
+        relative_to: HRelative::LeftMargin,
+        place: Placement::Percent(25_000),
+    };
+    a.v = VPos {
+        relative_to: VRelative::TopMargin,
+        place: Placement::Offset(Emu(12_700)),
+    };
+    a.z = 251_660_000;
+    a.locked = true;
+    a.layout_in_cell = false;
+    a.allow_overlap = false;
+    s.anchor = Some(a);
+    s.hidden = true;
+    let mut s2 = Drawing::shape(doc.alloc_id(), "rect", Emu(914_400), Emu(914_400));
+    let mut a2 = Anchor::new(WrapKind::InFront);
+    a2.h = HPos {
+        relative_to: HRelative::OutsideMargin,
+        place: Placement::Align(model_text::HAlign::Right),
+    };
+    a2.v = VPos {
+        relative_to: VRelative::BottomMargin,
+        place: Placement::Percent(50_000),
+    };
+    s2.anchor = Some(a2);
+    let d = doc_with(vec![
+        Inline::Drawing(Box::new(s)),
+        Inline::Drawing(Box::new(s2)),
+    ]);
+    let bytes = fmt_docx::write(&d).unwrap();
+    let xml = document_xml(&bytes);
+    assert!(xml.contains(r#"relativeHeight="251660000" behindDoc="0" locked="1" layoutInCell="0" allowOverlap="0""#), "{xml}");
+    assert!(xml.contains(r#"<mc:AlternateContent><mc:Choice Requires="wp14"><wp:positionH relativeFrom="leftMargin"><wp14:pctPosHOffset>25000</wp14:pctPosHOffset></wp:positionH></mc:Choice><mc:Fallback><wp:positionH relativeFrom="leftMargin"><wp:posOffset>"#), "{xml}");
+    assert!(xml.contains(r#"<wp:positionV relativeFrom="topMargin"><wp:posOffset>12700</wp:posOffset></wp:positionV>"#));
+    assert!(xml.contains(
+        r#"<wp:positionH relativeFrom="outsideMargin"><wp:align>right</wp:align></wp:positionH>"#
+    ));
+    assert!(xml.contains(r#"hidden="1""#));
+    let back = reread(&d);
+    let ds = drawings(&back);
+    assert_eq!(ds[0].anchor, Some(a));
+    assert!(ds[0].hidden);
+    assert_eq!(ds[1].anchor.unwrap().v, a2.v);
+    assert_eq!(ds[1].anchor.unwrap().h, a2.h);
 }
