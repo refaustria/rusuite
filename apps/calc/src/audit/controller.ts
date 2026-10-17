@@ -133,6 +133,17 @@ export class AuditController {
     this.store.notify();
   }
 
+  /** Formulas › Error Checking: checks the sheet now, goes to the first flagged cell from the active one and opens the dialog. */
+  async openErrorChecking(): Promise<void> {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    await this.refresh();
+    this.step(1, true);
+    this.store.openDialog({ kind: "errorChecking" });
+  }
+
   /** Error Checking's Next / Previous: the issue after (before) the active cell, row by row, wrapping. */
   step(dir: 1 | -1, fromCurrent = false): ErrorIssue | null {
     const st = this.store.getState();

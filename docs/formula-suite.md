@@ -163,3 +163,20 @@ and core tests, and the reference workbook `testdata/xlsx/provisional-names.xlsx
 `TEXT` shares the cell formatter (`engine_formula::numfmt`); its reference cases are in
 `crates/engine-formula/src/numfmt/tests.rs` (see [number-formats.md](number-formats.md)) and the
 `TEXT` rows of `text.tsv` stay green.
+
+## Formulas round 2 (P9-C4)
+
+Task P9-C4 added about 130 rows: `references` – the intersection operator (`A1:A6 A3:C3`, `#NULL!` without a common
+cell), unions in parentheses (`SUM((A1:A3,C1:C2))`, `AREAS((A1:A3,C1,F1:F4))`), 3-D references across the fixture's
+two sheets (`SUM(Data:Other!A1)`) and per-end `$` flags on whole columns/rows; `logical` – `LET`, `LAMBDA` (direct
+calls, `LET` names, omitted parameters with `ISOMITTED`) and the helpers `MAP`, `REDUCE`, `SCAN`, `BYROW`, `BYCOL`,
+`MAKEARRAY`; `lookup` – `TAKE`, `DROP`, `VSTACK`, `HSTACK`, `CHOOSECOLS`, `CHOOSEROWS`, `EXPAND`, `TOCOL`, `TOROW`,
+`WRAPROWS`, `WRAPCOLS`, `UNIQUE` by column and lifting (`SUM(LEN(B1:B3))`); `math` – `MMULT`, `MINVERSE`, `MDETERM`,
+`MUNIT` and `AGGREGATE`. The generator writes `LET` names and `LAMBDA` parameters with Excel's `_xlpm.` prefix
+(`lambda_names` / `add_xlpm` in `formulas.py`). LibreOffice 25.2 has no `LAMBDA`, no lambda helpers and none of the
+array shaping functions (it reports `#NAME?` or `#VALUE!`), so those rows carry `DIFF:` notes with the Excel value;
+`SUM(LEN(B1:B3))` differs because LibreOffice does not lift `LEN` outside an array formula, and LibreOffice reports a
+singular `MINVERSE` as `#VALUE!` (Excel: `#NUM!`). The test runner's fixture resolves 3-D references through
+`CellProvider::sheet_span`. Lambdas inside defined names, recursion and spilling are covered by
+`crates/engine-formula/tests/lambda.rs`, `references.rs` and `calc_mode.rs`.
+

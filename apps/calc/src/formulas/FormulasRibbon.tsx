@@ -5,7 +5,7 @@
 // Precedents / Dependents, Remove Arrows ▾, Show Formulas) and Calculation
 // (Calculation Options ▾, Calculate Now, Calculate Sheet; P9-C4).
 
-import { RibbonButton, RibbonMenuButton, RibbonSplitButton, RibbonStack, type RibbonTab, type TFunction as T } from "@rusuite/ui-shared";
+import { RibbonButton, RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack, type RibbonTab, type TFunction as T } from "@rusuite/ui-shared";
 import type { FunctionInfo } from "../formula/functions";
 import type { CalcStore } from "../state/store";
 import {
@@ -209,60 +209,54 @@ export function formulasTab(store: CalcStore, t: T, off: boolean): RibbonTab {
                   { id: "dependents", label: t("calc.audit.removeDependentArrows"), onSelect: () => store.trace.clear("dependents") },
                 ]}
               />
-              <RibbonButton
-                label={t("calc.audit.showFormulas")}
-                icon={showFormulasIcon()}
-                showLabel
-                shortcut="Mod+`"
-                pressed={st.showFormulas}
-                disabled={off}
-                onClick={() => store.toggleShowFormulas()}
-              />
-            </RibbonStack>
-            <RibbonStack>
-              <RibbonSplitButton
-                label={t("calc.err.button")}
-                icon={errorCheckIcon()}
-                showLabel
-                disabled={off}
-                onClick={() => {
-                  store.audit.step(1, true);
-                  store.openDialog({ kind: "errorChecking" });
-                }}
-                menuLabel={t("calc.err.buttonMenu")}
-                menu={[
-                  {
-                    id: "check",
-                    label: t("calc.err.checkDots"),
-                    onSelect: () => {
-                      store.audit.step(1, true);
-                      store.openDialog({ kind: "errorChecking" });
+              {/* Show Formulas, Error Checking, Evaluate Formula, Watch Window: one row of icons (Excel's compact layout). */}
+              <RibbonRow>
+                <RibbonButton
+                  label={t("calc.audit.showFormulas")}
+                  icon={showFormulasIcon()}
+                  shortcut="Mod+`"
+                  pressed={st.showFormulas}
+                  disabled={off}
+                  onClick={() => store.toggleShowFormulas()}
+                />
+                <RibbonSplitButton
+                  label={t("calc.err.button")}
+                  icon={errorCheckIcon()}
+                  disabled={off}
+                  onClick={() => void store.audit.openErrorChecking()}
+                  menuLabel={t("calc.err.buttonMenu")}
+                  menu={[
+                    {
+                      id: "check",
+                      label: t("calc.err.checkDots"),
+                      onSelect: () => void store.audit.openErrorChecking(),
                     },
-                  },
-                  { id: "options", label: t("calc.err.optionsMenu"), onSelect: () => store.openDialog({ kind: "formulaOptions" }) },
-                ]}
-              />
-              <RibbonButton label={t("calc.eval.button")} icon={evaluateIcon()} showLabel disabled={off} onClick={() => void store.audit.evaluate()} />
+                    { id: "options", label: t("calc.err.optionsMenu"), onSelect: () => store.openDialog({ kind: "formulaOptions" }) },
+                  ]}
+                />
+                <RibbonButton label={t("calc.eval.button")} icon={evaluateIcon(16)} disabled={off} onClick={() => void store.audit.evaluate()} />
+                <RibbonButton
+                  label={t("calc.watch.title")}
+                  icon={watchIcon(16)}
+                  pressed={store.audit.watchOpen}
+                  disabled={off}
+                  onClick={() => store.audit.toggleWatchWindow()}
+                />
+              </RibbonRow>
             </RibbonStack>
-            <RibbonButton
-              label={t("calc.watch.title")}
-              icon={watchIcon()}
-              size="large"
-              pressed={store.audit.watchOpen}
-              disabled={off}
-              onClick={() => store.audit.toggleWatchWindow()}
-            />
           </>
         ),
       },
       {
         label: t("calc.calc.group"),
+        // Collapses first on a narrow window.
+        collapsePriority: 1,
         items: (
-          <>
+          <RibbonStack>
             <RibbonMenuButton
               label={t("calc.calc.options")}
-              icon={calcOptionsIcon()}
-              size="large"
+              icon={calcOptionsIcon(16)}
+              showLabel
               disabled={off}
               menu={CALC_MODES.map((m) => ({
                 id: m,
@@ -271,11 +265,11 @@ export function formulasTab(store: CalcStore, t: T, off: boolean): RibbonTab {
                 onSelect: () => void store.calcTools.setMode(m),
               }))}
             />
-            <RibbonStack>
-              <RibbonButton label={t("calc.calc.now")} icon={calcNowIcon()} showLabel shortcut="F9" disabled={off} onClick={() => void store.calcTools.calculateNow()} />
-              <RibbonButton label={t("calc.calc.sheet")} icon={calcSheetIcon()} showLabel shortcut="Shift+F9" disabled={off} onClick={() => void store.calcTools.calculateSheet()} />
-            </RibbonStack>
-          </>
+            <RibbonRow>
+              <RibbonButton label={t("calc.calc.now")} icon={calcNowIcon()} shortcut="F9" disabled={off} onClick={() => void store.calcTools.calculateNow()} />
+              <RibbonButton label={t("calc.calc.sheet")} icon={calcSheetIcon()} shortcut="Shift+F9" disabled={off} onClick={() => void store.calcTools.calculateSheet()} />
+            </RibbonRow>
+          </RibbonStack>
         ),
       },
     ],

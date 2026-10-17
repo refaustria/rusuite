@@ -14,7 +14,9 @@ export function ErrorTag({ store, boxRef, onMount }: { store: CalcStore; boxRef:
   const anchor = useCalc(store, (s) => s.selection.anchor);
   const editing = useCalc(store, (s) => s.edit !== null);
   const [open, setOpen] = useState(false);
-  const issue = editing ? null : store.audit.activeIssue();
+  // A #SPILL! cell has the spill indicator in this place (grid/SpillIndicator).
+  const spillError = store.activeCell()?.display === "#SPILL!";
+  const issue = editing || spillError ? null : store.audit.activeIssue();
   useLayoutEffect(() => {
     if (issue) onMount();
   }, [issue, onMount, anchor]);

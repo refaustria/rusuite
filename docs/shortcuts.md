@@ -71,6 +71,9 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Alt+F5, Mod+Alt+F5 | Refresh the selected pivot table, refresh all pivot tables |
 | Alt+ArrowDown | On a pivot table's `Row Labels` / `Column Labels` / field header or page cell: open its filter dropdown |
 | Delete | On a selection covering whole pivot tables: delete them (after a question); part of a table is refused |
+| F9 | Calculate Now: recalculate the pending cells of every sheet (manual calculation, P9-C4) |
+| Shift+F9 | Calculate Sheet: recalculate the active sheet's pending cells |
+| F3 | Paste Names: insert a defined name at the caret of the formula being edited (outside an edit: start `=Name`), or Paste List |
 | Mod+E | Flash Fill: fill the active column's empty cells from the examples typed into it (P9-C2) |
 | Enter, Esc | While Flash Fill's greyed suggestions show (after a second example): fill them / drop them |
 | Alt+S, Alt+C | On a focused slicer: Multi-Select on / off, Clear Filter |
