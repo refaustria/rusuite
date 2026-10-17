@@ -128,7 +128,7 @@ describe("lazy catalogs", () => {
 
   it("loads a language when it is chosen, once, then switches", async () => {
     const fr = vi.fn(() => Promise.resolve({ default: { "backstage.save": "Enregistrer", "test.hello": "Salut {name}" } }));
-    addCatalogs({ en: { "test.hello": "Hello {name}" } }, { fr });
+    addCatalogs({ en: { "test.hello": "Hello {name}", "test.onlyEnglish": "Only English" } }, { fr });
     expect(hasCatalog("fr")).toBe(true);
     const switching = switchLocale("fr");
     expect(getLocale()).toBe("en"); // until the catalog is there
@@ -137,7 +137,7 @@ describe("lazy catalogs", () => {
     expect(document.documentElement.lang).toBe("fr");
     expect(document.documentElement.dir).toBe("ltr");
     expect(t("test.hello", { name: "Ana" })).toBe("Salut Ana");
-    expect(t("backstage.open")).toBe("Open…"); // missing key: English
+    expect(t("test.onlyEnglish")).toBe("Only English"); // missing key: English
     await act(() => switchLocale("en"));
     await act(() => switchLocale("fr"));
     expect(fr).toHaveBeenCalledTimes(1);
