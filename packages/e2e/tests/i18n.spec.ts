@@ -72,7 +72,7 @@ test.describe("German UI", () => {
 // P9-LR1: one spec for every translated language. Expected labels come from the catalogs
 // (support/i18n.ts), so a reworded catalog value does not break the test. A translation task adds its
 // language here once its catalogs have landed (P9-L3 … L11).
-const TRANSLATED = ["de", "fr", "es", "it", "pt", "nl", "sv", "da", "fi"] as const;
+const TRANSLATED = ["de", "fr", "es", "it", "pt", "nl", "sv", "da", "fi", "pl", "cs"] as const;
 
 /** Ribbon tabs of the app that are always there (File opens the backstage; contextual tabs need a selection). */
 const ribbonTabs = (page: Page) => page.getByRole("tablist").first().getByRole("tab");
