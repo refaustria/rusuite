@@ -234,10 +234,10 @@ test.describe("Language switch", () => {
 });
 
 test.describe("Languages without catalogs yet", () => {
-  test.use({ locale: "sv-SE" });
+  test.use({ locale: "mt-MT" });
 
   for (const { app, ready } of APPS) {
-    test(`${app}: a Swedish browser gets English until the Swedish catalogs land`, async ({ page }) => {
+    test(`${app}: a Maltese browser gets English until the Maltese catalogs land`, async ({ page }) => {
       const errors = trackErrors(page);
       const notes: string[] = [];
       page.on("console", (m) => {
@@ -248,7 +248,7 @@ test.describe("Languages without catalogs yet", () => {
       await expect(page.locator("html")).toHaveAttribute("lang", "en");
       await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
       await expect(page.getByRole("tab", { name: "Home", exact: true })).toHaveAttribute("aria-selected", "true");
-      expect(notes.some((n) => /Swedish \(sv\)/.test(n))).toBe(true);
+      expect(notes.some((n) => /Maltese \(mt\)/.test(n))).toBe(true);
       // The picker lists all 24 languages by their own names; choosing one without catalogs keeps English.
       await page.getByRole("tab", { name: "View", exact: true }).click();
       const picker = page.getByRole("combobox", { name: "Language / Sprache" });
@@ -264,7 +264,7 @@ test.describe("Languages without catalogs yet", () => {
     });
   }
 
-  test("portal: the list offers all 24 languages; Swedish shows English", async ({ page }) => {
+  test("portal: the list offers all 24 languages; Maltese shows English", async ({ page }) => {
     const errors = trackErrors(page);
     await page.goto("./");
     await expect(page.getByRole("link", { name: "Open Calc in browser" })).toBeVisible();

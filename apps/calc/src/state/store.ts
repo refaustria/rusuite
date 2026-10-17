@@ -532,7 +532,48 @@ export class CalcStore {
   /** Re-renders Flash Fill's preview after the grid scrolled (set by the layer). */
   flashPositioner: (() => void) | null = null;
 
-  constructor(readonly api: CalcApi) {}
+  constructor(readonly api: CalcApi) {
+    api.onPending = () => this.busyChanged();
+  }
+
+  // --- busy state (P9-Q1) ------------------------------------------------
+
+  private busyListeners = new Set<(busy: boolean) => void>();
+  private busyShown = false;
+  private busyTimer: ReturnType<typeof setTimeout> | null = null;
+  /** A validation rule change whose region reload has not arrived yet: commits wait for it. */
+  private rulesSettling: Promise<void> | null = null;
+
+  /** A request to the core is pending, a region re-fetch is queued or a rule change is settling. */
+  busy(): boolean {
+    return this.api.pending > 0 || this.cfTimer !== null || this.validating || this.rulesSettling !== null;
+  }
+
+  /** Calls `fn` when `busy()` changes (busy at once, idle one task later so chained requests do not flicker). */
+  watchBusy(fn: (busy: boolean) => void): () => void {
+    this.busyListeners.add(fn);
+    fn(this.busyShown);
+    return () => this.busyListeners.delete(fn);
+  }
+
+  private busyChanged(): void {
+    const emit = (b: boolean) => {
+      if (b === this.busyShown) return;
+      this.busyShown = b;
+      for (const fn of this.busyListeners) fn(b);
+    };
+    if (this.busy()) {
+      if (this.busyTimer !== null) clearTimeout(this.busyTimer);
+      this.busyTimer = null;
+      emit(true);
+      return;
+    }
+    if (this.busyTimer !== null || !this.busyShown) return;
+    this.busyTimer = setTimeout(() => {
+      this.busyTimer = null;
+      emit(this.busy());
+    }, 0);
+  }
 
   /** Redraws everything that follows the cache version (chart state changes). */
   notify(): void {
@@ -1573,6 +1614,16 @@ export class CalcStore {
     const edit = this.state.edit;
     if (!edit) return Promise.resolve(true);
     if (this.state.validationAlert || this.validating) return Promise.resolve(false);
+    if (!validated && this.rulesSettling) {
+      // Data Validation OK was just pressed: check the value against the new rule, not the cached old one.
+      this.validating = true;
+      this.busyChanged();
+      return this.rulesSettling.then(() => {
+        this.validating = false;
+        this.busyChanged();
+        return this.state.edit === edit ? this.commitEdit(dRow, dCol) : false;
+      });
+    }
     const { row, col } = edit.cell;
     // R1C1 reference style (P9-C4): the core stores A1 text.
     const typed = this.calcTools.storedInput(edit.text, row, col);
@@ -1592,9 +1643,11 @@ export class CalcStore {
     if (dv && dv.showError && dv.kind.type !== "any") {
       // Data validation: the core checks the typed value first; the edit stays open meanwhile.
       this.validating = true;
+      this.busyChanged();
       return this.api.validateInput(sheet, row, col, entry).then(
         (res) => {
           this.validating = false;
+          this.busyChanged();
           if (this.state.edit !== edit) return false;
           if (res.ok) {
             const done = this.commitEdit(dRow, dCol, true);
@@ -1610,6 +1663,7 @@ export class CalcStore {
         },
         (e: unknown) => {
           this.validating = false;
+          this.busyChanged();
           this.pushError(e);
           return false;
         },
@@ -2779,18 +2833,42 @@ export class CalcStore {
     }
     if (this.cfPending.size === 0) return;
     if (this.cfTimer !== null) clearTimeout(this.cfTimer);
-    this.cfTimer = setTimeout(() => {
-      this.cfTimer = null;
-      const pending = [...this.cfPending];
-      this.cfPending.clear();
-      for (const sheet of pending) {
-        const cache = this.caches.get(sheet);
-        if (!cache) continue;
-        cache.loaded.clear();
-        const vp = this.lastViewport.get(sheet) ?? { r0: 0, c0: 0, r1: BLOCK_ROWS - 1, c1: BLOCK_COLS - 1 };
-        void this.ensureRegion(sheet, vp.r0, vp.c0, vp.r1, vp.c1);
-      }
-    }, this.cfRefreshDelay);
+    this.cfTimer = setTimeout(() => void this.refreshCf(), this.cfRefreshDelay);
+    this.busyChanged();
+  }
+
+  /** Re-fetches the viewports of the sheets `invalidateCf` queued (now, when called before the debounce fired). */
+  private refreshCf(): Promise<void> {
+    if (this.cfTimer !== null) clearTimeout(this.cfTimer);
+    this.cfTimer = null;
+    const pending = [...this.cfPending];
+    this.cfPending.clear();
+    const waits: Promise<void>[] = [];
+    for (const sheet of pending) {
+      const cache = this.caches.get(sheet);
+      if (!cache) continue;
+      cache.loaded.clear();
+      const vp = this.lastViewport.get(sheet) ?? { r0: 0, c0: 0, r1: BLOCK_ROWS - 1, c1: BLOCK_COLS - 1 };
+      waits.push(this.ensureRegion(sheet, vp.r0, vp.c0, vp.r1, vp.c1));
+    }
+    this.busyChanged();
+    return Promise.all(waits).then(() => undefined);
+  }
+
+  /**
+   * A validation rule command: until its patch arrived and the viewport was fetched again (the rules are only in
+   * snapshots), commits wait (`rulesSettling`) instead of checking the typed value against the old rule.
+   */
+  private ruleChange(command: CalcCommand): Promise<void> {
+    const done: Promise<void> = this.apply(command)
+      .then(() => this.refreshCf())
+      .finally(() => {
+        if (this.rulesSettling === done) this.rulesSettling = null;
+        this.busyChanged();
+      });
+    this.rulesSettling = done;
+    this.busyChanged();
+    return done;
   }
 
   /** The conditional formatting rules (by priority) and validations of `sheet` (empty on failure, with a toast). */
@@ -2851,13 +2929,13 @@ export class CalcStore {
 
   /** Data Validation OK: replaces the validation of the selection (`kind` any without messages removes it). */
   setValidation(v: DataValidation): Promise<void> {
-    return this.apply({ type: "setValidation", sheet: this.state.activeSheet, validation: v });
+    return this.ruleChange({ type: "setValidation", sheet: this.state.activeSheet, validation: v });
   }
 
   /** Data Validation › Clear All: removes the validation of the selection. */
   removeValidation(): Promise<void> {
     const r = this.selectionRange();
-    return this.apply({ type: "removeValidation", sheet: this.state.activeSheet, range: { r0: r.r0, c0: r.c0, r1: r.r1, c1: r.c1 } });
+    return this.ruleChange({ type: "removeValidation", sheet: this.state.activeSheet, range: { r0: r.r0, c0: r.c0, r1: r.r1, c1: r.c1 } });
   }
 
   /** The in-cell dropdown values of the active cell's list validation. */

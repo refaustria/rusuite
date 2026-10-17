@@ -606,6 +606,8 @@ test.describe("Calc", () => {
     await dlg.getByLabel("Title:").fill("Fruit");
     await dlg.getByLabel("Input message:").fill("Pick one from the list");
     await dlg.getByRole("button", { name: "OK" }).click();
+    await expect(dlg).toHaveCount(0);
+    await grid.waitIdle();
     await expect(page.getByTestId("validation-input-message")).toContainText("Pick one from the list");
     await page.getByRole("button", { name: "Show list" }).click();
     const list = page.getByRole("listbox", { name: "Allowed values" });
@@ -631,8 +633,10 @@ test.describe("Calc", () => {
     await dlg.getByLabel("Value:").fill("10");
     await dlg.getByRole("button", { name: "OK" }).click();
     await expect(dlg).toHaveCount(0);
+    await grid.waitIdle();
     await grid.click(0, 0);
     await page.keyboard.type("42");
+    await expect(page.getByTestId("cell-editor")).toHaveValue("42");
     await page.keyboard.press("Enter");
     const alert = page.getByTestId("validation-alert");
     await expect(alert).toBeVisible();

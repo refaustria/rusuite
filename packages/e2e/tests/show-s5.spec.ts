@@ -68,15 +68,24 @@ test.describe("Show presenter, rehearsal and reuse (P9-S5)", () => {
 
   test("Rehearse Timings saves advTm per slide and Use Timings advances the show by itself", async ({ page }) => {
     const errors = trackErrors(page);
+    // The page's clock is ours: the rehearsal measures exactly 1 s per slide however slow the machine is (P9-Q1).
+    await page.clock.install();
     await openFile(page, BASIC, 3);
     await page.getByRole("tab", { name: "Slide Show" }).click();
     await page.getByRole("button", { name: "Rehearse Timings" }).click();
     const bar = page.getByTestId("rehearse-bar");
     await expect(bar).toBeVisible();
-    for (let i = 0; i < 3; i++) {
-      await page.waitForTimeout(1200);
+    await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);
+    // Repeat restarts the first slide's time at the paused clock.
+    await bar.getByRole("button", { name: "Repeat this slide" }).click();
+    await expect(page.getByTestId("rehearse-slide-time")).toHaveText("00:00");
+    for (let i = 1; i <= 3; i++) {
+      await page.clock.runFor(1000);
+      await expect(page.getByTestId("rehearse-slide-time")).toHaveText("00:01");
       await page.keyboard.press("ArrowRight");
+      if (i < 3) await expect(page.getByTestId("presenter-counter")).toHaveText(`${i + 1} / 3`);
     }
+    await page.clock.resume();
     const ask = page.getByTestId("rehearse-confirm");
     await expect(ask).toContainText("Do you want to keep the new slide timings?");
     await shot(page, "rehearse-keep");

@@ -101,6 +101,23 @@ describe("data validation on commit", () => {
     return ctx;
   }
 
+  it("a value committed right after Data Validation OK is checked against the new rule; busy until it settled (P9-Q1)", async () => {
+    const { store, core } = await readyStore();
+    const busy: boolean[] = [];
+    store.watchBusy((b) => busy.push(b));
+    // The dialog closes at once; the rule's patch and the region re-fetch are still on their way.
+    const ok = store.setValidation(whole("stop"));
+    expect(store.busy()).toBe(true);
+    expect(store.validationAt(1, 1)).toBeUndefined();
+    expect(await typeInto(store, 1, 1, "42")).toBe(false);
+    expect(store.getState().validationAlert).toMatchObject({ style: "stop", message: "1 to 9 only" });
+    expect(applied(core.log).map((c) => c.type)).toEqual(["setValidation"]);
+    await ok;
+    await waitFor(() => expect(busy.at(-1)).toBe(false));
+    expect(busy).toContain(true);
+    expect(store.busy()).toBe(false);
+  });
+
   it("a valid value is checked and committed", async () => {
     const { store, core } = await withValidation("stop");
     expect(await typeInto(store, 1, 1, "5")).toBe(true);

@@ -145,12 +145,22 @@ export type CalcBackend = Backend<Request, ResponseBody>;
 export class CalcApi {
   constructor(readonly backend: CalcBackend) {}
 
+  /** Requests sent and not answered yet (the store's busy state, e2e `grid.waitIdle()`). */
+  pending = 0;
+  /** Called whenever `pending` changes. */
+  onPending: (() => void) | null = null;
+
   private async call<T extends ResponseBody["type"]>(request: Request, expected: T): Promise<BodyOf<T>> {
     let raw: unknown;
+    this.pending++;
+    this.onPending?.();
     try {
       raw = await this.backend.dispatch(request);
     } catch (e) {
       throw new CalcApiError("transport", e instanceof Error ? e.message : String(e));
+    } finally {
+      this.pending--;
+      this.onPending?.();
     }
     return parseResponse(raw, expected);
   }
