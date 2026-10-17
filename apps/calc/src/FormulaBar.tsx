@@ -12,6 +12,7 @@ import { isSingleCell } from "./grid/merges";
 import { useCalc, type CalcStore } from "./state/store";
 import { useT } from "./i18n";
 import { NameBox } from "./names/NameBox";
+import { formulaHidden } from "./protection/protection";
 
 export function FormulaBar({ store }: { store: CalcStore }) {
   const t = useT();
@@ -39,7 +40,10 @@ export function FormulaBar({ store }: { store: CalcStore }) {
   const address = single ? `${prefix}${cellAddress(row, col)}` : `${prefix}${cellAddress(r.r0, r.c0)}:${cellAddress(r.r1, r.c1)}`;
   // A spilled cell shows its array formula greyed and read-only (Excel); typing into the cell still replaces it.
   const ghost = edit ? null : store.ghostFormula();
-  const value = edit ? edit.text : (ghost?.input ?? store.activeCell()?.input ?? "");
+  useCalc(store, (s) => s.info?.sheets);
+  // A hidden formula on a protected sheet shows nothing (Format Cells › Protection › Hidden).
+  const hidden = !edit && formulaHidden(store);
+  const value = edit ? edit.text : hidden ? "" : (ghost?.input ?? store.activeCell()?.input ?? "");
   const refs = edit && isFormula(edit.text) ? store.editRefs() : [];
   const colored = refs.length > 0;
   // The in-cell editor is hidden while pointing on another sheet: the bar then shows the popups.
@@ -93,7 +97,8 @@ export function FormulaBar({ store }: { store: CalcStore }) {
           className={`relative block h-[26px] w-full resize-none overflow-hidden whitespace-pre rounded border border-ui-border px-2 py-0.5 font-mono leading-5 outline-none focus:border-ui-focus ${
             colored ? "bg-transparent text-transparent" : ghost ? "bg-ui-bg text-ui-muted" : "bg-ui-bg"
           }`}
-          readOnly={!!ghost}
+          readOnly={!!ghost || hidden}
+          data-formula-hidden={hidden ? "" : undefined}
           aria-readonly={ghost ? true : undefined}
           title={ghost ? t("calc.spill.ghost", { cell: cellAddress(ghost.anchor.row, ghost.anchor.col) }) : undefined}
           data-spilled={ghost ? "" : undefined}

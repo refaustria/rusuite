@@ -91,6 +91,9 @@ impl CalcError {
             CalcError::Model(M::UnknownTable(_)) => "unknown_table",
             CalcError::Model(M::ShiftMerged) => "shift_merged",
             CalcError::Model(M::ShiftTable) => "shift_table",
+            CalcError::Model(M::SheetProtected) => "sheet_protected",
+            CalcError::Model(M::WorkbookProtected) => "workbook_protected",
+            CalcError::Model(M::WrongPassword) => "wrong_password",
             CalcError::Model(M::Engine(EngineError::InvalidName(_))) => "invalid_name",
             CalcError::Model(M::Engine(EngineError::DuplicateName(_))) => "duplicate_name",
             CalcError::Model(M::Engine(EngineError::UnknownName(_))) => "unknown_name",
@@ -287,6 +290,7 @@ impl CalcDocument {
                     self.workbook.max_outline_level(id, model_sheet::Axis::Rows),
                     self.workbook.max_outline_level(id, model_sheet::Axis::Cols),
                 ),
+                protection: self.workbook.active_protection(id).cloned(),
             })
             .collect()
     }
@@ -308,6 +312,12 @@ impl CalcDocument {
             names: self.name_infos(),
             persons: self.workbook.persons().to_vec(),
             stale_pivots: self.workbook.stale_pivots(),
+            workbook_protection: self
+                .workbook
+                .workbook_protection()
+                .filter(|p| p.is_active())
+                .cloned(),
+            active_sheet: self.workbook.active_sheet().0,
         }
     }
 
@@ -687,6 +697,12 @@ impl CalcDocument {
                 sort_state: wb.sort_state(s).cloned(),
             });
         }
+        if let Some(p) = wb.sheet_protection(s) {
+            inverse.push(C::RestoreSheetProtection {
+                sheet,
+                protection: Some(p.clone()),
+            });
+        }
         if wb.is_sheet_hidden(s) {
             inverse.push(C::SetSheetHidden {
                 sheet,
@@ -881,6 +897,28 @@ impl CalcDocument {
                 })
             }
             C::RestoreCells { sheet, cells } => self.restore_cells(*sheet, cells),
+            C::ProtectSheet {
+                sheet,
+                options,
+                password,
+                salt,
+            } => self.protect_sheet(*sheet, options, password.as_deref(), salt.as_deref()),
+            C::UnprotectSheet { sheet, password } => {
+                self.unprotect_sheet(*sheet, password.as_deref())
+            }
+            C::RestoreSheetProtection { sheet, protection } => {
+                self.restore_sheet_protection(*sheet, protection.clone())
+            }
+            C::ProtectWorkbook {
+                structure,
+                windows,
+                password,
+                salt,
+            } => self.protect_workbook(*structure, *windows, password.as_deref(), salt.as_deref()),
+            C::UnprotectWorkbook { password } => self.unprotect_workbook(password.as_deref()),
+            C::RestoreWorkbookProtection { protection } => {
+                self.restore_workbook_protection(protection.clone())
+            }
             &C::ApplyStyle {
                 sheet,
                 r0,
@@ -2775,6 +2813,7 @@ impl Document for CalcDocument {
     type Error = CalcError;
 
     fn apply(&mut self, cmd: &CalcCommand) -> Result<CalcApplied> {
+        self.check_protection(cmd)?;
         let names = self.workbook.names();
         let annotations = self.annotations_state();
         let pivots = self.may_touch_pivots(cmd).then(|| self.pivot_state());

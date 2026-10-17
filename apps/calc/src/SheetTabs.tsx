@@ -7,6 +7,7 @@ import { useRef, useState } from "react";
 import { ContextMenu, cssColor, OFFICE_THEME, type ContextMenuItem } from "@rusuite/ui-shared";
 import { unhideableSheets, useCalc, visibleSheets, type CalcStore } from "./state/store";
 import { t, useT } from "./i18n";
+import { sheetProtection, toggleSheetProtection } from "./protection/protection";
 
 /** The sheet commands shared by the tab context menu and the ribbon (acting on `sheet`). */
 export function sheetMenu(store: CalcStore, sheet: number, rename: () => void): ContextMenuItem[] {
@@ -33,6 +34,8 @@ export function sheetMenu(store: CalcStore, sheet: number, rename: () => void): 
     { separator: true },
     item("hide", t("calc.hide"), () => store.hideSheet(sheet), { disabled: sheets.length <= 1 }),
     item("unhide", t("calc.unhideDots"), () => store.openDialog({ kind: "unhideSheet" }), { disabled: hidden.length === 0 }),
+    { separator: true },
+    item("protect", sheetProtection(store, sheet) ? t("calc.protect.unprotectSheetDots") : t("calc.protect.sheetDots"), () => toggleSheetProtection(store, sheet)),
   ];
 }
 

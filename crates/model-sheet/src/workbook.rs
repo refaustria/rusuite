@@ -72,6 +72,10 @@ pub struct Workbook {
     /// While recording: the previous content and own style of every cell
     /// a pivot table operation wrote (see [`Workbook::start_pivot_journal`]).
     pub(crate) pivot_journal: Option<crate::pivot::PivotJournal>,
+    /// Review › Protect Workbook; `None` = unprotected.
+    pub(crate) protection: Option<crate::protection::WorkbookProtection>,
+    /// The sheet the file opens on (`<workbookView activeTab>`).
+    active: Option<SheetId>,
 }
 
 impl Default for Workbook {
@@ -116,6 +120,8 @@ impl Workbook {
             persons: Vec::new(),
             pivot_caches: Vec::new(),
             pivot_journal: None,
+            protection: None,
+            active: None,
         }
     }
 
@@ -213,6 +219,24 @@ impl Workbook {
         self.renew_pivot_ids(new);
         self.copy_tables(id, new);
         Ok((new, recalc))
+    }
+
+    /// The sheet a saved file opens on: the one set with
+    /// [`set_active_sheet`](Self::set_active_sheet) while it exists and
+    /// is visible, else the first visible sheet.
+    pub fn active_sheet(&self) -> SheetId {
+        let order: Vec<SheetId> = self.engine.sheets().map(|(id, _)| id).collect();
+        self.active
+            .filter(|id| order.contains(id) && !self.is_sheet_hidden(*id))
+            .or_else(|| order.iter().copied().find(|id| !self.is_sheet_hidden(*id)))
+            .or_else(|| order.first().copied())
+            .unwrap_or(SheetId(0))
+    }
+
+    /// Records the active sheet (`<workbookView activeTab>`, the sheet
+    /// with `tabSelected`); view state, not undoable.
+    pub fn set_active_sheet(&mut self, id: Option<SheetId>) {
+        self.active = id;
     }
 
     /// Colour of the sheet tab (`None` = default).

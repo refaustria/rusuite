@@ -24,6 +24,8 @@ import { pivotAnalyzeTab, pivotDesignTab, pivotInsertGroup } from "../pivot/Pivo
 import { tableDesignTab, tableInsertButton } from "../tables/TableRibbon";
 import { dataTabGroups, getDataGroup, pageLayoutTab, pasteMenu, PicturesButton, workbookViewsGroup } from "../datatools/DataRibbon";
 import { NumberGroup } from "./NumberGroup";
+import { activeCellLocked, sheetProtection, toggleLockCell, toggleSheetProtection } from "../protection/protection";
+import { lockIcon } from "../protection/icons";
 import {
   clearFilterIcon, condFormatIcon, filterIcon, freezeIcon, headingsIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon,
 } from "./icons";
@@ -238,7 +240,14 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
                 { id: "unhideCols", label: t("calc.unhideCols"), onSelect: run(actions.unhideCols) },
                 { id: "hideSheet", label: t("calc.hideSheet"), disabled: !actions.canHideSheet(), onSelect: run(actions.hideSheet) },
                 { id: "unhideSheet", label: t("calc.unhideSheetDots"), disabled: !actions.canUnhideSheet(), onSelect: actions.unhideSheet },
-                { separator: true },
+                { separator: true, label: t("calc.protect.group") },
+                {
+                  id: "protectSheet",
+                  label: sheetProtection(store) ? t("calc.protect.unprotectSheetDots") : t("calc.protect.sheetDots"),
+                  icon: lockIcon(16),
+                  onSelect: () => toggleSheetProtection(store),
+                },
+                { id: "lockCell", label: t("calc.protect.lockCell"), checked: activeCellLocked(store), onSelect: run(() => toggleLockCell(store)) },
                 { id: "formatCells", label: t("calc.formatCellsDots"), icon: "format", shortcut: "Mod+1", onSelect: actions.formatCells },
               ]}
             />

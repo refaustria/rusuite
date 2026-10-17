@@ -126,6 +126,71 @@ pub struct Protection {
     pub hidden: Option<bool>,
 }
 
+/// Mirror of `model_sheet::HashedPassword`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct HashedPassword {
+    pub algorithm_name: String,
+    pub hash_value: String,
+    pub salt_value: String,
+    pub spin_count: u32,
+}
+
+/// Mirror of `model_sheet::Password` (hashes only, never the text).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct Password {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub legacy: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub hashed: Option<HashedPassword>,
+}
+
+/// Mirror of `model_sheet::SheetProtection`: the `.xlsx` flags, `true` =
+/// the action is protected (not allowed); `selectLockedCells` /
+/// `selectUnlockedCells` `true` = selecting them is not allowed. Absent
+/// flags take Excel's dialog defaults (see `SheetProtection::default`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct SheetProtection {
+    pub sheet: bool,
+    pub objects: bool,
+    pub scenarios: bool,
+    pub format_cells: bool,
+    pub format_columns: bool,
+    pub format_rows: bool,
+    pub insert_columns: bool,
+    pub insert_rows: bool,
+    pub insert_hyperlinks: bool,
+    pub delete_columns: bool,
+    pub delete_rows: bool,
+    pub select_locked_cells: bool,
+    pub select_unlocked_cells: bool,
+    pub sort: bool,
+    pub auto_filter: bool,
+    pub pivot_tables: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub password: Option<Password>,
+}
+
+/// Mirror of `model_sheet::WorkbookProtection`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct WorkbookProtection {
+    pub lock_structure: bool,
+    pub lock_windows: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub password: Option<Password>,
+}
+
 /// Mirror of `model_sheet::CellStyle`: every part optional (absent =
 /// inherit). Used both for the style table and for style patches
 /// (`applyStyle`), where only the present parts are merged in.
@@ -403,6 +468,20 @@ mod tests {
             },
         };
         same_shape::<_, CellStyle>(&full);
+        let mut prot = ms::SheetProtection {
+            password: ms::Password {
+                legacy: Some(0xCC1A),
+                hashed: Some(ms::HashedPassword::sha512("x", &[1; 16], 2)),
+            },
+            ..Default::default()
+        };
+        same_shape::<_, SheetProtection>(&prot);
+        prot.password = ms::Password::default();
+        same_shape::<_, SheetProtection>(&prot);
+        same_shape::<_, WorkbookProtection>(&ms::WorkbookProtection {
+            lock_structure: true,
+            ..Default::default()
+        });
         same_shape::<_, CellStyle>(&ms::CellStyle::default());
         same_shape::<_, SheetFormat>(&ms::SheetFormat::default());
         let key = |col, ascending, kind| ms::SortKey {

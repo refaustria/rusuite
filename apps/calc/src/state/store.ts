@@ -71,6 +71,7 @@ import { parseStruct, structCompletion, structInsert, structItems, structRange }
 import type { OutlineProps } from "../generated/OutlineProps";
 import type { PasteSpecial } from "../generated/PasteSpecial";
 import type { DropTarget } from "../pivot/buttons";
+import { refuseLockedEdit } from "../protection/protection";
 
 /** Snapshot blocks: 64 rows × 32 columns. */
 export const BLOCK_ROWS = 64;
@@ -268,7 +269,13 @@ export type CalcDialog =
   /** File › Save As › CSV: separator, BOM, quotes (after "some features may be lost"). */
   | { kind: "saveCsv"; name?: string }
   /** Page Layout › Print Titles (rows / columns to repeat, print area). */
-  | { kind: "printTitles" };
+  | { kind: "printTitles" }
+  /** Review › Protect Sheet… (P9-C1). */
+  | { kind: "protectSheet"; sheet: number }
+  /** Review › Protect Workbook… */
+  | { kind: "protectWorkbook" }
+  /** The password prompt of Unprotect Sheet / Unprotect Workbook. */
+  | { kind: "unprotect"; target: "sheet" | "workbook"; sheet: number };
 
 /** The failed check of a committed edit (Excel's Stop / Warning / Information alert). */
 export interface ValidationAlert {
@@ -598,7 +605,10 @@ export class CalcStore {
 
   pushError(e: unknown): void {
     // A content edit inside a pivot table: Excel's message.
-    const known: Record<string, string> = { pivot_cell: "calc.pivot.cantChange", shift_merged: "calc.shiftMerged", shift_table: "calc.shiftTable" };
+    const known: Record<string, string> = {
+      pivot_cell: "calc.pivot.cantChange", shift_merged: "calc.shiftMerged", shift_table: "calc.shiftTable",
+      sheet_protected: "calc.protect.refused", workbook_protected: "calc.protect.bookRefused", wrong_password: "calc.protect.wrongPassword",
+    };
     const message =
       e instanceof CalcApiError && known[e.code]
         ? t(known[e.code])
@@ -635,7 +645,10 @@ export class CalcStore {
     this.pivots.reset(info.stalePivots ?? []);
     this.pictures.reset();
     const shown = visibleSheets(info.sheets);
-    const active = shown.some((s) => s.id === this.state.activeSheet) ? this.state.activeSheet : (shown[0]?.id ?? info.sheets[0]?.id ?? 0);
+    // A replaced document opens on its saved active sheet (`activeTab`).
+    const active = shown.some((s) => s.id === info.activeSheet)
+      ? info.activeSheet
+      : shown.some((s) => s.id === this.state.activeSheet) ? this.state.activeSheet : (shown[0]?.id ?? info.sheets[0]?.id ?? 0);
     this.bump({ info, activeSheet: active, revision: info.revision, edit: null });
   }
 
@@ -648,6 +661,7 @@ export class CalcStore {
       styles: patch.styles ?? info.styles,
       names: patch.names ?? info.names,
       persons: patch.persons ?? info.persons,
+      workbookProtection: patch.workbookProtection ? (patch.workbookProtection.lockStructure || patch.workbookProtection.lockWindows ? patch.workbookProtection : undefined) : info.workbookProtection,
     };
     const reload = new Set<number>();
     for (const s of patch.structural) {
@@ -1057,7 +1071,7 @@ export class CalcStore {
   saveFile(asName?: string, saveAs = asName !== undefined): Promise<void> {
     return this.guard(async () => {
       await this.commitEdit(0, 0);
-      const saved = await this.api.saveXlsx();
+      const saved = await this.api.saveXlsx(this.state.activeSheet);
       const suggested = asName ?? this.state.name ?? saved.suggestedName;
       const result = await this.api.backend.saveFile(suggested, saved.bytesBase64, { saveAs });
       if (!result) return;
@@ -1131,6 +1145,8 @@ export class CalcStore {
   beginEdit(text: string | null, origin: EditState["origin"] = "cell"): void {
     // The cells of a pivot table are not edited (Excel's message; the editor stays closed).
     if (this.pivots.refuseEdit()) return;
+    // Nor the locked cells of a protected sheet (P9-C1).
+    if (refuseLockedEdit(this)) return;
     const mode = text === null || origin === "bar" ? "edit" : "enter";
     const value = text ?? this.activeCell()?.input ?? "";
     // A merged range is edited in its top-left cell.

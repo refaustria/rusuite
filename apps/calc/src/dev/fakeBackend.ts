@@ -33,6 +33,8 @@ import type { ResponseBody } from "../generated/ResponseBody";
 import type { RowView } from "../generated/RowView";
 import type { SheetInfo } from "../generated/SheetInfo";
 import type { SheetView } from "../generated/SheetView";
+import type { SheetProtection } from "../generated/SheetProtection";
+import type { WorkbookProtection } from "../generated/WorkbookProtection";
 import type { SortKey } from "../generated/SortKey";
 import type { SortState } from "../generated/SortState";
 import type { NameDef } from "../generated/NameDef";
@@ -86,6 +88,9 @@ interface FakeSheet {
   rowBreaks: number[];
   colBreaks: number[];
   pictures: Picture[];
+  /** Protect Sheet (P9-C1); the fake keeps the password as text. */
+  protection?: SheetProtection;
+  password?: string;
 }
 
 const DEFAULT_VIEW: SheetView = { frozenRows: 0, frozenCols: 0, zoom: 100, showGridlines: true, showHeadings: true };
@@ -116,6 +121,7 @@ function mergeStyle(base: CellStyle, patch: CellStyle): CellStyle {
     out.borders = b;
   }
   if (patch.numberFormat !== undefined) out.numberFormat = patch.numberFormat === "General" ? null : patch.numberFormat;
+  if (patch.protection) out.protection = { ...base.protection, ...patch.protection };
   return out;
 }
 
@@ -128,6 +134,9 @@ function formatNumber(n: number): string {
 export class FakeCalcCore {
   sheets: FakeSheet[] = [];
   styles: CellStyle[] = [{}];
+  /** Protect Workbook (P9-C1) and its password (as text: a fake). */
+  private bookProtection: WorkbookProtection | undefined;
+  private bookPassword = "";
   revision = 0;
   undoStack: CalcCommand[] = [];
   redoStack: CalcCommand[] = [];
@@ -172,6 +181,7 @@ export class FakeCalcCore {
     this.removed.clear();
     this.nextId = this.sheets.length;
     this.styles = [{}];
+    this.bookProtection = undefined;
     this.names = [];
     this.persons = [];
     this.pivots?.reset();
@@ -208,6 +218,8 @@ export class FakeCalcCore {
       if (tabColor) info.tabColor = tabColor;
       if (hidden) info.hidden = true;
       if (veryHidden) info.veryHidden = true;
+      const protection = this.sheets.find((x) => x.id === id)?.protection;
+      if (protection) info.protection = { ...protection };
       if (JSON.stringify(view) !== JSON.stringify(DEFAULT_VIEW)) info.view = { ...view };
       return info;
     });
@@ -329,9 +341,79 @@ export class FakeCalcCore {
     if ((r1 - r0 + 1) * (c1 - c0 + 1) > 1 << 22) throw new Fail("range_too_large", "range too large");
   }
 
+  /** The core's protection check (P9-C1), for the commands the UI tests use. */
+  private checkProtection(cmd: CalcCommand): void {
+    const refuse = () => {
+      throw new Fail("sheet_protected", "The cell or chart you're trying to change is on a protected sheet. To make a change, unprotect the sheet. You might be requested to enter a password.");
+    };
+    const locked = (s: FakeSheet, r: number, c: number) => this.styles[this.cell(s, r, c)?.style ?? 0]?.protection?.locked !== false;
+    switch (cmd.type) {
+      case "compound":
+        cmd.commands.forEach((c) => this.checkProtection(c));
+        return;
+      case "addSheet": case "deleteSheet": case "renameSheet": case "duplicateSheet": case "moveSheet": case "setSheetHidden": case "setSheetTabColor":
+        if (this.bookProtection?.lockStructure) throw new Fail("workbook_protected", "The workbook is protected and cannot be changed.");
+        return;
+      case "setInput": {
+        const s = this.sheet(cmd.sheet);
+        if (s.protection && locked(s, cmd.row, cmd.col)) refuse();
+        return;
+      }
+      case "clearRange": {
+        const s = this.sheet(cmd.sheet);
+        if (!s.protection) return;
+        for (let r = cmd.r0; r <= cmd.r1; r++) for (let c = cmd.c0; c <= cmd.c1; c++) if (locked(s, r, c)) refuse();
+        return;
+      }
+      case "applyStyle": case "setBorders":
+        if (this.sheet(cmd.sheet).protection?.formatCells) refuse();
+        return;
+      default:
+        return;
+    }
+  }
+
   /** Applies a command; returns `[patch, inverse]`. */
   exec(cmd: CalcCommand): [CalcPatch, CalcCommand | null] {
     switch (cmd.type) {
+      case "protectSheet": {
+        const s = this.sheet(cmd.sheet);
+        const prev = s.protection ? { protection: s.protection, password: s.password } : null;
+        s.protection = { ...cmd.options, sheet: true };
+        s.password = cmd.password ?? "";
+        if (s.password) s.protection.password = { hashed: { algorithmName: "SHA-512", hashValue: "fake", saltValue: "fake", spinCount: 100000 } };
+        else delete s.protection.password;
+        void prev;
+        return [this.sheetsPatch(), { type: "unprotectSheet", sheet: cmd.sheet, password: cmd.password }];
+      }
+      case "unprotectSheet": {
+        const s = this.sheet(cmd.sheet);
+        if (s.protection && (s.password ?? "") !== (cmd.password ?? "")) {
+          throw new Fail("wrong_password", "The password you supplied is not correct. Verify that the CAPS LOCK key is off and be sure to use the correct capitalization.");
+        }
+        const old = s.protection;
+        const pw = s.password;
+        s.protection = undefined;
+        s.password = undefined;
+        return [this.sheetsPatch(), old ? { type: "protectSheet", sheet: cmd.sheet, options: old, password: pw } : null];
+      }
+      case "protectWorkbook": {
+        this.bookProtection = { lockStructure: cmd.structure, lockWindows: !!cmd.windows };
+        this.bookPassword = cmd.password ?? "";
+        const patch = this.emptyPatch();
+        patch.workbookProtection = { ...this.bookProtection };
+        return [patch, { type: "unprotectWorkbook", password: cmd.password }];
+      }
+      case "unprotectWorkbook": {
+        if (this.bookProtection && this.bookPassword !== (cmd.password ?? "")) {
+          throw new Fail("wrong_password", "The password you supplied is not correct. Verify that the CAPS LOCK key is off and be sure to use the correct capitalization.");
+        }
+        const old = this.bookProtection;
+        this.bookProtection = undefined;
+        const patch = this.emptyPatch();
+        patch.workbookProtection = { lockStructure: false, lockWindows: false };
+        return [patch, old ? { type: "protectWorkbook", structure: old.lockStructure, windows: old.lockWindows, password: this.bookPassword } : null];
+      }
       case "setInput": {
         const s = this.sheet(cmd.sheet);
         if (cmd.input.startsWith("=") && /[(]/.test(cmd.input) && (cmd.input.match(/\(/g)?.length ?? 0) !== (cmd.input.match(/\)/g)?.length ?? 0)) {
@@ -868,6 +950,8 @@ export class FakeCalcCore {
       case "removeSubtotals":
       case "changePivotSource":
       case "showPivotDetails":
+      case "restoreSheetProtection":
+      case "restoreWorkbookProtection":
         throw new Fail("unsupported", `${cmd.type} is not in the fake backend`);
       default: {
         const unknown: never = cmd;
@@ -1942,6 +2026,8 @@ export class FakeCalcCore {
   private infoResponse(): Response {
     const info = {
       sheets: this.sheetInfos(), styles: [...this.styles], revision: this.revision, ...(this.names.length ? { names: this.nameInfos() } : {}),
+      activeSheet: this.sheets.find((x) => !x.hidden)?.id ?? 0,
+      ...(this.bookProtection ? { workbookProtection: { ...this.bookProtection } } : {}),
       ...(this.persons.length ? { persons: this.persons.map((p) => ({ ...p })) } : {}),
     };
     return { ok: { type: "info", info } };
@@ -1952,6 +2038,7 @@ export class FakeCalcCore {
     try {
       switch (req.type) {
         case "apply": {
+          this.checkProtection(req.command);
           const [patch, inv] = this.withAnnotations(() => this.exec(req.command));
           this.markCf(patch);
           if (!patch.pivotSheets && this.pivots.tables.size > 0) {
@@ -2035,7 +2122,7 @@ export class FakeCalcCore {
           return {
             ok: {
               type: "opened",
-              info: "ok" in info && info.ok.type === "info" ? info.ok.info : { sheets: [], styles: [], revision: this.revision },
+              info: "ok" in info && info.ok.type === "info" ? info.ok.info : { sheets: [], styles: [], revision: this.revision, activeSheet: 0 },
               warnings: ["fake backend: file content ignored"],
               envelope: this.envelope(this.emptyPatch()),
             },

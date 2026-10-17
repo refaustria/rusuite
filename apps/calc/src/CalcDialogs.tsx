@@ -4,8 +4,9 @@
 // row height / column width prompts, the sheet dialogs (confirm
 // delete, rename, tab colour, unhide), the merge warning and the sort /
 // AutoFilter dialogs (sortFilter/SortFilterDialogs.tsx), conditional
-// formatting (condFormat/CfDialogs.tsx) and data validation
-// (validation/ValidationDialogs.tsx).
+// formatting (condFormat/CfDialogs.tsx), data validation
+// (validation/ValidationDialogs.tsx) and protection
+// (protection/ProtectionDialogs.tsx).
 
 import { useEffect, useRef, useState } from "react";
 import { cssColor, Dialog, OFFICE_THEME, PromptDialog, STANDARD_COLORS, THEME_SLOTS, type Color } from "@rusuite/ui-shared";
@@ -27,6 +28,7 @@ import {
   DuplicatesResultDialog, GoalSeekDialog, GoalSeekStatusDialog, PasteSpecialDialog, PrintTitlesDialog, RemoveDuplicatesDialog, SaveCsvDialog, SubtotalDialog,
   TextImportDialog, TextToColumnsDialog,
 } from "./datatools/DataDialogs";
+import { ProtectSheetDialog, ProtectWorkbookDialog, UnprotectDialog } from "./protection/ProtectionDialogs";
 
 const BTN = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover disabled:opacity-40";
 const FIELD = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";
@@ -414,6 +416,12 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       return <SaveCsvDialog store={store} name={dialog.name} />;
     case "printTitles":
       return <PrintTitlesDialog store={store} />;
+    case "protectSheet":
+      return <ProtectSheetDialog store={store} sheet={dialog.sheet} />;
+    case "protectWorkbook":
+      return <ProtectWorkbookDialog store={store} />;
+    case "unprotect":
+      return <UnprotectDialog store={store} target={dialog.target} sheet={dialog.sheet} />;
     case "mergeConfirm":
       return (
         <Dialog open title={t("calc.mergeCells")} onClose={close}>
