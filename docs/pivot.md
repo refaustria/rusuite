@@ -1,4 +1,4 @@
-# Pivot tables (P8-30)
+# Pivot tables (P8-30, round 2 P9-C3)
 
 Backend of Calc's pivot tables: model (`model_sheet::pivot`), layout and computation
 (`PivotTable::compute`), `GETPIVOTDATA` (`engine-formula`), xlsx parts (`fmt-xlsx`, see also
@@ -9,19 +9,27 @@ ribbon, drawing) is P8-31; its contract is at the end. Behaviour follows Excel.
 
 ```
 Workbook.pivot_caches: Vec<PivotCache>        Sheet: pivots: Vec<PivotTable>
-PivotCache { id, source, fields: Vec<CacheField>, records: Vec<Vec<Item>>, refresh_on_load, stale, raw }
+PivotCache { id, source, fields: Vec<CacheField>, records: Vec<Vec<Item>>, refresh_on_load, stale, raw,
+             calculated_items: Vec<CalculatedItem { field, item, formula }> }
   source: Range { sheet (name), r0, c0, r1, c1 } | Table { name } | Name { name }
-  CacheField { name, shared_items: Vec<Item>, kind: Number|Text|Date|Mixed, contains_blank, number_format }
+  CacheField { name, shared_items: Vec<Item>, kind: Number|Text|Date|Mixed, contains_blank, number_format,
+               group: Option<FieldGroup { base, kind: Number{start,end,interval,auto_*} | Date{by,start,end,interval,auto_*}
+                                                      | Items{map} }>, formula: Option<String> }
   Item = Blank | Number | Text | Bool | Error(text)        (text compares ignoring case)
 PivotTable { id, name, cache_id, location: PivotRect, rows, cols: Vec<AxisField>,
              filters: Vec<PageField>, values: Vec<DataField>, options: PivotOptions, raw }
-  AxisField { field, sort: Ascending|Descending|Manual{order}, subtotals: Automatic|None|Custom{functions},
-              show_all_items, collapsed_items, hidden_items, layout: Compact|Outline|Tabular }
+  AxisField { field, sort: Ascending|Descending|Manual{order}|ByValue{data, descending},
+              subtotals: Automatic|None|Custom{functions}, show_all_items, collapsed_items, hidden_items,
+              layout: Compact|Outline|Tabular, subtotal_bottom, insert_blank_row,
+              filter: Option<Label{op,value,value2} | Date{op,value,value2} | Value{op,data,value,value2}
+                             | Top{data,bottom,count,by: Items|Percent|Sum}> }
   PageField { field, selected: All | Items{items} }
   DataField { field, name ("" = "Sum of X"), func, show_as, number_format }
-    func: Sum Count(=COUNTA) Average Max Min Product CountNums StdDev StdDevP Var VarP
-    show_as: Normal PercentOfTotal PercentOfRow PercentOfColumn PercentOfParent
-             DifferenceFrom{base_field, base_item: Item{item}|Previous|Next} RunningTotal{base_field} Rank{base_field}
+    func: Sum Count(=COUNTA) Average Max Min Product CountNums StdDev StdDevP Var VarP DistinctCount
+    show_as: Normal PercentOfTotal PercentOfRow PercentOfColumn PercentOfParent PercentOfParentColumn
+             PercentOfParentTotal{base_field} PercentOf{base_field, base_item} PercentDifferenceFrom{base_field, base_item}
+             DifferenceFrom{base_field, base_item: Item{item}|Previous|Next} RunningTotal{base_field}
+             PercentRunningTotal{base_field} Rank{base_field} RankAscending{base_field} Index
   PivotOptions { grand_total_rows (Excel rowGrandTotals: the Grand Total column), grand_total_cols
                  (colGrandTotals: the Grand Total row), row_headers_bold, col_headers_bold, banded,
                  style ("PivotStyleLight16"), values_in: Rows|Columns, values_position, empty_as,
@@ -49,9 +57,10 @@ PivotTable { id, name, cache_id, location: PivotRect, rows, cols: Vec<AxisField>
 - **Overlap.** Writing a layout refuses to overwrite cells with content or another table's cells
   (`Error::PivotOverlap { r0, c0, r1, c1 }` with the conflicting range, code `pivot_overlap`);
   nothing changes then. A shrinking table clears the cells it no longer covers (content and format).
-- **Raw.** Tables/caches from files with features we do not model (calculated fields/items,
-  grouped fields, label/value filters, OLAP, non-worksheet sources) keep their XML (`raw`) and their
-  stored cells; they are read-only (updates fail with `invalid_pivot`) and written back verbatim.
+- **Raw.** Tables/caches from files with features we do not model (OLAP, non-worksheet sources) keep
+  their XML (`raw`) and their stored cells; they are read-only (updates fail with `invalid_pivot`) and
+  written back verbatim. Calculated fields and items, grouped fields and label / value filters are
+  modelled since P9-C3.
 
 ## Layout rules (`PivotTable::compute`)
 
@@ -180,7 +189,7 @@ cells. Patches: `pivotSheets` (refetch the region snapshot and an open `pivotInf
   cell, `Sheet1!$A$1:$D$7`, with the range picker that collapses the dialog; a defined name works too) and
   New Worksheet / Existing Worksheet + Location. OK sends `createPivot` with no fields, switches to the
   patch's `activateSheet` (or the target sheet), selects the table's first cell, opens the field pane and
-  shows PivotTable Analyze. Recommended PivotTables and the data model are not offered.
+  shows PivotTable Analyze. Recommended PivotTables: P9-C3; the data model is not offered.
 - **PivotTable Fields pane** (right of the grid while a cell of a table is selected and Analyze › Field List
   is on): search box, the source fields with checkboxes (ticking: numbers → Values as Sum, everything else
   → Rows; unticking removes the field everywhere), the four areas Filters / Columns / Rows / Values with
@@ -197,7 +206,7 @@ cells. Patches: `pivotSheets` (refetch the region snapshot and an open `pivotInf
   and base item incl. (previous) / (next), Running Total In, Rank Largest to Smallest), Number Format
   (common codes or a custom code). **Field Settings**: subtotals Automatic / None / Custom (functions),
   Compact / Outline / Tabular for the field, Repeat item labels (the table option), Show items with no
-  data (`showAllItems`). Insert blank line is not offered (no model support).
+  data (`showAllItems`). Insert blank line: Design › Blank Rows (P9-C3).
 - **Grid**: the core writes plain cells; the grid draws the table style from `CellView.pivot` and the
   snapshot's `PivotSummary` (`styles.ts`): the header rows (above the first row label / value) get the
   style's header fill and bold text with a line under them, subtotal lines (subtotal values) are bold, a
@@ -228,12 +237,13 @@ cells. Patches: `pivotSheets` (refetch the region snapshot and an open `pivotInf
   place with the same fields – `deletePivot` + `createPivot` in one compound – and its name and options
   are restored with a second `updatePivot`), Clear ▾ (Clear All, Clear Filters), Select ▾ (Labels, Values,
   Entire PivotTable), Move PivotTable…, Field List, +/- Buttons (a view setting), Field Headers. Group,
-  Insert Slicer / Timeline, Fields, Items & Sets, OLAP tools, Relationships and PivotChart are not offered.
-  **Design**: Subtotals ▾ (Do Not Show; Show at Top = automatic; Show at Bottom is disabled – the model has
+  Timeline, OLAP tools and Relationships are not offered (Insert Slicer: P9-C2; Group, Fields, Items & Sets and
+  PivotChart: P9-C3).
+  **Design**: Subtotals ▾ (Do Not Show; Show at Top = automatic; Show at Bottom since P8-35 – the model had
   no position option), Grand Totals ▾ (the four choices), Report Layout ▾ (Compact / Outline / Tabular =
   `layout`, Repeat / Do Not Repeat All Item Labels), PivotTable Style Options (Row Headers, Column Headers,
-  Banded Rows; Banded Columns disabled – no model option), PivotTable Styles gallery (84 previews, the id is
-  stored in `options.style`). Blank Rows is not offered. The tabs come under "PivotTable Tools" and follow
+  Banded Rows; Banded Columns since P8-35), PivotTable Styles gallery (84 previews, the id is
+  stored in `options.style`). Blank Rows: P9-C3. The tabs come under "PivotTable Tools" and follow
   the active cell.
 - **Autofit on update** (Excel's default): after a pivot command the columns of the written pivot cells
   widen to fit (bold text, indent, −/+ button and dropdown room; never narrower) – a second undo step.
@@ -252,8 +262,9 @@ cells. Patches: `pivotSheets` (refetch the region snapshot and an open `pivotInf
 - The fake backend (`dev/fakePivot.ts`) has a toy compact-form pivot (first column field only) for the unit
   tests and `?fake=1`.
 
-Not yet (ideas): grouping dates/numbers, calculated fields, value/label filters, sort by value,
-slicers, pivot charts, "Show Report Filter Pages", distinct count.
+Round 2 (P9-C3, below): grouping, calculated fields and items, label / date / value filters, sort by
+value, Distinct Count, the remaining Show Values As modes, Blank Rows, Show Report Filter Pages,
+Recommended PivotTables and PivotCharts. Slicers: P9-C2.
 
 ## Follow-ups (P8-35)
 
@@ -268,3 +279,150 @@ slicers, pivot charts, "Show Report Filter Pages", distinct count.
   (`worksheetSource name="Table1"`); Table Design › Summarize with PivotTable starts from it.
 - **Show Details**: double-clicking a value cell (or `ShowPivotDetails`) adds a sheet with the source
   records behind it (header row + matching rows, as a table), like Excel's drill-down.
+
+## Round 2 (P9-C3)
+
+### Grouping (`pivot/group.rs`)
+
+- **Dates** by Seconds, Minutes, Hours, Days (optionally *n* days per group), Months, Quarters, Years
+  (`GroupSpec::Date { by, start, end, days }`, `Workbook::group_pivot_field`). The finest level groups
+  the field itself (`FieldGroup { base: itself, kind: Date }`); every coarser level becomes a new cache
+  field without a source column named `Years`, `Quarters`, `Months`, … (made unique) whose group has the
+  same `base` – Excel's multi-level grouping, which Excel 365 also does automatically when a date field
+  is dropped (Rusuite groups only on request). The new fields are put just before the field on the
+  table's axis (coarse → fine). Items: `<start` (`<1/15/2024`), the level's items (`2024` …, `Qtr1`–`Qtr4`,
+  `Jan`–`Dec`, `1-Jan`–`31-Dec` (366), `1/15/2024 - 1/21/2024` for *n* days, `12 AM`–`11 PM`, `:00`–`:59`),
+  `>end`, and `(blank)` when the field has blanks. Start / end default to the data's (`autoStart` /
+  `autoEnd`: they follow on refresh).
+- **Numbers** by an interval (`GroupSpec::Number { start, end, interval }`): `<0`, `0-9`, `10-19`, …,
+  `>100` (integral start and interval: `a-(a+n-1)`, else `a-(a+n)`). A field with text cannot be grouped
+  (`invalid_pivot` "cannot group that selection").
+- **Manual groups** (`GroupSpec::Items { items }`): the selected shared items become `Group<n>` in a
+  new field `<name>2` (`FieldGroup { base, kind: Items { map } }`, `map[base item] = group item`) placed
+  before the field; further groupings add to that field. Group items are the grouped field's shared
+  items; ungrouped base items are their own group item (a copy of the item).
+- **Ungroup** (`ungroup_pivot_field(id, field, items)`): a date / number grouping goes with its level
+  fields (Ungroup on `Years` ungroups the whole date field); a manual group field goes; with `items`
+  only those groups of a manual group field dissolve.
+- Grouping changes the cache: every table of the cache is rewritten; filters, collapsed items and manual
+  orders of the regrouped field are dropped. Refresh recomputes automatic bounds and re-maps items by
+  value (`rebuild_cache`); fields without a source column are kept after the source columns.
+- Show Details, slicers' item lists and GETPIVOTDATA work on group items (records are mapped through
+  `PivotCache::record_items`).
+
+### Calculated fields and items (`pivot/calc.rs`)
+
+- A calculated field is a cache field with `formula` (`Sales*1.1`, `'Unit Price'*Qty`): in every cell
+  its value is the formula over the **sums** of the fields it names (Excel's semantics, so `Sales/Units`
+  is a weighted average); the data field's function is ignored. It is a data field only (`validate`
+  refuses it on an axis). `set_calculated_field(id, field, name, formula)` adds (and puts `Sum of
+  <name>` into the table's values), changes or deletes it.
+- A calculated item is a shared item of a field (`Item::Text(name)`) listed in
+  `PivotCache::calculated_items` with its formula over the field's other items (`East+West`); a cell of
+  that item evaluates the formula with each named item's value for the same other keys (nested calculated
+  items recurse, depth 16). Grouped fields have none. Subtotals and grand totals are computed from the
+  records and so do **not** include calculated items (Excel adds them in; documented difference).
+  `set_calculated_item(id, field, item, name, formula)`.
+- Formulas are parsed by the engine's parser after names (quoted, or identifiers not followed by `(`)
+  are replaced by placeholders and evaluated with every built-in function; unknown names give `#NAME?`,
+  a formula that does not parse is refused (`invalid_pivot`).
+- Both belong to the cache (all its tables show them), as in Excel.
+
+### Filters and sorting (`pivot/filter.rs`)
+
+- `AxisField::filter` (one per field, as Excel's default): **Label** (equal / does not equal with `*` `?`
+  wildcards, begins / ends with, contains and their negations, greater / less (or equal), between, not
+  between; case-insensitive, numbers compare as numbers), **Date** (equal, before, after, between, …,
+  by day) and **Value** (on data field `data`: equal … not between) or **Top** (top / bottom `count`
+  items, percent of the total or until the sum reaches `count`; ties with the last kept item stay).
+- Filters run once per layout, outer field first: label / date filters drop the records of failing
+  items; value / top filters are evaluated **per parent item** of the same axis (Top 1 product of each
+  region). Totals follow (filtered items are excluded everywhere, as Excel's default).
+- `SortOrder::ByValue { data, descending }` (More Sort Options › by `Sum of Sales`): items ordered by
+  their total of the data field within their parent; empty values last, ties by label.
+
+### Aggregation and Show Values As
+
+- **Distinct Count** (`AggFunc::DistinctCount`: distinct non-blank values, text ignoring case). Excel
+  offers it for data-model tables only; the file says `subtotal="count"` plus Rusuite's extension, so
+  Excel shows a Count.
+- New modes: % of Parent Column Total, % of Parent Total (base field), % Of (base item; the base item
+  itself 100 %, missing base value `#N/A`), % Difference From (base item blank, missing base `#NULL!`),
+  % Running Total In, Rank Smallest to Largest, Index (`value × grand total / (row total × column
+  total)`). Percent modes default to `0.00%`; Rank and Index to General.
+
+### Layout and tools
+
+- **Blank Rows** (`AxisField::insert_blank_row`, `pivotField insertBlankRow`): an empty line after each
+  item of a row field with inner fields (`rowItems` `t="blank"`). Design › Blank Rows sets it on every
+  row field but the innermost.
+- **Show Report Filter Pages** (`ShowReportFilterPages { id, field }`, `Workbook::copy_pivot`): one sheet
+  per item of the page field that has data (only the selected ones when several are selected), named
+  after the item (invalid characters `_`, 31 characters, unique with ` (2)`), inserted before the
+  table's sheet in item order, each with a copy of the table (same cache, new id / name) at the same
+  anchor filtered to the item. One undo step.
+- **Recommended PivotTables** (`recommendPivots { source }` → `pivotRecommendations`,
+  `pivot::recommend_pivots`): category fields (2–50 distinct items, not every value distinct, not
+  id-like; numbers only when they repeat a lot) scored best at about six items, numeric non-date fields
+  as values (earlier columns first): `Sum of <v> by <c>`, a crosstab with a second small category
+  (≤ 6 items), two measures side by side, `Count of <c>` without numbers; top 10 with a 12-row preview
+  each.
+- Show Details, subtotal position, banded rows / columns, Report Layout, Repeat All Item Labels and
+  Change Data Source were already there (P8-33 / P8-35); Show Details now applies the label / value
+  filters and groups too and refuses a calculated item's cell.
+
+### PivotCharts (`pivot/pchart.rs`)
+
+- `ChartObject::pivot = Some(table id)` binds a chart to a pivot table (`InsertPivotChart { sheet, pivot,
+  anchor, chart }`, undo removes it). Its series are derived from the table's layout whenever the table
+  is rendered (refresh, filter, sort, layout, undo): the innermost row items are the categories, every
+  innermost column line (column items × value fields) is a series named after its column labels (or the
+  data caption); subtotals and grand totals are left out. Contiguous rows are written as references to
+  the table's cells (`Sheet2!$B$5:$B$7`), otherwise as literal values with `Outer - Inner` category
+  labels. A chart whose table is deleted keeps its last series. Pivot commands list the sheets with
+  PivotCharts in `chartSheets`.
+- File: `c:pivotSource` (`<c:name>Sheet2!PivotTable1</c:name><c:fmtId val="0"/>`, before `c:chart`)
+  and `c:pivotFmts` (before `c:plotArea`) are added to the chart part; on read the name (with or without
+  Excel's `[Book1.xlsx]` prefix) binds the chart after the tables are loaded. Field buttons on the chart
+  are not drawn.
+
+### xlsx (P9-C3 parts)
+
+- Cache: `cacheField formula databaseField="0"` (calculated field); `fieldGroup par base` with
+  `rangePr` (`groupBy`, `startDate`/`endDate` or `startNum`/`endNum`, `groupInterval`, `autoStart="0"`,
+  `autoEnd="0"`), `discretePr` (`x v` per base item) and `groupItems`; level and manual group fields
+  have `databaseField="0"`, no `sharedItems` and no record column; a range-grouped field writes its raw
+  values (attributes only, records as values). `calculatedItems/calculatedItem formula` with a
+  `pivotArea cacheIndex="1"` reference to the item.
+- Table: `pivotField insertBlankRow`, `sortType` + `autoSortScope` (`reference field="4294967294"` =
+  the data field), calculated items `item f="1"`, calculated fields `dragToRow="0" dragToCol="0"
+  dragToPage="0"`; `filters/filter fld type iMeasureFld evalOrder="-1" id stringValue1/2` with
+  `autoFilter/filterColumn/customFilters|top10` (types `caption…`, `date…`, `value…`, `count` /
+  `percent` / `sum`); `dataField showDataAs` `percent` / `percentDiff` / `index`, `x14:dataField
+  pivotShowAs` `percentOfParentCol` / `percentOfParent` / `percentOfRunningTotal` / `rankAscending`;
+  Distinct Count as `subtotal="count"` + `<ext uri="{7B1C5D2E-6A3F-4E8B-9C0D-2F4A6B8C1E35}"><rs:dataField
+  distinctCount="1"/>` (`xmlns:rs="https://rusuit.es/xlsx/2026/pivot"`); `rowItems` `t="blank"`.
+- Reference workbook: `testdata/xlsx/provisional-pivot-c3.xlsx` (`scripts/testdata-src/xlsx/pivot_c3.py`);
+  LibreOffice 25.2 opens it with the three tables and their groups (`table:data-pilot-groups` by years,
+  months and 0–8 step 4).
+
+### UI (P9-C3)
+
+- **Insert › Tables**: Recommended PivotTables (the list with previews; OK creates the table on a new
+  sheet), PivotChart (inside a table: a PivotChart of it right of the table; elsewhere Create PivotChart =
+  Create PivotTable plus the chart).
+- **PivotTable Analyze**: Group (Group Selection: labels of a date / number field open Grouping, others
+  become a group; Ungroup; Group Field), Options ▾ › Show Report Filter Pages…, Calculations › Fields,
+  Items, & Sets ▾ (Calculated Field…, Calculated Item… of the active field), Tools (PivotChart,
+  Recommended PivotTables).
+- **Grouping** dialog: Auto + Starting at / Ending at, By (levels, multi-select) and Number of days, or By
+  (interval). **Calculated Field / Item**: Name (an existing one is modified or deleted), Formula, the
+  fields / items list with Insert, Add / Modify, Delete.
+- **Filter dropdown**: More Sort Options… (Manual / Ascending / Descending by the labels or a value
+  field), Label Filters ▸ (Date Filters ▸ on date fields) and Value Filters ▸ (… and Top 10…) open the
+  filter dialogs; Clear Filter From also removes them.
+- **Value Field Settings**: Distinct Count and the fifteen Show Values As modes.
+- **Design**: Blank Rows ▾ (Insert / Remove Blank Line after Each Item); the style gallery previews show
+  the Banded Rows / Columns options.
+- Show Details and Show Report Filter Pages switch to the new sheet.
+
