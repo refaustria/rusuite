@@ -43,7 +43,7 @@ describe("conditional formatting in the cache", () => {
     cache.validations = [old, far];
     const snap: RegionSnapshot = {
       sheet: 0, r0: 0, c0: 0, r1: 63, c1: 31, cells: [], cols: [], rows: [], format: { defaultColWidth: 8.43, defaultRowHeight: 15 },
-      cf: [{ row: 2, col: 1, cf: { bar: 0.5 } }], validations: [whole("warning")],
+      cf: [{ row: 2, col: 1, cf: { bar: { from: 0, to: 0.5, color: { kind: "auto" }, gradient: true } } }], validations: [whole("warning")],
     };
     applyCfSnapshot(cache, snap);
     expect([...cache.cf.keys()]).toEqual([cfKey(100, 0), cfKey(2, 1)]);

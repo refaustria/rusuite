@@ -5,10 +5,12 @@
 //! [`fmt_ooxml::xml::El`]) of `<conditionalFormatting>`, `<dataValidations>`
 //! and the worksheet `<extLst>`; rules are added to the workbook one by one
 //! so that a rule the model rejects is dropped with a warning instead of
-//! failing the file. Excel 2010 conditional formatting extensions
-//! (`x14:conditionalFormattings`) are dropped with a warning; x14 data
-//! validations (Excel writes list sources on other sheets there) are read
-//! like standard ones and written back as standard `<dataValidation>`s.
+//! failing the file. Of the Excel 2010 conditional formatting extensions
+//! (`x14:conditionalFormattings`) the data bar options are read (merged
+//! into the standard rule with the same `x14:id`) and written back; other
+//! x14 rules are dropped with a warning. x14 data validations (Excel
+//! writes list sources on other sheets there) are read like standard ones
+//! and written back as x14 when a formula refers to another sheet.
 
 use core_model::Color;
 use engine_formula::SheetId;
@@ -16,7 +18,8 @@ use fmt_ooxml::xml::{parse_bool, El};
 use model_sheet::numfmt::{builtin_code, builtin_id};
 use model_sheet::{
     BorderSide, BorderStyle, Borders, CellRect, CfKind, CfRule, CfValue, ColorPoint, CompareOp,
-    DataValidation, DxfStyle, ErrorStyle, IconSetKind, ListSource, ValidationKind, Workbook,
+    DataBarAxis, DataBarDirection, DataValidation, DxfStyle, ErrorStyle, IconSetKind, ListSource,
+    TimePeriod, ValidationKind, Workbook,
 };
 use quick_xml::events::BytesStart;
 
@@ -163,19 +166,57 @@ pub(crate) fn parse_dxfs(dxfs: &El, color: &dyn Fn(&El) -> Option<Color>) -> Vec
         .collect()
 }
 
-/// Every distinct dxf of the workbook's rules, in first-use order.
+/// Every distinct dxf of the workbook's rules, in first-use order, then
+/// those of colour filters and colour sort conditions.
 pub(crate) fn collect_dxfs(wb: &Workbook) -> Vec<DxfStyle> {
     let mut out: Vec<DxfStyle> = Vec::new();
+    let mut add = |d: DxfStyle| {
+        if !out.contains(&d) {
+            out.push(d);
+        }
+    };
     for (id, _) in wb.sheets() {
         for rule in wb.cf_rules(id) {
             if let Some(d) = rule.dxf.as_ref() {
-                if !out.contains(d) {
-                    out.push(d.clone());
+                add(d.clone());
+            }
+        }
+    }
+    for (id, _) in wb.sheets() {
+        if let Some(af) = wb.auto_filter(id) {
+            for fc in &af.columns {
+                if let model_sheet::Filter::Color { color, font } = &fc.filter {
+                    add(color_dxf(*color, *font));
+                }
+            }
+        }
+        if let Some(st) = wb.sort_state(id) {
+            for k in &st.keys {
+                match &k.sort_on {
+                    model_sheet::SortOn::CellColor { color } => add(color_dxf(*color, false)),
+                    model_sheet::SortOn::FontColor { color } => add(color_dxf(*color, true)),
+                    _ => {}
                 }
             }
         }
     }
     out
+}
+
+/// The dxf a colour filter or colour sort condition refers to: a fill
+/// (`font`: a font colour); no colour = an empty dxf.
+pub(crate) fn color_dxf(color: Option<Color>, font: bool) -> DxfStyle {
+    match (color, font) {
+        (Some(c), false) => DxfStyle {
+            fill: Some(c),
+            ..Default::default()
+        },
+        (Some(c), true) => DxfStyle {
+            font_color: Some(c),
+            ..Default::default()
+        },
+        (None, _) => DxfStyle::default(),
+    }
 }
 
 /// First number format id used for dxf-only custom formats (well above
@@ -255,10 +296,18 @@ pub(crate) fn write_dxfs(x: &mut XmlOut, dxfs: &[DxfStyle]) {
 // --- reading rules ---------------------------------------------------------------
 
 fn cfvo(el: &El) -> Option<CfValue> {
-    let val = || el.attr("val").unwrap_or("0").trim().to_owned();
+    // `val`, or (x14) an `<xm:f>` child.
+    let val = || match el.attr("val") {
+        Some(v) => v.trim().to_owned(),
+        None => el
+            .child("f")
+            .map_or_else(|| "0".to_owned(), |f| f.text().trim().to_owned()),
+    };
     Some(match el.attr("type")? {
-        "min" | "autoMin" => CfValue::Min,
-        "max" | "autoMax" => CfValue::Max,
+        "min" => CfValue::Min,
+        "max" => CfValue::Max,
+        "autoMin" => CfValue::AutoMin,
+        "autoMax" => CfValue::AutoMax,
         "num" => CfValue::Num(strip_xlfn_prefixes(&val())),
         "percent" => CfValue::Percent(strip_xlfn_prefixes(&val())),
         "percentile" => CfValue::Percentile(strip_xlfn_prefixes(&val())),
@@ -268,11 +317,7 @@ fn cfvo(el: &El) -> Option<CfValue> {
 }
 
 /// One `<cfRule>` (without ranges); `Err` is the reason it is dropped.
-fn cf_rule(
-    el: &El,
-    dxfs: &[DxfStyle],
-    notes: &mut Vec<String>,
-) -> std::result::Result<CfRule, String> {
+fn cf_rule(el: &El, dxfs: &[DxfStyle]) -> std::result::Result<CfRule, String> {
     let ty = el.attr("type").unwrap_or("");
     let formulas: Vec<String> = el
         .elements()
@@ -323,13 +368,16 @@ fn cf_rule(
             percent: flag(el, "percent").unwrap_or(false),
             bottom: flag(el, "bottom").unwrap_or(false),
         },
-        "aboveAverage" => {
-            if el.attr("stdDev").is_some() {
-                notes.push("standard deviation of an above/below average rule ignored".into());
-            }
-            CfKind::AboveAverage {
-                above: flag(el, "aboveAverage").unwrap_or(true),
-                equal: flag(el, "equalAverage").unwrap_or(false),
+        "aboveAverage" => CfKind::AboveAverage {
+            above: flag(el, "aboveAverage").unwrap_or(true),
+            equal: flag(el, "equalAverage").unwrap_or(false),
+            std_dev: num::<u32>(el, "stdDev").filter(|&n| n > 0),
+        },
+        "timePeriod" => {
+            let name = el.attr("timePeriod").unwrap_or("");
+            CfKind::TimePeriod {
+                period: TimePeriod::from_name(name)
+                    .ok_or_else(|| format!("time period {name:?}"))?,
             }
         }
         "duplicateValues" => CfKind::DuplicateValues,
@@ -347,12 +395,22 @@ fn cf_rule(
                 .flatten()
                 .ok_or("data bar without colour")?;
             let mut v = v.into_iter();
-            CfKind::DataBar {
-                min: v.next().ok_or("data bar thresholds")?,
-                max: v.next().ok_or("data bar thresholds")?,
+            let mut kind = CfKind::data_bar(
                 color,
-                show_value: flag(bar, "showValue").unwrap_or(true),
+                v.next().ok_or("data bar thresholds")?,
+                v.next().ok_or("data bar thresholds")?,
+                flag(bar, "showValue").unwrap_or(true),
+            );
+            if let CfKind::DataBar {
+                min_length,
+                max_length,
+                ..
+            } = &mut kind
+            {
+                *min_length = num(bar, "minLength").unwrap_or(10).min(100);
+                *max_length = num(bar, "maxLength").unwrap_or(90).clamp(*min_length, 100);
             }
+            kind
         }
         "colorScale" => {
             let scale = el
@@ -382,14 +440,21 @@ fn cf_rule(
                 .ok_or("iconSet rule without <iconSet>")?;
             let name = set_el.attr("iconSet").unwrap_or("3TrafficLights1");
             let set = IconSetKind::from_name(name).ok_or_else(|| format!("icon set {name}"))?;
-            if set_el.elements().any(|e| flag(e, "gte") == Some(false)) {
-                notes.push("icon set threshold \"greater than\" read as \">=\"".into());
-            }
+            let greater: Vec<bool> = set_el
+                .elements()
+                .filter(|e| e.name == "cfvo")
+                .map(|e| flag(e, "gte") == Some(false))
+                .collect();
             CfKind::IconSet {
                 set,
                 thresholds: cfvos(set_el).ok_or("icon set thresholds")?,
                 reverse: flag(set_el, "reverse").unwrap_or(false),
                 show_value: flag(set_el, "showValue").unwrap_or(true),
+                greater: if greater.contains(&true) {
+                    greater
+                } else {
+                    Vec::new()
+                },
             }
         }
         other => return Err(format!("rule type {other:?}")),
@@ -404,6 +469,80 @@ fn cf_rule(
         dxf,
         ..CfRule::new(kind)
     })
+}
+
+/// The `x14:id` of a standard `<cfRule>` that has an Excel 2010 extension.
+fn x14_id(rule: &El) -> Option<String> {
+    rule.child("extLst")?
+        .elements()
+        .filter_map(|e| e.child("id"))
+        .map(|id| id.text().trim().to_owned())
+        .find(|t| !t.is_empty())
+}
+
+/// Merges an `x14:dataBar` into the data bar `kind` (thresholds, lengths,
+/// fill, border, negative colours, axis and direction).
+fn merge_x14_bar(kind: &mut CfKind, bar: &El) {
+    let CfKind::DataBar {
+        color: fill,
+        min,
+        max,
+        gradient,
+        border,
+        negative_color,
+        negative_border,
+        axis_color,
+        axis,
+        direction,
+        min_length,
+        max_length,
+        ..
+    } = kind
+    else {
+        return;
+    };
+    let cfvos: Vec<CfValue> = bar
+        .elements()
+        .filter(|e| e.name == "cfvo")
+        .filter_map(cfvo)
+        .collect();
+    if let [lo, hi] = cfvos.as_slice() {
+        (*min, *max) = (lo.clone(), hi.clone());
+    }
+    let color = |name: &str| bar.child(name).and_then(crate::styles::color_of_dom);
+    if let Some(c) = color("fillColor") {
+        *fill = c;
+    }
+    *min_length = num(bar, "minLength").unwrap_or(10).min(100);
+    *max_length = num(bar, "maxLength").unwrap_or(90).clamp(*min_length, 100);
+    *gradient = flag(bar, "gradient").unwrap_or(true);
+    *border = if flag(bar, "border").unwrap_or(false) {
+        color("borderColor")
+    } else {
+        None
+    };
+    *negative_color = if flag(bar, "negativeBarColorSameAsPositive").unwrap_or(false) {
+        Some(*fill)
+    } else {
+        // Excel's default red is the model's `None`.
+        color("negativeFillColor").filter(|c| *c != Color::Rgb(model_sheet::NEGATIVE_BAR_COLOR))
+    };
+    *negative_border = if flag(bar, "negativeBarBorderColorSameAsPositive").unwrap_or(true) {
+        None
+    } else {
+        color("negativeBorderColor")
+    };
+    *axis_color = color("axisColor").filter(|c| *c != Color::Rgb(core_model::Rgb::BLACK));
+    *axis = match bar.attr("axisPosition") {
+        Some("middle") => DataBarAxis::Midpoint,
+        Some("none") => DataBarAxis::None,
+        _ => DataBarAxis::Automatic,
+    };
+    *direction = match bar.attr("direction") {
+        Some("leftToRight") => DataBarDirection::LeftToRight,
+        Some("rightToLeft") => DataBarDirection::RightToLeft,
+        _ => DataBarDirection::Context,
+    };
 }
 
 fn error_style_of(v: Option<&str>) -> ErrorStyle {
@@ -511,8 +650,11 @@ pub(crate) fn load(
     dxfs: &[DxfStyle],
 ) -> Result<Vec<String>> {
     let mut warnings: Vec<String> = Vec::new();
-    let mut rules: Vec<(u32, usize, CfRule)> = Vec::new();
+    let mut rules: Vec<(u32, usize, CfRule, Option<String>)> = Vec::new();
     let mut validations: Vec<DataValidation> = Vec::new();
+    // x14 data bars by `id`, and the other x14 rules.
+    let mut x14_bars: Vec<(String, El)> = Vec::new();
+    let mut x14_other = 0;
     let dv_error = |e: String, warnings: &mut Vec<String>| {
         warnings.push(format!("data validation dropped ({e})"));
     };
@@ -521,8 +663,7 @@ pub(crate) fn load(
             "conditionalFormatting" => {
                 let ranges = el.attr("sqref").and_then(sqref);
                 for r in el.elements().filter(|e| e.name == "cfRule") {
-                    let mut notes = Vec::new();
-                    match (cf_rule(r, dxfs, &mut notes), &ranges) {
+                    match (cf_rule(r, dxfs), &ranges) {
                         (Ok(rule), Some(ranges)) => {
                             let order = rules.len();
                             rules.push((
@@ -532,6 +673,7 @@ pub(crate) fn load(
                                     ranges: ranges.clone(),
                                     ..rule
                                 },
+                                x14_id(r),
                             ));
                         }
                         (Ok(_), None) => warnings
@@ -539,9 +681,6 @@ pub(crate) fn load(
                         (Err(e), _) => {
                             warnings.push(format!("conditional formatting rule dropped ({e})"))
                         }
-                    }
-                    for n in notes {
-                        warnings.push(format!("conditional formatting: {n}"));
                     }
                 }
             }
@@ -558,30 +697,25 @@ pub(crate) fn load(
                     for part in ext.elements() {
                         match part.name.as_str() {
                             "conditionalFormattings" => {
-                                let n = part
+                                for r in part
                                     .elements()
                                     .flat_map(El::elements)
                                     .filter(|e| e.name == "cfRule")
-                                    .count();
-                                warnings.push(format!(
-                                    "{n} Excel 2010 conditional formatting extension(s) (x14) dropped"
-                                ));
-                            }
-                            "dataValidations" => {
-                                let mut read = 0;
-                                for d in part.elements().filter(|e| e.name == "dataValidation") {
-                                    match data_validation(d) {
-                                        Ok(dv) => {
-                                            read += 1;
-                                            validations.push(dv);
+                                {
+                                    match (r.attr("type"), r.attr("id"), r.child("dataBar")) {
+                                        (Some("dataBar"), Some(id), Some(bar)) => {
+                                            x14_bars.push((id.to_owned(), bar.clone()))
                                         }
-                                        Err(e) => dv_error(e, &mut warnings),
+                                        _ => x14_other += 1,
                                     }
                                 }
-                                if read > 0 {
-                                    warnings.push(format!(
-                                        "{read} Excel 2010 data validation(s) (x14) read; saved as standard data validation"
-                                    ));
+                            }
+                            "dataValidations" => {
+                                for d in part.elements().filter(|e| e.name == "dataValidation") {
+                                    match data_validation(d) {
+                                        Ok(dv) => validations.push(dv),
+                                        Err(e) => dv_error(e, &mut warnings),
+                                    }
                                 }
                             }
                             _ => {}
@@ -592,6 +726,22 @@ pub(crate) fn load(
             _ => {}
         }
     }
+    for (id, bar) in x14_bars {
+        match rules
+            .iter_mut()
+            .find(|(_, _, _, x)| x.as_deref() == Some(id.as_str()))
+        {
+            Some((_, _, rule, _)) => merge_x14_bar(&mut rule.kind, &bar),
+            None => x14_other += 1,
+        }
+    }
+    if x14_other > 0 {
+        warnings.push(format!(
+            "{x14_other} Excel 2010 conditional formatting extension(s) (x14) dropped"
+        ));
+    }
+    let mut rules: Vec<(u32, usize, CfRule)> =
+        rules.into_iter().map(|(p, o, r, _)| (p, o, r)).collect();
     rules.sort_by_key(|(p, order, _)| (*p, *order));
     for (_, _, rule) in rules {
         let rule = CfRule {
@@ -617,22 +767,72 @@ fn quote(text: &str) -> String {
 }
 
 fn cfvo_xml(x: &mut XmlOut, v: &CfValue) {
+    cfvo_attrs_xml(x, "cfvo", v, &[]);
+}
+
+/// `<name type val/>` (an Excel 2007 threshold; automatic bounds as
+/// `min`/`max`) with `extra` attributes.
+fn cfvo_attrs_xml(x: &mut XmlOut, name: &str, v: &CfValue, extra: &[(&str, &str)]) {
     let (ty, val) = match v {
-        CfValue::Min => ("min", None),
-        CfValue::Max => ("max", None),
+        CfValue::Min | CfValue::AutoMin => ("min", None),
+        CfValue::Max | CfValue::AutoMax => ("max", None),
         CfValue::Num(s) => ("num", Some(s)),
         CfValue::Percent(s) => ("percent", Some(s)),
         CfValue::Percentile(s) => ("percentile", Some(s)),
         CfValue::Formula(s) => ("formula", Some(s)),
     };
-    match val {
-        Some(v) => x.empty("cfvo", &[("type", ty), ("val", &add_xlfn_prefixes(v))]),
-        None => x.empty("cfvo", &[("type", ty)]),
+    let v = val.map(|v| add_xlfn_prefixes(v));
+    let mut a: Vec<(&str, &str)> = vec![("type", ty)];
+    if let Some(v) = &v {
+        a.push(("val", v));
+    }
+    a.extend_from_slice(extra);
+    x.empty(name, &a);
+}
+
+/// The `x14:id` of a data bar rule: a GUID made from the sheet and rule
+/// ids (stable across saves).
+fn x14_rule_id(sheet: SheetId, rule: &CfRule) -> String {
+    format!(
+        "{{{:08X}-0000-4000-8000-{:012X}}}",
+        sheet.0 + 1,
+        u64::from(rule.id)
+    )
+}
+
+/// The formula Excel writes for a "A Date Occurring" rule at `cell`.
+fn time_period_formula(period: TimePeriod, cell: &str) -> String {
+    let day = format!("FLOOR({cell},1)");
+    let down = format!("ROUNDDOWN({cell},0)");
+    let month = |d: &str| {
+        format!(
+            "AND(MONTH({cell})=MONTH(EDATE(TODAY(),0{d})),YEAR({cell})=YEAR(EDATE(TODAY(),0{d})))"
+        )
+    };
+    match period {
+        TimePeriod::Today => format!("{day}=TODAY()"),
+        TimePeriod::Yesterday => format!("{day}=TODAY()-1"),
+        TimePeriod::Tomorrow => format!("{day}=TODAY()+1"),
+        TimePeriod::Last7Days => format!("AND(TODAY()-{day}<=6,{day}<=TODAY())"),
+        TimePeriod::ThisMonth => {
+            format!("AND(MONTH({cell})=MONTH(TODAY()),YEAR({cell})=YEAR(TODAY()))")
+        }
+        TimePeriod::LastMonth => month("-1"),
+        TimePeriod::NextMonth => month("+1"),
+        TimePeriod::ThisWeek => {
+            format!("AND(TODAY()-{down}<=WEEKDAY(TODAY())-1,{down}-TODAY()<=7-WEEKDAY(TODAY()))")
+        }
+        TimePeriod::LastWeek => {
+            format!("AND(TODAY()-{down}>=(WEEKDAY(TODAY())),TODAY()-{down}<(WEEKDAY(TODAY())+7))")
+        }
+        TimePeriod::NextWeek => {
+            format!("AND({down}-TODAY()>(7-WEEKDAY(TODAY())),{down}-TODAY()<(15-WEEKDAY(TODAY())))")
+        }
     }
 }
 
 /// One `<conditionalFormatting>` per rule.
-fn write_rule(x: &mut XmlOut, rule: &CfRule, dxfs: &[DxfStyle]) {
+fn write_rule(x: &mut XmlOut, rule: &CfRule, dxfs: &[DxfStyle], sheet: SheetId) {
     let Some((ar, ac)) = rule
         .ranges
         .iter()
@@ -711,14 +911,26 @@ fn write_rule(x: &mut XmlOut, rule: &CfRule, dxfs: &[DxfStyle]) {
             a.push(("rank", rank.to_string()));
             "top10"
         }
-        CfKind::AboveAverage { above, equal } => {
+        CfKind::AboveAverage {
+            above,
+            equal,
+            std_dev,
+        } => {
             if !above {
                 a.push(("aboveAverage", "0".into()));
             }
             if *equal {
                 a.push(("equalAverage", "1".into()));
             }
+            if let Some(n) = std_dev {
+                a.push(("stdDev", n.to_string()));
+            }
             "aboveAverage"
+        }
+        CfKind::TimePeriod { period } => {
+            a.push(("timePeriod", period.name().into()));
+            formulas.push(time_period_formula(*period, &cell));
+            "timePeriod"
         }
         CfKind::DuplicateValues => "duplicateValues",
         CfKind::UniqueValues => "uniqueValues",
@@ -761,17 +973,32 @@ fn write_rule(x: &mut XmlOut, rule: &CfRule, dxfs: &[DxfStyle]) {
             min,
             max,
             show_value,
+            min_length,
+            max_length,
+            ..
         } => {
-            let a: &[(&str, &str)] = if *show_value {
-                &[]
-            } else {
-                &[("showValue", "0")]
-            };
-            x.start("dataBar", a);
+            let (lo, hi) = (min_length.to_string(), max_length.to_string());
+            let mut a: Vec<(&str, &str)> = Vec::new();
+            if *min_length != 10 {
+                a.push(("minLength", &lo));
+            }
+            if *max_length != 90 {
+                a.push(("maxLength", &hi));
+            }
+            if !show_value {
+                a.push(("showValue", "0"));
+            }
+            x.start("dataBar", &a);
             cfvo_xml(x, min);
             cfvo_xml(x, max);
             color_el(x, "color", *color);
             x.end("dataBar");
+            // The Excel 2010 options live in the sheet's `<extLst>`.
+            x.start("extLst", &[]);
+            x.start("ext", &[("uri", EXT_CF_RULE), ("xmlns:x14", X14_NS)]);
+            x.text_el("x14:id", &[], &x14_rule_id(sheet, rule));
+            x.end("ext");
+            x.end("extLst");
         }
         CfKind::ColorScale { points } => {
             x.start("colorScale", &[]);
@@ -788,6 +1015,7 @@ fn write_rule(x: &mut XmlOut, rule: &CfRule, dxfs: &[DxfStyle]) {
             thresholds,
             reverse,
             show_value,
+            greater,
         } => {
             let mut a: Vec<(&str, &str)> = vec![("iconSet", set.name())];
             if *reverse {
@@ -797,8 +1025,13 @@ fn write_rule(x: &mut XmlOut, rule: &CfRule, dxfs: &[DxfStyle]) {
                 a.push(("showValue", "0"));
             }
             x.start("iconSet", &a);
-            for t in thresholds {
-                cfvo_xml(x, t);
+            for (i, t) in thresholds.iter().enumerate() {
+                let gt: &[(&str, &str)] = if greater.get(i).copied().unwrap_or(false) {
+                    &[("gte", "0")]
+                } else {
+                    &[]
+                };
+                cfvo_attrs_xml(x, "cfvo", t, gt);
             }
             x.end("iconSet");
         }
@@ -809,6 +1042,15 @@ fn write_rule(x: &mut XmlOut, rule: &CfRule, dxfs: &[DxfStyle]) {
 }
 
 fn write_validation(x: &mut XmlOut, dv: &DataValidation) {
+    validation_xml(x, dv, false);
+}
+
+/// An `x14:dataValidation` (formulas in `<xm:f>`, ranges in `<xm:sqref>`).
+fn write_x14_validation(x: &mut XmlOut, dv: &DataValidation) {
+    validation_xml(x, dv, true);
+}
+
+fn validation_xml(x: &mut XmlOut, dv: &DataValidation, x14: bool) {
     let (ty, op, f1, f2) = match &dv.kind {
         ValidationKind::Any => (None, None, None, None),
         ValidationKind::List { source } => {
@@ -868,6 +1110,19 @@ fn write_validation(x: &mut XmlOut, dv: &DataValidation) {
         }
     }
     let sq = sqref_text(&dv.ranges);
+    if x14 {
+        x.start("x14:dataValidation", &a);
+        for (name, f) in [("x14:formula1", f1), ("x14:formula2", f2)] {
+            if let Some(f) = f {
+                x.start(name, &[]);
+                x.text_el("xm:f", &[], &add_xlfn_prefixes(&f));
+                x.end(name);
+            }
+        }
+        x.text_el("xm:sqref", &[], &sq);
+        x.end("x14:dataValidation");
+        return;
+    }
     a.push(("sqref", &sq));
     if f1.is_none() {
         x.empty("dataValidation", &a);
@@ -887,14 +1142,183 @@ fn write_validation(x: &mut XmlOut, dv: &DataValidation) {
 /// `<mergeCells>` and `<pageMargins>`).
 pub(crate) fn write_sheet_rules(x: &mut XmlOut, wb: &Workbook, sheet: SheetId, dxfs: &[DxfStyle]) {
     for rule in wb.cf_rules(sheet) {
-        write_rule(x, rule, dxfs);
+        write_rule(x, rule, dxfs, sheet);
     }
-    let dvs = wb.validations(sheet);
+    let dvs: Vec<&DataValidation> = wb
+        .validations(sheet)
+        .iter()
+        .filter(|dv| !needs_x14(wb, sheet, dv))
+        .collect();
     if !dvs.is_empty() {
         x.start("dataValidations", &[("count", &dvs.len().to_string())]);
         for dv in dvs {
             write_validation(x, dv);
         }
         x.end("dataValidations");
+    }
+}
+
+/// `{B025F937-…}`: the extension of a standard `<cfRule>` (its `x14:id`).
+const EXT_CF_RULE: &str = "{B025F937-C7B1-47D3-B67F-A62EFF666E3E}";
+/// The worksheet extension with the x14 conditional formatting.
+const EXT_CF: &str = "{78C0D931-6437-407d-A8EE-F0AAD7539E65}";
+/// The worksheet extension with the x14 data validations.
+const EXT_DV: &str = "{CCE6A557-97BC-4b89-ADB6-D9C93CAAB3DF}";
+const X14_NS: &str = crate::slicer::X14_NS;
+const XM_NS: &str = "http://schemas.microsoft.com/office/excel/2006/main";
+
+/// Whether a validation is written as Excel 2010 `x14:dataValidation`:
+/// one of its formulas refers to another sheet (Excel 2007 could not).
+fn needs_x14(wb: &Workbook, sheet: SheetId, dv: &DataValidation) -> bool {
+    let host = wb.engine().sheet_name(sheet).unwrap_or_default();
+    dv.formulas().iter().any(|f| {
+        engine_formula::parse(&format!("={f}")).is_ok_and(|ast| {
+            ast.references().iter().any(|r| {
+                r.sheet
+                    .as_deref()
+                    .is_some_and(|s| !s.eq_ignore_ascii_case(host))
+            })
+        })
+    })
+}
+
+/// Whether the sheet needs Excel 2010 `<ext>`s for its rules.
+pub(crate) fn has_sheet_ext(wb: &Workbook, sheet: SheetId) -> bool {
+    wb.cf_rules(sheet)
+        .iter()
+        .any(|r| matches!(r.kind, CfKind::DataBar { .. }))
+        || wb
+            .validations(sheet)
+            .iter()
+            .any(|dv| needs_x14(wb, sheet, dv))
+}
+
+/// An `x14:cfvo` (automatic bounds as `autoMin`/`autoMax`, values in an
+/// `<xm:f>` child).
+fn x14_cfvo_xml(x: &mut XmlOut, v: &CfValue) {
+    let (ty, val) = match v {
+        CfValue::Min => ("min", None),
+        CfValue::Max => ("max", None),
+        CfValue::AutoMin => ("autoMin", None),
+        CfValue::AutoMax => ("autoMax", None),
+        CfValue::Num(s) => ("num", Some(s)),
+        CfValue::Percent(s) => ("percent", Some(s)),
+        CfValue::Percentile(s) => ("percentile", Some(s)),
+        CfValue::Formula(s) => ("formula", Some(s)),
+    };
+    match val {
+        Some(v) => {
+            x.start("x14:cfvo", &[("type", ty)]);
+            x.text_el("xm:f", &[], &add_xlfn_prefixes(v));
+            x.end("x14:cfvo");
+        }
+        None => x.empty("x14:cfvo", &[("type", ty)]),
+    }
+}
+
+/// The sheet's Excel 2010 `<ext>`s (inside `<extLst>`): the data bar
+/// options and the data validations that refer to other sheets.
+pub(crate) fn sheet_ext_xml(x: &mut XmlOut, wb: &Workbook, sheet: SheetId) {
+    let bars: Vec<&CfRule> = wb
+        .cf_rules(sheet)
+        .iter()
+        .filter(|r| matches!(r.kind, CfKind::DataBar { .. }))
+        .collect();
+    if !bars.is_empty() {
+        x.start("ext", &[("uri", EXT_CF), ("xmlns:x14", X14_NS)]);
+        x.start("x14:conditionalFormattings", &[]);
+        for rule in bars {
+            let CfKind::DataBar {
+                color,
+                min,
+                max,
+                gradient,
+                border,
+                negative_color,
+                negative_border,
+                axis_color,
+                axis,
+                direction,
+                min_length,
+                max_length,
+                ..
+            } = &rule.kind
+            else {
+                continue;
+            };
+            x.start("x14:conditionalFormatting", &[("xmlns:xm", XM_NS)]);
+            x.start(
+                "x14:cfRule",
+                &[("type", "dataBar"), ("id", &x14_rule_id(sheet, rule))],
+            );
+            let (lo, hi) = (min_length.to_string(), max_length.to_string());
+            let mut a: Vec<(&str, &str)> = vec![("minLength", &lo), ("maxLength", &hi)];
+            if !gradient {
+                a.push(("gradient", "0"));
+            }
+            if border.is_some() {
+                a.push(("border", "1"));
+            }
+            if negative_color == &Some(*color) {
+                a.push(("negativeBarColorSameAsPositive", "1"));
+            }
+            if negative_border.is_some() {
+                a.push(("negativeBarBorderColorSameAsPositive", "0"));
+            }
+            match axis {
+                DataBarAxis::Automatic => {}
+                DataBarAxis::Midpoint => a.push(("axisPosition", "middle")),
+                DataBarAxis::None => a.push(("axisPosition", "none")),
+            }
+            match direction {
+                DataBarDirection::Context => {}
+                DataBarDirection::LeftToRight => a.push(("direction", "leftToRight")),
+                DataBarDirection::RightToLeft => a.push(("direction", "rightToLeft")),
+            }
+            x.start("x14:dataBar", &a);
+            x14_cfvo_xml(x, min);
+            x14_cfvo_xml(x, max);
+            if let Some(c) = border {
+                color_el(x, "x14:borderColor", *c);
+            }
+            if negative_color != &Some(*color) {
+                color_el(
+                    x,
+                    "x14:negativeFillColor",
+                    negative_color.unwrap_or(Color::Rgb(model_sheet::NEGATIVE_BAR_COLOR)),
+                );
+            }
+            if let Some(c) = negative_border {
+                color_el(x, "x14:negativeBorderColor", *c);
+            }
+            color_el(
+                x,
+                "x14:axisColor",
+                axis_color.unwrap_or(Color::Rgb(core_model::Rgb::BLACK)),
+            );
+            x.end("x14:dataBar");
+            x.end("x14:cfRule");
+            x.text_el("xm:sqref", &[], &sqref_text(&rule.ranges));
+            x.end("x14:conditionalFormatting");
+        }
+        x.end("x14:conditionalFormattings");
+        x.end("ext");
+    }
+    let dvs: Vec<&DataValidation> = wb
+        .validations(sheet)
+        .iter()
+        .filter(|dv| needs_x14(wb, sheet, dv))
+        .collect();
+    if !dvs.is_empty() {
+        x.start("ext", &[("uri", EXT_DV), ("xmlns:x14", X14_NS)]);
+        x.start(
+            "x14:dataValidations",
+            &[("count", &dvs.len().to_string()), ("xmlns:xm", XM_NS)],
+        );
+        for dv in dvs {
+            write_x14_validation(x, dv);
+        }
+        x.end("x14:dataValidations");
+        x.end("ext");
     }
 }

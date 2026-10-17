@@ -31,6 +31,7 @@ fn key(col: u32, ascending: bool) -> SortKey {
         col,
         ascending,
         kind: SortKind::Auto,
+        ..Default::default()
     }
 }
 
@@ -130,6 +131,7 @@ fn multi_key_sort_is_stable_with_header() {
         keys: vec![key(0, true), key(1, false)],
         has_header: true,
         case_sensitive: false,
+        ..Default::default()
     };
     wb.sort_range(range(0, 0, 5, 2), &sort).unwrap();
     assert_eq!(col_inputs(&wb, 0, 6), ["Dept", "a", "a", "b", "b", "b"]);
@@ -460,6 +462,7 @@ fn filter_values_counts_and_order() {
     let fv = |d: &str, count| FilterValue {
         display: d.into(),
         count,
+        date: None,
     };
     assert_eq!(
         wb.filter_values(S, 0).unwrap(),

@@ -547,6 +547,45 @@ The algorithm is in `docs/write-layout.md`; the numbers in docs/perf.md.
   Options › Proofing switches each rule; the options are kept in this browser. Equations are not part of this round.
 - **File › Options** is Write's own dialog now: General (User Name…), Proofing (AutoCorrect), Advanced (ruler unit).
 
+### Write comments, notes and fields round 2 (P9-W6)
+- **Comment text** is formatted: the balloon editor (`comments/RichComposer.tsx`, a small Tiptap editor in the draft,
+  reply and edit boxes) takes Ctrl+B / Ctrl+I / Ctrl+U (also the B I U buttons under it), links (typed URLs become links)
+  and line breaks; the content goes to the core as paragraphs of runs (`AddComment`/`ReplyComment`/`EditComment` with
+  `content`, `comments/richText.ts`) and the balloons and the pane show it formatted. Lists inside comments are not
+  offered (a comment's paragraphs have no numbering of their own yet).
+- **@mentions**: typing `@` in the balloon editor opens a list of the document's authors (the comment authors, the people
+  of `people.xml`, the document author and the user), filtered by what follows (`@an`); ↑/↓, Enter or Tab or a click
+  inserts the mention: an `@Name` run in Word's `Mention` style linking to `mailto:` the person's address (the name when
+  the account has no e-mail). The author, initials and date of a comment come from File › Options › User Name, else the
+  document author (as before). Saving writes `people.xml` (`w15:person` with `w15:presenceInfo`: the account read from
+  the file, else `providerId="None"`).
+- **Comments in notes and headers**: New Comment works on a selection inside a footnote or endnote (both ends in one
+  note; the core also accepts header/footer paragraphs, which are edited in the header dialog). Pictures are commented
+  like text (the selected picture is the range); table cells as before. Comments inside text boxes are not supported.
+- **Review › Tracking › Display for Review**: *All Markup* (balloons, the default), *Simple Markup* (a marker per thread
+  in the margin, no highlights; a click opens that balloon next to its marker, a second click closes it), *No Markup* and
+  *Original* (no markers, no highlights; the Comments pane still opens). In print layout the balloons follow the page
+  gaps: a balloon that would sit in the grey gap or cross a page bottom moves to the top of the next page and pushes the
+  following ones down (docs/write-layout.md "Comment balloons"). Show Comments, Previous / Next and Delete ▾ (Delete All,
+  Delete All Resolved) work as before. File › Print › **Print Markup** now prints Word's "Document showing markup": every
+  page scaled to 72 % at the left, its comments as balloons at the right next to their text (with replies, formatted).
+- **Notes**: typed text in a note is kept as one run per format (`ReplaceNote` merges runs; typing goes through
+  `InsertText`); Enter and Backspace inside notes (and headers/footers) are the ordinary `SplitParagraph` /
+  `JoinWithPrevious` commands now (one undo step each). References › Footnote and Endnote… › **Convert…** converts all
+  footnotes to endnotes, all endnotes to footnotes or swaps them (`ConvertNotes`); the context menu of a note offers
+  Convert to Endnote / Footnote for that note. **Separators…** (same dialog) edits the footnote and endnote separators and
+  continuation separators: Word's line, none, or own text (`SetNoteSeparators`; drawn by the page chrome). Footnotes
+  "below text" (`w:pos beneathText`) stay out of scope (P9-W2 limit).
+- **Fields**: F9 updates the selection's fields, Ctrl+A F9 all of them – in one undo step together with the tables of
+  contents in scope (rebuilt with the page numbers of the pagination; TOC switches `\o`, `\h`, `\z`, `\u`, `\n`,
+  `\t "Style,level"` honoured). New fields: `SECTIONPAGES`, `STYLEREF "Heading 1"` (`\l` last on the page, `\n` its
+  number; in a header the page chrome shows the heading of each page), `SEQ` with `\c` (repeat), `\h` (hide), `\s n`
+  (restart after headings), `REF` with `\r`, `\w`, `\p` ("above"/"below"). **Alt+F9** shows the codes of all fields
+  (`{ PAGE }`), **Shift+F9** of the selected ones (also in the context menu); **Ctrl+F11** / **Ctrl+Shift+F11** lock and
+  unlock the selection's fields (`w:fldLock`; locked fields keep their result on F9 and before saving). Insert › Field ▾
+  › **Field…** is Word's Field dialog: the field names, their switches and formats (date/time pictures, SEQ number formats,
+  bookmarks, styles, document properties) and the resulting field code.
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |
@@ -599,6 +638,17 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   "(Blanks)"; OK → `setFilterColumn` (all values ticked = no filter; nothing ticked = OK disabled; while searching only the
   ticked results). Number vs Text Filters follows the majority of the cached cell kinds. Filtered rows arrive as hidden
   `filtered` rows; the row numbers of a filtered range turn blue and the status bar shows "n of m records found".
+  Round 2 (P9-C5): Custom Sort's Sort On adds Cell Color / Font Color / Conditional Formatting Icon (the order column
+  lists the colours or icons of that column from the core's `lineColors`, conditional formats included, with On Top / On
+  Bottom; colour levels may repeat a column), Order › Custom List… opens the Custom Lists dialog (Excel's day and month
+  lists plus lists typed this session – Excel keeps custom lists in the application, so they are not saved), Options…
+  holds Case sensitive and the orientation (Sort left to right: the levels pick rows, `sortRange.columns`). The context
+  menu adds Put Selected Cell Color / Font Color / Icon On Top (when the cell has one) and Filter by Selected Cell's Value
+  / Color / Font Color / Icon (an AutoFilter over the current region is created first). The filter panel adds Sort by
+  Color ▸ and Filter by Color ▸ (cell colours, font colours, icons of the column) when the column has more than one, and a
+  date column shows the values as a year › month › day tree (tri-state boxes, ± to expand; OK sends Excel's date groups:
+  whole years, whole months or days, `Filter::DateGroups`). Typing a value right under the AutoFilter range extends the
+  range (undo shrinks it). Sorting moves conditional formats and validations with their rows.
  frozen panes split the cell canvas into up to four quadrants (`panes.ts`: one viewport
   per quadrant, frozen ones fixed, a divider line, headers split the same way, pointer positions mapped per quadrant,
   scroll-into-view only for the scrolling part). Merged cells (`merges.ts`) paint as one cell (top-left content and fill over
@@ -633,6 +683,19 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   and the print view) with the text after them, and Show Bar/Icon Only. Patches with `cfSheets` re-fetch the active sheet's
   viewport (debounced 40 ms; other sheets reload when shown). The print view prints fills, bars (CSS gradients) and icons
   (inline SVG). `window.__calcCfOps` holds the last frame's bar/icon ops for the end-to-end tests.
+  Round 2 (P9-C5): Highlight Cells Rules › A Date Occurring… (yesterday … next month) and New Rule › Format only cells
+  with › Dates Occurring; above/below average with 1–3 standard deviations; icon thresholds with `>=` or `>` per icon;
+  data bars with Excel 2010's options – Data Bars ▸ Gradient Fill and Solid Fill galleries (automatic minimum/maximum,
+  0–100 %), and in the rule dialog Fill (solid/gradient), Border (none/solid + colour), Bar Direction and Negative Value
+  and Axis… (negative fill and border colour, axis automatic / cell midpoint / none, axis colour). The core computes each
+  bar (`CfResult.bar`: start and end as fractions of the cell, the axis position, final colours); the grid draws it as
+  given. A rule's number format shows in the cell (`CfResult.display`). Rules Manager: Show formatting rules for adds This
+  Table / This PivotTable (at the active cell), Duplicate Rule copies the selected rule above itself. Clear Rules ▸ adds
+  This Table / This PivotTable. Copy + Paste of our own copy carries the rules (Paste Formats too; a pasted part joins an
+  equivalent rule, so copying a cell next to its rule extends the rule's range; the destination's own rules are
+  removed), Cut + Paste moves them, sorting moves them with the rows, renaming a sheet rewrites rule formulas. Home ›
+  Clipboard › Format Painter (double-click: sticky until Esc or a second click) paints formats, conditional formats and
+  validation on the next selected range (one compound: `pasteRange` formats + Paste Special › Validation).
 - **Calc notes, comments and links** (P8-26, `apps/calc/src/comments`): the Review tab has Comments (New Comment
   Ctrl+Shift+F2 – a cell with a thread opens it to reply –, Delete (the selection's threads, else its notes),
   Previous/Next Comment (row by row, wrapping; opens the thread's card), Show Comments (the Comments pane right of the
@@ -670,7 +733,11 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   directly. The input message shows as a yellow note under the selected cell. Committing an edit in a validated cell asks
   the core (`validateInput`) first; a failed check shows Excel's alert while the editor stays open: Stop → Retry (back to
   the edit, text selected) / Cancel (discard); Warning "Continue?" → Yes (keep) / No (back) / Cancel; Information → OK /
-  Cancel. Paste and fill are not checked (as in Excel); Circle Invalid Data is not offered.
+  Cancel. Paste and fill are not checked (as in Excel). Data Validation ▾ (P9-C5) adds Circle Invalid Data (the core's
+  `invalidCells`: at most 255 cells whose values fail their validation, blanks never; red ellipses on the grid, a circle
+  goes when its cell is corrected, new invalid entries wait for the next Circle Invalid Data) and Clear Validation
+  Circles. List sources may be ranges on other sheets (saved as `x14:dataValidation`), defined names or structured
+  references; validations follow copy, cut, sort and Format Painter like conditional formats.
 - **Calc charts** (P8-20, `apps/calc/src/charts`, renderer `@rusuite/ui-shared` `chart/`): Insert › Charts (Recommended
   Charts dialog with live previews; Column or Bar ▾, Line or Area ▾, Pie or Doughnut ▾, Scatter ▾, Combo ▾ galleries of
   Excel's sub-types). While a chart is selected the contextual **Chart Design** (Add Chart Element ▾ with flyouts, Quick

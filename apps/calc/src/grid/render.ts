@@ -12,7 +12,7 @@ import type { Rect } from "../generated/Rect";
 import type { RowView } from "../generated/RowView";
 import type { AxisGeometry } from "./geometry";
 import { colName } from "./address";
-import { barSpan, cfKey, cfStyle, dataBarAxes, drawGlyph, iconGlyph, ICON_SIZE, NEGATIVE_BAR } from "./cf";
+import { barGrowsLeft, barRect, cfKey, cfStyle, drawGlyph, iconGlyph, ICON_SIZE } from "./cf";
 import { intersects, mergeAt } from "./merges";
 import { axisSegments, type PaneLayout } from "./panes";
 import { isWholeCols, isWholeRows, LAST_COL, type Range } from "./Selection";
@@ -43,8 +43,6 @@ export interface SheetData {
   merges?: readonly Rect[];
   /** Conditional formatting results by `cfKey` (absent: none). */
   cf?: ReadonlyMap<number, CfResult>;
-  /** Zero axes of the data bars by bar colour (see `dataBarAxes`; computed when absent). */
-  barAxes?: ReadonlyMap<string, number>;
   /** Formulas › Show Formulas: cells show their input (formulas left-aligned, values unformatted). */
   showFormulas?: boolean;
   /** The pivot table style of a cell (header band, totals, bands, room for a +/- button); absent: none. */
@@ -70,6 +68,11 @@ export function withLook(style: CellStyle, look: PivotLook | undefined): CellSty
 }
 
 /** What a cell shows with Show Formulas on: its input, formulas as text. */
+/** A cell as conditional formatting shows it: the rule's number format replaces the display text (`dxf/numFmt`). */
+export function withCfDisplay(cell: CellView, cf: CfResult | undefined): CellView {
+  return cf?.display !== undefined && cf.display !== cell.display ? { ...cell, display: cf.display, narrow: false } : cell;
+}
+
 export function formulaView(cell: CellView): CellView {
   if (cell.spilled) return { ...cell, display: "" };
   if (cell.input === "") return cell;
@@ -157,7 +160,11 @@ export type RenderOp =
     }
   | { op: "line"; x1: number; y1: number; x2: number; y2: number; color: string; width: number; dash: number[] }
   /** A conditional-formatting data bar: the bar rect, its colour, and the zero axis (x) when the rule has negative values. */
-  | { op: "bar"; row: number; col: number; x: number; y: number; w: number; h: number; color: string; negative: boolean; axisX?: number }
+  | {
+    op: "bar"; row: number; col: number; x: number; y: number; w: number; h: number; color: string; negative: boolean;
+    /** Gradient fill fading towards `left`/`right` (absent: solid). */
+    fade?: "left" | "right"; border?: string; axisX?: number; axisColor?: string;
+  }
   /** A conditional-formatting icon (`index` into `ICON_SETS[set]`), `size` px square. */
   | { op: "icon"; row: number; col: number; x: number; y: number; size: number; set: IconSetKind; index: number };
 
@@ -254,22 +261,18 @@ export function computeRenderOps(
     }
     return t;
   };
-  let axes = sheet.barAxes;
-  const axisOf = (cf: CfResult) => {
-    axes ??= cfMap ? dataBarAxes(cfMap, (r, c) => sheet.cells.get(r)?.get(c)) : new Map();
-    return cf.barColor ? axes.get(JSON.stringify(cf.barColor)) : undefined;
-  };
   /** Data bar and icon of a cell (or merged range) at its rect. */
   const decorate = (r: number, c: number, cf: CfResult, x: number, y: number, w: number, h: number) => {
-    if (cf.bar !== undefined && cf.barColor) {
-      const axis = axisOf(cf);
-      const span = barSpan(cf.bar, axis);
-      const inner = Math.max(0, w - 4);
-      const bx = x + 2 + span.from * inner;
-      const bw = (span.to - span.from) * inner;
-      const color = span.negative ? NEGATIVE_BAR : (colorCss(cf.barColor) ?? "#638EC6");
-      if (bw > 0 && h > 4) {
-        bars.push({ op: "bar", row: r, col: c, x: bx, y: y + 2, w: bw, h: h - 5, color, negative: span.negative, ...(axis !== undefined ? { axisX: x + 2 + axis * inner } : {}) });
+    const bar = cf.bar;
+    if (bar) {
+      const px = barRect(bar, x, w);
+      if ((px.w > 0 || px.axisX !== undefined) && h > 4) {
+        bars.push({
+          op: "bar", row: r, col: c, x: px.x, y: y + 2, w: px.w, h: h - 5, color: colorCss(bar.color) ?? "#638EC6", negative: !!bar.negative,
+          ...(bar.gradient ? { fade: barGrowsLeft(bar) ? "left" : "right" } : {}),
+          ...(bar.border ? { border: colorCss(bar.border) ?? "#000000" } : {}),
+          ...(px.axisX !== undefined ? { axisX: px.axisX, axisColor: colorCss(bar.axisColor) ?? "#000000" } : {}),
+        });
       }
     }
     if (cf.icon !== undefined && cf.iconSet) {
@@ -338,10 +341,10 @@ export function computeRenderOps(
     const merged = (c: number) => rowMerges.some((m) => c >= m.c0 && c <= m.c1);
     const isEmpty = (c: number) => (rowCells.get(c)?.display ?? "") === "" && !merged(c);
     for (const [c, raw] of rowCells) {
-      const cell = sheet.showFormulas ? formulaView(raw) : raw;
+      const cf = cfAt(r, c);
+      const cell = sheet.showFormulas ? formulaView(raw) : withCfDisplay(raw, cf);
       if (c < t0 || c > t1 || cell.display === "") continue;
       if (rowMerges.length > 0 && merged(c)) continue;
-      const cf = cfAt(r, c);
       if (cf?.hideValue) continue;
       const look = raw.pivot ? sheet.pivotLook?.(raw, r, c) : sheet.tableLook?.(r, c);
       const styleId = cell.style;
@@ -450,7 +453,7 @@ export function computeRenderOps(
     }
     if (cf) decorate(m.r0, m.c0, cf, x, y, w, h);
     const rawCell = anchorRow?.get(m.c0);
-    const cell = rawCell && sheet.showFormulas ? formulaView(rawCell) : rawCell;
+    const cell = rawCell && sheet.showFormulas ? formulaView(rawCell) : rawCell && withCfDisplay(rawCell, cf);
     if (!cell || cell.display === "" || cf?.hideValue) continue;
     const t = withFormatColor(textAttrs(styleId, styleAt(styles, styleId), cf), cell, cf);
     const align = horizontalAlign(style, cell.kind);
@@ -528,18 +531,23 @@ export function drawOps(ctx: CanvasRenderingContext2D, ops: RenderOp[], bg: stri
         ctx.stroke();
         break;
       case "bar": {
-        // Excel's gradient fill: the colour fading to white, with a border in the colour.
-        const g = ctx.createLinearGradient(o.negative ? o.x + o.w : o.x, 0, o.negative ? o.x : o.x + o.w, 0);
-        g.addColorStop(0, o.color);
-        g.addColorStop(1, "#ffffff");
-        ctx.fillStyle = g;
-        ctx.fillRect(o.x, o.y, o.w, o.h);
-        ctx.strokeStyle = o.color;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(Math.round(o.x) + 0.5, Math.round(o.y) + 0.5, Math.max(0, Math.round(o.w) - 1), Math.max(0, Math.round(o.h) - 1));
+        // Excel's gradient fill fades the colour to white towards the bar's end; a solid bar is the colour.
+        if (o.fade) {
+          const left = o.fade === "left";
+          const g = ctx.createLinearGradient(left ? o.x + o.w : o.x, 0, left ? o.x : o.x + o.w, 0);
+          g.addColorStop(0, o.color);
+          g.addColorStop(1, "#ffffff");
+          ctx.fillStyle = g;
+        } else ctx.fillStyle = o.color;
+        if (o.w > 0) ctx.fillRect(o.x, o.y, o.w, o.h);
+        if (o.border && o.w > 0) {
+          ctx.strokeStyle = o.border;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(Math.round(o.x) + 0.5, Math.round(o.y) + 0.5, Math.max(0, Math.round(o.w) - 1), Math.max(0, Math.round(o.h) - 1));
+        }
         if (o.axisX !== undefined) {
           ctx.beginPath();
-          ctx.strokeStyle = "#000000";
+          ctx.strokeStyle = o.axisColor ?? "#000000";
           ctx.setLineDash([1, 1]);
           ctx.moveTo(Math.round(o.axisX) + 0.5, o.y - 1);
           ctx.lineTo(Math.round(o.axisX) + 0.5, o.y + o.h + 1);

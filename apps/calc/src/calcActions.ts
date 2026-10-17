@@ -106,6 +106,12 @@ export function calcActions(store: CalcStore) {
     sortDesc: () => store.sortSelection(false),
     /** Custom Sort… (Data › Sort). */
     customSort: () => store.openCustomSort(),
+    /** Context menu › Sort › Put Selected Cell Color / Font Color / Icon On Top. */
+    sortBySelected: (by: "color" | "font" | "icon") => store.sortBySelected(by),
+    /** Context menu › Filter › Filter by Selected Cell's Value / Color / Font Color / Icon. */
+    filterBySelected: (by: "value" | "color" | "font" | "icon") => store.filterBySelected(by),
+    /** What the active cell shows (its fill, font colour and icon), for the context menu. */
+    activeCellLook: () => store.activeCellLook(),
     /** Filter on/off (Ctrl+Shift+L). */
     toggleFilter: () => store.toggleAutoFilter(),
     hasAutoFilter: () => store.autoFilter() !== null,
@@ -181,6 +187,18 @@ export function annotationItems(a: CalcActions, st: AnnotationState): ContextMen
   ];
 }
 
+const look = (a: CalcActions) => a.activeCellLook();
+
+/** Sort › Put Selected Cell Color / Font Color / Icon On Top, for what the active cell shows. */
+function lookItems(a: CalcActions): ContextMenuItem[] {
+  const l = look(a);
+  return [
+    ...(l.fill ? [item("sort-color", t("calc.sort.selectedColorTop"), () => a.sortBySelected("color"))] : []),
+    ...(l.font ? [item("sort-font", t("calc.sort.selectedFontTop"), () => a.sortBySelected("font"))] : []),
+    ...(l.icon ? [item("sort-icon", t("calc.sort.selectedIconTop"), () => a.sortBySelected("icon"))] : []),
+  ];
+}
+
 /** Right-click on cells; `hasMerge`: the selection touches a merged cell (Unmerge enabled); `annot`: the active cell's notes/comments/links. */
 export function cellMenu(a: CalcActions, hasMerge = false, annot?: AnnotationState, inTable = false): ContextMenuItem[] {
   const table: ContextMenuItem[] = inTable
@@ -208,7 +226,13 @@ export function cellMenu(a: CalcActions, hasMerge = false, annot?: AnnotationSta
     SEP,
     item("sort-asc", t("calc.sortAsc"), a.sortAsc),
     item("sort-desc", t("calc.sortDesc"), a.sortDesc),
+    ...lookItems(a),
     item("custom-sort", t("calc.customSort"), a.customSort),
+    SEP,
+    item("filter-value", t("calc.filter.bySelectedValue"), () => a.filterBySelected("value")),
+    ...(look(a).fill ? [item("filter-color", t("calc.filter.bySelectedColor"), () => a.filterBySelected("color"))] : []),
+    ...(look(a).font ? [item("filter-font", t("calc.filter.bySelectedFont"), () => a.filterBySelected("font"))] : []),
+    ...(look(a).icon ? [item("filter-icon", t("calc.filter.bySelectedIcon"), () => a.filterBySelected("icon"))] : []),
     SEP,
     item("merge-center", t("calc.mergeCenter"), a.mergeCenter),
     item("merge-cells", t("calc.mergeCells"), a.mergeCells),

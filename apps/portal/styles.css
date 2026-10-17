@@ -180,3 +180,7 @@ a.wordmark { display: block; width: fit-content; margin: 0 auto 8px; font-size: 
 .opensource h2 { margin: 0 0 8px; font-size: 1.25rem; letter-spacing: -0.01em; }
 .opensource p { margin: 8px 0; }
 .opensource ul { margin: 8px 0; padding-left: 1.3em; }
+
+/* Language list (P9-L0): i18n.js replaces the EN/DE buttons by a list of the 24 UI languages. */
+.lang select { appearance: auto; border: 0; background: transparent; color: var(--text); font: 600 0.85rem/1.2 system-ui, sans-serif; padding: 6px 8px; cursor: pointer; max-width: 12rem; }
+.lang select:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }

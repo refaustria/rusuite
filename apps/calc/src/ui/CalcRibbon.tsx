@@ -29,7 +29,7 @@ import { bordersMenu } from "./bordersMenu";
 import { activeCellLocked, sheetProtection, toggleLockCell, toggleSheetProtection } from "../protection/protection";
 import { lockIcon } from "../protection/icons";
 import {
-  clearFilterIcon, condFormatIcon, filterIcon, freezeIcon, headingsIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon,
+  clearFilterIcon, condFormatIcon, filterIcon, freezeIcon, headingsIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon, painterIcon,
 } from "./icons";
 
 /** View options of the grid (View tab): zoom (1 = 100 %), gridlines and headings are the active sheet's. */
@@ -62,6 +62,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
   const activeSheet = useCalc(store, (s) => s.activeSheet);
   useCalc(store, (s) => s.info?.sheets);
   const ready = useCalc(store, (s) => s.info !== null);
+  const painter = useCalc(store, (s) => s.painter !== null);
   const canUndo = useCalc(store, (s) => s.canUndo);
   const canRedo = useCalc(store, (s) => s.canRedo);
   const name = useCalc(store, (s) => s.name);
@@ -132,6 +133,17 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
             <RibbonStack>
               <RibbonButton label={t("cmd.cut")} icon="cut" shortcut="Mod+X" showLabel disabled={off} onClick={run(actions.cut)} />
               <RibbonButton label={t("cmd.copy")} icon="copy" shortcut="Mod+C" showLabel disabled={off} onClick={run(actions.copy)} />
+              <span onDoubleClick={() => !off && store.startFormatPainter(true)}>
+                <RibbonButton
+                  label={t("calc.formatPainter")}
+                  icon={painterIcon()}
+                  showLabel
+                  pressed={painter}
+                  tooltip={t("calc.formatPainterTip")}
+                  disabled={off}
+                  onClick={run(() => (store.getState().painter ? store.stopFormatPainter() : store.startFormatPainter()))}
+                />
+              </span>
             </RibbonStack>
           </>
         ),

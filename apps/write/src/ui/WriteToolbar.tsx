@@ -42,6 +42,7 @@ import { selectedObjects } from "../features/drawings/objects";
 import type { Drawing } from "../generated/Drawing";
 import type { PictureFormat } from "../generated/PictureFormat";
 import type { Anchor } from "../generated/Anchor";
+import type { MarkupMode } from "../features/WriteFeatures";
 import type { WriteFeatures } from "../features/WriteFeatures";
 import { currentLayout, pageAtPos } from "../features/pagination";
 import { formatDateTime, goToNextRef } from "../features/structure";
@@ -865,7 +866,10 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
               label={t("write.field")}
               icon={FIELD_ICON}
               size="large"
-              menu={FIELD_CHOICES.map((f) => ({ id: f.id, label: f.label, onSelect: () => addField(f.id) }))}
+              menu={[
+                ...FIELD_CHOICES.map((f) => ({ id: f.id, label: f.label, onSelect: () => addField(f.id) })),
+                { id: "fieldDialog", label: t("write.fieldDialog.more"), onSelect: () => features.ui.openDialog("field") },
+              ]}
             />
             <RibbonButton label={t("write.dateTime.button")} icon={DATE_ICON} size="large" tooltip={t("write.dateTime.tip")} onClick={() => features.ui.openDialog("dateTime")} />
           </>
@@ -1155,6 +1159,27 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
     id: "review",
     label: t("write.tab.review"),
     groups: [
+      {
+        label: t("write.markup.group"),
+        items: (
+          <RibbonStack>
+            <select
+              aria-label={t("write.markup.label")}
+              title={t("write.markup.label")}
+              className={`${RIBBON_SELECT} w-36`}
+              data-testid="markup-mode"
+              value={cui.markup}
+              onChange={(e) => features.ui.setComments({ markup: e.target.value as MarkupMode, active: null })}
+            >
+              {(["simple", "all", "none", "original"] as const).map((m) => (
+                <option key={m} value={m}>
+                  {t(`write.markup.${m}`)}
+                </option>
+              ))}
+            </select>
+          </RibbonStack>
+        ),
+      },
       {
         label: t("write.comments.title"),
         items: (

@@ -5,6 +5,7 @@
 
 import type { Locale } from "../i18n/core";
 import { getLocale } from "../i18n/locale";
+import { keyName as localKeyName, namedKey } from "../i18n/keyNames";
 
 export interface KeyLike {
   key: string;
@@ -79,19 +80,19 @@ const isMac = (): boolean => typeof navigator !== "undefined" && /Mac|iPhone|iPa
 
 /**
  * Human-readable combo for the help dialog and tooltips (`Mod+Shift+S` ->
- * `Ctrl+Shift+S`; German UI: `Strg+Shift+S`, as German Office). A spec
+ * `Ctrl+Shift+S`; German UI: `Strg+Umschalt+S`, French `Ctrl+Maj+S` …, as
+ * the Office of that language: i18n/keyNames.ts). A spec
  * may also name `Ctrl` directly (context menus).
  */
 export function formatCombo(spec: string, mac: boolean = isMac(), locale: Locale = getLocale()): string {
-  const ctrl = locale === "de" ? "Strg" : "Ctrl";
   return spec
     .split("+")
     .map((p) => {
       const l = p.toLowerCase();
-      if (l === "mod") return mac ? "⌘" : ctrl;
-      if (l === "ctrl") return ctrl;
-      if ((l === "delete" || l === "del") && locale === "de") return "Entf";
-      if (l === "alt") return mac ? "⌥" : "Alt";
+      if (l === "mod") return mac ? "⌘" : (localKeyName(locale, "ctrl") ?? "Ctrl");
+      if (l === "alt" && mac) return "⌥";
+      const named = namedKey(l);
+      if (named) return localKeyName(locale, named) ?? (named === "ctrl" ? "Ctrl" : named === "alt" ? "Alt" : named === "shift" ? "Shift" : p);
       if (l === "plus") return "+";
       if (l === "minus") return "-";
       if (l === "arrowleft") return "←";

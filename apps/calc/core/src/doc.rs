@@ -879,6 +879,14 @@ impl CalcDocument {
                         };
                     }
                 }
+                // Typing right under an AutoFilter range extends it (Excel).
+                let filter_state = self.filter_state_inverse(c.sheet);
+                if self.workbook.grow_auto_filter(c.sheet, row, col)? {
+                    patch.sheets = Some(self.sheet_infos());
+                    inverse = C::Compound {
+                        commands: vec![inverse, filter_state],
+                    };
+                }
                 Ok(Applied {
                     patch,
                     inverse: Some(inverse),
@@ -1375,7 +1383,18 @@ impl CalcDocument {
                         r0.saturating_add(h - 1).min(MAX_ROW),
                         c0.saturating_add(w - 1).min(MAX_COL),
                     );
-                    if mode != PasteMode::FormatsOnly {
+                    // Formats, validation, comments and widths leave contents alone.
+                    let contents = mode != PasteMode::FormatsOnly
+                        && !special.is_some_and(|s| {
+                            matches!(
+                                s.parts,
+                                crate::command::PasteParts::Formats
+                                    | crate::command::PasteParts::Validation
+                                    | crate::command::PasteParts::Comments
+                                    | crate::command::PasteParts::ColumnWidths
+                            )
+                        });
+                    if contents {
                         self.workbook.check_spill_edit(dst)?;
                     }
                     if cut {
@@ -1389,14 +1408,41 @@ impl CalcDocument {
                     if cut {
                         return Err(CalcError::InvalidRange);
                     }
-                    return self.paste_special(
+                    let applied = self.paste_special(
                         sheet,
                         (r0, c0),
                         src,
                         cells,
                         sp,
                         (repeat_rows, repeat_cols),
-                    );
+                    )?;
+                    use crate::command::PasteParts as P;
+                    if !sp.transpose && !sp.link {
+                        let what = model_sheet::RulesPaste {
+                            cf: matches!(
+                                sp.parts,
+                                P::All | P::Formats | P::AllExceptBorders | P::AllAndColumnWidths
+                            ),
+                            validation: matches!(
+                                sp.parts,
+                                P::All
+                                    | P::Validation
+                                    | P::AllExceptBorders
+                                    | P::AllAndColumnWidths
+                            ),
+                        };
+                        let source = self.range(src.sheet, src.r0, src.c0, src.r1, src.c1)?;
+                        let s = self.sheet(sheet)?;
+                        self.paste_rules(
+                            source,
+                            s,
+                            (r0, c0),
+                            (repeat_rows, repeat_cols),
+                            false,
+                            what,
+                        )?;
+                    }
+                    return Ok(applied);
                 }
                 let applied = self.paste_range(
                     sheet,
@@ -1407,6 +1453,17 @@ impl CalcDocument {
                     cut,
                     (repeat_rows, repeat_cols),
                 )?;
+                if annotations || cut {
+                    // Our own copy: conditional formats (and, with the
+                    // contents, validations) come along; a cut moves them.
+                    let source = self.range(src.sheet, src.r0, src.c0, src.r1, src.c1)?;
+                    let s = self.sheet(sheet)?;
+                    let what = model_sheet::RulesPaste {
+                        cf: mode != PasteMode::ValuesOnly,
+                        validation: mode == PasteMode::All,
+                    };
+                    self.paste_rules(source, s, (r0, c0), (repeat_rows, repeat_cols), cut, what)?;
+                }
                 if annotations && mode == PasteMode::All {
                     let source = self.range(src.sheet, src.r0, src.c0, src.r1, src.c1)?;
                     let s = self.sheet(sheet)?;
@@ -1438,6 +1495,7 @@ impl CalcDocument {
                 ref keys,
                 has_header,
                 case_sensitive,
+                columns,
             } => {
                 let range = self.range(sheet, r0, c0, r1, c1)?;
                 self.workbook.check_spill_edit(range)?;
@@ -1445,6 +1503,7 @@ impl CalcDocument {
                     keys: keys.clone(),
                     has_header,
                     case_sensitive,
+                    columns,
                 };
                 self.sort(range, &spec)
             }
@@ -2048,21 +2107,7 @@ impl CalcDocument {
                         if content.is_some() || style.is_some() {
                             writes.push(Write { at, content, style });
                         }
-                        if sp.parts == P::Validation {
-                            if let Some((_, dv)) = self.workbook.validation_at(from) {
-                                let mut dv = dv.clone();
-                                dv.ranges = vec![CellRect {
-                                    r0: at.row,
-                                    c0: at.col,
-                                    r1: at.row,
-                                    c1: at.col,
-                                }];
-                                extra.push(CalcCommand::SetValidation {
-                                    sheet,
-                                    validation: dv,
-                                });
-                            }
-                        }
+                        // Validations: `paste_rules` after the cells.
                     }
                 }
             }
@@ -2373,9 +2418,11 @@ impl CalcDocument {
                 col,
                 ascending,
                 kind: SortKind::Auto,
+                ..Default::default()
             }],
             has_header,
             case_sensitive: false,
+            ..Default::default()
         };
         self.sort(range, &spec)
     }
@@ -2931,7 +2978,18 @@ impl Document for CalcDocument {
         let tables = self.tables_state();
         let slicers = self.slicers_before();
         let calc = self.calc_state();
+        // Commands that move rules along with cells (their own rule
+        // commands and structural edits report rule changes themselves).
+        let rules = matches!(
+            cmd,
+            CalcCommand::PasteRange { .. }
+                | CalcCommand::SortRange { .. }
+                | CalcCommand::SortSheetByColumn { .. }
+                | CalcCommand::RenameSheet { .. }
+        )
+        .then(|| self.rules_state());
         let mut applied = self.apply_cmd(cmd)?;
+        self.mark_rules(rules, &mut applied);
         self.mark_calc(calc, &mut applied);
         self.mark_tables(tables, cmd, &mut applied);
         self.mark_names(names, cmd, &mut applied);

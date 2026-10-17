@@ -3,11 +3,14 @@ import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
 import type { CfValue } from "./CfValue";
 import type { ColorPoint } from "./ColorPoint";
 import type { CompareOp } from "./CompareOp";
+import type { DataBarAxis } from "./DataBarAxis";
+import type { DataBarDirection } from "./DataBarDirection";
 import type { IconSetKind } from "./IconSetKind";
+import type { TimePeriod } from "./TimePeriod";
 
 /**
  * Mirror of `model_sheet::CfKind`: what a rule tests or draws. Text
  * tests are case-insensitive; `iconSet.thresholds` has one entry per
  * icon, lowest first.
  */
-export type CfKind = { "type": "cellIs", op: CompareOp, formulas: Array<string>, } | { "type": "expression", formula: string, } | { "type": "containsText", text: string, } | { "type": "notContainsText", text: string, } | { "type": "beginsWith", text: string, } | { "type": "endsWith", text: string, } | { "type": "containsBlanks" } | { "type": "notContainsBlanks" } | { "type": "containsErrors" } | { "type": "notContainsErrors" } | { "type": "top10", rank: number, percent: boolean, bottom: boolean, } | { "type": "aboveAverage", above: boolean, equal: boolean, } | { "type": "duplicateValues" } | { "type": "uniqueValues" } | { "type": "dataBar", color: Color, min: CfValue, max: CfValue, showValue: boolean, } | { "type": "colorScale", points: Array<ColorPoint>, } | { "type": "iconSet", set: IconSetKind, thresholds: Array<CfValue>, reverse: boolean, showValue: boolean, };
+export type CfKind = { "type": "cellIs", op: CompareOp, formulas: Array<string>, } | { "type": "expression", formula: string, } | { "type": "containsText", text: string, } | { "type": "notContainsText", text: string, } | { "type": "beginsWith", text: string, } | { "type": "endsWith", text: string, } | { "type": "containsBlanks" } | { "type": "notContainsBlanks" } | { "type": "containsErrors" } | { "type": "notContainsErrors" } | { "type": "top10", rank: number, percent: boolean, bottom: boolean, } | { "type": "aboveAverage", above: boolean, equal: boolean, stdDev?: number, } | { "type": "timePeriod", period: TimePeriod, } | { "type": "duplicateValues" } | { "type": "uniqueValues" } | { "type": "dataBar", color: Color, min: CfValue, max: CfValue, showValue: boolean, gradient?: boolean, border?: Color, negativeColor?: Color, negativeBorder?: Color, axisColor?: Color, axis?: DataBarAxis, direction?: DataBarDirection, minLength?: number, maxLength?: number, } | { "type": "colorScale", points: Array<ColorPoint>, } | { "type": "iconSet", set: IconSetKind, thresholds: Array<CfValue>, reverse: boolean, showValue: boolean, greater?: Array<boolean>, };

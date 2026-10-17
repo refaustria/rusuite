@@ -33,6 +33,7 @@ import { anchorRect, handleAt, handleCursor, moveRect, resizeRect, type Handle }
 import { chartRefMarks, paintCharts } from "../charts/paint";
 import { paintArrows } from "../audit/trace";
 import { paintErrorMarks } from "../audit/marks";
+import { paintValidationCircles } from "../validation/circles";
 import { ErrorTag } from "../audit/ErrorTag";
 import { chartMenu } from "../charts/menus";
 import { ChartTextEditor } from "../charts/ChartTextEditor";
@@ -146,6 +147,9 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: ContextMenuItem[]; label: string } | null>(null);
   const actions = useMemo(() => calcActions(store), [store]);
   const clipMark = useCalc(store, (s) => s.clipMark);
+  const painterOn = useCalc(store, (s) => s.painter !== null);
+  // Circle Invalid Data on this sheet, as `r,c;r,c` (tests and e2e read it).
+  const circleCells = useCalc(store, (s) => (s.circles && s.circles.sheet === s.activeSheet ? s.circles.cells.map((c) => `${c.r0},${c.c0}`).join(";") : ""));
 
   const activeSheet = useCalc(store, (s) => s.activeSheet);
   // While pointing on another sheet the in-cell editor is hidden (the formula bar has the edit).
@@ -159,7 +163,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const geo = store.geometry(sheet);
     return {
       cells: cache.cells, cols: cache.cols, rows: cache.rows, colGeo: geo.col, rowGeo: geo.row, merges: cache.merges,
-      cf: cache.cf, barAxes: cache.cf.size > 0 ? store.barAxes(sheet) : undefined,
+      cf: cache.cf,
       showFormulas: store.getState().showFormulas,
       pivotLook: store.pivots.looks(sheet),
       tableLook: store.tables.looks(sheet),
@@ -381,6 +385,11 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         // Error checking's green triangles in the cells' top-left corners (P9-C4).
         const errs = store.audit.marks(state.activeSheet);
         if (errs.length > 0) paintErrorMarks(cctx, errs, (r, c) => rangeRect(vp, data, { r0: r, c0: c, r1: r, c1: c }));
+        // Circle Invalid Data (P9-C5).
+        const circles = state.circles;
+        if (circles && circles.sheet === state.activeSheet && circles.cells.length > 0) {
+          paintValidationCircles(cctx, circles.cells, (r, c) => rangeRect(vp, data, { r0: r, c0: c, r1: r, c1: c }));
+        }
         const arrows = store.trace.on(state.activeSheet);
         if (arrows.length > 0) paintArrows(cctx, data.colGeo, data.rowGeo, arrows, vp.scrollX, vp.scrollY);
         paintCharts(cctx, frames, vp, chartSel);
@@ -1052,6 +1061,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const up = () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
+      // The Format Painter paints the range just selected.
+      void store.selectionDone();
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
@@ -1190,6 +1201,11 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       else store.flash.dismiss();
       return;
     }
+    if (key === "Escape" && store.getState().painter) {
+      e.preventDefault();
+      store.stopFormatPainter();
+      return;
+    }
     if (key === "Escape" && store.getState().clipMark) {
       e.preventDefault();
       store.clearClip();
@@ -1299,6 +1315,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           aria-hidden="true"
           data-testid="grid-cells"
           data-frozen={`${sheetView.frozenRows},${sheetView.frozenCols}`}
+          data-circles={circleCells}
         />
         <canvas ref={headerCanvas} className="absolute left-0 top-0" style={headings ? undefined : { display: "none" }} aria-hidden="true" />
         <div
@@ -1311,7 +1328,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           aria-colcount={LAST_COL + 1}
           tabIndex={0}
           className="absolute inset-0 overflow-auto outline-none"
-          style={{ cursor: "cell" }}
+          style={{ cursor: painterOn ? "copy" : "cell" }}
           onScroll={onScroll}
           onPointerDown={onPointerDown}
           onMouseDown={onMouseDown}

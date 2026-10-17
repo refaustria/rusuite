@@ -25,13 +25,16 @@ Branch `p9/l<n>-<lang1>-<lang2>`, worktree `/home/bojan/rusuite-wt/p9-l<n>-<lang
 2. **Terminology follows the Microsoft Office localisation of that language** for ribbon tabs, groups, commands, dialog titles, buttons and file types (e.g. French: Accueil, Insertion, Mise en page, Révision, Affichage; Enregistrer sous; Classeur Excel). Where Office has no term (Rusuite-specific features), translate consistently with the surrounding Office vocabulary.
 3. Placeholders `{name}`, plural keys (`.one/.few/.many/.other` as the language's `Intl.PluralRules` categories require), shortcut combos, brand names (Rusuite, Calc, Write, Show, Excel, Word, PowerPoint, GitHub, WebDAV, Anthropic, OpenAI), file extensions and symbols stay untouched. Keep the English text's meaning and length discipline (ribbon labels short; the German catalog shows the acceptable length).
 
-## Files to add (per language `<lang>`; list completed from the L0 report)
-- `packages/ui-shared/src/i18n/locales/<lang>.json`
-- `apps/calc/src/locales/<lang>.json`, `apps/write/src/locales/<lang>.json`, `apps/show/src/locales/<lang>.json`
-- `apps/portal/locales/<lang>.json`
-- `docs/i18n-glossary/<lang>.md` (the Office terms you used: tabs, groups, ~80 common commands, dialog buttons, file types; columns English / term / note)
-- the per-language allow-list entry file for the register check if L0 defines one (see `docs/i18n.md`)
-- `scripts/i18n-check.mjs` and `LOCALES` are **not** changed (L0 registered all 24 languages; a language becomes active when its catalogs exist).
+## Files to add (per language `<lang>`; from the P9-L0 report)
+1. `docs/i18n-glossary/<lang>.md` (the Office terms you used: tabs, groups, ~80 common commands, dialog buttons, file types; columns English / term / note)
+2. `packages/ui-shared/src/i18n/locales/<lang>.json`
+3. `apps/calc/src/locales/<lang>.json`
+4. `apps/write/src/locales/<lang>.json`
+5. `apps/show/src/locales/<lang>.json`
+6. `apps/portal/locales/<lang>.json`, **plus** `"<lang>"` added to `CATALOGS` in `apps/portal/i18n.js`
+7. Optional: `scripts/i18n-allow/<lang>.json` (register allow-list with reasons) and the language's entry in `KEY_NAMES` (`packages/ui-shared/src/i18n/keyNames.ts`) if Office localises modifier/key names in that language (L0 filled de, fr, es, it, sv, da, fi; add yours if Office does).
+`LOCALES` and `scripts/i18n-check.mjs` are not changed – a language becomes active when its catalogs exist. Catalogs load lazily (one chunk per language); keep each file's key order equal to `en.json`.
+Decisions already taken (do not reopen): Portuguese = **pt-PT** with informal *tu* (você / o senhor are flagged); Spanish *su/sus* is not flagged (also his/its/their) – write *tu/tus*; Danish *De* is not flagged (also "they") – never use it as an address; Hungarian and Portuguese formal verb forms are not machine-checked – review them yourself.
 
 ## Method
 1. Translate the five catalogs of the first language completely (every key of `en.json`; ~4 000 strings). Work namespace by namespace; keep a glossary as you go and apply it consistently across all five files (same term for the same English key prefix, e.g. every `cmd.*` and `tab.*`).

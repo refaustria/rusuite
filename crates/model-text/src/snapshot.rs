@@ -41,6 +41,10 @@ pub(crate) struct DocumentData {
     #[serde(default)]
     comments: Vec<Comment>,
     #[serde(default)]
+    people: Vec<crate::comment::Person>,
+    #[serde(default)]
+    separators: crate::section::NoteSeparators,
+    #[serde(default)]
     properties: CoreProperties,
     #[serde(default)]
     settings: DocumentSettings,
@@ -55,6 +59,8 @@ impl From<DocumentData> for Document {
         doc.sections = d.sections;
         doc.notes = d.notes;
         doc.comments = d.comments;
+        doc.people = d.people;
+        doc.separators = d.separators;
         doc.properties = d.properties;
         doc.settings = d.settings;
         doc.next_id = doc.max_node_id() + 1;

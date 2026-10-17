@@ -5,6 +5,7 @@
 
 import type { AutoFilter } from "../generated/AutoFilter";
 import type { CellKind } from "../generated/CellKind";
+import type { DateGroup } from "../generated/DateGroup";
 import type { Criterion } from "../generated/Criterion";
 import type { DynamicFilter } from "../generated/DynamicFilter";
 import type { Filter } from "../generated/Filter";
@@ -276,4 +277,78 @@ export function drawFilterButtons(ctx: CanvasRenderingContext2D, buttons: readon
       ctx.stroke();
     }
   }
+}
+
+// --- date tree (P9-C5) ---------------------------------------------------------
+
+/** A node of the dropdown's date tree: years › months › days, each with the displays (check-list keys) under it. */
+export interface DateNode {
+  /** `2024`, `2024-3`, `2024-3-9`. */
+  key: string;
+  year: number;
+  month?: number;
+  day?: number;
+  children: DateNode[];
+  /** The value displays of the node (a day: its own). */
+  displays: string[];
+}
+
+/** The date tree of the dated values (ascending), and the other values. */
+export function dateTree(values: readonly FilterValue[]): { years: DateNode[]; others: FilterValue[] } {
+  const years: DateNode[] = [];
+  const others: FilterValue[] = [];
+  const find = (list: DateNode[], key: string, make: () => DateNode) => {
+    let n = list.find((x) => x.key === key);
+    if (!n) list.push((n = make()));
+    return n;
+  };
+  const dated = values.filter((v) => v.date).sort((a, b) => {
+    const [x, y] = [a.date!, b.date!];
+    return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+  });
+  for (const v of dated) {
+    const [y, m, d] = v.date!;
+    const yn = find(years, `${y}`, () => ({ key: `${y}`, year: y, children: [], displays: [] }));
+    const mn = find(yn.children, `${y}-${m}`, () => ({ key: `${y}-${m}`, year: y, month: m, children: [], displays: [] }));
+    const dn = find(mn.children, `${y}-${m}-${d}`, () => ({ key: `${y}-${m}-${d}`, year: y, month: m, day: d, children: [], displays: [] }));
+    for (const n of [yn, mn, dn]) n.displays.push(v.display);
+  }
+  for (const v of values) if (!v.date) others.push(v);
+  return { years, others };
+}
+
+/**
+ * The filter of a check-list with a date tree: `null` when everything is
+ * kept, `undefined` when nothing is; else Excel's `dateGroupItem`s – a
+ * whole year, a whole month or single days – plus the other checked
+ * values.
+ */
+export function dateTreeFilter(values: readonly FilterValue[], checked: ReadonlySet<string>): Filter | null | undefined {
+  const all = values.every((v) => checked.has(v.display));
+  if (all) return null;
+  if (!values.some((v) => checked.has(v.display))) return undefined;
+  const { years, others } = dateTree(values);
+  const on = (n: DateNode) => n.displays.every((d) => checked.has(d));
+  const groups: DateGroup[] = [];
+  for (const y of years) {
+    if (on(y)) {
+      groups.push({ year: y.year });
+      continue;
+    }
+    for (const m of y.children) {
+      if (on(m)) groups.push({ year: y.year, month: m.month! });
+      else for (const d of m.children) if (on(d)) groups.push({ year: y.year, month: m.month!, day: d.day! });
+    }
+  }
+  const rest = others.filter((v) => checked.has(v.display)).map((v) => v.display);
+  return { kind: "dateGroups", groups, ...(rest.length > 0 ? { values: rest } : {}) };
+}
+
+/** The checked displays when the dropdown opens on a date-tree filter (others: as `initialChecked`). */
+export function initialDateChecked(values: readonly FilterValue[], filter: Filter | undefined): Set<string> {
+  if (filter?.kind !== "dateGroups") return initialChecked(values, filter);
+  const keep = new Set((filter.values ?? []).map(fold));
+  const inGroup = (d: [number, number, number]) =>
+    filter.groups.some((g) => g.year === d[0] && (g.month === undefined || g.month === d[1]) && (g.day === undefined || g.day === d[2]));
+  return new Set(values.filter((v) => (v.date ? inGroup(v.date as [number, number, number]) : keep.has(fold(v.display)))).map((v) => v.display));
 }

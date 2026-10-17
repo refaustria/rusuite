@@ -15,6 +15,7 @@ import { FindBar } from "./ui/FindBar";
 import { EditorContextMenu } from "./ui/EditorContextMenu";
 import { WriteDialogs } from "./ui/dialogs";
 import { ReferenceDialogs } from "./ui/referenceDialogs";
+import { W6Dialogs } from "./ui/w6Dialogs";
 import { ListDialogs } from "./ui/listGalleries";
 import { InfoPanel } from "./ui/InfoPanel";
 import { ManageStylesDialog } from "./ui/manageStyles";
@@ -212,6 +213,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
   // The frame (first page) uses the first section's page setup.
   const firstPage = useSync(ctl, () => ctl.sections[0]?.page ?? ctl.page);
   const sections = useSync(ctl, () => ctl.sections);
+  const separators = useSync(ctl, () => ctl.separators);
 
   useEffect(() => {
     if (!editor) return;
@@ -350,6 +352,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
                 editor={editor}
                 onToggleWhiteSpace={chrome.onToggleWhiteSpace}
                 sections={sections}
+                separators={separators}
               >
                 <EditorContent editor={editor} />
               </PageFrame>
@@ -367,6 +370,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
       <WriteDialogs ui={features.ui} ctl={ctl} editor={editor} />
       {editor && <LayoutDialogHost editor={editor} features={features} />}
       <ReferenceDialogs ui={features.ui} ctl={ctl} editor={editor} />
+      <W6Dialogs features={features} ctl={ctl} editor={editor} />
       <ListDialogs ui={features.ui} ctl={ctl} editor={editor} />
       <UserNameDialog ctl={ctl} features={features} />
       {editor && <StyleDialogsHost editor={editor} ctl={ctl} features={features} />}

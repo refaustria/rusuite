@@ -6,6 +6,7 @@ import type { CalcCommand } from "../generated/CalcCommand";
 import type { CellView } from "../generated/CellView";
 import type { SortKey } from "../generated/SortKey";
 import type { SortKind } from "../generated/SortKind";
+import type { SortOn } from "../generated/SortOn";
 import type { Range } from "../grid/Selection";
 
 /** Whether a cell has content (cached cells). */
@@ -88,10 +89,28 @@ export function guessHeader(range: Range, cellAt: (row: number, col: number) => 
 
 /** One row of the Custom Sort dialog. */
 export interface SortLevel {
-  /** Absolute column index. */
+  /** Absolute column index (the row of a left-to-right sort). */
   col: number;
+  /** Ascending, or (colour and icon levels) On Top. */
   ascending: boolean;
   kind: SortKind;
+  /** Sort On: Cell Color / Font Color / Conditional Formatting Icon (absent: the values). */
+  sortOn?: SortOn;
+  /** Order › Custom List… (`Mon, Tue, …`). */
+  customList?: string[];
+}
+
+/** Excel's built-in custom lists, as in `model_sheet::BUILTIN_CUSTOM_LISTS`. */
+export const BUILTIN_LISTS: string[][] = [
+  ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+  ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+  ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+  ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+];
+
+/** A list typed into the Custom Lists box: entries separated by commas or line breaks (empty ones dropped). */
+export function parseCustomList(text: string): string[] {
+  return text.split(/[,\n]/).map((x) => x.trim()).filter((x) => x !== "");
 }
 
 /** Excel allows 64 sort levels. */
@@ -114,18 +133,28 @@ export function moveLevel(levels: readonly SortLevel[], i: number, delta: -1 | 1
   return out;
 }
 
-/** Columns sorted by more than once (Excel refuses: "… is being sorted by values more than once"). */
+/** Columns sorted by values more than once (Excel refuses: "… is being sorted by values more than once"); colour and icon levels may repeat a column. */
 export function duplicateColumns(levels: readonly SortLevel[]): number[] {
   const seen = new Set<number>();
   const dup = new Set<number>();
-  for (const l of levels) (seen.has(l.col) ? dup : seen).add(l.col);
+  for (const l of levels) {
+    if (l.sortOn && l.sortOn.type !== "values") continue;
+    (seen.has(l.col) ? dup : seen).add(l.col);
+  }
   return [...dup];
 }
 
-/** The `sortRange` command of the Custom Sort dialog. */
+/** The `sortRange` command of the Custom Sort dialog (`columns`: Options › Sort left to right). */
 export function sortRangeCommand(
-  sheet: number, range: Range, levels: readonly SortLevel[], hasHeader: boolean, caseSensitive: boolean,
+  sheet: number, range: Range, levels: readonly SortLevel[], hasHeader: boolean, caseSensitive: boolean, columns = false,
 ): CalcCommand {
-  const keys: SortKey[] = levels.map((l) => (l.kind === "auto" ? { col: l.col, ascending: l.ascending } : { col: l.col, ascending: l.ascending, kind: l.kind }));
-  return { type: "sortRange", sheet, ...range, keys, hasHeader, caseSensitive };
+  const keys: SortKey[] = levels.map((l) => {
+    const k: SortKey = { col: l.col, ascending: l.ascending };
+    const byValue = !l.sortOn || l.sortOn.type === "values";
+    if (l.kind !== "auto" && byValue) k.kind = l.kind;
+    if (!byValue) k.sortOn = l.sortOn;
+    if (byValue && l.customList && l.customList.length > 0) k.customList = [...l.customList];
+    return k;
+  });
+  return { type: "sortRange", sheet, ...range, keys, hasHeader, caseSensitive, ...(columns ? { columns: true } : {}) };
 }

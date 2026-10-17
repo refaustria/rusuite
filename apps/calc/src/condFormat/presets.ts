@@ -8,22 +8,23 @@ import type { CfRule } from "../generated/CfRule";
 import type { DxfStyle } from "../generated/DxfStyle";
 import type { IconSetKind } from "../generated/IconSetKind";
 import type { Rect } from "../generated/Rect";
+import type { TimePeriod } from "../generated/TimePeriod";
 import { iconCount } from "../grid/cf";
 
 export const rgb = (hex: string): Color => ({ kind: "rgb", value: hex });
 
 /** The small dialogs of Highlight Cells Rules and Top/Bottom Rules. */
 export type QuickRuleKind =
-  | "greaterThan" | "lessThan" | "between" | "equalTo" | "textContains" | "duplicateValues"
+  | "greaterThan" | "lessThan" | "between" | "equalTo" | "textContains" | "dateOccurring" | "duplicateValues"
   | "top10" | "top10Percent" | "bottom10" | "bottom10Percent" | "aboveAverage" | "belowAverage";
 
-export const HIGHLIGHT_RULES: QuickRuleKind[] = ["greaterThan", "lessThan", "between", "equalTo", "textContains", "duplicateValues"];
+export const HIGHLIGHT_RULES: QuickRuleKind[] = ["greaterThan", "lessThan", "between", "equalTo", "textContains", "dateOccurring", "duplicateValues"];
 export const TOP_BOTTOM_RULES: QuickRuleKind[] = ["top10", "top10Percent", "bottom10", "bottom10Percent", "aboveAverage", "belowAverage"];
 
 /** How many values a quick dialog asks for. */
 export function quickValueCount(kind: QuickRuleKind): number {
   if (kind === "between") return 2;
-  if (kind === "duplicateValues" || kind === "aboveAverage" || kind === "belowAverage") return 0;
+  if (kind === "duplicateValues" || kind === "dateOccurring" || kind === "aboveAverage" || kind === "belowAverage") return 0;
   return 1;
 }
 
@@ -93,6 +94,8 @@ export function quickRule(kind: QuickRuleKind, values: string[], dxf: DxfStyle, 
       return rule(ranges, { type: "cellIs", op: "equal", formulas: [v(0)] }, dxf);
     case "textContains":
       return rule(ranges, { type: "containsText", text: (values[0] ?? "").trim() }, dxf);
+    case "dateOccurring":
+      return rule(ranges, { type: "timePeriod", period: (values[0] || "yesterday") as TimePeriod }, dxf);
     case "duplicateValues":
       return rule(ranges, { type: duplicate ? "duplicateValues" : "uniqueValues" }, dxf);
     case "top10":
@@ -118,8 +121,16 @@ export const DATA_BARS: { id: string; color: string }[] = [
   { id: "purple", color: "D6007B" },
 ];
 
-export function dataBarRule(color: string, ranges: Rect[]): CfRule {
-  return rule(ranges, { type: "dataBar", color: rgb(color), min: { type: "min" }, max: { type: "max" }, showValue: true });
+/**
+ * A gallery data bar as Excel 2010 makes it: automatic bounds and axis,
+ * bars from 0 % to 100 % of the cell, red negative bars; `solid`: the
+ * Solid Fill gallery (no gradient, a border in the bar colour).
+ */
+export function dataBarRule(color: string, ranges: Rect[], solid = false): CfRule {
+  const kind: CfKind = { type: "dataBar", color: rgb(color), min: { type: "autoMin" }, max: { type: "autoMax" }, showValue: true, minLength: 0, maxLength: 100 };
+  if (solid) Object.assign(kind, { gradient: false });
+  else Object.assign(kind, { border: rgb(color), negativeBorder: rgb("FF0000") });
+  return rule(ranges, kind);
 }
 
 /**

@@ -598,7 +598,7 @@ test.describe("Calc", () => {
     const grid = new Grid(page);
     await grid.click(1, 1);
     await page.getByRole("tab", { name: "Data" }).click();
-    await page.getByRole("button", { name: "Data Validation" }).click();
+    await page.getByRole("button", { name: "Data Validation", exact: true }).click();
     const dlg = page.getByRole("dialog", { name: "Data Validation" });
     await dlg.getByLabel("Allow:").selectOption("list");
     await dlg.getByLabel("Source:").fill("pear,apple,fig");
@@ -626,7 +626,7 @@ test.describe("Calc", () => {
     const grid = new Grid(page);
     await grid.click(0, 0);
     await page.getByRole("tab", { name: "Data" }).click();
-    await page.getByRole("button", { name: "Data Validation" }).click();
+    await page.getByRole("button", { name: "Data Validation", exact: true }).click();
     const dlg = page.getByRole("dialog", { name: "Data Validation" });
     await dlg.getByLabel("Allow:").selectOption("whole");
     await dlg.getByLabel("Data:").selectOption("lessThan");

@@ -8,7 +8,7 @@ import type { CellView } from "../generated/CellView";
 import type { PivotLook } from "../pivot/styles";
 import { withLook } from "../grid/render";
 import type { IconSetKind } from "../generated/IconSetKind";
-import { barSpan, cfKey, cfStyle, dataBarAxes, NEGATIVE_BAR } from "../grid/cf";
+import { barFillCss, cfKey, cfStyle } from "../grid/cf";
 import { colWidthPx, rowHeightPx } from "../grid/geometry";
 import type { SheetCache } from "../state/store";
 import { colorCss, fontFamily, fontPx, horizontalAlign, styleAt, verticalAlign } from "../grid/style";
@@ -128,8 +128,6 @@ export function buildPrintTable(cache: SheetCache, styles: readonly CellStyle[],
     cols.push({ col: c, width: v?.width != null ? colWidthPx(v.width) : colWidthPx(cache.format.defaultColWidth) });
   }
   const cfMap = cache.cf ?? new Map();
-  let axesMemo: Map<string, number> | null = null;
-  const axes = () => (axesMemo ??= dataBarAxes(cfMap, (r, c) => cache.cells.get(r)?.get(c)));
   const rows: PrintRow[] = [];
   for (let r = firstRow; r <= lastRow; r++) {
     const v = cache.rows.get(r);
@@ -145,17 +143,17 @@ export function buildPrintTable(cache: SheetCache, styles: readonly CellStyle[],
       if (!cf) return { col, text: cell?.display ?? "", style: lookCss(styleAt(styles, id), cell?.kind ?? "empty", look), ...(rotation ? { rotation } : {}) };
       // Conditional formatting: the highlight format / colour scale fill, a data bar as a background, an icon.
       const style = cellCss(cfStyle(styleAt(styles, id), cf), cell?.kind ?? "empty");
-      if (cf.bar !== undefined && cf.barColor) {
-        const span = barSpan(cf.bar, axes().get(JSON.stringify(cf.barColor)));
-        const color = span.negative ? NEGATIVE_BAR : (colorCss(cf.barColor) ?? "#638EC6");
+      if (cf.bar) {
+        const bar = cf.bar;
+        const fill = barFillCss(bar);
         Object.assign(style, {
-          backgroundImage: `linear-gradient(to ${span.negative ? "left" : "right"}, ${color}, #ffffff)`,
+          backgroundImage: bar.gradient ? fill : `linear-gradient(${fill}, ${fill})`,
           backgroundRepeat: "no-repeat",
-          backgroundSize: `${Math.round((span.to - span.from) * (width - 4))}px 70%`,
-          backgroundPosition: `${Math.round(2 + span.from * (width - 4))}px center`,
+          backgroundSize: `${Math.round((bar.to - bar.from) * (width - 4))}px 70%`,
+          backgroundPosition: `${Math.round(2 + bar.from * (width - 4))}px center`,
         });
       }
-      const out: PrintCell = { col, text: cf.hideValue ? "" : (cell?.display ?? ""), style };
+      const out: PrintCell = { col, text: cf.hideValue ? "" : (cf.display ?? cell?.display ?? ""), style };
       if (cf.icon !== undefined && cf.iconSet) out.icon = { set: cf.iconSet, index: cf.icon };
       return out;
     });

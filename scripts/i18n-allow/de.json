@@ -1,0 +1,11 @@
+{
+  "register": {},
+  "untranslated": {
+    "packages/ui-shared/src/i18n/locales:language.label": "bilingual on purpose: \"Language / Sprache\" is found from any UI language",
+    "apps/portal/locales:portal.language": "bilingual on purpose, as language.label",
+    "apps/calc/src/locales:calc.filter.top10Title": "German Excel also says \"Top 10 AutoFilter\"",
+    "apps/portal/locales:portal.dl.title": "\"Downloads\" is the German word too",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.upperRoman": "number format sample (roman numerals), the same in every language",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "number format sample (roman numerals), the same in every language"
+  }
+}

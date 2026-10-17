@@ -140,6 +140,8 @@ describe("sort", () => {
     fireEvent.change(within(dlg).getByLabelText("Order 2"), { target: { value: "desc" } });
     expect(within(dlg).getByLabelText("Order 2").textContent).toContain("Largest to Smallest");
     fireEvent.click(within(dlg).getByRole("button", { name: "Move up" }));
+    // Case sensitive is under Options… (Excel's Sort Options).
+    fireEvent.click(within(dlg).getByRole("button", { name: "Options…" }));
     fireEvent.click(within(dlg).getByLabelText("Case sensitive"));
     fireEvent.click(within(dlg).getByRole("button", { name: "OK" }));
     await waitFor(() =>
@@ -148,6 +150,50 @@ describe("sort", () => {
           type: "sortRange", sheet: 0, r0: 0, c0: 0, r1: 3, c1: 1,
           keys: [{ col: 1, ascending: false, kind: "numbers" }, { col: 0, ascending: true }], hasHeader: true, caseSensitive: true,
         },
+      ]),
+    );
+  });
+
+  it("Custom Sort: a custom list order, a cell colour on top, and left to right", async () => {
+    const { core, grid } = await setup();
+    select(grid, 1, 0);
+    fireEvent.click(screen.getByRole("tab", { name: "Data" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort" }));
+    let dlg = screen.getByRole("dialog", { name: "Sort" });
+    fireEvent.change(within(dlg).getByLabelText("Order 1"), { target: { value: "custom" } });
+    const lists = screen.getByRole("dialog", { name: "Custom Lists" });
+    fireEvent.click(within(lists).getByRole("option", { name: "Sun, Mon, Tue, Wed, Thu, Fri, Sat" }));
+    fireEvent.click(within(lists).getByRole("button", { name: "OK" }));
+    dlg = screen.getByRole("dialog", { name: "Sort" });
+    expect(within(dlg).getByLabelText("Order 1").textContent).toContain("Sun, Mon, Tue");
+    fireEvent.click(within(dlg).getByRole("button", { name: "Add Level" }));
+    fireEvent.change(within(dlg).getByLabelText("Sort as 2"), { target: { value: "cellColor" } });
+    await waitFor(() => expect(core.log.some((r) => r.type === "lineColors")).toBe(true));
+    fireEvent.change(within(dlg).getByLabelText("Order 2"), { target: { value: "bottom" } });
+    fireEvent.click(within(dlg).getByRole("button", { name: "OK" }));
+    await waitFor(() =>
+      expect(applied(core.log)).toEqual([
+        {
+          type: "sortRange", sheet: 0, r0: 0, c0: 0, r1: 3, c1: 1, hasHeader: true, caseSensitive: false,
+          keys: [
+            { col: 0, ascending: true, customList: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] },
+            { col: 1, ascending: false, sortOn: { type: "cellColor" } },
+          ],
+        },
+      ]),
+    );
+    core.log.length = 0;
+    // Options › Sort left to right: the keys are rows.
+    fireEvent.click(screen.getByRole("button", { name: "Sort" }));
+    dlg = screen.getByRole("dialog", { name: "Sort" });
+    fireEvent.click(within(dlg).getByRole("button", { name: "Options…" }));
+    fireEvent.click(within(dlg).getByLabelText("Sort left to right"));
+    expect(within(dlg).getAllByRole("option").map((o) => o.textContent)).toContain("Row 2");
+    fireEvent.change(within(dlg).getByLabelText("Row 1"), { target: { value: "1" } });
+    fireEvent.click(within(dlg).getByRole("button", { name: "OK" }));
+    await waitFor(() =>
+      expect(applied(core.log)).toEqual([
+        { type: "sortRange", sheet: 0, r0: 0, c0: 0, r1: 3, c1: 1, keys: [{ col: 1, ascending: true }], hasHeader: false, caseSensitive: false, columns: true },
       ]),
     );
   });
