@@ -242,6 +242,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+32. 2026-10-18: PM process rule – no merges into `main` while `scripts/deploy-web.sh --e2e` runs (its live e2e reads the working tree's specs; merging L7/L8 mid-run made 18 language tests fail against a build without those catalogs). Redeploy instead.
 31. 2026-10-17: Owner confirmed: web deployed from main during the cycle; **all UI languages use the informal address** (like German "du"); semver 3.141.0 behind the public name 3.141.
 30. 2026-10-17: Owner set the 3.141 cycle (π versioning, docs/versioning.md): features for Calc/Show/Write first, then all 24 EU languages, then AI round 2, then one release build at the end. Assumption until the owner says otherwise: the web keeps being deployed from main after each verified merge. The PM orchestrates only (never writes code).
 29. 2026-10-15: Agents no longer deploy; only the PM deploys from main. (The P8-9/P8-10 deploy hold was lifted after P8-10 merged.) Do not share CARGO_TARGET_DIR across checkouts (insta snapshot paths).
