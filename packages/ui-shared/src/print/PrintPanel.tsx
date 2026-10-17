@@ -100,18 +100,26 @@ export interface PrintPanelProps {
   children?: ReactNode;
   /** Disables printing with this reason (e.g. no slides). */
   disabledReason?: string;
+  /**
+   * The app applies the range itself (Show: slide numbers, not pages):
+   * the panel shows the range field but prints `doc` as it is; range
+   * errors come through `error`.
+   */
+  rangeAppliedByApp?: boolean;
+  /** The label of the range choice (default: Pages). */
+  rangeLabel?: string;
 }
 
-export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, children, disabledReason }: PrintPanelProps) {
+export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, children, disabledReason, rangeAppliedByApp = false, rangeLabel }: PrintPanelProps) {
   const t = useT();
   const [custom, setCustom] = useState(range !== "");
   const [text, setText] = useState(range);
   const [printing, setPrinting] = useState(false);
   const id = useId();
   const total = doc?.pages.length ?? 0;
-  const parsed = range === "" ? null : parsePageRange(range, total);
+  const parsed = range === "" || rangeAppliedByApp ? null : parsePageRange(range, total);
   const rangeError = parsed && "error" in parsed && doc ? parsed.error : null;
-  const shown = doc ? applyPageRange(doc, range) : null;
+  const shown = doc ? (rangeAppliedByApp ? doc : applyPageRange(doc, range)) : null;
   const blocked = disabledReason ?? (error ? error : rangeError ? rangeError : !shown || shown.pages.length === 0 ? (busy ? t("print.preparing") : t("print.nothing")) : undefined);
 
   const print = async () => {
@@ -151,8 +159,8 @@ export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, 
           </p>
         )}
         {before}
-        <PrintSection title={t("print.pages")}>
-          <div role="radiogroup" aria-label={t("print.pages")} className="flex flex-col gap-1 text-sm">
+        <PrintSection title={rangeLabel ?? t("print.pages")}>
+          <div role="radiogroup" aria-label={rangeLabel ?? t("print.pages")} className="flex flex-col gap-1 text-sm">
             <label className="flex items-center gap-2">
               <input
                 type="radio"
@@ -175,7 +183,7 @@ export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, 
                   onRange(text);
                 }}
               />
-              {t("print.pages")}
+              {rangeLabel ?? t("print.pages")}
               <input
                 type="text"
                 aria-label={t("print.pageRange")}

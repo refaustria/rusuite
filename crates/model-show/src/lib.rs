@@ -88,12 +88,15 @@ pub use text::{
     TextSpacing,
 };
 pub use theme::{
-    Background, ColorBase, ColorMod, EffectStyle, FormatScheme, Gradient, GradientShape,
-    GradientStop, PictureFill, ResolvedFill, ResolvedStop, StyleColor, StyleFill, StyleLine,
-    StyleShadow, Theme,
+    Background, BgGradient, BgStop, ColorBase, ColorMod, EffectStyle, FormatScheme, Gradient,
+    GradientShape, GradientStop, PatternFill, PictureFill, ResolvedFill, ResolvedStop, StyleColor,
+    StyleFill, StyleLine, StyleShadow, Theme, PATTERN_PRESETS,
 };
 pub use themes::{builtin_theme, builtin_themes, BuiltinTheme, BUILTIN_THEME_IDS};
-pub use view::{Guide, GuideOrient, ShowSettings, SlideRange, ViewKind, ViewProps};
+pub use view::{
+    validate_custom_shows, CustomShow, Guide, GuideOrient, ShowSettings, ShowType, SlideRange,
+    ViewKind, ViewProps,
+};
 
 use serde::{Deserialize, Serialize};
 

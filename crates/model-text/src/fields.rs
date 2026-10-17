@@ -1,6 +1,8 @@
 //! Field results computed from the document: cross-references (`REF`,
 //! `PAGEREF`, `NOTEREF`), sequence numbers (`SEQ`, Word's caption
-//! numbers) and document properties (`TITLE`, `AUTHOR`).
+//! numbers) and document properties (`TITLE`, `AUTHOR`, `SUBJECT`,
+//! `KEYWORDS`, `COMMENTS`, `LASTSAVEDBY`, `DOCPROPERTY`; `SAVEDATE` is
+//! formatted by the UI, like `DATE`).
 //!
 //! Page numbers come from the UI's pagination (as for `PAGE`): the caller
 //! passes the page of each paragraph it knows.
@@ -54,7 +56,8 @@ impl Document {
     /// bookmark's text (`\n`: the paragraph's list number), `PAGEREF` the
     /// page of the bookmark's start paragraph in `pages` (formatted like
     /// the section's page numbers; fields whose page is unknown are left
-    /// out), `NOTEREF` the note number, `TITLE`/`AUTHOR` the properties
+    /// out), `NOTEREF` the note number, `TITLE`/`AUTHOR`/`SUBJECT`/
+    /// `KEYWORDS`/`COMMENTS`/`LASTSAVEDBY`/`DOCPROPERTY` the properties
     /// (left out when empty). A missing bookmark gives [`REF_ERROR`].
     pub fn computed_fields(&self, pages: &HashMap<NodeId, u32>) -> Vec<FieldValue> {
         // Pass 1: sequence numbers (REF texts may contain them).
@@ -90,6 +93,13 @@ impl Document {
                     let value = match kind {
                         FieldKind::Title => doc.properties.title.clone(),
                         FieldKind::Author => doc.properties.author.clone(),
+                        FieldKind::Subject => doc.properties.subject.clone(),
+                        FieldKind::Keywords => doc.properties.keywords.clone(),
+                        FieldKind::Comments => doc.properties.description.clone(),
+                        FieldKind::LastSavedBy => doc.properties.last_modified_by.clone(),
+                        FieldKind::DocProperty { name } => {
+                            doc.properties.named(name).map(str::to_owned)
+                        }
                         FieldKind::Ref {
                             bookmark, number, ..
                         } => Some(match bookmarks.get(&bookmark.to_lowercase()) {
@@ -399,5 +409,30 @@ mod tests {
         }
         let v = doc.computed_fields(&HashMap::new());
         assert_eq!(value(&v, &doc, 1), ["1"]);
+    }
+
+    #[test]
+    fn property_fields_take_the_document_properties() {
+        let mut doc = doc_with(vec![vec![
+            field(FieldKind::Subject),
+            field(FieldKind::Keywords),
+            field(FieldKind::Comments),
+            field(FieldKind::LastSavedBy),
+            field(FieldKind::DocProperty {
+                name: "Company".into(),
+            }),
+            field(FieldKind::SaveDate { format: None }),
+        ]]);
+        doc.properties.subject = Some("Budget".into());
+        doc.properties.keywords = Some("q3".into());
+        doc.properties.description = Some("Draft".into());
+        doc.properties.last_modified_by = Some("Ann".into());
+        doc.properties.company = Some("ACME".into());
+        let v = doc.computed_fields(&HashMap::new());
+        // SAVEDATE is formatted by the UI.
+        assert_eq!(value(&v, &doc, 0), ["Budget", "q3", "Draft", "Ann", "ACME"]);
+        doc.properties.company = None;
+        let v = doc.computed_fields(&HashMap::new());
+        assert_eq!(value(&v, &doc, 0).len(), 4);
     }
 }

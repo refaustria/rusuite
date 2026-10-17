@@ -16,6 +16,30 @@ use crate::props::{NumberingRef, ParagraphProperties};
 use crate::section::{HeaderSlot, Note, Section, SectionId};
 use crate::style::{StyleKind, StyleSheet};
 
+/// Counts of [`Document::statistics`] (docx `app.xml` `Words`,
+/// `Characters`, `CharactersWithSpaces`, `Paragraphs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct DocumentStatistics {
+    /// Words.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub words: usize,
+    /// Characters without spaces.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub characters: usize,
+    /// Characters with spaces.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub characters_with_spaces: usize,
+    /// Paragraphs that contain text.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub paragraphs: usize,
+}
+
 /// A Write document.
 ///
 /// Serializes with all node ids; the id counter is not serialized but
@@ -217,6 +241,30 @@ impl Document {
             .sum()
     }
 
+    /// File › Info statistics (Word's Word Count dialog): words, characters
+    /// without spaces, characters with spaces and non-empty paragraphs of
+    /// the body (table cells included).
+    pub fn statistics(&self) -> DocumentStatistics {
+        let mut out = DocumentStatistics {
+            words: self.word_count(),
+            ..Default::default()
+        };
+        for p in self.paragraphs() {
+            let text: String = p
+                .text()
+                .chars()
+                .filter(|c| !matches!(c, '\u{FFFC}' | '\u{2}'))
+                .collect();
+            if text.trim().is_empty() {
+                continue;
+            }
+            out.paragraphs += 1;
+            out.characters_with_spaces += text.chars().count();
+            out.characters += text.chars().filter(|c| !c.is_whitespace()).count();
+        }
+        out
+    }
+
     /// The id of the style that applies to `p`: its own style if it exists,
     /// otherwise the default paragraph style.
     fn effective_style<'a>(&'a self, p: &'a Paragraph) -> Option<&'a str> {
@@ -252,15 +300,16 @@ impl Document {
     }
 
     /// Effective character formatting of `run` in `p`: document defaults →
-    /// paragraph style chain → the run's character style chain → direct
-    /// formatting.
+    /// paragraph style chain → the run's character style chain (toggle
+    /// properties switch, see [`apply_character_style`](crate::style::apply_character_style))
+    /// → direct formatting (absolute).
     pub fn resolve_run_props(&self, p: &Paragraph, run: &Run) -> RunProperties {
         let mut base = match self.effective_style(p) {
             Some(id) => self.styles.resolve_run(id),
             None => self.styles.defaults.run.clone(),
         };
         if let Some(cs) = &run.style {
-            base.apply(&self.styles.resolve_character(cs));
+            crate::style::apply_character_style(&mut base, &self.styles.resolve_character(cs));
         }
         base.merged_with(&run.props)
     }

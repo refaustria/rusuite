@@ -440,5 +440,24 @@
    "action:previous",
    "media:video"
   ]
+ },
+ {
+  "file": "provisional-34-views-design.pptx",
+  "topic": "Custom show and Set Up Show, master and layout guides, gradient and pattern backgrounds",
+  "features": [
+   "slides:4",
+   "layout:title",
+   "layout:titleContent",
+   "layout:blank",
+   "size:16x9",
+   "bullets:levels=1",
+   "shape:textBox:count=1",
+   "customShow:count=1",
+   "show:customShow",
+   "guides:master",
+   "guides:layout",
+   "background:gradient",
+   "background:pattern"
+  ]
  }
 ]

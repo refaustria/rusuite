@@ -27,7 +27,7 @@ fn files() -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir())
         .unwrap()
         .map(|e| e.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|e| e == "docx"))
+        .filter(|p| p.extension().is_some_and(|e| e == "docx" || e == "dotx"))
         .collect();
     v.sort();
     assert!(v.len() >= 60, "{v:?}");
@@ -266,6 +266,9 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                         .is_some_and(|u| u != core_model::Underline::None)
                     {
                         out.insert("run:underline".into());
+                    }
+                    if r.underline == Some(core_model::Underline::Words) {
+                        out.insert("run:words-underline".into());
                     }
                     if r.strike == Some(true) {
                         out.insert("run:strike".into());
@@ -515,6 +518,13 @@ fn style_features(doc: &Document, out: &mut BTreeSet<String>) {
             if s.hidden {
                 out.insert("style:hidden".into());
             }
+            let p = doc.styles.resolve_paragraph(&s.id);
+            if p.shading.is_some() {
+                out.insert("style:shading".into());
+            }
+            if p.borders.is_some_and(|b| b.bottom.is_some()) {
+                out.insert("style:bottom-rule".into());
+            }
         }
         for r in p.inlines.iter().filter_map(Inline::as_run) {
             if let Some(s) = r.style.as_deref().and_then(|id| doc.styles.get(id)) {
@@ -571,6 +581,7 @@ fn structure_features(doc: &Document, out: &mut BTreeSet<String>) {
         ("subject", &doc.properties.subject),
         ("author", &doc.properties.author),
         ("keywords", &doc.properties.keywords),
+        ("company", &doc.properties.company),
     ] {
         if v.is_some() {
             out.insert(format!("props:{key}"));
@@ -588,6 +599,14 @@ fn structure_features(doc: &Document, out: &mut BTreeSet<String>) {
                         FieldKind::FileName => "field:filename".to_owned(),
                         FieldKind::Author => "field:author".to_owned(),
                         FieldKind::Title => "field:title".to_owned(),
+                        FieldKind::Subject => "field:subject".to_owned(),
+                        FieldKind::Keywords => "field:keywords".to_owned(),
+                        FieldKind::Comments => "field:comments".to_owned(),
+                        FieldKind::LastSavedBy => "field:lastsavedby".to_owned(),
+                        FieldKind::SaveDate { .. } => "field:savedate".to_owned(),
+                        FieldKind::DocProperty { ref name } => {
+                            format!("field:docproperty={}", name.to_lowercase())
+                        }
                         FieldKind::Ref { .. } => "field:ref".to_owned(),
                         FieldKind::PageRef { .. } => "field:pageref".to_owned(),
                         FieldKind::NoteRef { .. } => "field:noteref".to_owned(),
@@ -698,7 +717,10 @@ fn manifest_features_are_read() {
         let out = fmt_docx::read_with_context(&load(&e.file))
             .unwrap_or_else(|err| panic!("{}: {err}", e.file));
         let theme = out.context.theme_or_default();
-        let have = features_of(&out.document, &theme);
+        let mut have = features_of(&out.document, &theme);
+        if out.context.template {
+            have.insert("template".into());
+        }
         for f in &e.features {
             let errata = MANIFEST_ERRATA
                 .iter()
@@ -1316,7 +1338,13 @@ fn custom_linked_and_hidden_styles() {
     ] {
         assert!(styles.contains(needle), "{needle} missing in\n{styles}");
     }
-    assert!(!styles.contains("latentStyles"));
+    // Word's latent styles travel along (P9-W3), between the defaults and the styles.
+    assert!(doc.styles.latent.is_some());
+    assert!(styles.contains("<w:latentStyles"), "{styles}");
+    assert_eq!(
+        fmt_docx::read(&bytes).unwrap().styles.latent,
+        doc.styles.latent
+    );
     let xml = pretty_document_xml(&bytes);
     assert!(xml.contains(r#"<w:rStyle w:val="KeyTerm"/>"#), "{xml}");
     assert_same("58 (no context)", &doc, &reread(&doc));
@@ -1766,5 +1794,67 @@ fn endnotes_at_section_end_and_note_numbering_roundtrip() {
     assert!(
         xml.contains(r#"<w:endnotePr><w:pos w:val="sectEnd"/>"#),
         "{xml}"
+    );
+}
+
+// --- style sets, properties, templates (P9-W3) -------------------------------------
+
+#[test]
+fn style_sets_properties_and_template() {
+    let out = read_out("provisional-63-style-sets-properties.docx");
+    let doc = &out.document;
+    assert!(!out.context.template);
+    assert_eq!(doc.properties.company.as_deref(), Some("ACME Corp"));
+    assert_eq!(
+        doc.properties.title.as_deref(),
+        Some("Style sets and properties")
+    );
+    let shaded = doc.styles.get("ShadedHeading").unwrap();
+    assert_eq!(shaded.kind, model_text::StyleKind::Linked);
+    assert!(shaded.paragraph.shading.is_some());
+    assert_eq!(shaded.run.all_caps, Some(true));
+    let lined = doc.styles.get("LinedHeading").unwrap();
+    assert_eq!(lined.run.small_caps, Some(true));
+    assert!(lined.run.char_spacing.is_some());
+    // Fields: TITLE, SUBJECT, AUTHOR, KEYWORDS and DOCPROPERTY Company compute from the properties.
+    let kinds: Vec<FieldKind> = doc
+        .paragraphs()
+        .flat_map(|p| p.inlines.iter())
+        .filter_map(|i| match i {
+            Inline::Field(f) => Some(f.kind.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(kinds.contains(&FieldKind::DocProperty {
+        name: "Company".into()
+    }));
+    assert!(kinds.contains(&FieldKind::Keywords) && kinds.contains(&FieldKind::Subject));
+    let values: Vec<String> = doc
+        .computed_fields(&Default::default())
+        .into_iter()
+        .map(|(_, _, v)| v)
+        .collect();
+    assert!(values.iter().any(|v| v == "ACME Corp"), "{values:?}");
+    // Written back: company in app.xml, the words-only underline, the DOCPROPERTY field.
+    let bytes = fmt_docx::write_with_context(doc, &out.context).unwrap();
+    let pkg = Package::open(Cursor::new(bytes.as_slice())).unwrap();
+    let part = |n: &str| {
+        String::from_utf8(pkg.part(&PartName::new(n).unwrap()).unwrap().data.clone()).unwrap()
+    };
+    assert!(part("/docProps/app.xml").contains("<Company>ACME Corp</Company>"));
+    let xml = part("/word/document.xml");
+    assert!(xml.contains(r#"<w:u w:val="words"/>"#), "{xml}");
+    assert!(xml.contains("DOCPROPERTY Company"), "{xml}");
+
+    let tpl = read_out("provisional-64-template-memo.dotx");
+    assert!(tpl.context.template);
+    assert_eq!(tpl.document.properties.title.as_deref(), Some("Memo"));
+    assert!(tpl.document.plain_text().contains("[Recipient names]"));
+    let again = fmt_docx::write_with_context(&tpl.document, &tpl.context).unwrap();
+    assert!(
+        fmt_docx::read_with_context(&again)
+            .unwrap()
+            .context
+            .template
     );
 }

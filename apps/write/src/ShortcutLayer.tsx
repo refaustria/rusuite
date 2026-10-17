@@ -4,7 +4,8 @@
 
 import { useMemo, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { openBackstage, PromptDialog, ShortcutHelp, useShortcuts, withExtension, type HelpRow, type ShortcutMap } from "@rusuite/ui-shared";
+import { openBackstage, ShortcutHelp, useShortcuts, type HelpRow, type ShortcutMap } from "@rusuite/ui-shared";
+import { SaveAsDialog } from "./ui/templatesUi";
 import type { Alignment } from "./generated/Alignment";
 import { indent, setAlignment, setParagraphStyle, toggleHeading } from "./sync/editorCommands";
 import { setLineSpacingRule, toggleSpaceBefore } from "./features/formatting";
@@ -146,6 +147,12 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
         inField: true,
         run: () => (features ? features.ui.set({ stylesPane: !features.ui.getState().stylesPane }) : false),
       },
+      "Shift+F1": {
+        label: t("write.reveal.title"),
+        group: t("write.styles"),
+        inField: true,
+        run: () => (features ? features.ui.set({ revealFormatting: !features.ui.getState().revealFormatting }) : false),
+      },
       "Mod+P": { label: t("sc.printTip"), group: File, inField: true, run: () => void openBackstage("print") },
       "Mod+/": { label: t("shortcuts.title"), inField: true, run: () => setHelpOpen(true) },
       "Mod+F": { label: t("cmd.findReplace"), group: t("sc.edit"), inField: true, run: () => onFind() },
@@ -209,16 +216,13 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
   return (
     <>
       <ShortcutHelp open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={map} extra={nativeRows(t)} />
-      <PromptDialog
+      <SaveAsDialog
         open={saveAsOpen}
-        title={t("cmd.saveAs")}
-        label={t("saveAs.fileName")}
         initial={ctl.getState().name ?? t("write.defaultName")}
-        confirmLabel={t("cmd.save")}
         onClose={() => setSaveAsOpen(false)}
         onSubmit={(name) => {
           setSaveAsOpen(false);
-          onSaveAs(withExtension(name, ".docx"));
+          onSaveAs(name);
         }}
       />
     </>

@@ -1,11 +1,13 @@
 // File › Info: the document properties (Word's Properties panel). The text
 // fields commit on blur / Enter (`SetProperties`, one undo step each);
-// created / modified / words / pages are read-only.
+// created / modified / the statistics are read-only.
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { Editor } from "@tiptap/react";
 import { getLocale } from "@rusuite/ui-shared";
 import type { CoreProperties } from "../generated/CoreProperties";
+import type { DocumentStatistics } from "../generated/DocumentStatistics";
+import { isTemplateName } from "../sync/SyncPlugin";
 import type { WriteCommand } from "../generated/WriteCommand";
 import type { SyncController } from "../sync/SyncPlugin";
 import { countDocWords } from "../wordCount";
@@ -18,6 +20,7 @@ export const INFO_FIELDS: { key: keyof CoreProperties; label: string; multiline?
   { key: "author", label: "write.info.author" },
   { key: "keywords", label: "write.info.keywords" },
   { key: "category", label: "write.info.category" },
+  { key: "company", label: "write.info.company" },
   { key: "description", label: "write.info.comments", multiline: true },
 ];
 
@@ -69,7 +72,18 @@ function Field({ label, value, multiline, onCommit }: { label: string; value: st
 export function InfoPanel({ ctl, editor, pages }: { ctl: SyncController; editor: Editor | null; pages: number | null }) {
   const t = useT();
   const props = useSyncExternalStore(ctl.subscribe, () => ctl.properties);
+  const revision = useSyncExternalStore(ctl.subscribe, () => ctl.getState().revision);
+  const name = useSyncExternalStore(ctl.subscribe, () => ctl.getState().name);
   const words = editor ? countDocWords(editor.state.doc) : 0;
+  // Characters and paragraphs as the core counts them (docProps/app.xml).
+  const [stats, setStats] = useState<DocumentStatistics | null>(null);
+  useEffect(() => {
+    let live = true;
+    ctl.api.statistics().then((r) => live && setStats(r.stats), () => undefined);
+    return () => {
+      live = false;
+    };
+  }, [ctl, revision]);
   const commit = (key: keyof CoreProperties) => (text: string) => {
     const cmd = propertyCommand(props, key, text);
     if (cmd) void ctl.run(cmd);
@@ -92,6 +106,10 @@ export function InfoPanel({ ctl, editor, pages }: { ctl: SyncController; editor:
       {ro(t("write.info.lastModifiedBy"), props.lastModifiedBy ?? "", "info-modified-by")}
       {ro(t("write.info.words"), String(words), "info-words")}
       {ro(t("write.info.pages"), String(pages ?? props.pages ?? ""), "info-pages")}
+      {ro(t("write.info.characters"), stats ? String(stats.characters) : "", "info-characters")}
+      {ro(t("write.info.charactersWithSpaces"), stats ? String(stats.charactersWithSpaces) : "", "info-characters-spaces")}
+      {ro(t("write.info.paragraphs"), stats ? String(stats.paragraphs) : "", "info-paragraphs")}
+      {ro(t("write.info.template"), t(name && isTemplateName(name) ? "write.info.isTemplate" : "write.info.isDocument"), "info-type")}
     </section>
   );
 }

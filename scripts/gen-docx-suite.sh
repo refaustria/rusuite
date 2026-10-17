@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate the 62 PROVISIONAL docx reference files (testdata/docx/provisional-NN-*.docx) with headless
+# Generate the 64 PROVISIONAL docx reference files (testdata/docx/provisional-NN-*.docx, one .dotx template) with headless
 # LibreOffice, plus testdata/docx/manifest.json describing their contents (docs/docx-suite.md).
 #   gen-docx-suite.sh            generate (flat ODT from scripts/testdata-src/docx/gen.py -> docx)
 #   gen-docx-suite.sh --verify   check the committed files against the manifest
@@ -30,13 +30,13 @@ verify_dir() {
   local dir="$1" fail=0 f pdf n
   mkdir -p "$TMP/pdf"
   n="$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$dir/manifest.json")"
-  if [[ "$n" != 62 ]]; then echo "FAIL manifest has $n entries, expected 62"; fail=1; fi
+  if [[ "$n" != 64 ]]; then echo "FAIL manifest has $n entries, expected 64"; fail=1; fi
   while IFS= read -r f; do
     if [[ ! -s "$dir/$f" ]]; then echo "FAIL $f: missing"; fail=1; continue; fi
     if ! unzip -l "$dir/$f" | grep -q '\[Content_Types\].xml'; then echo "FAIL $f: no [Content_Types].xml"; fail=1; continue; fi
     if (($(stat -c %s "$dir/$f") >= MAX_BYTES)); then echo "FAIL $f: 60 KB or larger"; fail=1; continue; fi
     if ! lo_convert "$TMP/pdf" pdf "$dir/$f"; then echo "FAIL $f: soffice failed"; fail=1; continue; fi
-    pdf="$TMP/pdf/${f%.docx}.pdf"
+    pdf="$TMP/pdf/${f%.*}.pdf"
     if [[ ! -s "$pdf" ]]; then echo "FAIL $f: empty PDF"; fail=1; continue; fi
     echo "OK   $f"
   done < <(python3 -I -c 'import json,sys; print("\n".join(e["file"] for e in json.load(open(sys.argv[1]))))' "$dir/manifest.json")
@@ -50,12 +50,22 @@ generate() {
   convert -size 48x48 pattern:checkerboard "$TMP/png/img1.png"
   convert -size 48x48 -seed 7 plasma:fractal -colors 16 "$TMP/png/img2.png"
   python3 -I "$GEN" emit "$TMP/src" "$TMP/png"
-  lo_convert "$TMP/out" "docx:MS Word 2007 XML" "$TMP"/src/provisional-*.fodt
+  # Templates (gen.py `d.ext = "dotx"`) go through Word's template filter.
+  local tpl=() doc=() f
+  for f in "$TMP"/src/provisional-*.fodt; do
+    if python3 -I -c 'import json,sys; m=json.load(open(sys.argv[1])); sys.exit(0 if any(e["file"].endswith(".dotx") and e["file"][:-5]==sys.argv[2] for e in m) else 1)' "$TMP/src/manifest.json" "$(basename "${f%.fodt}")"; then
+      tpl+=("$f")
+    else
+      doc+=("$f")
+    fi
+  done
+  lo_convert "$TMP/out" "docx:MS Word 2007 XML" "${doc[@]}"
+  ((${#tpl[@]})) && lo_convert "$TMP/out" "dotx:MS Word 2007 XML Template" "${tpl[@]}"
   python3 -I "$GEN" patch "$TMP/out"
   cp "$TMP/src/manifest.json" "$TMP/out/manifest.json"
   verify_dir "$TMP/out"
-  cp "$TMP"/out/provisional-*.docx "$TMP/out/manifest.json" "$OUT/"
-  echo "wrote $(find "$OUT" -name 'provisional-[0-9]*.docx' | wc -l) files to testdata/docx/"
+  cp "$TMP"/out/provisional-*.docx "$TMP"/out/provisional-*.dotx "$TMP/out/manifest.json" "$OUT/"
+  echo "wrote $(find "$OUT" -name 'provisional-[0-9]*.do[ct]x' | wc -l) files to testdata/docx/"
 }
 
 case "${1:-}" in

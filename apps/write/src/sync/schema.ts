@@ -170,7 +170,14 @@ const RusuiteAttributes = Extension.create({
       },
       {
         types: ["underline"],
-        attributes: { kind: { default: "single", parseHTML: () => "single", renderHTML: () => ({}) } },
+        // Word's underline kinds are drawn with `data-u` (styles.css); "words" leaves the spaces out (wordsUnderline.ts).
+        attributes: {
+          kind: {
+            default: "single",
+            parseHTML: (el: HTMLElement) => el.getAttribute("data-u") ?? "single",
+            renderHTML: (a: Record<string, unknown>) => (a.kind && a.kind !== "single" ? { "data-u": String(a.kind) } : {}),
+          },
+        },
       },
     ];
   },

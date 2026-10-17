@@ -110,6 +110,28 @@ impl PathQuery {
     }
 }
 
+/// The window state saved with a presentation (`viewProps.xml`): Normal
+/// view zoom (`None` = fit), Slide Sorter zoom, thumbnail pane width and
+/// slide / notes split (thousandths of a percent, as `restoredLeft` /
+/// `restoredTop`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub struct ViewState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub zoom: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sorter_zoom: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub restored_left: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub restored_top: Option<u32>,
+}
+
 /// A request from the UI. JSON: `{"type":"apply","command":{...}}`,
 /// `{"type":"undo"}`, `{"type":"getMedia","id":3}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -151,6 +173,10 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         last_view: Option<ViewKind>,
+        /// Zoom and pane sizes, stamped likewise (P9-S3).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        view_state: Option<ViewState>,
     },
     /// The whole presentation for crash recovery → `recoverySnapshot` (changes
     /// nothing; the JSON is the input of `restoreRecovery`).
@@ -312,9 +338,15 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
                 envelope: Box::new(host.envelope(ShowPatch::default())),
             }
         }
-        Request::SavePptx { last_view } => {
+        Request::SavePptx {
+            last_view,
+            view_state,
+        } => {
             if let Some(v) = last_view {
                 host.doc_mut().stamp_last_view(v);
+            }
+            if let Some(s) = &view_state {
+                host.doc_mut().stamp_view_state(s);
             }
             let bytes = host.doc().save_pptx()?;
             ResponseBody::Saved {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { applyPageRange, AutosaveStatus, formatNumber, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { AutosaveStatus, formatNumber, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
 import { EditorStage } from "./canvas/Stage";
@@ -114,9 +114,11 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       }),
     [backend, store],
   );
-  const [presenting, setPresenting] = useState<{ mode: "single" | "presenter"; link?: AudienceLink; rehearse?: boolean } | null>(null);
+  const [presenting, setPresenting] = useState<{ mode: "single" | "presenter"; link?: AudienceLink; rehearse?: boolean; customShow?: number } | null>(null);
   const [printOptions, setPrintOptions] = useState<ShowPrintOptions>(DEFAULT_SHOW_PRINT);
-  const [zoom, setZoom] = useState<ShowZoom>("fit");
+  // the zoom is part of the window state saved with the file (P9-S3)
+  const zoom = useShow(store, (s) => s.zoom) as ShowZoom;
+  const setZoom = useCallback((z: ShowZoom) => store.setZoom(z), [store]);
   const [canvasRef, size] = useElementSize<HTMLDivElement>();
   const pres = useShow(store, (s) => s.pres);
   const dirty = useShow(store, (s) => s.dirty);
@@ -151,27 +153,41 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   }, [backend, guard, dirty, name, locale]);
 
   const startPresenting = useCallback(
-    (mode: "single" | "presenter" = "single", rehearse = false) => {
+    (mode: "single" | "presenter" = "single", rehearse = false, customShow?: number) => {
       if (!store.getState().pres?.slides.length) return;
       void store.commitEdit();
       if (store.getState().view === "reading") store.setView("normal");
       // The audience window opens right here, inside the key / click handler (popup blockers).
-      setPresenting(mode === "presenter" ? { mode, link: launchAudience() } : { mode, rehearse });
+      setPresenting(mode === "presenter" ? { mode, link: launchAudience() } : { mode, rehearse, ...(customShow === undefined ? {} : { customShow }) });
     },
     [store],
   );
+  // Custom Slide Show ▾ / Custom Shows › Show (P9-S3)
+  const showRequest = useShow(store, (s) => s.showRequest);
+  useEffect(() => {
+    if (!showRequest) return;
+    store.clearShowRequest();
+    startPresenting("single", false, showRequest.customShow);
+  }, [showRequest, store, startPresenting]);
   // File › Export PDF…: the Print pipeline with the current settings, straight to the system dialog ("Save as PDF").
   const exportPdf = useCallback(() => {
     void (async () => {
       await store.commitEdit();
+      // the slide range and section are applied while building
       const doc = await buildShowDoc(store, printOptions);
-      await printShow(store, backend, applyPageRange(doc, printOptions.range));
+      await printShow(store, backend, doc);
     })().catch((e) => store.pushError(e));
   }, [backend, store, printOptions]);
   const presentFrom = useCallback(
     (fromStart: boolean, rehearse = false) => {
       const pres = store.getState().pres;
       const first = pres?.slides[0]?.id;
+      // Set Up Slide Show › Custom show: From Beginning runs it
+      const custom = pres?.showSettings?.customShow;
+      if (fromStart && !rehearse && custom !== undefined && pres?.customShows?.some((c) => c.id === custom && c.slideIds.length)) {
+        startPresenting("single", false, custom);
+        return;
+      }
       if (fromStart && pres && first !== undefined) {
         // Set Up Slide Show › From … To …: the first slide of the range
         const range = pres.showSettings?.range;
@@ -260,7 +276,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       <ShowDialogs store={store} printOptions={printOptions} onPrintOptions={setPrintOptions} />
       <ShortcutLayer store={store} guard={guard} enabled={!presenting} onPresent={presentFrom} onPresenterView={presenterView} />
       <ConfirmDiscard guard={guard} />
-      {presenting && pres && <SlideShow store={store} mode={presenting.mode} link={presenting.link} rehearse={presenting.rehearse} onEnd={exit} />}
+      {presenting && pres && <SlideShow store={store} mode={presenting.mode} link={presenting.link} rehearse={presenting.rehearse} customShow={presenting.customShow ?? null} onEnd={exit} />}
     </main>
   );
 }

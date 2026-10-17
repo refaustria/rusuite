@@ -95,7 +95,7 @@ describe("Design tab", () => {
     expect(last(backend.commands)).toEqual({ type: "setSlideSize", size: { width: 7200000, height: 5400000 }, scale: "maximize" });
   });
 
-  it("Format Background: solid on the slide, gradient on the master, hide background graphics", async () => {
+  it("Format Background: a gradient on the slide, hide background graphics", async () => {
     const { backend } = await mount();
     fireEvent.click(screen.getByRole("tab", { name: "Design" }));
     fireEvent.click(screen.getByRole("button", { name: "Format Background" }));
@@ -103,10 +103,12 @@ describe("Design tab", () => {
     expect(within(pane).getByTestId("bg-target").textContent).toBe("Current slide");
     fireEvent.click(within(pane).getByLabelText("Gradient fill"));
     await flush();
-    expect(last(backend.commands)).toEqual({ type: "setBackground", target: { kind: "master" }, fill: { kind: "style", value: { index: 1003, color: { kind: "theme", value: { slot: "accent1", tint: 0 } } } } });
+    const c = last(backend.commands);
+    expect(c).toMatchObject({ type: "setBackground", target: { kind: "slides", value: [1] }, fill: { kind: "gradient" }, hideMasterShapes: false });
+    const gradient = c?.type === "setBackground" ? c.fill : null;
     fireEvent.click(within(pane).getByLabelText("Hide background graphics"));
     await flush();
-    expect(last(backend.commands)).toEqual({ type: "setBackground", target: { kind: "slides", value: [1] }, fill: null, hideMasterShapes: true });
+    expect(last(backend.commands)).toEqual({ type: "setBackground", target: { kind: "slides", value: [1] }, fill: gradient, hideMasterShapes: true });
     // the slide no longer draws the master's accent bar
     expect(within(stage()).queryAllByText("", { selector: '[data-shape-id="900"]' })).toHaveLength(0);
   });
@@ -246,7 +248,8 @@ describe("sections in the slide panel", () => {
     await flush();
     expect(last(backend.commands)).toEqual({ type: "removeSection", index: 0, keepSlides: true });
     // Add Section at the current slide asks for the name
-    fireEvent.click(within(screen.getByRole("toolbar", { name: "Formatting" })).getByRole("button", { name: "Add Section" }));
+    fireEvent.click(within(screen.getByRole("toolbar", { name: "Formatting" })).getByRole("button", { name: "Section" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add Section" }));
     await flush();
     expect(backend.commands.at(-1)).toMatchObject({ type: "addSection", name: "Untitled Section" });
     expect(screen.getByRole("dialog", { name: "Rename Section" })).toBeTruthy();

@@ -81,6 +81,16 @@ pub enum LinkTarget {
     Slide(SlideRef),
     /// Ends the slide show (`ppaction://hlinkshowjump?jump=endshow`).
     EndShow,
+    /// Runs a custom show (`ppaction://customshow?id=N`, `&return=true`:
+    /// back to the slide of the link when it ends).
+    #[serde(rename_all = "camelCase")]
+    CustomShow {
+        /// [`crate::CustomShow::id`].
+        id: u32,
+        /// Show and return.
+        #[serde(default)]
+        return_after: bool,
+    },
 }
 
 /// A hyperlink (`a:hlinkClick`).

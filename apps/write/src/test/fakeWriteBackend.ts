@@ -191,11 +191,25 @@ export class FakeWriteBackend implements WriteBackend {
     return { type: "document" as const, doc: this.sendable(), envelope: this.envelope(this.emptyPatch()) };
   }
 
+  /** Saves as a template (`saveDocx { template }`). */
+  template = false;
+  /** Whether the last `saveDocx` wrote a template. */
+  lastSavedTemplate = false;
+
   private handle(request: Request): ResponseBody {
     switch (request.type) {
-      case "newDocument":
+      case "newDocument": {
         this.name = null;
-        return this.reset(structuredClone(template) as unknown as Document);
+        const doc = structuredClone(template) as unknown as Document;
+        if (request.styleSet) {
+          doc.styles.defaults = structuredClone(request.styleSet.defaults);
+          for (const e of request.styleSet.styles) {
+            const st = doc.styles.styles.find((x) => x.id === e.id);
+            if (st) Object.assign(st, { paragraph: structuredClone(e.paragraph ?? {}), run: structuredClone(e.run ?? {}) });
+          }
+        }
+        return this.reset(doc);
+      }
       case "load":
         return this.reset(structuredClone(request.document));
       case "openDocx": {
@@ -205,7 +219,52 @@ export class FakeWriteBackend implements WriteBackend {
         this.name = request.name;
         return { type: "opened", doc: r.doc, warnings: structuredClone(this.openWarnings), envelope: r.envelope };
       }
+      case "newFromTemplate": {
+        // The fake template is, like a fake docx, the base64 of a Document's JSON.
+        const doc = JSON.parse(new TextDecoder().decode(base64ToBytes(request.bytesBase64))) as Document;
+        const props = { ...(doc.properties ?? {}) };
+        for (const k of ["author", "lastModifiedBy", "created", "modified", "revision", "pages"] as const) delete props[k];
+        doc.properties = props;
+        const r = this.reset(doc);
+        this.name = null;
+        this.template = false;
+        return { type: "opened", doc: r.doc, warnings: [], envelope: r.envelope };
+      }
+      case "styleSets": {
+        const capture = (id: string) => ({
+          id,
+          defaults: structuredClone(this.doc.styles.defaults),
+          styles: ["Normal", "Title", "Subtitle", "Heading1", "Heading2", "Heading3"].flatMap((sid) => {
+            const st = this.doc.styles.styles.find((x) => x.id === sid);
+            return st ? [{ id: st.id, name: st.name, paragraph: structuredClone(st.paragraph ?? {}), run: structuredClone(st.run ?? {}) }] : [];
+          }),
+        });
+        // Two sets: the defaults as they are ("word") and "shaded" (Heading 1 on an accent-1 background, caps).
+        const word = capture("word");
+        const shaded = capture("shaded");
+        for (const e of shaded.styles) {
+          if (e.id.startsWith("Heading")) {
+            e.run = { ...e.run, allCaps: true };
+            if (e.id === "Heading1") e.paragraph = { ...e.paragraph, shading: { kind: "theme", value: { slot: "accent1", tint: 0 } } };
+          }
+        }
+        return { type: "styleSets", sets: [word, shaded] as never, current: capture("current") as never };
+      }
+      case "statistics": {
+        let words = 0, characters = 0, charactersWithSpaces = 0, paragraphs = 0;
+        for (const b of this.doc.body) {
+          if (b.kind !== "paragraph") continue;
+          const text = b.value.inlines.map((i) => (i.kind === "run" ? i.value.text : "")).join("");
+          if (!text.trim()) continue;
+          paragraphs++;
+          words += text.split(/\s+/u).filter(Boolean).length;
+          charactersWithSpaces += [...text].length;
+          characters += [...text].filter((c) => !/\s/u.test(c)).length;
+        }
+        return { type: "statistics", stats: { words, characters, charactersWithSpaces, paragraphs } };
+      }
       case "saveDocx": {
+        if (request.template != null) this.template = request.template;
         if (request.modified || request.user || request.pages != null) {
           const p = { ...(this.doc.properties ?? {}) };
           if (request.modified) {
@@ -220,8 +279,9 @@ export class FakeWriteBackend implements WriteBackend {
           p.revision = (p.revision ?? 0) + 1;
           this.doc.properties = p;
         }
-        const base = (this.name ?? "Untitled.docx").replace(/\.docx$/i, "");
-        return { type: "saved", bytesBase64: bytesToBase64(new TextEncoder().encode(JSON.stringify(this.doc))), suggestedName: `${base}.docx` };
+        const base = (this.name ?? "Untitled.docx").replace(/\.do[ct]x$/i, "");
+        this.lastSavedTemplate = this.template;
+        return { type: "saved", bytesBase64: bytesToBase64(new TextEncoder().encode(JSON.stringify(this.doc))), suggestedName: `${base}.${this.template ? "dotx" : "docx"}` };
       }
       case "getDocument":
         return { type: "document", doc: this.sendable(), envelope: this.envelope(this.emptyPatch()) };
@@ -766,6 +826,25 @@ export class FakeWriteBackend implements WriteBackend {
         if (pt.paragraph) s.paragraph = pt.replaceFormatting ? pt.paragraph : applyParagraphPatch(s.paragraph, pt.paragraph);
         if (pt.quickFormat != null) s.quickFormat = pt.quickFormat;
         if (pt.autoRedefine != null) s.autoRedefine = pt.autoRedefine;
+        if (pt.hidden != null) s.hidden = pt.hidden;
+        if (pt.semiHidden != null) s.semiHidden = pt.semiHidden;
+        if (pt.priority != null) s.priority = pt.priority;
+        return null;
+      }
+      case "setStyleDefaults": {
+        const d = this.doc.styles.defaults;
+        if (c.run) d.run = { ...(d.run ?? {}), ...c.run };
+        if (c.paragraph) d.paragraph = applyParagraphPatch(d.paragraph, { ...c.paragraph, style: null });
+        return null;
+      }
+      case "applyStyleSet": {
+        this.doc.styles.defaults = structuredClone(c.set.defaults);
+        for (const e of c.set.styles) {
+          const st = this.doc.styles.styles.find((x) => x.id === e.id);
+          if (!st) continue;
+          st.paragraph = structuredClone(e.paragraph ?? {});
+          st.run = structuredClone(e.run ?? {});
+        }
         return null;
       }
       case "renameStyle":

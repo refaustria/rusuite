@@ -132,7 +132,20 @@ pub struct DocxContext {
     /// endnotes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub endnote_separators: Option<(i32, i32)>,
+    /// The file is a template (`.dotx`: the main part has
+    /// [`TEMPLATE_CONTENT_TYPE`]); the writer then writes a template too.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub template: bool,
 }
+
+/// Content type of the main part of a `.docx` document.
+pub const DOCUMENT_CONTENT_TYPE: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
+
+/// Content type of the main part of a `.dotx` template (otherwise the
+/// package is the same as a document's).
+pub const TEMPLATE_CONTENT_TYPE: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml";
 
 impl DocxContext {
     /// The theme in effect (the context's or the Office default).

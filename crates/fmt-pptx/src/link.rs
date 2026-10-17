@@ -21,6 +21,8 @@ use crate::Warnings;
 const SHOW_JUMP: &str = "ppaction://hlinkshowjump?jump=";
 /// `action` of a jump to a slide relationship.
 pub const SLIDE_JUMP: &str = "ppaction://hlinksldjump";
+/// `action` of a jump to a custom show (`id=N`, `&return=true`).
+const CUSTOM_SHOW: &str = "ppaction://customshow?";
 /// `action` PowerPoint puts on media shapes.
 pub const MEDIA_ACTION: &str = "ppaction://media";
 
@@ -49,6 +51,21 @@ pub fn read_hlink(h: &El, w: &mut Warnings) -> Option<Hyperlink> {
             w.add(format!("slide show jump {jump} dropped"));
             return None;
         }
+    } else if let Some(query) = action.strip_prefix(CUSTOM_SHOW) {
+        let mut id = None;
+        let mut return_after = false;
+        for kv in query.split('&') {
+            match kv.split_once('=') {
+                Some(("id", v)) => id = v.parse::<u32>().ok(),
+                Some(("return", v)) => return_after = v.eq_ignore_ascii_case("true"),
+                _ => {}
+            }
+        }
+        let Some(id) = id else {
+            w.add("custom show link without id dropped");
+            return None;
+        };
+        LinkTarget::CustomShow { id, return_after }
     } else if action.is_empty() || action == SLIDE_JUMP {
         if rid.is_empty() {
             return None;
@@ -252,6 +269,14 @@ impl LinkSink for PartLinks<'_> {
                 )),
             ),
             LinkTarget::EndShow => (String::new(), Some(format!("{SHOW_JUMP}endshow"))),
+            LinkTarget::CustomShow { id, return_after } => (
+                String::new(),
+                Some(if *return_after {
+                    format!("{CUSTOM_SHOW}id={id}&return=true")
+                } else {
+                    format!("{CUSTOM_SHOW}id={id}")
+                }),
+            ),
         };
         Some(LinkXml {
             rid,
@@ -286,6 +311,20 @@ mod tests {
             LinkTarget::EndShow
         );
         assert_eq!(hl(&x("ppaction://media")), None);
+        assert_eq!(
+            hl(&x("ppaction://customshow?id=3&amp;return=true")).map(|h| h.target),
+            Some(LinkTarget::CustomShow {
+                id: 3,
+                return_after: true
+            })
+        );
+        assert_eq!(
+            hl(&x("ppaction://customshow?id=0")).map(|h| h.target),
+            Some(LinkTarget::CustomShow {
+                id: 0,
+                return_after: false
+            })
+        );
         assert_eq!(hl(&x("ppaction://program")), None);
         let url = hl(r#"<a:hlinkClick xmlns:r="r" r:id="rId4" tooltip="Tip"/>"#).unwrap();
         assert_eq!(url.tooltip.as_deref(), Some("Tip"));

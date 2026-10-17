@@ -90,6 +90,7 @@ pub fn presentation_xml(p: &Presentation, notes_master_rid: Option<&str>) -> Vec
         ],
     );
     x.empty("p:notesSz", &[("cx", "6858000"), ("cy", "9144000")]);
+    write_custom_shows(&mut x, p);
     x.start("p:defaultTextStyle", &[]);
     x.start("a:defPPr", &[]);
     x.empty("a:defRPr", &[("lang", "en-US")]);
@@ -100,8 +101,11 @@ pub fn presentation_xml(p: &Presentation, notes_master_rid: Option<&str>) -> Vec
     def_rpr(&mut x, 1800, false);
     x.end("a:lvl1pPr");
     x.end("p:defaultTextStyle");
-    if !p.sections.is_empty() {
+    let notes_guides = &p.view.notes_guides;
+    if !p.sections.is_empty() || !notes_guides.is_empty() {
         x.start("p:extLst", &[]);
+    }
+    if !p.sections.is_empty() {
         x.start("p:ext", &[("uri", SECTION_EXT_URI)]);
         x.start("p14:sectionLst", &[("xmlns:p14", NS_P14)]);
         for (i, section) in p.sections.iter().enumerate() {
@@ -120,10 +124,42 @@ pub fn presentation_xml(p: &Presentation, notes_master_rid: Option<&str>) -> Vec
         }
         x.end("p14:sectionLst");
         x.end("p:ext");
+    }
+    crate::props::write_p15_guides(
+        &mut x,
+        crate::props::NOTES_GUIDES_URI,
+        "p15:notesGuideLst",
+        notes_guides,
+    );
+    if !p.sections.is_empty() || !notes_guides.is_empty() {
         x.end("p:extLst");
     }
     x.end("p:presentation");
     x.finish()
+}
+
+/// `p:custShowLst`: each custom show's slides as the presentation's
+/// slide relationships (`rId2`… in slide order, as `p:sldIdLst`).
+fn write_custom_shows(x: &mut XmlOut, p: &Presentation) {
+    if p.custom_shows.is_empty() {
+        return;
+    }
+    x.start("p:custShowLst", &[]);
+    for show in &p.custom_shows {
+        x.start(
+            "p:custShow",
+            &[("name", &show.name), ("id", &show.id.to_string())],
+        );
+        x.start("p:sldLst", &[]);
+        for id in &show.slide_ids {
+            if let Some(n) = p.slide_index(*id) {
+                x.empty("p:sld", &[("r:id", &format!("rId{}", n + 2))]);
+            }
+        }
+        x.end("p:sldLst");
+        x.end("p:custShow");
+    }
+    x.end("p:custShowLst");
 }
 
 /// PowerPoint 2010 main namespace (`p14:`).

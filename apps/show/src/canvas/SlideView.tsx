@@ -24,7 +24,8 @@ import type { Table } from "../generated/Table";
 import { boxAttrs, emuToPx, EMU_PER_PX, slidePx } from "../geometry";
 import { bodyText, css, effectiveParagraph, fillCss, themePalette } from "../model";
 import { backdropShapes, designBackground, designShapes, levelDefaults, levelMargins, placeholderFor, slideBackground, slideNumberOf, type DeckContext } from "../design/deck";
-import { konvaFill, resolveColor } from "../design/color";
+import { effectShadow, konvaFill, resolveColor } from "../design/color";
+import { patternDataUrl } from "../design/patterns";
 import { fieldText } from "../design/fields";
 import { cropSource, processedImage, shadowOffset } from "../design/picture";
 import type { PictureProps } from "../generated/PictureProps";
@@ -129,13 +130,48 @@ function useImage(url: string | undefined): HTMLImageElement | null {
  * stretched over the slide, or tiled at the picture's size (px), with its
  * opacity. Nothing until the image has loaded.
  */
-function BackgroundPicture({ url, tile, alpha, width, height }: { url: string | undefined; tile: boolean; alpha: number; width: number; height: number }) {
+/**
+ * A picture background: tiled at the picture's size × `tileScale`,
+ * shifted by `tileOffset` (EMU), or stretched over the slide with its
+ * edges moved by `offsets` (fractions of the slide; positive = inwards),
+ * clipped to the slide.
+ */
+function BackgroundPicture({ url, tile, alpha, width, height, offsets, tileOffset, tileScale }: {
+  url: string | undefined;
+  tile: boolean;
+  alpha: number;
+  width: number;
+  height: number;
+  offsets?: readonly number[];
+  tileOffset?: readonly number[];
+  tileScale?: readonly number[];
+}) {
   const img = useImage(url);
   if (!img) return null;
-  return tile ? (
-    <Rect name="slide-background-picture" x={0} y={0} width={width} height={height} fillPatternImage={img} fillPatternRepeat="repeat" opacity={alpha} listening={false} />
-  ) : (
-    <KImage name="slide-background-picture" x={0} y={0} width={width} height={height} image={img} opacity={alpha} listening={false} />
+  if (tile) {
+    return (
+      <Rect
+        name="slide-background-picture"
+        x={0}
+        y={0}
+        width={width}
+        height={height}
+        fillPatternImage={img}
+        fillPatternRepeat="repeat"
+        fillPatternX={(tileOffset?.[0] ?? 0) / EMU_PER_PX}
+        fillPatternY={(tileOffset?.[1] ?? 0) / EMU_PER_PX}
+        fillPatternScaleX={tileScale?.[0] ?? 1}
+        fillPatternScaleY={tileScale?.[1] ?? 1}
+        opacity={alpha}
+        listening={false}
+      />
+    );
+  }
+  const [l, t, r, b] = [offsets?.[0] ?? 0, offsets?.[1] ?? 0, offsets?.[2] ?? 0, offsets?.[3] ?? 0];
+  return (
+    <Group clip={{ x: 0, y: 0, width, height }} listening={false}>
+      <KImage name="slide-background-picture" x={l * width} y={t * height} width={Math.max(1, width * (1 - l - r))} height={Math.max(1, height * (1 - t - b))} image={img} opacity={alpha} listening={false} />
+    </Group>
   );
 }
 
@@ -444,12 +480,15 @@ function PresetGeometry({ shape, w, h, ctx }: { shape: Shape; w: number; h: numb
   const geometry = shape.kind.kind === "auto" && typeof shape.kind.value.geometry === "string" ? shape.kind.value.geometry : "rect";
   if (!paths || !paths.paths.length) return <Fallback geometry={geometry} w={w} h={h} fill={fill} stroke={s.attrs} sw={s.sw} strokeColor={s.color} />;
   const lineOnly = paths.paths.every((p) => !p.fill);
+  // the theme's effect style (Design › Variants › Effects)
+  const shadow = effectShadow(ctx.deck.theme, shape.effectRef, EMU_PER_PX);
   return (
     <>
       {paths.paths.map((p, i) => (
         <Path
           key={i}
           name="geometry"
+          {...shadow}
           data={svgPath(p.commands)}
           fill={p.fill ? (p.darken && fill ? shade(fill, p.darken) : (fill ?? "rgba(0,0,0,0)")) : undefined}
           {...(p.stroke ? s.attrs : {})}
@@ -628,11 +667,14 @@ export const SlideView = memo(function SlideView({
   const bg = design ? designBackground(deck, target) : slideBackground(deck, slide);
   const backdrop = design ? designShapes(deck, target) : backdropShapes(deck, slide);
   const bctx: Ctx = { ...ctx, interactive: false, prompts: false, hiddenText: null, asMaster: design === "master" };
-  const fill = bg.kind === "none" || bg.kind === "picture" ? { fill: "#ffffff" } : konvaFill(bg, size.width, size.height);
+  const fill = bg.kind === "none" || bg.kind === "picture" || bg.kind === "pattern" ? { fill: "#ffffff" } : konvaFill(bg, size.width, size.height);
   return (
     <>
       <Rect name="slide-background" x={0} y={0} width={size.width} height={size.height} {...fill} data-bg={bg.kind === "solid" ? bg.value.color : bg.kind} />
-      {bg.kind === "picture" && <BackgroundPicture url={media.get(bg.value.media)} tile={bg.value.tile} alpha={bg.value.alpha} width={size.width} height={size.height} />}
+      {bg.kind === "picture" && (
+        <BackgroundPicture url={media.get(bg.value.media)} tile={bg.value.tile} alpha={bg.value.alpha} width={size.width} height={size.height} offsets={bg.value.offsets} tileOffset={bg.value.tileOffset} tileScale={bg.value.tileScale} />
+      )}
+      {bg.kind === "pattern" && <BackgroundPicture url={patternDataUrl(bg.value.preset, bg.value.fg, bg.value.bg)} tile alpha={1} width={size.width} height={size.height} />}
       {backdrop.length > 0 && (
         <Group name="master-shapes" listening={false}>
           {backdrop.map((s) => (

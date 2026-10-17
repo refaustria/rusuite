@@ -5,15 +5,16 @@
 //! assembled in `read.rs` / `write.rs` (they need the shape reader and
 //! writer for decorative shapes).
 
-use core_model::{RunProperties, ThemeColorSlot};
+use core_model::{Color, Rgb, RunProperties, ThemeColorSlot};
 use model_show::{
-    run_diff, Anchor, Background, BodyProps, ColorMap, Emu, HeaderFooter, HfDate, LevelStyle,
-    PlaceholderDef, PlaceholderKind, TextField, TextParagraphProps, TextStyles,
+    run_diff, Anchor, Background, BgGradient, BgStop, BodyProps, ColorMap, Emu, GradientShape,
+    HeaderFooter, HfDate, LevelStyle, PatternFill, PlaceholderDef, PlaceholderKind, TextField,
+    TextParagraphProps, TextStyles, PATTERN_PRESETS,
 };
 
 use crate::drawing::{
-    read_body_pr, read_color, read_fill, read_ppr, read_rpr, write_body_pr_with, write_color,
-    write_fill, write_ppr_children, write_rpr, write_xfrm,
+    color_and_alpha, read_body_pr, read_color, read_fill, read_ppr, read_rpr, write_body_pr_with,
+    write_color, write_color_with_alpha, write_fill, write_ppr_children, write_rpr, write_xfrm,
 };
 use crate::xml::{parse_bool, parse_i64, parse_u32, El, XmlOut};
 use crate::Warnings;
@@ -116,15 +117,121 @@ pub fn lst_style_levels(tx_body: Option<&El>, w: &mut Warnings) -> Vec<LevelStyl
     out
 }
 
-/// `p:bg` → [`Background`] (`p:bgPr` fill or `p:bgRef idx` + colour).
+/// `p:bg` → [`Background`] (`p:bgPr` solid, gradient or pattern fill, or
+/// `p:bgRef idx` + colour; pictures are read by the slide reader).
 pub fn read_background(bg: &El, w: &mut Warnings) -> Option<Background> {
     if let Some(pr) = bg.child("bgPr") {
+        if let Some(g) = pr.child("gradFill") {
+            if let Some(g) = read_bg_gradient(g, w) {
+                return Some(Background::Gradient(g));
+            }
+        }
+        if let Some(p) = pr.child("pattFill") {
+            let preset = p.attr("prst").unwrap_or("pct5");
+            if !PATTERN_PRESETS.contains(&preset) {
+                w.add(format!("background pattern {preset} drawn as 50 %"));
+            }
+            let fg = p
+                .child("fgClr")
+                .and_then(|c| read_color(c, w))
+                .unwrap_or(Color::Rgb(Rgb::BLACK));
+            let bgc = p
+                .child("bgClr")
+                .and_then(|c| read_color(c, w))
+                .unwrap_or(Color::Rgb(Rgb::WHITE));
+            return Some(Background::Pattern(PatternFill {
+                preset: preset.to_owned(),
+                fg,
+                bg: bgc,
+            }));
+        }
         return read_fill(pr, w).map(Background::Fill);
     }
     let r = bg.child("bgRef")?;
     let index = r.attr("idx").and_then(parse_u32).unwrap_or(1001);
     let color = read_color(r, w)?;
     Some(Background::Style { index, color })
+}
+
+/// `a:gradFill` of a background → [`BgGradient`] (`None`: fewer than two
+/// stops).
+pub fn read_bg_gradient(g: &El, w: &mut Warnings) -> Option<BgGradient> {
+    let mut stops: Vec<BgStop> = g
+        .child("gsLst")
+        .into_iter()
+        .flat_map(|l| l.elements())
+        .filter(|e| e.name == "gs")
+        .filter_map(|gs| {
+            let pos = gs.attr("pos").and_then(parse_i64).unwrap_or(0) as f64 / 100_000.0;
+            let (color, alpha) = color_and_alpha(gs, w)?;
+            Some(BgStop {
+                pos: pos.clamp(0.0, 1.0),
+                color,
+                transparency: (1.0 - alpha).clamp(0.0, 1.0),
+            })
+        })
+        .collect();
+    stops.sort_by(|a, b| a.pos.total_cmp(&b.pos));
+    stops.truncate(10);
+    if stops.len() < 2 {
+        return None;
+    }
+    let (shape, angle_deg) = match g.child("path").and_then(|p| p.attr("path")) {
+        Some("circle") => (GradientShape::Circle, 0.0),
+        Some("rect") => (GradientShape::Rect, 0.0),
+        Some(_) => (GradientShape::Shape, 0.0),
+        None => (
+            GradientShape::Linear,
+            g.child("lin")
+                .and_then(|l| l.attr("ang"))
+                .and_then(parse_i64)
+                .map_or(0.0, |a| a as f64 / 60_000.0),
+        ),
+    };
+    Some(BgGradient {
+        stops,
+        angle_deg,
+        shape,
+    })
+}
+
+/// Writes `a:gradFill` of a background gradient.
+pub fn write_bg_gradient(x: &mut XmlOut, g: &BgGradient) {
+    x.start("a:gradFill", &[("flip", "none"), ("rotWithShape", "1")]);
+    x.start("a:gsLst", &[]);
+    for s in &g.stops {
+        let pos = ((s.pos.clamp(0.0, 1.0) * 100_000.0).round() as i64).to_string();
+        x.start("a:gs", &[("pos", &pos)]);
+        write_color_with_alpha(x, &s.color, 1.0 - s.transparency.clamp(0.0, 1.0));
+        x.end("a:gs");
+    }
+    x.end("a:gsLst");
+    match g.shape {
+        GradientShape::Linear => {
+            let ang = ((g.angle_deg.rem_euclid(360.0) * 60_000.0).round() as i64).to_string();
+            x.empty("a:lin", &[("ang", &ang), ("scaled", "1")]);
+        }
+        shape => {
+            let path = match shape {
+                GradientShape::Circle => "circle",
+                GradientShape::Rect => "rect",
+                _ => "shape",
+            };
+            x.start("a:path", &[("path", path)]);
+            x.empty(
+                "a:fillToRect",
+                &[
+                    ("l", "50000"),
+                    ("t", "50000"),
+                    ("r", "50000"),
+                    ("b", "50000"),
+                ],
+            );
+            x.end("a:path");
+        }
+    }
+    x.empty("a:tileRect", &[]);
+    x.end("a:gradFill");
 }
 
 /// `p:clrMap` → [`ColorMap`].
@@ -259,6 +366,25 @@ pub fn write_background(x: &mut XmlOut, bg: &Background) {
             x.start("p:bgRef", &[("idx", &index.to_string())]);
             write_color(x, color);
             x.end("p:bgRef");
+        }
+        Background::Gradient(g) => {
+            x.start("p:bgPr", &[]);
+            write_bg_gradient(x, g);
+            x.empty("a:effectLst", &[]);
+            x.end("p:bgPr");
+        }
+        Background::Pattern(p) => {
+            x.start("p:bgPr", &[]);
+            x.start("a:pattFill", &[("prst", &p.preset)]);
+            x.start("a:fgClr", &[]);
+            write_color(x, &p.fg);
+            x.end("a:fgClr");
+            x.start("a:bgClr", &[]);
+            write_color(x, &p.bg);
+            x.end("a:bgClr");
+            x.end("a:pattFill");
+            x.empty("a:effectLst", &[]);
+            x.end("p:bgPr");
         }
         // written by the slide writer, which owns the image relationships
         Background::Picture(_) => {

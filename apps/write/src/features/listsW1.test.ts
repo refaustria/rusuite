@@ -18,6 +18,7 @@ import {
 import { listIndentMarks, placement, placementAttrs } from "./listIndent";
 import { outdentAtStart } from "./listKeys";
 import { endsSentence, nextCase, wordBefore, wordUnderline } from "./wordKeys";
+import { wordsUnderlineRanges } from "./wordsUnderline";
 import { toggleHeading } from "../sync/editorCommands";
 
 let editor: Editor | null = null;
@@ -217,13 +218,15 @@ describe("Shift+F3 at a sentence end", () => {
 });
 
 describe("Ctrl+Shift+W and Ctrl+Alt+1", () => {
-  it("word underline: the words, not the spaces between them; again: off", () => {
+  it("word underline: the \"words\" underline kind (w:u w:val=\"words\"); again: off", () => {
     const e = open([para(1, [run("one two  three")])]);
     select(e, 1, 0, 1, 14);
     expect(wordUnderline(e, sheet)).toBe(true);
-    const marks: [string, boolean][] = [];
-    e.state.doc.child(0).forEach((n) => marks.push([n.text!, n.marks.some((m) => m.type.name === "underline")]));
-    expect(marks).toEqual([["one", true], [" ", false], ["two", true], ["  ", false], ["three", true]]);
+    const marks: [string, string | null][] = [];
+    e.state.doc.child(0).forEach((n) => marks.push([n.text!, n.marks.find((m) => m.type.name === "underline")?.attrs.kind ?? null]));
+    expect(marks).toEqual([["one two  three", "words"]]);
+    // Drawn per word: the spaces stay without a line.
+    expect(wordsUnderlineRanges(e.state.doc)).toEqual([[1, 4], [5, 8], [10, 15]]);
     select(e, 1, 0, 1, 14);
     wordUnderline(e, sheet);
     let any = false;

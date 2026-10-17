@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
-import { applyPageRange, AutosaveStatus, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { applyPageRange, AutosaveStatus, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, type AnySession } from "@rusuite/ui-shared";
 import { buildWritePrintDoc, DEFAULT_WRITE_PRINT, type WritePrintOptions } from "./print/writePrintDoc";
 import { printWrite, WritePrintPage } from "./print/WritePrintPage";
 import { WriteApi, type WriteBackend } from "./backend";
@@ -17,6 +17,10 @@ import { WriteDialogs } from "./ui/dialogs";
 import { ReferenceDialogs } from "./ui/referenceDialogs";
 import { ListDialogs } from "./ui/listGalleries";
 import { InfoPanel } from "./ui/InfoPanel";
+import { ManageStylesDialog } from "./ui/manageStyles";
+import { RevealFormattingPane } from "./ui/revealFormatting";
+import { fetchTemplate, NewDocumentDialog, saveAsName, templateFile, type TemplateId } from "./ui/templatesUi";
+import { isTemplateName } from "./sync/SyncPlugin";
 import { PageFrame, useWriteChrome } from "./ui/PageFrame";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { Toasts } from "./ui/Toasts";
@@ -227,7 +231,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
           return t("write.defaultName");
         },
         save: (asName) => {
-          const name = asName === undefined ? undefined : withExtension(asName, ".docx");
+          const name = asName === undefined ? undefined : saveAsName(asName, isTemplateName(asName));
           return ctl.saveDocx((n, bytes) => backend.saveFile(name ?? n, bytes), name);
         },
       }),
@@ -246,6 +250,19 @@ export default function App({ backend }: { backend: WriteBackend }) {
   }, [backend, ctl, guard]);
 
   const newDocument = useCallback(() => void guard.run(() => ctl.newDocument()), [guard, ctl]);
+  // File › New › a template: fetched from the app's templates, opened as a new untitled document.
+  const newFromTemplate = useCallback(
+    (id: TemplateId) =>
+      void guard.run(async () => {
+        try {
+          await ctl.newFromTemplate(await fetchTemplate(id), templateFile(id));
+        } catch (e) {
+          ctl.pushError(e);
+        }
+      }),
+    [guard, ctl],
+  );
+  const newDialogOpen = useSyncExternalStore(features.ui.subscribe, () => features.ui.getState().dialog === "newDocument");
 
   const save = useCallback(async () => {
     await ctl.saveDocx((n, bytes) => backend.saveFile(n, bytes));
@@ -267,7 +284,8 @@ export default function App({ backend }: { backend: WriteBackend }) {
   // Save As: `name` from the web's name prompt; the desktop asks in its native dialog.
   const saveAs = useCallback(
     async (name?: string) => {
-      await ctl.saveDocx((n, bytes) => backend.saveFile(name ?? n, bytes, { saveAs: true }), name);
+      // The desktop's dialog may pick the other type (.docx / .dotx): the file is then written again as that.
+      await ctl.saveDocx((n, bytes) => backend.saveFile(name ?? n, bytes, { saveAs: true }), name, (n, bytes) => backend.saveFile(n, bytes));
     },
     [backend, ctl],
   );
@@ -338,6 +356,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
           </div>
         </div>
         {editor && <StylesPane editor={editor} ctl={ctl} features={features} />}
+        {editor && <RevealFormattingPane editor={editor} ctl={ctl} features={features} />}
         {editor && <CommentsPane editor={editor} ctl={ctl} features={features} />}
         {aiAdapter && <AssistantPane ai={session.ai} adapter={aiAdapter} />}
       </div>
@@ -349,10 +368,23 @@ export default function App({ backend }: { backend: WriteBackend }) {
       <UserNameDialog ctl={ctl} features={features} />
       {editor && <StyleDialogsHost editor={editor} ctl={ctl} features={features} />}
       {editor && <ApplyStylesBox editor={editor} ctl={ctl} features={features} />}
+      {editor && <ManageStylesDialog editor={editor} ctl={ctl} features={features} />}
       <EditorContextMenu editor={editor} ctl={ctl} features={features} />
       <LayoutOptions editor={editor} />
       <Toasts ctl={ctl} />
       <ShortcutLayer editor={editor} ctl={ctl} onNew={newDocument} onOpen={() => void open()} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={chrome.onFind} onReplace={chrome.onReplace} features={features} />
+      <NewDocumentDialog
+        open={newDialogOpen}
+        onClose={() => features.ui.openDialog(null)}
+        onBlank={() => {
+          features.ui.openDialog(null);
+          newDocument();
+        }}
+        onTemplate={(id) => {
+          features.ui.openDialog(null);
+          newFromTemplate(id);
+        }}
+      />
       <ConfirmDiscard guard={guard} />
     </main>
   );

@@ -511,7 +511,9 @@ test.describe("Show", () => {
     const errors = trackErrors(page);
     await openDeck(page);
     await page.getByTestId("thumbnail").nth(2).click();
-    await page.getByRole("button", { name: "Add Section" }).click();
+    // Home › Section ▾ › Add Section (P9-S3: PowerPoint's Section menu)
+    await page.getByRole("button", { name: "Section", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Add Section" }).click();
     const dlg = page.getByRole("dialog", { name: "Rename Section" });
     await dlg.getByLabel("Section name").fill("Market");
     await dlg.getByRole("button", { name: "Rename" }).click();
