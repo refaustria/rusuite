@@ -4,13 +4,12 @@
 // docs/i18n.md).
 
 import type { Locale } from "./core";
+import { localeInfo } from "./locales";
 import { getLocale } from "./locale";
 
-const TAGS: Record<Locale, string> = { en: "en-US", de: "de-DE" };
-
-/** The BCP 47 tag used for `Intl` in `locale` (default: the current UI language). */
+/** The BCP 47 tag used for `Intl` in `locale` (default: the current UI language): `de-DE`, `fr-FR`, `pt-PT` … */
 export function intlLocale(locale: Locale = getLocale()): string {
-  return TAGS[locale];
+  return localeInfo(locale).tag;
 }
 
 export function formatNumber(n: number, options?: Intl.NumberFormatOptions, locale?: Locale): string {

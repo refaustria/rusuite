@@ -1,6 +1,8 @@
-// UI languages (P7-11): English is the default; a German browser gets the
-// German UI; the choice (View › Language, the backstage, the portal's
-// EN/DE switch) is persisted and shared by the portal and the apps.
+// UI languages (P7-11, P9-L0): English is the default; a German browser gets
+// the German UI; the choice (View › Language, the backstage, Options ›
+// Language, the portal's language list) is persisted and shared by the
+// portal and the apps. A language whose catalogs have not landed yet
+// shows English without errors.
 // `I18N_SHOTS=<dir>` also saves screenshots of the German UI there.
 
 import { expect, test, type Page } from "@playwright/test";
@@ -91,16 +93,86 @@ test.describe("Language switch", () => {
     errors.expectNone();
   });
 
-  test("portal: the EN/DE switch persists and carries over to the apps", async ({ page }) => {
+  test("portal: the language list persists and carries over to the apps", async ({ page }) => {
     await page.goto("./");
     await expect(page.getByRole("link", { name: "Open Calc in browser" })).toBeVisible();
-    await page.getByRole("button", { name: "DE", exact: true }).click();
+    await page.getByTestId("portal-language").selectOption("de");
     await expect(page.getByRole("link", { name: "Calc im Browser öffnen" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "DE", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("portal-language")).toHaveValue("de");
     await page.reload();
     await expect(page.getByRole("link", { name: "Calc im Browser öffnen" })).toBeVisible();
     await page.getByRole("link", { name: "Calc im Browser öffnen" }).click();
     await page.getByTestId("grid").waitFor();
     await expect(page.getByRole("tab", { name: "Start", exact: true })).toBeVisible();
+  });
+
+  test("calc: File › Options › Language searches the languages and switches", async ({ page }) => {
+    const errors = trackErrors(page);
+    await page.goto("calc/");
+    await page.getByTestId("grid").waitFor();
+    await page.getByRole("tab", { name: "File", exact: true }).click();
+    await page.getByTestId("backstage").getByRole("button", { name: /^Options…/ }).click();
+    const settings = page.getByTestId("settings-dialog");
+    await settings.getByRole("tab", { name: "Language" }).click();
+    const list = settings.getByRole("listbox", { name: "Language / Sprache" });
+    await expect(list.getByRole("option")).toHaveCount(24);
+    await expect(list.getByRole("option").first()).toHaveAttribute("aria-selected", "true");
+    await settings.getByRole("searchbox", { name: "Search languages" }).fill("german");
+    await expect(list.getByRole("option")).toHaveCount(1);
+    await settings.getByRole("searchbox", { name: "Search languages" }).press("Enter");
+    await expect(settings.getByRole("tab", { name: "Sprache" })).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("lang", "de");
+    errors.expectNone();
+  });
+});
+
+test.describe("Languages without catalogs yet", () => {
+  test.use({ locale: "sv-SE" });
+
+  for (const { app, ready } of APPS) {
+    test(`${app}: a Swedish browser gets English until the Swedish catalogs land`, async ({ page }) => {
+      const errors = trackErrors(page);
+      const notes: string[] = [];
+      page.on("console", (m) => {
+        if (m.type() === "info") notes.push(m.text());
+      });
+      await page.goto(`${app}/`);
+      await ready(page).first().waitFor();
+      await expect(page.locator("html")).toHaveAttribute("lang", "en");
+      await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
+      await expect(page.getByRole("tab", { name: "Home", exact: true })).toHaveAttribute("aria-selected", "true");
+      expect(notes.some((n) => /Swedish \(sv\)/.test(n))).toBe(true);
+      // The picker lists all 24 languages by their own names; choosing one without catalogs keeps English.
+      await page.getByRole("tab", { name: "View", exact: true }).click();
+      const picker = page.getByRole("combobox", { name: "Language / Sprache" });
+      await expect(picker.locator("option")).toHaveCount(24);
+      await expect(picker.locator("option").first()).toHaveText("English");
+      await expect(picker.locator('option[value="fr"]')).toHaveText("Français (not translated yet)");
+      await picker.selectOption("fr");
+      await expect(picker).toHaveValue("en");
+      await expect(page.getByRole("tab", { name: "View", exact: true })).toHaveAttribute("aria-selected", "true");
+      await picker.selectOption("de");
+      await expect(page.getByRole("tab", { name: "Ansicht", exact: true })).toBeVisible();
+      errors.expectNone();
+    });
+  }
+
+  test("portal: the list offers all 24 languages; Swedish shows English", async ({ page }) => {
+    const errors = trackErrors(page);
+    await page.goto("./");
+    await expect(page.getByRole("link", { name: "Open Calc in browser" })).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("lang", "en");
+    const list = page.getByTestId("portal-language");
+    await expect(list.locator("option")).toHaveCount(24);
+    await expect(list).toHaveValue("en");
+    for (const name of ["Deutsch", "Български", "Ελληνικά", "Gaeilge", "Malti", "Slovenščina"]) {
+      await expect(list.locator("option", { hasText: name })).toHaveCount(1);
+    }
+    await list.selectOption("pl");
+    await expect(page.getByRole("link", { name: "Open Calc in browser" })).toBeVisible();
+    await expect(list).toHaveValue("en");
+    await list.selectOption("de");
+    await expect(page.getByRole("link", { name: "Calc im Browser öffnen" })).toBeVisible();
+    errors.expectNone();
   });
 });

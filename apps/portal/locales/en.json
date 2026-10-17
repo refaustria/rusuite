@@ -56,6 +56,7 @@
   "portal.dl.linux.1": "<strong>.deb / .rpm:</strong> install as usual, e.g. <code>sudo apt install ./file.deb</code> or <code>sudo dnf install ./file.rpm</code>.",
   "portal.dl.linux.2": "<strong>.AppImage:</strong> make it executable with <code>chmod +x file.AppImage</code>, then start it.",
   "portal.language": "Language / Sprache",
+  "portal.languagePending": "{name} (not translated yet)",
   "portal.nav": "Site",
   "portal.legal": "Microsoft, Word, Excel and PowerPoint are trademarks of Microsoft Corporation. Rusuite is not affiliated with Microsoft.",
   "portal.lead": "A small office suite with a Rust core – runs in your browser and on the desktop.",
