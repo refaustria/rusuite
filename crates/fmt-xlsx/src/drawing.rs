@@ -101,6 +101,7 @@ pub(crate) fn load(
     drawing: &PartName,
     consumed: &mut BTreeSet<PartName>,
     slicers: &mut Vec<(String, ChartAnchor)>,
+    pivot_charts: &mut Vec<(u32, String)>,
 ) -> Result<Vec<String>> {
     let mut warnings = Vec::new();
     let Some(part) = pkg.part(drawing) else {
@@ -168,7 +169,18 @@ pub(crate) fn load(
                     let data = &pkg.part(&chart_part).expect("checked").data;
                     let (mut chart, w) =
                         read_chart(data, chart_part.as_str()).map_err(xml_error)?;
-                    warnings.extend(w.into_iter().map(|w| format!("{chart_part}: {w}")));
+                    // PivotChart parts are modelled here (the binding).
+                    let w = w.into_iter().filter_map(|w| match w.strip_prefix(DROPPED) {
+                        Some(list) => {
+                            let rest: Vec<&str> = list
+                                .split(", ")
+                                .filter(|e| !matches!(*e, "pivotFmts" | "pivotSource"))
+                                .collect();
+                            (!rest.is_empty()).then(|| format!("{DROPPED}{}", rest.join(", ")))
+                        }
+                        None => Some(w),
+                    });
+                    warnings.extend(w.map(|w| format!("{chart_part}: {w}")));
                     consumed.insert(chart_part.clone());
                     // Office 2013 style and color parts are cosmetic.
                     if let Some(r) = pkg.relationships(&chart_part) {
@@ -183,6 +195,9 @@ pub(crate) fn load(
                         }
                     }
                     drop_resolvable_caches(&mut chart, wb, sheet);
+                    if let Some(source) = pivot_source_name(data) {
+                        pivot_charts.push((charts.len() as u32 + 1, source));
+                    }
                     let name = obj
                         .find("cNvPr")
                         .and_then(|c| c.attr("name"))
@@ -193,6 +208,7 @@ pub(crate) fn load(
                         name,
                         anchor,
                         chart,
+                        pivot: None,
                     });
                 }
                 "pic" => {
@@ -264,6 +280,103 @@ pub(crate) fn load(
         warnings.push(format!("pictures dropped: {e}"));
     }
     Ok(warnings)
+}
+
+/// The start of the chart reader's warning about elements it skips.
+const DROPPED: &str = "chart elements dropped: ";
+
+/// The pivot table a PivotChart's `c:pivotSource` names
+/// (`[Book1.xlsx]Sheet1!PivotTable1` → `Sheet1!PivotTable1`).
+fn pivot_source_name(chart_xml: &[u8]) -> Option<String> {
+    let root = parse(chart_xml, "chart").ok()?;
+    let name = root.child("pivotSource")?.child("name")?.text();
+    let name = name.trim();
+    let name = match name.strip_prefix('[') {
+        Some(rest) => rest.split_once(']').map_or(rest, |(_, r)| r),
+        None => name,
+    };
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
+/// `Sheet1!PivotTable1` of pivot table `id`.
+fn pivot_source_of(wb: &Workbook, id: u32) -> Option<String> {
+    let (s, t) = wb.pivot(id)?;
+    let sheet = wb.engine().sheet_name(s)?;
+    Some(format!(
+        "{}{}",
+        model_sheet::names::sheet_prefix(sheet),
+        t.name
+    ))
+}
+
+/// The chart part with `c:pivotSource` (before `c:chart`) and
+/// `c:pivotFmts` (before `c:plotArea`), so Excel opens it as a PivotChart.
+fn with_pivot_source(xml: &[u8], name: &str) -> Vec<u8> {
+    let text = String::from_utf8_lossy(xml);
+    if text.contains("<c:pivotSource") {
+        return xml.to_vec();
+    }
+    let mut source = XmlOut::fragment();
+    source.start("c:pivotSource", &[]);
+    source.text_el("c:name", &[], name);
+    source.empty("c:fmtId", &[("val", "0")]);
+    source.end("c:pivotSource");
+    let source = String::from_utf8(source.finish()).unwrap_or_default();
+    let mut out = text.into_owned();
+    let at = out.find("<c:chart>").or_else(|| out.find("<c:chart "));
+    if let Some(at) = at {
+        out.insert_str(at, &source);
+    }
+    if let Some(at) = out.find("<c:plotArea") {
+        out.insert_str(
+            at,
+            "<c:pivotFmts><c:pivotFmt><c:idx val=\"0\"/></c:pivotFmt></c:pivotFmts>",
+        );
+    }
+    out.into_bytes()
+}
+
+/// After the pivot tables are loaded: binds the PivotCharts read from
+/// `sheet`'s drawing (`(chart id, Sheet!PivotTable)`) to their tables.
+pub(crate) fn bind_pivot_charts(
+    wb: &mut Workbook,
+    sheet: SheetId,
+    list: &[(u32, String)],
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if list.is_empty() {
+        return warnings;
+    }
+    let mut charts = wb.charts(sheet).to_vec();
+    for (chart, source) in list {
+        let (sheet_name, table) = match source.rsplit_once('!') {
+            Some((s, t)) => (Some(s.trim_matches('\'').replace("''", "'")), t),
+            None => (None, source.as_str()),
+        };
+        let found = wb.sheets().into_iter().find_map(|(s, n)| {
+            if sheet_name
+                .as_deref()
+                .is_some_and(|x| !x.eq_ignore_ascii_case(&n))
+            {
+                return None;
+            }
+            wb.pivots(s)
+                .iter()
+                .find(|p| p.name.eq_ignore_ascii_case(table))
+                .map(|p| p.id)
+        });
+        match (found, charts.iter_mut().find(|c| c.id == *chart)) {
+            (Some(id), Some(c)) => c.pivot = Some(id),
+            _ => warnings.push(format!(
+                "the PivotChart of {source:?} has no pivot table; kept as a chart"
+            )),
+        }
+    }
+    if let Err(e) = wb.set_charts(sheet, charts) {
+        warnings.push(format!("charts dropped: {e}"));
+    }
+    wb.sync_pivot_charts();
+    warnings
 }
 
 /// Resolves chart references against the workbook for the caches.
@@ -357,7 +470,11 @@ impl DrawingParts {
         for (i, obj) in wb.charts(sheet).iter().enumerate() {
             self.charts += 1;
             let chart_part = PartName::new(format!("/xl/charts/chart{}.xml", self.charts))?;
-            pkg.insert_part(chart_part, ct::CHART, write_chart(&obj.chart, &data));
+            let mut xml = write_chart(&obj.chart, &data);
+            if let Some(name) = obj.pivot.and_then(|id| pivot_source_of(wb, id)) {
+                xml = with_pivot_source(&xml, &name);
+            }
+            pkg.insert_part(chart_part, ct::CHART, xml);
             let rid = rels
                 .add(rel::CHART, format!("../charts/chart{}.xml", self.charts))
                 .id

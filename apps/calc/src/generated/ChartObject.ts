@@ -5,4 +5,8 @@ import type { ChartAnchor } from "./ChartAnchor";
 /**
  * Mirror of `model_sheet::ChartObject`: a chart on a sheet.
  */
-export type ChartObject = { id: number, name?: string, anchor: ChartAnchor, chart: Chart, };
+export type ChartObject = { id: number, name?: string, anchor: ChartAnchor, chart: Chart, 
+/**
+ * A PivotChart: the pivot table whose layout the series follow.
+ */
+pivot?: number, };

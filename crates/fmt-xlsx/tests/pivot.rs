@@ -358,20 +358,21 @@ fn dates_and_numbers_in_the_cache() {
 fn unsupported_definitions_stay_raw() {
     let wb = sample();
     let bytes = fmt_xlsx::write(&wb).unwrap();
-    // A calculated item in the second table.
+    // OLAP hierarchies in the second table (calculated items, groups and
+    // filters are modelled since P9-C3).
     let mut pkg = Package::open(Cursor::new(bytes.as_slice())).unwrap();
     let name = PartName::new("/xl/pivotTables/pivotTable2.xml").unwrap();
     let xml = String::from_utf8(pkg.part(&name).unwrap().data.clone()).unwrap();
     let xml = xml.replace(
         "<pivotTableStyleInfo",
-        "<calculatedItems count=\"1\"><calculatedItem formula=\"1\"/></calculatedItems><pivotTableStyleInfo",
+        "<pivotHierarchies count=\"1\"><pivotHierarchy/></pivotHierarchies><pivotTableStyleInfo",
     );
     let ct = pkg.content_type_of(&name).unwrap().to_owned();
     pkg.insert_part(name, ct, xml.clone().into_bytes());
     let bytes = pkg.write(Cursor::new(Vec::new())).unwrap().into_inner();
     let (back, warnings) = fmt_xlsx::read_with_warnings(&bytes).unwrap();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
-    assert!(warnings[0].contains("calculated items"), "{warnings:?}");
+    assert!(warnings[0].contains("OLAP"), "{warnings:?}");
     let report = back.sheet_id("Report").unwrap();
     let t = back.pivots(report)[1].clone();
     assert!(t.raw.is_some());

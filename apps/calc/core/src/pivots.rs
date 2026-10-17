@@ -186,6 +186,38 @@ pub struct PivotFieldInfo {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]
     pub value: bool,
+    /// A calculated field's formula.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub formula: Option<String>,
+    /// The field's grouping (date / number / manual groups).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<crate::wire_pivot::FieldGroup>")]
+    pub group: Option<model_sheet::pivot::FieldGroup>,
+}
+
+/// A calculated item of the cache (Fields, Items & Sets).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct PivotCalcItemInfo {
+    pub field: u32,
+    pub item: u32,
+    pub name: String,
+    pub formula: String,
+}
+
+/// One Recommended PivotTable (the `recommendPivots` reply).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct PivotRecommendation {
+    /// `Sum of Sales by Region`.
+    pub title: String,
+    #[ts(as = "crate::wire_pivot::PivotFields")]
+    pub fields: model_sheet::pivot::PivotFields,
+    /// The first rows of the table as text.
+    pub preview: Vec<Vec<String>>,
 }
 
 /// The reply to `pivotInfo`: the field list and the current layout.
@@ -207,6 +239,10 @@ pub struct PivotInfo {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]
     pub read_only: bool,
+    /// The calculated items of the cache.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<PivotCalcItemInfo>>")]
+    pub calculated_items: Vec<PivotCalcItemInfo>,
 }
 
 /// One item of `pivotItems`, in display order.
@@ -227,6 +263,10 @@ pub struct PivotItemInfo {
     pub collapsed: bool,
     /// The item has records at present (Excel lists retained items too).
     pub has_data: bool,
+    /// A calculated item.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub calculated: bool,
 }
 
 /// The reply to `pivotAt`.
@@ -356,6 +396,18 @@ impl CalcDocument {
         }
     }
 
+    /// Adds the sheets with PivotCharts to `patch.chart_sheets` (their
+    /// series follow the tables).
+    pub(crate) fn mark_pivot_charts(&self, patch: &mut CalcPatch) {
+        let wb = self.workbook();
+        for (s, _) in wb.sheets() {
+            if wb.charts(s).iter().any(|c| c.pivot.is_some()) && !patch.chart_sheets.contains(&s.0)
+            {
+                patch.chart_sheets.push(s.0);
+            }
+        }
+    }
+
     /// The `pivot` part of the view of `c`.
     pub(crate) fn pivot_cell_view(&self, c: CellCoord) -> Option<PivotCellView> {
         let (id, cell) = self.workbook().pivot_cell(c)?;
@@ -422,6 +474,8 @@ impl CalcDocument {
                     items: f.shared_items.len() as u32,
                     area,
                     value: t.values.iter().any(|d| d.field == i),
+                    formula: f.formula.clone(),
+                    group: f.group.clone(),
                 }
             })
             .collect();
@@ -433,7 +487,43 @@ impl CalcDocument {
             fields,
             stale: cache.stale,
             read_only: t.raw.is_some(),
+            calculated_items: cache
+                .calculated_items
+                .iter()
+                .map(|c| PivotCalcItemInfo {
+                    field: c.field,
+                    item: c.item,
+                    name: cache.fields[c.field as usize].item_label(c.item),
+                    formula: c.formula.clone(),
+                })
+                .collect(),
         })
+    }
+
+    /// `recommendPivots`: Recommended PivotTables for a source, best
+    /// first, with previews.
+    pub fn recommend_pivots(&self, source: &PivotSourceSpec) -> Result<Vec<PivotRecommendation>> {
+        let src = self.source_of(source)?;
+        let (fields, records) = self.workbook().read_pivot_source(&src)?;
+        let mut cache = PivotCache {
+            id: 0,
+            source: src,
+            fields,
+            records,
+            refresh_on_load: false,
+            stale: false,
+            raw: None,
+            calculated_items: Vec::new(),
+        };
+        cache.normalize();
+        Ok(model_sheet::pivot::recommend_pivots(&cache)
+            .into_iter()
+            .map(|r| PivotRecommendation {
+                preview: model_sheet::pivot::recommendation_preview(&cache, &r.fields, 12),
+                title: r.title,
+                fields: r.fields,
+            })
+            .collect())
     }
 
     /// `pivotAt`.
@@ -460,11 +550,7 @@ impl CalcDocument {
             .fields
             .get(field as usize)
             .ok_or_else(|| bad("no such field"))?;
-        let present: BTreeSet<u32> = cache
-            .records
-            .iter()
-            .filter_map(|r| cf.item_index(r.get(field as usize)?))
-            .collect();
+        let present: BTreeSet<u32> = cache.record_items(field).into_iter().collect();
         let axis = t.axis_field(field);
         let page = t.filters.iter().find(|p| p.field == field);
         Ok(t.item_order(cache, field)
@@ -482,7 +568,8 @@ impl CalcDocument {
                     _ => true,
                 },
                 collapsed: axis.is_some_and(|a| a.collapsed_items.contains(&i)),
-                has_data: present.contains(&i),
+                has_data: present.contains(&i) || cache.calculated_item(field, i).is_some(),
+                calculated: cache.calculated_item(field, i).is_some(),
             })
             .collect())
     }
@@ -593,6 +680,44 @@ impl CalcDocument {
             .map(|n| format!("Sheet{n}"))
             .find(|n| !names.contains(&n.to_lowercase()))
             .expect("unbounded");
+        self.named_pivot_sheet(&name, before)
+    }
+
+    /// A new sheet named `name` (made valid and unique: `East`, `East (2)`)
+    /// before `before`.
+    fn named_pivot_sheet(
+        &mut self,
+        name: &str,
+        before: Option<SheetId>,
+    ) -> Result<(SheetId, CalcCommand, CalcPatch)> {
+        let names: BTreeSet<String> = self
+            .workbook()
+            .sheets()
+            .into_iter()
+            .map(|(_, n)| n.to_lowercase())
+            .collect();
+        let clean: String = name
+            .chars()
+            .map(|c| if "[]:*?/\\".contains(c) { '_' } else { c })
+            .collect::<String>()
+            .trim_matches('\'')
+            .trim()
+            .chars()
+            .take(31)
+            .collect();
+        let clean = if clean.is_empty() {
+            "(blank)".to_owned()
+        } else {
+            clean
+        };
+        let name = std::iter::once(clean.clone())
+            .chain((2u32..).map(|k| {
+                let suffix = format!(" ({k})");
+                let keep: String = clean.chars().take(31 - suffix.chars().count()).collect();
+                format!("{keep}{suffix}")
+            }))
+            .find(|n| !names.contains(&n.to_lowercase()))
+            .expect("unbounded");
         let index = before
             .and_then(|s| self.workbook().sheet_position(s))
             .map(|p| p as u32);
@@ -631,6 +756,7 @@ impl CalcDocument {
                 .filter(|s| self.sheet(*s).is_ok())
                 .collect();
             patch.stale_pivots = Some(self.workbook().stale_pivots());
+            self.mark_pivot_charts(&mut patch);
             return Ok(Applied {
                 patch,
                 inverse: Some(C::RestorePivots {
@@ -661,6 +787,7 @@ impl CalcDocument {
                     p.merge(std::mem::take(&mut applied.patch));
                     applied.patch = p;
                 }
+                self.mark_pivot_charts(&mut applied.patch);
                 Ok(applied)
             }
             Err(e) => {
@@ -879,6 +1006,106 @@ impl CalcDocument {
                 patch.merge(a.patch);
                 patch.sheets = Some(self.sheet_infos());
                 Ok((model_sheet::Recalc::default(), vec![inv], Some(patch)))
+            }
+            C::GroupPivotField { id, field, group } => Ok((
+                self.workbook_mut()
+                    .group_pivot_field(*id, *field, group.clone())?,
+                none(),
+                None,
+            )),
+            C::UngroupPivotField { id, field, items } => Ok((
+                self.workbook_mut()
+                    .ungroup_pivot_field(*id, *field, items.as_deref())?,
+                none(),
+                None,
+            )),
+            C::SetCalculatedField {
+                id,
+                field,
+                name,
+                formula,
+            } => Ok((
+                self.workbook_mut()
+                    .set_calculated_field(*id, *field, name, formula.as_deref())?,
+                none(),
+                None,
+            )),
+            C::SetCalculatedItem {
+                id,
+                field,
+                item,
+                name,
+                formula,
+            } => Ok((
+                self.workbook_mut().set_calculated_item(
+                    *id,
+                    *field,
+                    *item,
+                    name,
+                    formula.as_deref(),
+                )?,
+                none(),
+                None,
+            )),
+            &C::ShowReportFilterPages { id, field } => {
+                let wb = self.workbook();
+                let (here, t) = wb.pivot(id).ok_or(model_sheet::Error::UnknownPivot(id))?;
+                let page = t
+                    .filters
+                    .iter()
+                    .find(|p| p.field == field)
+                    .ok_or_else(|| bad("the field is not a report filter"))?;
+                let cache = wb.pivot_cache(t.cache_id).ok_or_else(|| bad("no cache"))?;
+                let present: BTreeSet<u32> = cache.record_items(field).into_iter().collect();
+                let items: Vec<(u32, String)> = t
+                    .item_order(cache, field)
+                    .into_iter()
+                    .filter(|i| present.contains(i))
+                    .filter(|i| match &page.selected {
+                        PageSelection::All => true,
+                        PageSelection::Items { items } => items.len() == 1 || items.contains(i),
+                    })
+                    .map(|i| (i, cache.fields[field as usize].item_label(i)))
+                    .collect();
+                if items.is_empty() {
+                    return Err(bad("the report filter has no items"));
+                }
+                let (row, col) = t.anchor();
+                let mut inverses = Vec::new();
+                let mut patch = CalcPatch::default();
+                let mut recalc = model_sheet::Recalc::default();
+                let mut first = None;
+                for (item, label) in items {
+                    let made = self.named_pivot_sheet(&label, Some(here));
+                    let (s, inv, p) = match made {
+                        Ok(m) => m,
+                        Err(e) => {
+                            for inv in inverses.into_iter().rev() {
+                                let _ = self.apply_cmd(&inv);
+                            }
+                            return Err(e);
+                        }
+                    };
+                    inverses.push(inv);
+                    patch.merge(p);
+                    first.get_or_insert(s);
+                    match self
+                        .workbook_mut()
+                        .copy_pivot(id, s, row, col, Some((field, item)))
+                    {
+                        Ok((_, r)) => recalc.changed.extend(r.changed),
+                        Err(e) => {
+                            for inv in inverses.into_iter().rev() {
+                                let _ = self.apply_cmd(&inv);
+                            }
+                            return Err(e.into());
+                        }
+                    }
+                }
+                patch.activate_sheet = first.map(|s| s.0);
+                patch.sheets = Some(self.sheet_infos());
+                inverses.reverse();
+                Ok((recalc, inverses, Some(patch)))
             }
             _ => unreachable!("not a pivot command: {cmd:?}"),
         }

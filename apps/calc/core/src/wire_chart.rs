@@ -521,6 +521,10 @@ mirror! {
         pub name: String,
         pub anchor: ChartAnchor,
         pub chart: Chart,
+        /// A PivotChart: the pivot table whose layout the series follow.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub pivot: Option<u32>,
     }
 
     /// Mirror of `core_model::chart::ResolvedSeries`.
@@ -735,6 +739,7 @@ mod tests {
                 name: "Chart 3".into(),
                 anchor,
                 chart: cm::Chart::new(cm::ChartKind::Pie),
+                pivot: Some(2),
             });
         }
         same_shape::<_, ResolvedChart>(&cm::ResolvedChart {

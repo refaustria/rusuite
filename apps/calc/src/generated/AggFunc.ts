@@ -3,4 +3,4 @@
 /**
  * Mirror of `model_sheet::pivot::AggFunc`.
  */
-export type AggFunc = "sum" | "count" | "average" | "max" | "min" | "product" | "countNums" | "stdDev" | "stdDevP" | "var" | "varP";
+export type AggFunc = "sum" | "count" | "average" | "max" | "min" | "product" | "countNums" | "stdDev" | "stdDevP" | "var" | "varP" | "distinctCount";

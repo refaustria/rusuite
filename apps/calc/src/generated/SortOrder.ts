@@ -3,4 +3,4 @@
 /**
  * Mirror of `model_sheet::pivot::SortOrder`.
  */
-export type SortOrder = { "kind": "ascending" } | { "kind": "descending" } | { "kind": "manual", order: Array<number>, };
+export type SortOrder = { "kind": "ascending" } | { "kind": "descending" } | { "kind": "manual", order: Array<number>, } | { "kind": "byValue", data: number, descending?: boolean, };

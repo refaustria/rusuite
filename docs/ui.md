@@ -656,7 +656,7 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   Not done (per the brief): Flash Fill, Consolidate, Auto Outline, slicers.
 - **Calc pivot tables** (P8-33, `apps/calc/src/pivot`, details in [pivot.md](pivot.md) "UI"): Insert › Tables › PivotTable
   (Create PivotTable: Table/Range from the current region with the range picker, New / Existing Worksheet +
-  Location; Recommended PivotTables not offered) creates an empty table (Excel's placeholder box) and opens the
+  Location; Recommended PivotTables since P9-C3) creates an empty table (Excel's placeholder box) and opens the
   **PivotTable Fields** pane right of the grid (search, field checkboxes, Filters / Columns / Rows / Values with
   pointer drag and drop and a ▾ menu per entry, Defer Layout Update + Update). While a cell of a table is selected
   the contextual **PivotTable Analyze** (Name, Options ▾ incl. Generate GetPivotData, Active Field, Refresh ▾,
@@ -668,6 +668,16 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   Delete removes a whole table, selects the table with Ctrl+A inside it, autofits the table's columns after
   each update, shows "Data changed – Refresh" over a sheet with a stale table (and a status-bar hint) and, in
   point mode, inserts `GETPIVOTDATA(…)` for a clicked value.
+- **Calc pivot tables round 2** (P9-C3, details in [pivot.md](pivot.md) "Round 2"): Insert › Tables › Recommended
+  PivotTables (candidates for the current region with a preview; OK creates the table on a new sheet) and PivotChart
+  (inside a table a PivotChart of it right of the table, else Create PivotChart). PivotTable Analyze gains Group
+  (Group Selection, Ungroup, Group Field → the Grouping dialog: Auto / Starting at / Ending at, By levels with Number
+  of days, or By interval), Options ▾ › Show Report Filter Pages…, Calculations › Fields, Items, & Sets ▾
+  (Calculated Field…, Calculated Item…: Name, Formula, the list with Insert, Add / Modify, Delete) and Tools
+  (PivotChart, Recommended PivotTables); Design gains Blank Rows ▾ and style previews with the banded options. The
+  header dropdowns add More Sort Options… (by the labels or a value field), Label / Date Filters ▸ and Value
+  Filters ▸ (… Top 10…) opening the filter dialogs; Value Field Settings lists Distinct Count and fifteen Show Values
+  As modes. Show Details and Show Report Filter Pages switch to the new sheet.
 - **Calc entry and clipboard** (P8-39): a typed constant is recognised as Excel does (`engine_formula::entry`): `1,234`,
   `12%`, `$1,234.50` / `€12` / `12 €`, `(5)`, `1e3`, `1 1/2`, dates (`3/4/2024`, `2024-03-04`, `4.3.2024`, `4-Mar`,
   `March 4, 2024`, `Mar 2024`), times (`13:45`, `1:30 PM`) and date + time; a General cell gets the matching format

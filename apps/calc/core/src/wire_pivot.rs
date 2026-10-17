@@ -63,6 +63,188 @@ mirror! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         pub number_format: Option<String>,
+        /// A grouping: the shared items are the group items.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub group: Option<FieldGroup>,
+        /// A calculated field's formula (without `=`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub formula: Option<String>,
+    }
+
+    /// Mirror of `model_sheet::pivot::DateGroupBy`.
+    #[serde(rename_all = "camelCase")]
+    pub enum DateGroupBy {
+        Seconds,
+        Minutes,
+        Hours,
+        Days,
+        Months,
+        Quarters,
+        Years,
+    }
+
+    /// Mirror of `model_sheet::pivot::GroupKind`.
+    #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+    pub enum GroupKind {
+        Number {
+            start: f64,
+            end: f64,
+            interval: f64,
+            #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+            #[ts(optional, as = "Option<bool>")]
+            auto_start: bool,
+            #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+            #[ts(optional, as = "Option<bool>")]
+            auto_end: bool,
+        },
+        Date {
+            by: DateGroupBy,
+            start: f64,
+            end: f64,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            #[ts(optional)]
+            interval: Option<u32>,
+            #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+            #[ts(optional, as = "Option<bool>")]
+            auto_start: bool,
+            #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+            #[ts(optional, as = "Option<bool>")]
+            auto_end: bool,
+        },
+        Items { map: Vec<u32> },
+    }
+
+    /// Mirror of `model_sheet::pivot::FieldGroup`.
+    #[serde(rename_all = "camelCase")]
+    pub struct FieldGroup {
+        pub base: u32,
+        #[serde(flatten)]
+        pub kind: GroupKind,
+    }
+
+    /// Mirror of `model_sheet::pivot::GroupSpec` (Group dialog / Group
+    /// Selection).
+    #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+    pub enum GroupSpec {
+        Date {
+            by: Vec<DateGroupBy>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            #[ts(optional)]
+            start: Option<f64>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            #[ts(optional)]
+            end: Option<f64>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            #[ts(optional)]
+            days: Option<u32>,
+        },
+        Number {
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            #[ts(optional)]
+            start: Option<f64>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            #[ts(optional)]
+            end: Option<f64>,
+            interval: f64,
+        },
+        Items { items: Vec<u32> },
+    }
+
+    /// Mirror of `model_sheet::pivot::CalculatedItem`.
+    #[serde(rename_all = "camelCase")]
+    pub struct CalculatedItem {
+        pub field: u32,
+        pub item: u32,
+        pub formula: String,
+    }
+
+    /// Mirror of `model_sheet::pivot::LabelOp`.
+    #[serde(rename_all = "camelCase")]
+    pub enum LabelOp {
+        Equal,
+        NotEqual,
+        BeginsWith,
+        NotBeginsWith,
+        EndsWith,
+        NotEndsWith,
+        Contains,
+        NotContains,
+        Greater,
+        GreaterOrEqual,
+        Less,
+        LessOrEqual,
+        Between,
+        NotBetween,
+    }
+
+    /// Mirror of `model_sheet::pivot::DateOp`.
+    #[serde(rename_all = "camelCase")]
+    pub enum DateOp {
+        Equal,
+        NotEqual,
+        Before,
+        After,
+        Between,
+        NotBetween,
+    }
+
+    /// Mirror of `model_sheet::pivot::ValueOp`.
+    #[serde(rename_all = "camelCase")]
+    pub enum ValueOp {
+        Equal,
+        NotEqual,
+        Greater,
+        GreaterOrEqual,
+        Less,
+        LessOrEqual,
+        Between,
+        NotBetween,
+    }
+
+    /// Mirror of `model_sheet::pivot::TopBy`.
+    #[serde(rename_all = "camelCase")]
+    pub enum TopBy {
+        Items,
+        Percent,
+        Sum,
+    }
+
+    /// Mirror of `model_sheet::pivot::PivotFilter`: a label, date or value
+    /// filter of a row / column field.
+    #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+    pub enum PivotFilter {
+        Label {
+            op: LabelOp,
+            value: String,
+            #[serde(default, skip_serializing_if = "String::is_empty")]
+            #[ts(optional, as = "Option<String>")]
+            value2: String,
+        },
+        Date {
+            op: DateOp,
+            value: f64,
+            #[serde(default)]
+            #[ts(optional, as = "Option<f64>")]
+            value2: f64,
+        },
+        Value {
+            op: ValueOp,
+            data: u32,
+            value: f64,
+            #[serde(default)]
+            #[ts(optional, as = "Option<f64>")]
+            value2: f64,
+        },
+        Top {
+            data: u32,
+            #[serde(default)]
+            #[ts(optional, as = "Option<bool>")]
+            bottom: bool,
+            count: f64,
+            by: TopBy,
+        },
     }
 
     /// Mirror of `model_sheet::pivot::RawPivotXml`.
@@ -93,6 +275,9 @@ mirror! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         pub raw: Option<RawPivotXml>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<CalculatedItem>>")]
+        pub calculated_items: Vec<CalculatedItem>,
     }
 
     /// Mirror of `model_sheet::pivot::SortOrder`.
@@ -102,6 +287,13 @@ mirror! {
         Descending,
         /// Shared item indices first, in this order.
         Manual { order: Vec<u32> },
+        /// By the values of data field `data` (More Sort Options).
+        ByValue {
+            data: u32,
+            #[serde(default)]
+            #[ts(optional, as = "Option<bool>")]
+            descending: bool,
+        },
     }
 
     /// Mirror of `model_sheet::pivot::AggFunc`.
@@ -118,6 +310,7 @@ mirror! {
         StdDevP,
         Var,
         VarP,
+        DistinctCount,
     }
 
     /// Mirror of `model_sheet::pivot::Subtotals`.
@@ -167,6 +360,14 @@ mirror! {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         #[ts(optional, as = "Option<bool>")]
         pub subtotal_bottom: bool,
+        /// A label, date or value filter.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub filter: Option<PivotFilter>,
+        /// A blank row after each item.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub insert_blank_row: bool,
     }
 
     /// Mirror of `model_sheet::pivot::PageSelection`.
@@ -205,6 +406,13 @@ mirror! {
         DifferenceFrom { base_field: u32, base_item: BaseItem },
         RunningTotal { base_field: u32 },
         Rank { base_field: u32 },
+        PercentOfParentColumn,
+        PercentOfParentTotal { base_field: u32 },
+        PercentOf { base_field: u32, base_item: BaseItem },
+        PercentDifferenceFrom { base_field: u32, base_item: BaseItem },
+        PercentRunningTotal { base_field: u32 },
+        RankAscending { base_field: u32 },
+        Index,
     }
 
     /// Mirror of `model_sheet::pivot::DataField`: a field in the values
@@ -396,8 +604,43 @@ mod tests {
                     kind: m::FieldKind::Mixed,
                     contains_blank: true,
                     number_format: Some("0.0".into()),
+                    group: Some(m::FieldGroup {
+                        base: 0,
+                        kind: m::GroupKind::Items { map: vec![0, 0, 1] },
+                    }),
+                    formula: None,
                 },
-                m::CacheField::new("Sales"),
+                m::CacheField {
+                    formula: Some("Units*2".into()),
+                    ..m::CacheField::new("Sales")
+                },
+                m::CacheField {
+                    group: Some(m::FieldGroup {
+                        base: 0,
+                        kind: m::GroupKind::Date {
+                            by: m::DateGroupBy::Quarters,
+                            start: 1.0,
+                            end: 9.5,
+                            interval: 1,
+                            auto_start: true,
+                            auto_end: false,
+                        },
+                    }),
+                    ..m::CacheField::new("Quarters")
+                },
+                m::CacheField {
+                    group: Some(m::FieldGroup {
+                        base: 3,
+                        kind: m::GroupKind::Number {
+                            start: 0.0,
+                            end: 10.0,
+                            interval: 2.5,
+                            auto_start: false,
+                            auto_end: true,
+                        },
+                    }),
+                    ..m::CacheField::new("Bins")
+                },
             ],
             records: vec![vec![m::Item::Text("East".into()), m::Item::Number(1.0)]],
             refresh_on_load: true,
@@ -407,6 +650,11 @@ mod tests {
                 xml: "<x/>".into(),
                 records: Some("<r/>".into()),
             }),
+            calculated_items: vec![m::CalculatedItem {
+                field: 0,
+                item: 1,
+                formula: "East*2".into(),
+            }],
         };
         same_shape::<_, super::PivotCache>(&cache);
         same_shape::<_, super::PivotSource>(&m::PivotSource::Name { name: "N".into() });
@@ -424,12 +672,45 @@ mod tests {
                 hidden_items: BTreeSet::from([2, 3]),
                 layout: m::PivotLayout::Tabular,
                 subtotal_bottom: true,
+                filter: Some(m::PivotFilter::Label {
+                    op: m::LabelOp::NotBetween,
+                    value: "a".into(),
+                    value2: "c".into(),
+                }),
+                insert_blank_row: true,
             },
             m::AxisField {
                 sort: m::SortOrder::Descending,
                 subtotals: m::Subtotals::None,
                 layout: m::PivotLayout::Outline,
+                filter: Some(m::PivotFilter::Top {
+                    data: 0,
+                    bottom: true,
+                    count: 3.0,
+                    by: m::TopBy::Percent,
+                }),
                 ..1.into()
+            },
+            m::AxisField {
+                sort: m::SortOrder::ByValue {
+                    data: 1,
+                    descending: true,
+                },
+                filter: Some(m::PivotFilter::Value {
+                    op: m::ValueOp::Between,
+                    data: 0,
+                    value: 1.0,
+                    value2: 2.0,
+                }),
+                ..5.into()
+            },
+            m::AxisField {
+                filter: Some(m::PivotFilter::Date {
+                    op: m::DateOp::After,
+                    value: 45000.0,
+                    value2: 0.0,
+                }),
+                ..6.into()
             },
         ];
         t.cols = vec![2.into()];
@@ -465,10 +746,28 @@ mod tests {
             },
             m::ShowAs::RunningTotal { base_field: 0 },
             m::ShowAs::Rank { base_field: 0 },
+            m::ShowAs::PercentOfParentColumn,
+            m::ShowAs::PercentOfParentTotal { base_field: 1 },
+            m::ShowAs::PercentOf {
+                base_field: 1,
+                base_item: m::BaseItem::Next,
+            },
+            m::ShowAs::PercentDifferenceFrom {
+                base_field: 1,
+                base_item: m::BaseItem::Item { item: 0 },
+            },
+            m::ShowAs::PercentRunningTotal { base_field: 0 },
+            m::ShowAs::RankAscending { base_field: 0 },
+            m::ShowAs::Index,
         ];
+        let funcs: Vec<m::AggFunc> = m::AggFunc::ALL
+            .iter()
+            .copied()
+            .chain([m::AggFunc::DistinctCount])
+            .collect();
         t.values = shows
             .iter()
-            .zip(m::AggFunc::ALL.iter().cycle())
+            .zip(funcs.iter().cycle())
             .map(|(s, f)| m::DataField {
                 field: 1,
                 name: "x".into(),
@@ -513,6 +812,18 @@ mod tests {
         ] {
             same_shape::<_, super::PivotCellKind>(&role);
         }
+        same_shape::<_, super::GroupSpec>(&m::GroupSpec::Date {
+            by: vec![m::DateGroupBy::Months, m::DateGroupBy::Years],
+            start: Some(1.0),
+            end: None,
+            days: Some(7),
+        });
+        same_shape::<_, super::GroupSpec>(&m::GroupSpec::Number {
+            start: None,
+            end: Some(5.0),
+            interval: 2.0,
+        });
+        same_shape::<_, super::GroupSpec>(&m::GroupSpec::Items { items: vec![1, 2] });
         for k in [
             m::FieldKind::Number,
             m::FieldKind::Text,
