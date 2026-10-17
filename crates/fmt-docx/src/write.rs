@@ -390,6 +390,9 @@ struct PartWriter<'a> {
     comment_mark: bool,
     /// The paragraph that gets a `w14:paraId` (a comment's last one).
     para_id: Option<(NodeId, String)>,
+    /// Writing `footnotes.xml` / `endnotes.xml` (comment ranges there get
+    /// no `w:commentReference`: LibreOffice cannot load one inside a note).
+    in_notes: bool,
 }
 
 impl<'a> PartWriter<'a> {
@@ -410,6 +413,7 @@ impl<'a> PartWriter<'a> {
             note_mark: None,
             comment_mark: false,
             para_id: None,
+            in_notes: false,
         }
     }
 
@@ -517,6 +521,7 @@ impl<'a> PartWriter<'a> {
             self.x.end(item);
         }
         let doc = self.doc;
+        self.in_notes = true;
         for note in doc.notes.iter().filter(|n| n.kind == kind) {
             let id = self.shared.note_ids[&note.id].to_string();
             self.x.start(item, &[("w:id", &id)]);
@@ -700,6 +705,9 @@ impl<'a> PartWriter<'a> {
                 self.x.empty("w:commentRangeStart", &[("w:id", &cid)]);
             } else {
                 self.x.empty("w:commentRangeEnd", &[("w:id", &cid)]);
+                if self.in_notes {
+                    continue;
+                }
                 self.x.start("w:r", &[]);
                 self.comment_reference_rpr();
                 self.x.empty("w:commentReference", &[("w:id", &cid)]);

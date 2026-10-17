@@ -133,6 +133,15 @@ fn comments_inside_notes_and_headers_survive() {
         let c = Comment::new(&mut doc, CommentId(id), "Ann", "here", None);
         doc.comments.push(c);
     }
+    // In a note the range is written without `w:commentReference` (LibreOffice
+    // cannot load one there); the header keeps Word's reference.
+    let bytes = fmt_docx::write(&doc).unwrap();
+    let notes = part(&bytes, "/word/footnotes.xml").unwrap();
+    assert!(notes.contains(r#"<w:commentRangeStart w:id="5"/>"#));
+    assert!(notes.contains(r#"<w:commentRangeEnd w:id="5"/>"#));
+    assert!(!notes.contains("w:commentReference"), "{notes}");
+    let header = part(&bytes, "/word/header1.xml").unwrap();
+    assert!(header.contains(r#"<w:commentReference w:id="6"/>"#));
     let back = reread(&doc);
     assert_eq!(back.comments.len(), 2);
     let ranges = back.comment_ranges();
