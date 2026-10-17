@@ -39,4 +39,28 @@ tile: boolean,
 /**
  * Opacity `0..=1`.
  */
-alpha: number, } };
+alpha: number, 
+/**
+ * Stretched: edge offsets (see [`PictureFill::offsets`]).
+ */
+offsets?: [number, number, number, number], 
+/**
+ * Tiled: tile offset in EMU.
+ */
+tileOffset?: [number, number], 
+/**
+ * Tiled: tile scale (1 = the picture's size).
+ */
+tileScale?: [number, number], } } | { "kind": "pattern", "value": { 
+/**
+ * `pct5`, `smCheck` …
+ */
+preset: string, 
+/**
+ * Foreground.
+ */
+fg: Rgb, 
+/**
+ * Background.
+ */
+bg: Rgb, } };

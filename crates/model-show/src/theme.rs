@@ -128,6 +128,16 @@ impl Theme {
         }
     }
 
+    /// The effect style a shape's `a:effectRef idx` (1…) refers to (`None`
+    /// for 0; past the end: the last style, like PowerPoint).
+    pub fn effect_style(&self, idx: u8) -> Option<&EffectStyle> {
+        if idx == 0 {
+            return None;
+        }
+        let list = &self.format.effect_styles;
+        list.get(idx as usize - 1).or(list.last())
+    }
+
     /// A slide/layout/master background resolved to RGB: a style
     /// reference `idx` 1001… picks `bg_fill_styles[idx − 1001]`, 1…999
     /// `fill_styles[idx − 1]` (out of range: the last style), filled with
@@ -139,6 +149,27 @@ impl Theme {
                 media: p.media,
                 tile: p.tile,
                 alpha: (1.0 - p.transparency).clamp(0.0, 1.0),
+                offsets: p.offsets,
+                tile_offset: p.tile_offset,
+                tile_scale: p.tile_scale,
+            },
+            Background::Gradient(g) => ResolvedFill::Gradient {
+                angle_deg: g.angle_deg,
+                shape: g.shape,
+                stops: g
+                    .stops
+                    .iter()
+                    .map(|s| ResolvedStop {
+                        pos: s.pos.clamp(0.0, 1.0),
+                        color: self.resolve(&s.color),
+                        alpha: (1.0 - s.transparency).clamp(0.0, 1.0),
+                    })
+                    .collect(),
+            },
+            Background::Pattern(p) => ResolvedFill::Pattern {
+                preset: p.preset.clone(),
+                fg: self.resolve(&p.fg),
+                bg: self.resolve(&p.bg),
             },
             Background::Style { index, color } => {
                 let ph = self.resolve(color);
@@ -170,7 +201,7 @@ impl Theme {
 /// Serializes as `{"kind":"fill","value":<Fill>}`,
 /// `{"kind":"style","value":{"index":1001,"color":<Color>}}` or
 /// `{"kind":"picture","value":{"media":3,"tile":true}}`.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
 #[cfg_attr(
     feature = "ts",
@@ -192,7 +223,146 @@ pub enum Background {
     },
     /// A picture or texture (`p:bgPr/a:blipFill`).
     Picture(PictureFill),
+    /// A gradient (`p:bgPr/a:gradFill`; P9-S3).
+    Gradient(BgGradient),
+    /// A pattern (`p:bgPr/a:pattFill`; P9-S3).
+    Pattern(PatternFill),
 }
+
+/// A gradient stop of a background.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub struct BgStop {
+    /// Position `0..=1` (`a:gs/@pos` / 100000).
+    pub pos: f64,
+    /// Colour.
+    #[cfg_attr(feature = "ts", ts(as = "app_common::wire::Color"))]
+    pub color: Color,
+    /// Transparency `0..=1` (`a:alpha` = 1 − transparency).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<f64>"))]
+    pub transparency: f64,
+}
+
+/// A gradient background (Format Background › Gradient fill).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub struct BgGradient {
+    /// Stops by position (2…10).
+    pub stops: Vec<BgStop>,
+    /// Direction of a linear gradient, degrees clockwise from left →
+    /// right (`a:lin/@ang` / 60000).
+    #[serde(default)]
+    pub angle_deg: f64,
+    /// Linear, radial (`circle`), rectangular (`rect`) or path (`shape`).
+    #[serde(default)]
+    pub shape: GradientShape,
+}
+
+impl BgGradient {
+    /// Checks the stops: 2…10, positions `0..=1`, transparency `0..=1`.
+    pub fn validate(&self) -> Result<(), String> {
+        if !(2..=10).contains(&self.stops.len()) {
+            return Err(format!(
+                "a gradient needs 2–10 stops, not {}",
+                self.stops.len()
+            ));
+        }
+        if self
+            .stops
+            .iter()
+            .any(|s| !(0.0..=1.0).contains(&s.pos) || !(0.0..=1.0).contains(&s.transparency))
+        {
+            return Err("gradient stop out of range".into());
+        }
+        if !self.angle_deg.is_finite() {
+            return Err("gradient angle is not a number".into());
+        }
+        Ok(())
+    }
+}
+
+/// A pattern background (`a:pattFill prst`, foreground and background
+/// colour).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub struct PatternFill {
+    /// The DrawingML preset name (`pct5`, `ltDnDiag`, `smCheck` …).
+    pub preset: String,
+    /// Foreground (`a:fgClr`).
+    #[cfg_attr(feature = "ts", ts(as = "app_common::wire::Color"))]
+    pub fg: Color,
+    /// Background (`a:bgClr`).
+    #[cfg_attr(feature = "ts", ts(as = "app_common::wire::Color"))]
+    pub bg: Color,
+}
+
+/// The 48 DrawingML pattern presets (`ST_PresetPatternVal`).
+pub const PATTERN_PRESETS: [&str; 48] = [
+    "pct5",
+    "pct10",
+    "pct20",
+    "pct25",
+    "pct30",
+    "pct40",
+    "pct50",
+    "pct60",
+    "pct70",
+    "pct75",
+    "pct80",
+    "pct90",
+    "horz",
+    "vert",
+    "ltHorz",
+    "ltVert",
+    "dkHorz",
+    "dkVert",
+    "narHorz",
+    "narVert",
+    "dashHorz",
+    "dashVert",
+    "cross",
+    "dnDiag",
+    "upDiag",
+    "ltDnDiag",
+    "ltUpDiag",
+    "dkDnDiag",
+    "dkUpDiag",
+    "wdDnDiag",
+    "wdUpDiag",
+    "dashDnDiag",
+    "dashUpDiag",
+    "diagCross",
+    "smCheck",
+    "lgCheck",
+    "smGrid",
+    "lgGrid",
+    "dotGrid",
+    "smConfetti",
+    "lgConfetti",
+    "horzBrick",
+    "diagBrick",
+    "solidDmnd",
+    "openDmnd",
+    "dotDmnd",
+    "plaid",
+    "sphere",
+];
 
 /// A picture background (`a:blipFill`): stretched over the slide, or
 /// tiled at the picture's size (a texture).
@@ -215,6 +385,51 @@ pub struct PictureFill {
     #[serde(default, skip_serializing_if = "is_zero")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<f64>"))]
     pub transparency: f64,
+    /// Stretched: offsets of the picture's left, top, right and bottom
+    /// edge from the slide's, as fractions of the slide (`a:fillRect`
+    /// `l t r b` / 100000; positive = inwards).
+    #[serde(default, skip_serializing_if = "is_zero4")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<[f64; 4]>"))]
+    pub offsets: [f64; 4],
+    /// Tiled: offset of the tiles (`a:tile tx ty`).
+    #[serde(default, skip_serializing_if = "is_zero2")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<[f64; 2]>"))]
+    pub tile_offset: [f64; 2],
+    /// Tiled: scale of the tiles (`a:tile sx sy` / 100000; `[1, 1]` =
+    /// the picture's size).
+    #[serde(default = "unit2", skip_serializing_if = "is_unit2")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<[f64; 2]>"))]
+    pub tile_scale: [f64; 2],
+}
+
+impl PictureFill {
+    /// A stretched, opaque picture.
+    pub fn new(media: MediaId) -> Self {
+        Self {
+            media,
+            tile: false,
+            transparency: 0.0,
+            offsets: [0.0; 4],
+            tile_offset: [0.0; 2],
+            tile_scale: [1.0; 2],
+        }
+    }
+}
+
+fn is_zero4(v: &[f64; 4]) -> bool {
+    v.iter().all(|x| *x == 0.0)
+}
+
+fn is_zero2(v: &[f64; 2]) -> bool {
+    v.iter().all(|x| *x == 0.0)
+}
+
+fn unit2() -> [f64; 2] {
+    [1.0, 1.0]
+}
+
+fn is_unit2(v: &[f64; 2]) -> bool {
+    v.iter().all(|x| *x == 1.0)
 }
 
 fn is_false(v: &bool) -> bool {
@@ -276,6 +491,30 @@ pub enum ResolvedFill {
         tile: bool,
         /// Opacity `0..=1`.
         alpha: f64,
+        /// Stretched: edge offsets (see [`PictureFill::offsets`]).
+        #[serde(default, skip_serializing_if = "is_zero4")]
+        #[cfg_attr(feature = "ts", ts(optional, as = "Option<[f64; 4]>"))]
+        offsets: [f64; 4],
+        /// Tiled: tile offset in EMU.
+        #[serde(default, skip_serializing_if = "is_zero2")]
+        #[cfg_attr(feature = "ts", ts(optional, as = "Option<[f64; 2]>"))]
+        tile_offset: [f64; 2],
+        /// Tiled: tile scale (1 = the picture's size).
+        #[serde(default = "unit2", skip_serializing_if = "is_unit2")]
+        #[cfg_attr(feature = "ts", ts(optional, as = "Option<[f64; 2]>"))]
+        tile_scale: [f64; 2],
+    },
+    /// A two-colour pattern (DrawingML preset name).
+    #[serde(rename_all = "camelCase")]
+    Pattern {
+        /// `pct5`, `smCheck` …
+        preset: String,
+        /// Foreground.
+        #[cfg_attr(feature = "ts", ts(as = "app_common::wire::Rgb"))]
+        fg: Rgb,
+        /// Background.
+        #[cfg_attr(feature = "ts", ts(as = "app_common::wire::Rgb"))]
+        bg: Rgb,
     },
 }
 

@@ -8,6 +8,7 @@
 
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
 import type { ThemeColorSlot } from "../../../../packages/ui-shared/src/generated/ThemeColorSlot";
+import { patternDataUrl } from "./patterns";
 import type { Background } from "../generated/Background";
 import type { ColorMod } from "../generated/ColorMod";
 import type { Fill } from "../generated/Fill";
@@ -158,7 +159,26 @@ export function resolveBackground(theme: Theme | undefined, bg: Background): Res
   if (bg.kind === "fill") return resolveFill(theme, bg.value);
   if (bg.kind === "picture") {
     const p = bg.value;
-    return { kind: "picture", value: { media: p.media, tile: !!p.tile, alpha: Math.min(1, Math.max(0, 1 - (p.transparency ?? 0))) } };
+    const value: Extract<ResolvedFill, { kind: "picture" }>["value"] = { media: p.media, tile: !!p.tile, alpha: Math.min(1, Math.max(0, 1 - (p.transparency ?? 0))) };
+    if (p.offsets) value.offsets = p.offsets;
+    if (p.tileOffset) value.tileOffset = p.tileOffset;
+    if (p.tileScale) value.tileScale = p.tileScale;
+    return { kind: "picture", value };
+  }
+  if (bg.kind === "gradient") {
+    const g = bg.value;
+    return {
+      kind: "gradient",
+      value: {
+        angleDeg: g.angleDeg ?? 0,
+        shape: g.shape ?? "linear",
+        stops: g.stops.map((st) => ({ pos: Math.min(1, Math.max(0, st.pos)), color: resolveColor(theme, st.color), alpha: Math.min(1, Math.max(0, 1 - (st.transparency ?? 0))) })),
+      },
+    };
+  }
+  if (bg.kind === "pattern") {
+    const p = bg.value;
+    return { kind: "pattern", value: { preset: p.preset, fg: resolveColor(theme, p.fg), bg: resolveColor(theme, p.bg) } };
   }
   const { index, color } = bg.value;
   const ph = resolveColor(theme, color);
@@ -178,8 +198,10 @@ export function cssRgba(hex: string, alpha = 1): string {
 /** A CSS `background` value of a resolved fill (`undefined` = none). */
 export function fillCssBackground(f: ResolvedFill): string | undefined {
   if (f.kind === "none" || f.kind === "picture") return undefined;
+  if (f.kind === "pattern") return `url("${patternDataUrl(f.value.preset, f.value.fg, f.value.bg, 2)}") repeat`;
   if (f.kind === "solid") return cssRgba(f.value.color, f.value.alpha);
   const stops = f.value.stops.map((s) => `${cssRgba(s.color, s.alpha)} ${Math.round(s.pos * 100)}%`).join(", ");
+  if (f.value.shape === "rect") return `radial-gradient(closest-side, ${stops})`;
   if (f.value.shape !== "linear") return `radial-gradient(circle, ${stops})`;
   // DrawingML: 0° = left → right, clockwise; CSS: 0deg = bottom → top, clockwise.
   return `linear-gradient(${(f.value.angleDeg + 90) % 360}deg, ${stops})`;
@@ -191,8 +213,8 @@ export function fillCssBackground(f: ResolvedFill): string | undefined {
  * left → right).
  */
 export function konvaFill(f: ResolvedFill, w: number, h: number): Record<string, unknown> {
-  // pictures are drawn as an image over the background (SlideView)
-  if (f.kind === "none" || f.kind === "picture") return {};
+  // pictures and patterns are drawn as an image over the background (SlideView)
+  if (f.kind === "none" || f.kind === "picture" || f.kind === "pattern") return {};
   if (f.kind === "solid") return { fill: cssRgba(f.value.color, f.value.alpha) };
   const stops = f.value.stops.flatMap((s) => [clamp01(s.pos), cssRgba(s.color, s.alpha)]);
   if (f.value.shape !== "linear") {
@@ -216,4 +238,21 @@ export function gradientLine(angleDeg: number, w: number, h: number): { start: {
   const cx = w / 2, cy = h / 2;
   const r = (v: number) => Math.round(v * 1000) / 1000 || 0;
   return { start: { x: r(cx - dx * half), y: r(cy - dy * half) }, end: { x: r(cx + dx * half), y: r(cy + dy * half) } };
+}
+
+/**
+ * Konva shadow attributes of a shape's theme effect style (`effectRef`
+ * 1…3, P9-S3: `a:effectStyleLst`, the outer shadow; `phClr` = Accent 1).
+ * Empty for 0 or a style without a shadow.
+ */
+export function effectShadow(theme: Theme | undefined, idx: number | undefined, emuPerPx: number): Record<string, unknown> {
+  if (!idx) return {};
+  const list = theme?.format?.effectStyles ?? [];
+  const sh = (list[idx - 1] ?? list[list.length - 1])?.shadow;
+  if (!sh) return {};
+  const { rgb, alpha } = resolveStyleColor(theme, sh.color, schemeColor(theme, "accent1"));
+  const d = sh.distance / emuPerPx;
+  const a = (sh.directionDeg * Math.PI) / 180;
+  const r = (v: number) => Math.round(v * 1000) / 1000 || 0;
+  return { shadowColor: `#${rgb}`, shadowOpacity: alpha, shadowBlur: r(sh.blur / emuPerPx), shadowOffsetX: r(d * Math.cos(a)), shadowOffsetY: r(d * Math.sin(a)), shadowForStrokeEnabled: false };
 }

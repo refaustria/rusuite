@@ -42,6 +42,7 @@ export const DI = {
   guides: <I><rect x="2.5" y="3" width="15" height="14" rx="1" /><path d="M10 3v14M2.5 10h15" strokeDasharray="2 1.5" /></I>,
   select: <I><path d="M4 3l9 6.5-4 .8 2.4 4.6-1.6.8-2.4-4.6L4 14z" /></I>,
   selectionPane: <I><rect x="2.5" y="3" width="15" height="14" rx="1" /><path d="M5 7h6M5 10h6M5 13h6" /><circle cx="14" cy="7" r="0.8" fill="currentColor" /><circle cx="14" cy="10" r="0.8" fill="currentColor" /><circle cx="14" cy="13" r="0.8" fill="currentColor" /></I>,
+  effects: <I><rect x="3" y="3" width="10" height="10" rx="1.5" /><path d="M13 6h3v10H6v-3" /></I>,
   customShow: <I><rect x="2.5" y="4" width="11" height="8" rx="1" /><rect x="6.5" y="8" width="11" height="8" rx="1" /><path d="M10 11l3 1.5-3 1.5z" /></I>,
   setUpShow: <I><rect x="2.5" y="3" width="15" height="10" rx="1" /><path d="M10 13v3M6.5 17h7" /><circle cx="10" cy="8" r="2" /></I>,
   rehearse: <I><circle cx="10" cy="11" r="6" /><path d="M10 7.5V11l2.5 1.5M8 2.5h4" /></I>,

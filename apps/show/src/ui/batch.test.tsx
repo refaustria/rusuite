@@ -198,16 +198,24 @@ describe("P6-5 UI through the app", () => {
     const pres = fixture();
     const fill = { kind: "fill", value: { kind: "solid", value: { kind: "rgb", value: "FFEEDD" } } } as const;
     pres.slides[0]!.background = fill;
-    const { backend } = await mount(new FakeBackend(pres));
+    const { backend, store } = await mount(new FakeBackend(pres));
     fireEvent.click(screen.getByRole("tab", { name: "Design" }));
     fireEvent.click(screen.getByRole("button", { name: "Format Background" }));
     const pane = screen.getByRole("complementary", { name: "Format Background" });
-    fireEvent.click(within(pane).getByRole("button", { name: "Apply to all" }));
-    await flush();
-    expect(last(backend.commands)).toEqual({ type: "setBackground", target: { kind: "slides", value: [1, 4, 7] }, fill, hideMasterShapes: false });
     fireEvent.click(within(pane).getByRole("button", { name: "Reset background" }));
     await flush();
     expect(last(backend.commands)).toEqual({ type: "setBackground", target: { kind: "slides", value: [1] }, fill: null, hideMasterShapes: false });
+    await act(() => store.undo());
+    // Apply to All (P9-S3): the master gets it (new slides too), the slides drop their own
+    fireEvent.click(within(pane).getByRole("button", { name: "Apply to all" }));
+    await flush();
+    expect(last(backend.commands)).toEqual({
+      type: "compound",
+      commands: [
+        { type: "setBackground", target: { kind: "master" }, fill },
+        { type: "setBackground", target: { kind: "slides", value: [1, 4, 7] }, fill: null, hideMasterShapes: false },
+      ],
+    });
   });
 
   it("the text overlay follows the anchor; Tab indents, Shift+Tab outdents", async () => {

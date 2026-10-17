@@ -220,3 +220,254 @@ fn zip_text(bytes: &[u8], name: &str) -> String {
         .unwrap();
     String::from_utf8(part.data.clone()).unwrap()
 }
+
+// ----- backgrounds, effects, slide size (item 3)
+
+use core_model::{Color, ThemeColorSlot};
+use model_show::{
+    Background, BgGradient, BgStop, EffectStyle, GradientShape, PatternFill, PictureFill,
+    SlideSize, StyleColor, StyleShadow,
+};
+use show_core::{BackgroundTarget, SlideScale};
+
+fn gradient() -> BgGradient {
+    BgGradient {
+        stops: vec![
+            BgStop {
+                pos: 0.0,
+                color: Color::theme(ThemeColorSlot::Accent1),
+                transparency: 0.0,
+            },
+            BgStop {
+                pos: 0.6,
+                color: Color::Theme {
+                    slot: ThemeColorSlot::Accent2,
+                    tint: 0.4,
+                },
+                transparency: 0.25,
+            },
+            BgStop {
+                pos: 1.0,
+                color: Color::Rgb(core_model::Rgb::new(0x10, 0x20, 0x30)),
+                transparency: 0.0,
+            },
+        ],
+        angle_deg: 45.0,
+        shape: GradientShape::Linear,
+    }
+}
+
+#[test]
+fn gradient_backgrounds_round_trip_on_slides_and_the_master() {
+    let mut h = host();
+    let ids = slide_ids(&h);
+    let g = Background::Gradient(gradient());
+    apply(
+        &mut h,
+        C::SetBackground {
+            target: BackgroundTarget::Slides(vec![ids[1]]),
+            fill: Some(g.clone()),
+            hide_master_shapes: None,
+        },
+    );
+    let radial = Background::Gradient(BgGradient {
+        shape: GradientShape::Circle,
+        angle_deg: 0.0,
+        ..gradient()
+    });
+    apply(
+        &mut h,
+        C::SetBackground {
+            target: BackgroundTarget::Master,
+            fill: Some(radial.clone()),
+            hide_master_shapes: None,
+        },
+    );
+    let back = reopened(&h);
+    assert_eq!(back.slides[1].background, Some(g));
+    assert_eq!(back.master.background, radial);
+    // one stop is no gradient
+    let bad = Background::Gradient(BgGradient {
+        stops: gradient().stops[..1].to_vec(),
+        ..gradient()
+    });
+    assert!(h
+        .apply(C::SetBackground {
+            target: BackgroundTarget::Master,
+            fill: Some(bad),
+            hide_master_shapes: None,
+        })
+        .is_err());
+}
+
+#[test]
+fn pattern_and_picture_backgrounds_round_trip() {
+    let mut h = host();
+    let ids = slide_ids(&h);
+    let pattern = Background::Pattern(PatternFill {
+        preset: "smCheck".into(),
+        fg: Color::theme(ThemeColorSlot::Accent1),
+        bg: Color::theme(ThemeColorSlot::Light1),
+    });
+    apply(
+        &mut h,
+        C::SetBackground {
+            target: BackgroundTarget::Slides(vec![ids[2]]),
+            fill: Some(pattern.clone()),
+            hide_master_shapes: Some(true),
+        },
+    );
+    assert!(h
+        .apply(C::SetBackground {
+            target: BackgroundTarget::Slides(vec![ids[2]]),
+            fill: Some(Background::Pattern(PatternFill {
+                preset: "nonsense".into(),
+                fg: Color::Auto,
+                bg: Color::Auto,
+            })),
+            hide_master_shapes: None,
+        })
+        .is_err());
+    // a tiled texture with offset and scale, a stretched picture with offsets
+    h.apply(C::SetBackgroundPicture {
+        target: BackgroundTarget::Slides(vec![ids[1]]),
+        content_type: "image/png".into(),
+        bytes_base64: core_model::media::base64_encode(b"\x89PNG\r\n\x1a\nbg"),
+        tile: true,
+        transparency: 0.0,
+    })
+    .unwrap();
+    let Some(Background::Picture(pf)) = h.doc().presentation().slides[1].background.clone() else {
+        panic!("no picture background");
+    };
+    let tiled = Background::Picture(PictureFill {
+        tile_offset: [91_440.0, -45_720.0],
+        tile_scale: [0.5, 0.75],
+        transparency: 0.3,
+        ..pf
+    });
+    let stretched = Background::Picture(PictureFill {
+        tile: false,
+        offsets: [0.1, 0.0, -0.05, 0.2],
+        ..pf
+    });
+    apply(
+        &mut h,
+        C::SetBackground {
+            target: BackgroundTarget::Slides(vec![ids[1]]),
+            fill: Some(tiled),
+            hide_master_shapes: None,
+        },
+    );
+    h.apply(C::SetBackground {
+        target: BackgroundTarget::Layout(LayoutKind::Blank),
+        fill: Some(stretched),
+        hide_master_shapes: None,
+    })
+    .unwrap();
+    let back = reopened(&h);
+    assert_eq!(back.slides[2].background, Some(pattern));
+    assert!(!back.slides[2].show_master_shapes);
+    let Some(Background::Picture(t)) = &back.slides[1].background else {
+        panic!("tiled picture lost");
+    };
+    assert!(t.tile);
+    assert_eq!(t.tile_offset, [91_440.0, -45_720.0]);
+    assert_eq!(t.tile_scale, [0.5, 0.75]);
+    assert!((t.transparency - 0.3).abs() < 1e-6);
+    let blank = back.layout(&LayoutKind::Blank).unwrap();
+    let Some(Background::Picture(s)) = &blank.background else {
+        panic!("stretched picture lost");
+    };
+    assert_eq!(s.offsets, [0.1, 0.0, -0.05, 0.2]);
+}
+
+fn shadow(blur: i64) -> EffectStyle {
+    EffectStyle {
+        shadow: Some(StyleShadow {
+            blur: Emu(blur),
+            distance: Emu(38_100),
+            direction_deg: 90.0,
+            color: StyleColor::rgb(
+                core_model::Rgb::BLACK,
+                &[model_show::ColorMod::Alpha(40_000)],
+            ),
+        }),
+    }
+}
+
+#[test]
+fn effect_styles_apply_to_shapes_by_reference() {
+    let mut h = host();
+    let p = h.doc().presentation();
+    // the Office format scheme: subtle and moderate have no shadow
+    assert!(p.theme.effect_style(1).unwrap().shadow.is_none());
+    assert!(p.theme.effect_style(0).is_none());
+    let styles = vec![EffectStyle::default(), shadow(50_800), shadow(101_600)];
+    let patch = apply(
+        &mut h,
+        C::SetThemeEffects {
+            name: "Soft Shadows".into(),
+            effect_styles: styles.clone(),
+        },
+    );
+    let theme = patch.theme.unwrap();
+    assert_eq!(theme.format.name, "Soft Shadows");
+    assert_eq!(theme.effect_style(3), Some(&styles[2]));
+    // past the end: the last style
+    assert_eq!(theme.effect_style(9), Some(&styles[2]));
+    assert!(h
+        .apply(C::SetThemeEffects {
+            name: "x".into(),
+            effect_styles: vec![]
+        })
+        .is_err());
+    // a shape's effectRef survives the round trip and resolves in the theme
+    let mut pres = h.doc().presentation().clone();
+    pres.slides[1].shapes[0].effect_ref = 2;
+    let h2: ShowHost = Host::new(ShowDocument::from_presentation(pres).unwrap());
+    let back = reopened(&h2);
+    let s = &back.slides[1].shapes[0];
+    assert_eq!(s.effect_ref, 2);
+    assert_eq!(back.theme.format.name, "Soft Shadows");
+    assert_eq!(back.theme.effect_style(s.effect_ref), Some(&styles[1]));
+}
+
+#[test]
+fn ensure_fit_scales_master_and_layouts_like_the_slides() {
+    let mut h = host();
+    let before = h.doc().presentation().clone();
+    let title =
+        |p: &Presentation| p.layout(&LayoutKind::TitleContent).unwrap().placeholders[0].transform;
+    let old = title(&before);
+    apply(
+        &mut h,
+        C::SetSlideSize {
+            size: SlideSize::standard(),
+            scale: SlideScale::Fit,
+        },
+    );
+    let p = h.doc().presentation();
+    // 16:9 → 4:3: Ensure Fit = the width ratio 0.75, centred
+    let k = 9_144_000.0 / 12_192_000.0;
+    let t = title(p);
+    assert_eq!(t.w.0, (old.w.0 as f64 * k).round() as i64);
+    assert_eq!(t.h.0, (old.h.0 as f64 * k).round() as i64);
+    let cy = 6_858_000.0 / 2.0;
+    assert_eq!(t.y.0, (cy + (old.y.0 as f64 - cy) * k).round() as i64);
+    let mt = p.master.placeholders[0].transform;
+    assert_eq!(
+        mt.w.0,
+        (before.master.placeholders[0].transform.w.0 as f64 * k).round() as i64
+    );
+    // Maximize: the height ratio 1.0, the width overflows evenly
+    let mut h = host();
+    h.apply(C::SetSlideSize {
+        size: SlideSize::standard(),
+        scale: SlideScale::Maximize,
+    })
+    .unwrap();
+    let t = title(h.doc().presentation());
+    assert_eq!(t.w, old.w);
+    assert_eq!(t.x.0, old.x.0 - (12_192_000 - 9_144_000) / 2);
+}

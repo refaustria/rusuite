@@ -355,6 +355,10 @@ export class FakeBackend implements ShowBackend {
         p.theme = { ...p.theme, colors: clone(c.colors) };
         this.design = true;
         return;
+      case "setThemeEffects":
+        p.theme = { ...p.theme, format: { ...(p.theme.format ?? { name: "", fillStyles: [], lineStyles: [], effectStyles: [], bgFillStyles: [] }), name: c.name, effectStyles: clone(c.effectStyles) } };
+        this.design = true;
+        return;
       case "setThemeFonts":
         p.theme = { ...p.theme, fonts: clone(c.fonts) };
         this.design = true;

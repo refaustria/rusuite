@@ -576,10 +576,45 @@ fn recrop_box(t: &Transform, old: &Crop, new: &Crop) -> Transform {
     }
 }
 
-/// Master and layouts for slide size `size`: the Office ones when the
+/// Master and layouts for slide size `size`. With content scaling
+/// (`uniform` = the Maximize / Ensure Fit factor) they scale like the
+/// slides, about the centre; without, the Office ones when the
 /// presentation has exactly the Office design for its current size, else
-/// its own with every placeholder and shape box scaled.
-fn resized_design(p: &Presentation, size: model_show::SlideSize) -> (SlideMaster, Vec<Layout>) {
+/// its own with every placeholder and shape box stretched to the new size.
+fn resized_design(
+    p: &Presentation,
+    size: model_show::SlideSize,
+    uniform: Option<f64>,
+) -> (SlideMaster, Vec<Layout>) {
+    // Maximize / Ensure Fit: the master and the layouts scale like the
+    // slides, by one factor about the slide centre (PowerPoint), so
+    // inherited placeholders stay where the slides' own shapes went
+    if let Some(k) = uniform {
+        let (old, new) = (p.slide_size, size);
+        let (ocx, ocy) = (old.width.0 as f64 / 2.0, old.height.0 as f64 / 2.0);
+        let (ncx, ncy) = (new.width.0 as f64 / 2.0, new.height.0 as f64 / 2.0);
+        let r = |v: f64| Emu(v.round() as i64);
+        let sc = |t: &mut Transform| {
+            t.x = r(ncx + (t.x.0 as f64 - ocx) * k);
+            t.y = r(ncy + (t.y.0 as f64 - ocy) * k);
+            t.w = r(t.w.0 as f64 * k);
+            t.h = r(t.h.0 as f64 * k);
+        };
+        let mut master = p.master.clone();
+        let mut layouts = p.layouts.clone();
+        for d in master
+            .placeholders
+            .iter_mut()
+            .chain(layouts.iter_mut().flat_map(|l| l.placeholders.iter_mut()))
+        {
+            sc(&mut d.transform);
+        }
+        scale_about_centre(&mut master.shapes, k, old, new);
+        for l in &mut layouts {
+            scale_about_centre(&mut l.shapes, k, old, new);
+        }
+        return (master, layouts);
+    }
     let builtin = Presentation::empty(p.slide_size);
     if p.master == builtin.master && p.layouts == builtin.layouts {
         let fresh = Presentation::empty(size);
@@ -1277,7 +1312,7 @@ impl ShowDocument {
                         Ok(())
                     })?);
                 }
-                let (master, layouts) = resized_design(&self.pres, *size);
+                let (master, layouts) = resized_design(&self.pres, *size, k);
                 inverse.insert(0, self.set_size(*size, master, layouts, ch));
                 Ok(if inverse.len() == 1 {
                     inverse.remove(0)
@@ -1477,6 +1512,22 @@ impl ShowDocument {
                 ch.design = true;
                 Ok(inverse)
             }
+            C::SetThemeEffects {
+                name,
+                effect_styles,
+            } => {
+                if effect_styles.is_empty() || effect_styles.len() > 6 {
+                    return Err(invalid("an effect scheme has 1–6 effect styles"));
+                }
+                let inverse = self.design_snapshot();
+                let f = &mut self.pres.theme.format;
+                f.effect_styles = effect_styles.clone();
+                if !name.trim().is_empty() {
+                    f.name = name.trim().to_owned();
+                }
+                ch.design = true;
+                Ok(inverse)
+            }
             C::AddLayout { name } => {
                 let kind = LayoutKind::Custom(name.clone());
                 if name.is_empty() || self.pres.layout(&kind).is_some() {
@@ -1617,9 +1668,9 @@ impl ShowDocument {
                 let media = self.pres.media.insert(content_type.clone(), bytes);
                 let added = self.pres.media.len() > count;
                 let bg = Background::Picture(model_show::PictureFill {
-                    media,
                     tile: *tile,
                     transparency: *transparency,
+                    ..model_show::PictureFill::new(media)
                 });
                 let restore = match self.set_background(target, Some(&bg), None, ch) {
                     Ok(r) => r,
@@ -2424,6 +2475,7 @@ impl ShowDocument {
             hidden: ns.hidden,
             lock_aspect: ns.lock_aspect,
             text_color: ns.text_color,
+            effect_ref: 0,
         };
         shape.fill_default_name();
         normalize_shape(&mut shape);
@@ -2998,6 +3050,19 @@ impl ShowDocument {
             Some(Background::Picture(p)) if !(0.0..=1.0).contains(&p.transparency) => {
                 Err(invalid("background transparency must be 0…1"))
             }
+            Some(Background::Picture(p))
+                if p.offsets.iter().any(|v| !v.is_finite() || v.abs() > 10.0)
+                    || p.tile_scale.iter().any(|v| !(0.01..=100.0).contains(v))
+                    || p.tile_offset.iter().any(|v| !v.is_finite()) =>
+            {
+                Err(invalid("background picture offsets or scale out of range"))
+            }
+            Some(Background::Gradient(g)) => g.validate().map_err(invalid),
+            Some(Background::Pattern(p))
+                if !model_show::PATTERN_PRESETS.contains(&p.preset.as_str()) =>
+            {
+                Err(invalid(format!("unknown pattern {:?}", p.preset)))
+            }
             _ => Ok(()),
         }
     }
@@ -3015,7 +3080,7 @@ impl ShowDocument {
                     Some(Background::Style { .. }) => {
                         return Err(invalid("slides take explicit background fills"))
                     }
-                    f => f.copied(),
+                    f => f.cloned(),
                 };
                 self.check_background_media(fill.as_ref())?;
                 for &id in slides {
@@ -3026,7 +3091,7 @@ impl ShowDocument {
                 self.edit_slides(&unique, ch, |d| {
                     for &id in &unique {
                         let s = d.slide_mut(id)?;
-                        s.background = fill;
+                        s.background = fill.clone();
                         if let Some(h) = hide {
                             s.show_master_shapes = !h;
                         }
@@ -3039,7 +3104,7 @@ impl ShowDocument {
                 self.check_background_media(fill)?;
                 let inverse = self.design_snapshot();
                 let l = &mut self.pres.layouts[i];
-                l.background = fill.copied();
+                l.background = fill.cloned();
                 if let Some(h) = hide {
                     l.show_master_shapes = !h;
                 }
@@ -3052,7 +3117,7 @@ impl ShowDocument {
                 }
                 self.check_background_media(fill)?;
                 let inverse = self.design_snapshot();
-                self.pres.master.background = fill.copied().unwrap_or_default();
+                self.pres.master.background = fill.cloned().unwrap_or_default();
                 ch.design = true;
                 Ok(inverse)
             }

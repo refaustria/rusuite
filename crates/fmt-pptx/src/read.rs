@@ -440,6 +440,8 @@ struct StyleRefs {
     fill: Option<Color>,
     line: Option<Line>,
     font: Option<Color>,
+    /// `a:effectRef/@idx` (0 = none, 1–3).
+    effect: u8,
 }
 
 fn read_style(st: Option<&El>, w: &mut Warnings) -> StyleRefs {
@@ -459,6 +461,9 @@ fn read_style(st: Option<&El>, w: &mut Warnings) -> StyleRefs {
     }
     if let Some(r) = st.child("fontRef") {
         out.font = read_color(r, w);
+    }
+    if let Some(r) = st.child("effectRef") {
+        out.effect = idx(r).clamp(0, 3) as u8;
     }
     out
 }
@@ -1002,10 +1007,36 @@ impl Reader<'_> {
                 .and_then(|a| a.attr("amt"))
                 .and_then(|v| v.parse::<f64>().ok())
                 .map_or(0.0, |amt| (1.0 - amt / 100_000.0).clamp(0.0, 1.0));
+            let pct = |el: Option<&El>, name: &str| {
+                el.and_then(|e| e.attr(name))
+                    .and_then(parse_i64)
+                    .map_or(0.0, |v| v as f64 / 100_000.0)
+            };
+            let tile = blip_fill.child("tile");
+            let fill_rect = blip_fill.child("stretch").and_then(|s| s.child("fillRect"));
+            let emu = |name: &str| {
+                tile.and_then(|t| t.attr(name))
+                    .and_then(parse_i64)
+                    .unwrap_or(0) as f64
+            };
+            let scale = |name: &str| {
+                tile.and_then(|t| t.attr(name))
+                    .and_then(parse_i64)
+                    .map_or(1.0, |v| (v as f64 / 100_000.0).clamp(0.01, 100.0))
+            };
             return Some(Background::Picture(PictureFill {
                 media,
-                tile: blip_fill.child("tile").is_some(),
+                tile: tile.is_some(),
                 transparency,
+                // `a:fillRect` insets: positive = the picture's edge moved inwards
+                offsets: [
+                    pct(fill_rect, "l"),
+                    pct(fill_rect, "t"),
+                    pct(fill_rect, "r"),
+                    pct(fill_rect, "b"),
+                ],
+                tile_offset: [emu("tx"), emu("ty")],
+                tile_scale: [scale("sx"), scale("sy")],
             }));
         }
         read_bg(bg, self.w)
@@ -1218,6 +1249,7 @@ impl Reader<'_> {
             hidden: false,
             lock_aspect: false,
             text_color: None,
+            effect_ref: 0,
         })
     }
 
@@ -1392,6 +1424,7 @@ impl Reader<'_> {
             hidden: false,
             lock_aspect: false,
             text_color: style.font,
+            effect_ref: style.effect,
         })
     }
 
@@ -1479,6 +1512,7 @@ impl Reader<'_> {
             hidden: false,
             lock_aspect: false,
             text_color: None,
+            effect_ref: 0,
         })
     }
 
@@ -1517,6 +1551,7 @@ impl Reader<'_> {
             hidden: false,
             lock_aspect: false,
             text_color: None,
+            effect_ref: 0,
         })
     }
 
@@ -1568,6 +1603,7 @@ impl Reader<'_> {
                 hidden: false,
                 lock_aspect: false,
                 text_color: None,
+                effect_ref: 0,
             });
         }
         let Some(rid) = blip.and_then(|b| b.attr("embed")) else {
@@ -1613,6 +1649,7 @@ impl Reader<'_> {
             hidden: false,
             lock_aspect: false,
             text_color: None,
+            effect_ref: 0,
         })
     }
 
@@ -1751,6 +1788,7 @@ impl Reader<'_> {
             hidden: false,
             lock_aspect: false,
             text_color: None,
+            effect_ref: 0,
         })
     }
 }

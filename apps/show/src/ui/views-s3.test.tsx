@@ -159,3 +159,89 @@ describe("custom shows and Set Up Slide Show", () => {
     expect(c?.type === "setShowSettings" && c.settings).toMatchObject({ showType: "kiosk", loop: true, customShow: 4, penColor: "00B050" });
   });
 });
+
+describe("Format Background pane and Effects", () => {
+  async function pane(p = fixture()) {
+    const r = await mount(new FakeBackend(p));
+    fireEvent.click(tab("Design"));
+    fireEvent.click(screen.getByRole("button", { name: "Format Background" }));
+    return { ...r, pane: screen.getByTestId("bg-pane") };
+  }
+  const lastCmd = (b: FakeBackend) => b.commands.at(-1);
+
+  it("gradient: presets, type, angle and stops go to the slide", async () => {
+    const { backend } = await pane();
+    fireEvent.click(screen.getByTestId("bg-kind-gradient"));
+    await flush();
+    fireEvent.click(screen.getByTestId("bg-preset-medium-accent2"));
+    await flush();
+    let c = lastCmd(backend);
+    expect(c?.type === "setBackground" && c.fill?.kind === "gradient" && c.fill.value.stops).toHaveLength(3);
+    fireEvent.change(screen.getByRole("combobox", { name: "Type" }), { target: { value: "circle" } });
+    await flush();
+    c = lastCmd(backend);
+    expect(c?.type === "setBackground" && c.fill?.kind === "gradient" && c.fill.value.shape).toBe("circle");
+    fireEvent.change(screen.getByRole("combobox", { name: "Type" }), { target: { value: "linear" } });
+    await flush();
+    const angle = screen.getByTestId("bg-angle");
+    fireEvent.change(angle, { target: { value: "45" } });
+    fireEvent.blur(angle);
+    await flush();
+    c = lastCmd(backend);
+    expect(c?.type === "setBackground" && c.fill?.kind === "gradient" && c.fill.value.angleDeg).toBe(45);
+    fireEvent.click(screen.getByRole("button", { name: "Add stop" }));
+    await flush();
+    c = lastCmd(backend);
+    expect(c?.type === "setBackground" && c.fill?.kind === "gradient" && c.fill.value.stops).toHaveLength(4);
+    const tr = screen.getByTestId("bg-stop-transparency");
+    fireEvent.change(tr, { target: { value: "40" } });
+    fireEvent.blur(tr);
+    await flush();
+    c = lastCmd(backend);
+    expect(c?.type === "setBackground" && c.fill?.kind === "gradient" && c.fill.value.stops.some((s) => s.transparency === 0.4)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Remove stop" }));
+    await flush();
+    c = lastCmd(backend);
+    expect(c?.type === "setBackground" && c.fill?.kind === "gradient" && c.fill.value.stops).toHaveLength(3);
+  });
+
+  it("pattern fill: a pattern and its colours", async () => {
+    const { backend } = await pane();
+    fireEvent.click(screen.getByTestId("bg-kind-pattern"));
+    await flush();
+    expect(lastCmd(backend)).toMatchObject({ type: "setBackground", fill: { kind: "pattern", value: { preset: "pct5" } } });
+    fireEvent.click(screen.getByRole("button", { name: "Small checker board" }));
+    await flush();
+    expect(lastCmd(backend)).toMatchObject({ type: "setBackground", target: { kind: "slides", value: [1] }, fill: { kind: "pattern", value: { preset: "smCheck" } } });
+  });
+
+  it("picture: stretch offsets and tile scale", async () => {
+    const p = fixture();
+    p.media = [{ id: 3, contentType: "image/png", data: "iVBORw0KGgo=" }];
+    p.slides[0]!.background = { kind: "picture", value: { media: 3 } };
+    const { backend } = await pane(p);
+    const left = screen.getByRole("spinbutton", { name: "Offset left" });
+    fireEvent.change(left, { target: { value: "10" } });
+    fireEvent.blur(left);
+    await flush();
+    expect(lastCmd(backend)).toMatchObject({ type: "setBackground", fill: { kind: "picture", value: { media: 3, offsets: [0.1, 0, 0, 0] } } });
+    fireEvent.click(screen.getByTestId("bg-tile"));
+    await flush();
+    const sx = screen.getByRole("spinbutton", { name: "Scale X" });
+    fireEvent.change(sx, { target: { value: "50" } });
+    fireEvent.blur(sx);
+    await flush();
+    expect(lastCmd(backend)).toMatchObject({ type: "setBackground", fill: { kind: "picture", value: { tile: true, tileScale: [0.5, 1] } } });
+  });
+
+  it("Design › Effects sets the theme's effect styles", async () => {
+    const { backend } = await mount();
+    fireEvent.click(tab("Design"));
+    fireEvent.click(screen.getByRole("button", { name: "Effects" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Rusuite Soft Shadows" }));
+    await flush();
+    const c = lastCmd(backend);
+    expect(c).toMatchObject({ type: "setThemeEffects", name: "Rusuite Soft Shadows" });
+    expect(c?.type === "setThemeEffects" && c.effectStyles).toHaveLength(3);
+  });
+});

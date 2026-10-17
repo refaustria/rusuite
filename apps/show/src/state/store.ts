@@ -35,6 +35,7 @@ import type { BodyProps } from "../generated/BodyProps";
 import type { GuideOrient } from "../generated/GuideOrient";
 import type { ShowSettings } from "../generated/ShowSettings";
 import type { CustomShow } from "../generated/CustomShow";
+import type { EffectStyle } from "../generated/EffectStyle";
 import type { ViewProps } from "../generated/ViewProps";
 import { dragGuide, newGuide, nudgeDelta } from "../canvas/guides";
 import { boundsPx, EMU_PER_PX, type Rect as BoxRect } from "../geometry";
@@ -1755,17 +1756,30 @@ export class ShowStore {
     await this.run(cmd);
   }
 
-  /** Format Background › Apply to All: every slide gets the current slide's fill and background graphics setting. */
+  /**
+   * Format Background › Apply to All (PowerPoint): the current slide's
+   * background goes to the master – so new slides get it too – the
+   * layouts and slides drop their own, and every slide takes the slide's
+   * Hide background graphics (one undo step).
+   */
   async applyBackgroundToAll(): Promise<void> {
     const pres = this.state.pres;
     const slide = this.currentSlide();
     if (!pres || !slide || this.state.masterView) return;
-    await this.run({
-      type: "setBackground",
-      target: { kind: "slides", value: pres.slides.map((s) => s.id) },
-      fill: slide.background ?? null,
-      hideMasterShapes: slide.showMasterShapes === false,
-    });
+    const layout = pres.layouts.find((l) => l.kind === slide.layout);
+    const bg = slide.background ?? layout?.background ?? pres.master?.background ?? null;
+    const commands: ShowCommand[] = [];
+    if (bg) commands.push({ type: "setBackground", target: { kind: "master" }, fill: bg });
+    for (const l of pres.layouts) if (l.background) commands.push({ type: "setBackground", target: { kind: "layout", value: l.kind }, fill: null });
+    commands.push({ type: "setBackground", target: { kind: "slides", value: pres.slides.map((s) => s.id) }, fill: null, hideMasterShapes: slide.showMasterShapes === false });
+    await this.run(compound(commands));
+  }
+
+  /** Design › Variants › Effects: the theme's effect styles. */
+  async setThemeEffects(name: string, effectStyles: EffectStyle[]): Promise<void> {
+    const cur = this.state.pres?.theme.format?.effectStyles ?? [];
+    if (JSON.stringify(cur) === JSON.stringify(effectStyles)) return;
+    await this.run({ type: "setThemeEffects", name, effectStyles });
   }
 
   /** Home › Reset: the current slide's placeholders back to the layout. */

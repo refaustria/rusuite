@@ -366,6 +366,17 @@ pub struct Shape {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<app_common::wire::Color>"))]
     pub text_color: Option<Color>,
+    /// The theme effect style of the shape's style (`p:style/a:effectRef
+    /// @idx`: 0 = none, 1–3 = subtle, moderate, intense; P9-S3): drawn
+    /// from the theme's `a:effectStyleLst`, so Design › Variants ›
+    /// Effects changes it.
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<u8>"))]
+    pub effect_ref: u8,
+}
+
+fn is_zero_u8(v: &u8) -> bool {
+    *v == 0
 }
 
 impl Shape {
@@ -384,6 +395,7 @@ impl Shape {
             hidden: false,
             lock_aspect: false,
             text_color: None,
+            effect_ref: 0,
         }
     }
 

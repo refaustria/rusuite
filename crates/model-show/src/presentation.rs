@@ -295,12 +295,12 @@ impl Presentation {
     /// The effective background of slide `slide`: its own, else its
     /// layout's, else the master's.
     pub fn background_of(&self, slide: &Slide) -> Background {
-        if let Some(b) = slide.background {
-            return b;
+        if let Some(b) = &slide.background {
+            return b.clone();
         }
         self.layout(&slide.layout)
-            .and_then(|l| l.background)
-            .unwrap_or(self.master.background)
+            .and_then(|l| l.background.clone())
+            .unwrap_or_else(|| self.master.background.clone())
     }
 
     /// [`background_of`](Self::background_of) resolved to colours.

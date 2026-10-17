@@ -415,11 +415,9 @@ fn picture_backgrounds() {
             &mut h,
             C::SetBackground {
                 target: BackgroundTarget::Master,
-                fill: Some(Background::Picture(PictureFill {
-                    media: core_model::media::MediaId(999),
-                    tile: false,
-                    transparency: 0.0,
-                })),
+                fill: Some(Background::Picture(PictureFill::new(
+                    core_model::media::MediaId(999)
+                ))),
                 hide_master_shapes: None,
             }
         ),

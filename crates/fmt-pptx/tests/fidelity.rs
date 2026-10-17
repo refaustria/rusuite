@@ -34,15 +34,11 @@ fn deck() -> Presentation {
         .media
         .insert("image/png", b"\x89PNG\r\n\x1a\npic".to_vec());
     p.slides[0].background = Some(Background::Picture(PictureFill {
-        media: img,
         tile: true,
         transparency: 0.5,
+        ..PictureFill::new(img)
     }));
-    p.master.background = Background::Picture(PictureFill {
-        media: img,
-        tile: false,
-        transparency: 0.0,
-    });
+    p.master.background = Background::Picture(PictureFill::new(img));
     let s = p.add_slide(LayoutKind::Blank);
     let mut arrow = Shape::auto(
         Preset::UturnArrow,

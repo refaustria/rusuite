@@ -88,9 +88,9 @@ pub use text::{
     TextSpacing,
 };
 pub use theme::{
-    Background, ColorBase, ColorMod, EffectStyle, FormatScheme, Gradient, GradientShape,
-    GradientStop, PictureFill, ResolvedFill, ResolvedStop, StyleColor, StyleFill, StyleLine,
-    StyleShadow, Theme,
+    Background, BgGradient, BgStop, ColorBase, ColorMod, EffectStyle, FormatScheme, Gradient,
+    GradientShape, GradientStop, PatternFill, PictureFill, ResolvedFill, ResolvedStop, StyleColor,
+    StyleFill, StyleLine, StyleShadow, Theme, PATTERN_PRESETS,
 };
 pub use themes::{builtin_theme, builtin_themes, BuiltinTheme, BUILTIN_THEME_IDS};
 pub use view::{

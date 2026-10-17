@@ -17,4 +17,19 @@ tile?: boolean,
 /**
  * Transparency `0..=1` (`a:alphaModFix amt = 1 − transparency`).
  */
-transparency?: number, };
+transparency?: number, 
+/**
+ * Stretched: offsets of the picture's left, top, right and bottom
+ * edge from the slide's, as fractions of the slide (`a:fillRect`
+ * `l t r b` / 100000; positive = inwards).
+ */
+offsets?: [number, number, number, number], 
+/**
+ * Tiled: offset of the tiles (`a:tile tx ty`).
+ */
+tileOffset?: [number, number], 
+/**
+ * Tiled: scale of the tiles (`a:tile sx sy` / 100000; `[1, 1]` =
+ * the picture's size).
+ */
+tileScale?: [number, number], };
