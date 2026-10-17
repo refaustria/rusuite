@@ -475,7 +475,13 @@ The algorithm is in `docs/write-layout.md`; the numbers in docs/perf.md.
   shapes float In Front of Text (text boxes: Square), anchored to the paragraph at the drawn top edge; drawn on a drawing
   canvas, the shape becomes one of its members. Insert › Shapes › New Drawing Canvas inserts an inline canvas (15 × 6 cm).
 - **Handles** rotate with the shape (a frame with the eight resize handles and the rotation handle); a drag keeps the
-  opposite handle in place. Moving snaps the object's edges and centre to the column's edges and centre and the
+  opposite handle in place and the resize cursors point along the rotated frame. The yellow adjust handles are the
+  presets' `a:ahXY` / `a:ahPolar` handles from the core (`shapePaths` `handles`, the same `core_model::geometry` Show
+  uses; P9-X1); they turn and flip with the shape and a drag is inverted through its rotation and flips. With one shape
+  selected, Tab / Shift+Tab focus its adjust handles in turn (a blue ring; after the last one the shape again), the
+  arrow keys move the focused handle in screen directions (1 px, Shift: 10 px) and Esc leaves it – as in Show. The
+  handle math (positions, drag inversion, nudging, resize/rotation handles, cursors, hit testing) is shared with Show:
+  `packages/ui-shared/src/geometry/handles.ts`. Moving snaps the object's edges and centre to the column's edges and centre and the
   paragraph's top (5 px); Alt moves freely. Arrow keys nudge the selected floating objects by Word's grid (0.13 in),
   Ctrl+arrows by one pixel.
 - **Several objects**: Shift/Ctrl+click adds floating pictures and shapes to the selection (drawn with an outline);
@@ -1150,7 +1156,8 @@ is the Save As), and a cancelled name prompt or save dialog cancels the command.
 - **Adjust handles** (`shapes/handles.ts`, `canvas/EditHandles.tsx`): yellow diamonds for the presets' `a:ahXY` /
   `a:ahPolar` handles as the core computes them (`shapePaths` `handles`: position, the adjust value per axis with samples of
   the coordinate over its range, inverted piecewise-linearly while dragging; polar handles turn around the box centre),
-  live preview while dragging, one `SetGeometry` on release (all adjust values of the shape).
+  live preview while dragging, one `SetGeometry` on release (all adjust values of the shape). The handle math lives in
+  `packages/ui-shared/src/geometry/handles.ts` (P9-X1), shared with Write's drawings; Show keeps its Konva rendering.
 - **Connectors** (`shapes/connectors.ts`): drawing or dragging an end over a shape shows its connection sites (grey, red
   when within 12 px); releasing on one glues it (`AddShape` with `start`/`end`, or `SetTransform` + `SetConnector`: the
   core lets go of ends whose shape did not move and re-glues them from the patch, then reroutes; a connector moved together
