@@ -15,6 +15,7 @@
 // group. Linked text boxes: the first box of a chain edits the story, the
 // later ones show what overflows (`textChain.ts`).
 
+import { resizeCursor, rotationAt, toLocal as boxToLocal } from "@rusuite/ui-shared";
 import type { Editor } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection, TextSelection } from "@tiptap/pm/state";
@@ -32,7 +33,7 @@ import { HANDLES, pictureFrameCss, shapeClip, verticalPage, visibleFraction, typ
 import { bevelCss } from "../pictures";
 import { EMU_PER_PX, fillCss, selectedMemberOf, selectMember, strokeAttrs } from "./drawings";
 import { bounds, memberAt, memberPath, rotatedResize, scaleGroup, snapMove, withMember } from "./geometry";
-import { dragHandle, effectiveAdjust, handlePos, handlesOf, type HandleDef } from "./handles";
+import { dragHandle, effectiveAdjust, handleFocusOf, handlePos, handlesOf, onHandleFocus, outlineFor, type HandleDef } from "./handles";
 import { innerEditors } from "./innerEditors";
 import { toggleObject } from "./objects";
 import { pathQuery, rectOutline, shapePaths } from "./paths";
@@ -68,13 +69,8 @@ export function innerBlocks(doc: PMNode): Block[] {
 
 const blocksKey = (blocks: readonly Block[]) => blocks.map(blockKey).join("\u0001");
 
-/** The rotation (deg) of a pointer at `(x, y)` around `(cx, cy)`, 0 = straight up; snapped to 15° with Shift. */
-export function rotationAt(cx: number, cy: number, x: number, y: number, snap = false): number {
-  let deg = (Math.atan2(x - cx, cy - y) * 180) / Math.PI;
-  deg = ((deg % 360) + 360) % 360;
-  if (snap) deg = (Math.round(deg / 15) * 15) % 360;
-  return Math.round(deg * 10) / 10;
-}
+// The rotation of a pointer around the centre is shared with Show (ui-shared, P9-X1).
+export { rotationAt } from "@rusuite/ui-shared";
 
 /** Draws the outline of `d` into `svg` at `w` × `h` px. */
 function paintShape(svg: SVGSVGElement, d: Drawing, w: number, h: number): void {
@@ -229,6 +225,8 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
     wrap.setAttribute("style", css.join("; "));
     box.style.transform = transformOf(d);
     frame.style.transform = d.rotation ? `rotate(${d.rotation}deg)` : "";
+    // The resize arrows point along the rotated frame (the handles turn with it).
+    resize.forEach((el, i) => (el.style.cursor = resizeCursor(HANDLES[i]!, d.rotation ?? 0)));
   };
 
   // ----- text (own, or a later box of a chain) -------------------------------------------------
@@ -475,17 +473,26 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
     adjustEls.forEach((e) => e.remove());
     adjustEls = [];
     if (isContainer(d)) return;
-    const defs = handlesOf(d.preset, d.width, d.height);
+    // The handles come with the outline, in the query's (pixel-rounded) box.
+    const q = pathQuery(d.preset, d.width, d.height, d.adjust ?? null);
+    const outline = outlineFor(d.id, shapePaths.get(q));
+    const defs = handlesOf(outline, q.w, q.h);
     if (!defs.length) return;
-    const outline = shapePaths.get(pathQuery(d.preset, d.width, d.height, d.adjust ?? null));
     const adj = effectiveAdjust(outline?.defaults ?? {}, d.adjust ?? undefined);
+    const focused = handleFocusOf(d.id);
     defs.forEach((def, i) => {
       const p = handlePos(def, adj);
       const el = document.createElement("span");
       el.className = "drawing-adjust";
       el.dataset.adjust = String(i);
-      el.style.left = `${(p.x / d.width) * w - 5}px`;
-      el.style.top = `${(p.y / d.height) * h - 5}px`;
+      if (focused === i) {
+        el.dataset.focused = "true";
+        el.style.outline = "2px solid #2563eb";
+        el.style.outlineOffset = "1px";
+      }
+      // In the box, which turns and flips with the shape: the handle does too.
+      el.style.left = `${(p.x / q.w) * w - 5}px`;
+      el.style.top = `${(p.y / q.h) * h - 5}px`;
       el.addEventListener("pointerdown", (e) => onAdjust(e, def));
       box.append(el);
       adjustEls.push(el);
@@ -515,6 +522,7 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
     if (value.chain) chains.schedule();
   };
   view.dom.addEventListener("rusuite-layout", onLayout);
+  const offFocus = onHandleFocus(() => drawAdjust(value, size(value).w, size(value).h));
   const offPaths = shapePaths.subscribe(() => {
     drawShape(value);
     if (isContainer(value)) drawMembers(value);
@@ -614,14 +622,15 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
     e.preventDefault();
     e.stopPropagation();
     const z = zoomOf(wrap);
-    const r = box.getBoundingClientRect();
+    // The unrotated layout box: the pointer goes into the shape's own (rotated, flipped) frame.
+    const r = wrap.getBoundingClientRect();
     const { w, h } = size(value);
+    const frameBox = { x: 0, y: 0, w, h, rotationDeg: value.rotation ?? 0, flipH: !!value.flipH, flipV: !!value.flipV };
     let adj = { ...(value.adjust ?? {}) };
     dragging = true;
     const move = (ev: PointerEvent) => {
-      const px = ((ev.clientX - r.left) / z / w) * value.width;
-      const py = ((ev.clientY - r.top) / z / h) * value.height;
-      adj = { ...(value.adjust ?? {}), ...dragHandle(def, { x: px, y: py }) };
+      const local = boxToLocal(frameBox, (ev.clientX - r.left) / z, (ev.clientY - r.top) / z);
+      adj = { ...(value.adjust ?? {}), ...dragHandle(def, { x: (local.x / w) * def.w, y: (local.y / h) * def.h }) };
       drawShape({ ...value, adjust: adj });
     };
     const up = () => {
@@ -821,6 +830,7 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
     ignoreMutation: () => true,
     destroy() {
       offPaths();
+      offFocus();
       view.dom.removeEventListener("rusuite-layout", onLayout);
       resize.forEach((h) => h.removeEventListener("pointerdown", onResize));
       rotate.removeEventListener("pointerdown", onRotate);

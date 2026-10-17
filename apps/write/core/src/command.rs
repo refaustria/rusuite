@@ -315,8 +315,9 @@ pub struct ShapePathQuery {
 }
 
 /// The outline of one [`ShapePathQuery`]: SVG path data in EMU (arcs
-/// flattened to Béziers), each with its paint flags, and the preset's
-/// adjust defaults.
+/// flattened to Béziers), each with its paint flags, the preset's
+/// adjust defaults and its adjust handles (the same `a:ahLst` handles
+/// Show's `shapePaths` answers, P9-X1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "apps/write/src/generated/")]
@@ -324,6 +325,56 @@ pub struct ShapeOutline {
     pub paths: Vec<ShapeOutlinePath>,
     #[ts(as = "std::collections::BTreeMap<String, f64>")]
     pub defaults: std::collections::BTreeMap<String, i64>,
+    /// Adjust handles in the query's box (EMU, unflipped, unrotated; none
+    /// for presets without adjust values).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<AdjustHandle>>")]
+    pub handles: Vec<core_model::geometry::AdjustHandle>,
+}
+
+/// TypeScript mirror of `core_model::geometry::AdjustHandle` (same JSON;
+/// only used to generate Write's `AdjustHandle.ts`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub struct AdjustHandle {
+    /// Where the handle sits for the current adjust values.
+    pub x: f64,
+    /// Where the handle sits.
+    pub y: f64,
+    /// A polar handle (`x_axis` = radius, `y_axis` = angle around the centre).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub polar: bool,
+    /// What a horizontal drag changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub x_axis: Option<HandleAxis>,
+    /// What a vertical drag changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub y_axis: Option<HandleAxis>,
+}
+
+/// TypeScript mirror of `core_model::geometry::HandleAxis` (same JSON).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub struct HandleAxis {
+    /// The adjust value (`adj`, `adj1`, …).
+    pub adj: String,
+    /// Coordinate at value 0.
+    pub base: f64,
+    /// Change of the coordinate per unit of the value.
+    pub k: f64,
+    /// Smallest value.
+    pub min: f64,
+    /// Largest value.
+    pub max: f64,
+    /// `[value, coordinate]` pairs along the range.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<[f64; 2]>>")]
+    pub samples: Vec<[f64; 2]>,
 }
 
 /// One sub-path of a [`ShapeOutline`].

@@ -1,11 +1,11 @@
 // Pure geometry of drawing objects (P9-W4): resizing a rotated frame from
-// one of its eight handles (the opposite handle stays put, Word), pointer
-// deltas in a shape's own frame, snapping a move to guides (Alt moves
+// one of its eight handles (the opposite handle stays put, Word) and
+// pointer deltas in a shape's own frame (both from ui-shared, P9-X1), snapping a move to guides (Alt moves
 // freely), arrow-key nudging (Ctrl: 1 px), group frames and member
 // transforms, Align / Distribute of several objects.
 
+import { rotateVec as rotate } from "@rusuite/ui-shared";
 import type { Drawing } from "../../generated/Drawing";
-import type { Handle } from "../imageView";
 
 /** EMU per CSS pixel (96 dpi). */
 export const EMU_PER_PX = 9525;
@@ -13,61 +13,8 @@ export const EMU_PER_PX = 9525;
 /** Word's drawing grid (0.13 in): one arrow-key step. */
 export const NUDGE_PX = 0.13 * 96;
 
-const rad = (deg: number) => (deg * Math.PI) / 180;
-
-/** A screen delta in the frame of a shape rotated by `deg` (clockwise). */
-export function toLocal(dx: number, dy: number, deg: number): { x: number; y: number } {
-  const a = rad(-deg);
-  return { x: dx * Math.cos(a) - dy * Math.sin(a), y: dx * Math.sin(a) + dy * Math.cos(a) };
-}
-
-/** `p` rotated by `deg` (clockwise on screen). */
-export function rotate(p: { x: number; y: number }, deg: number): { x: number; y: number } {
-  const a = rad(deg);
-  return { x: p.x * Math.cos(a) - p.y * Math.sin(a), y: p.x * Math.sin(a) + p.y * Math.cos(a) };
-}
-
-const SIGN: Record<Handle, [number, number]> = {
-  nw: [-1, -1], n: [0, -1], ne: [1, -1], e: [1, 0], se: [1, 1], s: [0, 1], sw: [-1, 1], w: [-1, 0],
-};
-
-/**
- * Resizing a `w` × `h` frame rotated by `deg` from `handle` by the screen
- * delta (`dx`, `dy`): the new size and how far the unrotated frame's
- * top-left corner moves so that the opposite handle stays where it is.
- * `keepRatio` keeps the proportions (corner handles).
- */
-export function rotatedResize(
-  handle: Handle,
-  w: number,
-  h: number,
-  dx: number,
-  dy: number,
-  deg: number,
-  keepRatio: boolean,
-  min = 8,
-): { w: number; h: number; dx: number; dy: number } {
-  const [sx, sy] = SIGN[handle];
-  const d = toLocal(dx, dy, deg);
-  let nw = sx ? Math.max(min, w + sx * d.x) : w;
-  let nh = sy ? Math.max(min, h + sy * d.y) : h;
-  if (keepRatio && sx && sy) {
-    const f = Math.abs(nw / w - 1) >= Math.abs(nh / h - 1) ? nw / w : nh / h;
-    nw = Math.max(min, w * f);
-    nh = Math.max(min, h * f);
-  }
-  // The opposite point (local, from the centre) is fixed on screen.
-  const anchor = { x: (-sx * w) / 2, y: (-sy * h) / 2 };
-  const c0 = { x: w / 2, y: h / 2 };
-  const fixed = add(c0, rotate(anchor, deg));
-  const c1 = sub(fixed, rotate({ x: (-sx * nw) / 2, y: (-sy * nh) / 2 }, deg));
-  const tl = { x: c1.x - nw / 2, y: c1.y - nh / 2 };
-  return { w: Math.round(nw), h: Math.round(nh), dx: round2(tl.x), dy: round2(tl.y) };
-}
-
-const add = (a: { x: number; y: number }, b: { x: number; y: number }) => ({ x: a.x + b.x, y: a.y + b.y });
-const sub = (a: { x: number; y: number }, b: { x: number; y: number }) => ({ x: a.x - b.x, y: a.y - b.y });
-const round2 = (v: number) => Math.round(v * 100) / 100;
+// Rotating vectors and resizing a rotated frame are shared with Show (ui-shared, P9-X1).
+export { rotatedResize, rotateVec as rotate, unrotateVec as toLocal } from "@rusuite/ui-shared";
 
 /**
  * A move snapped to guides: when the moved object's left / centre / right

@@ -488,6 +488,7 @@ pub fn shape_outline(q: &ShapePathQuery) -> ShapeOutline {
             .iter()
             .map(|(k, v)| ((*k).to_owned(), *v))
             .collect(),
+        handles: preset.handles(w, h, &q.adjust),
     }
 }
 

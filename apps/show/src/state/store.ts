@@ -22,7 +22,7 @@ import type { LayoutKind } from "../generated/LayoutKind";
 import type { PlaceholderKind } from "../generated/PlaceholderKind";
 import type { SlideScale } from "../generated/SlideScale";
 import type { SlideMaster } from "../generated/SlideMaster";
-import { bytesToBase64 } from "@rusuite/ui-shared";
+import { bytesToBase64, nudgeAdjust, stepHandleFocus } from "@rusuite/ui-shared";
 import type { NodeId } from "../generated/NodeId";
 import type { Presentation } from "../generated/Presentation";
 import type { Shape } from "../generated/Shape";
@@ -98,8 +98,7 @@ import { t } from "../i18n";
 import { centredTransform } from "../geometry";
 import { choiceOf, choiceShape, clickBox, freeformShape, pushRecent } from "../shapes/presets";
 import { editOutline, refit } from "../shapes/editPoints";
-import { dragHandle, effectiveAdjust, handlePos, handlesOf, type HandleDef } from "../shapes/handles";
-import { mapLocal, toLocal } from "../shapes/geom";
+import { effectiveAdjust, handlesOf, type HandleDef } from "../shapes/handles";
 import type { GeomPath } from "../generated/GeomPath";
 import type { PathCmd } from "../generated/PathCmd";
 import type { ThemeColorSlot } from "../../../../packages/ui-shared/src/generated/ThemeColorSlot";
@@ -1105,10 +1104,7 @@ export class ShowStore {
   stepHandle(delta: 1 | -1): boolean {
     const k = this.keyboardHandles();
     if (!k) return false;
-    const n = k.handles.length;
-    const cur = this.state.handleFocus;
-    const next = cur === null ? (delta > 0 ? 0 : n - 1) : cur + delta;
-    this.set({ handleFocus: next < 0 || next >= n ? null : next });
+    this.set({ handleFocus: stepHandleFocus(this.state.handleFocus, k.handles.length, delta) });
     return true;
   }
 
@@ -1123,10 +1119,7 @@ export class ShowStore {
     const h = k.handles[i]!;
     const t = k.shape.transform;
     const auto = k.shape.kind.value;
-    const pos = handlePos(h, effectiveAdjust(auto.geometry, auto.adjust));
-    const at = mapLocal(t, pos.x, pos.y);
-    const to = toLocal(t, at.x + dx * EMU_PER_PX, at.y + dy * EMU_PER_PX);
-    const adjust = { ...(auto.adjust ?? {}), ...dragHandle(h, to) };
+    const adjust = { ...(auto.adjust ?? {}), ...nudgeAdjust(h, effectiveAdjust(auto.geometry, auto.adjust), t, dx * EMU_PER_PX, dy * EMU_PER_PX) };
     if (JSON.stringify(adjust) !== JSON.stringify(auto.adjust ?? {})) await this.setAdjust(k.shape.id, adjust);
     return true;
   }

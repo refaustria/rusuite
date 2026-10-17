@@ -2,34 +2,13 @@
 // the mirror of `Transform::map_local` / `line_ends` / `from_line_ends`
 // of crates/model-show/src/connector.rs.
 
+// The box mapping itself (`mapLocal` / `toLocal`) is the one Write's
+// drawings use too (ui-shared `geometry/handles.ts`, P9-X1).
+
+import { mapLocal, type Pt } from "@rusuite/ui-shared";
 import type { Transform } from "../generated/Transform";
 
-export interface Pt {
-  x: number;
-  y: number;
-}
-
-/** A point of the box's own space (unflipped, unrotated `0..w` × `0..h`) in the parent's space. */
-export function mapLocal(t: Transform, x: number, y: number): Pt {
-  const fx = t.flipH ? t.w - x : x;
-  const fy = t.flipV ? t.h - y : y;
-  const dx = fx - t.w / 2;
-  const dy = fy - t.h / 2;
-  const a = ((t.rotationDeg ?? 0) * Math.PI) / 180;
-  const sin = Math.sin(a);
-  const cos = Math.cos(a);
-  return { x: t.x + t.w / 2 + dx * cos - dy * sin, y: t.y + t.h / 2 + dx * sin + dy * cos };
-}
-
-/** The inverse of [`mapLocal`]: a parent point in the box's own space. */
-export function toLocal(t: Transform, x: number, y: number): Pt {
-  const a = (-(t.rotationDeg ?? 0) * Math.PI) / 180;
-  const dx = x - (t.x + t.w / 2);
-  const dy = y - (t.y + t.h / 2);
-  const lx = dx * Math.cos(a) - dy * Math.sin(a) + t.w / 2;
-  const ly = dx * Math.sin(a) + dy * Math.cos(a) + t.h / 2;
-  return { x: t.flipH ? t.w - lx : lx, y: t.flipV ? t.h - ly : ly };
-}
+export { mapLocal, toLocal, type Pt } from "@rusuite/ui-shared";
 
 /** Start and end of a line or connector drawn in the box (top-left → bottom-right before flips and rotation). */
 export function lineEnds(t: Transform): [Pt, Pt] {
