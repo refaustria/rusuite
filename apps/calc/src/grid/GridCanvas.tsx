@@ -32,6 +32,8 @@ import { elementBounds, hitTestChart, type ChartElement } from "@rusuite/ui-shar
 import { anchorRect, handleAt, handleCursor, moveRect, resizeRect, type Handle } from "../charts/anchor";
 import { chartRefMarks, paintCharts } from "../charts/paint";
 import { paintArrows } from "../audit/trace";
+import { paintErrorMarks } from "../audit/marks";
+import { ErrorTag } from "../audit/ErrorTag";
 import { chartMenu } from "../charts/menus";
 import { ChartTextEditor } from "../charts/ChartTextEditor";
 import { AnnotationLayer } from "../comments/AnnotationLayer";
@@ -133,6 +135,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const editorBox = useRef<HTMLDivElement>(null);
   const spillBox = useRef<HTMLDivElement>(null);
   const validationBox = useRef<HTMLDivElement>(null);
+  const errorBox = useRef<HTMLDivElement>(null);
   const chartTextBox = useRef<HTMLDivElement>(null);
   const raf = useRef<number | null>(null);
   const grow = useRef({ rows: 0, cols: 0 });
@@ -375,6 +378,9 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           }
         }
         if (marks.length > 0) drawRefHighlights(cctx, vp, data, marks);
+        // Error checking's green triangles in the cells' top-left corners (P9-C4).
+        const errs = store.audit.marks(state.activeSheet);
+        if (errs.length > 0) paintErrorMarks(cctx, errs, (r, c) => rangeRect(vp, data, { r0: r, c0: c, r1: r, c1: c }));
         const arrows = store.trace.on(state.activeSheet);
         if (arrows.length > 0) paintArrows(cctx, data.colGeo, data.rowGeo, arrows, vp.scrollX, vp.scrollY);
         paintCharts(cctx, frames, vp, chartSel);
@@ -451,6 +457,17 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       vbox.style.top = `${hh + screenY(l, data.rowGeo.offset(m.r0))}px`;
       vbox.style.width = `${data.colGeo.offset(m.c1 + 1) - data.colGeo.offset(m.c0)}px`;
       vbox.style.height = `${data.rowGeo.offset(m.r1 + 1) - data.rowGeo.offset(m.r0)}px`;
+    }
+
+    // The error indicator sits at the active cell (P9-C4).
+    const ebox = errorBox.current;
+    if (ebox) {
+      const a = store.activeAnchor();
+      const m = mergeAt(data.merges ?? [], a.row, a.col) ?? { r0: a.row, c0: a.col, r1: a.row, c1: a.col };
+      ebox.style.left = `${hw + screenX(l, data.colGeo.offset(m.c0))}px`;
+      ebox.style.top = `${hh + screenY(l, data.rowGeo.offset(m.r0))}px`;
+      ebox.style.width = `${data.colGeo.offset(m.c1 + 1) - data.colGeo.offset(m.c0)}px`;
+      ebox.style.height = `${data.rowGeo.offset(m.r1 + 1) - data.rowGeo.offset(m.r0)}px`;
     }
 
     const tbox = chartTextBox.current;
@@ -1306,6 +1323,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         {editing && <CellEditor store={store} boxRef={editorBox} onMount={draw} />}
         <SpillIndicator store={store} boxRef={spillBox} onMount={draw} />
         <ValidationOverlay store={store} boxRef={validationBox} onMount={draw} />
+        <ErrorTag store={store} boxRef={errorBox} onMount={draw} />
         {chartTextEdit && <ChartTextEditor store={store} boxRef={chartTextBox} onMount={draw} />}
         <AnnotationLayer store={store} />
         <SlicerLayer store={store} />

@@ -1511,7 +1511,8 @@ impl CalcDocument {
             | C::CalculateNow
             | C::CalculateSheet { .. }
             | C::ApplyNames { .. }
-            | C::PasteNameList { .. } => self.calc_cmd(cmd),
+            | C::PasteNameList { .. }
+            | C::ConvertToNumber { .. } => self.calc_cmd(cmd),
             C::DefineName { .. }
             | C::UpdateName { .. }
             | C::DeleteName { .. }

@@ -64,6 +64,7 @@ import { ChartController } from "../charts/controller";
 import { NamesController } from "../names/controller";
 import { TraceController } from "../audit/trace";
 import { CalcToolsController } from "../formulas/tools";
+import { AuditController } from "../audit/controller";
 import { CommentsController, type UserNext } from "../comments/controller";
 import { PivotController } from "../pivot/controller";
 import { TableController } from "../tables/controller";
@@ -226,6 +227,10 @@ export type CalcDialog =
   | { kind: "defineName"; edit?: { name: string; sheet?: number }; back?: boolean }
   /** Formulas › Create from Selection. */
   | { kind: "createNames" }
+  /** Formulas › Error Checking (P9-C4). */
+  | { kind: "errorChecking" }
+  /** Formulas › Evaluate Formula (frames in `store.audit.frames`). */
+  | { kind: "evaluateFormula" }
   /** File › Options › Formulas: calculation mode, R1C1 reference style (P9-C4). */
   | { kind: "formulaOptions" }
   /** Formulas › Define Name ▾ › Apply Names… */
@@ -512,6 +517,8 @@ export class CalcStore {
   readonly flash: FlashController = new FlashController(this);
   /** Formulas › Calculation, R1C1 style, Apply / Paste Names (P9-C4). */
   readonly calcTools: CalcToolsController = new CalcToolsController(this);
+  /** Error checking, Evaluate Formula, Watch Window (P9-C4). */
+  readonly audit: AuditController = new AuditController(this);
   /** The Consolidate dialog's references and options (kept for the session, as Excel). */
   consolidateState: ConsolidateState = DEFAULT_CONSOLIDATE;
   /** Re-renders Flash Fill's preview after the grid scrolled (set by the layer). */
@@ -804,6 +811,9 @@ export class CalcStore {
     if (patch.duplicates) this.set({ dialog: { kind: "duplicatesResult", removed: patch.duplicates.removed, remaining: patch.duplicates.remaining } });
     // Patches carry a grown style table (P8-35); an unknown id still refetches it.
     if (unknownStyle && !patch.styles) this.refetchStyles();
+    // Formula Auditing follows the edit: arrows, error checks, watches (P9-C4).
+    this.trace.onPatch(patch);
+    this.audit.onPatch(patch);
   }
 
   /** "Column" as the column lists label unnamed columns (`Column B`). */
@@ -964,6 +974,7 @@ export class CalcStore {
     this.charts.fromSnapshot(snap.sheet, snap.charts ?? []);
     this.pivots.fromSnapshot(snap.sheet, snap.pivots ?? []);
     this.bump();
+    this.audit.ensure(snap.sheet);
   }
 
   /**

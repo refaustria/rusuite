@@ -24,6 +24,7 @@
 //! ```
 
 mod annotations;
+mod audit;
 mod calc_tools;
 mod cfdv;
 mod charts;
@@ -48,6 +49,7 @@ pub mod wire_pivot;
 pub mod wire_tables;
 
 pub use annotations::{CellAnnotations, FormulaLink, SheetAnnotations, SheetThreads};
+pub use audit::{ErrorIssue, ErrorRule, EvalStep, Evaluation, WatchCell, WatchItem, DEFAULT_RULES};
 pub use calc_tools::{CalcModeWire, CalcOptions, CalcState};
 pub use command::{
     BorderEdits, CalcCommand, ClipCell, DeleteShift, EdgeEdit, FillMode, FlashCell, InsertShift,

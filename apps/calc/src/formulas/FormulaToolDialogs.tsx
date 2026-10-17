@@ -5,6 +5,8 @@
 import { useState } from "react";
 import { Dialog } from "@rusuite/ui-shared";
 import type { CalcModeWire } from "../generated/CalcModeWire";
+import type { ErrorRule } from "../generated/ErrorRule";
+import { ALL_RULES, type ErrorSettings } from "../audit/controller";
 import { useT } from "../i18n";
 import { useCalc, type CalcStore } from "../state/store";
 
@@ -23,6 +25,18 @@ export function FormulaOptionsDialog({ store }: { store: CalcStore }) {
   const current = useCalc(store, (s) => s.info?.calc?.options);
   const [mode, setMode] = useState<CalcModeWire>(current?.mode ?? "automatic");
   const [r1c1, setR1c1] = useState(current?.r1c1 ?? false);
+  const [checks, setChecks] = useState<ErrorSettings>(() => ({ ...store.audit.settings, rules: [...store.audit.settings.rules] }));
+  const rule = (r: ErrorRule) => (
+    <label key={r} className="flex items-center gap-2">
+      <input
+        type="checkbox"
+        checked={checks.rules.includes(r)}
+        disabled={!checks.background}
+        onChange={(e) => setChecks({ ...checks, rules: e.target.checked ? [...checks.rules, r] : checks.rules.filter((x) => x !== r) })}
+      />
+      {t(`calc.err.rule.${r}`)}
+    </label>
+  );
   return (
     <Dialog open title={t("calc.calcOpt.title")} onClose={() => close(store)}>
       <form
@@ -31,7 +45,10 @@ export function FormulaOptionsDialog({ store }: { store: CalcStore }) {
         onSubmit={(e) => {
           e.preventDefault();
           const base = store.calcTools.options();
-          void store.calcTools.setOptions({ ...base, mode, r1c1 }).then((ok) => ok && close(store));
+          store.audit.setSettings(checks);
+          const same = base.mode === mode && base.r1c1 === r1c1;
+          if (same) close(store);
+          else void store.calcTools.setOptions({ ...base, mode, r1c1 }).then((ok) => ok && close(store));
         }}
       >
         <fieldset className="flex flex-col gap-1 rounded border border-ui-border p-2">
@@ -49,6 +66,15 @@ export function FormulaOptionsDialog({ store }: { store: CalcStore }) {
             <input type="checkbox" checked={r1c1} onChange={(e) => setR1c1(e.target.checked)} />
             {t("calc.calcOpt.r1c1")}
           </label>
+        </fieldset>
+        <fieldset className="flex flex-col gap-1 rounded border border-ui-border p-2">
+          <legend className="px-1 text-xs font-semibold">{t("calc.calcOpt.errorChecking")}</legend>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={checks.background} onChange={(e) => setChecks({ ...checks, background: e.target.checked })} />
+            {t("calc.calcOpt.background")}
+          </label>
+          <p className="mt-1 text-xs font-semibold">{t("calc.calcOpt.rules")}</p>
+          {ALL_RULES.map(rule)}
         </fieldset>
         <div className="flex justify-end gap-2">
           <button type="button" className={BTN} onClick={() => close(store)}>

@@ -499,6 +499,12 @@ pub enum CalcCommand {
         names: Vec<String>,
         ignore_relative: bool,
     },
+    /// Error Checking › Convert to Number: the text cells of the ranges
+    /// that hold numbers become numbers (number formats kept).
+    ConvertToNumber {
+        sheet: u32,
+        cells: Vec<Rect>,
+    },
     /// Formulas › Use in Formula › Paste Names › Paste List: the visible
     /// names and their definitions (as text) from the cell down, two
     /// columns wide.

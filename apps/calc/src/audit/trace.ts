@@ -5,7 +5,9 @@
 // blue box around precedent ranges, a dashed black arrow with a sheet icon
 // for references to other sheets.
 
+import type { CalcPatch } from "../generated/CalcPatch";
 import type { SheetRect } from "../generated/SheetRect";
+import type { StructuralChange } from "../generated/StructuralChange";
 import type { AxisGeometry } from "../grid/geometry";
 import type { Cell, Range } from "../grid/Selection";
 import type { CalcStore } from "../state/store";
@@ -149,9 +151,35 @@ export function paintArrows(ctx: CanvasRenderingContext2D, col: AxisGeometry, ro
   }
 }
 
+/** A traced cell: Trace Precedents / Dependents was run on it. */
+export interface TraceOrigin {
+  kind: TraceArrow["kind"];
+  sheet: number;
+  cell: Cell;
+}
+
+/**
+ * Where a traced cell is after a structural change (`null`: deleted), so the
+ * arrows follow inserts and deletes as in Excel (P9-C4).
+ */
+export function moveOrigin(o: TraceOrigin, ch: StructuralChange): TraceOrigin | null {
+  if (ch.sheet !== o.sheet || ch.kind === "shiftCells") return o;
+  const rows = ch.kind === "insertRows" || ch.kind === "deleteRows";
+  const p = rows ? o.cell.row : o.cell.col;
+  let q = p;
+  if (ch.kind === "insertRows" || ch.kind === "insertCols") {
+    if (p >= ch.at) q = p + ch.count;
+  } else if (p >= ch.at + ch.count) q = p - ch.count;
+  else if (p >= ch.at) return null;
+  return { ...o, cell: rows ? { ...o.cell, row: q } : { ...o.cell, col: q } };
+}
+
 /** The arrows on the store (`store.trace`). */
 export class TraceController {
   arrows: TraceArrow[] = [];
+  /** The cells traced so far, in order (each click adds one level, as in Excel). */
+  origins: TraceOrigin[] = [];
+  private refreshing: Promise<void> | null = null;
 
   constructor(private readonly store: CalcStore) {}
 
@@ -160,43 +188,76 @@ export class TraceController {
     return this.arrows.filter((a) => a.sheet === sheet);
   }
 
-  /** Trace Precedents of the active cell (each call adds the arrows, as Excel's one level per click). */
-  async precedents(): Promise<void> {
-    const st = this.store.getState();
-    const cell = this.store.activeAnchor();
-    const refs = await this.store.api.precedents(st.activeSheet, cell.row, cell.col).catch((e: unknown) => {
+  private async arrowsOf(o: TraceOrigin): Promise<TraceArrow[] | null> {
+    const call = o.kind === "precedents" ? this.store.api.precedents(o.sheet, o.cell.row, o.cell.col) : this.store.api.dependents(o.sheet, o.cell.row, o.cell.col);
+    const refs = await call.catch((e: unknown) => {
       this.store.pushError(e);
       return null;
     });
-    if (!refs) return;
-    if (refs.length === 0) {
-      this.store.pushError(new Error(t("calc.audit.noPrecedents")));
+    if (!refs) return null;
+    return o.kind === "precedents" ? precedentArrows(o.sheet, o.cell, refs) : dependentArrows(o.sheet, o.cell, refs);
+  }
+
+  private async trace(kind: TraceArrow["kind"]): Promise<void> {
+    const st = this.store.getState();
+    const origin: TraceOrigin = { kind, sheet: st.activeSheet, cell: { ...this.store.activeAnchor() } };
+    const arrows = await this.arrowsOf(origin);
+    if (!arrows) return;
+    if (arrows.length === 0) {
+      this.store.pushError(new Error(t(kind === "precedents" ? "calc.audit.noPrecedents" : "calc.audit.noDependents")));
       return;
     }
-    this.arrows = mergeArrows(this.arrows, precedentArrows(st.activeSheet, cell, refs));
+    this.origins.push(origin);
+    this.arrows = mergeArrows(this.arrows, arrows);
     this.store.notify();
   }
 
+  /** Trace Precedents of the active cell (each call adds the arrows, as Excel's one level per click). */
+  precedents(): Promise<void> {
+    return this.trace("precedents");
+  }
+
   /** Trace Dependents of the active cell. */
-  async dependents(): Promise<void> {
-    const st = this.store.getState();
-    const cell = this.store.activeAnchor();
-    const refs = await this.store.api.dependents(st.activeSheet, cell.row, cell.col).catch((e: unknown) => {
-      this.store.pushError(e);
-      return null;
-    });
-    if (!refs) return;
-    if (refs.length === 0) {
-      this.store.pushError(new Error(t("calc.audit.noDependents")));
-      return;
+  dependents(): Promise<void> {
+    return this.trace("dependents");
+  }
+
+  /**
+   * After a patch: the arrows follow the edit – traced cells move with row
+   * and column inserts / deletes, and every traced cell's arrows are
+   * fetched again (formulas may read other cells now).
+   */
+  onPatch(patch: CalcPatch): void {
+    if (this.origins.length === 0) return;
+    if (patch.cells.length === 0 && patch.structural.length === 0 && !patch.sheets) return;
+    let origins = this.origins;
+    for (const ch of patch.structural) origins = origins.flatMap((o) => moveOrigin(o, ch) ?? []);
+    if (patch.sheets) {
+      const live = new Set(patch.sheets.map((s) => s.id));
+      origins = origins.filter((o) => live.has(o.sheet));
     }
-    this.arrows = mergeArrows(this.arrows, dependentArrows(st.activeSheet, cell, refs));
-    this.store.notify();
+    this.origins = origins;
+    void this.refresh();
+  }
+
+  /** Fetches the arrows of every traced cell again. */
+  refresh(): Promise<void> {
+    if (this.refreshing) return this.refreshing.then(() => this.refresh());
+    const origins = [...this.origins];
+    this.refreshing = Promise.all(origins.map((o) => this.arrowsOf(o))).then((lists) => {
+      this.refreshing = null;
+      let arrows: TraceArrow[] = [];
+      for (const l of lists) if (l) arrows = mergeArrows(arrows, l);
+      this.arrows = arrows;
+      this.store.notify();
+    });
+    return this.refreshing;
   }
 
   /** Remove Arrows (all, or only one kind). */
   clear(kind?: TraceArrow["kind"]): void {
     this.arrows = kind ? this.arrows.filter((a) => a.kind !== kind) : [];
+    this.origins = kind ? this.origins.filter((o) => o.kind !== kind) : [];
     this.store.notify();
   }
 }

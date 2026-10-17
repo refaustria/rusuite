@@ -141,6 +141,7 @@ impl CalcDocument {
                 ignore_relative,
             } => self.apply_names(sheet, (r0, c0, r1, c1), names, ignore_relative),
             &C::PasteNameList { sheet, row, col } => self.paste_name_list(sheet, row, col),
+            C::ConvertToNumber { sheet, cells } => self.convert_to_number(*sheet, cells),
             _ => unreachable!("not a calculation command: {cmd:?}"),
         }
     }

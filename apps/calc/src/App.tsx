@@ -1,3 +1,4 @@
+import { WatchWindow } from "./audit/WatchWindow";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AutosaveStatus, applyPageRange, formatNumber, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { CalcApi, type CalcBackend } from "./backend/calcApi";
@@ -169,6 +170,7 @@ export default function App({ backend }: { backend: CalcBackend }) {
         <ChartFormatPane store={store} />
         <CommentsPane store={store} />
         <PivotPane store={store} />
+        <WatchWindow store={store} />
         <AssistantPane ai={session.ai} adapter={aiAdapter} />
       </div>
       <SheetTabs store={store} />

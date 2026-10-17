@@ -14,7 +14,7 @@ import {
 } from "../ui/icons";
 import { categoryFunctions } from "./InsertFunctionDialog";
 import { CALC_MODES } from "./FormulaToolDialogs";
-import { calcNowIcon, calcOptionsIcon, calcSheetIcon } from "./icons";
+import { calcNowIcon, calcOptionsIcon, calcSheetIcon, errorCheckIcon, evaluateIcon, watchIcon } from "./icons";
 
 /** AutoSum ▾'s functions (Excel's list). */
 export const AUTOSUM_FUNCTIONS = ["SUM", "AVERAGE", "COUNT", "MAX", "MIN"] as const;
@@ -219,6 +219,39 @@ export function formulasTab(store: CalcStore, t: T, off: boolean): RibbonTab {
                 onClick={() => store.toggleShowFormulas()}
               />
             </RibbonStack>
+            <RibbonStack>
+              <RibbonSplitButton
+                label={t("calc.err.button")}
+                icon={errorCheckIcon()}
+                showLabel
+                disabled={off}
+                onClick={() => {
+                  store.audit.step(1, true);
+                  store.openDialog({ kind: "errorChecking" });
+                }}
+                menuLabel={t("calc.err.buttonMenu")}
+                menu={[
+                  {
+                    id: "check",
+                    label: t("calc.err.checkDots"),
+                    onSelect: () => {
+                      store.audit.step(1, true);
+                      store.openDialog({ kind: "errorChecking" });
+                    },
+                  },
+                  { id: "options", label: t("calc.err.optionsMenu"), onSelect: () => store.openDialog({ kind: "formulaOptions" }) },
+                ]}
+              />
+              <RibbonButton label={t("calc.eval.button")} icon={evaluateIcon()} showLabel disabled={off} onClick={() => void store.audit.evaluate()} />
+            </RibbonStack>
+            <RibbonButton
+              label={t("calc.watch.title")}
+              icon={watchIcon()}
+              size="large"
+              pressed={store.audit.watchOpen}
+              disabled={off}
+              onClick={() => store.audit.toggleWatchWindow()}
+            />
           </>
         ),
       },

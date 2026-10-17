@@ -14,6 +14,7 @@ import { NumberFormatDialog } from "./numfmt/NumberFormatDialog";
 import { CreateNamesDialog, DefineNameDialog, GoToDialog, NameManagerDialog } from "./names/NameDialogs";
 import { InsertFunctionDialog } from "./formulas/InsertFunctionDialog";
 import { ApplyNamesDialog, FormulaOptionsDialog, PasteNamesDialog } from "./formulas/FormulaToolDialogs";
+import { ErrorCheckingDialog, EvaluateFormulaDialog } from "./audit/AuditDialogs";
 import type { FindOptions } from "./state/find";
 import { unhideableSheets, useCalc, type CalcStore } from "./state/store";
 import { useT } from "./i18n";
@@ -400,6 +401,10 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       return <ApplyNamesDialog store={store} />;
     case "pasteNames":
       return <PasteNamesDialog store={store} />;
+    case "errorChecking":
+      return <ErrorCheckingDialog store={store} />;
+    case "evaluateFormula":
+      return <EvaluateFormulaDialog store={store} />;
     case "goTo":
       return <GoToDialog store={store} />;
     case "insertFunction":
