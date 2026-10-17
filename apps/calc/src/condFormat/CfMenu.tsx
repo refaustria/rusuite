@@ -205,6 +205,8 @@ export function CfMenu({ store, close }: { store: CalcStore; close: () => void }
         <>
           {item(t("calc.cf.clearSelection"), done(() => store.clearCf("selection")))}
           {item(t("calc.cf.clearSheet"), done(() => store.clearCf("sheet")))}
+          {store.ruleScopeRange("table") && item(t("calc.cf.clearTable"), done(() => store.clearCf("table")))}
+          {store.ruleScopeRange("pivot") && item(t("calc.cf.clearPivot"), done(() => store.clearCf("pivot")))}
         </>
       ))}
       {item(t("calc.cf.manage"), done(() => store.openDialog({ kind: "cfManage" })), true)}

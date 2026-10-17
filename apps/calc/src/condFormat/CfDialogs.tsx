@@ -697,7 +697,9 @@ export function ManageRulesDialog({ store }: { store: CalcStore }) {
   const sel = useMemo(() => normalize(store.getState().selection), [store]);
   const [original, setOriginal] = useState<CfRule[] | null>(null);
   const [items, setItems] = useState<Item[]>([]);
-  const [scope, setScope] = useState<"selection" | "sheet">("selection");
+  const [scope, setScope] = useState<"selection" | "sheet" | "table" | "pivot">("selection");
+  const tableRange = useMemo(() => store.ruleScopeRange("table"), [store]);
+  const pivotRange = useMemo(() => store.ruleScopeRange("pivot"), [store]);
   const [selected, setSelected] = useState<number | null>(null);
   const [editor, setEditor] = useState<{ key: number | null; form: RuleForm } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -715,7 +717,8 @@ export function ManageRulesDialog({ store }: { store: CalcStore }) {
     store.closeDialog();
     store.focusGrid();
   };
-  const shown = items.filter((it) => scope === "sheet" || ruleTouches(it.rule, sel));
+  const scopeRange = scope === "table" ? tableRange : scope === "pivot" ? pivotRange : sel;
+  const shown = items.filter((it) => scope === "sheet" || (scopeRange !== null && ruleTouches(it.rule, scopeRange)));
   const current = shown.find((it) => it.key === selected) ?? null;
   const update = (key: number, p: Partial<Item>) => setItems((list) => list.map((it) => (it.key === key ? { ...it, ...p } : it)));
 
@@ -755,9 +758,11 @@ export function ManageRulesDialog({ store }: { store: CalcStore }) {
         >
           <label className={ROW}>
             {t("calc.cf.showFor")}
-            <select className={FIELD} value={scope} onChange={(e) => setScope(e.target.value as "selection" | "sheet")}>
+            <select className={FIELD} value={scope} onChange={(e) => setScope(e.target.value as typeof scope)}>
               <option value="selection">{t("calc.cf.scope.selection")}</option>
               <option value="sheet">{t("calc.cf.scope.sheet")}</option>
+              {tableRange && <option value="table">{t("calc.cf.scope.table")}</option>}
+              {pivotRange && <option value="pivot">{t("calc.cf.scope.pivot")}</option>}
             </select>
           </label>
           <div className={ROW}>
@@ -766,6 +771,24 @@ export function ManageRulesDialog({ store }: { store: CalcStore }) {
             </button>
             <button type="button" className={BTN} disabled={!current} onClick={() => current && setEditor({ key: current.key, form: formFromRule(current.rule) })}>
               {t("calc.cf.editRule")}
+            </button>
+            <button
+              type="button"
+              className={BTN}
+              disabled={!current}
+              onClick={() => {
+                if (!current) return;
+                // Excel's Duplicate Rule: a copy right above the original.
+                const copy = toItem({ ...current.rule, id: 0 });
+                copy.text = current.text;
+                setItems((list) => {
+                  const i = list.findIndex((it) => it.key === current.key);
+                  return [...list.slice(0, i), copy, ...list.slice(i)];
+                });
+                setSelected(copy.key);
+              }}
+            >
+              {t("calc.cf.duplicateRule")}
             </button>
             <button
               type="button"

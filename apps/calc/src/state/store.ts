@@ -352,6 +352,8 @@ export interface CalcState {
   toasts: Toast[];
   /** The copied/cut range shown with marching ants (`null`: none). */
   clipMark: { sheet: number; range: Range; cut: boolean } | null;
+  /** Home › Format Painter is on (`sticky`: double-clicked, stays on until Esc). */
+  painter: { sticky: boolean } | null;
   dialog: CalcDialog | null;
   /** A data validation alert over the open edit (`null`: none). */
   validationAlert: ValidationAlert | null;
@@ -466,6 +468,7 @@ export class CalcStore {
     version: 0,
     toasts: [],
     clipMark: null,
+    painter: null,
     dialog: null,
     validationAlert: null,
     ribbonRequest: null,
@@ -1912,6 +1915,47 @@ export class CalcStore {
     return this.clip.tsv;
   }
 
+  /** The formats the Format Painter carries. */
+  private painterClip: Clip | null = null;
+
+  /**
+   * Home › Format Painter: picks up the formats of the selection (cell
+   * styles, conditional formatting and data validation); the next
+   * selected range gets them (`sticky`, a double-click: every range until
+   * Esc or a click on the button).
+   */
+  startFormatPainter(sticky = false): void {
+    const sheet = this.state.activeSheet;
+    const r = normalize(this.state.selection);
+    const { lastRow, lastCol } = this.usedExtent(sheet);
+    const range = { r0: r.r0, c0: r.c0, r1: Math.min(r.r1, Math.max(r.r0, lastRow)), c1: Math.min(r.c1, Math.max(r.c0, lastCol)) };
+    this.painterClip = captureClip(this.cache(sheet).cells, sheet, range, false);
+    this.set({ painter: { sticky }, clipMark: { sheet, range, cut: false } });
+  }
+
+  /** Turns the Format Painter off (Esc, the button again). */
+  stopFormatPainter(): void {
+    this.painterClip = null;
+    if (this.state.painter) this.set({ painter: null, clipMark: this.clip ? this.state.clipMark : null });
+  }
+
+  /** The grid finished a selection (mouse up): the Format Painter paints it. */
+  selectionDone(): Promise<void> {
+    const clip = this.painterClip;
+    if (!clip || !this.state.painter) return Promise.resolve();
+    const sheet = this.state.activeSheet;
+    const sel = normalize(this.state.selection);
+    const rows = clip.range.r1 - clip.range.r0 + 1;
+    const cols = clip.range.c1 - clip.range.c0 + 1;
+    const at = pasteTarget(sel, rows, cols);
+    if (!this.state.painter.sticky) this.stopFormatPainter();
+    const r1 = Math.min(LAST_ROW, at.r0 + rows * at.repeatRows - 1);
+    const c1 = Math.min(LAST_COL, at.c0 + cols * at.repeatCols - 1);
+    if (this.refuseMergeSplit({ r0: at.r0, c0: at.c0, r1, c1 })) return Promise.resolve();
+    this.select({ anchor: { row: at.r0, col: at.c0 }, focus: { row: r1, col: c1 } });
+    return this.apply(formatPainterCommand(sheet, clip, at));
+  }
+
   /** Esc: ends copy mode (and cancels a pending cut). */
   clearClip(): void {
     this.clip = null;
@@ -1947,8 +1991,9 @@ export class CalcStore {
       command = {
         type: "pasteRange", sheet, r0: at.r0, c0: at.c0, src: { sheet: clip.sheet, ...clip.range },
         cells: mode === "valuesOnly" && !clip.cut && clip.values ? clip.values : clip.cells, mode: clip.cut ? "all" : mode, cut: clip.cut, repeatRows: at.repeatRows, repeatCols: at.repeatCols,
-        // Our own copy: notes and links come along (a cut also moves the threads).
-        annotations: clip.cut || mode === "all",
+        // Our own copy: notes and links come along (a cut also moves the threads), conditional formats and
+        // validations too (Paste Formats: the conditional formats).
+        annotations: true,
       };
     } else {
       if (!text) return Promise.resolve();
@@ -2686,11 +2731,23 @@ export class CalcStore {
   }
 
   /** Clear Rules from Selected Cells / from Entire Sheet. */
-  clearCf(scope: "selection" | "sheet"): Promise<void> {
+  clearCf(scope: "selection" | "sheet" | "table" | "pivot"): Promise<void> {
     const sheet = this.state.activeSheet;
     if (scope === "sheet") return this.apply({ type: "clearCf", sheet, range: null });
-    const r = this.selectionRange();
+    const r = scope === "selection" ? this.selectionRange() : this.ruleScopeRange(scope);
+    if (!r) return Promise.resolve();
     return this.apply({ type: "clearCf", sheet, range: { r0: r.r0, c0: r.c0, r1: r.r1, c1: r.c1 } });
+  }
+
+  /** The range of the table / pivot table at the active cell (`null`: none) – Clear Rules and the Rules Manager's scopes. */
+  ruleScopeRange(scope: "table" | "pivot"): Rect | null {
+    const { row, col } = this.activeAnchor();
+    if (scope === "table") {
+      const t = this.tables.at(row, col);
+      return t ? { r0: t.r0, c0: t.c0, r1: t.r1, c1: t.c1 } : null;
+    }
+    const p = this.pivots.tableAt(row, col);
+    return p ? { ...p.location } : null;
   }
 
   /** The cached data validation of a cell (`sheet` default: the active one). */
@@ -2788,4 +2845,23 @@ export function useCalc<T>(store: CalcStore, select: (s: CalcState) => T): T {
 export function rotatedHeight(width: number, line: number, degrees: number): number {
   const a = (Math.abs(degrees) * Math.PI) / 180;
   return Math.ceil(width * Math.sin(a) + line * Math.cos(a) + 2 * CELL_PADDING);
+}
+
+/**
+ * The Format Painter's paste (one undo step): the formats of `clip` with
+ * its conditional formatting, then its data validation, over the block at
+ * `at` (repeated over a larger selection).
+ */
+export function formatPainterCommand(sheet: number, clip: Clip, at: { r0: number; c0: number; repeatRows: number; repeatCols: number }): CalcCommand {
+  const base = {
+    type: "pasteRange" as const, sheet, r0: at.r0, c0: at.c0, src: { sheet: clip.sheet, ...clip.range }, cells: clip.cells,
+    cut: false, repeatRows: at.repeatRows, repeatCols: at.repeatCols, annotations: true,
+  };
+  return {
+    type: "compound",
+    commands: [
+      { ...base, mode: "formatsOnly" },
+      { ...base, mode: "all", special: { parts: "validation" } },
+    ],
+  };
 }

@@ -1046,6 +1046,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const up = () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
+      // The Format Painter paints the range just selected.
+      void store.selectionDone();
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
@@ -1182,6 +1184,11 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       e.preventDefault();
       if (key === "Enter") void store.flash.accept();
       else store.flash.dismiss();
+      return;
+    }
+    if (key === "Escape" && store.getState().painter) {
+      e.preventDefault();
+      store.stopFormatPainter();
       return;
     }
     if (key === "Escape" && store.getState().clipMark) {

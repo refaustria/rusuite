@@ -237,6 +237,18 @@ describe("Rules Manager", () => {
     ]));
   });
 
+  it("Duplicate Rule adds a copy above the rule; Apply sends it and keeps the dialog open", async () => {
+    const { core, dlg } = await withRules();
+    fireEvent.click(within(dlg).getAllByTestId("cf-rule-row")[1]!);
+    fireEvent.click(within(dlg).getByRole("button", { name: "Duplicate Rule" }));
+    expect(within(dlg).getAllByTestId("cf-rule-row").map((r) => r.querySelector("td")!.textContent)).toEqual(["Cell Value > 5", "Unique Values", "Unique Values", "Blanks"]);
+    fireEvent.click(within(dlg).getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(applied(core.log)).toEqual([
+      { type: "addCfRule", sheet: 0, rule: expect.objectContaining({ id: 0, priority: 2, kind: { type: "uniqueValues" }, ranges: [{ r0: 0, c0: 0, r1: 9, c1: 0 }] }) },
+    ]));
+    expect(screen.getByRole("dialog", { name: "Conditional Formatting Rules Manager" })).toBeTruthy();
+  });
+
   it("a bad range keeps the dialog open; Edit Rule… changes the rule; Cancel sends nothing", async () => {
     const { core, dlg } = await withRules();
     fireEvent.change(within(dlg).getAllByLabelText("Applies to")[0]!, { target: { value: "nonsense" } });

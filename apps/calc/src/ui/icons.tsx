@@ -237,3 +237,13 @@ export const accountingIcon = (size = 16) =>
       <circle cx="10" cy="10" r="2.5" />
     </>
   ));
+
+/** Format Painter: a paint roller. */
+export const painterIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <rect x="3" y="2.5" width="12" height="5" rx="1" />
+      <path d="M15 5h2v4h-7v3" />
+      <rect x="8.5" y="12" width="3" height="5.5" rx="0.5" />
+    </>
+  ));

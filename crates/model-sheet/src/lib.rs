@@ -56,6 +56,7 @@ pub use outline::{Axis, OutlineProps, OutlineState, MAX_OUTLINE_LEVEL};
 pub use picture::Picture;
 pub use pivot::{PivotCache, PivotTable};
 pub use protection::{HashedPassword, Password, SheetProtection, WorkbookProtection};
+pub use rules::RulesPaste;
 pub use sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView, MAX_ZOOM, MIN_ZOOM};
 pub use slicer::{
     Slicer, SlicerCache, SlicerItem, SlicerSort, SlicerSource, SlicerState, DEFAULT_SLICER_STYLE,

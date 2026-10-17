@@ -638,6 +638,7 @@ impl Workbook {
             .map(|(to, from)| (from, *to))
             .collect();
         self.permute_annotation_rows(sheet, (range.c0, range.c1), &row_moves);
+        self.permute_rule_lines(sheet, false, (range.c0, range.c1), &row_moves);
         self.sheet_data_mut(sheet)?.sort_state = Some(state);
         Ok(recalc)
     }
