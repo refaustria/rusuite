@@ -17,6 +17,7 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { base64ToBytes, savedName, type SaveResult } from "@rusuite/ui-shared";
+import type { StyleSet } from "../generated/StyleSet";
 import { WriteApiError, type EditRequest, type PatchEnvelope, type WriteApi } from "../backend";
 import type { Block } from "../generated/Block";
 import type { Comment } from "../generated/Comment";
@@ -404,6 +405,11 @@ export class SyncController {
     this.set({ toasts: [...this.state.toasts, { id, message }] });
   }
 
+  /** A status message (the status bar's info). */
+  showInfo(message: string): void {
+    this.set({ info: message });
+  }
+
   dismissToast(id: number): void {
     this.set({ toasts: this.state.toasts.filter((t) => t.id !== id) });
   }
@@ -496,10 +502,13 @@ export class SyncController {
     });
   }
 
+  /** The style set new blank documents start with (Design › Set as Default; set by the features). */
+  defaultStyleSet: (() => StyleSet | null) | null = null;
+
   async newDocument(): Promise<void> {
     await this.idle();
     try {
-      const body = await this.api.newDocument();
+      const body = await this.api.newDocument(this.defaultStyleSet?.() ?? undefined);
       this.media.clear();
       this.setDocument(body.doc, body.envelope, null);
       this.set({ warnings: [], info: null });
@@ -549,32 +558,66 @@ export class SyncController {
     }
   }
 
+  /** File › New from a template (`.dotx` base64): an untitled, clean document with the template's styles and content. */
+  async newFromTemplate(bytesBase64: string, name: string): Promise<boolean> {
+    await this.idle();
+    try {
+      const body = await this.api.newFromTemplate(bytesBase64, name);
+      this.media.clear();
+      this.setDocument(body.doc, body.envelope, null);
+      this.set({ warnings: body.warnings, info: null });
+      return true;
+    } catch (e) {
+      this.pushError(e);
+      return false;
+    }
+  }
+
+  /** The properties as the save in progress stamps them (LASTSAVEDBY / SAVEDATE fields read them), else null. */
+  savingProperties: CoreProperties | null = null;
+
   /**
    * Saves as `.docx`: `SaveDocx`, then `save(name, bytes)` (the shell's
    * file / file dialog / download); only when that succeeds, `MarkSaved`
    * under the name actually written. `asName` (Save As) replaces the
-   * suggested name.
+   * suggested name; a `.dotx` name saves a template (`.docx`: a document).
+   * When the shell's dialog picked the other kind, `resave` (a plain save
+   * to the chosen file) writes it again with the right content type.
    */
-  async saveDocx(save: (suggestedName: string, bytesBase64: string) => Promise<SaveResult>, asName?: string): Promise<boolean> {
+  async saveDocx(
+    save: (suggestedName: string, bytesBase64: string) => Promise<SaveResult>,
+    asName?: string,
+    resave?: (name: string, bytesBase64: string) => Promise<SaveResult>,
+  ): Promise<boolean> {
     await this.idle();
     try {
-      const update = this.beforeSave?.() ?? null;
-      if (update) await this.run(update);
-      const stamp: { modified?: string; user?: string; pages?: number } = {
+      const stamp: { modified?: string; user?: string; pages?: number; template?: boolean } = {
         modified: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
         ...(this.saveStats?.() ?? {}),
       };
       if (this.user) stamp.user = this.user.name;
+      if (asName) stamp.template = isTemplateName(asName);
+      // Fields that show the save (LASTSAVEDBY, SAVEDATE) are updated with what the save stamps.
+      this.savingProperties = stampProperties(this.properties, stamp);
+      const update = this.beforeSave?.() ?? null;
+      this.savingProperties = null;
+      if (update) await this.run(update);
       const file = await this.api.saveDocx(stamp);
       // The stamp changed the properties in the core (not an edit): mirror it.
       this.properties = stampProperties(this.properties, stamp);
       const suggested = asName ?? file.suggestedName;
       const result = await save(suggested, file.bytesBase64);
       if (!result) return false;
-      const st = await this.api.markSaved(savedName(result, suggested));
+      const written = savedName(result, suggested);
+      if (resave && isTemplateName(written) !== isTemplateName(suggested)) {
+        const again = await this.api.saveDocx({ template: isTemplateName(written) });
+        if (!(await resave(written, again.bytesBase64))) return false;
+      }
+      const st = await this.api.markSaved(written);
       this.set({ dirty: st.dirty, name: st.name, revision: Math.max(this.state.revision, st.revision) });
       return true;
     } catch (e) {
+      this.savingProperties = null;
       this.pushError(e);
       return false;
     }
@@ -992,6 +1035,9 @@ export class SyncController {
 }
 
 /** What `SaveDocx` with `stamp` does to the properties (mirror of `WriteDocument::stamp_save`). */
+/** Whether a file name is a Word template (`.dotx`). */
+export const isTemplateName = (name: string): boolean => /\.dotx$/i.test(name.trim());
+
 export function stampProperties(p: CoreProperties, stamp: { modified?: string; user?: string; pages?: number }): CoreProperties {
   const out: CoreProperties = { ...p };
   if (stamp.modified) {

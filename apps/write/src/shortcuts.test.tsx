@@ -128,7 +128,9 @@ describe("Write shortcuts", () => {
     const save = vi.spyOn(backend, "saveFile").mockResolvedValue(true);
     fireEvent.keyDown(editor, { key: "F12" });
     const input = screen.getByLabelText("File name") as HTMLInputElement;
-    expect(input.value).toBe("t.docx");
+    // Word's dialog: the name without extension, the type beside it.
+    expect(input.value).toBe("t");
+    expect((screen.getByLabelText("Save as type") as HTMLSelectElement).value).toBe("docx");
     fireEvent.change(input, { target: { value: "report" } });
     fireEvent.submit(input.form!);
     await waitFor(() => expect(save).toHaveBeenCalledWith("report.docx", expect.any(String), { saveAs: true }));
@@ -265,8 +267,8 @@ describe("Write shortcuts", () => {
       selectAll(editor);
       fireEvent.keyDown(editor, ctrl("W", { shiftKey: true, code: "KeyW" }));
       const flatProps = () => JSON.stringify(applied(backend));
-      await waitFor(() => expect(flatProps()).toContain('"underline":"single"'));
-      await waitFor(() => expect(Array.from(editor.querySelectorAll("u"), (u) => u.textContent)).toEqual(["one", "two"]));
+      await waitFor(() => expect(flatProps()).toContain('"underline":"words"'));
+      await waitFor(() => expect(Array.from(editor.querySelectorAll("u[data-u=words] .u-word"), (u) => u.textContent)).toEqual(["one", "two"]));
     });
 
     it("Shift+F3 on a whole sentence goes to Sentence case (P9-W1)", async () => {

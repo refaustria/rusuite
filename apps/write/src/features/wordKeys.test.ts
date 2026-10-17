@@ -8,7 +8,7 @@ import { makeDoc, para, run } from "../test/fixtures";
 import { change, makeEditor, select } from "../test/harness";
 import {
   cycleCaseCommand, effectiveIndent, growFont, hangingIndent, nextCase, removeParagraphFormatting, stepFontList, stepFontPoint, stepHangingIndent,
-  toggleChar, togglePatch, withoutParagraphFormatting,
+  switchRun, toggleChar, withoutParagraphFormatting,
 } from "./wordKeys";
 
 let editor: Editor | null = null;
@@ -66,12 +66,26 @@ describe("font size steps", () => {
 });
 
 describe("character toggles", () => {
+  it("switches relative to the style: explicit off where the style turns it on (Word's toggles)", () => {
+    const bold = { key: "bold" as const, on: true, off: false, isOn: (v: unknown) => v === true };
+    // Plain text: on sets it, off removes it.
+    expect(switchRun({}, {}, bold, true)).toEqual({ bold: true });
+    expect(switchRun({ bold: true }, {}, bold, false)).toEqual({});
+    // A bold style: off is an explicit false (w:b w:val="0"), on again removes the direct value.
+    expect(switchRun({}, { bold: true }, bold, false)).toEqual({ bold: false });
+    expect(switchRun({ bold: false }, { bold: true }, bold, true)).toEqual({});
+  });
+
   it("small caps and all caps exclude each other; double underline toggles", () => {
-    expect(togglePatch("smallCaps", {})).toEqual({ smallCaps: true, allCaps: false });
-    expect(togglePatch("smallCaps", { smallCaps: true })).toEqual({ smallCaps: false });
-    expect(togglePatch("allCaps", { smallCaps: true })).toEqual({ allCaps: true, smallCaps: false });
-    expect(togglePatch("doubleUnderline", { underline: "single" })).toEqual({ underline: "double" });
-    expect(togglePatch("doubleUnderline", { underline: "double" })).toEqual({ underline: null });
+    const e = open(para(1, "hello"));
+    select(e, 1, 0, 1, 5);
+    toggleChar(e, sheet, "allCaps");
+    toggleChar(e, sheet, "smallCaps");
+    expect(propsFromMarks(e.state.doc.child(0).child(0).marks)).toEqual({ smallCaps: true });
+    toggleChar(e, sheet, "doubleUnderline");
+    expect(propsFromMarks(e.state.doc.child(0).child(0).marks).underline).toBe("double");
+    toggleChar(e, sheet, "doubleUnderline");
+    expect(propsFromMarks(e.state.doc.child(0).child(0).marks).underline).toBeUndefined();
   });
 
   it("Ctrl+Shift+K formats the selection → setRunProps smallCaps", () => {

@@ -428,6 +428,20 @@ pub enum WriteCommand {
     },
     /// Makes `id` the default style of `kind` (`StyleSheet::set_default`).
     SetDefaultStyle { kind: StyleKind, id: String },
+    /// Manage Styles › Set Defaults: merges `run` / `paragraph` into the
+    /// document defaults (docx `w:docDefaults`; a `false` toggle or
+    /// `underline: none` is kept explicit).
+    SetStyleDefaults {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(as = "Option<app_common::wire::RunProperties>", optional)]
+        run: Option<RunProperties>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        paragraph: Option<ParagraphProperties>,
+    },
+    /// Design › Style Set: applies a style set (`StyleSheet::apply_style_set`:
+    /// the document defaults and Normal, Title, Subtitle, Heading 1–3).
+    ApplyStyleSet { set: model_text::StyleSet },
     /// Word's "Update `X` to Match Selection": the effective paragraph
     /// formatting of `block` and the effective run formatting at `offset`
     /// become the style's (where they differ from what the style gives),

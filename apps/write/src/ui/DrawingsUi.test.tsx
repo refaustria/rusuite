@@ -268,7 +268,8 @@ describe("Home › Font", () => {
     const dialog = await screen.findByRole("dialog", { name: "Font" });
     fireEvent.click(within(dialog).getByRole("checkbox", { name: "Small caps" }));
     fireEvent.click(within(dialog).getByRole("tab", { name: "Advanced" }));
-    fireEvent.change(within(dialog).getByRole("textbox", { name: /^Spacing/ }), { target: { value: "2" } });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Spacing" }), { target: { value: "plus" } });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: /^Spacing by/ }), { target: { value: "2" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "OK" }));
     await waitFor(() => expect(flat(applied(backend))).toContainEqual({ type: "setRunProps", block: 1, from: 0, to: 5, patch: { smallCaps: true, charSpacing: 40 } }));
   });

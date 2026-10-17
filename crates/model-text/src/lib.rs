@@ -37,13 +37,14 @@ pub mod props;
 pub mod section;
 pub mod snapshot;
 pub mod style;
+pub mod style_set;
 pub mod table;
 
 pub use block::{Block, NodeId, Paragraph, Table, TableCell, TableRow, Toc, TocEntry};
 pub use comment::{marker_of, Comment, CommentFix, CommentId, CommentRange};
 pub use core_model::units::{Emu, Pt, Twips};
 pub use core_model::RunProperties;
-pub use document::Document;
+pub use document::{Document, DocumentStatistics};
 pub use drawing::{
     default_text_insets, Autofit, Crop, Drawing, DrawingKind, DrawingText, LineDash, PictureFormat,
     Recolor, ShapeFill, ShapeLine,
@@ -75,9 +76,11 @@ pub use section::{
 };
 pub use snapshot::DocumentSnapshot;
 pub use style::{
-    is_builtin_name, ConditionalFormat, ConditionalKind, Defaults, Style, StyleError, StyleKind,
-    StylePatch, StyleSheet, TableStyle,
+    apply_character_style, is_builtin_name, ConditionalFormat, ConditionalKind, Defaults,
+    LatentException, LatentStyles, Style, StyleError, StyleKind, StylePatch, StyleSheet,
+    TableStyle,
 };
+pub use style_set::{StyleSet, StyleSetEntry, BUILTIN_STYLE_SETS, STYLE_SET_IDS};
 
 /// Errors of the `model-text` crate.
 #[derive(Debug, thiserror::Error)]

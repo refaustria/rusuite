@@ -558,6 +558,25 @@ pub enum FieldKind {
     Author,
     /// The document title (docx `TITLE`, from the document properties).
     Title,
+    /// The document subject (docx `SUBJECT`).
+    Subject,
+    /// The document keywords (docx `KEYWORDS`, Word's "Tags").
+    Keywords,
+    /// The document comments (docx `COMMENTS`, `dc:description`).
+    Comments,
+    /// Who saved the document last (docx `LASTSAVEDBY`).
+    LastSavedBy,
+    /// When the document was saved last (docx `SAVEDATE`); `format` like
+    /// [`FieldKind::Date`].
+    SaveDate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        format: Option<String>,
+    },
+    /// A named document property (docx `DOCPROPERTY Company`): `Company`,
+    /// `Title`, `Subject`, `Author`, `Keywords`, `Comments`, `Category`,
+    /// `LastSavedBy`.
+    DocProperty { name: String },
     /// The text of a bookmark (docx `REF name`; `\\h` = a link to it,
     /// `\\n` = the paragraph number of a numbered item instead of the text).
     Ref {
@@ -617,6 +636,12 @@ impl FieldKind {
             FieldKind::FileName => "FILENAME".into(),
             FieldKind::Author => "AUTHOR".into(),
             FieldKind::Title => "TITLE".into(),
+            FieldKind::Subject => "SUBJECT".into(),
+            FieldKind::Keywords => "KEYWORDS".into(),
+            FieldKind::Comments => "COMMENTS".into(),
+            FieldKind::LastSavedBy => "LASTSAVEDBY".into(),
+            FieldKind::SaveDate { format } => with_format("SAVEDATE", format),
+            FieldKind::DocProperty { name } => format!("DOCPROPERTY {name}"),
             FieldKind::Ref {
                 bookmark,
                 hyperlink,
@@ -692,6 +717,14 @@ impl FieldKind {
             "FILENAME" => FieldKind::FileName,
             "AUTHOR" => FieldKind::Author,
             "TITLE" => FieldKind::Title,
+            "SUBJECT" => FieldKind::Subject,
+            "KEYWORDS" => FieldKind::Keywords,
+            "COMMENTS" => FieldKind::Comments,
+            "LASTSAVEDBY" => FieldKind::LastSavedBy,
+            "SAVEDATE" => FieldKind::SaveDate { format: format() },
+            "DOCPROPERTY" => FieldKind::DocProperty {
+                name: first_arg(rest)?.0,
+            },
             "REF" | "PAGEREF" | "NOTEREF" => {
                 let (bookmark, switches) = first_arg(rest)?;
                 let has = |c: char| has_switch(&switches, c);
@@ -947,6 +980,16 @@ mod tests {
             FieldKind::FileName,
             FieldKind::Author,
             FieldKind::Title,
+            FieldKind::Subject,
+            FieldKind::Keywords,
+            FieldKind::Comments,
+            FieldKind::LastSavedBy,
+            FieldKind::SaveDate {
+                format: Some("d.M.yyyy".into()),
+            },
+            FieldKind::DocProperty {
+                name: "Company".into(),
+            },
             FieldKind::PageRef {
                 bookmark: "b".into(),
                 hyperlink: true,

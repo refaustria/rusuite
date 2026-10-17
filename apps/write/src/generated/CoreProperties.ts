@@ -32,6 +32,10 @@ description?: string,
  */
 category?: string, 
 /**
+ * The company (`docProps/app.xml` `Company`).
+ */
+company?: string, 
+/**
  * `cp:lastModifiedBy`.
  */
 lastModifiedBy?: string, 

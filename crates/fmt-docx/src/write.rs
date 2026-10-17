@@ -256,7 +256,12 @@ pub fn write_with_context(doc: &Document, ctx: &DocxContext) -> Result<Vec<u8>> 
 
     let main = pn("/word/document.xml")?;
     let mut pkg = Package::new();
-    pkg.insert_part(main.clone(), ct::DOCUMENT, main_xml);
+    let main_type = if ctx.template {
+        crate::TEMPLATE_CONTENT_TYPE
+    } else {
+        ct::DOCUMENT
+    };
+    pkg.insert_part(main.clone(), main_type, main_xml);
     pkg.insert_part(
         pn("/word/styles.xml")?,
         ct::WORD_STYLES,
@@ -1881,8 +1886,10 @@ fn core_xml(p: &model_text::CoreProperties) -> Vec<u8> {
 }
 
 /// `docProps/app.xml`: the application, the page count of the last
-/// pagination and the word count.
+/// pagination, the statistics and the company (CT_Properties is an
+/// `xsd:all`: any order).
 fn app_xml(doc: &Document) -> Vec<u8> {
+    let stats = doc.statistics();
     let mut x = XmlOut::new();
     x.start(
         "Properties",
@@ -1895,7 +1902,17 @@ fn app_xml(doc: &Document) -> Vec<u8> {
     if let Some(pages) = doc.properties.pages {
         x.text_el("Pages", &[], &pages.to_string());
     }
-    x.text_el("Words", &[], &doc.word_count().to_string());
+    x.text_el("Words", &[], &stats.words.to_string());
+    x.text_el("Characters", &[], &stats.characters.to_string());
+    if let Some(c) = &doc.properties.company {
+        x.text_el("Company", &[], c);
+    }
+    x.text_el("Paragraphs", &[], &stats.paragraphs.to_string());
+    x.text_el(
+        "CharactersWithSpaces",
+        &[],
+        &stats.characters_with_spaces.to_string(),
+    );
     x.end("Properties");
     x.finish()
 }
@@ -2093,5 +2110,122 @@ mod tests {
         assert_eq!(grid(&t, 9000), vec![1000, 3000]);
         t.rows[0].cells[1].props.width = None;
         assert_eq!(grid(&t, 9000), vec![4500, 4500]);
+    }
+
+    /// The text of part `name` of a written package.
+    fn part_text(bytes: &[u8], name: &str) -> String {
+        let pkg = fmt_ooxml::Package::open(std::io::Cursor::new(bytes)).unwrap();
+        let part = pkg.part(&PartName::new(name).unwrap()).unwrap();
+        String::from_utf8(part.data.clone()).unwrap()
+    }
+
+    fn main_content_type(bytes: &[u8]) -> String {
+        let pkg = fmt_ooxml::Package::open(std::io::Cursor::new(bytes)).unwrap();
+        let main = pkg.main_document_part().unwrap();
+        pkg.part(&main).unwrap().content_type.clone()
+    }
+
+    #[test]
+    fn templates_keep_their_content_type() {
+        let mut doc = Document::new();
+        let p = para(&mut doc, vec![Inline::Run(model_text::Run::new("Memo"))]);
+        doc.body = vec![p];
+        let plain = write(&doc).unwrap();
+        assert_eq!(main_content_type(&plain), crate::DOCUMENT_CONTENT_TYPE);
+        let ctx = DocxContext {
+            template: true,
+            ..Default::default()
+        };
+        let dotx = write_with_context(&doc, &ctx).unwrap();
+        assert_eq!(main_content_type(&dotx), crate::TEMPLATE_CONTENT_TYPE);
+        // Read like a document; the context remembers the template.
+        let back = crate::read_with_context(&dotx).unwrap();
+        assert!(back.context.template);
+        assert_eq!(back.document.plain_text(), "Memo");
+        assert!(!crate::read_with_context(&plain).unwrap().context.template);
+        // Written again with the read context: still a template.
+        let again = write_with_context(&back.document, &back.context).unwrap();
+        assert_eq!(main_content_type(&again), crate::TEMPLATE_CONTENT_TYPE);
+    }
+
+    #[test]
+    fn core_and_app_properties_roundtrip() {
+        let mut doc = Document::new();
+        let p = para(
+            &mut doc,
+            vec![Inline::Run(model_text::Run::new("Two words  here"))],
+        );
+        let empty = para(&mut doc, vec![]);
+        doc.body = vec![p, empty];
+        doc.properties = model_text::CoreProperties {
+            title: Some("Q3 & <plan>".into()),
+            subject: Some("Budget".into()),
+            author: Some("Ann".into()),
+            keywords: Some("plan; q3".into()),
+            description: Some("Draft".into()),
+            category: Some("Finance".into()),
+            company: Some("ACME".into()),
+            last_modified_by: Some("Bo".into()),
+            created: Some("2026-10-01T08:00:00Z".into()),
+            modified: Some("2026-10-17T09:30:00Z".into()),
+            revision: Some(4),
+            pages: Some(2),
+        };
+        let bytes = write(&doc).unwrap();
+        let app = part_text(&bytes, "/docProps/app.xml");
+        assert!(app.contains("<Company>ACME</Company>"), "{app}");
+        assert!(app.contains("<Words>3</Words>"), "{app}");
+        assert!(app.contains("<Characters>12</Characters>"), "{app}");
+        assert!(
+            app.contains("<CharactersWithSpaces>15</CharactersWithSpaces>"),
+            "{app}"
+        );
+        assert!(app.contains("<Paragraphs>1</Paragraphs>"), "{app}");
+        let core = part_text(&bytes, "/docProps/core.xml");
+        assert!(
+            core.contains("<dc:title>Q3 &amp; &lt;plan&gt;</dc:title>"),
+            "{core}"
+        );
+        let back = crate::read(&bytes).unwrap();
+        assert_eq!(back.properties, doc.properties);
+    }
+
+    #[test]
+    fn character_spacing_caps_and_words_underline_roundtrip() {
+        let mut doc = Document::new();
+        let props = RunProperties {
+            small_caps: Some(true),
+            all_caps: Some(false),
+            char_spacing: Some(40),
+            scale: Some(150),
+            kerning: Some(28),
+            position: Some(-6),
+            underline: Some(core_model::Underline::Words),
+            ..Default::default()
+        };
+        let run = model_text::Run {
+            props: props.clone(),
+            ..model_text::Run::new("Spaced words")
+        };
+        let p = para(&mut doc, vec![Inline::Run(run)]);
+        doc.body = vec![p];
+        let bytes = write(&doc).unwrap();
+        let xml = part_text(&bytes, "/word/document.xml");
+        for needle in [
+            r#"<w:smallCaps/>"#,
+            r#"<w:caps w:val="0"/>"#,
+            r#"<w:spacing w:val="40"/>"#,
+            r#"<w:w w:val="150"/>"#,
+            r#"<w:kern w:val="28"/>"#,
+            r#"<w:position w:val="-6"/>"#,
+            r#"<w:u w:val="words"/>"#,
+        ] {
+            assert!(xml.contains(needle), "{needle} in {xml}");
+        }
+        let back = crate::read(&bytes).unwrap();
+        let Block::Paragraph(p) = &back.body[0] else {
+            panic!()
+        };
+        assert_eq!(p.inlines[0].as_run().unwrap().props, props);
     }
 }

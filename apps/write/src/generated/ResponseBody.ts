@@ -2,13 +2,15 @@
 import type { Envelope } from "../../../../packages/ui-shared/src/generated/Envelope";
 import type { Revision } from "../../../../packages/ui-shared/src/generated/Revision";
 import type { Document } from "./Document";
+import type { DocumentStatistics } from "./DocumentStatistics";
 import type { FindMatch } from "./FindMatch";
 import type { NodeId } from "./NodeId";
 import type { ReaderWarning } from "./ReaderWarning";
 import type { ShapeOutline } from "./ShapeOutline";
+import type { StyleSet } from "./StyleSet";
 import type { WritePatch } from "./WritePatch";
 
 /**
  * The successful part of a [`Response`].
  */
-export type ResponseBody = { "type": "patch", envelope: Envelope<WritePatch>, } | { "type": "document", doc: Document, envelope: Envelope<WritePatch>, } | { "type": "opened", doc: Document, warnings: Array<ReaderWarning>, envelope: Envelope<WritePatch>, } | { "type": "saved", bytesBase64: string, suggestedName: string, } | { "type": "media", contentType: string, bytesBase64: string, } | { "type": "recoverySnapshot", json: string, revision: Revision, dirty: boolean, name: string | null, } | { "type": "blockIds", ids: Array<NodeId>, } | { "type": "findMatches", matches: Array<FindMatch>, revision: Revision, } | { "type": "shapePaths", shapes: Array<ShapeOutline>, } | { "type": "documentState", dirty: boolean, revision: Revision, name: string | null, };
+export type ResponseBody = { "type": "patch", envelope: Envelope<WritePatch>, } | { "type": "document", doc: Document, envelope: Envelope<WritePatch>, } | { "type": "opened", doc: Document, warnings: Array<ReaderWarning>, envelope: Envelope<WritePatch>, } | { "type": "saved", bytesBase64: string, suggestedName: string, } | { "type": "media", contentType: string, bytesBase64: string, } | { "type": "recoverySnapshot", json: string, revision: Revision, dirty: boolean, name: string | null, } | { "type": "blockIds", ids: Array<NodeId>, } | { "type": "findMatches", matches: Array<FindMatch>, revision: Revision, } | { "type": "shapePaths", shapes: Array<ShapeOutline>, } | { "type": "styleSets", sets: Array<StyleSet>, current: StyleSet, } | { "type": "statistics", stats: DocumentStatistics, } | { "type": "documentState", dirty: boolean, revision: Revision, name: string | null, };

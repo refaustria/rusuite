@@ -21,6 +21,9 @@ pub enum Underline {
     Dashed,
     /// Wavy line.
     Wavy,
+    /// Single line under the words only, not the spaces between them
+    /// (docx `w:u w:val="words"`, Word's "Words only", Ctrl+Shift+W).
+    Words,
 }
 
 /// Vertical position of a run relative to the baseline.

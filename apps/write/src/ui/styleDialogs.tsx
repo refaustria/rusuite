@@ -22,6 +22,7 @@ import { fontCss, isParagraphKind, paneStyles, styleLabel } from "../features/st
 import type { StyleFormValues } from "../features/styleCommands";
 import { BUTTON, INPUT, ParagraphDialog, Row, cm, pt, type ParagraphValues } from "./dialogs";
 import { BordersShadingDialog } from "./formatDialogs";
+import { sampleLabel } from "../features/listGallery";
 import { useT } from "../i18n";
 
 const SMALL = "h-7 min-w-7 rounded border border-ui-border bg-ui-bg px-1.5 text-sm text-ui-fg hover:bg-ui-hover aria-pressed:bg-ui-active aria-pressed:border-ui-focus";
@@ -46,6 +47,7 @@ export function sampleCss(run: RunProperties, p: ParagraphProperties): CSSProper
     marginLeft: p.indent?.left ? `${p.indent.left / 15}px` : undefined,
     fontVariant: run.smallCaps ? "small-caps" : undefined,
     textTransform: run.allCaps ? "uppercase" : undefined,
+    letterSpacing: run.charSpacing ? `${run.charSpacing / 20}pt` : undefined,
   };
 }
 
@@ -73,6 +75,27 @@ export function describeFormat(run: RunProperties, p: ParagraphProperties | null
 type Tri = "" | "on" | "off";
 const tri = (v: boolean | null | undefined): Tri => (v == null ? "" : v ? "on" : "off");
 const fromTri = (v: Tri): boolean | null => (v === "" ? null : v === "on");
+
+/** The underline styles of the Font tab (Word's list: none, words only, single, double, dotted, dashed, wave). */
+export const UNDERLINE_KINDS: Underline[] = ["none", "words", "single", "double", "dotted", "dashed", "wavy"];
+
+type SignedHow = "" | "normal" | "plus" | "minus";
+
+/** The Advanced tab's "Spacing" / "Position" choice and amount (pt) for a signed value (`unit` per point). */
+export function signedChoice(v: number | null | undefined, unit: number, allowUnset: boolean): { how: SignedHow; by: string } {
+  if (v == null) return allowUnset ? { how: "", by: "" } : { how: "normal", by: "" };
+  if (v === 0) return { how: "normal", by: "" };
+  return { how: v > 0 ? "plus" : "minus", by: String(Math.abs(v) / unit) };
+}
+
+/** The signed value of a "Spacing" / "Position" choice (`null` = not set; a missing amount = Word's 1 pt / 3 pt). */
+export function signedValue(how: SignedHow, by: string, unit: number, fallback: number): number | null {
+  if (how === "") return null;
+  if (how === "normal") return 0;
+  const n = num(by);
+  const amount = Math.round((n ?? fallback) * unit);
+  return how === "plus" ? amount : -amount;
+}
 
 /** The effects checkboxes of the Font tab (Word's order). */
 export const FONT_EFFECTS = ["strike", "doubleStrike", "superscript", "subscript", "smallCaps", "allCaps", "hidden", "outline", "shadow", "emboss", "imprint"] as const;
@@ -116,7 +139,7 @@ export function FontDialog({ open, initial, allowUnset, onSubmit, onClose }: {
   const [tab, setTab] = useState<"font" | "advanced">("font");
   const [v, setV] = useState({
     font: "", bold: "" as Tri, italic: "" as Tri, size: "", underline: "", color: null as Color | null,
-    fx: effectsOf({}, true), scale: "", spacing: "", position: "", kerning: false, kernPt: "",
+    fx: effectsOf({}, true), scale: "", spacingHow: "" as SignedHow, spacing: "", positionHow: "" as SignedHow, position: "", kerning: false, kernPt: "",
   });
   useEffect(() => {
     if (!open) return;
@@ -130,16 +153,21 @@ export function FontDialog({ open, initial, allowUnset, onSubmit, onClose }: {
       color: initial.color ?? null,
       fx: effectsOf(initial, !!allowUnset),
       scale: initial.scale != null ? String(initial.scale) : allowUnset ? "" : "100",
-      spacing: initial.charSpacing != null ? String(initial.charSpacing / 20) : allowUnset ? "" : "0",
-      position: initial.position != null ? String(initial.position / 2) : allowUnset ? "" : "0",
+      spacingHow: signedChoice(initial.charSpacing, 20, !!allowUnset).how,
+      spacing: signedChoice(initial.charSpacing, 20, !!allowUnset).by,
+      positionHow: signedChoice(initial.position, 2, !!allowUnset).how,
+      position: signedChoice(initial.position, 2, !!allowUnset).by,
       kerning: (initial.kerning ?? 0) > 0,
       kernPt: initial.kerning ? String(initial.kerning / 2) : "",
     });
   }, [open, initial, allowUnset]);
   const size = v.size.trim() === "" ? null : Number(v.size.replace(",", "."));
   const scale = num(v.scale);
-  const spacing = num(v.spacing);
-  const position = num(v.position);
+  // Twips and half-points, signed (Word: Expanded / Condensed by, Raised / Lowered by).
+  const spacingTw = signedValue(v.spacingHow, v.spacing, 20, 1);
+  const positionHp = signedValue(v.positionHow, v.position, 2, 3);
+  const spacing = spacingTw === null ? null : spacingTw / 20;
+  const position = positionHp === null ? null : positionHp / 2;
   const kernPt = num(v.kernPt);
   const valid =
     (size === null || (Number.isFinite(size) && size >= 1 && size <= 1638)) &&
@@ -163,6 +191,8 @@ export function FontDialog({ open, initial, allowUnset, onSubmit, onClose }: {
     color: v.color,
     smallCaps: v.fx.smallCaps === "on",
     allCaps: v.fx.allCaps === "on",
+    underline: v.underline || null,
+    charSpacing: spacingTw,
   } as RunProperties;
   const tabBtn = (id: "font" | "advanced", label: string) => (
     <button type="button" role="tab" aria-selected={tab === id} className={SMALL} aria-pressed={tab === id} onClick={() => setTab(id)}>
@@ -249,9 +279,11 @@ export function FontDialog({ open, initial, allowUnset, onSubmit, onClose }: {
             <Row label={t("fmt.underline")}>
               <select aria-label={t("fmt.underline")} className={INPUT} value={v.underline} onChange={(e) => setV({ ...v, underline: e.target.value })}>
                 {unset}
-                <option value="none">{t("write.borderStyle.none")}</option>
-                <option value="single">{t("write.borderStyle.single")}</option>
-                <option value="double">{t("write.borderStyle.double")}</option>
+                {UNDERLINE_KINDS.map((u) => (
+                  <option key={u} value={u}>
+                    {t(`write.underline.${u}`)}
+                  </option>
+                ))}
               </select>
             </Row>
             <Row label={t("write.fontColor")}>
@@ -288,10 +320,26 @@ export function FontDialog({ open, initial, allowUnset, onSubmit, onClose }: {
               <input aria-label={t("write.font.scale")} className={INPUT} value={v.scale} onChange={(e) => setV({ ...v, scale: e.target.value })} />
             </Row>
             <Row label={t("write.font.spacing")}>
-              <input aria-label={t("write.font.spacing")} className={INPUT} value={v.spacing} onChange={(e) => setV({ ...v, spacing: e.target.value })} />
+              <span className="flex items-center gap-1">
+                <select aria-label={t("write.font.spacing")} className={INPUT} value={v.spacingHow} onChange={(e) => setV({ ...v, spacingHow: e.target.value as SignedHow, spacing: e.target.value === "plus" || e.target.value === "minus" ? v.spacing || "1" : "" })}>
+                  {unset}
+                  <option value="normal">{t("write.font.normal")}</option>
+                  <option value="plus">{t("write.font.expanded")}</option>
+                  <option value="minus">{t("write.font.condensed")}</option>
+                </select>
+                <input aria-label={t("write.font.spacingBy")} className={`${INPUT} w-16`} disabled={v.spacingHow !== "plus" && v.spacingHow !== "minus"} value={v.spacing} onChange={(e) => setV({ ...v, spacing: e.target.value })} />
+              </span>
             </Row>
             <Row label={t("write.font.position")}>
-              <input aria-label={t("write.font.position")} className={INPUT} value={v.position} onChange={(e) => setV({ ...v, position: e.target.value })} />
+              <span className="flex items-center gap-1">
+                <select aria-label={t("write.font.position")} className={INPUT} value={v.positionHow} onChange={(e) => setV({ ...v, positionHow: e.target.value as SignedHow, position: e.target.value === "plus" || e.target.value === "minus" ? v.position || "3" : "" })}>
+                  {unset}
+                  <option value="normal">{t("write.font.normal")}</option>
+                  <option value="plus">{t("write.font.raised")}</option>
+                  <option value="minus">{t("write.font.lowered")}</option>
+                </select>
+                <input aria-label={t("write.font.positionBy")} className={`${INPUT} w-16`} disabled={v.positionHow !== "plus" && v.positionHow !== "minus"} value={v.position} onChange={(e) => setV({ ...v, position: e.target.value })} />
+              </span>
             </Row>
             <label className="flex items-center gap-1.5">
               <input type="checkbox" aria-label={t("write.font.kerning")} checked={v.kerning} onChange={(e) => setV({ ...v, kerning: e.target.checked, kernPt: e.target.checked && !v.kernPt ? "1" : v.kernPt })} />
@@ -329,7 +377,18 @@ function DialogButtons({ onClose, disabled, extra }: { onClose: () => void; disa
 
 // ----- Numbering… / Style… ---------------------------------------------------------
 
-/** Numbering…: none or one of the document's lists (level 1). */
+/** The label of `level` of a list for the Numbering… dialog ("1.", "a)", "•"; the level's own template). */
+export function levelSample(numbering: Numbering, numId: number, level: number): string {
+  const def = numbering.defs.find((d) => d.id === numId);
+  const l = def?.levels[level];
+  if (!l) return "";
+  return sampleLabel(l.kind, (l.text ?? `%${level + 1}.`).replace(/%[1-9]/g, (m) => (m === `%${level + 1}` ? "%1" : "1")), 1);
+}
+
+/**
+ * Modify Style › Format › Numbering…: none or one of the document's lists and the list level the style's
+ * paragraphs get (Word's heading numbering links Heading N to level N); the sample shows the level's label.
+ */
 export function NumberingDialog({ open, numbering, initial, onSubmit, onClose }: {
   open: boolean;
   numbering: Numbering;
@@ -339,24 +398,40 @@ export function NumberingDialog({ open, numbering, initial, onSubmit, onClose }:
 }) {
   const t = useT();
   const [v, setV] = useState("");
+  const [level, setLevel] = useState(0);
   useEffect(() => {
-    if (open) setV(initial && initial.numId ? String(initial.numId) : "");
+    if (!open) return;
+    setV(initial && initial.numId ? String(initial.numId) : "");
+    setLevel(initial?.level ?? 0);
   }, [open, initial]);
+  const def = numbering.defs.find((d) => String(d.id) === v);
+  const levels = def ? def.levels.length || 1 : 1;
   return (
     <Dialog open={open} title={t("write.styles.numbering")} onClose={onClose}>
       <form
-        className="flex w-72 flex-col gap-2 text-sm"
+        className="flex w-80 flex-col gap-2 text-sm"
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit(v ? { numId: Number(v), level: 0 } : { numId: 0, level: 0 });
+          onSubmit(v ? { numId: Number(v), level: Math.min(level, levels - 1) } : { numId: 0, level: 0 });
         }}
       >
         <Row label={t("write.styles.list")}>
-          <select aria-label={t("write.styles.list")} className="h-7 w-40 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg" value={v} onChange={(e) => setV(e.target.value)}>
+          <select aria-label={t("write.styles.list")} className="h-7 w-44 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg" value={v} onChange={(e) => setV(e.target.value)}>
             <option value="">{t("write.styles.noNumbering")}</option>
             {numbering.defs.map((d) => (
               <option key={d.id} value={String(d.id)}>
-                {d.levels[0]?.kind === "bullet" ? t("list.bullet") : t("list.numbered")} {d.id}
+                {d.levels[0]?.kind === "bullet" ? t("list.bullet") : t("list.numbered")} {d.id} ({levelSample(numbering, d.id, 0)}
+                {d.levels.length > 1 && d.levels[1]?.kind !== "bullet" ? ` ${levelSample(numbering, d.id, 1)}` : ""})
+              </option>
+            ))}
+          </select>
+        </Row>
+        <Row label={t("write.styles.listLevel")}>
+          <select aria-label={t("write.styles.listLevel")} className="h-7 w-44 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg" disabled={!def} value={level} onChange={(e) => setLevel(Number(e.target.value))}>
+            {Array.from({ length: levels }, (_, i) => (
+              <option key={i} value={i}>
+                {t("write.styles.levelN", { n: i + 1 })}
+                {def ? ` – ${levelSample(numbering, def.id, i)}` : ""}
               </option>
             ))}
           </select>

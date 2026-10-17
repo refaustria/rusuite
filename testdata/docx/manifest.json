@@ -798,5 +798,40 @@
    "page:a4"
   ],
   "paragraphs": 6
+ },
+ {
+  "file": "provisional-63-style-sets-properties.docx",
+  "topic": "Linked styles with style-set looks (caps, shading, bottom rule), document defaults, words underline, small caps and spacing, document properties with TITLE/SUBJECT/AUTHOR/KEYWORDS fields and DOCPROPERTY Company",
+  "features": [
+   "style:linked",
+   "style:shading",
+   "style:bottom-rule",
+   "run:words-underline",
+   "field:title",
+   "field:subject",
+   "field:author",
+   "field:keywords",
+   "field:docproperty=company",
+   "props:title",
+   "props:subject",
+   "props:author",
+   "props:keywords",
+   "props:company",
+   "page:a4"
+  ],
+  "paragraphs": 6
+ },
+ {
+  "file": "provisional-64-template-memo.dotx",
+  "topic": "A Word template (.dotx): memo title, To/From/Date/Re lines with a tab stop and a DATE field, a rule, body placeholder",
+  "features": [
+   "title",
+   "template",
+   "tab",
+   "field:date",
+   "props:title",
+   "page:a4"
+  ],
+  "paragraphs": 7
  }
 ]

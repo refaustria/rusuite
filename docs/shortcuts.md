@@ -112,9 +112,11 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Mod+Shift+N | Normal style (Word; Home › Clear All Formatting has no key) |
 | Mod+], Mod+[ | Font size 1 pt larger / smaller (each run of the selection from its own size; at the caret: the typing formatting) |
 | Mod+Shift+>, Mod+Shift+< | Grow / shrink font: the next size of Word's list (8, 9, 10, 10.5, 11, 12, 14 … 28, 36, 48, 72; above 72 in steps of 10) |
-| Mod+Shift+K, Mod+Shift+A | Small caps, all caps (toggles; they exclude each other) |
+| Mod+B, Mod+I, Mod+U | Bold, italic, underline relative to the style (Word's toggle semantics, P9-W3): in a bold heading Mod+B un-bolds (`w:b w:val="0"`), again it removes the direct value; decided by the selection's start |
+| Mod+Shift+K, Mod+Shift+A | Small caps, all caps (toggles relative to the style; they exclude each other) |
 | Mod+Shift+D | Double underline (toggle) |
-| Mod+Shift+W | Word underline: the words of the selection get a single underline, the spaces between them none (toggle; stored as underlined words) |
+| Mod+Shift+W | Word underline: the words-only underline (`w:u w:val="words"`; the spaces between the words stay without a line; toggle) |
+| Shift+F1 | Show / hide the Reveal Formatting pane (P9-W3) |
 | Shift+F3 | Change case of the selection (or the word at the caret; right after a sentence's period: the word before it): lowercase → Capitalize Each Word → UPPERCASE → lowercase; a selection that ends a sentence (`.` `!` `?`) cycles through Sentence case instead of Capitalize Each Word |
 | Mod+T, Mod+Shift+T | Hanging indent: the text moves to the next / previous 1.27 cm step, the first line stays |
 | Mod+Q | Remove paragraph formatting (alignment, indents, spacing, borders, shading, tabs, keep options; the style and the list stay) |
@@ -127,13 +129,14 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Esc | Stops the format painter |
 | Mod+Alt+F, Mod+Alt+D | Insert footnote, insert endnote (the caret moves into the note) |
 | Mod+Alt+M | New comment on the selection (or the word at the caret); in the comment box Ctrl+Enter posts, Esc cancels |
-| F12 | Save as (Word's key; web: asks for a file name, desktop: the native save dialog) |
+| F12 | Save as (Word's key; web: file name and Save as type – Word Document / Word Template; desktop: the native save dialog, `.docx` or `.dotx`) |
+| Mod+N | New blank document at once (File › New shows the template gallery) |
 | Mod+Shift+S | Apply Styles box: type a style name (autocomplete from the document's styles), Enter applies it; an unknown name creates a style from the selection; Esc closes (bound in the editor too, so it is no longer strikethrough) |
 | Mod+Alt+Shift+S | Show / hide the Styles pane |
 | Mod+H › More | Find and Replace with formatting: Use wildcards, Format ▾ (Font…, Paragraph…, Style…, Highlight) for the Find and the Replace field, No Formatting |
 | Mod+K | Insert Hyperlink (on a link: edit it; Remove Link in the dialog) — bound in the editor |
 | Mod+G, F5 | Go To: a page (print layout), a bookmark or a heading — bound in the editor (F5 does not reload the page while the editor has the focus) |
-| F9 | Update Field: the fields of the selection (REF, PAGEREF, NOTEREF, SEQ, TITLE, AUTHOR computed by the core, page/date/time/file name by the UI); Mod+A then F9 updates every field |
+| F9 | Update Field: the fields of the selection (REF, PAGEREF, NOTEREF, SEQ and the property fields TITLE, AUTHOR, SUBJECT, KEYWORDS, COMMENTS, LASTSAVEDBY, DOCPROPERTY computed by the core, page/date/time/file name/save date by the UI); Mod+A then F9 updates every field |
 
 In the browser a few of Word's keys belong to the browser and never reach the page: Mod+T (new tab), Mod+Shift+T
 (reopen tab), Mod+Shift+N (new private window) and Mod+Shift+W (close the window) in Chrome, Mod+Q (quit) in Firefox on

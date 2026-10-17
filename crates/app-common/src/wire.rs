@@ -110,6 +110,7 @@ pub enum Underline {
     Dotted,
     Dashed,
     Wavy,
+    Words,
 }
 
 /// Mirror of `core_model::VerticalAlign`.
@@ -224,6 +225,7 @@ mod tests {
             cm::Underline::Dotted,
             cm::Underline::Dashed,
             cm::Underline::Wavy,
+            cm::Underline::Words,
         ];
         for u in underlines {
             same_shape::<_, Underline>(&u);

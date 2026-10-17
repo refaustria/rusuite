@@ -358,7 +358,8 @@ function DraftCard({ ctl, features, editor }: { ctl: SyncController; features: W
   const user = useUser(ctl);
   const draft = ui.draft;
   if (!draft) return null;
-  const name = user?.name ?? "";
+  // Without a user name the document's author writes the comment (the core does the same).
+  const name = user?.name ?? ctl.properties.author ?? "";
   return (
     <article
       className="rounded-md border border-ui-focus bg-ui-panel p-2 text-ui-fg shadow-md"

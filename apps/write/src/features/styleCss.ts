@@ -51,6 +51,27 @@ export function overlayRun(base: RunProperties, over: RunProperties | null | und
   return out;
 }
 
+/** The toggle properties (ECMA-376 §17.7.3): a character style that turns one on switches the paragraph's value. */
+export const TOGGLE_KEYS = ["bold", "italic", "allCaps", "smallCaps", "strike", "doubleStrike", "outline", "shadow", "emboss", "imprint", "hidden"] as const;
+export type ToggleKey = (typeof TOGGLE_KEYS)[number];
+
+/**
+ * A character style's formatting over the paragraph's (`model_text::style::apply_character_style`): toggles that the
+ * style turns on switch the paragraph's value (Strong in a bold heading is not bold), toggles it turns off leave it;
+ * other properties overlay.
+ */
+export function applyCharacterStyle(base: RunProperties, over: RunProperties | null | undefined): RunProperties {
+  if (!over) return { ...base };
+  const rest: Record<string, unknown> = { ...over };
+  const out: Record<string, unknown> = { ...base };
+  for (const k of TOGGLE_KEYS) {
+    const v = rest[k];
+    delete rest[k];
+    if (v === true) out[k] = !out[k];
+  }
+  return overlayRun(out as RunProperties, rest as RunProperties);
+}
+
 /** Effective run formatting of a paragraph style: defaults → chain. */
 export function resolveRun(sheet: StyleSheet | null | undefined, id: string): RunProperties {
   let out: RunProperties = { ...(sheet?.defaults.run ?? {}) };
@@ -233,7 +254,34 @@ export function styleSheetCss(sheet: StyleSheet | null | undefined): string {
       if (decl.length) rules.push(`${SCOPE} span[data-cstyle="${attr(s.id)}"] { ${decl.join("; ")}; }`);
     }
   }
+  rules.push(...toggleCss(sheet));
   return rules.join("\n");
+}
+
+/** CSS that switches a toggle off where a character style turns on what its paragraph style already has (Word). */
+const TOGGLE_OFF_CSS: Partial<Record<ToggleKey, string>> = {
+  bold: "font-weight: 400",
+  italic: "font-style: normal",
+  allCaps: "text-transform: none",
+  smallCaps: "font-variant: normal",
+  strike: "text-decoration: none",
+};
+
+function toggleCss(sheet: StyleSheet): string[] {
+  const out: string[] = [];
+  const chars = sheet.styles.filter((s) => s.kind === "character" || s.kind === "linked").map((s) => [s, resolveCharacter(sheet, s.id)] as const);
+  if (!chars.length) return out;
+  for (const p of sheet.styles) {
+    if (!isParagraphKind(p.kind)) continue;
+    const run = resolveRun(sheet, p.id) as Record<string, unknown>;
+    for (const [c, cr] of chars) {
+      const decl = (Object.keys(TOGGLE_OFF_CSS) as ToggleKey[]).filter((k) => run[k] === true && (cr as Record<string, unknown>)[k] === true).map((k) => TOGGLE_OFF_CSS[k]!);
+      if (!decl.length) continue;
+      const sel = paragraphSelectors(p.id, p.isDefault ?? false).map((x) => `${x} span[data-cstyle="${attr(c.id)}"]`);
+      out.push(`${sel.join(", ")} { ${decl.join("; ")}; }`);
+    }
+  }
+  return out;
 }
 
 const STYLE_ELEMENT_ID = "rusuite-write-styles";
@@ -253,7 +301,7 @@ export function installStyleSheetCss(sheet: StyleSheet | null | undefined, doc: 
 
 /** Inline style of a gallery / pane preview: the style's font, colour and weight, sizes scaled into the item. */
 export function previewStyle(sheet: StyleSheet | null | undefined, s: Style, maxPt = 16): CSSProperties {
-  const r = isParagraphKind(s.kind) ? resolveRun(sheet, s.id) : overlayRun(resolveRun(sheet, defaultStyle(sheet, "paragraph")?.id ?? "Normal"), resolveCharacter(sheet, s.id));
+  const r = isParagraphKind(s.kind) ? resolveRun(sheet, s.id) : applyCharacterStyle(resolveRun(sheet, defaultStyle(sheet, "paragraph")?.id ?? "Normal"), resolveCharacter(sheet, s.id));
   const size = r.size != null ? Math.max(8, Math.min(maxPt, r.size / 100)) : 11;
   const deco = [r.underline && r.underline !== "none" ? "underline" : "", r.strike ? "line-through" : ""].filter(Boolean).join(" ");
   const p = isParagraphKind(s.kind) ? resolveParagraph(sheet, s.id) : null;
@@ -297,11 +345,11 @@ export function stylesInUse(doc: PMNode, sheet: StyleSheet | null | undefined): 
   return out;
 }
 
-const applicable = (s: Style) => s.kind === "paragraph" || s.kind === "linked" || s.kind === "character";
+export const applicable = (s: Style) => s.kind === "paragraph" || s.kind === "linked" || s.kind === "character";
 /** The character half of a linked style (listed through its paragraph style). */
-const isLinkedHalf = (sheet: StyleSheet, s: Style) => s.kind === "character" && !!s.link && getStyle(sheet, s.link)?.kind === "linked";
+export const isLinkedHalf = (sheet: StyleSheet, s: Style) => s.kind === "character" && !!s.link && getStyle(sheet, s.link)?.kind === "linked";
 /** Sort priority: `uiPriority`, the default paragraph style first (Word writes none for Normal). */
-const priorityOf = (s: Style) => (s.isDefault && isParagraphKind(s.kind) ? 0 : (s.priority ?? 99));
+export const priorityOf = (s: Style) => (s.isDefault && isParagraphKind(s.kind) ? 0 : (s.priority ?? 99));
 const byPriority = (sheet: StyleSheet) => (a: Style, b: Style) =>
   priorityOf(a) - priorityOf(b) || sheet.styles.indexOf(a) - sheet.styles.indexOf(b);
 
@@ -320,7 +368,7 @@ export function galleryStyles(sheet: StyleSheet | null | undefined, inUse: Map<s
 }
 
 /** Word shows Heading N (N ≥ 3) once Heading N−1 or itself is used. */
-const headingShown = (s: Style, inUse: Map<string, number>): boolean => {
+export const headingShown = (s: Style, inUse: Map<string, number>): boolean => {
   const h = /^Heading([3-9])$/.exec(s.id);
   return !h || inUse.has(s.id) || inUse.has(`Heading${Number(h[1]) - 1}`);
 };

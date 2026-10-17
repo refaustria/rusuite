@@ -2,8 +2,8 @@
 
 use core_model::{ColorScheme, RunProperties};
 use model_text::{
-    CellProperties, ConditionalFormat, ConditionalKind, Defaults, ParagraphProperties, Style,
-    StyleKind, StyleSheet, TableStyle,
+    CellProperties, ConditionalFormat, ConditionalKind, Defaults, LatentException, LatentStyles,
+    ParagraphProperties, Style, StyleKind, StyleSheet, TableStyle,
 };
 
 use crate::numbering::W_NS;
@@ -54,7 +54,7 @@ pub(crate) fn read_styles(xml: &[u8], part: &str, w: &mut Warnings) -> Result<St
                     }
                 }
             }
-            "latentStyles" => {}
+            "latentStyles" => sheet.latent = Some(read_latent(el)),
             _ => w.warn(
                 "docx.styles.elementDropped",
                 "{part}: {name} dropped",
@@ -63,6 +63,74 @@ pub(crate) fn read_styles(xml: &[u8], part: &str, w: &mut Warnings) -> Result<St
         }
     }
     Ok(sheet)
+}
+
+/// `w:latentStyles` → the model (unknown attributes are ignored).
+fn read_latent(el: &El) -> LatentStyles {
+    let b = |e: &El, name: &str| e.attr(name).and_then(parse_bool);
+    let n = |e: &El, name: &str| e.attr(name).and_then(parse_u32);
+    LatentStyles {
+        def_locked_state: b(el, "defLockedState"),
+        def_ui_priority: n(el, "defUIPriority"),
+        def_semi_hidden: b(el, "defSemiHidden"),
+        def_unhide_when_used: b(el, "defUnhideWhenUsed"),
+        def_q_format: b(el, "defQFormat"),
+        count: n(el, "count"),
+        exceptions: el
+            .elements()
+            .filter(|c| c.name == "lsdException")
+            .filter_map(|c| {
+                Some(LatentException {
+                    name: c.attr("name")?.to_owned(),
+                    locked: b(c, "locked"),
+                    ui_priority: n(c, "uiPriority"),
+                    semi_hidden: b(c, "semiHidden"),
+                    unhide_when_used: b(c, "unhideWhenUsed"),
+                    q_format: b(c, "qFormat"),
+                })
+            })
+            .collect(),
+    }
+}
+
+/// `w:latentStyles` (after the document defaults, before the styles).
+fn write_latent(x: &mut XmlOut, l: &LatentStyles) {
+    let flag = |v: bool| if v { "1" } else { "0" };
+    let mut attrs: Vec<(&str, String)> = Vec::new();
+    let push_b = |attrs: &mut Vec<(&str, String)>, name, v: Option<bool>| {
+        if let Some(v) = v {
+            attrs.push((name, flag(v).to_owned()));
+        }
+    };
+    push_b(&mut attrs, "w:defLockedState", l.def_locked_state);
+    if let Some(p) = l.def_ui_priority {
+        attrs.push(("w:defUIPriority", p.to_string()));
+    }
+    push_b(&mut attrs, "w:defSemiHidden", l.def_semi_hidden);
+    push_b(&mut attrs, "w:defUnhideWhenUsed", l.def_unhide_when_used);
+    push_b(&mut attrs, "w:defQFormat", l.def_q_format);
+    if let Some(c) = l.count {
+        attrs.push(("w:count", c.to_string()));
+    }
+    let refs: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    if l.exceptions.is_empty() {
+        x.empty("w:latentStyles", &refs);
+        return;
+    }
+    x.start("w:latentStyles", &refs);
+    for e in &l.exceptions {
+        let mut a: Vec<(&str, String)> = vec![("w:name", e.name.clone())];
+        push_b(&mut a, "w:locked", e.locked);
+        if let Some(p) = e.ui_priority {
+            a.push(("w:uiPriority", p.to_string()));
+        }
+        push_b(&mut a, "w:semiHidden", e.semi_hidden);
+        push_b(&mut a, "w:unhideWhenUsed", e.unhide_when_used);
+        push_b(&mut a, "w:qFormat", e.q_format);
+        let refs: Vec<(&str, &str)> = a.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        x.empty("w:lsdException", &refs);
+    }
+    x.end("w:latentStyles");
 }
 
 fn read_defaults(el: &El, part: &str, w: &mut Warnings) -> Defaults {
@@ -259,6 +327,9 @@ pub(crate) fn write_styles(sheet: &StyleSheet, scheme: &ColorScheme) -> Vec<u8> 
     }
     x.end("w:pPrDefault");
     x.end("w:docDefaults");
+    if let Some(l) = &sheet.latent {
+        write_latent(&mut x, l);
+    }
     for s in &sheet.styles {
         let mut attrs = vec![("w:type", s.kind.docx_type())];
         if s.is_default {
@@ -412,11 +483,28 @@ mod tests {
         </w:styles>"#;
 
     #[test]
-    fn reads_flags_links_and_ignores_latent_styles() {
+    fn reads_flags_links_and_latent_styles() {
         let mut w = Warnings::default();
         let sheet = read_styles(WORD_STYLES, "styles", &mut w).unwrap();
         assert!(w.into_vec().is_empty());
         assert_eq!(sheet.styles.len(), 4, "latent styles are not styles");
+        let latent = sheet.latent.as_ref().unwrap();
+        assert_eq!(latent.def_ui_priority, Some(99));
+        assert_eq!(latent.count, Some(376));
+        assert_eq!(latent.def_locked_state, Some(false));
+        assert_eq!(latent.exceptions[0].name, "Normal");
+        assert_eq!(latent.exceptions[0].q_format, Some(true));
+        // Written back after the defaults and read again unchanged.
+        let xml = write_styles(&sheet, &ColorScheme::default());
+        let text = String::from_utf8(xml.clone()).unwrap();
+        let (d, l, st) = (
+            text.find("</w:docDefaults>").unwrap(),
+            text.find("<w:latentStyles").unwrap(),
+            text.find("<w:style ").unwrap(),
+        );
+        assert!(d < l && l < st);
+        let mut w = Warnings::default();
+        assert_eq!(read_styles(&xml, "styles", &mut w).unwrap(), sheet);
         let memo = sheet.get("Memo").unwrap();
         assert_eq!(memo.kind, StyleKind::Linked);
         assert_eq!(memo.link.as_deref(), Some("MemoChar"));

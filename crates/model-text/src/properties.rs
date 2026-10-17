@@ -40,6 +40,10 @@ pub struct CoreProperties {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub category: Option<String>,
+    /// The company (`docProps/app.xml` `Company`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub company: Option<String>,
     /// `cp:lastModifiedBy`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
@@ -79,6 +83,7 @@ impl CoreProperties {
             keywords,
             description,
             category,
+            company,
             last_modified_by,
             created,
             modified,
@@ -92,6 +97,7 @@ impl CoreProperties {
             (&mut self.keywords, keywords),
             (&mut self.description, description),
             (&mut self.category, category),
+            (&mut self.company, company),
             (&mut self.last_modified_by, last_modified_by),
             (&mut self.created, created),
             (&mut self.modified, modified),
@@ -106,6 +112,26 @@ impl CoreProperties {
         if pages.is_some() {
             self.pages = *pages;
         }
+    }
+}
+
+impl CoreProperties {
+    /// The property Word's `DOCPROPERTY` field names (case-insensitive):
+    /// `Title`, `Subject`, `Author`, `Keywords`, `Comments`, `Category`,
+    /// `Company`, `LastSavedBy`, `Manager` is not kept.
+    pub fn named(&self, name: &str) -> Option<&str> {
+        let v = match name.to_ascii_lowercase().as_str() {
+            "title" => &self.title,
+            "subject" => &self.subject,
+            "author" => &self.author,
+            "keywords" => &self.keywords,
+            "comments" => &self.description,
+            "category" => &self.category,
+            "company" => &self.company,
+            "lastsavedby" => &self.last_modified_by,
+            _ => return None,
+        };
+        v.as_deref()
     }
 }
 
@@ -168,5 +194,26 @@ mod tests {
         assert!(json.get("author").is_none());
         assert!(CoreProperties::default().is_empty());
         assert!(DocumentSettings::default().is_default());
+    }
+
+    #[test]
+    fn named_properties() {
+        let p = CoreProperties {
+            company: Some("ACME".into()),
+            description: Some("Notes".into()),
+            last_modified_by: Some("Bo".into()),
+            ..Default::default()
+        };
+        assert_eq!(p.named("Company"), Some("ACME"));
+        assert_eq!(p.named("COMMENTS"), Some("Notes"));
+        assert_eq!(p.named("LastSavedBy"), Some("Bo"));
+        assert_eq!(p.named("Title"), None);
+        assert_eq!(p.named("Manager"), None);
+        let mut q = p.clone();
+        q.apply(&CoreProperties {
+            company: Some("".into()),
+            ..Default::default()
+        });
+        assert_eq!(q.company, None);
     }
 }

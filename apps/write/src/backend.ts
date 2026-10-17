@@ -9,6 +9,7 @@ import type { Request } from "./generated/Request";
 import type { ResponseBody } from "./generated/ResponseBody";
 import type { ShapeOutline } from "./generated/ShapeOutline";
 import type { ShapePathQuery } from "./generated/ShapePathQuery";
+import type { StyleSet } from "./generated/StyleSet";
 import type { WriteCommand } from "./generated/WriteCommand";
 import type { WritePatch } from "./generated/WritePatch";
 
@@ -62,6 +63,8 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     blockIds: { ids: "array" },
     findMatches: { matches: "array", revision: "number" },
     shapePaths: { shapes: "array" },
+    styleSets: { sets: "array", current: "object" },
+    statistics: { stats: "object" },
   };
   for (const [field, kind] of Object.entries(shapes[expected])) {
     const value = body[field];
@@ -112,8 +115,9 @@ export class WriteApi {
     return this.send({ type: "redo" });
   }
 
-  newDocument(): Promise<BodyOf<"document">> {
-    return this.call({ type: "newDocument" }, "document");
+  /** A new blank document; `styleSet` (Design › Set as Default) formats it from the start. */
+  newDocument(styleSet?: StyleSet): Promise<BodyOf<"document">> {
+    return this.call(styleSet ? { type: "newDocument", styleSet } : { type: "newDocument" }, "document");
   }
 
   load(document: Document): Promise<BodyOf<"document">> {
@@ -129,9 +133,24 @@ export class WriteApi {
     return this.call({ type: "openDocx", bytesBase64, name }, "opened");
   }
 
-  /** The document as `.docx` (base64) plus the file name to offer. */
-  saveDocx(stamp: { modified?: string; user?: string; pages?: number } = {}): Promise<BodyOf<"saved">> {
+  /** File › New from a template (`.dotx`): an untitled document with its styles and content. */
+  newFromTemplate(bytesBase64: string, name: string): Promise<BodyOf<"opened">> {
+    return this.call({ type: "newFromTemplate", bytesBase64, name }, "opened");
+  }
+
+  /** The document as `.docx` (base64) plus the file name to offer; `template` switches between `.docx` and `.dotx`. */
+  saveDocx(stamp: { modified?: string; user?: string; pages?: number; template?: boolean } = {}): Promise<BodyOf<"saved">> {
     return this.call({ type: "saveDocx", ...stamp }, "saved");
+  }
+
+  /** The built-in style sets and the document's current one (Design › Style Sets). */
+  styleSets(): Promise<BodyOf<"styleSets">> {
+    return this.call({ type: "styleSets" }, "styleSets");
+  }
+
+  /** File › Info statistics. */
+  statistics(): Promise<BodyOf<"statistics">> {
+    return this.call({ type: "statistics" }, "statistics");
   }
 
   getMedia(id: number): Promise<BodyOf<"media">> {
