@@ -49,11 +49,11 @@ test.describe("Portal", () => {
     await page.goto("privacy.html");
     await expect(page.getByText("rusuit.es", { exact: false }).first()).toBeVisible();
     await page.goto("./");
-    await page.getByRole("button", { name: "DE", exact: true }).click();
+    await page.getByTestId("portal-language").selectOption("de");
     await expect(page).toHaveTitle("rusuit.es – Rusuite: freie, quelloffene Office-Suite");
     await expect(page.locator(".statement")).toContainText("Rusuite ist kostenlos nutzbar und quelloffen (MIT-Lizenz) – und das bleibt so. Keine Konten, kein Tracking, keine Dokumente auf dem Server.");
     await expect(page.locator(".opensource").getByRole("heading", { name: "Quelloffen, kostenlos – und das bleibt so" })).toBeVisible();
-    await page.getByRole("button", { name: "EN", exact: true }).click();
+    await page.getByTestId("portal-language").selectOption("en");
     // Only the portal's own static files, as before.
     expect(requests.filter((u) => !/^\/(|index\.html|privacy\.html|downloads\.html|styles\.css|i18n\.js|version\.js|downloads\.js|version\.json|favicon\.ico|logos\/[\w.-]+|locales\/(en|de)\.json)$/.test(u))).toEqual([]);
     errors.expectNone();
@@ -68,16 +68,16 @@ test.describe("Portal", () => {
     await expect(soon.locator("li").first()).toContainText("Android and iOS");
     await expect(soon).toContainText("Slicers, sparklines, sheet protection and Flash Fill are planned.");
     await expect(soon).toContainText("Your feedback shapes the order");
-    await page.getByRole("button", { name: "DE", exact: true }).click();
+    await page.getByTestId("portal-language").selectOption("de");
     await expect(soon.getByRole("heading", { name: "Demnächst" })).toBeVisible();
     await expect(soon).toContainText("Datenschnitte, Sparklines, Blattschutz und Blitzvorschau sind geplant.");
     await expect(soon).toContainText("Dein Feedback bestimmt die Reihenfolge");
-    await page.getByRole("button", { name: "EN", exact: true }).click();
+    await page.getByTestId("portal-language").selectOption("en");
     await page.goto("downloads.html");
     await expect(page.getByRole("link", { name: "What's coming soon" })).toHaveAttribute("href", "./#soon");
-    await page.getByRole("button", { name: "DE", exact: true }).click();
+    await page.getByTestId("portal-language").selectOption("de");
     await expect(page.getByRole("link", { name: "Was demnächst kommt" })).toBeVisible();
-    await page.getByRole("button", { name: "EN", exact: true }).click();
+    await page.getByTestId("portal-language").selectOption("en");
     errors.expectNone();
   });
 
@@ -137,9 +137,9 @@ test.describe("Downloads page", () => {
       }
       await expect(page.locator('[data-steps="macos15"]')).toContainText("Open Anyway");
     }
-    await page.getByRole("button", { name: "DE", exact: true }).click();
+    await page.getByTestId("portal-language").selectOption("de");
     await expect(page.getByRole("heading", { level: 1, name: "Desktop-Downloads" })).toBeVisible();
-    await page.getByRole("button", { name: "EN", exact: true }).click();
+    await page.getByTestId("portal-language").selectOption("en");
     errors.expectNone();
   });
 
@@ -161,11 +161,11 @@ test.describe("Downloads page", () => {
     await expect(calc.getByRole("link", { name: /\.AppImage/ })).toBeVisible();
     await sections.first().getByText("SHA-256 checksums").click();
     await expect(sections.first().locator("dd code").first()).toHaveText(/^[0-9a-f]{64}$/);
-    await page.getByRole("button", { name: "DE", exact: true }).click();
+    await page.getByTestId("portal-language").selectOption("de");
     await expect(page.getByText("Empfohlen für dieses Gerät")).toBeVisible();
     await expect(calc.locator("small").first()).toHaveText(/^4,2 MB$/);
     await expect(page.getByText("Veröffentlicht am 20. Oktober 2026")).toBeVisible();
-    await page.getByRole("button", { name: "EN", exact: true }).click();
+    await page.getByTestId("portal-language").selectOption("en");
     // P8-50: Gatekeeper / SmartScreen steps next to the buttons.
     const mac = page.locator('section[data-os="macos"]');
     await expect(page.getByText("These builds are not signed yet – your system will warn once")).toBeVisible();
@@ -175,12 +175,12 @@ test.describe("Downloads page", () => {
     await expect(mac.locator('[data-steps="macos15"] code').first()).toHaveText('xattr -dr com.apple.quarantine "/Applications/Rusuite Calc.app"');
     await expect(mac.getByRole("heading", { name: "macOS 14 and earlier" })).toBeVisible();
     await expect(page.locator('section[data-os="windows"]')).toContainText("Run anyway");
-    await page.getByRole("button", { name: "DE", exact: true }).click();
+    await page.getByTestId("portal-language").selectOption("de");
     await expect(mac.getByRole("heading", { name: "macOS 15 Sequoia und neuer" })).toBeVisible();
     await expect(mac.locator('[data-steps="macos15"]')).toContainText("Dennoch öffnen");
     await expect(mac.locator('[data-steps="macos14"]')).toContainText("rechten Maustaste");
     await expect(page.locator('section[data-os="windows"]')).toContainText("Trotzdem ausführen");
-    await page.getByRole("button", { name: "EN", exact: true }).click();
+    await page.getByTestId("portal-language").selectOption("en");
     // Windows first for a Windows visitor.
     await page.goto("./downloads.html?os=windows");
     await expect(sections.first()).toHaveAttribute("data-os", "windows");
