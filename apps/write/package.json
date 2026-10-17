@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "build:wasm": "wasm-pack build src-wasm --target web --release --out-dir pkg",
     "build:web": "pnpm build:wasm && vite build --mode web",

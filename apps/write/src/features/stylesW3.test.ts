@@ -177,7 +177,7 @@ describe("property fields and templates", () => {
   });
 
   it("template files by language, Save As names by type", () => {
-    expect(templateFile("memo", "de-AT")).toBe("memo.de.dotx");
+    expect(templateFile("memo", "de-AT" as Parameters<typeof templateFile>[1])).toBe("memo.de.dotx");
     expect(templateFile("memo", "en")).toBe("memo.dotx");
     expect(templateUrl("report", "en", "/write/")).toBe("/write/templates/report.dotx");
     expect(saveAsName("Plan", true)).toBe("Plan.dotx");

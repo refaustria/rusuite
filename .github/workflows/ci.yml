@@ -54,6 +54,7 @@ jobs:
       - name: Portal downloads page generator
         run: node --test scripts/gen-downloads.test.mjs
       - run: pnpm i18n:check
+      - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm --filter calc build
       - run: pnpm --filter calc build:web

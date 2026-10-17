@@ -104,5 +104,6 @@ The `frontend` job packs the three `dist-web` directories as an artifact; the `e
 runs `pnpm e2e` with 2 workers and one retry, and uploads `test-results` (screenshots, traces) and the HTML report on failure.
 
 The `frontend` job also runs `scripts/check-versions.sh` (every version string equal) and the Downloads page generator's
-tests (`node --test scripts/gen-downloads.test.mjs`). The release workflow checks the tag against the versions and
+tests (`node --test scripts/gen-downloads.test.mjs`) and `pnpm typecheck` (`tsc --noEmit` in every package with a tsconfig,
+tests and specs included). The release workflow checks the tag against the versions and
 starts every built app once per OS (`smoke` job, see Desktop shells above).
