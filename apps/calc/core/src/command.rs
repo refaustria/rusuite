@@ -895,6 +895,39 @@ pub enum CalcCommand {
         #[ts(as = "crate::wire_tables::OutlineProps")]
         props: model_sheet::OutlineProps,
     },
+    /// Data › Group › Auto Outline on the range (a single cell: the used
+    /// range): rows and columns grouped under the formulas that summarize
+    /// them (see `Workbook::auto_outline_plan`); the outline inside the
+    /// range is replaced.
+    AutoOutline {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+    },
+    /// Data › Consolidate at `(row, col)` of `sheet`: the `sources`
+    /// combined with `function`, by position or by labels in their top
+    /// row / left column; `links` writes formulas referring to the
+    /// sources. The destination is named `Consolidate_Area`.
+    Consolidate {
+        sheet: u32,
+        row: u32,
+        col: u32,
+        #[ts(as = "crate::wire_data::ConsolidateFunction")]
+        function: model_sheet::ConsolidateFunction,
+        sources: Vec<SheetRect>,
+        top_row: bool,
+        left_col: bool,
+        links: bool,
+    },
+    /// Data › Flash Fill (Ctrl+E): the suggested values of column `col`
+    /// (as typed: constants), one undo step.
+    FlashFill {
+        sheet: u32,
+        col: u32,
+        cells: Vec<FlashCell>,
+    },
     /// Data › Subtotal on the range (header row first): at each change in
     /// sheet column `groupBy`, a row with `SUBTOTAL(function, …)` of the
     /// `columns` and the label `<item> Total`, then a `Grand Total` row;
@@ -1305,6 +1338,15 @@ pub struct SlicerPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<crate::wire_data::SlicerSort>")]
     pub sort: Option<model_sheet::SlicerSort>,
+}
+
+/// One value of [`CalcCommand::FlashFill`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct FlashCell {
+    pub row: u32,
+    pub input: String,
 }
 
 /// A renamed table style (Modify Table Style with a new name).

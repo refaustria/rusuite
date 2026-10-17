@@ -26,6 +26,7 @@ import { PivotDialog } from "./pivot/PivotDialogs";
 import { CreateTableDialog, ResizeTableDialog, TotalsMenu } from "./tables/TableDialogs";
 import { TableStyleDialog } from "./tables/TableStyleDialog";
 import { InsertSlicersDialog, ReportConnectionsDialog, SlicerSettingsDialog } from "./slicers/SlicerDialogs";
+import { ConsolidateDialog, OutlineSettingsDialog } from "./datatools/ConsolidateDialog";
 import {
   DuplicatesResultDialog, GoalSeekDialog, GoalSeekStatusDialog, PasteSpecialDialog, PrintTitlesDialog, RemoveDuplicatesDialog, SaveCsvDialog, SubtotalDialog,
   TextImportDialog, TextToColumnsDialog,
@@ -413,6 +414,10 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       return <CreateTableDialog store={store} range={dialog.range} hasHeaders={dialog.hasHeaders} />;
     case "resizeTable":
       return <ResizeTableDialog store={store} id={dialog.id} />;
+    case "consolidate":
+      return <ConsolidateDialog store={store} />;
+    case "outlineSettings":
+      return <OutlineSettingsDialog store={store} />;
     case "insertSlicers":
       return <InsertSlicersDialog store={store} table={dialog.table} pivot={dialog.pivot} />;
     case "slicerSettings":

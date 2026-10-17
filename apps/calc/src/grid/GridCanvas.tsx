@@ -36,6 +36,7 @@ import { chartMenu } from "../charts/menus";
 import { ChartTextEditor } from "../charts/ChartTextEditor";
 import { AnnotationLayer } from "../comments/AnnotationLayer";
 import { SlicerLayer } from "../slicers/SlicerLayer";
+import { FlashPreviewLayer } from "../datatools/FlashPreview";
 import { drawIndicators, indicators } from "../comments/model";
 import { drawPivotButtons, drawPlaceholder, type PivotButton } from "../pivot/buttons";
 import { drawOutlineBar, gutterSize, outlineGroups, outlineHitAt, type BarLayout, type OutlineGroup, type OutlineHit } from "../outline/bar";
@@ -470,6 +471,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     store.comments.screen = (x, y) => ({ x: screenX(l, x), y: screenY(l, y) });
     store.comments.positioner?.();
     store.slicers.positioner?.();
+    store.flashPositioner?.();
 
     const tag = spillBox.current;
     if (tag) {
@@ -1158,6 +1160,13 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       store.comments.cancelCompose();
       return;
     }
+    // Flash Fill's greyed suggestions: Enter fills them, Esc drops them.
+    if (store.flash.preview && !ctrl && !e.shiftKey && (key === "Enter" || key === "Escape")) {
+      e.preventDefault();
+      if (key === "Enter") void store.flash.accept();
+      else store.flash.dismiss();
+      return;
+    }
     if (key === "Escape" && store.getState().clipMark) {
       e.preventDefault();
       store.clearClip();
@@ -1300,6 +1309,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         {chartTextEdit && <ChartTextEditor store={store} boxRef={chartTextBox} onMount={draw} />}
         <AnnotationLayer store={store} />
         <SlicerLayer store={store} />
+        <FlashPreviewLayer store={store} />
         {showPerf && (
           <div
             ref={perfBox}

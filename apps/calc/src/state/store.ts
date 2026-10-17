@@ -68,6 +68,8 @@ import { PivotController } from "../pivot/controller";
 import { TableController } from "../tables/controller";
 import { PictureController } from "../pictures/controller";
 import { SlicerController } from "../slicers/controller";
+import { FlashController } from "../datatools/flashController";
+import { DEFAULT_CONSOLIDATE, type ConsolidateState } from "../datatools/ConsolidateDialog";
 import { parseStruct, structCompletion, structInsert, structItems, structRange } from "../tables/structured";
 import type { OutlineProps } from "../generated/OutlineProps";
 import type { PasteSpecial } from "../generated/PasteSpecial";
@@ -171,6 +173,8 @@ export interface SignatureTip {
 export interface Toast {
   id: number;
   message: string;
+  /** An information message (Flash Fill's count), not an error. */
+  info?: boolean;
 }
 
 /** The dialogs Calc opens from shortcuts, menus and (later) the ribbon. */
@@ -249,6 +253,10 @@ export type CalcDialog =
   | { kind: "createTable"; range: Range; hasHeaders: boolean }
   /** Table Design › Resize Table. */
   | { kind: "resizeTable"; id: number }
+  /** Data › Consolidate (P9-C2). */
+  | { kind: "consolidate" }
+  /** Data › Outline settings (summary rows / columns, Create = Auto Outline). */
+  | { kind: "outlineSettings" }
   /** Insert Slicers for a table or a pivot table (P9-C2). */
   | { kind: "insertSlicers"; table?: number; pivot?: number }
   /** Slicer Settings / Report Connections of slicer `id`. */
@@ -480,6 +488,11 @@ export class CalcStore {
   /** Pictures in sheets (P8-35). */
   readonly pictures: PictureController = new PictureController(this);
   readonly slicers: SlicerController = new SlicerController(this);
+  readonly flash: FlashController = new FlashController(this);
+  /** The Consolidate dialog's references and options (kept for the session, as Excel). */
+  consolidateState: ConsolidateState = DEFAULT_CONSOLIDATE;
+  /** Re-renders Flash Fill's preview after the grid scrolled (set by the layer). */
+  flashPositioner: (() => void) | null = null;
 
   constructor(readonly api: CalcApi) {}
 
@@ -627,6 +640,12 @@ export class CalcStore {
     if (this.state.toasts.some((t) => t.message === message)) return;
     const id = ++this.toastSeq;
     this.set({ toasts: [...this.state.toasts, { id, message }] });
+  }
+
+  /** An information toast ("Flash Fill changed 3 cells"). */
+  pushInfo(message: string): void {
+    const id = ++this.toastSeq;
+    this.set({ toasts: [...this.state.toasts.filter((x) => x.message !== message), { id, message, info: true }] });
   }
 
   dismissToast(id: number): void {
@@ -888,6 +907,8 @@ export class CalcStore {
   /** Applies a command reply; replies older than the newest seen revision are discarded (ADR 0002 §5). */
   applyEnvelope(env: PatchEnvelope): boolean {
     if (env.revision < this.state.revision) return false;
+    // Any change drops Flash Fill's greyed suggestions.
+    this.flash.dismiss();
     this.set({ revision: env.revision, canUndo: env.canUndo, canRedo: env.canRedo, dirty: env.dirty });
     this.applyPatch(env.patch);
     return true;
@@ -1151,6 +1172,7 @@ export class CalcStore {
   select(selection: Selection): void {
     // Selecting cells leaves the chart (not while a chart dialog picks a range).
     if (!this.state.dialog) this.charts.deselect();
+    this.flash.dismiss();
     this.set({ selection: snapSelection(selection, this.merges()) });
   }
 
@@ -1563,6 +1585,8 @@ export class CalcStore {
         this.applyEnvelope(env);
         const widen = this.widenCommand(sheet, row, col, text !== null && text !== "");
         if (widen) void this.apply(widen);
+        // A second example in a column next to data: Flash Fill's preview.
+        if (text !== null && text !== "" && !widen) void this.flash.maybePreview(sheet, row, col);
         return true;
       },
       (e: unknown) => {
@@ -1616,6 +1640,20 @@ export class CalcStore {
       return true;
     } catch (e) {
       this.pushError(e);
+      return false;
+    }
+  }
+
+  /** Data › Group › Auto Outline on the selection (one cell: the used range). */
+  async autoOutline(): Promise<boolean> {
+    const r = this.selectionRange();
+    try {
+      this.applyEnvelope(await this.api.apply({ type: "autoOutline", sheet: this.state.activeSheet, ...r }));
+      return true;
+    } catch (e) {
+      // Excel: "Cannot create an outline." when no formula summarizes anything.
+      if (e instanceof CalcApiError && /outline/.test(e.message)) this.pushError(new Error(t("calc.outline.cannot")));
+      else this.pushError(e);
       return false;
     }
   }

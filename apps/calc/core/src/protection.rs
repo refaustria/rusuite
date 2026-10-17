@@ -334,6 +334,9 @@ impl CalcDocument {
             | C::ClearOutline { sheet, .. }
             | C::SetOutlineProps { sheet, .. }
             | C::Subtotal { sheet, .. }
+            | C::AutoOutline { sheet, .. }
+            | C::Consolidate { sheet, .. }
+            | C::FlashFill { sheet, .. }
             | C::RemoveSubtotals { sheet, .. }
             | C::SetPageBreaks { sheet, .. }
             | C::CreateTable { sheet, .. }

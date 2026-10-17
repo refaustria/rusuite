@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use app_common::Applied;
+use app_common::{Applied, Patch as _};
 use engine_formula::ast::col_to_letters;
 use engine_formula::{CellContent, Value};
 use model_sheet::textio::{self, Imported, TextImportOptions};
@@ -282,6 +282,67 @@ impl CalcDocument {
                 replace,
                 summary_below,
             ),
+            &C::AutoOutline {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+            } => {
+                let s = self.sheet(sheet)?;
+                let range = self.range(sheet, r0, c0, r1, c1)?;
+                let range = if range.rows() == 1 && range.cols() == 1 {
+                    let (r, c) = self
+                        .workbook()
+                        .used_range(s)
+                        .ok_or(CalcError::InvalidRange)?;
+                    CellRange::new(s, 0, 0, r, c)
+                } else {
+                    range
+                };
+                let (rows, cols) = self.workbook().auto_outline_plan(range);
+                if rows.is_empty() && cols.is_empty() {
+                    // Excel: "Cannot create an outline."
+                    return Err(CalcError::Model(model_sheet::Error::InvalidRule(
+                        "cannot create an outline".into(),
+                    )));
+                }
+                let mut acc = self.outline_apply(s, Axis::Rows, rows)?;
+                let a = self.outline_apply(s, Axis::Cols, cols)?;
+                chain(&mut acc, a);
+                acc.patch.sheets = Some(self.sheet_infos());
+                Ok(acc)
+            }
+            C::Consolidate {
+                sheet,
+                row,
+                col,
+                function,
+                sources,
+                top_row,
+                left_col,
+                links,
+            } => self.consolidate(
+                *sheet, *row, *col, *function, sources, *top_row, *left_col, *links,
+            ),
+            C::FlashFill { sheet, col, cells } => {
+                let s = self.sheet(*sheet)?;
+                if cells.is_empty() {
+                    return Err(CalcError::InvalidRange);
+                }
+                let wb = self.workbook();
+                let writes = cells
+                    .iter()
+                    .map(|c| {
+                        let st = wb.cell_style_id(CellCoord::new(s, c.row, *col)).0;
+                        (c.row, *col, c.input.clone(), st)
+                    })
+                    .collect();
+                self.apply_cmd(&C::RestoreCells {
+                    sheet: *sheet,
+                    cells: writes,
+                })
+            }
             &C::RemoveSubtotals {
                 sheet,
                 r0,
@@ -436,6 +497,64 @@ impl CalcDocument {
         // Write the destination after clearing the source.
         cells.sort_by_key(|(r, _, _, _)| u32::from(*r != from));
         self.apply_cmd(&CalcCommand::RestoreCells { sheet: s.0, cells })
+    }
+
+    /// [`CalcCommand::Consolidate`].
+    #[allow(clippy::too_many_arguments)]
+    fn consolidate(
+        &mut self,
+        sheet: u32,
+        row: u32,
+        col: u32,
+        function: model_sheet::ConsolidateFunction,
+        sources: &[crate::command::SheetRect],
+        top_row: bool,
+        left_col: bool,
+        links: bool,
+    ) -> Result<CalcApplied> {
+        let s = self.sheet(sheet)?;
+        let mut ranges = Vec::new();
+        for r in sources {
+            let range = self.range(r.sheet, r.r0, r.c0, r.r1, r.c1)?;
+            ranges.push(range);
+        }
+        let spec = model_sheet::ConsolidateSpec {
+            function,
+            sources: ranges,
+            top_row,
+            left_col,
+            links,
+        };
+        let plan = self
+            .workbook()
+            .consolidate_plan(&spec, CellCoord::new(s, row, col))?;
+        let wb = self.workbook();
+        let (mut r1, mut c1) = (row, col);
+        let cells: Vec<(u32, u32, String, u32)> = plan
+            .into_iter()
+            .map(|(r, c, input)| {
+                r1 = r1.max(r);
+                c1 = c1.max(c);
+                (r, c, input, wb.cell_style_id(CellCoord::new(s, r, c)).0)
+            })
+            .collect();
+        let mut acc = self.apply_cmd(&CalcCommand::RestoreCells { sheet, cells })?;
+        // Excel names the destination `Consolidate_Area`.
+        let area = format!(
+            "{}{}",
+            model_sheet::names::sheet_prefix(
+                self.workbook().engine().sheet_name(s).unwrap_or_default()
+            ),
+            model_sheet::names::abs_area(row, col, r1, c1)
+        );
+        let recalc = self.workbook_mut().set_builtin_name(
+            s,
+            model_sheet::BuiltinName::ConsolidateArea,
+            Some(&area),
+        )?;
+        acc.patch.merge(self.content_patch([], &recalc));
+        acc.patch.names = Some(self.name_infos());
+        Ok(acc)
     }
 
     /// [`CalcCommand::TextToColumns`].

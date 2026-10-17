@@ -166,3 +166,32 @@ export const pasteIcon = (mark: "fx" | "123" | "%" | "T" | "↔" | "link" | "bru
       </text>
     </>
   ));
+
+/** Flash Fill: a lightning bolt over a column. */
+export const flashFillIcon = (size = 24) =>
+  svg(size, (
+    <>
+      <path d="M3 3v14M3 3h4M3 17h4" />
+      <path d="M12 2l-4 8h4l-2 8 7-10h-4l2-6z" />
+    </>
+  ));
+
+/** Consolidate: two tables flowing into one. */
+export const consolidateIcon = (size = 24) =>
+  svg(size, (
+    <>
+      <rect x="2" y="2.5" width="6" height="5" />
+      <rect x="2" y="12.5" width="6" height="5" />
+      <rect x="12" y="7.5" width="6" height="5" />
+      <path d="M8 5h2v10H8M10 10h2" />
+    </>
+  ));
+
+/** Outline settings: an outline bar with a gear dot. */
+export const outlineSettingsIcon = (size = 24) =>
+  svg(size, (
+    <>
+      <path d="M4 3v10M4 3h2M4 13h2M8 5h6M8 9h6" />
+      <circle cx="14.5" cy="14.5" r="2.5" />
+    </>
+  ));

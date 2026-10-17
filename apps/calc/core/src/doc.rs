@@ -1539,6 +1539,9 @@ impl CalcDocument {
             | C::ClearOutline { .. }
             | C::SetOutlineProps { .. }
             | C::Subtotal { .. }
+            | C::AutoOutline { .. }
+            | C::Consolidate { .. }
+            | C::FlashFill { .. }
             | C::RemoveSubtotals { .. }
             | C::SetPageBreaks { .. }
             | C::AddPicture { .. }

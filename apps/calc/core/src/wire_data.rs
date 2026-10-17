@@ -69,6 +69,22 @@ mirror! {
         pub default_style: Option<String>,
     }
 
+    /// Mirror of `model_sheet::ConsolidateFunction`.
+    #[serde(rename_all = "camelCase")]
+    pub enum ConsolidateFunction {
+        Sum,
+        Count,
+        Average,
+        Max,
+        Min,
+        Product,
+        CountNums,
+        StdDev,
+        StdDevP,
+        Var,
+        VarP,
+    }
+
     /// Mirror of `model_sheet::SlicerSource`.
     #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
     pub enum SlicerSource {
@@ -226,6 +242,14 @@ mod tests {
             row_height: m::slicer::DEFAULT_ROW_HEIGHT,
             ..slicer
         });
+        for f in [
+            m::ConsolidateFunction::Sum,
+            m::ConsolidateFunction::CountNums,
+            m::ConsolidateFunction::StdDevP,
+            m::ConsolidateFunction::VarP,
+        ] {
+            same_shape::<_, super::ConsolidateFunction>(&f);
+        }
         same_shape::<_, super::SlicerItem>(&m::SlicerItem {
             name: "East".into(),
             selected: true,

@@ -17,6 +17,7 @@
 pub mod annotations;
 pub mod chart;
 pub mod condfmt;
+pub mod consolidate;
 pub mod names;
 pub mod numfmt;
 pub mod outline;
@@ -42,6 +43,7 @@ pub use chart::{CellOffset, ChartAnchor, ChartObject, ResolvedRef};
 pub use condfmt::{
     CfKind, CfResult, CfRule, CfValue, ColorPoint, CompareOp, DxfStyle, IconSetKind,
 };
+pub use consolidate::{ConsolidateFunction, ConsolidateSpec};
 pub use engine_formula::CellRect;
 
 pub use engine_formula::{CellContent, CellCoord, EngineError, NameScope, Recalc, SheetId};

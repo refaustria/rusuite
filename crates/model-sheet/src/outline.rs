@@ -11,6 +11,8 @@
 //! set, which the document applies (and undoes) like any row/column
 //! change.
 
+use std::collections::BTreeSet;
+
 use engine_formula::SheetId;
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +54,9 @@ pub enum Axis {
     Rows,
     Cols,
 }
+
+/// The outline states to set: `(line, state)`.
+pub type OutlinePlan = Vec<(u32, OutlineState)>;
 
 /// The outline part of a row's or column's properties.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -358,6 +363,180 @@ impl Workbook {
     }
 }
 
+/// The lines (rows or columns) a formula at `at` sums up on `axis`
+/// (Excel's Auto Outline): the same-sheet references in its own column
+/// (rows) or row (columns), as `(first, last)` line indexes.
+fn referenced_lines(
+    e: &engine_formula::Expr,
+    own_sheet: &str,
+    at: (u32, u32),
+    axis: Axis,
+    out: &mut Vec<(u32, u32)>,
+) {
+    use engine_formula::ast::RangeKind;
+    use engine_formula::Expr;
+    match e {
+        Expr::Reference(r) => {
+            if r.sheet
+                .as_deref()
+                .is_some_and(|s| !s.eq_ignore_ascii_case(own_sheet))
+            {
+                return;
+            }
+            let (row, col) = at;
+            let span = match &r.kind {
+                RangeKind::Cell(c) => Some(((c.row, c.col), (c.row, c.col))),
+                RangeKind::Area(a, b) => Some((
+                    (a.row.min(b.row), a.col.min(b.col)),
+                    (a.row.max(b.row), a.col.max(b.col)),
+                )),
+                _ => None,
+            };
+            let Some(((r0, c0), (r1, c1))) = span else {
+                return;
+            };
+            match axis {
+                Axis::Rows if (c0..=c1).contains(&col) && c0 == c1 => out.push((r0, r1)),
+                Axis::Cols if (r0..=r1).contains(&row) && r0 == r1 => out.push((c0, c1)),
+                _ => {}
+            }
+        }
+        Expr::Call { args, .. } => args
+            .iter()
+            .for_each(|a| referenced_lines(a, own_sheet, at, axis, out)),
+        Expr::Unary { expr, .. } => referenced_lines(expr, own_sheet, at, axis, out),
+        Expr::Binary { lhs, rhs, .. } => {
+            referenced_lines(lhs, own_sheet, at, axis, out);
+            referenced_lines(rhs, own_sheet, at, axis, out);
+        }
+        _ => {}
+    }
+}
+
+impl Workbook {
+    /// Data › Group › Auto Outline on `range` (Excel): a row whose
+    /// formulas refer to the rows right above it in their own column
+    /// (summary rows below, else right below it) is a summary row and
+    /// those rows its detail; columns alike with references in their own
+    /// row (summary columns right, else left). Nested summaries nest the
+    /// groups (at most 7 levels). The outline inside `range` is replaced;
+    /// returns the plans for rows and columns (empty when no formula
+    /// summarizes anything).
+    pub fn auto_outline_plan(&self, range: crate::CellRange) -> (OutlinePlan, OutlinePlan) {
+        let sheet = range.sheet;
+        let own = self
+            .engine()
+            .sheet_name(sheet)
+            .unwrap_or_default()
+            .to_string();
+        let props = self.outline_props(sheet);
+        let mut plans = Vec::new();
+        for axis in [Axis::Rows, Axis::Cols] {
+            let after = match axis {
+                Axis::Rows => props.summary_below,
+                Axis::Cols => props.summary_right,
+            };
+            let (lo, hi) = match axis {
+                Axis::Rows => (range.r0, range.r1),
+                Axis::Cols => (range.c0, range.c1),
+            };
+            // Per summary line: its detail span.
+            let mut spans: std::collections::BTreeMap<u32, (u32, u32)> = Default::default();
+            for (c, content) in self.engine().cells(sheet) {
+                let engine_formula::CellContent::Formula { ast, .. } = content else {
+                    continue;
+                };
+                if !(range.r0..=range.r1).contains(&c.row)
+                    || !(range.c0..=range.c1).contains(&c.col)
+                {
+                    continue;
+                }
+                let line = match axis {
+                    Axis::Rows => c.row,
+                    Axis::Cols => c.col,
+                };
+                let mut refs = Vec::new();
+                referenced_lines(ast, &own, (c.row, c.col), axis, &mut refs);
+                let detail = if after {
+                    let below: Vec<&(u32, u32)> = refs.iter().filter(|(_, b)| *b < line).collect();
+                    let last = below.iter().map(|(_, b)| *b).max();
+                    let first = below.iter().map(|(a, _)| *a).min();
+                    match (first, last) {
+                        (Some(f), Some(l)) if l + 1 == line && f >= lo => Some((f, l)),
+                        _ => None,
+                    }
+                } else {
+                    let above: Vec<&(u32, u32)> = refs.iter().filter(|(a, _)| *a > line).collect();
+                    let first = above.iter().map(|(a, _)| *a).min();
+                    let last = above.iter().map(|(_, b)| *b).max();
+                    match (first, last) {
+                        (Some(f), Some(l)) if f == line + 1 && l <= hi => Some((f, l)),
+                        _ => None,
+                    }
+                };
+                if let Some((f, l)) = detail {
+                    let e = spans.entry(line).or_insert((f, l));
+                    *e = (e.0.min(f), e.1.max(l));
+                }
+            }
+            // A summary of summaries also covers their detail (`=B5+B9`
+            // under two subtotals groups everything above it).
+            let keys: Vec<u32> = if after {
+                spans.keys().copied().collect()
+            } else {
+                spans.keys().rev().copied().collect()
+            };
+            for line in keys {
+                let (mut f, mut l) = spans[&line];
+                loop {
+                    let edge = if after { f } else { l };
+                    match spans.get(&edge) {
+                        Some(&(f2, l2)) if (after && f2 < f) || (!after && l2 > l) => {
+                            f = f.min(f2);
+                            l = l.max(l2);
+                        }
+                        _ => break,
+                    }
+                }
+                spans.insert(line, (f, l));
+            }
+            let mut levels: std::collections::BTreeMap<u32, u8> = Default::default();
+            for (f, l) in spans.values() {
+                for i in *f..=*l {
+                    let v = levels.entry(i).or_insert(0);
+                    *v = (*v + 1).min(MAX_OUTLINE_LEVEL);
+                }
+            }
+            let mut plan = Vec::new();
+            if !spans.is_empty() {
+                let mut lines: BTreeSet<u32> = levels.keys().copied().collect();
+                lines.extend(
+                    self.outlined(sheet, axis)
+                        .into_iter()
+                        .filter(|i| (lo..=hi).contains(i)),
+                );
+                for i in lines {
+                    let old = self.outline_state(sheet, axis, i);
+                    let level = levels.get(&i).copied().unwrap_or(0);
+                    let new = OutlineState {
+                        level,
+                        // Lines a collapsed group hid come back.
+                        hidden: old.hidden && old.level == 0,
+                        collapsed: false,
+                    };
+                    if new != old {
+                        plan.push((i, new));
+                    }
+                }
+            }
+            plans.push(plan);
+        }
+        let cols = plans.pop().unwrap_or_default();
+        let rows = plans.pop().unwrap_or_default();
+        (rows, cols)
+    }
+}
+
 impl Workbook {
     /// The manual page breaks of `sheet` on `axis`: a page starts before
     /// each of these rows / columns (ascending, > 0).
@@ -495,5 +674,110 @@ mod tests {
         assert_eq!(wb.row_info(s, 3).outline_level, 7);
         assert!(wb.group_plan(s, Axis::Rows, 3, 3, false).is_err());
         assert!(wb.collapse_plan(s, Axis::Rows, 9, true).is_empty());
+    }
+
+    fn put(wb: &mut Workbook, cells: &[(u32, u32, &str)]) {
+        for &(r, c, v) in cells {
+            wb.set_input(engine_formula::CellCoord::new(SheetId(0), r, c), v)
+                .unwrap();
+        }
+    }
+
+    fn levels(plan: &[(u32, OutlineState)]) -> Vec<(u32, u8)> {
+        plan.iter().map(|(i, s)| (*i, s.level)).collect()
+    }
+
+    #[test]
+    fn auto_outline_groups_rows_under_sum_rows() {
+        let mut wb = Workbook::new();
+        // East 2–4 (subtotal row 5), West 6–7 (subtotal row 8), grand total 9.
+        put(
+            &mut wb,
+            &[
+                (1, 1, "1"),
+                (2, 1, "2"),
+                (3, 1, "3"),
+                (4, 1, "=SUM(B2:B4)"),
+                (5, 1, "4"),
+                (6, 1, "5"),
+                (7, 1, "=SUM(B6:B7)"),
+                (8, 1, "=SUBTOTAL(9,B2:B8)"),
+            ],
+        );
+        let range = crate::CellRange::new(SheetId(0), 0, 0, 8, 1);
+        let (rows, cols) = wb.auto_outline_plan(range);
+        assert!(cols.is_empty());
+        assert_eq!(
+            levels(&rows),
+            [(1, 2), (2, 2), (3, 2), (4, 1), (5, 2), (6, 2), (7, 1)]
+        );
+    }
+
+    #[test]
+    fn auto_outline_columns_and_summary_above() {
+        let mut wb = Workbook::new();
+        // Q1–Q3 in B–D, total in E; and a summary row above its detail.
+        put(
+            &mut wb,
+            &[(0, 1, "1"), (0, 2, "2"), (0, 3, "3"), (0, 4, "=B1+C1+D1")],
+        );
+        let (rows, cols) = wb.auto_outline_plan(crate::CellRange::new(SheetId(0), 0, 0, 0, 4));
+        assert!(rows.is_empty());
+        assert_eq!(levels(&cols), [(1, 1), (2, 1), (3, 1)]);
+        let mut wb = Workbook::new();
+        wb.set_outline_props(
+            SheetId(0),
+            OutlineProps {
+                summary_below: false,
+                summary_right: true,
+            },
+        )
+        .unwrap();
+        put(
+            &mut wb,
+            &[(1, 1, "=SUM(B3:B5)"), (2, 1, "1"), (3, 1, "2"), (4, 1, "3")],
+        );
+        let (rows, _) = wb.auto_outline_plan(crate::CellRange::new(SheetId(0), 0, 0, 4, 1));
+        assert_eq!(levels(&rows), [(2, 1), (3, 1), (4, 1)]);
+        // Summary-below formulas do not count then.
+        let mut wb = Workbook::new();
+        wb.set_outline_props(
+            SheetId(0),
+            OutlineProps {
+                summary_below: false,
+                summary_right: true,
+            },
+        )
+        .unwrap();
+        put(&mut wb, &[(1, 1, "1"), (2, 1, "2"), (3, 1, "=SUM(B2:B3)")]);
+        assert!(wb
+            .auto_outline_plan(crate::CellRange::new(SheetId(0), 0, 0, 3, 1))
+            .0
+            .is_empty());
+    }
+
+    #[test]
+    fn auto_outline_ignores_other_references_and_replaces_groups() {
+        let mut wb = Workbook::new();
+        // Not adjacent, another column, another sheet: no summary.
+        wb.add_sheet("Other").unwrap();
+        put(
+            &mut wb,
+            &[
+                (1, 1, "1"),
+                (2, 1, "2"),
+                (4, 1, "=SUM(B2:B3)"),
+                (5, 1, "=SUM(A2:A5)"),
+                (6, 1, "=SUM(Other!B2:B6)"),
+            ],
+        );
+        let range = crate::CellRange::new(SheetId(0), 0, 0, 6, 1);
+        assert!(wb.auto_outline_plan(range).0.is_empty());
+        // An old group in the range is replaced.
+        put(&mut wb, &[(3, 1, "3"), (4, 1, "=SUM(B2:B4)")]);
+        let p = wb.group_plan(SheetId(0), Axis::Rows, 5, 6, false).unwrap();
+        apply(&mut wb, p);
+        let (rows, _) = wb.auto_outline_plan(range);
+        assert_eq!(levels(&rows), [(1, 1), (2, 1), (3, 1), (5, 0), (6, 0)]);
     }
 }

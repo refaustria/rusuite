@@ -1027,6 +1027,10 @@ export class FakeCalcCore {
       case "removePicture":
       case "restorePictures":
         return this.dataCmd(cmd);
+      case "flashFill":
+        return this.exec({ type: "restoreCells", sheet: cmd.sheet, cells: cmd.cells.map((c) => [c.row, cmd.col, c.input, this.cell(this.sheet(cmd.sheet), c.row, cmd.col)?.style ?? 0] as [number, number, string, number]) });
+      case "autoOutline":
+      case "consolidate":
       case "insertTableRows":
       case "deleteTableRows":
       case "insertTableCols":
