@@ -1,5 +1,5 @@
 # PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
-# family: logical (92 cases); evaluate in the context of sheet Data, see fixture.tsv
+# family: logical (128 cases); evaluate in the context of sheet Data, see fixture.tsv
 formula	type	expected	note
 =IF(TRUE,1,2)	number	1	
 =IF(FALSE,1,2)	number	2	
@@ -95,3 +95,71 @@ formula	type	expected	note
 =XOR(TRUE,TRUE,TRUE)	bool	TRUE	
 =XOR(1,0,0)	bool	TRUE	
 =XOR(H1)	error	#DIV/0!	
+=LET(x,2,x*3)	number	6	
+=LET(x,A1:A6,SUM(x))	number	21	
+=LET(x,A2,y,x*10,y+1)	number	21	
+=LET(n,COUNT(C1:C6),n*2)	number	12	
+# NOTE: LibreOffice 25.2 has no LAMBDA [excel=3]
+=LAMBDA(x,x+1)(2)	error	#VALUE!	DIFF: LibreOffice 25.2 has no LAMBDA [excel=3]
+# NOTE: LibreOffice 25.2 has no LAMBDA [excel=6]
+=LAMBDA(x,y,x*y)(A2,A3)	error	#VALUE!	DIFF: LibreOffice 25.2 has no LAMBDA [excel=6]
+# NOTE: LibreOffice 25.2 has no LAMBDA [excel=8]
+=LET(f,LAMBDA(v,v*2),f(A4))	error	#VALUE!	DIFF: LibreOffice 25.2 has no LAMBDA [excel=8]
+# NOTE: LibreOffice 25.2 has no LAMBDA [excel=err]
+=IFERROR(LAMBDA(x,x)(1,2),"err")	error	#VALUE!	DIFF: LibreOffice 25.2 has no LAMBDA [excel=err]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=14]
+=SUM(MAP(A1:A3,LAMBDA(v,v*v)))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=14]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=7]
+=INDEX(MAP(A1:A6,LAMBDA(v,v+1)),6)	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=7]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=6]
+=ROWS(MAP(A1:A6,LAMBDA(v,v)))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=6]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=500]
+=SUM(MAP(A1:A2,F1:F2,LAMBDA(a,b,a*b)))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=500]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=21]
+=REDUCE(0,A1:A6,LAMBDA(a,v,a+v))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=21]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=24]
+=REDUCE(1,A1:A4,LAMBDA(a,v,a*v))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=24]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=xapplebanana]
+=REDUCE("x",B1:B2,LAMBDA(a,v,a&v))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=xapplebanana]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=4]
+=ROWS(REDUCE(0,A1:A3,LAMBDA(a,v,VSTACK(a,v))))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=4]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=21]
+=INDEX(SCAN(0,A1:A6,LAMBDA(a,v,a+v)),6)	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=21]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=10]
+=SUM(SCAN(0,A1:A3,LAMBDA(a,v,a+v)))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=10]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=24]
+=INDEX(SCAN(1,A1:A4,LAMBDA(a,v,a*v)),4)	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=24]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=6]
+=ROWS(SCAN(0,A1:A6,LAMBDA(a,v,a+v)))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=6]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=4]
+=SUM(BYROW(A1:C2,LAMBDA(rw,COUNT(rw))))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=4]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=6]
+=INDEX(BYROW(A1:A3,LAMBDA(rw,rw*2)),3)	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=6]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=6]
+=ROWS(BYROW(A1:C6,LAMBDA(rw,1)))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=6]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=4]
+=INDEX(BYROW(F1:F4,LAMBDA(rw,rw/100)),4)	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=4]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=12]
+=SUM(BYCOL(A1:C6,LAMBDA(cl,COUNT(cl))))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=12]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=3]
+=COLUMNS(BYCOL(A1:C1,LAMBDA(cl,1)))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=3]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=1000000]
+=INDEX(BYCOL(A1:C6,LAMBDA(cl,MAX(cl))),3)	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=1000000]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=21]
+=INDEX(BYCOL(A1:A6,LAMBDA(cl,SUM(cl))),1)	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=21]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=18]
+=SUM(MAKEARRAY(2,3,LAMBDA(i,j,i*j)))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=18]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=23]
+=INDEX(MAKEARRAY(3,3,LAMBDA(i,j,i*10+j)),2,3)	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=23]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=4]
+=ROWS(MAKEARRAY(4,2,LAMBDA(i,j,0)))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=4]
+# NOTE: LibreOffice 25.2 has no LAMBDA helper functions [excel=#VALUE!]
+=MAKEARRAY(0,1,LAMBDA(i,j,1))	error	#NAME?	DIFF: LibreOffice 25.2 has no LAMBDA helper functions [excel=#VALUE!]
+# NOTE: LibreOffice 25.2 has no LAMBDA [excel=TRUE]
+=LAMBDA(x,y,ISOMITTED(y))(1)	error	#VALUE!	DIFF: LibreOffice 25.2 has no LAMBDA [excel=TRUE]
+# NOTE: LibreOffice 25.2 has no LAMBDA [excel=FALSE]
+=LAMBDA(x,y,ISOMITTED(y))(1,2)	error	#VALUE!	DIFF: LibreOffice 25.2 has no LAMBDA [excel=FALSE]
+# NOTE: LibreOffice 25.2 has no LAMBDA [excel=5]
+=LET(f,LAMBDA(a,b,IF(ISOMITTED(b),a,a+b)),f(5))	error	#VALUE!	DIFF: LibreOffice 25.2 has no LAMBDA [excel=5]
+# NOTE: LibreOffice 25.2 has no LAMBDA [excel=6]
+=LET(f,LAMBDA(a,b,IF(ISOMITTED(b),a,a+b)),f(5,1))	error	#VALUE!	DIFF: LibreOffice 25.2 has no LAMBDA [excel=6]

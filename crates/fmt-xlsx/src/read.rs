@@ -289,6 +289,8 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     }
 
     wb.set_workbook_protection(book.protection.clone());
+    // Last: the load above is calculated even in manual mode.
+    wb.set_calc_settings(book.calc);
     if let Some(&id) = by_index.get(&book.active_tab) {
         wb.set_active_sheet(Some(id));
     }
@@ -386,6 +388,8 @@ struct BookInfo {
     protection: Option<model_sheet::WorkbookProtection>,
     /// `<workbookView activeTab>`: position in `<sheets>`.
     active_tab: usize,
+    /// `<calcPr>`: calculation mode, full calc on load, R1C1 style.
+    calc: model_sheet::CalcSettings,
 }
 
 fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
@@ -398,6 +402,10 @@ fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
         slicer_caches: Vec::new(),
         protection: None,
         active_tab: 0,
+        calc: model_sheet::CalcSettings {
+            full_calc_on_load: false,
+            ..Default::default()
+        },
     };
     let mut name: Option<RawName> = None;
     loop {
@@ -428,6 +436,15 @@ fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
             }
             Event::Start(el) | Event::Empty(el) => match name_of(&el) {
                 b"workbookPr" => info.date1904 = attr_bool(&el, "date1904").unwrap_or(false),
+                b"calcPr" => {
+                    info.calc = model_sheet::CalcSettings {
+                        mode: model_sheet::CalcMode::from_file_name(
+                            &attr(&el, "calcMode").unwrap_or_default(),
+                        ),
+                        full_calc_on_load: attr_bool(&el, "fullCalcOnLoad").unwrap_or(false),
+                        r1c1: attr(&el, "refMode").as_deref() == Some("R1C1"),
+                    };
+                }
                 b"workbookProtection" => {
                     info.protection = crate::protection::workbook_protection_of(&el);
                 }

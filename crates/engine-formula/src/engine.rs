@@ -389,13 +389,16 @@ fn rename_refs(e: &mut Expr, from: &str, to: &str) -> bool {
             *sheet = to.to_string();
             true
         }
-        Expr::Reference(r) => match &mut r.sheet {
-            Some(s) if same_name(s, from) => {
-                *s = to.to_string();
-                true
+        Expr::Reference(r) => {
+            let mut hit = false;
+            for s in [&mut r.sheet, &mut r.sheet_last].into_iter().flatten() {
+                if same_name(s, from) {
+                    *s = to.to_string();
+                    hit = true;
+                }
             }
-            _ => false,
-        },
+            hit
+        }
         Expr::Call { args, .. } => args
             .iter_mut()
             .fold(false, |acc, a| rename_refs(a, from, to) | acc),
@@ -410,8 +413,42 @@ fn rename_refs(e: &mut Expr, from: &str, to: &str) -> bool {
 }
 
 /// Replaces every reference prefixed with sheet `name` (case-insensitive)
-/// by `#REF!`; returns whether anything changed.
-fn drop_sheet_refs(e: &mut Expr, name: &str) -> bool {
+/// by `#REF!`; returns whether anything changed. A 3-D reference whose
+/// span starts or ends at the sheet shrinks to the neighbouring sheet of
+/// the span (`order`: the live sheet names in display order, the deleted
+/// one included), as in Excel.
+fn drop_sheet_refs(e: &mut Expr, name: &str, order: &[String]) -> bool {
+    if let Expr::Reference(r) = e {
+        if r.is_3d() {
+            let first = r.sheet.clone().unwrap_or_default();
+            let last = r.sheet_last.clone().unwrap_or_default();
+            let pos = |n: &str| order.iter().position(|o| same_name(o, n));
+            let (Some(a), Some(b)) = (pos(&first), pos(&last)) else {
+                return false;
+            };
+            let (a, b) = (a.min(b), a.max(b));
+            let span: Vec<&String> = order[a..=b]
+                .iter()
+                .filter(|n| !same_name(n, name))
+                .collect();
+            let ends_at = same_name(&first, name) || same_name(&last, name);
+            if !ends_at {
+                return false;
+            }
+            match span.as_slice() {
+                [] => *e = Expr::Error(ErrorKind::Ref),
+                [only] => {
+                    r.sheet = Some((*only).clone());
+                    r.sheet_last = None;
+                }
+                [lo, .., hi] => {
+                    r.sheet = Some((*lo).clone());
+                    r.sheet_last = Some((*hi).clone());
+                }
+            }
+            return true;
+        }
+    }
     let hit = match e {
         Expr::Reference(r) => r.sheet.as_deref().is_some_and(|s| same_name(s, name)),
         Expr::QualifiedName { sheet, .. } => same_name(sheet, name),
@@ -427,13 +464,15 @@ fn drop_sheet_refs(e: &mut Expr, name: &str) -> bool {
     match e {
         Expr::Call { args, .. } => args
             .iter_mut()
-            .fold(false, |acc, a| drop_sheet_refs(a, name) | acc),
-        Expr::Unary { expr, .. } => drop_sheet_refs(expr, name),
-        Expr::Binary { lhs, rhs, .. } => drop_sheet_refs(lhs, name) | drop_sheet_refs(rhs, name),
+            .fold(false, |acc, a| drop_sheet_refs(a, name, order) | acc),
+        Expr::Unary { expr, .. } => drop_sheet_refs(expr, name, order),
+        Expr::Binary { lhs, rhs, .. } => {
+            drop_sheet_refs(lhs, name, order) | drop_sheet_refs(rhs, name, order)
+        }
         Expr::Array(rows) => rows
             .iter_mut()
             .flatten()
-            .fold(false, |acc, a| drop_sheet_refs(a, name) | acc),
+            .fold(false, |acc, a| drop_sheet_refs(a, name, order) | acc),
         _ => false,
     }
 }
@@ -483,7 +522,10 @@ fn uses_names(e: &Expr) -> bool {
 fn mentions(e: &Expr, names: &HashSet<String>) -> bool {
     match e {
         Expr::Name(n) | Expr::QualifiedName { name: n, .. } => names.contains(&n.to_lowercase()),
-        Expr::Call { args, .. } => args.iter().any(|a| mentions(a, names)),
+        // A call of a named lambda (`=Twice(4)`).
+        Expr::Call { name, args } => {
+            names.contains(&name.to_lowercase()) || args.iter().any(|a| mentions(a, names))
+        }
         Expr::Unary { expr, .. } => mentions(expr, names),
         Expr::Binary { lhs, rhs, .. } => mentions(lhs, names) || mentions(rhs, names),
         Expr::Array(rows) => rows.iter().flatten().any(|a| mentions(a, names)),
@@ -532,9 +574,9 @@ fn expand_names(
     let table_cells = |s: &StructRef| -> Option<Expr> {
         let t = crate::structured::table_for(tables, s, at)?;
         Some(match t.resolve(s, at) {
-            Ok(r) => Expr::Reference(crate::ast::Reference {
-                sheet: Some(sheets[t.sheet.0 as usize].name.clone()),
-                kind: crate::ast::RangeKind::area(
+            Ok(r) => Expr::Reference(crate::ast::Reference::on(
+                Some(sheets[t.sheet.0 as usize].name.clone()),
+                crate::ast::RangeKind::area(
                     crate::ast::CellRef {
                         col: r.c0,
                         row: r.r0,
@@ -548,7 +590,7 @@ fn expand_names(
                         row_abs: true,
                     },
                 ),
-            }),
+            )),
             Err(e) => Expr::Error(e),
         })
     };
@@ -589,25 +631,77 @@ fn register(
     graph: &mut DependencyGraph,
     volatile: &mut HashSet<CellCoord>,
     sheets: &[Sheet],
+    order: &[SheetId],
     names: &[NameEntry],
     tables: &[TableDef],
     registry: &FunctionRegistry,
     c: CellCoord,
     ast: &Expr,
 ) {
-    let expanded;
-    let e = if uses_names(ast) {
-        expanded = expand_names(ast, names, tables, sheets, c, 0);
-        &expanded
-    } else {
-        ast
-    };
+    let mut expanded = None;
+    if uses_names(ast) {
+        expanded = Some(expand_names(ast, names, tables, sheets, c, 0));
+    }
+    if uses_3d(expanded.as_ref().unwrap_or(ast)) {
+        expanded = Some(expand_3d(expanded.as_ref().unwrap_or(ast), sheets, order));
+    }
+    let e = expanded.as_ref().unwrap_or(ast);
     graph.set_formula(c, e, &Names(sheets), c.sheet);
     if is_volatile(e, registry) {
         volatile.insert(c);
     } else {
         volatile.remove(&c);
     }
+}
+
+/// Whether `e` holds a 3-D reference (`Sheet1:Sheet3!A1`).
+fn uses_3d(e: &Expr) -> bool {
+    e.references().iter().any(|r| r.is_3d())
+}
+
+/// The sheet names of the span `first..=last` in display order (either
+/// end first); `None` when either sheet does not exist.
+fn span_names(sheets: &[Sheet], order: &[SheetId], first: &str, last: &str) -> Option<Vec<String>> {
+    let pos = |name: &str| {
+        let id = find_sheet(sheets, name)?;
+        order.iter().position(|&o| o == id)
+    };
+    let (a, b) = (pos(first)?, pos(last)?);
+    let (a, b) = (a.min(b), a.max(b));
+    Some(
+        order[a..=b]
+            .iter()
+            .map(|id| sheets[id.0 as usize].name.clone())
+            .collect(),
+    )
+}
+
+/// `e` with every 3-D reference replaced by a union of its per-sheet
+/// references (for the dependency graph: such a formula reads every
+/// sheet of the span).
+fn expand_3d(e: &Expr, sheets: &[Sheet], order: &[SheetId]) -> Expr {
+    map_expr(e, &|x| {
+        let Expr::Reference(r) = x else {
+            return None;
+        };
+        if !r.is_3d() {
+            return None;
+        }
+        let first = r.sheet.as_deref().unwrap_or_default();
+        let last = r.sheet_last.as_deref().unwrap_or_default();
+        Some(match span_names(sheets, order, first, last) {
+            Some(names) => Expr::Call {
+                name: UNION_CALL.to_string(),
+                args: names
+                    .into_iter()
+                    .map(|n| Expr::Reference(crate::ast::Reference::on(Some(n), r.kind)))
+                    .collect(),
+            },
+            // Unresolved: keep the first sheet so a later sheet of that
+            // name is picked up.
+            None => Expr::Reference(crate::ast::Reference::on(r.sheet.clone(), r.kind)),
+        })
+    })
 }
 
 /// The call a name's top-level union `A1:B2,D1:D9` (Excel's reference
@@ -741,6 +835,12 @@ pub struct Engine {
     pivots: crate::pivot::PivotRegistry,
     /// The Excel tables structured references resolve against.
     tables: Vec<TableDef>,
+    /// Manual calculation (Formulas › Calculation Options › Manual): edits
+    /// evaluate only the edited formula cells; [`Engine::calculate_now`]
+    /// and [`Engine::calculate_sheet`] do the rest.
+    manual: bool,
+    /// Manual mode: cells whose dependents await recalculation.
+    dirty: HashSet<CellCoord>,
 }
 
 impl Default for Engine {
@@ -770,7 +870,83 @@ impl Engine {
             names: Vec::new(),
             pivots: Default::default(),
             tables: Vec::new(),
+            manual: false,
+            dirty: HashSet::new(),
         }
+    }
+
+    // --- calculation mode -------------------------------------------------
+
+    /// Switches between automatic (`false`) and manual (`true`)
+    /// calculation. Switching back to automatic recalculates everything
+    /// that is pending, as Excel does.
+    pub fn set_manual(&mut self, manual: bool) -> Recalc {
+        let was = std::mem::replace(&mut self.manual, manual);
+        if was && !manual {
+            return self.calculate_now();
+        }
+        Recalc::default()
+    }
+
+    /// Whether calculation is manual.
+    pub fn is_manual(&self) -> bool {
+        self.manual
+    }
+
+    /// Manual mode: whether cells await recalculation (Excel's
+    /// "Calculate" in the status bar).
+    pub fn needs_calc(&self) -> bool {
+        self.manual && !self.dirty.is_empty()
+    }
+
+    /// Calculate Now (F9): recalculates every pending cell, its dependents
+    /// and the volatile cells (in automatic mode: the volatile cells).
+    pub fn calculate_now(&mut self) -> Recalc {
+        let mut seeds: Vec<CellCoord> = self.dirty.drain().collect();
+        seeds.sort_unstable();
+        let manual = std::mem::replace(&mut self.manual, false);
+        let out = self.recalc(&seeds);
+        self.manual = manual;
+        out
+    }
+
+    /// Calculate Sheet (Shift+F9): recalculates the pending cells of
+    /// `sheet` that lie on it (and its volatile cells); cells on other
+    /// sheets stay pending.
+    pub fn calculate_sheet(&mut self, sheet: SheetId) -> Recalc {
+        let mut seeds: Vec<CellCoord> = self.dirty.drain().collect();
+        seeds.extend(self.volatile.iter().copied());
+        seeds.sort_unstable();
+        let schedule = self.graph.recalc_schedule(&seeds);
+        let (here, elsewhere): (Vec<CellCoord>, Vec<CellCoord>) =
+            schedule.order.iter().partition(|c| c.sheet == sheet);
+        self.dirty.extend(elsewhere);
+        self.dirty.extend(
+            seeds
+                .into_iter()
+                .filter(|c| c.sheet != sheet && !self.volatile.contains(c)),
+        );
+        let cyclic = schedule
+            .cyclic
+            .iter()
+            .copied()
+            .filter(|c| c.sheet == sheet)
+            .collect();
+        let part = crate::graph::Schedule {
+            order: here,
+            cyclic,
+            cycle: schedule
+                .cycle
+                .filter(|c| c.cells.iter().all(|x| x.sheet == sheet)),
+        };
+        self.run(part)
+    }
+
+    /// Recalculates every formula (Ctrl+Alt+F9) and clears the pending
+    /// cells.
+    pub fn calculate_full(&mut self) -> Recalc {
+        self.dirty.clear();
+        self.recalc_all()
     }
 
     /// Appends a sheet. Formulas that referenced `name` before it existed
@@ -783,6 +959,7 @@ impl Engine {
         self.sheets.push(Sheet::new(name));
         self.order.push(id);
         self.reresolve(name);
+        self.refresh_3d();
         Ok(id)
     }
 
@@ -802,6 +979,7 @@ impl Engine {
         }
         // 1. Rewrite references to the sheet on the remaining sheets.
         let name = self.sheets[idx].name.clone();
+        let order_names: Vec<String> = self.sheets().map(|(_, n)| n.to_string()).collect();
         let mut rewritten = Vec::new();
         for (i, s) in self.sheets.iter_mut().enumerate() {
             if i == idx || s.removed {
@@ -811,7 +989,7 @@ impl Engine {
                 let CellContent::Formula { text, ast } = content else {
                     continue;
                 };
-                if drop_sheet_refs(ast, &name) {
+                if drop_sheet_refs(ast, &name, &order_names) {
                     *text = format!("={ast}");
                     rewritten.push(CellCoord::new(SheetId(i as u32), row, col));
                 }
@@ -828,7 +1006,7 @@ impl Engine {
             !local
         });
         for n in &mut self.names {
-            if drop_sheet_refs(&mut n.ast, &name) {
+            if drop_sheet_refs(&mut n.ast, &name, &order_names) {
                 n.formula = name_formula_text(&n.ast);
                 changed_names.push(n.name.clone());
             }
@@ -853,6 +1031,7 @@ impl Engine {
                 &mut self.graph,
                 &mut self.volatile,
                 &self.sheets,
+                &self.order,
                 &self.names,
                 &self.tables,
                 &self.registry,
@@ -870,6 +1049,11 @@ impl Engine {
         s.removed = true;
         self.freed.retain(|c| c.sheet != id);
         self.order.retain(|&o| o != id);
+        for c in self.reregister_3d() {
+            if !rewritten.contains(&c) {
+                rewritten.push(c);
+            }
+        }
         if let Some(pending) = &mut self.pending {
             pending.extend(rewritten.iter().copied());
             rewritten.sort_unstable();
@@ -909,6 +1093,7 @@ impl Engine {
         self.sheets[idx] = Sheet::new(name);
         self.order.insert(index, id);
         self.reresolve(name);
+        self.refresh_3d();
         Ok(())
     }
 
@@ -920,6 +1105,7 @@ impl Engine {
         }
         self.order.retain(|&o| o != id);
         self.order.insert(index, id);
+        self.refresh_3d();
         Ok(())
     }
 
@@ -1111,6 +1297,7 @@ impl Engine {
                     &mut self.graph,
                     &mut self.volatile,
                     &self.sheets,
+                    &self.order,
                     &self.names,
                     &self.tables,
                     &self.registry,
@@ -1522,6 +1709,7 @@ impl Engine {
                 &mut self.graph,
                 &mut self.volatile,
                 &self.sheets,
+                &self.order,
                 &self.names,
                 &self.tables,
                 &self.registry,
@@ -1681,10 +1869,10 @@ impl Engine {
                     } else {
                         crate::ast::RangeKind::area(cell(r.r0, r.c0), cell(r.r1, r.c1))
                     };
-                    Expr::Reference(crate::ast::Reference {
-                        sheet: (at.sheet != def.sheet).then(|| sheet_name.clone()),
+                    Expr::Reference(crate::ast::Reference::on(
+                        (at.sheet != def.sheet).then(|| sheet_name.clone()),
                         kind,
-                    })
+                    ))
                 }
                 Err(e) => Expr::Error(e),
             })
@@ -1897,6 +2085,7 @@ impl Engine {
                 &mut self.graph,
                 &mut self.volatile,
                 &self.sheets,
+                &self.order,
                 &self.names,
                 &self.tables,
                 &self.registry,
@@ -2102,6 +2291,7 @@ impl Engine {
                 &mut self.graph,
                 &mut self.volatile,
                 &self.sheets,
+                &self.order,
                 &self.names,
                 &self.tables,
                 &self.registry,
@@ -2154,6 +2344,55 @@ impl Engine {
         Ok(idx)
     }
 
+    /// Re-registers the formulas holding a 3-D reference (their span may
+    /// have changed with the sheet order); returns them.
+    fn reregister_3d(&mut self) -> Vec<CellCoord> {
+        let mut cells = Vec::new();
+        for (i, sheet) in self.sheets.iter().enumerate() {
+            for (&(row, col), content) in &sheet.cells {
+                if let CellContent::Formula { ast, .. } = content {
+                    if uses_3d(ast) {
+                        cells.push(CellCoord::new(SheetId(i as u32), row, col));
+                    }
+                }
+            }
+        }
+        for &c in &cells {
+            let Some(CellContent::Formula { ast, .. }) =
+                self.sheets[c.sheet.0 as usize].cells.get(&(c.row, c.col))
+            else {
+                continue;
+            };
+            register(
+                &mut self.graph,
+                &mut self.volatile,
+                &self.sheets,
+                &self.order,
+                &self.names,
+                &self.tables,
+                &self.registry,
+                c,
+                ast,
+            );
+        }
+        cells
+    }
+
+    /// [`reregister_3d`](Self::reregister_3d) and recalculates the cells
+    /// (deferred inside a batch).
+    fn refresh_3d(&mut self) {
+        let cells = self.reregister_3d();
+        if cells.is_empty() {
+            return;
+        }
+        match &mut self.pending {
+            Some(pending) => pending.extend(cells),
+            None => {
+                self.recalc(&cells);
+            }
+        }
+    }
+
     /// Re-registers formulas holding an unresolved reference to `name` and
     /// recalculates them (unless a batch is open).
     fn reresolve(&mut self, name: &str) {
@@ -2173,6 +2412,7 @@ impl Engine {
                         &mut self.graph,
                         &mut self.volatile,
                         &self.sheets,
+                        &self.order,
                         &self.names,
                         &self.tables,
                         &self.registry,
@@ -2194,8 +2434,24 @@ impl Engine {
         }
     }
 
-    /// Recalculates `seeds`, their dependents and the volatile cells.
+    /// Recalculates `seeds`, their dependents and the volatile cells. In
+    /// manual mode only the formula cells among `seeds` are evaluated and
+    /// the seeds wait for [`Engine::calculate_now`].
     fn recalc(&mut self, seeds: &[CellCoord]) -> Recalc {
+        if self.manual {
+            self.dirty.extend(seeds.iter().copied());
+            let mut own: Vec<CellCoord> = seeds
+                .iter()
+                .copied()
+                .filter(|&c| self.graph.has_formula(c))
+                .collect();
+            own.sort_unstable();
+            own.dedup();
+            return self.run(crate::graph::Schedule {
+                order: own,
+                ..Default::default()
+            });
+        }
         let mut changed: Vec<CellCoord> = seeds.to_vec();
         changed.extend(self.volatile.iter().copied());
         let schedule = self.graph.recalc_schedule(&changed);
@@ -2400,6 +2656,10 @@ impl CellProvider for Engine {
         pairs: &[(String, Value)],
     ) -> Option<Value> {
         crate::pivot::find_pivot_value(Engine::pivot_data(self, at.sheet), at, data_field, pairs)
+    }
+
+    fn sheet_span(&self, first: &str, last: &str) -> Option<Vec<String>> {
+        span_names(&self.sheets, &self.order, first, last)
     }
 
     fn spill_extent(&self, c: CellCoord) -> Option<(u32, u32)> {

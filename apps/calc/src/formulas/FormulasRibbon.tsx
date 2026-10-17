@@ -1,12 +1,11 @@
 // Calc's Formulas tab (P8-23): Function Library (Insert Function, AutoSum ▾,
 // Recently Used and the category menus from functions.json), Defined
 // Names (Name Manager, Define Name ▾, Use in Formula ▾, Create from
-// Selection) and Formula Auditing (Trace Precedents / Dependents, Remove
-// Arrows ▾, Show Formulas). Error Checking, Evaluate Formula and the
-// Calculation group are not offered (the core recalculates
-// automatically and has no manual mode).
+// Selection, Apply Names, Paste Names), Formula Auditing (Trace
+// Precedents / Dependents, Remove Arrows ▾, Show Formulas) and Calculation
+// (Calculation Options ▾, Calculate Now, Calculate Sheet; P9-C4).
 
-import { RibbonButton, RibbonMenuButton, RibbonSplitButton, RibbonStack, type RibbonTab, type TFunction as T } from "@rusuite/ui-shared";
+import { RibbonButton, RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack, type RibbonTab, type TFunction as T } from "@rusuite/ui-shared";
 import type { FunctionInfo } from "../formula/functions";
 import type { CalcStore } from "../state/store";
 import {
@@ -14,6 +13,8 @@ import {
   tracePrecedentsIcon, useNameIcon,
 } from "../ui/icons";
 import { categoryFunctions } from "./InsertFunctionDialog";
+import { CALC_MODES } from "./FormulaToolDialogs";
+import { calcNowIcon, calcOptionsIcon, calcSheetIcon, errorCheckIcon, evaluateIcon, watchIcon } from "./icons";
 
 /** AutoSum ▾'s functions (Excel's list). */
 export const AUTOSUM_FUNCTIONS = ["SUM", "AVERAGE", "COUNT", "MAX", "MIN"] as const;
@@ -85,6 +86,7 @@ export function formulasTab(store: CalcStore, t: T, off: boolean): RibbonTab {
   );
   const names = store.names.formulaNames();
   const arrows = store.trace.arrows.length > 0;
+  const calc = store.calcTools.options();
   return {
     id: "formulas",
     label: t("calc.tab.formulas"),
@@ -162,14 +164,21 @@ export function formulasTab(store: CalcStore, t: T, off: boolean): RibbonTab {
                 disabled={off}
                 onClick={() => store.openDialog({ kind: "defineName" })}
                 menuLabel={t("calc.names.defineMenu")}
-                menu={[{ id: "define", label: t("calc.names.defineDots"), onSelect: () => store.openDialog({ kind: "defineName" }) }]}
+                menu={[
+                  { id: "define", label: t("calc.names.defineDots"), onSelect: () => store.openDialog({ kind: "defineName" }) },
+                  { id: "apply", label: t("calc.applyNames.menu"), disabled: names.length === 0, onSelect: () => store.openDialog({ kind: "applyNames" }) },
+                ]}
               />
               <RibbonMenuButton
                 label={t("calc.names.useInFormula")}
                 icon={useNameIcon()}
                 showLabel
                 disabled={off || names.length === 0}
-                menu={names.map((n) => ({ id: `${n.sheet ?? ""}:${n.name}`, label: n.name, onSelect: () => store.insertIntoFormula(n.name) }))}
+                menu={[
+                  ...names.map((n) => ({ id: `${n.sheet ?? ""}:${n.name}`, label: n.name, onSelect: () => store.insertIntoFormula(n.name) })),
+                  { separator: true as const },
+                  { id: "paste", label: t("calc.pasteNames.menu"), onSelect: () => store.openDialog({ kind: "pasteNames" }) },
+                ]}
               />
             </RibbonStack>
             <RibbonStack>
@@ -200,17 +209,67 @@ export function formulasTab(store: CalcStore, t: T, off: boolean): RibbonTab {
                   { id: "dependents", label: t("calc.audit.removeDependentArrows"), onSelect: () => store.trace.clear("dependents") },
                 ]}
               />
-              <RibbonButton
-                label={t("calc.audit.showFormulas")}
-                icon={showFormulasIcon()}
-                showLabel
-                shortcut="Mod+`"
-                pressed={st.showFormulas}
-                disabled={off}
-                onClick={() => store.toggleShowFormulas()}
-              />
+              {/* Show Formulas, Error Checking, Evaluate Formula, Watch Window: one row of icons (Excel's compact layout). */}
+              <RibbonRow>
+                <RibbonButton
+                  label={t("calc.audit.showFormulas")}
+                  icon={showFormulasIcon()}
+                  shortcut="Mod+`"
+                  pressed={st.showFormulas}
+                  disabled={off}
+                  onClick={() => store.toggleShowFormulas()}
+                />
+                <RibbonSplitButton
+                  label={t("calc.err.button")}
+                  icon={errorCheckIcon()}
+                  disabled={off}
+                  onClick={() => void store.audit.openErrorChecking()}
+                  menuLabel={t("calc.err.buttonMenu")}
+                  menu={[
+                    {
+                      id: "check",
+                      label: t("calc.err.checkDots"),
+                      onSelect: () => void store.audit.openErrorChecking(),
+                    },
+                    { id: "options", label: t("calc.err.optionsMenu"), onSelect: () => store.openDialog({ kind: "formulaOptions" }) },
+                  ]}
+                />
+                <RibbonButton label={t("calc.eval.button")} icon={evaluateIcon(16)} disabled={off} onClick={() => void store.audit.evaluate()} />
+                <RibbonButton
+                  label={t("calc.watch.title")}
+                  icon={watchIcon(16)}
+                  pressed={store.audit.watchOpen}
+                  disabled={off}
+                  onClick={() => store.audit.toggleWatchWindow()}
+                />
+              </RibbonRow>
             </RibbonStack>
           </>
+        ),
+      },
+      {
+        label: t("calc.calc.group"),
+        // Collapses first on a narrow window.
+        collapsePriority: 1,
+        items: (
+          <RibbonStack>
+            <RibbonMenuButton
+              label={t("calc.calc.options")}
+              icon={calcOptionsIcon(16)}
+              showLabel
+              disabled={off}
+              menu={CALC_MODES.map((m) => ({
+                id: m,
+                label: t(`calc.calcOpt.mode.${m}`),
+                checked: calc.mode === m,
+                onSelect: () => void store.calcTools.setMode(m),
+              }))}
+            />
+            <RibbonRow>
+              <RibbonButton label={t("calc.calc.now")} icon={calcNowIcon()} shortcut="F9" disabled={off} onClick={() => void store.calcTools.calculateNow()} />
+              <RibbonButton label={t("calc.calc.sheet")} icon={calcSheetIcon()} shortcut="Shift+F9" disabled={off} onClick={() => void store.calcTools.calculateSheet()} />
+            </RibbonRow>
+          </RibbonStack>
         ),
       },
     ],

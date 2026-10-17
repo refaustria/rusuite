@@ -740,6 +740,8 @@ export function rowHeaderColor(r: number, selected: boolean, blueRows: { r0: num
 export function drawHeaders(
   ctx: CanvasRenderingContext2D, l: PaneLayout, sheet: SheetData, range: Range, colors: { bg: string; fg: string; line: string; active: string },
   blueRows: { r0: number; r1: number } | null = null,
+  /** R1C1 reference style (P9-C4): numbered column headings. */
+  r1c1 = false,
 ): void {
   const { colGeo, rowGeo } = sheet;
   const fullW = HEADER_W + l.width, fullH = HEADER_H + l.height;
@@ -770,7 +772,7 @@ export function drawHeaders(
         ctx.fillRect(x, 0, w, HEADER_H);
       }
       ctx.fillStyle = colsSel && c >= range.c0 && c <= range.c1 ? "#ffffff" : colors.fg;
-      ctx.fillText(colName(c), x + w / 2, HEADER_H / 2 + 1);
+      ctx.fillText(r1c1 ? String(c + 1) : colName(c), x + w / 2, HEADER_H / 2 + 1);
       ctx.moveTo(Math.round(x + w) - 0.5, 0);
       ctx.lineTo(Math.round(x + w) - 0.5, HEADER_H);
     }

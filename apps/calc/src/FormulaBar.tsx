@@ -37,13 +37,17 @@ export function FormulaBar({ store }: { store: CalcStore }) {
   const r = normalize(selection);
   // A merged cell is addressed by its top-left cell, as in Excel's name box.
   const single = isSingleCell(r, store.merges());
-  const address = single ? `${prefix}${cellAddress(row, col)}` : `${prefix}${cellAddress(r.r0, r.c0)}:${cellAddress(r.r1, r.c1)}`;
+  // R1C1 reference style (P9-C4): `R2C3`.
+  const at = (rr: number, cc: number) => (store.calcTools.r1c1() ? `R${rr + 1}C${cc + 1}` : cellAddress(rr, cc));
+  const address = single ? `${prefix}${at(row, col)}` : `${prefix}${at(r.r0, r.c0)}:${at(r.r1, r.c1)}`;
   // A spilled cell shows its array formula greyed and read-only (Excel); typing into the cell still replaces it.
   const ghost = edit ? null : store.ghostFormula();
   useCalc(store, (s) => s.info?.sheets);
+  useCalc(store, (s) => s.info?.calc?.options.r1c1);
   // A hidden formula on a protected sheet shows nothing (Format Cells › Protection › Hidden).
   const hidden = !edit && formulaHidden(store);
-  const value = edit ? edit.text : hidden ? "" : (ghost?.input ?? store.activeCell()?.input ?? "");
+  const anchor = store.activeAnchor();
+  const value = edit ? edit.text : hidden ? "" : store.calcTools.displayInput(ghost?.input ?? store.activeCell()?.input ?? "", anchor.row, anchor.col);
   const refs = edit && isFormula(edit.text) ? store.editRefs() : [];
   const colored = refs.length > 0;
   // The in-cell editor is hidden while pointing on another sheet: the bar then shows the popups.

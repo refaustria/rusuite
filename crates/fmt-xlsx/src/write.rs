@@ -234,7 +234,7 @@ fn workbook_xml(
             n.comment,
             local,
             n.hidden,
-            add_xlfn_prefixes(&n.refers_to),
+            add_xlfn_prefixes(&crate::dynarray::name_file_text(&n.refers_to)),
         ));
     }
     for (i, (id, name)) in sheets.iter().enumerate() {
@@ -272,7 +272,18 @@ fn workbook_xml(
         }
         x.end("definedNames");
     }
-    x.empty("calcPr", &[("fullCalcOnLoad", "1")]);
+    let calc = wb.calc_settings();
+    let mut calc_attrs: Vec<(&str, &str)> = Vec::new();
+    if calc.mode != model_sheet::CalcMode::Automatic {
+        calc_attrs.push(("calcMode", calc.mode.file_name()));
+    }
+    if calc.full_calc_on_load {
+        calc_attrs.push(("fullCalcOnLoad", "1"));
+    }
+    if calc.r1c1 {
+        calc_attrs.push(("refMode", "R1C1"));
+    }
+    x.empty("calcPr", &calc_attrs);
     crate::pivot::pivot_caches_xml(&mut x, pivot_caches);
     crate::slicer::workbook_ext_xml(&mut x, slicer_caches);
     x.end("workbook");

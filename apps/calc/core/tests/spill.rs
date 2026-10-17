@@ -161,3 +161,57 @@ fn clearing_and_undo_are_identities() {
     h.undo().unwrap();
     assert_eq!(snapshot(&h), before);
 }
+
+/// P9-C4: sort, fill and merge over part of a spill range are refused
+/// (`spill_part`); covering the formula cell alone or the whole spill is
+/// fine.
+#[test]
+fn spill_guards_refuse_partial_edits() {
+    use calc_core::FillMode;
+    use model_sheet::{SortKey, SortKind};
+    let mut h = host();
+    set(&mut h, 0, 0, "=SEQUENCE(3)");
+    set(&mut h, 0, 1, "5");
+    let r = |r0, c0, r1, c1| Rect { r0, c0, r1, c1 };
+    let code = |h: &mut CalcHost, c: C| h.apply(c).map(|_| ()).unwrap_err().code();
+    let sort = C::SortRange {
+        sheet: 0,
+        r0: 1,
+        c0: 0,
+        r1: 2,
+        c1: 1,
+        keys: vec![SortKey {
+            col: 0,
+            ascending: false,
+            kind: SortKind::Auto,
+        }],
+        has_header: false,
+        case_sensitive: false,
+    };
+    assert_eq!(code(&mut h, sort), "spill_part");
+    let fill = C::FillRange {
+        sheet: 0,
+        src: r(0, 1, 0, 1),
+        dst: r(1, 1, 2, 1),
+        mode: FillMode::Copy,
+    };
+    assert!(h.apply(fill).is_ok());
+    let fill = C::FillRange {
+        sheet: 0,
+        src: r(0, 1, 0, 1),
+        dst: r(1, 0, 2, 0),
+        mode: FillMode::Copy,
+    };
+    assert_eq!(code(&mut h, fill), "spill_part");
+    let merge = C::MergeCells {
+        sheet: 0,
+        r0: 1,
+        c0: 0,
+        r1: 1,
+        c1: 1,
+    };
+    assert_eq!(code(&mut h, merge), "spill_part");
+    // Typing into a spilled cell blocks the spill instead.
+    set(&mut h, 1, 0, "x");
+    assert_eq!(view(&h, 0, 0).display, "#SPILL!");
+}

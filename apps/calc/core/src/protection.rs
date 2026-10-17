@@ -233,6 +233,24 @@ impl CalcDocument {
                 c1,
             } => self.deny_locked(sheet, r0, c0, r1, c1),
             &C::TextToColumns { sheet, .. } => self.deny_if(sheet, always),
+            &C::ApplyNames {
+                sheet,
+                r0,
+                c0,
+                r1,
+                c1,
+                ..
+            } => self.deny_locked(sheet, r0, c0, r1, c1),
+            C::ConvertToNumber { sheet, cells } => cells
+                .iter()
+                .try_for_each(|r| self.deny_locked(*sheet, r.r0, r.c0, r.r1, r.c1)),
+            &C::PasteNameList { sheet, row, col } => self.deny_locked(
+                sheet,
+                row,
+                col,
+                row.saturating_add(255),
+                col.saturating_add(1),
+            ),
             &C::RemoveDuplicates {
                 sheet,
                 r0,

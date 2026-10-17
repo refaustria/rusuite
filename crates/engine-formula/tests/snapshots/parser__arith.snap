@@ -23,6 +23,7 @@ Binary {
             expr: Reference(
                 Reference {
                     sheet: None,
+                    sheet_last: None,
                     kind: Cell(
                         CellRef {
                             col: 0,

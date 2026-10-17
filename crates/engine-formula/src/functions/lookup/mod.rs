@@ -3,6 +3,7 @@
 use super::FunctionRegistry;
 
 pub mod address;
+pub mod areas;
 pub mod choose;
 pub mod column;
 pub mod getpivotdata;
@@ -25,6 +26,7 @@ pub mod xmatch;
 
 /// Registers every lookup/reference function.
 pub fn register(r: &mut FunctionRegistry) {
+    r.register(Box::new(areas::Areas));
     r.register(Box::new(choose::Choose));
     r.register(Box::new(column::Column));
     r.register(Box::new(hlookup::Hlookup));

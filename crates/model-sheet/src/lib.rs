@@ -15,6 +15,7 @@
 //! serde, the IPC layer and `fmt-xlsx`.
 
 pub mod annotations;
+pub mod calc;
 pub mod chart;
 pub mod condfmt;
 pub mod consolidate;
@@ -29,6 +30,7 @@ pub mod sheet;
 pub mod slicer;
 pub mod snapshot;
 pub mod sortfilter;
+mod spill;
 pub mod style;
 pub mod table_styles;
 pub mod tables;
@@ -39,6 +41,7 @@ pub mod workbook;
 pub use annotations::{
     guid, initials_of, Hyperlink, LinkTarget, Note, NoteBounds, NoteRun, Person, Reply, Thread,
 };
+pub use calc::{CalcMode, CalcSettings};
 pub use chart::{CellOffset, ChartAnchor, ChartObject, ResolvedRef};
 pub use condfmt::{
     CfKind, CfResult, CfRule, CfValue, ColorPoint, CompareOp, DxfStyle, IconSetKind,
@@ -168,4 +171,7 @@ pub enum Error {
     /// Unprotect with a wrong password.
     #[error("{}", protection::WRONG_PASSWORD_MESSAGE)]
     WrongPassword,
+    /// Sort, fill, paste or merge over part of a spill range.
+    #[error("You can't change part of an array.")]
+    SpillPart,
 }

@@ -473,6 +473,8 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
         onExportPdf,
         print,
         onCloseDocument: () => triggerShortcut("Mod+N"),
+        // File › Options › Formulas (P9-C4).
+        onOptions: () => store.openDialog({ kind: "formulaOptions" }),
       }}
     />
   );

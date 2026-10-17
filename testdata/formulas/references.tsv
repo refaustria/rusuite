@@ -1,5 +1,5 @@
 # PROVISIONAL – expected values computed by LibreOffice 25.2.3.2; replace with Excel values
-# family: references (32 cases); evaluate in the context of sheet Data, see fixture.tsv
+# family: references (48 cases); evaluate in the context of sheet Data, see fixture.tsv
 formula	type	expected	note
 =Other!A1*2	number	14	
 =Other!B1	text	remote	
@@ -35,3 +35,19 @@ formula	type	expected	note
 =SUM(Data!H1:H2)	error	#DIV/0!	
 =MAX(Data!C1:C6)-MIN(Other!A1,0)	number	1000000	
 =SUM(A1:A3)*Other!A1	number	42	
+=SUM(A1:C3 B2:C6)	number	-2	
+=A1:A6 A3:C3	number	3	
+=SUM(A1:A3 C4:C6)	error	#NULL!	
+=ISERROR(A1 C2)	bool	TRUE	
+=SUM((A1:A3,C1:C2))	number	14.5	
+=COUNT((A1,A3,C1:C6))	number	8	
+=MAX((A1:A2,C1,F1:F4))	number	400	
+=AVERAGE((A1:A2,A5:A6))	number	3.5	
+=AREAS(A1:C6)	number	1	
+=AREAS((A1:A3,C1,F1:F4))	number	3	
+=AREAS(A1:C3 B2:C6)	number	1	
+=AREAS((A1,B1))+AREAS(Other!A1)	number	3	
+=SUM(Data:Other!A1)	number	8	
+=COUNT(Data:Other!A1:A2)	number	3	
+=SUM($A:A)	number	21	
+=SUM(2:$3)	error	#N/A	

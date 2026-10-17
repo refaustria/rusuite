@@ -44,6 +44,9 @@ pub struct WorkbookSnapshot {
     /// Slicer caches (the slicers are in [`SheetSnapshot::slicers`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub slicer_caches: Vec<crate::slicer::SlicerCache>,
+    /// Calculation settings; absent = the defaults.
+    #[serde(default, skip_serializing_if = "crate::calc::CalcSettings::is_default")]
+    pub calc: crate::calc::CalcSettings,
 }
 
 /// A defined name in a [`WorkbookSnapshot`].
@@ -241,6 +244,7 @@ impl Workbook {
             protection: self.workbook_protection().cloned(),
             table_styles: self.table_styles().clone(),
             slicer_caches: self.slicer_caches().to_vec(),
+            calc: self.calc_settings(),
         }
     }
 
@@ -419,6 +423,8 @@ impl Workbook {
                 let _ = wb.set_sheet_visibility(id, true, sheet.very_hidden);
             }
         }
+        // Last: in manual mode the load above was still calculated.
+        wb.set_calc_settings(snapshot.calc);
         Ok(wb)
     }
 }

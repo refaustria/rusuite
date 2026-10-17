@@ -168,6 +168,10 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       "Shift+F3": { label: t("calc.fn.insert"), group: t("calc.tab.formulas"), inField: true, run: () => store.openDialog({ kind: "insertFunction" }) },
       "Mod+F3": { label: t("calc.names.manager"), group: t("calc.tab.formulas"), when: inGrid, run: () => store.openDialog({ kind: "nameManager" }) },
       "Mod+Shift+F3": { label: t("calc.names.createFromSelection"), group: t("calc.tab.formulas"), when: inGrid, run: () => store.openDialog({ kind: "createNames" }) },
+      // Paste Names (F3) – also inside the formula being edited – and Calculate Now / Sheet (P9-C4).
+      F3: { label: t("calc.pasteNames.title"), group: t("calc.tab.formulas"), inField: true, run: () => store.openDialog({ kind: "pasteNames" }) },
+      F9: { label: t("calc.calc.now"), group: t("calc.tab.formulas"), when: inGrid, run: () => void store.calcTools.calculateNow() },
+      "Shift+F9": { label: t("calc.calc.sheet"), group: t("calc.tab.formulas"), when: inGrid, run: () => void store.calcTools.calculateSheet() },
       "Alt+=": { label: t("calc.fn.autoSum"), group: t("calc.tab.formulas"), when: inGrid, run: () => store.autoSum("SUM") },
       // Insert › Table (Excel: Ctrl+T and Ctrl+L).
       "Mod+T": { label: t("calc.table.create"), group: t("tab.insert"), when: inGrid, run: () => openCreateTable(store) },

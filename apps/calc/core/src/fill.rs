@@ -83,10 +83,7 @@ pub fn transpose_input(input: &str, from: (u32, u32), to: (u32, u32)) -> String 
                 return Some(moved);
             }
         };
-        Some(Expr::Reference(Reference {
-            sheet: r.sheet.clone(),
-            kind,
-        }))
+        Some(Expr::Reference(Reference { kind, ..r.clone() }))
     });
     format!("={out}")
 }

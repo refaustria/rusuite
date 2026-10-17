@@ -8,6 +8,7 @@ Call {
         Reference(
             Reference {
                 sheet: None,
+                sheet_last: None,
                 kind: Area(
                     CellRef {
                         col: 0,
@@ -29,6 +30,7 @@ Call {
                 sheet: Some(
                     "Sheet2",
                 ),
+                sheet_last: None,
                 kind: Cell(
                     CellRef {
                         col: 2,

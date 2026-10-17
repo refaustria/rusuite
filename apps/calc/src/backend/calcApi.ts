@@ -33,6 +33,11 @@ import type { Picture } from "../generated/Picture";
 import type { TextEncoding } from "../generated/TextEncoding";
 import type { TextImportOptions } from "../generated/TextImportOptions";
 import type { WorkbookInfo } from "../generated/WorkbookInfo";
+import type { ErrorIssue } from "../generated/ErrorIssue";
+import type { ErrorRule } from "../generated/ErrorRule";
+import type { Evaluation } from "../generated/Evaluation";
+import type { WatchCell } from "../generated/WatchCell";
+import type { WatchItem } from "../generated/WatchItem";
 
 export type PatchEnvelope = Envelope<CalcPatch>;
 
@@ -111,6 +116,9 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     decoded: { decoded: "object" },
     preview: { rows: "array" },
     pictures: { pictures: "array" },
+    errorChecks: { issues: "array" },
+    evaluation: { evaluation: "object" },
+    watch: { items: "array" },
   };
   for (const [field, kind] of Object.entries(shapes[expected])) {
     const value = body[field];
@@ -252,6 +260,21 @@ export class CalcApi {
   /** The formula cells reading the cell (Trace Dependents). */
   async dependents(sheet: number, row: number, col: number): Promise<SheetRect[]> {
     return (await this.call({ type: "dependents", sheet, row, col }, "trace")).refs;
+  }
+
+  /** Background error checking of a sheet (P9-C4). */
+  async errorChecks(sheet: number, rules: ErrorRule[]): Promise<ErrorIssue[]> {
+    return (await this.call({ type: "errorChecks", sheet, rules }, "errorChecks")).issues;
+  }
+
+  /** Evaluate Formula's steps for a cell. */
+  async evaluateFormula(sheet: number, row: number, col: number): Promise<Evaluation> {
+    return (await this.call({ type: "evaluateFormula", sheet, row, col }, "evaluation")).evaluation;
+  }
+
+  /** The Watch Window's values. */
+  async watchCells(cells: WatchCell[]): Promise<WatchItem[]> {
+    return (await this.call({ type: "watchCells", cells }, "watch")).items;
   }
 
   /** Checks `input` (as typed) against the data validation of the cell, before `setInput`. */
