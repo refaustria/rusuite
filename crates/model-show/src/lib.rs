@@ -44,7 +44,6 @@ pub mod master;
 pub mod motion;
 pub mod picture;
 pub mod presentation;
-pub mod presets;
 pub mod route;
 pub mod section;
 pub mod shape;
@@ -71,8 +70,8 @@ pub use core_model::units::Emu;
 pub use core_model::{Color, RunProperties};
 pub use design::{Design, DesignRef};
 pub use geometry::{
-    flatten, Adjust, AdjustHandle, ConnectorKind, GeomPath, HandleAxis, PathCmd, Site, SubPath,
-    TextRect,
+    flatten, Adjust, AdjustHandle, ConnectorKind, GeomPath, HandleAxis, PathCmd, PresetActions,
+    Site, SubPath, TextRect,
 };
 pub use layout::{Layout, LayoutKind, PlaceholderDef, PlaceholderKind};
 pub use link::{Action, Hyperlink, LinkTarget, SlideRef};

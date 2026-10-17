@@ -1,5 +1,6 @@
 //! TypeScript-only mirrors of `core-model` types that appear in the Show
-//! model (`core-model` does not depend on `ts-rs`). They copy the serde
+//! model (`core-model` depends on `ts-rs` only for its `geometry` module,
+//! behind its `ts` feature, which this crate's `ts` enables). They copy the serde
 //! shape exactly and exist only to generate the TS definitions; model types
 //! point at them with `#[ts(as = "...")]`. A test round-trips real values
 //! through them to catch drift.

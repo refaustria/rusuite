@@ -10,7 +10,7 @@ use crate::chart::ChartShape;
 use crate::clip::{MediaClip, MediaKind};
 use crate::connector::Connector;
 pub use crate::geometry::Preset;
-use crate::geometry::{Adjust, ConnectorKind};
+use crate::geometry::{Adjust, ConnectorKind, PresetActions};
 use crate::layout::PlaceholderKind;
 use crate::link::Action;
 use crate::picture::PictureProps;
@@ -510,7 +510,7 @@ impl Shape {
 
     /// An action button (one of the `actionButton*` presets) with
     /// PowerPoint's default style and the preset's default action
-    /// ([`Preset::default_action`]).
+    /// ([`PresetActions::default_action`]).
     pub fn action_button(preset: Preset, transform: Transform) -> Self {
         let mut s = Self::auto(preset.clone(), transform);
         s.click_action = preset.default_action();

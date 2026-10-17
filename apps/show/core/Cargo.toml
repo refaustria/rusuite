@@ -21,6 +21,7 @@ ts-rs = { version = "12", features = ["serde-compat"] }
 
 [dev-dependencies]
 fmt-ooxml = { path = "../../../crates/fmt-ooxml" }
+insta.workspace = true
 
 [lints]
 workspace = true

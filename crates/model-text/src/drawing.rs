@@ -13,8 +13,8 @@
 //!
 //! Geometry is a DrawingML preset name (`rect`, `roundRect`, `ellipse`, …,
 //! kept verbatim so that every preset round-trips) with its adjust values;
-//! outlines are computed by the shared preset path code (Show's
-//! `model_show::geometry`, asked through write-core). A custom geometry
+//! outlines are computed by the preset geometry Show uses too
+//! (`core_model::geometry`, asked through write-core). A custom geometry
 //! (`a:custGeom`) is kept as XML and drawn as its bounding box.
 //!
 //! Groups (`wpg:wgp`, [`DrawingKind::Group`]) hold their members in

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Converts ECMA-376 presetShapeDefinitions.xml into the compact line format
-read by crates/model-show/src/presets/mod.rs (see its module docs).
+read by crates/core-model/src/geometry/presets/mod.rs (see its module docs).
 
 Usage: python3 -I gen_presets.py presetShapeDefinitions.xml names.txt > defs.txt
 `names.txt` lists the DrawingML preset names to keep, one per line.

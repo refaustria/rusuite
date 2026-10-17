@@ -432,9 +432,9 @@ fn handle(host: &mut WriteHost, request: Request) -> Result<ResponseBody, Dispat
 }
 
 /// The outline of one preset query, from the shared preset geometry
-/// (`model_show::geometry`, ECMA-376 preset definitions).
+/// (`core_model::geometry`, ECMA-376 preset definitions, shared with Show).
 pub fn shape_outline(q: &ShapePathQuery) -> ShapeOutline {
-    use model_show::geometry::{flatten, PathCmd, Preset};
+    use core_model::geometry::{flatten, PathCmd, Preset};
     let preset = Preset::from_prst(&q.preset).unwrap_or(Preset::Rect);
     let (w, h) = (q.w.clamp(1.0, 1e9), q.h.clamp(1.0, 1e9));
     let n = |v: f64| format!("{}", (v * 100.0).round() / 100.0);
