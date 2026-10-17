@@ -16,7 +16,7 @@ import { clickAction, keyAction, type ShowAction, type ShowState } from "./showS
 import { nextVisit, ShowSlide, type SlideVisit } from "./AnimatedSlide";
 import { ShowOverlay } from "./ShowOverlay";
 import { stopShowSounds } from "./sounds";
-import { InkLayer, SeeAll, ToolBar, slideBox, toolsCapture, useToolKeys, useTools, zoomTransform } from "./ShowTools";
+import { InkLayer, SeeAll, ToolBar, slideBox, toolsCapture, typingIn, useToolKeys, useTools, zoomTransform, type ToolsState } from "./ShowTools";
 import { linkAction } from "../links/regions";
 import type { Hyperlink } from "../generated/Hyperlink";
 import { useT } from "../i18n";
@@ -46,7 +46,7 @@ export function useShowKeys(onAction: (a: ShowAction) => void, enabled = true) {
   useEffect(() => {
     if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || typingIn(e)) return;
       const a = keyAction(e.key);
       if (!a) return;
       e.preventDefault();
@@ -77,11 +77,16 @@ export interface PresenterProps {
   onCustomShow?: (id: number, returnAfter: boolean) => void;
   /** Set Up Slide Show › Pen color (`#RRGGBB`). */
   penColor?: string;
+  /** The tools' state owned by the caller (the show keeps the ink to offer saving it at the end; P9-S5). */
+  toolsState?: [ToolsState, (f: (s: ToolsState) => ToolsState) => void];
+  /** The audience window of the presenter view: the presenter's ink, laser pointer and zoom, read-only. */
+  mirror?: ToolsState;
 }
 
 const NO_FIRES: string[] = [];
+const NO_SET = () => undefined;
 
-export function Presenter({ deck, slides, media, mediaVersion, show, onAction, fullscreenExits = true, overlay, tools: toolsOn = false, toolbarExtra, onCustomShow, penColor }: PresenterProps) {
+export function Presenter({ deck, slides, media, mediaVersion, show, onAction, fullscreenExits = true, overlay, tools: toolsOn = false, toolbarExtra, onCustomShow, penColor, toolsState, mirror }: PresenterProps) {
   const t = useT();
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [idle, setIdle] = useState(false);
@@ -136,8 +141,10 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
     onAction(a);
   };
   // the tools' keys first: they take Esc while zoomed / drawing
-  const [tools, setTools] = useTools(penColor);
-  const pointerAt = useRef({ x: 0, y: 0 });
+  const own = useTools(penColor);
+  const [tools, setTools] = mirror ? [mirror, NO_SET] : (toolsState ?? own);
+  const zoomed = toolsOn || !!mirror;
+  const pointerAt = useRef({ x: 0.5, y: 0.5 });
   useToolKeys(setTools, slides[show.index]?.id, pointerAt, toolsOn);
   useShowKeys(act);
 
@@ -192,9 +199,9 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
       data-idle={idle ? "true" : undefined}
       className={`fixed inset-0 z-50 flex select-none items-center justify-center ${blank === "white" ? "bg-white" : "bg-black"} ${idle ? "cursor-none" : "cursor-pointer"}`}
       data-tool={toolsOn ? tools.mode : undefined}
-      data-zoom={toolsOn && tools.zoom > 1 ? tools.zoom : undefined}
+      data-zoom={zoomed && tools.zoom > 1 ? tools.zoom : undefined}
       onPointerMove={(e) => {
-        pointerAt.current = { x: e.clientX, y: e.clientY };
+        pointerAt.current = { x: e.clientX / (window.innerWidth || 1), y: e.clientY / (window.innerHeight || 1) };
       }}
       onClick={(e) => {
         if (toolsOn && toolsCapture(tools)) return;
@@ -202,13 +209,13 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
         act(clickAction(e.clientX - r.left, r.width || window.innerWidth));
       }}
     >
-      <div className="absolute inset-0 flex items-center justify-center" style={{ transform: toolsOn ? zoomTransform(tools, size.width, size.height) : undefined, transformOrigin: "0 0" }}>
+      <div className="absolute inset-0 flex items-center justify-center" style={{ transform: zoomed ? zoomTransform(tools, size.width, size.height) : undefined, transformOrigin: "0 0" }}>
         {blank === "none" && slide && (
           <ShowSlide deck={deck} slides={slides} visit={visit} step={show.step} media={media} mediaVersion={mediaVersion} width={size.width} height={size.height} fired={fired} />
         )}
         {blank === "none" && slide && !show.ended && <ShowOverlay key={slide.id} deck={deck} slide={slide} step={show.step} media={media} width={size.width} height={size.height} onLink={follow} fired={fired} onTrigger={onTrigger} />}
-        {toolsOn && blank === "none" && slide && !show.ended && (
-          <InkLayer tools={tools} setTools={setTools} slide={slide} box={slideBox(deck, size.width, size.height)} scale={slideBox(deck, size.width, size.height).scale} />
+        {zoomed && blank === "none" && slide && !show.ended && (
+          <InkLayer tools={tools} setTools={setTools} slide={slide} box={slideBox(deck, size.width, size.height)} scale={slideBox(deck, size.width, size.height).scale} readOnly={!!mirror} />
         )}
       </div>
       {toolsOn && tools.seeAll && (

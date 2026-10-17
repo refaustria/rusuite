@@ -6,7 +6,7 @@
 // editor.
 
 import { aiRibbonGroup, HelpMenu } from "@rusuite/ui-shared";
-import { useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ColorPicker, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
   RibbonRow, RibbonSplitButton, RibbonStack, StyleToggles, bytesToBase64, formatCombo, triggerShortcut, languageRibbonGroup, withLabel,
@@ -33,6 +33,29 @@ import { pictureFormatTab } from "./PictureTab";
 import { DI } from "./designIcons";
 import { chartDesignTab, chartFormatTab, insertChartButton } from "../charts/ChartRibbon";
 import { MediaInsertButtons, playbackTab } from "../media/PlaybackTab";
+import { canDetectScreens, choiceLabel, detectScreens, listScreens, loadScreenChoice, saveScreenChoice, type ScreenChoice, type ScreenInfo } from "../present/screens";
+
+/** Slide Show › Monitor: the screens and the remembered choice (P9-S5). */
+function useScreenChoice(): { screens: ScreenInfo[]; choice: ScreenChoice; choose: (c: ScreenChoice) => void; detect: () => void } {
+  const [screens, setScreens] = useState<ScreenInfo[]>([]);
+  const [choice, setChoice] = useState<ScreenChoice>(loadScreenChoice);
+  useEffect(() => {
+    let alive = true;
+    void listScreens().then((l) => alive && setScreens(l));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return {
+    screens,
+    choice,
+    choose: (c) => {
+      saveScreenChoice(c);
+      setChoice(c);
+    },
+    detect: () => void detectScreens().then(setScreens).catch(() => undefined),
+  };
+}
 
 /** The shape the formatting controls reflect: the edited one, else the first selected. */
 function focusShape(s: ShowState): Shape | null {
@@ -193,6 +216,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
   const masterView = state.masterView !== null;
   const pview = state.view;
   const vp = state.pres?.view ?? DEFAULT_VIEW;
+  const monitor = useScreenChoice();
 
   const value: CellStyleView = fmt
     ? {
@@ -716,7 +740,23 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
       },
       {
         label: t("show.monitors"),
-        items: <RibbonButton label={t("show.presenterView")} icon="presentCurrent" size="large" shortcut="Alt+F5" tooltip={t("show.presenterTip")} disabled={!hasSlide} onClick={onPresenterView} />,
+        items: (
+          <>
+            <RibbonMenuButton
+              label={t("show.monitor.label", { name: choiceLabel(monitor.choice, monitor.screens, t) })}
+              icon="presentCurrent"
+              showLabel
+              tooltip={t("show.monitor.tip")}
+              menu={[
+                { id: "monitor-auto", label: t("show.monitor.auto"), checked: monitor.choice === "auto", onSelect: () => monitor.choose("auto") },
+                { id: "monitor-primary", label: t("show.monitor.primary"), checked: monitor.choice === "primary", onSelect: () => monitor.choose("primary") },
+                ...monitor.screens.map((sc) => ({ id: `monitor-${sc.id}`, label: `${sc.label} (${Math.round(sc.width)} × ${Math.round(sc.height)})`, checked: monitor.choice === sc.id, onSelect: () => monitor.choose(sc.id) })),
+                ...(canDetectScreens() ? [{ separator: true as const }, { id: "monitor-detect", label: t("show.monitor.detect"), onSelect: monitor.detect }] : []),
+              ]}
+            />
+            <RibbonButton label={t("show.presenterView")} icon="presentCurrent" size="large" shortcut="Alt+F5" tooltip={t("show.presenterTip")} disabled={!hasSlide} onClick={onPresenterView} />
+          </>
+        ),
       },
     ],
   };

@@ -162,7 +162,9 @@ export class FakeBackend implements ShowBackend {
         return;
       case "addShape": {
         const s = this.slideOf(c.slide);
-        s.shapes.push(this.withIds(c.shape, idMap));
+        const shape = this.withIds(c.shape, idMap);
+        if (c.index === undefined || c.index === null) s.shapes.push(shape);
+        else s.shapes.splice(c.index, 0, shape);
         touched.add(s);
         return;
       }

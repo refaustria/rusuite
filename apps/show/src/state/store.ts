@@ -54,6 +54,7 @@ import { applyPreset, presetById } from "../charts/presets";
 import { transposeData } from "../charts/data";
 import type { Chart } from "../charts/types";
 import { linkAt, linkCommands, reusePayload } from "./rich";
+import { inkFreeforms, type InkStroke } from "../present/tools";
 import { effectiveParagraph, findShape, placeholderDef, textOf } from "../model";
 import {
   alignCommand, alignmentCommand, bodyFromText, bulletCommand, compound, duplicateCommand, formatCommands, indentCommands,
@@ -2479,6 +2480,46 @@ export class ShowStore {
     const settings = this.state.pres?.showSettings ?? DEFAULT_SHOW_SETTINGS;
     if (!settings.useTimings) commands.push({ type: "setShowSettings", settings: { ...settings, useTimings: true } });
     await this.run(compound(commands));
+  }
+
+  /**
+   * "Keep ink annotations?" › Keep (P9-S5): every stroke of the show
+   * becomes a freeform named "Ink N" on its slide (pen ink on top,
+   * highlighter ink below the slide's shapes), one undo step. PowerPoint
+   * writes ink as `p14:contentPart` ink parts; Rusuite writes freeforms
+   * (`a:custGeom`), which every Office version and LibreOffice show.
+   */
+  async keepInk(ink: ReadonlyMap<NodeId, readonly InkStroke[]>): Promise<void> {
+    const slides = this.state.pres?.slides ?? [];
+    const commands: ShowCommand[] = [];
+    let n = 0;
+    for (const slide of slides) {
+      const strokes = ink.get(slide.id);
+      if (!strokes?.length) continue;
+      let under = 0;
+      for (const f of inkFreeforms(strokes, EMU_PER_PX)) {
+        n++;
+        const shape: Shape = {
+          id: this.temp(),
+          name: `Ink ${n}`,
+          transform: { ...f.box, rotationDeg: 0 },
+          kind: {
+            kind: "auto",
+            value: {
+              geometry: {
+                custom: {
+                  paths: [{ w: f.box.w, h: f.box.h, fill: false, stroke: true, commands: f.points.map((p, i) => ({ kind: i === 0 ? "moveTo" : "lineTo", x: p.x, y: p.y })) }],
+                },
+              },
+            },
+          },
+          fill: { kind: "none" },
+          line: { fill: { kind: "solid", value: { kind: "rgb", value: f.color } }, width: f.width, dash: "solid" },
+        };
+        commands.push(f.highlighter ? { type: "addShape", slide: slide.id, shape, index: under++ } : { type: "addShape", slide: slide.id, shape });
+      }
+    }
+    if (commands.length) await this.run(compound(commands));
   }
 
   // ----- Outline View
