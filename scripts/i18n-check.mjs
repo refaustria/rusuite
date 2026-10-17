@@ -31,6 +31,17 @@
 // 6. Portal: every `data-i18n*="key"` of the pages in apps/portal
 //    (index, privacy, downloads) exists in its catalog.
 //
+// Pending keys (P9-L0b): English and German (CORE) must be complete. In
+// every other language a key of `en.json` that is missing (an ordinary key,
+// or a whole plural group) is *pending*: feature work adds keys to en + de
+// only, the translations catch up later and the runtime shows English
+// meanwhile. Pending keys are counted per language and file and printed,
+// but do not fail the check. Extra keys, placeholder mismatches, a plural
+// group with some categories missing, untranslated values and formal forms
+// still fail. `--strict` (or `I18N_STRICT=1`) makes pending keys fail too:
+// the completeness gate at the end of a translation block and before a
+// release (docs/release.md).
+//
 // Allow-lists: `scripts/i18n-allow/<lang>.json` (optional) –
 //   { "register": { "<locales dir>:<key>": "reason" }, "untranslated": { "<locales dir>:<key>": "reason" } }
 // Entries that no longer match are reported as stale. Exit code 1 with a
@@ -50,6 +61,9 @@ export const PACKAGES = [
   { name: "write", src: "apps/write/src", locales: "apps/write/src/locales" },
   { name: "show", src: "apps/show/src", locales: "apps/show/src/locales" },
 ];
+/** Catalogs that must stay complete: a missing key fails even without `--strict`. */
+export const CORE = ["en", "de"];
+
 export const PORTAL = { name: "portal", dir: "apps/portal", locales: "apps/portal/locales" };
 
 /**
@@ -155,11 +169,14 @@ export function looksUntranslated(enValue, value) {
 
 /**
  * Checks the catalog `msgs` of `lang` against `en` (plain objects). `dir` names the locales dir in findings and
- * allow-list ids; `allow` is `{ register, untranslated }` (maps of `<dir>:<key>` → reason). Returns the findings and
- * the allow-list entries that matched (`register:<id>`, `untranslated:<id>`).
+ * allow-list ids; `allow` is `{ register, untranslated }` (maps of `<dir>:<key>` → reason). Returns the findings, the
+ * allow-list entries that matched (`register:<id>`, `untranslated:<id>`) and the pending keys: keys of `en` missing
+ * in a language outside CORE (an ordinary key, or the base of a plural group with no variant at all) – not findings.
  */
 export function checkCatalog({ dir, lang, en, msgs, allow = {} }) {
   const findings = [];
+  const pending = [];
+  const core = CORE.includes(lang);
   const used = new Set();
   const file = `${dir}/${lang}.json`;
   const groups = pluralGroups(en);
@@ -170,11 +187,17 @@ export function checkCatalog({ dir, lang, en, msgs, allow = {} }) {
   };
   for (const k of Object.keys(en)) {
     if (inGroup(k)) continue;
-    if (!(k in msgs)) findings.push(`${file}: missing key "${k}"`);
-    else if (!sameList(placeholders(en[k]), placeholders(msgs[k]))) findings.push(`${file}: "${k}" has other placeholders than en.json`);
+    if (!(k in msgs)) {
+      if (core) findings.push(`${file}: missing key "${k}"`);
+      else pending.push(k);
+    } else if (!sameList(placeholders(en[k]), placeholders(msgs[k]))) findings.push(`${file}: "${k}" has other placeholders than en.json`);
   }
   for (const [base, variants] of groups) {
     const names = new Set(Object.values(variants).flatMap(placeholders));
+    if (!core && !Object.keys(msgs).some((k) => inGroup(k)?.base === base)) {
+      pending.push(base);
+      continue;
+    }
     for (const cat of cats) {
       const k = `${base}.${cat}`;
       if (!(k in msgs)) findings.push(`${file}: missing plural form "${k}" (${lang}: ${cats.join("/")})`);
@@ -186,7 +209,7 @@ export function checkCatalog({ dir, lang, en, msgs, allow = {} }) {
     if (g && !cats.includes(g.cat)) findings.push(`${file}: extra key "${k}" (${lang} has no plural category "${g.cat}")`);
     else if (!g && !(k in en)) findings.push(`${file}: extra key "${k}" (not in en.json)`);
   }
-  if (lang === "en") return { findings, used };
+  if (lang === "en") return { findings, used, pending };
   const register = { ...(lang === "de" ? FORMAL_ALLOW : {}), ...(allow.register ?? {}) };
   const untranslated = allow.untranslated ?? {};
   for (const [k, v] of Object.entries(msgs)) {
@@ -203,8 +226,11 @@ export function checkCatalog({ dir, lang, en, msgs, allow = {} }) {
       else findings.push(`${file}: "${k}" is identical to English – untranslated? (allow-list scripts/i18n-allow/${lang}.json)`);
     }
   }
-  return { findings, used };
+  return { findings, used, pending };
 }
+
+/** Whether pending keys fail: `--strict` on the command line or `I18N_STRICT=1`. */
+export const isStrict = (argv = process.argv.slice(2), env = process.env) => argv.includes("--strict") || env.I18N_STRICT === "1";
 
 /** Allow-list entries of `lang` that matched nothing (`used`: the union of checkCatalog's `used` over every dir). */
 export function staleEntries(lang, allow, used) {
@@ -281,8 +307,12 @@ const stripComments = (src) =>
 
 // --- main -----------------------------------------------------------------------
 
-/** Runs every check on the repository at `root`: `{ findings, languages: { <lang>: number of locales dirs } }`. */
-export function run(root) {
+/**
+ * Runs every check on the repository at `root`: `{ findings, languages: { <lang>: number of locales dirs }, pending }`,
+ * `pending`: `{ <lang>: { <catalog file>: [missing keys] } }` (languages outside CORE). With `strict` every pending key
+ * is also a finding.
+ */
+export function run(root, { strict = false } = {}) {
   const rel = (p) => path.relative(root, p);
   const readJson = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
   const findings = [];
@@ -296,6 +326,7 @@ export function run(root) {
   };
   const used = new Map();
   const languages = {};
+  const pending = {};
 
   /** Checks every catalog of `dir`; returns the English one. */
   const catalogs = (dir) => {
@@ -309,6 +340,10 @@ export function run(root) {
       languages[lang] = (languages[lang] ?? 0) + 1;
       const r = checkCatalog({ dir, lang, en, msgs: lang === "en" ? en : readJson(path.join(root, dir, f)), allow: allowOf(lang) });
       findings.push(...r.findings);
+      if (r.pending.length > 0) {
+        (pending[lang] ??= {})[`${dir}/${f}`] = r.pending;
+        if (strict) for (const k of r.pending) findings.push(`${dir}/${f}: missing key "${k}" (pending; --strict)`);
+      }
       if (!used.has(lang)) used.set(lang, new Set());
       for (const u of r.used) used.get(lang).add(u);
     }
@@ -378,15 +413,30 @@ export function run(root) {
   for (const [lang, n] of Object.entries(languages)) {
     if (n !== dirs) findings.push(`${lang}: catalogs in ${n} of ${dirs} locales dirs – a language adds all of them at once (docs/i18n.md)`);
   }
-  return { findings, languages };
+  return { findings, languages, pending };
+}
+
+/** Summary lines of the pending keys: `fr: 3 keys pending (apps/calc/src/locales/fr.json 2, …)`. */
+export function pendingLines(pending) {
+  return Object.keys(pending)
+    .sort()
+    .map((lang) => {
+      const files = Object.entries(pending[lang]).sort(([a], [b]) => a.localeCompare(b));
+      const n = files.reduce((sum, [, keys]) => sum + keys.length, 0);
+      return `${lang}: ${n} ${n === 1 ? "key" : "keys"} pending (${files.map(([f, keys]) => `${f} ${keys.length}`).join(", ")})`;
+    });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const { findings, languages } = run(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
+  const strict = isStrict();
+  const { findings, languages, pending } = run(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."), { strict });
+  const lines = pendingLines(pending);
+  const keys = Object.values(pending).reduce((sum, files) => sum + Object.values(files).reduce((s, k) => s + k.length, 0), 0);
+  if (lines.length > 0) console.log(lines.map((l) => `i18n-check: ${l}`).join("\n"));
   if (findings.length > 0) {
     console.error(`i18n-check: ${findings.length} finding(s)\n${findings.map((f) => `  ${f}`).join("\n")}`);
     process.exit(1);
   }
   const done = Object.keys(languages).sort();
-  console.log(`i18n-check: catalogs in sync, no literal UI strings – ${done.length} languages (${done.join(", ")}), ${LANGUAGES.length - done.length} pending`);
+  console.log(`i18n-check: catalogs in sync, no literal UI strings – ${done.length} languages (${done.join(", ")}), ${LANGUAGES.length - done.length} pending; ${keys} ${keys === 1 ? "key" : "keys"} pending in ${lines.length} translated ${lines.length === 1 ? "language" : "languages"}${strict ? " (--strict)" : keys > 0 ? " (fails with --strict)" : ""}`);
 }

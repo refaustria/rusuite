@@ -19,6 +19,7 @@ import { objectsPlugin } from "./drawings/objects";
 import { wrapBothPlugin } from "./wrapBoth";
 import { plainTextSlice } from "./plainPaste";
 import { selectsAll, updateFieldsCommand as updateSelectedFields } from "./references";
+import { fieldCodesPlugin, lockFieldsCommand, toggleAllFieldCodes, toggleSelectedFieldCodes } from "./fieldsW6";
 import { paragraphStyleId, resolveParagraph } from "./styleCss";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { insertNote } from "./structureCommands";
@@ -59,7 +60,7 @@ export type WriteDialog =
   | "splitCells" | "cellMargins" | "tableProps" | "bordersShading" | "tabs" | "userName"
   | "link" | "bookmark" | "goTo" | "caption" | "crossRef" | "columns" | "symbol" | "dateTime" | "font"
   | "numberFormat" | "bulletFormat" | "numberingValue" | "notes" | "newDocument" | "manageStyles" | "layout"
-  | "textToTable" | "tableToText" | "tableBorders" | "writeOptions" | null;
+  | "textToTable" | "tableToText" | "tableBorders" | "writeOptions" | "field" | "convertNotes" | "separators" | null;
 
 /** Review › Comments: what the margin / pane shows. */
 export interface CommentsUiState {
@@ -75,7 +76,11 @@ export interface CommentsUiState {
   draft: CommentDraft | null;
   /** The comment whose text is being edited. */
   editing: number | null;
+  /** Review › Display for Review (P9-W6): All Markup (balloons), Simple Markup (markers, click opens one), No Markup / Original (none). */
+  markup: MarkupMode;
 }
+
+export type MarkupMode = "all" | "simple" | "none" | "original";
 
 /** The style dialog the UI shows: Modify Style (`id`), a new style (Styles pane › New Style), Create a Style (from the selection), Rename. */
 export type StyleDialog =
@@ -164,7 +169,7 @@ export class WriteUi {
     frame: null,
     layout: null,
     hideWhiteSpace: false,
-    comments: { show: true, pane: false, filter: "all", active: null, hover: null, draft: null, editing: null },
+    comments: { show: true, pane: false, filter: "all", active: null, hover: null, draft: null, editing: null, markup: "all" },
     userThen: null,
     paragraphTab: "indents",
     symbolTab: "symbols",
@@ -233,6 +238,14 @@ export class WriteFeatures {
     if (!editor || editor.isDestroyed) return;
     await this.ctl.idle();
     await this.ctl.run(updateSelectedFields(editor.state, this.fields, selectsAll(editor.state)));
+  }
+
+  /** Lock Fields (Ctrl+F11) / Unlock Fields (Ctrl+Shift+F11) on the selection (everything with Ctrl+A). */
+  lockFields(locked: boolean): void {
+    const editor = this.editor;
+    if (!editor || editor.isDestroyed) return;
+    const cmd = lockFieldsCommand(editor.state, locked, selectsAll(editor.state));
+    if (cmd) void this.ctl.run(cmd);
   }
 
   /** Flow options of a paragraph (widow control, keep lines together, keep with next, page break before): its style chain, then its direct formatting. */
@@ -442,12 +455,33 @@ export class WriteFeatures {
             void features.updateFields();
             return true;
           },
+          // Word: Alt+F9 all field codes, Shift+F9 the selection's, Ctrl+F11 / Ctrl+Shift+F11 lock / unlock.
+          "Alt-F9": () => {
+            const view = (this.editor as Editor).view;
+            view.dispatch(toggleAllFieldCodes(view.state));
+            return true;
+          },
+          "Shift-F9": () => {
+            const view = (this.editor as Editor).view;
+            const tr = toggleSelectedFieldCodes(view.state);
+            if (tr) view.dispatch(tr);
+            return true;
+          },
+          "Mod-F11": () => {
+            features.lockFields(true);
+            return true;
+          },
+          "Mod-Shift-F11": () => {
+            features.lockFields(false);
+            return true;
+          },
         };
       },
       addProseMirrorPlugins() {
         const editor = this.editor as Editor;
         return [
           findPlugin(),
+          fieldCodesPlugin(),
           linksPlugin(),
           objectsPlugin(),
           wrapBothPlugin(),
@@ -494,7 +528,9 @@ export class WriteFeatures {
             },
             view: () => {
               const c = ui.getState().comments;
-              return { show: c.show, active: c.active, hover: c.hover, draft: c.draft ? { from: c.draft.from, to: c.draft.to } : null };
+              // No Markup / Original: no highlights at all; Simple Markup: only the opened comment's (Word).
+              if (c.markup === "none" || c.markup === "original") return { show: false, active: null, hover: null, draft: c.draft ? { from: c.draft.from, to: c.draft.to } : null };
+              return { show: c.show && c.markup !== "simple", active: c.active, hover: c.hover, draft: c.draft ? { from: c.draft.from, to: c.draft.to } : null };
             },
           }),
           new Plugin({

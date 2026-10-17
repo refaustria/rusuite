@@ -6,6 +6,7 @@ import type { DocumentSettings } from "./DocumentSettings";
 import type { InsertedBlock } from "./InsertedBlock";
 import type { NodeId } from "./NodeId";
 import type { Note } from "./Note";
+import type { NoteSeparators } from "./NoteSeparators";
 import type { Numbering } from "./Numbering";
 import type { PageSetup } from "./PageSetup";
 import type { Section } from "./Section";
@@ -79,6 +80,10 @@ properties?: CoreProperties,
  * The document settings, when they changed.
  */
 settings?: DocumentSettings, 
+/**
+ * The footnote/endnote separators, when they changed.
+ */
+separators?: NoteSeparators, 
 /**
  * A message for the status bar (e.g. `"3 replacements"`).
  */

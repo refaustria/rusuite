@@ -67,6 +67,113 @@ test.describe("German UI", () => {
   });
 });
 
+// P9-L1: French and Spanish (informal "tu" / "tú", Microsoft Office terms).
+const TRANSLATED = [
+  {
+    lang: "fr",
+    locale: "fr-FR",
+    home: "Accueil",
+    insert: "Insertion",
+    file: "Fichier",
+    save: /^Enregistrer(?! sous)/,
+    saveAs: /^Enregistrer sous…/,
+    saveTip: "Enregistrer (Ctrl+S)",
+    recent: "Récent",
+    privacy: /^Tes documents restent sur cet appareil\..*jusqu’à ce que tu les supprimes\.$/,
+    formal: /\b(vous|votre|vos)\b/i,
+    saved: "Enregistré",
+    viewTab: "Affichage",
+    portalOpen: (app: string) => `Ouvrir ${app} dans le navigateur`,
+    portalLogo: (app: string) => `Logo de Rusuite ${app}`,
+    portalLead: "Une petite suite bureautique avec un cœur en Rust",
+    portalPrivacy: /tes fichiers restent sur ta machine/,
+    version: /^Build \S+/,
+    pending: "Français",
+  },
+  {
+    lang: "es",
+    locale: "es-ES",
+    home: "Inicio",
+    insert: "Insertar",
+    file: "Archivo",
+    save: /^Guardar(?! como)/,
+    saveAs: /^Guardar como…/,
+    saveTip: "Guardar (Ctrl+S)",
+    recent: "Reciente",
+    privacy: /^Tus documentos se quedan en este dispositivo\..*hasta que las elimines\.$/,
+    formal: /\b(usted|ustedes)\b/i,
+    saved: "Guardado",
+    viewTab: "Vista",
+    portalOpen: (app: string) => `Abrir ${app} en el navegador`,
+    portalLogo: (app: string) => `Logotipo de Rusuite ${app}`,
+    portalLead: "Una pequeña suite ofimática con núcleo en Rust",
+    portalPrivacy: /tus archivos se quedan en tu equipo/,
+    version: /^Compilación \S+/,
+    pending: "Español",
+  },
+] as const;
+
+for (const L of TRANSLATED) {
+  test.describe(`${L.pending} UI (${L.lang})`, () => {
+    test.use({ locale: L.locale });
+
+    for (const { app, ready } of APPS) {
+      test(`${app}: the browser language selects ${L.lang} – "${L.home}" tab, "${L.saveTip}", informal`, async ({ page }) => {
+        const errors = trackErrors(page);
+        await page.goto(`${app}/`);
+        await ready(page).first().waitFor();
+        await expect(page.locator("html")).toHaveAttribute("lang", L.lang);
+        await expect(page.getByRole("tab", { name: L.home, exact: true })).toHaveAttribute("aria-selected", "true");
+        await expect(page.getByRole("tab", { name: L.insert, exact: true })).toBeVisible();
+        await shot(page, `${app}-home-${L.lang}`);
+        await page.getByRole("tab", { name: L.file, exact: true }).click();
+        const backstage = page.getByTestId("backstage");
+        await expect(backstage.getByRole("button", { name: L.save })).toBeVisible();
+        await expect(backstage.getByRole("button", { name: L.saveAs })).toBeVisible();
+        await expect(backstage.getByRole("heading", { name: L.recent })).toBeVisible();
+        await expect(backstage.getByTestId("privacy-text")).toHaveText(L.privacy);
+        expect(await backstage.innerText()).not.toMatch(L.formal);
+        await expect(backstage.getByRole("button", { name: L.save })).toHaveAttribute("title", L.saveTip);
+        await shot(page, `${app}-backstage-${L.lang}`);
+        errors.expectNone();
+      });
+    }
+
+    test("portal: texts, links unchanged, informal", async ({ page }) => {
+      const errors = trackErrors(page);
+      await page.goto("./");
+      await expect(page.locator("html")).toHaveAttribute("lang", L.lang);
+      for (const app of ["Calc", "Write", "Show"]) {
+        await expect(page.getByRole("link", { name: L.portalOpen(app) })).toHaveAttribute("href", `/${app.toLowerCase()}/`);
+        await expect(page.getByRole("img", { name: L.portalLogo(app) })).toBeVisible();
+      }
+      await expect(page.getByText(L.portalLead)).toBeVisible();
+      await expect(page.getByText(L.portalPrivacy)).toBeVisible();
+      expect(await page.locator("body").innerText()).not.toMatch(L.formal);
+      await expect(page.getByTestId("version")).toHaveText(L.version);
+      await shot(page, `portal-${L.lang}`);
+      errors.expectNone();
+    });
+
+    test("calc: View › Language lists it by its own name and switches without a reload", async ({ page }) => {
+      const errors = trackErrors(page);
+      await page.goto("calc/");
+      await page.getByTestId("grid").waitFor();
+      await page.getByRole("tab", { name: L.viewTab, exact: true }).click();
+      const picker = page.getByRole("combobox", { name: /\/ Language$/ });
+      await expect(picker.locator(`option[value="${L.lang}"]`)).toHaveText(L.pending);
+      await picker.selectOption("en");
+      await expect(page.getByRole("tab", { name: "Home", exact: true })).toBeVisible();
+      await page.getByRole("tab", { name: "View", exact: true }).click();
+      await page.getByRole("combobox", { name: "Language / Sprache" }).selectOption(L.lang);
+      await expect(page.getByRole("tab", { name: L.home, exact: true })).toBeVisible();
+      await expect(page.getByTestId("status-bar")).toContainText(L.saved);
+      await expect(page.locator("html")).toHaveAttribute("lang", L.lang);
+      errors.expectNone();
+    });
+  });
+}
+
 test.describe("Language switch", () => {
   test("calc: View › Language switches without a reload and persists after one", async ({ page }) => {
     const errors = trackErrors(page);
@@ -147,8 +254,8 @@ test.describe("Languages without catalogs yet", () => {
       const picker = page.getByRole("combobox", { name: "Language / Sprache" });
       await expect(picker.locator("option")).toHaveCount(24);
       await expect(picker.locator("option").first()).toHaveText("English");
-      await expect(picker.locator('option[value="pl"]')).toHaveText("Polski (not translated yet)");
-      await picker.selectOption("pl");
+      await expect(picker.locator('option[value="mt"]')).toHaveText("Malti (not translated yet)");
+      await picker.selectOption("mt");
       await expect(picker).toHaveValue("en");
       await expect(page.getByRole("tab", { name: "View", exact: true })).toHaveAttribute("aria-selected", "true");
       await picker.selectOption("de");

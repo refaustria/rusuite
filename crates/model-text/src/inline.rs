@@ -632,7 +632,10 @@ pub enum FieldKind {
     /// `LastSavedBy`.
     DocProperty { name: String },
     /// The text of a bookmark (docx `REF name`; `\\h` = a link to it,
-    /// `\\n` = the paragraph number of a numbered item instead of the text).
+    /// `\\n` = the paragraph number of a numbered item instead of the
+    /// text, `\\r` = that number relative to the field's position (`2.a`
+    /// → `a` in the same list), `\\w` = the full context number (`1.2.a`),
+    /// `\\p` = "above"/"below" after it, alone without a number switch).
     Ref {
         bookmark: String,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -641,6 +644,15 @@ pub enum FieldKind {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
         number: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        relative: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        full: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        position: bool,
     },
     /// The page a bookmark starts on (docx `PAGEREF name`).
     PageRef {
@@ -672,6 +684,33 @@ pub enum FieldKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         reset: Option<u32>,
+        /// `\\c`: repeats the closest preceding number instead of counting.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        current: bool,
+        /// `\\h`: counts but shows nothing.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        hidden: bool,
+        /// `\\s n`: restarts after every heading of level n.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        heading_reset: Option<u8>,
+    },
+    /// The number of pages of the field's section (docx `SECTIONPAGES`).
+    SectionPages,
+    /// The text of the nearest paragraph in style `style` (docx `STYLEREF
+    /// "Heading 1"`): before the field in the body; in a header or footer
+    /// the first one on the page (`\\l`: the last one). `\\n`: its
+    /// paragraph number instead of its text.
+    StyleRef {
+        style: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        last: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        number: bool,
     },
 }
 
@@ -700,10 +739,20 @@ impl FieldKind {
                 bookmark,
                 hyperlink,
                 number,
+                relative,
+                full,
+                position,
             } => {
                 let mut s = format!("REF {bookmark}");
-                if *number {
-                    s.push_str(" \\n");
+                for (on, sw) in [
+                    (*number, " \\n"),
+                    (*relative, " \\r"),
+                    (*full, " \\w"),
+                    (*position, " \\p"),
+                ] {
+                    if on {
+                        s.push_str(sw);
+                    }
                 }
                 if *hyperlink {
                     s.push_str(" \\h");
@@ -734,10 +783,28 @@ impl FieldKind {
                 }
                 s
             }
+            FieldKind::SectionPages => "SECTIONPAGES".into(),
+            FieldKind::StyleRef {
+                style,
+                last,
+                number,
+            } => {
+                let mut s = format!("STYLEREF \"{style}\"");
+                if *last {
+                    s.push_str(" \\l");
+                }
+                if *number {
+                    s.push_str(" \\n");
+                }
+                s
+            }
             FieldKind::Seq {
                 identifier,
                 format,
                 reset,
+                current,
+                hidden,
+                heading_reset,
             } => {
                 let name = match format {
                     Some(crate::numbering::LevelKind::UpperRoman) => "ROMAN",
@@ -747,8 +814,17 @@ impl FieldKind {
                     _ => "ARABIC",
                 };
                 let mut s = format!("SEQ {identifier} \\* {name}");
+                if *current {
+                    s.push_str(" \\c");
+                }
                 if let Some(r) = reset {
                     s.push_str(&format!(" \\r {r}"));
+                }
+                if let Some(l) = heading_reset {
+                    s.push_str(&format!(" \\s {l}"));
+                }
+                if *hidden {
+                    s.push_str(" \\h");
                 }
                 s
             }
@@ -786,7 +862,10 @@ impl FieldKind {
                     "REF" => FieldKind::Ref {
                         bookmark,
                         hyperlink: has('h'),
-                        number: has('n') || has('r') || has('w'),
+                        number: has('n'),
+                        relative: has('r'),
+                        full: has('w'),
+                        position: has('p'),
                     },
                     "PAGEREF" => FieldKind::PageRef {
                         bookmark,
@@ -813,6 +892,18 @@ impl FieldKind {
                     identifier,
                     format,
                     reset,
+                    current: has_switch(&switches, 'c'),
+                    hidden: has_switch(&switches, 'h'),
+                    heading_reset: switch_arg(&switches, 's').and_then(|v| v.parse().ok()),
+                }
+            }
+            "SECTIONPAGES" => FieldKind::SectionPages,
+            "STYLEREF" => {
+                let (style, switches) = first_arg(rest)?;
+                FieldKind::StyleRef {
+                    style,
+                    last: has_switch(&switches, 'l'),
+                    number: has_switch(&switches, 'n'),
                 }
             }
             _ => return None,
@@ -913,6 +1004,11 @@ pub struct Field {
         ts(as = "Option<app_common::wire::RunProperties>", optional)
     )]
     pub props: RunProperties,
+    /// Locked (docx `w:fldLock`, Ctrl+F11): Update Field leaves the
+    /// result alone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub locked: bool,
 }
 
 impl Field {
@@ -922,6 +1018,7 @@ impl Field {
             kind,
             cached: String::new(),
             props: RunProperties::default(),
+            locked: false,
         }
     }
 }
@@ -1003,7 +1100,10 @@ mod tests {
             Some(FieldKind::Ref {
                 bookmark: "_Ref1".into(),
                 hyperlink: true,
-                number: false
+                number: false,
+                relative: false,
+                full: false,
+                position: false,
             })
         );
         assert_eq!(
@@ -1011,7 +1111,10 @@ mod tests {
             Some(FieldKind::Seq {
                 identifier: "Figure".into(),
                 format: None,
-                reset: Some(2)
+                reset: Some(2),
+                current: false,
+                hidden: false,
+                heading_reset: None,
             })
         );
         assert_eq!(
@@ -1052,11 +1155,17 @@ mod tests {
                 bookmark: "b".into(),
                 hyperlink: false,
                 number: true,
+                relative: false,
+                full: false,
+                position: false,
             },
             FieldKind::Seq {
                 identifier: "Table".into(),
                 format: Some(crate::numbering::LevelKind::LowerRoman),
                 reset: Some(1),
+                current: false,
+                hidden: false,
+                heading_reset: None,
             },
         ] {
             assert_eq!(FieldKind::parse(&k.instruction()), Some(k));
@@ -1071,6 +1180,7 @@ mod tests {
             },
             cached: "2026".into(),
             props: RunProperties::default(),
+            locked: false,
         });
         assert_eq!(
             serde_json::to_string(&f).unwrap(),

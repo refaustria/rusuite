@@ -9,6 +9,7 @@
 // (`ui/PageChrome.tsx`), the print preview, PDF export, page fields, TOC
 // page numbers and the status bar read.
 
+import { styleRefOnPage } from "./fieldsW6";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, TextSelection, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
@@ -125,8 +126,16 @@ export function headerFooterText(text: string | null | undefined, n: number | st
 
 // ----- sections -------------------------------------------------------------------
 
-/** Plain text of header/footer blocks, page fields as `{PAGE}` / `{NUMPAGES}`. */
-export function blocksText(blocks: Block[] | null | undefined): string {
+/** What a page knows for its header and footer fields (P9-W6): STYLEREF and SECTIONPAGES. */
+export interface HfPageContext {
+  /** The text of the paragraph a `STYLEREF style` shows on this page (null: none). */
+  styleRef: (style: string, last: boolean) => string | null;
+  /** Pages of this page's section. */
+  sectionPages: number;
+}
+
+/** Plain text of header/footer blocks, page fields as `{PAGE}` / `{NUMPAGES}`; with `ctx`, STYLEREF / SECTIONPAGES of that page (locked fields keep their result). */
+export function blocksText(blocks: Block[] | null | undefined, ctx?: HfPageContext): string {
   if (!blocks) return "";
   const paras: string[] = [];
   for (const b of blocks) {
@@ -135,7 +144,14 @@ export function blocksText(blocks: Block[] | null | undefined): string {
     for (const i of b.value.inlines ?? []) {
       if (i.kind === "run") s += i.value.text;
       else if (i.kind === "break") s += "\n";
-      else if (i.kind === "field") s += i.value.kind.kind === "page" ? "{PAGE}" : i.value.kind.kind === "numPages" ? "{NUMPAGES}" : i.value.cached;
+      else if (i.kind === "field") {
+        const k = i.value.kind;
+        if (k.kind === "page") s += "{PAGE}";
+        else if (k.kind === "numPages") s += "{NUMPAGES}";
+        else if (ctx && !i.value.locked && k.kind === "sectionPages") s += String(ctx.sectionPages);
+        else if (ctx && !i.value.locked && k.kind === "styleRef") s += ctx.styleRef(k.value.style, !!k.value.last) ?? i.value.cached;
+        else s += i.value.cached;
+      }
     }
     paras.push(s);
   }
@@ -181,12 +197,12 @@ export function pageInfos(starts: number[], sectionOf: (block: number) => number
 }
 
 /** Header or footer text of a page (sections' slots, else the page setup's plain text). */
-export function pageHfText(info: PageInfo, total: number, footer: boolean, sections: Section[], page: PageSetup | null): string {
+export function pageHfText(info: PageInfo, total: number, footer: boolean, sections: Section[], page: PageSetup | null, ctx?: HfPageContext): string {
   if (!sections.length) return headerFooterText(footer ? page?.footerText : page?.headerText, info.number, total);
   const def = sections[info.section];
   const evenUsed = sections.some((s) => (footer ? s.footers : s.headers)?.even != null);
   const slot: keyof HeaderFooterSet = def?.titlePage && info.first ? "first" : evenUsed && info.value % 2 === 0 ? "even" : "default";
-  return headerFooterText(blocksText(sectionHf(sections, info.section, footer, slot)), info.number, total);
+  return headerFooterText(blocksText(sectionHf(sections, info.section, footer, slot), ctx), info.number, total);
 }
 
 
@@ -820,6 +836,13 @@ function toLayout(
   for (let i = 0; i < nodePage.length; i++) if (nodePage[i] === -1) nodePage[i] = i > 0 ? nodePage[i - 1]! : 0;
   // Table positions for repeated headers.
   const tablePos = (t: number): number => positions[flow.blocks[flow.tables[t]!.block]!.top] ?? 0;
+  // STYLEREF / SECTIONPAGES of the page's header and footer (P9-W6).
+  const sectionCount = new Map<number, number>();
+  for (const info of infos) sectionCount.set(info.section, (sectionCount.get(info.section) ?? 0) + 1);
+  const hfCtx = (k: number): HfPageContext => ({
+    styleRef: (style, last) => styleRefOnPage(doc, pageStarts[k] ?? 0, pageStarts[k + 1] ?? doc.content.size, style, last),
+    sectionPages: sectionCount.get(infos[k]?.section ?? 0) ?? 1,
+  });
   const sheets: SheetView[] = result.pages.map((p, k) => {
     const geo = geoOf(p.section);
     const bodyTop = p.sheetTop + p.box.bodyTop;
@@ -839,8 +862,8 @@ function toLayout(
       bodyBottom,
       contentEnd: Math.min(p.contentEnd, notesTop),
       geo,
-      header: hide ? "" : pageHfText(infos[k]!, total, false, sections, page),
-      footer: hide ? "" : pageHfText(infos[k]!, total, true, sections, page),
+      header: hide ? "" : pageHfText(infos[k]!, total, false, sections, page, hfCtx(k)),
+      footer: hide ? "" : pageHfText(infos[k]!, total, true, sections, page, hfCtx(k)),
       notesTop,
       notes,
     };

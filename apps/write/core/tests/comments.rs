@@ -58,6 +58,7 @@ fn add(h: &mut WriteHost, start: CommentPoint, end: CommentPoint, text: &str) ->
             author: None,
             initials: None,
             date: Some("2026-10-16T09:30:00Z".into()),
+            content: None,
         },
     );
     patch
@@ -93,6 +94,7 @@ fn add_comment_marks_the_range_and_uses_the_user() {
             author: None,
             initials: None,
             date: Some("2026-10-16T09:30:00Z".into()),
+            content: None,
         },
     );
     assert_eq!(text(&h, 1), marked("Hello |brave| world"));
@@ -133,6 +135,7 @@ fn ranges_across_paragraphs_and_errors() {
             author: None,
             initials: None,
             date: None,
+            content: None,
         },
         C::AddComment {
             start: pt(1, 0),
@@ -141,6 +144,7 @@ fn ranges_across_paragraphs_and_errors() {
             author: None,
             initials: None,
             date: None,
+            content: None,
         },
         C::ReplyComment {
             parent: CommentId(77),
@@ -148,6 +152,7 @@ fn ranges_across_paragraphs_and_errors() {
             author: None,
             initials: None,
             date: None,
+            content: None,
         },
         C::ResolveComment { id: CommentId(77) },
         C::DeleteComment { id: CommentId(77) },
@@ -170,6 +175,7 @@ fn replies_edit_resolve_reopen() {
             author: Some("Ben Cole".into()),
             initials: None,
             date: Some("2026-10-16T10:00:00Z".into()),
+            content: None,
         },
     );
     let comments = patch.comments.unwrap();
@@ -186,6 +192,7 @@ fn replies_edit_resolve_reopen() {
             author: None,
             initials: None,
             date: None,
+            content: None,
         },
     );
     assert_eq!(doc(&h).thread(root).len(), 3);
@@ -198,6 +205,7 @@ fn replies_edit_resolve_reopen() {
         C::EditComment {
             id: reply,
             text: "Edited".into(),
+            content: None,
         },
     );
     assert_eq!(doc(&h).comment(reply).unwrap().text(), "Edited");
@@ -403,6 +411,7 @@ fn docx_round_trip_keeps_threads() {
             author: Some("Ben".into()),
             initials: Some("B".into()),
             date: Some("2026-10-16T11:00:00Z".into()),
+            content: None,
         },
     );
     let point = add(&mut h, pt(1, 0), pt(1, 0), "At the start");

@@ -7,6 +7,7 @@
     "lint": "pnpm -r --if-present lint",
     "e2e": "pnpm --filter e2e e2e",
     "i18n:check": "node scripts/i18n-check.mjs",
+    "i18n:check:strict": "node scripts/i18n-check.mjs --strict",
     "typecheck": "pnpm -r --if-present typecheck"
   }
 }

@@ -71,8 +71,12 @@ export function noteDialogCommands(v: NoteDialogValues, sections: Section[], cur
   return cmds;
 }
 
-export function NoteDialog({ open, section, settings, onApply, onInsert, onClose }: {
+export function NoteDialog({ open, section, settings, onApply, onInsert, onClose, onConvert, onSeparators }: {
   open: boolean;
+  /** Word's Convert… (Convert Notes dialog). */
+  onConvert?: () => void;
+  /** The separators (Word's Draft view Footnotes pane). */
+  onSeparators?: () => void;
   /** The caret's section. */
   section: Section | null;
   settings: DocumentSettings;
@@ -169,6 +173,16 @@ export function NoteDialog({ open, section, settings, onApply, onInsert, onClose
           </select>
         </label>
         <div className="mt-1 flex justify-end gap-2">
+          {onConvert && (
+            <button type="button" className={`${BUTTON} mr-auto`} data-testid="note-dialog-convert" onClick={onConvert}>
+              {t("write.notes.convertButton")}
+            </button>
+          )}
+          {onSeparators && (
+            <button type="button" className={BUTTON} data-testid="note-dialog-separators" onClick={onSeparators}>
+              {t("write.notes.separators")}
+            </button>
+          )}
           <button type="submit" className={BUTTON} data-testid="note-dialog-insert">
             {t("write.noteDialog.insert")}
           </button>
