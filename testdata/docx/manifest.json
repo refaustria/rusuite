@@ -854,5 +854,37 @@
    "image:alt"
   ],
   "paragraphs": 8
+ },
+ {
+  "file": "provisional-66-tables-2-columns-symbols.docx",
+  "topic": "Tables round 2: a merged header over a vertically merged column, a fixed-layout floating table with a table style and look, indents and tab stops of every kind, two unequal text columns with a line between, special characters (non-breaking space and hyphen, optional hyphen, dashes, (c) (r) (tm), ellipsis, smart quotes)",
+  "features": [
+   "heading:1",
+   "table:rows=3:cols=3",
+   "table:merged=horizontal",
+   "table:merged=vertical",
+   "run:bold",
+   "table:rows=3:cols=2:header",
+   "table:col-widths=4cm,3cm",
+   "table:floating",
+   "table:layout-fixed",
+   "table:look",
+   "heading:2",
+   "para:indent-left=1.5cm",
+   "para:indent-right=1.0cm",
+   "para:indent-first=1.0cm",
+   "para:indent-left=2.0cm",
+   "para:indent-hanging=1.0cm",
+   "tab",
+   "section:columns=2",
+   "section:columns-unequal",
+   "section:column-separator",
+   "char:no-break-hyphen",
+   "char:soft-hyphen",
+   "char:nbsp",
+   "page:a4",
+   "para:tab=bar"
+  ],
+  "paragraphs": 25
  }
 ]

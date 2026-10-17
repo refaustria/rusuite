@@ -142,6 +142,14 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Alt+F10 | Show / hide the Selection Pane (P9-W4; bound in the editor) |
 | Arrow keys, Mod+arrow keys | With floating pictures or shapes selected: move them by Word's grid (0.13 in) / by one pixel (P9-W4) |
 | Enter, Esc | While a shape is armed for drawing (Insert › Shapes): insert it at the caret at its default size / cancel (P9-W4) |
+| Mod+Shift+Enter | Split Table above the caret's row (in the first row: an empty paragraph above the table; P9-W5) |
+| Delete, Backspace | In the empty paragraph between two tables: join the tables (P9-W5) |
+| Mod+Alt+- (also Num -), Mod+Num - | Em dash, en dash (P9-W5) |
+| Mod+Shift+Space | Non-breaking space (P9-W5) |
+| Mod+Shift+- | Non-breaking hyphen (`w:noBreakHyphen`; P9-W5) |
+| Mod+- | Optional hyphen (`w:softHyphen`; P9-W5) |
+| Mod+Alt+C, Mod+Alt+R, Mod+Alt+T, Mod+Alt+. | ©, ®, ™, … (P9-W5; keys by position, so they work on German keyboards; AltGr is not affected) |
+| Esc | Ends the Border Painter (Table Design; P9-W5) |
 | F9 | Update Field: the fields of the selection (REF, PAGEREF, NOTEREF, SEQ and the property fields TITLE, AUTHOR, SUBJECT, KEYWORDS, COMMENTS, LASTSAVEDBY, DOCPROPERTY computed by the core, page/date/time/file name/save date by the UI); Mod+A then F9 updates every field |
 
 In the browser a few of Word's keys belong to the browser and never reach the page: Mod+T (new tab), Mod+Shift+T
@@ -154,6 +162,8 @@ Linux. The desktop app gets them all.
 - **Tables**: the pointer becomes a resize cursor on a cell's right border (merged cells: the border after their last grid column); dragging moves the border (the neighbouring column gives or takes the difference, the last border widens the table) → `SetTableProps { colWidths }`. Shift+click (or a drag) across cells selects a rectangle of cells (grown to whole merged cells) for Merge Cells, Borders ▾, Shading, alignment.
 - **Floating pictures**: drag a selected floating picture to move it (new offsets from the column and the paragraph → `SetImageAnchor`); the Layout Options button next to a selected picture switches its text wrapping.
 - **Shapes, groups, canvases (P9-W4)**: after picking a shape in Insert › Shapes, click on the page for the default size or drag to draw it (Shift: square, lines at 45°); drawn on a drawing canvas it becomes part of the canvas. Dragging a selected floating shape snaps to the column's edges and centre; hold Alt to move it freely. The handles turn with a rotated shape. Shift+click or Ctrl+click adds pictures and shapes to the selection (for Group, Align, Distribute); a click on a member of a selected group selects the member, a drag moves it inside the group. Ctrl+click on a linked picture or shape follows its link. In a later box of linked text boxes a click puts the caret into the story there. Create Link: click Create Link, then the empty text box to link.
+- **Ruler indents and table columns (P9-W5)**: drag the first-line triangle (first line only), the hanging triangle (the other lines; the first line stays), the box under it (both) or the right triangle; in a table drag a column marker to change the column widths. Alt while dragging: no snapping. Units follow the locale (cm / inches) or File › Options › Advanced.
+- **Border Painter (P9-W5)**: with Table Design › Border Painter on (or after picking a Border Style), click a cell edge to give it the pen's style, weight and colour.
 - **Ruler**: click to add a tab stop of the kind shown in the corner selector (click the selector to cycle Left / Center / Right / Decimal / Bar); drag a stop along the ruler to move it, down off the ruler to remove it; double-click a stop for Tabs….
 - **Comments**: click commented text to select its thread (balloon / pane card); click a balloon to select it; with Show Comments off, click a margin comment icon to show the comments.
 - **Right-click** in the document: Cut/Copy/Paste, New Comment, picture commands (alt text, reset size, delete) on a picture, Edit / Open / Remove Link on a linked picture or shape (P9-W4), table commands (insert rows above/below, columns left/right, delete rows/columns/table, Merge Cells, Split Cells…, row height…, Table Properties…) in a table, Paragraph…, Clear formatting.

@@ -21,7 +21,10 @@ import { BUILTIN_TABLE_STYLES, GALLERY_TABLE_STYLES, resolveCell, tableStyleFor 
 import type { WriteFeatures } from "../features/WriteFeatures";
 import { borderCss, colorCss, TWIPS_PER_PX } from "../sync/schema";
 import type { SyncController } from "../sync/SyncPlugin";
-import { cm, fromCm } from "./dialogs";
+import { cm, fromCm, INPUT } from "./dialogs";
+import type { BorderStyle } from "../generated/BorderStyle";
+import { autoFitCommand, BORDER_PENS, contentWidths, measureNatural, PEN_WEIGHTS, penCss, renderedWidths } from "../features/tables2";
+import { BORDER_STYLES } from "./formatDialogs";
 import { t } from "../i18n";
 
 /** What the tabs show of the caret's table (kept small: it is compared on every selection change). */
@@ -112,6 +115,10 @@ export const SELECT_ICON = svg(<><rect x="2.5" y="4" width="15" height="12" stro
 export const PROPS_ICON = svg(<><rect x="2.5" y="4" width="15" height="12" /><path d="M2.5 8h15M7.5 4v12" /><circle cx="13.5" cy="12.5" r="1.5" /></>);
 export const DIST_ROWS_ICON = svg(<><rect x="3" y="3" width="14" height="14" /><path d="M3 7.7h14M3 12.3h14" /><path d="M10 4.5v2M10 13.5v2" /></>);
 export const DIST_COLS_ICON = svg(<><rect x="3" y="3" width="14" height="14" /><path d="M7.7 3v14M12.3 3v14" /><path d="M4.5 10h2M13.5 10h2" /></>);
+export const PAINTER_ICON = svg(<><path d="M4 16l2.5-.6L15 6.9 13.1 5 4.6 13.5z" /><path d="M12 6l2 2" /><path d="M3 18h14" /></>);
+export const SPLIT_TABLE_ICON = svg(<><rect x="3" y="2.5" width="14" height="5.5" /><rect x="3" y="12" width="14" height="5.5" /><path d="M7 10h6" strokeDasharray="1.5 1.5" /></>);
+export const AUTOFIT_ICON = svg(<><rect x="3" y="4" width="14" height="12" /><path d="M10 4v12M5 10h3M15 10h-3M6.5 8.5L5 10l1.5 1.5M13.5 8.5L15 10l-1.5 1.5" /></>);
+export const TO_TEXT_ICON = svg(<><rect x="2.5" y="3" width="7" height="7" /><path d="M5.5 3v7M2.5 6.5h7" /><path d="M11 13h7M11 16h5M12 8l2.5 2.5L17 8" /></>);
 export const MARGINS_ICON = svg(<><rect x="3" y="3" width="14" height="14" /><rect x="6" y="6" width="8" height="8" strokeDasharray="1.5 1.5" /></>);
 
 const alignIcon = (v: VAlign, h: Alignment) => {
@@ -169,6 +176,7 @@ export function tableTabs({ editor, ctl, features, info, styles }: TableTabsArgs
     return p ? p.width - p.margins.left - p.margins.right : 9026;
   };
   const items = tableStyleItems(info.hasLook ? info.look : WORD_DEFAULT_LOOK, styles);
+  const ui = features.ui.getState();
   /** Rendered row heights (twips) of the caret's table, for Distribute Rows. */
   const rowHeights = (tc: TableContext): number[] => {
     const dom = editor.view.nodeDOM(tc.pos) as HTMLElement | null;
@@ -228,9 +236,79 @@ export function tableTabs({ editor, ctl, features, info, styles }: TableTabsArgs
               label={t("fmt.borders")}
               showLabel
               icon={<Icon name="borders" />}
-              menu={BORDER_PRESETS.map((b) => ({ id: b.id, label: t(b.key), icon: b.icon, onSelect: run((tc) => cellBordersCommand(tc, b.id)) }))}
+              menu={[
+                ...BORDER_PRESETS.map((b) => ({ id: b.id, label: t(b.key), icon: b.icon, onSelect: run((tc) => cellBordersCommand(tc, b.id, b.id === "none" ? undefined : ui.pen)) })),
+                { separator: true as const },
+                { id: "gridlines", label: t("write.w5.viewGridlines"), checked: ui.gridlines, onSelect: () => features.ui.set({ gridlines: !ui.gridlines }) },
+                { id: "dialog", label: t("write.w5.bordersShadingDots"), onSelect: () => features.ui.openDialog("tableBorders") },
+              ]}
             />
           </RibbonStack>
+        ),
+      },
+      {
+        label: t("write.w5.borderGroup"),
+        items: (
+          <>
+            <RibbonGallery
+              label={t("write.w5.borderStyles")}
+              variant="dropdown"
+              size="large"
+              icon={<Icon name="borders" />}
+              items={BORDER_PENS.map((p, i) => ({
+                id: String(i),
+                label: t("write.w5.penLabel", { style: t(`write.borderStyle.${p.style}`), n: p.width / 20 }),
+                preview: <span className="block w-12" style={{ borderTop: penCss(p), color: colorCss(p.color) ?? "#000" }} />,
+              }))}
+              columns={2}
+              itemClassName="h-8 w-16 p-1"
+              onSelect={(id) => features.ui.set({ pen: BORDER_PENS[Number(id)]!, borderPainter: true })}
+            />
+            <RibbonStack>
+              <RibbonRow>
+                <select
+                  aria-label={t("write.w5.lineStyle")}
+                  title={t("write.w5.lineStyle")}
+                  className={`${INPUT} h-6 w-20 text-xs`}
+                  value={ui.pen.style}
+                  onChange={(e) => features.ui.set({ pen: { ...ui.pen, style: e.target.value as BorderStyle } })}
+                >
+                  {BORDER_STYLES.map((st) => (
+                    <option key={st} value={st}>
+                      {t(`write.borderStyle.${st}`)}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label={t("write.w5.lineWeight")}
+                  title={t("write.w5.lineWeight")}
+                  className={`${INPUT} h-6 w-16 text-xs`}
+                  value={String(ui.pen.width)}
+                  onChange={(e) => features.ui.set({ pen: { ...ui.pen, width: Number(e.target.value) } })}
+                >
+                  {PEN_WEIGHTS.map((w) => (
+                    <option key={w} value={String(w)}>
+                      {t("write.ptValue", { n: w / 20 })}
+                    </option>
+                  ))}
+                </select>
+              </RibbonRow>
+              <RibbonRow>
+                <ColorPicker label={t("write.w5.penColor")} kind="text" value={ui.pen.color} onSelect={(c) => features.ui.set({ pen: { ...ui.pen, color: c ?? { kind: "auto" } } })} />
+                <span aria-hidden="true" className="whitespace-nowrap pr-1 text-xs">
+                  {t("write.w5.penColor")}
+                </span>
+              </RibbonRow>
+            </RibbonStack>
+            <RibbonButton
+              label={t("write.w5.borderPainter")}
+              icon={PAINTER_ICON}
+              size="large"
+              pressed={ui.borderPainter}
+              tooltip={t("write.w5.borderPainterTip")}
+              onClick={() => features.ui.set({ borderPainter: !ui.borderPainter })}
+            />
+          </>
         ),
       },
     ],
@@ -273,6 +351,7 @@ export function tableTabs({ editor, ctl, features, info, styles }: TableTabsArgs
               size="large"
               menu={(["cell", "column", "row", "table"] as const).map((k) => ({ id: k, label: t(`write.select.${k}`), onSelect: () => selectInTable(editor.view, k) }))}
             />
+            <RibbonButton label={t("write.w5.viewGridlines")} icon="table" size="large" pressed={ui.gridlines} onClick={() => features.ui.set({ gridlines: !ui.gridlines })} />
             <RibbonButton label={t("write.properties")} icon={PROPS_ICON} size="large" tooltip={t("write.tablePropertiesDots")} onClick={() => features.ui.openDialog("tableProps")} />
           </>
         ),
@@ -304,6 +383,7 @@ export function tableTabs({ editor, ctl, features, info, styles }: TableTabsArgs
           <>
             <RibbonButton label={t("write.mergeCells")} icon={MERGE_ICON} size="large" disabled={info.cells < 2} onClick={run(mergeCellsCommand)} />
             <RibbonButton label={t("write.splitCells")} icon={SPLIT_ICON} size="large" tooltip={t("write.splitCellsDots")} onClick={() => features.ui.openDialog("splitCells")} />
+            <RibbonButton label={t("write.w5.splitTable")} icon={SPLIT_TABLE_ICON} size="large" shortcut="Mod+Shift+Enter" tooltip={t("write.w5.splitTableTip")} onClick={() => void features.splitTable(editor)} />
           </>
         ),
       },
@@ -330,6 +410,20 @@ export function tableTabs({ editor, ctl, features, info, styles }: TableTabsArgs
               <RibbonButton label={t("write.distributeCols")} icon={DIST_COLS_ICON} showLabel onClick={run((tc) => setColWidths(tc, distributeCols(tc, colWidthsOf(tc, pageWidth()))))} />
             </RibbonStack>
             <RibbonButton label={t("write.rowHeight")} icon="rowHeight" size="large" tooltip={t("write.rowHeightDots")} onClick={() => features.ui.openDialog("rowHeight")} />
+            <RibbonMenuButton
+              label={t("write.w5.autoFit")}
+              icon={AUTOFIT_ICON}
+              size="large"
+              menu={[
+                {
+                  id: "contents",
+                  label: t("write.w5.autoFitContents"),
+                  onSelect: run((tc) => autoFitCommand(tc, "contents", contentWidths(measureNatural(editor.view, tc), 216, pageWidth()))),
+                },
+                { id: "window", label: t("write.w5.autoFitWindow"), onSelect: run((tc) => autoFitCommand(tc, "window", renderedWidths(editor.view, tc))) },
+                { id: "fixed", label: t("write.w5.fixedWidth"), onSelect: run((tc) => autoFitCommand(tc, "fixed", renderedWidths(editor.view, tc))) },
+              ]}
+            />
           </>
         ),
       },
@@ -345,13 +439,16 @@ export function tableTabs({ editor, ctl, features, info, styles }: TableTabsArgs
       {
         label: t("write.data"),
         items: (
-          <RibbonButton
-            label={t("write.headerRow")}
-            icon="insertRows"
-            size="large"
-            tooltip={t("write.headerRowTip")}
-            onClick={run((tc) => ({ type: "setRowProps", table: tc.table, rows: [0], header: !((tc.node.firstChild?.attrs.props as { header?: boolean } | null)?.header) }))}
-          />
+          <>
+            <RibbonButton
+              label={t("write.headerRow")}
+              icon="insertRows"
+              size="large"
+              tooltip={t("write.headerRowTip")}
+              onClick={run((tc) => ({ type: "setRowProps", table: tc.table, rows: [0], header: !((tc.node.firstChild?.attrs.props as { header?: boolean } | null)?.header) }))}
+            />
+            <RibbonButton label={t("write.w5.convertToText")} icon={TO_TEXT_ICON} size="large" tooltip={t("write.w5.convertToTextTip")} onClick={() => features.ui.openDialog("tableToText")} />
+          </>
         ),
       },
     ],
