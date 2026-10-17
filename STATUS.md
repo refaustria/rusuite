@@ -6,7 +6,7 @@ _Maintained by the PM agent. Read at the start of every session; update after ev
 
 **Owner direction 2026-10-17:** next version is **3.141** (π numbering, `docs/versioning.md`); installers are built only at the end of the cycle. Order: **Calc, Show and Write features → all official EU languages (24) → AI assistant round 2 → release 3.141.** Plan with every batch: `docs/plan-3.141.md`. Mobile/connectors/signing stay in `docs/plan-after-0.1.0.md` (signing starts as soon as the Apple account exists). Working mode unchanged: one agent per app in parallel (max 3), PM verifies, merges on main and deploys the web after each verified merge.
 
-Block 1: P9-S1 merged 2026-10-17; P9-S1, P9-W1, P9-C1 merged and live 2026-10-17 (rusuit.es at 8502840; live e2e 277/278, the one failure is the known W-23/W-25 timing flake, 3/3 alone); P9-S2, P9-W2 merged; running: P9-C2 (Calc tables/data tools round 2), P9-S3 (Show views/design round 2), P9-W3 (Write styles/templates). Brief ready: C3 pivots.
+Block 1: P9-S1 merged 2026-10-17; P9-S1, P9-W1, P9-C1 merged and live 2026-10-17 (rusuit.es at f3924dd incl. P9-S2 + P9-W2; live e2e 288/288); P9-S2, P9-W2 merged; running: P9-C2 (Calc tables/data tools round 2), P9-S3 (Show views/design round 2), P9-W3 (Write styles/templates). Brief ready: C3 pivots.
 
 ## Phase 8 (closed with v0.1.0) – Office parity (owner direction 2026-10-15) + pending P7 items
 
