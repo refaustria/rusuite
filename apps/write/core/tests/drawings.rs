@@ -397,6 +397,13 @@ fn picture_format_and_link_roundtrip() {
         brightness: 20_000,
         contrast: -10_000,
         recolor: Recolor::Grayscale,
+        // P9-W4: soft edges and a bevel.
+        soft_edge: Some(Emu(25_400)),
+        bevel: Some(model_text::Bevel {
+            preset: "circle".into(),
+            width: Emu(76_200),
+            height: Emu(25_400),
+        }),
     };
     apply(
         &mut h,

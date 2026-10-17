@@ -27,8 +27,9 @@ import { nodesToBlocks } from "../../sync/fromPM";
 import { blockKey, canonDrawing } from "../../sync/model";
 import { blocksToPM } from "../../sync/toPM";
 import { colorCss, pictureFilterCss } from "../../sync/schema";
-import { floatPlacement, movedAnchor, placementStyle, renderedOffset, zoomOf } from "../floating";
-import { HANDLES, pictureFrameCss, verticalPage, visibleFraction, type Handle } from "../imageView";
+import { floatPlacement, lineTopAt, movedAnchor, placementStyle, renderedOffset, zoomOf } from "../floating";
+import { HANDLES, pictureFrameCss, shapeClip, verticalPage, visibleFraction, type Handle } from "../imageView";
+import { bevelCss } from "../pictures";
 import { EMU_PER_PX, fillCss, selectedMemberOf, selectMember, strokeAttrs } from "./drawings";
 import { bounds, memberAt, memberPath, rotatedResize, scaleGroup, snapMove, withMember } from "./geometry";
 import { dragHandle, effectiveAdjust, handlePos, handlesOf, type HandleDef } from "./handles";
@@ -207,14 +208,15 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
 
   const place = (d: Drawing) => {
     const anchor = d.anchor ?? null;
-    wrap.classList.remove("floating", "float-left", "float-right", "block", "behind", "front");
+    wrap.classList.remove("floating", "float-left", "float-right", "both", "block", "behind", "front");
     const { w, h } = size(d);
     const css: string[] = [`width: ${w}px`, `height: ${h}px`];
     if (anchor) {
       const ind = indentAt(view, getPos());
       const page = opts.page?.() ?? null;
       const vpage = anchor.v.relativeTo === "page" || anchor.v.relativeTo === "margin" ? verticalPage(wrap) : null;
-      const p = floatPlacement(anchor, { width: w, height: h, indentLeft: ind.left, indentRight: ind.right, columnWidth: page?.columnWidth ?? null, page, vpage });
+      const lineTop = anchor.v.relativeTo === "line" ? lineTopAt(view, getPos(), wrap) : 0;
+      const p = floatPlacement(anchor, { width: w, height: h, indentLeft: ind.left, indentRight: ind.right, columnWidth: page?.columnWidth ?? null, page, vpage, lineTop });
       wrap.classList.add("floating", p.mode);
       wrap.dataset.wrap = anchor.wrap;
       css.push(placementStyle(p));
@@ -382,7 +384,18 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
         mv.img.style.marginTop = c.top ? `${((-c.top / 100000) * (h / vis.h)).toFixed(1)}px` : "";
         const filter = pictureFilterCss(f);
         mv.img.style.filter = filter ? filter.replace(/^filter: /, "") : "";
-        mv.frame!.setAttribute("style", [`width: ${w}px`, `height: ${h}px`, ...Object.entries(pictureFrameCss(f, w, h)).map(([k, v]) => `${k}: ${v}`)].join("; "));
+        const css = pictureFrameCss(f, w, h);
+        const clip = shapeClip(el, f?.geometry, m.width, m.height);
+        if (clip) css["clip-path"] = clip;
+        mv.frame!.setAttribute("style", [`width: ${w}px`, `height: ${h}px`, ...Object.entries(css).map(([k, v]) => `${k}: ${v}`)].join("; "));
+        let bevel = mv.frame!.querySelector<HTMLElement>(".picture-bevel");
+        const b = bevelCss(f?.bevel);
+        if (b && !bevel) {
+          bevel = document.createElement("span");
+          bevel.className = "picture-bevel";
+          mv.frame!.append(bevel);
+        }
+        if (bevel) bevel.style.boxShadow = b;
         const media = m.picture?.media ?? null;
         if (media != null && mv.media !== media && opts.resolve) {
           mv.media = media;

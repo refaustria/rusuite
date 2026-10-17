@@ -16,6 +16,7 @@ import type { FlowProps } from "./layout/measure";
 import { layoutFieldContext, refreshStructure, structurePlugin, updateFieldsCommand, type FieldContext } from "./structure";
 import { linksPlugin } from "./links";
 import { objectsPlugin } from "./drawings/objects";
+import { wrapBothPlugin } from "./wrapBoth";
 import { plainTextSlice } from "./plainPaste";
 import { selectsAll, updateFieldsCommand as updateSelectedFields } from "./references";
 import { paragraphStyleId, resolveParagraph } from "./styleCss";
@@ -391,6 +392,7 @@ export class WriteFeatures {
           findPlugin(),
           linksPlugin(),
           objectsPlugin(),
+          wrapBothPlugin(),
           wordsUnderlinePlugin(),
           tableRenderPlugin(() => ctl.styles),
           paragraphBoxPlugin(),

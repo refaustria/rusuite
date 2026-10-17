@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use core_model::units::Emu;
 use core_model::{Color, ColorScheme, Rgb};
 use fmt_ooxml::chart::{read_color, write_color};
-use model_text::{Crop, LineDash, PictureFormat, Recolor, ShapeFill, ShapeLine};
+use model_text::{Bevel, Crop, LineDash, PictureFormat, Recolor, ShapeFill, ShapeLine};
 
 use crate::xml::{El, Node, XmlOut};
 
@@ -268,9 +268,27 @@ pub(crate) fn read_picture_format(pic: &El) -> PictureFormat {
                 });
             }
         }
-        f.shadow = sp
-            .child("effectLst")
-            .is_some_and(|e| e.child("outerShdw").is_some());
+        let effects = sp.child("effectLst");
+        f.shadow = effects.is_some_and(|e| e.child("outerShdw").is_some());
+        f.soft_edge = effects
+            .and_then(|e| e.child("softEdge"))
+            .and_then(|e| e.attr("rad"))
+            .and_then(|v| v.trim().parse::<i64>().ok())
+            .filter(|r| *r > 0)
+            .map(Emu);
+        f.bevel = sp.child("sp3d").and_then(|s| s.child("bevelT")).map(|b| {
+            let emu = |a: &str| {
+                Emu(b
+                    .attr(a)
+                    .and_then(|v| v.trim().parse::<i64>().ok())
+                    .unwrap_or(76_200))
+            };
+            Bevel {
+                preset: b.attr("prst").unwrap_or("circle").to_owned(),
+                width: emu("w"),
+                height: emu("h"),
+            }
+        });
     }
     f
 }
@@ -310,9 +328,47 @@ pub(crate) fn write_src_rect(x: &mut XmlOut, c: &Crop) {
     x.empty("a:srcRect", &attrs);
 }
 
+/// Writes the effects of a picture's `pic:spPr` after its outline:
+/// `a:effectLst` (Word's "Offset: Bottom Right" outer shadow, soft edges)
+/// and the bevel (`a:scene3d` with Word's default camera and light rig,
+/// `a:sp3d/a:bevelT`).
+pub(crate) fn write_picture_effects(x: &mut XmlOut, f: &PictureFormat) {
+    if f.shadow || f.soft_edge.is_some() {
+        x.start("a:effectLst", &[]);
+        if f.shadow {
+            write_outer_shadow(x);
+        }
+        if let Some(r) = f.soft_edge {
+            x.empty("a:softEdge", &[("rad", &r.0.max(0).to_string())]);
+        }
+        x.end("a:effectLst");
+    }
+    if let Some(b) = &f.bevel {
+        x.start("a:scene3d", &[]);
+        x.start("a:camera", &[("prst", "orthographicFront")]);
+        x.empty("a:rot", &[("lat", "0"), ("lon", "0"), ("rev", "0")]);
+        x.end("a:camera");
+        x.start("a:lightRig", &[("rig", "threePt"), ("dir", "t")]);
+        x.empty("a:rot", &[("lat", "0"), ("lon", "0"), ("rev", "0")]);
+        x.end("a:lightRig");
+        x.end("a:scene3d");
+        x.start("a:sp3d", &[]);
+        let (w, h) = (b.width.0.max(0).to_string(), b.height.0.max(0).to_string());
+        x.empty("a:bevelT", &[("w", &w), ("h", &h), ("prst", &b.preset)]);
+        x.end("a:sp3d");
+    }
+}
+
 /// Writes Word's "Offset: Bottom Right" outer shadow.
+#[cfg(test)]
 pub(crate) fn write_shadow(x: &mut XmlOut) {
     x.start("a:effectLst", &[]);
+    write_outer_shadow(x);
+    x.end("a:effectLst");
+}
+
+/// `a:outerShdw` of Word's "Offset: Bottom Right".
+fn write_outer_shadow(x: &mut XmlOut) {
     x.start(
         "a:outerShdw",
         &[
@@ -327,7 +383,6 @@ pub(crate) fn write_shadow(x: &mut XmlOut) {
     x.empty("a:alpha", &[("val", "40000")]);
     x.end("a:prstClr");
     x.end("a:outerShdw");
-    x.end("a:effectLst");
 }
 
 #[cfg(test)]
@@ -375,6 +430,12 @@ mod tests {
             brightness: 20_000,
             contrast: -40_000,
             recolor: Recolor::Grayscale,
+            soft_edge: Some(Emu(63_500)),
+            bevel: Some(Bevel {
+                preset: "relaxedInset".into(),
+                width: Emu(76_200),
+                height: Emu(25_400),
+            }),
         };
         let mut x = XmlOut::fragment();
         x.start("pic:pic", &[]);
@@ -387,7 +448,7 @@ mod tests {
         x.start("pic:spPr", &[]);
         write_preset(&mut x, f.geometry.as_deref().unwrap(), &BTreeMap::new());
         write_line(&mut x, f.border.as_ref().unwrap());
-        write_shadow(&mut x);
+        write_picture_effects(&mut x, &f);
         x.end("pic:spPr");
         x.end("pic:pic");
         let xml = String::from_utf8(x.finish()).unwrap();
@@ -396,6 +457,18 @@ mod tests {
         ));
         assert_eq!(back, f, "{xml}");
         assert!(xml.contains(r#"<a:srcRect l="10000" r="5000" b="20000"/>"#));
+        assert!(
+            xml.contains(r#"<a:softEdge rad="63500"/></a:effectLst><a:scene3d>"#),
+            "{xml}"
+        );
+        assert!(
+            xml.contains(r#"<a:sp3d><a:bevelT w="76200" h="25400" prst="relaxedInset"/></a:sp3d>"#)
+        );
+        let mut y = XmlOut::fragment();
+        write_shadow(&mut y);
+        assert!(String::from_utf8(y.finish())
+            .unwrap()
+            .starts_with("<a:effectLst><a:outerShdw "));
         assert_eq!(emu_pt(Emu(12_700 * 3 / 2)), "1.5pt");
     }
 }

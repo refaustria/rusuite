@@ -46,7 +46,7 @@ pub use core_model::units::{Emu, Pt, Twips};
 pub use core_model::RunProperties;
 pub use document::{Document, DocumentStatistics};
 pub use drawing::{
-    default_text_insets, Autofit, Crop, Drawing, DrawingKind, DrawingPicture, DrawingText,
+    default_text_insets, Autofit, Bevel, Crop, Drawing, DrawingKind, DrawingPicture, DrawingText,
     LineDash, PictureFormat, Recolor, ShapeFill, ShapeLine, TextChain,
 };
 pub use fields::{FieldValue, REF_ERROR};

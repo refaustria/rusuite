@@ -8,6 +8,7 @@ import { openViaBackstage, saveViaBackstage, testdata, trackErrors } from "../su
 import { zipText } from "../support/zip";
 
 const SHOTS = "../../shots";
+const LOGO = new URL("../../../apps/write/src-tauri/icons/Square310x310Logo.png", import.meta.url).pathname;
 const editor = (page: Page) => page.locator(".ProseMirror").first();
 
 async function openWrite(page: Page) {
@@ -22,6 +23,17 @@ async function floatingTextBox(page: Page) {
   await page.getByRole("tab", { name: "Insert" }).click();
   await page.getByRole("button", { name: "Text Box" }).click();
   await page.getByRole("menuitem", { name: "Text Box with Text Wrapping" }).click();
+}
+
+/** Inserts the logo picture at the caret (Insert › Picture) and selects it. */
+async function insertPicture(page: Page) {
+  await page.getByRole("tab", { name: "Insert" }).click();
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Picture" }).click()]);
+  await chooser.setFiles(LOGO);
+  const img = editor(page).locator(".inline-image-wrap img").first();
+  await img.click();
+  await expect(page.getByRole("tab", { name: "Picture Format" })).toBeVisible();
+  return img;
 }
 
 /** Arms Insert › Shapes with `name` and draws it by dragging from (x, y) by (w, h) on the page. */
@@ -121,6 +133,82 @@ test.describe("Write drawings round 2 (P9-W4)", () => {
     fs.writeFileSync(file, docx);
     await openViaBackstage(page, file);
     await expect(page.locator(".drawing-wrap[data-kind='group'] .drawing-member")).toHaveCount(2);
+    errors.expectNone();
+  });
+});
+
+test.describe("Write pictures round 2 (P9-W4)", () => {
+  test("cropping shows the dimmed mask outside the crop window and saves a:srcRect", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openWrite(page);
+    await page.keyboard.type("A picture: ");
+    await insertPicture(page);
+    await page.getByRole("tab", { name: "Picture Format" }).click();
+    await page.getByRole("button", { name: "Crop", exact: true }).click();
+    const wrap = editor(page).locator(".inline-image-wrap");
+    await expect(wrap).toHaveClass(/cropping/);
+    // Drag the right crop handle 60 px to the left: the cut-off part stays visible, dimmed.
+    const h = (await wrap.locator(".crop-handle-e").boundingBox())!;
+    await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(h.x - 60, h.y + h.height / 2, { steps: 5 });
+    await page.mouse.up();
+    const mask = wrap.locator(".crop-mask:not([hidden])");
+    await expect(mask).toHaveCount(1);
+    await expect.poll(async () => Math.round((await mask.boundingBox())!.width)).toBeGreaterThan(50);
+    await expect(mask).toHaveCSS("background-color", "rgba(0, 0, 0, 0.55)");
+    await page.screenshot({ path: `${SHOTS}/P9-W4-crop-mask.png` });
+    await page.keyboard.press("Enter");
+    await expect(wrap).not.toHaveClass(/cropping/);
+    const xml = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml).toMatch(/<a:srcRect r="\d{4,5}"\/>/);
+    errors.expectNone();
+  });
+
+  test("Wrap Text Square around a centred picture puts text on both sides of it", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openWrite(page);
+    await page.keyboard.insertText("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ".repeat(6));
+    await page.keyboard.press("Control+Home");
+    const img = await insertPicture(page);
+    await page.getByRole("tab", { name: "Picture Format" }).click();
+    await page.getByLabel("Width (cm)").fill("4");
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Wrap Text" }).click();
+    await page.getByRole("menu").getByText("Square", { exact: true }).click();
+    await page.getByRole("button", { name: "Position" }).click();
+    await page.getByRole("menuitemradio", { name: /Top Center/ }).click();
+    const wrap = editor(page).locator(".inline-image-wrap");
+    await expect(wrap).toHaveClass(/\bboth\b/);
+    // Every line beside the picture has a gap for it: text left and right of the picture.
+    await expect.poll(async () => editor(page).locator(".wrap-spacer").count()).toBeGreaterThan(2);
+    const b = (await img.boundingBox())!;
+    const sides = await page.evaluate(({ top, bottom, left, right }) => {
+      const p = document.querySelector(".ProseMirror p")!;
+      const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+      const r = document.createRange();
+      let l = 0;
+      let rr = 0;
+      let inside = 0;
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        for (let i = 0; i < (n.textContent ?? "").length; i++) {
+          r.setStart(n, i);
+          r.setEnd(n, i + 1);
+          const c = r.getClientRects()[0];
+          if (!c || c.bottom < top + 2 || c.top > bottom - 2) continue;
+          if (c.right <= left + 1) l++;
+          else if (c.left >= right - 1) rr++;
+          else if (n.textContent![i]!.trim()) inside++;
+        }
+      }
+      return { l, rr, inside };
+    }, { top: b.y, bottom: b.y + b.height, left: b.x, right: b.x + b.width });
+    expect(sides.l).toBeGreaterThan(20);
+    expect(sides.rr).toBeGreaterThan(20);
+    expect(sides.inside).toBe(0);
+    await page.screenshot({ path: `${SHOTS}/P9-W4-wrap-both-sides.png` });
+    const xml = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml).toContain('<wp:wrapSquare wrapText="bothSides"/>');
     errors.expectNone();
   });
 });

@@ -357,7 +357,8 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                             "image:float={}",
                             match a.wrap {
                                 WrapKind::Square => "square",
-                                WrapKind::Tight => "tight",
+                                // LibreOffice writes its contour wrap as wrapThrough.
+                                WrapKind::Tight | WrapKind::Through => "tight",
                                 WrapKind::TopAndBottom => "top-bottom",
                                 WrapKind::Behind => "behind",
                                 WrapKind::InFront => "in-front",
@@ -397,7 +398,7 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                                 "drawing:float={}",
                                 match a.wrap {
                                     WrapKind::Square => "square",
-                                    WrapKind::Tight => "tight",
+                                    WrapKind::Tight | WrapKind::Through => "tight",
                                     WrapKind::TopAndBottom => "top-bottom",
                                     WrapKind::Behind => "behind",
                                     WrapKind::InFront => "in-front",
@@ -1200,7 +1201,8 @@ fn floating_images() {
                 VRelative::Paragraph
             ),
             (
-                WrapKind::Tight,
+                // LibreOffice's contour wrap (`wp:wrapThrough`).
+                WrapKind::Through,
                 Placement::Align(HAlign::Right),
                 HRelative::Column,
                 VRelative::Paragraph
@@ -1228,7 +1230,8 @@ fn floating_images() {
         r#"<wp:positionH relativeFrom="column">"#,
         "<wp:align>right</wp:align>",
         r#"<wp:wrapSquare wrapText="bothSides"/>"#,
-        r#"<wp:wrapTight wrapText="bothSides">"#,
+        // Written back as read (P9-W4: wrapThrough is kept).
+        r#"<wp:wrapThrough wrapText="bothSides">"#,
         "<wp:wrapTopAndBottom/>",
         r#"behindDoc="1""#,
     ] {

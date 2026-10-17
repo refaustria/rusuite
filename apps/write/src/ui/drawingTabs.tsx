@@ -8,7 +8,8 @@ import { useRef, useSyncExternalStore, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import { NodeSelection } from "@tiptap/pm/state";
 import {
-  ColorPicker, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton, RibbonRow, RibbonStack, type RibbonGalleryItem, type RibbonMenuItem, type RibbonTab,
+  ColorPicker, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack, type RibbonGalleryItem, type RibbonMenuItem,
+  type RibbonTab,
 } from "@rusuite/ui-shared";
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
 import type { Anchor } from "../generated/Anchor";
@@ -30,7 +31,8 @@ import { pathQuery, rectOutline, shapePaths } from "../features/drawings/paths";
 import { changeCaseCommand, TEXT_CASES } from "../features/changeCase";
 import { newAnchor, POSITION_PRESETS, presetAnchor, presetOf, withWrap, WRAP_CHOICES, wrapOf } from "../features/floating";
 import { selectedImage } from "../features/images";
-import { toggleCropMode } from "../features/imageView";
+import { croppedSize, toggleCropMode } from "../features/imageView";
+import { ASPECT_RATIOS, aspectCrop, BEVELS, fitCrop, fullImageSize, SOFT_EDGES, withBevel, withSoftEdge } from "../features/pictures";
 import { clearEffects, formatTarget, TEXT_EFFECTS, toggleEffect } from "../features/runFormat";
 import { colorCss } from "../sync/schema";
 import type { RunProperties } from "../sync/model";
@@ -574,6 +576,7 @@ export function pictureFormatGroups(editor: Editor, format: PictureFormat | null
       items: (
         <>
           <RibbonGallery label={t("write.pictureStyles")} variant="dropdown" icon="image" columns={5} items={pictureStyleItems()} onSelect={(id) => setSelectedFormat(editor, (x) => withPictureStyle(x, id))} />
+          {pictureEffectsMenu(editor, f)}
           <RibbonStack>
             <ColorPicker
               label={t("write.pictureBorder")}
@@ -607,21 +610,130 @@ export function pictureFormatGroups(editor: Editor, format: PictureFormat | null
   ];
 }
 
-/** Picture Format › Size › Crop (Word's place: before the height and width). */
+/** Changes the selected picture's size and format at once (kept selected). */
+function setSelectedPicture(editor: Editor, f: (attrs: { width: number; height: number; format: PictureFormat }) => { width: number; height: number; format: PictureFormat }): boolean {
+  const img = selectedImage(editor.state);
+  if (!img) return false;
+  const a = img.node.attrs;
+  const next = f({ width: a.width as number, height: a.height as number, format: { ...((a.format as PictureFormat | null) ?? {}) } });
+  const format = next.format;
+  const c = format.crop;
+  if (c && !c.left && !c.top && !c.right && !c.bottom) delete format.crop;
+  const tr = editor.state.tr.setNodeMarkup(img.pos, undefined, { ...a, width: next.width, height: next.height, format: Object.keys(format).length ? format : null });
+  tr.setSelection(NodeSelection.create(tr.doc, img.pos));
+  editor.view.dispatch(tr);
+  return true;
+}
+
+/** Crop ▾: Crop to Shape, Aspect Ratio, Fill, Fit (Word's Crop split button). */
+function CropPanel({ editor, close }: { editor: Editor; close: () => void }) {
+  const crop = () => {
+    const img = selectedImage(editor.state);
+    if (img) toggleCropMode(editor.view, img.pos, true);
+  };
+  const ratio = (rw: number, rh: number) => {
+    setSelectedPicture(editor, ({ width, height, format }) => {
+      const full = fullImageSize(width, height, format.crop);
+      const c = aspectCrop(full.w, full.h, rw, rh);
+      const size = croppedSize(width, height, format.crop, c);
+      return { ...size, format: { ...format, crop: c } };
+    });
+    close();
+    crop();
+  };
+  const fill = (fit: boolean) => {
+    setSelectedPicture(editor, ({ width, height, format }) => {
+      const full = fullImageSize(width, height, format.crop);
+      const c = fit ? fitCrop(width, height, full.w, full.h) : aspectCrop(full.w, full.h, width, height);
+      return { width, height, format: { ...format, crop: c } };
+    });
+    close();
+  };
+  return (
+    <div className="flex w-72 flex-col gap-1 p-1" data-testid="crop-panel">
+      <button type="button" className="rounded px-2 py-1 text-left text-xs hover:bg-ui-hover" onClick={() => (close(), crop())}>
+        {t("write.crop")}
+      </button>
+      <h3 className="px-1 text-[11px] font-medium text-ui-muted">{t("write.cropToShape")}</h3>
+      <ShapeLibrary
+        presetsOnly
+        onPick={(id) => {
+          close();
+          setSelectedFormat(editor, (x) => ({ ...x, geometry: id }));
+        }}
+      />
+      <h3 className="px-1 text-[11px] font-medium text-ui-muted">{t("write.aspectRatio")}</h3>
+      <div className="grid grid-cols-5 gap-0.5" role="group" aria-label={t("write.aspectRatio")}>
+        {ASPECT_RATIOS.map(([w, h]) => (
+          <button key={`${w}:${h}`} type="button" className="rounded px-1 py-0.5 text-xs hover:bg-ui-hover" onClick={() => ratio(w, h)}>
+            {`${w}:${h}`}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-1">
+        <button type="button" className="flex-1 rounded px-2 py-1 text-xs hover:bg-ui-hover" title={t("write.cropFillTip")} onClick={() => fill(false)}>
+          {t("write.cropFill")}
+        </button>
+        <button type="button" className="flex-1 rounded px-2 py-1 text-xs hover:bg-ui-hover" title={t("write.cropFitTip")} onClick={() => fill(true)}>
+          {t("write.cropFit")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Picture Format › Size › Crop ▾ (Word's place: before the height and width). */
 export function pictureCropButton(editor: Editor) {
   return (
-    <RibbonButton
+    <RibbonSplitButton
       label={t("write.crop")}
       icon={CROP_ICON}
       size="large"
       tooltip={t("write.cropTip")}
+      menuLabel={t("write.cropOptions")}
       onClick={() => {
         const img = selectedImage(editor.state);
         if (img) toggleCropMode(editor.view, img.pos);
       }}
+      menu={(close) => <CropPanel editor={editor} close={close} />}
     />
   );
 }
+
+/** Picture Effects ▾: Shadow, Soft Edges, Bevel. */
+export function pictureEffectsMenu(editor: Editor, f: PictureFormat): ReactNode {
+  return (
+    <RibbonMenuButton
+      label={t("write.pictureEffects")}
+      icon={EFFECTS_PIC_ICON}
+      menu={[
+        { id: "shadow", label: t("write.picEffect.shadow"), checked: !!f.shadow, onSelect: () => setSelectedFormat(editor, (x) => ({ ...x, shadow: !x.shadow })) },
+        { separator: true as const, label: t("write.picEffect.softEdges") },
+        ...SOFT_EDGES.map((pt) => ({
+          id: `soft-${pt}`,
+          label: pt ? t("write.pt", { n: pt }) : t("write.picEffect.noSoftEdges"),
+          checked: pt ? Math.abs((f.softEdge ?? 0) - pt * EMU_PER_PT) < 1 : !f.softEdge,
+          onSelect: () => setSelectedFormat(editor, (x) => withSoftEdge(x, pt)),
+        })),
+        { separator: true as const, label: t("write.picEffect.bevel") },
+        { id: "bevel-none", label: t("write.picEffect.noBevel"), checked: !f.bevel, onSelect: () => setSelectedFormat(editor, (x) => withBevel(x, null)) },
+        ...BEVELS.map((b) => ({
+          id: `bevel-${b}`,
+          label: t(`write.bevel.${b}`),
+          checked: f.bevel?.preset === b,
+          onSelect: () => setSelectedFormat(editor, (x) => withBevel(x, b)),
+        })),
+      ]}
+    />
+  );
+}
+
+const EFFECTS_PIC_ICON = (
+  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3">
+    <rect x="3" y="3" width="12" height="12" />
+    <path d="M5 17h12V5" strokeOpacity="0.45" strokeWidth="2.5" />
+  </svg>
+);
 
 const CROP_ICON = (
   <svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">

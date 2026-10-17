@@ -601,6 +601,27 @@ pub enum Recolor {
     BlackWhite,
 }
 
+/// A bevel of a picture (Picture Effects › Bevel; `a:sp3d/a:bevelT`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct Bevel {
+    /// DrawingML bevel preset (`circle`, `relaxedInset`, `cross`,
+    /// `coolSlant`, `angle`, `softRound`, `convex`, `slope`, `divot`,
+    /// `riblet`, `hardEdge`, `artDeco`), kept verbatim.
+    pub preset: String,
+    /// Width (EMU; Word's default 76200 = 6 pt).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub width: Emu,
+    /// Height (EMU).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub height: Emu,
+}
+
 /// Formatting of a picture: crop, border, outline shape, shadow and
 /// corrections. Brightness and contrast follow Word's Picture Corrections
 /// (`a:lum bright contrast`, 1/1000 %, `-100000..=100000`).
@@ -641,6 +662,15 @@ pub struct PictureFormat {
     #[serde(skip_serializing_if = "is_default")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<Recolor>"))]
     pub recolor: Recolor,
+    /// Soft edges: the radius of the feathered border (`a:softEdge/@rad`,
+    /// EMU).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
+    pub soft_edge: Option<Emu>,
+    /// Bevel (`a:scene3d` + `a:sp3d/a:bevelT`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub bevel: Option<Bevel>,
 }
 
 fn is_zero_i(v: &i32) -> bool {

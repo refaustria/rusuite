@@ -9,6 +9,7 @@
 // anchor paragraph's page in print layout (P8-31; draft view: at the
 // paragraph); offsets from the paragraph or line are honoured.
 
+import type { EditorView } from "@tiptap/pm/view";
 import type { Anchor } from "../generated/Anchor";
 import type { HAlign } from "../generated/HAlign";
 import type { VAlignPos } from "../generated/VAlignPos";
@@ -19,11 +20,17 @@ const EMU_PER_PX = 9525;
 
 /** Wrap Text choices: inline with the text, or one of the floating kinds. */
 export type WrapChoice = "inline" | WrapKind;
-export const WRAP_CHOICES: WrapChoice[] = ["inline", "square", "tight", "topAndBottom", "behind", "inFront"];
+export const WRAP_CHOICES: WrapChoice[] = ["inline", "square", "tight", "through", "topAndBottom", "behind", "inFront"];
+
+/** Wrapping kinds whose text flows around the sides (Square, Tight and Through: the bounding box). */
+export const SIDE_WRAPS: readonly WrapKind[] = ["square", "tight", "through"];
+
+/** The narrowest text area (px) Word fills beside a picture on both sides. */
+export const MIN_SIDE_GAP = 72;
 
 /** Rust's `Anchor::new(wrap)`: offset 0 from the column and the paragraph, Word's distances for square/tight. */
 export function newAnchor(wrap: WrapKind): Anchor {
-  const side = wrap === "square" || wrap === "tight";
+  const side = SIDE_WRAPS.includes(wrap);
   return {
     h: { relativeTo: "column", place: { kind: "offset", value: 0 } },
     v: { relativeTo: "paragraph", place: { kind: "offset", value: 0 } },
@@ -98,12 +105,18 @@ export interface FloatContext {
   page: { width: number; marginLeft: number } | null;
   /** The anchor paragraph's page (vertical page / margin positions; print layout only). */
   vpage?: VerticalPage | null;
+  /** The top of the line holding the anchor (px from the paragraph's top; `line`-relative positions). */
+  lineTop?: number;
 }
 
 /** CSS placement of a floating picture inside its paragraph. */
 export interface FloatPlacement {
-  /** `float-left` / `float-right` (square, tight), `block` (top and bottom), `behind` / `front` (out of the flow). */
-  mode: "float-left" | "float-right" | "block" | "behind" | "front";
+  /**
+   * `float-left` / `float-right` (square, tight, through: text on one side), `both` (out of the flow; text on both
+   * sides through the per-line exclusions of `wrapBoth.ts`), `block` (top and bottom), `behind` / `front` (out of
+   * the flow).
+   */
+  mode: "float-left" | "float-right" | "both" | "block" | "behind" | "front";
   /** CSS declarations for the picture's wrapper. */
   css: Record<string, string>;
 }
@@ -145,10 +158,14 @@ export interface VerticalPage {
  * or line; positions relative to the page or the margin are resolved
  * against the anchor paragraph's page in print layout (P8-31), else 0.
  */
-export function verticalPos(anchor: Anchor, page: VerticalPage | null = null, height = 0): number {
+export function verticalPos(anchor: Anchor, page: VerticalPage | null = null, height = 0, lineTop = 0): number {
   const place = anchor.v.place;
   const rel = anchor.v.relativeTo;
-  if (rel === "paragraph" || rel === "line") return place.kind === "offset" ? place.value / EMU_PER_PX : 0;
+  if (rel === "paragraph") return place.kind === "offset" ? place.value / EMU_PER_PX : 0;
+  if (rel === "line") {
+    // Offsets from the line's top; aligned: top/centre/bottom of the line (Word: top = the line's top).
+    return lineTop + (place.kind === "offset" ? place.value / EMU_PER_PX : 0);
+  }
   if (!page) return 0;
   const [top, bottom] = rel === "page" ? [0, page.height] : [page.bodyTop, page.bodyBottom];
   const y =
@@ -167,7 +184,7 @@ export function floatPlacement(anchor: Anchor, ctx: FloatContext): FloatPlacemen
   const d = anchor.distance;
   const dist = { t: d.top / EMU_PER_PX, b: d.bottom / EMU_PER_PX, l: d.left / EMU_PER_PX, r: d.right / EMU_PER_PX };
   const x = horizontalPos(anchor, ctx);
-  const y = verticalPos(anchor, ctx.vpage ?? null, ctx.height);
+  const y = verticalPos(anchor, ctx.vpage ?? null, ctx.height, ctx.lineTop ?? 0);
   // Relative to the paragraph's content box: subtract the left indent.
   const left = x.value != null ? px(x.value - ctx.indentLeft) : `calc(${x.css} - ${px(ctx.indentLeft)})`;
   if (anchor.wrap === "behind" || anchor.wrap === "inFront") {
@@ -180,9 +197,19 @@ export function floatPlacement(anchor: Anchor, ctx: FloatContext): FloatPlacemen
   if (anchor.wrap === "topAndBottom") {
     return { mode: "block", css: { display: "block", "margin-left": left, ...vertical } };
   }
-  // Square / tight: float on the side that leaves the wider text area (Word flows on both sides; CSS on one).
+  // Square / tight / through: text on both sides when both text areas are wide enough (Word), out of the flow with
+  // per-line exclusions; else a float on the side that leaves the wider text area.
   const place = anchor.h.place;
   const side = anchor.wrapSide ?? "both";
+  const col = ctx.columnWidth;
+  const xNum = x.value ?? (col != null && place.kind === "align" ? (place.value === "left" ? 0 : place.value === "right" ? col - ctx.width : (col - ctx.width) / 2) : null);
+  if (side === "both" && xNum != null && ctx.columnWidth != null) {
+    const leftGap = xNum - dist.l - ctx.indentLeft;
+    const rightGap = ctx.columnWidth - ctx.indentRight - (xNum + ctx.width + dist.r);
+    if (leftGap >= MIN_SIDE_GAP && rightGap >= MIN_SIDE_GAP) {
+      return { mode: "both", css: { position: "absolute", left: px(xNum - ctx.indentLeft), top: px(y), "z-index": "1" } };
+    }
+  }
   const right =
     side === "left" ||
     (side !== "right" &&
@@ -214,4 +241,24 @@ export function renderedOffset(wrap: HTMLElement, indentLeft: number): { x: numb
   const r0 = wrap.getBoundingClientRect();
   const p0 = para?.getBoundingClientRect() ?? r0;
   return { x: (r0.left - p0.left) / z + indentLeft, y: (r0.top - p0.top) / z, zoom: z };
+}
+
+/**
+ * The top of the line holding the object at `pos` (px from its paragraph's
+ * top; `line`-relative vertical positions): the line of the text right
+ * after the object (the object itself is out of the line), 0 without one.
+ */
+export function lineTopAt(view: EditorView, pos: number | undefined, wrap: HTMLElement): number {
+  if (pos === undefined) return 0;
+  const para = wrap.closest("p, h1, h2, h3, h4, h5, h6") as HTMLElement | null;
+  if (!para) return 0;
+  try {
+    const node = view.state.doc.nodeAt(pos);
+    const after = pos + (node?.nodeSize ?? 1);
+    const c = view.coordsAtPos(Math.min(after, view.state.doc.content.size), 1);
+    const z = zoomOf(para);
+    return Math.max(0, (c.top - para.getBoundingClientRect().top) / z);
+  } catch {
+    return 0;
+  }
 }

@@ -18,9 +18,9 @@ use model_text::{
 use model_text::{Comment, CommentId, Drawing, DrawingKind, Hyperlink, LinkTarget, ShapeFill};
 
 use crate::drawing::{
-    emu_pt, vml_color, write_blip_effects, write_fill, write_line, write_preset, write_shadow,
-    write_src_rect, write_style, NS_O, NS_V, NS_W10, NS_WP14, NS_WPC, NS_WPG, NS_WPS, URI_WPG,
-    URI_WPS,
+    emu_pt, vml_color, write_blip_effects, write_fill, write_line, write_picture_effects,
+    write_preset, write_src_rect, write_style, NS_O, NS_V, NS_W10, NS_WP14, NS_WPC, NS_WPG, NS_WPS,
+    URI_WPG, URI_WPS,
 };
 
 use crate::numbering::{write_numbering, W_NS};
@@ -1311,9 +1311,7 @@ impl<'a> PartWriter<'a> {
         if let Some(b) = &f.border {
             write_line(x, b);
         }
-        if f.shadow {
-            write_shadow(x);
-        }
+        write_picture_effects(x, f);
     }
 
     /// A `wps:wsp`: geometry, colours, the text (or the link to the chain
@@ -1696,9 +1694,14 @@ fn write_anchor_start(x: &mut XmlOut, a: &Anchor, z: &str, cx: &str, cy: &str) {
     };
     match a.wrap {
         WrapKind::Square => x.empty("wp:wrapSquare", &[("wrapText", side)]),
-        WrapKind::Tight => {
+        WrapKind::Tight | WrapKind::Through => {
             // Word requires a polygon; the image's bounding box.
-            x.start("wp:wrapTight", &[("wrapText", side)]);
+            let el = if a.wrap == WrapKind::Tight {
+                "wp:wrapTight"
+            } else {
+                "wp:wrapThrough"
+            };
+            x.start(el, &[("wrapText", side)]);
             x.start("wp:wrapPolygon", &[("edited", "0")]);
             x.empty("wp:start", &[("x", "0"), ("y", "0")]);
             for (px, py) in [
@@ -1710,7 +1713,7 @@ fn write_anchor_start(x: &mut XmlOut, a: &Anchor, z: &str, cx: &str, cy: &str) {
                 x.empty("wp:lineTo", &[("x", px), ("y", py)]);
             }
             x.end("wp:wrapPolygon");
-            x.end("wp:wrapTight");
+            x.end(el);
         }
         WrapKind::TopAndBottom => x.empty("wp:wrapTopAndBottom", &[]),
         WrapKind::Behind | WrapKind::InFront => x.empty("wp:wrapNone", &[]),

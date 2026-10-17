@@ -254,6 +254,31 @@ describe("Picture Format", () => {
     await waitFor(() => expect(formats(backend).pop()?.format.border).toMatchObject({ width: 38100 }));
   });
 
+  it("P9-W4: Picture Effects › Soft Edges and Bevel → SetImageFormat (a:softEdge, a:bevelT)", async () => {
+    const { backend } = await picture();
+    fireEvent.click(screen.getByRole("button", { name: "Picture Effects" }));
+    fireEvent.click(menuItem("5 pt"));
+    await waitFor(() => expect(formats(backend).pop()?.format).toEqual({ softEdge: 63500 }));
+    fireEvent.click(screen.getByRole("button", { name: "Picture Effects" }));
+    fireEvent.click(menuItem("Relaxed Inset"));
+    await waitFor(() => expect(formats(backend).pop()?.format).toEqual({ softEdge: 63500, bevel: { preset: "relaxedInset", width: 76200, height: 25400 } }));
+  });
+
+  it("P9-W4: Crop ▾ › Aspect Ratio 16:9 crops the picture centred (SetImageFormat + SetImageSize); Fit pads it; Crop to Shape", async () => {
+    const { backend } = await picture();
+    fireEvent.click(screen.getByRole("button", { name: "Crop options" }));
+    const panel = await screen.findByTestId("crop-panel");
+    fireEvent.click(within(panel).getByRole("button", { name: "16:9" }));
+    await waitFor(() => expect(formats(backend).pop()?.format).toEqual({ crop: { left: 0, top: 21875, right: 0, bottom: 21875 } }));
+    await waitFor(() => expect(flat(applied(backend))).toContainEqual(expect.objectContaining({ type: "setImageSize", width: 952500, height: 535781 })));
+    fireEvent.click(screen.getByRole("button", { name: "Crop options" }));
+    fireEvent.click(within(await screen.findByTestId("crop-panel")).getByRole("button", { name: "Fit" }));
+    await waitFor(() => expect(formats(backend).pop()?.format.crop).toEqual({ left: -38889, top: 0, right: -38889, bottom: 0 }));
+    fireEvent.click(screen.getByRole("button", { name: "Crop options" }));
+    fireEvent.click(within(await screen.findByTestId("crop-panel")).getByRole("button", { name: "Heart" }));
+    await waitFor(() => expect(formats(backend).pop()?.format.geometry).toBe("heart"));
+  });
+
   it("Crop enters crop mode on the picture; Enter leaves it", async () => {
     const { editorEl } = await picture();
     fireEvent.click(screen.getByRole("button", { name: "Crop" }));

@@ -180,3 +180,35 @@ fn linked_text_boxes_roundtrip() {
     let back = fmt_docx::read(&lonely).unwrap();
     assert!(drawings(&back).iter().all(|d| d.chain.is_none()));
 }
+
+#[test]
+fn picture_soft_edges_bevel_and_through_wrapping_roundtrip() {
+    let mut doc = Document::new();
+    let png = doc.media.insert("image/png", vec![0x89, b'P', b'N', b'G']);
+    let mut img = model_text::InlineImage::new(png, Emu(914_400), Emu(457_200));
+    img.format.soft_edge = Some(Emu(63_500));
+    img.format.bevel = Some(model_text::Bevel {
+        preset: "relaxedInset".into(),
+        width: Emu(76_200),
+        height: Emu(25_400),
+    });
+    img.format.shadow = true;
+    img.anchor = Some(Anchor::new(WrapKind::Through));
+    let mut d = doc_with(vec![Inline::Image(img.clone())]);
+    d.media = doc.media.clone();
+    let bytes = fmt_docx::write(&d).unwrap();
+    let xml = document_xml(&bytes);
+    assert!(xml.contains(r#"<a:effectLst><a:outerShdw "#), "{xml}");
+    assert!(
+        xml.contains(r#"<a:softEdge rad="63500"/></a:effectLst>"#),
+        "{xml}"
+    );
+    assert!(xml.contains(r#"<a:bevelT w="76200" h="25400" prst="relaxedInset"/>"#));
+    assert!(xml.contains(r#"<wp:wrapThrough wrapText="bothSides">"#));
+    let back = reread(&d);
+    let Inline::Image(got) = &back.body[0].as_paragraph().unwrap().inlines[0] else {
+        panic!("no picture")
+    };
+    assert_eq!(got.format, img.format);
+    assert_eq!(got.anchor.unwrap().wrap, WrapKind::Through);
+}

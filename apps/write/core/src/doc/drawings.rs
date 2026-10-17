@@ -293,6 +293,17 @@ impl WriteDocument {
         if f.geometry.as_deref() == Some("rect") {
             f.geometry = None;
         }
+        if f.soft_edge.is_some_and(|r| r.0 <= 0) {
+            f.soft_edge = None;
+        }
+        if let Some(b) = &f.bevel {
+            if b.preset.is_empty() || !b.preset.chars().all(|c| c.is_ascii_alphanumeric()) {
+                return Err(invalid(format!("invalid bevel {:?}", b.preset)));
+            }
+            if b.width.0 < 0 || b.height.0 < 0 {
+                return Err(invalid("negative bevel size"));
+            }
+        }
         self.edit_image(block, offset, ch, |img| img.format = f)
     }
 

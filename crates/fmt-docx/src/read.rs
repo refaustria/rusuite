@@ -1888,7 +1888,11 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
                 anchor.wrap_side = side(el);
             }
             "wrapTight" | "wrapThrough" => {
-                anchor.wrap = WrapKind::Tight;
+                anchor.wrap = if el.name == "wrapTight" {
+                    WrapKind::Tight
+                } else {
+                    WrapKind::Through
+                };
                 anchor.wrap_side = side(el);
             }
             "wrapTopAndBottom" => anchor.wrap = WrapKind::TopAndBottom,

@@ -388,9 +388,11 @@ pub enum WrapKind {
     /// Around the bounding box (`wp:wrapSquare`).
     #[default]
     Square,
-    /// Along the outline (`wp:wrapTight`; `wp:wrapThrough` is read as
-    /// this).
+    /// Along the outline (`wp:wrapTight`; drawn around the bounding box).
     Tight,
+    /// Through the outline's open parts (`wp:wrapThrough`; drawn around
+    /// the bounding box like [`WrapKind::Tight`]).
+    Through,
     /// Above and below only (`wp:wrapTopAndBottom`).
     TopAndBottom,
     /// No wrapping, behind the text (`wp:wrapNone` + `behindDoc="1"`).
@@ -399,7 +401,7 @@ pub enum WrapKind {
     InFront,
 }
 
-/// Which sides of a [`WrapKind::Square`]/[`WrapKind::Tight`] object text
+/// Which sides of a [`WrapKind::Square`]/[`WrapKind::Tight`]/[`WrapKind::Through`] object text
 /// flows on (docx `wrapText`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -506,7 +508,7 @@ impl Anchor {
             wrap,
             wrap_side: WrapSide::Both,
             distance: match wrap {
-                WrapKind::Square | WrapKind::Tight => Insets::word_default(),
+                WrapKind::Square | WrapKind::Tight | WrapKind::Through => Insets::word_default(),
                 _ => Insets::default(),
             },
             allow_overlap: true,

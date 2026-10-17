@@ -12,7 +12,9 @@ import type { Crop } from "../generated/Crop";
 import type { Indent } from "../generated/Indent";
 import type { PictureFormat } from "../generated/PictureFormat";
 import { colorCss, pictureFilterCss } from "../sync/schema";
-import { floatPlacement, movedAnchor, placementStyle, type VerticalPage } from "./floating";
+import { pathQuery, rectOutline, shapePaths } from "./drawings/paths";
+import { floatPlacement, lineTopAt, movedAnchor, placementStyle, type VerticalPage } from "./floating";
+import { bevelCss, cropMaskRects, imageRect, softEdgeCss } from "./pictures";
 
 /** Handle positions: corners keep the aspect ratio. */
 export const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
@@ -130,10 +132,56 @@ export function pictureFrameCss(f: PictureFormat | null | undefined, w: number, 
     css["outline-offset"] = `${(-px / 2).toFixed(1)}px`;
   }
   if (f.shadow) css["box-shadow"] = "2.8px 2.8px 5px rgba(0, 0, 0, 0.4)";
+  Object.assign(css, softEdgeCss(f, w, h));
   if (f.geometry === "ellipse") css["border-radius"] = "50%";
   else if (f.geometry === "roundRect") css["border-radius"] = `${(Math.min(w, h) * 0.16667).toFixed(1)}px`;
   else if (f.geometry === "snip1Rect" || f.geometry === "round1Rect") css["border-top-right-radius"] = `${(Math.min(w, h) * 0.16667).toFixed(1)}px`;
   return css;
+}
+
+/** Outline shapes drawn with CSS (`border-radius`); the others are clipped with their preset outline. */
+export const CSS_SHAPES = new Set(["rect", "ellipse", "roundRect", "snip1Rect", "round1Rect"]);
+
+let clipIds = 0;
+
+/**
+ * Crop to Shape with any preset: an SVG `clipPath` (the core's preset
+ * outline, scaled to the frame with `objectBoundingBox` units) in `holder`;
+ * returns the CSS `clip-path` value, or "" for CSS-drawn shapes.
+ */
+export function shapeClip(holder: HTMLElement, preset: string | null | undefined, wEmu: number, hEmu: number): string {
+  let svg = holder.querySelector<SVGSVGElement>(":scope > svg.picture-clip");
+  if (!preset || CSS_SHAPES.has(preset)) {
+    svg?.remove();
+    return "";
+  }
+  const NS = "http://www.w3.org/2000/svg";
+  if (!svg) {
+    svg = document.createElementNS(NS, "svg") as SVGSVGElement;
+    svg.setAttribute("class", "picture-clip");
+    svg.setAttribute("width", "0");
+    svg.setAttribute("height", "0");
+    svg.setAttribute("aria-hidden", "true");
+    const cp = document.createElementNS(NS, "clipPath");
+    cp.id = `rs-picture-clip-${++clipIds}`;
+    cp.setAttribute("clipPathUnits", "objectBoundingBox");
+    svg.append(cp);
+    holder.append(svg);
+  }
+  const cp = svg.firstElementChild as SVGClipPathElement;
+  const q = pathQuery(preset, wEmu, hEmu);
+  const outline = shapePaths.get(q) ?? rectOutline(q);
+  cp.replaceChildren(
+    ...outline.paths
+      .filter((p) => p.fill)
+      .map((p) => {
+        const path = document.createElementNS(NS, "path");
+        path.setAttribute("d", p.d);
+        path.setAttribute("transform", `scale(${1 / q.w} ${1 / q.h})`);
+        return path;
+      }),
+  );
+  return `url(#${cp.id})`;
 }
 
 /** Asks the picture at `pos` to enter (or leave) crop mode (Picture Format › Crop). */
@@ -155,9 +203,19 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
   img.draggable = false;
   frame.append(img);
   wrap.append(frame);
+  const bevel = document.createElement("span");
+  bevel.className = "picture-bevel";
+  frame.append(bevel);
   const cropWindow = document.createElement("span");
   cropWindow.className = "crop-window";
   wrap.append(cropWindow);
+  // Crop mode: the image outside the crop window is dimmed (Word).
+  const masks = [0, 1, 2, 3].map(() => {
+    const el = document.createElement("span");
+    el.className = "crop-mask";
+    wrap.append(el);
+    return el;
+  });
   const cropHandles = CROP_HANDLES.map((h) => {
     const el = document.createElement("span");
     el.className = `crop-handle crop-handle-${h}`;
@@ -177,7 +235,7 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
 
   const place = (n: PMNode) => {
     const anchor = n.attrs.anchor as Anchor | null;
-    wrap.classList.remove("floating", "float-left", "float-right", "block", "behind", "front");
+    wrap.classList.remove("floating", "float-left", "float-right", "both", "block", "behind", "front");
     if (!anchor) {
       wrap.removeAttribute("style");
       delete wrap.dataset.wrap;
@@ -194,6 +252,7 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
       columnWidth: page?.columnWidth ?? null,
       page,
       vpage,
+      lineTop: anchor.v.relativeTo === "line" ? lineTopAt(view, getPos(), wrap) : 0,
     });
     wrap.classList.add("floating", p.mode);
     wrap.dataset.wrap = anchor.wrap;
@@ -212,7 +271,25 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
     img.style.marginLeft = c.left ? `${((-c.left / 100000) * iw).toFixed(1)}px` : "";
     img.style.marginTop = c.top ? `${((-c.top / 100000) * ih).toFixed(1)}px` : "";
     const css = cropping ? {} : pictureFrameCss(f, w, h);
+    const clip = cropping ? "" : shapeClip(wrap, f?.geometry, Math.round(w * opts.emuPerPx), Math.round(h * opts.emuPerPx));
+    if (clip) css["clip-path"] = clip;
     frame.setAttribute("style", [`width: ${Math.round(w)}px`, `height: ${Math.round(h)}px`, ...Object.entries(css).map(([k, v]) => `${k}: ${v}`)].join("; "));
+    const b = cropping ? "" : bevelCss(f?.bevel);
+    bevel.style.boxShadow = b;
+    bevel.hidden = !b;
+    if (css["border-radius"]) bevel.style.borderRadius = css["border-radius"];
+    else bevel.style.removeProperty("border-radius");
+    // The dimmed mask around the crop window.
+    const rects = cropping ? cropMaskRects(imageRect(w, h, crop), w, h) : [];
+    masks.forEach((m, i) => {
+      const r = rects[i];
+      m.hidden = !r;
+      if (!r) return;
+      m.style.left = `${r.x.toFixed(1)}px`;
+      m.style.top = `${r.y.toFixed(1)}px`;
+      m.style.width = `${r.w.toFixed(1)}px`;
+      m.style.height = `${r.h.toFixed(1)}px`;
+    });
     const filter = pictureFilterCss(f);
     img.style.filter = filter ? filter.replace(/^filter: /, "") : "";
     cropWindow.style.left = "0px";
