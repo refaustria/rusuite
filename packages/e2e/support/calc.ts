@@ -24,6 +24,13 @@ export class Grid {
     await this.page.mouse.click(q.x, q.y, { button: opts.button });
     if (opts.shift) await this.page.keyboard.up("Shift");
   }
+  /**
+   * Resolves once the app has no request to the core pending, no region re-fetch queued and no rule change settling
+   * (the grid's `data-busy`). Use it after a dialog's OK before acting on the result.
+   */
+  async waitIdle() {
+    await expect(this.page.getByTestId("grid")).not.toHaveAttribute("data-busy");
+  }
   /** Types text into a cell and commits with Enter. */
   async type(row: number, col: number, text: string) {
     await this.click(row, col);

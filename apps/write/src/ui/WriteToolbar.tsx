@@ -38,6 +38,7 @@ import { alignObjectsMenu, orderMenus, selectionPaneButton } from "./arrangeCont
 import { editSelectedDrawing, selectedDrawing } from "../features/drawings/drawings";
 import { formatTarget } from "../features/runFormat";
 import { innerEditors } from "../features/drawings/innerEditors";
+import { selectedObjects } from "../features/drawings/objects";
 import type { Drawing } from "../generated/Drawing";
 import type { PictureFormat } from "../generated/PictureFormat";
 import type { Anchor } from "../generated/Anchor";
@@ -366,6 +367,9 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
             }
           : null,
         drawing,
+        // The Shift/Ctrl+click object set: Group / Align / Distribute are enabled from it, and adding an object is a
+        // meta-only transaction that changes nothing else here – without it the menus kept the old state (P9-Q1).
+        objects: selectedObjects(e.state).map((o) => o.pos),
         borders: paragraphBorderState(selectedParagraphs(e.state)),
       };
     },

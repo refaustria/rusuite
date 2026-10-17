@@ -50,6 +50,17 @@ export const TWIPS_PER_CM = 1440 / 2.54;
 /** Twips → cm text with up to 2 decimals. */
 export const cm = (twips: number | null | undefined): string => (twips == null ? "" : String(Math.round((twips / TWIPS_PER_CM) * 100) / 100));
 /** cm text → twips (`null` when not a number). */
+
+/**
+ * Focuses `editor` synchronously (Tiptap's `focus` command waits for an animation frame): a dialog's OK/Cancel puts
+ * the caret back before the dialog closes, so the next shortcut (Ctrl+D after the Paragraph dialog) reaches the
+ * editor's keymap and the Dialog does not send the focus back to the ribbon button that opened it (P9-Q1).
+ */
+export function focusNow(editor: Editor): void {
+  if (editor.isDestroyed) return;
+  editor.view.focus();
+  editor.commands.scrollIntoView();
+}
 export function fromCm(text: string): number | null {
   const v = Number(text.trim().replace(",", "."));
   return text.trim() === "" || !Number.isFinite(v) ? null : Math.round(v * TWIPS_PER_CM);
@@ -740,7 +751,7 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
   }, [sections, secIndex]);
   const close = () => {
     ui.openDialog(null);
-    editor?.commands.focus();
+    if (editor) focusNow(editor);
   };
   // Captured when the dialog opens (the editor does not change while a modal dialog is up).
   const table = useMemo(
@@ -804,7 +815,7 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
           if (!target) return;
           const patch = runPatchBetween(fontInitial, { ...fontInitial, ...run });
           if (Object.keys(patch).length) applyRunPatch(target, patch);
-          target.commands.focus();
+          focusNow(target);
         }}
       />
       <PageSetupDialog
