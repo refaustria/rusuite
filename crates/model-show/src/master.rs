@@ -508,6 +508,28 @@ impl SlideMaster {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn level_style_merge() {
+        let base = TextStyles::office().level(TextClass::Body, 1);
+        assert!(!base.is_empty());
+        assert!(LevelStyle::default().is_empty());
+        let over = LevelStyle {
+            margin_left: Some(Emu(1)),
+            run: RunProperties {
+                bold: Some(true),
+                ..RunProperties::default()
+            },
+            ..LevelStyle::default()
+        };
+        let m = base.merged_with(&over);
+        assert_eq!(m.margin_left, Some(Emu(1)));
+        assert_eq!(m.indent, base.indent);
+        assert_eq!(m.run.bold, Some(true));
+        assert_eq!(m.run.size, base.run.size);
+        assert_eq!(m.paragraph.bullet, base.paragraph.bullet);
+    }
+
     use super::*;
 
     #[test]

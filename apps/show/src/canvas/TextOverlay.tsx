@@ -165,6 +165,8 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
   const composing = useRef(false);
   const builtKey = useRef("");
   const backward = useRef(false);
+  /** The selection last read from or written to the DOM. */
+  const shown = useRef<{ start: number; end: number } | null>(null);
   const history = useRef<{ undo: Snapshot[]; redo: Snapshot[]; last: string; at: number }>({ undo: [], redo: [], last: "", at: 0 });
   const frame = editing ? editorFrame(store, editing) : null;
   const frameRef = useRef(frame);
@@ -212,7 +214,13 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
     const sel = readSelection(root);
     if (!sel) return;
     backward.current = sel.backward;
+    shown.current = { start: sel.start, end: sel.end };
     if (sel.start !== e.start || sel.end !== e.end) store.updateEdit(e.text, sel.start, sel.end);
+  };
+  /** Puts the session's selection into the DOM (and remembers it as shown). */
+  const showSelection = (root: HTMLElement, e: { start: number; end: number }) => {
+    writeSelection(root, e.start, e.end, backward.current);
+    shown.current = { start: e.start, end: e.end };
   };
   const rebuild = (root: HTMLElement, f: EditorFrame) => {
     root.replaceChildren(...buildParagraphs(document, f.body, f.layout, f.options));
@@ -226,7 +234,8 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
     history.current = { undo: [], redo: [], last: "", at: 0 };
     root.focus();
     const e = store.getState().editing;
-    if (e) writeSelection(root, e.start, e.end);
+    backward.current = false;
+    if (e) showSelection(root, e);
   }, [editing?.shape, editing?.cell?.row, editing?.cell?.col, store]);
 
   // After a ribbon command (new revision) the focus returns to the editor.
@@ -237,7 +246,7 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
     const active = document.activeElement as HTMLElement | null;
     if (active && (active.tagName === "INPUT" || active.tagName === "SELECT")) return;
     root.focus();
-    writeSelection(root, e.start, e.end, backward.current);
+    showSelection(root, e);
   }, [revision, store]);
 
   // The DOM follows the session's body; the selection follows the session's.
@@ -251,11 +260,13 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
       rebuild(root, f);
       restore = true;
     }
+    // a selection set by the store (Ctrl+A, undo, a command) goes to the DOM; one the store took
+    // from the DOM does not go back (the DOM may already be ahead: fast Shift+arrows)
     if (!restore && document.activeElement === root) {
-      const sel = readSelection(root);
-      restore = !sel || sel.start !== e.start || sel.end !== e.end;
+      const was = shown.current;
+      restore = !was || was.start !== e.start || was.end !== e.end || !readSelection(root);
     }
-    if (restore && document.activeElement === root) writeSelection(root, e.start, e.end, backward.current);
+    if (restore && document.activeElement === root) showSelection(root, e);
   });
 
   // Native listeners: `beforeinput` (React's `onBeforeInput` has no `inputType`) and the selection.
@@ -397,6 +408,8 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
               // the keys the editor handles itself stop here
               if (!mod) e.stopPropagation();
               if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              // the store takes the DOM selection now: `selectionchange` may not have arrived yet (Shift+→ then Ctrl+B)
+              if (mod) syncSelection();
               const cur = store.getState().editing;
               if (!cur) return;
               const sel = selection();
@@ -420,7 +433,7 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
                 const root = ref.current;
                 backward.current = false;
                 store.updateEdit(cur.text, 0, cur.text.length);
-                if (root) writeSelection(root, 0, cur.text.length);
+                if (root) showSelection(root, { start: 0, end: cur.text.length });
               } else if (
                 mod &&
                 !e.altKey &&

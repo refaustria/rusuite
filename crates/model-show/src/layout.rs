@@ -683,6 +683,31 @@ impl PlaceholderDef {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn level_overrides() {
+        let mut d = Layout::builtin(LayoutKind::TitleContent, SlideSize::widescreen()).placeholders
+            [1]
+        .clone();
+        assert!(d.level_override(0).is_none() && d.level_override(3).is_none());
+        assert!(d.level_override_mut(0).is_none());
+        assert!(d.level_override_mut(9).is_none());
+        d.level_override_mut(3).unwrap().margin_left = Some(crate::Emu(10));
+        assert_eq!(d.levels.len(), 3);
+        assert_eq!(
+            d.level_override(3).unwrap().margin_left,
+            Some(crate::Emu(10))
+        );
+        assert!(d.level_override(1).unwrap().is_empty());
+        d.level_override_mut(3).unwrap().margin_left = None;
+        d.trim_levels();
+        assert!(d.levels.is_empty());
+        // chart and table placeholders are content placeholders
+        assert_eq!(PlaceholderKind::Table.text_class(), TextClass::Body);
+        assert!(PlaceholderKind::Chart.same_class(PlaceholderKind::Body));
+        assert_eq!(PlaceholderKind::Chart.default_idx(), 1);
+    }
+
     use super::*;
     use core_model::units::Emu;
     use core_model::{FontFace, ThemeFontSlot};
