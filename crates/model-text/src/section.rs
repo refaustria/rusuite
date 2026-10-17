@@ -424,3 +424,88 @@ pub struct Note {
     /// ordinary text commands).
     pub blocks: Vec<Block>,
 }
+
+/// A footnote or endnote separator (Word's View › Draft › Footnotes pane:
+/// "Footnote Separator", "Footnote Continuation Separator").
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind",
+    content = "value"
+)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum NoteSeparator {
+    /// Word's line (a short one for the separator, the text width for the
+    /// continuation separator; docx `w:separator`/`w:continuationSeparator`).
+    #[default]
+    Line,
+    /// Own text instead of the line (empty = no separator).
+    Text { text: String },
+}
+
+impl NoteSeparator {
+    /// Whether this is Word's line.
+    pub fn is_line(&self) -> bool {
+        matches!(self, NoteSeparator::Line)
+    }
+}
+
+/// The separators of the notes areas (docx: the `separator` and
+/// `continuationSeparator` notes of `footnotes.xml`/`endnotes.xml`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct NoteSeparators {
+    /// Above the footnotes of a page.
+    #[serde(default, skip_serializing_if = "NoteSeparator::is_line")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<NoteSeparator>"))]
+    pub footnote: NoteSeparator,
+    /// Above a footnote continued from the previous page.
+    #[serde(default, skip_serializing_if = "NoteSeparator::is_line")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<NoteSeparator>"))]
+    pub footnote_continuation: NoteSeparator,
+    /// Above the endnotes.
+    #[serde(default, skip_serializing_if = "NoteSeparator::is_line")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<NoteSeparator>"))]
+    pub endnote: NoteSeparator,
+    /// Above an endnote continued from the previous page.
+    #[serde(default, skip_serializing_if = "NoteSeparator::is_line")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<NoteSeparator>"))]
+    pub endnote_continuation: NoteSeparator,
+}
+
+impl NoteSeparators {
+    /// Whether all four are Word's lines.
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// The separator of `kind` (`continuation` = the continuation one).
+    pub fn get(&self, kind: NoteKind, continuation: bool) -> &NoteSeparator {
+        match (kind, continuation) {
+            (NoteKind::Foot, false) => &self.footnote,
+            (NoteKind::Foot, true) => &self.footnote_continuation,
+            (NoteKind::End, false) => &self.endnote,
+            (NoteKind::End, true) => &self.endnote_continuation,
+        }
+    }
+
+    /// Mutable [`NoteSeparators::get`].
+    pub fn get_mut(&mut self, kind: NoteKind, continuation: bool) -> &mut NoteSeparator {
+        match (kind, continuation) {
+            (NoteKind::Foot, false) => &mut self.footnote,
+            (NoteKind::Foot, true) => &mut self.footnote_continuation,
+            (NoteKind::End, false) => &mut self.endnote,
+            (NoteKind::End, true) => &mut self.endnote_continuation,
+        }
+    }
+}

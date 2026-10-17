@@ -177,6 +177,7 @@ struct Changes {
     comments: bool,
     properties: bool,
     settings: bool,
+    separators: bool,
     info: Option<String>,
 }
 
@@ -328,6 +329,7 @@ impl Ids {
                 title: t.title.clone(),
                 entries: t.entries.clone(),
                 caption: t.caption.clone(),
+                switches: t.switches.clone(),
             }),
             NewBlock::Table(t) => {
                 let id = self.resolve(doc, ch, Some(t.id))?;
@@ -1352,6 +1354,7 @@ impl WriteDocument {
                     kind: field.clone(),
                     cached: cached.clone().unwrap_or_default(),
                     props,
+                    locked: false,
                 });
                 replace_range(self.para_mut(*block)?, at, at, vec![inline]);
                 ch.block(*block);
@@ -1384,6 +1387,10 @@ impl WriteDocument {
                     .collect::<R<Vec<_>>>()?;
                 if !matches!(new.last(), Some(Block::Paragraph(_))) {
                     new.push(Block::Paragraph(Paragraph::new(self.doc.alloc_id())));
+                }
+                // One run per format, not one per typed character.
+                for b in &mut new {
+                    for_each_paragraph_mut(b, &mut Paragraph::normalize);
                 }
                 self.doc.notes[i].blocks = new;
                 ch.notes = true;
@@ -1438,6 +1445,7 @@ impl WriteDocument {
                     title: title.clone().filter(|t| !t.is_empty()),
                     entries: Vec::new(),
                     caption,
+                    switches: model_text::TocSwitches::default(),
                 };
                 toc.entries = self.doc.toc_entries(&toc);
                 self.doc.body.insert(index, Block::Toc(toc));
@@ -1594,13 +1602,24 @@ impl WriteDocument {
                 start,
                 end,
                 text,
+                content,
                 author,
                 initials,
                 date,
-            } => self.add_comment(*start, *end, text, author, initials, date, ch),
+            } => self.add_comment(
+                *start,
+                *end,
+                text,
+                content.as_deref(),
+                author,
+                initials,
+                date,
+                ch,
+            ),
             C::ReplyComment {
                 parent,
                 text,
+                content,
                 author,
                 initials,
                 date,
@@ -1608,8 +1627,12 @@ impl WriteDocument {
                 self.comment_or_err(*parent)?;
                 let root = self.doc.thread_root(*parent);
                 let old = self.doc.comments.clone();
+                let old_styles = self.doc.styles.clone();
                 let resolved = self.doc.comment(root).is_some_and(|c| c.resolved);
                 let mut c = self.new_comment(text, author, initials, date);
+                if let Some(blocks) = content {
+                    c.content = self.comment_content(blocks, ch)?;
+                }
                 c.parent = Some(root);
                 c.resolved = resolved;
                 // After the thread's last comment.
@@ -1621,9 +1644,9 @@ impl WriteDocument {
                     .map_or(self.doc.comments.len(), |i| i + 1);
                 self.doc.comments.insert(at, c);
                 ch.comments = true;
-                Ok(C::RestoreComments { comments: old })
+                Ok(self.with_styles(C::RestoreComments { comments: old }, old_styles, ch))
             }
-            C::EditComment { id, text } => {
+            C::EditComment { id, text, content } => {
                 let style = self
                     .comment_or_err(*id)?
                     .content
@@ -1632,12 +1655,90 @@ impl WriteDocument {
                     .and_then(|p| p.props.style.clone())
                     .or_else(|| self.doc.styles.get("CommentText").map(|s| s.id.clone()));
                 let old = self.doc.comments.clone();
-                let content = self.doc.comment_blocks(text, style.as_deref());
+                let old_styles = self.doc.styles.clone();
+                let content = match content {
+                    Some(blocks) => self.comment_content(blocks, ch)?,
+                    None => self.doc.comment_blocks(text, style.as_deref()),
+                };
                 if let Some(c) = self.doc.comments.iter_mut().find(|c| c.id == *id) {
                     c.content = content;
                 }
                 ch.comments = true;
-                Ok(C::RestoreComments { comments: old })
+                Ok(self.with_styles(C::RestoreComments { comments: old }, old_styles, ch))
+            }
+            C::ConvertNotes { ids, to } => {
+                let old = self.doc.notes.clone();
+                let old_styles = self.doc.styles.clone();
+                let had_refs = self.note_ref_blocks();
+                self.ensure_note_styles(*to);
+                if self.doc.convert_notes(ids.as_deref(), *to).is_empty() {
+                    return Ok(self.with_styles(
+                        C::Compound {
+                            commands: Vec::new(),
+                        },
+                        old_styles,
+                        ch,
+                    ));
+                }
+                // Restore the reference kinds of the paragraphs that hold them.
+                let mut inverse = Vec::new();
+                for (b, inlines) in had_refs {
+                    ch.block(b);
+                    let len = self.para(b)?.len();
+                    inverse.push(C::RestoreInlines {
+                        block: b,
+                        from: 0,
+                        to: to_u32(len),
+                        inlines,
+                    });
+                }
+                inverse.push(C::RestoreNotes { notes: old });
+                ch.notes = true;
+                Ok(self.with_styles(C::Compound { commands: inverse }, old_styles, ch))
+            }
+            C::SetNoteSeparators { separators } => {
+                let old = std::mem::replace(&mut self.doc.separators, separators.clone());
+                ch.separators = true;
+                Ok(C::SetNoteSeparators { separators: old })
+            }
+            C::LockFields { blocks, locked } => {
+                let scope: Option<HashSet<NodeId>> =
+                    blocks.as_ref().map(|b| b.iter().copied().collect());
+                let mut touched: Vec<(NodeId, Vec<Inline>)> = Vec::new();
+                for c in self.doc.containers_mut() {
+                    for b in c.iter_mut() {
+                        model_text::document::for_each_paragraph_mut(b, &mut |p| {
+                            if scope.as_ref().is_some_and(|s| !s.contains(&p.id)) {
+                                return;
+                            }
+                            let before = p.inlines.clone();
+                            let mut changed = false;
+                            for i in &mut p.inlines {
+                                if let Inline::Field(f) = i {
+                                    if f.locked != *locked {
+                                        f.locked = *locked;
+                                        changed = true;
+                                    }
+                                }
+                            }
+                            if changed {
+                                touched.push((p.id, before));
+                            }
+                        });
+                    }
+                }
+                let mut inverse = Vec::new();
+                for (b, inlines) in touched {
+                    ch.block(b);
+                    let len = self.para(b)?.len();
+                    inverse.push(C::RestoreInlines {
+                        block: b,
+                        from: 0,
+                        to: to_u32(len),
+                        inlines,
+                    });
+                }
+                Ok(C::Compound { commands: inverse })
             }
             C::DeleteComment { id } => {
                 let c = self.comment_or_err(*id)?;
@@ -2098,6 +2199,9 @@ impl WriteDocument {
                 bookmark: name.clone(),
                 hyperlink,
                 number: false,
+                relative: false,
+                full: false,
+                position: false,
             },
             RefShow::Page => FieldKind::PageRef {
                 bookmark: name.clone(),
@@ -2107,6 +2211,9 @@ impl WriteDocument {
                 bookmark: name.clone(),
                 hyperlink,
                 number: true,
+                relative: false,
+                full: false,
+                position: false,
             },
             RefShow::Number | RefShow::NoteFormatted => FieldKind::NoteRef {
                 bookmark: name.clone(),
@@ -2126,6 +2233,7 @@ impl WriteDocument {
                 kind,
                 cached: String::new(),
                 props,
+                locked: false,
             })],
         );
         let mut pages = HashMap::new();
@@ -2174,6 +2282,9 @@ impl WriteDocument {
                 identifier: label.replace(char::is_whitespace, "_"),
                 format: None,
                 reset: None,
+                current: false,
+                hidden: false,
+                heading_reset: None,
             })
         }));
         if !text.is_empty() {
@@ -2252,10 +2363,47 @@ impl WriteDocument {
             ch.block(b);
             inverse.push((b, to_u32(o), v));
         }
-        Ok(C::UpdateFields {
+        let fields = C::UpdateFields {
             values: inverse,
             refresh: None,
-        })
+        };
+        // Tables of contents in scope: rebuilt with the pages (Word's
+        // "Update entire table"); same undo step.
+        let tocs: Vec<NodeId> = self
+            .doc
+            .body
+            .iter()
+            .filter_map(|b| match b {
+                Block::Toc(t) if scope.as_ref().map_or(true, |s| s.contains(&t.id)) => Some(t.id),
+                _ => None,
+            })
+            .collect();
+        let mut commands = vec![fields];
+        for id in tocs {
+            let Some(Block::Toc(old)) = self.doc.find_block(id).cloned() else {
+                continue;
+            };
+            let mut entries = self.doc.toc_entries(&old);
+            for e in &mut entries {
+                e.page = pages.get(&e.target).copied();
+            }
+            if entries == old.entries {
+                continue;
+            }
+            if let Some(Block::Toc(t)) = self.doc.find_block_mut(id) {
+                t.entries = entries;
+            }
+            ch.block(id);
+            commands.push(C::ReplaceBlocks {
+                ids: vec![id],
+                blocks: vec![NewBlock::from(&Block::Toc(old))],
+            });
+        }
+        if commands.len() == 1 {
+            return Ok(commands.pop().expect("one command"));
+        }
+        commands.reverse();
+        Ok(C::Compound { commands })
     }
 
     /// Records a save in the document properties (not an edit: no undo
@@ -2298,6 +2446,79 @@ impl WriteDocument {
                 .filter(|i| !i.is_empty())
                 .map_or_else(|| initials_of(name), str::to_owned),
         });
+    }
+
+    /// Comment content from the UI's blocks (paragraphs only; temporary
+    /// ids get real ones, markers are dropped by the comment fix-up). An
+    /// @mention adds Word's `Mention` style when missing.
+    fn comment_content(&mut self, blocks: &[NewBlock], ch: &mut Changes) -> R<Vec<Block>> {
+        let mut ids = Ids::new(&self.doc, &[]);
+        let mut out = Vec::with_capacity(blocks.len());
+        let style = self.doc.styles.get("CommentText").map(|s| s.id.clone());
+        for b in blocks {
+            let NewBlock::Paragraph(_) = b else {
+                return Err(invalid("comment content holds paragraphs only"));
+            };
+            let mut block = ids.block(&mut self.doc, ch, b)?;
+            if let Block::Paragraph(p) = &mut block {
+                if p.props.style.is_none() {
+                    p.props.style.clone_from(&style);
+                }
+                p.normalize();
+            }
+            out.push(block);
+        }
+        if out.is_empty() {
+            out.push(Block::Paragraph(Paragraph::new(self.doc.alloc_id())));
+        }
+        let mentions = model_text::document::paragraphs_in(&out)
+            .flat_map(|p| &p.inlines)
+            .any(|i| i.as_run().and_then(model_text::mentioned).is_some());
+        if mentions {
+            self.ensure_mention_style();
+        }
+        Ok(out)
+    }
+
+    /// Word's `Mention` character style (blue text on grey, like Word's
+    /// @mention): added when missing.
+    fn ensure_mention_style(&mut self) {
+        let base = self
+            .doc
+            .styles
+            .default_style(StyleKind::Character)
+            .map(|s| s.id.clone());
+        self.ensure_style(Style {
+            id: model_text::MENTION_STYLE.into(),
+            name: "Mention".into(),
+            kind: StyleKind::Character,
+            based_on: base,
+            next: None,
+            paragraph: ParagraphProperties::default(),
+            run: RunProperties {
+                color: Some(core_model::Color::Rgb(core_model::Rgb::new(
+                    0x2B, 0x57, 0x9A,
+                ))),
+                highlight: None,
+                ..Default::default()
+            },
+            is_default: false,
+            table: None,
+            ..Style::new("", "", StyleKind::Character)
+        });
+    }
+
+    /// Every paragraph holding a note reference, with its inlines.
+    fn note_ref_blocks(&self) -> Vec<(NodeId, Vec<Inline>)> {
+        let mut out = Vec::new();
+        for c in self.doc.containers() {
+            for p in model_text::document::paragraphs_in(c) {
+                if p.inlines.iter().any(|i| matches!(i, Inline::NoteRef(_))) {
+                    out.push((p.id, p.inlines.clone()));
+                }
+            }
+        }
+        out
     }
 
     fn comment_or_err(&self, id: CommentId) -> R<&Comment> {
@@ -2387,16 +2608,22 @@ impl WriteDocument {
         });
     }
 
-    /// Index of body paragraph `id` in document order (cells included).
-    fn paragraph_order(&self, id: NodeId) -> R<usize> {
-        if position(&self.doc, id).is_none() {
-            self.para(id)?;
-            return Err(invalid("comments can only be added to the body"));
+    /// The story (0 = the body, then notes, headers and footers in
+    /// [`Document::containers`] order) and index of paragraph `id` in it
+    /// (cells included). Comments are anchored inside one story.
+    fn paragraph_order(&self, id: NodeId) -> R<(usize, usize)> {
+        self.para(id)?;
+        for (k, c) in self.doc.containers().enumerate() {
+            if k >= self.doc.containers().count() - self.doc.comments.len() {
+                break;
+            }
+            if let Some(i) = model_text::document::paragraphs_in(c).position(|p| p.id == id) {
+                return Ok((k, i));
+            }
         }
-        self.doc
-            .paragraphs()
-            .position(|p| p.id == id)
-            .ok_or_else(|| invalid(format!("block {} is not a paragraph", id.0)))
+        Err(invalid(
+            "comments can be added to the body, notes, headers and footers",
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2405,6 +2632,7 @@ impl WriteDocument {
         start: CommentPoint,
         end: CommentPoint,
         text: &str,
+        content: Option<&[NewBlock]>,
         author: &Option<String>,
         initials: &Option<String>,
         date: &Option<String>,
@@ -2416,6 +2644,11 @@ impl WriteDocument {
             self.paragraph_order(start.block)?,
             self.paragraph_order(end.block)?,
         );
+        if os.0 != oe.0 {
+            return Err(invalid(
+                "a comment's start and end must be in the same story",
+            ));
+        }
         if (os, s) > (oe, e) {
             return Err(invalid("the comment's start is after its end"));
         }
@@ -2431,7 +2664,10 @@ impl WriteDocument {
             .iter()
             .map(|&b| Ok((b, self.para(b)?.inlines.clone())))
             .collect::<R<_>>()?;
-        let comment = self.new_comment(text, author, initials, date);
+        let mut comment = self.new_comment(text, author, initials, date);
+        if let Some(blocks) = content {
+            comment.content = self.comment_content(blocks, ch)?;
+        }
         let id = comment.id;
         replace_range(
             self.para_mut(end.block)?,
@@ -3122,8 +3358,113 @@ impl WriteDocument {
         Ok(C::RestoreParagraphProps { items })
     }
 
+    /// The top-level blocks of the note, header or footer holding the
+    /// top-level paragraph `id`, and its index there; with the undo state
+    /// of that story kind (all notes or all sections).
+    fn story_blocks_mut(&mut self, id: NodeId) -> Option<(C, &mut Vec<Block>, usize)> {
+        if let Some(n) = self
+            .doc
+            .notes
+            .iter()
+            .position(|n| n.blocks.iter().any(|b| b.id() == id))
+        {
+            let undo = C::RestoreNotes {
+                notes: self.doc.notes.clone(),
+            };
+            let blocks = &mut self.doc.notes[n].blocks;
+            let i = blocks.iter().position(|b| b.id() == id)?;
+            return Some((undo, blocks, i));
+        }
+        let undo = self.sections_state();
+        for s in &mut self.doc.sections {
+            for blocks in s.headers.blocks_mut().chain(s.footers.blocks_mut()) {
+                if let Some(i) = blocks.iter().position(|b| b.id() == id) {
+                    return Some((undo, blocks, i));
+                }
+            }
+        }
+        None
+    }
+
+    /// Enter / Backspace at a paragraph start inside a note, header or
+    /// footer (top level): the paragraph is split at `at` (`Some`) or
+    /// joined with the previous one; undo restores the story kind.
+    fn story_split_join(
+        &mut self,
+        block: NodeId,
+        split: Option<(usize, NodeId)>,
+        ch: &mut Changes,
+    ) -> R<C> {
+        let next_style = match split {
+            Some(_) => {
+                let p = self.para(block)?;
+                let style = p.props.style.clone().or_else(|| self.default_style());
+                style
+                    .as_deref()
+                    .and_then(|s| self.doc.styles.get(s))
+                    .and_then(|s| s.next.clone())
+                    .filter(|n| Some(n) != style.as_ref() && self.doc.styles.get(n).is_some())
+                    .map(|n| (self.default_style().as_ref() != Some(&n)).then_some(n))
+            }
+            None => None,
+        };
+        let in_note = self.doc.note_of_block(block).is_some();
+        let (undo, blocks, i) = self
+            .story_blocks_mut(block)
+            .ok_or(WriteError::UnknownBlock(block.0))?;
+        match split {
+            Some((at, id)) => {
+                let Block::Paragraph(p) = &mut blocks[i] else {
+                    return Err(invalid(format!("block {} is not a paragraph", block.0)));
+                };
+                let tail = replace_range(p, at, p.len(), Vec::new());
+                let mut props = p.props.clone();
+                if let Some(next) = next_style {
+                    props.style = next;
+                }
+                blocks.insert(
+                    i + 1,
+                    Block::Paragraph(Paragraph {
+                        id,
+                        props,
+                        inlines: tail,
+                        list_label: None,
+                    }),
+                );
+            }
+            None => {
+                if i == 0 {
+                    return Err(invalid(format!(
+                        "block {} is the first of its container",
+                        block.0
+                    )));
+                }
+                let Block::Paragraph(cur) = blocks.remove(i) else {
+                    return Err(invalid(format!("block {} is not a paragraph", block.0)));
+                };
+                let Block::Paragraph(prev) = &mut blocks[i - 1] else {
+                    blocks.insert(i, Block::Paragraph(cur));
+                    return Err(invalid(format!("block {} follows a table", block.0)));
+                };
+                prev.inlines.extend(cur.inlines);
+                prev.normalize();
+            }
+        }
+        if in_note {
+            ch.notes = true;
+        } else {
+            ch.sections = true;
+        }
+        Ok(undo)
+    }
+
     fn split(&mut self, block: NodeId, offset: u32, new_id: i64, ch: &mut Changes) -> R<C> {
         let (at, _) = self.range(block, offset, offset)?;
+        if position(&self.doc, block).is_none() {
+            let mut ids = Ids::new(&self.doc, &[]);
+            let id = ids.resolve(&mut self.doc, ch, Some(new_id))?;
+            return self.story_split_join(block, Some((at, id)), ch);
+        }
         let pos = self.pos(block)?;
         let old = self.para(block)?.clone();
         let mut props = old.props.clone();
@@ -3160,6 +3501,9 @@ impl WriteDocument {
 
     fn join(&mut self, block: NodeId, ch: &mut Changes) -> R<C> {
         let cur = self.para(block)?.clone();
+        if position(&self.doc, block).is_none() {
+            return self.story_split_join(block, None, ch);
+        }
         let pos = self.pos(block)?;
         if pos.index == 0 {
             return Err(invalid(format!(
@@ -4380,6 +4724,7 @@ impl WriteDocument {
             comments: ch.comments.then(|| self.doc.comments.clone()),
             properties: ch.properties.then(|| self.doc.properties.clone()),
             settings: ch.settings.then_some(self.doc.settings),
+            separators: ch.separators.then(|| self.doc.separators.clone()),
             info: ch.info,
         }
     }
@@ -4439,7 +4784,10 @@ fn affects_labels(cmd: &WriteCommand) -> bool {
         | C::InsertCrossReference { .. }
         | C::SetProperties { .. }
         | C::RestoreProperties { .. }
-        | C::SetSettings { .. } => false,
+        | C::SetSettings { .. }
+        | C::ConvertNotes { .. }
+        | C::SetNoteSeparators { .. }
+        | C::LockFields { .. } => false,
         _ => true,
     }
 }
@@ -4494,7 +4842,10 @@ fn may_touch_markers(cmd: &WriteCommand) -> bool {
         | C::RemoveHyperlink { .. }
         | C::SetProperties { .. }
         | C::RestoreProperties { .. }
-        | C::SetSettings { .. } => false,
+        | C::SetSettings { .. }
+        | C::ConvertNotes { .. }
+        | C::SetNoteSeparators { .. }
+        | C::LockFields { .. } => false,
         _ => true,
     }
 }

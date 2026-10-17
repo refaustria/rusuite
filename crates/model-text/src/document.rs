@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::block::{Block, NodeId, Paragraph, Table, TocEntry};
 use crate::comment::Comment;
-use crate::inline::{Field, FieldKind, Inline, Run};
+use crate::inline::{Field, FieldKind, Inline, NoteKind, Run};
 use crate::media::MediaStore;
 use crate::numbering::{ListCounter, Numbering};
 use crate::page::{PageSetup, PAGE_FIELD};
@@ -76,6 +76,25 @@ pub struct Document {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Comment>>"))]
     pub comments: Vec<Comment>,
+    /// Comment authors with their accounts (docx `people.xml`); see
+    /// [`Document::comment_people`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(
+        feature = "ts",
+        ts(optional, as = "Option<Vec<crate::comment::Person>>")
+    )]
+    pub people: Vec<crate::comment::Person>,
+    /// Custom footnote/endnote separators (docx `w:separator` /
+    /// `w:continuationSeparator` notes); default = Word's lines.
+    #[serde(
+        default,
+        skip_serializing_if = "crate::section::NoteSeparators::is_default"
+    )]
+    #[cfg_attr(
+        feature = "ts",
+        ts(optional, as = "Option<crate::section::NoteSeparators>")
+    )]
+    pub separators: crate::section::NoteSeparators,
     /// Images and other binary parts.
     #[cfg_attr(feature = "ts", ts(as = "Vec<crate::media::MediaItem>"))]
     pub media: MediaStore,
@@ -119,6 +138,8 @@ impl Document {
             sections: Vec::new(),
             notes: Vec::new(),
             comments: Vec::new(),
+            people: Vec::new(),
+            separators: crate::section::NoteSeparators::default(),
             media: MediaStore::new(),
             properties: CoreProperties::default(),
             settings: DocumentSettings::default(),
@@ -192,6 +213,57 @@ impl Document {
     /// The note whose content holds the block `id` (at any depth).
     pub fn note_of_block(&self, id: NodeId) -> Option<&Note> {
         self.notes.iter().find(|n| find_in(&n.blocks, id).is_some())
+    }
+
+    /// Word's Convert Notes: notes `ids` (all notes of the other kind when
+    /// `None`) become `to` notes — their references follow, and their
+    /// paragraphs in `FootnoteText`/`EndnoteText` switch to the other
+    /// style when the document has it. Returns the converted ids.
+    pub fn convert_notes(&mut self, ids: Option<&[u32]>, to: NoteKind) -> Vec<u32> {
+        let from_style = match to {
+            NoteKind::Foot => "EndnoteText",
+            NoteKind::End => "FootnoteText",
+        };
+        let to_style = match to {
+            NoteKind::Foot => "FootnoteText",
+            NoteKind::End => "EndnoteText",
+        };
+        let has_style = self.styles.get(to_style).is_some();
+        let mut done = Vec::new();
+        for n in &mut self.notes {
+            let chosen = ids.map_or(n.kind != to, |ids| ids.contains(&n.id));
+            if !chosen || n.kind == to {
+                continue;
+            }
+            n.kind = to;
+            done.push(n.id);
+            if has_style {
+                for b in &mut n.blocks {
+                    for_each_paragraph_mut(b, &mut |p| {
+                        if p.props.style.as_deref() == Some(from_style) {
+                            p.props.style = Some(to_style.to_owned());
+                        }
+                    });
+                }
+            }
+        }
+        if done.is_empty() {
+            return done;
+        }
+        for c in self.containers_mut() {
+            for b in c.iter_mut() {
+                for_each_paragraph_mut(b, &mut |p| {
+                    for i in &mut p.inlines {
+                        if let Inline::NoteRef(r) = i {
+                            if done.contains(&r.id) {
+                                r.kind = to;
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        done
     }
 
     /// The section (index) whose header or footer holds the block `id`.
@@ -539,13 +611,57 @@ impl Document {
     /// entry starts with its number (`1.1 Scope`, as in Word; bullets are
     /// left out).
     pub fn build_toc(&self, from: u8, to: u8) -> Vec<TocEntry> {
+        self.build_toc_with(from, to, &crate::block::TocSwitches::default())
+    }
+
+    /// The TOC level of `p` under `switches`: a `\t` style's level, else
+    /// (`\o`) its heading style's level in `from..=to`, else (`\u`) its
+    /// own outline level in `from..=to`.
+    fn toc_level(
+        &self,
+        p: &Paragraph,
+        from: u8,
+        to: u8,
+        switches: &crate::block::TocSwitches,
+    ) -> Option<u8> {
+        if !switches.styles.is_empty() {
+            if let Some(style) = p.props.style.as_deref().and_then(|s| self.styles.get(s)) {
+                if let Some(t) = switches.styles.iter().find(|t| {
+                    t.style.eq_ignore_ascii_case(&style.name)
+                        || t.style.eq_ignore_ascii_case(&style.id)
+                }) {
+                    return Some(t.level);
+                }
+            }
+        }
+        let in_range = |l: u8| (from..=to).contains(&l).then_some(l);
+        if !switches.no_outline_levels {
+            // `\u`: the paragraph's own level wins (9 = body text takes a heading out).
+            if let Some(l) = p.props.outline_level {
+                return (l < 9).then(|| in_range(l + 1)).flatten();
+            }
+        }
+        if switches.no_headings {
+            return None;
+        }
+        // `\o` alone: the style's heading level, the paragraph's own level ignored.
+        let mut probe = p.clone();
+        probe.props.outline_level = None;
+        self.outline_level(&probe).and_then(in_range)
+    }
+
+    /// [`Document::build_toc`] honouring a TOC field's switches (`\o`,
+    /// `\u`, `\t`).
+    pub fn build_toc_with(
+        &self,
+        from: u8,
+        to: u8,
+        switches: &crate::block::TocSwitches,
+    ) -> Vec<TocEntry> {
         let mut labels: Option<HashMap<NodeId, String>> = None;
         self.paragraphs()
             .filter_map(|p| {
-                let level = self.outline_level(p)?;
-                if level < from || level > to {
-                    return None;
-                }
+                let level = self.toc_level(p, from, to, switches)?;
                 let mut text = p.display_text().replace('\t', " ").trim().to_owned();
                 if text.is_empty() {
                     return None;
@@ -573,7 +689,7 @@ impl Document {
     /// sequence (text as shown, level 1).
     pub fn toc_entries(&self, t: &crate::block::Toc) -> Vec<TocEntry> {
         let Some(id) = t.caption.as_deref() else {
-            return self.build_toc(t.from_level, t.to_level);
+            return self.build_toc_with(t.from_level, t.to_level, &t.switches);
         };
         self.captions(id)
             .into_iter()
@@ -969,6 +1085,29 @@ fn normalize_blocks(blocks: &mut Vec<Block>, next_id: &mut u64) {
     if !matches!(blocks.last(), Some(Block::Paragraph(_))) {
         blocks.push(Block::Paragraph(Paragraph::new(NodeId(*next_id))));
         *next_id += 1;
+    }
+}
+
+/// Calls `f` on every paragraph inside `block` (itself, table cells and
+/// the text of its drawings).
+pub fn for_each_paragraph_mut(block: &mut Block, f: &mut impl FnMut(&mut Paragraph)) {
+    match block {
+        Block::Paragraph(p) => {
+            f(p);
+            for d in p.drawings_mut() {
+                for b in d.blocks_mut().into_iter().flatten() {
+                    for_each_paragraph_mut(b, f);
+                }
+            }
+        }
+        Block::Table(t) => {
+            for cell in t.rows.iter_mut().flat_map(|r| &mut r.cells) {
+                for b in &mut cell.blocks {
+                    for_each_paragraph_mut(b, f);
+                }
+            }
+        }
+        Block::Toc(_) => {}
     }
 }
 

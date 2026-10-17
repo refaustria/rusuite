@@ -40,8 +40,13 @@ pub mod style;
 pub mod style_set;
 pub mod table;
 
-pub use block::{Block, NodeId, Paragraph, Table, TableCell, TableRow, Toc, TocEntry};
-pub use comment::{marker_of, Comment, CommentFix, CommentId, CommentRange};
+pub use block::{
+    Block, NodeId, Paragraph, Table, TableCell, TableRow, Toc, TocEntry, TocStyleLevel, TocSwitches,
+};
+pub use comment::{
+    marker_of, mention_run, mentioned, Comment, CommentFix, CommentId, CommentRange, Person,
+    MENTION_STYLE,
+};
 pub use core_model::units::{Emu, Pt, Twips};
 pub use core_model::RunProperties;
 pub use document::{Document, DocumentStatistics};
@@ -71,8 +76,8 @@ pub use props::{
     TableLook, TablePosSpec, TablePosition, TableProperties, TableWidth, VAlign, VMerge,
 };
 pub use section::{
-    ColumnWidth, Columns, HeaderFooterSet, HeaderSlot, Note, NoteNumbering, NoteRestart, Section,
-    SectionId, SectionKind,
+    ColumnWidth, Columns, HeaderFooterSet, HeaderSlot, Note, NoteNumbering, NoteRestart,
+    NoteSeparator, NoteSeparators, Section, SectionId, SectionKind,
 };
 pub use snapshot::DocumentSnapshot;
 pub use style::{

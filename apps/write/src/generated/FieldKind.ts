@@ -6,4 +6,16 @@ import type { LevelKind } from "./LevelKind";
  *
  * Serializes as `{"kind":"page"}` or `{"kind":"date","value":{"format":"d.M.yyyy"}}`.
  */
-export type FieldKind = { "kind": "page" } | { "kind": "numPages" } | { "kind": "date", "value": { format?: string, } } | { "kind": "time", "value": { format?: string, } } | { "kind": "fileName" } | { "kind": "author" } | { "kind": "title" } | { "kind": "subject" } | { "kind": "keywords" } | { "kind": "comments" } | { "kind": "lastSavedBy" } | { "kind": "saveDate", "value": { format?: string, } } | { "kind": "docProperty", "value": { name: string, } } | { "kind": "ref", "value": { bookmark: string, hyperlink?: boolean, number?: boolean, } } | { "kind": "pageRef", "value": { bookmark: string, hyperlink?: boolean, } } | { "kind": "noteRef", "value": { bookmark: string, hyperlink?: boolean, formatted?: boolean, } } | { "kind": "seq", "value": { identifier: string, format?: LevelKind, reset?: number, } };
+export type FieldKind = { "kind": "page" } | { "kind": "numPages" } | { "kind": "date", "value": { format?: string, } } | { "kind": "time", "value": { format?: string, } } | { "kind": "fileName" } | { "kind": "author" } | { "kind": "title" } | { "kind": "subject" } | { "kind": "keywords" } | { "kind": "comments" } | { "kind": "lastSavedBy" } | { "kind": "saveDate", "value": { format?: string, } } | { "kind": "docProperty", "value": { name: string, } } | { "kind": "ref", "value": { bookmark: string, hyperlink?: boolean, number?: boolean, relative?: boolean, full?: boolean, position?: boolean, } } | { "kind": "pageRef", "value": { bookmark: string, hyperlink?: boolean, } } | { "kind": "noteRef", "value": { bookmark: string, hyperlink?: boolean, formatted?: boolean, } } | { "kind": "seq", "value": { identifier: string, format?: LevelKind, reset?: number, 
+/**
+ * `\\c`: repeats the closest preceding number instead of counting.
+ */
+current?: boolean, 
+/**
+ * `\\h`: counts but shows nothing.
+ */
+hidden?: boolean, 
+/**
+ * `\\s n`: restarts after every heading of level n.
+ */
+headingReset?: number, } } | { "kind": "sectionPages" } | { "kind": "styleRef", "value": { style: string, last?: boolean, number?: boolean, } };

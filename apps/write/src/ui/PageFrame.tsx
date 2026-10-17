@@ -3,6 +3,7 @@
 // as tall as all sheets and the page chrome (`PageChrome`) draws margins,
 // headers, footers and gaps. Draft: one long sheet.
 
+import type { NoteSeparators } from "../generated/NoteSeparators";
 import { useCallback, useEffect, useSyncExternalStore, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import { PageChrome } from "./PageChrome";
@@ -56,10 +57,12 @@ export interface PageFrameProps {
   onToggleWhiteSpace?: () => void;
   /** The document's sections: mixed page widths centre every sheet in a frame as wide as the widest page (W-18). */
   sections?: Section[];
+  /** Custom note separators (P9-W6); default: Word's lines. */
+  separators?: NoteSeparators;
   children: ReactNode;
 }
 
-export function PageFrame({ page, view, pages, frame, onEditHeaderFooter, layout, editor = null, onToggleWhiteSpace, sections = [], children }: PageFrameProps) {
+export function PageFrame({ page, view, pages, frame, onEditHeaderFooter, layout, editor = null, onToggleWhiteSpace, sections = [], separators, children }: PageFrameProps) {
   const t = useT();
   const g = pageGeometry(page);
   const print = view === "print";
@@ -109,7 +112,7 @@ export function PageFrame({ page, view, pages, frame, onEditHeaderFooter, layout
       {print && !paged && hf("header", frame ? frame.firstHeader : headerFooterText(page?.headerText, 1), { top: g.header })}
       {children}
       {print && !paged && hf("footer", frame ? frame.lastFooter : headerFooterText(page?.footerText, pages), { bottom: g.footer })}
-      {paged && <PageChrome layout={paged} editor={editor} onEditHeaderFooter={onEditHeaderFooter} onToggleWhiteSpace={onToggleWhiteSpace ?? (() => undefined)} frameWidth={mixed ? width : undefined} />}
+      {paged && <PageChrome layout={paged} editor={editor} separators={separators} onEditHeaderFooter={onEditHeaderFooter} onToggleWhiteSpace={onToggleWhiteSpace ?? (() => undefined)} frameWidth={mixed ? width : undefined} />}
     </div>
   );
 }
