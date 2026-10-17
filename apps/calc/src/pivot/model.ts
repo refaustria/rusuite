@@ -18,16 +18,24 @@ import type { PivotPatch } from "../generated/PivotPatch";
 import type { PivotSummary } from "../generated/PivotSummary";
 import type { PivotTable } from "../generated/PivotTable";
 import type { ShowAs } from "../generated/ShowAs";
+import type { DateGroupBy } from "../generated/DateGroupBy";
+import type { DateOp } from "../generated/DateOp";
+import type { LabelOp } from "../generated/LabelOp";
+import type { PivotFilter } from "../generated/PivotFilter";
+import type { ValueOp } from "../generated/ValueOp";
 import type { Rect } from "../generated/Rect";
 import { colName, sheetPrefix } from "../grid/address";
 
 /** The eleven functions of Summarize Values By, in Excel's order. */
 export const AGG_FUNCS: AggFunc[] = ["sum", "count", "average", "max", "min", "product", "countNums", "stdDev", "stdDevP", "var", "varP"];
 
+/** Summarize Values By: the eleven functions and Distinct Count (P9-C3; not a subtotal function). */
+export const VALUE_FUNCS: AggFunc[] = [...AGG_FUNCS, "distinctCount"];
+
 /** The word of a default caption (`Sum` of `Sum of Sales`), as the core writes it. */
 export const CAPTION_WORD: Record<AggFunc, string> = {
   sum: "Sum", count: "Count", average: "Average", max: "Max", min: "Min", product: "Product", countNums: "Count",
-  stdDev: "StdDev", stdDevP: "StdDevp", var: "Var", varP: "Varp",
+  stdDev: "StdDev", stdDevP: "StdDevp", var: "Var", varP: "Varp", distinctCount: "Distinct Count",
 };
 
 /** `Sum of Sales`: the caption of a data field (its own name when it has one). */
@@ -36,11 +44,19 @@ export function captionOf(d: DataField, fieldName: string): string {
 }
 
 /** Show Values As, in Excel's order (the entries this model supports). */
-export const SHOW_AS_KINDS: ShowAs["kind"][] = ["normal", "percentOfTotal", "percentOfColumn", "percentOfRow", "percentOfParent", "differenceFrom", "runningTotal", "rank"];
+export const SHOW_AS_KINDS: ShowAs["kind"][] = [
+  "normal", "percentOfTotal", "percentOfColumn", "percentOfRow", "percentOf", "percentOfParent", "percentOfParentColumn", "percentOfParentTotal",
+  "differenceFrom", "percentDifferenceFrom", "runningTotal", "percentRunningTotal", "rankAscending", "rank", "index",
+];
 
-/** Whether a Show Values As kind needs a base field (and, for Difference From, a base item). */
+const NEEDS_FIELD = new Set<ShowAs["kind"]>([
+  "differenceFrom", "runningTotal", "rank", "percentOf", "percentOfParentTotal", "percentDifferenceFrom", "percentRunningTotal", "rankAscending",
+]);
+const NEEDS_ITEM = new Set<ShowAs["kind"]>(["differenceFrom", "percentOf", "percentDifferenceFrom"]);
+
+/** Whether a Show Values As kind needs a base field (and, for Difference From / % Of, a base item). */
 export function showAsNeeds(kind: ShowAs["kind"]): { field: boolean; item: boolean } {
-  return { field: kind === "differenceFrom" || kind === "runningTotal" || kind === "rank", item: kind === "differenceFrom" };
+  return { field: NEEDS_FIELD.has(kind), item: NEEDS_ITEM.has(kind) };
 }
 
 /**
@@ -52,13 +68,18 @@ export function showAsOf(kind: ShowAs["kind"], baseField: number | null, baseIte
   const need = showAsNeeds(kind);
   if (need.field && baseField === null) return null;
   switch (kind) {
-    case "differenceFrom": {
+    case "differenceFrom":
+    case "percentOf":
+    case "percentDifferenceFrom": {
       if (baseItem === null) return null;
       const item = baseItem === "previous" ? { kind: "previous" as const } : baseItem === "next" ? { kind: "next" as const } : { kind: "item" as const, item: baseItem };
       return { kind, baseField: baseField!, baseItem: item };
     }
     case "runningTotal":
     case "rank":
+    case "rankAscending":
+    case "percentRunningTotal":
+    case "percentOfParentTotal":
       return { kind, baseField: baseField! };
     default:
       return { kind };
@@ -352,10 +373,10 @@ export function pageSelectionOf(items: readonly PivotItemInfo[], checked: Readon
   return keep.length === items.length ? null : keep;
 }
 
-/** Whether a field has a filter (hidden items, or a page selection other than All). */
+/** Whether a field has a filter (hidden items, a label / value filter, or a page selection other than All). */
 export function isFiltered(t: PivotTable, field: number): boolean {
   const a = [...(t.rows ?? []), ...(t.cols ?? [])].find((x) => x.field === field);
-  if (a) return (a.hiddenItems?.length ?? 0) > 0;
+  if (a) return (a.hiddenItems?.length ?? 0) > 0 || !!a.filter;
   const p = (t.filters ?? []).find((x) => x.field === field);
   return !!p?.selected && p.selected.kind === "items";
 }
@@ -363,7 +384,7 @@ export function isFiltered(t: PivotTable, field: number): boolean {
 /** Clear Filters: every hidden item shown again, every page field back to (All). */
 export function clearFiltersPatch(t: PivotTable): PivotPatch | null {
   const strip = (a: AxisField): AxisField => {
-    const { hiddenItems: _h, ...rest } = a;
+    const { hiddenItems: _h, filter: _f, ...rest } = a;
     return rest;
   };
   const rows = (t.rows ?? []).map(strip);
@@ -536,4 +557,90 @@ export function touchesPivot(r: Rect, s: PivotSummary): boolean {
 export function searchFields(fields: readonly PivotFieldInfo[], search: string): PivotFieldInfo[] {
   const q = search.trim().toLowerCase();
   return q === "" ? [...fields] : fields.filter((f) => f.name.toLowerCase().includes(q));
+}
+
+// --- P9-C3: filters, sorting, grouping ------------------------------------------------------------
+
+/** The label filter operators in Excel's menu order. */
+export const LABEL_OPS: LabelOp[] = [
+  "equal", "notEqual", "beginsWith", "notBeginsWith", "endsWith", "notEndsWith", "contains", "notContains",
+  "greater", "greaterOrEqual", "less", "lessOrEqual", "between", "notBetween",
+];
+/** The value filter operators in Excel's menu order. */
+export const VALUE_OPS: ValueOp[] = ["equal", "notEqual", "greater", "greaterOrEqual", "less", "lessOrEqual", "between", "notBetween"];
+/** The date filter operators. */
+export const DATE_OPS: DateOp[] = ["equal", "notEqual", "before", "after", "between", "notBetween"];
+/** Excel's date grouping levels, finest first (the Grouping dialog lists them in this order). */
+export const DATE_LEVELS: DateGroupBy[] = ["seconds", "minutes", "hours", "days", "months", "quarters", "years"];
+
+/** Whether an operator takes a second value (between). */
+export const twoValues = (op: string) => op === "between" || op === "notBetween";
+
+/** The patch that sets (or with `null` clears) the label / date / value filter of `field`. */
+export function filterPatch(t: PivotTable, field: number, filter: PivotFilter | null): PivotPatch | null {
+  return updateAxisField(t, field, (a) => {
+    const out: AxisField = { ...a };
+    if (filter) out.filter = filter;
+    else delete out.filter;
+    return out;
+  });
+}
+
+/** The patch of More Sort Options: manual (keeps the order), ascending / descending by the labels or by data field `data`. */
+export function sortPatch(t: PivotTable, field: number, mode: "manual" | "ascending" | "descending", data: number | null): PivotPatch | null {
+  return updateAxisField(t, field, (a) => {
+    const out: AxisField = { ...a };
+    if (mode === "manual") out.sort = a.sort?.kind === "manual" ? a.sort : { kind: "manual", order: [] };
+    else if (data !== null) out.sort = { kind: "byValue", data, descending: mode === "descending" };
+    else out.sort = { kind: mode };
+    return out;
+  });
+}
+
+/** The patch of Design › Blank Rows: a blank line after each item of the outer row fields, or none. */
+export function blankRowsPatch(t: PivotTable, on: boolean): PivotPatch | null {
+  const rows = t.rows ?? [];
+  const next = rows.map((a, i) => {
+    const out: AxisField = { ...a };
+    if (on && i < rows.length - 1) out.insertBlankRow = true;
+    else delete out.insertBlankRow;
+    return out;
+  });
+  return same(next, rows) ? null : { rows: next };
+}
+
+/**
+ * Group Selection: the items of one field picked by the selected label
+ * cells (`null` when the cells are no labels of a single field).
+ */
+export function selectedItems(cells: readonly (CellView | undefined)[]): { field: number; items: number[] } | null {
+  let field: number | null = null;
+  const items: number[] = [];
+  for (const c of cells) {
+    const p = c?.pivot;
+    if (!p || (p.kind !== "rowLabel" && p.kind !== "colLabel") || p.field === undefined || p.item === undefined) continue;
+    if (field === null) field = p.field;
+    else if (field !== p.field) return null;
+    if (!items.includes(p.item)) items.push(p.item);
+  }
+  return field === null ? null : { field, items };
+}
+
+/** A date serial as `yyyy-mm-dd` (the Grouping dialog's fields). */
+export function serialToIso(serial: number): string {
+  const ms = Math.round((serial - 25569) * 86_400_000);
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** `yyyy-mm-dd` (or `m/d/yyyy`) as a date serial; `null` when it is no date. */
+export function isoToSerial(text: string): number | null {
+  const t = text.trim();
+  let y: number, m: number, d: number;
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
+  const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(t);
+  if (iso) [y, m, d] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
+  else if (us) [m, d, y] = [Number(us[1]), Number(us[2]), Number(us[3])];
+  else return null;
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  return Date.UTC(y, m - 1, d) / 86_400_000 + 25569;
 }

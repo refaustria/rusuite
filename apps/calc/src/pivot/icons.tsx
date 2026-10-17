@@ -142,3 +142,58 @@ export const optionsIcon = (size = 24) =>
       <path d="M5.5 7h9M5.5 10h9M5.5 13h5" />
     </>
   ));
+
+/** Group Selection / Group Field: two rows bracketed together. */
+export const groupIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <path d="M8 5h9M8 10h9M8 15h9" />
+      <path d="M5 4H3.5v7H5" />
+    </>
+  ));
+
+/** Ungroup: the bracket opened. */
+export const ungroupIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <path d="M8 5h9M8 10h9M8 15h9" />
+      <path d="M3.5 4v3M3.5 9v2" />
+    </>
+  ));
+
+/** Fields, Items & Sets: fx over a column. */
+export const calcIcon = (size = 24) =>
+  svg(size, (
+    <>
+      <rect x="11" y="3" width="6" height="14" />
+      <path d="M8 4.5c-1.5 0-2 1-2 2.5v7c0 1.5-.6 2.5-2 2.5M3.5 9.5h5" />
+    </>
+  ));
+
+/** PivotChart: columns with the pivot grid behind. */
+export const pivotChartIcon = (size = 24) =>
+  svg(size, (
+    <>
+      <rect x="2.5" y="3" width="15" height="14" opacity="0.4" />
+      <path d="M6 15v-5M10 15V7M14 15v-3" strokeWidth="2.5" />
+    </>
+  ));
+
+/** Recommended PivotTables: the grid with a star. */
+export const recommendedPivotIcon = (size = 24) =>
+  svg(size, (
+    <>
+      <rect x="2.5" y="5" width="11" height="12" />
+      <path d="M2.5 9h11M6.5 5v12" />
+      <path d="M16 2l.9 1.9 2.1.3-1.5 1.4.4 2.1L16 6.7l-1.9 1 .4-2.1L13 4.2l2.1-.3z" fill="currentColor" stroke="none" />
+    </>
+  ));
+
+/** Blank Rows: rows with a gap. */
+export const blankRowsIcon = (size = 24) =>
+  svg(size, (
+    <>
+      <path d="M3 4h14M3 7h14M3 13h14M3 16h14" />
+      <path d="M3 10h14" strokeDasharray="1.5 1.5" />
+    </>
+  ));

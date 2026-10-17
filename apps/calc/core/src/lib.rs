@@ -63,7 +63,7 @@ pub use patch::{
     StructuralKind, WorkbookInfo,
 };
 pub use pivots::{
-    PivotArea, PivotAt, PivotCellView, PivotFieldInfo, PivotInfo, PivotItemInfo, PivotPatch,
-    PivotSourceSpec, PivotSummary, PivotTarget, SheetPivots,
+    PivotArea, PivotAt, PivotCalcItemInfo, PivotCellView, PivotFieldInfo, PivotInfo, PivotItemInfo,
+    PivotPatch, PivotRecommendation, PivotSourceSpec, PivotSummary, PivotTarget, SheetPivots,
 };
 pub use slicers::{SheetSlicers, SlicerPivot, SlicerView};

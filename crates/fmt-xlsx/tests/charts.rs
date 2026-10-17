@@ -195,6 +195,7 @@ fn every_kind_roundtrips_through_xlsx() {
                 name: String::new(),
                 anchor: anchor(),
                 chart: chart.clone(),
+                pivot: None,
             },
         )
         .unwrap();
@@ -233,6 +234,7 @@ fn drawing_and_relationships() {
         name: "Sales chart".into(),
         anchor: anchor(),
         chart: recommended(),
+        pivot: None,
     };
     wb.add_chart(s, obj.clone()).unwrap();
     wb.add_chart(
@@ -317,6 +319,7 @@ fn cache_written_on_save_matches_resolved_data() {
             name: String::new(),
             anchor: anchor(),
             chart: recommended(),
+            pivot: None,
         },
     )
     .unwrap();
@@ -379,6 +382,7 @@ fn unresolvable_references_keep_their_cache_and_unsupported_charts_survive() {
                 name: String::new(),
                 anchor: anchor(),
                 chart,
+                pivot: None,
             },
         )
         .unwrap();

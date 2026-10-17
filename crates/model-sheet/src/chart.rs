@@ -130,6 +130,12 @@ pub struct ChartObject {
     pub name: String,
     pub anchor: ChartAnchor,
     pub chart: Chart,
+    /// A PivotChart: the pivot table (id) whose layout the series follow
+    /// (row items as categories, value fields and column items as series;
+    /// re-derived whenever the table is rendered). Saved with
+    /// `c:pivotSource`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pivot: Option<u32>,
 }
 
 /// The cells of one reference: values with their displayed text, plus
@@ -269,7 +275,11 @@ impl Workbook {
             chart.name = format!("Chart {}", chart.id);
         }
         let id = chart.id;
+        let pivot = chart.pivot.is_some();
         data.charts.push(chart);
+        if pivot {
+            self.sync_pivot_charts();
+        }
         Ok(id)
     }
 
@@ -632,6 +642,7 @@ mod tests {
             name: String::new(),
             anchor: anchor(),
             chart: recommended(),
+            pivot: None,
         };
         assert_eq!(wb.add_chart(s, obj.clone()).unwrap(), 1);
         assert_eq!(wb.add_chart(s, obj.clone()).unwrap(), 2);
@@ -661,6 +672,7 @@ mod tests {
                 name: String::new(),
                 anchor: anchor(),
                 chart: recommended(),
+                pivot: None,
             },
         )
         .unwrap();
@@ -699,6 +711,7 @@ mod tests {
             name: String::new(),
             anchor: anchor(),
             chart: recommended(),
+            pivot: None,
         };
         wb.add_chart(other, obj.clone()).unwrap();
         wb.add_chart(s, obj).unwrap();
@@ -743,6 +756,7 @@ mod tests {
                 name: String::new(),
                 anchor: anchor(),
                 chart: recommended(),
+                pivot: None,
             },
         )
         .unwrap();

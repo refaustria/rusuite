@@ -233,8 +233,22 @@ export type CalcDialog =
   | { kind: "link" }
   /** Asks for the user name before the first comment (kept in this browser only). */
   | { kind: "userName"; next: UserNext }
-  /** Insert › PivotTable (Create PivotTable). */
-  | { kind: "pivotCreate" }
+  /** Insert › PivotTable (Create PivotTable); `chart`: Insert › PivotChart (a PivotChart of the new table too). */
+  | { kind: "pivotCreate"; chart?: boolean }
+  /** Grouping (dates / numbers) of field `field` (P9-C3). */
+  | { kind: "pivotGroup"; id: number; field: number }
+  /** Fields, Items & Sets › Calculated Field. */
+  | { kind: "pivotCalcField"; id: number }
+  /** Fields, Items & Sets › Calculated Item of field `field`. */
+  | { kind: "pivotCalcItem"; id: number; field: number }
+  /** A label, date, value or Top 10 filter of field `field` with the operator picked in the dropdown. */
+  | { kind: "pivotFilterRule"; id: number; field: number; rule: "label" | "date" | "value" | "top"; op: string }
+  /** More Sort Options of field `field`. */
+  | { kind: "pivotSort"; id: number; field: number }
+  /** Options ▾ › Show Report Filter Pages. */
+  | { kind: "pivotFilterPages"; id: number }
+  /** Insert › Recommended PivotTables. */
+  | { kind: "pivotRecommended" }
   /** Delete on a selection covering whole pivot tables: confirm. */
   | { kind: "pivotDelete"; ids: number[] }
   /** Value Field Settings of data field `index`. */

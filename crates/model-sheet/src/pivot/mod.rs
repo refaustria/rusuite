@@ -51,11 +51,22 @@ use engine_formula::{ErrorKind, Value};
 use serde::{Deserialize, Serialize};
 
 mod book;
+mod calc;
 mod compute;
+mod filter;
+mod group;
+mod pchart;
+mod recommend;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_c3;
 
 pub use compute::{AxisLine, CellRole, DataEntry, LineKind, PivotCell, PivotOutput, PivotRect};
+pub use filter::{DateOp, LabelOp, PivotFilter, TopBy, ValueOp};
+pub use group::{DateGroupBy, FieldGroup, GroupKind, GroupSpec};
+pub use pchart::{chart_data_of, PivotChartData};
+pub use recommend::{recommend_pivots, recommendation_preview, Recommendation};
 
 /// The cells a pivot table operation changed, with their previous content
 /// and own style, in first-touch order.
@@ -246,6 +257,19 @@ pub struct CacheField {
     /// The number format of the source cells (item labels, `Date`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number_format: Option<String>,
+    /// Grouping (`fieldGroup`): the field's items are the group items
+    /// (`groupItems`, kept in [`shared_items`](Self::shared_items)) of the
+    /// values of [`FieldGroup::base`]. A field grouped by a range of its
+    /// own values keeps the raw values in the records only; a field
+    /// grouping another one (`Years` of a date field, `Region2` of a manual
+    /// grouping) has no source column.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<FieldGroup>,
+    /// A calculated field (`formula`, without `=`): its value in a cell is
+    /// the formula over the sums of the fields it names (Excel's
+    /// semantics); it has no source column and is used as a data field only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula: Option<String>,
 }
 
 impl CacheField {
@@ -256,7 +280,16 @@ impl CacheField {
             kind: FieldKind::Text,
             contains_blank: false,
             number_format: None,
+            group: None,
+            formula: None,
         }
+    }
+
+    /// Whether field `index` (this field's own index) reads a source
+    /// column (`databaseField`): not for calculated fields and fields that
+    /// group another field.
+    pub fn is_source(&self, index: u32) -> bool {
+        self.formula.is_none() && self.group.as_ref().map_or(true, |g| g.base == index)
     }
 
     /// The index of `item` in [`shared_items`](Self::shared_items).
@@ -311,9 +344,84 @@ pub struct PivotCache {
     /// An unsupported cache definition, kept verbatim.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<RawPivotXml>,
+    /// Calculated items (`calculatedItems`): items of a field computed by
+    /// a formula over its other items; the item itself is in the field's
+    /// shared items. Like calculated fields they belong to the cache (every
+    /// table of the cache shows them, as in Excel).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub calculated_items: Vec<CalculatedItem>,
+}
+
+/// A calculated item: shared item `item` of `field` is `formula` (without
+/// `=`) over the field's other items (`East+West`, `'North East'*2`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalculatedItem {
+    pub field: u32,
+    pub item: u32,
+    pub formula: String,
 }
 
 impl PivotCache {
+    /// The calculated item `item` of `field`, if it is one.
+    pub fn calculated_item(&self, field: u32, item: u32) -> Option<&CalculatedItem> {
+        self.calculated_items
+            .iter()
+            .find(|c| c.field == field && c.item == item)
+    }
+
+    /// Per record: the index of its item of `field` (`u32::MAX` = none:
+    /// calculated fields, values outside every group).
+    pub fn record_items(&self, field: u32) -> Vec<u32> {
+        let n = self.records.len();
+        let Some(cf) = self.fields.get(field as usize) else {
+            return vec![u32::MAX; n];
+        };
+        if cf.formula.is_some() {
+            return vec![u32::MAX; n];
+        }
+        match &cf.group {
+            None => {
+                let map: std::collections::HashMap<ItemKey, u32> = cf
+                    .shared_items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, it)| (it.key(), i as u32))
+                    .collect();
+                self.records
+                    .iter()
+                    .map(|r| {
+                        r.get(field as usize)
+                            .and_then(|it| map.get(&it.key()).copied())
+                            .unwrap_or(u32::MAX)
+                    })
+                    .collect()
+            }
+            Some(g) => match &g.kind {
+                GroupKind::Items { map } => {
+                    if g.base == field {
+                        return vec![u32::MAX; n];
+                    }
+                    self.record_items(g.base)
+                        .into_iter()
+                        .map(|b| map.get(b as usize).copied().unwrap_or(u32::MAX))
+                        .collect()
+                }
+                kind => self
+                    .records
+                    .iter()
+                    .map(|r| {
+                        group::range_index(
+                            kind,
+                            r.get(g.base as usize).unwrap_or(&Item::Blank),
+                            &cf.shared_items,
+                        )
+                    })
+                    .collect(),
+            },
+        }
+    }
+
     /// The field named `name` (ignoring case).
     pub fn field_index(&self, name: &str) -> Option<u32> {
         let lower = name.to_lowercase();
@@ -327,6 +435,10 @@ impl PivotCache {
     /// items and recomputes kinds and blank flags (after loading).
     pub fn normalize(&mut self) {
         for (i, f) in self.fields.iter_mut().enumerate() {
+            if !f.is_source(i as u32) {
+                continue;
+            }
+            let grouped = f.group.is_some();
             let mut seen: std::collections::HashSet<ItemKey> =
                 f.shared_items.iter().map(Item::key).collect();
             let (mut num, mut text, mut other, mut blank) = (false, false, false, false);
@@ -338,7 +450,7 @@ impl PivotCache {
                     Item::Text(_) => text = true,
                     _ => other = true,
                 }
-                if seen.insert(item.key()) {
+                if !grouped && seen.insert(item.key()) {
                     f.shared_items.push(item.clone());
                 }
             }
@@ -361,6 +473,36 @@ impl PivotCache {
         for rec in &mut self.records {
             rec.resize(n, Item::Blank);
         }
+        // Manual groups: base items that appeared since are their own group.
+        for i in 0..n {
+            let Some(FieldGroup {
+                base,
+                kind: GroupKind::Items { map },
+            }) = self.fields[i].group.clone()
+            else {
+                continue;
+            };
+            let base_items = self
+                .fields
+                .get(base as usize)
+                .map_or_else(Vec::new, |b| b.shared_items.clone());
+            let mut map = map;
+            let f = &mut self.fields[i];
+            for item in base_items.iter().skip(map.len()) {
+                let at = f
+                    .shared_items
+                    .iter()
+                    .position(|x| x.key() == item.key())
+                    .unwrap_or_else(|| {
+                        f.shared_items.push(item.clone());
+                        f.shared_items.len() - 1
+                    });
+                map.push(at as u32);
+            }
+            if let Some(g) = f.group.as_mut() {
+                g.kind = GroupKind::Items { map };
+            }
+        }
     }
 }
 
@@ -382,6 +524,14 @@ pub enum SortOrder {
     /// ascending (Excel's drag-to-reorder).
     Manual {
         order: Vec<u32>,
+    },
+    /// By the values of data field `data` (its total for each item within
+    /// the parent item: Excel's More Sort Options › by `Sum of Sales`,
+    /// `autoSortScope`); ties and empty values follow ascending labels.
+    ByValue {
+        data: u32,
+        #[serde(default)]
+        descending: bool,
     },
 }
 
@@ -419,7 +569,7 @@ pub enum PivotLayout {
 }
 
 /// A field on the row or column axis.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AxisField {
     /// Index into [`PivotCache::fields`].
@@ -445,6 +595,14 @@ pub struct AxisField {
     /// `subtotalTop="0"`).
     #[serde(default, skip_serializing_if = "is_false")]
     pub subtotal_bottom: bool,
+    /// A label, date or value filter (Excel allows one per field): items
+    /// that fail it drop out with their records (totals too).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<PivotFilter>,
+    /// A blank row after each item (Excel's "Insert blank line after each
+    /// item label", `insertBlankRow`); shown for fields with inner fields.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub insert_blank_row: bool,
 }
 
 impl From<u32> for AxisField {
@@ -498,6 +656,9 @@ pub enum AggFunc {
     StdDevP,
     Var,
     VarP,
+    /// Distinct non-empty values (Excel offers it for data-model tables;
+    /// written as `count` with a Rusuite extension).
+    DistinctCount,
 }
 
 impl AggFunc {
@@ -514,6 +675,7 @@ impl AggFunc {
             AggFunc::StdDevP => "StdDevp",
             AggFunc::Var => "Var",
             AggFunc::VarP => "Varp",
+            AggFunc::DistinctCount => "Distinct Count",
         }
     }
 
@@ -531,6 +693,7 @@ impl AggFunc {
             AggFunc::StdDevP => "stdDevp",
             AggFunc::Var => "var",
             AggFunc::VarP => "varp",
+            AggFunc::DistinctCount => "count",
         }
     }
 
@@ -596,6 +759,27 @@ pub enum ShowAs {
     RunningTotal { base_field: u32 },
     /// Rank Largest to Smallest among the items of `base_field`.
     Rank { base_field: u32 },
+    /// % of Parent Column Total.
+    PercentOfParentColumn,
+    /// % of Parent Total: of the total of the `base_field` item the cell
+    /// lies in.
+    PercentOfParentTotal { base_field: u32 },
+    /// % Of an item of `base_field`.
+    PercentOf {
+        base_field: u32,
+        base_item: BaseItem,
+    },
+    /// % Difference From an item of `base_field`.
+    PercentDifferenceFrom {
+        base_field: u32,
+        base_item: BaseItem,
+    },
+    /// % Running Total In `base_field`.
+    PercentRunningTotal { base_field: u32 },
+    /// Rank Smallest to Largest among the items of `base_field`.
+    RankAscending { base_field: u32 },
+    /// Index: (value × grand total) / (row total × column total).
+    Index,
 }
 
 impl ShowAs {
@@ -607,7 +791,80 @@ impl ShowAs {
                 | ShowAs::PercentOfRow
                 | ShowAs::PercentOfColumn
                 | ShowAs::PercentOfParent
+                | ShowAs::PercentOfParentColumn
+                | ShowAs::PercentOfParentTotal { .. }
+                | ShowAs::PercentOf { .. }
+                | ShowAs::PercentDifferenceFrom { .. }
+                | ShowAs::PercentRunningTotal { .. }
         )
+    }
+
+    /// The base field of the modes that have one.
+    pub fn base_field(self) -> Option<u32> {
+        match self {
+            ShowAs::DifferenceFrom { base_field, .. }
+            | ShowAs::RunningTotal { base_field }
+            | ShowAs::Rank { base_field }
+            | ShowAs::PercentOfParentTotal { base_field }
+            | ShowAs::PercentOf { base_field, .. }
+            | ShowAs::PercentDifferenceFrom { base_field, .. }
+            | ShowAs::PercentRunningTotal { base_field }
+            | ShowAs::RankAscending { base_field } => Some(base_field),
+            _ => None,
+        }
+    }
+
+    /// The same mode with base field `f` (`None`: the mode has none).
+    pub fn with_base_field(self, f: u32) -> ShowAs {
+        match self {
+            ShowAs::DifferenceFrom { base_item, .. } => ShowAs::DifferenceFrom {
+                base_field: f,
+                base_item,
+            },
+            ShowAs::RunningTotal { .. } => ShowAs::RunningTotal { base_field: f },
+            ShowAs::Rank { .. } => ShowAs::Rank { base_field: f },
+            ShowAs::PercentOfParentTotal { .. } => ShowAs::PercentOfParentTotal { base_field: f },
+            ShowAs::PercentOf { base_item, .. } => ShowAs::PercentOf {
+                base_field: f,
+                base_item,
+            },
+            ShowAs::PercentDifferenceFrom { base_item, .. } => ShowAs::PercentDifferenceFrom {
+                base_field: f,
+                base_item,
+            },
+            ShowAs::PercentRunningTotal { .. } => ShowAs::PercentRunningTotal { base_field: f },
+            ShowAs::RankAscending { .. } => ShowAs::RankAscending { base_field: f },
+            s => s,
+        }
+    }
+
+    /// The base item of the modes that have one.
+    pub fn base_item(self) -> Option<BaseItem> {
+        match self {
+            ShowAs::DifferenceFrom { base_item, .. }
+            | ShowAs::PercentOf { base_item, .. }
+            | ShowAs::PercentDifferenceFrom { base_item, .. } => Some(base_item),
+            _ => None,
+        }
+    }
+
+    /// The same mode with base item `i`.
+    pub fn with_base_item(self, i: BaseItem) -> ShowAs {
+        match self {
+            ShowAs::DifferenceFrom { base_field, .. } => ShowAs::DifferenceFrom {
+                base_field,
+                base_item: i,
+            },
+            ShowAs::PercentOf { base_field, .. } => ShowAs::PercentOf {
+                base_field,
+                base_item: i,
+            },
+            ShowAs::PercentDifferenceFrom { base_field, .. } => ShowAs::PercentDifferenceFrom {
+                base_field,
+                base_item: i,
+            },
+            s => s,
+        }
     }
 }
 
@@ -775,7 +1032,7 @@ pub struct PivotTable {
 }
 
 /// The fields of a new pivot table (or of [`PivotTable::set_fields`]).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PivotFields {
     pub rows: Vec<AxisField>,
@@ -848,6 +1105,26 @@ impl PivotTable {
             if !used.insert(f) {
                 return bad(format!("field {f} is used twice"));
             }
+            if cache.fields[f as usize].formula.is_some() {
+                return bad(format!("the calculated field {f} can only be a value"));
+            }
+        }
+        for a in self.rows.iter().chain(&self.cols) {
+            let sort = match &a.sort {
+                SortOrder::ByValue { data, .. } => Some(*data),
+                _ => None,
+            };
+            let filter = match &a.filter {
+                Some(PivotFilter::Value { data, .. } | PivotFilter::Top { data, .. }) => {
+                    Some(*data)
+                }
+                _ => None,
+            };
+            for d in sort.into_iter().chain(filter) {
+                if d as usize >= self.values.len() {
+                    return bad(format!("no data field {d}"));
+                }
+            }
         }
         for f in &self.field_filters {
             if f.field >= n {
@@ -858,10 +1135,7 @@ impl PivotTable {
             if d.field >= n {
                 return bad(format!("no field {}", d.field));
             }
-            if let ShowAs::DifferenceFrom { base_field, .. }
-            | ShowAs::RunningTotal { base_field }
-            | ShowAs::Rank { base_field } = d.show_as
-            {
+            if let Some(base_field) = d.show_as.base_field() {
                 if base_field >= n {
                     return bad(format!("no base field {base_field}"));
                 }
@@ -883,10 +1157,17 @@ impl PivotTable {
             .axis_field(field)
             .map_or(SortOrder::Ascending, |a| a.sort.clone());
         let mut all: Vec<u32> = (0..cf.shared_items.len() as u32).collect();
-        let cmp =
-            |a: &u32, b: &u32| cf.shared_items[*a as usize].sort_cmp(&cf.shared_items[*b as usize]);
+        // Group items keep their own order (`Jan`…`Dec`, `0-9`, `10-19`).
+        let grouped = cf.group.is_some();
+        let cmp = |a: &u32, b: &u32| {
+            if grouped {
+                group::grouped_cmp(&cf.shared_items, *a, *b)
+            } else {
+                cf.shared_items[*a as usize].sort_cmp(&cf.shared_items[*b as usize])
+            }
+        };
         match sort {
-            SortOrder::Ascending => all.sort_by(cmp),
+            SortOrder::Ascending | SortOrder::ByValue { .. } => all.sort_by(cmp),
             SortOrder::Descending => {
                 all.sort_by(cmp);
                 // Blank stays last, as in Excel.

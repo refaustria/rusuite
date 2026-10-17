@@ -409,6 +409,13 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
     case "pivotMove":
     case "pivotSource":
     case "pivotFilter":
+    case "pivotGroup":
+    case "pivotCalcField":
+    case "pivotCalcItem":
+    case "pivotFilterRule":
+    case "pivotSort":
+    case "pivotFilterPages":
+    case "pivotRecommended":
       return <PivotDialog store={store} dialog={dialog} />;
     case "createTable":
       return <CreateTableDialog store={store} range={dialog.range} hasHeaders={dialog.hasHeaders} />;

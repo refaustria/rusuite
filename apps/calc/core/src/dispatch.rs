@@ -163,6 +163,11 @@ pub enum Request {
     /// The items of cache field `field` of pivot table `id` in display
     /// order, with their checked state (filter dropdowns) → `pivotItems`.
     PivotItems { id: u32, field: u32 },
+    /// Insert › Recommended PivotTables: candidate layouts for a source
+    /// with previews → `pivotRecommendations`.
+    RecommendPivots {
+        source: crate::pivots::PivotSourceSpec,
+    },
     /// The filter dropdown values of column `col` of table `id`.
     TableFilterValues { id: u32, col: u32 },
     /// What-If Analysis › Goal Seek (nothing changes; apply the value
@@ -337,6 +342,10 @@ pub enum ResponseBody {
     /// The reply to `pivotItems`.
     PivotItems {
         items: Vec<crate::pivots::PivotItemInfo>,
+    },
+    /// The reply to `recommendPivots`.
+    PivotRecommendations {
+        items: Vec<crate::pivots::PivotRecommendation>,
     },
     /// The reply to `sheetRules`.
     GoalSeek {
@@ -570,6 +579,9 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
         },
         Request::PivotItems { id, field } => ResponseBody::PivotItems {
             items: host.doc().pivot_items(id, field)?,
+        },
+        Request::RecommendPivots { source } => ResponseBody::PivotRecommendations {
+            items: host.doc().recommend_pivots(&source)?,
         },
         Request::TableFilterValues { id, col } => {
             let doc = host.doc();

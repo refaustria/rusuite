@@ -45,88 +45,50 @@ fn unique_name(name: &str, used: &mut HashSet<String>) -> String {
 }
 
 impl PivotTable {
-    /// Maps the cache field indices after a refresh (`map[old] = new`);
-    /// fields that disappeared are removed from the table.
-    fn remap_fields(&mut self, map: &[Option<u32>], item_maps: &[Vec<u32>]) {
+    /// Maps the cache field indices after a cache change (`map[old] =
+    /// new`, `item_maps[old field][old item] = new item`); fields that
+    /// disappeared are removed from the table, items that disappeared from
+    /// its filters and orders.
+    pub(crate) fn remap_fields(&mut self, map: &[Option<u32>], item_maps: &[Vec<Option<u32>>]) {
         let m = |f: u32| map.get(f as usize).copied().flatten();
+        let item = |f: u32, i: u32| -> Option<u32> {
+            item_maps
+                .get(f as usize)?
+                .get(i as usize)
+                .copied()
+                .flatten()
+        };
         let items = |f: u32, set: &BTreeSet<u32>| -> BTreeSet<u32> {
-            set.iter()
-                .filter_map(|i| item_maps.get(f as usize)?.get(*i as usize).copied())
-                .collect()
+            set.iter().filter_map(|i| item(f, *i)).collect()
         };
-        let axis = |list: &mut Vec<AxisField>| {
-            *list = std::mem::take(list)
-                .into_iter()
-                .filter_map(|a| {
-                    let nf = m(a.field)?;
-                    let sort = match a.sort {
-                        SortOrder::Manual { order } => SortOrder::Manual {
-                            order: order
-                                .iter()
-                                .filter_map(|i| {
-                                    item_maps.get(a.field as usize)?.get(*i as usize).copied()
-                                })
-                                .collect(),
-                        },
-                        s => s,
-                    };
-                    Some(AxisField {
-                        collapsed_items: items(a.field, &a.collapsed_items),
-                        hidden_items: items(a.field, &a.hidden_items),
-                        field: nf,
-                        sort,
-                        ..a
-                    })
-                })
-                .collect();
-        };
-        axis(&mut self.rows);
-        axis(&mut self.cols);
-        self.filters = std::mem::take(&mut self.filters)
-            .into_iter()
-            .filter_map(|p| {
-                let nf = m(p.field)?;
-                let selected = match &p.selected {
-                    PageSelection::All => PageSelection::All,
-                    PageSelection::Items { items: set } => PageSelection::Items {
-                        items: items(p.field, set),
-                    },
-                };
-                Some(PageField {
-                    field: nf,
-                    selected,
-                })
-            })
-            .collect();
+        // Data fields first: sorts and value filters refer to their positions.
+        let mut value_map: Vec<Option<u32>> = Vec::with_capacity(self.values.len());
+        let mut kept = 0u32;
         self.values = std::mem::take(&mut self.values)
             .into_iter()
             .filter_map(|d| {
-                let field = m(d.field)?;
-                let show_as = match d.show_as {
-                    ShowAs::DifferenceFrom {
-                        base_field,
-                        base_item,
-                    } => match m(base_field) {
-                        Some(b) => ShowAs::DifferenceFrom {
-                            base_field: b,
-                            base_item: match base_item {
-                                super::BaseItem::Item { item } => item_maps
-                                    .get(base_field as usize)
-                                    .and_then(|v| v.get(item as usize))
-                                    .map_or(super::BaseItem::Previous, |&item| {
+                let Some(field) = m(d.field) else {
+                    value_map.push(None);
+                    return None;
+                };
+                value_map.push(Some(kept));
+                kept += 1;
+                let show_as = match d.show_as.base_field() {
+                    Some(base_field) => match m(base_field) {
+                        Some(b) => {
+                            let s = d.show_as.with_base_field(b);
+                            match s.base_item() {
+                                Some(super::BaseItem::Item { item: i }) => s.with_base_item(
+                                    item(base_field, i).map_or(super::BaseItem::Previous, |item| {
                                         super::BaseItem::Item { item }
                                     }),
-                                other => other,
-                            },
-                        },
+                                ),
+                                _ => s,
+                            }
+                        }
                         None => ShowAs::Normal,
                     },
-                    ShowAs::RunningTotal { base_field } => m(base_field)
-                        .map_or(ShowAs::Normal, |b| ShowAs::RunningTotal { base_field: b }),
-                    ShowAs::Rank { base_field } => {
-                        m(base_field).map_or(ShowAs::Normal, |b| ShowAs::Rank { base_field: b })
-                    }
-                    s => s,
+                    None => d.show_as,
                 };
                 Some(DataField {
                     field,
@@ -135,7 +97,158 @@ impl PivotTable {
                 })
             })
             .collect();
+        let data = |d: u32| value_map.get(d as usize).copied().flatten();
+        let axis = |list: &mut Vec<AxisField>| {
+            *list = std::mem::take(list)
+                .into_iter()
+                .filter_map(|a| {
+                    let nf = m(a.field)?;
+                    let of = a.field;
+                    let sort = match a.sort {
+                        SortOrder::ByValue {
+                            data: d,
+                            descending,
+                        } => match data(d) {
+                            Some(d) => SortOrder::ByValue {
+                                data: d,
+                                descending,
+                            },
+                            None => SortOrder::Ascending,
+                        },
+                        s => super::group::remap_sort(s, |i| item(of, i)),
+                    };
+                    let filter = a.filter.and_then(|f| f.remap_data(data));
+                    Some(AxisField {
+                        collapsed_items: items(of, &a.collapsed_items),
+                        hidden_items: items(of, &a.hidden_items),
+                        field: nf,
+                        sort,
+                        filter,
+                        ..a
+                    })
+                })
+                .collect();
+        };
+        axis(&mut self.rows);
+        axis(&mut self.cols);
+        let pages = |list: Vec<PageField>| -> Vec<PageField> {
+            list.into_iter()
+                .filter_map(|p| {
+                    let nf = m(p.field)?;
+                    let selected = match &p.selected {
+                        PageSelection::All => PageSelection::All,
+                        PageSelection::Items { items: set } => {
+                            let s = items(p.field, set);
+                            if s.is_empty() && !set.is_empty() {
+                                PageSelection::All
+                            } else {
+                                PageSelection::Items { items: s }
+                            }
+                        }
+                    };
+                    Some(PageField {
+                        field: nf,
+                        selected,
+                    })
+                })
+                .collect()
+        };
+        self.filters = pages(std::mem::take(&mut self.filters));
+        self.field_filters = pages(std::mem::take(&mut self.field_filters));
     }
+}
+
+/// A cache rebuilt from a source read (`fields`, `records`) keeping what
+/// `old` knew: shared items and groupings of the fields that are still
+/// there (by name), then the fields without a source column (level and
+/// manual group fields, calculated fields) and the calculated items.
+/// Returns the cache with `map` and `item_maps` from `old`.
+#[allow(clippy::type_complexity)]
+fn rebuild_cache(
+    old: &PivotCache,
+    id: u32,
+    source: PivotSource,
+    fields: Vec<CacheField>,
+    records: Vec<Vec<Item>>,
+) -> (PivotCache, Vec<Option<u32>>, Vec<Vec<Option<u32>>>) {
+    let mut map: Vec<Option<u32>> = vec![None; old.fields.len()];
+    let mut new_fields = Vec::with_capacity(fields.len());
+    for (ni, mut f) in fields.into_iter().enumerate() {
+        let oi =
+            old.fields.iter().enumerate().position(|(i, of)| {
+                of.is_source(i as u32) && of.name.eq_ignore_ascii_case(&f.name)
+            });
+        if let Some(oi) = oi {
+            map[oi] = Some(ni as u32);
+            let of = &old.fields[oi];
+            f.shared_items = of.shared_items.clone();
+            f.group = of.group.clone().map(|mut g| {
+                g.base = ni as u32;
+                g
+            });
+        }
+        new_fields.push(f);
+    }
+    for (oi, of) in old.fields.iter().enumerate() {
+        if of.is_source(oi as u32) {
+            continue;
+        }
+        let mut f = of.clone();
+        if let Some(g) = f.group.as_mut() {
+            let Some(b) = map.get(g.base as usize).copied().flatten() else {
+                continue;
+            };
+            g.base = b;
+        }
+        map[oi] = Some(new_fields.len() as u32);
+        new_fields.push(f);
+    }
+    let n = new_fields.len();
+    let mut records = records;
+    for r in &mut records {
+        r.resize(n, Item::Blank);
+    }
+    let mut cache = PivotCache {
+        id,
+        source,
+        fields: new_fields,
+        records,
+        refresh_on_load: old.refresh_on_load,
+        stale: false,
+        raw: None,
+        calculated_items: old
+            .calculated_items
+            .iter()
+            .filter_map(|c| {
+                Some(super::CalculatedItem {
+                    field: map.get(c.field as usize).copied().flatten()?,
+                    ..c.clone()
+                })
+            })
+            .collect(),
+    };
+    cache.normalize();
+    cache.regroup();
+    // Items by identity (text ignoring case); groups can change items.
+    let item_maps = old
+        .fields
+        .iter()
+        .enumerate()
+        .map(|(oi, of)| match map[oi] {
+            None => vec![None; of.shared_items.len()],
+            Some(nf) => {
+                let nitems = &cache.fields[nf as usize].shared_items;
+                of.shared_items
+                    .iter()
+                    .map(|it| {
+                        let k = it.key();
+                        nitems.iter().position(|x| x.key() == k).map(|p| p as u32)
+                    })
+                    .collect()
+            }
+        })
+        .collect();
+    (cache, map, item_maps)
 }
 
 impl Workbook {
@@ -328,7 +441,7 @@ impl Workbook {
 
     // --- rendering --------------------------------------------------------------------
 
-    fn locate_pivot(&self, id: u32) -> Result<(SheetId, usize), Error> {
+    pub(crate) fn locate_pivot(&self, id: u32) -> Result<(SheetId, usize), Error> {
         for (s, _) in self.sheets() {
             if let Some(i) = self.pivots(s).iter().position(|p| p.id == id) {
                 return Ok((s, i));
@@ -501,7 +614,7 @@ impl Workbook {
 
     /// Renders and writes the tables `ids` (on `sheet`s) in one batch;
     /// nothing is written when one fails.
-    fn render_pivots(&mut self, ids: &[(SheetId, u32)]) -> Result<Recalc, Error> {
+    pub(crate) fn render_pivots(&mut self, ids: &[(SheetId, u32)]) -> Result<Recalc, Error> {
         let mut renders = Vec::new();
         for &(s, id) in ids {
             let r = self.compute_pivot(s, id)?;
@@ -527,6 +640,7 @@ impl Workbook {
         for s in sheets {
             self.sync_pivot_engine(s);
         }
+        self.sync_pivot_charts();
         let recalc = self.end_batch();
         result.map(|()| recalc)
     }
@@ -550,6 +664,7 @@ impl Workbook {
             data.pivot_outputs = outs;
         }
         self.sync_pivot_engine(sheet);
+        self.sync_pivot_charts();
     }
 
     /// Hands the sheet's pivot tables to the engine for `GETPIVOTDATA`.
@@ -678,6 +793,7 @@ impl Workbook {
                     refresh_on_load: false,
                     stale: false,
                     raw: None,
+                    calculated_items: Vec::new(),
                 };
                 cache.normalize();
                 (cache_id, Some(cache))
@@ -781,25 +897,13 @@ impl Workbook {
             return Err(Error::InvalidPivot("this pivot cache is read-only".into()));
         }
         let (fields, records) = self.read_pivot_source(&old_cache.source)?;
-        // Keep the shared items of fields that are still there.
-        let mut map: Vec<Option<u32>> = vec![None; old_cache.fields.len()];
-        let mut item_maps: Vec<Vec<u32>> = vec![Vec::new(); old_cache.fields.len()];
-        let mut new_fields = Vec::with_capacity(fields.len());
-        for (ni, mut f) in fields.into_iter().enumerate() {
-            if let Some(oi) = old_cache.field_index(&f.name) {
-                map[oi as usize] = Some(ni as u32);
-                f.shared_items = old_cache.fields[oi as usize].shared_items.clone();
-                item_maps[oi as usize] = (0..f.shared_items.len() as u32).collect();
-            }
-            new_fields.push(f);
-        }
-        let mut cache = PivotCache {
-            fields: new_fields,
+        let (cache, map, item_maps) = rebuild_cache(
+            &old_cache,
+            old_cache.id,
+            old_cache.source.clone(),
+            fields,
             records,
-            stale: false,
-            ..old_cache.clone()
-        };
-        cache.normalize();
+        );
         // The tables of the cache.
         let users: Vec<(SheetId, u32)> = self
             .sheets()
@@ -858,28 +962,10 @@ impl Workbook {
         }
         let old_caches = self.pivot_caches.clone();
         let (fields, records) = self.read_pivot_source(&source)?;
-        let mut map: Vec<Option<u32>> = vec![None; old_cache.fields.len()];
-        let mut item_maps: Vec<Vec<u32>> = vec![Vec::new(); old_cache.fields.len()];
-        let mut new_fields = Vec::with_capacity(fields.len());
-        for (ni, mut f) in fields.into_iter().enumerate() {
-            if let Some(oi) = old_cache.field_index(&f.name) {
-                map[oi as usize] = Some(ni as u32);
-                f.shared_items = old_cache.fields[oi as usize].shared_items.clone();
-                item_maps[oi as usize] = (0..f.shared_items.len() as u32).collect();
-            }
-            new_fields.push(f);
-        }
         let cache_id = self.pivot_caches.iter().map(|c| c.id).max().unwrap_or(0) + 1;
-        let mut cache = PivotCache {
-            id: cache_id,
-            source,
-            fields: new_fields,
-            records,
-            refresh_on_load: false,
-            stale: false,
-            raw: None,
-        };
-        cache.normalize();
+        let (mut cache, map, item_maps) =
+            rebuild_cache(&old_cache, cache_id, source, fields, records);
+        cache.refresh_on_load = false;
         self.pivot_caches.push(cache);
         let mut table = old_table.clone();
         table.cache_id = cache_id;
@@ -925,40 +1011,41 @@ impl Workbook {
             .iter()
             .find(|e| e.row == row && e.col == col)
             .ok_or_else(|| Error::InvalidPivot("not a value cell".into()))?;
-        let names = cache.fields.iter().map(|f| f.name.clone()).collect();
-        let hidden: Vec<(u32, &BTreeSet<u32>)> = t
-            .rows
+        if entry
+            .key
             .iter()
-            .chain(&t.cols)
-            .map(|a| (a.field, &a.hidden_items))
+            .any(|&(f, i)| cache.calculated_item(f, i).is_some())
+        {
+            return Err(Error::InvalidPivot(
+                "cannot show the details of a calculated item".into(),
+            ));
+        }
+        let source: Vec<usize> = cache
+            .fields
+            .iter()
+            .enumerate()
+            .filter(|(i, f)| f.is_source(*i as u32))
+            .map(|(i, _)| i)
             .collect();
-        let pages: Vec<(u32, &PageSelection)> =
-            t.filters.iter().map(|p| (p.field, &p.selected)).collect();
-        let item_of = |rec: &[Item], f: u32| -> Option<u32> {
-            let v = rec.get(f as usize)?;
-            cache.fields[f as usize]
-                .shared_items
-                .iter()
-                .position(|x| x == v)
-                .map(|p| p as u32)
-        };
+        let names = source
+            .iter()
+            .map(|&i| cache.fields[i].name.clone())
+            .collect();
+        let keys: Vec<(Vec<u32>, u32)> = entry
+            .key
+            .iter()
+            .map(|&(f, item)| (cache.record_items(f), item))
+            .collect();
         let mut rows = Vec::new();
-        for rec in &cache.records {
-            let ok = entry
-                .key
-                .iter()
-                .all(|&(f, item)| item_of(rec, f) == Some(item))
-                && hidden
-                    .iter()
-                    .all(|(f, h)| item_of(rec, *f).map_or(true, |it| !h.contains(&it)))
-                && pages.iter().all(|(f, sel)| match sel {
-                    PageSelection::All => true,
-                    PageSelection::Items { items } => {
-                        item_of(rec, *f).is_some_and(|it| items.contains(&it))
-                    }
-                });
-            if ok {
-                rows.push(rec.iter().map(Item::to_value).collect());
+        for r in t.passing_records(cache) {
+            if keys.iter().all(|(idx, item)| idx[r as usize] == *item) {
+                let rec = &cache.records[r as usize];
+                rows.push(
+                    source
+                        .iter()
+                        .map(|&i| rec.get(i).map_or(Value::Empty, Item::to_value))
+                        .collect(),
+                );
             }
         }
         Ok((names, rows))
@@ -1083,8 +1170,56 @@ impl Workbook {
         let result = self.write_render(render, old_out.map(|o| (s, o)));
         self.sync_pivot_engine(s);
         self.sync_pivot_engine(sheet);
+        self.sync_pivot_charts();
         let recalc = self.end_batch();
         result.map(|()| recalc)
+    }
+
+    /// A copy of pivot table `id` (same cache and definition, a new id
+    /// and name) anchored at `(row, col)` of `sheet`, with page field
+    /// `page.0` set to the single item `page.1` (Show Report Filter
+    /// Pages). Returns the new id.
+    pub fn copy_pivot(
+        &mut self,
+        id: u32,
+        sheet: SheetId,
+        row: u32,
+        col: u32,
+        page: Option<(u32, u32)>,
+    ) -> Result<(u32, Recalc), Error> {
+        if row > MAX_ROW || col > MAX_COL {
+            return Err(Error::InvalidRange);
+        }
+        self.sheet_data_mut(sheet)?;
+        let (s, i) = self.locate_pivot(id)?;
+        let mut t = self.pivots(s)[i].clone();
+        if t.raw.is_some() {
+            return Err(Error::InvalidPivot("this pivot table is read-only".into()));
+        }
+        if let Some((field, item)) = page {
+            let p = t
+                .filters
+                .iter_mut()
+                .find(|p| p.field == field)
+                .ok_or_else(|| Error::InvalidPivot("the field is not a filter".into()))?;
+            p.selected = PageSelection::Items {
+                items: BTreeSet::from([item]),
+            };
+        }
+        let new_id = self.next_pivot_id();
+        t.id = new_id;
+        t.name = self.next_pivot_name();
+        t.location = PivotRect::new(row, col, row, col);
+        self.sheet_data_mut(sheet)?.pivots.push(t);
+        match self.render_pivots(&[(sheet, new_id)]) {
+            Ok(r) => Ok((new_id, r)),
+            Err(e) => {
+                self.sheet_data_mut(sheet)?
+                    .pivots
+                    .retain(|p| p.id != new_id);
+                Err(e)
+            }
+        }
     }
 
     /// Replaces all caches (loading, undo); call

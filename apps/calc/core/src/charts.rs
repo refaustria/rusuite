@@ -24,6 +24,7 @@ impl CalcDocument {
         use CalcCommand as C;
         let sheet = match cmd {
             C::AddChart { sheet, .. }
+            | C::InsertPivotChart { sheet, .. }
             | C::UpdateChart { sheet, .. }
             | C::SetChartAnchor { sheet, .. }
             | C::SetChartSeries { sheet, .. }
@@ -37,7 +38,11 @@ impl CalcDocument {
         let unsupported = |c: &Chart| matches!(c.kind, ChartKind::Unsupported { .. });
         let read_only = || model_sheet::Error::InvalidChart("unsupported chart type".into());
         match cmd {
-            C::AddChart { chart, .. } | C::UpdateChart { chart, .. } if unsupported(chart) => {
+            C::AddChart { chart, .. }
+            | C::InsertPivotChart { chart, .. }
+            | C::UpdateChart { chart, .. }
+                if unsupported(chart) =>
+            {
                 return Err(read_only().into());
             }
             C::SetChartSeries { id, .. } | C::UpdateChart { id, .. }
@@ -52,6 +57,27 @@ impl CalcDocument {
         }
         let restore = |charts: Vec<ChartObject>| C::RestoreCharts { sheet, charts };
         let inverse = match cmd {
+            C::InsertPivotChart {
+                anchor,
+                chart,
+                pivot,
+                ..
+            } => {
+                self.workbook()
+                    .pivot(*pivot)
+                    .ok_or(model_sheet::Error::UnknownPivot(*pivot))?;
+                let id = self.workbook_mut().add_chart(
+                    s,
+                    ChartObject {
+                        id: 0,
+                        name: String::new(),
+                        anchor: *anchor,
+                        chart: chart.clone(),
+                        pivot: Some(*pivot),
+                    },
+                )?;
+                C::RemoveChart { sheet, id }
+            }
             C::AddChart {
                 anchor,
                 chart,
@@ -66,6 +92,7 @@ impl CalcDocument {
                         name: name.clone().unwrap_or_default(),
                         anchor: *anchor,
                         chart: chart.clone(),
+                        pivot: None,
                     },
                 )?;
                 C::RemoveChart { sheet, id }

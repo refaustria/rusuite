@@ -22,8 +22,10 @@ import { useT } from "../i18n";
 import { useCalc, type CalcDialog, type CalcStore } from "../state/store";
 import type { DropTarget } from "./buttons";
 import {
-  AGG_FUNCS, captionOf, dataFieldOf, hiddenItemsOf, pageSelectionOf, SHOW_AS_KINDS, showAsNeeds, showAsOf, updateAxisField, visibleItems, withOptions,
+  AGG_FUNCS, captionOf, DATE_OPS, dataFieldOf, filterPatch, hiddenItemsOf, LABEL_OPS, pageSelectionOf, SHOW_AS_KINDS, showAsNeeds, showAsOf, updateAxisField, VALUE_FUNCS,
+  VALUE_OPS, visibleItems, withOptions,
 } from "./model";
+import { CalcFieldDialog, CalcItemDialog, FilterPagesDialog, FilterRuleDialog, GroupDialog, RecommendedDialog, SortDialog } from "./PivotDialogsC3";
 
 const BTN = "h-8 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover disabled:opacity-40";
 const FIELD = "h-8 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";
@@ -90,8 +92,8 @@ export function defaultSource(store: CalcStore): string {
   return rangeFormula({ sheet: name, ...r });
 }
 
-/** Insert › PivotTable: Create PivotTable. */
-export function CreatePivotDialog({ store }: { store: CalcStore }) {
+/** Insert › PivotTable: Create PivotTable (Insert › PivotChart: Create PivotChart, a PivotChart of the new table too). */
+export function CreatePivotDialog({ store, chart = false }: { store: CalcStore; chart?: boolean }) {
   const t = useT();
   const close = useClose(store);
   const [source, setSource] = useState(() => defaultSource(store));
@@ -103,14 +105,14 @@ export function CreatePivotDialog({ store }: { store: CalcStore }) {
   const loc = where === "existing" ? parseLocation(store, location) : null;
   const ok = !!src && (where === "new" || !!loc);
   return (
-    <Dialog open title={t("calc.pivot.createTitle")} onClose={close}>
+    <Dialog open title={t(chart ? "calc.pivot.createChartTitle" : "calc.pivot.createTitle")} onClose={close}>
       <form
         className="flex w-[26rem] flex-col gap-3 text-sm"
         onSubmit={(e) => {
           e.preventDefault();
           if (!src || (where === "existing" && !loc)) return;
           close();
-          void store.pivots.create(src, where === "new" ? { kind: "newSheet" } : loc!);
+          void store.pivots.create(src, where === "new" ? { kind: "newSheet" } : loc!, {}, chart);
         }}
       >
         <fieldset className="flex flex-col gap-1">
@@ -221,7 +223,7 @@ export function ValueFieldDialog({ store, id, index }: { store: CalcStore; id: n
         </div>
         {tab === "summarize" ? (
           <div role="listbox" aria-label={t("calc.pivot.summarizeBy")} className="flex max-h-48 flex-col overflow-auto rounded border border-ui-border bg-ui-bg py-1">
-            {AGG_FUNCS.map((f) => (
+            {VALUE_FUNCS.map((f) => (
               <button
                 key={f}
                 type="button"
@@ -621,6 +623,7 @@ export function PivotFilterPanel({ store, id, target, at }: { store: CalcStore; 
   const someShown = shown.some((i) => cur.has(i.index));
   const name = info.fields[field]?.name ?? "";
   const axis = [...(tbl.rows ?? []), ...(tbl.cols ?? [])].find((a) => a.field === field);
+  const dateField = info.fields[field]?.kind === "date" && !info.fields[field]?.group;
   const run = (fn: () => unknown) => () => {
     close();
     void fn();
@@ -689,18 +692,53 @@ export function PivotFilterPanel({ store, id, target, at }: { store: CalcStore; 
           <button type="button" className={ITEM} onClick={sort(true)}>
             {t("calc.sortDesc")}
           </button>
+          <button type="button" className={ITEM} onClick={() => store.openDialog({ kind: "pivotSort", id, field })}>
+            {t("calc.pivot.moreSort")}
+          </button>
           <div role="separator" className="my-0.5 border-t border-ui-border" />
           <button
             type="button"
             className={ITEM}
-            disabled={!axis?.hiddenItems?.length}
+            disabled={!axis?.hiddenItems?.length && !axis?.filter}
             onClick={run(() => {
-              const p = updateAxisField(tbl, field, (a) => (({ hiddenItems: _h, ...rest }) => rest)(a));
+              const p = updateAxisField(tbl, field, (a) => (({ hiddenItems: _h, filter: _f, ...rest }) => rest)(a));
               return p && store.pivots.update(id, p);
             })}
           >
             {t("calc.filter.clearFrom", { col: name })}
           </button>
+          <RuleMenu
+            label={t(dateField ? "calc.pivot.dateFilters" : "calc.pivot.labelFilters")}
+            testId="pivot-label-filters"
+            checked={axis?.filter?.kind === "label" || axis?.filter?.kind === "date"}
+            entries={(dateField ? DATE_OPS : LABEL_OPS).map((op) => ({
+              id: op,
+              label: t(`calc.pivot.${dateField ? "dateOp" : "labelOp"}.${op}`),
+              onSelect: () => store.openDialog({ kind: "pivotFilterRule", id, field, rule: dateField ? "date" : "label", op }),
+            }))}
+            onClear={axis?.filter?.kind === "label" || axis?.filter?.kind === "date" ? run(() => {
+              const p = filterPatch(tbl, field, null);
+              return p && store.pivots.update(id, p);
+            }) : undefined}
+          />
+          <RuleMenu
+            label={t("calc.pivot.valueFilters")}
+            testId="pivot-value-filters"
+            disabled={(tbl.values ?? []).length === 0}
+            checked={axis?.filter?.kind === "value" || axis?.filter?.kind === "top"}
+            entries={[
+              ...VALUE_OPS.map((op) => ({
+                id: op,
+                label: t(`calc.pivot.valueOp.${op}`),
+                onSelect: () => store.openDialog({ kind: "pivotFilterRule", id, field, rule: "value", op }),
+              })),
+              { id: "top", label: t("calc.pivot.top10"), onSelect: () => store.openDialog({ kind: "pivotFilterRule", id, field, rule: "top", op: "items" }) },
+            ]}
+            onClear={axis?.filter?.kind === "value" || axis?.filter?.kind === "top" ? run(() => {
+              const p = filterPatch(tbl, field, null);
+              return p && store.pivots.update(id, p);
+            }) : undefined}
+          />
         </>
       )}
       <input type="search" className={`${FIELD} mx-1`} aria-label={t("calc.filter.search")} placeholder={t("calc.filter.search")} value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -780,11 +818,50 @@ export function PivotFilterPanel({ store, id, target, at }: { store: CalcStore; 
   );
 }
 
+/**
+ * A section of the filter dropdown that opens into its entries (Label
+ * Filters ▸, Value Filters ▸): Excel's submenus, inline.
+ */
+function RuleMenu({ label, testId, entries, checked, disabled, onClear }: {
+  label: string;
+  testId: string;
+  entries: { id: string; label: string; onSelect: () => void }[];
+  checked: boolean;
+  disabled?: boolean;
+  onClear?: () => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  return (
+    <div data-testid={testId}>
+      <button type="button" className={ITEM} aria-expanded={open} disabled={disabled} onClick={() => setOpen(!open)}>
+        <span className="w-3">{checked ? "✓" : ""}</span>
+        <span className="flex-1">{label}</span>
+        <span aria-hidden="true">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div role="menu" aria-label={label} className="ml-4 flex flex-col">
+          {onClear && (
+            <button type="button" role="menuitem" className={ITEM} onClick={onClear}>
+              {t("calc.pivot.clearFilter")}
+            </button>
+          )}
+          {entries.map((e) => (
+            <button key={e.id} type="button" role="menuitem" className={ITEM} onClick={e.onSelect}>
+              {e.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The pivot dialogs of `CalcDialogs`. */
 export function PivotDialog({ store, dialog }: { store: CalcStore; dialog: Extract<CalcDialog, { kind: `pivot${string}` }> }) {
   switch (dialog.kind) {
     case "pivotCreate":
-      return <CreatePivotDialog store={store} />;
+      return <CreatePivotDialog store={store} chart={!!dialog.chart} />;
     case "pivotDelete":
       return <DeletePivotDialog store={store} ids={dialog.ids} />;
     case "pivotValueField":
@@ -799,5 +876,19 @@ export function PivotDialog({ store, dialog }: { store: CalcStore; dialog: Extra
       return <ChangeSourceDialog store={store} id={dialog.id} />;
     case "pivotFilter":
       return <PivotFilterPanel key={`${dialog.id}:${dialog.at.x}:${dialog.at.y}`} store={store} id={dialog.id} target={dialog.target} at={dialog.at} />;
+    case "pivotGroup":
+      return <GroupDialog store={store} id={dialog.id} field={dialog.field} />;
+    case "pivotCalcField":
+      return <CalcFieldDialog store={store} id={dialog.id} />;
+    case "pivotCalcItem":
+      return <CalcItemDialog store={store} id={dialog.id} field={dialog.field} />;
+    case "pivotFilterRule":
+      return <FilterRuleDialog store={store} id={dialog.id} field={dialog.field} rule={dialog.rule} op={dialog.op} />;
+    case "pivotSort":
+      return <SortDialog store={store} id={dialog.id} field={dialog.field} />;
+    case "pivotFilterPages":
+      return <FilterPagesDialog store={store} id={dialog.id} />;
+    case "pivotRecommended":
+      return <RecommendedDialog store={store} />;
   }
 }
