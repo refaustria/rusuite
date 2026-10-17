@@ -48,15 +48,14 @@ Sources: deferred items from the quality passes (`docs/qa/*`), the pre-release b
 - **S2 Tables and shapes round 2** – table style fidelity + Best Match gallery, split/merge/distribute, cell margins and
   alignment, Format Shape for cells, Draw Borders; freeform/scribble tool + Edit Points, remaining presets, adjust
   handles/text rectangles from the core, keyboard handles, PowerPoint connector detour routing. (Brief P9-S2.)
-- **S3 Views and design round 2** → see S4 below (renumbered when started).
-- **S4 Views and design round 2** – outline view with rich text, slide sorter polish (Effect Options for sorter
+- **S3 Views and design round 2** (brief P9-S3) – outline view with rich text, slide sorter polish (Effect Options for sorter
   selection), custom shows, per-layout guides (p15), Selection pane, Format Background pane (gradient/picture/texture),
   lock-aspect + last view saved, Effects on the Design tab, picture/texture background fills, scale/fit on SetSlideSize,
   slide numbers for ranges in print.
-- **S5 Animations and transitions round 2** – Float In / Split effects, per-paragraph builds, Animation Painter,
+- **S4 Animations and transitions round 2** – Float In / Split effects, per-paragraph builds, Animation Painter,
   emphasis auto-reverse, transitions when going back/jumping, p14 transitions, PowerPoint's default Effect Options
   (Push/Split/Zoom), media clips in the click sequence, media trim/bookmarks, Konva-rendered transitions in PDF export.
-- **S6 Presenter and reuse** – edit notes in the console, pause/per-slide timer, screen choice, pen drawing, rehearse
+- **S5 Presenter and reuse** – edit notes in the console, pause/per-slide timer, screen choice, pen drawing, rehearse
   timings; Reuse Slides with the source master/theme; combo chart z-order; LibreOffice footer font import; honour
   non-standard colour maps; theme import from .thmx/.potx.
 
