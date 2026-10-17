@@ -10,7 +10,7 @@ import { clearFormatting } from "../features/formatting";
 import { resetImageSize, selectedImage } from "../features/images";
 import { deleteCols, deleteRows, deleteTable, insertCol, insertRow, mergeCellsCommand, tableContext } from "../features/tables";
 import type { WriteFeatures } from "../features/WriteFeatures";
-import { numberedAtCaret } from "../features/structureCommands";
+import { numberedParagraphAtCaret } from "../features/listGallery";
 import { followLink, linkAt, removeLinkCommand } from "../features/links";
 import type { SyncController } from "../sync/SyncPlugin";
 import { t, useT } from "../i18n";
@@ -87,12 +87,13 @@ export function contextItems(editor: Editor, ctl: SyncController, features: Writ
   const { $from } = editor.state.selection;
   const field = $from.nodeAfter?.type.name === "field" || $from.nodeBefore?.type.name === "field" || !editor.state.selection.empty;
   if (field) items.push({ id: "update-field", label: t("write.updateField"), shortcut: "F9", onSelect: () => void features.updateFields() });
-  const numbered = numberedAtCaret(editor);
+  const numbered = numberedParagraphAtCaret(editor.state);
   if (numbered != null && numbered > 0) {
     items.push(
       sep,
       { id: "restart-list", label: t("write.restartAt1"), onSelect: () => void ctl.run({ type: "restartList", block: numbered, start: 1 }) },
       { id: "continue-list", label: t("write.continueNumbering"), onSelect: () => void ctl.run({ type: "continueList", block: numbered }) },
+      { id: "numbering-value", label: t("write.setNumberingValue"), onSelect: () => features.ui.openDialog("numberingValue") },
     );
   }
   items.push(

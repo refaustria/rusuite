@@ -1,16 +1,12 @@
 // UI commands for the document structure (P8-10): footnotes/endnotes,
-// fields, tables of contents, section breaks and section page setup,
-// multilevel list presets and list restart/continue. All are Rust-first
+// fields, tables of contents, section breaks and section page setup.
+// (List galleries: listGallery.ts.) All are Rust-first
 // commands sent through the `SyncController`; the patches update the editor.
 
 import type { Editor } from "@tiptap/core";
 import { TextSelection, type EditorState } from "@tiptap/pm/state";
 import type { FieldKind } from "../generated/FieldKind";
-import type { Level } from "../generated/Level";
-import type { LevelKind } from "../generated/LevelKind";
 import type { NoteKind } from "../generated/NoteKind";
-import type { Numbering } from "../generated/Numbering";
-import type { NumberingDef } from "../generated/NumberingDef";
 import type { Section } from "../generated/Section";
 import type { SectionKind } from "../generated/SectionKind";
 import type { SectionPatch } from "../generated/SectionPatch";
@@ -233,87 +229,3 @@ export function sectionCommand(state: EditorState, ctl: SyncController, patch: S
   return patch.page ? { type: "setPage", patch: patch.page } : null;
 }
 
-// ----- lists -----------------------------------------------------------------------------
-
-export type MultilevelPreset = "decimal" | "outline" | "legal";
-
-/** The nine levels of a multilevel list preset (Word's gallery: 1/1.1/1.1.1, 1/a/i, legal). */
-export function presetLevels(preset: MultilevelPreset): Level[] {
-  const kinds: Record<MultilevelPreset, LevelKind[]> = {
-    decimal: ["decimal"],
-    outline: ["decimal", "lowerLetter", "lowerRoman"],
-    legal: ["upperRoman", "decimal"],
-  };
-  return Array.from({ length: 9 }, (_, i): Level => {
-    const k = kinds[preset];
-    const kind = preset === "legal" ? (i === 0 ? "upperRoman" : "decimal") : k[i % k.length]!;
-    let text: string;
-    if (preset === "outline") text = i % 3 === 1 ? `%${i + 1})` : `%${i + 1}.`;
-    else {
-      const chain = Array.from({ length: i + 1 }, (_, n) => `%${n + 1}`).join(".");
-      text = i === 0 ? `${chain}.` : chain;
-    }
-    const level: Level = { kind, text, start: 1, indent: { left: 432 + 360 * i, hanging: 432 } };
-    // Legal numbering: every number in the label is decimal ("1.1" under "I.").
-    if (preset === "legal" && i > 0) level.legal = true;
-    return level;
-  });
-}
-
-/** Numbering with a new standalone list of `preset`; returns it and the new id. */
-export function withPreset(numbering: Numbering, preset: MultilevelPreset): { numbering: Numbering; id: number } {
-  const id = Math.max(0, ...numbering.defs.map((d) => d.id)) + 1;
-  const def: NumberingDef = { id, levels: presetLevels(preset) };
-  return { numbering: { ...structuredClone(numbering), defs: [...structuredClone(numbering.defs), def] }, id };
-}
-
-/** `ApplyNumbering`: a new list of `preset` for the paragraphs `[id, level]`. */
-export function applyNumberingCommand(preset: MultilevelPreset, items: { id: number; level: number }[]): WriteCommand {
-  return { type: "applyNumbering", levels: presetLevels(preset), items: items.map((it) => [it.id, Math.min(8, it.level)] as [number, number]) };
-}
-
-/** Home › Multilevel list: the selected paragraphs become one new list of `preset` (keeping their levels). */
-export async function applyMultilevel(editor: Editor, ctl: SyncController, preset: MultilevelPreset): Promise<boolean> {
-  await ctl.idle();
-  let { from, to } = editor.state.selection;
-  // Word: with the caret in a list (no selection) the multilevel list applies to the whole list (W-27).
-  if (from === to) {
-    const $c = editor.state.selection.$from;
-    for (let d = 1; d <= $c.depth; d++) {
-      if ($c.node(d).type.name === "bulletList" || $c.node(d).type.name === "orderedList") {
-        from = $c.before(d);
-        to = $c.after(d);
-        break;
-      }
-    }
-  }
-  const items: { id: number; level: number }[] = [];
-  editor.state.doc.nodesBetween(from, to, (node, pos) => {
-    if (!TEXTBLOCK_TYPES.has(node.type.name)) return true;
-    const id = node.attrs.id as number | null;
-    if (id == null || id < 0) return false;
-    // List level: the depth of list nesting.
-    const $p = editor.state.doc.resolve(pos);
-    let level = 0;
-    for (let d = $p.depth; d > 0; d--) if ($p.node(d).type.name === "bulletList" || $p.node(d).type.name === "orderedList") level++;
-    items.push({ id, level: Math.max(0, level - 1) });
-    return false;
-  });
-  if (!items.length) return false;
-  // The core allocates the list (`ApplyNumbering`); no numbering table is sent.
-  await ctl.run(applyNumberingCommand(preset, items));
-  editor.commands.focus();
-  return true;
-}
-
-/** The numbered paragraph at the caret (id), or null. */
-export function numberedAtCaret(editor: Editor): number | null {
-  const { $from } = editor.state.selection;
-  for (let d = $from.depth; d > 0; d--) {
-    if ($from.node(d).type.name === "listItem") {
-      const p = $from.node(d).firstChild;
-      return (p?.attrs.id as number | null) ?? null;
-    }
-  }
-  return null;
-}

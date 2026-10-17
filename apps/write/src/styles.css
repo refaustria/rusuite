@@ -34,6 +34,18 @@ body,
    items without a label yet (a list just created in the editor) keep the browser's marker. */
 .tiptap-content li:has(> [data-label]) { list-style: none; }
 .tiptap-content [data-label]::before { content: attr(data-label) "\00a0\00a0"; }
+/* Word's list placement (P9-W1): a list paragraph sits at its level's indent (`--li-left`); the label hangs by
+   `--li-hang` at the first-line position and the tab after it reaches the text (lvlJc: left / centred / right). */
+.tiptap-content ul.list-word, .tiptap-content ol.list-word { padding-left: 0; list-style: none; }
+.tiptap-content li:has(> .list-ind) { list-style: none; }
+.tiptap-content .list-ind { margin-left: var(--li-left) !important; text-indent: calc(-1 * var(--li-hang)) !important; }
+.tiptap-content .list-ind[data-label]::before { content: attr(data-label); display: inline-block; min-width: var(--li-hang); text-indent: 0; font-family: var(--li-font, inherit); white-space: pre; }
+.tiptap-content .list-ind[data-label][data-label-suffix="tab"]::before { content: attr(data-label) "\00a0"; }
+.tiptap-content .list-ind[data-label][data-label-suffix="space"]::before { content: attr(data-label) " "; min-width: 0; }
+.tiptap-content .list-ind[data-label][data-label-suffix="nothing"]::before { min-width: 0; }
+.tiptap-content .list-ind[data-label][data-label-align="right"][data-label-suffix="tab"]::before { width: var(--li-hang); min-width: 0; text-align: right; position: relative; left: calc(-1 * var(--li-hang)); content: attr(data-label); }
+.tiptap-content .list-ind[data-label][data-label-align="center"][data-label-suffix="tab"]::before { width: var(--li-hang); min-width: 0; text-align: center; position: relative; left: calc(-0.5 * var(--li-hang)); content: attr(data-label); }
+.tiptap-content .list-ind:not([data-label])::before { content: none; }
 
 /* Fields: grey shading (Word's field shading); a live value (page number, date) replaces the cached result. */
 .tiptap-content .field { background: #e6e6e6; border-radius: 2px; }
