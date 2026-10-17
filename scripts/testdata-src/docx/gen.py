@@ -1,4 +1,4 @@
-"""Generator for the PROVISIONAL docx reference suite (65 documents: 64 .docx, one .dotx template).
+"""Generator for the PROVISIONAL docx reference suite (66 documents: 65 .docx, one .dotx template).
 
 Emits one flat ODT (.fodt) per topic plus manifest.json. Conversion to .docx is done by
 scripts/gen-docx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
@@ -1355,13 +1355,64 @@ def _(d):
     d.feat("page:a4")
 
 
+# ---------------- 66 tables round 2, ruler and symbols (P9-W5) ----------------
+@topic(66, "tables-2-columns-symbols", "Tables round 2: a merged header over a vertically merged column, a fixed-layout floating table with "
+       "a table style and look, indents and tab stops of every kind, two unequal text columns with a line between, special "
+       "characters (non-breaking space and hyphen, optional hyphen, dashes, (c) (r) (tm), ellipsis, smart quotes)")
+def _(d):
+    d.extra_auto = (
+        '<style:style style:name="SectU" style:family="section"><style:section-properties>'
+        '<style:columns fo:column-count="2"><style:column-sep style:width="0.02cm" style:color="#000000" style:height="100%" '
+        'style:style="solid"/><style:column style:rel-width="3000*" fo:start-indent="0cm" fo:end-indent="0.25cm"/>'
+        '<style:column style:rel-width="6000*" fo:start-indent="0.25cm" fo:end-indent="0cm"/></style:columns>'
+        "</style:section-properties></style:style>"
+        '<style:style style:name="PTabs" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties>'
+        '<style:tab-stops><style:tab-stop style:position="2cm"/><style:tab-stop style:position="6cm" style:type="center"/>'
+        '<style:tab-stop style:position="10cm" style:type="char" style:char=","/><style:tab-stop style:position="14cm" style:type="right"/>'
+        "</style:tab-stops></style:paragraph-properties></style:style>"
+    )
+    d.h(1, "Tables round 2")
+    d.p("A header over three columns above a column merged over two rows:")
+    _span_table(d, [
+        [("Quarter overview", 3, 1), None, None],
+        ["Region", "Q1", ("Notes over two rows", 1, 2)],
+        ["North", "12", None],
+    ], [4.0, 4.0, 6.0])
+    d.feat("table:merged=horizontal")
+    d.feat("table:merged=vertical")
+    d.p("A table with a fixed layout that the text wraps around:")
+    d.table([["Item", "Price"], ["Coffee", "3,40"], ["Tea", "2,90"]], widths=[4.0, 3.0], header=True)
+    d.feat("table:floating")
+    d.feat("table:layout-fixed")
+    d.feat("table:look")
+    d.p(txt(4))
+    d.h(2, "Indents and tab stops")
+    d.p(txt(3), indent=1.0, ml=1.5, mr=1.0)
+    d.p(txt(3), indent=-1.0, ml=2.0)
+    d.body.append(X('<text:p text:style-name="PTabs">Left<text:tab/>Center<text:tab/>12,50<text:tab/>Right</text:p>'))
+    d.feat("tab")
+    d.feat("para:tab=bar")
+    d.h(2, "Unequal columns")
+    d.body.append(X('<text:section text:style-name="SectU" text:name="Unequal">' + d.p_xml(txt(5)) + d.p_xml(txt(6, 3)) + "</text:section>"))
+    d.feat("section:columns=2")
+    d.feat("section:columns-unequal")
+    d.feat("section:column-separator")
+    d.h(2, "Special characters")
+    d.p("Non\u2011breaking hyphen, op\u00adtional hyphen, 10\u00a0km, en dash \u2013 em dash \u2014, "
+        "\u00a9 \u00ae \u2122, ellipsis\u2026 and \u201csmart quotes\u201d.")
+    d.feat("char:no-break-hyphen")
+    d.feat("char:soft-hyphen")
+    d.feat("char:nbsp")
+    d.feat("page:a4")
+
+
 def emit(outdir, pngdir):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     for k in range(3):
         IMAGES[k] = (Path(pngdir) / f"img{k}.png").read_bytes()
     manifest = []
-    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 66)), "need exactly topics 1..65"
+    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 67)), "need exactly topics 1..66"
     for n, slug, desc, fn in sorted(TOPICS):
         d = Doc(n, slug, desc)
         fn(d)
@@ -1420,6 +1471,32 @@ FIELD_65 = (
 )
 
 PART_PATCHES = {
+    "provisional-66-tables-2-columns-symbols.docx": {
+        "word/document.xml": [
+            # The second table floats (Around, 0.32 cm from the text, right of the column, never overlapping), has a
+            # table style with a header row look (LibreOffice writes neither).
+            ('<w:tbl><w:tblPr><w:tblW w:w="3969" w:type="dxa"/>',
+             '<w:tbl><w:tblPr><w:tblStyle w:val="W5Table"/><w:tblpPr w:leftFromText="180" w:rightFromText="180" '
+             'w:vertAnchor="text" w:horzAnchor="margin" w:tblpXSpec="right" w:tblpY="1"/><w:tblOverlap w:val="never"/>'
+             '<w:tblW w:w="3969" w:type="dxa"/>'),
+            ('</w:tblCellMar></w:tblPr><w:tblGrid><w:gridCol w:w="2268"/><w:gridCol w:w="1701"/>',
+             '</w:tblCellMar><w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" '
+             'w:noHBand="0" w:noVBand="1"/></w:tblPr><w:tblGrid><w:gridCol w:w="2268"/><w:gridCol w:w="1701"/>'),
+            # A bar tab next to the left, center, decimal and right stops.
+            ('<w:tab w:val="right" w:pos="7937" w:leader="none"/></w:tabs>',
+             '<w:tab w:val="right" w:pos="7937" w:leader="none"/><w:tab w:val="bar" w:pos="8505"/></w:tabs>'),
+        ],
+        "word/styles.xml": [
+            # A table style whose header row is bold and shaded (tblStylePr firstRow).
+            ('</w:styles>',
+             '<w:style w:type="table" w:styleId="W5Table"><w:name w:val="W5 Table"/><w:uiPriority w:val="40"/><w:pPr>'
+             '<w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:tblPr><w:tblBorders>'
+             '<w:top w:val="single" w:sz="4" w:space="0" w:color="4472C4"/><w:bottom w:val="single" w:sz="4" w:space="0" '
+             'w:color="4472C4"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="8EAADB"/></w:tblBorders></w:tblPr>'
+             '<w:tblStylePr w:type="firstRow"><w:rPr><w:b/><w:color w:val="FFFFFF"/></w:rPr><w:tcPr><w:shd w:val="clear" '
+             'w:color="auto" w:fill="4472C4"/></w:tcPr></w:tblStylePr></w:style></w:styles>'),
+        ],
+    },
     "provisional-65-drawings-floating-2.docx": {
         "word/document.xml": [
             # The chain of the two text boxes (LibreOffice exports separate boxes).
@@ -1501,6 +1578,13 @@ RUN_XML = {
     "run:scale": "<w:w w:val=", "run:double-strike": "<w:dstrike/>", "run:outline": "<w:outline/>",
     "run:shadow": "<w:shadow/>", "run:emboss": "<w:emboss/>", "run:imprint": "<w:imprint/>", "run:hidden": "<w:vanish/>",
     "run:words-underline": '<w:u w:val="words"/>',
+}
+
+
+TABLE2_XML = {
+    "table:floating": "<w:tblpPr ", "table:layout-fixed": '<w:tblLayout w:type="fixed"/>', "table:look": "<w:tblLook ",
+    "section:columns-unequal": "<w:col w:w=", "char:no-break-hyphen": "<w:noBreakHyphen/>",
+    "char:soft-hyphen": "<w:softHyphen/>", "char:nbsp": "\u00a0", "para:tab=bar": 'w:val="bar"',
 }
 
 
@@ -1618,6 +1702,8 @@ def check(manifest_path, docxdir):
                 if f'prst="{ft.split("=")[1]}"' not in doc or "<wps:wsp" not in doc:
                     errs.append(f"{ft} not found")
             elif ft in DRAWING_XML and DRAWING_XML[ft] not in doc:
+                errs.append(f"{ft} not found")
+            elif ft in TABLE2_XML and TABLE2_XML[ft] not in doc:
                 errs.append(f"{ft} not found")
             elif ft == "drawing:textbox" and "<w:txbxContent>" not in doc:
                 errs.append("txbxContent not found")

@@ -507,6 +507,46 @@ The algorithm is in `docs/write-layout.md`; the numbers in docs/perf.md.
 - **Drawing canvas**: shapes drawn on it become members (moved inside it, selected like group members), the canvas
   resizes without scaling them, Shape Format › Size › Fit shrinks it to its members.
 
+### Write tables round 2, ruler and special characters (P9-W5)
+- **Table structure** (Rust commands, `features/tables2.ts`): Insert / Delete column and row are grid-aware (a merged cell
+  spanning the inserted column grows, deleting a column inside a span shrinks it, ragged rows are padded, a new row copies
+  the row's merges and continues vertical merges). Table Layout › Merge › **Split Table** (Ctrl+Shift+Enter) splits above
+  the caret's row (`SplitTable`; in the first row an empty paragraph goes above the table); Delete / Backspace in the
+  empty paragraph between two tables joins them (`MergeTables`). Insert › Table ▾ › **Convert Text to Table…** (number of
+  columns, rows shown, separate at paragraphs / commas / tabs / another character – Word's guess preselected) and Table
+  Layout › Data › **Convert to Text** (`ConvertTextToTable`, `ConvertTableToText`). Cell Size › **AutoFit ▾**: AutoFit
+  Contents (column widths measured from the cells' text), AutoFit Window (100 % of the text width), Fixed Column Width
+  (`AutoFitTable`: `tblLayout`, `tblW`). Distribute Rows / Columns as before.
+- **Table Properties** (`ui/tables2Dialogs.tsx`) has Word's tabs: *Table* (preferred width in cm or percent, alignment,
+  indent from left, text wrapping None / Around with **Positioning…**: horizontal and vertical position or alignment
+  relative to margin / page / column / paragraph, distance from the surrounding text, Allow overlap → `w:tblpPr`, and
+  "Automatically resize to fit contents"), *Row* (height at least / exactly, allow row to break across pages, repeat as
+  header row), *Column* (preferred width of the selected columns), *Cell* (vertical alignment). A floating table is drawn
+  as a CSS float to the side of its position (centred: no wrapping).
+- **Table Design**: table style text formatting (`tblStylePr` run properties: the header row's bold and white text, banded
+  colours, sizes, fonts) now reaches the cell paragraphs that use the default paragraph style, as in Word
+  (`data-ts-*` CSS variables on the cells; the core's `Document::resolve_run_props_in_cell`). Borders ▾ applies the
+  current pen and ends with View Gridlines and **Borders and Shading…** (Setting None / Box / All / Grid / Custom, style,
+  colour, width, a preview whose lines toggle on click, Apply to Cell / Table, Shading tab). New group **Border Painter**:
+  Border Styles gallery (picking one turns the painter on), Line Style, Line Weight, Pen Color and the Border Painter
+  toggle – while on, a click on a cell edge paints it and the facing edge of the neighbour cell (`SetCellProps`); Esc ends
+  it. View › Show › **Gridlines** (also Table Layout › View Gridlines) shows or hides the dashed lines of borderless edges.
+- **Ruler** (`ui/Ruler.tsx`, `features/rulerDrag.ts`): the first-line triangle, the hanging triangle, the left-indent box
+  and the right-indent triangle are dragged like Word's (the paragraph follows live through a preview decoration; one
+  `SetParagraphProps` on release; Alt: no snapping); in a table the column boundaries are markers that drag the column
+  widths (the neighbour gives or takes the difference). The scale and the snapping are in cm (0.25 cm) or inches (1/8")
+  by the locale or File › Options › Advanced.
+- **Columns**: unequal columns (Left / Right presets, More Columns… without "Equal column width") are laid out with their
+  own widths and spacing in the editor and in print (docs/write-layout.md "Unequal columns"); the line between is drawn at
+  the real gap.
+- **Symbols and special characters**: Insert › Symbol › More Symbols… has a Font list (the grid in that font; the symbol is
+  inserted in it, typing continues in the previous font) and shows the selected character's shortcut key. Word's keys
+  insert special characters (docs/shortcuts.md). **AutoCorrect** as you type (`features/autoCorrect.ts`): straight quotes
+  → smart quotes (German „…“ in a German UI), " -- " → en dash and "word--word" → em dash when the next space is typed,
+  (c) (r) (tm) → © ® ™ and "..." → … at once; ordinals (1st) superscript only when switched on (off by default). File ›
+  Options › Proofing switches each rule; the options are kept in this browser. Equations are not part of this round.
+- **File › Options** is Write's own dialog now: General (User Name…), Proofing (AutoCorrect), Advanced (ruler unit).
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |
