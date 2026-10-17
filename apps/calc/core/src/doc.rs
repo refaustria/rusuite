@@ -338,6 +338,7 @@ impl CalcDocument {
                 .cloned(),
             active_sheet: self.workbook.active_sheet().0,
             table_styles: self.workbook.table_styles().clone(),
+            calc: self.calc_state(),
         }
     }
 
@@ -1506,6 +1507,11 @@ impl CalcDocument {
             | C::RemoveValidation { .. }
             | C::RestoreCfRules { .. }
             | C::RestoreValidations { .. } => self.rules_cmd(cmd),
+            C::SetCalcOptions { .. }
+            | C::CalculateNow
+            | C::CalculateSheet { .. }
+            | C::ApplyNames { .. }
+            | C::PasteNameList { .. } => self.calc_cmd(cmd),
             C::DefineName { .. }
             | C::UpdateName { .. }
             | C::DeleteName { .. }
@@ -2923,7 +2929,9 @@ impl Document for CalcDocument {
         let stale = self.workbook.stale_pivots();
         let tables = self.tables_state();
         let slicers = self.slicers_before();
+        let calc = self.calc_state();
         let mut applied = self.apply_cmd(cmd)?;
+        self.mark_calc(calc, &mut applied);
         self.mark_tables(tables, cmd, &mut applied);
         self.mark_names(names, cmd, &mut applied);
         self.mark_annotations(annotations, &mut applied);

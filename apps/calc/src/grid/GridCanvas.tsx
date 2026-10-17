@@ -408,7 +408,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       hctx.clearRect(0, 0, l.width + hw, l.height + hh);
       hctx.save();
       hctx.translate(gw, gh);
-      drawHeaders(hctx, l, data, sel, { bg: "#f3f3f3", fg: "#444", line: "#c8c8c8", active: "#d3e3d8" }, filteredRowSpan(store.autoFilter()));
+      drawHeaders(hctx, l, data, sel, { bg: "#f3f3f3", fg: "#444", line: "#c8c8c8", active: "#d3e3d8" }, filteredRowSpan(store.autoFilter()), store.calcTools.r1c1());
       const p = resizePreview.current;
       if (p) {
         hctx.strokeStyle = "#217346";

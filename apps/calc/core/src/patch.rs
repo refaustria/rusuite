@@ -387,6 +387,11 @@ pub struct CalcPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<crate::wire_data::TableStyles>")]
     pub table_styles: Option<Box<model_sheet::TableStyles>>,
+    /// The calculation options and the "Calculate" state, when they
+    /// changed; absent = unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub calc: Option<crate::calc_tools::CalcState>,
 }
 
 /// Merges `other` into `list`, replacing entries with the same key.
@@ -415,6 +420,9 @@ impl app_common::Patch for CalcPatch {
         }
         if other.names.is_some() {
             self.names = other.names;
+        }
+        if other.calc.is_some() {
+            self.calc = other.calc;
         }
         if other.persons.is_some() {
             self.persons = other.persons;
@@ -573,4 +581,6 @@ pub struct WorkbookInfo {
     #[serde(default, skip_serializing_if = "model_sheet::TableStyles::is_default")]
     #[ts(optional, as = "Option<crate::wire_data::TableStyles>")]
     pub table_styles: model_sheet::TableStyles,
+    /// The calculation options and whether cells await recalculation.
+    pub calc: crate::calc_tools::CalcState,
 }

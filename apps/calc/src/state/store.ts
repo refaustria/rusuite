@@ -63,6 +63,7 @@ import { currentRegion, duplicateColumns, guessHeader, sortRangeCommand, sortSco
 import { ChartController } from "../charts/controller";
 import { NamesController } from "../names/controller";
 import { TraceController } from "../audit/trace";
+import { CalcToolsController } from "../formulas/tools";
 import { CommentsController, type UserNext } from "../comments/controller";
 import { PivotController } from "../pivot/controller";
 import { TableController } from "../tables/controller";
@@ -225,6 +226,12 @@ export type CalcDialog =
   | { kind: "defineName"; edit?: { name: string; sheet?: number }; back?: boolean }
   /** Formulas › Create from Selection. */
   | { kind: "createNames" }
+  /** File › Options › Formulas: calculation mode, R1C1 reference style (P9-C4). */
+  | { kind: "formulaOptions" }
+  /** Formulas › Define Name ▾ › Apply Names… */
+  | { kind: "applyNames" }
+  /** Paste Names (F3; Use in Formula ▾ › Paste Names…). */
+  | { kind: "pasteNames" }
   /** Go To (Ctrl+G / F5). */
   | { kind: "goTo" }
   /** Insert Function (Shift+F3), optionally preselecting a category. */
@@ -503,6 +510,8 @@ export class CalcStore {
   readonly pictures: PictureController = new PictureController(this);
   readonly slicers: SlicerController = new SlicerController(this);
   readonly flash: FlashController = new FlashController(this);
+  /** Formulas › Calculation, R1C1 style, Apply / Paste Names (P9-C4). */
+  readonly calcTools: CalcToolsController = new CalcToolsController(this);
   /** The Consolidate dialog's references and options (kept for the session, as Excel). */
   consolidateState: ConsolidateState = DEFAULT_CONSOLIDATE;
   /** Re-renders Flash Fill's preview after the grid scrolled (set by the layer). */
@@ -708,6 +717,7 @@ export class CalcStore {
       persons: patch.persons ?? info.persons,
       workbookProtection: patch.workbookProtection ? (patch.workbookProtection.lockStructure || patch.workbookProtection.lockWindows ? patch.workbookProtection : undefined) : info.workbookProtection,
       tableStyles: patch.tableStyles ?? info.tableStyles,
+      calc: patch.calc ?? info.calc,
     };
     const reload = new Set<number>();
     for (const s of patch.structural) {
@@ -1199,9 +1209,10 @@ export class CalcStore {
     // Nor the locked cells of a protected sheet (P9-C1).
     if (refuseLockedEdit(this)) return;
     const mode = text === null || origin === "bar" ? "edit" : "enter";
-    const value = text ?? this.activeCell()?.input ?? "";
     // A merged range is edited in its top-left cell.
     const anchor = this.activeAnchor();
+    // R1C1 reference style (P9-C4): the formula is edited in that style.
+    const value = text ?? this.calcTools.displayInput(this.activeCell()?.input ?? "", anchor.row, anchor.col);
     // Editing ends copy mode (the marching ants), as in Excel.
     this.clip = null;
     this.set({
@@ -1541,19 +1552,26 @@ export class CalcStore {
     const edit = this.state.edit;
     if (!edit) return Promise.resolve(true);
     if (this.state.validationAlert || this.validating) return Promise.resolve(false);
-    const bad = checkFormula(edit.text);
+    const { row, col } = edit.cell;
+    // R1C1 reference style (P9-C4): the core stores A1 text.
+    const typed = this.calcTools.storedInput(edit.text, row, col);
+    if (typed === null) {
+      this.patchEdit({ error: formulaErrorMessage("reference leaves the sheet"), point: null, menuForced: false });
+      return Promise.resolve(false);
+    }
+    const entry = typed;
+    const bad = checkFormula(entry);
     if (bad) {
       this.patchEdit({ error: formulaErrorMessage(bad.message), point: null, menuForced: false });
       return Promise.resolve(false);
     }
-    const { row, col } = edit.cell;
     const sheet = edit.sheet;
     const before = this.cache(sheet).cells.get(row)?.get(col)?.input ?? "";
-    const dv = validated || edit.text === before ? undefined : this.validationAt(row, col, sheet);
+    const dv = validated || entry === before ? undefined : this.validationAt(row, col, sheet);
     if (dv && dv.showError && dv.kind.type !== "any") {
       // Data validation: the core checks the typed value first; the edit stays open meanwhile.
       this.validating = true;
-      return this.api.validateInput(sheet, row, col, edit.text).then(
+      return this.api.validateInput(sheet, row, col, entry).then(
         (res) => {
           this.validating = false;
           if (this.state.edit !== edit) return false;
@@ -1580,20 +1598,20 @@ export class CalcStore {
     const next = move(cellSelection(row, col), dRow, dCol, false, mergeLookup(this.merges(sheet)));
     if (sheet !== this.state.activeSheet) this.showSheet(sheet, next, null);
     else this.set({ edit: null, selection: next });
-    if (edit.text === before) return Promise.resolve(true);
+    if (entry === before) return Promise.resolve(true);
     const write: CalcCommand =
-      edit.text === ""
+      entry === ""
         ? { type: "clearRange", sheet, r0: row, c0: col, r1: row, c1: col }
-        : { type: "setInput", sheet, row, col, input: edit.text };
+        : { type: "setInput", sheet, row, col, input: entry };
     const extra: CalcCommand[] = [];
     const cache = this.cache(sheet);
     let wrap = !!styleAt(this.styles(), styleIdIn(cache, row, col)).alignment?.wrapText;
-    if (edit.text.includes("\n") && !wrap) {
+    if (entry.includes("\n") && !wrap) {
       // A line break turns wrap text on (Excel).
       wrap = true;
       extra.push({ type: "applyStyle", sheet, r0: row, c0: col, r1: row, c1: col, patch: { alignment: { wrapText: true } } });
     }
-    const text = isFormula(edit.text) ? null : edit.text;
+    const text = isFormula(entry) ? null : entry;
     extra.push(...this.rowFitCommands(sheet, [row], (c) => (c === col ? { text: text ?? undefined, wrap } : undefined), [col]));
     const command: CalcCommand = extra.length === 0 ? write : { type: "compound", commands: [write, ...extra] };
     return this.api.apply(command).then(
@@ -2008,6 +2026,11 @@ export class CalcStore {
   // --- dialogs, find & replace ---------------------------------------------
 
   openDialog(dialog: CalcDialog): void {
+    // Paste Names (F3) works inside the formula being edited (P9-C4).
+    if (dialog.kind === "pasteNames") {
+      this.set({ dialog });
+      return;
+    }
     if (this.state.edit) void this.commitEdit(0, 0);
     if (this.state.edit) return;
     this.set({ dialog });

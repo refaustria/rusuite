@@ -835,6 +835,12 @@ pub struct Engine {
     pivots: crate::pivot::PivotRegistry,
     /// The Excel tables structured references resolve against.
     tables: Vec<TableDef>,
+    /// Manual calculation (Formulas › Calculation Options › Manual): edits
+    /// evaluate only the edited formula cells; [`Engine::calculate_now`]
+    /// and [`Engine::calculate_sheet`] do the rest.
+    manual: bool,
+    /// Manual mode: cells whose dependents await recalculation.
+    dirty: HashSet<CellCoord>,
 }
 
 impl Default for Engine {
@@ -864,7 +870,83 @@ impl Engine {
             names: Vec::new(),
             pivots: Default::default(),
             tables: Vec::new(),
+            manual: false,
+            dirty: HashSet::new(),
         }
+    }
+
+    // --- calculation mode -------------------------------------------------
+
+    /// Switches between automatic (`false`) and manual (`true`)
+    /// calculation. Switching back to automatic recalculates everything
+    /// that is pending, as Excel does.
+    pub fn set_manual(&mut self, manual: bool) -> Recalc {
+        let was = std::mem::replace(&mut self.manual, manual);
+        if was && !manual {
+            return self.calculate_now();
+        }
+        Recalc::default()
+    }
+
+    /// Whether calculation is manual.
+    pub fn is_manual(&self) -> bool {
+        self.manual
+    }
+
+    /// Manual mode: whether cells await recalculation (Excel's
+    /// "Calculate" in the status bar).
+    pub fn needs_calc(&self) -> bool {
+        self.manual && !self.dirty.is_empty()
+    }
+
+    /// Calculate Now (F9): recalculates every pending cell, its dependents
+    /// and the volatile cells (in automatic mode: the volatile cells).
+    pub fn calculate_now(&mut self) -> Recalc {
+        let mut seeds: Vec<CellCoord> = self.dirty.drain().collect();
+        seeds.sort_unstable();
+        let manual = std::mem::replace(&mut self.manual, false);
+        let out = self.recalc(&seeds);
+        self.manual = manual;
+        out
+    }
+
+    /// Calculate Sheet (Shift+F9): recalculates the pending cells of
+    /// `sheet` that lie on it (and its volatile cells); cells on other
+    /// sheets stay pending.
+    pub fn calculate_sheet(&mut self, sheet: SheetId) -> Recalc {
+        let mut seeds: Vec<CellCoord> = self.dirty.drain().collect();
+        seeds.extend(self.volatile.iter().copied());
+        seeds.sort_unstable();
+        let schedule = self.graph.recalc_schedule(&seeds);
+        let (here, elsewhere): (Vec<CellCoord>, Vec<CellCoord>) =
+            schedule.order.iter().partition(|c| c.sheet == sheet);
+        self.dirty.extend(elsewhere);
+        self.dirty.extend(
+            seeds
+                .into_iter()
+                .filter(|c| c.sheet != sheet && !self.volatile.contains(c)),
+        );
+        let cyclic = schedule
+            .cyclic
+            .iter()
+            .copied()
+            .filter(|c| c.sheet == sheet)
+            .collect();
+        let part = crate::graph::Schedule {
+            order: here,
+            cyclic,
+            cycle: schedule
+                .cycle
+                .filter(|c| c.cells.iter().all(|x| x.sheet == sheet)),
+        };
+        self.run(part)
+    }
+
+    /// Recalculates every formula (Ctrl+Alt+F9) and clears the pending
+    /// cells.
+    pub fn calculate_full(&mut self) -> Recalc {
+        self.dirty.clear();
+        self.recalc_all()
     }
 
     /// Appends a sheet. Formulas that referenced `name` before it existed
@@ -2352,8 +2434,24 @@ impl Engine {
         }
     }
 
-    /// Recalculates `seeds`, their dependents and the volatile cells.
+    /// Recalculates `seeds`, their dependents and the volatile cells. In
+    /// manual mode only the formula cells among `seeds` are evaluated and
+    /// the seeds wait for [`Engine::calculate_now`].
     fn recalc(&mut self, seeds: &[CellCoord]) -> Recalc {
+        if self.manual {
+            self.dirty.extend(seeds.iter().copied());
+            let mut own: Vec<CellCoord> = seeds
+                .iter()
+                .copied()
+                .filter(|&c| self.graph.has_formula(c))
+                .collect();
+            own.sort_unstable();
+            own.dedup();
+            return self.run(crate::graph::Schedule {
+                order: own,
+                ..Default::default()
+            });
+        }
         let mut changed: Vec<CellCoord> = seeds.to_vec();
         changed.extend(self.volatile.iter().copied());
         let schedule = self.graph.recalc_schedule(&changed);

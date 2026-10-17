@@ -24,6 +24,7 @@
 //! ```
 
 mod annotations;
+mod calc_tools;
 mod cfdv;
 mod charts;
 mod command;
@@ -47,6 +48,7 @@ pub mod wire_pivot;
 pub mod wire_tables;
 
 pub use annotations::{CellAnnotations, FormulaLink, SheetAnnotations, SheetThreads};
+pub use calc_tools::{CalcModeWire, CalcOptions, CalcState};
 pub use command::{
     BorderEdits, CalcCommand, ClipCell, DeleteShift, EdgeEdit, FillMode, FlashCell, InsertShift,
     PasteMode, PasteOperation, PasteParts, PasteSpecial, RangeFormat, Rect, SheetRect,

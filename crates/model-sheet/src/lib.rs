@@ -15,6 +15,7 @@
 //! serde, the IPC layer and `fmt-xlsx`.
 
 pub mod annotations;
+pub mod calc;
 pub mod chart;
 pub mod condfmt;
 pub mod consolidate;
@@ -40,6 +41,7 @@ pub mod workbook;
 pub use annotations::{
     guid, initials_of, Hyperlink, LinkTarget, Note, NoteBounds, NoteRun, Person, Reply, Thread,
 };
+pub use calc::{CalcMode, CalcSettings};
 pub use chart::{CellOffset, ChartAnchor, ChartObject, ResolvedRef};
 pub use condfmt::{
     CfKind, CfResult, CfRule, CfValue, ColorPoint, CompareOp, DxfStyle, IconSetKind,

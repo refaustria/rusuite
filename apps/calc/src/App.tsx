@@ -47,6 +47,8 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
     void s.version;
     return store.pivots.stale.size;
   });
+  // Manual calculation with cells awaiting recalculation (Excel's "Calculate", P9-C4).
+  const needsCalc = useCalc(store, (s) => !!s.info?.calc?.needsCalc);
   return (
     <div className="flex items-center gap-4 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted" data-testid="status-bar">
       <span>{t("calc.status.revision", { revision })}</span>
@@ -58,6 +60,11 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
         </span>
       )}
       {records && <span data-testid="filter-records">{records}</span>}
+      {needsCalc && (
+        <button type="button" data-testid="calc-pending" className="font-medium text-ui-fg hover:underline" title={t("calc.calc.nowHint")} onClick={() => void store.calcTools.calculateNow()}>
+          {t("calc.calc.pending")}
+        </button>
+      )}
       {stale > 0 && <span data-testid="pivot-stale-status" className="text-amber-700">{t("calc.pivot.staleStatus", { count: stale })}</span>}
       {noteBy && <span data-testid="note-status">{noteBy}</span>}
       {locked && (

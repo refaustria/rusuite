@@ -9,6 +9,7 @@ import type { Backend, Color, OpenedFile, SaveOptions, SaveResult } from "@rusui
 import type { AutoFilter } from "../generated/AutoFilter";
 import type { CalcCommand } from "../generated/CalcCommand";
 import type { CalcPatch } from "../generated/CalcPatch";
+import type { CalcState } from "../generated/CalcState";
 import type { CellKind } from "../generated/CellKind";
 import type { CellStyle } from "../generated/CellStyle";
 import type { CellView } from "../generated/CellView";
@@ -142,6 +143,8 @@ export class FakeCalcCore {
   /** Protect Workbook (P9-C1) and its password (as text: a fake). */
   private bookProtection: WorkbookProtection | undefined;
   private tableStyles: TableStyles = {};
+  /** Formulas › Calculation Options (P9-C4; the fake always calculates at once). */
+  private calc: CalcState = { options: { mode: "automatic", fullCalcOnLoad: true, r1c1: false }, needsCalc: false };
   /** Slicers (toy): table sources only; the selection per cache (`null` = all). */
   private slicerList: { sheet: number; slicer: Slicer; source: SlicerSource; selected: string[] | null }[] = [];
   private bookPassword = "";
@@ -1049,7 +1052,23 @@ export class FakeCalcCore {
       case "showPivotDetails":
       case "restoreSheetProtection":
       case "restoreWorkbookProtection":
+      case "applyNames":
+      case "pasteNameList":
         throw new Fail("unsupported", `${cmd.type} is not in the fake backend`);
+      case "setCalcOptions": {
+        const old = this.calc.options;
+        this.calc = { options: { ...cmd.options }, needsCalc: false };
+        const patch = this.emptyPatch();
+        patch.calc = structuredClone(this.calc);
+        return [patch, { type: "setCalcOptions", options: old }];
+      }
+      case "calculateNow":
+      case "calculateSheet": {
+        this.calc = { ...this.calc, needsCalc: false };
+        const patch = this.emptyPatch();
+        patch.calc = structuredClone(this.calc);
+        return [patch, null];
+      }
       default: {
         const unknown: never = cmd;
         throw new Fail("bad_request", `unsupported command ${(unknown as { type: string }).type}`);
@@ -2124,6 +2143,7 @@ export class FakeCalcCore {
     const info = {
       sheets: this.sheetInfos(), styles: [...this.styles], revision: this.revision, ...(this.names.length ? { names: this.nameInfos() } : {}),
       activeSheet: this.sheets.find((x) => !x.hidden)?.id ?? 0,
+      calc: structuredClone(this.calc),
       ...(this.bookProtection ? { workbookProtection: { ...this.bookProtection } } : {}),
       ...(this.tableStyles.custom?.length || this.tableStyles.defaultStyle ? { tableStyles: structuredClone(this.tableStyles) } : {}),
       ...(this.persons.length ? { persons: this.persons.map((p) => ({ ...p })) } : {}),
@@ -2220,7 +2240,7 @@ export class FakeCalcCore {
           return {
             ok: {
               type: "opened",
-              info: "ok" in info && info.ok.type === "info" ? info.ok.info : { sheets: [], styles: [], revision: this.revision, activeSheet: 0 },
+              info: "ok" in info && info.ok.type === "info" ? info.ok.info : { sheets: [], styles: [], revision: this.revision, activeSheet: 0, calc: structuredClone(this.calc) },
               warnings: ["fake backend: file content ignored"],
               envelope: this.envelope(this.emptyPatch()),
             },

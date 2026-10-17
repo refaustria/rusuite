@@ -80,6 +80,8 @@ pub struct Workbook {
     pub(crate) slicer_caches: Vec<crate::slicer::SlicerCache>,
     /// The sheet the file opens on (`<workbookView activeTab>`).
     active: Option<SheetId>,
+    /// Calculation mode, `fullCalcOnLoad` and the R1C1 reference style.
+    pub(crate) calc: crate::calc::CalcSettings,
 }
 
 impl Default for Workbook {
@@ -128,6 +130,7 @@ impl Workbook {
             table_styles: Default::default(),
             slicer_caches: Vec::new(),
             active: None,
+            calc: Default::default(),
         }
     }
 
