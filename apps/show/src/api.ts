@@ -170,7 +170,7 @@ export class ShowApi {
   }
 
   /** The presentation as `.pptx` with the view it is shown in as `lastView` and the window state (zoom, panes; no undo step); does not mark it saved. */
-  savePptx(lastView?: ViewKind, viewState?: ViewState): Promise<BodyOf<"saved">> {
-    return this.call({ type: "savePptx", ...(lastView ? { lastView } : {}), ...(viewState ? { viewState } : {}) }, "saved");
+  savePptx(lastView?: ViewKind, viewState?: ViewState, dateTexts?: Record<number, string>): Promise<BodyOf<"saved">> {
+    return this.call({ type: "savePptx", ...(lastView ? { lastView } : {}), ...(viewState ? { viewState } : {}), ...(dateTexts ? { dateTexts } : {}) }, "saved");
   }
 }

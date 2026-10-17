@@ -95,7 +95,7 @@ const PROMPTS: Record<string, string> = {
   centeredTitle: "show.prompt.title",
   subtitle: "show.prompt.subtitle",
   body: "show.prompt.text",
-  picture: "show.master.samplePicture",
+  picture: "show.prompt.picture",
   chart: "show.prompt.chart",
   table: "show.prompt.table",
 };

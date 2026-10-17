@@ -1444,5 +1444,8 @@
   "show.design.themeFiles": "More themes",
   "show.design.browseThemes": "Browse for Themes…",
   "show.design.saveTheme": "Save Current Theme…",
-  "show.design.themeFilter": "Office Theme"
+  "show.design.themeFilter": "Office Theme",
+  "show.master.phText": "Text",
+  "show.prompt.picture": "Click icon to add picture",
+  "show.insertPictureInto": "Insert Picture"
 }

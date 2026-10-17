@@ -1444,5 +1444,8 @@
   "show.design.themeFiles": "Weitere Designs",
   "show.design.browseThemes": "Nach Designs suchen…",
   "show.design.saveTheme": "Aktuelles Design speichern…",
-  "show.design.themeFilter": "Office-Design"
+  "show.design.themeFilter": "Office-Design",
+  "show.master.phText": "Text",
+  "show.prompt.picture": "Bild hinzufügen",
+  "show.insertPictureInto": "Bild einfügen"
 }

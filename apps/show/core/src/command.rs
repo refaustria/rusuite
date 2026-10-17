@@ -634,6 +634,10 @@ impl PicturePatch {
             p.transparency = v.clamp(0.0, 1.0);
         }
         if let Some(g) = &self.geometry {
+            // another outline shape: its default adjust values
+            if p.geometry != *g {
+                p.adjust.clear();
+            }
             p.geometry.clone_from(g);
         }
         if let Some(s) = self.shadow {
@@ -853,13 +857,19 @@ pub enum ShowCommand {
     Ungroup { group: NodeId },
     /// Adds an image (bytes as standard base64) on top of the slide.
     /// `transform` absent = natural size (96 dpi), scaled down to fit the
-    /// slide, centered.
+    /// slide, centered. `placeholder` (P9-S5: the "Insert Picture" icon of
+    /// an empty picture or content placeholder): the picture takes that
+    /// placeholder's place, box and z-order (cropped to fill it, as
+    /// PowerPoint does) and stays a placeholder of its layout.
     InsertPicture {
         slide: NodeId,
         content_type: String,
         bytes_base64: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         transform: Option<Transform>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        placeholder: Option<NodeId>,
         #[ts(type = "number")]
         new_id: i64,
     },
@@ -1090,11 +1100,16 @@ pub enum ShowCommand {
     RenameLayout { layout: LayoutKind, name: String },
     /// Adds a placeholder of `kind` at `transform` to the master (one per
     /// kind) or to a layout (Slide Master › Insert Placeholder; the next
-    /// free `idx`, text defaults from the master).
+    /// free `idx`, text defaults from the master). `textOnly` (P9-S5): a
+    /// "Text" placeholder (`type="body"`: text only, no content icons)
+    /// instead of "Content" (body kinds only).
     AddPlaceholder {
         target: DesignTarget,
         kind: PlaceholderKind,
         transform: Transform,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        text_only: bool,
     },
     /// Removes a placeholder of the master or a layout (slides keep their
     /// placeholder shapes).

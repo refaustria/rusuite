@@ -152,6 +152,7 @@ fn add_and_remove_placeholders() {
             target: target.clone(),
             kind: PlaceholderKind::Picture,
             transform: tr(100, 200, 3_000_000, 2_000_000),
+            text_only: false,
         },
     );
     let l = pres(&h).layout(&LayoutKind::TitleOnly).unwrap();
@@ -170,6 +171,7 @@ fn add_and_remove_placeholders() {
                 target: target.clone(),
                 kind: PlaceholderKind::Title,
                 transform: tr(0, 0, 10, 10),
+                text_only: false,
             }
         ),
         "invalid_command"
@@ -181,6 +183,7 @@ fn add_and_remove_placeholders() {
                 target: DesignTarget::Master,
                 kind: PlaceholderKind::Body,
                 transform: tr(0, 0, 10, 10),
+                text_only: false,
             }
         ),
         "invalid_command"
@@ -222,6 +225,7 @@ fn add_and_remove_placeholders() {
             target: DesignTarget::Master,
             kind: PlaceholderKind::Footer,
             transform: tr(0, 6_000_000, 4_000_000, 300_000),
+            text_only: false,
         },
     );
 }

@@ -304,3 +304,60 @@ fn libreoffice_footer_size_comes_from_the_master_placeholder_runs() {
         Some(core_model::FontSize::from_pt(24.0))
     );
 }
+
+#[test]
+fn picture_shapes_keep_their_adjust_values() {
+    let mut p = Presentation::new();
+    let img = p.media.insert("image/png", vec![1, 2, 3]);
+    let mut pic = Shape::picture(
+        img,
+        Transform::new(Emu(0), Emu(0), Emu(2_000_000), Emu(1_000_000)),
+    );
+    if let model_show::ShapeKind::Picture { props, .. } = &mut pic.kind {
+        props.geometry = Some(Preset::RoundRect);
+        props.adjust.insert("adj".into(), 30_000);
+    }
+    let id = p.slides[0].id;
+    p.add_shape(id, pic).unwrap();
+    let bytes = fmt_pptx::write(&p).unwrap();
+    let slide = part(&bytes, "/ppt/slides/slide1.xml").unwrap();
+    assert!(slide.contains(r#"<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val 30000"/></a:avLst></a:prstGeom>"#), "{slide}");
+    let (back, warnings) = fmt_pptx::read_with_warnings(&bytes).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let model_show::ShapeKind::Picture { props, .. } = &back.slides[0].shapes.last().unwrap().kind
+    else {
+        panic!("picture")
+    };
+    assert_eq!(props.geometry, Some(Preset::RoundRect));
+    assert_eq!(props.adjust.get("adj"), Some(&30_000));
+}
+
+#[test]
+fn date_fields_show_the_date_they_were_saved_on() {
+    let mut p = Presentation::new();
+    p.master.header_footer.date = model_show::HfDate::Auto { format: 2 };
+    let ctx = fmt_pptx::PptxContext {
+        date_texts: [(2u8, "Saturday, October 17, 2026".to_owned())]
+            .into_iter()
+            .collect(),
+        ..Default::default()
+    };
+    let bytes = fmt_pptx::write_with_context(&p, &ctx).unwrap();
+    let master = part(&bytes, "/ppt/slideMasters/slideMaster1.xml").unwrap();
+    assert!(
+        master.contains(
+            r#"type="datetime2"><a:rPr lang="en-US"/><a:t>Saturday, October 17, 2026</a:t>"#
+        ),
+        "{master}"
+    );
+    // without the UI's clock: empty, as before
+    let plain = part(
+        &fmt_pptx::write(&p).unwrap(),
+        "/ppt/slideMasters/slideMaster1.xml",
+    )
+    .unwrap();
+    assert!(
+        plain.contains(r#"type="datetime2"><a:rPr lang="en-US"/><a:t></a:t>"#),
+        "{plain}"
+    );
+}

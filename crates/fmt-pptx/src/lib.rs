@@ -122,6 +122,12 @@ pub struct PptxContext {
     /// part is generated from the model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_xml: Option<Vec<u8>>,
+    /// The current text of each `datetimeN` field (format number → text,
+    /// e.g. `1` → `"10/17/2026"`; P9-S5): date fields are written showing
+    /// it, as PowerPoint does. The core has no clock; the UI sends its
+    /// own. Empty: fields keep their stored text.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub date_texts: std::collections::BTreeMap<u8, String>,
 }
 
 /// Reads a `.pptx` file from disk (native targets only).

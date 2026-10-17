@@ -19,4 +19,11 @@ lastView?: ViewKind,
 /**
  * Zoom and pane sizes, stamped likewise (P9-S3).
  */
-viewState?: ViewState, } | { "type": "recoverySnapshot" } | { "type": "restoreRecovery", json: string, name?: string, } | { "type": "documentState" } | { "type": "markSaved", name?: string | null, } | { "type": "shapePaths", queries: Array<PathQuery>, } | { "type": "getThemes" } | { "type": "peekPresentation", bytesBase64: string, };
+viewState?: ViewState, 
+/**
+ * The UI's clock (P9-S5): the current text of each `datetimeN`
+ * field (format number → text, in the UI's language); date fields
+ * are written showing it. The document is not changed. (Keys are
+ * strings on the wire: JSON object keys.)
+ */
+dateTexts?: { [key in string]: string }, } | { "type": "recoverySnapshot" } | { "type": "restoreRecovery", json: string, name?: string, } | { "type": "documentState" } | { "type": "markSaved", name?: string | null, } | { "type": "shapePaths", queries: Array<PathQuery>, } | { "type": "getThemes" } | { "type": "peekPresentation", bytesBase64: string, };

@@ -98,6 +98,7 @@ fn written_designs(p: &Presentation) -> Vec<DesignOut<'_>> {
 /// that is not in the presentation's store.
 pub fn write_with_context(p: &Presentation, ctx: &PptxContext) -> Result<Vec<u8>> {
     let pn = PartName::new;
+    let _dates = crate::drawing::use_date_texts(&ctx.date_texts);
     let designs = written_designs(p);
     let mut media = MediaParts::default();
     let mut master_parts = Vec::with_capacity(designs.len());
@@ -1305,7 +1306,7 @@ impl SlideWriter<'_> {
         x.start("p:spPr", &[]);
         write_xfrm(x, &s.transform, false);
         match &props.geometry {
-            Some(g) => write_geometry(x, g, &Adjust::new()),
+            Some(g) => write_geometry(x, g, &props.adjust),
             None => self.geometry("rect"),
         }
         write_line(&mut self.x, &s.line);

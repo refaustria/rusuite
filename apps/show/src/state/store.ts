@@ -92,7 +92,7 @@ import type { TextField } from "../generated/TextField";
 import { DESIGN_COMMANDS, DESIGN_SHAPE_BASE, designSlide, placeholderOfShape, targetPlaceholders, translateDesignCommand, validTarget } from "../design/master";
 import { hfCommand, insertField, type HfValues } from "../design/hf";
 import { moveToSectionCommand, removeAllSectionsCommand } from "../design/sections";
-import { fieldText } from "../design/fields";
+import { dateTexts, fieldText } from "../design/fields";
 import { NO_CROP, stylePatch, type PictureStyle } from "../design/picture";
 import { t } from "../i18n";
 import { centredTransform } from "../geometry";
@@ -1215,6 +1215,15 @@ export class ShowStore {
     await this.run({ type: "insertPicture", slide, contentType, bytesBase64, newId });
   }
 
+  /** The "Insert Picture" icon of an empty picture / content placeholder (P9-S5): the picture fills the placeholder. */
+  async insertPictureInto(placeholder: NodeId, contentType: string, bytesBase64: string): Promise<void> {
+    const slide = this.state.current;
+    if (slide === null) return;
+    const newId = this.temp();
+    this.set({ selection: [newId] });
+    await this.run({ type: "insertPicture", slide, contentType, bytesBase64, placeholder, newId });
+  }
+
   /** Fill of the selected shapes (`null` = no fill). */
   async setFill(color: Color | null): Promise<void> {
     const shapes = this.state.selection;
@@ -1988,9 +1997,10 @@ export class ShowStore {
    * Slide Master › Insert Placeholder: a placeholder of `kind` in the
    * selected layout (the master: only kinds it lacks), centred at half
    * the slide's size (date / footer / number at the master's position),
-   * then selected.
+   * then selected. `textOnly`: Insert Placeholder › Text (a body
+   * placeholder for text only, P9-S5) rather than Content.
    */
-  async insertPlaceholder(kind: PlaceholderKind): Promise<void> {
+  async insertPlaceholder(kind: PlaceholderKind, textOnly = false): Promise<void> {
     const pres = this.state.pres;
     const mv = this.state.masterView;
     if (!pres || !mv) return;
@@ -2001,7 +2011,7 @@ export class ShowStore {
       ? fromMaster.transform
       : { x: Math.round(size.width / 4), y: Math.round(size.height / 4), w: Math.round(size.width / 2), h: Math.round(size.height / 2), rotationDeg: 0 };
     const before = targetPlaceholders(pres, mv).length;
-    const res = await this.run({ type: "addPlaceholder", target: mv, kind, transform });
+    const res = await this.run({ type: "addPlaceholder", target: mv, kind, transform, ...(textOnly && kind === "body" ? { textOnly: true } : {}) });
     if (res && this.state.pres) {
       const after = targetPlaceholders(this.state.pres, mv);
       if (after.length > before) this.set({ selection: [DESIGN_SHAPE_BASE + after.length - 1] });
@@ -2851,7 +2861,8 @@ export class ShowStore {
       if (this.state.editing) await this.commitEdit();
       const view = lastViewOf(this.state.view);
       const state = viewStateOf(this.state, typeof window === "undefined" ? 0 : window.innerWidth);
-      const saved = await this.enqueue(() => this.api.savePptx(view, state));
+      // date fields are written showing today's date (the core has no clock; P9-S5)
+      const saved = await this.enqueue(() => this.api.savePptx(view, state, dateTexts(new Date())));
       const result = await this.api.backend.saveFile(asName ?? saved.suggestedName, saved.bytesBase64, { saveAs: asName !== undefined });
       if (!result) return;
       const name = typeof result === "object" ? result.name : asName;

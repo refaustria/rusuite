@@ -303,6 +303,7 @@ pub(crate) fn read_thmx(
         presentation: p,
         context: PptxContext {
             theme_xml: Some(data.clone()),
+            ..PptxContext::default()
         },
         warnings: w.into_vec(),
     })
@@ -1937,11 +1938,9 @@ impl Reader<'_> {
             {
                 let (g, adjust) =
                     read_geometry(Some(sp), transform.w.0 as f64, transform.h.0 as f64, self.w);
-                if !adjust.is_empty() {
-                    self.w.add("picture shape adjust values dropped");
-                }
                 if g != Preset::Rect {
                     props.geometry = Some(g);
+                    props.adjust = adjust;
                 }
             }
             if let Some(eff) = sp.child("effectLst") {

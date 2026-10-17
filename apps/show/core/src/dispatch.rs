@@ -181,6 +181,13 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         view_state: Option<ViewState>,
+        /// The UI's clock (P9-S5): the current text of each `datetimeN`
+        /// field (format number → text, in the UI's language); date fields
+        /// are written showing it. The document is not changed. (Keys are
+        /// strings on the wire: JSON object keys.)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, as = "Option<std::collections::HashMap<String, String>>")]
+        date_texts: Option<std::collections::BTreeMap<String, String>>,
     },
     /// The whole presentation for crash recovery → `recoverySnapshot` (changes
     /// nothing; the JSON is the input of `restoreRecovery`).
@@ -355,6 +362,7 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
         Request::SavePptx {
             last_view,
             view_state,
+            date_texts,
         } => {
             if let Some(v) = last_view {
                 host.doc_mut().stamp_last_view(v);
@@ -362,7 +370,12 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
             if let Some(s) = &view_state {
                 host.doc_mut().stamp_view_state(s);
             }
-            let bytes = host.doc().save_pptx()?;
+            let dates: std::collections::BTreeMap<u8, String> = date_texts
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|(k, v)| Some((k.parse().ok()?, v)))
+                .collect();
+            let bytes = host.doc().save_pptx_dated(&dates)?;
             ResponseBody::Saved {
                 bytes_base64: base64_encode(&bytes),
                 suggested_name: host.doc().suggested_name(),

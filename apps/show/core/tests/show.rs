@@ -535,6 +535,7 @@ fn text_runs_with_emoji_offsets() {
             bytes_base64: base64_encode(&png(2, 3)),
             transform: None,
             new_id: -1,
+            placeholder: None,
         },
     );
     assert_eq!(
@@ -771,6 +772,7 @@ fn pictures_and_media_undo() {
             bytes_base64: base64_encode(&bytes),
             transform: None,
             new_id: -1,
+            placeholder: None,
         },
     );
     assert_eq!(p.id_map, vec![(-1, id(8))]);
@@ -812,6 +814,7 @@ fn pictures_and_media_undo() {
             bytes_base64: base64_encode(&big),
             transform: None,
             new_id: -1,
+            placeholder: None,
         },
     );
     assert_eq!(shape(&h, 9).transform, tr(250_000, 0, 500_000, 500_000));
@@ -823,6 +826,7 @@ fn pictures_and_media_undo() {
             bytes_base64: base64_encode(&bytes),
             transform: Some(tr(1, 2, 3, 4)),
             new_id: -1,
+            placeholder: None,
         },
     );
     assert_eq!(pres(&h).media.len(), 2);
@@ -836,6 +840,7 @@ fn pictures_and_media_undo() {
                 bytes_base64: "%%%".into(),
                 transform: None,
                 new_id: -1,
+                placeholder: None,
             }
         ),
         "bad_request"
@@ -965,6 +970,7 @@ fn scripted_session_undo_redo() {
             bytes_base64: base64_encode(b"GIF89a\x10\x00\x10\x00"),
             transform: None,
             new_id: -6,
+            placeholder: None,
         },
         C::SetSlideBackground {
             slide: id(1),

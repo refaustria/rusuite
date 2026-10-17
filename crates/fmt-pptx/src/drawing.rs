@@ -192,6 +192,34 @@ pub(crate) fn color_map() -> ColorMap {
     COLOR_MAP.with(std::cell::Cell::get)
 }
 
+thread_local! {
+    /// The current text of each `datetimeN` field while a file is written
+    /// ([`crate::PptxContext::date_texts`]).
+    static DATE_TEXTS: std::cell::RefCell<std::collections::BTreeMap<u8, String>> =
+        const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };
+}
+
+/// Restores the previous date texts when dropped (see [`use_date_texts`]).
+pub(crate) struct DateTextsGuard(std::collections::BTreeMap<u8, String>);
+
+impl Drop for DateTextsGuard {
+    fn drop(&mut self) {
+        let old = std::mem::take(&mut self.0);
+        DATE_TEXTS.with(|d| *d.borrow_mut() = old);
+    }
+}
+
+/// Writes date fields with `texts` (format number → current text) until
+/// the guard is dropped (P9-S5: the UI's clock; the core has none).
+pub(crate) fn use_date_texts(texts: &std::collections::BTreeMap<u8, String>) -> DateTextsGuard {
+    DateTextsGuard(DATE_TEXTS.with(|d| std::mem::replace(&mut *d.borrow_mut(), texts.clone())))
+}
+
+/// The current text of a `datetimeN` field, when the writer was given one.
+pub(crate) fn date_text(format: u8) -> Option<String> {
+    DATE_TEXTS.with(|d| d.borrow().get(&format).cloned())
+}
+
 /// The theme slot of a `schemeClr/@val` under the colour map in effect:
 /// `tx1`/`bg1`/`tx2`/`bg2` are mapped (a dark master maps `bg1` to `dk1`),
 /// the scheme names stand for themselves.
@@ -1236,7 +1264,17 @@ fn write_run(x: &mut XmlOut, run: &TextRun, links: &mut dyn LinkSink) {
         let ty = f.ooxml_type();
         x.start("a:fld", &[("id", field_guid(f)), ("type", &ty)]);
         write_rpr_link(x, "a:rPr", &run.props, true, link);
-        let text: String = run.text.chars().filter(|c| !c.is_control()).collect();
+        // a date field shows the date it was saved on (as PowerPoint writes it)
+        let now = match f {
+            TextField::DateTime { format } => date_text(*format),
+            _ => None,
+        };
+        let text: String = now
+            .as_deref()
+            .unwrap_or(&run.text)
+            .chars()
+            .filter(|c| !c.is_control())
+            .collect();
         x.text_el("a:t", &[], &text);
         x.end("a:fld");
         return;

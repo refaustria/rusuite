@@ -172,10 +172,14 @@ export class FakeBackend implements ShowBackend {
         const s = this.slideOf(c.slide);
         const media = p.media.length + 1;
         p.media.push({ id: media, contentType: c.contentType, data: c.bytesBase64 });
-        s.shapes.push({
-          id: this.real(c.newId, idMap), name: "Picture", transform: { x: 0, y: 0, w: 952500, h: 952500 },
+        const ph = c.placeholder === undefined || c.placeholder === null ? -1 : s.shapes.findIndex((x) => x.id === c.placeholder);
+        const pic: Shape = {
+          id: this.real(c.newId, idMap), name: "Picture", transform: ph >= 0 ? s.shapes[ph]!.transform : { x: 0, y: 0, w: 952500, h: 952500 },
           kind: { kind: "picture", value: { media } }, fill: { kind: "none" }, line: { fill: { kind: "none" }, width: 12700, dash: "solid" }, lockAspect: true,
-        });
+          ...(ph >= 0 ? { placeholder: "picture" as const, ...(s.shapes[ph]!.placeholderIdx ? { placeholderIdx: s.shapes[ph]!.placeholderIdx } : {}) } : {}),
+        };
+        if (ph >= 0) s.shapes[ph] = pic;
+        else s.shapes.push(pic);
         touched.add(s);
         return;
       }
@@ -601,7 +605,7 @@ export class FakeBackend implements ShowBackend {
       }
       case "addPlaceholder": {
         const list = c.target.kind === "master" ? p.master!.placeholders : p.layouts.find((x) => x.kind === (c.target as { value: string }).value)!.placeholders;
-        list.push({ kind: c.kind, idx: Math.max(12, ...list.map((d) => d.idx ?? 0)) + 1, transform: c.transform, bodyDefaults: { anchor: "top", wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" }, runDefaults: {}, paragraphDefaults: {} });
+        list.push({ kind: c.kind, idx: Math.max(12, ...list.map((d) => d.idx ?? 0)) + 1, transform: c.transform, bodyDefaults: { anchor: "top", wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" }, runDefaults: {}, paragraphDefaults: {}, ...(c.textOnly ? { textOnly: true } : {}) });
         this.design = true;
         return;
       }

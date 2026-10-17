@@ -747,7 +747,7 @@ pub fn placeholder_sp(x: &mut XmlOut, ph: &PhWrite<'_>) {
                 x,
                 &TextField::DateTime { format: *format }.ooxml_type(),
                 DATE_FIELD_GUID,
-                "",
+                &crate::drawing::date_text(*format).unwrap_or_default(),
             ),
             HfDate::Fixed { text } => text_run(x, text),
             HfDate::Off => field(x, "datetimeFigureOut", DATE_FIELD_GUID, ""),

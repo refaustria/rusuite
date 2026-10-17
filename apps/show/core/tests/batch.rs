@@ -294,6 +294,7 @@ fn insert_png(h: &mut ShowHost, w: u8, hgt: u8) -> NodeId {
         bytes_base64: base64_encode(&png(w, hgt)),
         transform: Some(tr(1000, 1000, 400_000, 400_000)),
         new_id: -1,
+        placeholder: None,
     })
     .unwrap()
     .patch

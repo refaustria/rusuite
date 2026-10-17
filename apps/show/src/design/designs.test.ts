@@ -87,7 +87,7 @@ describe("slides of a further design", () => {
 
   it("a patch replaces the designs", () => {
     const p = designFixture();
-    const out = applyPatch(p, { slides: [], deletedSlides: [], idMap: [], slidesOrder: null, slideSize: null, designs: [harbor(1)] });
+    const out = applyPatch(p, { slides: [], deletedSlides: [], idMap: [], slidesOrder: null, slideSize: null, info: null, designs: [harbor(1)] });
     expect(out.designs?.[0]?.master.name).toBe("Harbor");
   });
 });
