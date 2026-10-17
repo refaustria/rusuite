@@ -122,9 +122,9 @@ export function dataTabGroups(store: CalcStore, t: T, off: boolean, validation: 
           <RibbonStack>
             <RibbonButton label={t("calc.flash.button")} icon={flashFillIcon(16)} showLabel shortcut="Mod+E" tooltip={t("calc.flash.tip")} disabled={off} onClick={run(() => store.flash.run())} />
             <RibbonButton label={t("calc.dup.button")} icon={duplicatesIcon(16)} showLabel disabled={off} onClick={() => openRemoveDuplicates(store)} />
-            <RibbonButton label={t("calc.dv.button")} icon={validationIcon(16)} showLabel tooltip={t("calc.dv.title")} disabled={off} onClick={validation} />
           </RibbonStack>
           <RibbonStack>
+            <RibbonButton label={t("calc.dv.button")} icon={validationIcon(16)} showLabel tooltip={t("calc.dv.title")} disabled={off} onClick={validation} />
             <RibbonButton label={t("calc.consolidate.button")} icon={consolidateIcon(16)} showLabel tooltip={t("calc.consolidate.tip")} disabled={off} onClick={() => store.openDialog({ kind: "consolidate" })} />
           </RibbonStack>
         </>
@@ -174,6 +174,8 @@ export function dataTabGroups(store: CalcStore, t: T, off: boolean, validation: 
           <RibbonStack>
             <RibbonButton label={t("calc.outline.showDetail")} icon={showDetailIcon()} showLabel disabled={off} onClick={run(() => showDetail(store, true))} />
             <RibbonButton label={t("calc.outline.hideDetail")} icon={hideDetailIcon()} showLabel disabled={off} onClick={run(() => showDetail(store, false))} />
+          </RibbonStack>
+          <RibbonStack>
             <RibbonButton label={t("calc.outline.settings")} icon={outlineSettingsIcon(16)} showLabel disabled={off} onClick={() => store.openDialog({ kind: "outlineSettings" })} />
           </RibbonStack>
         </>

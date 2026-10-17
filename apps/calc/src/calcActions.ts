@@ -69,6 +69,8 @@ export function calcActions(store: CalcStore) {
     insertCols: () => store.structure("insert", "cols"),
     deleteRows: () => store.structure("delete", "rows"),
     deleteCols: () => store.structure("delete", "cols"),
+    /** Inside a table: its own rows / columns (P9-C2; Excel's Insert › Table Rows Above, Delete › Table Columns). */
+    tableRowsCols: (kind: "insertRows" | "deleteRows" | "insertCols" | "deleteCols") => store.tables.editRowsCols(kind),
     clearContents: () => store.clearSelection(),
     /** Ctrl+D: copy the first row of the selection down. */
     fillDown: () => store.fillCopy("down"),
@@ -180,7 +182,16 @@ export function annotationItems(a: CalcActions, st: AnnotationState): ContextMen
 }
 
 /** Right-click on cells; `hasMerge`: the selection touches a merged cell (Unmerge enabled); `annot`: the active cell's notes/comments/links. */
-export function cellMenu(a: CalcActions, hasMerge = false, annot?: AnnotationState): ContextMenuItem[] {
+export function cellMenu(a: CalcActions, hasMerge = false, annot?: AnnotationState, inTable = false): ContextMenuItem[] {
+  const table: ContextMenuItem[] = inTable
+    ? [
+        item("table-insert-rows", t("calc.table.insertRowsAbove"), () => a.tableRowsCols("insertRows")),
+        item("table-insert-cols", t("calc.table.insertColsLeft"), () => a.tableRowsCols("insertCols")),
+        item("table-delete-rows", t("calc.table.deleteRows"), () => a.tableRowsCols("deleteRows")),
+        item("table-delete-cols", t("calc.table.deleteCols"), () => a.tableRowsCols("deleteCols")),
+        SEP,
+      ]
+    : [];
   return [
     ...clipboardItems(a),
     SEP,
@@ -192,6 +203,7 @@ export function cellMenu(a: CalcActions, hasMerge = false, annot?: AnnotationSta
     item("delete-rows", t("calc.deleteRows"), a.deleteRows),
     item("delete-cols", t("calc.deleteCols"), a.deleteCols),
     SEP,
+    ...table,
     item("clear", t("calc.clearContents"), a.clearContents, "Del"),
     SEP,
     item("sort-asc", t("calc.sortAsc"), a.sortAsc),

@@ -339,3 +339,22 @@ fn custom_table_styles_new_default_rename_delete() {
         })
         .is_err());
 }
+
+#[test]
+fn deleting_a_table_column_beside_dependents_in_the_table_rows() {
+    let (mut h, id) = book();
+    h.apply(set(0, 5, "=SUM(Table1[Qty])")).unwrap();
+    h.apply(set(1, 5, "=SUM(Table1[Price])")).unwrap();
+    undo_identity(
+        &mut h,
+        C::DeleteTableCols {
+            id,
+            at: 1,
+            count: 1,
+        },
+    );
+    assert_eq!(text(&h, 0, 4), "=SUM(#REF!)");
+    assert_eq!(text(&h, 1, 4), "=SUM(Table1[Price])");
+    h.undo().unwrap();
+    assert_eq!(text(&h, 0, 5), "=SUM(Table1[Qty])");
+}

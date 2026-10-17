@@ -53,7 +53,8 @@ Common to all three formats (`fmt-ooxml`):
 | `<borders>` | `left`/`right`/`top`/`bottom` (also `start`/`end`) style + color (missing color → `Color::Auto`). `thin medium thick dashed dotted double hair` map 1:1; `mediumDashed`, `dashDot`, `mediumDashDot`, `dashDotDot`, `mediumDashDotDot`, `slantDashDot` → `Dashed`. Diagonals dropped. |
 | colors | `rgb` → `Color::Rgb` (alpha ignored); `theme="N" tint` → `Color::Theme { slot, tint }` (index order `lt1 dk1 lt2 dk2 accent1..6 hlink folHlink`; never resolved to RGB); `indexed` → legacy 64-color palette (or the file's `<indexedColors>`), 64/65 → `Auto`; `auto="1"` → `Auto`. |
 | `<cellXfs>` | `numFmtId`/`fontId`/`fillId`/`borderId` taken as given (`applyX` flags ignored, as Excel does); `<alignment horizontal vertical wrapText indent>` (`centerContinuous` → center, `distributed` → justify; vertical `justify`/`distributed` → center). Default values (`general`, `bottom`, `wrapText="0"`, `indent="0"`) read as `None`. `textRotation`, `shrinkToFit`, `<protection>` dropped. Each xf is interned into the `StyleTable`. |
-| `<cellStyleXfs>`, `<cellStyles>`, `<tableStyles>` | Ignored (named styles are not modelled). |
+| `<cellStyleXfs>`, `<cellStyles>` | Ignored (named styles are not modelled). |
+| `<tableStyles defaultTableStyle>` (P9-C2) | Custom table styles: every `<tableStyle name>` (not `table="0"` pivot-only styles, not built-in names: dropped with a warning) with its `<tableStyleElement type size dxfId>` (`wholeTable`, `headerRow`, `totalRow`, `firstColumn`, `lastColumn`, `firstRowStripe`, `secondRowStripe`, `firstColumnStripe`, `secondColumnStripe`; pivot elements skipped; `size` 1–9 for stripes; the `<dxf>`'s font b/i/u/strike/colour, fill, borders, number format) → `TableStyles`; `defaultTableStyle` when it names a known style. |
 | `<dxfs><dxf>` | Differential formats of conditional formatting → `DxfStyle`: `<font>` `b`/`i`/`strike` (with `val`), `u` (any but `none` = on), `color`; `<numFmt formatCode>` (or a built-in `numFmtId`); `<fill><patternFill>` → solid fill with `bgColor` (Excel's dxf convention), else `fgColor`, `patternType="none"` → none; `<border>` sides as for cell borders. `alignment`/`protection` dropped silently. Colors resolve against the file's palette. |
 | `xl/theme/theme1.xml` | `<a:clrScheme>` parsed into `XlsxContext.color_scheme`; the raw part is kept in `XlsxContext.theme_xml` and written back verbatim by `write_with_context`. |
 | `<sheetFormatPr>` | `defaultColWidth`, `defaultRowHeight` → `SheetFormat` (absent `defaultColWidth` → 8.43). |
@@ -114,6 +115,16 @@ byte-for-byte deterministic for the same `Workbook` and context.
 | `<rowBreaks>` / `<colBreaks>` | Manual page breaks (`<brk id man="1" max>`): `id` is the 1-based row/column the break follows, i.e. the 0-based index of the first line of the next page in the model. |
 | `xdr:pic` in `xl/drawings/drawingN.xml` | Pictures (`xl/media/imageN.{png,jpeg,gif,bmp,svg,webp}` related from the drawing) with their one/two-cell or absolute anchor, name and description; pictures and charts share the drawing part. |
 
+### Custom table styles and slicers (P9-C2)
+
+| Part / element | Handling |
+|---|---|
+| `styles.xml` `<dxfs>`, `<tableStyles>` | Written: the conditional formatting dxfs first, then one dxf per distinct table style element format (shared with equal ones); `<tableStyles count defaultTableStyle defaultPivotStyle="PivotStyleLight16">` with `<tableStyle name pivot="0" count>` and `<tableStyleElement type [size] dxfId>` per element. Tables refer to a custom style by name in `tableStyleInfo`. |
+| `xl/slicerCaches/slicerCacheN.xml` | `slicerCacheDefinition` (x14 namespace, `mc:Ignorable="x"`) with `name` (also a workbook `<definedName>` with `#N/A`, not read back as a user name) and `sourceName`. Table caches: `<extLst><x:ext uri="{2F2917AC-EB37-4324-AD4E-5DD8C200BD13}"><x15:tableSlicerCache tableId column [sortOrder]>` (`column` = the table column's `id`). Pivot caches: `<pivotTables><pivotTable tabId name>` (Report Connections; `tabId` = the sheet's `sheetId`), `<data><tabular pivotCacheId [sortOrder]><items count><i x [s="1"]>` (every shared item of the field, `s` = selected). Related from the workbook (`…/2007/relationships/slicerCache`, content type `application/vnd.ms-excel.slicerCache+xml`) and listed in the workbook `<extLst>`: `{BBE1A952-AA13-448e-AADC-164F8A28A991}` `x14:slicerCaches` (pivot) and `{46BE6895-7355-4a93-B00E-2C351335B9C9}` `x15:slicerCaches` (table), each `x14:slicerCache r:id`. The pivot cache definition of a sliced cache gets `<extLst><ext uri="{725AE2AE-9491-48be-B2B4-4EB974FC3084}"><x14:pivotCacheDefinition pivotCacheId>`; the field a slicer shows always has shared items. On read the pivot cache comes from the connected tables (by `tabId` + name); OLAP / unknown caches are dropped with a warning. |
+| `xl/slicers/slicerN.xml` | `<slicers>` with `<slicer name cache caption [columnCount] [showCaption="0"] [style] rowHeight>`; one part for a sheet's pivot slicers, one for its table slicers, related from the sheet (`…/2007/relationships/slicer`, `application/vnd.ms-excel.slicer+xml`) and listed in the worksheet `<extLst>` after `<tableParts>`: `{A8765BA9-456A-4dab-B4F3-ACF838C121DE}` `x14:slicerList` / `{3A4CF648-6AED-40f4-86FF-DC5316D8AED3}` `x15:slicerList`, each `x14:slicer r:id`. Styles other than Excel's built-in `SlicerStyleLight1–6`, `Other1–2`, `Dark1–6` read as Light 1. |
+| Slicer position (`xl/drawings/drawingN.xml`) | One anchor per slicer (`twoCellAnchor editAs="oneCell"`, or the slicer's one-cell / absolute anchor) holding `mc:AlternateContent`: `mc:Choice Requires="sle15"` (table) / `"a14"` (pivot) with `xdr:graphicFrame` (`cNvPr name` = the slicer name, `a:graphicData uri="http://schemas.microsoft.com/office/drawing/2010/slicer"` / `sle:slicer name`), `mc:Fallback` with a plain `xdr:sp` and Excel's "This shape represents a slicer" text. On read a slicer without an anchor is dropped with a warning. |
+| Pivot field filters | A slicer's filter on a field on no axis: `<pivotField>` with `<items>` and `h="1"` on the filtered items (read back as `PivotTable::field_filters`); on row / column / page fields the usual hidden items / page selection. |
+
 ### Known lossy points
 
 - Properties equal to the workbook default font, `Fill::None`, `HAlign::General`,
@@ -158,8 +169,10 @@ byte-for-byte deterministic for the same `Workbook` and context.
   `<definedName>` attributes (`customMenu`, `description`, `function`, `vbProcedure`,
   `xlm`, `publishToServer`, `workbookParameter`) are not kept; external-workbook names are
   dropped. Locale-dependent number format ids (5–8, 41–44) are written with Excel's en-US codes.
-- Tables (P8-35): custom table styles (`<tableStyles>` in `styles.xml`), the `dxfId`s of table parts,
-  query tables, slicers and table `extLst` are not kept; `totalsRowShown`, `insertRow` and
+- Tables (P8-35): the `dxfId`s of table parts, query tables and table `extLst` are not kept (custom
+  table styles and slicers are, since P9-C2; timelines, slicer caches on OLAP sources, `crossFilter`,
+  `customListSort`, `showMissing`, `startItem`, `level`, `lockedPosition` and a table slicer's `x15`
+  `uid`s are not); `totalsRowShown`, `insertRow` and
   `connectionId` are regenerated / dropped. Table column `uniqueName`/`queryTableFieldId` are
   dropped. Pictures: cropping, effects, hyperlinks on pictures and linked (not embedded) images are
   lost. Page breaks: automatic `<brk>` (without `man="1"`) are not kept.

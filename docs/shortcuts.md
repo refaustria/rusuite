@@ -71,11 +71,17 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Alt+F5, Mod+Alt+F5 | Refresh the selected pivot table, refresh all pivot tables |
 | Alt+ArrowDown | On a pivot table's `Row Labels` / `Column Labels` / field header or page cell: open its filter dropdown |
 | Delete | On a selection covering whole pivot tables: delete them (after a question); part of a table is refused |
+| Mod+E | Flash Fill: fill the active column's empty cells from the examples typed into it (P9-C2) |
+| Enter, Esc | While Flash Fill's greyed suggestions show (after a second example): fill them / drop them |
+| Alt+S, Alt+C | On a focused slicer: Multi-Select on / off, Clear Filter |
+| Mod+click | On a slicer button: add or remove the item (like Multi-Select) |
+| Delete, Esc | On a selected slicer: delete it (and its filter), deselect it |
 
 ### Mouse
 
 - **Filter buttons** (the ▾ boxes on an AutoFilter's header row): click to open the filter dropdown (sort, clear, text / number filters, search, value list).
 - **Pivot tables**: click a −/+ button (or double-click the item's label) to collapse / expand an item; click a header's or page cell's ▾ for its filter dropdown. In the PivotTable Fields pane drag fields between the list and the areas (and within them); dropping an area entry outside the areas removes it. While editing a formula, clicking a value of a pivot table inserts a `GETPIVOTDATA` formula (Analyze › Options ▾ › Generate GetPivotData).
+- **Slicers** (P9-C2): click a button to filter to that item, Ctrl+click or Multi-Select to add or remove items; drag the frame to move the slicer, its corner handles to resize it.
 - **Fill handle** (the small square at the selection's bottom-right): drag down, up, right or left to fill. One cell is copied (relative references shift); two or more numbers continue their linear trend (1, 2 → 3, 4, …); a date steps by a day; text ending in a number counts up (`Item1` → `Item2`). Hold Ctrl while releasing to swap series and copy. Double-click the handle to fill down to the end of the neighbouring column's data.
 - **Right-click** cells, row headers or column headers for a context menu (cut/copy/paste/paste values, insert/delete rows and columns, clear contents, sort A to Z / Z to A / custom sort (cells), format cells, row height / column width, hide/unhide, autofit column width). The menu is keyboard navigable (arrows, Home/End, Enter, Esc).
 - **Sheet tabs**: right-click for Insert sheet, Delete sheet (asks first when the sheet has content; references to it become `#REF!`, Undo brings it back), Rename, Duplicate (`Name (2)`, formulas referring to the sheet itself point at the copy), Move left / right and Tab colour… (shown as the tab's underline, saved as `sheetPr/tabColor`). Drag a tab to reorder. Ribbon Insert › Sheet offers the same for the active sheet. All of it is undoable.

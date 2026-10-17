@@ -1261,7 +1261,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       [items, label] = [rowHeaderMenu(actions), t("calc.row")];
     } else {
       if (hit.kind === "cell" && !contains(sel, hit.cell.row, hit.cell.col)) store.select(cellSelection(hit.cell.row, hit.cell.col));
-      [items, label] = [cellMenu(actions, store.selectionHasMerge(), actions.annotationState()), t("calc.cell")];
+      [items, label] = [cellMenu(actions, store.selectionHasMerge(), actions.annotationState(), !!store.tables.active()), t("calc.cell")];
     }
     setMenu({ at: { x: e.clientX, y: e.clientY }, items, label });
   };
