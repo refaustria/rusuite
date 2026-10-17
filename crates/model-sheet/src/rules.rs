@@ -1226,6 +1226,7 @@ mod tests {
                 col: 0,
                 ascending: true,
                 kind: crate::SortKind::Auto,
+                ..Default::default()
             }],
             ..Default::default()
         };

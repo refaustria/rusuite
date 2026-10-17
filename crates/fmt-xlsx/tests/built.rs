@@ -528,15 +528,18 @@ fn auto_filter_sort_state_and_filtered_rows_roundtrip() {
                     col: 1,
                     ascending: false,
                     kind: SortKind::Auto,
+                    ..Default::default()
                 },
                 SortKey {
                     col: 0,
                     ascending: true,
                     kind: SortKind::Auto,
+                    ..Default::default()
                 },
             ],
             has_header: true,
             case_sensitive: true,
+            ..Default::default()
         },
     )
     .unwrap();
@@ -622,8 +625,13 @@ fn excel_style_auto_filter_is_read() {
     let s = wb.sheet_id("Sheet1").unwrap();
     let af = wb.auto_filter(s).unwrap();
     assert_eq!((af.r0, af.c0, af.r1, af.c1), (0, 1, 3, 4));
-    assert_eq!(af.columns.len(), 1);
+    assert_eq!(af.columns.len(), 2);
     assert_eq!(af.columns[0].col, 1);
+    // Date groups are read (P9-C5); the colour filter's dxf is missing.
+    assert!(matches!(
+        af.columns[1].filter,
+        model_sheet::Filter::DateGroups { .. }
+    ));
     // Hidden rows inside the filter range are the filter's.
     assert!(wb.row_info(s, 1).filtered);
     assert!(wb.row_info(s, 8).hidden && !wb.row_info(s, 8).filtered);
@@ -633,17 +641,10 @@ fn excel_style_auto_filter_is_read() {
     let all = warnings.join("\n");
     assert!(!all.contains("defined name"), "{all}");
     assert!(
-        all.contains("unsupported filter of column C dropped"),
-        "{all}"
-    );
-    assert!(
         all.contains("unsupported filter of column D dropped"),
         "{all}"
     );
-    assert!(
-        all.contains("sort condition by colour or icon dropped"),
-        "{all}"
-    );
+    assert!(all.contains("unsupported sort condition dropped"), "{all}");
     assert!(
         all.contains("filter columns outside the AutoFilter range dropped"),
         "{all}"

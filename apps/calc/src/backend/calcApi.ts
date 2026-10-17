@@ -19,6 +19,7 @@ import type { PivotInfo } from "../generated/PivotInfo";
 import type { PivotRecommendation } from "../generated/PivotRecommendation";
 import type { PivotSourceSpec } from "../generated/PivotSourceSpec";
 import type { PivotItemInfo } from "../generated/PivotItemInfo";
+import type { LineColors } from "../generated/LineColors";
 import type { Rect } from "../generated/Rect";
 import type { SheetRect } from "../generated/SheetRect";
 import type { SheetThreads } from "../generated/SheetThreads";
@@ -95,6 +96,7 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     validation: { result: "object" },
     listValues: { values: "array" },
     invalidCells: { cells: "array" },
+    lineColors: { colors: "object" },
     sheetRules: { rules: "array", validations: "array" },
     charts: { charts: "array" },
     chartData: { data: "object" },
@@ -286,6 +288,11 @@ export class CalcApi {
   /** The in-cell dropdown values of the cell's list validation (empty without one). */
   async listValues(sheet: number, row: number, col: number): Promise<string[]> {
     return (await this.call({ type: "listValues", sheet, row, col }, "listValues")).values;
+  }
+
+  /** The fills, font colours and icons of a column (`columns`: a row) of `range` – the Sort by / Filter by Color choices. */
+  async lineColors(sheet: number, range: Rect, line: number, columns = false): Promise<LineColors> {
+    return (await this.call({ type: "lineColors", sheet, ...range, line, columns }, "lineColors")).colors;
   }
 
   /** Circle Invalid Data: the cells of `sheet` whose values fail their validation (single-cell rects, at most 255). */

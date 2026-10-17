@@ -166,19 +166,57 @@ pub(crate) fn parse_dxfs(dxfs: &El, color: &dyn Fn(&El) -> Option<Color>) -> Vec
         .collect()
 }
 
-/// Every distinct dxf of the workbook's rules, in first-use order.
+/// Every distinct dxf of the workbook's rules, in first-use order, then
+/// those of colour filters and colour sort conditions.
 pub(crate) fn collect_dxfs(wb: &Workbook) -> Vec<DxfStyle> {
     let mut out: Vec<DxfStyle> = Vec::new();
+    let mut add = |d: DxfStyle| {
+        if !out.contains(&d) {
+            out.push(d);
+        }
+    };
     for (id, _) in wb.sheets() {
         for rule in wb.cf_rules(id) {
             if let Some(d) = rule.dxf.as_ref() {
-                if !out.contains(d) {
-                    out.push(d.clone());
+                add(d.clone());
+            }
+        }
+    }
+    for (id, _) in wb.sheets() {
+        if let Some(af) = wb.auto_filter(id) {
+            for fc in &af.columns {
+                if let model_sheet::Filter::Color { color, font } = &fc.filter {
+                    add(color_dxf(*color, *font));
+                }
+            }
+        }
+        if let Some(st) = wb.sort_state(id) {
+            for k in &st.keys {
+                match &k.sort_on {
+                    model_sheet::SortOn::CellColor { color } => add(color_dxf(*color, false)),
+                    model_sheet::SortOn::FontColor { color } => add(color_dxf(*color, true)),
+                    _ => {}
                 }
             }
         }
     }
     out
+}
+
+/// The dxf a colour filter or colour sort condition refers to: a fill
+/// (`font`: a font colour); no colour = an empty dxf.
+pub(crate) fn color_dxf(color: Option<Color>, font: bool) -> DxfStyle {
+    match (color, font) {
+        (Some(c), false) => DxfStyle {
+            fill: Some(c),
+            ..Default::default()
+        },
+        (Some(c), true) => DxfStyle {
+            font_color: Some(c),
+            ..Default::default()
+        },
+        (None, _) => DxfStyle::default(),
+    }
 }
 
 /// First number format id used for dxf-only custom formats (well above

@@ -8,4 +8,8 @@ export type FilterValue = {
 /**
  * The displayed text; `""` = blank cells.
  */
-display: string, count: number, };
+display: string, count: number, 
+/**
+ * `[year, month, day]` of a date cell (the date tree).
+ */
+date?: [number, number, number], };

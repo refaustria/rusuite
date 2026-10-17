@@ -41,7 +41,10 @@ import { cellSelection, LAST_COL, LAST_ROW, move, normalize, type Cell, type Nav
 import { changesPartOfArray, hasSpilledCells, isFilledCell, obstructingCells, onlySpilledCells, spillAt, type SpillOutline } from "../grid/spill";
 import { intersects, isSingleCell, mergeAnchor, mergeLookup, mergeSnapshot, partialMerge, snapSelection } from "../grid/merges";
 import { fontCss, styleAt } from "../grid/style";
-import { cfKey } from "../grid/cf";
+import { cfKey, cfStyle } from "../grid/cf";
+import type { IconSetKind } from "../generated/IconSetKind";
+import type { LineColors } from "../generated/LineColors";
+import type { SortOn } from "../generated/SortOn";
 import { formatCommands, type FormatState, type FormatTab } from "../numfmt/formatCells";
 import { widenedPx } from "./autoWiden";
 import { cellsCommand, type CellsChoice, type CellsMode } from "./shiftCells";
@@ -2608,14 +2611,94 @@ export class CalcStore {
     this.openDialog({ kind: "customSort", range, hasHeader: guessHeader(range, this.cellAt, this.activeAnchor().col) });
   }
 
-  /** The Custom Sort dialog's OK: `sortRange`; a column used twice is refused (as Excel does). */
-  customSort(range: Range, levels: readonly SortLevel[], hasHeader: boolean, caseSensitive: boolean): Promise<void> {
+  /** The Custom Sort dialog's OK: `sortRange` (`columns`: left to right); a column sorted by values twice is refused (as Excel does). */
+  customSort(range: Range, levels: readonly SortLevel[], hasHeader: boolean, caseSensitive: boolean, columns = false): Promise<void> {
     if (levels.length === 0 || this.refuseArrayChange(range, true)) return Promise.resolve();
     if (duplicateColumns(levels).length > 0) {
       this.pushError(new Error(t("calc.sort.duplicate")));
       return Promise.resolve();
     }
-    return this.apply(sortRangeCommand(this.state.activeSheet, range, levels, hasHeader, caseSensitive));
+    return this.apply(sortRangeCommand(this.state.activeSheet, range, levels, hasHeader && !columns, caseSensitive, columns));
+  }
+
+  /** Lists defined in the Custom Lists dialog this session (Excel keeps them in the application, not the file). */
+  customLists: string[][] = [];
+
+  /** The Sort by / Filter by Color choices of a column (`columns`: a row) of `range` (empty on failure, with a toast). */
+  async lineColors(range: Range, line: number, columns = false): Promise<LineColors> {
+    let out: LineColors = { fills: [], fonts: [], icons: [] };
+    await this.guard(async () => {
+      out = await this.api.lineColors(this.state.activeSheet, { r0: range.r0, c0: range.c0, r1: range.r1, c1: range.c1 }, line, columns);
+    });
+    return out;
+  }
+
+  /** Sort by Color from a filter dropdown: the AutoFilter range by column `col`, the colour (or icon) on top. */
+  sortFilterColumnBy(col: number, sortOn: SortOn): Promise<void> {
+    const af = this.autoFilter();
+    if (!af || this.refuseArrayChange(af, true)) return Promise.resolve();
+    return this.apply(sortRangeCommand(this.state.activeSheet, af, [{ col, ascending: true, kind: "auto", sortOn }], true, false));
+  }
+
+  /** What the active cell shows: its fill and font colour (conditional formatting included) and its icon. */
+  activeCellLook(): { fill: Color | null; font: Color | null; icon: { set: IconSetKind; icon: number } | null } {
+    const { row, col } = this.activeAnchor();
+    const sheet = this.state.activeSheet;
+    const cache = this.cache(sheet);
+    const view = cache.cells.get(row)?.get(col);
+    const cf = cache.cf.get(cfKey(row, col));
+    const style = cfStyle(styleAt(this.styles(), view?.style ?? 0), cf);
+    const fill = style.fill?.kind === "solid" ? style.fill.color : style.fill?.kind === "pattern" ? (style.fill.color.bg ?? style.fill.color.fg ?? null) : null;
+    const font = style.font?.color && style.font.color.kind !== "auto" ? style.font.color : null;
+    const icon = cf?.iconSet !== undefined && cf.icon !== undefined ? { set: cf.iconSet, icon: cf.icon } : null;
+    return { fill, font, icon };
+  }
+
+  /**
+   * The context menu's Filter › Filter by Selected Cell's Value / Color /
+   * Font Color / Icon: filters the active cell's column of the AutoFilter
+   * (one is created over the current region first, as Excel does).
+   */
+  filterBySelected(by: "value" | "color" | "font" | "icon"): Promise<void> {
+    const sheet = this.state.activeSheet;
+    const { row, col } = this.activeAnchor();
+    const look = this.activeCellLook();
+    let filter: Filter;
+    if (by === "value") filter = { kind: "values", values: [this.cellAt(row, col)?.display ?? ""] };
+    else if (by === "icon") {
+      if (!look.icon) return Promise.resolve();
+      filter = { kind: "icon", set: look.icon.set, icon: look.icon.icon };
+    } else {
+      const color = by === "color" ? look.fill : look.font;
+      filter = { kind: "color", ...(color ? { color } : {}), ...(by === "font" ? { font: true } : {}) };
+    }
+    const af = this.autoFilter();
+    const inside = af && row > af.r0 && row <= af.r1 && col >= af.c0 && col <= af.c1;
+    const set: CalcCommand = { type: "setFilterColumn", sheet, col, filter };
+    if (inside) return this.apply(set);
+    const region = this.currentRegion(row, col);
+    if (this.refuseEmpty(region) || row <= region.r0) return Promise.resolve();
+    return this.apply({ type: "compound", commands: [{ type: "setAutoFilter", sheet, range: region }, set] });
+  }
+
+  /** The context menu's Sort › Put Selected Cell Color / Font Color / Icon On Top: the AutoFilter range or the region, by the active column. */
+  sortBySelected(by: "color" | "font" | "icon"): Promise<void> {
+    const { row, col } = this.activeAnchor();
+    const look = this.activeCellLook();
+    let sortOn: SortOn;
+    if (by === "icon") {
+      if (!look.icon) return Promise.resolve();
+      sortOn = { type: "icon", set: look.icon.set, icon: look.icon.icon };
+    } else {
+      const color = by === "color" ? look.fill : look.font;
+      sortOn = { type: by === "color" ? "cellColor" : "fontColor", ...(color ? { color } : {}) };
+    }
+    const region = this.currentRegion(row, col);
+    const range = this.sortTarget(row, col, region);
+    if (this.refuseEmpty(region) || this.refuseArrayChange(range, true)) return Promise.resolve();
+    const af = this.autoFilter();
+    const header = af && range === af ? true : guessHeader(range, this.cellAt, col);
+    return this.apply(sortRangeCommand(this.state.activeSheet, range, [{ col, ascending: true, kind: "auto", sortOn }], header, false));
   }
 
   /** The text of a header cell for the dialogs ("Column B" when it is empty or there is no header). */

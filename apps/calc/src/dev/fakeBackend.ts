@@ -1665,6 +1665,16 @@ export class FakeCalcCore {
         if (Number.isNaN(x)) return false;
         return f.filter === "aboveAverage" ? x > avg : f.filter === "belowAverage" ? x < avg : true;
       }
+      case "dateGroups":
+        return (f.values ?? []).some((x) => fold(x) === fold(v.display));
+      case "color": {
+        // The toy: the cell's own solid fill or font colour.
+        const st = this.styles[v.style] ?? {};
+        const have = f.font ? (st.font?.color ?? null) : st.fill?.kind === "solid" ? st.fill.color : null;
+        return JSON.stringify(have) === JSON.stringify(f.color ?? null);
+      }
+      case "icon":
+        return false;
     }
   }
 
@@ -2345,6 +2355,23 @@ export class FakeCalcCore {
           return { ok: { type: "validation", result: this.validate(req.sheet, req.row, req.col, req.input) } };
         case "listValues":
           return { ok: { type: "listValues", values: this.listValues(req.sheet, req.row, req.col) } };
+        case "lineColors": {
+          // The toy: solid fills and font colours of the cells' own styles (no conditional formatting).
+          const s = this.sheet(req.sheet);
+          const fills: (Color | null)[] = [], fonts: (Color | null)[] = [];
+          const same = (a: Color | null, b: Color | null) => JSON.stringify(a) === JSON.stringify(b);
+          const cells = req.columns
+            ? Array.from({ length: req.c1 - req.c0 + 1 }, (_, i) => [req.line, req.c0 + i] as const)
+            : Array.from({ length: req.r1 - req.r0 + 1 }, (_, i) => [req.r0 + i, req.line] as const);
+          for (const [r, c] of cells) {
+            const st = this.styles[this.cell(s, r, c)?.style ?? 0] ?? {};
+            const fill = st.fill?.kind === "solid" ? st.fill.color : null;
+            const font = st.font?.color ?? null;
+            if (!fills.some((f) => same(f, fill))) fills.push(fill);
+            if (!fonts.some((f) => same(f, font))) fonts.push(font);
+          }
+          return { ok: { type: "lineColors", colors: { fills, fonts, icons: [] } } };
+        }
         case "invalidCells": {
           // Circle Invalid Data: every non-empty validated cell whose input fails the toy check.
           const s = this.sheet(req.sheet);

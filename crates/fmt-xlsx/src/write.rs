@@ -505,10 +505,10 @@ fn sheet_xml(
         crate::protection::sheet_protection_xml(&mut x, p);
     }
     if let Some(af) = wb.auto_filter(id) {
-        auto_filter_xml(&mut x, af);
+        auto_filter_xml(&mut x, af, dxfs);
     }
     if let Some(st) = wb.sort_state(id) {
-        sort_state_xml(&mut x, st);
+        sort_state_xml(&mut x, st, dxfs);
     }
     let merges = wb.merges(id);
     if !merges.is_empty() {
@@ -610,8 +610,9 @@ fn abs_range(r0: u32, c0: u32, r1: u32, c1: u32) -> String {
 
 /// `<autoFilter>` with one `<filterColumn>` per filtered column (`colId`
 /// relative to the range). Text conditions of the contains family are
-/// stored as `equal`/`notEqual` wildcard patterns, as Excel does.
-pub(crate) fn auto_filter_xml(x: &mut XmlOut, af: &AutoFilter) {
+/// stored as `equal`/`notEqual` wildcard patterns, as Excel does; colour
+/// filters refer to `dxfs` (a colour filter without its dxf is left out).
+pub(crate) fn auto_filter_xml(x: &mut XmlOut, af: &AutoFilter, dxfs: &[model_sheet::DxfStyle]) {
     let r = range_name(af.r0, af.c0, af.r1, af.c1);
     if af.columns.is_empty() {
         x.empty("autoFilter", &[("ref", &r)]);
@@ -620,6 +621,16 @@ pub(crate) fn auto_filter_xml(x: &mut XmlOut, af: &AutoFilter) {
     x.start("autoFilter", &[("ref", &r)]);
     for fc in &af.columns {
         let id = (fc.col - af.c0).to_string();
+        let dxf = match &fc.filter {
+            Filter::Color { color, font } => {
+                let d = crate::condfmt::color_dxf(*color, *font);
+                match dxfs.iter().position(|x| *x == d) {
+                    Some(i) => Some(i),
+                    None => continue,
+                }
+            }
+            _ => None,
+        };
         x.start("filterColumn", &[("colId", &id)]);
         match &fc.filter {
             Filter::Values { values } => {
@@ -697,27 +708,113 @@ pub(crate) fn auto_filter_xml(x: &mut XmlOut, af: &AutoFilter) {
                 };
                 x.empty("dynamicFilter", &[("type", t)]);
             }
+            Filter::DateGroups { groups, values } => {
+                let blank = values.iter().any(String::is_empty);
+                let a: &[(&str, &str)] = if blank { &[("blank", "1")] } else { &[] };
+                x.start("filters", a);
+                for v in values.iter().filter(|v| !v.is_empty()) {
+                    x.empty("filter", &[("val", &encode_x_escapes(v))]);
+                }
+                for g in groups {
+                    let (y, m, d) = (
+                        g.year.to_string(),
+                        g.month.map(|m| m.to_string()),
+                        g.day.map(|d| d.to_string()),
+                    );
+                    let mut a: Vec<(&str, &str)> = vec![("year", &y)];
+                    let grouping = match (&m, &d) {
+                        (Some(m), Some(d)) => {
+                            a.push(("month", m));
+                            a.push(("day", d));
+                            "day"
+                        }
+                        (Some(m), None) => {
+                            a.push(("month", m));
+                            "month"
+                        }
+                        _ => "year",
+                    };
+                    a.push(("dateTimeGrouping", grouping));
+                    x.empty("dateGroupItem", &a);
+                }
+                x.end("filters");
+            }
+            Filter::Color { font, .. } => {
+                let id = dxf.unwrap_or(0).to_string();
+                let mut a: Vec<(&str, &str)> = vec![("dxfId", &id)];
+                if *font {
+                    a.push(("cellColor", "0"));
+                }
+                x.empty("colorFilter", &a);
+            }
+            Filter::Icon { set, icon } => {
+                let id = icon.to_string();
+                x.empty("iconFilter", &[("iconSet", set.name()), ("iconId", &id)]);
+            }
         }
         x.end("filterColumn");
     }
     x.end("autoFilter");
 }
 
-/// `<sortState>` with one `<sortCondition>` per key.
-fn sort_state_xml(x: &mut XmlOut, st: &SortState) {
+/// `<sortState>` with one `<sortCondition>` per key (colour keys refer to
+/// `dxfs`, custom lists as `customList`).
+fn sort_state_xml(x: &mut XmlOut, st: &SortState, dxfs: &[model_sheet::DxfStyle]) {
     let r = range_name(st.r0, st.c0, st.r1, st.c1);
     let mut a: Vec<(&str, &str)> = vec![("ref", &r)];
+    if st.column_sort {
+        a.push(("columnSort", "1"));
+    }
     if st.case_sensitive {
         a.push(("caseSensitive", "1"));
     }
     x.start("sortState", &a);
     for k in &st.keys {
-        let col = range_name(st.r0, k.col, st.r1, k.col);
+        let line = if st.column_sort {
+            range_name(k.col, st.c0, k.col, st.c1)
+        } else {
+            range_name(st.r0, k.col, st.r1, k.col)
+        };
+        let dxf_of =
+            |d: model_sheet::DxfStyle| dxfs.iter().position(|x| *x == d).map(|i| i.to_string());
+        let (by, dxf, icon): (Option<&str>, Option<String>, Option<(String, String)>) =
+            match &k.sort_on {
+                model_sheet::SortOn::Values => (None, None, None),
+                model_sheet::SortOn::CellColor { color } => (
+                    Some("cellColor"),
+                    dxf_of(crate::condfmt::color_dxf(*color, false)),
+                    None,
+                ),
+                model_sheet::SortOn::FontColor { color } => (
+                    Some("fontColor"),
+                    dxf_of(crate::condfmt::color_dxf(*color, true)),
+                    None,
+                ),
+                model_sheet::SortOn::Icon { set, icon } => (
+                    Some("icon"),
+                    None,
+                    Some((set.name().to_owned(), icon.to_string())),
+                ),
+            };
+        let list = k.custom_list.as_ref().map(|l| l.join(","));
         let mut a: Vec<(&str, &str)> = Vec::new();
         if !k.ascending {
             a.push(("descending", "1"));
         }
-        a.push(("ref", &col));
+        if let Some(by) = by {
+            a.push(("sortBy", by));
+        }
+        a.push(("ref", &line));
+        if let Some(l) = &list {
+            a.push(("customList", l));
+        }
+        if let Some(d) = &dxf {
+            a.push(("dxfId", d));
+        }
+        if let Some((set, id)) = &icon {
+            a.push(("iconSet", set));
+            a.push(("iconId", id));
+        }
         x.empty("sortCondition", &a);
     }
     x.end("sortState");

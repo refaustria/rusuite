@@ -155,9 +155,11 @@ fn cut_paste_and_sort_move_rules_with_the_cells() {
             col: 0,
             ascending: true,
             kind: SortKind::Auto,
+            ..Default::default()
         }],
         has_header: false,
         case_sensitive: false,
+        columns: false,
     })
     .unwrap();
     assert_eq!(ranges(&h), (vec![rect(2, 0, 2, 0)], vec![rect(2, 0, 2, 0)]));
@@ -224,5 +226,56 @@ fn invalid_cells_request() {
     assert_eq!(
         reply["ok"],
         serde_json::json!({"type":"invalidCells","cells":[{"r0":1,"c0":0,"r1":1,"c1":0}]})
+    );
+}
+
+#[test]
+fn typing_under_an_auto_filter_grows_it_and_undo_shrinks_it() {
+    let mut h = host();
+    h.apply(C::SetAutoFilter {
+        sheet: 0,
+        range: Some(calc_core::Rect {
+            r0: 0,
+            c0: 0,
+            r1: 2,
+            c1: 1,
+        }),
+    })
+    .unwrap();
+    let r1 = |h: &CalcHost| h.doc().workbook().auto_filter(SheetId(0)).unwrap().r1;
+    let r1_before = r1(&h);
+    h.apply(set(r1_before + 1, 1, "7")).unwrap();
+    assert_eq!(r1(&h), r1_before + 1);
+    h.undo().unwrap();
+    assert_eq!(r1(&h), r1_before);
+    // Two rows below: no growth.
+    h.apply(set(r1_before + 2, 0, "7")).unwrap();
+    assert_eq!(r1(&h), r1_before);
+}
+
+#[test]
+fn line_colors_and_sort_by_colour_through_dispatch() {
+    let mut h = host();
+    let reply: serde_json::Value = serde_json::from_str(&calc_core::dispatch(
+        &mut h,
+        r#"{"type":"lineColors","sheet":0,"r0":0,"c0":0,"r1":2,"c1":0,"line":0}"#,
+    ))
+    .unwrap();
+    // A1 = 3 > 2 is bold (the rule's dxf has no fill): no fills, no icons.
+    assert_eq!(
+        reply["ok"],
+        serde_json::json!({"type":"lineColors","colors":{"fills":[null],"fonts":[null],"icons":[]}})
+    );
+    let cmd: C = serde_json::from_value(serde_json::json!({
+        "type": "sortRange", "sheet": 0, "r0": 0, "c0": 0, "r1": 2, "c1": 0,
+        "keys": [{"col": 0, "ascending": true, "sortOn": {"type": "cellColor"}}],
+        "hasHeader": false, "caseSensitive": false
+    }))
+    .unwrap();
+    h.apply(cmd).unwrap();
+    let st = h.doc().workbook().sort_state(SheetId(0)).unwrap().clone();
+    assert_eq!(
+        st.keys[0].sort_on,
+        model_sheet::SortOn::CellColor { color: None }
     );
 }

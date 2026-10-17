@@ -66,8 +66,8 @@ pub use snapshot::{
     WorkbookSnapshot,
 };
 pub use sortfilter::{
-    AutoFilter, Criterion, DynamicFilter, Filter, FilterChange, FilterColumn, FilterOp,
-    FilterValue, SortKey, SortKind, SortSpec, SortState,
+    AutoFilter, Criterion, DateGroup, DynamicFilter, Filter, FilterChange, FilterColumn, FilterOp,
+    FilterValue, LineColors, SortKey, SortKind, SortOn, SortSpec, SortState, BUILTIN_CUSTOM_LISTS,
 };
 pub use style::{
     Alignment, BorderSide, BorderStyle, Borders, CellStyle, Fill, HAlign, PatternFill, PatternType,

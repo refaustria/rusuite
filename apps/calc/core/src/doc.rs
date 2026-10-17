@@ -879,6 +879,14 @@ impl CalcDocument {
                         };
                     }
                 }
+                // Typing right under an AutoFilter range extends it (Excel).
+                let filter_state = self.filter_state_inverse(c.sheet);
+                if self.workbook.grow_auto_filter(c.sheet, row, col)? {
+                    patch.sheets = Some(self.sheet_infos());
+                    inverse = C::Compound {
+                        commands: vec![inverse, filter_state],
+                    };
+                }
                 Ok(Applied {
                     patch,
                     inverse: Some(inverse),
@@ -1487,6 +1495,7 @@ impl CalcDocument {
                 ref keys,
                 has_header,
                 case_sensitive,
+                columns,
             } => {
                 let range = self.range(sheet, r0, c0, r1, c1)?;
                 self.workbook.check_spill_edit(range)?;
@@ -1494,6 +1503,7 @@ impl CalcDocument {
                     keys: keys.clone(),
                     has_header,
                     case_sensitive,
+                    columns,
                 };
                 self.sort(range, &spec)
             }
@@ -2408,9 +2418,11 @@ impl CalcDocument {
                 col,
                 ascending,
                 kind: SortKind::Auto,
+                ..Default::default()
             }],
             has_header,
             case_sensitive: false,
+            ..Default::default()
         };
         self.sort(range, &spec)
     }
