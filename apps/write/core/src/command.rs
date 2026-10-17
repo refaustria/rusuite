@@ -14,8 +14,8 @@ use model_text::{
     Anchor, Block, CellProperties, FieldKind, HeaderSlot, Inline, LevelKind, MediaId, NodeId, Note,
     NoteKind, NoteNumbering, Numbering, Orientation, PageSetup, Paragraph, ParagraphProperties,
     RowHeight, RowProperties, RunProperties, Section, SectionId, SectionKind, Style, StyleKind,
-    StylePatch, StyleSheet, Table, TableCell, TableProperties, TableRow, Toc, TocEntry, Twips,
-    VMerge, WrapKind,
+    StylePatch, StyleSheet, Table, TableCell, TablePosition, TableProperties, TableRow, Toc,
+    TocEntry, Twips, VMerge, WrapKind,
 };
 use model_text::{Columns, Comment, CommentId, CoreProperties, DocumentSettings, Hyperlink};
 use model_text::{Drawing, DrawingKind, Level, ListPreset, PictureFormat};
@@ -33,6 +33,36 @@ pub enum ListKind {
     Decimal,
     /// Removes the numbering.
     None,
+}
+
+/// What separates the cells in Convert Text to Table / Table to Text
+/// (Word's "Separate text at").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub enum TextSeparator {
+    /// Tab characters.
+    Tab,
+    /// Commas.
+    Comma,
+    /// Paragraphs: every paragraph is one cell.
+    Paragraph,
+    /// Another character (the first character of the string).
+    Other(String),
+}
+
+/// Table Layout › AutoFit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/write/src/generated/")]
+pub enum AutoFitMode {
+    /// AutoFit Contents: automatic layout and width, the columns as wide
+    /// as their content (measured by the UI).
+    Contents,
+    /// AutoFit Window: automatic layout, 100 % of the text width.
+    Window,
+    /// Fixed Column Width: the current column widths are kept.
+    Fixed,
 }
 
 /// Page margins to change; absent fields keep their value.
@@ -628,6 +658,59 @@ pub enum WriteCommand {
         col: u32,
         rows: u32,
         cols: u32,
+    },
+    /// Split Table (Ctrl+Shift+Enter): the rows from `at` on (`0 < at <
+    /// rows`) become a new table after an empty paragraph. `newIds`:
+    /// empty, or the temporary ids of the paragraph and the new table.
+    SplitTable {
+        table: NodeId,
+        at: u32,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(type = "Array<number>")]
+        new_ids: Vec<i64>,
+    },
+    /// Deletes the empty paragraph `paragraph` between two tables and
+    /// joins them (Word: deleting the paragraph between two tables merges
+    /// them; the second table's rows go to the first, padded to its grid).
+    MergeTables { paragraph: NodeId },
+    /// Insert › Table › Convert Text to Table: the consecutive paragraphs
+    /// `blocks` become a table (one row per paragraph, cells at
+    /// `separator`; with [`TextSeparator::Paragraph`] one cell per
+    /// paragraph). `cols` (default: the most cells of a paragraph, 1 for
+    /// paragraphs) wraps longer rows; short rows are padded. Formatting of
+    /// the text and the paragraphs is kept; the table gets Table Grid.
+    ConvertTextToTable {
+        blocks: Vec<NodeId>,
+        separator: TextSeparator,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        cols: Option<u32>,
+    },
+    /// Table Layout › Convert to Text: every row becomes a paragraph, its
+    /// cells joined by `separator` (a cell's further paragraphs follow as
+    /// paragraphs); with [`TextSeparator::Paragraph`] every cell
+    /// paragraph stays a paragraph. Nested tables are converted too.
+    ConvertTableToText {
+        table: NodeId,
+        separator: TextSeparator,
+    },
+    /// Table Layout › AutoFit: `tblLayout` and `tblW` as Word sets them;
+    /// `colWidths` (twips, one per grid column) are the measured widths
+    /// for Contents and Fixed (empty: kept); Window scales the grid to
+    /// the text width.
+    AutoFitTable {
+        table: NodeId,
+        mode: AutoFitMode,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(as = "Vec<i32>")]
+        col_widths: Vec<Twips>,
+    },
+    /// Table Properties › Text wrapping: `floating` makes the table float
+    /// (`w:tblpPr`, Around), `null` puts it in line with the text (None).
+    SetTableWrap {
+        table: NodeId,
+        #[serde(default)]
+        floating: Option<TablePosition>,
     },
     /// Makes the image at position `offset` of `block` floating with
     /// `anchor`, or (`null`) inline again.

@@ -178,6 +178,74 @@ impl Table {
         }
     }
 
+    /// Pads rows that cover fewer grid columns than the widest row with
+    /// empty cells at their end (Word fills a ragged row when columns are
+    /// inserted or tables are joined); ids from `alloc` (a cell id and a
+    /// paragraph id per new cell). Returns the number of cells added.
+    pub fn pad_rows(&mut self, mut alloc: impl FnMut() -> NodeId) -> usize {
+        let cols = self.grid_cols();
+        let mut added = 0;
+        for row in &mut self.rows {
+            let have: usize = row.cells.iter().map(TableCell::span).sum();
+            if have >= cols {
+                continue;
+            }
+            let model = row.cells.last().map(|c| CellProperties {
+                width: None,
+                ..c.props
+            });
+            for _ in have..cols {
+                let id = alloc();
+                let pid = alloc();
+                row.cells.push(TableCell::new(
+                    id,
+                    model.unwrap_or_default(),
+                    vec![Block::Paragraph(Paragraph::new(pid))],
+                ));
+                added += 1;
+            }
+        }
+        added
+    }
+
+    /// Splits the table before row `at` (Word's Split Table): the rows
+    /// from `at` on move into a new table with id `id` and the same table
+    /// properties; vertical merges crossing the cut start again in the new
+    /// table. Errors unless `0 < at < rows`.
+    pub fn split_off_rows(&mut self, at: usize, id: NodeId) -> Result<Table, Error> {
+        if at == 0 || at >= self.rows.len() {
+            return Err(err("split the table between two of its rows"));
+        }
+        let rows = self.rows.split_off(at);
+        let mut second = Table {
+            id,
+            props: self.props.clone(),
+            rows,
+        };
+        self.normalize_merges();
+        second.normalize_merges();
+        Ok(second)
+    }
+
+    /// Appends the rows of `other` (Word joins two tables when the
+    /// paragraph between them is deleted). The grid of the table with
+    /// more columns wins; rows of the other one are padded
+    /// ([`pad_rows`](Self::pad_rows)). Header rows of `other` stop being
+    /// header rows (they are not at the top any more).
+    pub fn append_rows(&mut self, other: Table, alloc: impl FnMut() -> NodeId) {
+        let (mine, theirs) = (self.grid_cols(), other.grid_cols());
+        if theirs > mine && !other.props.col_widths.is_empty() {
+            self.props.col_widths = other.props.col_widths.clone();
+        }
+        let first = self.rows.len();
+        self.rows.extend(other.rows);
+        for row in &mut self.rows[first..] {
+            row.props.header = false;
+        }
+        self.pad_rows(alloc);
+        self.normalize_merges();
+    }
+
     /// The cells of row `row` inside grid columns `c0..=c1` as an index
     /// range; errors when a cell sticks out or the row does not cover
     /// the columns.
@@ -986,6 +1054,38 @@ mod tests {
     }
 
     #[test]
+    fn pad_split_and_append() {
+        let mut t = grid(3, 3);
+        t.rows[1].cells.pop();
+        assert!(t.check_grid().is_err());
+        let mut alloc = counter();
+        assert_eq!(t.pad_rows(&mut alloc), 1);
+        t.check_grid().unwrap();
+        assert_eq!(texts(&t)[1], ["1,0x1", "1,1x1", "x1"]);
+        // a vertical merge across the cut starts again below it
+        t.merge_cells(0, 2, 2, 2, &mut alloc).unwrap();
+        let second = t.split_off_rows(1, NodeId(77)).unwrap();
+        t.check_grid().unwrap();
+        second.check_grid().unwrap();
+        assert_eq!(texts(&t), [["0,0x1", "0,1x1", "0,2/2,2x1"]]);
+        assert_eq!(texts(&second)[0], ["1,0x1", "1,1x1", "^x1"]);
+        assert_eq!(second.id, NodeId(77));
+        assert_eq!(second.props.col_widths, t.props.col_widths);
+        assert!(t.split_off_rows(0, NodeId(78)).is_err());
+        assert!(t.split_off_rows(1, NodeId(78)).is_err());
+        // joining again; a narrower table is padded, a header row is not one any more
+        let mut narrow = grid(1, 2);
+        narrow.rows[0].props.header = true;
+        t.append_rows(second, &mut alloc);
+        assert!(unique(&t));
+        t.append_rows(narrow, &mut alloc);
+        t.check_grid().unwrap();
+        assert_eq!(t.rows.len(), 4);
+        assert!(!t.rows[3].props.header);
+        assert_eq!(texts(&t)[3], ["0,0x1", "0,1x1", "x1"]);
+    }
+
+    #[test]
     fn normalize_merges_repairs() {
         let mut t = grid(3, 1);
         t.merge_cells(0, 0, 2, 0, counter()).unwrap();
@@ -1077,6 +1177,40 @@ mod tests {
         assert!(doc.resolve_cell_props(&g, 2, 0).is_none());
         doc.styles.styles.clear();
         assert_eq!(doc.resolve_cell_props(&g, 0, 0).unwrap().borders, None);
+    }
+
+    #[test]
+    fn table_style_text_layers_into_run_resolution() {
+        let doc = Document::new();
+        let mut t = grid(3, 2);
+        t.props.style = Some("GridTable4-Accent1".into());
+        t.props.look = Some(TableLook::word_default());
+        let para = |t: &Table, r: usize, c: usize| match &t.rows[r].cells[c].blocks[0] {
+            Block::Paragraph(p) => p.clone(),
+            _ => unreachable!(),
+        };
+        let p = para(&t, 0, 1);
+        let run = p.inlines[0].as_run().unwrap().clone();
+        // header row bold (and white text) from tblStylePr firstRow
+        let r = doc.resolve_run_props_in_cell(&t, 0, 1, &p, &run);
+        assert_eq!(r.bold, Some(true));
+        assert!(r.color.is_some());
+        // a body cell outside the first column is not bold
+        let p2 = para(&t, 1, 1);
+        let r2 = doc.resolve_run_props_in_cell(&t, 1, 1, &p2, p2.inlines[0].as_run().unwrap());
+        assert_ne!(r2.bold, Some(true));
+        // direct formatting wins
+        let mut plain = run.clone();
+        plain.props.bold = Some(false);
+        assert_eq!(
+            doc.resolve_run_props_in_cell(&t, 0, 1, &p, &plain).bold,
+            Some(false)
+        );
+        // outside a table nothing changes
+        assert_eq!(doc.resolve_run_props(&p, &run).bold, None);
+        // paragraph formatting: the default style does not override the table style
+        let pp = doc.resolve_paragraph_props_in_cell(&t, 0, 1, &p);
+        assert_eq!(pp.style.as_deref(), Some("Normal"));
     }
 
     #[test]

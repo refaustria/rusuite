@@ -10,7 +10,7 @@ use core_model::{
 use model_text::{
     Alignment, BorderSide, BorderStyle, CellMargins, Indent, LineSpacing, NumberingRef,
     ParagraphBorders, ParagraphProperties, Spacing, TabKind, TabLeader, TabStop, TableAlignment,
-    TableBorders, TableLook, TableWidth,
+    TableAnchor, TableBorders, TableLook, TablePosSpec, TablePosition, TableWidth,
 };
 
 use crate::xml::{parse_twips, parse_u32, toggle, El, WriteVal, XmlOut};
@@ -1190,6 +1190,105 @@ pub(crate) fn table_jc_name(a: TableAlignment) -> &'static str {
         TableAlignment::Left => "left",
         TableAlignment::Center => "center",
         TableAlignment::Right => "right",
+    }
+}
+
+fn read_table_anchor(v: Option<&str>) -> Option<TableAnchor> {
+    match v? {
+        "text" => Some(TableAnchor::Text),
+        "margin" => Some(TableAnchor::Margin),
+        "page" => Some(TableAnchor::Page),
+        _ => None,
+    }
+}
+
+fn table_anchor_name(a: TableAnchor) -> &'static str {
+    match a {
+        TableAnchor::Text => "text",
+        TableAnchor::Margin => "margin",
+        TableAnchor::Page => "page",
+    }
+}
+
+fn read_pos_spec(v: Option<&str>) -> Option<TablePosSpec> {
+    match v? {
+        "inline" => Some(TablePosSpec::Inline),
+        "left" | "top" => Some(TablePosSpec::Start),
+        "center" => Some(TablePosSpec::Center),
+        "right" | "bottom" => Some(TablePosSpec::End),
+        "inside" => Some(TablePosSpec::Inside),
+        "outside" => Some(TablePosSpec::Outside),
+        _ => None,
+    }
+}
+
+fn pos_spec_name(s: TablePosSpec, vertical: bool) -> &'static str {
+    match (s, vertical) {
+        (TablePosSpec::Inline, _) => "inline",
+        (TablePosSpec::Start, false) => "left",
+        (TablePosSpec::Start, true) => "top",
+        (TablePosSpec::Center, _) => "center",
+        (TablePosSpec::End, false) => "right",
+        (TablePosSpec::End, true) => "bottom",
+        (TablePosSpec::Inside, _) => "inside",
+        (TablePosSpec::Outside, _) => "outside",
+    }
+}
+
+/// `w:tblpPr` → the floating table position.
+pub(crate) fn read_tblp_pr(el: &El) -> TablePosition {
+    let tw = |name: &str| Twips(el.attr(name).and_then(parse_twips).unwrap_or(0));
+    TablePosition {
+        left_from_text: tw("leftFromText"),
+        right_from_text: tw("rightFromText"),
+        top_from_text: tw("topFromText"),
+        bottom_from_text: tw("bottomFromText"),
+        horz_anchor: read_table_anchor(el.attr("horzAnchor")),
+        vert_anchor: read_table_anchor(el.attr("vertAnchor")),
+        x: tw("tblpX"),
+        x_spec: read_pos_spec(el.attr("tblpXSpec")),
+        y: tw("tblpY"),
+        y_spec: read_pos_spec(el.attr("tblpYSpec")),
+        overlap: true,
+    }
+}
+
+/// Writes `w:tblpPr` (and `w:tblOverlap` when overlapping is off) as
+/// Word does: distances and offsets only when set (an alignment wins
+/// over the offset in Word; both are kept).
+pub(crate) fn write_tblp_pr(x: &mut XmlOut, p: &TablePosition) {
+    let mut a: Vec<(&str, String)> = Vec::new();
+    for (n, v) in [
+        ("w:leftFromText", p.left_from_text),
+        ("w:rightFromText", p.right_from_text),
+        ("w:topFromText", p.top_from_text),
+        ("w:bottomFromText", p.bottom_from_text),
+    ] {
+        if v.0 != 0 {
+            a.push((n, v.0.to_string()));
+        }
+    }
+    if let Some(v) = p.vert_anchor {
+        a.push(("w:vertAnchor", table_anchor_name(v).to_owned()));
+    }
+    if let Some(h) = p.horz_anchor {
+        a.push(("w:horzAnchor", table_anchor_name(h).to_owned()));
+    }
+    if let Some(s) = p.x_spec {
+        a.push(("w:tblpXSpec", pos_spec_name(s, false).to_owned()));
+    }
+    if p.x.0 != 0 {
+        a.push(("w:tblpX", p.x.0.to_string()));
+    }
+    if let Some(s) = p.y_spec {
+        a.push(("w:tblpYSpec", pos_spec_name(s, true).to_owned()));
+    }
+    if p.y.0 != 0 {
+        a.push(("w:tblpY", p.y.0.to_string()));
+    }
+    x.empty("w:tblpPr", &attrs_ref(&a));
+    if !p.overlap {
+        x.val("w:tblOverlap", "never");
     }
 }
 

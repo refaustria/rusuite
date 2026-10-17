@@ -4,6 +4,7 @@ import type { TableAlignment } from "./TableAlignment";
 import type { TableBorders } from "./TableBorders";
 import type { TableLayout } from "./TableLayout";
 import type { TableLook } from "./TableLook";
+import type { TablePosition } from "./TablePosition";
 import type { TableWidth } from "./TableWidth";
 
 /**
@@ -45,4 +46,9 @@ indent?: number,
 /**
  * Fixed or automatic column widths (`None` = automatic).
  */
-layout?: TableLayout, };
+layout?: TableLayout, 
+/**
+ * Text wraps around the table (`None` = no wrapping, the table is
+ * in line with the text).
+ */
+floating?: TablePosition, };
