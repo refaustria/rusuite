@@ -26,14 +26,14 @@ import { effectiveParagraph, findShape, themePalette } from "../model";
 import { slideNumberOf, stableDeck } from "../design/deck";
 import { textRect } from "../shapes/presets";
 import { keyMove } from "../shapes/tables";
-import { autofitProps, fitHeight } from "../text/autofit";
-import { charStep } from "../text/editing";
+import { autofitProps, fitSize } from "../text/autofit";
+import { charStep, editPos, LINE_BREAK, plainOf, typingRun } from "../text/editing";
 import { cssFont, layoutText, measureText, type LayoutOptions, type TextLayout } from "../text/layout";
-import { tableOf, useShow, type EditSession, type ShowStore } from "../state/store";
+import { tableOf, useShow, viewSlide, type EditSession, type ShowStore } from "../state/store";
 import { cellRunBase, runStyleFor, tableLayout } from "./tableLayout";
-import { drawnBody, shapeTextOptions } from "./SlideView";
+import { drawnBody, promptBody, promptOf, shapeTextOptions } from "./SlideView";
 import { buildParagraphs, domToOffset, readDomText, readSelection, writeSelection } from "./richEditor";
-import { useT } from "../i18n";
+import { t as translate, useT } from "../i18n";
 
 /** Absolute (slide) transform of a shape inside groups; group rotation is ignored. */
 export function absoluteTransform(shape: Shape, parents: Shape[]): Transform {
@@ -55,13 +55,16 @@ export interface EditorFrame {
   body: TextBody;
   options: LayoutOptions;
   layout: TextLayout;
+  /** An empty placeholder's prompt, laid out in its formatting (shown until the first keystroke). */
+  prompt?: { body: TextBody; layout: TextLayout };
 }
 
 /** The editor frame of a session, or `null` when its shape is gone. */
 export function editorFrame(store: ShowStore, e: EditSession): EditorFrame | null {
   const s = store.getState();
   const pres = s.pres;
-  const slide = pres && !s.masterView ? pres.slides.find((x) => x.id === s.current) : null;
+  // the Slide Master view edits its pseudo slide's placeholders in place too
+  const slide = pres ? viewSlide(s) : null;
   const hit = slide ? findShape(slide.shapes, e.shape) : null;
   if (!pres || !slide || !hit) return null;
   const palette = themePalette(pres.theme);
@@ -82,19 +85,33 @@ export function editorFrame(store: ShowStore, e: EditSession): EditorFrame | nul
     return { box, rect: { x: 0, y: 0, w: cell.w, h: cell.h }, body, options, layout: layoutText(body, options) };
   }
   const deck = stableDeck(pres);
-  const ctx = { deck, slide, palette, asMaster: false, slideNumber: slideNumberOf(deck, slide.id) };
+  const design = s.masterView;
+  const ctx = { deck, slide, palette, asMaster: design?.kind === "master", slideNumber: design ? null : slideNumberOf(deck, slide.id) };
   // live autofit: shrink as the slide will after the commit; a growing shape grows with the text
-  const fit = autofitProps(pres, slide, hit.shape, body);
+  const fit = design ? null : autofitProps(pres, slide, hit.shape, body);
   if (fit) body = { ...body, props: fit };
   let h = tf.h;
-  if (body.props.autofit === "resize" && hit.parents.length === 0) h = Math.max(h, fitHeight(pres, slide, hit.shape, body) ?? h);
-  const w = emuToPx(tf.w);
+  let wEmu = tf.w;
+  if (!design && body.props.autofit === "resize" && hit.parents.length === 0) {
+    const fit = fitSize(pres, slide, hit.shape, body);
+    if (fit) {
+      h = fit.h;
+      wEmu = fit.w;
+    }
+  }
+  const w = emuToPx(wEmu);
   const hp = emuToPx(h);
   const r = textRect(hit.shape, w, hp);
   const box = { x: emuToPx(tf.x), y: emuToPx(tf.y), w, h: hp, rotation: tf.rotationDeg || 0 };
   const shown = drawnBody(ctx, hit.shape, body);
   const options = shapeTextOptions(ctx, hit.shape, r.w, r.h);
-  return { box, rect: { x: r.x, y: r.y, w: r.w, h: r.h }, body: shown, options, layout: layoutText(shown, options) };
+  const frame: EditorFrame = { box, rect: { x: r.x, y: r.y, w: r.w, h: r.h }, body: shown, options, layout: layoutText(shown, options) };
+  const prompt = e.text === "" && !design ? promptOf(ctx, hit.shape, translate) : undefined;
+  if (prompt !== undefined) {
+    const pb = drawnBody(ctx, hit.shape, promptBody(hit.shape, body, prompt));
+    frame.prompt = { body: pb, layout: layoutText(pb, options) };
+  }
+  return frame;
 }
 
 /** The widest character of a body (stacked text is one character wide). */
@@ -111,8 +128,26 @@ function widestChar(f: EditorFrame): number {
   return Math.ceil(w) + 1;
 }
 
+/** The font size (hundredths of a point) of the text at offset `at` of the frame's body (the run before the caret, its level's defaults). */
+export function caretSize(f: Pick<EditorFrame, "body" | "options">, at: number): number {
+  const pos = editPos(f.body, at);
+  const run = typingRun(f.body, pos);
+  const level = f.body.paragraphs[pos.paragraph]?.props?.level ?? 0;
+  return Math.round((f.options.runStyle(run.props, level).sizePx / PX_PER_PT) * 100);
+}
+
 /** The key of what the editor's DOM shows (rebuilt when it changes). */
 const frameKey = (f: EditorFrame) => JSON.stringify([f.body.paragraphs, f.layout.paragraphs, f.layout.scale]);
+
+/** The prompt of an empty placeholder under the editor, in the placeholder's formatting (not editable, gone with the first keystroke). */
+function PromptLayer({ f }: { f: EditorFrame & { prompt: NonNullable<EditorFrame["prompt"]> } }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    ref.current?.replaceChildren(...buildParagraphs(document, f.prompt.body, f.prompt.layout, f.options));
+  });
+  const props = f.prompt.body.props;
+  return <div ref={ref} aria-hidden="true" data-testid="text-overlay-prompt" className="shrink-0" style={{ whiteSpace: props.wrap ? "pre-wrap" : "pre", overflowWrap: "anywhere" }} />;
+}
 
 interface Snapshot {
   text: string;
@@ -130,6 +165,8 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
   const composing = useRef(false);
   const builtKey = useRef("");
   const backward = useRef(false);
+  /** The selection last read from or written to the DOM. */
+  const shown = useRef<{ start: number; end: number } | null>(null);
   const history = useRef<{ undo: Snapshot[]; redo: Snapshot[]; last: string; at: number }>({ undo: [], redo: [], last: "", at: 0 });
   const frame = editing ? editorFrame(store, editing) : null;
   const frameRef = useRef(frame);
@@ -177,7 +214,13 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
     const sel = readSelection(root);
     if (!sel) return;
     backward.current = sel.backward;
+    shown.current = { start: sel.start, end: sel.end };
     if (sel.start !== e.start || sel.end !== e.end) store.updateEdit(e.text, sel.start, sel.end);
+  };
+  /** Puts the session's selection into the DOM (and remembers it as shown). */
+  const showSelection = (root: HTMLElement, e: { start: number; end: number }) => {
+    writeSelection(root, e.start, e.end, backward.current);
+    shown.current = { start: e.start, end: e.end };
   };
   const rebuild = (root: HTMLElement, f: EditorFrame) => {
     root.replaceChildren(...buildParagraphs(document, f.body, f.layout, f.options));
@@ -191,7 +234,8 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
     history.current = { undo: [], redo: [], last: "", at: 0 };
     root.focus();
     const e = store.getState().editing;
-    if (e) writeSelection(root, e.start, e.end);
+    backward.current = false;
+    if (e) showSelection(root, e);
   }, [editing?.shape, editing?.cell?.row, editing?.cell?.col, store]);
 
   // After a ribbon command (new revision) the focus returns to the editor.
@@ -202,7 +246,7 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
     const active = document.activeElement as HTMLElement | null;
     if (active && (active.tagName === "INPUT" || active.tagName === "SELECT")) return;
     root.focus();
-    writeSelection(root, e.start, e.end, backward.current);
+    showSelection(root, e);
   }, [revision, store]);
 
   // The DOM follows the session's body; the selection follows the session's.
@@ -216,11 +260,13 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
       rebuild(root, f);
       restore = true;
     }
+    // a selection set by the store (Ctrl+A, undo, a command) goes to the DOM; one the store took
+    // from the DOM does not go back (the DOM may already be ahead: fast Shift+arrows)
     if (!restore && document.activeElement === root) {
-      const sel = readSelection(root);
-      restore = !sel || sel.start !== e.start || sel.end !== e.end;
+      const was = shown.current;
+      restore = !was || was.start !== e.start || was.end !== e.end || !readSelection(root);
     }
-    if (restore && document.activeElement === root) writeSelection(root, e.start, e.end, backward.current);
+    if (restore && document.activeElement === root) showSelection(root, e);
   });
 
   // Native listeners: `beforeinput` (React's `onBeforeInput` has no `inputType`) and the selection.
@@ -247,7 +293,8 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
       }
       let insert = "";
       if (type === "insertText" || type === "insertReplacementText") insert = ev.data ?? ev.dataTransfer?.getData("text/plain") ?? "";
-      else if (type === "insertParagraph" || type === "insertLineBreak") insert = "\n";
+      else if (type === "insertParagraph") insert = "\n";
+      else if (type === "insertLineBreak") insert = LINE_BREAK; // Shift+Enter: `a:br`
       else if (type === "insertFromPaste" || type === "insertFromDrop" || type === "insertFromYank") insert = ev.dataTransfer?.getData("text/plain") ?? ev.data ?? "";
       else if (type.startsWith("delete")) {
         if (from === to) {
@@ -316,6 +363,19 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
             transform: vert === "rotate90" ? `translate(${f.rect.w}px, 0px) rotate(90deg)` : vert === "rotate270" ? `translate(0px, ${f.rect.h}px) rotate(-90deg)` : undefined,
           }}
         >
+          {f.prompt && (
+            <div
+              className="pointer-events-none absolute flex flex-col"
+              style={{
+                inset: 0,
+                boxSizing: "border-box",
+                padding: `${emuToPx(ins.top)}px ${emuToPx(ins.right)}px ${emuToPx(ins.bottom)}px ${emuToPx(ins.left)}px`,
+                justifyContent: anchor === "middle" ? "center" : anchor === "bottom" ? "flex-end" : "flex-start",
+              }}
+            >
+              <PromptLayer f={{ ...f, prompt: f.prompt }} />
+            </div>
+          )}
           <div
             ref={ref}
             role="textbox"
@@ -329,6 +389,7 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
             spellCheck={false}
             className="shrink-0 outline-none"
             style={{
+              position: "relative", // above the prompt layer
               whiteSpace: props.wrap || vert === "stacked" ? "pre-wrap" : "pre",
               overflowWrap: "anywhere",
               wordBreak: vert === "stacked" ? "break-all" : undefined,
@@ -347,6 +408,8 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
               // the keys the editor handles itself stop here
               if (!mod) e.stopPropagation();
               if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              // the store takes the DOM selection now: `selectionchange` may not have arrived yet (Shift+→ then Ctrl+B)
+              if (mod) syncSelection();
               const cur = store.getState().editing;
               if (!cur) return;
               const sel = selection();
@@ -363,13 +426,26 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
                 e.preventDefault();
                 store.updateEdit(cur.text, sel.start, sel.end);
                 void store.indent(e.shiftKey ? -1 : 1);
-              } else if (mod && e.shiftKey && (e.key === ">" || e.key === "<" || e.code === "Period" || e.code === "Comma")) {
+              } else if (mod && !e.altKey && (e.key === "a" || e.key === "A") && !e.shiftKey) {
+                // Ctrl+A: the shape's text (not every shape of the slide)
+                e.preventDefault();
+                e.stopPropagation();
+                const root = ref.current;
+                backward.current = false;
+                store.updateEdit(cur.text, 0, cur.text.length);
+                if (root) showSelection(root, { start: 0, end: cur.text.length });
+              } else if (
+                mod &&
+                !e.altKey &&
+                ((e.shiftKey && (e.key === ">" || e.key === "<" || e.code === "Period" || e.code === "Comma")) ||
+                  (!e.shiftKey && (e.key === "]" || e.key === "[" || e.code === "BracketRight" || e.code === "BracketLeft")))
+              ) {
+                // Grow / Shrink Font: Ctrl+Shift+> / <, Ctrl+] / [ (PowerPoint's size steps)
                 e.preventDefault();
                 e.stopPropagation();
                 store.updateEdit(cur.text, sel.start, sel.end);
-                const first = f.body.paragraphs[0]?.runs[0]?.props;
-                const size = Math.round((f.options.runStyle(first, f.body.paragraphs[0]?.props?.level ?? 0).sizePx / PX_PER_PT) * 100);
-                void store.stepFont(e.key === ">" || e.code === "Period" ? 1 : -1, size);
+                const up = e.key === ">" || e.code === "Period" || e.key === "]" || e.code === "BracketRight";
+                void store.stepFont(up ? 1 : -1, caretSize(f, sel.start));
               } else if (mod && !e.altKey && (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y")) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -387,14 +463,14 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
               const sel = selection();
               if (!cur || sel.start === sel.end) return;
               e.preventDefault();
-              e.clipboardData.setData("text/plain", cur.text.slice(sel.start, sel.end));
+              e.clipboardData.setData("text/plain", plainOf(cur.text.slice(sel.start, sel.end)));
             }}
             onCut={(e) => {
               const cur = store.getState().editing;
               const sel = selection();
               if (!cur || sel.start === sel.end) return;
               e.preventDefault();
-              e.clipboardData.setData("text/plain", cur.text.slice(sel.start, sel.end));
+              e.clipboardData.setData("text/plain", plainOf(cur.text.slice(sel.start, sel.end)));
               edit(sel.start, sel.end, "", "cut");
             }}
             onDragStart={(e) => e.preventDefault()}

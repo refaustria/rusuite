@@ -7,10 +7,13 @@
 // never enters them), indents, spacing, line heights and autofit scale,
 // so the text does not move when editing starts or ends. Positions map
 // between the DOM and the session's plain text (paragraphs joined by
-// `\n`, UTF-16 offsets).
+// `\n`, UTF-16 offsets). A line break inside a paragraph (`a:br`, U+000B
+// in the session's text) is a `\n` character of its run's span, which
+// `white-space: pre-wrap` breaks at; a paragraph ending in one gets a
+// trailing `<br>` so its last, empty line is shown.
 
 import type { TextBody } from "../generated/TextBody";
-import { linkStyle, type LayoutOptions, type ParagraphMetrics, type RunStyle, type TextLayout } from "../text/layout";
+import { isLineBreak, linkStyle, type LayoutOptions, type ParagraphMetrics, type RunStyle, type TextLayout } from "../text/layout";
 
 /** The CSS of a run style at `scale` (autofit) as inline style properties. */
 export function runCss(s: RunStyle, scale: number): Record<string, string> {
@@ -47,8 +50,9 @@ export function paragraphCss(m: ParagraphMetrics, scale: number, empty: boolean)
     // the line box is as high as the line's largest run (the layout's rule); an empty paragraph as its first run
     ...(empty ? runCss(m.bulletStyle, scale) : { "font-size": "0px" }),
   };
+  // the first line starts at the bullet (hanging) or at a first-line indent
+  if (m.indent !== m.textX) out["text-indent"] = `${m.indent - m.textX}px`;
   if (m.label !== null) {
-    out["text-indent"] = `${m.indent - m.textX}px`;
     out["--bullet-width"] = `${m.textX - m.indent}px`;
     out["--bullet-font"] = `${m.bulletStyle.italic ? "italic " : ""}${m.bulletStyle.bold ? "700 " : ""}${m.baseSize}px ${m.bulletStyle.fontFamily}`;
     out["--bullet-color"] = m.bulletStyle.color;
@@ -85,10 +89,12 @@ export function buildParagraphs(doc: Document, body: TextBody, layout: TextLayou
       setCss(span, runCss(s, scale));
       if (m) span.style.setProperty("line-height", lineHeightCss(m));
       if (r.field) span.dataset.field = r.field.kind;
-      span.textContent = r.text;
+      span.textContent = r.text.replace(/\u000b/g, "\n");
       div.appendChild(span);
     }
-    if (empty) div.appendChild(doc.createElement("br"));
+    const texts = p.runs.filter((r) => r.text);
+    const last = texts[texts.length - 1]?.text ?? "";
+    if (empty || isLineBreak(last.slice(-1))) div.appendChild(doc.createElement("br"));
     return div;
   });
 }
@@ -102,7 +108,7 @@ export function readDomText(root: HTMLElement): string {
   for (const n of Array.from(root.childNodes)) {
     if (n.nodeType === 3) {
       if (n.textContent) out.push(n.textContent);
-    } else if (n.nodeType === 1 && (n as HTMLElement).tagName !== "BR") out.push(n.textContent ?? "");
+    } else if (n.nodeType === 1 && (n as HTMLElement).tagName !== "BR") out.push((n.textContent ?? "").replace(/\n/g, "\u000b"));
   }
   return out.length ? out.join("\n") : "";
 }

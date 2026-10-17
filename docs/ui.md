@@ -35,6 +35,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
 - [Show: master and layout editing, picture backgrounds, table styles, preset data (P8-32)](#show-master-and-layout-editing-picture-backgrounds-table-styles-preset-data-p8-32)
 - [Show: charts, links, action buttons, audio/video, Reuse Slides (P8-24)](#show-charts-links-action-buttons-audiovideo-reuse-slides-p8-24)
 - [Show: views, rulers, guides, Selection pane, text options, slide-show tools (P8-28)](#show-views-rulers-guides-selection-pane-text-options-slide-show-tools-p8-28)
+- [Show: rich in-place text, autofit text boxes, master text levels (P9-S1)](#show-rich-in-place-text-autofit-text-boxes-master-text-levels-p9-s1)
 - [Printing (P7-9)](#printing-p7-9)
 - [Logos and the portal (P7-10)](#logos-and-the-portal-p7-10)
 - [Privacy (P7-12, ADR 0009)](#privacy-p7-12-adr-0009)
@@ -1089,8 +1090,8 @@ Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)
   Enter's new paragraph keeps the level, bullet and alignment. IME composition is left to the browser and read back when it
   ends. Tab / Shift+Tab change the level, Ctrl+Shift+> / < the font size, Ctrl+Z / Ctrl+Y undo and redo the typing of the
   session; Ctrl+B / I / U / K go to the shortcut map as before. The session's body goes to the core as one `SetTextBody`
-  (ADR 0008; no ProseMirror). Not covered: tabs inside a paragraph (Tab always changes the level), Shift+Enter makes a new
-  paragraph (no line break), the slide number field shows its stored text while editing.
+  (ADR 0008; no ProseMirror). Not covered: tabs inside a paragraph (Tab always changes the level), the slide number field
+  shows its stored text while editing. (Shift+Enter inserts a line break since P9-S1.)
 - **Insert › Text box (S-14)** arms drawing like Shapes (the button stays pressed; a second click disarms it): a click on
   the slide inserts a text box of the default size with its top-left at the click, a drag draws it; the editor opens in it.
   Activated with Enter / Space it inserts at once in the slide centre (keyboard).
@@ -1105,6 +1106,39 @@ Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)
   pipeline), so each duotone shows its accent colour.
 - **Group names (S-19)**: a new group is named "Group N" with N one more than the largest number in the slide's shape
   names (as PowerPoint), not after its id.
+
+## Show: rich in-place text, autofit text boxes, master text levels (P9-S1)
+
+- **Line breaks**: Shift+Enter in the in-place editor breaks the line inside the paragraph (`a:br`; U+000B in the
+  editor's text, `\n` in the run as the reader stores it); Enter starts a new paragraph with the same level, bullet,
+  alignment and spacing. The slide's layout and the editor break the line at it; copy writes it as a newline.
+- **Keys while editing**: Ctrl+A selects the shape's text (not the slide's shapes), Ctrl+] / Ctrl+[ and
+  Ctrl+Shift+> / < step the selection's font size from the caret run's size at its level; formatting from the ribbon or
+  Ctrl+B / I / U applies to the selection at once (the selection is taken from the DOM before the shortcut runs, so a
+  quick Shift+→ then Ctrl+B formats exactly what is selected). Each formatting change is its own undo step; typing stays
+  one step per session.
+- **Insert › Text box**: a click inserts a one-line box 2.5 cm wide that does not wrap (`wrap="none"`) and grows in width
+  while typing; a drag draws a box of the dragged width whose height fits the text. Both resize to fit (`spAutoFit`): the
+  editor's frame follows the text live and the commit stores the fitted box (grows and shrinks). Format Shape › Text box
+  offers Do not autofit / Shrink text on overflow / Resize shape to fit text; placeholders shrink on overflow
+  (`normAutofit` with the computed `fontScale`).
+- **Prompt text** ("Click to add title"): drawn on the stage in the layout placeholder's formatting (size, font, colour,
+  alignment, bullet; no longer faded); an empty placeholder in edit mode keeps the prompt under the caret until the first
+  keystroke. Never drawn in the slide show, print or export.
+- **Shape style text colour**: filled shapes from the Shapes gallery draw their text white (the shape's `textColor`,
+  written as `p:style/a:fontRef` with `bg1`); a run's own colour wins. Imported `fontRef` colours stay on the shape.
+- **Master and layout text**: the Slide Master view's placeholders are edited with the same in-place editor. Formatting
+  of a deeper sample paragraph of a layout's body, chart, table or picture placeholder (or of the Slide Master › Text level
+  chosen for a layout) goes to that level of the layout placeholder's own list style (`SetMasterPlaceholderProps` with
+  `level`; on the master: the master text style of the placeholder's class). Slides re-render from the changed master /
+  layout at once.
+- **Indents per level**: the text layout uses each level's `marL` / `indent` from the master text style and the layout's
+  own levels: the bullet hangs at `marL + indent`, the text starts at `marL` (a wider bullet pushes it on); a paragraph
+  without a bullet in a hanging level starts where the bullet would; a positive `indent` indents the first line. Text
+  boxes use the "other" style (0.5" per level). The core sets margins with `SetMasterTextStyle` / `SetMasterPlaceholderProps`
+  (`marginLeft`, `indent`); there is no Paragraph dialog for them yet.
+- **Insert Placeholder** adds Chart and Table (`p:ph type="chart"` / `"tbl"`, prompts "Click icon to add chart / table")
+  next to Content, Picture, Title and the footers; Rename and delete work as before.
 
 ## Printing (P7-9)
 

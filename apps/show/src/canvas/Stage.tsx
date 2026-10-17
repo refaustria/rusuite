@@ -339,7 +339,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       return;
     }
     const box = click ? clickBox(choice, a.x, a.y) : { ...dragBox(a, b, d.shift), rotationDeg: 0 };
-    void store.insertChoice(drawMode, box);
+    void store.insertChoice(drawMode, box, !click);
   };
   const drawPreview = (() => {
     if (!drawing || !choice) return null;

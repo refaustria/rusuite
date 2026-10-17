@@ -60,6 +60,14 @@ expression: "tree(&bytes, 2)"
    <a:prstDash val="solid"/>
   </a:ln>
  </p:spPr>
+ <p:style>
+  <a:lnRef idx="0"/>
+  <a:fillRef idx="0"/>
+  <a:effectRef idx="0"/>
+  <a:fontRef idx="minor">
+   <a:schemeClr val="bg1"/>
+  </a:fontRef>
+ </p:style>
  <p:txBody>
   <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
    <a:noAutofit/>
@@ -99,6 +107,14 @@ expression: "tree(&bytes, 2)"
    <a:prstDash val="solid"/>
   </a:ln>
  </p:spPr>
+ <p:style>
+  <a:lnRef idx="0"/>
+  <a:fillRef idx="0"/>
+  <a:effectRef idx="0"/>
+  <a:fontRef idx="minor">
+   <a:schemeClr val="bg1"/>
+  </a:fontRef>
+ </p:style>
  <p:txBody>
   <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
    <a:noAutofit/>
@@ -138,6 +154,14 @@ expression: "tree(&bytes, 2)"
    <a:prstDash val="solid"/>
   </a:ln>
  </p:spPr>
+ <p:style>
+  <a:lnRef idx="0"/>
+  <a:fillRef idx="0"/>
+  <a:effectRef idx="0"/>
+  <a:fontRef idx="minor">
+   <a:schemeClr val="bg1"/>
+  </a:fontRef>
+ </p:style>
  <p:txBody>
   <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
    <a:noAutofit/>
@@ -177,6 +201,14 @@ expression: "tree(&bytes, 2)"
    <a:prstDash val="solid"/>
   </a:ln>
  </p:spPr>
+ <p:style>
+  <a:lnRef idx="0"/>
+  <a:fillRef idx="0"/>
+  <a:effectRef idx="0"/>
+  <a:fontRef idx="minor">
+   <a:schemeClr val="bg1"/>
+  </a:fontRef>
+ </p:style>
  <p:txBody>
   <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
    <a:noAutofit/>
@@ -216,6 +248,14 @@ expression: "tree(&bytes, 2)"
    <a:prstDash val="solid"/>
   </a:ln>
  </p:spPr>
+ <p:style>
+  <a:lnRef idx="0"/>
+  <a:fillRef idx="0"/>
+  <a:effectRef idx="0"/>
+  <a:fontRef idx="minor">
+   <a:schemeClr val="bg1"/>
+  </a:fontRef>
+ </p:style>
  <p:txBody>
   <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
    <a:noAutofit/>
@@ -255,6 +295,14 @@ expression: "tree(&bytes, 2)"
    <a:prstDash val="solid"/>
   </a:ln>
  </p:spPr>
+ <p:style>
+  <a:lnRef idx="0"/>
+  <a:fillRef idx="0"/>
+  <a:effectRef idx="0"/>
+  <a:fontRef idx="minor">
+   <a:schemeClr val="bg1"/>
+  </a:fontRef>
+ </p:style>
  <p:txBody>
   <a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr">
    <a:noAutofit/>

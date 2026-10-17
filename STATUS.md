@@ -210,6 +210,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+31. 2026-10-17: Owner confirmed: web deployed from main during the cycle; **all UI languages use the informal address** (like German "du"); semver 3.141.0 behind the public name 3.141.
 30. 2026-10-17: Owner set the 3.141 cycle (π versioning, docs/versioning.md): features for Calc/Show/Write first, then all 24 EU languages, then AI round 2, then one release build at the end. Assumption until the owner says otherwise: the web keeps being deployed from main after each verified merge. The PM orchestrates only (never writes code).
 29. 2026-10-15: Agents no longer deploy; only the PM deploys from main. (The P8-9/P8-10 deploy hold was lifted after P8-10 merged.) Do not share CARGO_TARGET_DIR across checkouts (insta snapshot paths).
 28. 2026-10-15: Owner asked about copyright risk of OOXML support – assessment in docs/legal-notes.md (open standard under the OSP; safeguards: trademark non-affiliation statements added to README and portal, no bundled proprietary fonts, own icons; recommend a trademark search and a NOTICE file before public release).

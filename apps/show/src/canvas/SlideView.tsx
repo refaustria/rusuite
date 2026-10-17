@@ -22,7 +22,7 @@ import type { TextBody } from "../generated/TextBody";
 import type { Table } from "../generated/Table";
 import { boxAttrs, emuToPx, EMU_PER_PX, slidePx } from "../geometry";
 import { bodyText, css, effectiveParagraph, fillCss, themePalette } from "../model";
-import { backdropShapes, designBackground, designShapes, levelDefaults, placeholderFor, slideBackground, slideNumberOf, type DeckContext } from "../design/deck";
+import { backdropShapes, designBackground, designShapes, levelDefaults, levelMargins, placeholderFor, slideBackground, slideNumberOf, type DeckContext } from "../design/deck";
 import { konvaFill, resolveColor } from "../design/color";
 import { fieldText } from "../design/fields";
 import { cropSource, processedImage, shadowOffset } from "../design/picture";
@@ -94,6 +94,8 @@ const PROMPTS: Record<string, string> = {
   subtitle: "show.prompt.subtitle",
   body: "show.prompt.text",
   picture: "show.master.samplePicture",
+  chart: "show.prompt.chart",
+  table: "show.prompt.table",
 };
 
 const imageCache = new Map<string, HTMLImageElement>();
@@ -178,8 +180,11 @@ export function shapeTextOptions(ctx: TextCtx, shape: Shape, w: number, h: numbe
   const def = placeholderFor(ctx.deck, ctx.slide.layout, shape, ctx.asMaster);
   const at = levelDefs(ctx, def);
   const styles = new Map<number, ReturnType<typeof runStyleFor>>();
+  const margins = new Map<number, { marginLeft?: number; indent?: number }>();
   const styleAt = (level: number) => {
-    if (!styles.has(level)) styles.set(level, runStyleFor(at(level), ctx.deck.theme, ctx.palette));
+    // runs without a colour take the shape style's text colour (`p:style/a:fontRef`: white on filled shapes)
+    const base = shape.textColor ? { color: css(shape.textColor, ctx.palette) } : undefined;
+    if (!styles.has(level)) styles.set(level, runStyleFor(at(level), ctx.deck.theme, ctx.palette, base));
     return styles.get(level)!;
   };
   return {
@@ -190,15 +195,41 @@ export function shapeTextOptions(ctx: TextCtx, shape: Shape, w: number, h: numbe
     paragraphProps: (p: TextParagraphProps | undefined) => effectiveParagraph(at(p?.level ?? 0), p),
     fieldText: (field, stored) => fieldText(field, ctx.slideNumber, stored),
     linkColor: css({ kind: "theme", value: { slot: "hyperlink", tint: 0 } }, ctx.palette),
+    margins: (level) => {
+      if (!margins.has(level)) {
+        const m = levelMargins(ctx.deck, def, shape.placeholder, level);
+        margins.set(level, {
+          ...(m.marginLeft !== undefined ? { marginLeft: emuToPx(m.marginLeft) } : {}),
+          ...(m.indent !== undefined ? { indent: emuToPx(m.indent) } : {}),
+        });
+      }
+      return margins.get(level)!;
+    },
   };
 }
 
 /** The layout of a shape's text in its `w` × `h` px text rectangle (placeholder defaults per level, fields, links). */
 export function layoutShapeText(ctx: TextCtx, shape: Shape, body: TextBody, w: number, h: number, prompt?: string) {
-  // a picture placeholder's prompt has no bullet and is centred
-  const promptProps = shape.placeholder === "picture" ? { ...body.paragraphs[0]?.props, bullet: { kind: "none" as const }, alignment: "center" as const } : body.paragraphs[0]?.props;
-  const shown: TextBody = prompt ? { ...body, paragraphs: [{ props: promptProps, runs: [{ text: prompt }] }] } : body;
+  const shown: TextBody = prompt ? promptBody(shape, body, prompt) : body;
   return layoutText(drawnBody(ctx, shape, shown), shapeTextOptions(ctx, shape, w, h));
+}
+
+/**
+ * The prompt an empty placeholder shows in the editor ("Click to add
+ * title"; a custom prompt of its layout placeholder, typed in the Slide
+ * Master view, wins); `undefined` for other shapes. Never drawn in the
+ * show, print or export.
+ */
+export function promptOf(ctx: Pick<TextCtx, "deck" | "slide">, shape: Shape, t: (key: string) => string): string | undefined {
+  const key = shape.placeholder ? PROMPTS[shape.placeholder] : undefined;
+  if (!key) return undefined;
+  return placeholderFor(ctx.deck, ctx.slide.layout, shape)?.prompt ?? t(key);
+}
+
+/** The body an empty placeholder is drawn with: its prompt in the first paragraph's formatting (picture, chart and table placeholders' centred, without bullet). */
+export function promptBody(shape: Shape, body: TextBody, prompt: string): TextBody {
+  const promptProps = shape.placeholder === "picture" || shape.placeholder === "chart" || shape.placeholder === "table" ? { ...body.paragraphs[0]?.props, bullet: { kind: "none" as const }, alignment: "center" as const } : body.paragraphs[0]?.props;
+  return { ...body, paragraphs: [{ props: promptProps, runs: [{ text: prompt }] }] };
 }
 
 /** `body` as drawn: vertical placeholders (`orient="vert"`: Title and Vertical Text, Vertical Title and Text) turn their text 90°. */
@@ -213,10 +244,7 @@ function TextNodes({ body, shape, w, h, ctx }: { body: TextBody; shape: Shape; w
   // a field (date, slide number) is text even while its stored text is empty
   const empty = bodyText(body) === "" && !body.paragraphs.some((p) => p.runs.some((r) => r.field));
   const t = useT();
-  const promptKey = empty && ctx.prompts && shape.placeholder ? PROMPTS[shape.placeholder] : undefined;
-  // a custom prompt of the layout's placeholder (typed in the Slide Master view) wins
-  const custom = promptKey ? placeholderFor(ctx.deck, ctx.slide.layout, shape)?.prompt : undefined;
-  const prompt = promptKey ? (custom ?? t(promptKey)) : undefined;
+  const prompt = empty && ctx.prompts ? promptOf(ctx, shape, t) : undefined;
   const layout = useMemo(
     () => layoutShapeText(ctx, shape, body, w, h, prompt),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -227,11 +255,11 @@ function TextNodes({ body, shape, w, h, ctx }: { body: TextBody; shape: Shape; w
     // vertical text (`vert`): laid out in the swapped box, turned into this one
     return (
       <Group rotation={layout.rotation === 90 ? 90 : -90} x={layout.rotation === 90 ? w : 0} y={layout.rotation === 90 ? 0 : h} name="text-rotated">
-        <Fragments fragments={layout.fragments} opacity={prompt ? 0.45 : 1} />
+        <Fragments fragments={layout.fragments} />
       </Group>
     );
   }
-  return <Fragments fragments={layout.fragments} opacity={prompt ? 0.45 : 1} />;
+  return <Fragments fragments={layout.fragments} />;
 }
 
 function Fragments({ fragments, opacity = 1, x = 0, y = 0 }: { fragments: ReturnType<typeof layoutText>["fragments"]; opacity?: number; x?: number; y?: number }) {

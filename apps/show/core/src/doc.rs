@@ -484,6 +484,55 @@ fn table_of(s: &mut Shape) -> R<&mut Table> {
 
 /// Layout placeholder `d` inherits master change `old` → `new`: every
 /// field that still had the master's old value takes the new one.
+/// What changes on one outline level of a text style or a placeholder's
+/// list style: run formatting merged in, paragraph formatting patched,
+/// margins set.
+struct LevelPatch<'a> {
+    run: Option<&'a core_model::RunProperties>,
+    paragraph: Option<&'a crate::command::TextParagraphPatch>,
+    margin_left: Option<model_show::Emu>,
+    indent: Option<model_show::Emu>,
+}
+
+/// Largest left margin / indent of a text level (PowerPoint: 4032 pt).
+const MAX_LEVEL_MARGIN: i64 = 51_206_400;
+
+impl LevelPatch<'_> {
+    /// Margins within PowerPoint's range (left margin `0..=4032` pt,
+    /// indent `-4032..=4032` pt).
+    fn check(&self) -> R<()> {
+        if self
+            .margin_left
+            .is_some_and(|m| !(0..=MAX_LEVEL_MARGIN).contains(&m.0))
+        {
+            return Err(invalid("left margin out of range"));
+        }
+        if self
+            .indent
+            .is_some_and(|m| !(-MAX_LEVEL_MARGIN..=MAX_LEVEL_MARGIN).contains(&m.0))
+        {
+            return Err(invalid("indent out of range"));
+        }
+        Ok(())
+    }
+
+    fn apply_to(&self, l: &mut model_show::LevelStyle) {
+        if let Some(r) = self.run {
+            l.run.apply(r);
+        }
+        if let Some(pp) = self.paragraph {
+            pp.apply_to(&mut l.paragraph);
+            l.paragraph.level = 0;
+        }
+        if let Some(v) = self.margin_left {
+            l.margin_left = Some(v);
+        }
+        if let Some(v) = self.indent {
+            l.indent = Some(v);
+        }
+    }
+}
+
 fn inherit(d: &mut PlaceholderDef, old: &PlaceholderDef, new: &PlaceholderDef) {
     if d.transform == old.transform {
         d.transform = new.transform;
@@ -1475,7 +1524,19 @@ impl ShowDocument {
                 level,
                 run,
                 paragraph,
-            } => self.set_master_text_style(*which, *level, run.as_ref(), paragraph.as_ref(), ch),
+                margin_left,
+                indent,
+            } => self.set_master_text_style(
+                *which,
+                *level,
+                &LevelPatch {
+                    run: run.as_ref(),
+                    paragraph: paragraph.as_ref(),
+                    margin_left: *margin_left,
+                    indent: *indent,
+                },
+                ch,
+            ),
             C::SetPlaceholderPrompt {
                 target,
                 placeholder,
@@ -2317,6 +2378,7 @@ impl ShowDocument {
                 .filter(model_show::Hyperlink::is_valid),
             hidden: ns.hidden,
             lock_aspect: ns.lock_aspect,
+            text_color: ns.text_color,
         };
         shape.fill_default_name();
         normalize_shape(&mut shape);
@@ -2611,9 +2673,11 @@ impl ShowDocument {
                     text_only: false,
                     vertical: false,
                     prompt: None,
+                    levels: Vec::new(),
                 }
             }
         };
+        def.levels.clear();
         def.kind = kind;
         def.idx = idx;
         def.transform = transform;
@@ -2677,13 +2741,13 @@ impl ShowDocument {
         &mut self,
         which: TextClass,
         level: u8,
-        run: Option<&core_model::RunProperties>,
-        paragraph: Option<&crate::command::TextParagraphPatch>,
+        lp: &LevelPatch<'_>,
         ch: &mut Changes,
     ) -> R<C> {
         if level > 8 {
             return Err(invalid("text style levels are 0–8"));
         }
+        lp.check()?;
         // level 1 of titles and body text is the master placeholders'
         // defaults: change it through them, so layouts follow
         if level == 0 && which != TextClass::Other {
@@ -2694,10 +2758,11 @@ impl ShowDocument {
             };
             if self.pres.master.placeholder_for(kind).is_some() {
                 let patch = PlaceholderPatch {
-                    transform: None,
-                    body: None,
-                    run: run.cloned(),
-                    paragraph: paragraph.cloned(),
+                    run: lp.run.cloned(),
+                    paragraph: lp.paragraph.cloned(),
+                    margin_left: lp.margin_left,
+                    indent: lp.indent,
+                    ..PlaceholderPatch::default()
                 };
                 return self.set_placeholder_props(&DesignTarget::Master, kind, None, &patch, ch);
             }
@@ -2708,13 +2773,7 @@ impl ShowDocument {
             let last = styles.last().cloned().unwrap_or_default();
             styles.push(last);
         }
-        let l = &mut styles[usize::from(level)];
-        if let Some(r) = run {
-            l.run.apply(r);
-        }
-        if let Some(pp) = paragraph {
-            pp.apply_to(&mut l.paragraph);
-        }
+        lp.apply_to(&mut styles[usize::from(level)]);
         ch.design = true;
         Ok(inverse)
     }
@@ -2730,6 +2789,41 @@ impl ShowDocument {
         if let Some(t) = &patch.transform {
             check_transform(t)?;
         }
+        let level = patch.level.unwrap_or(0);
+        if level > 8 {
+            return Err(invalid("text levels are 0–8"));
+        }
+        let lp = LevelPatch {
+            run: patch.run.as_ref(),
+            paragraph: patch.paragraph.as_ref(),
+            margin_left: patch.margin_left,
+            indent: patch.indent,
+        };
+        lp.check()?;
+        if level > 0 && matches!(target, DesignTarget::Master) {
+            // the master's deeper levels are its text style of the placeholder's class
+            let text = self.set_master_text_style(kind.text_class(), level, &lp, ch)?;
+            if patch.transform.is_none() && patch.body.is_none() {
+                return Ok(text);
+            }
+            let rest = PlaceholderPatch {
+                transform: patch.transform,
+                body: patch.body,
+                ..PlaceholderPatch::default()
+            };
+            let place = self.set_placeholder_props(target, kind, idx, &rest, ch)?;
+            return Ok(C::Compound {
+                commands: vec![place, text],
+            });
+        }
+        if level == 0
+            && matches!(target, DesignTarget::Layout(_))
+            && (patch.margin_left.is_some() || patch.indent.is_some())
+        {
+            return Err(invalid(
+                "level 1 margins are the master text style's (setMasterTextStyle)",
+            ));
+        }
         let design = self.design_snapshot();
         let apply = |d: &mut PlaceholderDef| {
             if let Some(t) = patch.transform {
@@ -2737,6 +2831,13 @@ impl ShowDocument {
             }
             if let Some(b) = patch.body {
                 d.body_defaults = b;
+            }
+            if level > 0 {
+                if let Some(l) = d.level_override_mut(level) {
+                    lp.apply_to(l);
+                }
+                d.trim_levels();
+                return;
             }
             if let Some(r) = &patch.run {
                 d.run_defaults.apply(r);
@@ -2758,16 +2859,22 @@ impl ShowDocument {
                 let old = m.placeholders[i].clone();
                 apply(&mut m.placeholders[i]);
                 let new = m.placeholders[i].clone();
-                // level 1 of the title/body text style follows
+                // level 1 of the title/body text style follows (margins: of every class)
                 let class = kind.text_class();
-                if class != TextClass::Other {
-                    if let Some(l) = m.text_styles.of_mut(class).first_mut() {
+                if let Some(l) = m.text_styles.of_mut(class).first_mut() {
+                    if class != TextClass::Other {
                         if let Some(r) = &patch.run {
                             l.run.apply(r);
                         }
                         if let Some(pp) = &patch.paragraph {
                             pp.apply_to(&mut l.paragraph);
                         }
+                    }
+                    if let Some(v) = patch.margin_left {
+                        l.margin_left = Some(v);
+                    }
+                    if let Some(v) = patch.indent {
+                        l.indent = Some(v);
                     }
                 }
                 let master = self.pres.master.clone();

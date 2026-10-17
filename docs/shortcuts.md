@@ -174,6 +174,20 @@ Linux. The desktop app gets them all.
 
 | Mod+Shift+>, Mod+Shift+< | Increase, decrease font size |
 
+While editing a shape's text in place (P9-S1):
+
+| Keys | Action |
+| --- | --- |
+| Enter | New paragraph (same level, bullet and alignment) |
+| Shift+Enter | Line break inside the paragraph (`a:br`) |
+| Tab, Shift+Tab | Increase, decrease the list level (levels 1–9) |
+| Mod+A | Select all text of the shape |
+| Mod+B, Mod+I, Mod+U | Bold, italic, underline of the selection |
+| Mod+], Mod+[ | Increase, decrease font size (PowerPoint's size steps) |
+| Mod+Shift+>, Mod+Shift+< | Increase, decrease font size |
+| Mod+Z, Mod+Y | Undo, redo the typing of the session |
+| Escape, Mod+Enter | End editing |
+
 ### During the slide show
 
 The same keys work in the full-window show (F5), in the presenter view and in its slide show window.

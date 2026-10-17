@@ -47,6 +47,28 @@ pub struct LevelStyle {
     pub indent: Option<Emu>,
 }
 
+impl LevelStyle {
+    /// Whether the level states nothing (everything inherits).
+    pub fn is_empty(&self) -> bool {
+        self.paragraph.is_empty()
+            && self.run.is_empty()
+            && self.margin_left.is_none()
+            && self.indent.is_none()
+    }
+
+    /// `self` overlaid with what `over` states (margins, paragraph and run
+    /// formatting).
+    #[must_use]
+    pub fn merged_with(&self, over: &LevelStyle) -> LevelStyle {
+        LevelStyle {
+            paragraph: self.paragraph.merged_with(&over.paragraph),
+            run: self.run.merged_with(&over.run),
+            margin_left: over.margin_left.or(self.margin_left),
+            indent: over.indent.or(self.indent),
+        }
+    }
+}
+
 /// The master's text styles (`p:txStyles`): nine levels each for titles,
 /// body placeholders and other text (shapes, text boxes, date/footer/slide
 /// number placeholders).
@@ -400,6 +422,7 @@ impl SlideMaster {
                 text_only: kind == PlaceholderKind::Body,
                 vertical: false,
                 prompt: None,
+                levels: Vec::new(),
             }
         };
         let hf = |kind: PlaceholderKind, idx: u32, transform: Transform, algn: Alignment| {
@@ -466,7 +489,10 @@ impl SlideMaster {
     pub fn placeholder_for(&self, kind: PlaceholderKind) -> Option<&PlaceholderDef> {
         let base = match kind {
             PlaceholderKind::CenteredTitle => PlaceholderKind::Title,
-            PlaceholderKind::Subtitle | PlaceholderKind::Picture => PlaceholderKind::Body,
+            PlaceholderKind::Subtitle
+            | PlaceholderKind::Picture
+            | PlaceholderKind::Chart
+            | PlaceholderKind::Table => PlaceholderKind::Body,
             k => k,
         };
         self.placeholders.iter().find(|d| d.kind == base)
@@ -482,6 +508,28 @@ impl SlideMaster {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn level_style_merge() {
+        let base = TextStyles::office().level(TextClass::Body, 1);
+        assert!(!base.is_empty());
+        assert!(LevelStyle::default().is_empty());
+        let over = LevelStyle {
+            margin_left: Some(Emu(1)),
+            run: RunProperties {
+                bold: Some(true),
+                ..RunProperties::default()
+            },
+            ..LevelStyle::default()
+        };
+        let m = base.merged_with(&over);
+        assert_eq!(m.margin_left, Some(Emu(1)));
+        assert_eq!(m.indent, base.indent);
+        assert_eq!(m.run.bold, Some(true));
+        assert_eq!(m.run.size, base.run.size);
+        assert_eq!(m.paragraph.bullet, base.paragraph.bullet);
+    }
+
     use super::*;
 
     #[test]

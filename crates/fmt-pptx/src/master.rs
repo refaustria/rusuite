@@ -96,6 +96,26 @@ pub fn lst_style_lvl1(
         .unwrap_or_default()
 }
 
+/// Levels 2–9 of a placeholder's `a:lstStyle` as stated (missing levels
+/// empty; trailing empty levels dropped): the placeholder's own changes
+/// of those levels.
+pub fn lst_style_levels(tx_body: Option<&El>, w: &mut Warnings) -> Vec<LevelStyle> {
+    let Some(lst) = tx_body.and_then(|t| t.child("lstStyle")) else {
+        return Vec::new();
+    };
+    let mut out: Vec<LevelStyle> = (2..=9)
+        .map(|n| {
+            lst.child(&format!("lvl{n}pPr"))
+                .map(|l| read_level(l, w))
+                .unwrap_or_default()
+        })
+        .collect();
+    while out.last().is_some_and(LevelStyle::is_empty) {
+        out.pop();
+    }
+    out
+}
+
 /// `p:bg` → [`Background`] (`p:bgPr` fill or `p:bgRef idx` + colour).
 pub fn read_background(bg: &El, w: &mut Warnings) -> Option<Background> {
     if let Some(pr) = bg.child("bgPr") {
@@ -213,10 +233,12 @@ pub fn kind_of_type(ty: &str, on_title_layout: bool) -> Option<PlaceholderKind> 
         }
         "subTitle" => PlaceholderKind::Subtitle,
         "pic" => PlaceholderKind::Picture,
+        "chart" => PlaceholderKind::Chart,
+        "tbl" => PlaceholderKind::Table,
         "dt" => PlaceholderKind::DateTime,
         "ftr" => PlaceholderKind::Footer,
         "sldNum" => PlaceholderKind::SlideNumber,
-        "body" | "obj" | "chart" | "tbl" | "dgm" | "media" | "clipArt" => PlaceholderKind::Body,
+        "body" | "obj" | "dgm" | "media" | "clipArt" => PlaceholderKind::Body,
         _ => return None,
     })
 }
@@ -337,22 +359,60 @@ pub fn write_text_styles(x: &mut XmlOut, s: &TextStyles) {
     x.end("p:txStyles");
 }
 
-/// Writes an `a:lstStyle` whose level 1 states `para`/`run` (empty
-/// `a:lstStyle` when both are empty).
-fn write_lst_style(x: &mut XmlOut, para: &TextParagraphProps, run: &RunProperties) {
-    if para.is_empty() && run.is_empty() {
+/// Writes an `a:lstStyle` whose level 1 states `para`/`run` and whose
+/// levels 2–9 state `levels` (empty `a:lstStyle` when nothing is stated).
+fn write_lst_style(
+    x: &mut XmlOut,
+    para: &TextParagraphProps,
+    run: &RunProperties,
+    levels: &[LevelStyle],
+) {
+    if para.is_empty() && run.is_empty() && levels.iter().all(LevelStyle::is_empty) {
         x.empty("a:lstStyle", &[]);
         return;
     }
     x.start("a:lstStyle", &[]);
-    let attrs = crate::drawing::ppr_attrs(para, false);
-    let attrs: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    x.start("a:lvl1pPr", &attrs);
-    write_ppr_children(x, para);
-    if !run.is_empty() {
-        write_rpr(x, "a:defRPr", run, true);
+    if !(para.is_empty() && run.is_empty()) {
+        let attrs = crate::drawing::ppr_attrs(para, false);
+        let attrs: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        x.start("a:lvl1pPr", &attrs);
+        write_ppr_children(x, para);
+        if !run.is_empty() {
+            write_rpr(x, "a:defRPr", run, true);
+        }
+        x.end("a:lvl1pPr");
     }
-    x.end("a:lvl1pPr");
+    for (i, l) in levels.iter().enumerate().take(8) {
+        if l.is_empty() {
+            continue;
+        }
+        let name = format!("a:lvl{}pPr", i + 2);
+        let mar = l.margin_left.map(|e| e.0.to_string());
+        let ind = l.indent.map(|e| e.0.to_string());
+        let algn = crate::drawing::ppr_attrs(
+            &TextParagraphProps {
+                alignment: l.paragraph.alignment,
+                ..TextParagraphProps::default()
+            },
+            false,
+        );
+        let mut attrs: Vec<(&str, &str)> = Vec::new();
+        if let Some(m) = &mar {
+            attrs.push(("marL", m));
+        }
+        if let Some(v) = &ind {
+            attrs.push(("indent", v));
+        }
+        for (k, v) in &algn {
+            attrs.push((k, v));
+        }
+        x.start(&name, &attrs);
+        write_ppr_children(x, &l.paragraph);
+        if !l.run.is_empty() {
+            write_rpr(x, "a:defRPr", &l.run, true);
+        }
+        x.end(&name);
+    }
     x.end("a:lstStyle");
 }
 
@@ -412,6 +472,8 @@ pub fn ph_attrs(
         PlaceholderKind::Body if text_only => Some("body"),
         PlaceholderKind::Body => None,
         PlaceholderKind::Picture => Some("pic"),
+        PlaceholderKind::Chart => Some("chart"),
+        PlaceholderKind::Table => Some("tbl"),
         PlaceholderKind::DateTime => Some("dt"),
         PlaceholderKind::Footer => Some("ftr"),
         PlaceholderKind::SlideNumber => Some("sldNum"),
@@ -439,6 +501,8 @@ fn prompt_of(kind: PlaceholderKind, master: bool) -> &'static str {
         PlaceholderKind::Body if master => "Click to edit Master text styles",
         PlaceholderKind::Body => "Click to edit Master text styles",
         PlaceholderKind::Picture => "Click icon to add picture",
+        PlaceholderKind::Chart => "Click icon to add chart",
+        PlaceholderKind::Table => "Click icon to add table",
         _ => "",
     }
 }
@@ -473,6 +537,8 @@ pub fn placeholder_sp(x: &mut XmlOut, ph: &PhWrite<'_>) {
         PlaceholderKind::Body if def.text_only => "Text Placeholder",
         PlaceholderKind::Body => "Content Placeholder",
         PlaceholderKind::Picture => "Picture Placeholder",
+        PlaceholderKind::Chart => "Chart Placeholder",
+        PlaceholderKind::Table => "Table Placeholder",
         PlaceholderKind::DateTime => "Date Placeholder",
         PlaceholderKind::Footer => "Footer Placeholder",
         PlaceholderKind::SlideNumber => "Slide Number Placeholder",
@@ -517,8 +583,14 @@ pub fn placeholder_sp(x: &mut XmlOut, ph: &PhWrite<'_>) {
             x,
             &def.paragraph_defaults.diff_from(p),
             &run_diff(&def.run_defaults, r),
+            &def.levels,
         ),
-        None => x.empty("a:lstStyle", &[]),
+        None => write_lst_style(
+            x,
+            &TextParagraphProps::default(),
+            &RunProperties::default(),
+            &def.levels,
+        ),
     }
     if let Some(prompt) = prompt {
         // custom prompt text: one paragraph per line (on the master's body
