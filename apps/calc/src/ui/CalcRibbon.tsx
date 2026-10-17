@@ -30,7 +30,7 @@ import { bordersMenu } from "./bordersMenu";
 import { activeCellLocked, sheetProtection, toggleLockCell, toggleSheetProtection } from "../protection/protection";
 import { lockIcon } from "../protection/icons";
 import {
-  clearFilterIcon, condFormatIcon, filterIcon, freezeIcon, headingsIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon, painterIcon,
+  clearFilterIcon, condFormatIcon, filterIcon, freezeIcon, headingsIcon, splitIcon, mergeIcon, reapplyIcon, sortAscIcon, sortDescIcon, sortIcon, unmergeIcon, painterIcon,
 } from "./icons";
 
 /** View options of the grid (View tab): zoom (1 = 100 %), gridlines and headings are the active sheet's. */
@@ -289,6 +289,8 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
               menu={[
                 { id: "find", label: t("cmd.findDots"), icon: "find", shortcut: "Mod+F", onSelect: actions.find },
                 { id: "replace", label: t("cmd.replaceDots"), shortcut: "Mod+H", onSelect: actions.replace },
+                { id: "goTo", label: t("calc.goTo.menu"), shortcut: "Mod+G", onSelect: () => store.openDialog({ kind: "goTo" }) },
+                { id: "goToSpecial", label: t("calc.goToSpecial.menu"), onSelect: () => store.openDialog({ kind: "goToSpecial" }) },
               ]}
             />
             <RibbonMenuButton label={t("calc.sortFilter")} icon={sortIcon()} size="large" disabled={off} menu={sortFilterMenu} />
@@ -461,7 +463,20 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
       },
       {
         label: t("calc.window"),
-        items: <RibbonMenuButton label={t("calc.freezePanes")} icon={freezeIcon()} size="large" disabled={off} menu={freezeMenu} />,
+        items: (
+          <>
+            <RibbonMenuButton label={t("calc.freezePanes")} icon={freezeIcon()} size="large" disabled={off} menu={freezeMenu} />
+            <RibbonButton
+              label={t("calc.split")}
+              icon={splitIcon()}
+              size="large"
+              tooltip={t("calc.splitTip")}
+              pressed={(frozen.splitX ?? 0) > 0 || (frozen.splitY ?? 0) > 0}
+              disabled={off}
+              onClick={run(() => store.toggleSplit())}
+            />
+          </>
+        ),
       },
       languageRibbonGroup(t),
       {

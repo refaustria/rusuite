@@ -49,6 +49,24 @@ export const freezeIcon = (size = 22) =>
     </>
   ));
 
+/** View › Split: a window divided into four panes. */
+export const splitIcon = (size = 22) =>
+  svg(size, (
+    <>
+      <rect x="2.5" y="3" width="15" height="14" />
+      <path d="M2.5 10h15M10 3v14" strokeWidth="2.6" />
+    </>
+  ));
+
+/** Go To Special: an arrow to a highlighted cell. */
+export const goToSpecialIcon = (size = 16) =>
+  svg(size, (
+    <>
+      <rect x="10" y="9" width="7.5" height="7.5" />
+      <path d="M3 4l6 6M9 6v4H5" />
+    </>
+  ));
+
 /** Headings: column letters and row numbers around a sheet. */
 export const headingsIcon = (size = 16) =>
   svg(size, (

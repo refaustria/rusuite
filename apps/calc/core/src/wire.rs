@@ -267,15 +267,43 @@ pub struct SheetFormat {
     pub default_row_height: f64,
 }
 
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
+}
+
 /// Mirror of `model_sheet::SheetView`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "apps/calc/src/generated/")]
 pub struct SheetView {
-    /// Rows `0..frozenRows` stay visible when scrolling (0 = none).
+    /// How many rows stay visible when scrolling, from `topRow` (0 = none).
     pub frozen_rows: u32,
-    /// Columns `0..frozenCols` stay visible when scrolling (0 = none).
+    /// How many columns stay visible when scrolling, from `leftCol` (0 = none).
     pub frozen_cols: u32,
+    /// The first row of the top(-left) pane (`sheetView/@topLeftCell`):
+    /// the frozen area starts there; without frozen panes the scroll position.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    #[ts(as = "Option<u32>", optional)]
+    pub top_row: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    #[ts(as = "Option<u32>", optional)]
+    pub left_col: u32,
+    /// The first row / column of the scrolling (bottom-right) pane
+    /// (`pane/@topLeftCell`).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    #[ts(as = "Option<u32>", optional)]
+    pub pane_row: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    #[ts(as = "Option<u32>", optional)]
+    pub pane_col: u32,
+    /// View › Split: splitter positions in twips (1/20 pt) from the cell
+    /// area's left / top edge (0 = none; ignored while frozen).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    #[ts(as = "Option<u32>", optional)]
+    pub split_x: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    #[ts(as = "Option<u32>", optional)]
+    pub split_y: u32,
     /// Percent, 10..=400 (default 100).
     pub zoom: u16,
     pub show_gridlines: bool,
@@ -789,6 +817,16 @@ mod tests {
             zoom: 150,
             show_gridlines: false,
             show_headings: true,
+            ..ms::SheetView::default()
+        });
+        same_shape::<_, SheetView>(&ms::SheetView {
+            top_row: 4,
+            left_col: 1,
+            pane_row: 9,
+            pane_col: 3,
+            split_x: 2400,
+            split_y: 1200,
+            ..ms::SheetView::default()
         });
     }
 }

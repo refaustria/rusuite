@@ -845,11 +845,14 @@ fn sort_state_xml(x: &mut XmlOut, st: &SortState, dxfs: &[model_sheet::DxfStyle]
     x.end("sortState");
 }
 
-/// `<sheetViews>` with one `<sheetView>`: non-default gridlines, headings
-/// and zoom as attributes, frozen panes as a `<pane state="frozen">`.
+/// `<sheetViews>` with one `<sheetView>`: non-default gridlines, headings,
+/// zoom and the scroll position (`topLeftCell`) as attributes, frozen
+/// panes as a `<pane state="frozen">`, split panes as a `<pane>` with the
+/// splitters in twips.
 fn sheet_view_xml(x: &mut XmlOut, view: &SheetView, selected: bool) {
     x.start("sheetViews", &[]);
     let zoom = view.zoom.to_string();
+    let top_left = cell_name(view.top_row.min(MAX_ROW), view.left_col.min(MAX_COL));
     let mut a: Vec<(&str, &str)> = Vec::new();
     if !view.show_gridlines {
         a.push(("showGridLines", "0"));
@@ -860,34 +863,47 @@ fn sheet_view_xml(x: &mut XmlOut, view: &SheetView, selected: bool) {
     if selected {
         a.push(("tabSelected", "1"));
     }
+    if view.top_row > 0 || view.left_col > 0 {
+        a.push(("topLeftCell", &top_left));
+    }
     if view.zoom != 100 {
         a.push(("zoomScale", &zoom));
     }
     a.push(("workbookViewId", "0"));
-    let (rows, cols) = (view.frozen_rows, view.frozen_cols);
-    if rows == 0 && cols == 0 {
+    let frozen = view.is_frozen();
+    let (x_split, y_split) = if frozen {
+        (view.frozen_cols, view.frozen_rows)
+    } else if view.is_split() {
+        (view.split_x, view.split_y)
+    } else {
+        (0, 0)
+    };
+    if x_split == 0 && y_split == 0 {
         x.empty("sheetView", &a);
     } else {
         x.start("sheetView", &a);
-        let (x_split, y_split) = (cols.to_string(), rows.to_string());
-        let top_left = cell_name(rows.min(MAX_ROW), cols.min(MAX_COL));
-        let pane = match (rows > 0, cols > 0) {
+        let (xs, ys) = (x_split.to_string(), y_split.to_string());
+        let pane_cell = cell_name(
+            view.scroll_row().min(MAX_ROW),
+            view.scroll_col().min(MAX_COL),
+        );
+        let pane = match (y_split > 0, x_split > 0) {
             (true, true) => "bottomRight",
             (true, false) => "bottomLeft",
             _ => "topRight",
         };
         let mut p: Vec<(&str, &str)> = Vec::new();
-        if cols > 0 {
-            p.push(("xSplit", &x_split));
+        if x_split > 0 {
+            p.push(("xSplit", &xs));
         }
-        if rows > 0 {
-            p.push(("ySplit", &y_split));
+        if y_split > 0 {
+            p.push(("ySplit", &ys));
         }
-        p.extend([
-            ("topLeftCell", top_left.as_str()),
-            ("activePane", pane),
-            ("state", "frozen"),
-        ]);
+        p.extend([("topLeftCell", pane_cell.as_str()), ("activePane", pane)]);
+        // `split` is the schema's default state (Excel omits it).
+        if frozen {
+            p.push(("state", "frozen"));
+        }
         x.empty("pane", &p);
         x.empty("selection", &[("pane", pane)]);
         x.end("sheetView");

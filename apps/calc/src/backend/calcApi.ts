@@ -24,7 +24,10 @@ import type { PivotItemInfo } from "../generated/PivotItemInfo";
 import type { LineColors } from "../generated/LineColors";
 import type { Rect } from "../generated/Rect";
 import type { FillMode } from "../generated/FillMode";
+import type { GoToKind } from "../generated/GoToKind";
+import type { GoToTypes } from "../generated/GoToTypes";
 import type { SheetRect } from "../generated/SheetRect";
+import type { SheetScroll } from "../generated/SheetScroll";
 import type { SheetThreads } from "../generated/SheetThreads";
 import type { RegionSnapshot } from "../generated/RegionSnapshot";
 import type { Request } from "../generated/Request";
@@ -125,6 +128,7 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     pictures: { pictures: "array" },
     // `text` is null for a copied formula.
     fillPreview: {},
+    areas: { areas: "array" },
     errorChecks: { issues: "array" },
     evaluation: { evaluation: "object" },
     watch: { items: "array" },
@@ -210,8 +214,8 @@ export class CalcApi {
 
   /** The document as `.xlsx` (base64) plus the file name to offer. */
   /** `activeSheet`: the sheet the saved file opens on. */
-  saveXlsx(activeSheet?: number): Promise<BodyOf<"saved">> {
-    return this.call({ type: "saveXlsx", activeSheet }, "saved");
+  saveXlsx(activeSheet?: number, scroll?: SheetScroll): Promise<BodyOf<"saved">> {
+    return this.call(scroll ? { type: "saveXlsx", activeSheet, scroll } : { type: "saveXlsx", activeSheet }, "saved");
   }
 
   /** Marks the current state saved (after the shell wrote the file). */
@@ -353,6 +357,11 @@ export class CalcApi {
   /** The notes, threads and hyperlinks intersecting a rectangle, with its `HYPERLINK()` targets. */
   async cellAnnotations(sheet: number, r0: number, c0: number, r1: number, c1: number): Promise<CellAnnotations> {
     return (await this.call({ type: "cellAnnotations", sheet, r0, c0, r1, c1 }, "annotations")).annotations;
+  }
+
+  /** Go To Special: the matching cells of `range` (one cell = the used range) as rectangles. */
+  async goToSpecial(sheet: number, range: Rect, row: number, col: number, kind: GoToKind, types: GoToTypes, allLevels: boolean): Promise<Rect[]> {
+    return (await this.call({ type: "goToSpecial", sheet, range, row, col, kind, types, allLevels }, "areas")).areas;
   }
 
   /** The fill handle's tip: what the farthest cell of `dst` would show after filling it from `src` (`null`: none). */

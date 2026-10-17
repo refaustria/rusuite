@@ -561,21 +561,51 @@ impl Workbook {
         if !(MIN_ZOOM..=MAX_ZOOM).contains(&view.zoom) {
             return Err(Error::InvalidSheetView(format!("zoom {}", view.zoom)));
         }
-        if view.frozen_rows > MAX_ROW || view.frozen_cols > MAX_COL {
+        if view.frozen_rows > MAX_ROW
+            || view.frozen_cols > MAX_COL
+            || u64::from(view.top_row) + u64::from(view.frozen_rows) > u64::from(MAX_ROW)
+            || u64::from(view.left_col) + u64::from(view.frozen_cols) > u64::from(MAX_COL)
+            || view.pane_row > MAX_ROW
+            || view.pane_col > MAX_COL
+        {
             return Err(Error::InvalidSheetView(
                 "frozen panes outside the sheet".into(),
             ));
         }
-        self.sheet_data_mut(sheet)?.view = view;
+        self.sheet_data_mut(sheet)?.view = view.normalized();
         Ok(())
     }
 
     /// Freezes rows `0..rows` and columns `0..cols` (`0, 0` unfreezes).
     pub fn set_frozen(&mut self, sheet: SheetId, rows: u32, cols: u32) -> Result<(), Error> {
+        self.set_frozen_at(sheet, rows, cols, 0, 0)
+    }
+
+    /// Freezes `rows` rows from `top_row` and `cols` columns from
+    /// `left_col` (Freeze Panes while scrolled: the scroll position is
+    /// kept, `topLeftCell`); the scrolling pane starts right after them.
+    /// Freezing removes a split; `0, 0` unfreezes (`top_row` / `left_col`
+    /// then being where the sheet stays scrolled, as Excel keeps it).
+    pub fn set_frozen_at(
+        &mut self,
+        sheet: SheetId,
+        rows: u32,
+        cols: u32,
+        top_row: u32,
+        left_col: u32,
+    ) -> Result<(), Error> {
+        let old = self.sheet_view(sheet);
         let view = SheetView {
             frozen_rows: rows,
             frozen_cols: cols,
-            ..self.sheet_view(sheet)
+            // On an axis without frozen lines this is the scroll position.
+            top_row,
+            left_col,
+            pane_row: if rows > 0 { top_row + rows } else { 0 },
+            pane_col: if cols > 0 { left_col + cols } else { 0 },
+            split_x: 0,
+            split_y: 0,
+            ..old
         };
         self.set_sheet_view(sheet, view)
     }
@@ -903,21 +933,50 @@ impl Workbook {
                 (m.cells() >= 2).then_some(m)
             })
             .collect();
-        // The frozen area is the interval 0..frozen: an insert inside it
-        // grows it, a delete clips it.
-        let frozen = |n: u32| {
+        // The frozen area is the interval top..top + frozen: an insert
+        // inside it grows it, one above it moves it, a delete clips it.
+        let frozen = |top: u32, n: u32| -> (u32, u32) {
+            // Not frozen: `top` is a scroll position, which stays (Excel).
             if n == 0 {
-                0
-            } else {
-                op.map_interval(0, n - 1)
-                    .map_or(0, |(_, hi)| (hi + 1).min(op.max_index()))
+                return (top, 0);
             }
+            // An insert at the frozen area's first line grows it (Excel).
+            let (at, count) = op.span();
+            if op.is_insert() && at == top {
+                return (top, (n + count).min(op.max_index() - top));
+            }
+            op.map_interval(top, top + n - 1)
+                .map_or((op.span().0.min(op.max_index()), 0), |(lo, hi)| {
+                    (lo, (hi + 1).min(op.max_index()) - lo)
+                })
         };
+        // The scrolling pane's first line follows its line (a deleted one:
+        // the start of the deletion).
+        let line = |i: u32| op.map_index(i).unwrap_or(op.span().0.min(op.max_index()));
+        // A scrolling pane right after the frozen lines stays right after them.
+        let v = &mut data.view;
         if op.is_rows() {
-            data.view.frozen_rows = frozen(data.view.frozen_rows);
+            let tied = v.pane_row <= v.top_row + v.frozen_rows;
+            (v.top_row, v.frozen_rows) = frozen(v.top_row, v.frozen_rows);
+            if v.frozen_rows > 0 {
+                v.pane_row = if tied {
+                    v.top_row + v.frozen_rows
+                } else {
+                    line(v.pane_row)
+                };
+            }
         } else {
-            data.view.frozen_cols = frozen(data.view.frozen_cols);
+            let tied = v.pane_col <= v.left_col + v.frozen_cols;
+            (v.left_col, v.frozen_cols) = frozen(v.left_col, v.frozen_cols);
+            if v.frozen_cols > 0 {
+                v.pane_col = if tied {
+                    v.left_col + v.frozen_cols
+                } else {
+                    line(v.pane_col)
+                };
+            }
         }
+        *v = v.normalized();
         // The AutoFilter and the sort state move like merges; filtered or
         // sort columns that are deleted disappear.
         let span = |r0: u32, c0: u32, r1: u32, c1: u32| {
@@ -1242,6 +1301,54 @@ mod tests {
     }
 
     #[test]
+    fn frozen_while_scrolled_moves_with_inserts_and_deletes() {
+        let mut wb = Workbook::new();
+        let s = SheetId(0);
+        // Scrolled to row 20 / column C, frozen at row 25 / column E.
+        wb.set_frozen_at(s, 5, 2, 19, 2).unwrap();
+        let v = wb.sheet_view(s);
+        assert_eq!(
+            (v.top_row, v.frozen_rows, v.pane_row, v.scroll_row()),
+            (19, 5, 24, 24)
+        );
+        assert_eq!(
+            (v.left_col, v.frozen_cols, v.pane_col, v.scroll_col()),
+            (2, 2, 4, 4)
+        );
+        // Rows inserted above move the frozen area; inside it they grow it.
+        wb.insert_rows(s, 3, 2).unwrap();
+        let v = wb.sheet_view(s);
+        assert_eq!((v.top_row, v.frozen_rows, v.pane_row), (21, 5, 26));
+        wb.insert_rows(s, 22, 1).unwrap();
+        assert_eq!(wb.sheet_view(s).frozen_rows, 6);
+        // A delete over the top of the area clips it.
+        wb.delete_rows(s, 20, 3).unwrap();
+        let v = wb.sheet_view(s);
+        assert_eq!((v.top_row, v.frozen_rows), (20, 4));
+        // Unfreezing forgets the area; a split needs no frozen panes.
+        wb.set_frozen(s, 0, 0).unwrap();
+        assert!(!wb.sheet_view(s).is_frozen());
+        let split = SheetView {
+            split_x: 2400,
+            split_y: 1500,
+            pane_row: 30,
+            ..wb.sheet_view(s)
+        };
+        wb.set_sheet_view(s, split).unwrap();
+        assert!(wb.sheet_view(s).is_split());
+        assert_eq!(wb.sheet_view(s).scroll_row(), 30);
+        // Freezing removes the split.
+        wb.set_frozen(s, 1, 0).unwrap();
+        assert!(!wb.sheet_view(s).is_split() && wb.sheet_view(s).split_x == 0);
+        assert_eq!(
+            wb.set_frozen_at(s, 2, 0, MAX_ROW, 0),
+            Err(Error::InvalidSheetView(
+                "frozen panes outside the sheet".into()
+            ))
+        );
+    }
+
+    #[test]
     fn structural_edits_move_merges_and_frozen_panes() {
         let mut wb = Workbook::new();
         let s = SheetId(0);
@@ -1306,7 +1413,14 @@ mod tests {
             ..Default::default()
         };
         wb.set_sheet_view(s, view).unwrap();
-        assert_eq!(wb.sheet_view(s), view);
+        // The scrolling pane starts after the frozen row.
+        assert_eq!(
+            wb.sheet_view(s),
+            SheetView {
+                pane_row: 1,
+                ..view
+            }
+        );
 
         assert_eq!(wb.set_sheet_hidden(s, true), Err(Error::LastVisibleSheet));
         let b = wb.add_sheet("B").unwrap();
@@ -1319,7 +1433,7 @@ mod tests {
         // Duplicates are visible and keep view and merges.
         let (copy, _) = wb.duplicate_sheet(s, "Copy").unwrap();
         assert!(!wb.is_sheet_hidden(copy));
-        assert_eq!(wb.sheet_view(copy), view);
+        assert_eq!(wb.sheet_view(copy), wb.sheet_view(s));
         assert_eq!(wb.merges(copy), wb.merges(s));
 
         let snap = wb.to_snapshot();

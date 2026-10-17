@@ -8,6 +8,7 @@
 // (validation/ValidationDialogs.tsx) and protection
 // (protection/ProtectionDialogs.tsx).
 
+import { GoToSpecialDialog } from "./names/GoToSpecialDialog";
 import { useEffect, useRef, useState } from "react";
 import { cssColor, Dialog, OFFICE_THEME, PromptDialog, STANDARD_COLORS, THEME_SLOTS, type Color } from "@rusuite/ui-shared";
 import { NumberFormatDialog } from "./numfmt/NumberFormatDialog";
@@ -413,6 +414,8 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       return <EvaluateFormulaDialog store={store} />;
     case "goTo":
       return <GoToDialog store={store} />;
+    case "goToSpecial":
+      return <GoToSpecialDialog store={store} />;
     case "insertFunction":
       return <InsertFunctionDialog store={store} category={dialog.category} />;
     case "link":

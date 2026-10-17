@@ -14,7 +14,7 @@ import type { AxisGeometry } from "./geometry";
 import { colName } from "./address";
 import { barGrowsLeft, barRect, cfKey, cfStyle, drawGlyph, iconGlyph, ICON_SIZE } from "./cf";
 import { intersects, mergeAt } from "./merges";
-import { axisSegments, type PaneLayout } from "./panes";
+import { axisSegments, extrasX, extrasY, isSplit, type PaneLayout } from "./panes";
 import { isWholeCols, isWholeRows, LAST_COL, type Range } from "./Selection";
 import { approxMeasure, fitNumber, lineHeightPx, wrapLines, type Measure } from "./textLayout";
 import type { PivotLook } from "../pivot/styles";
@@ -739,6 +739,21 @@ export function drawSelection(
   ctx.strokeRect(cx, cy, cw - 1, ch - 1);
 }
 
+/** The further areas of a multi-area selection (Go To Special): tinted, with a thin border. */
+export function drawAreas(ctx: CanvasRenderingContext2D, vp: Viewport, sheet: SheetData, areas: readonly Range[]): void {
+  const { colGeo, rowGeo } = sheet;
+  ctx.fillStyle = "rgba(33, 115, 70, 0.12)";
+  ctx.strokeStyle = "#217346";
+  ctx.lineWidth = 1;
+  for (const a of areas) {
+    const x0 = colGeo.offset(a.c0) - vp.scrollX, x1 = colGeo.offset(a.c1 + 1) - vp.scrollX;
+    const y0 = rowGeo.offset(a.r0) - vp.scrollY, y1 = rowGeo.offset(a.r1 + 1) - vp.scrollY;
+    if (x1 < 0 || y1 < 0 || x0 > vp.width || y0 > vp.height) continue;
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    ctx.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0 - 1, y1 - y0 - 1);
+  }
+}
+
 /** A range outlined while a formula is edited (Excel's coloured reference boxes). */
 export interface RefHighlight {
   range: Range;
@@ -811,7 +826,7 @@ export function drawHeaders(
   ctx.strokeStyle = colors.line;
   ctx.lineWidth = 1;
   const rowsSel = isWholeRows(range), colsSel = isWholeCols(range);
-  for (const seg of axisSegments(l.frozenW, l.scrollX, l.width)) {
+  for (const seg of axisSegments(l.frozenW, l.scrollX, l.width, extrasX(l))) {
     if (seg.size <= 0) continue;
     ctx.save();
     ctx.beginPath();
@@ -835,7 +850,7 @@ export function drawHeaders(
     ctx.stroke();
     ctx.restore();
   }
-  for (const seg of axisSegments(l.frozenH, l.scrollY, l.height)) {
+  for (const seg of axisSegments(l.frozenH, l.scrollY, l.height, extrasY(l))) {
     if (seg.size <= 0) continue;
     ctx.save();
     ctx.beginPath();
@@ -870,8 +885,32 @@ export function drawHeaders(
   ctx.fillRect(0, 0, HEADER_W - 1, HEADER_H - 1);
 }
 
-/** The frozen-panes divider lines in the cell canvas. */
+/** Width of a View › Split splitter bar, px. */
+export const SPLITTER_PX = 5;
+
+/** The frozen-panes divider lines (or the split's splitter bars) in the cell canvas. */
 export function drawFreezeLines(ctx: CanvasRenderingContext2D, l: PaneLayout): void {
+  if (isSplit(l)) {
+    // Excel's splitter: a light grey bar with darker edges across the window.
+    ctx.save();
+    const bar = (x: number, y: number, w: number, h: number) => {
+      ctx.fillStyle = "#d6d6d6";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "#a6a6a6";
+      if (w > h) {
+        ctx.fillRect(x, y, w, 1);
+        ctx.fillRect(x, y + h - 1, w, 1);
+      } else {
+        ctx.fillRect(x, y, 1, h);
+        ctx.fillRect(x + w - 1, y, 1, h);
+      }
+    };
+    const sx = l.splitX ?? 0, sy = l.splitY ?? 0;
+    if (sy > 0 && sy < l.height) bar(0, Math.round(sy) - Math.floor(SPLITTER_PX / 2), l.width, SPLITTER_PX);
+    if (sx > 0 && sx < l.width) bar(Math.round(sx) - Math.floor(SPLITTER_PX / 2), 0, SPLITTER_PX, l.height);
+    ctx.restore();
+    return;
+  }
   if (l.frozenW <= 0 && l.frozenH <= 0) return;
   ctx.save();
   ctx.strokeStyle = FREEZE_LINE;

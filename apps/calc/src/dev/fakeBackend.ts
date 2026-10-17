@@ -697,8 +697,12 @@ export class FakeCalcCore {
       case "setFreeze": {
         const s = this.sheet(cmd.sheet);
         const old = s.view;
-        s.view = { ...old, frozenRows: cmd.rows, frozenCols: cmd.cols };
-        return [this.sheetsPatch(), { type: "setFreeze", sheet: cmd.sheet, rows: old.frozenRows, cols: old.frozenCols }];
+        const top = cmd.topRow ?? 0, left = cmd.leftCol ?? 0;
+        s.view = {
+          ...old, frozenRows: cmd.rows, frozenCols: cmd.cols, topRow: top, leftCol: left,
+          paneRow: cmd.rows > 0 ? top + cmd.rows : 0, paneCol: cmd.cols > 0 ? left + cmd.cols : 0, splitX: 0, splitY: 0,
+        };
+        return [this.sheetsPatch(), { type: "setSheetView", sheet: cmd.sheet, patch: { ...old } }];
       }
       case "setSheetView": {
         const s = this.sheet(cmd.sheet);
@@ -2526,6 +2530,23 @@ export class FakeCalcCore {
           return { ok: { type: "trace", refs: this.precedents(req.sheet, req.row, req.col) } };
         case "dependents":
           return { ok: { type: "trace", refs: this.dependents(req.sheet, req.row, req.col) } };
+        case "goToSpecial": {
+          // A toy for the UI tests: blanks and constants of the used range (or the selection), row-major single cells.
+          const s = this.sheet(req.sheet);
+          const single = req.range.r0 === req.range.r1 && req.range.c0 === req.range.c1;
+          let r1 = 0, c1 = 0;
+          for (const [r, row] of s.cells) for (const [c, cell] of row) if (cell.input !== "") [r1, c1] = [Math.max(r1, r), Math.max(c1, c)];
+          const area = single ? { r0: 0, c0: 0, r1, c1 } : req.range;
+          const areas: { r0: number; c0: number; r1: number; c1: number }[] = [];
+          for (let r = area.r0; r <= Math.min(area.r1, 200); r++) {
+            for (let c = area.c0; c <= Math.min(area.c1, 50); c++) {
+              const input = s.cells.get(r)?.get(c)?.input ?? "";
+              const hit = req.kind === "blanks" ? input === "" : req.kind === "constants" ? input !== "" && !input.startsWith("=") : req.kind === "formulas" && input.startsWith("=");
+              if (hit) areas.push({ r0: r, c0: c, r1: r, c1: c });
+            }
+          }
+          return { ok: { type: "areas", areas } };
+        }
         case "fillPreview": {
           // A toy: numbers continue by one step of the source's last difference; anything else copies its display.
           const s = this.sheet(req.sheet);

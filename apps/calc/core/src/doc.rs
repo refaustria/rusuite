@@ -248,6 +248,26 @@ impl CalcDocument {
 
     /// Writes the document as `.xlsx`, with the file-level data it was
     /// opened with (if any).
+    /// Records where a sheet is scrolled to (`saveXlsx`): the scroll
+    /// position of an unfrozen sheet, the scrolling pane's first cell with
+    /// frozen panes, both panes' first cells of a split. View state: no
+    /// undo step, not a change of the document.
+    pub fn set_scroll(&mut self, sc: crate::dispatch::SheetScroll) -> Result<()> {
+        let s = self.sheet(sc.sheet)?;
+        let mut v = self.workbook.sheet_view(s);
+        if v.is_frozen() {
+            v.pane_row = sc.pane_row;
+            v.pane_col = sc.pane_col;
+        } else {
+            v.top_row = sc.top_row;
+            v.left_col = sc.left_col;
+            v.pane_row = sc.pane_row;
+            v.pane_col = sc.pane_col;
+        }
+        self.workbook.set_sheet_view(s, v)?;
+        Ok(())
+    }
+
     pub fn save_xlsx(&self) -> Result<Vec<u8>> {
         let default_ctx = fmt_xlsx::XlsxContext::default();
         let ctx = self.xlsx_context.as_ref().unwrap_or(&default_ctx);
@@ -1280,16 +1300,27 @@ impl CalcDocument {
                     }),
                 })
             }
-            &C::SetFreeze { sheet, rows, cols } => {
+            &C::SetFreeze {
+                sheet,
+                rows,
+                cols,
+                top_row,
+                left_col,
+            } => {
                 let s = self.sheet(sheet)?;
                 let old = self.workbook.sheet_view(s);
-                self.workbook.set_frozen(s, rows, cols)?;
+                self.workbook.set_frozen_at(
+                    s,
+                    rows,
+                    cols,
+                    top_row.unwrap_or(0),
+                    left_col.unwrap_or(0),
+                )?;
                 Ok(Applied {
                     patch: self.sheets_only_patch(),
-                    inverse: Some(C::SetFreeze {
+                    inverse: Some(C::SetSheetView {
                         sheet,
-                        rows: old.frozen_rows,
-                        cols: old.frozen_cols,
+                        patch: SheetViewPatch::full(old),
                     }),
                 })
             }

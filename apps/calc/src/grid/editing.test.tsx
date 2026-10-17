@@ -50,14 +50,14 @@ function type(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
 describe("point mode with the mouse", () => {
   it("=SUM( then a drag over A1:A3, ) and Enter commits the formula", async () => {
     const { core, grid } = await setup();
-    fireEvent.mouseDown(grid, at(0, 2));
-    fireEvent.mouseUp(window);
+    fireEvent.pointerDown(grid, at(0, 2));
+    fireEvent.pointerUp(window);
     fireEvent.keyDown(grid, { key: "=" });
     type(editor(), "=SUM(");
-    fireEvent.mouseDown(grid, at(0, 0));
-    fireEvent.mouseMove(window, at(1, 0));
-    fireEvent.mouseMove(window, at(2, 0));
-    fireEvent.mouseUp(window);
+    fireEvent.pointerDown(grid, at(0, 0));
+    fireEvent.pointerMove(window, at(1, 0));
+    fireEvent.pointerMove(window, at(2, 0));
+    fireEvent.pointerUp(window);
     expect(editor().value).toBe("=SUM(A1:A3");
     expect(bar().value).toBe("=SUM(A1:A3");
     expect(document.activeElement).toBe(editor());
@@ -75,8 +75,8 @@ describe("point mode with the mouse", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Sheet2" }));
     expect(screen.queryByTestId("cell-editor")).toBeNull();
     expect(document.activeElement).toBe(bar());
-    fireEvent.mouseDown(grid, at(1, 1));
-    fireEvent.mouseUp(window);
+    fireEvent.pointerDown(grid, at(1, 1));
+    fireEvent.pointerUp(window);
     expect(bar().value).toBe("=Sheet2!B2");
     await act(async () => {
       fireEvent.keyDown(bar(), { key: "Enter" });
@@ -90,9 +90,9 @@ describe("point mode with the mouse", () => {
     fireEvent.keyDown(grid, { key: "=" });
     type(editor(), "=1+2");
     await act(async () => {
-      fireEvent.mouseDown(grid, at(3, 1));
+      fireEvent.pointerDown(grid, at(3, 1));
     });
-    fireEvent.mouseUp(window);
+    fireEvent.pointerUp(window);
     expect(applied(core.log)).toEqual([{ type: "setInput", sheet: 0, row: 0, col: 0, input: "=1+2" }]);
     expect(address()).toBe("B4");
     expect(screen.queryByTestId("cell-editor")).toBeNull();

@@ -17,9 +17,9 @@ import { SpillIndicator, SPILL_TAG_W } from "./SpillIndicator";
 import { ValidationOverlay } from "../validation/ValidationOverlay";
 import { spillOutlineOps } from "./spill";
 import { mergeAt } from "./merges";
-import { axisScrollTo, axisToScreen, mainPane, panes, toSheet, type PaneLayout } from "./panes";
+import { axisScrollTo, axisToScreen, extrasX, extrasY, isSplit, mainPane, panes, splitPaneAt, splitterAt, toSheet, TWIPS_PER_PX, type PaneLayout } from "./panes";
 import {
-  computeRenderOps, drawFreezeLines, drawHeaders, drawOps, drawRefHighlights, drawSelection, HEADER_H, HEADER_W, prepareCanvas, rangeRect,
+  computeRenderOps, drawFreezeLines, drawHeaders, drawOps, drawRefHighlights, drawAreas, drawSelection, HEADER_H, HEADER_W, prepareCanvas, rangeRect,
   visibleRange, type RefHighlight, type RenderOp, type SheetData,
 } from "./render";
 import {
@@ -119,6 +119,8 @@ type Hit =
   | { kind: "picture"; id: number; handle: Handle | null }
   /** A page break line of Page Break Preview. */
   | { kind: "pageBreak"; line: BreakLine }
+  /** A splitter of View › Split. */
+  | { kind: "splitter"; axis: "x" | "y" | "both" }
   | { kind: "none" };
 
 export function GridCanvas({ store, showPerf = false }: { store: CalcStore; showPerf?: boolean }) {
@@ -145,6 +147,10 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const perf = useRef({ frames: 0, totalMs: 0, maxMs: 0, lastFrameAt: 0, intervals: 0, intervalSum: 0 });
   /** Fill-handle drag: the range that would be filled. */
   const fillPreview = useRef<Rect | null>(null);
+  /** View › Split: the sheet offsets of the left and top panes (they scroll with the wheel, the rest with the scroll bars). */
+  const split0 = useRef({ x: 0, y: 0 });
+  /** A splitter being dragged: its screen position (px of the cell area). */
+  const splitDrag = useRef<{ x?: number; y?: number } | null>(null);
   /** The fill handle's tip while dragging (Excel): the value the last filled cell gets, near the pointer. */
   const [fillTip, setFillTip] = useState<{ text: string; x: number; y: number } | null>(null);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: ContextMenuItem[]; label: string } | null>(null);
@@ -193,19 +199,36 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const data = sheetData();
     const v = store.sheetView();
     const { hw, hh } = headerSize();
+    // Frozen while scrolled: the frozen area starts at the view's top-left cell (Excel's `topLeftCell`).
+    const top = v.frozenRows > 0 ? (v.topRow ?? 0) : 0;
+    const left = v.frozenCols > 0 ? (v.leftCol ?? 0) : 0;
+    const originY = data.rowGeo.offset(top);
+    const originX = data.colGeo.offset(left);
+    const split = v.frozenRows === 0 && v.frozenCols === 0;
+    const drag = splitDrag.current;
     return {
-      frozenW: v.frozenCols > 0 ? data.colGeo.offset(v.frozenCols) : 0,
-      frozenH: v.frozenRows > 0 ? data.rowGeo.offset(v.frozenRows) : 0,
+      frozenW: v.frozenCols > 0 ? data.colGeo.offset(left + v.frozenCols) - originX : 0,
+      frozenH: v.frozenRows > 0 ? data.rowGeo.offset(top + v.frozenRows) - originY : 0,
       scrollX: el?.scrollLeft ?? 0,
       scrollY: el?.scrollTop ?? 0,
       width: Math.max(0, (el?.clientWidth ?? 0) - hw),
       height: Math.max(0, (el?.clientHeight ?? 0) - hh),
+      originX,
+      originY,
+      splitX: split ? (drag?.x ?? (v.splitX ?? 0) / TWIPS_PER_PX) : 0,
+      splitY: split ? (drag?.y ?? (v.splitY ?? 0) / TWIPS_PER_PX) : 0,
+      scrollX0: split0.current.x,
+      scrollY0: split0.current.y,
     };
   }, [store, sheetData, headerSize]);
 
+  /** Sheet offsets of cell-area points (the panes' own scrolling). */
+  const axisToSheetX = (l: PaneLayout, x: number) => toSheet(l, x, 0).x;
+  const axisToSheetY = (l: PaneLayout, y: number) => toSheet(l, 0, y).y;
+
   /** Canvas position of a sheet offset (scrolled under the frozen part: where it would be). */
-  const screenX = (l: PaneLayout, x: number) => axisToScreen(l.frozenW, l.scrollX, x) ?? x - l.scrollX;
-  const screenY = (l: PaneLayout, y: number) => axisToScreen(l.frozenH, l.scrollY, y) ?? y - l.scrollY;
+  const screenX = (l: PaneLayout, x: number) => axisToScreen(l.frozenW, l.scrollX, x, extrasX(l)) ?? x - l.scrollX - (l.originX ?? 0);
+  const screenY = (l: PaneLayout, y: number) => axisToScreen(l.frozenH, l.scrollY, y, extrasY(l)) ?? y - l.scrollY - (l.originY ?? 0);
 
   /** Page Break Preview's break lines of the active sheet (`[]` when off). */
   const breakLines = (data: SheetData): { lines: BreakLine[]; lastRow: number; lastCol: number } => {
@@ -245,8 +268,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       if (isWholeCols(sel) && isWholeRows(sel)) return null;
       const data = sheetData();
       const l = layout();
-      const sx = axisToScreen(l.frozenW, l.scrollX, data.colGeo.offset(sel.c1 + 1));
-      const sy = axisToScreen(l.frozenH, l.scrollY, data.rowGeo.offset(sel.r1 + 1));
+      const sx = axisToScreen(l.frozenW, l.scrollX, data.colGeo.offset(sel.c1 + 1), extrasX(l));
+      const sy = axisToScreen(l.frozenH, l.scrollY, data.rowGeo.offset(sel.r1 + 1), extrasY(l));
       if (sx === null || sy === null) return null;
       const x = sx - HANDLE / 2 - 1;
       const y = sy - HANDLE / 2 - 1;
@@ -336,6 +359,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         // Sparklines inside their cells (P9-C6), under the selection.
         paintSparklines(cctx, store.sparklines.views(state.activeSheet), (r, c) => rangeRect(vp, data, { r0: r, c0: c, r1: r, c1: c }), visibleRange(vp, data.colGeo, data.rowGeo));
         drawSelection(cctx, vp, data, sel, state.selection.anchor);
+        if (state.selection.areas?.length) drawAreas(cctx, vp, data, state.selection.areas);
         // Note triangles and comment markers in the cells' top-right corners (over the selection, as in Excel).
         const visCells = visibleRange(vp, data.colGeo, data.rowGeo);
         drawIndicators(cctx, indicators(data.cells, data.colGeo, data.rowGeo, [visCells.r0, visCells.r1], [visCells.c0, visCells.c1]), vp.scrollX, vp.scrollY);
@@ -583,31 +607,122 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   );
 
   useEffect(() => {
+    // View › Split: the wheel over a left / top pane scrolls that pane (the scroll bars move the others).
+    const el = scroller.current;
+    if (!el) return;
+    const wheel = (e: WheelEvent) => {
+      const l = layout();
+      if (!isSplit(l)) return;
+      const rect = el.getBoundingClientRect();
+      const scale = screenScale(el);
+      const { hw, hh } = headerSize();
+      const at = splitPaneAt(l, (e.clientX - rect.left) / scale - hw, (e.clientY - rect.top) / scale - hh);
+      const dy = at.row === 0 && (l.splitY ?? 0) > 0 ? e.deltaY : 0;
+      const dx = at.col === 0 && (l.splitX ?? 0) > 0 ? (e.shiftKey ? e.deltaY : e.deltaX) : 0;
+      if (dy === 0 && dx === 0) return;
+      if ((dy !== 0 && e.deltaX !== 0 && dx === 0) || (dx !== 0 && !e.shiftKey && e.deltaY !== 0 && dy === 0)) return;
+      e.preventDefault();
+      const unit = e.deltaMode === 1 ? 20 : e.deltaMode === 2 ? 400 : 1;
+      split0.current = { x: Math.max(0, split0.current.x + dx * unit), y: Math.max(0, split0.current.y + dy * unit) };
+      schedule();
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+  }, [layout, headerSize, schedule]);
+
+  useEffect(() => {
+    // The scroll position for Freeze Panes and Save; the split for View › Split.
+    store.viewport = () => {
+      const l = layout();
+      const data = sheetData();
+      const v = store.sheetView();
+      const main = mainPane(l).vp;
+      const paneRow = data.rowGeo.indexAt(main.scrollY);
+      const paneCol = data.colGeo.indexAt(main.scrollX);
+      const split = isSplit(l);
+      return {
+        sheet: store.getState().activeSheet,
+        topRow: v.frozenRows > 0 ? (v.topRow ?? 0) : split && (l.splitY ?? 0) > 0 ? data.rowGeo.indexAt(l.scrollY0 ?? 0) : paneRow,
+        leftCol: v.frozenCols > 0 ? (v.leftCol ?? 0) : split && (l.splitX ?? 0) > 0 ? data.colGeo.indexAt(l.scrollX0 ?? 0) : paneCol,
+        paneRow,
+        paneCol,
+      };
+    };
+    store.splitHere = () => {
+      const l = layout();
+      const data = sheetData();
+      const a = store.activeAnchor();
+      const vp = store.viewport!();
+      // At the active cell's top-left corner; with the first visible cell active, in the middle of the window (Excel).
+      let sx = a.col > vp.paneCol ? screenX(l, data.colGeo.offset(a.col)) : 0;
+      let sy = a.row > vp.paneRow ? screenY(l, data.rowGeo.offset(a.row)) : 0;
+      if (sx <= 0 || sx >= l.width) sx = 0;
+      if (sy <= 0 || sy >= l.height) sy = 0;
+      if (sx === 0 && sy === 0) {
+        sx = Math.round(l.width / 2);
+        sy = Math.round(l.height / 2);
+      }
+      const rowAt = sy > 0 ? data.rowGeo.indexAt(axisToSheetY(l, sy)) : vp.paneRow;
+      const colAt = sx > 0 ? data.colGeo.indexAt(axisToSheetX(l, sx)) : vp.paneCol;
+      return {
+        splitX: Math.round(sx * TWIPS_PER_PX), splitY: Math.round(sy * TWIPS_PER_PX),
+        topRow: vp.paneRow, leftCol: vp.paneCol, paneRow: rowAt, paneCol: colAt,
+      };
+    };
+    return () => {
+      store.viewport = null;
+      store.splitHere = null;
+    };
+  }, [store, layout, sheetData]);
+
+  useEffect(() => {
     // Animate the marching ants while a copy/cut is pending.
     if (!clipMark) return;
     const id = setInterval(schedule, 120);
     return () => clearInterval(id);
   }, [clipMark, schedule]);
 
+  /** Scrolls to the sheet view's saved position (`topLeftCell`s): a sheet shown or opened, panes frozen or split. */
+  const scrollToView = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const v = store.sheetView();
+    const data = sheetData();
+    const top = v.topRow ?? 0, left = v.leftCol ?? 0;
+    const frozenR = v.frozenRows, frozenC = v.frozenCols;
+    const split = frozenR === 0 && frozenC === 0 && ((v.splitX ?? 0) > 0 || (v.splitY ?? 0) > 0);
+    // The scrolling pane's first row / column.
+    const paneRow = frozenR > 0 ? Math.max(v.paneRow ?? 0, top + frozenR) : split && (v.splitY ?? 0) > 0 ? (v.paneRow ?? 0) : top;
+    const paneCol = frozenC > 0 ? Math.max(v.paneCol ?? 0, left + frozenC) : split && (v.splitX ?? 0) > 0 ? (v.paneCol ?? 0) : left;
+    grow.current = { rows: Math.max(grow.current.rows, paneRow + 60), cols: Math.max(grow.current.cols, paneCol + 20) };
+    split0.current = { x: split ? data.colGeo.offset(left) : 0, y: split ? data.rowGeo.offset(top) : 0 };
+    draw(); // size the spacer before scrolling
+    el.scrollTop = Math.max(0, data.rowGeo.offset(paneRow) - (frozenR > 0 ? data.rowGeo.offset(top + frozenR) : 0));
+    el.scrollLeft = Math.max(0, data.colGeo.offset(paneCol) - (frozenC > 0 ? data.colGeo.offset(left + frozenC) : 0));
+  }, [store, sheetData]);
+
   useEffect(() => {
-    // New sheet: back to the top-left corner.
+    // A sheet shown: at its saved scroll position (A1 for a new one).
     grow.current = { rows: 0, cols: 0 };
-    if (scroller.current) {
-      scroller.current.scrollTop = 0;
-      scroller.current.scrollLeft = 0;
-    }
+    scrollToView();
     schedule();
-  }, [activeSheet, schedule]);
+  }, [activeSheet, schedule, scrollToView]);
 
   useEffect(schedule, [sheetView, schedule]);
 
+  // Freezing / unfreezing / splitting: the panes start where the view says (frozen while scrolled keeps the position).
+  const paneKey = `${sheetView.frozenRows},${sheetView.frozenCols},${sheetView.topRow ?? 0},${sheetView.leftCol ?? 0},${(sheetView.splitX ?? 0) > 0},${(sheetView.splitY ?? 0) > 0}`;
+  const lastPaneKey = useRef(paneKey);
   useEffect(() => {
-    // Freezing starts from the top-left corner: the frozen rows/columns are the sheet's first ones.
-    if ((sheetView.frozenRows > 0 || sheetView.frozenCols > 0) && scroller.current) {
-      scroller.current.scrollTop = 0;
-      scroller.current.scrollLeft = 0;
+    if (lastPaneKey.current === paneKey) return;
+    lastPaneKey.current = paneKey;
+    // A splitter moved by dragging keeps both panes where they are.
+    if (store.keepScrollOnce) {
+      store.keepScrollOnce = false;
+      return;
     }
-  }, [sheetView.frozenRows, sheetView.frozenCols]);
+    scrollToView();
+  }, [paneKey, scrollToView, store]);
 
   /** Screen px per grid px (the CSS zoom, as the browser applies it). */
   const screenScale = (el: HTMLElement): number => {
@@ -649,8 +764,13 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       return hit ? { kind: "outline", hit } : { kind: "none" };
     }
     // Per quadrant: frozen parts map 1:1, the rest is scrolled.
-    const { x: cx, y: cy } = toSheet(layout(), x - hw, y - hh);
+    const lay = layout();
+    const { x: cx, y: cy } = toSheet(lay, x - hw, y - hh);
     if (x < hw && y < hh) return { kind: "corner" };
+    if (x >= hw && y >= hh) {
+      const sp = splitterAt(lay, x - hw, y - hh);
+      if (sp) return { kind: "splitter", axis: sp };
+    }
     if (x >= hw && y >= hh) {
       const sheet = store.getState().activeSheet;
       const psel = store.pictures.selected;
@@ -726,8 +846,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     if (cell.row + 20 > grow.current.rows) grow.current.rows = cell.row + 50;
     if (cell.col + 5 > grow.current.cols) grow.current.cols = cell.col + 10;
     draw(); // resize the spacer before scrolling
-    const top = axisScrollTo(l.frozenH, l.scrollY, l.height, y0, y1);
-    const left = axisScrollTo(l.frozenW, l.scrollX, l.width, x0, x1);
+    const top = axisScrollTo(l.frozenH, l.scrollY, l.height, y0, y1, extrasY(l));
+    const left = axisScrollTo(l.frozenW, l.scrollX, l.width, x0, x1, extrasX(l));
     if (top !== null) el.scrollTop = top;
     if (left !== null) el.scrollLeft = left;
   };
@@ -843,6 +963,42 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const hit = hitTest(e.clientX, e.clientY);
+    if (hit.kind === "splitter") {
+      // Dragging a splitter moves it; dropped at the window's edge it goes away (Excel).
+      e.preventDefault();
+      const el = scroller.current;
+      if (!el) return;
+      const { hw, hh } = headerSize();
+      const scale = screenScale(el);
+      const rect = el.getBoundingClientRect();
+      const start = layout();
+      const move = (ev: PointerEvent) => {
+        const px = (ev.clientX - rect.left) / scale - hw;
+        const py = (ev.clientY - rect.top) / scale - hh;
+        splitDrag.current = {
+          ...(hit.axis !== "y" ? { x: Math.max(0, Math.min(start.width, px)) } : {}),
+          ...(hit.axis !== "x" ? { y: Math.max(0, Math.min(start.height, py)) } : {}),
+        };
+        schedule();
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+        const d = splitDrag.current;
+        splitDrag.current = null;
+        if (!d) return;
+        const twips = (px: number | undefined, size: number) => (px === undefined ? undefined : px < 8 || px > size - 8 ? 0 : Math.round(px * TWIPS_PER_PX));
+        const sx = twips(d.x, start.width), sy = twips(d.y, start.height);
+        store.keepScrollOnce = sx !== 0 && sy !== 0;
+        void store.setSheetView({ ...(sx !== undefined ? { splitX: sx } : {}), ...(sy !== undefined ? { splitY: sy } : {}) });
+        schedule();
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
+      return;
+    }
     if (hit.kind === "chart" || hit.kind === "chartHandle") {
       store.pictures.deselect();
       store.slicers.deselect();
@@ -907,9 +1063,12 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       else openPivotFilter(hit.button);
       return;
     }
-    if (hit.kind !== "filterButton") return;
-    e.preventDefault();
-    openFilterMenu(hit.col);
+    if (hit.kind === "filterButton") {
+      e.preventDefault();
+      openFilterMenu(hit.col);
+      return;
+    }
+    cellPointer(e, hit);
   };
 
   /** Click / drag on a chart: select (element), move, or resize with a handle; Alt snaps to cell edges. */
@@ -987,16 +1146,40 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     window.addEventListener("pointerup", up);
   };
 
+  // The mouse's own events only keep the focus and the text selection where they are: everything runs on
+  // pointer events (mouse, pen and touch alike; the touch guardrail of the plan).
   const onMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    let hit = hitTest(e.clientX, e.clientY);
+    if (hitTest(e.clientX, e.clientY).kind !== "none") e.preventDefault();
+  };
+
+  /** A press on cells, headers, edges or the fill handle (the selection, resizing, filling, point mode). */
+  const cellPointer = (e: ReactPointerEvent<HTMLDivElement>, first: Hit) => {
+    let hit = first;
     if (hit.kind === "none") return;
     if (
-      hit.kind === "filterButton" || hit.kind === "chart" || hit.kind === "chartHandle" || hit.kind === "picture" || hit.kind === "outline" || hit.kind === "pageBreak"
-      || hit.kind === "tableFilter" || hit.kind === "totalsButton" || (hit.kind === "pivotButton" && !store.getState().edit)
-    ) {
-      // Handled on pointerdown; keep the selection and the focus where they are.
-      e.preventDefault();
+      hit.kind === "chart" || hit.kind === "chartHandle" || hit.kind === "picture" || hit.kind === "outline" || hit.kind === "pageBreak" || hit.kind === "filterButton"
+      || hit.kind === "tableFilter" || hit.kind === "totalsButton" || hit.kind === "splitter" || (hit.kind === "pivotButton" && !store.getState().edit)
+    ) return;
+    // Touch: a tap selects (on release, so that a swipe scrolls the sheet instead); no drag selection.
+    if (e.pointerType === "touch" && hit.kind === "cell" && !store.getState().edit) {
+      const cell = hit.cell;
+      const x0 = e.clientX, y0 = e.clientY;
+      const up = (ev: PointerEvent) => {
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", cancel);
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 10) return;
+        store.pictures.deselect();
+        store.slicers.deselect();
+        scroller.current?.focus({ preventScroll: true });
+        store.select(cellSelection(cell.row, cell.col));
+      };
+      const cancel = () => {
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", cancel);
+      };
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", cancel);
       return;
     }
     // While editing, a pivot button is just its cell (point mode).
@@ -1040,7 +1223,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       const src = normalize(sel);
       const sheet = store.getState().activeSheet;
       let asked = "";
-      const move = (ev: MouseEvent) => {
+      const move = (ev: PointerEvent) => {
         const h = hitTest(Math.max(ev.clientX, 0), Math.max(ev.clientY, 0));
         const to = h.kind === "cell" ? h.cell : null;
         const next = to ? fillTarget(src, to) : fillPreview.current;
@@ -1070,9 +1253,10 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           () => setFillTip(null),
         );
       };
-      const up = (ev: MouseEvent) => {
-        window.removeEventListener("mousemove", move);
-        window.removeEventListener("mouseup", up);
+      const up = (ev: PointerEvent) => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
         asked = "\u0000";
         setFillTip(null);
         const dst = fillPreview.current;
@@ -1080,8 +1264,9 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         schedule();
         if (dst) void store.fill(dst, ev.ctrlKey || ev.metaKey ? "alternate" : "auto");
       };
-      window.addEventListener("mousemove", move);
-      window.addEventListener("mouseup", up);
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
       return;
     }
 
@@ -1093,14 +1278,15 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       const startPos = axis === "col" ? e.clientX : e.clientY;
       const scale = scroller.current ? screenScale(scroller.current) : 1;
       resizePreview.current = { axis, index, size: startSize };
-      const move = (ev: MouseEvent) => {
+      const move = (ev: PointerEvent) => {
         const pos = axis === "col" ? ev.clientX : ev.clientY;
         resizePreview.current = { axis, index, size: Math.max(0, startSize + (pos - startPos) / scale) };
         schedule();
       };
       const up = () => {
-        window.removeEventListener("mousemove", move);
-        window.removeEventListener("mouseup", up);
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
         const p = resizePreview.current;
         resizePreview.current = null;
         schedule();
@@ -1108,8 +1294,9 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           void (axis === "col" ? store.setColWidth(index, p.size) : store.setRowHeight(index, p.size));
         }
       };
-      window.addEventListener("mousemove", move);
-      window.addEventListener("mouseup", up);
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
       return;
     }
 
@@ -1122,7 +1309,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     if (hit.kind === "corner") return;
 
     const anchor = next.anchor;
-    const move = (ev: MouseEvent) => {
+    const move = (ev: PointerEvent) => {
       const h = hitTest(Math.max(ev.clientX, 0), Math.max(ev.clientY, 0));
       if (hit.kind === "colHeader" && (h.kind === "colHeader" || h.kind === "cell" || h.kind === "colEdge")) {
         const col = h.kind === "cell" ? h.cell.col : h.col;
@@ -1135,13 +1322,15 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       }
     };
     const up = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
       // The Format Painter paints the range just selected.
       void store.selectionDone();
     };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
   };
 
   /** Point mode: a click inserts the cell's reference, a drag a range, a header whole columns/rows. */
@@ -1173,21 +1362,23 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const anchor = extend && point && store.getState().edit?.selEnd === point.end ? point.anchor : a;
     store.pointRange(anchor, f);
     store.focusEditor();
-    const move = (ev: MouseEvent) => {
+    const move = (ev: PointerEvent) => {
       const h = hitTest(Math.max(ev.clientX, 0), Math.max(ev.clientY, 0));
       if (h.kind !== hit.kind) return;
       const c = corners(h);
       if (c) store.pointRange(anchor, c[1]);
     };
     const up = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
     };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
   };
 
-  const onMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
+  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
     // Notes, threads and links show their box / card / tip on hover (also reachable from the Review tab and the context menu).
     if (e.buttons === 0) store.comments.hoverAt(hit.kind === "cell" ? hit.cell : null);
@@ -1195,6 +1386,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       hit.kind === "colEdge" ? "col-resize" : hit.kind === "rowEdge" ? "row-resize" : hit.kind === "fillHandle" ? "crosshair" : hit.kind === "filterButton" || hit.kind === "pivotButton" || hit.kind === "tableFilter" || hit.kind === "totalsButton" || hit.kind === "outline" ? "default"
         : hit.kind === "picture" ? (hit.handle ? handleCursor(hit.handle) : "move")
         : hit.kind === "pageBreak" ? (hit.line.axis === "rows" ? "row-resize" : "col-resize")
+        : hit.kind === "splitter" ? (hit.axis === "x" ? "col-resize" : hit.axis === "y" ? "row-resize" : "move")
         : hit.kind === "chartHandle" ? handleCursor(hit.handle) : hit.kind === "chart" ? (store.charts.selected?.id === hit.id ? "move" : "default") : "cell";
     if (scroller.current && scroller.current.style.cursor !== cursor) scroller.current.style.cursor = cursor;
   };
@@ -1207,6 +1399,11 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       charts.select(store.getState().activeSheet, hit.id, hit.element && hit.element.type !== "chartArea" ? hit.element : null);
       charts.pane = true;
       store.notify();
+      return;
+    }
+    if (hit.kind === "splitter") {
+      // Double-click on a splitter removes it (Excel).
+      void store.setSheetView(hit.axis === "x" ? { splitX: 0 } : hit.axis === "y" ? { splitY: 0 } : { splitX: 0, splitY: 0 });
       return;
     }
     if (hit.kind === "chartHandle" || hit.kind === "picture" || hit.kind === "outline" || hit.kind === "pageBreak") return;
@@ -1354,7 +1551,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const hit = hitTest(e.clientX, e.clientY);
     if (
       hit.kind === "none" || hit.kind === "corner" || hit.kind === "filterButton" || hit.kind === "pivotButton" || hit.kind === "tableFilter" || hit.kind === "totalsButton"
-      || hit.kind === "outline" || hit.kind === "picture" || hit.kind === "pageBreak" || store.getState().edit
+      || hit.kind === "outline" || hit.kind === "picture" || hit.kind === "pageBreak" || hit.kind === "splitter" || store.getState().edit
     ) return;
     e.preventDefault();
     if (hit.kind === "chart" || hit.kind === "chartHandle") {
@@ -1391,6 +1588,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           aria-hidden="true"
           data-testid="grid-cells"
           data-frozen={`${sheetView.frozenRows},${sheetView.frozenCols}`}
+          data-top-left={`${sheetView.topRow ?? 0},${sheetView.leftCol ?? 0}`}
+          data-split={`${sheetView.splitX ?? 0},${sheetView.splitY ?? 0}`}
           data-circles={circleCells}
         />
         <canvas ref={headerCanvas} className="absolute left-0 top-0" style={headings ? undefined : { display: "none" }} aria-hidden="true" />
@@ -1408,8 +1607,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           onScroll={onScroll}
           onPointerDown={onPointerDown}
           onMouseDown={onMouseDown}
-          onMouseMove={onMouseMove}
-          onMouseLeave={() => store.comments.hoverAt(null)}
+          onPointerMove={onPointerMove}
+          onPointerLeave={() => store.comments.hoverAt(null)}
           onDoubleClick={onDoubleClick}
           onKeyDown={onKeyDown}
           onCopy={(e) => onCopy(e)}

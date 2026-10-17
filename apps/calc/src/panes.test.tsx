@@ -46,8 +46,8 @@ const sheetTabs = () => within(screen.getByRole("tablist", { name: "Sheets" })).
 const activeTab = () => within(screen.getByRole("tablist", { name: "Sheets" })).getByRole("tab", { selected: true }).textContent;
 
 function click(grid: HTMLElement, row: number, col: number, shiftKey = false) {
-  fireEvent.mouseDown(grid, { ...at(row, col), button: 0, shiftKey });
-  fireEvent.mouseUp(window);
+  fireEvent.pointerDown(grid, { ...at(row, col), button: 0, shiftKey });
+  fireEvent.pointerUp(window);
 }
 
 async function typeCell(grid: HTMLElement, text: string) {
@@ -73,11 +73,11 @@ describe("freeze panes", () => {
     const { core, grid } = await setup();
     click(grid, 2, 2);
     fireEvent.click(ribbonMenu("View", "Freeze Panes", "Freeze Panes"));
-    await waitFor(() => expect(applied(core.log)).toEqual([{ type: "setFreeze", sheet: 0, rows: 2, cols: 2 }]));
+    await waitFor(() => expect(applied(core.log)).toEqual([{ type: "setFreeze", sheet: 0, rows: 2, cols: 2, topRow: 0, leftCol: 0 }]));
     await waitFor(() => expect(screen.getByTestId("grid-cells").dataset.frozen).toBe("2,2"));
     fireEvent.click(ribbonMenu("View", "Freeze Panes", "Unfreeze Panes"));
     await waitFor(() => expect(screen.getByTestId("grid-cells").dataset.frozen).toBe("0,0"));
-    expect(applied(core.log)[1]).toEqual({ type: "setFreeze", sheet: 0, rows: 0, cols: 0 });
+    expect(applied(core.log)[1]).toEqual({ type: "setFreeze", sheet: 0, rows: 0, cols: 0, topRow: 0, leftCol: 0 });
   });
 
   it("Freeze Top Row and Freeze First Column; undo restores the previous panes", async () => {
@@ -88,8 +88,8 @@ describe("freeze panes", () => {
     fireEvent.click(ribbonMenu("View", "Freeze Panes", "Freeze First Column"));
     await waitFor(() => expect(screen.getByTestId("grid-cells").dataset.frozen).toBe("0,1"));
     expect(applied(core.log)).toEqual([
-      { type: "setFreeze", sheet: 0, rows: 1, cols: 0 },
-      { type: "setFreeze", sheet: 0, rows: 0, cols: 1 },
+      { type: "setFreeze", sheet: 0, rows: 1, cols: 0, topRow: 0, leftCol: 0 },
+      { type: "setFreeze", sheet: 0, rows: 0, cols: 1, topRow: 0, leftCol: 0 },
     ]);
     grid.focus();
     fireEvent.keyDown(grid, { key: "z", ctrlKey: true });
@@ -311,5 +311,60 @@ describe("hidden sheets", () => {
     await store.deleteSheet(0);
     expect(applied(core.log)).toEqual([]);
     expect(toasts()).toContain("at least one visible sheet");
+  });
+});
+
+describe("P9-C7: Go To Special, View › Split, freezing while scrolled", () => {
+  it("Go To › Special… › Blanks selects the empty cells; typing with Ctrl+Enter fills every area", async () => {
+    const { core, grid, store } = await setup();
+    await store.apply({ type: "setInput", sheet: 0, row: 0, col: 0, input: "1" });
+    await store.apply({ type: "setInput", sheet: 0, row: 2, col: 0, input: "3" });
+    await store.apply({ type: "setInput", sheet: 0, row: 3, col: 1, input: "x" });
+    core.log.length = 0;
+    fireEvent.keyDown(grid, { key: "g", ctrlKey: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Special…" }));
+    const dlg = await screen.findByRole("dialog", { name: "Go To Special" });
+    fireEvent.click(within(dlg).getByRole("radio", { name: "Blanks" }));
+    fireEvent.click(within(dlg).getByRole("button", { name: "OK" }));
+    await waitFor(() => expect(store.getState().selection.areas?.length).toBeGreaterThan(0));
+    expect(core.log.find((r) => r.type === "goToSpecial")).toMatchObject({ kind: "blanks", range: { r0: 0, c0: 0, r1: 0, c1: 0 } });
+    // A1:B4 has five blanks (B1, A2, B2, B3, A4).
+    expect(store.selectionAreas()).toHaveLength(5);
+    expect(address()).toBe("B1");
+    core.log.length = 0;
+    fireEvent.keyDown(grid, { key: "0" });
+    const ed = screen.getByTestId("cell-editor") as HTMLTextAreaElement;
+    fireEvent.change(ed, { target: { value: "0" } });
+    fireEvent.keyDown(ed, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(applied(core.log).some((c) => c.type === "compound")).toBe(true));
+    const compound = applied(core.log).find((c) => c.type === "compound");
+    expect(compound?.type === "compound" && compound.commands.filter((c) => c.type === "pasteRange")).toHaveLength(5);
+  });
+
+  it("nothing found: Excel's message, the selection stays", async () => {
+    const { store } = await setup();
+    expect(await store.goToSpecial("constants", { numbers: true, text: true, logicals: true, errors: true }, false)).toBe(false);
+    await waitFor(() => expect(toasts()).toMatch(/No cells were found/));
+    expect(store.getState().selection.areas).toBeUndefined();
+  });
+
+  it("Freeze Panes while scrolled freezes from the first visible row; Split toggles splitters at the active cell", async () => {
+    const { core, grid, store } = await setup();
+    // Scrolled to row 20 (the grid installs the viewport; here it is pinned).
+    store.viewport = () => ({ sheet: 0, topRow: 19, leftCol: 0, paneRow: 19, paneCol: 0 });
+    store.select({ anchor: { row: 24, col: 0 }, focus: { row: 24, col: 0 } });
+    fireEvent.click(ribbonMenu("View", "Freeze Panes", "Freeze Panes"));
+    await waitFor(() => expect(applied(core.log)).toEqual([{ type: "setFreeze", sheet: 0, rows: 5, cols: 0, topRow: 19, leftCol: 0 }]));
+    await waitFor(() => expect(screen.getByTestId("grid-cells").dataset.topLeft).toBe("19,0"));
+    core.log.length = 0;
+    store.splitHere = () => ({ splitX: 1500, splitY: 900, topRow: 19, leftCol: 0, paneRow: 22, paneCol: 2 });
+    fireEvent.click(screen.getByRole("button", { name: "Split" }));
+    // Splitting unfreezes first (Excel), in one undo step.
+    await waitFor(() => expect(applied(core.log)[0]).toMatchObject({ type: "compound" }));
+    await waitFor(() => expect(screen.getByTestId("grid-cells").dataset.split).toBe("1500,900"));
+    expect(screen.getByTestId("grid-cells").dataset.frozen).toBe("0,0");
+    fireEvent.click(screen.getByRole("button", { name: "Split" }));
+    await waitFor(() => expect(screen.getByTestId("grid-cells").dataset.split).toBe("0,0"));
+    void grid;
   });
 });
