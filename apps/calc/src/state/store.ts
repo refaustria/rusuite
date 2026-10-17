@@ -63,6 +63,8 @@ import { t } from "../i18n";
 import { hasFilters, recordsFound, type CustomPreset } from "../sortFilter/filter";
 import { validationAt } from "../validation/validation";
 import { currentRegion, duplicateColumns, guessHeader, sortRangeCommand, sortScope, type SortLevel } from "../sortFilter/sort";
+import { SparklineController } from "../sparklines/controller";
+import type { SparklineKind } from "../generated/SparklineKind";
 import { ChartController } from "../charts/controller";
 import { NamesController } from "../names/controller";
 import { TraceController } from "../audit/trace";
@@ -110,8 +112,16 @@ const spillKey = (row: number, col: number) => row * (LAST_COL + 1) + col;
 export const DEFAULT_SHEET_VIEW: SheetView = { frozenRows: 0, frozenCols: 0, zoom: 100, showGridlines: true, showHeadings: true };
 
 /** The view settings of `sheet` (defaults when absent or unknown). */
+const chartSheetViews = new WeakMap<SheetView, SheetView>();
+
 export function sheetViewOf(info: WorkbookInfo | null, sheet: number): SheetView {
-  return info?.sheets.find((s) => s.id === sheet)?.view ?? DEFAULT_SHEET_VIEW;
+  const s = info?.sheets.find((x) => x.id === sheet);
+  const view = s?.view ?? DEFAULT_SHEET_VIEW;
+  if (!s?.chartSheet) return view;
+  // A chart sheet has no cells to show: no headings, gridlines or frozen panes (one object per view: stable for selectors).
+  let v = chartSheetViews.get(view);
+  if (!v) chartSheetViews.set(view, (v = { ...view, showHeadings: false, showGridlines: false, frozenRows: 0, frozenCols: 0 }));
+  return v;
 }
 
 /** The sheets that have a tab, in order. */
@@ -224,6 +234,14 @@ export type CalcDialog =
   | { kind: "moveChart" }
   /** Select Data… of the selected chart. */
   | { kind: "selectData" }
+  /** Insert › Sparklines (`group` absent) or Edit Group Location & Data (P9-C6). */
+  | { kind: "sparklines"; sparkKind: SparklineKind; group?: number }
+  /** Sparkline › Edit Data › Edit Single Sparkline's Data. */
+  | { kind: "sparklineSingle" }
+  /** Sparkline › Edit Data › Hidden & Empty Cells. */
+  | { kind: "sparklineHidden" }
+  /** Sparkline › Axis › Custom Value (vertical minimum / maximum) or Date Axis Type (the date range). */
+  | { kind: "sparklineAxis"; which: "min" | "max" | "dates" }
   /** Formulas › Name Manager. */
   | { kind: "nameManager" }
   /** New Name (`edit` absent) or Edit Name; `back`: return to the Name Manager. */
@@ -509,6 +527,8 @@ export class CalcStore {
 
   /** Charts of the sheets: lists, data, selection, commands (P8-20). */
   readonly charts: ChartController = new ChartController(this);
+  /** Sparkline groups and data per sheet, the Sparkline tab's operations (P9-C6). */
+  readonly sparklines: SparklineController = new SparklineController(this);
   /** Defined names: the list, the Name Box, Go To, the name commands (P8-23). */
   readonly names: NamesController = new NamesController(this);
   /** Formula Auditing's trace arrows (P8-23). */
@@ -750,6 +770,7 @@ export class CalcStore {
     this.geo.clear();
     this.inflight.clear();
     this.charts.reset();
+    this.sparklines.reset();
     this.comments.reset();
     this.pivots.reset(info.stalePivots ?? []);
     this.pictures.reset();
@@ -760,6 +781,7 @@ export class CalcStore {
       ? info.activeSheet
       : shown.some((s) => s.id === this.state.activeSheet) ? this.state.activeSheet : (shown[0]?.id ?? info.sheets[0]?.id ?? 0);
     this.bump({ info, activeSheet: active, revision: info.revision, edit: null });
+    if (this.isChartSheet(active)) this.selectChartSheet(active);
   }
 
   /** Merges a patch into the cache; structural changes drop a sheet's cache and reload its viewport. */
@@ -813,6 +835,7 @@ export class CalcStore {
         this.extents.delete(id);
         this.lastViewport.delete(id);
         this.charts.dropSheet(id);
+        this.sparklines.dropSheet(id);
         this.comments.dropSheet(id);
         this.pivots.dropSheet(id);
         this.pictures.dropSheet(id);
@@ -849,6 +872,8 @@ export class CalcStore {
     }
     if (patch.cfSheets?.length) this.invalidateCf(patch.cfSheets);
     if (patch.chartSheets?.length) this.charts.invalidate(patch.chartSheets);
+    if (patch.sparklineSheets?.length) this.sparklines.invalidate(patch.sparklineSheets);
+    if (switched && this.isChartSheet(activeSheet)) this.selectChartSheet(activeSheet);
     if (patch.pivotSheets?.length) {
       // Pivot roles and the table lists are in the snapshots: fetch the sheets' viewports again.
       this.invalidateCf(patch.pivotSheets);
@@ -1023,6 +1048,7 @@ export class CalcStore {
     if (snap.merges?.length || cache.merges.length) cache.merges = mergeSnapshot(cache.merges, snap, snap.merges ?? []);
     applyCfSnapshot(cache, snap);
     this.charts.fromSnapshot(snap.sheet, snap.charts ?? []);
+    this.sparklines.fromSnapshot(snap.sheet, snap.sparklines ?? []);
     this.pivots.fromSnapshot(snap.sheet, snap.pivots ?? []);
     this.bump();
     this.audit.ensure(snap.sheet);
@@ -1252,6 +1278,7 @@ export class CalcStore {
     if (changed && !this.state.dialog) this.charts.deselect();
     this.set({ activeSheet: sheet, selection, edit });
     if (!changed) return;
+    if (this.isChartSheet(sheet)) this.selectChartSheet(sheet);
     const vp = this.lastViewport.get(sheet) ?? { r0: 0, c0: 0, r1: BLOCK_ROWS - 1, c1: BLOCK_COLS - 1 };
     void this.ensureRegion(sheet, vp.r0, vp.c0, vp.r1, vp.c1);
   }
@@ -2472,6 +2499,21 @@ export class CalcStore {
   unhideSheets(sheets: number[]): Promise<void> {
     if (sheets.length <= 1) return sheets[0] === undefined ? Promise.resolve() : this.unhideSheet(sheets[0]);
     return this.apply({ type: "compound", commands: sheets.map((sheet) => ({ type: "setSheetHidden", sheet, hidden: false })) });
+  }
+
+  // --- chart sheets (P9-C6) ---------------------------------------------------
+
+  /** Whether `sheet` is a chart sheet (its chart shown full-size instead of cells). */
+  isChartSheet(sheet = this.state.activeSheet): boolean {
+    return !!this.state.info?.sheets.find((s) => s.id === sheet)?.chartSheet;
+  }
+
+  /** Opening a chart sheet selects its chart (Excel), so Chart Design / Format show. */
+  selectChartSheet(sheet: number): void {
+    void this.charts.ensureList(sheet).then((list) => {
+      const first = list[0];
+      if (first && this.state.activeSheet === sheet && this.charts.selected?.id !== first.id) this.charts.select(sheet, first.id, null);
+    });
   }
 
   // --- sheet view: frozen panes, zoom, gridlines, headings -------------------

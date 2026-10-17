@@ -115,6 +115,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     // Sheets: create all first so that cross-sheet formulas resolve.
     let rels = pkg.relationships(&main);
     let mut sheets: Vec<(SheetId, String, PartName)> = Vec::new();
+    let mut chart_sheets: Vec<(SheetId, String, PartName)> = Vec::new();
     let mut hidden: Vec<(SheetId, bool, bool)> = Vec::new();
     for entry in &book.sheets {
         let rel = rels.and_then(|r| r.get(&entry.rid));
@@ -122,7 +123,8 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
             warnings.push(format!("sheet {:?} has no part; dropped", entry.name));
             continue;
         };
-        if rel.rel_type != rel::WORKSHEET {
+        let chart_sheet = rel.rel_type == crate::chartsheet::CHARTSHEET_REL;
+        if rel.rel_type != rel::WORKSHEET && !chart_sheet {
             warnings.push(format!(
                 "sheet {:?} is not a worksheet ({}); dropped",
                 entry.name,
@@ -131,17 +133,22 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
             continue;
         }
         let part = main.resolve(&rel.target)?;
-        let id = if sheets.is_empty() {
+        let id = if sheets.is_empty() && chart_sheets.is_empty() {
             wb.rename_sheet(SheetId(0), &entry.name)?;
             SheetId(0)
         } else {
             wb.add_sheet(&entry.name)?
         };
         consumed.insert(part.clone());
-        sheets.push((id, entry.name.clone(), part));
+        if chart_sheet {
+            wb.set_chart_sheet(id, true)?;
+            chart_sheets.push((id, entry.name.clone(), part));
+        } else {
+            sheets.push((id, entry.name.clone(), part));
+        }
         hidden.push((id, entry.hidden, entry.very_hidden));
     }
-    if sheets.is_empty() {
+    if sheets.is_empty() && chart_sheets.is_empty() {
         return Err(Error::Malformed {
             part: main.to_string(),
             reason: "no worksheets".into(),
@@ -156,6 +163,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         .filter_map(|(i, e)| {
             sheets
                 .iter()
+                .chain(&chart_sheets)
                 .find(|(_, n, _)| *n == e.name)
                 .map(|(id, _, _)| (i, *id))
         })
@@ -211,6 +219,12 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     })();
     wb.end_batch();
     loaded?;
+    for (id, name, part) in &chart_sheets {
+        match crate::chartsheet::drawing_of(&pkg, part)? {
+            Some(d) => drawings.push((*id, name.clone(), d)),
+            None => warnings.push(format!("chart sheet {name:?} has no chart")),
+        }
+    }
     // Hidden rows inside a filtered range that pass the filter were hidden
     // by hand (the file does not tell them apart; see finish_filter).
     for (id, _, _) in &sheets {
@@ -937,6 +951,9 @@ impl SheetLoader<'_> {
             self.warn(format!("{what} dropped"));
         }
         for w in crate::condfmt::load(self.wb, self.sheet, &rules, self.dxfs)? {
+            self.warn(w);
+        }
+        for w in crate::sparkline::load(self.wb, self.sheet, &rules) {
             self.warn(w);
         }
         self.finish_filter(filter)

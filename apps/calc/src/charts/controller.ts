@@ -6,8 +6,9 @@
 // (`store.charts`) and redraws through the store's version.
 
 import {
-  approxTextWidth, basicFormat, CHART_FONT, formatGeneral, layoutChart, sameElement, type ChartElement, type ChartLabels, type ChartScene,
+  approxTextWidth, basicFormat, CHART_FONT, elementBounds, formatGeneral, layoutChart, sameElement, setChartImageListener, type ChartElement, type ChartLabels, type ChartScene,
 } from "@rusuite/ui-shared";
+import type { ManualLayout } from "../generated/ManualLayout";
 import type { Chart } from "../generated/Chart";
 import type { ChartAnchor } from "../generated/ChartAnchor";
 import type { ChartObject } from "../generated/ChartObject";
@@ -35,6 +36,12 @@ export interface ChartFrame {
   rect: PxRect;
   scene: ChartScene | null;
 }
+
+/** Excel's size of a new chart sheet's chart (EMU; `model_sheet::CHART_SHEET_SIZE`). */
+export const CHART_SHEET_SIZE = { width: 8_670_364, height: 6_292_273 };
+
+/** The layout options Calc passes to the renderer (Excel's axis bounds and label rotation, P9-C6). */
+export const CALC_LAYOUT = { excelScale: true, autoRotateLabels: true } as const;
 
 /** An empty clustered column chart (Insert without numbers in the selection, as Excel). */
 export function emptyChart(): Chart {
@@ -84,8 +91,15 @@ export class ChartController {
   preview: { id: number; rect: PxRect } | null = null;
   /** Text put on the system clipboard by a chart copy (a paste of it pastes the chart). */
   clipText = "";
+  /** The size a chart sheet's chart is drawn at (the grid area, sheet px; set by the grid). */
+  chartSheetSize = { w: 960, h: 600 };
+  /** Dragging the selected title, legend or plot area inside its chart: the chart with the moved layout. */
+  layoutPreview: { id: number; chart: Chart } | null = null;
 
-  constructor(private readonly store: CalcStore) {}
+  constructor(private readonly store: CalcStore) {
+    // Picture fills decode asynchronously: repaint when one arrives.
+    setChartImageListener(() => this.notify());
+  }
 
   private notify(): void {
     this.store.notify();
@@ -263,15 +277,23 @@ export class ChartController {
     const lk = t("calc.chart.chartTitle");
     const m = this.scenes.get(k);
     if (m && m.obj === obj && m.data === data && m.w === w && m.h === h && m.fv === this.fmtVersion && m.lk === lk) return m.scene;
-    const scene = layoutChart(obj.chart, data, w, h, { format: this.format, measure: this.measure, labels: chartLabels() });
+    const scene = layoutChart(obj.chart, data, w, h, { format: this.format, measure: this.measure, labels: chartLabels(), ...CALC_LAYOUT });
     this.scenes.set(k, { obj, data, w, h, fv: this.fmtVersion, lk, scene });
     return scene;
   }
 
-  /** The charts of `sheet` as drawn now (drag preview applied). */
+  /** The charts of `sheet` as drawn now (drag preview applied); a chart sheet's (first) chart fills the grid area. */
   frames(sheet: number): ChartFrame[] {
     const geo = this.store.geometry(sheet);
-    return this.list(sheet).map((obj) => {
+    const chartSheet = this.store.isChartSheet(sheet);
+    const list = chartSheet ? this.list(sheet).slice(0, 1) : this.list(sheet);
+    return list.map((o) => {
+      const lp = this.layoutPreview && this.selected?.sheet === sheet && this.layoutPreview.id === o.id ? this.layoutPreview : null;
+      const obj = lp ? { ...o, chart: lp.chart } : o;
+      if (chartSheet) {
+        const rect = { x: 0, y: 0, w: this.chartSheetSize.w, h: this.chartSheetSize.h };
+        return { obj, rect, scene: this.scene(sheet, obj, Math.max(1, Math.round(rect.w)), Math.max(1, Math.round(rect.h))) };
+      }
       const p = this.preview && this.selected?.sheet === sheet && this.preview.id === obj.id ? this.preview.rect : null;
       const rect = p ?? anchorRect(obj.anchor, geo.col, geo.row);
       const w = Math.max(1, Math.round(rect.w));
@@ -364,11 +386,11 @@ export class ChartController {
     return this.update(next);
   }
 
-  /** Moves/resizes the selected chart to a sheet px rectangle (its anchor kind is kept). */
+  /** Moves/resizes the selected chart to a sheet px rectangle (its anchor kind is kept; not on chart sheets). */
   setRect(rect: PxRect): Promise<void> {
     const s = this.selected;
     const obj = this.selectedChart();
-    if (!s || !obj) return Promise.resolve();
+    if (!s || !obj || this.store.isChartSheet(s.sheet)) return Promise.resolve();
     const geo = this.store.geometry(s.sheet);
     return this.apply({ type: "setChartAnchor", sheet: s.sheet, id: s.id, anchor: rectToAnchor(rect, obj.anchor.type, geo.col, geo.row) });
   }
@@ -492,6 +514,7 @@ export class ChartController {
     if (!s || !obj) return;
     let sheet: number;
     if ("newSheet" in target) {
+      // Excel's Move Chart › New sheet: a chart sheet before the current one, the chart full-size.
       const before = new Set((this.store.getState().info?.sheets ?? []).map((x) => x.id));
       const index = this.store.sheetPosition(s.sheet);
       await this.apply({ type: "addSheet", name: target.newSheet, index });
@@ -500,12 +523,23 @@ export class ChartController {
       sheet = created.id;
     } else sheet = target.sheet;
     if (sheet === s.sheet) return;
-    const geo = this.store.geometry(s.sheet);
-    const rect = "newSheet" in target ? { ...anchorRect(obj.anchor, geo.col, geo.row), x: 0, y: 0 } : anchorRect(obj.anchor, geo.col, geo.row);
-    const tgeo = this.store.geometry(sheet);
-    const anchor = rectToAnchor(rect, obj.anchor.type, tgeo.col, tgeo.row);
+    let anchor: ChartAnchor;
+    const commands: CalcCommand[] = [];
+    if ("newSheet" in target) {
+      anchor = { type: "absolute", x: 0, y: 0, width: CHART_SHEET_SIZE.width, height: CHART_SHEET_SIZE.height };
+      commands.push({ type: "setChartSheet", sheet, chartSheet: true });
+    } else if (this.store.isChartSheet(s.sheet)) {
+      // From a chart sheet onto a worksheet: Excel's default size at the top-left.
+      const tgeo = this.store.geometry(sheet);
+      anchor = rectToAnchor({ x: 0, y: 0, w: 480, h: 288 }, "twoCell", tgeo.col, tgeo.row);
+    } else {
+      const geo = this.store.geometry(s.sheet);
+      const tgeo = this.store.geometry(sheet);
+      anchor = rectToAnchor(anchorRect(obj.anchor, geo.col, geo.row), obj.anchor.type, tgeo.col, tgeo.row);
+    }
     this.selected = null;
-    await this.apply({ type: "compound", commands: [{ type: "addChart", sheet, anchor, chart: obj.chart }, { type: "removeChart", sheet: s.sheet, id: s.id }] });
+    commands.push({ type: "addChart", sheet, anchor, chart: obj.chart }, { type: "removeChart", sheet: s.sheet, id: s.id });
+    await this.apply({ type: "compound", commands });
     this.store.setActiveSheet(sheet);
     const list = await this.refreshList(sheet);
     const last = list[list.length - 1];
@@ -529,6 +563,46 @@ export class ChartController {
       return;
     }
     await this.setSeries(next.series, next.categories);
+  }
+
+  // --- manual layouts (drag of the title, legend or plot area inside the chart) ----------------------
+
+  /** The chart with element `el` moved by dx, dy px (title and legend keep their size; the plot area its box). */
+  movedLayout(chart: Chart, scene: ChartScene, el: ChartElement, dx: number, dy: number): Chart | null {
+    const b = elementBounds(scene, el);
+    if (!b) return null;
+    const W = Math.max(1, scene.width);
+    const H = Math.max(1, scene.height);
+    const f = (v: number, d: number) => Math.round(Math.min(1, Math.max(0, v / d)) * 10_000) / 10_000;
+    if (el.type === "title") {
+      const layout: ManualLayout = { x: f(b.x + dx, W), y: f(b.y + dy, H) };
+      return { ...chart, title: { ...(chart.title ?? {}), layout } };
+    }
+    if (el.type === "legend") {
+      const layout: ManualLayout = { x: f(b.x + dx, W), y: f(b.y + dy, H), w: f(b.w, W), h: f(b.h, H) };
+      return { ...chart, legendLayout: layout };
+    }
+    if (el.type === "plotArea") {
+      const p = scene.plot;
+      const layout: ManualLayout = { x: f(p.x + dx, W), y: f(p.y + dy, H), w: f(p.w, W), h: f(p.h, H) };
+      return { ...chart, plotLayout: layout };
+    }
+    return null;
+  }
+
+  /** Drops the manual layout of `el` (Reset to Match Style; automatic placement again). */
+  resetLayout(el: ChartElement | null): Promise<void> {
+    return this.edit((c) => {
+      const out = { ...c };
+      if (!el || el.type === "chartArea") {
+        delete out.plotLayout;
+        delete out.legendLayout;
+        if (out.title?.layout) out.title = { ...out.title, layout: undefined };
+      } else if (el.type === "title" && out.title) out.title = { ...out.title, layout: undefined };
+      else if (el.type === "legend") delete out.legendLayout;
+      else if (el.type === "plotArea") delete out.plotLayout;
+      return JSON.parse(JSON.stringify(out)) as Chart;
+    });
   }
 
   // --- inline title editing ----------------------------------------------------------------------

@@ -24,7 +24,7 @@ const FIELD = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui
 const LIST = "flex flex-col overflow-auto rounded border border-ui-border bg-ui-bg";
 const ROW = (on: boolean) => `px-2 py-0.5 text-left text-sm ${on ? "bg-ui-active" : "hover:bg-ui-hover"}`;
 
-function OkCancel({ onCancel, okDisabled, extra }: { onCancel: () => void; okDisabled?: boolean; extra?: ReactNode }) {
+export function OkCancel({ onCancel, okDisabled, extra }: { onCancel: () => void; okDisabled?: boolean; extra?: ReactNode }) {
   const t = useT();
   return (
     <div className="flex items-center justify-end gap-2">

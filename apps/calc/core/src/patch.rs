@@ -177,6 +177,11 @@ pub struct SheetInfo {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<crate::slicers::SlicerView>>")]
     pub slicers: Vec<crate::slicers::SlicerView>,
+    /// A chart sheet (Move Chart › New sheet): the tab shows its chart
+    /// full-size instead of cells; absent = a worksheet.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub chart_sheet: bool,
 }
 
 fn no_outline(m: &(u8, u8)) -> bool {
@@ -343,6 +348,13 @@ pub struct CalcPatch {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<u32>>")]
     pub chart_sheets: Vec<u32>,
+    /// Sheets whose sparklines may have changed: a sparkline command, a
+    /// cell change their data reads, or a structural, sheet list or
+    /// row/column visibility change on a workbook with sparklines. The UI
+    /// refetches `sheetSparklines`; absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<u32>>")]
+    pub sparkline_sheets: Vec<u32>,
     /// The full list of defined names, when it changed (a name command,
     /// or a structural edit / sheet rename or delete that rewrote a
     /// definition); absent = unchanged.
@@ -461,6 +473,11 @@ impl app_common::Patch for CalcPatch {
                 self.chart_sheets.push(s);
             }
         }
+        for s in other.sparkline_sheets {
+            if !self.sparkline_sheets.contains(&s) {
+                self.sparkline_sheets.push(s);
+            }
+        }
         // A structural change invalidates earlier cell/row/col entries of
         // that sheet: drop them.
         for s in &other.structural {
@@ -533,6 +550,11 @@ pub struct RegionSnapshot {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<crate::pivots::PivotSummary>>")]
     pub pivots: Vec<crate::pivots::PivotSummary>,
+    /// Every sparkline group of the sheet with the data of its sparklines
+    /// (P9-C6); absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<crate::sparklines::SparklineGroupView>>")]
+    pub sparklines: Vec<crate::sparklines::SparklineGroupView>,
 }
 
 /// The conditional formatting of one cell of a [`RegionSnapshot`].

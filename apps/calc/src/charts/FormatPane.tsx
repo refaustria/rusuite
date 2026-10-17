@@ -18,12 +18,14 @@ import { useCalc, type CalcStore } from "../state/store";
 import { elementName } from "./elements";
 import { parseNumberField, setAxis, setLabels, setSecondary, setSeriesFill, setSeriesLine, setSeriesMarker, setSeriesProp, setTrendline } from "./format";
 import { labelPositions } from "./presets";
+import { AreaSection, ChartExtrasSection, ErrorBarSection, LabelExtrasSection, TextSection } from "./FormatPaneC6";
+import { setChartArea, setPlotArea } from "./extras";
 
-const FIELD = "h-7 w-full rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";
+export const FIELD = "h-7 w-full rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";
 const SECTION = "flex flex-col gap-2 border-b border-ui-border pb-3";
 const EMU_PER_PT = 12_700;
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className={SECTION} aria-label={title}>
       <h3 className="text-xs font-semibold uppercase tracking-wide text-ui-muted">{title}</h3>
@@ -32,7 +34,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+export function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="grid grid-cols-[7.5rem_1fr] items-center gap-2 text-sm">
       <span>{label}</span>
@@ -41,7 +43,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+export function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex items-center gap-2 text-sm">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
@@ -51,7 +53,7 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
 }
 
 /** A text/number field committed on Enter or blur. */
-function Commit({ label, value, onCommit, placeholder, testId }: { label: string; value: string; onCommit: (v: string) => void; placeholder?: string; testId?: string }) {
+export function Commit({ label, value, onCommit, placeholder, testId }: { label: string; value: string; onCommit: (v: string) => void; placeholder?: string; testId?: string }) {
   const [text, setText] = useState(value);
   const [base, setBase] = useState(value);
   if (base !== value) {
@@ -366,16 +368,48 @@ export function ChartFormatPane({ store }: { store: CalcStore }) {
   let body: ReactNode;
   switch (el.type) {
     case "series":
-      body = seriesPane(el.series, el.point);
+      body = (
+        <>
+          {seriesPane(el.series, el.point)}
+          {el.point === undefined && <ErrorBarSection chart={chart} i={el.series} edit={edit} />}
+        </>
+      );
       break;
     case "dataLabels":
-      body = labelsPane(el.series);
+      body = (
+        <>
+          {labelsPane(el.series)}
+          <LabelExtrasSection chart={chart} i={el.series} point={el.point} edit={edit} />
+          <TextSection chart={chart} target={{ el: "labels", series: el.series }} edit={edit} />
+        </>
+      );
       break;
     case "trendline":
       body = trendPane(el.series);
       break;
+    case "errorBars":
+      body = <ErrorBarSection chart={chart} i={el.series} edit={edit} />;
+      break;
+    case "dataTable":
+    case "upDownBars":
+    case "highLowLines":
+      body = (
+        <>
+          <ChartExtrasSection chart={chart} edit={edit} />
+          {el.type === "dataTable" && <TextSection chart={chart} target={{ el: "dataTable" }} edit={edit} />}
+        </>
+      );
+      break;
+    case "plotArea":
+      body = <AreaSection title={t("calc.chart.fp.plotArea")} testId="plot-fill" shape={chart.plotArea} set={(patch) => edit((c) => setPlotArea(c, patch))} />;
+      break;
     case "axis":
-      body = axisPane(el.axis);
+      body = (
+        <>
+          {axisPane(el.axis)}
+          <TextSection chart={chart} target={{ el: "axis", axis: el.axis }} edit={edit} angle />
+        </>
+      );
       break;
     case "gridlines":
       body = (
@@ -399,6 +433,12 @@ export function ChartFormatPane({ store }: { store: CalcStore }) {
           <Check label={t("calc.chart.fp.overlayLegend")} checked={!!chart.legend?.overlay} onChange={(v) => edit((ch) => (ch.legend ? { ...ch, legend: { ...ch.legend, overlay: v || undefined } } : ch))} />
         </Section>
       );
+      body = (
+        <>
+          {body}
+          <TextSection chart={chart} target={{ el: "legend" }} edit={edit} />
+        </>
+      );
       break;
     case "title":
       body = (
@@ -407,6 +447,12 @@ export function ChartFormatPane({ store }: { store: CalcStore }) {
           <Check label={t("calc.chart.fp.overlayTitle")} checked={!!chart.title?.overlay} onChange={(v) => edit((ch) => ({ ...ch, title: { ...(ch.title ?? {}), overlay: v || undefined } }))} />
         </Section>
       );
+      body = (
+        <>
+          {body}
+          <TextSection chart={chart} target={{ el: "title" }} edit={edit} />
+        </>
+      );
       break;
     case "axisTitle": {
       const a = chart.axes[el.axis];
@@ -414,6 +460,12 @@ export function ChartFormatPane({ store }: { store: CalcStore }) {
         <Section title={t("calc.chart.fp.titleOptions")}>
           <Commit label={t("calc.chart.fp.text")} value={titleText(a?.title)} placeholder={t("calc.chart.axisTitle")} onCommit={(v) => edit((ch) => setAxis(ch, el.axis, { title: { ...(a?.title ?? {}), text: v.trim() ? { type: "literal", text: v } : undefined } }))} />
         </Section>
+      );
+      body = (
+        <>
+          {body}
+          <TextSection chart={chart} target={{ el: "axisTitle", axis: el.axis }} edit={edit} angle />
+        </>
       );
       break;
     }
@@ -446,6 +498,20 @@ export function ChartFormatPane({ store }: { store: CalcStore }) {
           <Check label={t("calc.chart.showHidden")} checked={!(chart.plotVisibleOnly ?? true)} onChange={(v) => edit((ch) => ({ ...ch, plotVisibleOnly: !v }))} />
           {pieLike && <Check label={t("calc.chart.fp.varyColors")} checked={chart.varyColors ?? false} onChange={(v) => edit((ch) => ({ ...ch, varyColors: v }))} />}
         </Section>
+      );
+      body = (
+        <>
+          {body}
+          <AreaSection
+            title={t("calc.chart.fp.chartArea")}
+            testId="chart-fill"
+            shape={chart.chartArea}
+            set={(patch) => edit((c) => setChartArea(c, patch))}
+            rounded={{ on: !!chart.roundedCorners, set: (v) => edit((c) => ({ ...c, roundedCorners: v || undefined })) }}
+          />
+          <TextSection chart={chart} target={{ el: "chart" }} edit={edit} />
+          <ChartExtrasSection chart={chart} edit={edit} />
+        </>
       );
   }
 

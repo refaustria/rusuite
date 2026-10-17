@@ -3,6 +3,7 @@
 // while a chart is selected.
 
 import type { ReactNode } from "react";
+import { applyChartStyle } from "./extras";
 import {
   ColorPicker, RIBBON_SELECT, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonStack, elementKey, type Color, type RibbonGroup, type RibbonTab,
 } from "@rusuite/ui-shared";
@@ -19,7 +20,7 @@ import {
 } from "./icons";
 import { LivePreview, PresetIcon } from "./previews";
 import {
-  CHART_STYLES, COLOR_VARIANTS, INSERT_GALLERIES, QUICK_LAYOUTS, applyChartStyle, applyColors, applyQuickLayout, colorsOf, presetsOf, resolveSwatches,
+  CHART_STYLES, COLOR_VARIANTS, INSERT_GALLERIES, QUICK_LAYOUTS, applyColors, applyQuickLayout, colorsOf, presetsOf, resolveSwatches,
 } from "./presets";
 import { setSeriesFill, setSeriesLine, resetSeriesFormat } from "./format";
 

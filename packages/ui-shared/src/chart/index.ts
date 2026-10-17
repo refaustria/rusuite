@@ -6,8 +6,8 @@ export type {
   Axis as ChartAxisModel, DataLabels as ChartDataLabelsModel, LegendPosition as ChartLegendPosition, LabelPosition as ChartLabelPosition,
 } from "./model";
 export * from "./scene";
-export { layoutChart, approxTextWidth, DEFAULT_CHART_LABELS, polyPath, smoothPath, sectorPath, markerPath, dashPattern, type ChartLabels, type ChartLayoutOptions } from "./layout";
-export { drawChartScene, drawChartSelection, CHART_FONT } from "./draw";
+export { layoutChart, approxTextWidth, DEFAULT_CHART_LABELS, polyPath, smoothPath, sectorPath, markerPath, dashPattern, errorRanges, type ChartLabels, type ChartLayoutOptions, type TextStyle } from "./layout";
+export { drawChartScene, drawChartSelection, setChartImageListener, fontFamily, CHART_FONT } from "./draw";
 export { sceneToSvg } from "./svg";
 export { hitTestChart, hitShape, elementBounds, selectionMarks } from "./hit";
 export { paletteColor, resolveColor, styleColumn, PALETTE_VARIATIONS, type ChartTheme } from "./palette";

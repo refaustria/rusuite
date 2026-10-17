@@ -8,6 +8,7 @@ import type { PivotSummary } from "./PivotSummary";
 import type { Rect } from "./Rect";
 import type { RowView } from "./RowView";
 import type { SheetFormat } from "./SheetFormat";
+import type { SparklineGroupView } from "./SparklineGroupView";
 
 /**
  * A viewport of one sheet: the cells with content or an own style in
@@ -40,4 +41,9 @@ charts?: Array<ChartObject>,
 /**
  * Every pivot table of the sheet; absent = none.
  */
-pivots?: Array<PivotSummary>, };
+pivots?: Array<PivotSummary>, 
+/**
+ * Every sparkline group of the sheet with the data of its sparklines
+ * (P9-C6); absent = none.
+ */
+sparklines?: Array<SparklineGroupView>, };

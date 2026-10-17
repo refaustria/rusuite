@@ -5,6 +5,7 @@ import type { ChartKind } from "./ChartKind";
 import type { DataLabels } from "./DataLabels";
 import type { DataPoint } from "./DataPoint";
 import type { DataRef } from "./DataRef";
+import type { ErrorBars } from "./ErrorBars";
 import type { LineFormat } from "./LineFormat";
 import type { Marker } from "./Marker";
 import type { TextSource } from "./TextSource";
@@ -17,4 +18,4 @@ export type Series = { name?: TextSource, values: DataRef, categories?: DataRef,
 /**
  * Absent = primary.
  */
-axis?: AxisGroup, fill?: ChartFill, line?: LineFormat, marker?: Marker, dataPoints?: Array<DataPoint>, dataLabels?: DataLabels, trendline?: Trendline, smooth?: boolean, };
+axis?: AxisGroup, fill?: ChartFill, line?: LineFormat, marker?: Marker, dataPoints?: Array<DataPoint>, dataLabels?: DataLabels, trendline?: Trendline, smooth?: boolean, errorBars?: Array<ErrorBars>, };

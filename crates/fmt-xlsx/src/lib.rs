@@ -29,6 +29,7 @@
 //! the `*_path` helpers exist on native targets only.
 
 pub mod a1;
+mod chartsheet;
 mod comments;
 mod condfmt;
 mod drawing;
@@ -37,6 +38,7 @@ mod pivot;
 mod protection;
 mod read;
 mod slicer;
+mod sparkline;
 mod styles;
 mod tables;
 mod theme;

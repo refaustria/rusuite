@@ -119,6 +119,11 @@ impl ChartAnchor {
     }
 }
 
+/// Excel's size of the chart of a new chart sheet (EMU, an
+/// `xdr:absoluteAnchor` at 0, 0): the UI draws it at the window size, the
+/// anchor keeps the aspect for printing.
+pub const CHART_SHEET_SIZE: (i64, i64) = (8_670_364, 6_292_273);
+
 /// A chart placed on a sheet.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -136,6 +141,29 @@ pub struct ChartObject {
     /// `c:pivotSource`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pivot: Option<u32>,
+}
+
+/// What a series shows beyond [`ResolvedSeries`] (P9-C6): the custom
+/// error bar amounts (one entry per [`core_model::chart::Series::error_bars`]
+/// entry, empty for the other kinds) and the "Value From Cells" label texts.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesExtras {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub error_bars: Vec<ResolvedErrorBars>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_texts: Option<Vec<String>>,
+}
+
+/// The custom amounts of one error bar entry (`None` = not custom / no
+/// reference).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedErrorBars {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plus: Option<Vec<Option<f64>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minus: Option<Vec<Option<f64>>>,
 }
 
 /// The cells of one reference: values with their displayed text, plus
@@ -191,9 +219,30 @@ fn rename_refs(e: &mut Expr, from: &str, to: &str) -> bool {
     }
 }
 
+/// Whether a reference formula names sheet `lower` (lower case).
+pub(crate) fn refers_to_sheet(formula: &str, lower: &str) -> bool {
+    fn walk(e: &Expr, lower: &str) -> bool {
+        match e {
+            Expr::Reference(r) => r.sheet.as_ref().is_some_and(|s| s.to_lowercase() == lower),
+            Expr::Call { args, .. } => args.iter().any(|a| walk(a, lower)),
+            Expr::Unary { expr, .. } => walk(expr, lower),
+            Expr::Binary { lhs, rhs, .. } => walk(lhs, lower) || walk(rhs, lower),
+            Expr::Array(rows) => rows.iter().flatten().any(|a| walk(a, lower)),
+            _ => false,
+        }
+    }
+    parse_ref(formula).is_some_and(|e| walk(&e, lower))
+}
+
+/// Whether a reference formula is `#REF!` (a deleted reference).
+pub fn is_ref_error(formula: &str) -> bool {
+    let f = formula.trim();
+    f.strip_prefix('=').unwrap_or(f).ends_with("#REF!")
+}
+
 /// `formula` with sheet `from` renamed to `to` (unchanged text when no
 /// reference names it).
-fn renamed(formula: &str, from: &str, to: &str) -> Option<String> {
+pub(crate) fn renamed(formula: &str, from: &str, to: &str) -> Option<String> {
     let mut ast = parse_ref(formula)?;
     rename_refs(&mut ast, from, to).then(|| ast.to_string().trim_start_matches('=').to_owned())
 }
@@ -480,6 +529,67 @@ impl Workbook {
         ResolvedChart { series, title }
     }
 
+    /// The [`SeriesExtras`] of every series of `chart` (living on `host`),
+    /// in order; empty when no series has custom error bars or label
+    /// ranges.
+    pub fn chart_extras(&self, chart: &Chart, host: SheetId) -> Vec<SeriesExtras> {
+        use core_model::chart::{DataRef, ErrorAmount};
+        let vis = chart.plot_visible_only;
+        let points = |d: &DataRef| -> Vec<(ChartValue, String)> {
+            match d {
+                DataRef::Ref { formula, cache } => self
+                    .resolve_ref(formula, host, vis)
+                    .map(|r| r.points)
+                    .unwrap_or_else(|| {
+                        cache
+                            .iter()
+                            .flatten()
+                            .map(|v| (v.clone(), value_text(v)))
+                            .collect()
+                    }),
+                DataRef::Literal { values } => {
+                    values.iter().map(|v| (v.clone(), value_text(v))).collect()
+                }
+            }
+        };
+        let numbers = |d: &DataRef| -> Vec<Option<f64>> {
+            points(d)
+                .into_iter()
+                .map(|(v, _)| match v {
+                    ChartValue::Number(n) => Some(n),
+                    _ => None,
+                })
+                .collect()
+        };
+        let extras: Vec<SeriesExtras> = chart
+            .series
+            .iter()
+            .map(|s| SeriesExtras {
+                error_bars: s
+                    .error_bars
+                    .iter()
+                    .map(|e| match &e.amount {
+                        ErrorAmount::Custom { plus, minus } => ResolvedErrorBars {
+                            plus: plus.as_ref().map(numbers),
+                            minus: minus.as_ref().map(numbers),
+                        },
+                        _ => ResolvedErrorBars::default(),
+                    })
+                    .collect(),
+                label_texts: s
+                    .data_labels
+                    .as_ref()
+                    .and_then(|l| l.range.as_ref())
+                    .map(|r| points(r).into_iter().map(|(_, t)| t).collect()),
+            })
+            .collect();
+        if extras.iter().all(|e| *e == SeriesExtras::default()) {
+            Vec::new()
+        } else {
+            extras
+        }
+    }
+
     /// After a row/column insert or delete on `sheet`: moves the anchors
     /// of its charts and adjusts every chart reference to it.
     pub(crate) fn shift_charts(&mut self, sheet: SheetId, shift: CellShift) {
@@ -502,9 +612,15 @@ impl Workbook {
                 op,
             };
             for obj in &mut data.charts {
-                if *id == sheet && shift.band.is_none() {
+                if *id == sheet && shift.band.is_none() && !data.chart_sheet {
                     obj.anchor.shift(op);
                 }
+                let had_ref: Vec<bool> = obj
+                    .chart
+                    .series
+                    .iter()
+                    .map(|s| s.values.formula().is_some_and(is_ref_error))
+                    .collect();
                 for f in obj.chart.formulas_mut() {
                     let Some(ast) = parse_ref(f) else { continue };
                     let adjusted = adjust_references_shift(&ast, &ctx, shift.band);
@@ -512,8 +628,122 @@ impl Workbook {
                         *f = adjusted.to_string().trim_start_matches('=').to_owned();
                     }
                 }
+                // Excel drops a series whose values were deleted entirely.
+                let mut i = 0;
+                obj.chart.series.retain(|s| {
+                    let gone = !had_ref[i] && s.values.formula().is_some_and(is_ref_error);
+                    i += 1;
+                    !gone
+                });
             }
         }
+    }
+
+    /// Before sheet `gone` is removed: chart references to it on the other
+    /// sheets become `#REF!` and keep the values they show now as their
+    /// cache, so the charts survive (Excel shows the last values).
+    pub(crate) fn break_chart_refs(&mut self, gone: SheetId) {
+        let Some(name) = self.engine().sheet_name(gone).map(str::to_lowercase) else {
+            return;
+        };
+        for (id, _) in self.sheets() {
+            if id == gone || self.charts(id).is_empty() {
+                continue;
+            }
+            let mut charts = self.charts(id).to_vec();
+            let mut changed = false;
+            for obj in &mut charts {
+                let vis = obj.chart.plot_visible_only;
+                let mut fix_data = |d: &mut core_model::chart::DataRef| {
+                    if let core_model::chart::DataRef::Ref { formula, cache } = d {
+                        if refers_to_sheet(formula, &name) {
+                            *cache = self
+                                .resolve_ref(formula, id, vis)
+                                .map(|r| r.points.into_iter().map(|(v, _)| v).collect())
+                                .or_else(|| cache.take());
+                            *formula = "#REF!".into();
+                            changed = true;
+                        }
+                    }
+                };
+                for s in &mut obj.chart.series {
+                    fix_data(&mut s.values);
+                    if let Some(c) = s.categories.as_mut() {
+                        fix_data(c);
+                    }
+                    for e in &mut s.error_bars {
+                        if let core_model::chart::ErrorAmount::Custom { plus, minus } =
+                            &mut e.amount
+                        {
+                            for d in [plus, minus].into_iter().flatten() {
+                                fix_data(d);
+                            }
+                        }
+                    }
+                    if let Some(r) = s.data_labels.as_mut().and_then(|l| l.range.as_mut()) {
+                        fix_data(r);
+                    }
+                }
+                if let Some(c) = obj.chart.categories.as_mut() {
+                    fix_data(c);
+                }
+                let mut fix_text = |t: &mut TextSource| {
+                    if let TextSource::Ref { formula, cache } = t {
+                        if refers_to_sheet(formula, &name) {
+                            *cache = self
+                                .resolve_ref(formula, id, false)
+                                .map(|r| {
+                                    r.points
+                                        .into_iter()
+                                        .map(|(_, t)| t)
+                                        .filter(|t| !t.is_empty())
+                                        .collect::<Vec<_>>()
+                                        .join(" ")
+                                })
+                                .or_else(|| cache.take());
+                            *formula = "#REF!".into();
+                            changed = true;
+                        }
+                    }
+                };
+                for s in &mut obj.chart.series {
+                    if let Some(n) = s.name.as_mut() {
+                        fix_text(n);
+                    }
+                }
+                let axes = &mut obj.chart.axes;
+                for t in [
+                    obj.chart.title.as_mut(),
+                    axes.cat.title.as_mut(),
+                    axes.val.title.as_mut(),
+                    axes.second_val.as_mut().and_then(|a| a.title.as_mut()),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    if let Some(src) = t.text.as_mut() {
+                        fix_text(src);
+                    }
+                }
+            }
+            if changed {
+                if let Ok(data) = self.sheet_data_mut(id) {
+                    data.charts = charts;
+                }
+            }
+        }
+    }
+
+    /// A chart sheet (`xl/chartsheets/`): a sheet that shows one chart
+    /// full-size instead of cells.
+    pub fn is_chart_sheet(&self, sheet: SheetId) -> bool {
+        self.sheet_data(sheet).chart_sheet
+    }
+
+    /// Marks `sheet` as a chart sheet (or a worksheet again).
+    pub fn set_chart_sheet(&mut self, sheet: SheetId, chart_sheet: bool) -> Result<(), Error> {
+        self.sheet_data_mut(sheet)?.chart_sheet = chart_sheet;
+        Ok(())
     }
 
     /// After renaming sheet `from` to `to`: chart references follow (on
@@ -733,9 +963,10 @@ mod tests {
         assert_eq!((from.row, to.row, to.row_offset), (3, 17, 200));
         assert_eq!(wb.charts(other)[0].anchor, anchor());
         wb.delete_cols(s, 1, 1).unwrap();
-        assert_eq!(f(&wb, s)[1], "#REF!");
-        assert_eq!(f(&wb, s)[2], "#REF!");
-        assert_eq!(f(&wb, s)[3], "Data!$B$3");
+        // The series whose values were deleted is dropped (Excel).
+        assert_eq!(wb.charts(s)[0].chart.series.len(), 1);
+        assert_eq!(f(&wb, s)[1], "Data!$B$3");
+        assert_eq!(f(&wb, s)[2], "Data!$B$4:$B$6");
         wb.rename_sheet(s, "New name").unwrap();
         assert_eq!(f(&wb, other)[0], "'New name'!$A$4:$A$6");
         // Deleting the rows of a chart's top edge moves it to the span start.
@@ -744,6 +975,37 @@ mod tests {
             panic!()
         };
         assert_eq!((from.row, from.row_offset, to.row), (0, 0, 12));
+    }
+
+    #[test]
+    fn deleted_source_sheet_becomes_ref_error_with_cached_values() {
+        let (mut wb, s) = book();
+        let other = wb.add_sheet("Charts").unwrap();
+        let obj = ChartObject {
+            id: 0,
+            name: String::new(),
+            anchor: anchor(),
+            chart: recommended(),
+            pivot: None,
+        };
+        wb.add_chart(other, obj).unwrap();
+        let before = wb.chart_data(other, 1).unwrap();
+        wb.remove_sheet(s).unwrap();
+        let c = &wb.charts(other)[0].chart;
+        assert_eq!(c.series.len(), 2, "the series stay");
+        assert!(
+            c.formulas().iter().all(|f| *f == "#REF!"),
+            "{:?}",
+            c.formulas()
+        );
+        let after = wb.chart_data(other, 1).unwrap();
+        assert_eq!(after.series[0].values, before.series[0].values);
+        assert_eq!(after.series[0].name, "Rev");
+        assert_eq!(after.series[1].categories, ["Jan", "Feb", "Mar"]);
+        assert!(is_ref_error("#REF!") && is_ref_error("Data!#REF!") && !is_ref_error("A1"));
+        // A chart sheet flag is kept per sheet.
+        wb.set_chart_sheet(other, true).unwrap();
+        assert!(wb.is_chart_sheet(other));
     }
 
     #[test]

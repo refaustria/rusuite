@@ -15,7 +15,11 @@ export type ChartElement =
   | { type: "gridlines"; axis: AxisId; minor?: boolean }
   | { type: "series"; series: number; point?: number }
   | { type: "dataLabels"; series: number; point?: number }
-  | { type: "trendline"; series: number };
+  | { type: "trendline"; series: number }
+  | { type: "errorBars"; series: number }
+  | { type: "dataTable" }
+  | { type: "upDownBars" }
+  | { type: "highLowLines" };
 
 export interface Box {
   x: number;
@@ -30,6 +34,29 @@ interface ItemBase {
   clip?: Box;
 }
 
+/** A gradient fill in px of the chart box (linear from x0,y0 to x1,y1; radial: centre x0,y0, radius r). */
+export interface SceneGradient {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  radial?: boolean;
+  r?: number;
+  stops: { pos: number; color: string }[];
+}
+
+/** Optional paint of rects and paths (P9-C6; absent = plain `fill`). */
+export interface PaintExtras {
+  gradient?: SceneGradient;
+  /** A picture stretched (or tiled) over the rect: a data URL. */
+  image?: string;
+  tile?: boolean;
+  /** Office's outer shadow (offset bottom right). */
+  shadow?: boolean;
+  /** Corner radius (rounded chart area). */
+  radius?: number;
+}
+
 export interface StrokeStyle {
   stroke?: string;
   lineWidth?: number;
@@ -38,8 +65,8 @@ export interface StrokeStyle {
 }
 
 export type SceneItem =
-  | (ItemBase & StrokeStyle & { t: "rect"; x: number; y: number; w: number; h: number; fill?: string })
-  | (ItemBase & StrokeStyle & { t: "path"; d: string; fill?: string; join?: "round" | "miter"; cap?: "round" | "butt" })
+  | (ItemBase & StrokeStyle & PaintExtras & { t: "rect"; x: number; y: number; w: number; h: number; fill?: string })
+  | (ItemBase & StrokeStyle & PaintExtras & { t: "path"; d: string; fill?: string; join?: "round" | "miter"; cap?: "round" | "butt" })
   | (ItemBase & {
       t: "text";
       x: number;
@@ -49,6 +76,9 @@ export type SceneItem =
       size: number;
       color: string;
       bold?: boolean;
+      italic?: boolean;
+      /** Font family (absent: the chart font). */
+      font?: string;
       align: "left" | "center" | "right";
       baseline: "top" | "middle" | "bottom";
       /** Degrees (−90 = reading upwards). */
@@ -105,7 +135,8 @@ export function elementKey(el: ChartElement | null | undefined): string {
     case "dataLabels":
       return `${el.type}:${el.series}${el.point === undefined ? "" : `:${el.point}`}`;
     case "trendline":
-      return `trendline:${el.series}`;
+    case "errorBars":
+      return `${el.type}:${el.series}`;
     default:
       return el.type;
   }

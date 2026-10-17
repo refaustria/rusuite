@@ -21,6 +21,7 @@ import { useT } from "./i18n";
 import { cellsChoices, defaultCellsChoice, type CellsChoice, type CellsMode } from "./state/shiftCells";
 import { CfDialog } from "./condFormat/CfDialogs";
 import { ValidationDialog } from "./validation/ValidationDialogs";
+import { SparklineDialog } from "./sparklines/SparklineDialogs";
 import { ChartDialog } from "./charts/ChartDialogs";
 import { LinkDialog, UserNameDialog } from "./comments/LinkDialog";
 import { CustomFilterDialog, CustomSortDialog, FilterPanel, SortExpandDialog, Top10Dialog } from "./sortFilter/SortFilterDialogs";
@@ -387,6 +388,11 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
     case "moveChart":
     case "selectData":
       return <ChartDialog store={store} dialog={dialog} />;
+    case "sparklines":
+    case "sparklineSingle":
+    case "sparklineHidden":
+    case "sparklineAxis":
+      return <SparklineDialog store={store} dialog={dialog} />;
     case "dataValidation":
       return <ValidationDialog store={store} />;
     case "nameManager":

@@ -753,6 +753,19 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   drag, resized with 8 handles (Alt snaps to cells), deleted with Delete, copied with Ctrl+C/V; Esc deselects;
   double-click opens the Format pane; a click on the selected title edits it inline; right-click has the chart menu.
   Details: [charts.md](charts.md) "Calc UI".
+- **Calc charts round 2 and sparklines** (P9-C6, details in [charts.md](charts.md) "Calc UI round 2" and "Sparklines"):
+  the Format pane gains Chart area / Plot area (fill: automatic, none, solid, gradient, picture; border; shadow; rounded
+  corners), Text options on every text element (font, size, bold, italic, colour, custom angle of axis labels), Error
+  bars, data label extras (Value From Cells, leader lines, a single point's label) and the data table / high-low lines /
+  up-down bars; Add Chart Element ▾ adds Data Table, Error Bars, Lines and Up/Down Bars; the selected title, legend or plot
+  area can be dragged inside the chart (manual layout); a selected series shows `=SERIES(…)` in the formula bar (Enter
+  applies an edit); Chart Styles add Excel's area looks. Move Chart › New sheet creates a **chart sheet** (its tab shows the
+  chart full-size and selected, no headings; printed as one page). Insert › **Sparklines** (Line, Column, Win/Loss) opens
+  Create Sparklines (data and location ranges with pickers); while the active cell holds a sparkline the contextual
+  **Sparkline** tab shows Edit Data ▾, Type, Show (high/low/negative/first/last points, markers), the 36-style gallery,
+  Sparkline Color ▾ (weight), Marker Color ▾, Axis ▾ (date axis, show axis, right-to-left, vertical bounds automatic /
+  same for all / custom), Group, Ungroup and Clear ▾. Category labels turn −45° (then −90°) when they would overlap, and
+  value axes use Excel's automatic bounds.
 - **Calc names and Formulas tab** (P8-23, `apps/calc/src/names`, `formulas`, `audit`, `numfmt`): the **Name Box** left of the
   formula bar is a combobox: it shows the active cell (or the name of a selected named range); typing a reference
   (`B7`, `A1:C3`, `A:A`, `Sheet2!B2`) or a name and Enter goes there, any other valid name is defined (workbook scope)

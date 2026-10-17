@@ -21,6 +21,11 @@ export interface ScaleOptions {
   logBase?: number;
   /** Bar, column, line and area charts: one more unit when the maximum lies on a bound. */
   headroom?: boolean;
+  /**
+   * Excel's automatic bounds (P9-C6, docs/charts.md): the major unit from the data range, the bounds
+   * 5 % of the range beyond the data, rounded out to the unit. Replaces `headroom`.
+   */
+  excel?: boolean;
 }
 
 /** Rounds away binary noise (`0.30000000000000004` → `0.3`). */
@@ -69,6 +74,7 @@ export function valueScale(dataMin: number | null, dataMax: number | null, lengt
   }
   const n = maxIntervals(lengthPx, vertical);
   let unit = o.majorUnit && o.majorUnit > 0 ? o.majorUnit : niceUnit((hi - lo) / n);
+  if (o.excel) return excelBounds(dataMin, dataMax, lo, hi, unit, n, o);
   let min = 0;
   let max = 0;
   for (let guard = 0; guard < 8; guard++) {
@@ -76,6 +82,36 @@ export function valueScale(dataMin: number | null, dataMax: number | null, lengt
     max = o.max ?? clean(Math.ceil(hi / unit - 1e-9) * unit);
     if (o.headroom && o.max === undefined && dmax !== 0 && Math.abs(dmax - max) < Math.abs(unit) * 1e-9 && dataMax !== null) max = clean(max + unit);
     if (o.majorUnit || Math.round((max - min) / unit) <= n) break;
+    unit = niceUnit(unit * 1.0001);
+  }
+  const minor = o.minorUnit && o.minorUnit > 0 ? o.minorUnit : clean(unit / 5);
+  return { min, max, major: unit, minor, ticks: ticksOf(min, max, unit) };
+}
+
+/**
+ * Excel's automatic bounds: with `pad = 0.05 · (dataMax − dataMin)`, max = ⌈(dataMax + pad) / unit⌉ · unit unless the
+ * zero rule set it to 0; min = 0 by the zero rule, else ⌊(dataMin − pad) / unit⌋ · unit. The unit comes from the
+ * unpadded range (`niceUnit(range / intervals)`) and grows while the bounds need more intervals than fit.
+ */
+function excelBounds(dataMin: number | null, dataMax: number | null, lo: number, hi: number, unit0: number, n: number, o: ScaleOptions): ValueScale {
+  let unit = unit0;
+  const dmin = dataMin ?? 0;
+  const dmax = dataMax ?? (dataMin === null ? 1 : dataMin);
+  const span = Math.abs(dmax - dmin) || Math.abs(dmax) || 1;
+  const pad = dataMax === null ? 0 : 0.05 * span;
+  const top = o.max ?? (hi === 0 && dmax <= 0 ? 0 : Math.max(hi, dmax + pad));
+  const bottom = o.min ?? (lo === 0 ? 0 : Math.min(lo, dmin - pad));
+  let min = 0;
+  let max = 0;
+  for (let guard = 0; guard < 8; guard++) {
+    min = o.min ?? clean(Math.floor(bottom / unit + 1e-9) * unit);
+    max = o.max ?? clean(Math.ceil(top / unit - 1e-9) * unit);
+    // Positive data never gets a negative bound from the padding (and vice versa).
+    if (o.min === undefined && dmin >= 0 && min < 0) min = 0;
+    if (o.max === undefined && dmax <= 0 && max > 0) max = 0;
+    if (max <= min) max = clean(min + unit);
+    // The 5 % padding may add one interval beyond what fits.
+    if (o.majorUnit || Math.round((max - min) / unit) <= n + 1) break;
     unit = niceUnit(unit * 1.0001);
   }
   const minor = o.minorUnit && o.minorUnit > 0 ? o.minorUnit : clean(unit / 5);

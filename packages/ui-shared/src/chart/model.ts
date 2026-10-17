@@ -45,6 +45,76 @@ export interface Marker {
   fill?: ChartFill;
   line?: LineFormat;
 }
+/** Font, size (pt), bold, italic, colour and rotation (degrees, −90..90) of a chart text; absent = the style's. */
+export interface TextFormat {
+  font?: string;
+  size?: number;
+  bold?: boolean;
+  italic?: boolean;
+  color?: Color;
+  rotation?: number;
+}
+/** Fractions 0..1 of the chart area from its top-left corner (`c:manualLayout`, edge mode). */
+export interface ManualLayout {
+  x: number;
+  y: number;
+  w?: number;
+  h?: number;
+}
+export interface GradientStop {
+  pos: number;
+  color: Color;
+}
+export type AreaFill =
+  | { type: "none" }
+  | { type: "solid"; color: Color }
+  /** Linear at `angle` degrees (0 = left → right, clockwise) or radial. */
+  | { type: "gradient"; stops: GradientStop[]; angle?: number; radial?: boolean }
+  /** `media.data` is base64. */
+  | { type: "picture"; media: { contentType: string; data: string }; tile?: boolean };
+export interface ShapeFormat {
+  fill?: AreaFill;
+  line?: LineFormat;
+  shadow?: boolean;
+}
+export type ErrorAmount =
+  | { type: "fixed"; value: number }
+  | { type: "percentage"; value: number }
+  | { type: "stdDev"; value: number }
+  | { type: "stdErr" }
+  | { type: "custom"; plus?: DataRef; minus?: DataRef };
+export interface ErrorBars {
+  direction?: "x" | "y";
+  barType?: "both" | "plus" | "minus";
+  amount: ErrorAmount;
+  noEndCap?: boolean;
+  line?: LineFormat;
+}
+export interface DataTable {
+  horizontal?: boolean;
+  vertical?: boolean;
+  outline?: boolean;
+  keys?: boolean;
+  textFormat?: TextFormat;
+}
+export interface UpDownBars {
+  gapWidth?: number;
+  up?: ShapeFormat;
+  down?: ShapeFormat;
+}
+export interface PointLabel {
+  idx: number;
+  delete?: boolean;
+  showValue?: boolean;
+  showPercent?: boolean;
+  showCategory?: boolean;
+  showSeries?: boolean;
+  showRange?: boolean;
+  position?: LabelPosition;
+  numberFormat?: string;
+  textFormat?: TextFormat;
+  layout?: ManualLayout;
+}
 export interface DataPoint {
   idx: number;
   fill?: ChartFill;
@@ -59,6 +129,12 @@ export interface DataLabels {
   showLegendKey?: boolean;
   position?: LabelPosition;
   numberFormat?: string;
+  /** "Value From Cells" (texts in `ResolvedSeries.labelTexts`). */
+  range?: DataRef;
+  showRange?: boolean;
+  leaderLines?: boolean;
+  textFormat?: TextFormat;
+  points?: PointLabel[];
 }
 export type TrendlineKind =
   | { type: "linear" }
@@ -87,10 +163,13 @@ export interface Series {
   dataLabels?: DataLabels;
   trendline?: Trendline;
   smooth?: boolean;
+  errorBars?: ErrorBars[];
 }
 export interface ChartTitle {
   text?: TextSource;
   overlay?: boolean;
+  textFormat?: TextFormat;
+  layout?: ManualLayout;
 }
 export type Crosses = { type: "autoZero" } | { type: "min" } | { type: "max" } | { type: "at"; value: number };
 export interface Axis {
@@ -107,6 +186,9 @@ export interface Axis {
   minorGridlines?: boolean;
   tickLabels?: TickLabels;
   delete?: boolean;
+  /** Tick label font and rotation. */
+  textFormat?: TextFormat;
+  line?: LineFormat;
 }
 export interface Axes {
   cat: Axis;
@@ -133,6 +215,16 @@ export interface Chart {
   overlap?: number;
   holeSize?: number;
   firstSliceAngle?: number;
+  chartArea?: ShapeFormat;
+  plotArea?: ShapeFormat;
+  plotLayout?: ManualLayout;
+  textFormat?: TextFormat;
+  legendTextFormat?: TextFormat;
+  legendLayout?: ManualLayout;
+  roundedCorners?: boolean;
+  dataTable?: DataTable;
+  upDownBars?: UpDownBars;
+  highLowLines?: LineFormat;
 }
 
 export interface ResolvedSeries {
@@ -142,6 +234,14 @@ export interface ResolvedSeries {
   values: (number | null)[];
   formatCode?: string;
   categoryFormatCode?: string;
+  /** Per `Series.errorBars` entry: the custom amounts (absent for the other kinds). */
+  errorBars?: ResolvedErrorBars[];
+  /** "Value From Cells" label texts, one per point. */
+  labelTexts?: string[];
+}
+export interface ResolvedErrorBars {
+  plus?: (number | null)[];
+  minus?: (number | null)[];
 }
 export interface ResolvedChart {
   series: ResolvedSeries[];

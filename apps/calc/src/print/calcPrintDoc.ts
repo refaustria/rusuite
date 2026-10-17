@@ -18,6 +18,7 @@ import { cellAddress } from "../grid/address";
 import { noteBoxRect, runsText } from "../comments/model";
 import { runsToHtml } from "../comments/richText";
 import { t } from "../i18n";
+import { groupRange, sparkOpsSvg, sparklineOps } from "../sparklines/render";
 
 /** A chart to print: its box in px from the part's first printed cell, and its SVG. */
 export interface PrintChart extends PxRect {
@@ -46,6 +47,8 @@ export interface CalcPrintPart {
   breaks?: { rows: number[]; cols: number[] };
   /** Print titles (table indices): repeated on the pages after them. */
   titles?: PrintTitlesSpec;
+  /** A chart sheet: one page with its chart (SVG at the printable area's size), no table. */
+  chartPage?: string;
 }
 
 /** Inline CSS text of React style properties (`fontWeight` → `font-weight`; numbers as px). */
@@ -163,7 +166,7 @@ export function calcPrintDocument(parts: CalcPrintPart[], o: CalcPrintOptions, c
   const m = CALC_MARGINS[o.margins];
   const area = printableArea(o);
   const laid = parts.map((p) => ({ part: p, ...paginate(p.table.cols.map((c) => c.width), p.table.rows.map((r) => r.height), o, area, p.breaks, p.titles) }));
-  const total = laid.reduce((s, l) => s + (l.part.table.rows.length && l.part.table.cols.length ? l.pages.length : 0), 0);
+  const total = laid.reduce((s, l) => s + (l.part.chartPage ? 1 : l.part.table.rows.length && l.part.table.cols.length ? l.pages.length : 0), 0);
   const date = ctx.date ?? new Date();
   const pages: string[] = [];
   // Pages of annotation lists after their sheet (counted into &N).
@@ -173,7 +176,10 @@ export function calcPrintDocument(parts: CalcPrintPart[], o: CalcPrintOptions, c
     headerFooterHtml(slots ?? EMPTY_SLOTS, { page, pages: allPages, date, sheet, file: ctx.file }, where, where === "header" ? m.header : m.footer, m.left, m.right);
   const body = (inner: string) => `<div class="rs-calc-body" style="top:${m.top}in;left:${m.left}in;width:${area.width}px">${inner}</div>`;
   laid.forEach((l, i) => {
-    if (l.part.table.rows.length && l.part.table.cols.length) {
+    if (l.part.chartPage) {
+      const n = pages.length + 1;
+      pages.push(`${hf(o.header, "header", n, l.part.sheetName)}${body(`<div class="rs-calc-chartsheet" style="width:${area.width}px;height:${area.height}px">${l.part.chartPage}</div>`)}${hf(o.footer, "footer", n, l.part.sheetName)}`);
+    } else if (l.part.table.rows.length && l.part.table.cols.length) {
       for (const slice of l.pages) {
         const n = pages.length + 1;
         const zoom = l.scale === 1 ? "" : ` style="zoom:${Number(l.scale.toFixed(4))}"`;
@@ -327,6 +333,17 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
     parts.push({ sheetName: nameOf(id), table, charts, breaks: tableBreaks(store, id, table), titles: spec });
   };
   const sheetPart = async (id: number) => {
+    if (store.isChartSheet(id)) {
+      // A chart sheet prints its chart as one page, scaled to the printable area (Excel).
+      const area = printableArea(o);
+      const list = await store.charts.ensureList(id);
+      const obj = list[0];
+      if (!obj) return;
+      if (!store.charts.dataOf(id, obj)) await store.charts.fetchData(id, obj);
+      const scene = store.charts.scene(id, obj, Math.round(area.width), Math.round(area.height));
+      if (scene) parts.push({ sheetName: nameOf(id), table: { cols: [], rows: [], width: 0, height: 0 }, chartPage: sceneToSvg(scene) });
+      return;
+    }
     const names = printNames(id);
     // Page Layout › Print Area: each area on its own pages.
     if (names.areas.length) {
@@ -405,6 +422,20 @@ export async function printCharts(store: CalcStore, sheet: number, origin = { x:
     if (!store.charts.dataOf(sheet, obj)) await store.charts.fetchData(sheet, obj);
     const scene = store.charts.scene(sheet, obj, Math.round(r.w), Math.round(r.h));
     if (scene) out.push({ x: r.x - origin.x, y: r.y - origin.y, w: Math.round(r.w), h: Math.round(r.h), svg: sceneToSvg(scene) });
+  }
+  // Sparklines print inside their cells like small charts (P9-C6).
+  for (const v of await store.sparklines.ensure(sheet)) {
+    const shared = v.group.minAxis?.type === "group" || v.group.maxAxis?.type === "group" ? groupRange(v.data, v.group) : null;
+    v.group.sparklines.forEach((sp, i) => {
+      const data = v.data[i];
+      const x = geo.col.offset(sp.col);
+      const y = geo.row.offset(sp.row);
+      const w = geo.col.offset(sp.col + 1) - x;
+      const h = geo.row.offset(sp.row + 1) - y;
+      if (!data || w < 4 || h < 4) return;
+      const ops = sparklineOps(v.group, data, { x: 0, y: 0, w, h }, {}, shared);
+      out.push({ x: x - origin.x, y: y - origin.y, w, h, svg: sparkOpsSvg(ops, w, h) });
+    });
   }
   return out;
 }

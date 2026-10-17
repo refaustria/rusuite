@@ -140,6 +140,12 @@ pub struct SheetSnapshot {
     /// Slicers, back to front.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub slicers: Vec<crate::slicer::Slicer>,
+    /// A chart sheet (shows its chart full-size).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub chart_sheet: bool,
+    /// Sparkline groups.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sparklines: Vec<crate::sparkline::SparklineGroup>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -297,6 +303,8 @@ impl Workbook {
             pictures: self.pictures(id).to_vec(),
             protection: self.sheet_protection(id).cloned(),
             slicers: self.slicers(id).to_vec(),
+            chart_sheet: self.is_chart_sheet(id),
+            sparklines: self.sparkline_groups(id).to_vec(),
         }
     }
 
@@ -370,6 +378,8 @@ impl Workbook {
                 wb.set_cf_rules(id, sheet.conditional_formats.clone())?;
                 wb.set_validations(id, sheet.validations.clone())?;
                 wb.set_charts(id, sheet.charts.clone())?;
+                wb.set_chart_sheet(id, sheet.chart_sheet)?;
+                wb.set_sparkline_groups(id, sheet.sparklines.clone())?;
                 wb.set_notes(id, sheet.notes.clone())?;
                 wb.set_threads(id, sheet.threads.clone())?;
                 wb.set_hyperlinks(id, sheet.hyperlinks.clone())?;

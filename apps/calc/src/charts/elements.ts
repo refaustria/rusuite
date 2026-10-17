@@ -44,6 +44,14 @@ export function elementName(el: ChartElement | null, chart: Chart, data?: Resolv
       return `${t("calc.chart.series")} "${seriesName(el.series)}" ${t("calc.chart.el.dataLabels")}`;
     case "trendline":
       return `${t("calc.chart.series")} "${seriesName(el.series)}" ${t("calc.chart.el.trendline")}`;
+    case "errorBars":
+      return `${t("calc.chart.series")} "${seriesName(el.series)}" ${t("calc.chart.el.errorBars")}`;
+    case "dataTable":
+      return t("calc.chart.el.dataTable");
+    case "upDownBars":
+      return t("calc.chart.el.upDownBars");
+    case "highLowLines":
+      return t("calc.chart.el.highLowLines");
   }
 }
 
@@ -70,7 +78,11 @@ export function chartElements(chart: Chart): ChartElement[] {
     out.push({ type: "series", series: i });
     if (s.dataLabels || chart.dataLabels) out.push({ type: "dataLabels", series: i });
     if (s.trendline) out.push({ type: "trendline", series: i });
+    if (s.errorBars?.length) out.push({ type: "errorBars", series: i });
   });
+  if (chart.dataTable) out.push({ type: "dataTable" });
+  if (chart.upDownBars) out.push({ type: "upDownBars" });
+  if (chart.highLowLines) out.push({ type: "highLowLines" });
   return out;
 }
 

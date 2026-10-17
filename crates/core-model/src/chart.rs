@@ -175,13 +175,19 @@ pub struct ChartTitle {
     /// Drawn over the plot area instead of taking space from it.
     #[serde(default, skip_serializing_if = "is_false")]
     pub overlay: bool,
+    /// Font of the title (`c:txPr` / the rich text's run properties).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_format: Option<TextFormat>,
+    /// Position set by hand (`c:layout/c:manualLayout`); `None` = automatic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<ManualLayout>,
 }
 
 impl ChartTitle {
     pub fn literal(text: impl Into<String>) -> Self {
         ChartTitle {
             text: Some(TextSource::literal(text)),
-            overlay: false,
+            ..ChartTitle::default()
         }
     }
 }
@@ -510,6 +516,261 @@ pub struct DataPoint {
     pub marker: Option<Marker>,
 }
 
+/// A gradient stop: position 0..=1 along the gradient and its colour.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GradientStop {
+    pub pos: f64,
+    pub color: Color,
+}
+
+/// The fill of the chart area or the plot area (`c:spPr`): none, solid,
+/// a gradient or a picture.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum AreaFill {
+    None,
+    Solid {
+        color: Color,
+    },
+    /// `a:gradFill`: linear at `angle` degrees (0 = left to right,
+    /// clockwise, as `a:lin/@ang`), or radial from the centre (`a:path`).
+    Gradient {
+        stops: Vec<GradientStop>,
+        #[serde(default)]
+        angle: f64,
+        #[serde(default, skip_serializing_if = "is_false")]
+        radial: bool,
+    },
+    /// `a:blipFill` stretched over the area (or tiled).
+    Picture {
+        media: crate::Media,
+        #[serde(default, skip_serializing_if = "is_false")]
+        tile: bool,
+    },
+}
+
+impl AreaFill {
+    /// The colour a simple painter would use (the first gradient stop).
+    pub fn main_color(&self) -> Option<Color> {
+        match self {
+            AreaFill::Solid { color } => Some(*color),
+            AreaFill::Gradient { stops, .. } => stops.first().map(|s| s.color),
+            _ => None,
+        }
+    }
+}
+
+/// Fill, outline and effects of a chart part (`c:spPr`). Absent fields
+/// come from the chart style.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShapeFormat {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<AreaFill>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<LineFormat>,
+    /// Office's "Offset: Bottom Right" outer shadow (`a:outerShdw`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shadow: bool,
+}
+
+impl ShapeFormat {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Text properties of a chart text (`c:txPr`, `a:defRPr` / `a:rPr`).
+/// Absent fields come from the chart style (docs/charts.md).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextFormat {
+    /// Latin typeface (`a:latin/@typeface`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
+    /// Size in points (`@sz` / 100).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bold: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub italic: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<Color>,
+    /// Text rotation in degrees, −90..=90 (`a:bodyPr/@rot` / 60 000);
+    /// negative = reading upwards. `None` = automatic (category labels
+    /// turn to −45° when they would overlap, like Excel's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<i32>,
+}
+
+impl TextFormat {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// A position (and size) set by hand (`c:manualLayout`, `xMode`/`yMode`
+/// `edge`): fractions 0..=1 of the chart area from its top-left corner.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualLayout {
+    pub x: f64,
+    pub y: f64,
+    /// Width and height; `None` = automatic size (titles, legends).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub w: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub h: Option<f64>,
+}
+
+/// Which way error bars point (`c:errDir`; only scatter charts have X
+/// error bars).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ErrorBarDirection {
+    X,
+    #[default]
+    Y,
+}
+
+impl ErrorBarDirection {
+    fn is_y(&self) -> bool {
+        *self == ErrorBarDirection::Y
+    }
+}
+
+/// Which side of the point error bars extend to (`c:errBarType`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ErrorBarType {
+    #[default]
+    Both,
+    Plus,
+    Minus,
+}
+
+/// The size of the error bars (`c:errValType`, `c:val`, `c:plus`/`c:minus`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum ErrorAmount {
+    /// The same amount for every point.
+    Fixed { value: f64 },
+    /// A percentage of each value.
+    Percentage { value: f64 },
+    /// `value` standard deviations of the series' values, around their mean.
+    StdDev { value: f64 },
+    /// The standard error of the series' values.
+    StdErr,
+    /// Per-point amounts from cells (or literals).
+    Custom {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plus: Option<DataRef>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        minus: Option<DataRef>,
+    },
+}
+
+/// Error bars of a series (`c:errBars`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorBars {
+    #[serde(default, skip_serializing_if = "ErrorBarDirection::is_y")]
+    pub direction: ErrorBarDirection,
+    #[serde(default)]
+    pub bar_type: ErrorBarType,
+    pub amount: ErrorAmount,
+    /// No caps at the ends (`c:noEndCap`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub no_end_cap: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<LineFormat>,
+}
+
+/// A data table under the plot area (`c:dTable`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataTable {
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub horizontal: bool,
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub vertical: bool,
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub outline: bool,
+    /// Legend keys in front of the series names.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub keys: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_format: Option<TextFormat>,
+}
+
+impl Default for DataTable {
+    fn default() -> Self {
+        DataTable {
+            horizontal: true,
+            vertical: true,
+            outline: true,
+            keys: false,
+            text_format: None,
+        }
+    }
+}
+
+/// Up/down bars of a line chart (`c:upDownBars`): between the first and
+/// the last series per category.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpDownBars {
+    /// Percent of a bar width (0..=500; `None` = 150).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gap_width: Option<u16>,
+    /// Bars where the last series is higher (default: white, dark outline).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub up: Option<ShapeFormat>,
+    /// Bars where the last series is lower (default: dark).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub down: Option<ShapeFormat>,
+}
+
+/// The data label of one point (`c:dLbl`), overriding the series' labels.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PointLabel {
+    pub idx: u32,
+    /// The point has no label (`c:delete`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub delete: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub show_value: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub show_percent: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub show_category: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub show_series: bool,
+    /// The point's cell of [`DataLabels::range`].
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub show_range: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<LabelPosition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_format: Option<TextFormat>,
+    /// Moved by hand (`c:layout`), fractions of the chart area.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<ManualLayout>,
+}
+
 /// Where data labels sit (`c:dLblPos`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -580,16 +841,33 @@ pub struct DataLabels {
     /// Number format of the values; `None` = linked to the source cells.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number_format: Option<String>,
+    /// "Value From Cells": the label texts of the points, one cell per
+    /// point (`c15:datalabelsRange`), shown with `show_range`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<DataRef>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub show_range: bool,
+    /// Leader lines from labels moved away from their point (pies and,
+    /// since Office 2013, every chart; `c:showLeaderLines`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub leader_lines: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_format: Option<TextFormat>,
+    /// Labels of single points, by index.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub points: Vec<PointLabel>,
 }
 
 impl DataLabels {
-    /// Whether no label part is shown.
+    /// Whether no label part is shown (and no point has its own label).
     pub fn is_empty(&self) -> bool {
         !(self.show_value
             || self.show_percent
             || self.show_category
             || self.show_series
-            || self.show_legend_key)
+            || self.show_legend_key
+            || self.show_range)
+            && self.points.is_empty()
     }
 }
 
@@ -672,6 +950,9 @@ pub struct Series {
     /// Line/scatter: smoothed line; `None` = the chart kind's default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub smooth: Option<bool>,
+    /// Error bars (at most one per direction; X only for scatter).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub error_bars: Vec<ErrorBars>,
 }
 
 impl Series {
@@ -690,6 +971,7 @@ impl Series {
             data_labels: None,
             trendline: None,
             smooth: None,
+            error_bars: Vec::new(),
         }
     }
 }
@@ -773,6 +1055,12 @@ pub struct Axis {
     /// The axis is hidden (`c:delete`); its scale still applies.
     #[serde(default, skip_serializing_if = "is_false")]
     pub delete: bool,
+    /// Font and rotation of the tick labels (`c:txPr`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_format: Option<TextFormat>,
+    /// Axis line format (`c:spPr`); `None` = the style's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<LineFormat>,
 }
 
 impl Axis {
@@ -844,6 +1132,8 @@ impl LegendPosition {
     }
 }
 
+/// The legend. Its font and manual layout are [`Chart::legend_text_format`]
+/// and [`Chart::legend_layout`] (`c:legend/c:txPr`, `c:legend/c:layout`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Legend {
@@ -851,6 +1141,16 @@ pub struct Legend {
     /// Drawn over the plot area.
     #[serde(default, skip_serializing_if = "is_false")]
     pub overlay: bool,
+}
+
+impl Legend {
+    /// A legend at `position`, not overlaying the plot area.
+    pub fn at(position: LegendPosition) -> Self {
+        Legend {
+            position,
+            overlay: false,
+        }
+    }
 }
 
 /// How empty cells are plotted (`c:dispBlanksAs`).
@@ -923,6 +1223,39 @@ pub struct Chart {
     /// 12 o'clock (`None` = 0).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_slice_angle: Option<u16>,
+    /// Chart area fill, border and shadow (`c:chartSpace/c:spPr`);
+    /// `None` = the style's (white, light grey border).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chart_area: Option<ShapeFormat>,
+    /// Plot area fill, border and shadow (`c:plotArea/c:spPr`); `None` =
+    /// no fill.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plot_area: Option<ShapeFormat>,
+    /// Plot area position and size set by hand (inner plot area).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plot_layout: Option<ManualLayout>,
+    /// Default text properties of the whole chart (`c:chartSpace/c:txPr`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_format: Option<TextFormat>,
+    /// Font of the legend entries (`c:legend/c:txPr`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legend_text_format: Option<TextFormat>,
+    /// Legend position and size set by hand; `None` = per
+    /// [`Legend::position`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legend_layout: Option<ManualLayout>,
+    /// Rounded chart area corners (`c:roundedCorners`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub rounded_corners: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_table: Option<DataTable>,
+    /// Line charts: up/down bars between the first and the last series.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub up_down_bars: Option<UpDownBars>,
+    /// Line charts: high-low lines from the highest to the lowest value
+    /// per category (`c:hiLowLines`); the line's format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub high_low_lines: Option<LineFormat>,
 }
 
 impl Chart {
@@ -944,6 +1277,16 @@ impl Chart {
             overlap: None,
             hole_size: None,
             first_slice_angle: None,
+            chart_area: None,
+            plot_area: None,
+            plot_layout: None,
+            text_format: None,
+            legend_text_format: None,
+            legend_layout: None,
+            rounded_corners: false,
+            data_table: None,
+            up_down_bars: None,
+            high_low_lines: None,
         }
     }
 
@@ -1006,6 +1349,22 @@ impl Chart {
             if let Some(f) = s.categories.as_mut().and_then(DataRef::formula_mut) {
                 out.push(f);
             }
+            for e in &mut s.error_bars {
+                if let ErrorAmount::Custom { plus, minus } = &mut e.amount {
+                    for d in [plus, minus].into_iter().flatten() {
+                        if let Some(f) = d.formula_mut() {
+                            out.push(f);
+                        }
+                    }
+                }
+            }
+            if let Some(f) = s
+                .data_labels
+                .as_mut()
+                .and_then(|l| l.range.as_mut()?.formula_mut())
+            {
+                out.push(f);
+            }
         }
         out
     }
@@ -1027,6 +1386,18 @@ impl Chart {
             out.extend(s.name.as_ref().and_then(TextSource::formula));
             out.extend(s.values.formula());
             out.extend(s.categories.as_ref().and_then(DataRef::formula));
+            for e in &s.error_bars {
+                if let ErrorAmount::Custom { plus, minus } = &e.amount {
+                    for d in [plus, minus].into_iter().flatten() {
+                        out.extend(d.formula());
+                    }
+                }
+            }
+            out.extend(
+                s.data_labels
+                    .as_ref()
+                    .and_then(|l| l.range.as_ref()?.formula()),
+            );
         }
         out
     }
@@ -1127,10 +1498,7 @@ impl Chart {
             chart.title = Some(ChartTitle::default());
         } else {
             chart.title = Some(ChartTitle::literal("Chart Title"));
-            chart.legend = Some(Legend {
-                position: LegendPosition::Bottom,
-                overlay: false,
-            });
+            chart.legend = Some(Legend::at(LegendPosition::Bottom));
         }
         chart.series = series;
         chart.gap_width = Some(219);
@@ -1460,7 +1828,7 @@ mod tests {
         let mut c = Chart::from_range("S", 0, 0, &cells).unwrap();
         c.axes.val.title = Some(ChartTitle {
             text: Some(TextSource::reference("S!$Z$1")),
-            overlay: false,
+            ..ChartTitle::default()
         });
         let n = c.formulas().len();
         assert_eq!(n, 4);

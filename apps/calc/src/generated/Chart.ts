@@ -4,9 +4,15 @@ import type { ChartKind } from "./ChartKind";
 import type { ChartTitle } from "./ChartTitle";
 import type { DataLabels } from "./DataLabels";
 import type { DataRef } from "./DataRef";
+import type { DataTable } from "./DataTable";
 import type { DisplayBlanks } from "./DisplayBlanks";
 import type { Legend } from "./Legend";
+import type { LineFormat } from "./LineFormat";
+import type { ManualLayout } from "./ManualLayout";
 import type { Series } from "./Series";
+import type { ShapeFormat } from "./ShapeFormat";
+import type { TextFormat } from "./TextFormat";
+import type { UpDownBars } from "./UpDownBars";
 
 /**
  * Mirror of `core_model::chart::Chart`. Absent optional fields take
@@ -21,4 +27,4 @@ style?: number, varyColors?: boolean,
 /**
  * Absent = true.
  */
-plotVisibleOnly?: boolean, displayBlanksAs?: DisplayBlanks, dataLabels?: DataLabels, gapWidth?: number, overlap?: number, holeSize?: number, firstSliceAngle?: number, };
+plotVisibleOnly?: boolean, displayBlanksAs?: DisplayBlanks, dataLabels?: DataLabels, gapWidth?: number, overlap?: number, holeSize?: number, firstSliceAngle?: number, chartArea?: ShapeFormat, plotArea?: ShapeFormat, plotLayout?: ManualLayout, textFormat?: TextFormat, legendTextFormat?: TextFormat, legendLayout?: ManualLayout, roundedCorners?: boolean, dataTable?: DataTable, upDownBars?: UpDownBars, highLowLines?: LineFormat, };

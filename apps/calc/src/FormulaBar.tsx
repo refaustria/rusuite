@@ -13,6 +13,52 @@ import { useCalc, type CalcStore } from "./state/store";
 import { useT } from "./i18n";
 import { NameBox } from "./names/NameBox";
 import { formulaHidden } from "./protection/protection";
+import { applySeriesFormula, seriesFormula } from "./charts/extras";
+
+/** While a chart series is selected the bar shows its `=SERIES(…)` formula (Excel); Enter applies an edit. */
+function SeriesFormulaField({ store, series }: { store: CalcStore; series: number }) {
+  const t = useT();
+  const obj = store.charts.selectedChart();
+  const text = obj ? seriesFormula(obj.chart, series) : "";
+  const [draft, setDraft] = useState<string | null>(null);
+  const [base, setBase] = useState(text);
+  if (base !== text) {
+    setBase(text);
+    setDraft(null);
+  }
+  const commit = () => {
+    if (draft === null || !obj) return;
+    const next = applySeriesFormula(obj.chart, series, draft);
+    setDraft(null);
+    if (!next) {
+      store.pushError(new Error(t("calc.chart.badSeriesFormula")));
+      return;
+    }
+    void store.charts.setSeries(next.series, next.categories);
+  };
+  return (
+    <input
+      aria-label={t("calc.chart.seriesFormula")}
+      data-testid="series-formula"
+      spellCheck={false}
+      className="block h-[26px] w-full rounded border border-ui-border bg-ui-bg px-2 py-0.5 font-mono leading-5 outline-none focus:border-ui-focus"
+      value={draft ?? text}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => setDraft(null)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+          store.focusGrid();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          setDraft(null);
+          store.focusGrid();
+        }
+      }}
+    />
+  );
+}
 
 export function FormulaBar({ store }: { store: CalcStore }) {
   const t = useT();
@@ -66,6 +112,8 @@ export function FormulaBar({ store }: { store: CalcStore }) {
   };
 
   const track = () => setScrollX(input.current?.scrollLeft ?? 0);
+  const chartEl = !edit && store.charts.selected?.sheet === activeSheet ? store.charts.selected.element : null;
+  const seriesSel = chartEl && (chartEl.type === "series" || chartEl.type === "dataLabels" || chartEl.type === "trendline" || chartEl.type === "errorBars") ? chartEl.series : null;
 
   return (
     <div className="flex items-center gap-2 border-b border-ui-border bg-ui-bg px-2 py-1 text-sm text-ui-fg">
@@ -84,6 +132,8 @@ export function FormulaBar({ store }: { store: CalcStore }) {
         fx
       </button>
       <div className="relative min-w-0 flex-1">
+        {seriesSel !== null && <SeriesFormulaField store={store} series={seriesSel} />}
+        <div className={seriesSel !== null ? "hidden" : "contents"}>
         {colored && (
           <div className="pointer-events-none absolute inset-0 overflow-hidden rounded border border-transparent px-2 py-0.5 font-mono">
             <FormulaOverlay text={value} refs={refs} className="whitespace-pre" style={{ transform: `translateX(${-scrollX}px)` }} />
@@ -125,6 +175,7 @@ export function FormulaBar({ store }: { store: CalcStore }) {
           onScroll={track}
         />
         {popups && <EditPopups store={store} />}
+        </div>
       </div>
     </div>
   );
